@@ -733,6 +733,13 @@ type Rule struct {
 	// DefaultRuleOwners when projected through MetaForRule.
 	Owners []string
 
+	// IntroducedIn records the krit version in which this rule first
+	// shipped (typically opt-in). Empty string at Register time is
+	// auto-filled with DefaultIntroducedIn so changelog/explain output is
+	// always populated. Used by docs and release-note generation; the
+	// runtime does not key behavior on it.
+	IntroducedIn string
+
 	// EnabledByDefaultSince records the krit version in which this rule
 	// became default-active (DefaultActive transitioned from false to
 	// true). Empty string means the rule has been default-active since
@@ -1193,6 +1200,13 @@ func (e *RelationError) Error() string {
 	return "rule " + e.Rule + " RelatedRules entry " + e.Reference + ": " + e.Reason
 }
 
+// DefaultIntroducedIn is the krit version assigned to rules whose
+// Rule.IntroducedIn is empty at registration time. It mirrors the first
+// public release that carried broad lint-rule coverage; new rules added
+// after a release bump should set IntroducedIn explicitly to that
+// release's version.
+const DefaultIntroducedIn = "0.2.0"
+
 // DefaultRuleOwners is the fallback owner list used when a rule does
 // not declare its own Owners. It mirrors the project's CODEOWNERS
 // root entry ("* @kaeawc") so every registered rule has at least one
@@ -1219,6 +1233,9 @@ func Register(r *Rule) {
 	}
 	if r.Needs.Has(NeedsAggregate) && r.Aggregate == nil {
 		panic("api.Register: rule " + r.ID + " declares NeedsAggregate but Aggregate is nil")
+	}
+	if r.IntroducedIn == "" {
+		r.IntroducedIn = DefaultIntroducedIn
 	}
 	Registry = append(Registry, r)
 }

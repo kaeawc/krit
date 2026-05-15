@@ -133,6 +133,7 @@ func TestMetaForRuleIncludesLifecycleFromRuleField(t *testing.T) {
 	r := &api.Rule{
 		ID:                    "TestLifecycleMergeFromField",
 		Description:           "synthetic rule for lifecycle merge",
+		IntroducedIn:          "0.3.0",
 		EnabledByDefaultSince: "0.4.0",
 		Deprecated:            &api.Deprecation{Since: "0.7.0", ReplacedBy: "TestNewRule"},
 		Check:                 func(*api.Context) {},
@@ -141,10 +142,55 @@ func TestMetaForRuleIncludesLifecycleFromRuleField(t *testing.T) {
 	if !ok {
 		t.Fatal("MetaForRule returned !ok for non-nil rule")
 	}
+	if meta.IntroducedIn != "0.3.0" {
+		t.Errorf("descriptor IntroducedIn = %q, want 0.3.0", meta.IntroducedIn)
+	}
 	if meta.EnabledByDefaultSince != "0.4.0" {
 		t.Errorf("descriptor EnabledByDefaultSince = %q, want 0.4.0", meta.EnabledByDefaultSince)
 	}
 	if meta.Deprecated == nil || meta.Deprecated.Since != "0.7.0" || meta.Deprecated.ReplacedBy != "TestNewRule" {
 		t.Errorf("descriptor Deprecated = %+v, want {Since:0.7.0 ReplacedBy:TestNewRule}", meta.Deprecated)
+	}
+}
+
+func TestMetaForRuleDefaultsIntroducedIn(t *testing.T) {
+	// A rule with no IntroducedIn declared should still produce a
+	// populated descriptor via the api.DefaultIntroducedIn fallback —
+	// changelog/explain output should never see an empty version.
+	r := &api.Rule{
+		ID:          "TestLifecycleDefaultsIntroducedIn",
+		Description: "synthetic rule with no IntroducedIn",
+		Check:       func(*api.Context) {},
+	}
+	meta, ok := MetaForRule(r)
+	if !ok {
+		t.Fatal("MetaForRule returned !ok for non-nil rule")
+	}
+	if meta.IntroducedIn != api.DefaultIntroducedIn {
+		t.Errorf("descriptor IntroducedIn = %q, want %q", meta.IntroducedIn, api.DefaultIntroducedIn)
+	}
+}
+
+// TestEveryRegisteredRuleHasIntroducedIn enforces that every rule in
+// the live registry exposes a non-empty IntroducedIn — either declared
+// explicitly on the rule literal or filled in by api.Register's default.
+// This is the lint gate referenced by issue #191: a new rule cannot ship
+// without a recorded introduction version.
+func TestEveryRegisteredRuleHasIntroducedIn(t *testing.T) {
+	var missing []string
+	for _, r := range api.Registry {
+		if r == nil {
+			continue
+		}
+		meta, ok := MetaForRule(r)
+		if !ok {
+			continue
+		}
+		if meta.IntroducedIn == "" {
+			missing = append(missing, r.ID)
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("%d registered rule(s) have empty IntroducedIn: %v", len(missing), missing)
 	}
 }

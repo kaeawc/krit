@@ -2,6 +2,7 @@
 /krit
 /krit-lsp
 /krit-mcp
+/krit-changelog
 cmd/profile/
 cmd/debug-index/
 

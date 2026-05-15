@@ -8,6 +8,7 @@ build:
 	go build -ldflags "$(LDFLAGS)" -o krit-lsp ./cmd/krit-lsp/
 	go build -ldflags "$(LDFLAGS)" -o krit-mcp ./cmd/krit-mcp/
 	go build -ldflags "$(LDFLAGS)" -o krit-daemon ./cmd/krit-daemon/
+	go build -ldflags "$(LDFLAGS)" -o krit-changelog ./cmd/krit-changelog/
 
 test:
 	go test ./... -count=1
@@ -34,7 +35,7 @@ schema: build
 	./krit --generate-schema > schemas/krit-config.schema.json
 
 clean:
-	rm -f krit krit-lsp krit-mcp krit-daemon
+	rm -f krit krit-lsp krit-mcp krit-daemon krit-changelog
 
 bench:
 	go test ./internal/... -bench=. -benchmem -count=3 -timeout 120s

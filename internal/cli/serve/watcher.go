@@ -188,7 +188,21 @@ func (fw *fileWatcher) handle(ev fsnotify.Event) {
 			return
 		}
 	}
-	if ev.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename|fsnotify.Chmod) == 0 {
+	// Chmod alone never changes file content. On macOS, kqueue emits
+	// spurious Chmod events when other processes stat or open watched
+	// files (Spotlight, git, finder previews, anti-virus tools). On a
+	// heavily-trafficked monorepo that meant every analyze drained a
+	// burst of Chmod events for build.gradle.kts and unrelated .kt
+	// paths, each one triggering InvalidateLibraryFacts /
+	// scheduleKotlinInvalidate. That blew the AndroidProject /
+	// LibraryFacts / resolver / per-file parsed-tree slots and forced
+	// a full ~1 s rebuild on every call.
+	//
+	// Drop Chmod entirely: content-changing edits always also emit
+	// Write, Create, Remove, or Rename (modern editors' atomic-save
+	// dance is rename+create, never bare chmod).
+	relevant := ev.Op & (fsnotify.Write | fsnotify.Create | fsnotify.Remove | fsnotify.Rename)
+	if relevant == 0 {
 		return
 	}
 	// Library-config paths come first — build.gradle.kts also matches

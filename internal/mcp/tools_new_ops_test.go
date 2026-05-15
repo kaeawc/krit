@@ -429,3 +429,75 @@ func TestAnalyzeUnknownMode(t *testing.T) {
 		t.Error("expected error for unknown mode")
 	}
 }
+
+// TestRuleListFilter_Maturity verifies search returns only rules whose
+// Maturity matches the filter.
+func TestRuleListFilter_Maturity(t *testing.T) {
+	args, _ := json.Marshal(rulesArgs{Operation: "search", Maturity: "experimental"})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "rules", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].Text)
+	}
+	var parsed struct {
+		Hits []struct {
+			Name     string `json:"name"`
+			Maturity string `json:"maturity"`
+		} `json:"hits"`
+	}
+	if err := json.Unmarshal([]byte(result.Content[0].Text), &parsed); err != nil {
+		t.Fatalf("unmarshal hits: %v", err)
+	}
+	for _, h := range parsed.Hits {
+		if h.Maturity != "experimental" {
+			t.Errorf("hit %q has maturity %q, want experimental", h.Name, h.Maturity)
+		}
+	}
+}
+
+// TestRulesCategoriesMaturityBuckets verifies the categories result exposes
+// the three maturity buckets with non-negative counts.
+func TestRulesCategoriesMaturityBuckets(t *testing.T) {
+	args, _ := json.Marshal(rulesArgs{Operation: "categories"})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "rules", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].Text)
+	}
+	var parsed struct {
+		Maturities []struct {
+			Name      string `json:"name"`
+			RuleCount int    `json:"ruleCount"`
+		} `json:"maturities"`
+	}
+	if err := json.Unmarshal([]byte(result.Content[0].Text), &parsed); err != nil {
+		t.Fatalf("unmarshal maturities: %v", err)
+	}
+	if len(parsed.Maturities) != 3 {
+		t.Fatalf("expected 3 maturity buckets, got %d", len(parsed.Maturities))
+	}
+	want := map[string]bool{"stable": true, "experimental": true, "deprecated": true}
+	for _, b := range parsed.Maturities {
+		if !want[b.Name] {
+			t.Errorf("unexpected maturity bucket %q", b.Name)
+		}
+	}
+}

@@ -272,14 +272,32 @@ func computeListRulesSummary(registry []*api.Rule) listRulesSummary {
 	return s
 }
 
-func runListRulesFlag(listFlag, verboseFlag bool) {
+func runListRulesFlag(listFlag, verboseFlag bool, maturityFilter string) {
 	if !listFlag {
 		return
 	}
+
+	var maturity api.Maturity
+	maturityFilterSet := false
+	if maturityFilter != "" {
+		m, ok := api.ParseMaturity(maturityFilter)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "error: unknown --maturity value %q; valid: stable, experimental, deprecated\n", maturityFilter)
+			os.Exit(2)
+		}
+		maturity = m
+		maturityFilterSet = true
+	}
+
+	registry := api.Registry
+	if maturityFilterSet {
+		registry = api.MaturityFilter(registry, maturity)
+	}
+
 	fmt.Println("Available rules:")
 	fixable := 0
 	active := 0
-	for _, r := range api.Registry {
+	for _, r := range registry {
 		markers := ""
 		if rules.IsDefaultActive(r.ID) {
 			markers += "A"
@@ -291,7 +309,7 @@ func runListRulesFlag(listFlag, verboseFlag bool) {
 			markers += "F"
 			fixable++
 			if verboseFlag {
-				fmt.Printf("  %s %-40s [%-15s] %s (fix: %s, precision: %s)\n", markers, r.ID, r.Category, string(r.Sev), fixLvl, rules.V2RulePrecision(r))
+				fmt.Printf("  %s %-40s [%-15s] %s (fix: %s, precision: %s, maturity: %s)\n", markers, r.ID, r.Category, string(r.Sev), fixLvl, rules.V2RulePrecision(r), r.Maturity)
 				if r.Description != "" {
 					fmt.Printf("    %s\n", r.Description)
 				}
@@ -301,7 +319,7 @@ func runListRulesFlag(listFlag, verboseFlag bool) {
 		} else {
 			markers += " "
 			if verboseFlag {
-				fmt.Printf("  %s %-40s [%-15s] %s (precision: %s)\n", markers, r.ID, r.Category, string(r.Sev), rules.V2RulePrecision(r))
+				fmt.Printf("  %s %-40s [%-15s] %s (precision: %s, maturity: %s)\n", markers, r.ID, r.Category, string(r.Sev), rules.V2RulePrecision(r), r.Maturity)
 				if r.Description != "" {
 					fmt.Printf("    %s\n", r.Description)
 				}
@@ -310,8 +328,8 @@ func runListRulesFlag(listFlag, verboseFlag bool) {
 			}
 		}
 	}
-	fmt.Printf("\nTotal: %d rules (%d active by default, %d fixable)\n", len(api.Registry), active, fixable)
-	fmt.Println("A=active by default, F=fixable. Use -v for fix levels, --all-rules to enable all.")
+	fmt.Printf("\nTotal: %d rules (%d active by default, %d fixable)\n", len(registry), active, fixable)
+	fmt.Println("A=active by default, F=fixable. Use -v for fix levels, --all-rules to enable all, --maturity to filter by lifecycle.")
 	os.Exit(0)
 }
 

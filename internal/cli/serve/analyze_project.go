@@ -72,6 +72,21 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 	// OutputPhase JSON streams directly into the connection instead
 	// of being buffered in memory (#60). The lock is held for the
 	// duration of the run.
+	//
+	// Strict-verify takes a buffered detour: same envelope shape, but
+	// the response runs the daemon path, a cold baseline, and a diff
+	// before writing — see strict_verify.go.
+	if state.strictVerify {
+		return &strictVerifyAnalyzeResponse{
+			state:       state,
+			args:        args,
+			in:          in,
+			start:       start,
+			cold:        cold,
+			dirtyN:      len(dirty),
+			releaseLock: state.analyzeMu.Unlock,
+		}, nil
+	}
 	return &streamingAnalyzeResponse{
 		state:       state,
 		in:          in,

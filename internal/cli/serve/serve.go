@@ -103,6 +103,13 @@ func Run(args []string) int {
 	stopFlag := fs.Bool("stop", false, "Stop a running daemon at --socket")
 	idleFlag := fs.Duration("idle-timeout", 30*time.Minute, "Auto-shutdown after no request for this duration; 0 disables")
 	noWatcherFlag := fs.Bool("no-watcher", false, "Disable filesystem watching for cache invalidation")
+	// --strict-verify reruns every analyze in-process from cold caches
+	// and fails the response on row-level divergence vs the daemon's
+	// resident path. Doubles per-request CPU; intended for alpha and
+	// targeted divergence hunts, not steady-state production. See
+	// issue #202.
+	strictVerifyFlag := fs.Bool("strict-verify", false,
+		"compare every analyze response against a fresh in-process baseline; fail on divergence (off by default, see #202)")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -126,6 +133,7 @@ func Run(args []string) int {
 	}
 
 	state := newDaemonState(root)
+	state.strictVerify = *strictVerifyFlag
 	warmStart := time.Now()
 	if err := state.warm(); err != nil {
 		fmt.Fprintf(os.Stderr, "krit serve: warm: %v\n", err)
@@ -245,6 +253,14 @@ type daemonState struct {
 	// completed. Used by RequireWarm clients (tests, CI gates) and by
 	// the response Stats.Cold flag.
 	coldDone atomic.Bool
+
+	// strictVerify, when true, makes every analyze-project call rerun
+	// the same scan in-process from cold caches and fail the response
+	// if the two finding sets diverge. Set by Run from
+	// --strict-verify; see internal/cli/serve/strict_verify.go for
+	// the implementation. Default false because the rerun roughly
+	// doubles per-request CPU.
+	strictVerify bool
 }
 
 func newDaemonState(root string) *daemonState {

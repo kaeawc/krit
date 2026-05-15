@@ -34,13 +34,12 @@ func main() {
 	socketFlag := flag.String("socket", "", "socket path (defaults to <repo>/.krit/daemon.sock)")
 	verboseFlag := flag.Bool("verbose", false, "log lifecycle events to stderr")
 	flag.BoolVar(verboseFlag, "v", false, "alias for --verbose")
-	// --strict-verify is accepted for backwards compatibility with the
-	// previous sessdaemon-backed krit-daemon. The flag is currently a
-	// no-op; the strict-verify divergence harness lives in
-	// internal/daemon and needs to be wired into internal/cli/serve in
-	// a follow-up. See issue #247 for the migration.
-	_ = flag.Bool("strict-verify", false,
-		"accepted for backwards compatibility; not yet wired into the in-tree daemon (see issue #247)")
+	// --strict-verify reruns every analyze in-process from cold caches
+	// and fails the response on divergence. Doubles per-request cost;
+	// intended for alpha-period correctness hunts, not steady-state
+	// production load. See issue #202.
+	strictVerifyFlag := flag.Bool("strict-verify", false,
+		"compare every analyze response against a fresh in-process baseline; fail on divergence (off by default)")
 	idleTimeoutFlag := flag.Duration("idle-timeout", 0,
 		"exit after this duration of no requests (e.g. 30m); 0 disables auto-shutdown")
 	// --client-binary-hash is the SHA-256 hex of the krit binary the
@@ -100,6 +99,9 @@ func main() {
 	}
 	if *idleTimeoutFlag > 0 {
 		serveArgs = append(serveArgs, "--idle-timeout", idleTimeoutFlag.String())
+	}
+	if *strictVerifyFlag {
+		serveArgs = append(serveArgs, "--strict-verify")
 	}
 
 	if *verboseFlag {

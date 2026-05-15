@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -409,5 +410,153 @@ func TestWorkspaceState_InvalidateAllClearsDependents(t *testing.T) {
 	ws.InvalidateAll()
 	if ws.CrossFileStats().HasDependents {
 		t.Error("InvalidateAll should clear Dependents")
+	}
+}
+
+// TestWorkspaceState_LookupAndStoreParsed verifies the path-only fast
+// path: StoreParsed populates the cache, LookupParsedByPath returns
+// the same *scanner.File pointer, and Invalidate drops it.
+func TestWorkspaceState_LookupAndStoreParsed(t *testing.T) {
+	w := NewWorkspaceState("")
+
+	if _, ok := w.LookupParsedByPath("/tmp/missing.kt"); ok {
+		t.Errorf("LookupParsedByPath on empty cache returned ok=true")
+	}
+
+	content := []byte("class Foo {}\n")
+	file, err := ParseSingle(context.Background(), "/tmp/foo.kt", content)
+	if err != nil {
+		t.Fatalf("ParseSingle: %v", err)
+	}
+	w.StoreParsed("/tmp/foo.kt", content, file)
+
+	got, ok := w.LookupParsedByPath("/tmp/foo.kt")
+	if !ok {
+		t.Fatalf("LookupParsedByPath after StoreParsed: ok=false")
+	}
+	if got != file {
+		t.Errorf("LookupParsedByPath returned different pointer than StoreParsed")
+	}
+
+	w.Invalidate("/tmp/foo.kt")
+	if _, ok := w.LookupParsedByPath("/tmp/foo.kt"); ok {
+		t.Errorf("LookupParsedByPath after Invalidate: ok=true")
+	}
+}
+
+// TestWorkspaceState_StoreParsedIdempotent verifies a second
+// StoreParsed for the same (path, content hash) does not replace the
+// existing entry — callers can race without losing pointer identity.
+func TestWorkspaceState_StoreParsedIdempotent(t *testing.T) {
+	w := NewWorkspaceState("")
+	content := []byte("class Foo {}\n")
+	first, err := ParseSingle(context.Background(), "/tmp/foo.kt", content)
+	if err != nil {
+		t.Fatalf("ParseSingle: %v", err)
+	}
+	w.StoreParsed("/tmp/foo.kt", content, first)
+
+	// Second store with same hash must keep the first pointer.
+	second, err := ParseSingle(context.Background(), "/tmp/foo.kt", content)
+	if err != nil {
+		t.Fatalf("ParseSingle: %v", err)
+	}
+	w.StoreParsed("/tmp/foo.kt", content, second)
+
+	got, _ := w.LookupParsedByPath("/tmp/foo.kt")
+	if got != first {
+		t.Errorf("StoreParsed replaced pointer for same content hash")
+	}
+}
+
+// TestWorkspaceState_AndroidProjectCachesByFingerprint verifies the
+// memoization contract: same fingerprint reuses the cached pointer
+// without firing build; different fingerprint forces a rebuild.
+func TestWorkspaceState_AndroidProjectCachesByFingerprint(t *testing.T) {
+	w := NewWorkspaceState("")
+	var builds int
+	first := w.AndroidProject("fp-a", func() *android.Project {
+		builds++
+		return &android.Project{ManifestPaths: []string{"AndroidManifest.xml"}}
+	})
+	if builds != 1 {
+		t.Fatalf("AndroidProject builds = %d, want 1", builds)
+	}
+	again := w.AndroidProject("fp-a", func() *android.Project {
+		builds++
+		return &android.Project{}
+	})
+	if builds != 1 {
+		t.Errorf("AndroidProject builds = %d after hit, want 1", builds)
+	}
+	if again != first {
+		t.Errorf("AndroidProject returned different pointer for same fingerprint")
+	}
+	_ = w.AndroidProject("fp-b", func() *android.Project { builds++; return &android.Project{} })
+	if builds != 2 {
+		t.Errorf("AndroidProject builds = %d after fp mismatch, want 2", builds)
+	}
+}
+
+// TestWorkspaceState_InvalidateLibraryFactsDropsAndroid verifies the
+// watcher's InvalidateLibraryFacts hook also drops the AndroidProject
+// slot — the two share the build.gradle dependency boundary, so a
+// build script edit must invalidate both.
+func TestWorkspaceState_InvalidateLibraryFactsDropsAndroid(t *testing.T) {
+	w := NewWorkspaceState("")
+	w.AndroidProject("fp", func() *android.Project { return &android.Project{} })
+	w.LibraryFacts("lf", func() *librarymodel.Facts { return &librarymodel.Facts{} })
+	if !w.CrossFileStats().HasLibraryFacts {
+		t.Fatal("setup: LibraryFacts slot should be populated")
+	}
+
+	w.InvalidateLibraryFacts()
+
+	if w.CrossFileStats().HasLibraryFacts {
+		t.Errorf("LibraryFacts not invalidated")
+	}
+	w.xfileMu.Lock()
+	if w.androidProject.present {
+		t.Errorf("AndroidProject slot survived InvalidateLibraryFacts")
+	}
+	w.xfileMu.Unlock()
+}
+
+// TestWorkspaceState_GradleFindingsMemoizes verifies the per-gradle-
+// file findings cache: same key reuses the cached result without
+// firing build; different key triggers build; InvalidateLibraryFacts
+// drops the whole map.
+func TestWorkspaceState_GradleFindingsMemoizes(t *testing.T) {
+	w := NewWorkspaceState("")
+	var builds int
+	first := w.GradleFindings("k1", func() scanner.FindingColumns {
+		builds++
+		return scanner.FindingColumns{}
+	})
+	if builds != 1 {
+		t.Fatalf("GradleFindings builds = %d after first call, want 1", builds)
+	}
+	_ = w.GradleFindings("k1", func() scanner.FindingColumns {
+		builds++
+		return scanner.FindingColumns{}
+	})
+	if builds != 1 {
+		t.Errorf("GradleFindings builds = %d after hit, want 1", builds)
+	}
+	_ = w.GradleFindings("k2", func() scanner.FindingColumns {
+		builds++
+		return scanner.FindingColumns{}
+	})
+	if builds != 2 {
+		t.Errorf("GradleFindings builds = %d after distinct key, want 2", builds)
+	}
+	_ = first
+	w.InvalidateLibraryFacts()
+	_ = w.GradleFindings("k1", func() scanner.FindingColumns {
+		builds++
+		return scanner.FindingColumns{}
+	})
+	if builds != 3 {
+		t.Errorf("GradleFindings builds = %d after InvalidateLibraryFacts, want 3", builds)
 	}
 }

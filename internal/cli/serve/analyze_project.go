@@ -321,10 +321,13 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 		},
 		Host: pipeline.ProjectHostState{
 			ParseCache:                   parseCache,
+			ResidentFiles:                s.workspace,
 			LibraryFactsCache:            s.workspace.LibraryFacts,
 			CodeIndexCache:               s.workspace.CodeIndex,
 			ResolverCache:                s.workspace.Resolver,
 			OracleFilterCache:            s.workspace.OracleFilter,
+			AndroidProjectCache:          s.workspace.AndroidProject,
+			GradleFindingsCache:          s.workspace.GradleFindings,
 			CrossFileCacheDir:            scanner.CrossFileCacheDir(repoDir),
 			CrossFindingsCacheDir:        scanner.CrossFindingsCacheDir(repoDir),
 			TypeIndexCacheDir:            typeinfer.TypeIndexCacheDir(repoDir),

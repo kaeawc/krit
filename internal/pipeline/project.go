@@ -149,6 +149,10 @@ type ProjectHostState struct {
 	// cached FlatTree. The daemon constructs one at startup and reuses
 	// it across calls.
 	ParseCache *scanner.ParseCache
+	// ResidentFiles, when non-nil, is the daemon's per-path *scanner.File
+	// cache. ParsePhase checks it before any disk read. See
+	// ParseInput.ResidentFiles.
+	ResidentFiles ResidentFileCache
 	// PrebuiltResolver, when non-nil, short-circuits resolver
 	// construction inside IndexPhase. The daemon keeps one resident.
 	PrebuiltResolver typeinfer.TypeResolver
@@ -189,6 +193,22 @@ type ProjectHostState struct {
 	// fingerprint and threads it into IndexInput.PrebuiltOracleCallFilter.
 	// *WorkspaceState satisfies this interface.
 	OracleFilterCache OracleFilterCache
+	// AndroidProjectCache, when non-nil, memoizes the detected
+	// *android.Project across calls. IndexPhase.detectAndroidProject
+	// consults the slot before falling through to android.DetectProject
+	// (which walks the source tree for AndroidManifest.xml + build.gradle
+	// markers — ~1s on a 60k-file corpus). The fingerprint is the
+	// repo-root scan-path set; the watcher's InvalidateLibraryFacts hook
+	// (fired on build.gradle / version-catalog edits) also drops this
+	// slot. *WorkspaceState satisfies this interface.
+	AndroidProjectCache AndroidProjectCache
+	// GradleFindingsCache, when non-nil, memoizes per-gradle-file
+	// rule-dispatch findings across analyzes (~7ms each × hundreds of
+	// gradle files on a kotlin-style monorepo = ~1.4s saved per warm
+	// analyze). Daemon callers wire WorkspaceState.GradleFindings.
+	// CLI passes nil — the existing on-disk AndroidCacheWriter path
+	// covers that case.
+	GradleFindingsCache func(key string, build func() scanner.FindingColumns) scanner.FindingColumns
 	// CrossFileCacheDir, when non-empty, enables the on-disk cross-file
 	// CodeIndex cache (zstd-encoded shards under .krit/crossfile-cache).
 	// Independent of CodeIndexCache: the disk cache is shared across
@@ -672,6 +692,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		LibraryFactsCache:      host.LibraryFactsCache,
 		CodeIndexCache:         host.CodeIndexCache,
 		ResolverCache:          host.ResolverCache,
+		AndroidProjectCache:    host.AndroidProjectCache,
 		CrossFileCacheDir:      host.CrossFileCacheDir,
 		CrossFindingsCacheDir:  host.CrossFindingsCacheDir,
 		TypeIndexCacheDir:      host.TypeIndexCacheDir,
@@ -843,6 +864,7 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		Reporter:           host.Reporter,
 		Tracker:            host.Tracker,
 		ParseCache:         host.ParseCache,
+		ResidentFiles:      host.ResidentFiles,
 	})
 }
 
@@ -855,7 +877,7 @@ func allowWarmResourceSourceDelta(args ProjectArgs, host ProjectHostState, warm 
 	}
 	project := host.PrebuiltAndroidProject
 	if project == nil {
-		project = android.DetectProject(args.Paths)
+		project = cachedDetectAndroidProject(args, host)
 	}
 	if project == nil || project.IsEmpty() || len(project.ResDirs) == 0 {
 		return false
@@ -1297,6 +1319,7 @@ func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, host Project
 		JavaSemanticFactsFP: indexResult.JavaSemanticFacts.Fingerprint(),
 		CacheDir:            host.AndroidCacheDir,
 		CacheWriter:         host.AndroidCacheWriter,
+		GradleFindingsCache: host.GradleFindingsCache,
 	})
 	if err != nil {
 		return fmt.Errorf("android: %w", err)
@@ -1684,6 +1707,21 @@ func filesForPaths(paths []string, lang scanner.Language) []*scanner.File {
 	return files
 }
 
+// cachedDetectAndroidProject routes the project-fingerprint and
+// resource-source paths through the same daemon-resident
+// AndroidProjectCache that IndexPhase.detectAndroidProject uses, so
+// preparseBundleFingerprint doesn't pay the ~1s DetectProject tree walk
+// twice per analyze. Falls back to a fresh DetectProject when the host
+// has no cache wired (CLI path).
+func cachedDetectAndroidProject(args ProjectArgs, host ProjectHostState) *android.Project {
+	if host.AndroidProjectCache == nil {
+		return android.DetectProject(args.Paths)
+	}
+	return host.AndroidProjectCache(androidProjectFingerprint(args.Paths), func() *android.Project {
+		return android.DetectProject(args.Paths)
+	})
+}
+
 func preparseProjectFingerprints(args ProjectArgs, host ProjectHostState) (string, string) {
 	project := host.PrebuiltAndroidProject
 	if host.PrebuiltLibraryFacts != nil {
@@ -1694,7 +1732,7 @@ func preparseProjectFingerprints(args ProjectArgs, host ProjectHostState) (strin
 		return androidFP, host.PrebuiltLibraryFacts.Fingerprint()
 	}
 	if project == nil {
-		project = android.DetectProject(args.Paths)
+		project = cachedDetectAndroidProject(args, host)
 	}
 	if project == nil {
 		return "", ""

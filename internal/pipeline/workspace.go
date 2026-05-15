@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/oracle"
@@ -43,12 +44,16 @@ type WorkspaceState struct {
 	// fingerprint discards the prior value and rebuilds. Slots are
 	// independent so a libraryFacts rebuild doesn't drop the
 	// (much more expensive) codeIndex.
-	xfileMu      sync.Mutex
-	libraryFacts xfileSlot[*librarymodel.Facts]
-	codeIndex    xfileSlot[*scanner.CodeIndex]
-	dependents   xfileSlot[*scanner.DependentsIndex]
-	resolver     xfileSlot[typeinfer.TypeResolver]
-	oracleFilter xfileSlot[*oracle.CallTargetFilterSummary]
+	xfileMu        sync.Mutex
+	libraryFacts   xfileSlot[*librarymodel.Facts]
+	codeIndex      xfileSlot[*scanner.CodeIndex]
+	dependents     xfileSlot[*scanner.DependentsIndex]
+	resolver       xfileSlot[typeinfer.TypeResolver]
+	oracleFilter   xfileSlot[*oracle.CallTargetFilterSummary]
+	androidProject xfileSlot[*android.Project]
+
+	gradleMu       sync.Mutex
+	gradleFindings map[string]scanner.FindingColumns
 }
 
 // xfileSlot pairs a fingerprint with a value. Zero value means
@@ -126,6 +131,48 @@ func (w *WorkspaceState) ParseFileWithHit(ctx context.Context, path string, cont
 	w.mu.Unlock()
 	w.misses.Add(1)
 	return file, false, nil
+}
+
+// LookupParsedByPath returns the cached *scanner.File for path
+// without re-reading or re-hashing content. The watcher's Invalidate
+// hook is the correctness boundary: if the file changed and fsnotify
+// missed the event, the caller will replay a stale parse — same
+// best-effort contract the watcher already promises.
+//
+// Returns (nil, false) when no entry exists for path. Pointer-stable:
+// repeated calls return the same *scanner.File until Invalidate
+// drops it.
+func (w *WorkspaceState) LookupParsedByPath(path string) (*scanner.File, bool) {
+	if w == nil {
+		return nil, false
+	}
+	key := normalizeKey(path)
+	w.mu.RLock()
+	entry, ok := w.parsed[key]
+	w.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	return entry.file, true
+}
+
+// StoreParsed records file as the cached entry for path. content is
+// hashed and stored alongside so ParseFileWithHit callers (LSP/MCP)
+// can still content-gate. Idempotent: a second StoreParsed for the
+// same (path, content hash) is a no-op.
+func (w *WorkspaceState) StoreParsed(path string, content []byte, file *scanner.File) {
+	if w == nil || file == nil {
+		return
+	}
+	key := normalizeKey(path)
+	hash := hashutil.Default().HashContent(key, content)
+	w.mu.Lock()
+	if existing, ok := w.parsed[key]; ok && existing.contentHash == hash {
+		w.mu.Unlock()
+		return
+	}
+	w.parsed[key] = parsedEntry{contentHash: hash, file: file}
+	w.mu.Unlock()
 }
 
 // Invalidate drops the cached entry for path. Safe to call when no
@@ -218,7 +265,11 @@ func (w *WorkspaceState) InvalidateAll() {
 	w.dependents = xfileSlot[*scanner.DependentsIndex]{}
 	w.resolver = xfileSlot[typeinfer.TypeResolver]{}
 	w.oracleFilter = xfileSlot[*oracle.CallTargetFilterSummary]{}
+	w.androidProject = xfileSlot[*android.Project]{}
 	w.xfileMu.Unlock()
+	w.gradleMu.Lock()
+	w.gradleFindings = nil
+	w.gradleMu.Unlock()
 }
 
 // LibraryFacts returns the cached *librarymodel.Facts when its
@@ -352,14 +403,83 @@ func (w *WorkspaceState) CrossFileStats() CrossFileStats {
 
 // InvalidateLibraryFacts drops the cached *librarymodel.Facts. Called
 // when a Gradle build script or version catalog changes — the next
-// LibraryFacts call rebuilds.
+// LibraryFacts call rebuilds. Also drops the AndroidProject cache
+// since its GradlePaths set could have changed.
 func (w *WorkspaceState) InvalidateLibraryFacts() {
 	if w == nil {
 		return
 	}
 	w.xfileMu.Lock()
 	w.libraryFacts = xfileSlot[*librarymodel.Facts]{}
+	w.androidProject = xfileSlot[*android.Project]{}
 	w.xfileMu.Unlock()
+	w.gradleMu.Lock()
+	w.gradleFindings = nil
+	w.gradleMu.Unlock()
+}
+
+// GradleFindings memoizes per-file gradle rule findings across
+// analyzes, keyed by (content hash + rule hash). On a 200-gradle-file
+// monorepo (kotlin) the per-file Read+Parse+Dispatch cost is ~7 ms
+// each, ~1.4 s total per warm analyze — even though gradle files
+// rarely change. Memoizing the findings drops this to ~0 ms on warm
+// reruns.
+//
+// The watcher's InvalidateLibraryFacts hook (fired on build.gradle /
+// version-catalog edits) clears the whole map, so any gradle dependency
+// change forces re-run of every gradle rule. nil receiver disables
+// caching.
+func (w *WorkspaceState) GradleFindings(key string, build func() scanner.FindingColumns) scanner.FindingColumns {
+	if w == nil || key == "" {
+		return build()
+	}
+	w.gradleMu.Lock()
+	if w.gradleFindings != nil {
+		if cached, ok := w.gradleFindings[key]; ok {
+			w.gradleMu.Unlock()
+			return cached
+		}
+	}
+	w.gradleMu.Unlock()
+
+	v := build()
+
+	w.gradleMu.Lock()
+	if w.gradleFindings == nil {
+		w.gradleFindings = make(map[string]scanner.FindingColumns)
+	}
+	w.gradleFindings[key] = v
+	w.gradleMu.Unlock()
+	return v
+}
+
+// AndroidProject memoizes the detected Android project across calls.
+// fingerprint must capture every input that affects detection (today
+// just the project root, since DetectProject is path-only and the
+// watcher invalidates this slot whenever a build.gradle / version
+// catalog changes). nil receiver always builds (no caching).
+func (w *WorkspaceState) AndroidProject(fingerprint string, build func() *android.Project) *android.Project {
+	if w == nil || fingerprint == "" {
+		return build()
+	}
+	w.xfileMu.Lock()
+	if w.androidProject.present && w.androidProject.fingerprint == fingerprint {
+		v := w.androidProject.value
+		w.xfileMu.Unlock()
+		return v
+	}
+	w.xfileMu.Unlock()
+
+	v := build()
+
+	w.xfileMu.Lock()
+	if w.androidProject.present && w.androidProject.fingerprint == fingerprint {
+		v = w.androidProject.value
+	} else {
+		w.androidProject = xfileSlot[*android.Project]{fingerprint: fingerprint, value: v, present: true}
+	}
+	w.xfileMu.Unlock()
+	return v
 }
 
 // InvalidateCodeIndex drops the cached *scanner.CodeIndex. Called

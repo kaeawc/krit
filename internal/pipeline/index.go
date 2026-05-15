@@ -83,6 +83,10 @@ type IndexInput struct {
 	// entire perFileExtraction + merge + resolveSupertypes skip on
 	// warm-no-change runs.
 	ResolverCache ResolverCache
+	// AndroidProjectCache, when non-nil and PrebuiltAndroidProject is
+	// nil, memoizes the detected *android.Project across calls so
+	// detectAndroidProject skips its ~1s tree walk on warm reruns.
+	AndroidProjectCache AndroidProjectCache
 	// TypeIndexCacheDir, when non-empty, enables the per-file
 	// FileTypeInfo cache (typeinfer.IndexFilesParallelCachedWithTracker).
 	// Unchanged files are read from disk instead of re-extracted, which
@@ -491,10 +495,14 @@ func (p IndexPhase) detectAndroidProject(in IndexInput, result *IndexResult) {
 	if p.SkipAndroid {
 		return
 	}
-	if in.PrebuiltAndroidProject != nil {
+	build := func() *android.Project { return android.DetectProject(in.Paths) }
+	switch {
+	case in.PrebuiltAndroidProject != nil:
 		result.AndroidProject = in.PrebuiltAndroidProject
-	} else {
-		result.AndroidProject = android.DetectProject(in.Paths)
+	case in.AndroidProjectCache != nil:
+		result.AndroidProject = in.AndroidProjectCache(androidProjectFingerprint(in.Paths), build)
+	default:
+		result.AndroidProject = build()
 	}
 	if result.LibraryFacts == nil && result.AndroidProject != nil {
 		gradle := result.AndroidProject.GradlePaths
@@ -507,6 +515,29 @@ func (p IndexPhase) detectAndroidProject(in IndexInput, result *IndexResult) {
 			result.LibraryFacts = build()
 		}
 	}
+}
+
+// androidProjectFingerprint hashes the sorted absolute scan-path set
+// used as the cache key for AndroidProjectCache. The watcher's
+// InvalidateLibraryFacts hook drops the slot on build.gradle /
+// version-catalog edits, so a stable fingerprint for the same paths
+// is enough to detect "different project root" mismatches without
+// reflecting per-Gradle-file content (that's the library-facts slot's
+// job).
+func androidProjectFingerprint(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	abs := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if a, err := filepath.Abs(p); err == nil {
+			abs = append(abs, a)
+		} else {
+			abs = append(abs, p)
+		}
+	}
+	sort.Strings(abs)
+	return hashutil.HashHex([]byte(strings.Join(abs, "\x00")))
 }
 
 // computeRuleHash ensures result.RuleHash is set, deriving it from the

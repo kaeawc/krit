@@ -8,10 +8,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
+
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/scanner"
 )
+
+func fsnotifyEventChmod(path string) fsnotify.Event {
+	return fsnotify.Event{Name: path, Op: fsnotify.Chmod}
+}
 
 // countingState is a watcherState fake that counts Invalidate calls.
 type countingState struct {
@@ -443,3 +449,54 @@ func TestIsKotlinPath(t *testing.T) {
 		}
 	}
 }
+
+// TestFileWatcher_IgnoresChmodOnlyEvents asserts the watcher does NOT
+// drop cached cross-file slots when fsnotify emits a Chmod-only event
+// for a library-config or Kotlin path. On macOS, kqueue emits spurious
+// Chmod events whenever another process stats or opens a watched file
+// (Spotlight, git, finder previews). Pre-fix, those events fired
+// InvalidateLibraryFacts on every analyze and rebuilt the AndroidProject
+// / resolver / per-file parsed-tree slots — costing ~1s each.
+func TestFileWatcher_IgnoresChmodOnlyEvents(t *testing.T) {
+	root := t.TempDir()
+	gradlePath := filepath.Join(root, "build.gradle.kts")
+	ktPath := filepath.Join(root, "Foo.kt")
+	for _, p := range []string{gradlePath, ktPath} {
+		if err := os.WriteFile(p, []byte("// init\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+	}
+	state := &chmodFilterCountingState{}
+	w, err := startFileWatcherWithState(context.Background(), root, state, nil)
+	if err != nil {
+		t.Fatalf("startFileWatcher: %v", err)
+	}
+	defer w.Stop()
+
+	// Inject a Chmod-only event directly through handle() — going
+	// through os.Chmod would also trigger a Stat() that on some
+	// platforms emits Write, defeating the test's purpose.
+	w.handle(fsnotifyEventChmod(gradlePath))
+	w.handle(fsnotifyEventChmod(ktPath))
+	time.Sleep(20 * time.Millisecond)
+
+	if got := state.libraryFactsInvalidations.Load(); got != 0 {
+		t.Errorf("InvalidateLibraryFacts fired %d times on Chmod-only event; want 0", got)
+	}
+	if got := state.invalidateCalls.Load(); got != 0 {
+		t.Errorf("Invalidate fired %d times on Chmod-only event; want 0", got)
+	}
+}
+
+type chmodFilterCountingState struct {
+	invalidateCalls           atomic.Int64
+	libraryFactsInvalidations atomic.Int64
+}
+
+func (c *chmodFilterCountingState) Invalidate(string)       { c.invalidateCalls.Add(1) }
+func (c *chmodFilterCountingState) InvalidateCodeIndex()    {}
+func (c *chmodFilterCountingState) InvalidateDependents()   {}
+func (c *chmodFilterCountingState) InvalidateLibraryFacts() { c.libraryFactsInvalidations.Add(1) }
+func (c *chmodFilterCountingState) InvalidateResolver()     {}
+func (c *chmodFilterCountingState) InvalidateOracleFilter() {}
+func (c *chmodFilterCountingState) Touch(string)            {}

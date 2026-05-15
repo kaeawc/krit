@@ -23,16 +23,17 @@ type Flags = *scanFlags
 // write back into Session so daemon callers skip the rebuild on warm
 // invocations.
 type Session struct {
-	Workspace      *pipeline.WorkspaceState
-	AnalysisCache  *cache.Cache
-	ParseCache     *scanner.ParseCache
-	XMLParseCache  *android.XMLParseCache
-	ResourceCache  *android.ResourceIndexCache
-	AndroidProject *android.Project
-	LibraryFacts   *librarymodel.Facts
-	OracleDaemon   *oracle.Daemon
-	repoDir        string
-	closed         bool
+	Workspace             *pipeline.WorkspaceState
+	AnalysisCache         *cache.Cache
+	AnalysisCacheFilePath string
+	ParseCache            *scanner.ParseCache
+	XMLParseCache         *android.XMLParseCache
+	ResourceCache         *android.ResourceIndexCache
+	AndroidProject        *android.Project
+	LibraryFacts          *librarymodel.Facts
+	OracleDaemon          *oracle.Daemon
+	repoDir               string
+	closed                bool
 }
 
 // NewSession returns a Session rooted at repoDir. Caches and project

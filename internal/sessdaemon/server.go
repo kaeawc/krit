@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/cli/scan"
 )
 
@@ -55,6 +56,11 @@ type Server struct {
 	requestCount atomic.Int64
 	lastFlush    atomic.Int64
 
+	// flushInterval is the period between resident-cache flushes; tests
+	// override the default before Start.
+	flushInterval time.Duration
+	flushWG       sync.WaitGroup
+
 	stopOnce sync.Once
 	stopped  chan struct{}
 	cancel   context.CancelFunc
@@ -78,18 +84,25 @@ func NewServer(ctx context.Context, opts Options) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sessdaemon: new session: %w", err)
 	}
+	cacheDir, cacheFilePath := cache.ResolveCacheDir("", []string{opts.RepoDir})
+	if cacheDir != "" && cacheFilePath != "" {
+		sess.AnalysisCache = cache.Load(cacheFilePath)
+		sess.AnalysisCacheFilePath = cacheFilePath
+		sess.AnalysisCache.MarkFlushed()
+	}
 	socket := opts.SocketPath
 	if socket == "" {
 		socket = DefaultSocketPath(opts.RepoDir)
 	}
 	return &Server{
-		socketPath: socket,
-		repoDir:    opts.RepoDir,
-		binaryHash: opts.BinaryHash,
-		pid:        os.Getpid(),
-		session:    sess,
-		oracle:     oracleDaemonState{starter: defaultOracleStarter{}},
-		stopped:    make(chan struct{}),
+		socketPath:    socket,
+		repoDir:       opts.RepoDir,
+		binaryHash:    opts.BinaryHash,
+		pid:           os.Getpid(),
+		session:       sess,
+		oracle:        oracleDaemonState{starter: defaultOracleStarter{}},
+		stopped:       make(chan struct{}),
+		flushInterval: defaultFlushInterval,
 	}, nil
 }
 
@@ -118,6 +131,10 @@ func (s *Server) Start(ctx context.Context) error {
 	s.cancel = cancel
 
 	go s.acceptLoop(cctx)
+	if s.flushInterval > 0 && s.session != nil && s.session.AnalysisCache != nil && s.session.AnalysisCacheFilePath != "" {
+		s.flushWG.Add(1)
+		go s.flushLoop(cctx)
+	}
 	go func() {
 		<-cctx.Done()
 		s.Stop()
@@ -138,12 +155,38 @@ func (s *Server) Stop() {
 			_ = s.listener.Close()
 		}
 		_ = os.Remove(s.socketPath)
+		// Drain the flush goroutine before the final Save so they
+		// never race on the cache file.
+		s.flushWG.Wait()
 		if s.session != nil {
+			s.flushAnalysisCache()
 			_ = s.session.Close()
-			s.lastFlush.Store(time.Now().Unix())
 		}
 		close(s.stopped)
 	})
+}
+
+// flushAnalysisCache persists the resident *cache.Cache when it has
+// been mutated since the prior flush. The flag is cleared *before*
+// Save so an UpdateEntryColumns that lands during the I/O is still
+// observed on the next tick.
+func (s *Server) flushAnalysisCache() {
+	if s == nil || s.session == nil {
+		return
+	}
+	c := s.session.AnalysisCache
+	if c == nil || s.session.AnalysisCacheFilePath == "" {
+		return
+	}
+	if !c.MutatedSinceFlush() {
+		return
+	}
+	c.MarkFlushed()
+	if err := c.Save(s.session.AnalysisCacheFilePath); err != nil {
+		fmt.Fprintf(os.Stderr, "krit-daemon: cache flush: %v\n", err)
+		return
+	}
+	s.lastFlush.Store(time.Now().Unix())
 }
 
 func (s *Server) acceptLoop(ctx context.Context) {

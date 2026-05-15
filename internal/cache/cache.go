@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/fsutil"
@@ -93,6 +94,11 @@ type Cache struct {
 	// a no-op.  Set via AttachStore after loading.
 	backingStore     *store.FileStore
 	storeRuleSetHash [16]byte
+
+	// mutated flags any UpdateEntryColumns since the last MarkFlushed.
+	// The daemon's periodic-flush goroutine reads this via
+	// MutatedSinceFlush to skip Save on idle ticks.
+	mutated atomic.Bool
 }
 
 // Result holds the outcome of checking files against the cache.
@@ -390,6 +396,89 @@ func (c *Cache) CheckFiles(filePaths []string, ruleHash string, scanPaths ...str
 	return result
 }
 
+// CheckFilesIncremental is CheckFiles but stats only the paths in the
+// dirty set; non-dirty paths skip the os.Stat/hash check and are
+// reported as cache hits whenever they have a cache entry. Returns the
+// same shape as CheckFiles.
+//
+// Callers MUST be holding a WorkspaceState whose watcher has been
+// running continuously since the last invocation — otherwise the dirty
+// set is incomplete and findings drift silently.
+//
+// The backing-store path is unaffected (entries there are content-hash
+// keyed and the lookup already amortizes to O(1) per file).
+func (c *Cache) CheckFilesIncremental(
+	filePaths []string,
+	dirty []string,
+	ruleHash string,
+	scanPaths ...string,
+) *Result {
+	result := &Result{
+		CachedPaths:  make(map[string]bool),
+		CachedHashes: make(map[string]string),
+		TotalFiles:   len(filePaths),
+	}
+	collector := scanner.NewFindingCollector(0)
+
+	if c.backingStore != nil {
+		return c.checkFilesFromStore(filePaths, result, collector)
+	}
+
+	if c.RuleHash != ruleHash {
+		return result
+	}
+	if len(scanPaths) > 0 && len(c.ScanPaths) > 0 {
+		if !scanPathsMatch(c.ScanPaths, scanPaths) {
+			return result
+		}
+	}
+
+	dirtySet := make(map[string]struct{}, len(dirty))
+	for _, p := range dirty {
+		dirtySet[absPath(p)] = struct{}{}
+	}
+
+	for _, path := range filePaths {
+		abs := absPath(path)
+		entry, ok := c.Files[abs]
+		if !ok {
+			continue
+		}
+		if _, isDirty := dirtySet[abs]; !isDirty {
+			result.CachedPaths[path] = true
+			result.CachedHashes[path] = entry.Hash
+			collector.AppendColumns(&entry.Columns)
+			result.TotalCached++
+			continue
+		}
+		if !NeedsReanalysis(path, entry) {
+			result.CachedPaths[path] = true
+			result.CachedHashes[path] = entry.Hash
+			collector.AppendColumns(&entry.Columns)
+			result.TotalCached++
+		}
+	}
+	result.CachedColumns = *collector.Columns()
+	return result
+}
+
+// MutatedSinceFlush reports whether UpdateEntryColumns has been called
+// since the last MarkFlushed.
+func (c *Cache) MutatedSinceFlush() bool {
+	if c == nil {
+		return false
+	}
+	return c.mutated.Load()
+}
+
+// MarkFlushed clears the mutation flag. Call after a successful Save.
+func (c *Cache) MarkFlushed() {
+	if c == nil {
+		return
+	}
+	c.mutated.Store(false)
+}
+
 // ShouldSkipFullSaveForSmallDelta reports whether a JSON-backed cache run
 // should avoid rewriting the full cache file after a tiny dirty worktree
 // delta. Dirty files are still reanalyzed on the next run unless their entry
@@ -458,6 +547,21 @@ func addDirtyRelPaths(dirty map[string]bool, top, out string) {
 			dirty[abs] = true
 		}
 	}
+}
+
+// absPath returns filepath.Abs(path) but short-circuits when path is
+// already absolute. CheckFilesIncremental iterates tens of thousands
+// of paths per call on warm daemons; skipping the Getwd+Clean for the
+// already-canonical case is measurable.
+func absPath(path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	return abs
 }
 
 func normalizeAbsPath(path string) string {
@@ -560,6 +664,7 @@ func (c *Cache) updateEntry(path string, columns scanner.FindingColumns) {
 			Kind:        store.KindIncremental,
 		}
 		_ = c.backingStore.Put(key, data)
+		c.mutated.Store(true)
 		return
 	}
 	abs, _ := filepath.Abs(path)
@@ -573,6 +678,7 @@ func (c *Cache) updateEntry(path string, columns scanner.FindingColumns) {
 		Size:    info.Size(),
 		Columns: columns,
 	}
+	c.mutated.Store(true)
 }
 
 // Prune removes entries for files that no longer exist.

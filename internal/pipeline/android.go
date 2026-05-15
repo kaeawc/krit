@@ -72,6 +72,11 @@ type AndroidInput struct {
 	// CacheWriter persists fresh cache entries asynchronously. When nil,
 	// the phase falls back to the un-cached path.
 	CacheWriter *scanner.AndroidCacheWriter
+	// GradleFindingsCache, when non-nil, memoizes per-gradle-file
+	// findings across analyzes. Daemon callers wire this to a
+	// WorkspaceState-resident map; cache keys include the content
+	// hash + rule hash so config changes invalidate. CLI passes nil.
+	GradleFindingsCache func(key string, build func() scanner.FindingColumns) scanner.FindingColumns
 }
 
 // AndroidResult is the output of the Android phase.
@@ -800,6 +805,29 @@ func (p AndroidPhase) runGradlePhase(in AndroidInput, collector *scanner.Finding
 	}
 	memo := hashutil.Default()
 	for _, path := range in.Project.GradlePaths {
+		// In-memory daemon cache: keyed by (contentHash, ruleHash) so a
+		// rule-config change forces a fresh dispatch. Falls through to
+		// the disk-cache and uncached paths when no resident cache is
+		// wired (CLI path).
+		if in.GradleFindingsCache != nil {
+			contentHash, herr := memo.HashFile(path, nil)
+			if herr == nil {
+				key := path + "\x00" + contentHash + "\x00" + in.RuleHash
+				var rpdur, rdur time.Duration
+				cols := in.GradleFindingsCache(key, func() scanner.FindingColumns {
+					c, rp, rd := p.runGradleOne(in, path)
+					rpdur, rdur = rp, rd
+					return c
+				})
+				readParseDur += rpdur
+				rulesDur += rdur
+				collector.AppendColumns(&cols)
+				if bundleCollector != nil {
+					bundleCollector.AppendColumns(&cols)
+				}
+				continue
+			}
+		}
 		if cacheable {
 			contentHash, err := memo.HashFile(path, nil)
 			if err != nil {

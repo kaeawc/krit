@@ -202,6 +202,13 @@ type ProjectHostState struct {
 	// (fired on build.gradle / version-catalog edits) also drops this
 	// slot. *WorkspaceState satisfies this interface.
 	AndroidProjectCache AndroidProjectCache
+	// GradleFindingsCache, when non-nil, memoizes per-gradle-file
+	// rule-dispatch findings across analyzes (~7ms each × hundreds of
+	// gradle files on a kotlin-style monorepo = ~1.4s saved per warm
+	// analyze). Daemon callers wire WorkspaceState.GradleFindings.
+	// CLI passes nil — the existing on-disk AndroidCacheWriter path
+	// covers that case.
+	GradleFindingsCache func(key string, build func() scanner.FindingColumns) scanner.FindingColumns
 	// CrossFileCacheDir, when non-empty, enables the on-disk cross-file
 	// CodeIndex cache (zstd-encoded shards under .krit/crossfile-cache).
 	// Independent of CodeIndexCache: the disk cache is shared across
@@ -1312,6 +1319,7 @@ func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, host Project
 		JavaSemanticFactsFP: indexResult.JavaSemanticFacts.Fingerprint(),
 		CacheDir:            host.AndroidCacheDir,
 		CacheWriter:         host.AndroidCacheWriter,
+		GradleFindingsCache: host.GradleFindingsCache,
 	})
 	if err != nil {
 		return fmt.Errorf("android: %w", err)

@@ -505,10 +505,10 @@ func TestWorkspaceState_AndroidProjectCachesByFingerprint(t *testing.T) {
 func TestWorkspaceState_InvalidateLibraryFactsDropsAndroid(t *testing.T) {
 	w := NewWorkspaceState("")
 	w.AndroidProject("fp", func() *android.Project { return &android.Project{} })
-	if !w.CrossFileStats().HasLibraryFacts && w.androidProject.present {
-		// confirm initial population path
-	}
 	w.LibraryFacts("lf", func() *librarymodel.Facts { return &librarymodel.Facts{} })
+	if !w.CrossFileStats().HasLibraryFacts {
+		t.Fatal("setup: LibraryFacts slot should be populated")
+	}
 
 	w.InvalidateLibraryFacts()
 
@@ -520,4 +520,43 @@ func TestWorkspaceState_InvalidateLibraryFactsDropsAndroid(t *testing.T) {
 		t.Errorf("AndroidProject slot survived InvalidateLibraryFacts")
 	}
 	w.xfileMu.Unlock()
+}
+
+// TestWorkspaceState_GradleFindingsMemoizes verifies the per-gradle-
+// file findings cache: same key reuses the cached result without
+// firing build; different key triggers build; InvalidateLibraryFacts
+// drops the whole map.
+func TestWorkspaceState_GradleFindingsMemoizes(t *testing.T) {
+	w := NewWorkspaceState("")
+	var builds int
+	first := w.GradleFindings("k1", func() scanner.FindingColumns {
+		builds++
+		return scanner.FindingColumns{}
+	})
+	if builds != 1 {
+		t.Fatalf("GradleFindings builds = %d after first call, want 1", builds)
+	}
+	_ = w.GradleFindings("k1", func() scanner.FindingColumns {
+		builds++
+		return scanner.FindingColumns{}
+	})
+	if builds != 1 {
+		t.Errorf("GradleFindings builds = %d after hit, want 1", builds)
+	}
+	_ = w.GradleFindings("k2", func() scanner.FindingColumns {
+		builds++
+		return scanner.FindingColumns{}
+	})
+	if builds != 2 {
+		t.Errorf("GradleFindings builds = %d after distinct key, want 2", builds)
+	}
+	_ = first
+	w.InvalidateLibraryFacts()
+	_ = w.GradleFindings("k1", func() scanner.FindingColumns {
+		builds++
+		return scanner.FindingColumns{}
+	})
+	if builds != 3 {
+		t.Errorf("GradleFindings builds = %d after InvalidateLibraryFacts, want 3", builds)
+	}
 }

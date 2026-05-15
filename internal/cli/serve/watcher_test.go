@@ -493,7 +493,7 @@ type chmodFilterCountingState struct {
 	libraryFactsInvalidations atomic.Int64
 }
 
-func (c *chmodFilterCountingState) Invalidate(string)  { c.invalidateCalls.Add(1) }
+func (c *chmodFilterCountingState) Invalidate(string)       { c.invalidateCalls.Add(1) }
 func (c *chmodFilterCountingState) InvalidateCodeIndex()    {}
 func (c *chmodFilterCountingState) InvalidateDependents()   {}
 func (c *chmodFilterCountingState) InvalidateLibraryFacts() { c.libraryFactsInvalidations.Add(1) }

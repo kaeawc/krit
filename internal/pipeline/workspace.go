@@ -51,6 +51,9 @@ type WorkspaceState struct {
 	resolver       xfileSlot[typeinfer.TypeResolver]
 	oracleFilter   xfileSlot[*oracle.CallTargetFilterSummary]
 	androidProject xfileSlot[*android.Project]
+
+	gradleMu       sync.Mutex
+	gradleFindings map[string]scanner.FindingColumns
 }
 
 // xfileSlot pairs a fingerprint with a value. Zero value means
@@ -264,6 +267,9 @@ func (w *WorkspaceState) InvalidateAll() {
 	w.oracleFilter = xfileSlot[*oracle.CallTargetFilterSummary]{}
 	w.androidProject = xfileSlot[*android.Project]{}
 	w.xfileMu.Unlock()
+	w.gradleMu.Lock()
+	w.gradleFindings = nil
+	w.gradleMu.Unlock()
 }
 
 // LibraryFacts returns the cached *librarymodel.Facts when its
@@ -407,6 +413,44 @@ func (w *WorkspaceState) InvalidateLibraryFacts() {
 	w.libraryFacts = xfileSlot[*librarymodel.Facts]{}
 	w.androidProject = xfileSlot[*android.Project]{}
 	w.xfileMu.Unlock()
+	w.gradleMu.Lock()
+	w.gradleFindings = nil
+	w.gradleMu.Unlock()
+}
+
+// GradleFindings memoizes per-file gradle rule findings across
+// analyzes, keyed by (content hash + rule hash). On a 200-gradle-file
+// monorepo (kotlin) the per-file Read+Parse+Dispatch cost is ~7 ms
+// each, ~1.4 s total per warm analyze — even though gradle files
+// rarely change. Memoizing the findings drops this to ~0 ms on warm
+// reruns.
+//
+// The watcher's InvalidateLibraryFacts hook (fired on build.gradle /
+// version-catalog edits) clears the whole map, so any gradle dependency
+// change forces re-run of every gradle rule. nil receiver disables
+// caching.
+func (w *WorkspaceState) GradleFindings(key string, build func() scanner.FindingColumns) scanner.FindingColumns {
+	if w == nil || key == "" {
+		return build()
+	}
+	w.gradleMu.Lock()
+	if w.gradleFindings != nil {
+		if cached, ok := w.gradleFindings[key]; ok {
+			w.gradleMu.Unlock()
+			return cached
+		}
+	}
+	w.gradleMu.Unlock()
+
+	v := build()
+
+	w.gradleMu.Lock()
+	if w.gradleFindings == nil {
+		w.gradleFindings = make(map[string]scanner.FindingColumns)
+	}
+	w.gradleFindings[key] = v
+	w.gradleMu.Unlock()
+	return v
 }
 
 // AndroidProject memoizes the detected Android project across calls.

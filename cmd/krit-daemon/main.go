@@ -1,21 +1,29 @@
-// Command krit-daemon is the long-lived per-repo analysis process. One
-// daemon owns one scan.Session and serves analyze/health/shutdown verbs
-// over a Unix socket. See internal/sessdaemon for the wire protocol.
+// Command krit-daemon is the long-lived per-repo analysis process. It is
+// a thin shim around the in-tree krit-serve daemon (internal/cli/serve),
+// which owns the resident WorkspaceState, parse cache, analysis cache,
+// and oracle JVM and serves the analyze-project / analyze-buffer /
+// analyze-buffers verbs the CLI's daemonclient speaks.
+//
+// Historical note: an earlier scaffold under internal/sessdaemon
+// implemented a parallel JSON-RPC server, but its wire format
+// (length-prefixed frames) was incompatible with the CLI's
+// line-delimited daemon protocol — see issue #247. The shim retires
+// that parallel implementation by routing every flag through to
+// serve.Run.
 package main
 
 import (
-	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"io"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"syscall"
 
+	"github.com/kaeawc/krit/internal/cli/serve"
 	"github.com/kaeawc/krit/internal/daemon"
-	"github.com/kaeawc/krit/internal/sessdaemon"
 )
 
 var version = "dev"
@@ -26,10 +34,23 @@ func main() {
 	socketFlag := flag.String("socket", "", "socket path (defaults to <repo>/.krit/daemon.sock)")
 	verboseFlag := flag.Bool("verbose", false, "log lifecycle events to stderr")
 	flag.BoolVar(verboseFlag, "v", false, "alias for --verbose")
-	strictVerifyFlag := flag.Bool("strict-verify", true,
-		"run an in-process baseline alongside every analyze and fail on divergence (issue #202; on by default during alpha)")
+	// --strict-verify is accepted for backwards compatibility with the
+	// previous sessdaemon-backed krit-daemon. The flag is currently a
+	// no-op; the strict-verify divergence harness lives in
+	// internal/daemon and needs to be wired into internal/cli/serve in
+	// a follow-up. See issue #247 for the migration.
+	_ = flag.Bool("strict-verify", false,
+		"accepted for backwards compatibility; not yet wired into the in-tree daemon (see issue #247)")
 	idleTimeoutFlag := flag.Duration("idle-timeout", 0,
 		"exit after this duration of no requests (e.g. 30m); 0 disables auto-shutdown")
+	// --client-binary-hash is the SHA-256 hex of the krit binary the
+	// spawning CLI used. When non-empty, the daemon advertises this
+	// over the status verb so the CLI's binary-hash handshake compares
+	// against its own (matching) hash. When empty, the daemon falls
+	// back to hashing the sibling krit binary, then to hashing itself
+	// (which always mismatches and disables the handshake).
+	clientHashFlag := flag.String("client-binary-hash", "",
+		"SHA-256 hex of the krit binary the CLI is running; advertised via the status verb")
 	flag.Parse()
 
 	if *versionFlag {
@@ -45,12 +66,17 @@ func main() {
 
 	repo, err := filepath.Abs(*repoFlag)
 	if err != nil {
-		log.Fatalf("krit-daemon: resolve --repo: %v", err)
+		fmt.Fprintf(os.Stderr, "krit-daemon: resolve --repo: %v\n", err)
+		os.Exit(1)
 	}
 	if info, err := os.Stat(repo); err != nil || !info.IsDir() {
-		log.Fatalf("krit-daemon: --repo is not a directory: %s", repo)
+		fmt.Fprintf(os.Stderr, "krit-daemon: --repo is not a directory: %s\n", repo)
+		os.Exit(1)
 	}
 
+	// flock(2) single-instance enforcement (issue #208). serve.Run
+	// itself doesn't hold the lock, so we acquire it here and release
+	// on exit. The kernel releases the fd if the process is killed.
 	lock, err := daemon.AcquireRepoLock(repo)
 	if err != nil {
 		if errors.Is(err, daemon.ErrAlreadyHeld) {
@@ -61,38 +87,66 @@ func main() {
 			}
 			os.Exit(2)
 		}
-		log.Fatalf("krit-daemon: acquire lock: %v", err)
+		fmt.Fprintf(os.Stderr, "krit-daemon: acquire lock: %v\n", err)
+		os.Exit(1)
 	}
 	defer lock.Close() //nolint:errcheck // best effort on shutdown
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	srv, err := sessdaemon.NewServer(ctx, sessdaemon.Options{
-		RepoDir:      repo,
-		SocketPath:   *socketFlag,
-		StrictVerify: *strictVerifyFlag,
-		IdleTimeout:  *idleTimeoutFlag,
-	})
-	if err != nil {
-		log.Fatalf("krit-daemon: %v", err)
+	// Translate krit-daemon's flag surface to serve.Run's. The flag
+	// names changed when we collapsed the two daemon implementations.
+	serveArgs := []string{"--root", repo}
+	if *socketFlag != "" {
+		serveArgs = append(serveArgs, "--socket", *socketFlag)
+	}
+	if *idleTimeoutFlag > 0 {
+		serveArgs = append(serveArgs, "--idle-timeout", idleTimeoutFlag.String())
 	}
 
-	if err := srv.Start(ctx); err != nil {
-		log.Fatalf("krit-daemon: start: %v", err)
-	}
 	if *verboseFlag {
-		fmt.Fprintf(os.Stderr, "krit-daemon listening on %s\n", srv.SocketPath())
+		fmt.Fprintf(os.Stderr, "krit-daemon: starting in-tree serve.Run with args %v\n", serveArgs)
 	}
 
-	// Stop on SIGINT / SIGTERM. The shutdown verb path also drives
-	// Stop, so signals just give an operator override.
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sig
-		srv.Stop()
-	}()
+	// serve.Version is the version reported by the status verb. Mirror
+	// the krit-daemon binary's version so clients can detect upgrades.
+	serve.Version = version
 
-	srv.Wait()
+	// The binary-hash handshake compares the CLI's krit binary hash to
+	// what the daemon advertises. With krit and krit-daemon as separate
+	// binaries the handshake would always mismatch if we hashed our own
+	// executable. Resolution order:
+	//   1. --client-binary-hash flag (the spawning CLI passed its hash)
+	//   2. hash of the sibling "krit" binary next to krit-daemon
+	//   3. empty (disables the handshake)
+	switch {
+	case *clientHashFlag != "":
+		serve.BinaryHashOverride = *clientHashFlag
+	default:
+		serve.BinaryHashOverride = hashSiblingKritBinary()
+	}
+
+	os.Exit(serve.Run(serveArgs))
+}
+
+// hashSiblingKritBinary returns the SHA-256 hex digest of the krit
+// binary that lives next to this krit-daemon binary, or "" when no
+// sibling exists. The CLI hashes its own executable; matching that
+// requires the daemon to hash the same file, not its own (different)
+// binary. Returns "" silently on any I/O error — the handshake then
+// treats the daemon as "no opinion" and accepts any CLI hash.
+func hashSiblingKritBinary() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	sibling := filepath.Join(filepath.Dir(exe), "krit")
+	f, err := os.Open(sibling)
+	if err != nil {
+		return ""
+	}
+	defer f.Close() //nolint:errcheck
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }

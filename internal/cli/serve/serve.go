@@ -36,16 +36,32 @@ import (
 // useful value without explicit wiring.
 var Version = "dev"
 
-// daemonBinaryHash returns the SHA-256 hex digest of the running
-// krit binary. Cached after the first call so /status responses are
-// cheap. Returns "" if the executable can't be located or read —
-// clients treat the empty string as "no opinion" and skip the
-// version handshake.
+// BinaryHashOverride, when non-empty, is returned by daemonBinaryHash()
+// in place of the hash of the running executable. cmd/krit-daemon sets
+// this to the hash of the sibling krit binary so the CLI-vs-daemon
+// handshake compares apples to apples (the CLI hashes its own
+// executable; daemonbinary != CLI binary in the krit-daemon-as-shim
+// topology). Empty disables the override.
+//
+// TODO(#247-followup): wire this from a --client-binary-hash flag on
+// krit-daemon so the daemon advertises the exact CLI hash it was
+// started against, not just a sibling lookup that races CLI rebuilds.
+var BinaryHashOverride string
+
+// daemonBinaryHash returns the SHA-256 hex digest of the krit binary
+// this daemon is paired with — see BinaryHashOverride for the
+// shim-vs-direct-serve split. Cached after the first call so /status
+// responses are cheap. Returns "" if the executable can't be located
+// or read — clients treat the empty string as "no opinion" and skip
+// the version handshake.
 func daemonBinaryHash() string {
 	if cached := binaryHashCache.Load(); cached != nil {
 		return *cached
 	}
-	hash := computeBinaryHash()
+	hash := BinaryHashOverride
+	if hash == "" {
+		hash = computeBinaryHash()
+	}
 	binaryHashCache.Store(&hash)
 	return hash
 }

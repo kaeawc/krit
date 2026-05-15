@@ -1,6 +1,8 @@
 // Package daemoncmd implements the `krit daemon` lifecycle
-// subcommands. Each operates on a PID file at <repoDir>/.krit/daemon.pid
-// and the per-repo socket path published by sessdaemon.
+// subcommands. Each operates on a PID file at
+// <repoDir>/.krit/daemon.pid and the per-repo socket path published
+// by internal/daemon (the line-delimited JSON-RPC server hosted by
+// internal/cli/serve and the cmd/krit-daemon shim).
 package daemoncmd
 
 import (

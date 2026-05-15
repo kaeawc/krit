@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/kaeawc/krit/internal/sessdaemon"
+	"github.com/kaeawc/krit/internal/daemon"
 )
 
 // DaemonStatus is the JSON payload `daemon status --json` prints.
@@ -59,9 +59,14 @@ func runStatus(args []string) int {
 }
 
 // collectStatus assembles a DaemonStatus for repo. Resolution order:
-// PID file → health verb when reachable → stale-detection fallback.
+// PID file → status verb when reachable → stale-detection fallback.
+//
+// The probe uses internal/daemon's line-delimited JSON-RPC (the
+// protocol cmd/krit-daemon serves via serve.Run today). The earlier
+// sessdaemon-backed probe never reached this code path in production
+// because the analyze path was broken (see issue #247).
 func collectStatus(repo string) DaemonStatus {
-	socket := sessdaemon.DefaultSocketPath(repo)
+	socket := daemon.DefaultSocketPath(repo)
 	st := DaemonStatus{SocketPath: socket}
 
 	pid, perr := readPIDFile(pidFilePath(repo))
@@ -74,24 +79,23 @@ func collectStatus(repo string) DaemonStatus {
 		st.LastError = perr.Error()
 	}
 
-	// Health dial is authoritative — if the daemon answers, trust it
+	// Status dial is authoritative — if the daemon answers, trust it
 	// over PID-file contents.
 	socketExists := fileExists(socket)
 	if socketExists {
-		health, herr := sessdaemon.Health(socket)
-		if herr == nil {
+		var status daemon.StatusResult
+		err := daemon.Call(socket, daemon.VerbStatus, nil, &status)
+		if err == nil {
 			st.Running = true
-			if health.PID != 0 {
-				st.PID = health.PID
-			}
-			st.UptimeSeconds = health.UptimeSeconds
-			st.BinaryHash = health.BinaryHash
-			st.LastFlushUnix = health.LastFlushUnix
+			st.BinaryHash = status.BinaryHash
+			// Uptime is not exposed via the status verb today; the
+			// PID-derived value (computed by the caller via
+			// processCreateTime in a follow-up) stays at 0 for now.
 			return st
 		}
 		st.StaleEntries++
 		if st.LastError == "" {
-			st.LastError = herr.Error()
+			st.LastError = err.Error()
 		}
 	}
 

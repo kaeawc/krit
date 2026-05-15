@@ -2,16 +2,19 @@ package daemoncmd
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
 	"time"
 
-	"github.com/kaeawc/krit/internal/sessdaemon"
+	"github.com/kaeawc/krit/internal/daemon"
 )
 
 // ExitForceKill is the exit code stop returns when SIGTERM did not
@@ -47,7 +50,7 @@ func runStart(args []string) int {
 	}
 	socket := *socketFlag
 	if socket == "" {
-		socket = sessdaemon.DefaultSocketPath(repo)
+		socket = daemon.DefaultSocketPath(repo)
 	}
 
 	if st := collectStatus(repo); st.Running {
@@ -67,7 +70,8 @@ func runStart(args []string) int {
 		return 1
 	}
 
-	pid, err := spawnDaemon(binary, repo, socket, *idleTimeoutFlag)
+	clientHash := computeCurrentBinaryHash()
+	pid, err := spawnDaemon(binary, repo, socket, *idleTimeoutFlag, clientHash)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "krit daemon start: spawn: %v\n", err)
 		return 1
@@ -112,7 +116,7 @@ func resolveDaemonBinary(explicit string) (string, error) {
 // spawnDaemon launches krit-daemon detached via Setsid so a SIGHUP on
 // the parent terminal (e.g. closing the shell) doesn't take the
 // daemon down with it.
-func spawnDaemon(binary, repo, socket string, idleTimeout time.Duration) (int, error) {
+func spawnDaemon(binary, repo, socket string, idleTimeout time.Duration, clientBinaryHash string) (int, error) {
 	dotKrit := filepath.Join(repo, ".krit")
 	if err := os.MkdirAll(dotKrit, 0o755); err != nil {
 		return 0, fmt.Errorf("prepare .krit dir: %w", err)
@@ -131,6 +135,9 @@ func spawnDaemon(binary, repo, socket string, idleTimeout time.Duration) (int, e
 	if idleTimeout > 0 {
 		args = append(args, "--idle-timeout", idleTimeout.String())
 	}
+	if clientBinaryHash != "" {
+		args = append(args, "--client-binary-hash", clientBinaryHash)
+	}
 	cmd := exec.CommandContext(context.Background(), binary, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Stdin = nil
@@ -145,7 +152,30 @@ func spawnDaemon(binary, repo, socket string, idleTimeout time.Duration) (int, e
 	return cmd.Process.Pid, nil
 }
 
-// waitForReady polls the health verb until the daemon answers or the
+// computeCurrentBinaryHash returns the SHA-256 hex digest of the
+// running krit binary. Used by the start subcommand to advertise the
+// CLI's hash to the daemon it spawns, so the daemon's status response
+// reports a hash the CLI's handshake will accept. Returns "" on any
+// I/O error — the daemon then falls back to its sibling-lookup
+// heuristic and ultimately to disabling the handshake.
+func computeCurrentBinaryHash() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	f, err := os.Open(exe)
+	if err != nil {
+		return ""
+	}
+	defer f.Close() //nolint:errcheck
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// waitForReady polls the status verb until the daemon answers or the
 // timeout expires. If the spawned process dies first, we surface that
 // directly so operators look at the daemon log instead of waiting out
 // the timeout.
@@ -155,7 +185,8 @@ func waitForReady(socket string, pid int, timeout time.Duration) error {
 		if !processAlive(pid) {
 			return fmt.Errorf("daemon process %d exited before becoming ready (see .krit/daemon.log)", pid)
 		}
-		if _, err := sessdaemon.Health(socket); err == nil {
+		var status daemon.StatusResult
+		if err := daemon.Call(socket, daemon.VerbStatus, nil, &status); err == nil {
 			return nil
 		}
 		time.Sleep(startPollEvery)

@@ -251,3 +251,65 @@ func shortTempDir(t *testing.T) string {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return dir
 }
+
+// TestDaemonAnalyzeProject_RoundTrip is the regression test for issue
+// #247. Before the protocol-mismatch fix, every CLI -> daemon analyze
+// call errored with "daemon: read: EOF" because cmd/krit-daemon ran
+// sessdaemon's length-prefixed protocol while the CLI client spoke
+// line-delimited internal/daemon. After the fix krit-daemon shims to
+// serve.Run which serves the line-delimited protocol the CLI expects.
+//
+// The test starts a real krit-daemon, runs a scan that the daemon
+// must handle (no --no-daemon, no profiling flags that bypass the
+// daemon path), and asserts:
+//   - the CLI prints "info: using daemon" — the delegation succeeded
+//   - the CLI does not print the "daemon call failed" fallback warning
+//   - the run produces findings on the seeded Kotlin source
+//
+// Row-level parity with in-process is intentionally not asserted
+// here — the daemon's analyze body has known divergence from the
+// in-process path tracked separately. This test only guards the
+// wire protocol.
+func TestDaemonAnalyzeProject_RoundTrip(t *testing.T) {
+	buildDaemonBinary(t)
+	repo := shortTempDir(t)
+
+	// Seed a tiny Kotlin file with a known-active finding so the
+	// daemon emits at least one row. UnusedVariable is on by default.
+	src := filepath.Join(repo, "Test.kt")
+	if err := os.WriteFile(src, []byte("package test\n\nfun example() {\n    val x = 1\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, code := runKrit(t, "daemon", "start", "--repo", repo, "--timeout", "10s")
+	if code != 0 {
+		log, _ := os.ReadFile(filepath.Join(repo, ".krit", "daemon.log"))
+		t.Fatalf("daemon start failed: exit=%d log=%q", code, log)
+	}
+	t.Cleanup(func() { _, _, _ = runKrit(t, "daemon", "stop", "--repo", repo) })
+
+	stdout, stderr, code := runKrit(t, "--no-type-inference", "--no-type-oracle", "-q", "-f", "json", repo)
+	// Findings present -> exit 1; the test directory is clean iff no
+	// rules fired, but the seeded UnusedVariable should fire.
+	if code != 1 {
+		t.Fatalf("analyze via daemon: expected exit 1 (findings), got %d\nstdout=%q\nstderr=%q", code, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "info: using daemon") {
+		t.Fatalf("expected 'info: using daemon' in stderr (daemon delegation), got: %q", stderr)
+	}
+	if strings.Contains(stderr, "daemon call failed") {
+		t.Fatalf("CLI fell back to in-process — daemon path is still broken:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "daemon: read: EOF") {
+		t.Fatalf("CLI hit the protocol-mismatch EOF — issue #247 regressed:\n%s", stderr)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON from daemon analyze: %v\nstdout=%q", err, stdout)
+	}
+	findings, _ := result["findings"].([]interface{})
+	if len(findings) == 0 {
+		t.Fatalf("expected at least one finding from daemon analyze, got 0:\nstdout=%q", stdout)
+	}
+}

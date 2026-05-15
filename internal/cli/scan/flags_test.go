@@ -40,6 +40,7 @@ func TestRegisterScanFlagsAllFieldsPopulated(t *testing.T) {
 		{"MinConfidence", f.MinConfidence},
 		{"Diff", f.Diff},
 		{"DisableRules", f.DisableRules},
+		{"MaxCost", f.MaxCost},
 		{"Experiment", f.Experiment},
 		{"ExperimentMatrix", f.ExperimentMatrix},
 		{"PromoteExperiment", f.PromoteExperiment},

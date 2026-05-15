@@ -176,6 +176,11 @@ type RuleDescriptor struct {
 	// guidance via ReplacedBy / Reason.
 	Deprecated *Deprecation
 
+	// RelatedRules mirrors Rule.RelatedRules — advisory cross-links to
+	// other rule IDs covering overlapping concerns. See Rule.RelatedRules
+	// for the full contract.
+	RelatedRules []string
+
 	// RuleSet is the configuration group this rule belongs to
 	// (e.g. "complexity", "naming", "performance").
 	RuleSet string
@@ -186,6 +191,12 @@ type RuleDescriptor struct {
 	// the same way they publish other metadata. Tags are purely
 	// descriptive and do not affect activation or dispatch.
 	Tags []string
+
+	// Owners are GitHub handles or team aliases that maintain this
+	// rule. See Rule.Owners for the full contract. MetaForRule always
+	// emits a non-empty Owners slice, falling back to DefaultRuleOwners
+	// when neither Rule.Owners nor a MetaProvider supplied one.
+	Owners []string
 
 	// Severity is "error", "warning", or "info".
 	Severity string

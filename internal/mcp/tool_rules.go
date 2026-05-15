@@ -18,9 +18,11 @@ type rulesArgs struct {
 	Rule string `json:"rule"`
 
 	// operation=search
-	Query     string `json:"query"`
-	Category  string `json:"category"`
-	Precision string `json:"precision"`
+	Query     string   `json:"query"`
+	Category  string   `json:"category"`
+	Precision string   `json:"precision"`
+	Needs     []string `json:"needs"`
+	Without   []string `json:"without"`
 
 	// operation=configure
 	Active   *bool  `json:"active"`
@@ -71,29 +73,64 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 
 	active := rules.IsDefaultActive(r.ID)
 
+	desc, _ := rules.MetaForRule(r)
+
 	info := map[string]interface{}{
-		"name":        r.ID,
-		"description": r.Description,
-		"ruleSet":     r.Category,
-		"severity":    string(r.Sev),
-		"active":      active,
-		"fixable":     fixable,
-		"precision":   rules.V2RulePrecision(r).String(),
-		"effort":      rules.V2RuleEffort(r).String(),
+		"name":         r.ID,
+		"description":  r.Description,
+		"ruleSet":      r.Category,
+		"severity":     string(r.Sev),
+		"active":       active,
+		"fixable":      fixable,
+		"precision":    rules.V2RulePrecision(r).String(),
+		"effort":       rules.V2RuleEffort(r).String(),
+		"cost":         rules.CostFor(r).String(),
+		"capabilities": r.CapabilitiesList(),
+		"owners":       desc.Owners,
+		"maintainedBy": "Maintained by " + strings.Join(desc.Owners, ", "),
 	}
 	if fixLevel != "" {
 		info["fixLevel"] = fixLevel
 	}
+	if related := resolveRelatedRules(r); len(related) > 0 {
+		info["relatedRules"] = related
+	}
 
 	return jsonResult(info)
+}
+
+// resolveRelatedRules returns the rule IDs listed in r.RelatedRules,
+// filtered to those that still resolve in the registry. ValidateRelations
+// already rejects dangling references at NewDispatcher time; this filter
+// is a defensive guard for callers that introspect the registry without
+// having constructed a dispatcher.
+func resolveRelatedRules(r *api.Rule) []string {
+	if r == nil || len(r.RelatedRules) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(r.RelatedRules))
+	for _, id := range r.RelatedRules {
+		if findRule(id) != nil {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // rulesSearch performs a case-insensitive substring match over rule name,
 // description, and category. Results are ranked by where the match landed
 // (name > description > category) then alphabetical.
 func (s *Server) rulesSearch(args rulesArgs) ToolResult {
-	if args.Query == "" && args.Precision == "" {
-		return errorResult("'query' or 'precision' argument is required for operation=search")
+	capabilityFilter := api.CapabilityFilter{Require: args.Needs, Exclude: args.Without}
+	if args.Query == "" && args.Precision == "" && capabilityFilter.IsZero() {
+		return errorResult("'query', 'precision', 'needs', or 'without' argument is required for operation=search")
+	}
+
+	if _, unknown := api.ParseCapabilities(args.Needs); len(unknown) > 0 {
+		return errorResult("unknown capability label(s) in 'needs': " + strings.Join(unknown, ", "))
+	}
+	if _, unknown := api.ParseCapabilities(args.Without); len(unknown) > 0 {
+		return errorResult("unknown capability label(s) in 'without': " + strings.Join(unknown, ", "))
 	}
 
 	q := strings.ToLower(args.Query)
@@ -110,14 +147,16 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 	}
 
 	type hit struct {
-		Name        string `json:"name"`
-		Category    string `json:"ruleSet"`
-		Severity    string `json:"severity"`
-		Active      bool   `json:"active"`
-		Fixable     bool   `json:"fixable"`
-		Precision   string `json:"precision"`
-		Description string `json:"description"`
-		Score       int    `json:"-"`
+		Name         string   `json:"name"`
+		Category     string   `json:"ruleSet"`
+		Severity     string   `json:"severity"`
+		Active       bool     `json:"active"`
+		Fixable      bool     `json:"fixable"`
+		Precision    string   `json:"precision"`
+		Cost         string   `json:"cost"`
+		Capabilities []string `json:"capabilities"`
+		Description  string   `json:"description"`
+		Score        int      `json:"-"`
 	}
 
 	hits := make([]hit, 0, 32)
@@ -131,6 +170,10 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 			continue
 		}
 
+		if !capabilityFilter.MatchRule(r) {
+			continue
+		}
+
 		score := 0
 		nameMatch := strings.Contains(strings.ToLower(r.ID), q)
 		descMatch := strings.Contains(strings.ToLower(r.Description), q)
@@ -138,10 +181,9 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 
 		switch {
 		case q == "":
-			// Precision-only filter: no query text required.
-			if precisionFilter == api.PrecisionUnset {
-				continue
-			}
+			// No query text: any of precision / needs / without acts as the
+			// filter. We've already applied those above, so anything that
+			// reaches here matches.
 			score = 1
 		case nameMatch:
 			score = 3
@@ -155,14 +197,16 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 
 		_, fixable := rules.GetV2FixLevel(r)
 		hits = append(hits, hit{
-			Name:        r.ID,
-			Category:    r.Category,
-			Severity:    string(r.Sev),
-			Active:      rules.IsDefaultActive(r.ID),
-			Fixable:     fixable,
-			Precision:   precision.String(),
-			Description: r.Description,
-			Score:       score,
+			Name:         r.ID,
+			Category:     r.Category,
+			Severity:     string(r.Sev),
+			Active:       rules.IsDefaultActive(r.ID),
+			Fixable:      fixable,
+			Precision:    precision.String(),
+			Cost:         rules.CostFor(r).String(),
+			Capabilities: r.CapabilitiesList(),
+			Description:  r.Description,
+			Score:        score,
 		})
 	}
 

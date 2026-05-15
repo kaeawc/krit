@@ -119,6 +119,8 @@ func rulesToolDef() ToolDefinition {
 			"query":     jsonschema.String("Free-text search query (operation=search)"),
 			"category":  jsonschema.String("Filter to one category (operation=search)"),
 			"precision": jsonschema.StringEnum([]string{"heuristic/text-backed", "ast-backed", "project-structure-aware", "type-aware", "policy"}, "Filter by precision tier (operation=search)"),
+			"needs":     jsonschema.Array(jsonschema.String(""), "Require these capability labels — every label must be present (operation=search). Use 'oracle' as a shorthand for any oracle:* bit."),
+			"without":   jsonschema.Array(jsonschema.String(""), "Exclude rules that declare any of these capability labels (operation=search). 'without: [oracle]' filters out every NeedsOracle* rule."),
 			"active":    jsonschema.Boolean("Override active flag (operation=configure)"),
 			"severity":  jsonschema.StringEnum([]string{"error", "warning", "info"}, "Override severity (operation=configure)"),
 		}),

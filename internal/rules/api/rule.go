@@ -8,6 +8,8 @@
 package api
 
 import (
+	"strings"
+
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/javafacts"
@@ -17,6 +19,8 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
+
+var costTokenReplacer = strings.NewReplacer("-", "", "_", "", " ", "")
 
 // Capabilities is a bitfield carrying both the rule's primary scope
 // (which dispatcher bucket it lands in) and its orthogonal aspects
@@ -408,6 +412,94 @@ func (l FixLevel) String() string {
 	}
 }
 
+// Cost is an ordinal weight class that lets users and the dispatcher
+// reason about how expensive a rule is to run. Costs are derived from
+// the rule's Needs bitfield when Rule.Cost is left at CostUnset; rules
+// may pin a specific tier when the derivation under-counts (e.g. a rule
+// that walks parsed files but only inspects identifiers).
+//
+// Values are monotonic: a higher Cost implies the rule's evidence
+// pipeline is a strict superset of the lower tiers, so --max-cost can
+// filter by inequality.
+type Cost uint8
+
+const (
+	// CostUnset is the zero value; readers should call CostFor / the
+	// derivation helper rather than assuming the rule actually runs at
+	// this tier.
+	CostUnset Cost = iota
+	// CostTrivial covers rules that do trivial work per file (regex on
+	// path, manifest presence checks). Rules in this tier are typically
+	// safe for every pre-commit hook.
+	CostTrivial
+	// CostLine covers rules dispatched through the line-pass family —
+	// one walk over file.Lines, no AST traversal.
+	CostLine
+	// CostAST covers rules dispatched against the per-file flat AST. No
+	// resolver, no cross-file index, no oracle calls.
+	CostAST
+	// CostCrossFile covers rules that consume the project-scope code or
+	// module index, including parsed-files and aggregate rules whose
+	// inputs require a cross-file build phase.
+	CostCrossFile
+	// CostOracle covers rules that require the Kotlin Analysis API
+	// oracle (any NeedsOracle* bit) or that pin a TypeInfo backend
+	// requiring resolved facts.
+	CostOracle
+	// CostFIR covers rules that require FIR / Java-facts helper
+	// subprocesses on top of the oracle.
+	CostFIR
+)
+
+// String returns the canonical lowercase token for a Cost. The token is
+// the same one users pass to --max-cost / maxCost.
+func (c Cost) String() string {
+	switch c {
+	case CostTrivial:
+		return "trivial"
+	case CostLine:
+		return "line"
+	case CostAST:
+		return "ast"
+	case CostCrossFile:
+		return "crossfile"
+	case CostOracle:
+		return "oracle"
+	case CostFIR:
+		return "fir"
+	default:
+		return "unset"
+	}
+}
+
+// ParseCost maps a user-facing token (case-insensitive, with the legacy
+// hyphenated "cross-file" form accepted) to a Cost. It also understands
+// the documented presets fast / balanced / thorough so configuration
+// surfaces can hand the same string to one parser. Returns CostUnset
+// and ok=false for unknown tokens.
+func ParseCost(s string) (Cost, bool) {
+	switch normalizeCostToken(s) {
+	case "trivial":
+		return CostTrivial, true
+	case "line":
+		return CostLine, true
+	case "ast", "fast":
+		return CostAST, true
+	case "crossfile", "balanced":
+		return CostCrossFile, true
+	case "oracle":
+		return CostOracle, true
+	case "fir", "thorough", "all":
+		return CostFIR, true
+	default:
+		return CostUnset, false
+	}
+}
+
+func normalizeCostToken(s string) string {
+	return costTokenReplacer.Replace(strings.ToLower(s))
+}
+
 // Severity levels.
 type Severity string
 
@@ -633,6 +725,14 @@ type Rule struct {
 	// config activation today.
 	Tags []string
 
+	// Owners are GitHub handles or team aliases (e.g. "@kaeawc" or
+	// "@kaeawc/android") that maintain this rule. Surfaces in MCP
+	// `explain` so users know who to ping when a rule misfires; also
+	// pre-fills the `/cc @owner` line on issue templates and CI failure
+	// messages. Empty Owners on a registered rule falls back to
+	// DefaultRuleOwners when projected through MetaForRule.
+	Owners []string
+
 	// EnabledByDefaultSince records the krit version in which this rule
 	// became default-active (DefaultActive transitioned from false to
 	// true). Empty string means the rule has been default-active since
@@ -646,6 +746,19 @@ type Rule struct {
 	// — they continue to fire so existing baselines stay valid until the
 	// user migrates.
 	Deprecated *Deprecation
+
+	// RelatedRules names other rule IDs that cover overlapping concerns —
+	// near-duplicates, narrower/broader variants, or alternative styles for
+	// the same defect class. Unlike Deprecated.ReplacedBy (which only
+	// applies to deprecated rules) this field is a general advisory link
+	// usable by all rules. Relations are directional hints and need not be
+	// symmetric. Consumers:
+	//   - MCP `explain` renders a "Related rules" cross-link section.
+	//   - `--disable-related` extends the disabled set with the related
+	//     IDs of every explicitly disabled rule (non-transitive).
+	// ValidateRelations enforces that every referenced ID exists in the
+	// registry at NewDispatcher time.
+	RelatedRules []string
 
 	// Dispatch routing.
 	//
@@ -727,6 +840,12 @@ type Rule struct {
 
 	// Fix metadata
 	Fix FixLevel // FixNone → not fixable
+
+	// Cost is the rule's weight class. When left at CostUnset, the
+	// dispatcher derives a Cost from Needs / NodeTypes / JavaFacts via
+	// rules.CostFor. Rules may pin an explicit Cost when the derived
+	// value would under- or over-state the actual work performed.
+	Cost Cost
 
 	// Confidence tier (0 = use family default)
 	Confidence float64
@@ -1018,6 +1137,59 @@ func NeedsJavaFacts(rules []*Rule) bool {
 	}
 	return false
 }
+
+// ValidateRelations checks that every ID listed in any rule's
+// RelatedRules exists in the supplied rule set. Relations are
+// directional advisory hints — symmetry is NOT required. Returns nil
+// when every reference resolves; otherwise an error naming the first
+// offending (rule, referenced ID) pair found in stable iteration order.
+//
+// Callers are expected to invoke this from NewDispatcher (or another
+// registry-construction boundary) so dangling references surface at
+// startup rather than via silent dead links in MCP output.
+func ValidateRelations(rules []*Rule) error {
+	ids := make(map[string]bool, len(rules))
+	for _, r := range rules {
+		if r == nil {
+			continue
+		}
+		ids[r.ID] = true
+	}
+	for _, r := range rules {
+		if r == nil {
+			continue
+		}
+		for _, ref := range r.RelatedRules {
+			if ref == r.ID {
+				return &RelationError{Rule: r.ID, Reference: ref, Reason: "rule cannot relate to itself"}
+			}
+			if !ids[ref] {
+				return &RelationError{Rule: r.ID, Reference: ref, Reason: "unknown rule ID"}
+			}
+		}
+	}
+	return nil
+}
+
+// RelationError describes an invalid RelatedRules entry surfaced by
+// ValidateRelations.
+type RelationError struct {
+	Rule      string
+	Reference string
+	Reason    string
+}
+
+func (e *RelationError) Error() string {
+	return "rule " + e.Rule + " RelatedRules entry " + e.Reference + ": " + e.Reason
+}
+
+// DefaultRuleOwners is the fallback owner list used when a rule does
+// not declare its own Owners. It mirrors the project's CODEOWNERS
+// root entry ("* @kaeawc") so every registered rule has at least one
+// pingable maintainer surfaced through MetaForRule and MCP `explain`.
+//
+// Treat the slice as read-only.
+var DefaultRuleOwners = []string{"@kaeawc"}
 
 // Registry holds all registered v2 rules.
 var Registry []*Rule

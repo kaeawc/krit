@@ -3,6 +3,8 @@ package rules
 import (
 	"fmt"
 	"sort"
+
+	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
 // RuleExecutionStat captures per-rule CPU timing for one per-file rule
@@ -11,6 +13,7 @@ import (
 type RuleExecutionStat struct {
 	Rule        string  `json:"rule"`
 	Family      string  `json:"family"`
+	Cost        string  `json:"cost,omitempty"`
 	Invocations int64   `json:"invocations"`
 	DurationNs  int64   `json:"durationNs"`
 	DurationMs  float64 `json:"durationMs"`
@@ -47,16 +50,53 @@ func (s *RunStats) recordRule(ruleID, family string, durationNs int64) {
 	s.RuleStatsByRule[ruleID] = stat
 }
 
-// SortedRuleExecutionStats returns deterministic, descending per-rule timing
-// rows with derived averages and percentage share filled in.
+// SortedRuleExecutionStats returns per-rule timing rows ordered by
+// duration descending (with rule ID as tiebreaker), with averages,
+// percentage share, and the rule's Cost tier filled in.
 func SortedRuleExecutionStats(stats RunStats) []RuleExecutionStat {
-	if len(stats.RuleStatsByRule) == 0 {
-		return nil
+	out, _ := sortedRuleExecutionStats(stats)
+	return out
+}
+
+// SortedRuleExecutionStatsByCost returns the same rows as
+// SortedRuleExecutionStats but grouped by Cost tier ascending (cheap →
+// expensive), breaking ties by duration descending then rule ID.
+func SortedRuleExecutionStatsByCost(stats RunStats) []RuleExecutionStat {
+	out, costByID := sortedRuleExecutionStats(stats)
+	rank := func(s RuleExecutionStat) api.Cost {
+		if c, ok := costByID[s.Rule]; ok && c != api.CostUnset {
+			return c
+		}
+		c, _ := api.ParseCost(s.Cost)
+		return c
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		ci, cj := rank(out[i]), rank(out[j])
+		if ci != cj {
+			return ci < cj
+		}
+		if out[i].DurationNs == out[j].DurationNs {
+			return out[i].Rule < out[j].Rule
+		}
+		return out[i].DurationNs > out[j].DurationNs
+	})
+	return out
+}
+
+func sortedRuleExecutionStats(stats RunStats) ([]RuleExecutionStat, map[string]api.Cost) {
+	if len(stats.RuleStatsByRule) == 0 {
+		return nil, nil
+	}
+	costByID := buildCostLookup()
 	out := make([]RuleExecutionStat, 0, len(stats.RuleStatsByRule))
 	var totalNs int64
 	for _, stat := range stats.RuleStatsByRule {
 		totalNs += stat.DurationNs
+		if stat.Cost == "" {
+			if c, ok := costByID[stat.Rule]; ok {
+				stat.Cost = c.String()
+			}
+		}
 		out = append(out, stat)
 	}
 	for i := range out {
@@ -74,6 +114,20 @@ func SortedRuleExecutionStats(stats RunStats) []RuleExecutionStat {
 		}
 		return out[i].DurationNs > out[j].DurationNs
 	})
+	return out, costByID
+}
+
+func buildCostLookup() map[string]api.Cost {
+	if len(api.Registry) == 0 {
+		return nil
+	}
+	out := make(map[string]api.Cost, len(api.Registry))
+	for _, r := range api.Registry {
+		if r == nil {
+			continue
+		}
+		out[r.ID] = CostFor(r)
+	}
 	return out
 }
 

@@ -330,6 +330,17 @@ func TestExplainRule(t *testing.T) {
 	if _, ok := info["fixable"]; !ok {
 		t.Error("expected fixable in result")
 	}
+	owners, ok := info["owners"].([]interface{})
+	if !ok {
+		t.Fatalf("expected owners array in result, got %T", info["owners"])
+	}
+	if len(owners) == 0 {
+		t.Error("expected at least one owner")
+	}
+	maintained, ok := info["maintainedBy"].(string)
+	if !ok || !strings.HasPrefix(maintained, "Maintained by ") {
+		t.Errorf("expected maintainedBy 'Maintained by ...', got %q", info["maintainedBy"])
+	}
 }
 
 func TestExplainRuleUnknown(t *testing.T) {

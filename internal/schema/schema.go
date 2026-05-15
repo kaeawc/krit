@@ -3,6 +3,7 @@ package schema
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/kaeawc/krit/internal/jsonschema"
 	"github.com/kaeawc/krit/internal/rules"
@@ -18,6 +19,7 @@ type RuleMeta struct {
 	Fixable         bool
 	FixLevel        string // cosmetic/idiomatic/semantic or ""
 	Precision       string // heuristic/ast-backed/project-structure/type-aware/policy
+	Capabilities    []string
 	LanguageSupport map[string]api.LanguageSupport
 	Options         []OptionMeta
 }
@@ -62,6 +64,7 @@ func CollectRuleMeta() []RuleMeta {
 			Fixable:         fixable,
 			FixLevel:        fixLevel,
 			Precision:       precision,
+			Capabilities:    r.CapabilitiesList(),
 			LanguageSupport: languageSupport,
 			Options:         opts,
 		})
@@ -164,6 +167,11 @@ func GenerateSchema(metas []RuleMeta) *jsonschema.Schema {
 		"warningsAsErrors": jsonschema.Boolean("").WithDefault(false),
 	}).WithDescription("Global krit configuration.").AdditionalPropertiesFalse()
 
+	props["maxCost"] = jsonschema.StringEnum(
+		[]string{"trivial", "line", "ast", "crossfile", "oracle", "fir", "fast", "balanced", "thorough"},
+		"Maximum rule weight class to run. Filters the active rule set so higher-cost rules are skipped. Presets: fast≡ast, balanced≡crossfile, thorough≡fir.",
+	)
+
 	props["module_template"] = jsonschema.Object(map[string]*jsonschema.Schema{
 		"feature_root":        jsonschema.String("Gradle path glob for feature root modules, for example feature:*."),
 		"required_submodules": jsonschema.Array(jsonschema.String(""), "Child module names required below each matching feature root."),
@@ -236,6 +244,9 @@ func ruleSchema(m RuleMeta) *jsonschema.Schema {
 	}
 	if m.Precision != "" && m.Precision != "unset" {
 		desc += fmt.Sprintf(" [precision: %s]", m.Precision)
+	}
+	if len(m.Capabilities) > 0 {
+		desc += fmt.Sprintf(" [capabilities: %s]", strings.Join(m.Capabilities, ", "))
 	}
 
 	return jsonschema.Object(ruleProps).

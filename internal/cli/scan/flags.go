@@ -73,7 +73,9 @@ type scanFlags struct {
 	Diff                     *string
 	Delta                    *string
 	DisableRules             *string
+	DisableRelated           *bool
 	EnableRules              *string
+	MaxCost                  *string
 	Experiment               *string
 	ExperimentOff            *string
 	ListExperiments          *bool
@@ -171,7 +173,9 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.Diff = fs.String("diff", "", "Only report findings in files changed since git ref (e.g., HEAD~1, main, origin/main)")
 	f.Delta = fs.String("delta", "", "Only fail/report findings newly introduced since git ref (e.g., main, origin/main)")
 	f.DisableRules = fs.String("disable-rules", "", "Comma-separated rules to disable (e.g., MagicNumber,MaxLineLength)")
+	f.DisableRelated = fs.Bool("disable-related", false, "Also disable every rule listed in the RelatedRules metadata of each --disable-rules entry (non-transitive: only one hop is followed).")
 	f.EnableRules = fs.String("enable-rules", "", "Comma-separated rules to enable (overrides config)")
+	f.MaxCost = fs.String("max-cost", "", "Maximum rule weight class to run: trivial, line, ast (fast), crossfile (balanced), oracle, fir (thorough). Filters the active rule set so higher-cost rules are skipped.")
 	f.Experiment = fs.String("experiment", "", "Comma-separated experiment feature flags to enable")
 	f.ExperimentOff = fs.String("experiment-off", "", "Comma-separated experiment feature flags to disable")
 	f.ListExperiments = fs.Bool("list-experiments", false, "List available experiment feature flags")

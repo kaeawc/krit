@@ -291,6 +291,51 @@ func writeCompactReport(w io.Writer, success bool, version string, durationMs in
 	return werr
 }
 
+// CompactReport is the public input for WriteCompactReport — a
+// struct wrapper so callers don't have to track positional order
+// across 13 args. The daemon's bundle-hit fast path is the only
+// external consumer today.
+type CompactReport struct {
+	Success      bool
+	Version      string
+	DurationMs   int64
+	FileCount    int
+	RuleCount    int
+	Experiments  []string
+	FindingsJSON []byte
+	Summary      JSONSummary
+	Caches       []cacheutil.NamedCacheStats
+	CacheBudget  *cacheutil.BudgetReport
+	PerfTimings  []perf.TimingEntry
+}
+
+// WriteCompactReport is the package-public entry to the compact
+// envelope writer. Used by the daemon's bundle-hit fast path so a
+// freshly-formatted (or cached) findings byte slice can be wrapped
+// in the same JSON envelope FormatJSONColumnsCompact produces —
+// keeps the wire format identical regardless of which route the
+// daemon takes.
+func WriteCompactReport(w io.Writer, r CompactReport) error {
+	return writeCompactReport(w, r.Success, r.Version, r.DurationMs,
+		r.FileCount, r.RuleCount, r.Experiments,
+		json.RawMessage(r.FindingsJSON), r.Summary,
+		nil, r.Caches, r.CacheBudget, r.PerfTimings, nil)
+}
+
+// BuildFindingsArrayCompact returns the formatted findings array
+// bytes (a JSON array, no surrounding envelope) for the daemon's
+// bundle-hit cache. Byte-identical to the "findings" payload
+// FormatJSONColumnsCompact emits — the caller can pair these with
+// a fresh envelope on every reuse, paying the ~25 ms format cost
+// just once per bundle key.
+func BuildFindingsArrayCompact(columns *scanner.FindingColumns,
+	fixLevels, efforts map[string]string,
+	byRuleSet, byRule map[string]int,
+	fixableCount *int,
+) []byte {
+	return []byte(buildJSONFindings(columns, fixLevels, efforts, byRuleSet, byRule, fixableCount, false))
+}
+
 func buildJSONFindings(columns *scanner.FindingColumns, fixLevels, efforts map[string]string, byRuleSet, byRule map[string]int, fixableCount *int, indent bool) json.RawMessage {
 	cols := normalizedFindingColumns(columns)
 	if cols.Len() == 0 {

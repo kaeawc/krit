@@ -70,6 +70,31 @@ type WorkspaceState struct {
 	// entirely. Entries are never explicitly removed — a stale entry
 	// just fails the version check on the next call.
 	bundleStatsClean map[string]uint64
+
+	bundleOutputMu sync.Mutex
+	// bundleOutput caches the pre-formatted findings JSON bytes
+	// produced by a successful bundle-hit serve. Keyed by the
+	// FindingsBundleKey (which already encodes rules, config, source
+	// set, library facts) so a different fingerprint gets a fresh
+	// entry naturally — no manual invalidation needed. The cached
+	// bytes are content-derived, so two consecutive bundle-hits with
+	// the same key produce byte-identical findings JSON and can
+	// reuse the same buffer.
+	bundleOutput map[string]*CachedBundleOutput
+}
+
+// CachedBundleOutput holds everything OutputPhase needs to assemble
+// the JSON envelope on a warm bundle hit without re-formatting 87 k
+// findings. findingsBytes is the pre-built compact JSON array; the
+// summary fields (totals, by-ruleSet, by-rule, fixableCount) are
+// derived from those findings and stable for the lifetime of the
+// FindingsBundleKey.
+type CachedBundleOutput struct {
+	FindingsBytes []byte
+	Total         int
+	ByRuleSet     map[string]int
+	ByRule        map[string]int
+	FixableCount  int
 }
 
 // xfileSlot pairs a fingerprint with a value. Zero value means
@@ -524,6 +549,37 @@ func (w *WorkspaceState) MarkBundleStatsClean(bundleKey string, version uint64) 
 	}
 	w.bundleStatsClean[bundleKey] = version
 	w.statsCleanMu.Unlock()
+}
+
+// BundleOutput returns the cached formatted-bytes envelope for the
+// given bundle key, or nil on miss. Callers (the bundle-hit
+// fast path in tryLoadFindingsBundleBeforeParse) use the cached
+// bytes verbatim and only re-emit the dynamic envelope fields
+// (durationMs, perf stats) around them.
+func (w *WorkspaceState) BundleOutput(bundleKey string) *CachedBundleOutput {
+	if w == nil || bundleKey == "" {
+		return nil
+	}
+	w.bundleOutputMu.Lock()
+	defer w.bundleOutputMu.Unlock()
+	return w.bundleOutput[bundleKey]
+}
+
+// StoreBundleOutput records the freshly-formatted findings bytes +
+// summary so the next bundle-hit for the same key can skip the
+// ~24 ms format pass entirely. The cache is content-keyed by
+// fingerprint; a rules-config change rotates the key, so a stale
+// entry can never serve a different rule set's findings.
+func (w *WorkspaceState) StoreBundleOutput(bundleKey string, output *CachedBundleOutput) {
+	if w == nil || bundleKey == "" || output == nil {
+		return
+	}
+	w.bundleOutputMu.Lock()
+	if w.bundleOutput == nil {
+		w.bundleOutput = make(map[string]*CachedBundleOutput)
+	}
+	w.bundleOutput[bundleKey] = output
+	w.bundleOutputMu.Unlock()
 }
 
 // AndroidProject memoizes the detected Android project across calls.

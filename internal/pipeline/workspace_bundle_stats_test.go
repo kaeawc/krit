@@ -79,3 +79,48 @@ func TestWorkspaceState_BundleStatsClean_NilSafety(t *testing.T) {
 		t.Errorf("nil receiver SourceMTimeVersion: got %d, want 0", v)
 	}
 }
+
+// TestWorkspaceState_BundleOutput_StoreAndLookup pins the cache
+// lifecycle: empty → store → lookup hits with the same pointer →
+// distinct keys don't collide. The cache is content-keyed by
+// bundle fingerprint (rules + config + source set + library facts
+// already encoded), so we don't need an explicit invalidation
+// signal — a fingerprint change naturally rotates the key.
+func TestWorkspaceState_BundleOutput_StoreAndLookup(t *testing.T) {
+	w := NewWorkspaceState("")
+
+	if got := w.BundleOutput("k"); got != nil {
+		t.Fatalf("empty cache must report nil; got %v", got)
+	}
+
+	v := &CachedBundleOutput{
+		FindingsBytes: []byte(`[{"f":"A"}]`),
+		Total:         1,
+	}
+	w.StoreBundleOutput("k", v)
+	if got := w.BundleOutput("k"); got != v {
+		t.Errorf("BundleOutput(k) returned different pointer than StoreBundleOutput")
+	}
+	if got := w.BundleOutput("other"); got != nil {
+		t.Errorf("BundleOutput leaked across keys; got %+v", got)
+	}
+}
+
+// TestWorkspaceState_BundleOutput_NilSafety mirrors the other
+// WorkspaceState methods: nil receiver and empty key are no-ops.
+func TestWorkspaceState_BundleOutput_NilSafety(t *testing.T) {
+	var w *WorkspaceState
+	if w.BundleOutput("k") != nil {
+		t.Errorf("nil receiver: expected nil")
+	}
+	w.StoreBundleOutput("k", &CachedBundleOutput{}) // must not panic
+
+	w = NewWorkspaceState("")
+	if w.BundleOutput("") != nil {
+		t.Errorf("empty key: expected nil")
+	}
+	w.StoreBundleOutput("", &CachedBundleOutput{}) // must not store
+	if got := w.BundleOutput(""); got != nil {
+		t.Errorf("empty key still returned a value: %v", got)
+	}
+}

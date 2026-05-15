@@ -346,6 +346,8 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			BundleStatsClean:             s.workspace.BundleStatsClean,
 			MarkBundleStatsClean:         s.workspace.MarkBundleStatsClean,
 			SourceMTimeVersion:           s.workspace.SourceMTimeVersion,
+			BundleOutput:                 s.workspace.BundleOutput,
+			StoreBundleOutput:            s.workspace.StoreBundleOutput,
 			CrossFileCacheDir:            scanner.CrossFileCacheDir(repoDir),
 			CrossFindingsCacheDir:        scanner.CrossFindingsCacheDir(repoDir),
 			TypeIndexCacheDir:            typeinfer.TypeIndexCacheDir(repoDir),

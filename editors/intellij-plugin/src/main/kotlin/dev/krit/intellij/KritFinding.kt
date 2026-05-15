@@ -9,6 +9,7 @@ data class KritFinding(
     val severity: String,
     val message: String,
     val fixable: Boolean = false,
+    val fixLevel: String? = null,
 ) {
     val displayMessage: String
         get() = "Krit ${ruleSet}/${rule}: ${message}"

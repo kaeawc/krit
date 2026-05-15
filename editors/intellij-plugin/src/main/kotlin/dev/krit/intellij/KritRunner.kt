@@ -11,15 +11,15 @@ object KritRunner {
     fun analyzeProject(project: Project): KritReport {
         val projectDir = project.baseDir() ?: return KritReport()
         val output = File.createTempFile("krit-intellij-", ".json")
+        val command = mutableListOf(
+            kritBinary(),
+            "--format=json",
+            "-o",
+            output.absolutePath,
+            "-q",
+            projectDir.absolutePath,
+        )
         return try {
-            val command = mutableListOf(
-                kritBinary(),
-                "--format=json",
-                "-o",
-                output.absolutePath,
-                "-q",
-                projectDir.absolutePath,
-            )
             val process = ProcessBuilder(command)
                 .directory(projectDir)
                 .redirectError(ProcessBuilder.Redirect.PIPE)
@@ -47,14 +47,15 @@ object KritRunner {
         }
     }
 
-    fun fixProject(project: Project): Boolean {
+    fun fixProject(project: Project, fixLevel: String?): Boolean {
         val projectDir = project.baseDir() ?: return false
+        val level = fixLevel.orEmpty().ifBlank { "idiomatic" }
         return try {
             val command = listOf(
                 kritBinary(),
                 "--fix",
                 "--fix-level",
-                "idiomatic",
+                level,
                 "-q",
                 projectDir.absolutePath,
             )

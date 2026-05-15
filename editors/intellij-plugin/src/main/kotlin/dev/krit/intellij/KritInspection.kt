@@ -54,14 +54,18 @@ class KritInspection : LocalInspectionTool() {
         if (!finding.fixable) {
             return emptyArray()
         }
-        return arrayOf(KritApplyFixesQuickFix)
+        return arrayOf(KritApplyFixesQuickFix(finding.fixLevel))
     }
 }
 
-object KritApplyFixesQuickFix : LocalQuickFix {
-    override fun getFamilyName(): String = "Apply Krit auto-fixes"
+class KritApplyFixesQuickFix(private val fixLevel: String?) : LocalQuickFix {
+    override fun getFamilyName(): String = "Apply Krit ${normalizedFixLevel()} auto-fixes"
 
     override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-        project.service<KritProjectService>().applyFixes()
+        project.service<KritProjectService>().applyFixes(normalizedFixLevel())
+    }
+
+    private fun normalizedFixLevel(): String {
+        return fixLevel.orEmpty().ifBlank { "idiomatic" }
     }
 }

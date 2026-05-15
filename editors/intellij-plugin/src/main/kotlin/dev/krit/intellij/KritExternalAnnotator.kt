@@ -1,9 +1,12 @@
 package dev.krit.intellij
 
+import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.lang.annotation.AnnotationHolder
 import com.intellij.lang.annotation.ExternalAnnotator
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.components.service
+import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
 
 class KritExternalAnnotator : ExternalAnnotator<PsiFile, List<KritFinding>>() {
@@ -24,8 +27,12 @@ class KritExternalAnnotator : ExternalAnnotator<PsiFile, List<KritFinding>>() {
 
     override fun apply(file: PsiFile, annotationResult: List<KritFinding>?, holder: AnnotationHolder) {
         for (finding in annotationResult.orEmpty()) {
-            holder.newAnnotation(highlightSeverity(finding), finding.displayMessage)
+            val annotation = holder.newAnnotation(highlightSeverity(finding), finding.displayMessage)
                 .range(KritRanges.rangeFor(file, finding))
+            if (finding.fixable) {
+                annotation.withFix(KritApplyFixesIntention(finding.fixLevel))
+            }
+            annotation
                 .create()
         }
     }
@@ -36,5 +43,23 @@ class KritExternalAnnotator : ExternalAnnotator<PsiFile, List<KritFinding>>() {
             "info" -> HighlightSeverity.INFORMATION
             else -> HighlightSeverity.WARNING
         }
+    }
+}
+
+class KritApplyFixesIntention(private val fixLevel: String?) : IntentionAction {
+    override fun getText(): String = "Apply Krit ${normalizedFixLevel()} auto-fixes"
+
+    override fun getFamilyName(): String = text
+
+    override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?): Boolean = true
+
+    override fun invoke(project: Project, editor: Editor?, file: PsiFile?) {
+        project.service<KritProjectService>().applyFixes(normalizedFixLevel())
+    }
+
+    override fun startInWriteAction(): Boolean = false
+
+    private fun normalizedFixLevel(): String {
+        return fixLevel.orEmpty().ifBlank { "idiomatic" }
     }
 }

@@ -34,6 +34,7 @@ class KritJsonParserTest {
         assertEquals("warning", finding.severity)
         assertEquals("Krit style/ExampleRule: Example message", finding.displayMessage)
         assertTrue(finding.fixable)
+        assertEquals(null, finding.fixLevel)
     }
 
     @Test
@@ -50,5 +51,18 @@ class KritJsonParserTest {
         )
 
         assertFalse(report.findings.single().fixable)
+    }
+
+    @Test
+    fun `parse fix level for fixable findings`() {
+        val report = KritJsonParser.parse(
+            """
+            {"findings":[{"file":"A.kt","line":1,"column":1,"ruleSet":"style","rule":"NewLineAtEndOfFile","severity":"warning","message":"m","fixable":true,"fixLevel":"cosmetic"}]}
+            """.trimIndent(),
+        )
+
+        val finding = report.findings.single()
+        assertTrue(finding.fixable)
+        assertEquals("cosmetic", finding.fixLevel)
     }
 }

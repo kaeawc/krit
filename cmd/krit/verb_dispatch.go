@@ -7,6 +7,7 @@ import (
 	climapi "github.com/kaeawc/krit/internal/cli/api"
 	climblastradius "github.com/kaeawc/krit/internal/cli/blastradius"
 	climcache "github.com/kaeawc/krit/internal/cli/cache"
+	climdaemoncmd "github.com/kaeawc/krit/internal/cli/daemoncmd"
 	climdeadcode "github.com/kaeawc/krit/internal/cli/deadcode"
 	climdigraph "github.com/kaeawc/krit/internal/cli/digraph"
 	climeditorconfigdrift "github.com/kaeawc/krit/internal/cli/editorconfigdrift"
@@ -65,6 +66,7 @@ const (
 	verbGraph
 	verbPrecommit
 	verbSnapshot
+	verbDaemon
 )
 
 var verbByName = map[string]subcommandVerb{
@@ -97,6 +99,7 @@ var verbByName = map[string]subcommandVerb{
 	"graph":              verbGraph,
 	"precommit":          verbPrecommit,
 	"snapshot":           verbSnapshot,
+	"daemon":             verbDaemon,
 }
 
 func classifyVerb(arg string) subcommandVerb {
@@ -175,6 +178,8 @@ func runVerbAndExitB(verb subcommandVerb, rest []string) bool {
 	case verbSnapshot:
 		climsnapshot.Version = version
 		os.Exit(climsnapshot.Run(rest))
+	case verbDaemon:
+		os.Exit(climdaemoncmd.Run(rest))
 	}
 	return false
 }

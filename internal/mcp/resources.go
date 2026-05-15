@@ -45,6 +45,7 @@ type ruleInfo struct {
 	RuleSet     string `json:"ruleSet"`
 	Severity    string `json:"severity"`
 	Precision   string `json:"precision"`
+	Effort      string `json:"effort"`
 	Active      bool   `json:"active"`
 	Fixable     bool   `json:"fixable"`
 	FixLevel    string `json:"fixLevel,omitempty"`
@@ -66,6 +67,7 @@ func rulesResource() (string, string, error) {
 			RuleSet:     r.Category,
 			Severity:    string(r.Sev),
 			Precision:   rules.V2RulePrecision(r).String(),
+			Effort:      rules.V2RuleEffort(r).String(),
 			Active:      rules.IsDefaultActive(r.ID),
 			Fixable:     fixable,
 			FixLevel:    fixLevel,

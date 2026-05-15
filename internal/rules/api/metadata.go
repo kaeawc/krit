@@ -228,6 +228,13 @@ type RuleDescriptor struct {
 	// from rule shape; otherwise this value is authoritative.
 	Precision Precision
 
+	// Effort mirrors Rule.Effort — manual-fix difficulty
+	// (trivial / local / refactor / architectural). EffortUnset means
+	// MetaForRule should derive the tier from rule shape via
+	// V2RuleEffort; otherwise this value is authoritative. Orthogonal
+	// to FixLevel (auto-fix safety).
+	Effort Effort
+
 	// Stability mirrors Rule.Stability — the rule's output-shape
 	// commitment (evolving / stable / frozen). StabilityUnset means
 	// the rule has not declared a tier; consumers should treat that

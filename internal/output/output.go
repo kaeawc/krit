@@ -144,6 +144,7 @@ type sarifRegion struct {
 type sarifProperties struct {
 	Confidence   float64  `json:"confidence,omitempty"`
 	Precision    string   `json:"precision,omitempty"`
+	Effort       string   `json:"effort,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`
 }
 
@@ -153,6 +154,7 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 
 	descMap := make(map[string]string)
 	precisionMap := make(map[string]string)
+	effortMap := make(map[string]string)
 	costMap := make(map[string]string)
 	capabilityMap := make(map[string][]string)
 	for _, r := range api.Registry {
@@ -161,6 +163,7 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 			descMap[key] = r.Description
 		}
 		precisionMap[key] = rules.V2RulePrecision(r).String()
+		effortMap[key] = rules.V2RuleEffort(r).String()
 		costMap[key] = rules.CostFor(r).String()
 		if list := r.CapabilitiesList(); len(list) > 0 {
 			capabilityMap[key] = list
@@ -208,9 +211,10 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 			}},
 		}
 		precision := precisionMap[ruleID]
+		effort := effortMap[ruleID]
 		caps := capabilityMap[ruleID]
-		if confidence := cols.ConfidenceAt(row); confidence > 0 || precision != "" || len(caps) > 0 {
-			r.Properties = &sarifProperties{Confidence: confidence, Precision: precision, Capabilities: caps}
+		if confidence := cols.ConfidenceAt(row); confidence > 0 || precision != "" || effort != "" || len(caps) > 0 {
+			r.Properties = &sarifProperties{Confidence: confidence, Precision: precision, Effort: effort, Capabilities: caps}
 		}
 		results = append(results, r)
 	})

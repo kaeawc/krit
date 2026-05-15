@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -144,6 +145,35 @@ func TestUnknownMethod(t *testing.T) {
 	}
 }
 
+// TestAnalyzeStrictVerifyCleanRunMatchesBaseline is the issue-#202
+// happy path: with StrictVerify on, analyzing a small repo where the
+// daemon's resident-state run matches a fresh baseline must succeed
+// (no error response) and must NOT produce a divergence log.
+func TestAnalyzeStrictVerifyCleanRunMatchesBaseline(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, repo, "Foo.kt",
+		"package demo\n\nclass Foo {\n    fun greet(): String { return \"hi\" }\n}\n")
+	writeFile(t, repo, "Bar.kt",
+		"package demo\n\nfun bar(unused: Int): Int { return 42 }\n")
+
+	socket := startTestServerWithOptions(t, Options{RepoDir: repo, StrictVerify: true})
+
+	res, err := Analyze(socket, AnalyzeParams{Paths: []string{repo}})
+	if err != nil {
+		t.Fatalf("strict-verify analyze: %v", err)
+	}
+	if res.Summary.FindingsCount != len(res.Findings) {
+		t.Errorf("FindingsCount=%d but streamed=%d", res.Summary.FindingsCount, len(res.Findings))
+	}
+	logDir := filepath.Join(repo, ".krit")
+	entries, _ := os.ReadDir(logDir)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "daemon-divergence-") {
+			t.Fatalf("clean strict-verify produced divergence log %s", e.Name())
+		}
+	}
+}
+
 // --- helpers ------------------------------------------------------------
 
 func buildTestServer(t *testing.T, repo string) (*Server, string) {
@@ -175,6 +205,30 @@ func startTestServer(t *testing.T, repo string) string {
 	t.Helper()
 	_, socket := buildTestServer(t, repo)
 	return socket
+}
+
+func startTestServerWithOptions(t *testing.T, opts Options) string {
+	t.Helper()
+	if opts.SocketPath == "" {
+		sockDir, err := os.MkdirTemp("", "kritd")
+		if err != nil {
+			t.Fatalf("mkdtemp: %v", err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(sockDir) })
+		opts.SocketPath = filepath.Join(sockDir, "d.sock")
+	}
+	srv, err := NewServer(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	if err := srv.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() {
+		srv.Stop()
+		srv.Wait()
+	})
+	return opts.SocketPath
 }
 
 func writeFile(t *testing.T, dir, name, body string) {

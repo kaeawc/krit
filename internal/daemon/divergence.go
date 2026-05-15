@@ -6,6 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -14,6 +17,63 @@ const (
 	sideDaemon   = "daemon"
 	sideBaseline = "baseline"
 )
+
+// DivergenceLogDir is the per-repo directory under which strict-verify
+// writes divergence logs. NextDivergenceLogPath produces sequenced file
+// names within this directory.
+const DivergenceLogDir = ".krit"
+
+// NextDivergenceLogPath returns the next available
+// `${repoDir}/.krit/daemon-divergence-NNNN.log` path. NNNN is a
+// zero-padded four-digit sequence; on overflow (NNNN > 9999) the
+// timestamp form `daemon-divergence-<unixNanos>.log` is used so we
+// never collide silently. The directory is created on demand.
+func NextDivergenceLogPath(repoDir string) (string, error) {
+	dir := filepath.Join(repoDir, DivergenceLogDir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("divergence: prepare log dir: %w", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", fmt.Errorf("divergence: read log dir: %w", err)
+	}
+	maxSeq := -1
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		n, ok := parseDivergenceSeq(e.Name())
+		if !ok {
+			continue
+		}
+		if n > maxSeq {
+			maxSeq = n
+		}
+	}
+	next := maxSeq + 1
+	if next > 9999 {
+		return filepath.Join(dir, fmt.Sprintf("daemon-divergence-%d.log", time.Now().UnixNano())), nil
+	}
+	return filepath.Join(dir, fmt.Sprintf("daemon-divergence-%04d.log", next)), nil
+}
+
+func parseDivergenceSeq(name string) (int, bool) {
+	const prefix = "daemon-divergence-"
+	const suffix = ".log"
+	mid, ok := strings.CutPrefix(name, prefix)
+	if !ok {
+		return 0, false
+	}
+	mid, ok = strings.CutSuffix(mid, suffix)
+	if !ok || len(mid) != 4 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(mid)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
+}
 
 // Diff describes how a daemon analyze result differs from a freshly-computed
 // in-process baseline. AddedByDaemon are rows the daemon emitted that the

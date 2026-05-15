@@ -26,6 +26,8 @@ func main() {
 	socketFlag := flag.String("socket", "", "socket path (defaults to <repo>/.krit/daemon.sock)")
 	verboseFlag := flag.Bool("verbose", false, "log lifecycle events to stderr")
 	flag.BoolVar(verboseFlag, "v", false, "alias for --verbose")
+	strictVerifyFlag := flag.Bool("strict-verify", true,
+		"run an in-process baseline alongside every analyze and fail on divergence (issue #202; on by default during alpha)")
 	flag.Parse()
 
 	if *versionFlag {
@@ -65,8 +67,9 @@ func main() {
 	defer cancel()
 
 	srv, err := sessdaemon.NewServer(ctx, sessdaemon.Options{
-		RepoDir:    repo,
-		SocketPath: *socketFlag,
+		RepoDir:      repo,
+		SocketPath:   *socketFlag,
+		StrictVerify: *strictVerifyFlag,
 	})
 	if err != nil {
 		log.Fatalf("krit-daemon: %v", err)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -53,6 +54,17 @@ func (s *Server) handleAnalyze(ctx context.Context, w *bufio.Writer, req Request
 	if err != nil {
 		_ = writeError(w, req.ID, ErrCodeInternal, "run: "+err.Error())
 		return
+	}
+
+	if s.strictVerify {
+		if logPath, divErr := s.runStrictVerify(ctx, params.Paths, &res.CrossFileResult.Findings); divErr != nil {
+			msg := "strict-verify: " + divErr.Error()
+			if logPath != "" {
+				msg += " (log: " + logPath + ")"
+			}
+			_ = writeError(w, req.ID, ErrCodeInternal, msg)
+			return
+		}
 	}
 
 	enc := json.NewEncoder(w)
@@ -130,6 +142,53 @@ func (s *Server) buildProjectInput(paths []string) (pipeline.ProjectInput, error
 		},
 		Host: host,
 	}, nil
+}
+
+// runStrictVerify runs a fresh in-process baseline against the same
+// paths the daemon just analyzed and compares the two finding sets via
+// daemon.Compare. On divergence it persists a structured log under
+// `${repoDir}/.krit/daemon-divergence-NNNN.log` and returns a non-nil
+// error so the caller fails the analyze response. The baseline runs
+// with an empty ProjectHostState so no resident cache contaminates the
+// comparison.
+func (s *Server) runStrictVerify(ctx context.Context, paths []string, daemonCols *scanner.FindingColumns) (string, error) {
+	cfg := config.NewConfig()
+	rules.ApplyConfig(cfg)
+	activeRules := rules.ActiveRulesV2(nil, nil, false, false, false)
+
+	pc, err := scanner.NewParseCacheWithCap(s.repoDir, cacheutil.DefaultParseCacheCapBytes)
+	if err != nil {
+		return "", fmt.Errorf("baseline parse cache: %w", err)
+	}
+	defer pc.Close() //nolint:errcheck // best effort
+
+	baseline, err := pipeline.RunProjectAnalysis(ctx, pipeline.ProjectInput{
+		Args: pipeline.ProjectArgs{
+			Config:      cfg,
+			Paths:       paths,
+			ActiveRules: activeRules,
+			Format:      "json",
+			Version:     "daemon",
+		},
+		Host: pipeline.ProjectHostState{ParseCache: pc},
+	})
+	if err != nil {
+		return "", fmt.Errorf("baseline analyze: %w", err)
+	}
+
+	diff := daemon.Compare(daemonCols, &baseline.CrossFileResult.Findings)
+	if diff.IsClean() {
+		return "", nil
+	}
+	logPath, pathErr := daemon.NextDivergenceLogPath(s.repoDir)
+	if pathErr != nil {
+		return "", fmt.Errorf("divergence detected; failed to allocate log path: %w", pathErr)
+	}
+	if writeErr := diff.WriteLog(logPath); writeErr != nil {
+		return logPath, fmt.Errorf("divergence detected; failed to write log: %w", writeErr)
+	}
+	return logPath, fmt.Errorf("divergence: %d added, %d dropped across %d files",
+		len(diff.AddedByDaemon), len(diff.DroppedByDaemon), len(diff.PathsTouched))
 }
 
 func emitFindings(enc *json.Encoder, cols *scanner.FindingColumns) error {

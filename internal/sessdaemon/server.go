@@ -35,10 +35,11 @@ const writeBufSize = 64 * 1024
 // scan.Session that the analyze verb drives, and serializes all
 // verb dispatch behind a single mutex on the session.
 type Server struct {
-	socketPath string
-	repoDir    string
-	binaryHash string
-	pid        int
+	socketPath   string
+	repoDir      string
+	binaryHash   string
+	pid          int
+	strictVerify bool
 
 	session *scan.Session
 
@@ -72,6 +73,14 @@ type Options struct {
 	RepoDir    string
 	SocketPath string // overrides DefaultSocketPath
 	BinaryHash string // optional; surfaced in health
+	// StrictVerify, when true, makes every analyze request also run a
+	// fresh in-process baseline (a cold scan.Session against the same
+	// paths) and compare the two sets of findings via daemon.Compare.
+	// Any divergence is fatal to the response and is written to
+	// `${repoDir}/.krit/daemon-divergence-NNNN.log`. This is the
+	// correctness oracle issue #202 added; on by default during alpha,
+	// opt-in post-stabilization.
+	StrictVerify bool
 }
 
 // NewServer constructs a Server with a fresh scan.Session for opts.RepoDir.
@@ -99,6 +108,7 @@ func NewServer(ctx context.Context, opts Options) (*Server, error) {
 		repoDir:       opts.RepoDir,
 		binaryHash:    opts.BinaryHash,
 		pid:           os.Getpid(),
+		strictVerify:  opts.StrictVerify,
 		session:       sess,
 		oracle:        oracleDaemonState{starter: defaultOracleStarter{}},
 		stopped:       make(chan struct{}),

@@ -185,6 +185,44 @@ func TestDiffWriteLogCleanProducesEmptyFile(t *testing.T) {
 	}
 }
 
+func TestNextDivergenceLogPathSequencesNumbers(t *testing.T) {
+	repo := t.TempDir()
+
+	first, err := NextDivergenceLogPath(repo)
+	if err != nil {
+		t.Fatalf("first NextDivergenceLogPath: %v", err)
+	}
+	wantFirst := filepath.Join(repo, ".krit", "daemon-divergence-0000.log")
+	if first != wantFirst {
+		t.Fatalf("first path = %s, want %s", first, wantFirst)
+	}
+	// Materialize the file so the next call sees it.
+	if err := os.WriteFile(first, nil, 0o644); err != nil {
+		t.Fatalf("touch: %v", err)
+	}
+
+	second, err := NextDivergenceLogPath(repo)
+	if err != nil {
+		t.Fatalf("second NextDivergenceLogPath: %v", err)
+	}
+	wantSecond := filepath.Join(repo, ".krit", "daemon-divergence-0001.log")
+	if second != wantSecond {
+		t.Fatalf("second path = %s, want %s", second, wantSecond)
+	}
+
+	// Unrelated files in the same dir must be ignored.
+	if err := os.WriteFile(filepath.Join(repo, ".krit", "stray.log"), nil, 0o644); err != nil {
+		t.Fatalf("stray: %v", err)
+	}
+	third, err := NextDivergenceLogPath(repo)
+	if err != nil {
+		t.Fatalf("third NextDivergenceLogPath: %v", err)
+	}
+	if third != filepath.Join(repo, ".krit", "daemon-divergence-0001.log") {
+		t.Fatalf("third path = %s; stray file should not bump the sequence", third)
+	}
+}
+
 func TestCompareDeterministicOrdering(t *testing.T) {
 	rows := []scanner.Finding{
 		{File: "z.kt", Line: 1, RuleSet: "perf", Rule: "Foo", Severity: "warning", Message: "z"},

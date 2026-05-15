@@ -97,3 +97,22 @@ func pickRule(i int) string {
 	}
 	return rules[i%len(rules)]
 }
+
+// BenchmarkBuildJSONFindings_PreSorted measures just the byte
+// concatenation cost when the FindingColumns is already in sorted
+// order — VisitSortedByFileLine still touches the radix-sort scratch
+// allocator (cheap) but the sort itself is effectively a no-op on
+// pre-sorted data. The delta vs LargeCorpus pins the sort cost.
+func BenchmarkBuildJSONFindings_PreSorted(b *testing.B) {
+	cols := buildSyntheticColumns(87_000)
+	cols.SortByFileLine() // baseline already calls this in buildSyntheticColumns
+	fixLevels := map[string]string{}
+	efforts := map[string]string{}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		byRuleSet := make(map[string]int)
+		byRule := make(map[string]int)
+		fixableCount := 0
+		_ = buildJSONFindings(cols, fixLevels, efforts, byRuleSet, byRule, &fixableCount, false)
+	}
+}

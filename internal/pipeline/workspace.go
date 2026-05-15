@@ -54,6 +54,22 @@ type WorkspaceState struct {
 
 	gradleMu       sync.Mutex
 	gradleFindings map[string]scanner.FindingColumns
+
+	// sourceMTimeVersion is bumped on every source-path watcher event
+	// (Kotlin / Java edits, Gradle / version-catalog edits — anything
+	// that could shift a file's stat tuple). Daemon callers compare
+	// the bundle-stats-clean memo against this version to decide
+	// whether they can skip the 18k-file `os.Stat` sweep at the top
+	// of preparseBundleFingerprint.
+	sourceMTimeVersion atomic.Uint64
+
+	statsCleanMu sync.Mutex
+	// bundleStatsClean maps manifestKey → sourceMTimeVersion at which
+	// fileStatsMatch last succeeded for that key. A later call with
+	// the same key and the same version can skip the stat sweep
+	// entirely. Entries are never explicitly removed — a stale entry
+	// just fails the version check on the next call.
+	bundleStatsClean map[string]uint64
 }
 
 // xfileSlot pairs a fingerprint with a value. Zero value means
@@ -451,6 +467,63 @@ func (w *WorkspaceState) GradleFindings(key string, build func() scanner.Finding
 	w.gradleFindings[key] = v
 	w.gradleMu.Unlock()
 	return v
+}
+
+// BumpSourceMTimeVersion increments the watcher-driven version
+// counter that bundle-stats-clean memos compare against. The file
+// watcher calls this on every source-path event (Kotlin / Java /
+// Gradle / version-catalog) so the next analyze knows whether its
+// "stats matched" memo is still valid. Safe for concurrent use.
+func (w *WorkspaceState) BumpSourceMTimeVersion() {
+	if w == nil {
+		return
+	}
+	w.sourceMTimeVersion.Add(1)
+}
+
+// SourceMTimeVersion returns the current value of the version
+// counter. Callers snapshot this before computing fileStatsMatch and
+// hand it back to MarkBundleStatsClean — that way a watcher event
+// fired DURING the stat sweep correctly invalidates the memo.
+func (w *WorkspaceState) SourceMTimeVersion() uint64 {
+	if w == nil {
+		return 0
+	}
+	return w.sourceMTimeVersion.Load()
+}
+
+// BundleStatsClean reports whether fileStatsMatch last succeeded for
+// bundleKey at the current sourceMTimeVersion — i.e. nothing has
+// fired the watcher since the last successful sweep, so the 18k
+// os.Stat calls would necessarily produce the same answer. Returns
+// false on any miss (key never seen, or a watcher event has fired);
+// the caller falls through to the real stat sweep.
+func (w *WorkspaceState) BundleStatsClean(bundleKey string) bool {
+	if w == nil || bundleKey == "" {
+		return false
+	}
+	currentVersion := w.sourceMTimeVersion.Load()
+	w.statsCleanMu.Lock()
+	stored, ok := w.bundleStatsClean[bundleKey]
+	w.statsCleanMu.Unlock()
+	return ok && stored == currentVersion
+}
+
+// MarkBundleStatsClean records that fileStatsMatch succeeded for
+// bundleKey at version. Pair with SourceMTimeVersion() at the start
+// of the sweep: a concurrent watcher event between the snapshot and
+// the mark advances the counter, the stored version no longer
+// matches, and the next call re-stats — closing the race window.
+func (w *WorkspaceState) MarkBundleStatsClean(bundleKey string, version uint64) {
+	if w == nil || bundleKey == "" {
+		return
+	}
+	w.statsCleanMu.Lock()
+	if w.bundleStatsClean == nil {
+		w.bundleStatsClean = make(map[string]uint64)
+	}
+	w.bundleStatsClean[bundleKey] = version
+	w.statsCleanMu.Unlock()
 }
 
 // AndroidProject memoizes the detected Android project across calls.

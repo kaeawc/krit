@@ -209,6 +209,22 @@ type ProjectHostState struct {
 	// CLI passes nil — the existing on-disk AndroidCacheWriter path
 	// covers that case.
 	GradleFindingsCache func(key string, build func() scanner.FindingColumns) scanner.FindingColumns
+	// BundleStatsClean / MarkBundleStatsClean are the daemon's
+	// watcher-gated short-circuit for the manifest fileStatsMatch
+	// sweep. When BundleStatsClean(key) returns true, preparseBundle-
+	// FingerprintTracked skips the 18k os.Stat syscalls — the
+	// watcher has guaranteed nothing changed since the last
+	// successful match. Either both are nil (CLI path / first
+	// daemon call) or both are set together. *WorkspaceState
+	// satisfies the contract.
+	BundleStatsClean     func(bundleKey string) bool
+	MarkBundleStatsClean func(bundleKey string, version uint64)
+	// SourceMTimeVersion returns the watcher's current version
+	// counter. Callers snapshot it before the stat sweep so a
+	// concurrent watcher event correctly invalidates the resulting
+	// memo. nil is permitted and behaves like a constant 0 (no
+	// caching).
+	SourceMTimeVersion func() uint64
 	// CrossFileCacheDir, when non-empty, enables the on-disk cross-file
 	// CodeIndex cache (zstd-encoded shards under .krit/crossfile-cache).
 	// Independent of CodeIndexCache: the disk cache is shared across
@@ -1684,10 +1700,31 @@ func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, t
 		return scanner.RunFingerprint{}, nil, nil, false
 	}
 	paths := append(append([]string(nil), kotlinPaths...), javaPaths...)
+	// Snapshot the watcher's version BEFORE the (potentially skipped)
+	// stat sweep so a concurrent watcher event between the snapshot
+	// and a successful match invalidates the resulting memo on its
+	// own — we never store a "clean" record under a stale version.
+	var preStatVersion uint64
+	if host.SourceMTimeVersion != nil {
+		preStatVersion = host.SourceMTimeVersion()
+	}
 	var statsOK bool
-	track("fileStatsMatch", func() { statsOK = fileStatsMatch(paths, prior.FileStats) })
+	track("fileStatsMatch", func() {
+		// Daemon fast path: when the watcher hasn't seen a source-
+		// path event since the last successful sweep AND the cache
+		// records a clean version for this manifest, the sweep
+		// result is necessarily true. Skip the 18k os.Stat calls.
+		if host.BundleStatsClean != nil && host.BundleStatsClean(key) {
+			statsOK = true
+			return
+		}
+		statsOK = fileStatsMatch(paths, prior.FileStats)
+	})
 	if !statsOK {
 		return scanner.RunFingerprint{}, nil, nil, false
+	}
+	if host.MarkBundleStatsClean != nil {
+		host.MarkBundleStatsClean(key, preStatVersion)
 	}
 	rulesHash := projectRuleHash(args.ActiveRules, args.Config)
 	var androidFP, libraryFactsFP string

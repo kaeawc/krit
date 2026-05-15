@@ -19,9 +19,13 @@ func fsnotifyEventChmod(path string) fsnotify.Event {
 	return fsnotify.Event{Name: path, Op: fsnotify.Chmod}
 }
 
-// countingState is a watcherState fake that counts Invalidate calls.
+// countingState is a watcherState fake that counts Invalidate calls
+// and Bump calls. The bump counter lets tests confirm the stats-
+// clean memo invalidation hook fires alongside the per-slot
+// invalidations on real source-path events.
 type countingState struct {
 	invalidateCalls atomic.Int64
+	bumpCalls       atomic.Int64
 }
 
 func (c *countingState) Invalidate(path string)  { c.invalidateCalls.Add(1) }
@@ -31,6 +35,7 @@ func (c *countingState) InvalidateLibraryFacts() {}
 func (c *countingState) InvalidateResolver()     {}
 func (c *countingState) InvalidateOracleFilter() {}
 func (c *countingState) Touch(path string)       {}
+func (c *countingState) BumpSourceMTimeVersion() { c.bumpCalls.Add(1) }
 
 // waitForCondition polls fn every 5ms up to 2s. Returns true when fn
 // turns true; false on timeout. Used to bridge the async fsnotify
@@ -491,6 +496,7 @@ func TestFileWatcher_IgnoresChmodOnlyEvents(t *testing.T) {
 type chmodFilterCountingState struct {
 	invalidateCalls           atomic.Int64
 	libraryFactsInvalidations atomic.Int64
+	bumpCalls                 atomic.Int64
 }
 
 func (c *chmodFilterCountingState) Invalidate(string)       { c.invalidateCalls.Add(1) }
@@ -500,3 +506,57 @@ func (c *chmodFilterCountingState) InvalidateLibraryFacts() { c.libraryFactsInva
 func (c *chmodFilterCountingState) InvalidateResolver()     {}
 func (c *chmodFilterCountingState) InvalidateOracleFilter() {}
 func (c *chmodFilterCountingState) Touch(string)            {}
+func (c *chmodFilterCountingState) BumpSourceMTimeVersion() { c.bumpCalls.Add(1) }
+
+// TestFileWatcher_BumpsMTimeVersionOnKotlinEdit asserts the watcher
+// drives the daemon-resident stats-clean memo: a real .kt edit must
+// bump the source-mtime version so any cached "stats are clean"
+// record gets invalidated. Without this hook the daemon would
+// happily skip a stat sweep that needs to run, and a real source
+// change would never reach the bundle-fingerprint check.
+func TestFileWatcher_BumpsMTimeVersionOnKotlinEdit(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "Foo.kt")
+	if err := os.WriteFile(path, []byte("fun a() {}\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	state := &countingState{}
+	w, err := startFileWatcherWithState(context.Background(), root, state, nil, withDebounceWindow(5*time.Millisecond))
+	if err != nil {
+		t.Fatalf("startFileWatcher: %v", err)
+	}
+	defer w.Stop()
+
+	if err := os.WriteFile(path, []byte("fun a() { 1 }\n"), 0o644); err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+	if !waitForCondition(func() bool { return state.bumpCalls.Load() >= 1 }) {
+		t.Errorf("expected BumpSourceMTimeVersion after kt edit, got %d", state.bumpCalls.Load())
+	}
+}
+
+// TestFileWatcher_BumpsMTimeVersionOnGradleEdit confirms gradle /
+// version-catalog edits also bump the version — they contribute to
+// the manifest's FileStats map just like .kt files, so an unbumped
+// version after a build.gradle change would let a stale stats-clean
+// memo survive.
+func TestFileWatcher_BumpsMTimeVersionOnGradleEdit(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "build.gradle.kts")
+	if err := os.WriteFile(path, []byte("// gradle\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	state := &countingState{}
+	w, err := startFileWatcherWithState(context.Background(), root, state, nil)
+	if err != nil {
+		t.Fatalf("startFileWatcher: %v", err)
+	}
+	defer w.Stop()
+
+	if err := os.WriteFile(path, []byte("// edited\n"), 0o644); err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+	if !waitForCondition(func() bool { return state.bumpCalls.Load() >= 1 }) {
+		t.Errorf("expected BumpSourceMTimeVersion after gradle edit, got %d", state.bumpCalls.Load())
+	}
+}

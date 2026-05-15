@@ -25,6 +25,10 @@ type watcherState interface {
 	InvalidateResolver()
 	InvalidateOracleFilter()
 	Touch(path string)
+	// BumpSourceMTimeVersion drives the daemon-resident
+	// bundle-stats-clean memo. Called once per coalesced source-path
+	// event so the next analyze knows a `os.Stat` sweep is required.
+	BumpSourceMTimeVersion()
 }
 
 const defaultDebounceWindow = 50 * time.Millisecond
@@ -224,6 +228,10 @@ func (fw *fileWatcher) handle(ev fsnotify.Event) {
 		// Touch the path so daemon verbs reporting "files changed
 		// since last analyze" see Gradle/version-catalog edits.
 		fw.state.Touch(ev.Name)
+		// Gradle files contribute to the bundle manifest's
+		// FileStats sweep, so any change invalidates the
+		// stats-clean memo just like a .kt edit.
+		fw.state.BumpSourceMTimeVersion()
 	case isKotlinPath(ev.Name):
 		// Editors emit Write+Write+Chmod on a single logical save.
 		// Coalesce within debounceWindow so only one Invalidate+Touch
@@ -251,6 +259,12 @@ func (fw *fileWatcher) scheduleKotlinInvalidate(path string) {
 		fw.state.InvalidateResolver()
 		fw.state.InvalidateOracleFilter()
 		fw.state.Touch(path)
+		// Bumping the version invalidates every daemon-resident
+		// bundle-stats-clean memo, so the next analyze re-runs
+		// fileStatsMatch against the manifest. Without this the
+		// memo could survive a real edit that the watcher saw —
+		// correctness-critical, not just a perf hook.
+		fw.state.BumpSourceMTimeVersion()
 	})
 	fw.debounceMu.Unlock()
 }

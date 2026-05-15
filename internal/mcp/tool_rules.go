@@ -24,6 +24,9 @@ type rulesArgs struct {
 	Maturity  string   `json:"maturity"`
 	Needs     []string `json:"needs"`
 	Without   []string `json:"without"`
+	// Taxonomy filters rules whose SecurityTaxonomy lists this ID
+	// (case-insensitive). Accepts CWE/OWASP/SEI-CERT/MITRE IDs.
+	Taxonomy string `json:"taxonomy"`
 
 	// operation=configure
 	Active   *bool  `json:"active"`
@@ -138,8 +141,34 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 		}
 		info["deprecation"] = dep
 	}
+	if mapping := securityMapping(r.Security); mapping != nil {
+		info["security"] = mapping
+	}
 
 	return jsonResult(info)
+}
+
+// securityMapping renders the rule's security taxonomy as a per-axis
+// map for MCP `explain` output, or nil when the rule carries no
+// published taxonomy IDs.
+func securityMapping(sec *api.SecurityTaxonomy) map[string][]string {
+	if sec == nil || sec.IsEmpty() {
+		return nil
+	}
+	mapping := map[string][]string{}
+	if len(sec.CWE) > 0 {
+		mapping["cwe"] = sec.CWE
+	}
+	if len(sec.OWASP) > 0 {
+		mapping["owasp"] = sec.OWASP
+	}
+	if len(sec.SEICert) > 0 {
+		mapping["sei-cert"] = sec.SEICert
+	}
+	if len(sec.Mitre) > 0 {
+		mapping["mitre"] = sec.Mitre
+	}
+	return mapping
 }
 
 // resolveRelatedRules returns the rule IDs listed in r.RelatedRules,
@@ -175,16 +204,16 @@ func formatLifecycle(introducedIn, enabledByDefaultSince string) string {
 	}
 }
 
-// parseSearchFilters validates the precision/maturity arguments. Returns a
-// non-nil ToolResult pointer when validation fails.
-func parseSearchFilters(args rulesArgs) (api.Precision, api.Maturity, bool, *ToolResult) {
+// parseSearchFilters validates the precision/maturity/taxonomy filter
+// arguments. Returns a non-nil ToolResult pointer when validation fails.
+func parseSearchFilters(args rulesArgs) (api.Precision, api.Maturity, bool, api.TaxonomyMatcher, *ToolResult) {
 	var precisionFilter api.Precision
 	if args.Precision != "" {
 		p, ok := api.ParsePrecision(args.Precision)
 		if !ok {
 			r := errorResult("unknown precision: " + args.Precision +
 				"; valid: heuristic/text-backed, ast-backed, project-structure-aware, type-aware, policy")
-			return 0, 0, false, &r
+			return 0, 0, false, api.TaxonomyMatcher{}, &r
 		}
 		precisionFilter = p
 	}
@@ -195,12 +224,17 @@ func parseSearchFilters(args rulesArgs) (api.Precision, api.Maturity, bool, *Too
 		m, ok := api.ParseMaturity(args.Maturity)
 		if !ok {
 			r := errorResult("unknown maturity: " + args.Maturity + "; valid: stable, experimental, deprecated")
-			return 0, 0, false, &r
+			return 0, 0, false, api.TaxonomyMatcher{}, &r
 		}
 		maturityFilter = m
 		maturityFilterSet = true
 	}
-	return precisionFilter, maturityFilter, maturityFilterSet, nil
+
+	var taxonomyMatcher api.TaxonomyMatcher
+	if args.Taxonomy != "" {
+		taxonomyMatcher = api.TaxonomyMatcher{IDs: []string{args.Taxonomy}}
+	}
+	return precisionFilter, maturityFilter, maturityFilterSet, taxonomyMatcher, nil
 }
 
 // validateCapabilityArgs returns a non-nil ToolResult error when 'needs' or
@@ -260,17 +294,22 @@ type searchOpts struct {
 	precisionFilter   api.Precision
 	maturityFilter    api.Maturity
 	maturityFilterSet bool
+	taxonomyMatcher   api.TaxonomyMatcher
 	supportFilter     rules.LanguageSupportFilter
 	hasSupportFilter  bool
 	capabilityFilter  api.CapabilityFilter
 	hasCapabilityFilt bool
 }
 
+func (o searchOpts) hasTaxonomyFilter() bool {
+	return len(o.taxonomyMatcher.IDs) > 0
+}
+
 // scoreRuleForSearch returns (score, keep). Scoring favors name > description
 // > category matches; a missing query is allowed when another filter is set.
 func scoreRuleForSearch(r *api.Rule, opts searchOpts) (int, bool) {
 	if opts.query == "" {
-		if opts.precisionFilter == api.PrecisionUnset && !opts.maturityFilterSet && !opts.hasSupportFilter && !opts.hasCapabilityFilt {
+		if opts.precisionFilter == api.PrecisionUnset && !opts.maturityFilterSet && !opts.hasTaxonomyFilter() && !opts.hasSupportFilter && !opts.hasCapabilityFilt {
 			return 0, false
 		}
 		return 1, true
@@ -297,6 +336,9 @@ func collectRuleHits(opts searchOpts) []ruleHit {
 			continue
 		}
 		if opts.maturityFilterSet && r.Maturity != opts.maturityFilter {
+			continue
+		}
+		if opts.hasTaxonomyFilter() && !opts.taxonomyMatcher.Matches(r.Security) {
 			continue
 		}
 		if opts.hasSupportFilter && !opts.supportFilter.Matches(r) {
@@ -335,15 +377,15 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 	capabilityFilter := api.CapabilityFilter{Require: args.Needs, Exclude: args.Without}
 	hasCapabilityFilt := !capabilityFilter.IsZero()
 
-	if args.Query == "" && args.Precision == "" && args.Maturity == "" && !hasSupportFilter && !hasCapabilityFilt {
-		return errorResult("'query', 'precision', 'maturity', 'languageSupport', 'needs', or 'without' argument is required for operation=search")
+	if args.Query == "" && args.Precision == "" && args.Maturity == "" && args.Taxonomy == "" && !hasSupportFilter && !hasCapabilityFilt {
+		return errorResult("'query', 'precision', 'maturity', 'taxonomy', 'languageSupport', 'needs', or 'without' argument is required for operation=search")
 	}
 
 	if errResult := validateCapabilityArgs(args.Needs, args.Without); errResult != nil {
 		return *errResult
 	}
 
-	precisionFilter, maturityFilter, maturityFilterSet, errResult := parseSearchFilters(args)
+	precisionFilter, maturityFilter, maturityFilterSet, taxonomyMatcher, errResult := parseSearchFilters(args)
 	if errResult != nil {
 		return *errResult
 	}
@@ -359,6 +401,7 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 		precisionFilter:   precisionFilter,
 		maturityFilter:    maturityFilter,
 		maturityFilterSet: maturityFilterSet,
+		taxonomyMatcher:   taxonomyMatcher,
 		supportFilter:     supportFilter,
 		hasSupportFilter:  hasSupportFilter,
 		capabilityFilter:  capabilityFilter,

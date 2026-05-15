@@ -4,9 +4,11 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/cacheutil"
@@ -272,11 +274,17 @@ func computeListRulesSummary(registry []*api.Rule) listRulesSummary {
 	return s
 }
 
-func runListRulesFlag(listFlag, verboseFlag bool, maturityFilter string) {
+func runListRulesFlag(listFlag, verboseFlag bool, maturityFilter, taxonomyID string) {
 	if !listFlag {
 		return
 	}
+	printListRules(os.Stdout, verboseFlag, maturityFilter, taxonomyID)
+	os.Exit(0)
+}
 
+// printListRules writes the --list-rules output. Split from
+// runListRulesFlag so tests can drive it without the os.Exit.
+func printListRules(w io.Writer, verboseFlag bool, maturityFilter, taxonomyID string) {
 	var maturity api.Maturity
 	maturityFilterSet := false
 	if maturityFilter != "" {
@@ -294,10 +302,20 @@ func runListRulesFlag(listFlag, verboseFlag bool, maturityFilter string) {
 		registry = api.MaturityFilter(registry, maturity)
 	}
 
-	fmt.Println("Available rules:")
+	var matcher api.TaxonomyMatcher
+	taxonomyID = strings.TrimSpace(taxonomyID)
+	if taxonomyID != "" {
+		matcher = api.TaxonomyMatcher{IDs: []string{taxonomyID}}
+		fmt.Fprintf(w, "Available rules (filtered by taxonomy ID %q):\n", taxonomyID)
+	} else {
+		fmt.Fprintln(w, "Available rules:")
+	}
 	fixable := 0
 	active := 0
 	for _, r := range registry {
+		if len(matcher.IDs) > 0 && !matcher.Matches(r.Security) {
+			continue
+		}
 		markers := ""
 		if rules.IsDefaultActive(r.ID) {
 			markers += "A"
@@ -309,28 +327,27 @@ func runListRulesFlag(listFlag, verboseFlag bool, maturityFilter string) {
 			markers += "F"
 			fixable++
 			if verboseFlag {
-				fmt.Printf("  %s %-40s [%-15s] %s (fix: %s, precision: %s, maturity: %s)\n", markers, r.ID, r.Category, string(r.Sev), fixLvl, rules.V2RulePrecision(r), r.Maturity)
+				fmt.Fprintf(w, "  %s %-40s [%-15s] %s (fix: %s, precision: %s, maturity: %s)\n", markers, r.ID, r.Category, string(r.Sev), fixLvl, rules.V2RulePrecision(r), r.Maturity)
 				if r.Description != "" {
-					fmt.Printf("    %s\n", r.Description)
+					fmt.Fprintf(w, "    %s\n", r.Description)
 				}
 			} else {
-				fmt.Printf("  %s %-40s [%-15s] %s\n", markers, r.ID, r.Category, string(r.Sev))
+				fmt.Fprintf(w, "  %s %-40s [%-15s] %s\n", markers, r.ID, r.Category, string(r.Sev))
 			}
 		} else {
 			markers += " "
 			if verboseFlag {
-				fmt.Printf("  %s %-40s [%-15s] %s (precision: %s, maturity: %s)\n", markers, r.ID, r.Category, string(r.Sev), rules.V2RulePrecision(r), r.Maturity)
+				fmt.Fprintf(w, "  %s %-40s [%-15s] %s (precision: %s, maturity: %s)\n", markers, r.ID, r.Category, string(r.Sev), rules.V2RulePrecision(r), r.Maturity)
 				if r.Description != "" {
-					fmt.Printf("    %s\n", r.Description)
+					fmt.Fprintf(w, "    %s\n", r.Description)
 				}
 			} else {
-				fmt.Printf("  %s %-40s [%-15s] %s\n", markers, r.ID, r.Category, string(r.Sev))
+				fmt.Fprintf(w, "  %s %-40s [%-15s] %s\n", markers, r.ID, r.Category, string(r.Sev))
 			}
 		}
 	}
-	fmt.Printf("\nTotal: %d rules (%d active by default, %d fixable)\n", len(registry), active, fixable)
-	fmt.Println("A=active by default, F=fixable. Use -v for fix levels, --all-rules to enable all, --maturity to filter by lifecycle.")
-	os.Exit(0)
+	fmt.Fprintf(w, "\nTotal: %d rules (%d active by default, %d fixable)\n", len(registry), active, fixable)
+	fmt.Fprintln(w, "A=active by default, F=fixable. Use -v for fix levels, --all-rules to enable all, --maturity to filter by lifecycle.")
 }
 
 // outputTypesOpts bundles the flag values runOutputTypesFlag needs.

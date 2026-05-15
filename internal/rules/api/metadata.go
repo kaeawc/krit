@@ -261,6 +261,11 @@ type RuleDescriptor struct {
 	// surfaced under "caveats" in MCP `explain` output.
 	KnownLimitations []string
 
+	// Security mirrors Rule.Security — published taxonomy IDs (CWE,
+	// OWASP, SEI CERT, MITRE) for security-category rules. Nil when
+	// the rule has no taxonomy mapping. See SecurityTaxonomy.
+	Security *SecurityTaxonomy
+
 	// LanguageSupport records per-source-language support status for a rule.
 	// It is product/support metadata rather than dispatcher routing: Languages
 	// on Rule controls where a rule runs, while LanguageSupport explains whether

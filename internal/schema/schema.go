@@ -22,6 +22,7 @@ type RuleMeta struct {
 	Noisiness        string // quiet/normal/noisy
 	KnownLimitations []string
 	Capabilities     []string
+	Security         *api.SecurityTaxonomy
 	LanguageSupport  map[string]api.LanguageSupport
 	Options          []OptionMeta
 }
@@ -54,12 +55,14 @@ func CollectRuleMeta() []RuleMeta {
 		precision := ""
 		noisiness := ""
 		var knownLimitations []string
+		var security *api.SecurityTaxonomy
 		if desc, ok := rules.MetaForRule(r); ok {
 			opts = descriptorOptions(desc)
 			languageSupport = copyLanguageSupport(desc.LanguageSupport)
 			precision = desc.Precision.String()
 			noisiness = desc.Noisiness.String()
 			knownLimitations = desc.KnownLimitations
+			security = desc.Security
 		}
 
 		metas = append(metas, RuleMeta{
@@ -73,6 +76,7 @@ func CollectRuleMeta() []RuleMeta {
 			Noisiness:        noisiness,
 			KnownLimitations: knownLimitations,
 			Capabilities:     r.CapabilitiesList(),
+			Security:         security,
 			LanguageSupport:  languageSupport,
 			Options:          opts,
 		})

@@ -50,6 +50,7 @@ type scanFlags struct {
 	StoreDir                 *string
 	Config                   *string
 	List                     *bool
+	ListRulesCWE             *string
 	NoTypeInfer              *bool
 	ValidateConfig           *bool
 	GenerateSchema           *bool
@@ -155,6 +156,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.StoreDir = fs.String("store-dir", "", "Unified store directory (enables store-backed incremental cache; default: .krit/store when present)")
 	f.Config = fs.String("config", "", "Path to YAML config file (default: auto-detect krit.yml or .krit.yml)")
 	f.List = fs.Bool("list-rules", false, "List all rules (add -v to show fixable)")
+	f.ListRulesCWE = fs.String("cwe", "", "Filter --list-rules by taxonomy ID (CWE/OWASP/SEI-CERT/MITRE; case-insensitive)")
 	f.NoTypeInfer = fs.Bool("no-type-inference", false, "Disable type inference (faster but less precise)")
 	f.ValidateConfig = fs.Bool("validate-config", false, "Validate config file and exit")
 	f.GenerateSchema = fs.Bool("generate-schema", false, "Print JSON Schema for krit.yml to stdout")

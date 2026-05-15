@@ -121,6 +121,11 @@ func mergeRuleDescriptor(r *api.Rule, extra api.RuleDescriptor) api.RuleDescript
 	out.Stability = resolveStability(r, extra)
 	out.Noisiness = resolveNoisiness(r, extra)
 	out.KnownLimitations = resolveKnownLimitations(r, extra)
+	if r.Security != nil {
+		out.Security = r.Security
+	} else {
+		out.Security = extra.Security
+	}
 	return out
 }
 

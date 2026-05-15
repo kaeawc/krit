@@ -119,4 +119,6 @@ func init() {
 	registerStyleUnusedRules()
 	registerSupplyChainRules()
 	registerTestingQualityRules()
+
+	applySecurityTaxonomy()
 }

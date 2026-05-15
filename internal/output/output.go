@@ -86,8 +86,9 @@ type sarifLog struct {
 }
 
 type sarifRun struct {
-	Tool    sarifTool     `json:"tool"`
-	Results []sarifResult `json:"results"`
+	Tool       sarifTool       `json:"tool"`
+	Results    []sarifResult   `json:"results"`
+	Taxonomies []sarifTaxonomy `json:"taxonomies,omitempty"`
 }
 
 type sarifTool struct {
@@ -95,9 +96,10 @@ type sarifTool struct {
 }
 
 type sarifDriver struct {
-	Name    string      `json:"name"`
-	Version string      `json:"version"`
-	Rules   []sarifRule `json:"rules"`
+	Name                string                   `json:"name"`
+	Version             string                   `json:"version"`
+	Rules               []sarifRule              `json:"rules"`
+	SupportedTaxonomies []sarifTaxonomyReference `json:"supportedTaxonomies,omitempty"`
 }
 
 type sarifRule struct {
@@ -106,12 +108,42 @@ type sarifRule struct {
 	FullDescription  *sarifText           `json:"fullDescription,omitempty"`
 	HelpURI          string               `json:"helpUri,omitempty"`
 	Properties       *sarifRuleProperties `json:"properties,omitempty"`
+	Relationships    []sarifRelationship  `json:"relationships,omitempty"`
 }
 
 type sarifRuleProperties struct {
 	Maturity  string `json:"maturity,omitempty"`
 	Precision string `json:"precision,omitempty"`
 	Cost      string `json:"cost,omitempty"`
+}
+
+type sarifTaxonomy struct {
+	Name             string       `json:"name"`
+	ShortDescription sarifText    `json:"shortDescription"`
+	Taxa             []sarifTaxon `json:"taxa"`
+}
+
+type sarifTaxon struct {
+	ID               string    `json:"id"`
+	ShortDescription sarifText `json:"shortDescription"`
+}
+
+type sarifTaxonomyReference struct {
+	Name string `json:"name"`
+}
+
+type sarifRelationship struct {
+	Target sarifReportingDescriptorReference `json:"target"`
+	Kinds  []string                          `json:"kinds"`
+}
+
+type sarifReportingDescriptorReference struct {
+	ID            string                `json:"id"`
+	ToolComponent sarifToolComponentRef `json:"toolComponent"`
+}
+
+type sarifToolComponentRef struct {
+	Name string `json:"name"`
 }
 
 type sarifText struct {
@@ -149,6 +181,10 @@ type sarifProperties struct {
 	Precision    string   `json:"precision,omitempty"`
 	Effort       string   `json:"effort,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`
+	CWE          []string `json:"cwe,omitempty"`
+	OWASP        []string `json:"owasp,omitempty"`
+	SEICert      []string `json:"sei-cert,omitempty"`
+	Mitre        []string `json:"mitre,omitempty"`
 }
 
 // FormatSARIFColumns writes columnar findings as SARIF 2.1.0 JSON.
@@ -162,6 +198,7 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 	costMap := make(map[string]string)
 	capabilityMap := make(map[string][]string)
 	maturityMap := make(map[string]string)
+	securityMap := make(map[string]*api.SecurityTaxonomy)
 	for _, r := range api.Registry {
 		key := r.Category + "/" + r.ID
 		if r.Description != "" {
@@ -177,10 +214,17 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 			capabilityMap[key] = list
 		}
 		maturityMap[key] = r.Maturity.String()
+		if r.Security != nil && !r.Security.IsEmpty() {
+			securityMap[key] = r.Security
+		}
 	}
 
 	rulesSeen := make(map[string]bool)
 	var sarifRules []sarifRule
+	cweIDs := newOrderedTaxa()
+	owaspIDs := newOrderedTaxa()
+	certIDs := newOrderedTaxa()
+	mitreIDs := newOrderedTaxa()
 
 	var results []sarifResult
 	cols.VisitSortedByFileLine(func(row int) {
@@ -206,6 +250,9 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 			if maturity != "" || precision != "" || cost != "" {
 				sr.Properties = &sarifRuleProperties{Maturity: maturity, Precision: precision, Cost: cost}
 			}
+			if sec := securityMap[ruleID]; sec != nil {
+				sr.Relationships = sarifTaxonomyRelationships(sec, cweIDs, owaspIDs, certIDs, mitreIDs)
+			}
 			sarifRules = append(sarifRules, sr)
 		}
 
@@ -228,14 +275,11 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 				},
 			}},
 		}
-		precision := precisionMap[ruleID]
-		effort := effortMap[ruleID]
-		caps := capabilityMap[ruleID]
-		if confidence := cols.ConfidenceAt(row); confidence > 0 || precision != "" || effort != "" || len(caps) > 0 {
-			r.Properties = &sarifProperties{Confidence: confidence, Precision: precision, Effort: effort, Capabilities: caps}
-		}
+		r.Properties = buildResultProperties(cols.ConfidenceAt(row), precisionMap[ruleID], effortMap[ruleID], capabilityMap[ruleID], securityMap[ruleID])
 		results = append(results, r)
 	})
+
+	taxonomies, supported := buildSarifTaxonomies(cweIDs, owaspIDs, certIDs, mitreIDs)
 
 	log := sarifLog{
 		Schema:  "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
@@ -243,18 +287,125 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 		Runs: []sarifRun{{
 			Tool: sarifTool{
 				Driver: sarifDriver{
-					Name:    "krit",
-					Version: version,
-					Rules:   sarifRules,
+					Name:                "krit",
+					Version:             version,
+					Rules:               sarifRules,
+					SupportedTaxonomies: supported,
 				},
 			},
-			Results: results,
+			Results:    results,
+			Taxonomies: taxonomies,
 		}},
 	}
 
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	return enc.Encode(log)
+}
+
+// buildResultProperties returns the per-finding sarifProperties payload,
+// or nil when the finding has no metadata worth emitting.
+func buildResultProperties(confidence float64, precision, effort string, caps []string, sec *api.SecurityTaxonomy) *sarifProperties {
+	if confidence <= 0 && precision == "" && effort == "" && len(caps) == 0 && sec == nil {
+		return nil
+	}
+	props := &sarifProperties{Confidence: confidence, Precision: precision, Effort: effort, Capabilities: caps}
+	if sec != nil {
+		props.CWE = sec.CWE
+		props.OWASP = sec.OWASP
+		props.SEICert = sec.SEICert
+		props.Mitre = sec.Mitre
+	}
+	return props
+}
+
+// orderedTaxa is an insertion-ordered set used while collecting
+// SARIF taxa. Insertion order yields stable output without sorting.
+type orderedTaxa struct {
+	seen  map[string]struct{}
+	order []string
+}
+
+func newOrderedTaxa() *orderedTaxa {
+	return &orderedTaxa{seen: map[string]struct{}{}}
+}
+
+func (o *orderedTaxa) add(id string) {
+	if id == "" {
+		return
+	}
+	if _, ok := o.seen[id]; ok {
+		return
+	}
+	o.seen[id] = struct{}{}
+	o.order = append(o.order, id)
+}
+
+func (o *orderedTaxa) values() []string { return o.order }
+
+// SARIF taxonomy names. Consumers (GitHub code-scanning, Snyk) key
+// off these names to link findings to the public catalogs.
+const (
+	taxonomyCWE     = "CWE"
+	taxonomyOWASP   = "OWASP"
+	taxonomySEICert = "SEI-CERT"
+	taxonomyMitre   = "MITRE-ATT&CK"
+)
+
+func sarifTaxonomyRelationships(sec *api.SecurityTaxonomy, cwe, owasp, cert, mitre *orderedTaxa) []sarifRelationship {
+	if sec == nil {
+		return nil
+	}
+	var rels []sarifRelationship
+	add := func(ids []string, taxonomy string, sink *orderedTaxa) {
+		for _, id := range ids {
+			sink.add(id)
+			rels = append(rels, sarifRelationship{
+				Target: sarifReportingDescriptorReference{
+					ID:            id,
+					ToolComponent: sarifToolComponentRef{Name: taxonomy},
+				},
+				Kinds: []string{"superset"},
+			})
+		}
+	}
+	add(sec.CWE, taxonomyCWE, cwe)
+	add(sec.OWASP, taxonomyOWASP, owasp)
+	add(sec.SEICert, taxonomySEICert, cert)
+	add(sec.Mitre, taxonomyMitre, mitre)
+	return rels
+}
+
+func buildSarifTaxonomies(cwe, owasp, cert, mitre *orderedTaxa) ([]sarifTaxonomy, []sarifTaxonomyReference) {
+	type bucket struct {
+		name string
+		desc string
+		ids  []string
+	}
+	buckets := []bucket{
+		{taxonomyCWE, "Common Weakness Enumeration", cwe.values()},
+		{taxonomyOWASP, "OWASP Top 10", owasp.values()},
+		{taxonomySEICert, "SEI CERT Secure Coding", cert.values()},
+		{taxonomyMitre, "MITRE ATT&CK", mitre.values()},
+	}
+	var taxonomies []sarifTaxonomy
+	var supported []sarifTaxonomyReference
+	for _, b := range buckets {
+		if len(b.ids) == 0 {
+			continue
+		}
+		taxa := make([]sarifTaxon, 0, len(b.ids))
+		for _, id := range b.ids {
+			taxa = append(taxa, sarifTaxon{ID: id, ShortDescription: sarifText{Text: id}})
+		}
+		taxonomies = append(taxonomies, sarifTaxonomy{
+			Name:             b.name,
+			ShortDescription: sarifText{Text: b.desc},
+			Taxa:             taxa,
+		})
+		supported = append(supported, sarifTaxonomyReference{Name: b.name})
+	}
+	return taxonomies, supported
 }
 
 // FormatCheckstyleColumns writes columnar findings as Checkstyle XML.

@@ -886,6 +886,14 @@ type Rule struct {
 	// they are summaries, not migration guides.
 	KnownLimitations []string
 
+	// Security carries structured taxonomy identifiers (CWE, OWASP,
+	// SEI CERT, MITRE ATT&CK) for security-category rules. The
+	// dispatcher does not key behavior on these IDs; they exist for
+	// SARIF taxa, MCP explain, CLI filters (e.g. --cwe CWE-89), and
+	// downstream dashboards. A nil pointer means the rule has no
+	// published taxonomy mapping. See SecurityTaxonomy.
+	Security *SecurityTaxonomy
+
 	// KotlincAnalog names the closest standard kotlinc diagnostic that
 	// this rule approximates, e.g. "UNREACHABLE_CODE". Informational
 	// only — krit is not bug-for-bug compatible with kotlinc. Empty

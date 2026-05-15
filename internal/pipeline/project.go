@@ -1501,14 +1501,42 @@ func tryLoadFindingsBundleBeforeParse(
 		return ProjectResult{}, false, nil
 	}
 	start := time.Now()
-	fp, kotlinFiles, javaFiles, ok := preparseBundleFingerprint(args, host)
+	// Wrap the warm-path bundle work in a serial tracker scope so
+	// --perf surfaces the warm-baseline cost ("manifestLoad",
+	// "fileStatsMatch", "bundleLoad", ...) as nested children of
+	// "bundleHit" — sibling scopes would double-count against the
+	// top-level total.
+	var bundleTracker perf.Tracker
+	if host.Tracker != nil && host.Tracker.IsEnabled() {
+		bundleTracker = host.Tracker.Serial("bundleHit")
+	}
+	fp, kotlinFiles, javaFiles, ok := preparseBundleFingerprintTracked(args, host, bundleTracker)
 	if phaseTimings != nil {
 		phaseTimings.Parse = time.Since(start).Milliseconds()
 	}
 	if !ok {
+		if bundleTracker != nil {
+			bundleTracker.End()
+		}
 		return ProjectResult{}, false, nil
 	}
-	cached, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, fp)
+	var cached *scanner.FindingColumns
+	loadFn := func() {
+		c, found := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, fp)
+		if found {
+			cached = c
+		} else {
+			ok = false
+		}
+	}
+	if bundleTracker != nil {
+		bundleTracker.TrackVoid("bundleLoad", loadFn)
+	} else {
+		loadFn()
+	}
+	if bundleTracker != nil {
+		bundleTracker.End()
+	}
 	if !ok || cached == nil {
 		return ProjectResult{}, false, nil
 	}
@@ -1562,25 +1590,53 @@ func tryLoadFindingsBundleBeforeParse(
 	}, true, nil
 }
 
-func preparseBundleFingerprint(args ProjectArgs, host ProjectHostState) (scanner.RunFingerprint, []*scanner.File, []*scanner.File, bool) {
+// preparseBundleFingerprintTracked computes the bundle fingerprint
+// used to decide whether the warm findings-bundle path can serve the
+// request. When tracker is non-nil, sub-steps record their
+// wall-clock under "manifestLoad", "sourcePaths", "fileStatsMatch",
+// and "projectFingerprints" so --perf can show where warm-path
+// bundle fingerprinting spends time. tracker may be nil (CLI path /
+// non-perf calls), in which case the scopes are elided to keep the
+// hot path zero-overhead.
+func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, tracker perf.Tracker) (scanner.RunFingerprint, []*scanner.File, []*scanner.File, bool) {
+	track := func(name string, fn func()) {
+		if tracker == nil {
+			fn()
+			return
+		}
+		tracker.TrackVoid(name, fn)
+	}
+
 	key := scanner.FindingsBundleManifestKey(host.FindingsBundleCacheRoot, args.Paths)
 	if key == "" {
 		return scanner.RunFingerprint{}, nil, nil, false
 	}
-	prior, ok := loadBundleManifest(host, key)
+	var (
+		prior scanner.FindingsBundleManifest
+		ok    bool
+	)
+	track("manifestLoad", func() { prior, ok = loadBundleManifest(host, key) })
 	if !ok || len(prior.StructuralFPs) == 0 {
 		return scanner.RunFingerprint{}, nil, nil, false
 	}
-	kotlinPaths, javaPaths, ok := preparseSourcePaths(args, host, prior)
+	var kotlinPaths, javaPaths []string
+	track("sourcePaths", func() {
+		kotlinPaths, javaPaths, ok = preparseSourcePaths(args, host, prior)
+	})
 	if !ok {
 		return scanner.RunFingerprint{}, nil, nil, false
 	}
 	paths := append(append([]string(nil), kotlinPaths...), javaPaths...)
-	if !fileStatsMatch(paths, prior.FileStats) {
+	var statsOK bool
+	track("fileStatsMatch", func() { statsOK = fileStatsMatch(paths, prior.FileStats) })
+	if !statsOK {
 		return scanner.RunFingerprint{}, nil, nil, false
 	}
 	rulesHash := projectRuleHash(args.ActiveRules, args.Config)
-	androidFP, libraryFactsFP := preparseProjectFingerprints(args, host)
+	var androidFP, libraryFactsFP string
+	track("projectFingerprints", func() {
+		androidFP, libraryFactsFP = preparseProjectFingerprints(args, host)
+	})
 	fp := scanner.RunFingerprint{
 		Version:      args.Version,
 		Rules:        rulesHash,

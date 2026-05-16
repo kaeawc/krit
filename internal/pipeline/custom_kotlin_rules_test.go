@@ -4,11 +4,46 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
+
+func TestRunKotlinPluginRulesRequiresDaemonWhenJarsConfigured(t *testing.T) {
+	args := ProjectArgs{CustomRuleJars: []string{"/tmp/does-not-exist.jar"}}
+	indexResult := IndexResult{}
+	crossFile := &CrossFileResult{}
+
+	err := runKotlinPluginRulesAndMerge(context.Background(), args, ProjectHostState{}, indexResult, crossFile, false)
+	if err == nil {
+		t.Fatal("expected error when CustomRuleJars set without daemon, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "krit-types daemon") {
+		t.Errorf("error should name the failing daemon: %q", msg)
+	}
+	if !strings.Contains(msg, "--daemon") {
+		t.Errorf("error should suggest --daemon flag: %q", msg)
+	}
+	if !strings.Contains(msg, "KRIT_TYPES_JAR") {
+		t.Errorf("error should point at KRIT_TYPES_JAR recovery path: %q", msg)
+	}
+}
+
+func TestRunKotlinPluginRulesNoOpWhenNoJars(t *testing.T) {
+	if err := runKotlinPluginRulesAndMerge(context.Background(), ProjectArgs{}, ProjectHostState{}, IndexResult{}, &CrossFileResult{}, false); err != nil {
+		t.Fatalf("unexpected error with empty jars: %v", err)
+	}
+}
+
+func TestRunKotlinPluginRulesNoOpWhenBundleHit(t *testing.T) {
+	args := ProjectArgs{CustomRuleJars: []string{"/tmp/does-not-exist.jar"}}
+	if err := runKotlinPluginRulesAndMerge(context.Background(), args, ProjectHostState{}, IndexResult{}, &CrossFileResult{}, true); err != nil {
+		t.Fatalf("unexpected error on bundle hit: %v", err)
+	}
+}
 
 func TestPluginFindingsToColumns(t *testing.T) {
 	cols := pluginFindingsToColumns([]oracle.PluginFinding{{

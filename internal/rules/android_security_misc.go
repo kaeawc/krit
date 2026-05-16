@@ -54,9 +54,6 @@ var trustedServerInsecureIdentifiers = map[string]bool{
 }
 
 func (r *TrustedServerRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	node := ctx.Idx
 	switch file.FlatType(node) {

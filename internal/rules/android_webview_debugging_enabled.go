@@ -19,9 +19,6 @@ func (r *WebViewDebuggingEnabledRule) Confidence() float64 { return 0.8 }
 const webViewDebuggingEnabledMessage = "Guard WebView.setWebContentsDebuggingEnabled(true) behind BuildConfig.DEBUG or ApplicationInfo.FLAG_DEBUGGABLE."
 
 func (r *WebViewDebuggingEnabledRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	if javaAwareCallName(file, ctx.Idx) != "setWebContentsDebuggingEnabled" {
 		return

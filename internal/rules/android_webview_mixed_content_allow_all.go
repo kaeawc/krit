@@ -21,9 +21,6 @@ func (r *WebViewMixedContentAllowAllRule) Confidence() float64 { return 0.9 }
 const webViewMixedContentAllowAllMessage = "Avoid setting WebSettings.mixedContentMode to MIXED_CONTENT_ALWAYS_ALLOW; it permits http subresources on https pages and enables TLS stripping. Prefer MIXED_CONTENT_NEVER_ALLOW or MIXED_CONTENT_COMPATIBILITY_MODE."
 
 func (r *WebViewMixedContentAllowAllRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 
 	switch file.FlatType(ctx.Idx) {

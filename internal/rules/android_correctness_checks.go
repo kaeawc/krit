@@ -112,9 +112,6 @@ func (r *WrongViewCastRule) NodeTypes() []string {
 }
 
 func (r *WrongViewCastRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	switch ctx.File.Language {
 	case scanner.LangKotlin:
 		r.checkKotlin(ctx)
@@ -527,9 +524,6 @@ func (r *RangeRule) NodeTypes() []string { return []string{"call_expression"} }
 func (r *RangeRule) Confidence() float64 { return 0.75 }
 
 func (r *RangeRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	call := ctx.Idx
 	if file.FlatType(call) != "call_expression" {
@@ -1331,9 +1325,6 @@ var knownAnimatorProperties = map[string]bool{
 func (r *ObjectAnimatorBindingRule) Confidence() float64 { return 0.75 }
 
 func (r *ObjectAnimatorBindingRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	targetExpr, propertyArg, propertyName, ok := objectAnimatorBindingCall(ctx, ctx.Idx)
 	if !ok {

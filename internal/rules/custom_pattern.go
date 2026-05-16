@@ -120,7 +120,7 @@ func customPatternRuleFromSpec(spec map[string]interface{}) *api.Rule {
 }
 
 func (r *customPatternRule) check(ctx *api.Context) {
-	if ctx == nil || ctx.File == nil || r == nil || r.pattern == nil {
+	if r == nil || r.pattern == nil {
 		return
 	}
 	candidate := ctx.File.FlatNodeText(ctx.Idx)

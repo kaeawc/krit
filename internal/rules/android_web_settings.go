@@ -146,9 +146,6 @@ type webSettingsBoolToggleSpec struct {
 // It dispatches on the current node type and applies the same receiver-proof,
 // literal-true, and emit logic each rule needs.
 func checkWebSettingsBoolToggle(ctx *api.Context, spec webSettingsBoolToggleSpec) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 
 	emit := func() {

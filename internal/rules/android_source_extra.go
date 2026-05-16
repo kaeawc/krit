@@ -246,7 +246,7 @@ var viewTagFrameworkHeavyTypes = []string{
 const viewTagLeakMessage = "View.setTag() with a framework object may cause memory leaks across configuration changes."
 
 func (r *ViewTagRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 || ctx.File.FlatType(ctx.Idx) != "call_expression" {
+	if ctx.File.FlatType(ctx.Idx) != "call_expression" {
 		return
 	}
 	target, ok := semantics.ResolveCallTarget(ctx, ctx.Idx)
@@ -552,9 +552,6 @@ func (r *LayoutInflationRule) NodeTypes() []string { return []string{"call_expre
 func (r *LayoutInflationRule) Confidence() float64 { return 0.85 }
 
 func (r *LayoutInflationRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	if flatCallExpressionName(file, ctx.Idx) != "inflate" {
 		return
@@ -802,9 +799,6 @@ func (r *MissingPermissionRule) NodeTypes() []string { return []string{"call_exp
 func (r *MissingPermissionRule) Confidence() float64 { return 0.75 }
 
 func (r *MissingPermissionRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	if first := file.FlatChild(ctx.Idx, 0); first != 0 && file.FlatType(first) == "call_expression" {
 		return
@@ -1453,7 +1447,7 @@ func (r *WrongConstantRule) NodeTypes() []string { return []string{"call_express
 func (r *WrongConstantRule) Confidence() float64 { return 0.85 }
 
 func (r *WrongConstantRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 || ctx.File.FlatType(ctx.Idx) != "call_expression" {
+	if ctx.File.FlatType(ctx.Idx) != "call_expression" {
 		return
 	}
 	file := ctx.File

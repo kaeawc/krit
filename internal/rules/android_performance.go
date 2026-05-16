@@ -128,10 +128,6 @@ func (r *FieldGetterRule) Confidence() float64 { return 0.75 }
 
 func (r *FieldGetterRule) check(ctx *api.Context) {
 	file := ctx.File
-	if file == nil || ctx.Idx == 0 {
-		return
-	}
-
 	callIdx := ctx.Idx
 	if file.FlatType(callIdx) != "call_expression" {
 		return

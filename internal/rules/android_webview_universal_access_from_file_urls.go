@@ -25,9 +25,6 @@ const (
 )
 
 func (r *WebViewUniversalAccessFromFileUrlsRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 
 	switch file.FlatType(ctx.Idx) {

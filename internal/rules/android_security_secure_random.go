@@ -18,9 +18,6 @@ type SecureRandomRule struct {
 func (r *SecureRandomRule) Confidence() float64 { return 0.85 }
 
 func (r *SecureRandomRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	switch file.FlatType(ctx.Idx) {
 	case "call_expression":

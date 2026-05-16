@@ -399,6 +399,53 @@ var commonNonSuspendCallees = map[string]bool{
 	"String": true, "Int": true, "Long": true, "Float": true, "Double": true,
 }
 
+// walkCallsRespectingScope walks descendants of root, invoking fn on every
+// call_expression whose enclosing function scope is `root`. The walk stops
+// descending into nested function declarations, anonymous functions, classes,
+// objects, and object literals because their bodies define their own scopes
+// and any suspend calls inside them do not belong to the parent function.
+// Lambda literals are intentionally NOT excluded: lambdas passed to inline
+// functions (withContext, coroutineScope, runCatching, apply, let, also, ...)
+// execute in the enclosing suspend context, and without resolver-level
+// knowledge of inlineness we keep the conservative behavior of treating
+// lambdas as part of the parent scope.
+//
+// The callback returns true to keep walking and false to stop the entire walk.
+func walkCallsRespectingScope(file *scanner.File, root uint32, fn func(uint32) bool) {
+	if file == nil || file.FlatTree == nil || fn == nil {
+		return
+	}
+	stopped := false
+	var walk func(idx uint32)
+	walk = func(idx uint32) {
+		if stopped {
+			return
+		}
+		for child := file.FlatTree.Nodes[idx].FirstChild; child != 0; child = file.FlatTree.Nodes[child].NextSib {
+			if stopped {
+				return
+			}
+			ct := file.FlatType(child)
+			switch ct {
+			case "function_declaration",
+				"anonymous_function",
+				"class_declaration",
+				"object_declaration",
+				"object_literal":
+				// Skip: nested scope owns its own suspend context.
+				continue
+			case "call_expression":
+				if !fn(child) {
+					stopped = true
+					return
+				}
+			}
+			walk(child)
+		}
+	}
+	walk(root)
+}
+
 // SleepInsteadOfDelayRule detects Thread.sleep() usage inside suspend functions
 // and coroutine builder lambdas (launch, async, runBlocking, withContext, etc.).
 type SleepInsteadOfDelayRule struct {

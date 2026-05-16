@@ -213,7 +213,10 @@ func registerCoroutinesRedundantSuspendModifier() {
 			}
 			if file.FlatHasModifier(idx, "open") ||
 				file.FlatHasModifier(idx, "abstract") ||
-				file.FlatHasModifier(idx, "override") {
+				file.FlatHasModifier(idx, "override") ||
+				file.FlatHasModifier(idx, "actual") ||
+				file.FlatHasModifier(idx, "expect") ||
+				file.FlatHasModifier(idx, "external") {
 				return
 			}
 			for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
@@ -233,28 +236,28 @@ func registerCoroutinesRedundantSuspendModifier() {
 			}
 			hasSuspendCall := false
 			hasUnresolvedCall := false
-			file.FlatWalkNodes(body, "call_expression", func(callIdx uint32) {
+			walkCallsRespectingScope(file, body, func(callIdx uint32) bool {
 				if hasSuspendCall {
-					return
+					return false
 				}
 				provenNonSuspend := false
 				if oracleLookup != nil {
 					if isSuspend, ok := oracleLookupCallTargetSuspendFlat(oracleLookup, file, callIdx); ok {
 						if isSuspend {
 							hasSuspendCall = true
-							return
+							return false
 						}
 						provenNonSuspend = true
 					}
 					if ct := oracleLookupCallTargetFlat(oracleLookup, file, callIdx); ct != "" {
 						if knownSuspendFQNs[ct] {
 							hasSuspendCall = true
-							return
+							return false
 						}
 						for _, prefix := range suspendFQNPrefixes {
 							if strings.HasPrefix(ct, prefix) {
 								hasSuspendCall = true
-								return
+								return false
 							}
 						}
 					}
@@ -265,7 +268,7 @@ func registerCoroutinesRedundantSuspendModifier() {
 						strings.HasPrefix(callText, name+"{") || strings.HasPrefix(callText, name+"<") ||
 						strings.Contains(callText, "."+name+"(") {
 						hasSuspendCall = true
-						return
+						return false
 					}
 				}
 				if ctx.Resolver != nil {
@@ -274,7 +277,7 @@ func registerCoroutinesRedundantSuspendModifier() {
 						callName := resolvedType.Name
 						if callName != "" && knownSuspendFunctions[callName] {
 							hasSuspendCall = true
-							return
+							return false
 						}
 					}
 					funcIdent, _ := file.FlatFindChild(callIdx, "simple_identifier")
@@ -284,7 +287,7 @@ func registerCoroutinesRedundantSuspendModifier() {
 						if resolvedByName != nil && resolvedByName.Kind != typeinfer.TypeUnknown {
 							if strings.Contains(resolvedByName.FQN, "kotlinx.coroutines") {
 								hasSuspendCall = true
-								return
+								return false
 							}
 						}
 					}
@@ -304,6 +307,7 @@ func registerCoroutinesRedundantSuspendModifier() {
 						}
 					}
 				}
+				return true
 			})
 			if !hasSuspendCall && hasUnresolvedCall {
 				return

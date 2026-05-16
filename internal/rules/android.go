@@ -157,35 +157,6 @@ var hardcodedTextComposeCallees = map[string]bool{
 	"ListItem":               true,
 }
 
-// fileHasHardcodedTextAndroidImport returns true when the parsed file
-// imports any package under hardcodedTextAndroidImportPrefixes. It
-// reads `import_header` nodes directly so the check is lexical-state
-// aware and ignores commented-out imports.
-func fileHasHardcodedTextAndroidImport(ctx *api.Context) bool {
-	file := ctx.File
-	if file == nil {
-		return false
-	}
-	found := false
-	file.FlatWalkNodes(0, "import_header", func(node uint32) {
-		if found {
-			return
-		}
-		ident, ok := file.FlatFindChild(node, "identifier")
-		if !ok {
-			return
-		}
-		fqn := file.FlatNodeText(ident)
-		for _, prefix := range hardcodedTextAndroidImportPrefixes {
-			if strings.HasPrefix(fqn, prefix) {
-				found = true
-				return
-			}
-		}
-	})
-	return found
-}
-
 // hardcodedTextStringLiteralIsPureInterpolation returns true when the
 // string at valueText is a Kotlin string literal whose entire content
 // is interpolation — e.g. `"$x"`, `"${a + b}"`, `"$a$b"`. Such templates
@@ -269,7 +240,7 @@ func hardcodedTextReceiverProven(ctx *api.Context, callExpr uint32) bool {
 	if !hardcodedTextComposeCallees[name] {
 		return false
 	}
-	return fileHasHardcodedTextAndroidImport(ctx)
+	return fileFactsCache().Imports(file).HasAnyPrefix(hardcodedTextAndroidImportPrefixes...)
 }
 
 func (r *HardcodedTextRule) check(ctx *api.Context) {

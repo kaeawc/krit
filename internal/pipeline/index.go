@@ -93,6 +93,11 @@ type IndexInput struct {
 	// is the dominant cost (~336 ms / 19k files in the planning-doc
 	// measurement) on warm + 1-edit runs. Empty disables the cache.
 	TypeIndexCacheDir string
+	// ResidentFileTypeInfo is the daemon's in-memory FileTypeInfo
+	// cache, consulted before the disk-backed TypeIndexCacheDir.
+	// nil disables resident caching and falls back to the disk-only
+	// path.
+	ResidentFileTypeInfo typeinfer.ResidentFileTypeInfoCache
 	// Reporter routes verbose progress and warning lines from IndexPhase.
 	// Nil means silent.
 	Reporter *diag.Reporter
@@ -406,6 +411,17 @@ func (p IndexPhase) buildBaseResolver(ctx context.Context, in IndexInput, caps a
 	}
 	build := func() typeinfer.TypeResolver {
 		r := typeinfer.NewResolver()
+		// Wire the daemon's path-keyed FileTypeInfo cache when the host
+		// provides one — the resolver consults it before falling
+		// through to the on-disk per-file gob cache, turning warm
+		// re-indexes into map lookups instead of disk reads.
+		if in.ResidentFileTypeInfo != nil {
+			if setter, ok := interface{}(r).(interface {
+				SetResidentCache(typeinfer.ResidentFileTypeInfoCache)
+			}); ok {
+				setter.SetResidentCache(in.ResidentFileTypeInfo)
+			}
+		}
 		if in.TypeIndexCacheDir != "" {
 			if cached, ok := interface{}(r).(interface {
 				IndexFilesParallelCachedWithTracker([]*scanner.File, int, string, perf.Tracker) (int, int)

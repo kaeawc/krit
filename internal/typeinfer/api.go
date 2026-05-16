@@ -48,6 +48,31 @@ type defaultResolver struct {
 	// the resolver behaves exactly as before (KnownClassHierarchy /
 	// KnownInterfaces stubs only). Wired by SetBinSymbolReader.
 	binSymbols binarySymbolReader
+
+	// residentCache is an optional in-memory FileTypeInfo cache the
+	// caller (daemon's WorkspaceState) wires in via SetResidentCache.
+	// extractFilesParallelCached checks it before the on-disk cache,
+	// turning 18k disk-cache hits into 18k map lookups on warm runs.
+	// nil = no resident cache, the existing disk-cache path runs.
+	residentCache ResidentFileTypeInfoCache
+}
+
+// ResidentFileTypeInfoCache is the optional in-memory cache the
+// daemon hands the parallel indexer. Lookups are path-keyed and
+// trust the caller (the daemon's watcher) to invalidate entries on
+// file changes — same correctness contract as the existing
+// ResidentFileCache for parsed trees. nil-receiver implementations
+// must accept all methods safely (the resolver passes the interface
+// through unchanged).
+type ResidentFileTypeInfoCache interface {
+	// LookupFileTypeInfo returns a previously-cached *FileTypeInfo for
+	// the given path, or (nil, false) on miss. The cached pointer is
+	// returned by identity; callers must not mutate it.
+	LookupFileTypeInfo(path string) (*FileTypeInfo, bool)
+	// StoreFileTypeInfo records info as the resident entry for path.
+	// Idempotent: subsequent stores under the same (path, content
+	// hash) keep the original pointer.
+	StoreFileTypeInfo(path string, info *FileTypeInfo)
 }
 
 // binarySymbolReader is the local interface shape typeinfer consumes
@@ -84,6 +109,12 @@ func (r *defaultResolver) SetBinSymbolReader(lookup func(fqn string) *binarySymb
 		return
 	}
 	r.binSymbols = binarySymbolReaderFunc(lookup)
+}
+
+// SetResidentCache wires the daemon's in-memory FileTypeInfo cache.
+// Pass nil to disable resident caching for this resolver instance.
+func (r *defaultResolver) SetResidentCache(cache ResidentFileTypeInfoCache) {
+	r.residentCache = cache
 }
 
 type binarySymbolReaderFunc func(fqn string) *binarySymbolClass

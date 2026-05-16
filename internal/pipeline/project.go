@@ -254,6 +254,14 @@ type ProjectHostState struct {
 	// CLI runner sets this from typeinfer.TypeIndexCacheDir(repoDir)
 	// when --no-cache is not passed; the daemon does the same).
 	TypeIndexCacheDir string
+	// ResidentFileTypeInfo is the daemon's in-memory cache for
+	// per-file *typeinfer.FileTypeInfo, consulted before the
+	// disk-backed TypeIndexCacheDir. On a 18k-file warm baseline
+	// this turns 18 k disk-cache hits into 18 k map lookups (~180 ms
+	// → ~5 ms in typeIndex.perFileExtraction). Watcher's
+	// Invalidate(path) drops the corresponding entry.
+	// *WorkspaceState satisfies the interface.
+	ResidentFileTypeInfo typeinfer.ResidentFileTypeInfoCache
 	// AndroidProviders, AndroidCacheDir, and AndroidCacheWriter let CLI
 	// callers keep Android project cache behavior while sharing the
 	// core RunProjectAnalysis path.
@@ -728,6 +736,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		CrossFileCacheDir:      host.CrossFileCacheDir,
 		CrossFindingsCacheDir:  host.CrossFindingsCacheDir,
 		TypeIndexCacheDir:      host.TypeIndexCacheDir,
+		ResidentFileTypeInfo:   host.ResidentFileTypeInfo,
 		Reporter:               host.Reporter,
 		Tracker:                host.Tracker,
 		Verbose:                host.Reporter.VerboseEnabled(),

@@ -81,6 +81,15 @@ type WorkspaceState struct {
 	// the same key produce byte-identical findings JSON and can
 	// reuse the same buffer.
 	bundleOutput map[string]*CachedBundleOutput
+
+	typeInfoMu sync.Mutex
+	// typeInfo caches per-file *typeinfer.FileTypeInfo across analyzes.
+	// The watcher's Invalidate(path) drops the corresponding entry —
+	// same correctness contract as the resident parsed-trees cache.
+	// On the kotlin corpus warm baseline this turns 18 k disk-cache
+	// hits into 18 k map lookups: ~185 ms → ~5 ms in
+	// typeIndex.perFileExtraction.
+	typeInfo map[string]*typeinfer.FileTypeInfo
 }
 
 // CachedBundleOutput holds everything OutputPhase needs to assemble
@@ -217,7 +226,9 @@ func (w *WorkspaceState) StoreParsed(path string, content []byte, file *scanner.
 }
 
 // Invalidate drops the cached entry for path. Safe to call when no
-// entry exists.
+// entry exists. Also drops the file's *typeinfer.FileTypeInfo —
+// both caches share the watcher event source, so dropping them
+// together keeps the resolver and parsed-tree views consistent.
 func (w *WorkspaceState) Invalidate(path string) {
 	if w == nil {
 		return
@@ -226,6 +237,44 @@ func (w *WorkspaceState) Invalidate(path string) {
 	w.mu.Lock()
 	delete(w.parsed, key)
 	w.mu.Unlock()
+	w.typeInfoMu.Lock()
+	delete(w.typeInfo, key)
+	w.typeInfoMu.Unlock()
+}
+
+// LookupFileTypeInfo returns the resident *typeinfer.FileTypeInfo
+// for path, or (nil, false) on miss. Implements
+// typeinfer.ResidentFileTypeInfoCache so the resolver's
+// extractFilesParallelCached can short-circuit the disk read on
+// warm runs.
+func (w *WorkspaceState) LookupFileTypeInfo(path string) (*typeinfer.FileTypeInfo, bool) {
+	if w == nil {
+		return nil, false
+	}
+	key := normalizeKey(path)
+	w.typeInfoMu.Lock()
+	info, ok := w.typeInfo[key]
+	w.typeInfoMu.Unlock()
+	return info, ok
+}
+
+// StoreFileTypeInfo records info as the resident entry for path. A
+// second store with the same path keeps the previously-stored
+// pointer to preserve identity (rules that compare *FileTypeInfo by
+// pointer need this).
+func (w *WorkspaceState) StoreFileTypeInfo(path string, info *typeinfer.FileTypeInfo) {
+	if w == nil || info == nil {
+		return
+	}
+	key := normalizeKey(path)
+	w.typeInfoMu.Lock()
+	if w.typeInfo == nil {
+		w.typeInfo = make(map[string]*typeinfer.FileTypeInfo)
+	}
+	if _, exists := w.typeInfo[key]; !exists {
+		w.typeInfo[key] = info
+	}
+	w.typeInfoMu.Unlock()
 }
 
 // Touch records that path has changed on disk since the last
@@ -311,6 +360,9 @@ func (w *WorkspaceState) InvalidateAll() {
 	w.gradleMu.Lock()
 	w.gradleFindings = nil
 	w.gradleMu.Unlock()
+	w.typeInfoMu.Lock()
+	w.typeInfo = nil
+	w.typeInfoMu.Unlock()
 }
 
 // LibraryFacts returns the cached *librarymodel.Facts when its

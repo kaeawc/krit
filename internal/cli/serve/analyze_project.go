@@ -351,6 +351,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			CrossFileCacheDir:            scanner.CrossFileCacheDir(repoDir),
 			CrossFindingsCacheDir:        scanner.CrossFindingsCacheDir(repoDir),
 			TypeIndexCacheDir:            typeinfer.TypeIndexCacheDir(repoDir),
+			ResidentFileTypeInfo:         s.workspace,
 			AnalysisCache:                analysisCache,
 			AnalysisCacheFilePath:        analysisCachePath,
 			AnalysisCacheLookup:          analysisCache != nil,

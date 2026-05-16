@@ -134,11 +134,31 @@ func (r *defaultResolver) extractFilesParallelCached(files []*scanner.File, work
 	var hitCount, missCount atomic.Int64
 	g, _ := errgroup.WithContext(context.Background())
 	g.SetLimit(workers)
+	resident := r.residentCache
 	for i, f := range files {
 		idx, file := i, f
 		g.Go(func() error {
+			if file == nil {
+				return nil
+			}
+			// Resident cache (daemon-resident, path-keyed,
+			// watcher-invalidated) is hottest path: a map lookup
+			// instead of a disk read + zstd-gob decode. Trades
+			// content-hash verification for the watcher's
+			// best-effort invalidation contract — same trade the
+			// resident parsed-trees cache already makes for files.
+			if resident != nil {
+				if info, ok := resident.LookupFileTypeInfo(file.Path); ok {
+					results[idx] = info
+					hitCount.Add(1)
+					return nil
+				}
+			}
 			if info, ok := loadFileTypeInfoCached(cacheDir, file); ok {
 				results[idx] = info
+				if resident != nil {
+					resident.StoreFileTypeInfo(file.Path, info)
+				}
 				hitCount.Add(1)
 				return nil
 			}
@@ -146,6 +166,9 @@ func (r *defaultResolver) extractFilesParallelCached(files []*scanner.File, work
 			results[idx] = info
 			if info != nil {
 				_ = saveFileTypeInfoCached(cacheDir, file, info)
+				if resident != nil {
+					resident.StoreFileTypeInfo(file.Path, info)
+				}
 			}
 			missCount.Add(1)
 			return nil

@@ -25,6 +25,13 @@ func TestDaemonCompatibleFlags_OracleArgsAllowed(t *testing.T) {
 		{"--sample-rule", func(f *scanFlags) { *f.SampleRule = "MyRule" }, true},
 		{"--output-types", func(f *scanFlags) { *f.OutputTypes = "/tmp/out.json" }, false},
 		{"--delta", func(f *scanFlags) { *f.Delta = "main" }, true},
+		// --fix / --fix-binary / --remove-dead-code are daemon-served
+		// via IncludeColumns: the daemon ships the FixPool /
+		// BinaryFixPool inside FindingColumns and the CLI applies
+		// writes locally.
+		{"--fix", func(f *scanFlags) { *f.Fix = true }, true},
+		{"--fix-binary", func(f *scanFlags) { *f.FixBinary = true }, true},
+		{"--remove-dead-code", func(f *scanFlags) { *f.RemoveDeadCode = true }, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

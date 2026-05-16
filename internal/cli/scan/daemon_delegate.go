@@ -51,7 +51,7 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 	}
 
 	fmt.Fprintln(os.Stderr, "info: using daemon")
-	if handled, code := dispatchDaemonShortCircuits(f, paths, res); handled {
+	if handled, code := dispatchDaemonShortCircuits(f, paths, res, start); handled {
 		return true, code
 	}
 	return true, writeDaemonFindings(f, res, start)
@@ -67,7 +67,7 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 // handled=false means no short-circuit fired and the caller should
 // fall through to writeDaemonFindings; handled=true returns the
 // short-circuit's exit code as-is.
-func dispatchDaemonShortCircuits(f *scanFlags, paths []string, res daemon.AnalyzeProjectResult) (handled bool, code int) {
+func dispatchDaemonShortCircuits(f *scanFlags, paths []string, res daemon.AnalyzeProjectResult, start time.Time) (handled bool, code int) {
 	switch {
 	case *f.SampleRule != "":
 		// --sample-rule consumes the JSON envelope and prints a
@@ -78,6 +78,20 @@ func dispatchDaemonShortCircuits(f *scanFlags, paths []string, res daemon.Analyz
 		// CreateBaseline replaces the findings-write path entirely:
 		// no findings JSON, just the XML baseline file.
 		return true, runDaemonCreateBaseline(f, res.Stats)
+	case *f.RemoveDeadCode:
+		// --remove-dead-code consumes the daemon-shipped columns and
+		// applies dead-code removals locally — mirrors runner_state's
+		// applyBaselinesAndDiff short-circuit, which fires before
+		// runFixup, so we match its precedence here too.
+		return true, runDaemonRemoveDeadCode(f, res.Columns)
+	case *f.Fix || (*f.DryRun && (*f.FixBinary || *f.Fix)):
+		// --fix (or --dry-run with a fix-applying flag) routes through
+		// the local FixupPhase: applies text / binary fixes from the
+		// daemon-shipped FixPool / BinaryFixPool. --dry-run alone (no
+		// --fix / --fix-binary) keeps the old runDaemonDryRun stats
+		// short-circuit because there are no fixes to apply, just a
+		// fixable-file list to print.
+		return true, runDaemonFix(f, paths, res.Columns, start)
 	case *f.DryRun:
 		// DryRun prints the fixable-file list + summary lines; no
 		// findings JSON. Mirrors printDryRunFixResult byte-for-byte.
@@ -393,21 +407,26 @@ func emitDaemonDispatchProfile(p *daemon.DispatchProfile) {
 // add filesystem side-effects to a long-lived service); only the
 // current-tree scan and the delta diff step are daemon-routable.
 //
-// --fix, --fix-binary, and --remove-dead-code stay in-process. Each
-// would need a separate fix-payload-over-the-wire design where the
-// daemon serialises text edits / binary operations and the CLI replays
-// them; the existing fix application code path is intertwined with
-// per-rule context that doesn't currently survive serialisation. Land
-// those in follow-up PRs once a payload schema exists.
+// --fix, --fix-binary, and --remove-dead-code share the same wire
+// machinery: IncludeColumns ships the FindingColumns (with FixPool /
+// BinaryFixPool inline), the CLI decodes the columns, and the local
+// CLI process runs pipeline.FixupPhase / deadcode.BuildPlanColumns
+// against the user's CWD. The daemon never writes user files —
+// it only computes the fix payload. See runDaemonFix /
+// runDaemonRemoveDeadCode in daemon_columns.go.
+//
+// --fix, --fix-binary, and --remove-dead-code are now daemon-compatible
+// too: the daemon ships post-pipeline FindingColumns (with FixPool /
+// BinaryFixPool inline) when IncludeColumns is true, and the CLI runs
+// pipeline.FixupPhase / deadcode.BuildPlanColumns locally. The daemon
+// never writes user files — file writes always happen with the CLI's
+// CWD and permissions.
 func daemonCompatibleFlags(f *scanFlags) bool {
-	mutating := []bool{*f.Fix, *f.RemoveDeadCode, *f.FixBinary}
 	meta := []bool{*f.Init, *f.Doctor, *f.Version, *f.List, *f.ValidateConfig, *f.GenerateSchema,
 		*f.OracleFilterFingerprint, *f.ListExperiments}
-	for _, group := range [][]bool{mutating, meta} {
-		for _, on := range group {
-			if on {
-				return false
-			}
+	for _, on := range meta {
+		if on {
+			return false
 		}
 	}
 	strs := []string{*f.Completions, *f.OutputTypes,
@@ -459,17 +478,22 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 	}
 	// --rule-audit / --baseline-audit / --delta need the post-pipeline
 	// FindingColumns shipped back so the CLI can run the audit or
-	// delta filter locally. The daemon ships the columns alongside
-	// the normal findings JSON only when IncludeColumns is true so
-	// non-audit / non-delta scans stay on the original
-	// {findings,stats[,dispatch_profile]} wire shape.
+	// delta filter locally. --fix / --fix-binary / --remove-dead-code
+	// likewise need the columns (with FixPool / BinaryFixPool inline)
+	// so the CLI can apply fixes locally — the daemon never writes
+	// user files. The daemon ships the columns alongside the normal
+	// findings JSON only when IncludeColumns is true so non-column
+	// scans stay on the original {findings,stats[,dispatch_profile]}
+	// wire shape.
 	//
 	// Also force JSON format when --rule-audit's caller picked a
 	// non-default --format: the audit short-circuit consumes columns
 	// directly and discards the findings JSON, but the daemon still
-	// streams it. --baseline-audit / --delta tolerate any format on
-	// the daemon side because the bytes are discarded the same way.
-	includeColumns := *f.RuleAudit || *f.BaselineAudit || *f.Delta != ""
+	// streams it. --baseline-audit / --delta / --fix / --remove-dead-code
+	// tolerate any format on the daemon side because the bytes are
+	// discarded the same way.
+	includeColumns := *f.RuleAudit || *f.BaselineAudit || *f.Delta != "" ||
+		*f.Fix || *f.FixBinary || *f.RemoveDeadCode
 	return daemon.AnalyzeProjectArgs{
 		Paths:            paths,
 		Format:           format,

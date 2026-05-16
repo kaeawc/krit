@@ -80,20 +80,23 @@ func TestTryDaemonDelegate_HashMismatchFallsBack(t *testing.T) {
 }
 
 // TestTryDaemonDelegate_FlagBlocksDelegation exercises the
-// compatibility filter: `--fix` (and friends) must not be silently
-// dispatched through the daemon since the daemon doesn't perform
-// file rewrites.
+// compatibility filter: meta flags that report on the calling binary's
+// environment (`--doctor`) must never be silently dispatched through
+// the daemon. --fix / --fix-binary / --remove-dead-code USED to live
+// in this exclusion bucket; they are now daemon-served via the
+// IncludeColumns payload (the daemon computes the fix payload, the
+// CLI applies writes locally with the user's CWD and permissions).
 func TestTryDaemonDelegate_FlagBlocksDelegation(t *testing.T) {
 	socketDir := startMockDaemon(t, mockBehavior{})
 	root := newRoot(t)
 	linkSock(t, root, filepath.Join(socketDir, "d.sock"))
 
 	f := freshScanFlags(t)
-	*f.Fix = true
+	*f.Doctor = true
 
 	handled, _ := tryDaemonDelegate(f, []string{root}, root)
 	if handled {
-		t.Fatalf("expected fall-through with --fix; got handled=true")
+		t.Fatalf("expected fall-through with --doctor; got handled=true")
 	}
 }
 
@@ -336,8 +339,11 @@ func startMockMetaDaemon(t *testing.T, verb string, reply daemon.MetaResult) str
 // the AnalyzeProjectResult.Columns wire segment (IncludeColumns=true
 // asks the daemon to ship post-pipeline FindingColumns alongside the
 // findings JSON). The CLI runs the audit / delta filter locally.
-// --fix / --remove-dead-code / --fix-binary remain in-process pending
-// a fix-payload-over-the-wire design.
+//
+// --fix / --fix-binary / --remove-dead-code share the IncludeColumns
+// wire path: FindingColumns carries FixPool / BinaryFixPool inline so
+// the CLI can apply text and binary fixes locally without an extra
+// fix-payload schema. The daemon never writes user files.
 func TestDaemonCompatibleFlags_PerfAllowed(t *testing.T) {
 	tests := []struct {
 		name string
@@ -351,9 +357,15 @@ func TestDaemonCompatibleFlags_PerfAllowed(t *testing.T) {
 		{"--profile-dispatch", func(f *scanFlags) { *f.ProfileDispatch = true }, true},
 		{"--cpuprofile", func(f *scanFlags) { *f.CPUProfile = "/tmp/cpu.pprof" }, true},
 		{"--memprofile", func(f *scanFlags) { *f.MemProfile = "/tmp/mem.pprof" }, true},
-		{"--fix", func(f *scanFlags) { *f.Fix = true }, false},
-		{"--fix-binary", func(f *scanFlags) { *f.FixBinary = true }, false},
-		{"--remove-dead-code", func(f *scanFlags) { *f.RemoveDeadCode = true }, false},
+		// --fix / --fix-binary / --remove-dead-code are daemon-served
+		// via the IncludeColumns wire payload: the daemon computes the
+		// FixPool / BinaryFixPool inside FindingColumns and the CLI
+		// applies writes locally (preserving the daemon's read-only
+		// invariant — file writes happen with the CLI's CWD and
+		// permissions, never the daemon's).
+		{"--fix", func(f *scanFlags) { *f.Fix = true }, true},
+		{"--fix-binary", func(f *scanFlags) { *f.FixBinary = true }, true},
+		{"--remove-dead-code", func(f *scanFlags) { *f.RemoveDeadCode = true }, true},
 		// --no-cache rides on AnalyzeProjectArgs.NoCache; daemon
 		// nils its on-disk cache pointers for the call but stays
 		// the right place to serve it.
@@ -488,6 +500,13 @@ func TestBuildDaemonAnalyzeArgs_ForwardsIncludeColumns(t *testing.T) {
 		{"--baseline-audit", func(f *scanFlags) { *f.BaselineAudit = true }, true},
 		{"--delta", func(f *scanFlags) { *f.Delta = "main" }, true},
 		{"--rule-audit and --delta", func(f *scanFlags) { *f.RuleAudit = true; *f.Delta = "main" }, true},
+		// --fix / --fix-binary / --remove-dead-code also flip
+		// IncludeColumns so the daemon ships FixPool / BinaryFixPool
+		// inline and the CLI can apply writes locally.
+		{"--fix", func(f *scanFlags) { *f.Fix = true }, true},
+		{"--fix-binary", func(f *scanFlags) { *f.FixBinary = true }, true},
+		{"--remove-dead-code", func(f *scanFlags) { *f.RemoveDeadCode = true }, true},
+		{"--fix and --fix-binary", func(f *scanFlags) { *f.Fix = true; *f.FixBinary = true }, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

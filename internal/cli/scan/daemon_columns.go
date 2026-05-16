@@ -16,6 +16,20 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
+// FixupLevelResolver resolves the CLI-side fix-level cap for the
+// daemon-routed --fix path. Re-declared as a package-private helper so
+// runDaemonFix can stay decoupled from the runner_state-bound resolver
+// in resolveMaxFixLevel (which also probes *f.Fix / *f.DryRun for the
+// no-cap fast path).
+func resolveDaemonMaxFixLevel(f *scanFlags) (rules.FixLevel, bool) {
+	parsed, ok := rules.ParseFixLevel(*f.FixLevel)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "error: invalid fix level '%s'. Use: cosmetic, idiomatic, semantic\n", *f.FixLevel)
+		return rules.FixIdiomatic, false
+	}
+	return parsed, true
+}
+
 // decodeDaemonColumns parses the wire-form FindingColumns segment
 // shipped under AnalyzeProjectResult.Columns. An empty payload is
 // surfaced as a typed error so the caller can fall back to the
@@ -183,4 +197,157 @@ func activeRulesForDaemonEmit(f *scanFlags) []*api.Rule {
 	disabledSet := clishared.ParseRuleNameSetCSV(*f.DisableRules)
 	enabledSet := clishared.ParseRuleNameSetCSV(*f.EnableRules)
 	return rules.ActiveRulesV2(disabledSet, enabledSet, *f.AllRules, *f.Experimental, *f.Strict)
+}
+
+// runDaemonFix replays the in-process --fix flow against the daemon-
+// shipped FindingColumns. The daemon never writes user files — it
+// only computes the FixPool / BinaryFixPool and ships them as part of
+// FindingColumns under AnalyzeProjectResult.Columns. The CLI applies
+// the writes locally via pipeline.FixupPhase against the user's CWD
+// and permissions, preserving the daemon's read-only invariant.
+//
+// Mirrors runner.runFixup byte-for-byte: same Apply / ApplyBinary /
+// Suffix / MaxFixLevel / DryRunBinary / CountOnly inputs, same
+// printFixupResult / printBinaryFixResult human output, same
+// no-explicit-output JSON-fix exit-code carve-out.
+func runDaemonFix(f *scanFlags, paths []string, rawColumns json.RawMessage, start time.Time) int {
+	cols, err := decodeDaemonColumns(rawColumns)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: --fix via daemon: %v\n", err)
+		return 2
+	}
+	maxFixLevel, ok := resolveDaemonMaxFixLevel(f)
+	if !ok {
+		return 2
+	}
+	fixRes, _ := (pipeline.FixupPhase{}).Run(context.Background(), pipeline.FixupInput{
+		CrossFileResult: pipeline.CrossFileResult{
+			DispatchResult: pipeline.DispatchResult{
+				Findings: *cols,
+			},
+		},
+		Apply:        *f.Fix && !*f.DryRun,
+		ApplyBinary:  *f.FixBinary,
+		Suffix:       *f.FixSuffix,
+		MaxFixLevel:  maxFixLevel,
+		DryRunBinary: *f.DryRun,
+		CountOnly:    *f.DryRun,
+	})
+	postColumns := fixRes.Findings
+	printDaemonFixupResult(f, &postColumns, fixRes, start)
+	printDaemonBinaryFixResult(f, fixRes)
+
+	effectiveFormat := resolveEffectiveFormat(f)
+	if *f.Output == "" && effectiveFormat == "json" && *f.Report == "" && *f.Fix {
+		if postColumns.Len()-fixRes.FixableCount > 0 {
+			if !*f.Quiet {
+				fmt.Fprintf(os.Stderr, "info: %d unfixable issue(s) remain.\n", postColumns.Len()-fixRes.FixableCount)
+			}
+			return 1
+		}
+		return 0
+	}
+
+	// Fall through to emit the post-fix findings via OutputPhase, the
+	// same as the in-process runner.outputPhase tail does after a --fix
+	// run that didn't short-circuit on the JSON carve-out above.
+	basePath := *f.BasePath
+	if basePath == "" && len(paths) > 0 {
+		basePath, _ = filepath.Abs(paths[0])
+	}
+	return emitDaemonFilteredColumns(f, paths, &postColumns, basePath)
+}
+
+// printDaemonFixupResult mirrors runner.printFixupResult for the
+// daemon path. The CLI-side runner version reads r.allColumns to walk
+// fixable rows in dry-run mode; the daemon equivalent walks the post-
+// fix columns the local FixupPhase produced.
+func printDaemonFixupResult(f *scanFlags, postColumns *scanner.FindingColumns, fixRes pipeline.FixupResult, start time.Time) {
+	fixableCount := fixRes.FixableCount
+	strippedByLevel := fixRes.StrippedByLevel
+	if fixableCount == 0 {
+		if !*f.Quiet {
+			if strippedByLevel > 0 {
+				fmt.Fprintf(os.Stderr, "info: No auto-fixable issues at level %s. %d fix(es) available at higher levels (use --fix-level=semantic).\n",
+					*f.FixLevel, strippedByLevel)
+			} else {
+				fmt.Fprintln(os.Stderr, "info: No auto-fixable issues found.")
+			}
+		}
+		return
+	}
+	if *f.DryRun {
+		printDaemonDryRunFixResult(f, postColumns, fixableCount)
+	} else {
+		printDaemonAppliedFixResult(f, fixRes, start)
+	}
+}
+
+func printDaemonDryRunFixResult(f *scanFlags, postColumns *scanner.FindingColumns, fixableCount int) {
+	seen := make(map[string]bool)
+	for row := 0; row < postColumns.Len(); row++ {
+		if !postColumns.HasFix(row) {
+			continue
+		}
+		file := postColumns.FileAt(row)
+		if !seen[file] {
+			seen[file] = true
+			fmt.Println(file)
+		}
+	}
+	if !*f.Quiet {
+		fmt.Fprintf(os.Stderr, "info: %d fix(es) available across %d file(s).\n", fixableCount, len(seen))
+	}
+}
+
+func printDaemonAppliedFixResult(f *scanFlags, fixRes pipeline.FixupResult, start time.Time) {
+	binarySet := make(map[error]bool, len(fixRes.BinaryErrors))
+	for _, e := range fixRes.BinaryErrors {
+		binarySet[e] = true
+	}
+	for _, e := range fixRes.FixErrors {
+		if binarySet[e] {
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "error: %v\n", e)
+	}
+	if !*f.Quiet {
+		suffix := "in place"
+		if *f.FixSuffix != "" {
+			suffix = "with suffix '" + *f.FixSuffix + "'"
+		}
+		fmt.Fprintf(os.Stderr, "info: Applied %d fix(es) across %d file(s) %s in %v.\n",
+			fixRes.TextApplied, len(fixRes.ModifiedFiles), suffix, time.Since(start).Round(time.Millisecond))
+	}
+}
+
+func printDaemonBinaryFixResult(f *scanFlags, fixRes pipeline.FixupResult) {
+	if !*f.FixBinary {
+		return
+	}
+	for _, e := range fixRes.BinaryErrors {
+		fmt.Fprintf(os.Stderr, "error: binary fix: %v\n", e)
+	}
+	if fixRes.BinaryApplied > 0 && !*f.Quiet {
+		mode := "applied"
+		if *f.DryRun {
+			mode = "available"
+		}
+		fmt.Fprintf(os.Stderr, "info: %d binary fix(es) %s.\n", fixRes.BinaryApplied, mode)
+	}
+}
+
+// runDaemonRemoveDeadCode replays --remove-dead-code against the
+// daemon-shipped FindingColumns. As with --fix, the daemon never
+// writes user files; it ships the dead-code findings (which carry
+// their Fix payloads) and the CLI runs deadcode.BuildPlanColumns +
+// plan.Apply locally so writes happen with the CLI's CWD and
+// permissions.
+func runDaemonRemoveDeadCode(f *scanFlags, rawColumns json.RawMessage) int {
+	cols, err := decodeDaemonColumns(rawColumns)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: --remove-dead-code via daemon: %v\n", err)
+		return 2
+	}
+	return RunDeadCodeRemovalColumns(cols, resolveEffectiveFormat(f), *f.DryRun, *f.FixSuffix)
 }

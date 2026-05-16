@@ -1,13 +1,13 @@
 package scan
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/cache"
@@ -195,20 +195,10 @@ func runDoctorFlag(doctorFlag bool, version string) {
 	} else {
 		fmt.Println("  cwebp: not found (optional — needed for --fix-binary WebP)")
 	}
-	jarPaths := []string{
-		"tools/krit-types/build/libs/krit-types.jar",
-		filepath.Join(os.Getenv("HOME"), ".krit", "krit-types.jar"),
-	}
-	jarFound := false
-	for _, p := range jarPaths {
-		if _, err := os.Stat(p); err == nil {
-			fmt.Printf("  krit-types: %s\n", p)
-			jarFound = true
-			break
-		}
-	}
-	if !jarFound {
-		fmt.Println("  krit-types: not found (optional — needed for type oracle)")
+	if p := oracle.FindJar(nil); p != "" {
+		fmt.Printf("  krit-types: %s\n", p)
+	} else {
+		fmt.Println("  krit-types: not found (optional — auto-downloaded on first use of --daemon / --custom-rule-jars in tagged releases)")
 	}
 	fmt.Println()
 	fmt.Println("  Everything looks good!")
@@ -477,9 +467,9 @@ type RunOutputTypesOpts struct {
 // terminate. The on-disk write happens at opts.OutputPath, which the
 // caller is responsible for absolutising when crossing CWD boundaries.
 func RunOutputTypesTo(errOut io.Writer, opts RunOutputTypesOpts) int {
-	jarPath := oracle.FindJar(opts.Paths)
-	if jarPath == "" {
-		fmt.Fprintf(errOut, "error: krit-types.jar not found. Build it with: cd tools/krit-types && ./gradlew shadowJar\n")
+	jarPath, err := oracle.EnsureJar(context.Background(), opts.Paths, opts.Verbose)
+	if err != nil {
+		fmt.Fprintf(errOut, "error: %v\n", err)
 		return 2
 	}
 	sourceDirs := oracle.FindSourceDirs(opts.Paths)
@@ -490,7 +480,6 @@ func RunOutputTypesTo(errOut io.Writer, opts RunOutputTypesOpts) int {
 	if opts.Verbose {
 		fmt.Fprintf(errOut, "verbose: Found %d source directories\n", len(sourceDirs))
 	}
-	var err error
 	// --output-types is a standalone oracle dump: no rules are loaded so
 	// there's no rule-classification filter to apply. Pass "" for the
 	// filter list path; both call paths handle that as "no filter".

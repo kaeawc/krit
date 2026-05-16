@@ -54,12 +54,38 @@ func invokeGraceExitFrom(r env.Reader) time.Duration {
 	return 15 * time.Second
 }
 
-// FindJar locates the krit-types shadow JAR by checking:
-// 1. Next to the krit binary (tools/krit-types/build/libs/krit-types.jar)
-// 2. In the project being scanned (.krit/krit-types.jar)
-// 3. Relative to the krit binary's directory
+// FindJar locates the krit-types shadow JAR. Checked in order:
+//  1. $KRIT_TYPES_JAR env override (when the file exists)
+//  2. Installed jars under ~/.krit/jars/ — version-pinned then unversioned
+//  3. ~/.krit/krit-types.jar (legacy, pre-#300 install location)
+//  4. Next to the krit binary or under exe-dir/tools/krit-types/build/libs/
+//  5. In the project being scanned (.krit/krit-types.jar or
+//     tools/krit-types/build/libs/krit-types.jar)
+//  6. Under the current working directory's tools/krit-types/build/libs/
+//
+// Returns "" when no jar is found. Use EnsureJar instead when the caller
+// should auto-download a missing jar for the current krit release.
 func FindJar(scanPaths []string) string {
+	if v := strings.TrimSpace(os.Getenv("KRIT_TYPES_JAR")); v != "" {
+		if _, err := os.Stat(v); err == nil {
+			return v
+		}
+	}
+
 	candidates := []string{}
+
+	// Installed locations under ~/.krit. krit binary releases download
+	// the matching jar here on first use; see EnsureJar.
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		jarsDir := filepath.Join(home, ".krit", "jars")
+		if tag := versionTag(); tag != "" {
+			candidates = append(candidates, filepath.Join(jarsDir, "krit-types-"+tag+".jar"))
+		}
+		candidates = append(candidates,
+			filepath.Join(jarsDir, "krit-types.jar"),
+			filepath.Join(home, ".krit", "krit-types.jar"),
+		)
+	}
 
 	// Check relative to the krit binary
 	exe, err := os.Executable()
@@ -403,11 +429,12 @@ func runOracleProcessMeasured(
 
 // InvokeDaemon finds the JAR and source directories, then starts a long-lived
 // krit-types daemon process. The caller is responsible for calling Close() on
-// the returned Daemon.
+// the returned Daemon. Missing jars are auto-downloaded for tagged releases;
+// see EnsureJar.
 func InvokeDaemon(scanPaths []string, verbose bool) (*Daemon, error) {
-	jarPath := FindJar(scanPaths)
-	if jarPath == "" {
-		return nil, fmt.Errorf("krit-types.jar not found. Build it with: cd tools/krit-types && ./gradlew shadowJar")
+	jarPath, err := EnsureJar(context.Background(), scanPaths, verbose)
+	if err != nil {
+		return nil, err
 	}
 
 	sourceDirs := FindSourceDirs(scanPaths)
@@ -426,10 +453,11 @@ func InvokeDaemon(scanPaths []string, verbose bool) (*Daemon, error) {
 // connects to an existing persistent daemon or starts a new one. The daemon
 // survives across krit invocations and is reused via PID file + TCP port.
 // The caller is responsible for calling Close() on the returned Daemon.
+// Missing jars are auto-downloaded for tagged releases; see EnsureJar.
 func InvokePersistentDaemon(scanPaths []string, verbose bool) (*Daemon, error) {
-	jarPath := FindJar(scanPaths)
-	if jarPath == "" {
-		return nil, fmt.Errorf("krit-types.jar not found. Build it with: cd tools/krit-types && ./gradlew shadowJar")
+	jarPath, err := EnsureJar(context.Background(), scanPaths, verbose)
+	if err != nil {
+		return nil, err
 	}
 
 	sourceDirs := FindSourceDirs(scanPaths)

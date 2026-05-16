@@ -16,8 +16,22 @@ import (
 // FindJar tests
 // ---------------------------------------------------------------------------
 
+// isolateJarLookup repoints HOME and clears KRIT_TYPES_JAR / oracle.Version so
+// the test sees only fixtures it explicitly creates. Returns the isolated
+// fake-home directory.
+func isolateJarLookup(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("KRIT_TYPES_JAR", "")
+	prev := Version
+	Version = ""
+	t.Cleanup(func() { Version = prev })
+	return home
+}
+
 func TestFindJar_NoJarReturnsEmpty(t *testing.T) {
-	// Use a temp dir with no jar files; FindJar should return empty string.
+	isolateJarLookup(t)
 	tmp := t.TempDir()
 	result := FindJar([]string{tmp})
 	if result != "" {
@@ -26,6 +40,7 @@ func TestFindJar_NoJarReturnsEmpty(t *testing.T) {
 }
 
 func TestFindJar_FindsJarInProjectDir(t *testing.T) {
+	isolateJarLookup(t)
 	tmp := t.TempDir()
 	kritDir := filepath.Join(tmp, ".krit")
 	if err := os.MkdirAll(kritDir, 0755); err != nil {
@@ -42,6 +57,47 @@ func TestFindJar_FindsJarInProjectDir(t *testing.T) {
 	}
 	if filepath.Base(result) != "krit-types.jar" {
 		t.Errorf("expected filename krit-types.jar, got %q", filepath.Base(result))
+	}
+}
+
+func TestFindJar_EnvOverride(t *testing.T) {
+	isolateJarLookup(t)
+	tmp := t.TempDir()
+	jarPath := filepath.Join(tmp, "custom-types.jar")
+	if err := os.WriteFile(jarPath, []byte("fake"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KRIT_TYPES_JAR", jarPath)
+	if got := FindJar(nil); got != jarPath {
+		t.Errorf("KRIT_TYPES_JAR override: got %q, want %q", got, jarPath)
+	}
+}
+
+func TestFindJar_EnvOverrideMissingFileFallsThrough(t *testing.T) {
+	isolateJarLookup(t)
+	t.Setenv("KRIT_TYPES_JAR", "/nonexistent/path/to/krit-types.jar")
+	if got := FindJar(nil); got != "" {
+		t.Errorf("expected fall-through when env path missing, got %q", got)
+	}
+}
+
+func TestFindJar_VersionPinnedInstall(t *testing.T) {
+	home := isolateJarLookup(t)
+	Version = "1.2.3"
+	jarsDir := filepath.Join(home, ".krit", "jars")
+	if err := os.MkdirAll(jarsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pinned := filepath.Join(jarsDir, "krit-types-v1.2.3.jar")
+	unversioned := filepath.Join(jarsDir, "krit-types.jar")
+	if err := os.WriteFile(pinned, []byte("pin"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unversioned, []byte("unpinned"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := FindJar(nil); got != pinned {
+		t.Errorf("expected version-pinned jar to win: got %q, want %q", got, pinned)
 	}
 }
 

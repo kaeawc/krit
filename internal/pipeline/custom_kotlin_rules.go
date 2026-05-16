@@ -19,7 +19,7 @@ func runKotlinPluginRulesAndMerge(ctx context.Context, args ProjectArgs, host Pr
 		daemon = host.OracleDaemon
 	}
 	if daemon == nil {
-		return fmt.Errorf("kotlin custom rules require the krit-types daemon; pass --daemon and ensure tools/krit-types/build/libs/krit-types.jar exists")
+		return fmt.Errorf("kotlin custom rules require the krit-types daemon; pass --daemon. Released krit binaries auto-download the matching krit-types.jar into ~/.krit/jars/ on first use; for dev builds run: cd tools/krit-types && ./gradlew shadowJar (or set KRIT_TYPES_JAR to an existing jar)")
 	}
 
 	list, err := daemon.ListPlugins(args.CustomRuleJars)

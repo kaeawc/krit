@@ -278,8 +278,6 @@ func ComputeConfigHash(ruleNames []string, cfg *config.Config, editorConfigEnabl
 	h := hashutil.Hasher().New()
 	h.Write([]byte(strings.Join(sorted, ",")))
 
-	// Schema version of the cached payload. Bumping cachePayloadVersion
-	// invalidates all prior entries.
 	h.Write([]byte("|payload="))
 	h.Write([]byte(cachePayloadVersion))
 

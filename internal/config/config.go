@@ -396,10 +396,7 @@ func (c *Config) ModuleTemplate() ModuleTemplateConfig {
 	}
 }
 
-// Analysis returns the typed `analysis:` block. Prefer this over
-// GetTopLevelString("analysis", ...) at call sites; the typed accessor
-// keeps the key name in one place and makes future schema additions
-// safer.
+// Analysis returns the typed `analysis:` block.
 func (c *Config) Analysis() AnalysisConfig {
 	return AnalysisConfig{
 		Depth: c.GetTopLevelString("analysis", "depth", ""),

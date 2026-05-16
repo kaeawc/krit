@@ -725,6 +725,9 @@ func registerVerbs(srv *daemon.Server, state *daemonState) {
 	srv.Register(daemon.VerbOracleFilterFingerprint, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return handleOracleFilterFingerprint(ctx, state, raw)
 	})
+	srv.Register(daemon.VerbClearCache, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return handleClearCache(ctx, state, raw)
+	})
 }
 
 // handleAnalyzeBuffer parses (or reuses a cached parse for) the buffer

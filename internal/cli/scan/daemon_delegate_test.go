@@ -339,6 +339,17 @@ func TestDaemonCompatibleFlags_PerfAllowed(t *testing.T) {
 		{"--perf and --perf-rules", func(f *scanFlags) { *f.Perf = true; *f.PerfRules = true }, true},
 		{"--profile-dispatch", func(f *scanFlags) { *f.ProfileDispatch = true }, false},
 		{"--fix", func(f *scanFlags) { *f.Fix = true }, false},
+		// --no-cache rides on AnalyzeProjectArgs.NoCache; daemon
+		// nils its on-disk cache pointers for the call but stays
+		// the right place to serve it.
+		{"--no-cache", func(f *scanFlags) { *f.NoCache = true }, true},
+		// --clear-cache and --clear-matrix-cache are early-exit
+		// verbs handled outside the analyze path (clear-cache via
+		// tryDaemonClearCache, clear-matrix-cache stays in-process),
+		// so daemonCompatibleFlags must NOT short-circuit on them
+		// the way the analyze path used to.
+		{"--clear-cache", func(f *scanFlags) { *f.ClearCache = true }, true},
+		{"--clear-matrix-cache", func(f *scanFlags) { *f.ClearMatrixCache = true }, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -348,6 +359,98 @@ func TestDaemonCompatibleFlags_PerfAllowed(t *testing.T) {
 				t.Errorf("daemonCompatibleFlags = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestTryDaemonClearCache_NoClearFlagNoOp pins the entry-gate
+// contract: when --clear-cache is not set, tryDaemonClearCache must
+// not even attempt a dial.
+func TestTryDaemonClearCache_NoClearFlagNoOp(t *testing.T) {
+	root := newRoot(t)
+	f := freshScanFlags(t)
+	if tryDaemonClearCache(f, root) {
+		t.Fatalf("expected handled=false when --clear-cache is unset")
+	}
+}
+
+// TestTryDaemonClearCache_NoDaemonShortCircuits guards the
+// --no-daemon flag for the clear path: even if a socket is reachable
+// and --clear-cache is set, --no-daemon falls through to in-process.
+func TestTryDaemonClearCache_NoDaemonShortCircuits(t *testing.T) {
+	socketDir := startMockClearCacheDaemon(t, false)
+	root := newRoot(t)
+	linkSock(t, root, filepath.Join(socketDir, "d.sock"))
+	f := freshScanFlags(t)
+	*f.ClearCache = true
+	*f.NoDaemon = true
+	if tryDaemonClearCache(f, root) {
+		t.Fatalf("expected fall-through with --no-daemon")
+	}
+}
+
+// TestTryDaemonClearCache_HappyPath confirms the verb is invoked and
+// the CLI exits cleanly (code 0) when the daemon reports success.
+func TestTryDaemonClearCache_HappyPath(t *testing.T) {
+	socketDir := startMockClearCacheDaemon(t, true)
+	root := newRoot(t)
+	linkSock(t, root, filepath.Join(socketDir, "d.sock"))
+	f := freshScanFlags(t)
+	*f.ClearCache = true
+	if !tryDaemonClearCache(f, root) {
+		t.Fatalf("expected handled=true on daemon success")
+	}
+}
+
+// startMockClearCacheDaemon stands up a minimal daemon that
+// implements just enough of clear-cache to drive
+// tryDaemonClearCache assertions.
+func startMockClearCacheDaemon(t *testing.T, cleared bool) string {
+	t.Helper()
+	socketDir, err := os.MkdirTemp("/tmp", "krit-clear-srv-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	socket := filepath.Join(socketDir, "d.sock")
+	srv := daemon.NewServer(socket)
+	srv.Register(daemon.VerbStatus, func(_ context.Context, _ json.RawMessage) (any, error) {
+		return daemon.StatusResult{Ready: true}, nil
+	})
+	srv.Register(daemon.VerbShutdown, func(_ context.Context, _ json.RawMessage) (any, error) {
+		return map[string]bool{"ok": true}, nil
+	})
+	srv.Register(daemon.VerbClearCache, func(_ context.Context, _ json.RawMessage) (any, error) {
+		return daemon.ClearCacheResult{Cleared: cleared, ResidentInvalidated: true}, nil
+	})
+	if err := srv.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(srv.Stop)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if daemon.Available(socket) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return socketDir
+}
+
+// TestBuildDaemonAnalyzeArgs_ForwardsNoCache confirms --no-cache
+// propagates into AnalyzeProjectArgs.NoCache so the daemon honours
+// the on-disk-cache bypass.
+func TestBuildDaemonAnalyzeArgs_ForwardsNoCache(t *testing.T) {
+	f := freshScanFlags(t)
+	*f.NoCache = true
+	args := buildDaemonAnalyzeArgs(f, []string{"/tmp"})
+	if !args.NoCache {
+		t.Errorf("NoCache = false, want true")
+	}
+	// Negative — default is false.
+	f2 := freshScanFlags(t)
+	args2 := buildDaemonAnalyzeArgs(f2, []string{"/tmp"})
+	if args2.NoCache {
+		t.Errorf("NoCache = true with default flags, want false")
 	}
 }
 

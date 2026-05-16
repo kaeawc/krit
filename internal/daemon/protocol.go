@@ -33,6 +33,8 @@ const (
 	VerbAnalyzeBuffer           = "analyze-buffer"
 	VerbAnalyzeBuffers          = "analyze-buffers"
 	VerbAnalyzeProject          = "analyze-project"
+	VerbClearCache              = "clear-cache"
+	VerbClearMatrixCache        = "clear-matrix-cache"
 	VerbListRules               = "list-rules"
 	VerbListExperiments         = "list-experiments"
 	VerbValidateConfig          = "validate-config"
@@ -49,6 +51,33 @@ const (
 // issue calls out, transported via the daemon's
 // `{ok:false,error:...}` envelope instead of a code field.
 const ErrBinaryHashMismatchPrefix = "binary hash mismatch"
+
+// ClearCacheArgs is the argument shape for the clear-cache verb.
+// ClientBinaryHash mirrors AnalyzeProjectArgs: empty disables the
+// handshake; non-empty values must match the daemon's hash or the
+// daemon refuses the request.
+type ClearCacheArgs struct {
+	ClientBinaryHash string `json:"client_binary_hash,omitempty"`
+}
+
+// ClearCacheResult reports the outcome of a clear-cache verb. Cleared
+// is true when the on-disk caches were removed. ResidentInvalidated is
+// true when the daemon also dropped its resident WorkspaceState slots
+// so the next analyze rebuilds from scratch.
+type ClearCacheResult struct {
+	Cleared             bool `json:"cleared"`
+	ResidentInvalidated bool `json:"resident_invalidated"`
+}
+
+// ClearMatrixCacheArgs / ClearMatrixCacheResult mirror ClearCacheArgs /
+// ClearCacheResult for the experiment-matrix baseline cache.
+type ClearMatrixCacheArgs struct {
+	ClientBinaryHash string `json:"client_binary_hash,omitempty"`
+}
+
+type ClearMatrixCacheResult struct {
+	Cleared bool `json:"cleared"`
+}
 
 // AbiHashArgs is the argument shape for the abi-hash verb.
 type AbiHashArgs struct {
@@ -207,6 +236,16 @@ type AnalyzeProjectArgs struct {
 	// ranking. Requires the dispatcher to record per-rule timings,
 	// which the tracker arms automatically when active.
 	PerfRules bool `json:"perf_rules,omitempty"`
+	// NoCache mirrors --no-cache: when true the daemon serves the
+	// request without consulting any on-disk cache (incremental
+	// AnalysisCache, parse cache, findings bundle, cross-file/
+	// findings/type-index disk shards) and without persisting back
+	// to those caches. Resident WorkspaceState slots stay live —
+	// they're per-process memory keyed on input fingerprints, so a
+	// no-cache call can reuse them safely without dirtying state for
+	// subsequent calls. This flag is per-call: the next analyze-
+	// project call without NoCache resumes normal cache behavior.
+	NoCache bool `json:"no_cache,omitempty"`
 }
 
 // AnalyzeProjectResult is the response payload. Findings is the raw

@@ -388,3 +388,39 @@ func (c *Client) OracleFilterFingerprint(args daemon.OracleFilterFingerprintArgs
 	}
 	return result, nil
 }
+
+// ClearCache asks the daemon to delete its on-disk caches and drop
+// resident WorkspaceState slots. The caller's binary hash is injected
+// automatically when args.ClientBinaryHash is empty.
+func (c *Client) ClearCache(args daemon.ClearCacheArgs) (daemon.ClearCacheResult, error) {
+	if c == nil {
+		return daemon.ClearCacheResult{}, errors.New("daemonclient: nil client")
+	}
+	if args.ClientBinaryHash == "" {
+		args.ClientBinaryHash = currentBinaryHash()
+	}
+	var result daemon.ClearCacheResult
+	if err := daemon.Call(c.socketPath, daemon.VerbClearCache, args, &result); err != nil {
+		return daemon.ClearCacheResult{}, err
+	}
+	return result, nil
+}
+
+// ClearMatrixCache asks the daemon to delete the experiment-matrix
+// baseline cache. The matrix cache is not held resident in the daemon,
+// so this is purely a wrapped on-disk delete; the verb exists so a
+// running daemon can serve the request without spawning a fresh
+// in-process krit when the user passes --clear-matrix-cache.
+func (c *Client) ClearMatrixCache(args daemon.ClearMatrixCacheArgs) (daemon.ClearMatrixCacheResult, error) {
+	if c == nil {
+		return daemon.ClearMatrixCacheResult{}, errors.New("daemonclient: nil client")
+	}
+	if args.ClientBinaryHash == "" {
+		args.ClientBinaryHash = currentBinaryHash()
+	}
+	var result daemon.ClearMatrixCacheResult
+	if err := daemon.Call(c.socketPath, daemon.VerbClearMatrixCache, args, &result); err != nil {
+		return daemon.ClearMatrixCacheResult{}, err
+	}
+	return result, nil
+}

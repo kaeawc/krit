@@ -175,7 +175,12 @@ func DefaultKnownSafeGenerators() []string {
 }
 
 func filterGeneratedSourceFilesWithAllowlist(files []*scanner.File, allowlist []string) ([]*scanner.File, int) {
-	filtered := files[:0]
+	// Allocate a fresh slice — sibling [:0] filters in the path
+	// pipeline (filterGeneratedSourcePaths, filterGeneratedPathStrings)
+	// already cause caller-slice corruption when input is aliased. Match
+	// that fix here so future callers of this *File filter cannot
+	// re-introduce the bug by accident.
+	filtered := make([]*scanner.File, 0, len(files))
 	var droppedGenerated int
 	for _, f := range files {
 		if f == nil || !strings.Contains(f.Path, "/generated/") {

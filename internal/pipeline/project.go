@@ -2047,7 +2047,12 @@ func filterGeneratedSourcePaths(paths []string, includeGenerated bool) []string 
 	if includeGenerated {
 		return paths
 	}
-	filtered := paths[:0]
+	// Allocate a fresh slice — callers pass args.KotlinPaths /
+	// args.JavaPaths whose backing arrays are owned by the CLI runner.
+	// A paths[:0] in-place rewrite would mutate those caller slices
+	// and leave duplicate entries in their tails, causing parse and
+	// dispatch to process the same files multiple times.
+	filtered := make([]string, 0, len(paths))
 	for _, path := range paths {
 		if !strings.Contains(filepath.ToSlash(path), "/generated/") {
 			filtered = append(filtered, path)

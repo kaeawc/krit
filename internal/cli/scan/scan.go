@@ -591,7 +591,13 @@ func countActiveV2(registry []*api.Rule) int {
 }
 
 func filterGeneratedPathStrings(paths []string) []string {
-	filtered := paths[:0]
+	// Allocate a fresh slice — callers (runner_state.go) alias the
+	// input via `r.javaPathsForDispatch = r.allJavaPaths` before
+	// filtering, so a paths[:0] in-place rewrite would corrupt the
+	// caller's r.allJavaPaths backing array. The tail of the original
+	// slice would then alias kept entries from the front, causing
+	// downstream parse/dispatch to process the same files multiple times.
+	filtered := make([]string, 0, len(paths))
 	for _, p := range paths {
 		if strings.Contains(filepath.ToSlash(p), "/generated/") {
 			continue

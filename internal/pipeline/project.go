@@ -1311,41 +1311,64 @@ type deltaManifestData struct {
 // buildManifestData prepares per-file content + structural fingerprints
 // for the delta planner. Returns the inputs whether or not the bundle
 // cache is enabled — callers gate on enabled before persisting.
+//
+// On warm runs that parse only cache misses (runProjectParsePhase's
+// CanParseOnlyCacheMisses path), parseResult.{Kotlin,Java}Files holds
+// just the dirty files. The cached-but-unparsed paths still belong in
+// the persisted manifest — otherwise the next analyze's
+// prepopulatedSourcePaths reads a manifest that knows about only the
+// last-edited file and the source set collapses to a single path
+// (issue #254). We carry those entries forward from the prior
+// manifest's ContentHashes / StructuralFPs maps, which are stable for
+// any non-dirty cached file by construction (cached == content hash
+// unchanged).
 func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult ParseResult, _ scanner.RunFingerprint, bundleEnabled bool) deltaManifestData {
 	if !bundleEnabled {
 		return deltaManifestData{}
 	}
-	total := len(parseResult.KotlinFiles) + len(parseResult.JavaFiles)
+	parsedByPath := make(map[string]*scanner.File, len(parseResult.KotlinFiles)+len(parseResult.JavaFiles))
+	for _, f := range parseResult.KotlinFiles {
+		if f != nil {
+			parsedByPath[f.Path] = f
+		}
+	}
+	for _, f := range parseResult.JavaFiles {
+		if f != nil {
+			parsedByPath[f.Path] = f
+		}
+	}
+	total := len(parsedByPath) + len(host.PriorContentHashes)
 	contentHashes := make(map[string]string, total)
 	structuralFPs := make(map[string]string, total)
 	fileStats := make(map[string]scanner.FileStat, total)
 	dirty := dirtyPathSet(host.SourceSetDirty)
-	for _, f := range parseResult.KotlinFiles {
-		if f == nil {
-			continue
-		}
-		contentHashes[f.Path] = priorOrCompute(host.PriorContentHashes, dirty, f.Path, func() string {
-			return hashutil.Default().HashContent(f.Path, f.Content)
+	for path, f := range parsedByPath {
+		contentHashes[path] = priorOrCompute(host.PriorContentHashes, dirty, path, func() string {
+			return hashutil.Default().HashContent(path, f.Content)
 		})
-		structuralFPs[f.Path] = priorOrCompute(host.PriorStructuralFPs, dirty, f.Path, func() string {
+		structuralFPs[path] = priorOrCompute(host.PriorStructuralFPs, dirty, path, func() string {
 			return scanner.FileStructuralFingerprint(f)
 		})
-		if stat, ok := statForPath(f.Path); ok {
-			fileStats[f.Path] = stat
+		if stat, ok := statForPath(path); ok {
+			fileStats[path] = stat
 		}
 	}
-	for _, f := range parseResult.JavaFiles {
-		if f == nil {
+	for path, hash := range host.PriorContentHashes {
+		if _, parsed := parsedByPath[path]; parsed {
 			continue
 		}
-		contentHashes[f.Path] = priorOrCompute(host.PriorContentHashes, dirty, f.Path, func() string {
-			return hashutil.Default().HashContent(f.Path, f.Content)
-		})
-		structuralFPs[f.Path] = priorOrCompute(host.PriorStructuralFPs, dirty, f.Path, func() string {
-			return scanner.FileStructuralFingerprint(f)
-		})
-		if stat, ok := statForPath(f.Path); ok {
-			fileStats[f.Path] = stat
+		if dirty != nil && dirty[path] {
+			// Dirty AND not parsed — the file was likely deleted or
+			// became unreadable. Dropping the entry here prevents a
+			// ghost path from haunting the next manifest read.
+			continue
+		}
+		contentHashes[path] = hash
+		if fp, ok := host.PriorStructuralFPs[path]; ok {
+			structuralFPs[path] = fp
+		}
+		if stat, ok := statForPath(path); ok {
+			fileStats[path] = stat
 		}
 	}
 	return deltaManifestData{

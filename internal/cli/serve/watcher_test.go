@@ -377,7 +377,12 @@ func TestFileWatcher_TouchPropagatesOnGradleWrite(t *testing.T) {
 }
 
 // TestFileWatcher_DebounceEditorSavePattern verifies that three rapid events
-// for the same Kotlin file coalesce into a single Invalidate call.
+// for the same Kotlin file coalesce into a single Invalidate call. Events
+// are injected directly into handle() so the debouncer is tested in
+// isolation from fsnotify's variable event-delivery timing —
+// TestFileWatcher_InvalidatesOnWrite covers the OS-roundtrip path. Driving
+// handle() directly was the fix for a CI flake where editor-save bursts
+// spread past the debounce window under load.
 func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
 	root := t.TempDir()
 	ktPath := filepath.Join(root, "Foo.kt")
@@ -395,16 +400,12 @@ func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
 	defer w.Stop()
 	<-w.Ready()
 
-	// Simulate three Write+Write+Chmod events within 5ms — a typical
-	// editor save burst.
+	ev := fsnotify.Event{Name: ktPath, Op: fsnotify.Write}
 	for range 3 {
-		if err := os.WriteFile(ktPath, []byte("fun a() { 1 }\n"), 0o644); err != nil {
-			t.Fatalf("rewrite: %v", err)
-		}
+		w.handle(ev)
 		time.Sleep(2 * time.Millisecond)
 	}
 
-	// Wait for the debounce window to fire (window + generous margin).
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if state.invalidateCalls.Load() > 0 {
@@ -412,6 +413,9 @@ func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+	// Settle: if a stray timer was re-armed under load, give it a full
+	// window + margin to complete before asserting the final count.
+	time.Sleep(window * 4)
 
 	if got := state.invalidateCalls.Load(); got != 1 {
 		t.Errorf("Invalidate called %d times, want 1 (debounce should coalesce burst)", got)

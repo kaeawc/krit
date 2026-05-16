@@ -265,6 +265,28 @@ type AnalyzeProjectArgs struct {
 	// completes (and after a runtime.GC) so the heap reflects the
 	// run's peak.
 	MemProfilePath string `json:"mem_profile_path,omitempty"`
+	// BasePath mirrors --base-path: empty means the daemon falls
+	// back to the first scan path (matching CLI semantics). The
+	// value participates in baseline ID generation when
+	// CreateBaseline is set.
+	BasePath string `json:"base_path,omitempty"`
+	// CreateBaseline, when true, signals the daemon to compute
+	// baseline IDs from the final findings and return them via
+	// AnalyzeProjectStats.BaselineIDs. The CLI writes the XML
+	// baseline file locally so the daemon never touches user
+	// files. The findings JSON is still produced (and ignored by
+	// the CLI) to keep the streaming envelope unchanged.
+	CreateBaseline bool `json:"create_baseline,omitempty"`
+	// DryRun, when true, runs the pipeline's fixup phase in
+	// count-only mode and reports the fixable-file list and
+	// strip/fixable counts via AnalyzeProjectStats.DryRun*. No
+	// files are touched. Pairs with FixLevel to cap which fix
+	// levels are counted.
+	DryRun bool `json:"dry_run,omitempty"`
+	// FixLevel caps the fix levels considered by the dry-run
+	// count: "cosmetic", "idiomatic", or "semantic". Empty means
+	// no cap (matches FixupPhase MaxFixLevel == 0).
+	FixLevel string `json:"fix_level,omitempty"`
 }
 
 // AnalyzeProjectResult is the response payload. Findings is the raw
@@ -357,6 +379,28 @@ type AnalyzeProjectStats struct {
 	// wasn't requested or it succeeded. Surfacing as warnings keeps the
 	// scan result intact even when diagnostic capture fails.
 	ProfileWarnings []string `json:"profile_warnings,omitempty"`
+	// BaselineIDs is populated only when AnalyzeProjectArgs.CreateBaseline
+	// is true. The slice is sorted and deduplicated so the CLI can
+	// hand it directly to scanner.WriteBaselineIDsXML (no further
+	// post-processing) and produce a byte-identical XML to the
+	// in-process WriteBaselineColumns path.
+	BaselineIDs []string `json:"baseline_ids,omitempty"`
+	// DryRunFiles is populated only when AnalyzeProjectArgs.DryRun
+	// is true. The slice is sorted and lists every file that has at
+	// least one available text fix after the FixLevel cap is
+	// applied. Mirrors what runFixup → printDryRunFixResult would
+	// emit to stdout in-process so the CLI can replay it line by
+	// line.
+	DryRunFiles []string `json:"dry_run_files,omitempty"`
+	// DryRunFixableCount mirrors FixupResult.FixableCount when
+	// DryRun is true: count of rows that still carry a text fix
+	// after the FixLevel cap is applied. Zero when DryRun is false.
+	DryRunFixableCount int `json:"dry_run_fixable_count,omitempty"`
+	// DryRunStrippedByLevel mirrors FixupResult.StrippedByLevel
+	// when DryRun is true: count of text fixes dropped because their
+	// rule's level exceeded the FixLevel cap. Zero when DryRun is
+	// false or when FixLevel is empty.
+	DryRunStrippedByLevel int `json:"dry_run_stripped_by_level,omitempty"`
 }
 
 // PhaseTimingsMs mirrors pipeline.PhaseTimingsMs on the wire so

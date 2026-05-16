@@ -59,6 +59,23 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 	if *f.SampleRule != "" {
 		return true, runDaemonSampleRule(f, paths, res.Findings)
 	}
+
+	// CreateBaseline replaces the findings-write path entirely: we
+	// don't want findings JSON on stdout, just the XML baseline file.
+	// Mirrors applyBaselinesAndDiff's early-exit semantics.
+	if *f.CreateBaseline != "" {
+		return true, runDaemonCreateBaseline(f, res.Stats)
+	}
+
+	// DryRun (without --fix) prints the fixable-file list to stdout
+	// and a summary to stderr — no findings JSON. Mirrors
+	// printDryRunFixResult exactly: file-per-line on stdout plus the
+	// "N fix(es) available across M file(s)" stderr summary.
+	if *f.DryRun {
+		runDaemonDryRun(f, res.Stats)
+		return true, 0
+	}
+
 	w, closer, openErr := openDaemonOutputWriter(f)
 	if openErr != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", openErr)
@@ -173,6 +190,45 @@ func callMetaVerb(client *daemonclient.Client, f *scanFlags, paths []string, ver
 		})
 	}
 	return daemon.MetaResult{}, fmt.Errorf("unknown meta verb %d", verb)
+}
+
+// runDaemonCreateBaseline writes the daemon-computed sorted baseline
+// ID list out to *f.CreateBaseline. Mirrors the in-process
+// applyBaselinesAndDiff early-exit: no findings JSON, just the XML
+// file plus a "Created baseline" stderr summary.
+func runDaemonCreateBaseline(f *scanFlags, stats daemon.AnalyzeProjectStats) int {
+	if err := scanner.WriteBaselineIDsXML(*f.CreateBaseline, stats.BaselineIDs); err != nil {
+		fmt.Fprintf(os.Stderr, "error: failed to write baseline: %v\n", err)
+		return 2
+	}
+	if !*f.Quiet {
+		fmt.Fprintf(os.Stderr, "info: Created baseline with %d issue(s) at %s\n", len(stats.BaselineIDs), *f.CreateBaseline)
+	}
+	return 0
+}
+
+// runDaemonDryRun replays the daemon-computed fixable-file list and
+// summary lines. Matches printDryRunFixResult byte-for-byte:
+// file-per-line on stdout plus the "N fix(es) available across M
+// file(s)" stderr summary (or a level-aware "no fixable" hint).
+func runDaemonDryRun(f *scanFlags, stats daemon.AnalyzeProjectStats) {
+	for _, file := range stats.DryRunFiles {
+		fmt.Println(file)
+	}
+	if *f.Quiet {
+		return
+	}
+	if stats.DryRunFixableCount == 0 {
+		if stats.DryRunStrippedByLevel > 0 {
+			fmt.Fprintf(os.Stderr, "info: No auto-fixable issues at level %s. %d fix(es) available at higher levels (use --fix-level=semantic).\n",
+				*f.FixLevel, stats.DryRunStrippedByLevel)
+		} else {
+			fmt.Fprintln(os.Stderr, "info: No auto-fixable issues found.")
+		}
+		return
+	}
+	fmt.Fprintf(os.Stderr, "info: %d fix(es) available across %d file(s).\n",
+		stats.DryRunFixableCount, len(stats.DryRunFiles))
 }
 
 // runDaemonSampleRule decodes the daemon's JSON envelope into a
@@ -298,8 +354,22 @@ func emitDaemonDispatchProfile(p *daemon.DispatchProfile) {
 // tryDaemonDelegate runs (early-exit verbs that also drop the
 // daemon's resident WorkspaceState slots so the next analyze
 // rebuilds from cold).
+//
+// --create-baseline and --dry-run ARE compatible: the daemon computes
+// the baseline-ID list / fixable-file list from the same FindingColumns
+// the in-process flow uses, ships them in AnalyzeProjectStats, and the
+// CLI writes the baseline file (or prints the dry-run lines) locally.
+// The daemon never touches user files; the file write happens with the
+// CLI's CWD and permissions, preserving the daemon's read-only invariant.
+//
+// --fix, --fix-binary, and --remove-dead-code stay in-process. Each
+// would need a separate fix-payload-over-the-wire design where the
+// daemon serialises text edits / binary operations and the CLI replays
+// them; the existing fix application code path is intertwined with
+// per-rule context that doesn't currently survive serialisation. Land
+// those in follow-up PRs once a payload schema exists.
 func daemonCompatibleFlags(f *scanFlags) bool {
-	mutating := []bool{*f.Fix, *f.DryRun, *f.RemoveDeadCode, *f.FixBinary}
+	mutating := []bool{*f.Fix, *f.RemoveDeadCode, *f.FixBinary}
 	meta := []bool{*f.Init, *f.Doctor, *f.Version, *f.List, *f.ValidateConfig, *f.GenerateSchema,
 		*f.BaselineAudit, *f.RuleAudit, *f.OracleFilterFingerprint, *f.ListExperiments}
 	for _, group := range [][]bool{mutating, meta} {
@@ -309,8 +379,7 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 			}
 		}
 	}
-	strs := []string{*f.CreateBaseline,
-		*f.Completions, *f.OutputTypes, *f.Delta,
+	strs := []string{*f.Completions, *f.OutputTypes, *f.Delta,
 		*f.PromoteExperiment, *f.DeprecateExperiment, *f.NewExperiment, *f.ExperimentMatrix}
 	for _, s := range strs {
 		if s != "" {
@@ -348,10 +417,19 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 			inputTypesPath = abs
 		}
 	}
+	// CreateBaseline mirrors applyBaselinesAndDiff: when set, the
+	// in-process flow short-circuits before baseline filtering, so
+	// the daemon must too. The daemon's analyze_project drops
+	// BaselinePath internally when CreateBaseline is true, but
+	// leaving it empty here keeps the wire intent explicit.
+	baselinePath := *f.Baseline
+	if *f.CreateBaseline != "" {
+		baselinePath = ""
+	}
 	return daemon.AnalyzeProjectArgs{
 		Paths:            paths,
 		Format:           format,
-		BaselinePath:     *f.Baseline,
+		BaselinePath:     baselinePath,
 		DiffRef:          *f.Diff,
 		MinConfidence:    *f.MinConfidence,
 		WarningsAsErrors: *f.WarningsAsErrors,
@@ -367,6 +445,10 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		ProfileDispatch:  *f.ProfileDispatch,
 		CPUProfilePath:   absoluteProfilePath(*f.CPUProfile),
 		MemProfilePath:   absoluteProfilePath(*f.MemProfile),
+		BasePath:         resolveBasePath(*f.BasePath, paths),
+		CreateBaseline:   *f.CreateBaseline != "",
+		DryRun:           *f.DryRun,
+		FixLevel:         *f.FixLevel,
 		ClientBinaryHash: daemonclient.CurrentBinaryHash(),
 	}
 }
@@ -385,6 +467,25 @@ func absoluteProfilePath(p string) string {
 	if err != nil {
 		return p
 	}
+	return abs
+}
+
+// resolveBasePath mirrors runner_state.go's basePath resolution so
+// daemon-computed baseline IDs match the in-process
+// WriteBaselineColumns output byte-for-byte. Empty BasePath falls
+// back to the absolute first scan path. The CLI's runner_state.go
+// uses `r.basePath, _ = filepath.Abs(...)` — discarding the error and
+// keeping whatever filepath.Abs returned (the empty string on
+// failure). We match that exactly so cross-process IDs collide on
+// every input runner_state would.
+func resolveBasePath(explicit string, paths []string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if len(paths) == 0 {
+		return ""
+	}
+	abs, _ := filepath.Abs(paths[0])
 	return abs
 }
 

@@ -90,7 +90,7 @@ func (r *strictVerifyAnalyzeResponse) WriteRawResponse(ctx context.Context, w io
 		findings = findings[:n-1]
 	}
 
-	statsBytes, err := json.Marshal(daemon.AnalyzeProjectStats{
+	stats := daemon.AnalyzeProjectStats{
 		FilesScanned:      res.FilesScanned,
 		FindingsCount:     res.FindingsCount,
 		WallSeconds:       time.Since(r.start).Seconds(),
@@ -112,7 +112,20 @@ func (r *strictVerifyAnalyzeResponse) WriteRawResponse(ctx context.Context, w io
 			Fixup:     res.PhaseTimingsMs.Fixup,
 			Output:    res.PhaseTimingsMs.Output,
 		},
-	})
+	}
+	// Mirror streamingAnalyzeResponse: CreateBaseline / DryRun get
+	// the same payload under strict-verify so client behavior doesn't
+	// silently change between modes.
+	if r.args.CreateBaseline {
+		basePath := r.in.Args.BasePath
+		stats.BaselineIDs = scanner.CollectBaselineIDs(&res.FinalFindings, basePath)
+	}
+	if r.args.DryRun {
+		stats.DryRunFiles = collectFixableFiles(&res.Fixup.Findings)
+		stats.DryRunFixableCount = res.Fixup.FixableCount
+		stats.DryRunStrippedByLevel = res.Fixup.StrippedByLevel
+	}
+	statsBytes, err := json.Marshal(stats)
 	if err != nil {
 		return fmt.Errorf("marshal stats: %w", err)
 	}

@@ -211,37 +211,50 @@ func WriteBaseline(path string, findings []Finding, basePath string) error {
 
 // WriteBaselineColumns writes columnar findings as a baseline XML file.
 func WriteBaselineColumns(path string, columns *FindingColumns, basePath string) error {
-	if columns == nil {
-		return writeBaselineIDs(path, 0, func(func(string)) {})
-	}
-	return writeBaselineIDs(path, columns.Len(), func(yield func(string)) {
-		for i := 0; i < columns.Len(); i++ {
-			yield(BaselineIDAt(columns, i, "", basePath))
-		}
-	})
+	return WriteBaselineIDsXML(path, CollectBaselineIDs(columns, basePath))
 }
 
-func writeBaselineIDs(path string, capacity int, visit func(func(string))) error {
-	ids := make([]string, 0, capacity)
-	seen := make(map[string]bool)
-	visit(func(id string) {
-		if !seen[id] {
-			seen[id] = true
-			ids = append(ids, id)
+// CollectBaselineIDs returns the sorted, deduplicated baseline IDs for
+// columns under basePath. The order and dedup semantics match
+// WriteBaselineColumns so that calling WriteBaselineIDsXML with the
+// returned slice produces a byte-identical baseline file. Useful for
+// daemon callers that compute IDs on a remote process and ship them to
+// the CLI for the actual file write — preserves the "daemon never
+// touches user files" invariant without forcing a second
+// FindingColumns serialization on the wire.
+func CollectBaselineIDs(columns *FindingColumns, basePath string) []string {
+	if columns == nil {
+		return nil
+	}
+	ids := make([]string, 0, columns.Len())
+	seen := make(map[string]bool, columns.Len())
+	for i := 0; i < columns.Len(); i++ {
+		id := BaselineIDAt(columns, i, "", basePath)
+		if seen[id] {
+			continue
 		}
-	})
+		seen[id] = true
+		ids = append(ids, id)
+	}
 	sort.Strings(ids)
+	return ids
+}
 
+// WriteBaselineIDsXML serialises a pre-computed baseline-ID slice into
+// the same XML schema WriteBaselineColumns emits and writes it to
+// path. Caller is responsible for ensuring ids is sorted and
+// deduplicated (CollectBaselineIDs returns the canonical shape). Used
+// by the CLI when receiving baseline IDs from the daemon's
+// analyze-project verb.
+func WriteBaselineIDsXML(path string, ids []string) error {
 	db := BaselineXML{
 		ManuallySuppressed: BaselineIDList{},
 		CurrentIssues:      BaselineIDList{IDs: ids},
 	}
-
 	data, err := xml.MarshalIndent(db, "", "  ")
 	if err != nil {
 		return err
 	}
-
 	header := []byte(xml.Header)
 	return os.WriteFile(path, append(header, data...), 0644)
 }

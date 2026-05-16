@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"sort"
 	"time"
 
 	"github.com/kaeawc/krit/internal/cache"
@@ -127,6 +128,9 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		profileDispatch: args.ProfileDispatch,
 		cpuProfilePath:  args.CPUProfilePath,
 		memProfilePath:  args.MemProfilePath,
+		basePath:        in.Args.BasePath,
+		createBaseline:  args.CreateBaseline,
+		dryRun:          args.DryRun,
 		releaseLock:     state.analyzeMu.Unlock,
 	}, nil
 }
@@ -140,6 +144,9 @@ type streamingAnalyzeResponse struct {
 	profileDispatch bool
 	cpuProfilePath  string
 	memProfilePath  string
+	basePath        string
+	createBaseline  bool
+	dryRun          bool
 	releaseLock     func()
 }
 
@@ -165,7 +172,7 @@ func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Wr
 	r.state.coldDone.Store(true)
 	xfile := r.state.workspace.CrossFileStats()
 
-	statsBytes, err := json.Marshal(daemon.AnalyzeProjectStats{
+	stats := daemon.AnalyzeProjectStats{
 		FilesScanned:      res.FilesScanned,
 		FindingsCount:     res.FindingsCount,
 		WallSeconds:       time.Since(r.start).Seconds(),
@@ -188,7 +195,24 @@ func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Wr
 			Output:    res.PhaseTimingsMs.Output,
 		},
 		ProfileWarnings: profileWarnings,
-	})
+	}
+	// CreateBaseline ships a sorted+deduped baseline-ID list so the
+	// CLI can write the XML locally — daemon never writes user
+	// files. See scanner.CollectBaselineIDs / WriteBaselineIDsXML.
+	if r.createBaseline {
+		stats.BaselineIDs = scanner.CollectBaselineIDs(&res.FinalFindings, r.basePath)
+	}
+	// DryRun ships the same file list runFixup → printDryRunFixResult
+	// would write to stdout in-process. Iterate post-fixup findings so
+	// the FixLevel cap is reflected (StripTextFixes runs inside
+	// FixupPhase). FixupResult.Findings carries the post-strip view.
+	if r.dryRun {
+		dryFiles := collectFixableFiles(&res.Fixup.Findings)
+		stats.DryRunFiles = dryFiles
+		stats.DryRunFixableCount = res.Fixup.FixableCount
+		stats.DryRunStrippedByLevel = res.Fixup.StrippedByLevel
+	}
+	statsBytes, err := json.Marshal(stats)
 	if err != nil {
 		return fmt.Errorf("marshal stats: %w", err)
 	}
@@ -240,6 +264,32 @@ func convertFileTimings(in []pipeline.FileTiming) []daemon.FileTiming {
 		}
 	}
 	return out
+}
+
+// collectFixableFiles walks columns and returns the sorted, deduped
+// list of file paths with at least one available text fix. Mirrors
+// the in-process printDryRunFixResult enumeration so the CLI can
+// replay the daemon's output line-for-line.
+func collectFixableFiles(columns *scanner.FindingColumns) []string {
+	if columns == nil {
+		return nil
+	}
+	seen := make(map[string]struct{}, columns.Len())
+	for row := 0; row < columns.Len(); row++ {
+		if !columns.HasFix(row) {
+			continue
+		}
+		seen[columns.FileAt(row)] = struct{}{}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	files := make([]string, 0, len(seen))
+	for file := range seen {
+		files = append(files, file)
+	}
+	sort.Strings(files)
+	return files
 }
 
 // envelopeTail closes the streaming response: end-of-stats, end-of-data,
@@ -396,37 +446,8 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 		perfTracker = perf.New(true)
 	}
 
-	// Disk-cache wiring: --no-cache nils every on-disk cache pointer
-	// for this single call. Resident WorkspaceState slots stay live
-	// because they're keyed on input fingerprints — reuse is
-	// idempotent and a no-cache call cannot dirty them for subsequent
-	// calls.
-	var (
-		crossFileCacheDir     = scanner.CrossFileCacheDir(repoDir)
-		crossFindingsCacheDir = scanner.CrossFindingsCacheDir(repoDir)
-		typeIndexCacheDir     = typeinfer.TypeIndexCacheDir(repoDir)
-		findingsBundleStore   scanner.FindingsBundleStore
-		findingsBundleRoot    string
-		manifestLoader        pipeline.FindingsBundleManifestLoader
-		manifestSaver         pipeline.FindingsBundleManifestSaver
-	)
-	if !args.NoCache {
-		findingsBundleStore = scanner.DiskFindingsBundleStore{}
-		findingsBundleRoot = repoDir
-		manifestLoader = s.loadManifest
-		manifestSaver = s.saveManifest
-	} else {
-		crossFileCacheDir = ""
-		crossFindingsCacheDir = ""
-		typeIndexCacheDir = ""
-		// Drop the Android cache pointers too — the
-		// androidFindingsCacheable gate checks both writer and dir,
-		// so emptying them matches the other on-disk cache zeroing
-		// above.
-		androidCacheWriter = nil
-		androidCacheDir = ""
-	}
-
+	diskCache := s.resolveDiskCacheWiring(args, repoDir, androidCacheWriter, androidCacheDir)
+	baselinePath, basePath, maxFixLevel := resolveBaselineDryRunArgs(args, paths)
 	return pipeline.ProjectInput{
 		Args: pipeline.ProjectArgs{
 			Config:           cfg,
@@ -435,7 +456,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			JavaPaths:        javaPaths,
 			ActiveRules:      activeRules,
 			Format:           args.Format,
-			BaselinePath:     args.BaselinePath,
+			BaselinePath:     baselinePath,
 			DiffRef:          args.DiffRef,
 			MinConfidence:    args.MinConfidence,
 			WarningsAsErrors: args.WarningsAsErrors,
@@ -447,6 +468,9 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			ProfileDispatch:  args.ProfileDispatch,
 			CustomRuleJars:   args.CustomRuleJars,
 			InputTypesPath:   args.InputTypesPath,
+			DryRun:           args.DryRun,
+			MaxFixLevel:      maxFixLevel,
+			BasePath:         basePath,
 			// Wire is line-delimited; compact JSON keeps the body
 			// free of internal newlines.
 			JSONCompact: true,
@@ -471,24 +495,93 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			SourceMTimeVersion:           s.workspace.SourceMTimeVersion,
 			BundleOutput:                 s.workspace.BundleOutput,
 			StoreBundleOutput:            s.workspace.StoreBundleOutput,
-			AndroidCacheWriter:           androidCacheWriter,
-			AndroidCacheDir:              androidCacheDir,
-			CrossFileCacheDir:            crossFileCacheDir,
-			CrossFindingsCacheDir:        crossFindingsCacheDir,
-			TypeIndexCacheDir:            typeIndexCacheDir,
+			AndroidCacheWriter:           diskCache.androidCacheWriter,
+			AndroidCacheDir:              diskCache.androidCacheDir,
+			CrossFileCacheDir:            diskCache.crossFileCacheDir,
+			CrossFindingsCacheDir:        diskCache.crossFindingsCacheDir,
+			TypeIndexCacheDir:            diskCache.typeIndexCacheDir,
 			ResidentFileTypeInfo:         s.workspace,
 			AnalysisCache:                analysisCache,
 			AnalysisCacheFilePath:        analysisCachePath,
 			AnalysisCacheLookup:          analysisCache != nil,
 			OracleDaemon:                 oracleDaemon,
-			FindingsBundleStore:          findingsBundleStore,
-			FindingsBundleCacheRoot:      findingsBundleRoot,
-			FindingsBundleManifestLoader: manifestLoader,
-			FindingsBundleManifestSaver:  manifestSaver,
+			FindingsBundleStore:          diskCache.findingsBundleStore,
+			FindingsBundleCacheRoot:      diskCache.findingsBundleRoot,
+			FindingsBundleManifestLoader: diskCache.manifestLoader,
+			FindingsBundleManifestSaver:  diskCache.manifestSaver,
 			PriorContentHashes:           priorManifest.ContentHashes,
 			PriorStructuralFPs:           priorManifest.StructuralFPs,
 		},
 	}, nil
+}
+
+// diskCacheWiring bundles the on-disk cache pointers buildProjectInput
+// hands to the pipeline host. Aggregating these lets the --no-cache
+// branch flip the whole set in one place without inflating
+// buildProjectInput's cyclomatic complexity.
+type diskCacheWiring struct {
+	crossFileCacheDir     string
+	crossFindingsCacheDir string
+	typeIndexCacheDir     string
+	androidCacheWriter    *scanner.AndroidCacheWriter
+	androidCacheDir       string
+	findingsBundleStore   scanner.FindingsBundleStore
+	findingsBundleRoot    string
+	manifestLoader        pipeline.FindingsBundleManifestLoader
+	manifestSaver         pipeline.FindingsBundleManifestSaver
+}
+
+// resolveDiskCacheWiring computes the per-call on-disk cache pointer
+// set. --no-cache zeroes every pointer for this single call;
+// resident WorkspaceState slots stay live (they're per-process memory
+// keyed on input fingerprints, so reuse is idempotent and a no-cache
+// call cannot dirty them for subsequent calls).
+func (s *daemonState) resolveDiskCacheWiring(args daemon.AnalyzeProjectArgs, repoDir string, androidCacheWriter *scanner.AndroidCacheWriter, androidCacheDir string) diskCacheWiring {
+	if args.NoCache {
+		// Drop Android cache pointers too — the
+		// androidFindingsCacheable gate checks both writer and dir, so
+		// emptying them matches the other on-disk cache zeroing.
+		return diskCacheWiring{}
+	}
+	return diskCacheWiring{
+		crossFileCacheDir:     scanner.CrossFileCacheDir(repoDir),
+		crossFindingsCacheDir: scanner.CrossFindingsCacheDir(repoDir),
+		typeIndexCacheDir:     typeinfer.TypeIndexCacheDir(repoDir),
+		androidCacheWriter:    androidCacheWriter,
+		androidCacheDir:       androidCacheDir,
+		findingsBundleStore:   scanner.DiskFindingsBundleStore{},
+		findingsBundleRoot:    repoDir,
+		manifestLoader:        s.loadManifest,
+		manifestSaver:         s.saveManifest,
+	}
+}
+
+// resolveBaselineDryRunArgs resolves three knobs that the CLI-side
+// dry-run / create-baseline routing relies on:
+//   - baselinePath: dropped to "" when CreateBaseline is set so
+//     OutputPhase's applyBaseline never runs (mirrors the in-process
+//     short-circuit).
+//   - basePath: defaults to the first scan path when empty so daemon-
+//     computed baseline IDs match WriteBaselineColumns byte-for-byte.
+//   - maxFixLevel: parses FixLevel only when DryRun is set; empty or
+//     unknown values leave the cap at zero (matches FixupPhase
+//     semantics: no cap).
+func resolveBaselineDryRunArgs(args daemon.AnalyzeProjectArgs, paths []string) (string, string, rules.FixLevel) {
+	baselinePath := args.BaselinePath
+	if args.CreateBaseline {
+		baselinePath = ""
+	}
+	basePath := args.BasePath
+	if basePath == "" && len(paths) > 0 {
+		basePath = paths[0]
+	}
+	maxFixLevel := rules.FixLevel(0)
+	if args.DryRun && args.FixLevel != "" {
+		if lvl, ok := rules.ParseFixLevel(args.FixLevel); ok {
+			maxFixLevel = lvl
+		}
+	}
+	return baselinePath, basePath, maxFixLevel
 }
 
 // loadDaemonConfig loads the krit.yml the daemon should honour for

@@ -327,6 +327,12 @@ func startMockMetaDaemon(t *testing.T, verb string, reply daemon.MetaResult) str
 // --cpuprofile, and --memprofile must all be served by the daemon now
 // that the wire carries dispatch_profile fan-out and the daemon wraps
 // analyze-project in pprof capture for CPU/mem profile paths.
+//
+// --create-baseline and --dry-run are now daemon-served too: the
+// daemon computes baseline IDs / fixable file lists and the CLI
+// performs the local file write or stdout print. --fix /
+// --remove-dead-code / --fix-binary remain in-process pending a
+// fix-payload-over-the-wire design.
 func TestDaemonCompatibleFlags_PerfAllowed(t *testing.T) {
 	tests := []struct {
 		name string
@@ -341,6 +347,8 @@ func TestDaemonCompatibleFlags_PerfAllowed(t *testing.T) {
 		{"--cpuprofile", func(f *scanFlags) { *f.CPUProfile = "/tmp/cpu.pprof" }, true},
 		{"--memprofile", func(f *scanFlags) { *f.MemProfile = "/tmp/mem.pprof" }, true},
 		{"--fix", func(f *scanFlags) { *f.Fix = true }, false},
+		{"--fix-binary", func(f *scanFlags) { *f.FixBinary = true }, false},
+		{"--remove-dead-code", func(f *scanFlags) { *f.RemoveDeadCode = true }, false},
 		// --no-cache rides on AnalyzeProjectArgs.NoCache; daemon
 		// nils its on-disk cache pointers for the call but stays
 		// the right place to serve it.
@@ -352,6 +360,20 @@ func TestDaemonCompatibleFlags_PerfAllowed(t *testing.T) {
 		// the way the analyze path used to.
 		{"--clear-cache", func(f *scanFlags) { *f.ClearCache = true }, true},
 		{"--clear-matrix-cache", func(f *scanFlags) { *f.ClearMatrixCache = true }, true},
+		// --input-types and --sample-rule are daemon-served via the
+		// AnalyzeProjectArgs.InputTypesPath wire field / JSON-envelope
+		// post-processing on the CLI side.
+		{"--input-types", func(f *scanFlags) { *f.InputTypes = "/tmp/types.json" }, true},
+		{"--sample-rule", func(f *scanFlags) { *f.SampleRule = "MyRule" }, true},
+		// --create-baseline and --dry-run are daemon-served: the
+		// daemon computes BaselineIDs / fixable-file list, the CLI
+		// performs the local write/print.
+		{"--create-baseline", func(f *scanFlags) { *f.CreateBaseline = "/tmp/baseline.xml" }, true},
+		{"--dry-run", func(f *scanFlags) { *f.DryRun = true }, true},
+		// --base-path is daemon-compatible — it's forwarded as
+		// AnalyzeProjectArgs.BasePath so daemon-side baseline IDs
+		// match in-process resolution.
+		{"--base-path", func(f *scanFlags) { *f.BasePath = "/tmp/base" }, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

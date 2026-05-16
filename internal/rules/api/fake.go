@@ -48,6 +48,12 @@ func WithFix(level FixLevel) FakeOption {
 	return func(r *Rule) { r.Fix = level }
 }
 
+// WithSuggestedFixes sets the rule's ordered suggested-fix declarations.
+// Mutually exclusive with WithFix at Register time.
+func WithSuggestedFixes(specs ...SuggestedFix) FakeOption {
+	return func(r *Rule) { r.SuggestedFixes = specs }
+}
+
 // WithConfidence sets the base confidence.
 func WithConfidence(c float64) FakeOption {
 	return func(r *Rule) { r.Confidence = c }

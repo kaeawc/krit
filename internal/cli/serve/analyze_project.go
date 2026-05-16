@@ -77,9 +77,24 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		// "no opinion" and the pipeline walks.
 		if dirty == nil {
 			in.Host.SourceSetDirty = []string{}
+			in.Host.AnalysisCacheDirty = []string{}
 		} else {
 			in.Host.SourceSetDirty = dirty
+			in.Host.AnalysisCacheDirty = dirty
 		}
+		// AnalysisCacheDirty opts cacheCheck into the incremental
+		// CheckFilesIncremental path: only files in the dirty set
+		// get the os.Stat + content-hash NeedsReanalysis check; the
+		// rest hit the cache directly. On the kotlin-corpus warm
+		// baseline this collapses ~245 ms of 18 k-file stat sweep
+		// to a map walk. The watcher's continuous presence is the
+		// correctness gate — same trust contract as the resident
+		// parsed-trees cache.
+		//
+		// Cold runs (first analyze after daemon start) leave
+		// AnalysisCacheDirty nil so CheckFiles still validates
+		// every cached entry against disk — the watcher hasn't been
+		// running long enough to vouch for "non-dirty == unchanged".
 	}
 
 	// Defer pipeline execution into WriteRawResponse so the

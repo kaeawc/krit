@@ -389,6 +389,23 @@ func (c *Client) OracleFilterFingerprint(args daemon.OracleFilterFingerprintArgs
 	return result, nil
 }
 
+// DumpTypes dispatches the dump-types verb (CLI's --output-types).
+// The daemon runs krit-types against the requested scan paths and
+// writes the oracle JSON dump to args.OutputPath, which must be
+// absolute. Captured stderr / exit code is replayed by the CLI so
+// daemon-routed and in-process --output-types invocations stay
+// byte-equivalent.
+func (c *Client) DumpTypes(args daemon.DumpTypesArgs) (daemon.MetaResult, error) {
+	if c == nil {
+		return daemon.MetaResult{}, errors.New("daemonclient: nil client")
+	}
+	var result daemon.MetaResult
+	if err := daemon.Call(c.socketPath, daemon.VerbDumpTypes, args, &result); err != nil {
+		return daemon.MetaResult{}, err
+	}
+	return result, nil
+}
+
 // ClearCache asks the daemon to delete its on-disk caches and drop
 // resident WorkspaceState slots. The caller's binary hash is injected
 // automatically when args.ClientBinaryHash is empty.

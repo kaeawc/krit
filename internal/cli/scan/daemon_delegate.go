@@ -123,8 +123,13 @@ func writeDaemonFindings(f *scanFlags, res daemon.AnalyzeProjectResult, start ti
 
 // metaVerbName tags the routable read-only meta queries the daemon
 // can answer (list-rules, list-experiments, validate-config,
-// oracle-filter-fingerprint). Returned by metaVerbForFlags so the
-// dispatch in tryDaemonDelegate stays a single switch.
+// oracle-filter-fingerprint, dump-types). Returned by metaVerbForFlags
+// so the dispatch in tryDaemonDelegate stays a single switch.
+//
+// dump-types is "meta" in the routing sense (short-circuits before
+// rule dispatch, writes a single artifact, captured stderr replayed
+// on the CLI) even though the daemon does invoke the krit-types JVM
+// to produce it — same as the in-process --output-types flow.
 type metaVerbName int
 
 const (
@@ -133,6 +138,7 @@ const (
 	metaVerbListExperiments
 	metaVerbValidateConfig
 	metaVerbOracleFilterFingerprint
+	metaVerbDumpTypes
 )
 
 // metaVerbForFlags inspects f and returns which read-only meta verb
@@ -160,6 +166,8 @@ func metaVerbForFlags(f *scanFlags) (metaVerbName, bool) {
 		return metaVerbValidateConfig, true
 	case *f.OracleFilterFingerprint:
 		return metaVerbOracleFilterFingerprint, true
+	case *f.OutputTypes != "":
+		return metaVerbDumpTypes, true
 	}
 	return metaVerbNone, false
 }
@@ -209,6 +217,23 @@ func callMetaVerb(client *daemonclient.Client, f *scanFlags, paths []string, ver
 		return client.OracleFilterFingerprint(daemon.OracleFilterFingerprintArgs{
 			Paths:    paths,
 			AllRules: *f.AllRules,
+		})
+	case metaVerbDumpTypes:
+		// Absolutise the output path: the daemon runs from the
+		// project root and would otherwise resolve a caller-relative
+		// path against the wrong directory. filepath.Abs only fails
+		// when CWD is unreadable; fall back to the raw value so the
+		// daemon surfaces a clean create-file error rather than
+		// silently writing somewhere unexpected.
+		outputPath := *f.OutputTypes
+		if abs, err := filepath.Abs(outputPath); err == nil {
+			outputPath = abs
+		}
+		return client.DumpTypes(daemon.DumpTypesArgs{
+			Paths:         paths,
+			OutputPath:    outputPath,
+			NoCacheOracle: *f.NoCacheOracle,
+			Verbose:       *f.Verbose,
 		})
 	}
 	return daemon.MetaResult{}, fmt.Errorf("unknown meta verb %d", verb)
@@ -410,7 +435,7 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 			}
 		}
 	}
-	strs := []string{*f.Completions, *f.OutputTypes,
+	strs := []string{*f.Completions,
 		*f.PromoteExperiment, *f.DeprecateExperiment, *f.NewExperiment, *f.ExperimentMatrix}
 	for _, s := range strs {
 		if s != "" {

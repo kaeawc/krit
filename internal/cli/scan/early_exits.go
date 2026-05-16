@@ -18,6 +18,7 @@ import (
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/schema"
+	"github.com/kaeawc/krit/internal/store"
 )
 
 //go:embed completions
@@ -439,18 +440,55 @@ func runOutputTypesFlag(opts outputTypesOpts) {
 	if opts.OutputPath == "" {
 		return
 	}
+	code := RunOutputTypesTo(os.Stderr, RunOutputTypesOpts{
+		OutputPath:    opts.OutputPath,
+		NoCacheOracle: opts.NoCacheOracle,
+		Verbose:       opts.Verbose,
+		Store:         resolvedStore(opts.StoreDir),
+		Paths:         opts.Paths,
+	})
+	os.Exit(code)
+}
+
+// RunOutputTypesOpts is the IO-free bundle RunOutputTypesTo consumes. It
+// mirrors outputTypesOpts but accepts a resolved *store.FileStore so the
+// daemon path (which has no scanFlags pointers) can call into the same
+// dump logic without touching CLI flag plumbing.
+type RunOutputTypesOpts struct {
+	OutputPath    string
+	NoCacheOracle bool
+	Verbose       bool
+	// Store, when non-nil, routes oracle cache reads/writes through the
+	// unified file store. The CLI threads in resolvedStore(StoreDir) so
+	// .krit/store is preferred when it exists; the daemon does the same
+	// against its own root.
+	Store *store.FileStore
+	Paths []string
+}
+
+// RunOutputTypesTo performs the --output-types dump: locates the
+// krit-types jar, finds Kotlin source directories under opts.Paths,
+// and writes the oracle JSON to opts.OutputPath. Diagnostic / error
+// lines are written to errOut. Returns the exit code the CLI should
+// use (0 on success, 1 on dump error, 2 on missing jar / no sources).
+//
+// No os.Exit calls, no rule loading. Safe to call from the daemon's
+// dump-types verb where rules must not run and the process must not
+// terminate. The on-disk write happens at opts.OutputPath, which the
+// caller is responsible for absolutising when crossing CWD boundaries.
+func RunOutputTypesTo(errOut io.Writer, opts RunOutputTypesOpts) int {
 	jarPath := oracle.FindJar(opts.Paths)
 	if jarPath == "" {
-		fmt.Fprintf(os.Stderr, "error: krit-types.jar not found. Build it with: cd tools/krit-types && ./gradlew shadowJar\n")
-		os.Exit(2)
+		fmt.Fprintf(errOut, "error: krit-types.jar not found. Build it with: cd tools/krit-types && ./gradlew shadowJar\n")
+		return 2
 	}
 	sourceDirs := oracle.FindSourceDirs(opts.Paths)
 	if len(sourceDirs) == 0 {
-		fmt.Fprintf(os.Stderr, "error: no Kotlin source directories found\n")
-		os.Exit(2)
+		fmt.Fprintf(errOut, "error: no Kotlin source directories found\n")
+		return 2
 	}
 	if opts.Verbose {
-		fmt.Fprintf(os.Stderr, "verbose: Found %d source directories\n", len(sourceDirs))
+		fmt.Fprintf(errOut, "verbose: Found %d source directories\n", len(sourceDirs))
 	}
 	var err error
 	// --output-types is a standalone oracle dump: no rules are loaded so
@@ -459,13 +497,13 @@ func runOutputTypesFlag(opts outputTypesOpts) {
 	if opts.NoCacheOracle {
 		_, err = oracle.Invoke(jarPath, sourceDirs, opts.OutputPath, opts.Verbose)
 	} else {
-		_, err = oracle.InvokeCached(jarPath, sourceDirs, oracle.FindRepoDir(opts.Paths), opts.OutputPath, "", opts.Verbose, resolvedStore(opts.StoreDir))
+		_, err = oracle.InvokeCached(jarPath, sourceDirs, oracle.FindRepoDir(opts.Paths), opts.OutputPath, "", opts.Verbose, opts.Store)
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(errOut, "error: %v\n", err)
+		return 1
 	}
-	os.Exit(0)
+	return 0
 }
 
 func runClearCacheFlag(clearCacheFlag bool, cacheDirFlag, cacheFilePath string, paths []string) {

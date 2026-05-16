@@ -772,6 +772,9 @@ func registerVerbs(srv *daemon.Server, state *daemonState) {
 	srv.Register(daemon.VerbOracleFilterFingerprint, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return handleOracleFilterFingerprint(ctx, state, raw)
 	})
+	srv.Register(daemon.VerbDumpTypes, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return handleDumpTypes(ctx, state, raw)
+	})
 	srv.Register(daemon.VerbClearCache, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return handleClearCache(ctx, state, raw)
 	})

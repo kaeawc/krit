@@ -375,7 +375,12 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 	if repoDir == "" {
 		repoDir = s.root
 	}
-	androidCacheWriter, androidCacheDir := s.androidCacheWriterFor(repoDir)
+	// AndroidCacheWriter / AndroidCacheDir are intentionally left
+	// unwired on the daemon path. See issue #254: with them set, warm
+	// post-edit analyze runs collapse from ~87 k findings to ~62
+	// starting on the second run. Re-enable once the regression is
+	// understood.
+
 	// --no-cache disables every on-disk cache for this single call:
 	// parse cache, AnalysisCache, findings bundle store, cross-file/
 	// findings/type-index disk shards. Resident WorkspaceState slots
@@ -446,7 +451,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 		perfTracker = perf.New(true)
 	}
 
-	diskCache := s.resolveDiskCacheWiring(args, repoDir, androidCacheWriter, androidCacheDir)
+	diskCache := s.resolveDiskCacheWiring(args, repoDir)
 	baselinePath, basePath, maxFixLevel := resolveBaselineDryRunArgs(args, paths)
 	return pipeline.ProjectInput{
 		Args: pipeline.ProjectArgs{
@@ -495,8 +500,6 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			SourceMTimeVersion:           s.workspace.SourceMTimeVersion,
 			BundleOutput:                 s.workspace.BundleOutput,
 			StoreBundleOutput:            s.workspace.StoreBundleOutput,
-			AndroidCacheWriter:           diskCache.androidCacheWriter,
-			AndroidCacheDir:              diskCache.androidCacheDir,
 			CrossFileCacheDir:            diskCache.crossFileCacheDir,
 			CrossFindingsCacheDir:        diskCache.crossFindingsCacheDir,
 			TypeIndexCacheDir:            diskCache.typeIndexCacheDir,
@@ -523,8 +526,6 @@ type diskCacheWiring struct {
 	crossFileCacheDir     string
 	crossFindingsCacheDir string
 	typeIndexCacheDir     string
-	androidCacheWriter    *scanner.AndroidCacheWriter
-	androidCacheDir       string
 	findingsBundleStore   scanner.FindingsBundleStore
 	findingsBundleRoot    string
 	manifestLoader        pipeline.FindingsBundleManifestLoader
@@ -536,19 +537,14 @@ type diskCacheWiring struct {
 // resident WorkspaceState slots stay live (they're per-process memory
 // keyed on input fingerprints, so reuse is idempotent and a no-cache
 // call cannot dirty them for subsequent calls).
-func (s *daemonState) resolveDiskCacheWiring(args daemon.AnalyzeProjectArgs, repoDir string, androidCacheWriter *scanner.AndroidCacheWriter, androidCacheDir string) diskCacheWiring {
+func (s *daemonState) resolveDiskCacheWiring(args daemon.AnalyzeProjectArgs, repoDir string) diskCacheWiring {
 	if args.NoCache {
-		// Drop Android cache pointers too — the
-		// androidFindingsCacheable gate checks both writer and dir, so
-		// emptying them matches the other on-disk cache zeroing.
 		return diskCacheWiring{}
 	}
 	return diskCacheWiring{
 		crossFileCacheDir:     scanner.CrossFileCacheDir(repoDir),
 		crossFindingsCacheDir: scanner.CrossFindingsCacheDir(repoDir),
 		typeIndexCacheDir:     typeinfer.TypeIndexCacheDir(repoDir),
-		androidCacheWriter:    androidCacheWriter,
-		androidCacheDir:       androidCacheDir,
 		findingsBundleStore:   scanner.DiskFindingsBundleStore{},
 		findingsBundleRoot:    repoDir,
 		manifestLoader:        s.loadManifest,

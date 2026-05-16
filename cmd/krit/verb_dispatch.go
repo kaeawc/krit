@@ -33,6 +33,7 @@ import (
 	climsnapshot "github.com/kaeawc/krit/internal/cli/snapshot"
 	climsuggestreviewers "github.com/kaeawc/krit/internal/cli/suggestreviewers"
 	climtestcoverage "github.com/kaeawc/krit/internal/cli/testcoverage"
+	climtraces "github.com/kaeawc/krit/internal/cli/traces"
 	climtransform "github.com/kaeawc/krit/internal/cli/transform"
 	climtriage "github.com/kaeawc/krit/internal/cli/triage"
 	climusedsymbols "github.com/kaeawc/krit/internal/cli/usedsymbols"
@@ -77,6 +78,7 @@ const (
 	verbBreakage
 	verbBisectStructure
 	verbDeltaRisk
+	verbTraces
 )
 
 var verbByName = map[string]subcommandVerb{
@@ -115,6 +117,7 @@ var verbByName = map[string]subcommandVerb{
 	"breakage":           verbBreakage,
 	"bisect-structure":   verbBisectStructure,
 	"delta-risk":         verbDeltaRisk,
+	"traces":             verbTraces,
 }
 
 func classifyVerb(arg string) subcommandVerb {
@@ -205,6 +208,20 @@ func runVerbAndExitB(verb subcommandVerb, rest []string) bool {
 		os.Exit(climbisect.Run(rest))
 	case verbDeltaRisk:
 		os.Exit(climdeltarisk.Run(rest))
+	default:
+		return runVerbAndExitC(verb, rest)
+	}
+	return false
+}
+
+// runVerbAndExitC is the third dispatch tier. Verbs added after the
+// per-function cyclo limit was reached should land here so the
+// existing tiers don't need to be reshuffled when more subcommands
+// arrive.
+func runVerbAndExitC(verb subcommandVerb, rest []string) bool {
+	switch verb {
+	case verbTraces:
+		os.Exit(climtraces.Run(rest))
 	}
 	return false
 }

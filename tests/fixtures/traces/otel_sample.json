@@ -1,0 +1,49 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "orderservice"}},
+          {"key": "deployment.environment", "value": {"stringValue": "production"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "spans": [
+            {
+              "traceId": "t1",
+              "spanId": "s1",
+              "name": "POST /orders",
+              "startTimeUnixNano": "1700000000000000000",
+              "attributes": [
+                {"key": "code.namespace", "value": {"stringValue": "com.acme.api"}},
+                {"key": "code.function", "value": {"stringValue": "OrdersHandler.create"}}
+              ]
+            },
+            {
+              "traceId": "t1",
+              "spanId": "s2",
+              "parentSpanId": "s1",
+              "name": "Order.create",
+              "startTimeUnixNano": "1700000000000001000",
+              "attributes": [
+                {"key": "code.namespace", "value": {"stringValue": "com.acme.domain"}},
+                {"key": "code.function", "value": {"stringValue": "Order.create"}}
+              ]
+            },
+            {
+              "traceId": "t1",
+              "spanId": "s3",
+              "parentSpanId": "s2",
+              "name": "DynamicDispatchSite",
+              "startTimeUnixNano": "1700000000000002000",
+              "attributes": [
+                {"key": "code.function", "value": {"stringValue": "process"}}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

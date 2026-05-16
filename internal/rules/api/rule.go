@@ -17,6 +17,7 @@ import (
 	"github.com/kaeawc/krit/internal/manifest"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/traces"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
@@ -132,6 +133,16 @@ const (
 	// do not appear in source. Skipped JVM-side when no active rule
 	// declares this bit.
 	NeedsOracleLibraryClasses
+
+	// NeedsRuntimeEvidence requests the per-run runtime trace overlay
+	// in Context (Context.RuntimeEvidence). Populated only when the
+	// CLI has ingested traces into `.krit/traces/store.json`; rules
+	// that declare this bit must treat an empty store as "no evidence
+	// available" and degrade gracefully (typically by skipping the
+	// confidence adjustment, not by emitting findings as if the
+	// evidence said no). Layered orthogonally on top of any scope.
+	// (Aspect.)
+	NeedsRuntimeEvidence
 )
 
 // NeedsOracle is the back-compat umbrella: the OR of every narrow
@@ -1128,6 +1139,14 @@ type Context struct {
 	// available. Rules should use this instead of baking library-version
 	// assumptions directly into AST heuristics.
 	LibraryFacts *librarymodel.Facts
+
+	// RuntimeEvidence is the per-run trace overlay (states,
+	// transitions, resolutions). Populated only when the rule
+	// declares NeedsRuntimeEvidence and the CLI has ingested traces
+	// into `.krit/traces/store.json`. May be nil even when the
+	// capability is declared — rules must treat nil / empty as "no
+	// evidence available" and degrade gracefully.
+	RuntimeEvidence *traces.Store
 
 	// Facts is the per-run shared cache of derived per-file facts
 	// (imports, references, declaration summaries). Always non-nil for

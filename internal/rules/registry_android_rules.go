@@ -137,12 +137,16 @@ func registerAndroidRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes:  []string{"call_expression"},
-			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Needs:      api.NeedsTypeInfo,
 			Confidence: 0.75, Implementation: r,
-			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"v", "d", "i", "println", "isLoggable"}},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				// Test sources frequently log without guards on purpose
+				// (debugging assertion failures, JUnit/Robolectric output).
+				// Skip them to match user expectations and AOSP lint behavior.
+				if scanner.IsTestFile(file.Path) {
+					return
+				}
 				if !logCallIsAndroidLog(ctx, idx) {
 					return
 				}
@@ -150,7 +154,7 @@ func registerAndroidRules() {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,
-					"Unconditional logging call. Wrap in Log.isLoggable() for performance.")
+					"Unconditional logging call. Wrap in Log.isLoggable() or BuildConfig.DEBUG for performance.")
 			},
 		})
 	}

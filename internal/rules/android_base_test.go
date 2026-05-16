@@ -1,8 +1,12 @@
 package rules_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // --- ContentDescriptionRule ---
@@ -82,6 +86,7 @@ fun MyScreen() {
 func TestLogConditional_Positive(t *testing.T) {
 	findings := runRuleByName(t, "LogConditional", `
 package test
+import android.util.Log
 fun doWork() {
     Log.d("TAG", "doing work")
 }`)
@@ -93,6 +98,7 @@ fun doWork() {
 func TestLogConditional_Negative(t *testing.T) {
 	findings := runRuleByName(t, "LogConditional", `
 package test
+import android.util.Log
 fun doWork() {
     if (Log.isLoggable("TAG", Log.DEBUG)) {
         Log.d("TAG", "doing work")
@@ -100,6 +106,104 @@ fun doWork() {
 }`)
 	if len(findings) != 0 {
 		t.Errorf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestLogConditional_NegativeBuildConfigDebugGuard(t *testing.T) {
+	findings := runRuleByName(t, "LogConditional", `
+package test
+import android.util.Log
+fun doWork() {
+    if (BuildConfig.DEBUG) {
+        Log.d("TAG", "doing work")
+    }
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings inside BuildConfig.DEBUG guard, got %d", len(findings))
+	}
+}
+
+func TestLogConditional_NegativeTimberLog(t *testing.T) {
+	// timber.log.Log lookalike (same simple name "Log", different FQN);
+	// must not be misclassified as android.util.Log.
+	findings := runRuleByName(t, "LogConditional", `
+package test
+import timber.log.Log
+fun doWork() {
+    Log.d("TAG", "timber call")
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for timber.log.Log, got %d", len(findings))
+	}
+}
+
+func TestLogConditional_NegativeSlf4jLogger(t *testing.T) {
+	findings := runRuleByName(t, "LogConditional", `
+package test
+import org.slf4j.LoggerFactory
+private val log = LoggerFactory.getLogger("X")
+fun doWork() {
+    log.debug("hello")
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for slf4j logger, got %d", len(findings))
+	}
+}
+
+func TestLogConditional_NegativeKotlinLoggingKLogger(t *testing.T) {
+	findings := runRuleByName(t, "LogConditional", `
+package test
+import mu.KotlinLogging
+private val logger = KotlinLogging.logger {}
+fun doWork() {
+    logger.debug { "hello" }
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for kotlin-logging KLogger, got %d", len(findings))
+	}
+}
+
+func TestLogConditional_NegativeLocalLogClassLookalike(t *testing.T) {
+	// A same-file `class Log` lookalike must not be misclassified as
+	// android.util.Log even when the receiver name matches.
+	findings := runRuleByName(t, "LogConditional", `
+package test
+class Log {
+    fun d(tag: String, msg: String) {}
+}
+fun doWork() {
+    val Log = Log()
+    Log.d("TAG", "lookalike")
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for local Log lookalike, got %d", len(findings))
+	}
+}
+
+func TestLogConditional_NegativeTestSource(t *testing.T) {
+	t.Helper()
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "src", "test", "java", "com", "example", "MyTest.kt")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	code := `package test
+import android.util.Log
+class MyTest {
+    fun runs() {
+        Log.d("TAG", "from test")
+    }
+}`
+	if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings := runRuleByNameOnFile(t, "LogConditional", file)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings in test source path, got %d", len(findings))
 	}
 }
 

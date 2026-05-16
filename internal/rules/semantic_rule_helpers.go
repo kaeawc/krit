@@ -371,41 +371,127 @@ func logCallIsAndroidLog(ctx *api.Context, call uint32) bool {
 		return semanticTargetOwnerMatches(target.QualifiedName, "android.util.Log")
 	}
 	receiver := flatReceiverNameFromCall(ctx.File, call)
-	if receiver != "Log" && receiver != "android.util.Log" {
-		return false
-	}
-	if ctx.Resolver != nil {
-		if fqn := ctx.Resolver.ResolveImport("Log", ctx.File); fqn != "" {
-			return fqn == "android.util.Log"
+	switch receiver {
+	case "Log":
+		// Require an import of `android.util.Log` so Timber.Log,
+		// slf4j Logger aliases, kotlin-logging KLogger, and same-file
+		// `class Log` lookalikes are not misclassified as
+		// android.util.Log. The resolver already shadows imports with
+		// same-file declarations of the simple name; the filefacts
+		// fallback still rejects when the file imports anything other
+		// than android.util.Log under the simple name `Log`.
+		if ctx.Resolver != nil {
+			return ctx.Resolver.ResolveImport("Log", ctx.File) == "android.util.Log"
 		}
+		return fileImportsFQN(ctx.File, "android.util.Log") &&
+			!fileDeclaresSimpleTypeNameLocal(ctx.File, "Log")
+	case "android.util.Log":
+		return true
+	default:
 		return false
 	}
-	return receiver == "Log" || receiver == "android.util.Log"
 }
 
+// fileDeclaresSimpleTypeNameLocal reports whether `file` declares a
+// top-level class / interface / object / type alias whose simple name is
+// `name`. Used to reject same-file lookalikes (e.g. a local `class Log`)
+// when the resolver is unavailable.
+func fileDeclaresSimpleTypeNameLocal(file *scanner.File, name string) bool {
+	if file == nil || name == "" {
+		return false
+	}
+	found := false
+	for _, kind := range []string{"class_declaration", "object_declaration", "type_alias", "interface_declaration"} {
+		file.FlatWalkNodes(0, kind, func(decl uint32) {
+			if found {
+				return
+			}
+			if semantics.DeclarationName(file, decl) == name {
+				found = true
+			}
+		})
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
+// hasAndroidLogGuardFlat reports whether `call` is wrapped in a debug-only
+// guard recognized by AOSP Android lint: either
+//   - `if (Log.isLoggable(...))`, or
+//   - `if (BuildConfig.DEBUG)`
+//
+// The walk stops at the nearest scope boundary (function/class/lambda) so an
+// `isLoggable` guard inside a sibling block does not satisfy this call.
 func hasAndroidLogGuardFlat(ctx *api.Context, call uint32) bool {
 	file := ctx.File
 	for p, ok := file.FlatParent(call); ok; p, ok = file.FlatParent(p) {
 		switch file.FlatType(p) {
 		case "if_expression":
+			condition, _ := ifConditionAndThenBodyFlat(file, p)
+			if condition != 0 && conditionIsBuildConfigDebugFlat(file, condition) {
+				return true
+			}
 			found := false
 			file.FlatWalkNodes(p, "call_expression", func(c uint32) {
 				if found || c == call || flatCallExpressionName(file, c) != "isLoggable" {
 					return
 				}
-				if semanticResolvedTargetMatches(ctx, c, "android.util.Log.isLoggable") ||
-					(flatReceiverNameFromCall(file, c) == "Log" && (ctx.Resolver == nil || ctx.Resolver.ResolveImport("Log", file) == "android.util.Log")) {
+				if semanticResolvedTargetMatches(ctx, c, "android.util.Log.isLoggable") {
+					found = true
+					return
+				}
+				if flatReceiverNameFromCall(file, c) != "Log" {
+					return
+				}
+				if ctx.Resolver != nil {
+					if ctx.Resolver.ResolveImport("Log", file) == "android.util.Log" {
+						found = true
+					}
+					return
+				}
+				// Resolver missing: accept the guard only when the
+				// file actually imports android.util.Log and does
+				// not declare a same-file `Log` lookalike.
+				if fileImportsFQN(file, "android.util.Log") &&
+					!fileDeclaresSimpleTypeNameLocal(file, "Log") {
 					found = true
 				}
 			})
 			if found {
 				return true
 			}
-		case "function_declaration", "class_declaration", "lambda_literal", "source_file":
+		case "function_declaration", "method_declaration",
+			"class_declaration", "object_declaration",
+			"lambda_literal", "anonymous_function",
+			"source_file":
 			return false
 		}
 	}
 	return false
+}
+
+// conditionIsBuildConfigDebugFlat reports whether `cond` is a non-negated
+// BuildConfig.DEBUG reference (optionally parenthesized). The release-
+// engineering BuildConfigDebugInverted rule handles the negated form
+// separately; here we only treat the positive guard as a no-fire signal.
+func conditionIsBuildConfigDebugFlat(file *scanner.File, cond uint32) bool {
+	if file == nil || cond == 0 {
+		return false
+	}
+	text := strings.TrimSpace(file.FlatNodeText(cond))
+	for strings.HasPrefix(text, "(") && strings.HasSuffix(text, ")") {
+		inner := strings.TrimSpace(text[1 : len(text)-1])
+		if inner == text {
+			break
+		}
+		text = inner
+	}
+	if strings.HasPrefix(text, "!") {
+		return false
+	}
+	return text == "BuildConfig.DEBUG" || strings.HasSuffix(text, ".BuildConfig.DEBUG")
 }
 
 func wakeLockAcquireCall(ctx *api.Context, call uint32) bool {

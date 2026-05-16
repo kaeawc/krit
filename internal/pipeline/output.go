@@ -33,6 +33,11 @@ func (OutputPhase) Name() string { return "output" }
 // summaries) can inspect what was actually emitted.
 func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) {
 	columns := &in.Findings
+	// Dispatch merges per-file findings in worker-completion order, so
+	// the column slice handed to Output is non-deterministic across
+	// runs. Sort once here so FinalFindings, the format emitters, and
+	// the daemon's wire payload all agree on row order.
+	columns.SortByFileLine()
 
 	// basePath defaults to the first scan path when not explicitly set.
 	basePath := in.BasePath

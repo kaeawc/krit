@@ -63,6 +63,14 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 // Order kept as named groups so a future flag's owner can decide which
 // bucket their flag belongs in.
 //
+// The flags in the meta / mutating / profiling buckets below are
+// intentionally pinned in-process. See docs/daemon-flag-routing.md for
+// the per-flag rationale (writes file at client CWD, reports on calling
+// binary's env, mutates checked-in registry source, re-execs subprocesses,
+// etc.) and for the wire change each one would need before daemon routing
+// becomes safe. Update that doc when adding to or removing from these
+// lists.
+//
 // --perf and --perf-rules ARE compatible: the daemon wires its own
 // perf.Tracker when ShowPerf is set in args, and OutputPhase emits the
 // hierarchical timing tree in the JSON envelope just like in-process.

@@ -56,6 +56,171 @@ func TestRulesPackageHasNoNewAdHocCaches(t *testing.T) {
 	t.Fatalf("ruleslinter found %d ad-hoc cache violation(s):\n%s", len(violations), b.String())
 }
 
+// TestRulesPackageHasNoDefensiveContextGuards is the gate against
+// reintroducing `if ctx.File == nil { return }` /
+// `if ctx.Idx == 0 { return }` boilerplate in rule callbacks. The
+// dispatcher guarantees both invariants; the guard is theater that
+// obscures the rule's real preconditions. See
+// AnalyzeDefensiveContextGuards for the detection contract.
+func TestRulesPackageHasNoDefensiveContextGuards(t *testing.T) {
+	_, thisFile, _, _ := runtime.Caller(0)
+	rulesDir := filepath.Join(filepath.Dir(thisFile), "..", "rules")
+	violations, err := AnalyzeDefensiveContextGuards(rulesDir)
+	if err != nil {
+		t.Fatalf("AnalyzeDefensiveContextGuards(%q): %v", rulesDir, err)
+	}
+	if len(violations) == 0 {
+		return
+	}
+	var b strings.Builder
+	for _, v := range violations {
+		b.WriteString(v.String())
+		b.WriteByte('\n')
+	}
+	t.Fatalf("ruleslinter found %d defensive-context-guard violation(s):\n%s", len(violations), b.String())
+}
+
+func TestAnalyzeDefensiveContextGuards_FlagsRuleCallback(t *testing.T) {
+	dir := t.TempDir()
+	src := `package rules
+
+import api "github.com/kaeawc/krit/internal/rules/api"
+
+type FooRule struct{}
+
+func (r *FooRule) check(ctx *api.Context) {
+	if ctx.File == nil || ctx.Idx == 0 {
+		return
+	}
+	_ = ctx
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "foo.go"), []byte(src), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	violations, err := AnalyzeDefensiveContextGuards(dir)
+	if err != nil {
+		t.Fatalf("AnalyzeDefensiveContextGuards: %v", err)
+	}
+	if len(violations) != 1 {
+		t.Fatalf("want 1 violation, got %d: %v", len(violations), violations)
+	}
+	if !strings.Contains(violations[0].Message, "dispatcher") {
+		t.Fatalf("want dispatcher hint in message, got %q", violations[0].Message)
+	}
+}
+
+func TestAnalyzeDefensiveContextGuards_FlagsFileOnly(t *testing.T) {
+	dir := t.TempDir()
+	src := `package rules
+
+import api "github.com/kaeawc/krit/internal/rules/api"
+
+func check(ctx *api.Context) {
+	if ctx.File == nil {
+		return
+	}
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "foo.go"), []byte(src), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	violations, err := AnalyzeDefensiveContextGuards(dir)
+	if err != nil {
+		t.Fatalf("AnalyzeDefensiveContextGuards: %v", err)
+	}
+	if len(violations) != 1 {
+		t.Fatalf("want 1 violation, got %d: %v", len(violations), violations)
+	}
+}
+
+func TestAnalyzeDefensiveContextGuards_IgnoresHelperReturningValue(t *testing.T) {
+	dir := t.TempDir()
+	src := `package rules
+
+import api "github.com/kaeawc/krit/internal/rules/api"
+
+// Helpers that return values are responsible for their own nil-safety;
+// they may be called from tests or other helpers that build Contexts
+// outside the dispatcher.
+func helper(ctx *api.Context) bool {
+	if ctx.File == nil {
+		return false
+	}
+	return true
+}
+
+func helperStr(ctx *api.Context) string {
+	if ctx.File == nil {
+		return ""
+	}
+	return ctx.File.Path
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "helper.go"), []byte(src), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	violations, err := AnalyzeDefensiveContextGuards(dir)
+	if err != nil {
+		t.Fatalf("AnalyzeDefensiveContextGuards: %v", err)
+	}
+	if len(violations) != 0 {
+		t.Fatalf("want 0 violations from value-returning helpers, got %d: %v", len(violations), violations)
+	}
+}
+
+func TestAnalyzeDefensiveContextGuards_IgnoresCompoundGuardWithRealCheck(t *testing.T) {
+	// A condition that mixes the dispatcher-guaranteed check with a real
+	// precondition is still flagged: the guard is still doing theater for
+	// the ctx.File / ctx.Idx half. The rule author should split the check
+	// or drop the dispatcher half.
+	dir := t.TempDir()
+	src := `package rules
+
+import api "github.com/kaeawc/krit/internal/rules/api"
+
+func check(ctx *api.Context) {
+	if ctx.File == nil || ctx.File.FlatType(ctx.Idx) != "call_expression" {
+		return
+	}
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "foo.go"), []byte(src), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	violations, err := AnalyzeDefensiveContextGuards(dir)
+	if err != nil {
+		t.Fatalf("AnalyzeDefensiveContextGuards: %v", err)
+	}
+	if len(violations) != 1 {
+		t.Fatalf("want 1 violation from compound guard, got %d: %v", len(violations), violations)
+	}
+}
+
+func TestAnalyzeDefensiveContextGuards_SkipsTestFiles(t *testing.T) {
+	dir := t.TempDir()
+	src := `package rules
+
+import api "github.com/kaeawc/krit/internal/rules/api"
+
+func check(ctx *api.Context) {
+	if ctx.File == nil {
+		return
+	}
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "foo_test.go"), []byte(src), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	violations, err := AnalyzeDefensiveContextGuards(dir)
+	if err != nil {
+		t.Fatalf("AnalyzeDefensiveContextGuards: %v", err)
+	}
+	if len(violations) != 0 {
+		t.Fatalf("want 0 violations from test files, got %d: %v", len(violations), violations)
+	}
+}
+
 func TestAnalyzeAdHocCaches_FlagsNewSyncMap(t *testing.T) {
 	dir := t.TempDir()
 	src := `package rules

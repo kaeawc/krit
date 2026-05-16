@@ -83,7 +83,7 @@ type flatNullOrEmptyCheck struct {
 }
 
 func flatUseIsNullOrEmpty(ctx *api.Context, base BaseRule) {
-	if ctx.File == nil || ctx.File.FlatType(ctx.Idx) != "disjunction_expression" {
+	if ctx.File.FlatType(ctx.Idx) != "disjunction_expression" {
 		return
 	}
 	file := ctx.File

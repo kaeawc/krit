@@ -1027,6 +1027,182 @@ func optInReasonName(expr ast.Expr) string {
 	return ""
 }
 
+// AnalyzeDefensiveContextGuards scans every .go file in dir for the
+// defensive `if ctx.File == nil { return }` / `if ctx.Idx == 0 { return }`
+// boilerplate that historically appeared at the top of rule callbacks.
+//
+// The dispatcher in internal/rules/dispatcher.go guarantees that ctx.File
+// is non-nil for every rule callback invocation, and that ctx.Idx points
+// at the matched flat-tree index (never 0 for ScopePerFileNode rules whose
+// NodeTypes filter out the source_file root). The guards are therefore
+// theater that costs review attention and obscures real preconditions.
+//
+// A finding here means: a function with a *api.Context parameter contains
+// an `if` whose condition mentions ctx.File == nil or ctx.Idx == 0 and
+// whose body is a bare `return` (no value). Helper functions that return
+// a value (false / 0 / "") are intentionally not flagged because they
+// may be invoked from non-dispatcher paths (tests, other helpers) where
+// the dispatcher contract does not apply.
+//
+// Test files are skipped so this file's tests, which construct example
+// rule source containing the pattern as a string fixture, do not trip
+// the gate.
+func AnalyzeDefensiveContextGuards(dir string) ([]Violation, error) {
+	fset := token.NewFileSet()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("ruleslinter: read dir: %w", err)
+	}
+	var violations []Violation
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		if strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		// dispatcher.go legitimately reads ctx.File / ctx.Idx to wire the
+		// context up; api/ is the package that defines the Context type.
+		// Neither lives at the rules-package root we scan, but skip
+		// dispatcher.go defensively in case the scan dir is widened later.
+		if e.Name() == "dispatcher.go" || strings.HasPrefix(e.Name(), "dispatcher_") {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			return nil, fmt.Errorf("ruleslinter: parse %s: %w", path, err)
+		}
+		violations = append(violations, scanDefensiveContextGuards(fset, f)...)
+	}
+	sort.Slice(violations, func(i, j int) bool {
+		if violations[i].Position.Filename != violations[j].Position.Filename {
+			return violations[i].Position.Filename < violations[j].Position.Filename
+		}
+		return violations[i].Position.Offset < violations[j].Position.Offset
+	})
+	return violations, nil
+}
+
+// scanDefensiveContextGuards inspects every function in file whose
+// signature carries a *api.Context parameter and flags `if` statements
+// of the form `if ctx.File == nil { return }` (and variants involving
+// ctx.Idx == 0). Functions that return values are skipped — they are
+// helpers, not rule callbacks, and may be invoked from non-dispatcher
+// paths.
+func scanDefensiveContextGuards(fset *token.FileSet, file *ast.File) []Violation {
+	var out []Violation
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		ctxName := ctxParamName(fn.Type)
+		if ctxName == "" {
+			continue
+		}
+		// Only functions that have no return values: rule callbacks return
+		// nothing. Helpers that return false/0/"" remain in charge of their
+		// own nil-safety.
+		if fn.Type.Results != nil && len(fn.Type.Results.List) > 0 {
+			continue
+		}
+		for _, stmt := range fn.Body.List {
+			ifStmt, ok := stmt.(*ast.IfStmt)
+			if !ok || ifStmt.Init != nil {
+				continue
+			}
+			if !ifBodyIsBareReturn(ifStmt.Body) {
+				continue
+			}
+			if !condReferencesContextGuard(ifStmt.Cond, ctxName) {
+				continue
+			}
+			out = append(out, Violation{
+				RuleID:   fn.Name.Name,
+				Position: fset.Position(ifStmt.Pos()),
+				Message:  "defensive `if " + ctxName + ".File == nil` / `" + ctxName + ".Idx == 0` guard in rule callback; the dispatcher guarantees both. Delete the guard — see internal/rules/dispatcher.go.",
+			})
+		}
+	}
+	return out
+}
+
+// ifBodyIsBareReturn reports whether body is `{ return }` — a single bare
+// `return` statement with no value. Guards with `return false` belong to
+// helper functions and stay.
+func ifBodyIsBareReturn(body *ast.BlockStmt) bool {
+	if body == nil || len(body.List) != 1 {
+		return false
+	}
+	ret, ok := body.List[0].(*ast.ReturnStmt)
+	if !ok {
+		return false
+	}
+	return len(ret.Results) == 0
+}
+
+// condReferencesContextGuard reports whether the boolean expression cond
+// mentions `<ctx>.File == nil` or `<ctx>.Idx == 0` anywhere in its tree
+// (including the LHS of `||` chains).
+func condReferencesContextGuard(cond ast.Expr, ctxName string) bool {
+	found := false
+	ast.Inspect(cond, func(n ast.Node) bool {
+		bin, ok := n.(*ast.BinaryExpr)
+		if !ok || bin.Op != token.EQL {
+			return true
+		}
+		if isContextFieldNilCompare(bin.X, bin.Y, ctxName, "File") ||
+			isContextFieldNilCompare(bin.Y, bin.X, ctxName, "File") {
+			found = true
+			return false
+		}
+		if isContextFieldZeroCompare(bin.X, bin.Y, ctxName, "Idx") ||
+			isContextFieldZeroCompare(bin.Y, bin.X, ctxName, "Idx") {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+// isContextFieldNilCompare reports whether lhs is `<ctxName>.<field>` and
+// rhs is the identifier `nil`.
+func isContextFieldNilCompare(lhs, rhs ast.Expr, ctxName, field string) bool {
+	sel, ok := lhs.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != field {
+		return false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	if !ok || id.Name != ctxName {
+		return false
+	}
+	rid, ok := rhs.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	return rid.Name == "nil"
+}
+
+// isContextFieldZeroCompare reports whether lhs is `<ctxName>.<field>` and
+// rhs is the literal `0`.
+func isContextFieldZeroCompare(lhs, rhs ast.Expr, ctxName, field string) bool {
+	sel, ok := lhs.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != field {
+		return false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	if !ok || id.Name != ctxName {
+		return false
+	}
+	lit, ok := rhs.(*ast.BasicLit)
+	if !ok || lit.Kind != token.INT {
+		return false
+	}
+	return lit.Value == "0"
+}
+
 // guessReceiverType looks at sel.X and returns the type name if it
 // resolves through AssignStmt object metadata. Best-effort: returns ""
 // when the type cannot be determined without full type checking.

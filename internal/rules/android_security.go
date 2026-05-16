@@ -35,9 +35,6 @@ type AddJavascriptInterfaceRule struct {
 }
 
 func (r *AddJavascriptInterfaceRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	if file.FlatType(ctx.Idx) != "call_expression" && file.FlatType(ctx.Idx) != "method_invocation" {
 		return
@@ -471,9 +468,6 @@ func (r *GetInstanceRule) check(ctx *api.Context) {
 }
 
 func (r *RsaNoPaddingRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	if javaAwareCallName(file, ctx.Idx) != "getInstance" {
 		return
@@ -492,9 +486,6 @@ func (r *RsaNoPaddingRule) check(ctx *api.Context) {
 }
 
 func (r *PrngFromSystemTimeRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	if !prngFromSystemTimeCryptoFile(file) || prngFromSystemTimeTestPath(file.Path) {
 		return
@@ -513,9 +504,6 @@ func (r *PrngFromSystemTimeRule) check(ctx *api.Context) {
 }
 
 func (r *OkHTTPDisableSslValidationRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	name := javaAwareCallName(file, ctx.Idx)
 	if name != "hostnameVerifier" && name != "sslSocketFactory" {
@@ -541,9 +529,6 @@ func (r *OkHTTPDisableSslValidationRule) check(ctx *api.Context) {
 }
 
 func (r *DisableCertificatePinningRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	if !disableCertificatePinningEmptyBuilder(file, ctx.Idx) {
 		return
@@ -555,9 +540,6 @@ func (r *DisableCertificatePinningRule) check(ctx *api.Context) {
 }
 
 func (r *AllowAllHostnameVerifierRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	if !allowAllHostnameVerifierClass(file, ctx.Idx) {
 		return
@@ -573,9 +555,6 @@ func (r *AllowAllHostnameVerifierRule) check(ctx *api.Context) {
 }
 
 func (r *BroadcastReceiverExportedFlagMissingRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	if scanner.IsTestFile(file.Path) || strings.Contains(filepath.ToSlash(file.Path), "/androidTest/") {
 		return
@@ -604,9 +583,6 @@ func (r *BroadcastReceiverExportedFlagMissingRule) check(ctx *api.Context) {
 }
 
 func (r *InsecureTrustManagerRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	if !insecureTrustManagerDecl(file, ctx.Idx) {
 		return
@@ -620,9 +596,6 @@ func (r *InsecureTrustManagerRule) check(ctx *api.Context) {
 }
 
 func (r *ImplicitPendingIntentRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	if !implicitPendingIntentCall(file, ctx.Idx) {
 		return
@@ -650,9 +623,6 @@ var weakMessageDigestAlgorithms = map[string]bool{
 }
 
 func (r *WeakMessageDigestRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	if javaAwareCallName(file, ctx.Idx) != "getInstance" {
 		return
@@ -678,9 +648,6 @@ var weakMacAlgorithms = map[string]bool{
 }
 
 func (r *WeakMacAlgorithmRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	if javaAwareCallName(file, ctx.Idx) != "getInstance" {
 		return
@@ -699,9 +666,6 @@ func (r *WeakMacAlgorithmRule) check(ctx *api.Context) {
 }
 
 func (r *WeakKeySizeRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	callName := javaAwareCallName(file, ctx.Idx)
 	if callName != "initialize" && callName != "init" {
@@ -730,9 +694,6 @@ func (r *WeakKeySizeRule) check(ctx *api.Context) {
 }
 
 func (r *StaticIvRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	ctor, byteArg := staticIvConstructorAndByteArg(file, ctx.Idx)
 	if ctor == "" || byteArg == 0 {
@@ -751,9 +712,6 @@ func (r *StaticIvRule) check(ctx *api.Context) {
 }
 
 func (r *HardcodedSecretKeyRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	keyArg := secretKeySpecLiteralKeyArg(file, ctx.Idx)
 	if keyArg == 0 || !isLiteralByteArray(file, keyArg) {
@@ -766,9 +724,6 @@ func (r *HardcodedSecretKeyRule) check(ctx *api.Context) {
 }
 
 func (r *HardcodedHTTPURLRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	raw, ok := hardcodedHTTPURLLiteralArg(file, ctx.Idx)
 	if !ok || !hardcodedHTTPURLInsecure(raw) {
@@ -781,9 +736,6 @@ func (r *HardcodedHTTPURLRule) check(ctx *api.Context) {
 }
 
 func (r *StartActivityWithUntrustedIntentRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	if !startActivityLaunchNames[javaAwareCallName(file, ctx.Idx)] {
 		return
@@ -2376,9 +2328,6 @@ type UnprotectedDynamicReceiverRule struct {
 func (r *UnprotectedDynamicReceiverRule) Confidence() float64 { return 0.75 }
 
 func (r *UnprotectedDynamicReceiverRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 	if javaAwareCallName(file, ctx.Idx) != "registerReceiver" {
 		return

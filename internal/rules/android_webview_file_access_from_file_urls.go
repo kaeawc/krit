@@ -22,9 +22,6 @@ const webViewFileAccessFromFileUrlsSetter = "setAllowFileAccessFromFileURLs"
 const webViewFileAccessFromFileUrlsProperty = "allowFileAccessFromFileURLs"
 
 func (r *WebViewFileAccessFromFileUrlsRule) check(ctx *api.Context) {
-	if ctx.File == nil || ctx.Idx == 0 {
-		return
-	}
 	file := ctx.File
 
 	switch file.FlatType(ctx.Idx) {

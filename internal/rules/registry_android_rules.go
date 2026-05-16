@@ -93,38 +93,7 @@ func registerAndroidRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
-			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				_, args := flatCallExpressionParts(file, idx)
-				if args == 0 {
-					return
-				}
-				for i := 0; i < file.FlatChildCount(args); i++ {
-					child := file.FlatChild(args, i)
-					if file.FlatType(child) != "value_argument" {
-						continue
-					}
-					argText := strings.TrimSpace(file.FlatNodeText(child))
-					eqIdx := strings.Index(argText, "=")
-					if eqIdx < 0 {
-						continue
-					}
-					label := strings.TrimSpace(argText[:eqIdx])
-					if !hardcodedTextLabels[label] {
-						continue
-					}
-					valueText := strings.TrimSpace(argText[eqIdx+1:])
-					if valueText == "" || valueText[0] != '"' {
-						continue
-					}
-					if strings.Contains(valueText, "stringResource(") || strings.Contains(valueText, "getString(") {
-						continue
-					}
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"Hardcoded text. Use string resources for localization.")
-					return
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{

@@ -47,6 +47,7 @@ fun MyScreen() {
 func TestHardcodedText_Positive(t *testing.T) {
 	findings := runRuleByName(t, "HardcodedText", `
 package test
+import androidx.compose.material.Text
 fun MyScreen() {
     Text(text = "Hello World")
 }`)
@@ -58,6 +59,7 @@ fun MyScreen() {
 func TestHardcodedText_Negative(t *testing.T) {
 	findings := runRuleByName(t, "HardcodedText", `
 package test
+import androidx.compose.material.Text
 fun MyScreen() {
     Text(text = stringResource(R.string.hello))
 }`)
@@ -69,11 +71,67 @@ fun MyScreen() {
 func TestHardcodedText_Negative_GetString(t *testing.T) {
 	findings := runRuleByName(t, "HardcodedText", `
 package test
+import androidx.compose.material.Text
 fun MyScreen() {
     Text(title = getString(R.string.hello))
 }`)
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for getString usage, got %d", len(findings))
+	}
+}
+
+// Data-class constructor with the same `text =` named-argument shape.
+// Must not fire — the callee is not a known Compose composable.
+func TestHardcodedText_Negative_DataClassConstructor(t *testing.T) {
+	findings := runRuleByName(t, "HardcodedText", `
+package test
+import androidx.compose.material.Text
+data class LogEntry(val text: String, val description: String)
+fun build() = LogEntry(text = "raw log line", description = "raw description")`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for data-class constructor, got %d", len(findings))
+	}
+}
+
+// Pure interpolation — no static literal text to localize.
+func TestHardcodedText_Negative_PureInterpolation(t *testing.T) {
+	findings := runRuleByName(t, "HardcodedText", `
+package test
+import androidx.compose.material.Text
+fun MyScreen(name: String) {
+    Text(text = "$name")
+    Text(text = "${name.uppercase()}")
+    Text(text = "$name$name")
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for pure-interpolation templates, got %d", len(findings))
+	}
+}
+
+// Without any Android/Compose import the rule must stay silent — the
+// callee name alone is too ambiguous (could be a domain class).
+func TestHardcodedText_Negative_NoAndroidImport(t *testing.T) {
+	findings := runRuleByName(t, "HardcodedText", `
+package test
+fun render() {
+    Text(text = "raw label")
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings when no Android/Compose import is present, got %d", len(findings))
+	}
+}
+
+// String concatenation that still includes a resource lookup must
+// not fire — the Contains check already covers `getString(`.
+func TestHardcodedText_Negative_ConcatWithGetString(t *testing.T) {
+	findings := runRuleByName(t, "HardcodedText", `
+package test
+import androidx.compose.material.Text
+fun MyScreen() {
+    Text(text = "Hello " + getString(R.string.world))
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for concat including getString, got %d", len(findings))
 	}
 }
 

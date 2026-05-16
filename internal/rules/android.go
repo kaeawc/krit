@@ -110,6 +110,211 @@ type HardcodedTextRule struct {
 // Classified per roadmap/17.
 func (r *HardcodedTextRule) Confidence() float64 { return 0.75 }
 
+// hardcodedTextAndroidImportPrefixes are the import package prefixes
+// that signal a file participates in Android UI / Compose code. The
+// HardcodedText rule only fires when at least one such import is
+// present, otherwise the named-argument form `text = "…"` is too
+// ambiguous (data-class constructors, builders, exception helpers
+// all share the spelling).
+var hardcodedTextAndroidImportPrefixes = []string{
+	"android.widget.",
+	"android.view.",
+	"android.app.",
+	"android.content.",
+	"androidx.compose.",
+	"androidx.appcompat.",
+	"androidx.fragment.",
+	"androidx.preference.",
+	"com.google.android.material.",
+}
+
+// hardcodedTextComposeCallees is a conservative set of well-known
+// Compose UI composables whose `text = "…"` argument is virtually
+// always user-facing. Used as a fallback when imports are missing
+// (e.g. a single-file snippet) so the existing positive fixtures
+// keep firing without an explicit import_header.
+var hardcodedTextComposeCallees = map[string]bool{
+	"Text":                   true,
+	"OutlinedText":           true,
+	"TextField":              true,
+	"OutlinedTextField":      true,
+	"BasicText":              true,
+	"BasicTextField":         true,
+	"Button":                 true,
+	"TextButton":             true,
+	"OutlinedButton":         true,
+	"FilledTonalButton":      true,
+	"ElevatedButton":         true,
+	"Snackbar":               true,
+	"TopAppBar":              true,
+	"CenterAlignedTopAppBar": true,
+	"AlertDialog":            true,
+	"NavigationBarItem":      true,
+	"NavigationRailItem":     true,
+	"Tab":                    true,
+	"LeadingIconTab":         true,
+	"DropdownMenuItem":       true,
+	"ListItem":               true,
+}
+
+// fileHasHardcodedTextAndroidImport returns true when the parsed file
+// imports any package under hardcodedTextAndroidImportPrefixes. It
+// reads `import_header` nodes directly so the check is lexical-state
+// aware and ignores commented-out imports.
+func fileHasHardcodedTextAndroidImport(ctx *api.Context) bool {
+	file := ctx.File
+	if file == nil {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(0, "import_header", func(node uint32) {
+		if found {
+			return
+		}
+		ident, ok := file.FlatFindChild(node, "identifier")
+		if !ok {
+			return
+		}
+		fqn := file.FlatNodeText(ident)
+		for _, prefix := range hardcodedTextAndroidImportPrefixes {
+			if strings.HasPrefix(fqn, prefix) {
+				found = true
+				return
+			}
+		}
+	})
+	return found
+}
+
+// hardcodedTextStringLiteralIsPureInterpolation returns true when the
+// string at valueText is a Kotlin string literal whose entire content
+// is interpolation — e.g. `"$x"`, `"${a + b}"`, `"$a$b"`. Such templates
+// carry no localizable literal text and must not fire HardcodedText.
+//
+// Raw triple-quoted strings (`"""…"""`) are NOT treated as pure
+// interpolation because the bracketing is different and the interior
+// is still a hardcoded string from a localization point of view.
+func hardcodedTextStringLiteralIsPureInterpolation(valueText string) bool {
+	if len(valueText) < 2 || valueText[0] != '"' {
+		return false
+	}
+	// Triple-quoted raw strings: not interpolation-only.
+	if strings.HasPrefix(valueText, `"""`) {
+		return false
+	}
+	// Strip surrounding quotes — the lexer guarantees a matching close
+	// quote for parser-accepted source. If we can't find one, bail.
+	end := strings.LastIndexByte(valueText, '"')
+	if end <= 0 {
+		return false
+	}
+	inner := valueText[1:end]
+	if inner == "" {
+		return false
+	}
+	for i := 0; i < len(inner); {
+		c := inner[i]
+		if c != '$' {
+			return false
+		}
+		i++
+		if i >= len(inner) {
+			return false
+		}
+		if inner[i] == '{' {
+			depth := 1
+			i++
+			for i < len(inner) && depth > 0 {
+				switch inner[i] {
+				case '{':
+					depth++
+				case '}':
+					depth--
+				}
+				i++
+			}
+			continue
+		}
+		// Bare `$ident` — consume an identifier run.
+		for i < len(inner) {
+			ch := inner[i]
+			if ch == '_' || ch == '.' ||
+				(ch >= 'a' && ch <= 'z') ||
+				(ch >= 'A' && ch <= 'Z') ||
+				(ch >= '0' && ch <= '9') {
+				i++
+				continue
+			}
+			break
+		}
+	}
+	return true
+}
+
+// hardcodedTextReceiverProven returns true when the call_expression at
+// idx targets a known Compose UI composable by name. The guard is
+// deliberately conservative — Kotlin's `Foo(text = "…")` is also the
+// shape of a data-class constructor, exception helper, or arbitrary
+// builder, so absent receiver-type evidence we restrict the rule to
+// the well-known Compose composables whose `text`/`title`/etc named
+// argument is virtually always user-facing copy.
+//
+// We additionally require the file to import at least one
+// Android/Compose package — without that signal there is no reason
+// to believe the call is on Compose at all (the callee name could be
+// from any framework).
+func hardcodedTextReceiverProven(ctx *api.Context, callExpr uint32) bool {
+	file := ctx.File
+	name := flatCallExpressionName(file, callExpr)
+	if !hardcodedTextComposeCallees[name] {
+		return false
+	}
+	return fileHasHardcodedTextAndroidImport(ctx)
+}
+
+func (r *HardcodedTextRule) check(ctx *api.Context) {
+	idx, file := ctx.Idx, ctx.File
+	_, args := flatCallExpressionParts(file, idx)
+	if args == 0 {
+		return
+	}
+	if !hardcodedTextReceiverProven(ctx, idx) {
+		return
+	}
+	for child := file.FlatFirstChild(args); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "value_argument" {
+			continue
+		}
+		label := flatValueArgumentLabel(file, child)
+		if !hardcodedTextLabels[label] {
+			continue
+		}
+		exprIdx := flatValueArgumentExpression(file, child)
+		if exprIdx == 0 {
+			continue
+		}
+		valueText := strings.TrimSpace(file.FlatNodeText(exprIdx))
+		if valueText == "" || valueText[0] != '"' {
+			continue
+		}
+		// Skip strings already wrapped in a resource lookup. The
+		// `Contains` form catches concatenations like
+		// `"Hello " + getString(R.string.world)` as well as
+		// `stringResource(R.string.hello)` / `context.getString(...)`.
+		if strings.Contains(valueText, "stringResource(") || strings.Contains(valueText, "getString(") {
+			continue
+		}
+		// Skip pure-interpolation templates — they carry no static
+		// literal text to localize.
+		if hardcodedTextStringLiteralIsPureInterpolation(valueText) {
+			continue
+		}
+		ctx.EmitAt(file.FlatRow(idx)+1, 1,
+			"Hardcoded text. Use string resources for localization.")
+		return
+	}
+}
+
 // LogDetectorRule detects unconditional logging calls.
 type LogDetectorRule struct {
 	FlatDispatchBase

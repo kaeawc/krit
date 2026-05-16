@@ -169,6 +169,92 @@ func TestScanAnalyzeProjectResponse_DispatchProfileAbsent(t *testing.T) {
 	}
 }
 
+// TestScanAnalyzeProjectResponse_ColumnsPresent confirms the fast
+// scanner extracts the optional columns object the daemon emits when
+// --rule-audit / --baseline-audit / --delta is set (the
+// AnalyzeProjectArgs.IncludeColumns flag asks for it). Without this
+// branch the scanner would either fall back to json.Unmarshal
+// (correct but slow) or drop the field on the floor — both of which
+// would prevent the CLI from running the audit / delta locally.
+func TestScanAnalyzeProjectResponse_ColumnsPresent(t *testing.T) {
+	stats := AnalyzeProjectStats{FindingsCount: 1, WallSeconds: 0.1}
+	statsBytes, _ := json.Marshal(stats)
+	// Minimal but valid FindingColumns JSON. The scanner only walks
+	// the byte range; the bytes are forwarded to the CLI for full
+	// json.Unmarshal into a *scanner.FindingColumns there.
+	columns := `{"files":["A.kt"],"rules":["R"],"ruleSets":["s"],"messages":["m"],"fileIdx":[0],"line":[1],"col":[1],"ruleSetIdx":[0],"ruleIdx":[0],"severityID":[1],"messageIdx":[0],"confidence":[100],"fixStart":[0],"binaryFixStart":[0],"n":1}`
+	envelope := []byte(`{"ok":true,"data":{"findings":[],"stats":` + string(statsBytes) +
+		`,"columns":` + columns + `}}` + "\n")
+
+	var got AnalyzeProjectResult
+	handled, err := ScanAnalyzeProjectResponse(envelope, &got)
+	if !handled {
+		t.Fatalf("columns envelope must be handled by fast path; envelope=%s", envelope)
+	}
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if string(got.Columns) != columns {
+		t.Errorf("Columns mismatch:\n got: %s\nwant: %s", got.Columns, columns)
+	}
+	if got.DispatchProfile != nil {
+		t.Errorf("DispatchProfile = %+v; want nil when only columns segment is present", got.DispatchProfile)
+	}
+}
+
+// TestScanAnalyzeProjectResponse_ColumnsAbsent pins the no-regression
+// contract: when --rule-audit / --baseline-audit / --delta are off
+// the envelope shape stays identical to the pre-PR shape and
+// out.Columns is nil. Mirrors the equivalent DispatchProfileAbsent
+// test added in #283 for the dispatch_profile segment.
+func TestScanAnalyzeProjectResponse_ColumnsAbsent(t *testing.T) {
+	stats := AnalyzeProjectStats{FindingsCount: 0}
+	statsBytes, _ := json.Marshal(stats)
+	envelope := []byte(`{"ok":true,"data":{"findings":[],"stats":` + string(statsBytes) + `}}` + "\n")
+
+	got := AnalyzeProjectResult{Columns: json.RawMessage(`{"stale":true}`)}
+	handled, err := ScanAnalyzeProjectResponse(envelope, &got)
+	if !handled {
+		t.Fatalf("plain envelope must be handled by fast path; envelope=%s", envelope)
+	}
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if got.Columns != nil {
+		t.Errorf("Columns = %s; want nil after scan of columns-less envelope", got.Columns)
+	}
+}
+
+// TestScanAnalyzeProjectResponse_DispatchProfileAndColumns confirms
+// the fast scanner handles both optional segments in the documented
+// order (dispatch_profile, then columns). Belt-and-braces against a
+// future scanner refactor that walks segments in the wrong order.
+func TestScanAnalyzeProjectResponse_DispatchProfileAndColumns(t *testing.T) {
+	stats := AnalyzeProjectStats{FindingsCount: 0}
+	statsBytes, _ := json.Marshal(stats)
+	profile := DispatchProfile{WallMs: 5, Workers: 2, Timings: []FileTiming{{Path: "x.kt", Size: 8, RunMs: 1, TotalMs: 1, Findings: 0}}}
+	profileBytes, _ := json.Marshal(profile)
+	columns := `{"files":[],"n":0}`
+	envelope := []byte(`{"ok":true,"data":{"findings":[],"stats":` + string(statsBytes) +
+		`,"dispatch_profile":` + string(profileBytes) +
+		`,"columns":` + columns + `}}` + "\n")
+
+	var got AnalyzeProjectResult
+	handled, err := ScanAnalyzeProjectResponse(envelope, &got)
+	if !handled {
+		t.Fatalf("dispatch_profile+columns envelope must be handled by fast path; envelope=%s", envelope)
+	}
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if got.DispatchProfile == nil || got.DispatchProfile.Workers != 2 {
+		t.Errorf("DispatchProfile not parsed: %+v", got.DispatchProfile)
+	}
+	if string(got.Columns) != columns {
+		t.Errorf("Columns mismatch:\n got: %s\nwant: %s", got.Columns, columns)
+	}
+}
+
 // TestScanAnalyzeProjectResponse_ErrorEnvelope handles the
 // {"ok":false,"error":"msg"} shape — daemon refuses, CLI surfaces.
 func TestScanAnalyzeProjectResponse_ErrorEnvelope(t *testing.T) {

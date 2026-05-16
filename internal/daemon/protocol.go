@@ -287,6 +287,16 @@ type AnalyzeProjectArgs struct {
 	// count: "cosmetic", "idiomatic", or "semantic". Empty means
 	// no cap (matches FixupPhase MaxFixLevel == 0).
 	FixLevel string `json:"fix_level,omitempty"`
+	// IncludeColumns, when true, asks the daemon to serialize the
+	// post-pipeline scanner.FindingColumns into the response under
+	// the optional "columns" segment. Used by CLI flows that need to
+	// post-process column-oriented findings (--rule-audit,
+	// --baseline-audit, --delta) — the daemon ships columns alongside
+	// the normal findings JSON and the CLI runs the audit / delta
+	// filter locally. Empty/false keeps the response envelope on the
+	// existing {findings,stats[,dispatch_profile]} shape so common
+	// scans stay byte-identical.
+	IncludeColumns bool `json:"include_columns,omitempty"`
 }
 
 // AnalyzeProjectResult is the response payload. Findings is the raw
@@ -301,6 +311,16 @@ type AnalyzeProjectResult struct {
 	// envelope keeps the {findings,stats} shape the fast-scan
 	// response decoder is keyed on (see ScanAnalyzeProjectResponse).
 	DispatchProfile *DispatchProfile `json:"dispatch_profile,omitempty"`
+	// Columns carries the post-pipeline FindingColumns JSON payload
+	// when AnalyzeProjectArgs.IncludeColumns is true. The raw bytes
+	// are the output of scanner.FindingColumns.MarshalJSON; CLI
+	// callers feed them into json.Unmarshal on a *FindingColumns
+	// before handing the columns to RunRuleAuditColumns /
+	// RunBaselineAuditColumns / filterColumnsNewSince. Nil/absent
+	// keeps the response on the original wire shape so non-audit /
+	// non-delta scans hit the fast-scan response decoder's
+	// {findings,stats[,dispatch_profile]} path.
+	Columns json.RawMessage `json:"columns,omitempty"`
 }
 
 // DispatchProfile carries the per-file dispatch timing fan-out the

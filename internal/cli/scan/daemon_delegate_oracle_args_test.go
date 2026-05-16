@@ -9,8 +9,12 @@ import (
 
 // TestDaemonCompatibleFlags_OracleArgsAllowed pins the oracle I/O and
 // sampling bucket: --input-types and --sample-rule are now wire-routable
-// (the CLI absolutizes the path / re-runs the sampler on returned JSON);
-// --output-types and --delta deliberately remain in-process.
+// (the CLI absolutizes the path / re-runs the sampler on returned JSON).
+// --delta is daemon-served via the AnalyzeProjectResult.Columns wire
+// segment: the daemon ships post-pipeline FindingColumns, the CLI
+// applies the delta filter against the base-ref worktree snapshot
+// locally. --output-types deliberately remains in-process (no
+// rule-dispatch dump-only daemon verb yet — tracked separately).
 func TestDaemonCompatibleFlags_OracleArgsAllowed(t *testing.T) {
 	tests := []struct {
 		name string
@@ -20,7 +24,7 @@ func TestDaemonCompatibleFlags_OracleArgsAllowed(t *testing.T) {
 		{"--input-types", func(f *scanFlags) { *f.InputTypes = "/tmp/types.json" }, true},
 		{"--sample-rule", func(f *scanFlags) { *f.SampleRule = "MyRule" }, true},
 		{"--output-types", func(f *scanFlags) { *f.OutputTypes = "/tmp/out.json" }, false},
-		{"--delta", func(f *scanFlags) { *f.Delta = "main" }, false},
+		{"--delta", func(f *scanFlags) { *f.Delta = "main" }, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

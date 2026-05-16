@@ -16,14 +16,18 @@ import (
 )
 
 func (r *runner) filterColumnsByDelta(ref string) (scanner.FindingColumns, error) {
-	baseIDs, err := r.deltaBaseFindingIDs(ref)
+	baseIDs, err := deltaBaseFindingIDsForFlags(ref, r.f, r.paths)
 	if err != nil {
 		return scanner.FindingColumns{}, err
 	}
 	return filterColumnsNewSince(r.allColumns, baseIDs, r.basePath), nil
 }
 
-func (r *runner) deltaBaseFindingIDs(ref string) (map[string]bool, error) {
+// deltaBaseFindingIDsForFlags spawns a base-ref worktree and re-execs
+// krit against it to collect the baseline finding IDs the current run
+// will subtract. Factored out of runner.deltaBaseFindingIDs so the
+// daemon-routed --delta path can call it without owning a runner.
+func deltaBaseFindingIDsForFlags(ref string, f *scanFlags, paths []string) (map[string]bool, error) {
 	repoRoot, err := gitRepoRoot()
 	if err != nil {
 		return nil, err
@@ -44,7 +48,7 @@ func (r *runner) deltaBaseFindingIDs(ref string) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	args := r.deltaSnapshotArgs(repoRoot, tmp)
+	args := deltaSnapshotArgsForFlags(f, paths, repoRoot, tmp)
 	cmd := exec.CommandContext(context.Background(), exe, args...)
 	cmd.Dir = tmp
 	var stderr bytes.Buffer
@@ -68,41 +72,41 @@ func (r *runner) deltaBaseFindingIDs(ref string) (map[string]bool, error) {
 	return ids, nil
 }
 
-func (r *runner) deltaSnapshotArgs(repoRoot, tmp string) []string {
+func deltaSnapshotArgsForFlags(f *scanFlags, paths []string, repoRoot, tmp string) []string {
 	args := []string{
 		"--format", "json",
 		"-q",
 		"--no-cache",
 		"--base-path", tmp,
 	}
-	if *r.f.NoTypeInfer {
+	if *f.NoTypeInfer {
 		args = append(args, "--no-type-inference")
 	}
-	if *r.f.NoTypeOracle {
+	if *f.NoTypeOracle {
 		args = append(args, "--no-type-oracle")
 	}
-	if *r.f.NoFir {
+	if *f.NoFir {
 		args = append(args, "--no-fir")
 	}
-	if *r.f.Fir {
+	if *f.Fir {
 		args = append(args, "--fir")
 	}
-	if *r.f.IncludeGenerated {
+	if *f.IncludeGenerated {
 		args = append(args, "--include-generated")
 	}
-	if *r.f.AllRules {
+	if *f.AllRules {
 		args = append(args, "--all-rules")
 	}
-	if *r.f.DisableRules != "" {
-		args = append(args, "--disable-rules", *r.f.DisableRules)
+	if *f.DisableRules != "" {
+		args = append(args, "--disable-rules", *f.DisableRules)
 	}
-	if *r.f.EnableRules != "" {
-		args = append(args, "--enable-rules", *r.f.EnableRules)
+	if *f.EnableRules != "" {
+		args = append(args, "--enable-rules", *f.EnableRules)
 	}
-	if *r.f.Config != "" {
-		args = append(args, "--config", mapPathToWorktree(repoRoot, tmp, *r.f.Config))
+	if *f.Config != "" {
+		args = append(args, "--config", mapPathToWorktree(repoRoot, tmp, *f.Config))
 	}
-	for _, path := range r.paths {
+	for _, path := range paths {
 		args = append(args, mapPathToWorktree(repoRoot, tmp, path))
 	}
 	return args

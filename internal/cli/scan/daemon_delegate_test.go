@@ -330,9 +330,14 @@ func startMockMetaDaemon(t *testing.T, verb string, reply daemon.MetaResult) str
 //
 // --create-baseline and --dry-run are now daemon-served too: the
 // daemon computes baseline IDs / fixable file lists and the CLI
-// performs the local file write or stdout print. --fix /
-// --remove-dead-code / --fix-binary remain in-process pending a
-// fix-payload-over-the-wire design.
+// performs the local file write or stdout print.
+//
+// --rule-audit, --baseline-audit, and --delta are daemon-served via
+// the AnalyzeProjectResult.Columns wire segment (IncludeColumns=true
+// asks the daemon to ship post-pipeline FindingColumns alongside the
+// findings JSON). The CLI runs the audit / delta filter locally.
+// --fix / --remove-dead-code / --fix-binary remain in-process pending
+// a fix-payload-over-the-wire design.
 func TestDaemonCompatibleFlags_PerfAllowed(t *testing.T) {
 	tests := []struct {
 		name string
@@ -370,6 +375,12 @@ func TestDaemonCompatibleFlags_PerfAllowed(t *testing.T) {
 		// performs the local write/print.
 		{"--create-baseline", func(f *scanFlags) { *f.CreateBaseline = "/tmp/baseline.xml" }, true},
 		{"--dry-run", func(f *scanFlags) { *f.DryRun = true }, true},
+		// --rule-audit and --baseline-audit are daemon-served: the
+		// daemon ships FindingColumns on the wire under the optional
+		// "columns" segment and the CLI replays
+		// RunRuleAuditColumns / RunBaselineAuditColumns locally.
+		{"--rule-audit", func(f *scanFlags) { *f.RuleAudit = true }, true},
+		{"--baseline-audit", func(f *scanFlags) { *f.BaselineAudit = true }, true},
 		// --base-path is daemon-compatible — it's forwarded as
 		// AnalyzeProjectArgs.BasePath so daemon-side baseline IDs
 		// match in-process resolution.
@@ -458,6 +469,36 @@ func startMockClearCacheDaemon(t *testing.T, cleared bool) string {
 		time.Sleep(5 * time.Millisecond)
 	}
 	return socketDir
+}
+
+// TestBuildDaemonAnalyzeArgs_ForwardsIncludeColumns confirms each
+// column-consuming flag (--rule-audit, --baseline-audit, --delta)
+// flips AnalyzeProjectArgs.IncludeColumns to true so the daemon
+// emits the post-pipeline FindingColumns under the optional
+// "columns" wire segment. Other flag sets keep it false to preserve
+// the original {findings,stats[,dispatch_profile]} envelope.
+func TestBuildDaemonAnalyzeArgs_ForwardsIncludeColumns(t *testing.T) {
+	tests := []struct {
+		name string
+		set  func(*scanFlags)
+		want bool
+	}{
+		{"default", func(*scanFlags) {}, false},
+		{"--rule-audit", func(f *scanFlags) { *f.RuleAudit = true }, true},
+		{"--baseline-audit", func(f *scanFlags) { *f.BaselineAudit = true }, true},
+		{"--delta", func(f *scanFlags) { *f.Delta = "main" }, true},
+		{"--rule-audit and --delta", func(f *scanFlags) { *f.RuleAudit = true; *f.Delta = "main" }, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := freshScanFlags(t)
+			tt.set(f)
+			args := buildDaemonAnalyzeArgs(f, []string{"/tmp"})
+			if args.IncludeColumns != tt.want {
+				t.Errorf("IncludeColumns = %v, want %v", args.IncludeColumns, tt.want)
+			}
+		})
+	}
 }
 
 // TestBuildDaemonAnalyzeArgs_ForwardsNoCache confirms --no-cache

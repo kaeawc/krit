@@ -52,55 +52,98 @@ func ScanAnalyzeProjectResponse(line []byte, out *AnalyzeProjectResult) (handled
 		line = line[:n-1]
 	}
 
-	// Success envelope: {"ok":true,"data":{"findings":...,"stats":...}}
 	const okPrefix = `{"ok":true,"data":{"findings":`
 	if hasPrefix(line, okPrefix) {
-		findingsStart := len(okPrefix)
-		findingsEnd, err := jsonValueEnd(line, findingsStart)
-		if err != nil {
-			return false, nil //nolint:nilerr // intentional fallback: caller retries with json.Unmarshal
-		}
-		// After findings comes ,"stats":<obj>}}
-		const statsKey = `,"stats":`
-		if !hasPrefixAt(line, findingsEnd, statsKey) {
-			return false, nil
-		}
-		statsStart := findingsEnd + len(statsKey)
-		statsEnd, err := jsonValueEnd(line, statsStart)
-		if err != nil {
-			return false, nil //nolint:nilerr // intentional fallback
-		}
-		// Must end with `}}` (closes data + closes envelope).
-		if statsEnd+2 != len(line) || line[statsEnd] != '}' || line[statsEnd+1] != '}' {
-			return false, nil
-		}
-		out.Findings = append(out.Findings[:0], line[findingsStart:findingsEnd]...)
-		if err := json.Unmarshal(line[statsStart:statsEnd], &out.Stats); err != nil {
-			return false, fmt.Errorf("scan response stats: %w", err)
-		}
-		return true, nil
+		return scanOKEnvelope(line, len(okPrefix), out)
 	}
-
-	// Error envelope: {"ok":false,"error":"..."}
 	const errPrefix = `{"ok":false,"error":`
 	if hasPrefix(line, errPrefix) {
-		msgStart := len(errPrefix)
-		msgEnd, err := jsonValueEnd(line, msgStart)
-		if err != nil {
-			return false, nil //nolint:nilerr // intentional fallback
-		}
-		if msgEnd+1 != len(line) || line[msgEnd] != '}' {
-			return false, nil
-		}
-		var msg string
-		if err := json.Unmarshal(line[msgStart:msgEnd], &msg); err != nil {
-			return false, nil //nolint:nilerr // intentional fallback
-		}
-		return true, errors.New(msg)
+		return scanErrorEnvelope(line, len(errPrefix))
 	}
-
 	// Unknown shape — caller falls back to json.Unmarshal.
 	return false, nil
+}
+
+// scanOKEnvelope handles the {"ok":true,"data":{...}} branch of
+// ScanAnalyzeProjectResponse. Split out so the top-level entry stays
+// under the gocyclo cap; the dispatch_profile field added a second
+// optional segment that pushed it past 20.
+func scanOKEnvelope(line []byte, findingsStart int, out *AnalyzeProjectResult) (handled bool, daemonErr error) {
+	findingsEnd, err := jsonValueEnd(line, findingsStart)
+	if err != nil {
+		return false, nil //nolint:nilerr // intentional fallback: caller retries with json.Unmarshal
+	}
+	const statsKey = `,"stats":`
+	if !hasPrefixAt(line, findingsEnd, statsKey) {
+		return false, nil
+	}
+	statsStart := findingsEnd + len(statsKey)
+	statsEnd, err := jsonValueEnd(line, statsStart)
+	if err != nil {
+		return false, nil //nolint:nilerr // intentional fallback
+	}
+	// After stats either the envelope closes (`}}`) or an
+	// optional `,"dispatch_profile":<obj>}}` carries the
+	// per-file timing fan-out. The latter only appears when the
+	// CLI passed --profile-dispatch; the common case still hits
+	// the original 2-byte tail check.
+	profileStart, profileEnd, tailStart, ok := scanOptionalDispatchProfile(line, statsEnd)
+	if !ok {
+		return false, nil
+	}
+	if tailStart+2 != len(line) || line[tailStart] != '}' || line[tailStart+1] != '}' {
+		return false, nil
+	}
+	out.Findings = append(out.Findings[:0], line[findingsStart:findingsEnd]...)
+	if err := json.Unmarshal(line[statsStart:statsEnd], &out.Stats); err != nil {
+		return false, fmt.Errorf("scan response stats: %w", err)
+	}
+	if profileEnd > profileStart {
+		out.DispatchProfile = &DispatchProfile{}
+		if err := json.Unmarshal(line[profileStart:profileEnd], out.DispatchProfile); err != nil {
+			return false, fmt.Errorf("scan response dispatch_profile: %w", err)
+		}
+	} else {
+		out.DispatchProfile = nil
+	}
+	return true, nil
+}
+
+// scanOptionalDispatchProfile walks the optional dispatch_profile
+// segment that may follow stats. Returns the [start,end) byte range
+// of the profile object (zero-zero when absent) plus the tail-start
+// index the caller uses to locate the closing `}}`. ok=false means a
+// malformed profile value — the outer scanner falls back to
+// json.Unmarshal in that case.
+func scanOptionalDispatchProfile(line []byte, statsEnd int) (profileStart, profileEnd, tailStart int, ok bool) {
+	const profileKey = `,"dispatch_profile":`
+	if !hasPrefixAt(line, statsEnd, profileKey) {
+		return 0, 0, statsEnd, true
+	}
+	profileStart = statsEnd + len(profileKey)
+	end, err := jsonValueEnd(line, profileStart)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	return profileStart, end, end, true
+}
+
+// scanErrorEnvelope handles the {"ok":false,"error":"..."} branch.
+// Returns (true, daemonErr) when the message is well-formed, or
+// (false, nil) for the json.Unmarshal fallback path.
+func scanErrorEnvelope(line []byte, msgStart int) (handled bool, daemonErr error) {
+	msgEnd, err := jsonValueEnd(line, msgStart)
+	if err != nil {
+		return false, nil //nolint:nilerr // intentional fallback
+	}
+	if msgEnd+1 != len(line) || line[msgEnd] != '}' {
+		return false, nil
+	}
+	var msg string
+	if err := json.Unmarshal(line[msgStart:msgEnd], &msg); err != nil {
+		return false, nil //nolint:nilerr // intentional fallback
+	}
+	return true, errors.New(msg)
 }
 
 // jsonValueEnd returns the byte index immediately after the JSON

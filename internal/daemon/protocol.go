@@ -246,6 +246,25 @@ type AnalyzeProjectArgs struct {
 	// subsequent calls. This flag is per-call: the next analyze-
 	// project call without NoCache resumes normal cache behavior.
 	NoCache bool `json:"no_cache,omitempty"`
+	// ProfileDispatch mirrors --profile-dispatch: when true the
+	// daemon arms DispatchPhase's per-file timing fan-out and emits
+	// the resulting FileTiming slice plus the dispatch wall in
+	// AnalyzeProjectResult.DispatchProfile, so the CLI can render
+	// the same distribution table as the in-process path.
+	ProfileDispatch bool `json:"profile_dispatch,omitempty"`
+	// CPUProfilePath, when non-empty, asks the daemon to wrap the
+	// analyze-project call in a runtime/pprof CPU profile and write
+	// the resulting profile to this path on the daemon's filesystem.
+	// The CLI sends an absolute path so the daemon can write next to
+	// the calling user's working directory regardless of where the
+	// daemon was launched from. Profiling failures are surfaced via
+	// AnalyzeProjectStats.ProfileWarnings without failing the verb.
+	CPUProfilePath string `json:"cpu_profile_path,omitempty"`
+	// MemProfilePath mirrors CPUProfilePath for the heap profile.
+	// Captured immediately after the dispatch + crossfile work
+	// completes (and after a runtime.GC) so the heap reflects the
+	// run's peak.
+	MemProfilePath string `json:"mem_profile_path,omitempty"`
 }
 
 // AnalyzeProjectResult is the response payload. Findings is the raw
@@ -255,6 +274,37 @@ type AnalyzeProjectArgs struct {
 type AnalyzeProjectResult struct {
 	Findings json.RawMessage     `json:"findings"`
 	Stats    AnalyzeProjectStats `json:"stats"`
+	// DispatchProfile is populated only when AnalyzeProjectArgs
+	// .ProfileDispatch is true. Empty otherwise so the response
+	// envelope keeps the {findings,stats} shape the fast-scan
+	// response decoder is keyed on (see ScanAnalyzeProjectResponse).
+	DispatchProfile *DispatchProfile `json:"dispatch_profile,omitempty"`
+}
+
+// DispatchProfile carries the per-file dispatch timing fan-out the
+// CLI's reportDispatchProfile renders into the stderr distribution
+// table. WallMs is the dispatch wall the CLI uses to compute the
+// parallelism ratio; Workers is the worker count DispatchPhase ran
+// with so the CLI can label "ceiling N" without re-deriving from its
+// own --jobs flag.
+type DispatchProfile struct {
+	WallMs  int64        `json:"wall_ms"`
+	Workers int          `json:"workers"`
+	Timings []FileTiming `json:"timings"`
+}
+
+// FileTiming mirrors pipeline.FileTiming on the wire so daemon
+// clients can read per-file dispatch timings without depending on
+// internal/pipeline.
+type FileTiming struct {
+	Path     string `json:"path"`
+	Size     int    `json:"size"`
+	QueueMs  int64  `json:"queue_ms"`
+	RunMs    int64  `json:"run_ms"`
+	LockMs   int64  `json:"lock_ms"`
+	AggMs    int64  `json:"agg_ms"`
+	TotalMs  int64  `json:"total_ms"`
+	Findings int    `json:"findings"`
 }
 
 // AnalyzeProjectStats reports per-call observability data — useful
@@ -300,6 +350,13 @@ type AnalyzeProjectStats struct {
 	// crossfile, android) report 0. Useful for diagnosing which phase
 	// dominates a slow warm call without a full pprof capture.
 	PhaseTimingsMs PhaseTimingsMs `json:"phase_timings_ms"`
+	// ProfileWarnings carries non-fatal CPU/mem profile errors from
+	// the daemon (failed os.Create, pprof start error, etc.). Populated
+	// only when CPU/MemProfilePath is set on the request and the
+	// daemon-side capture failed; an empty slice means either profiling
+	// wasn't requested or it succeeded. Surfacing as warnings keeps the
+	// scan result intact even when diagnostic capture fails.
+	ProfileWarnings []string `json:"profile_warnings,omitempty"`
 }
 
 // PhaseTimingsMs mirrors pipeline.PhaseTimingsMs on the wire so

@@ -323,10 +323,10 @@ func startMockMetaDaemon(t *testing.T, verb string, reply daemon.MetaResult) str
 }
 
 // TestDaemonCompatibleFlags_PerfAllowed pins the contract added with
-// daemon-side perf tracking: --perf and --perf-rules must be served
-// by the daemon (the pipeline wires its own perf.Tracker and emits
-// the JSON section); --profile-dispatch still falls through because
-// per-file dispatch fan-out isn't on the wire yet.
+// daemon-side perf tracking: --perf, --perf-rules, --profile-dispatch,
+// --cpuprofile, and --memprofile must all be served by the daemon now
+// that the wire carries dispatch_profile fan-out and the daemon wraps
+// analyze-project in pprof capture for CPU/mem profile paths.
 func TestDaemonCompatibleFlags_PerfAllowed(t *testing.T) {
 	tests := []struct {
 		name string
@@ -337,7 +337,9 @@ func TestDaemonCompatibleFlags_PerfAllowed(t *testing.T) {
 		{"--perf", func(f *scanFlags) { *f.Perf = true }, true},
 		{"--perf-rules", func(f *scanFlags) { *f.PerfRules = true }, true},
 		{"--perf and --perf-rules", func(f *scanFlags) { *f.Perf = true; *f.PerfRules = true }, true},
-		{"--profile-dispatch", func(f *scanFlags) { *f.ProfileDispatch = true }, false},
+		{"--profile-dispatch", func(f *scanFlags) { *f.ProfileDispatch = true }, true},
+		{"--cpuprofile", func(f *scanFlags) { *f.CPUProfile = "/tmp/cpu.pprof" }, true},
+		{"--memprofile", func(f *scanFlags) { *f.MemProfile = "/tmp/mem.pprof" }, true},
 		{"--fix", func(f *scanFlags) { *f.Fix = true }, false},
 		// --no-cache rides on AnalyzeProjectArgs.NoCache; daemon
 		// nils its on-disk cache pointers for the call but stays
@@ -451,6 +453,29 @@ func TestBuildDaemonAnalyzeArgs_ForwardsNoCache(t *testing.T) {
 	args2 := buildDaemonAnalyzeArgs(f2, []string{"/tmp"})
 	if args2.NoCache {
 		t.Errorf("NoCache = true with default flags, want false")
+	}
+}
+
+// TestBuildDaemonAnalyzeArgs_ForwardsProfilingFlags confirms the
+// profiling knob translates into the wire fields the daemon-side
+// streamingAnalyzeResponse keys on. --profile-dispatch arms the
+// per-file fan-out; --cpuprofile/--memprofile pass an absolute path
+// (so the daemon writes next to the CLI's cwd, not the daemon's).
+func TestBuildDaemonAnalyzeArgs_ForwardsProfilingFlags(t *testing.T) {
+	f := freshScanFlags(t)
+	*f.ProfileDispatch = true
+	*f.CPUProfile = "cpu.pprof"
+	*f.MemProfile = "mem.pprof"
+
+	args := buildDaemonAnalyzeArgs(f, []string{"/tmp"})
+	if !args.ProfileDispatch {
+		t.Errorf("ProfileDispatch = false, want true")
+	}
+	if args.CPUProfilePath == "" || !filepath.IsAbs(args.CPUProfilePath) {
+		t.Errorf("CPUProfilePath = %q, want non-empty absolute", args.CPUProfilePath)
+	}
+	if args.MemProfilePath == "" || !filepath.IsAbs(args.MemProfilePath) {
+		t.Errorf("MemProfilePath = %q, want non-empty absolute", args.MemProfilePath)
 	}
 }
 

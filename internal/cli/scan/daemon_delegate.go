@@ -73,6 +73,12 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 		fmt.Fprintf(os.Stderr, "error: close output: %v\n", err)
 		return true, 2
 	}
+	for _, msg := range res.Stats.ProfileWarnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", msg)
+	}
+	if *f.ProfileDispatch && res.DispatchProfile != nil && len(res.DispatchProfile.Timings) > 0 {
+		emitDaemonDispatchProfile(res.DispatchProfile)
+	}
 	return true, finalScanExit(os.Stderr, res.Stats.FindingsCount, time.Since(start), *f.Quiet)
 }
 
@@ -230,46 +236,80 @@ func tryDaemonClearCache(f *scanFlags, repoDir string) bool {
 	return true
 }
 
+// emitDaemonDispatchProfile renders the daemon-served dispatch
+// profile through the same reportDispatchProfile path the in-process
+// runner uses. The wire-shaped daemon.FileTiming entries are copied
+// into the pipeline.FileTiming slice the renderer expects so the
+// stderr distribution table is byte-identical regardless of which
+// path executed the scan.
+func emitDaemonDispatchProfile(p *daemon.DispatchProfile) {
+	if p == nil || len(p.Timings) == 0 {
+		return
+	}
+	timings := make([]fileTiming, len(p.Timings))
+	for i, t := range p.Timings {
+		timings[i] = fileTiming{
+			Path:     t.Path,
+			Size:     t.Size,
+			QueueMs:  t.QueueMs,
+			RunMs:    t.RunMs,
+			LockMs:   t.LockMs,
+			AggMs:    t.AggMs,
+			TotalMs:  t.TotalMs,
+			Findings: t.Findings,
+		}
+	}
+	reportDispatchProfile(timings, p.Workers, time.Duration(p.WallMs)*time.Millisecond)
+}
+
 // daemonCompatibleFlags reports whether the requested flag set can be
-// served by the daemon's analyze-project verb. Modes that write files,
-// invoke profiling, or run meta commands stay on the in-process path.
-// Order kept as named groups so a future flag's owner can decide which
-// bucket their flag belongs in.
+// served by the daemon's analyze-project verb. Modes that write files
+// or run meta commands stay on the in-process path. Order kept as
+// named groups so a future flag's owner can decide which bucket their
+// flag belongs in.
 //
-// The flags in the meta / mutating / profiling buckets below are
-// intentionally pinned in-process. See docs/daemon-flag-routing.md for
-// the per-flag rationale (writes file at client CWD, reports on calling
-// binary's env, mutates checked-in registry source, re-execs subprocesses,
-// etc.) and for the wire change each one would need before daemon routing
-// becomes safe. Update that doc when adding to or removing from these
-// lists.
+// The flags in the meta / mutating buckets below are intentionally
+// pinned in-process. See docs/daemon-flag-routing.md for the per-flag
+// rationale (writes file at client CWD, reports on calling binary's
+// env, mutates checked-in registry source, re-execs subprocesses,
+// etc.) and for the wire change each one would need before daemon
+// routing becomes safe. Update that doc when adding to or removing
+// from these lists.
 //
-// --perf and --perf-rules ARE compatible: the daemon wires its own
-// perf.Tracker when ShowPerf is set in args, and OutputPhase emits the
-// hierarchical timing tree in the JSON envelope just like in-process.
-// --profile-dispatch stays in-process because the per-file timing
-// fan-out it needs is recorded against the *rules.Dispatcher state and
-// isn't currently surfaced through the daemon wire.
+// Profiling flags ARE compatible:
+//
+//   - --perf / --perf-rules: the daemon wires its own perf.Tracker
+//     when ShowPerf is set in args; OutputPhase emits the
+//     hierarchical timing tree in the JSON envelope.
+//   - --profile-dispatch: per-file timings ride back through the
+//     daemon response's dispatch_profile field; the CLI renders the
+//     same distribution table either way.
+//   - --cpuprofile / --memprofile: the daemon process is wrapped in
+//     pprof.StartCPUProfile / WriteHeapProfile around the
+//     analyze-project call and writes the profile to the path the
+//     CLI provided. Profiling the daemon is the documented behavior
+//     when a daemon is in use; pair with --no-daemon to profile the
+//     short-lived CLI process instead.
+//
+// --no-cache, --clear-cache, --clear-matrix-cache are also daemon-
+// routable: --no-cache rides on AnalyzeProjectArgs.NoCache (the
+// daemon nils every disk-cache pointer for this single call); the
+// two clear-* flags are handled by tryDaemonCacheClear before
+// tryDaemonDelegate runs (early-exit verbs that also drop the
+// daemon's resident WorkspaceState slots so the next analyze
+// rebuilds from cold).
 func daemonCompatibleFlags(f *scanFlags) bool {
 	mutating := []bool{*f.Fix, *f.DryRun, *f.RemoveDeadCode, *f.FixBinary}
 	meta := []bool{*f.Init, *f.Doctor, *f.Version, *f.List, *f.ValidateConfig, *f.GenerateSchema,
 		*f.BaselineAudit, *f.RuleAudit, *f.OracleFilterFingerprint, *f.ListExperiments}
-	profiling := []bool{*f.ProfileDispatch}
-	// --no-cache, --clear-cache, --clear-matrix-cache are now daemon-
-	// routable: --no-cache rides on AnalyzeProjectArgs.NoCache (the
-	// daemon nils every disk-cache pointer for this single call), the
-	// two clear-* flags are handled by tryDaemonCacheClear before
-	// tryDaemonDelegate runs (early-exit verbs that also drop the
-	// daemon's resident WorkspaceState slots so the next analyze
-	// rebuilds from cold).
-	for _, group := range [][]bool{mutating, meta, profiling} {
+	for _, group := range [][]bool{mutating, meta} {
 		for _, on := range group {
 			if on {
 				return false
 			}
 		}
 	}
-	strs := []string{*f.CreateBaseline, *f.CPUProfile, *f.MemProfile,
+	strs := []string{*f.CreateBaseline,
 		*f.Completions, *f.OutputTypes, *f.Delta,
 		*f.PromoteExperiment, *f.DeprecateExperiment, *f.NewExperiment, *f.ExperimentMatrix}
 	for _, s := range strs {
@@ -324,8 +364,28 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		PerfRules:        *f.PerfRules,
 		InputTypesPath:   inputTypesPath,
 		NoCache:          *f.NoCache,
+		ProfileDispatch:  *f.ProfileDispatch,
+		CPUProfilePath:   absoluteProfilePath(*f.CPUProfile),
+		MemProfilePath:   absoluteProfilePath(*f.MemProfile),
 		ClientBinaryHash: daemonclient.CurrentBinaryHash(),
 	}
+}
+
+// absoluteProfilePath converts a CLI-supplied profile path into an
+// absolute path so the daemon writes next to the calling user's
+// working directory regardless of where `krit serve` was launched
+// from. Empty input returns empty (no profile requested). Failures
+// to resolve fall back to the original value — the daemon will
+// surface a create error in ProfileWarnings.
+func absoluteProfilePath(p string) string {
+	if p == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return p
+	}
+	return abs
 }
 
 // openDaemonOutputWriter mirrors runner.openOutputWriter for the

@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -95,10 +96,76 @@ func TestScanAnalyzeProjectResponse_MatchesJSONUnmarshal(t *testing.T) {
 			if !bytes.Equal(got.Findings, want.Findings) {
 				t.Errorf("Findings byte mismatch:\n got: %s\nwant: %s", got.Findings, want.Findings)
 			}
-			if got.Stats != want.Stats {
+			if !reflect.DeepEqual(got.Stats, want.Stats) {
 				t.Errorf("Stats mismatch:\n got: %+v\nwant: %+v", got.Stats, want.Stats)
 			}
 		})
+	}
+}
+
+// TestScanAnalyzeProjectResponse_DispatchProfilePresent confirms the
+// fast scanner extracts the optional dispatch_profile object the
+// daemon emits when --profile-dispatch is set. Without this branch
+// the scanner would either fall back to json.Unmarshal (correct but
+// slow) or worse, drop the field on the floor — both of which would
+// make the CLI's reportDispatchProfile render an empty distribution
+// table.
+func TestScanAnalyzeProjectResponse_DispatchProfilePresent(t *testing.T) {
+	stats := AnalyzeProjectStats{FindingsCount: 0, WallSeconds: 0.1}
+	statsBytes, _ := json.Marshal(stats)
+	profile := DispatchProfile{
+		WallMs:  42,
+		Workers: 4,
+		Timings: []FileTiming{{
+			Path:     "src/A.kt",
+			Size:     128,
+			RunMs:    7,
+			TotalMs:  9,
+			Findings: 1,
+		}},
+	}
+	profileBytes, _ := json.Marshal(profile)
+	envelope := []byte(`{"ok":true,"data":{"findings":[],"stats":` + string(statsBytes) +
+		`,"dispatch_profile":` + string(profileBytes) + `}}` + "\n")
+
+	var got AnalyzeProjectResult
+	handled, err := ScanAnalyzeProjectResponse(envelope, &got)
+	if !handled {
+		t.Fatalf("dispatch_profile envelope must be handled by fast path; envelope=%s", envelope)
+	}
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if got.DispatchProfile == nil {
+		t.Fatalf("DispatchProfile = nil; want populated struct")
+	}
+	if got.DispatchProfile.Workers != 4 || got.DispatchProfile.WallMs != 42 {
+		t.Errorf("DispatchProfile metadata mismatch: got %+v", *got.DispatchProfile)
+	}
+	if len(got.DispatchProfile.Timings) != 1 || got.DispatchProfile.Timings[0].Path != "src/A.kt" {
+		t.Errorf("DispatchProfile.Timings mismatch: got %+v", got.DispatchProfile.Timings)
+	}
+}
+
+// TestScanAnalyzeProjectResponse_DispatchProfileAbsent pins the
+// no-regression contract: when --profile-dispatch is off the
+// envelope shape stays identical to the pre-PR shape and
+// out.DispatchProfile is nil.
+func TestScanAnalyzeProjectResponse_DispatchProfileAbsent(t *testing.T) {
+	stats := AnalyzeProjectStats{FindingsCount: 0}
+	statsBytes, _ := json.Marshal(stats)
+	envelope := []byte(`{"ok":true,"data":{"findings":[],"stats":` + string(statsBytes) + `}}` + "\n")
+
+	got := AnalyzeProjectResult{DispatchProfile: &DispatchProfile{Workers: 99}}
+	handled, err := ScanAnalyzeProjectResponse(envelope, &got)
+	if !handled {
+		t.Fatalf("plain envelope must be handled by fast path; envelope=%s", envelope)
+	}
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if got.DispatchProfile != nil {
+		t.Errorf("DispatchProfile = %+v; want nil after scan of profile-less envelope", got.DispatchProfile)
 	}
 }
 

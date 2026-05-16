@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/kaeawc/krit/internal/cache"
@@ -118,22 +119,28 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		}, nil
 	}
 	return &streamingAnalyzeResponse{
-		state:       state,
-		in:          in,
-		start:       start,
-		cold:        cold,
-		dirtyN:      len(dirty),
-		releaseLock: state.analyzeMu.Unlock,
+		state:           state,
+		in:              in,
+		start:           start,
+		cold:            cold,
+		dirtyN:          len(dirty),
+		profileDispatch: args.ProfileDispatch,
+		cpuProfilePath:  args.CPUProfilePath,
+		memProfilePath:  args.MemProfilePath,
+		releaseLock:     state.analyzeMu.Unlock,
 	}, nil
 }
 
 type streamingAnalyzeResponse struct {
-	state       *daemonState
-	in          pipeline.ProjectInput
-	start       time.Time
-	cold        bool
-	dirtyN      int
-	releaseLock func()
+	state           *daemonState
+	in              pipeline.ProjectInput
+	start           time.Time
+	cold            bool
+	dirtyN          int
+	profileDispatch bool
+	cpuProfilePath  string
+	memProfilePath  string
+	releaseLock     func()
 }
 
 var _ daemon.RawResponseWriter = (*streamingAnalyzeResponse)(nil)
@@ -141,8 +148,12 @@ var _ daemon.RawResponseWriter = (*streamingAnalyzeResponse)(nil)
 func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Writer) error {
 	defer r.releaseLock()
 
+	cpuProfile, profileWarnings := startDaemonCPUProfile(r.cpuProfilePath)
+
 	hw := &analyzeRespWriter{out: w, head: []byte(`{"ok":true,"data":{"findings":`)}
 	res, err := pipeline.RunProjectStreaming(ctx, r.in, hw)
+	stopDaemonCPUProfile(cpuProfile)
+	profileWarnings = append(profileWarnings, writeDaemonMemProfile(r.memProfilePath)...)
 	if err != nil {
 		if !hw.headWritten {
 			return daemon.WriteErrorResponseLine(w, err.Error())
@@ -176,6 +187,7 @@ func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Wr
 			Fixup:     res.PhaseTimingsMs.Fixup,
 			Output:    res.PhaseTimingsMs.Output,
 		},
+		ProfileWarnings: profileWarnings,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal stats: %w", err)
@@ -186,8 +198,48 @@ func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Wr
 	if _, err := w.Write(statsBytes); err != nil {
 		return err
 	}
+	if r.profileDispatch && len(res.FileTimings) > 0 {
+		profile := daemon.DispatchProfile{
+			WallMs:  res.PhaseTimingsMs.Dispatch,
+			Workers: runtime.NumCPU(),
+			Timings: convertFileTimings(res.FileTimings),
+		}
+		profileBytes, err := json.Marshal(profile)
+		if err != nil {
+			return fmt.Errorf("marshal dispatch profile: %w", err)
+		}
+		if _, err := w.Write([]byte(`,"dispatch_profile":`)); err != nil {
+			return err
+		}
+		if _, err := w.Write(profileBytes); err != nil {
+			return err
+		}
+	}
 	_, err = w.Write(envelopeTail)
 	return err
+}
+
+// convertFileTimings copies pipeline.FileTiming entries into the
+// wire-shaped daemon.FileTiming slice. Two distinct types so the
+// daemon protocol package doesn't depend on internal/pipeline.
+func convertFileTimings(in []pipeline.FileTiming) []daemon.FileTiming {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]daemon.FileTiming, len(in))
+	for i, t := range in {
+		out[i] = daemon.FileTiming{
+			Path:     t.Path,
+			Size:     t.Size,
+			QueueMs:  t.QueueMs,
+			RunMs:    t.RunMs,
+			LockMs:   t.LockMs,
+			AggMs:    t.AggMs,
+			TotalMs:  t.TotalMs,
+			Findings: t.Findings,
+		}
+	}
+	return out
 }
 
 // envelopeTail closes the streaming response: end-of-stats, end-of-data,
@@ -392,6 +444,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			OracleEnabled:    oracleDaemon != nil || args.InputTypesPath != "",
 			ShowPerf:         args.ShowPerf || args.PerfRules,
 			PerfRules:        args.PerfRules,
+			ProfileDispatch:  args.ProfileDispatch,
 			CustomRuleJars:   args.CustomRuleJars,
 			InputTypesPath:   args.InputTypesPath,
 			// Wire is line-delimited; compact JSON keeps the body

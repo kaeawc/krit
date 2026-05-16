@@ -494,6 +494,12 @@ type ProjectResult struct {
 	// crossfile, android) report 0. Useful for diagnosing which phase
 	// dominates warm-call latency without a full pprof capture.
 	PhaseTimingsMs PhaseTimingsMs
+	// FileTimings is the per-file dispatch timing fan-out captured when
+	// ProjectArgs.ProfileDispatch is true (and DispatchPhase ran — bundle
+	// hits skip it). Empty when profiling wasn't requested. Daemon callers
+	// surface this through the analyze-project response so the CLI can
+	// reportDispatchProfile against a daemon-served run.
+	FileTimings []FileTiming
 }
 
 // ProjectAnalysisResult is the shared scan-core output before fixup and
@@ -635,6 +641,7 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		Fixup:             fixupView,
 		FindingsBundleHit: analysis.FindingsBundleHit,
 		PhaseTimingsMs:    phaseTimings,
+		FileTimings:       analysis.DispatchResult.FileTimings,
 	}, nil
 }
 

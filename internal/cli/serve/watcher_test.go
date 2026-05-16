@@ -573,33 +573,47 @@ func TestFileWatcher_BumpsMTimeVersionOnGradleEdit(t *testing.T) {
 // .java file event so the next analyze rebuilds the Java source
 // index instead of serving stale facts from the resident cache.
 func TestFileWatcher_BumpsJavaSourceVersionOnJavaEdit(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "Foo.java")
-	if err := os.WriteFile(path, []byte("class Foo {}\n"), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	state := &countingState{}
-	w, err := startFileWatcherWithState(context.Background(), root, state, nil)
-	if err != nil {
-		t.Fatalf("startFileWatcher: %v", err)
-	}
-	defer w.Stop()
+	t.Run("java edit bumps counter", func(t *testing.T) {
+		root := t.TempDir()
+		path := filepath.Join(root, "Foo.java")
+		if err := os.WriteFile(path, []byte("class Foo {}\n"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		state := &countingState{}
+		w, err := startFileWatcherWithState(context.Background(), root, state, nil)
+		if err != nil {
+			t.Fatalf("startFileWatcher: %v", err)
+		}
+		defer w.Stop()
 
-	if err := os.WriteFile(path, []byte("class Foo2 {}\n"), 0o644); err != nil {
-		t.Fatalf("rewrite: %v", err)
-	}
-	if !waitForCondition(func() bool { return state.javaBumpCalls.Load() >= 1 }) {
-		t.Errorf("expected BumpJavaSourceVersion after .java edit, got %d", state.javaBumpCalls.Load())
-	}
-	// Sanity: a non-Java edit must NOT bump the Java counter.
-	state.javaBumpCalls.Store(0)
-	if err := os.WriteFile(filepath.Join(root, "Bar.kt"), []byte("fun b() {}\n"), 0o644); err != nil {
-		t.Fatalf("write kt: %v", err)
-	}
-	time.Sleep(80 * time.Millisecond)
-	if got := state.javaBumpCalls.Load(); got != 0 {
-		t.Errorf("Kotlin edit must NOT bump Java counter; got %d", got)
-	}
+		if err := os.WriteFile(path, []byte("class Foo2 {}\n"), 0o644); err != nil {
+			t.Fatalf("rewrite: %v", err)
+		}
+		if !waitForCondition(func() bool { return state.javaBumpCalls.Load() >= 1 }) {
+			t.Errorf("expected BumpJavaSourceVersion after .java edit, got %d", state.javaBumpCalls.Load())
+		}
+	})
+
+	// Sanity: a non-Java edit must NOT bump the Java counter. Use a
+	// fresh watcher + state so late fsnotify events from an earlier
+	// .java write cannot race with the assertion.
+	t.Run("kotlin edit does not bump java counter", func(t *testing.T) {
+		root := t.TempDir()
+		state := &countingState{}
+		w, err := startFileWatcherWithState(context.Background(), root, state, nil)
+		if err != nil {
+			t.Fatalf("startFileWatcher: %v", err)
+		}
+		defer w.Stop()
+
+		if err := os.WriteFile(filepath.Join(root, "Bar.kt"), []byte("fun b() {}\n"), 0o644); err != nil {
+			t.Fatalf("write kt: %v", err)
+		}
+		time.Sleep(80 * time.Millisecond)
+		if got := state.javaBumpCalls.Load(); got != 0 {
+			t.Errorf("Kotlin edit must NOT bump Java counter; got %d", got)
+		}
+	})
 }
 
 // TestFileWatcher_BumpsXMLFilesVersionOnXMLEdit pins the .xml-event
@@ -609,31 +623,45 @@ func TestFileWatcher_BumpsJavaSourceVersionOnJavaEdit(t *testing.T) {
 // the XML counter — XML content is independent and we want to reuse
 // the cached slice across the (much more common) source edits.
 func TestFileWatcher_BumpsXMLFilesVersionOnXMLEdit(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "layout.xml")
-	if err := os.WriteFile(path, []byte(`<View/>`), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	state := &countingState{}
-	w, err := startFileWatcherWithState(context.Background(), root, state, nil)
-	if err != nil {
-		t.Fatalf("startFileWatcher: %v", err)
-	}
-	defer w.Stop()
+	t.Run("xml edit bumps counter", func(t *testing.T) {
+		root := t.TempDir()
+		path := filepath.Join(root, "layout.xml")
+		if err := os.WriteFile(path, []byte(`<View/>`), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		state := &countingState{}
+		w, err := startFileWatcherWithState(context.Background(), root, state, nil)
+		if err != nil {
+			t.Fatalf("startFileWatcher: %v", err)
+		}
+		defer w.Stop()
 
-	if err := os.WriteFile(path, []byte(`<TextView/>`), 0o644); err != nil {
-		t.Fatalf("rewrite: %v", err)
-	}
-	if !waitForCondition(func() bool { return state.xmlBumpCalls.Load() >= 1 }) {
-		t.Errorf("expected BumpXMLFilesVersion after .xml edit, got %d", state.xmlBumpCalls.Load())
-	}
-	// Sanity: a Kotlin edit must NOT bump the XML counter.
-	state.xmlBumpCalls.Store(0)
-	if err := os.WriteFile(filepath.Join(root, "Bar.kt"), []byte("fun b() {}\n"), 0o644); err != nil {
-		t.Fatalf("write kt: %v", err)
-	}
-	time.Sleep(80 * time.Millisecond)
-	if got := state.xmlBumpCalls.Load(); got != 0 {
-		t.Errorf("Kotlin edit must NOT bump XML counter; got %d", got)
-	}
+		if err := os.WriteFile(path, []byte(`<TextView/>`), 0o644); err != nil {
+			t.Fatalf("rewrite: %v", err)
+		}
+		if !waitForCondition(func() bool { return state.xmlBumpCalls.Load() >= 1 }) {
+			t.Errorf("expected BumpXMLFilesVersion after .xml edit, got %d", state.xmlBumpCalls.Load())
+		}
+	})
+
+	// Sanity: a Kotlin edit must NOT bump the XML counter. Use a
+	// fresh watcher + state so late fsnotify events from an earlier
+	// .xml write cannot race with the assertion.
+	t.Run("kotlin edit does not bump xml counter", func(t *testing.T) {
+		root := t.TempDir()
+		state := &countingState{}
+		w, err := startFileWatcherWithState(context.Background(), root, state, nil)
+		if err != nil {
+			t.Fatalf("startFileWatcher: %v", err)
+		}
+		defer w.Stop()
+
+		if err := os.WriteFile(filepath.Join(root, "Bar.kt"), []byte("fun b() {}\n"), 0o644); err != nil {
+			t.Fatalf("write kt: %v", err)
+		}
+		time.Sleep(80 * time.Millisecond)
+		if got := state.xmlBumpCalls.Load(); got != 0 {
+			t.Errorf("Kotlin edit must NOT bump XML counter; got %d", got)
+		}
+	})
 }

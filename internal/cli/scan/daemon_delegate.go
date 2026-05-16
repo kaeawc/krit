@@ -342,9 +342,8 @@ func runDaemonSampleRule(f *scanFlags, paths []string, findingsJSON []byte) int 
 // when one is reachable. Returning true means the daemon performed
 // the clear and the caller should exit 0; false means the caller
 // falls back to in-process clear-cache (which still works when no
-// daemon is up). --clear-matrix-cache stays in-process: the matrix
-// cache lives in ~/.cache/krit and the daemon binary doesn't link
-// the registration code, so there's nothing for it to coordinate.
+// daemon is up). See tryDaemonClearMatrixCache below for the matrix-
+// baseline cache equivalent.
 func tryDaemonClearCache(f *scanFlags, repoDir string) bool {
 	if f == nil || *f.NoDaemon || !*f.ClearCache {
 		return false
@@ -366,6 +365,45 @@ func tryDaemonClearCache(f *scanFlags, repoDir string) bool {
 		fmt.Fprintln(os.Stderr, "info: Cache cleared (via daemon).")
 	} else {
 		fmt.Fprintln(os.Stderr, "info: Cache clear completed with errors (via daemon).")
+	}
+	return true
+}
+
+// tryDaemonClearMatrixCache routes --clear-matrix-cache through a
+// running daemon when one is reachable. Returning true means the
+// daemon performed the clear and the caller should exit 0; false
+// means the caller falls back to in-process ClearMatrixCache (which
+// still works when no daemon is up).
+//
+// The matrix cache lives at a host-wide path (~/.cache/krit/
+// matrix-baseline). Multiple per-repo daemons can share it, but the
+// clear itself is best-effort (matrixSave/Load tolerate missing or
+// partial entries — a wiped slot just triggers a recompute). The
+// daemon serialises against its own analyze loop on state.analyzeMu
+// to avoid intra-daemon races; cross-daemon races are tolerated by
+// the matrix runner's own miss-then-recompute design, so no extra
+// host-level lock is needed.
+func tryDaemonClearMatrixCache(f *scanFlags, repoDir string) bool {
+	if f == nil || *f.NoDaemon || !*f.ClearMatrixCache {
+		return false
+	}
+	client, ok := daemonclient.TryConnect(repoDir, *f.DaemonSocket)
+	if !ok {
+		return false
+	}
+	res, err := client.ClearMatrixCache(daemon.ClearMatrixCacheArgs{})
+	if err != nil {
+		if daemonclient.IsBinaryHashMismatch(err) {
+			fmt.Fprintf(os.Stderr, "warning: krit daemon rejected request (%v); falling back to in-process. Restart it with: krit daemon restart\n", err)
+			return false
+		}
+		fmt.Fprintf(os.Stderr, "warning: krit daemon clear-matrix-cache failed (%v); falling back to in-process\n", err)
+		return false
+	}
+	if res.Cleared {
+		fmt.Fprintln(os.Stderr, "info: Matrix baseline cache cleared (via daemon).")
+	} else {
+		fmt.Fprintln(os.Stderr, "info: Matrix baseline cache clear completed with errors (via daemon).")
 	}
 	return true
 }
@@ -440,10 +478,12 @@ func daemonAutoStartDisabled() bool {
 // --no-cache, --clear-cache, --clear-matrix-cache are also daemon-
 // routable: --no-cache rides on AnalyzeProjectArgs.NoCache (the
 // daemon nils every disk-cache pointer for this single call); the
-// two clear-* flags are handled by tryDaemonCacheClear before
-// tryDaemonDelegate runs (early-exit verbs that also drop the
-// daemon's resident WorkspaceState slots so the next analyze
-// rebuilds from cold).
+// two clear-* flags are handled by tryDaemonClearCache and
+// tryDaemonClearMatrixCache before tryDaemonDelegate runs (early-
+// exit verbs). --clear-cache also drops the daemon's resident
+// WorkspaceState slots so the next analyze rebuilds from cold;
+// --clear-matrix-cache only touches the host-wide matrix baseline
+// directory because the matrix cache has no resident counterpart.
 //
 // --create-baseline and --dry-run ARE compatible: the daemon computes
 // the baseline-ID list / fixable-file list from the same FindingColumns

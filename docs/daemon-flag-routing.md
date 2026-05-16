@@ -178,6 +178,54 @@ promotion match the in-process flow. The wire addition was shared with
 `--rule-audit` / `--baseline-audit`; see "Audits that ship with the
 analysis" above for the response-shape rationale.
 
+## Cache clears
+
+### `--clear-cache` (now routed via daemon)
+
+Routes through the `clear-cache` verb (`handleClearCache` in
+`internal/cli/serve/clear_cache.go`). The daemon serialises against any
+concurrent `analyze-project` on `state.analyzeMu`, then calls
+`cacheutil.ClearAll`, removes the on-disk analysis-cache file, resets the
+parse cache, drops every resident `WorkspaceState` slot, and clears the
+manifest cache so the next analyze rebuilds from cold rather than
+resurrecting state from in-memory snapshots that no longer have a disk
+backing.
+
+When the daemon socket is unreachable (or `--no-daemon` is passed) the CLI
+falls back to `runClearCacheFlag` in-process; behaviour is equivalent for
+the on-disk caches but no resident-state invalidation happens because there
+is no resident state in a one-shot CLI invocation.
+
+### `--clear-matrix-cache` (now routed via daemon)
+
+Routes through the `clear-matrix-cache` verb (`handleClearMatrixCache` in
+`internal/cli/serve/clear_cache.go`). The daemon calls
+`scan.ClearMatrixCache`, the same function the in-process early-exit
+(`runClearMatrixCacheFlag` in `internal/cli/scan/early_exits.go:49`) uses.
+
+The matrix baseline cache lives at a host-wide path
+(`~/.cache/krit/matrix-baseline`), so multiple per-repo daemons may share
+it. We do not add a host-level lock for the following reason: the matrix
+cache is best-effort by design — `saveBaseline` swallows write errors,
+and `tryLoadBaseline` treats any missing or mismatched entry as a miss,
+which the matrix runner handles by recomputing. A clear that races a
+concurrent write from another daemon at worst causes one experiment case
+to be recomputed; it cannot corrupt durable state because the matrix
+runner re-execs `krit` for every case and never holds the cache open
+across a recompute.
+
+Inside a single daemon the clear is serialised on `state.analyzeMu` so it
+cannot race with that daemon's own `analyze-project` enumerations of the
+`cacheutil` registry.
+
+The daemon also imports `internal/cli/scan` transitively (via
+`internal/cli/serve/meta_verbs.go`'s use of `scan.RunOutputTypesTo`), so
+`scan/matrix_cache.go`'s `init()` registers the matrix cache with
+`cacheutil` in the daemon process. As a side effect, `--clear-cache`
+already wipes the matrix cache too. The standalone `--clear-matrix-cache`
+verb keeps the host-wide directory deletable without also dropping the
+daemon's resident WorkspaceState / analysis cache / parse cache.
+
 ## Adding a new flag
 
 When introducing a new CLI flag, decide which bucket it belongs in:

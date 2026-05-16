@@ -291,6 +291,9 @@ func Run() int {
 	if tryDaemonClearCache(f, repoDir) {
 		return 0
 	}
+	if tryDaemonClearMatrixCache(f, repoDir) {
+		return 0
+	}
 	if handled, code := tryDaemonDelegate(f, flag.Args(), repoDir); handled {
 		return code
 	}

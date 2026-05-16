@@ -397,10 +397,10 @@ func TestDaemonCompatibleFlags_PerfAllowed(t *testing.T) {
 		// the right place to serve it.
 		{"--no-cache", func(f *scanFlags) { *f.NoCache = true }, true},
 		// --clear-cache and --clear-matrix-cache are early-exit
-		// verbs handled outside the analyze path (clear-cache via
-		// tryDaemonClearCache, clear-matrix-cache stays in-process),
-		// so daemonCompatibleFlags must NOT short-circuit on them
-		// the way the analyze path used to.
+		// verbs handled outside the analyze path via
+		// tryDaemonClearCache / tryDaemonClearMatrixCache, so
+		// daemonCompatibleFlags must NOT short-circuit on them the
+		// way the analyze path used to.
 		{"--clear-cache", func(f *scanFlags) { *f.ClearCache = true }, true},
 		{"--clear-matrix-cache", func(f *scanFlags) { *f.ClearMatrixCache = true }, true},
 		// --input-types and --sample-rule are daemon-served via the
@@ -472,6 +472,82 @@ func TestTryDaemonClearCache_HappyPath(t *testing.T) {
 	if !tryDaemonClearCache(f, root) {
 		t.Fatalf("expected handled=true on daemon success")
 	}
+}
+
+// TestTryDaemonClearMatrixCache_NoClearFlagNoOp pins the entry-gate
+// contract: when --clear-matrix-cache is not set,
+// tryDaemonClearMatrixCache must not even attempt a dial.
+func TestTryDaemonClearMatrixCache_NoClearFlagNoOp(t *testing.T) {
+	root := newRoot(t)
+	f := freshScanFlags(t)
+	if tryDaemonClearMatrixCache(f, root) {
+		t.Fatalf("expected handled=false when --clear-matrix-cache is unset")
+	}
+}
+
+// TestTryDaemonClearMatrixCache_NoDaemonShortCircuits guards the
+// --no-daemon flag for the matrix-clear path: even if a socket is
+// reachable and --clear-matrix-cache is set, --no-daemon falls
+// through to in-process.
+func TestTryDaemonClearMatrixCache_NoDaemonShortCircuits(t *testing.T) {
+	socketDir := startMockClearMatrixCacheDaemon(t, false)
+	root := newRoot(t)
+	linkSock(t, root, filepath.Join(socketDir, "d.sock"))
+	f := freshScanFlags(t)
+	*f.ClearMatrixCache = true
+	*f.NoDaemon = true
+	if tryDaemonClearMatrixCache(f, root) {
+		t.Fatalf("expected fall-through with --no-daemon")
+	}
+}
+
+// TestTryDaemonClearMatrixCache_HappyPath confirms the verb is
+// invoked and the CLI exits cleanly (code 0) when the daemon reports
+// success.
+func TestTryDaemonClearMatrixCache_HappyPath(t *testing.T) {
+	socketDir := startMockClearMatrixCacheDaemon(t, true)
+	root := newRoot(t)
+	linkSock(t, root, filepath.Join(socketDir, "d.sock"))
+	f := freshScanFlags(t)
+	*f.ClearMatrixCache = true
+	if !tryDaemonClearMatrixCache(f, root) {
+		t.Fatalf("expected handled=true on daemon success")
+	}
+}
+
+// startMockClearMatrixCacheDaemon stands up a minimal daemon that
+// implements just enough of clear-matrix-cache to drive
+// tryDaemonClearMatrixCache assertions.
+func startMockClearMatrixCacheDaemon(t *testing.T, cleared bool) string {
+	t.Helper()
+	socketDir, err := os.MkdirTemp("/tmp", "krit-clearmx-srv-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	socket := filepath.Join(socketDir, "d.sock")
+	srv := daemon.NewServer(socket)
+	srv.Register(daemon.VerbStatus, func(_ context.Context, _ json.RawMessage) (any, error) {
+		return daemon.StatusResult{Ready: true}, nil
+	})
+	srv.Register(daemon.VerbShutdown, func(_ context.Context, _ json.RawMessage) (any, error) {
+		return map[string]bool{"ok": true}, nil
+	})
+	srv.Register(daemon.VerbClearMatrixCache, func(_ context.Context, _ json.RawMessage) (any, error) {
+		return daemon.ClearMatrixCacheResult{Cleared: cleared}, nil
+	})
+	if err := srv.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(srv.Stop)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if daemon.Available(socket) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return socketDir
 }
 
 // startMockClearCacheDaemon stands up a minimal daemon that

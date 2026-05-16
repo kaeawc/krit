@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/cli/scan"
 	"github.com/kaeawc/krit/internal/daemon"
 )
 
@@ -101,6 +102,58 @@ func TestClearCache_DropsResidentAndDiskState(t *testing.T) {
 	}
 	if !afterClear.Stats.Cold {
 		t.Errorf("post-clear analyze must be Cold; got %+v", afterClear.Stats)
+	}
+}
+
+// TestClearMatrixCache_RemovesHostWideEntries pins that the
+// clear-matrix-cache verb wipes the host-wide matrix-baseline
+// directory by routing through scan.ClearMatrixCache. Equivalence
+// with the in-process path: any file written under
+// ~/.cache/krit/matrix-baseline before the verb call is gone after.
+//
+// $HOME is redirected to t.TempDir() so the test never touches the
+// developer's real cache.
+func TestClearMatrixCache_RemovesHostWideEntries(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	// Seed an entry under the matrix-baseline directory. Use the same
+	// helper the scan package uses so the path layout is whatever
+	// matrixCacheDir() resolves to under the redirected HOME.
+	dir := filepath.Join(tempHome, ".cache", "krit", "matrix-baseline")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	seedPath := filepath.Join(dir, "deadbeef.json")
+	if err := os.WriteFile(seedPath, []byte(`{}`), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	socket, _ := startServerForTest(t)
+	var res daemon.ClearMatrixCacheResult
+	if err := daemon.Call(socket, daemon.VerbClearMatrixCache,
+		daemon.ClearMatrixCacheArgs{}, &res); err != nil {
+		t.Fatalf("clear-matrix-cache: %v", err)
+	}
+	if !res.Cleared {
+		t.Errorf("Cleared=false, want true; got %+v", res)
+	}
+	if _, err := os.Stat(seedPath); !os.IsNotExist(err) {
+		t.Errorf("expected matrix entry removed; stat err=%v", err)
+	}
+
+	// Equivalence: in-process scan.ClearMatrixCache on an empty
+	// directory should succeed (idempotent), and the daemon-routed
+	// clear should match that no-op behaviour. Seed again, call the
+	// in-process function, confirm the entry is gone.
+	if err := os.WriteFile(seedPath, []byte(`{}`), 0o644); err != nil {
+		t.Fatalf("re-seed: %v", err)
+	}
+	if err := scan.ClearMatrixCache(); err != nil {
+		t.Fatalf("in-process ClearMatrixCache: %v", err)
+	}
+	if _, err := os.Stat(seedPath); !os.IsNotExist(err) {
+		t.Errorf("in-process clear should match daemon clear; stat err=%v", err)
 	}
 }
 

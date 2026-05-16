@@ -9,6 +9,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/cacheutil"
+	"github.com/kaeawc/krit/internal/cli/scan"
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -21,13 +22,13 @@ import (
 // resurrecting state from in-memory snapshots that no longer have a
 // disk-cache backing.
 //
-// The matrix-cache subsystem (internal/cli/scan/matrix_cache.go) only
-// auto-registers itself when the scan package is linked. The daemon
-// shim binary doesn't link scan, so the matrix cache stays a CLI-side
-// concern; --clear-matrix-cache is intentionally NOT routed through
-// the daemon. The daemon's clear-cache verb still calls ClearAll()
-// because other subsystems that DO get registered from packages the
-// daemon imports get cleared this way.
+// The matrix-cache subsystem (internal/cli/scan/matrix_cache.go)
+// auto-registers itself via init() and is linked into this package
+// transitively through internal/cli/serve/meta_verbs.go's scan
+// import, so cacheutil.ClearAll() below also wipes the host-wide
+// experiment-matrix baseline cache. handleClearMatrixCache exposes
+// the same delete as a standalone verb for --clear-matrix-cache,
+// which intentionally does NOT also drop resident WorkspaceState.
 func handleClearCache(_ context.Context, state *daemonState, raw json.RawMessage) (any, error) {
 	var args daemon.ClearCacheArgs
 	if len(raw) > 0 {
@@ -93,4 +94,47 @@ func (s *daemonState) resetParseCache() {
 	s.closeParseCache()
 	s.parseCacheOnce = sync.Once{}
 	s.parseCacheErr = nil
+}
+
+// handleClearMatrixCache implements the clear-matrix-cache verb. It
+// removes every entry under ~/.cache/krit/matrix-baseline (the
+// host-wide experiment-matrix baseline cache) by delegating to
+// scan.ClearMatrixCache, which the in-process --clear-matrix-cache
+// path uses too.
+//
+// Unlike clear-cache, this verb does NOT touch the daemon's resident
+// WorkspaceState, analysis cache, parse cache, or manifest cache:
+// the matrix cache has no resident counterpart and the experiment-
+// matrix runner re-execs the krit binary for every case, so wiping
+// the host directory is sufficient to force a recompute on the next
+// run.
+//
+// Concurrency: the matrix cache lives at a host-wide path that may
+// be shared with other per-repo daemons. The clear itself is a
+// directory scan plus per-entry os.Remove; cross-daemon races are
+// non-fatal by design because matrixSave/Load already tolerates
+// missing or partial entries (saveBaseline swallows write errors and
+// tryLoadBaseline reports any unreadable / mismatched entry as a
+// miss, which the matrix runner handles by recomputing). We still
+// take state.analyzeMu so this daemon's own clear cannot race with
+// an in-flight analyze that might enumerate the cacheutil registry
+// at an awkward moment.
+func handleClearMatrixCache(_ context.Context, state *daemonState, raw json.RawMessage) (any, error) {
+	var args daemon.ClearMatrixCacheArgs
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &args); err != nil {
+			return nil, fmt.Errorf("decode args: %w", err)
+		}
+	}
+	if daemonHash := daemonBinaryHash(); args.ClientBinaryHash != "" && daemonHash != "" && args.ClientBinaryHash != daemonHash {
+		return nil, fmt.Errorf("%s (daemon=%s client=%s)", daemon.ErrBinaryHashMismatchPrefix, daemonHash, args.ClientBinaryHash)
+	}
+
+	state.analyzeMu.Lock()
+	defer state.analyzeMu.Unlock()
+
+	if err := scan.ClearMatrixCache(); err != nil {
+		return daemon.ClearMatrixCacheResult{Cleared: false}, fmt.Errorf("clear matrix cache: %w", err)
+	}
+	return daemon.ClearMatrixCacheResult{Cleared: true}, nil
 }

@@ -778,6 +778,9 @@ func registerVerbs(srv *daemon.Server, state *daemonState) {
 	srv.Register(daemon.VerbClearCache, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return handleClearCache(ctx, state, raw)
 	})
+	srv.Register(daemon.VerbClearMatrixCache, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return handleClearMatrixCache(ctx, state, raw)
+	})
 }
 
 // handleAnalyzeBuffer parses (or reuses a cached parse for) the buffer

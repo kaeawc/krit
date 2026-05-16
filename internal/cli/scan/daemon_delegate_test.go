@@ -237,6 +237,91 @@ func redirectStdout(t *testing.T) func() string {
 	}
 }
 
+// TestTryDaemonDelegate_ListRulesRoutesViaMetaVerb exercises the
+// read-only-meta route added in the daemon-readonly-verbs PR: the
+// CLI must dispatch --list-rules through the daemon's list-rules
+// verb (capturing stdout/stderr/exit) instead of falling back to the
+// in-process flag handler when a daemon is reachable.
+func TestTryDaemonDelegate_ListRulesRoutesViaMetaVerb(t *testing.T) {
+	socketDir := startMockMetaDaemon(t, "list-rules", daemon.MetaResult{
+		Stdout:   []byte("Available rules: from-daemon\n"),
+		ExitCode: 0,
+	})
+	root := newRoot(t)
+	linkSock(t, root, filepath.Join(socketDir, "d.sock"))
+
+	out := redirectStdout(t)
+	f := freshScanFlags(t)
+	*f.List = true
+
+	handled, code := tryDaemonDelegate(f, []string{root}, root)
+	if !handled {
+		t.Fatalf("expected handled=true; got fall-through")
+	}
+	if code != 0 {
+		t.Errorf("expected exit 0; got %d", code)
+	}
+	if got := out(); got != "Available rules: from-daemon\n" {
+		t.Errorf("expected daemon stdout replayed verbatim; got %q", got)
+	}
+}
+
+// TestTryDaemonDelegate_ListRulesWithCustomJarsFallsThrough pins the
+// CustomRuleJars carve-out: --custom-rule-jars requires the
+// krit-types JVM the daemon doesn't manage on behalf of meta queries,
+// so the CLI must fall back to in-process even with a daemon
+// reachable.
+func TestTryDaemonDelegate_ListRulesWithCustomJarsFallsThrough(t *testing.T) {
+	socketDir := startMockMetaDaemon(t, "list-rules", daemon.MetaResult{
+		Stdout:   []byte("daemon should NOT be called\n"),
+		ExitCode: 0,
+	})
+	root := newRoot(t)
+	linkSock(t, root, filepath.Join(socketDir, "d.sock"))
+
+	f := freshScanFlags(t)
+	*f.List = true
+	*f.CustomRuleJars = "/tmp/fake.jar"
+
+	handled, _ := tryDaemonDelegate(f, []string{root}, root)
+	if handled {
+		t.Fatalf("expected fall-through with --custom-rule-jars; got handled=true")
+	}
+}
+
+// startMockMetaDaemon spins up a mock daemon that registers a single
+// meta verb (verb name + canned MetaResult). Used by the delegate
+// tests above to assert routing without depending on the real
+// in-process meta-flag handlers.
+func startMockMetaDaemon(t *testing.T, verb string, reply daemon.MetaResult) string {
+	t.Helper()
+	socketDir, err := os.MkdirTemp("/tmp", "krit-deleg-meta-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	socket := filepath.Join(socketDir, "d.sock")
+	srv := daemon.NewServer(socket)
+	srv.Register(daemon.VerbStatus, func(_ context.Context, _ json.RawMessage) (any, error) {
+		return daemon.StatusResult{Ready: true}, nil
+	})
+	srv.Register(verb, func(_ context.Context, _ json.RawMessage) (any, error) {
+		return reply, nil
+	})
+	if err := srv.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(srv.Stop)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if daemon.Available(socket) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return socketDir
+}
+
 // TestDaemonCompatibleFlags_PerfAllowed pins the contract added with
 // daemon-side perf tracking: --perf and --perf-rules must be served
 // by the daemon (the pipeline wires its own perf.Tracker and emits

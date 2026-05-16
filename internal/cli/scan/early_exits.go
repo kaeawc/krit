@@ -75,20 +75,29 @@ func runListExperimentsFlag(listExperimentsFlag bool, effectiveFormat, version s
 	if !listExperimentsFlag {
 		return
 	}
-	if effectiveFormat == "plain" {
-		fmt.Print(ListExperimentsLifecyclePlain())
-	} else {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(struct {
-			Version     string                  `json:"version"`
-			Experiments []experiment.Definition `json:"experiments"`
-		}{
-			Version:     version,
-			Experiments: experiment.Definitions(),
-		})
-	}
+	WriteListExperiments(os.Stdout, effectiveFormat, version)
 	os.Exit(0)
+}
+
+// WriteListExperiments renders the --list-experiments output to w.
+// Pulled out of runListExperimentsFlag so the daemon's
+// list-experiments verb can capture stdout without going through
+// os.Exit. Format is "plain" or "json"; anything else defaults to
+// JSON to match the in-process behavior.
+func WriteListExperiments(w io.Writer, effectiveFormat, version string) {
+	if effectiveFormat == "plain" {
+		fmt.Fprint(w, ListExperimentsLifecyclePlain())
+		return
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(struct {
+		Version     string                  `json:"version"`
+		Experiments []experiment.Definition `json:"experiments"`
+	}{
+		Version:     version,
+		Experiments: experiment.Definitions(),
+	})
 }
 
 func runCompletionsFlag(shell string) {
@@ -231,24 +240,33 @@ func runValidateConfigFlag(validateConfigFlag bool, cfg *config.Config) {
 	if !validateConfigFlag {
 		return
 	}
+	os.Exit(ValidateConfigTo(os.Stderr, cfg))
+}
+
+// ValidateConfigTo runs --validate-config against cfg, writing every
+// error/warning line to stderrW. Returns the process exit code (0 on
+// success, 1 on validation errors). Pulled out of runValidateConfigFlag
+// so the daemon's validate-config verb can capture stderr without
+// going through os.Exit.
+func ValidateConfigTo(stderrW io.Writer, cfg *config.Config) int {
 	errs := schema.ValidateConfig(cfg)
 	hasError := false
 	for _, e := range errs {
-		fmt.Fprintf(os.Stderr, "%s\n", e)
+		fmt.Fprintf(stderrW, "%s\n", e)
 		if e.Level == "error" {
 			hasError = true
 		}
 	}
 	if hasError {
-		fmt.Fprintf(os.Stderr, "info: Config validation failed with %d issue(s).\n", len(errs))
-		os.Exit(1)
+		fmt.Fprintf(stderrW, "info: Config validation failed with %d issue(s).\n", len(errs))
+		return 1
 	}
 	if len(errs) > 0 {
-		fmt.Fprintf(os.Stderr, "info: Config validation passed with %d warning(s).\n", len(errs))
+		fmt.Fprintf(stderrW, "info: Config validation passed with %d warning(s).\n", len(errs))
 	} else {
-		fmt.Fprintf(os.Stderr, "info: Config validation passed.\n")
+		fmt.Fprintf(stderrW, "info: Config validation passed.\n")
 	}
-	os.Exit(0)
+	return 0
 }
 
 // listRulesSummary holds the aggregate counts emitted at the bottom of
@@ -285,13 +303,27 @@ func runListRulesFlag(listFlag, verboseFlag bool, maturityFilter, taxonomyID str
 // printListRules writes the --list-rules output. Split from
 // runListRulesFlag so tests can drive it without the os.Exit.
 func printListRules(w io.Writer, verboseFlag bool, maturityFilter, taxonomyID string, customRuleJars []string, paths []string) {
+	if code, ok := PrintListRules(w, os.Stderr, verboseFlag, maturityFilter, taxonomyID, customRuleJars, paths); !ok {
+		os.Exit(code)
+	}
+}
+
+// PrintListRules is the no-exit form of printListRules: it writes the
+// --list-rules output to stdoutW and any errors to stderrW, returning
+// (exitCode, ok). ok=true means the listing rendered successfully and
+// the caller can ignore exitCode; ok=false means stderrW received an
+// error message and the caller should exit with exitCode.
+//
+// Exposed so the daemon's list-rules verb can capture both streams
+// into MetaResult without going through os.Exit.
+func PrintListRules(stdoutW, stderrW io.Writer, verboseFlag bool, maturityFilter, taxonomyID string, customRuleJars []string, paths []string) (int, bool) {
 	var maturity api.Maturity
 	maturityFilterSet := false
 	if maturityFilter != "" {
 		m, ok := api.ParseMaturity(maturityFilter)
 		if !ok {
-			fmt.Fprintf(os.Stderr, "error: unknown --maturity value %q; valid: stable, experimental, deprecated\n", maturityFilter)
-			os.Exit(2)
+			fmt.Fprintf(stderrW, "error: unknown --maturity value %q; valid: stable, experimental, deprecated\n", maturityFilter)
+			return 2, false
 		}
 		maturity = m
 		maturityFilterSet = true
@@ -301,6 +333,7 @@ func printListRules(w io.Writer, verboseFlag bool, maturityFilter, taxonomyID st
 	if maturityFilterSet {
 		registry = api.MaturityFilter(registry, maturity)
 	}
+	w := stdoutW
 
 	var matcher api.TaxonomyMatcher
 	taxonomyID = strings.TrimSpace(taxonomyID)
@@ -365,6 +398,7 @@ func printListRules(w io.Writer, verboseFlag bool, maturityFilter, taxonomyID st
 		fmt.Fprintf(w, "\nTotal: %d rules (%d active by default, %d fixable)\n", total, active, fixable)
 	}
 	fmt.Fprintln(w, "A=active by default, F=fixable. Use -v for fix levels, --all-rules to enable all, --maturity to filter by lifecycle.")
+	return 0, true
 }
 
 func listPluginRuleDescriptors(customRuleJars []string, paths []string) []oracle.PluginRuleDescriptor {

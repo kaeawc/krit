@@ -330,3 +330,61 @@ func (c *Client) Shutdown() error {
 	}
 	return daemon.Call(c.socketPath, daemon.VerbShutdown, nil, nil)
 }
+
+// ListRules dispatches the list-rules verb against the daemon and
+// returns the captured stdout/stderr/exit-code triple. The CLI replays
+// these against its own streams so daemon-routed and in-process
+// invocations of `--list-rules` are byte-equivalent.
+func (c *Client) ListRules(args daemon.ListRulesArgs) (daemon.MetaResult, error) {
+	if c == nil {
+		return daemon.MetaResult{}, errors.New("daemonclient: nil client")
+	}
+	var result daemon.MetaResult
+	if err := daemon.Call(c.socketPath, daemon.VerbListRules, args, &result); err != nil {
+		return daemon.MetaResult{}, err
+	}
+	return result, nil
+}
+
+// ListExperiments dispatches the list-experiments verb against the
+// daemon. Mirrors ListRules' captured-stream contract.
+func (c *Client) ListExperiments(args daemon.ListExperimentsArgs) (daemon.MetaResult, error) {
+	if c == nil {
+		return daemon.MetaResult{}, errors.New("daemonclient: nil client")
+	}
+	var result daemon.MetaResult
+	if err := daemon.Call(c.socketPath, daemon.VerbListExperiments, args, &result); err != nil {
+		return daemon.MetaResult{}, err
+	}
+	return result, nil
+}
+
+// ValidateConfig dispatches the validate-config verb against the
+// daemon. ConfigPath="" lets the daemon use its resident config; pass
+// an explicit path to validate a specific file (mirrors --config FILE
+// semantics).
+func (c *Client) ValidateConfig(args daemon.ValidateConfigArgs) (daemon.MetaResult, error) {
+	if c == nil {
+		return daemon.MetaResult{}, errors.New("daemonclient: nil client")
+	}
+	var result daemon.MetaResult
+	if err := daemon.Call(c.socketPath, daemon.VerbValidateConfig, args, &result); err != nil {
+		return daemon.MetaResult{}, err
+	}
+	return result, nil
+}
+
+// OracleFilterFingerprint dispatches the oracle-filter-fingerprint
+// verb. The daemon walks the requested paths, builds the active rule
+// set, and emits the JSON fingerprint report the CI drift gate
+// consumes — without invoking the krit-types JVM.
+func (c *Client) OracleFilterFingerprint(args daemon.OracleFilterFingerprintArgs) (daemon.MetaResult, error) {
+	if c == nil {
+		return daemon.MetaResult{}, errors.New("daemonclient: nil client")
+	}
+	var result daemon.MetaResult
+	if err := daemon.Call(c.socketPath, daemon.VerbOracleFilterFingerprint, args, &result); err != nil {
+		return daemon.MetaResult{}, err
+	}
+	return result, nil
+}

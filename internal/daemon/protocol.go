@@ -27,12 +27,16 @@ type Response struct {
 
 // Built-in verb names.
 const (
-	VerbStatus         = "status"
-	VerbShutdown       = "shutdown"
-	VerbAbiHash        = "abi-hash"
-	VerbAnalyzeBuffer  = "analyze-buffer"
-	VerbAnalyzeBuffers = "analyze-buffers"
-	VerbAnalyzeProject = "analyze-project"
+	VerbStatus                  = "status"
+	VerbShutdown                = "shutdown"
+	VerbAbiHash                 = "abi-hash"
+	VerbAnalyzeBuffer           = "analyze-buffer"
+	VerbAnalyzeBuffers          = "analyze-buffers"
+	VerbAnalyzeProject          = "analyze-project"
+	VerbListRules               = "list-rules"
+	VerbListExperiments         = "list-experiments"
+	VerbValidateConfig          = "validate-config"
+	VerbOracleFilterFingerprint = "oracle-filter-fingerprint"
 )
 
 // ErrBinaryHashMismatchPrefix is the error.Error() prefix the daemon
@@ -263,4 +267,58 @@ type PhaseTimingsMs struct {
 	Android   int64 `json:"android"`
 	Fixup     int64 `json:"fixup"`
 	Output    int64 `json:"output"`
+}
+
+// MetaResult is the response payload shared by the read-only meta
+// verbs (list-rules, list-experiments, validate-config,
+// oracle-filter-fingerprint). The daemon captures the formatted bytes
+// the in-process flag handlers would have written and the exit code
+// they would have returned; the CLI replays them against its own
+// stdout/stderr + exit so daemon-routed and in-process invocations
+// remain byte-equivalent.
+type MetaResult struct {
+	Stdout   []byte `json:"stdout,omitempty"`
+	Stderr   []byte `json:"stderr,omitempty"`
+	ExitCode int    `json:"exit_code"`
+}
+
+// ListRulesArgs mirrors the --list-rules flag knobs. CustomRuleJars is
+// intentionally omitted: the daemon-compatibility gate already keeps
+// callers with --custom-rule-jars on the in-process path because plugin
+// rule discovery requires the krit-types JVM.
+type ListRulesArgs struct {
+	// Verbose mirrors -v: include fix levels, precision, maturity,
+	// description.
+	Verbose bool `json:"verbose,omitempty"`
+	// Maturity filters by lifecycle (stable, experimental, deprecated).
+	// Empty means no filter.
+	Maturity string `json:"maturity,omitempty"`
+	// TaxonomyID filters by --cwe (CWE / OWASP / SEI-CERT / MITRE).
+	TaxonomyID string `json:"taxonomy,omitempty"`
+}
+
+// ListExperimentsArgs mirrors the --list-experiments flag knobs.
+type ListExperimentsArgs struct {
+	// Format is the output format ("json" or "plain"). Empty defaults
+	// to "json" matching the CLI's default.
+	Format string `json:"format,omitempty"`
+}
+
+// ValidateConfigArgs is the validate-config payload. The daemon uses
+// its resident config (loaded from --root); the CLI may pass an
+// explicit path via ConfigPath to override.
+type ValidateConfigArgs struct {
+	// ConfigPath, when non-empty, is the absolute path of the
+	// krit.yml the daemon should validate. Empty means the daemon
+	// uses its already-loaded resident config.
+	ConfigPath string `json:"config_path,omitempty"`
+}
+
+// OracleFilterFingerprintArgs drives the oracle-filter-fingerprint
+// verb. Paths is the explicit scan target; empty falls back to the
+// daemon's --root. AllRules toggles the rule-set label between
+// "default" and "all-rules" and broadens activeRules.
+type OracleFilterFingerprintArgs struct {
+	Paths    []string `json:"paths,omitempty"`
+	AllRules bool     `json:"all_rules,omitempty"`
 }

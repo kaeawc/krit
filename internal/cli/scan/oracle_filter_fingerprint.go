@@ -3,6 +3,7 @@ package scan
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -33,13 +34,22 @@ type oracleFingerprintReport struct {
 // runs only the byte-substring pre-filter, so CI can diff fingerprints
 // without a JVM on the runner.
 func RunOracleFilterFingerprint(paths []string, files []string, activeRules []*api.Rule, allRules bool) int {
+	return WriteOracleFilterFingerprint(os.Stdout, os.Stderr, paths, files, activeRules, allRules)
+}
+
+// WriteOracleFilterFingerprint is the no-direct-stderr/stdout variant
+// of RunOracleFilterFingerprint. Emits the JSON report to stdoutW and
+// any error messages to stderrW; returns the process exit code.
+// Pulled out so the daemon's oracle-filter-fingerprint verb can
+// capture both streams without writing to the daemon's own stdio.
+func WriteOracleFilterFingerprint(stdoutW, stderrW io.Writer, paths []string, files []string, activeRules []*api.Rule, allRules bool) int {
 	if len(paths) == 0 {
-		fmt.Fprintln(os.Stderr, "error: --oracle-filter-fingerprint requires at least one path")
+		fmt.Fprintln(stderrW, "error: --oracle-filter-fingerprint requires at least one path")
 		return 2
 	}
 	root, err := filepath.Abs(paths[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: resolve root: %v\n", err)
+		fmt.Fprintf(stderrW, "error: resolve root: %v\n", err)
 		return 2
 	}
 
@@ -68,10 +78,10 @@ func RunOracleFilterFingerprint(paths []string, files []string, activeRules []*a
 		Root:        filepath.ToSlash(filepath.Base(root)),
 	}
 
-	enc := json.NewEncoder(os.Stdout)
+	enc := json.NewEncoder(stdoutW)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(report); err != nil {
-		fmt.Fprintf(os.Stderr, "error: encode: %v\n", err)
+		fmt.Fprintf(stderrW, "error: encode: %v\n", err)
 		return 2
 	}
 	return 0

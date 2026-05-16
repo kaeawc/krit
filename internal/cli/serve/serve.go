@@ -711,6 +711,18 @@ func registerVerbs(srv *daemon.Server, state *daemonState) {
 	srv.Register(daemon.VerbAnalyzeProject, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return handleAnalyzeProject(ctx, state, raw)
 	})
+	srv.Register(daemon.VerbListRules, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return handleListRules(ctx, state, raw)
+	})
+	srv.Register(daemon.VerbListExperiments, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return handleListExperiments(ctx, state, raw)
+	})
+	srv.Register(daemon.VerbValidateConfig, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return handleValidateConfig(ctx, state, raw)
+	})
+	srv.Register(daemon.VerbOracleFilterFingerprint, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return handleOracleFilterFingerprint(ctx, state, raw)
+	})
 }
 
 // handleAnalyzeBuffer parses (or reuses a cached parse for) the buffer

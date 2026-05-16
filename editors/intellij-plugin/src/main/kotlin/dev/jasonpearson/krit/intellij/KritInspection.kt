@@ -2,8 +2,8 @@ package dev.jasonpearson.krit.intellij
 
 import com.intellij.codeInspection.LocalInspectionTool
 import com.intellij.codeInspection.LocalQuickFix
-import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemDescriptor
+import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
@@ -51,6 +51,12 @@ class KritInspection : LocalInspectionTool() {
     }
 
     private fun quickFixes(finding: KritFinding): Array<LocalQuickFix> {
+        val applicable = finding.suggestedFixes.filter { it.edits.isNotEmpty() }
+        if (applicable.isNotEmpty()) {
+            return applicable
+                .map { KritApplySuggestionQuickFix(finding.findingId, it) }
+                .toTypedArray()
+        }
         if (!finding.fixable) {
             return emptyArray()
         }
@@ -59,13 +65,22 @@ class KritInspection : LocalInspectionTool() {
 }
 
 class KritApplyFixesQuickFix(private val fixLevel: String?) : LocalQuickFix {
-    override fun getFamilyName(): String = "Apply Krit ${normalizedFixLevel()} auto-fixes"
+    override fun getFamilyName(): String = KritFixLabels.applyFixesTitle(fixLevel)
 
     override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-        project.service<KritProjectService>().applyFixes(normalizedFixLevel())
+        project.service<KritProjectService>().applyFixes(KritFixLabels.normalizeFixLevel(fixLevel))
     }
+}
 
-    private fun normalizedFixLevel(): String {
-        return fixLevel.orEmpty().ifBlank { "idiomatic" }
+class KritApplySuggestionQuickFix(
+    private val findingId: String,
+    private val suggestion: KritSuggestedFix,
+) : LocalQuickFix {
+    override fun getName(): String = KritFixLabels.suggestionTitle(suggestion)
+
+    override fun getFamilyName(): String = KritFixLabels.SUGGESTION_FAMILY_NAME
+
+    override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
+        project.service<KritProjectService>().applySuggestion(findingId, suggestion.id)
     }
 }

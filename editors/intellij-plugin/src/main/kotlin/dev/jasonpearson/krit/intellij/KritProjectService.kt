@@ -40,6 +40,9 @@ class KritProjectService(private val project: Project) : Disposable {
     @Volatile
     private var findingsByFile: Map<String, List<KritFinding>> = emptyMap()
 
+    @Volatile
+    private var lastReportJson: String = ""
+
     init {
         EditorFactory.getInstance().eventMulticaster.addDocumentListener(documentListener, this)
         scheduleScan(0)
@@ -57,12 +60,30 @@ class KritProjectService(private val project: Project) : Disposable {
             }
             try {
                 if (KritRunner.fixProject(project, fixLevel)) {
-                    val report = KritRunner.analyzeProject(project)
-                    findingsByFile = report.findings.groupBy { canonicalPath(it.file, project.basePath) }
-                    restartHighlighting()
+                    refreshFindings()
                 }
             } catch (t: Throwable) {
                 log.warn("krit fix runner failed", t)
+            } finally {
+                running.set(false)
+                scheduleRequestedRerun()
+            }
+        }
+    }
+
+    fun applySuggestion(findingId: String, suggestionId: String) {
+        val cachedReport = lastReportJson
+        executor.execute {
+            if (project.isDisposed || !running.compareAndSet(false, true)) {
+                rerunAfterCurrent.set(true)
+                return@execute
+            }
+            try {
+                if (KritRunner.applySuggestion(project, findingId, suggestionId, cachedReport)) {
+                    refreshFindings()
+                }
+            } catch (t: Throwable) {
+                log.warn("krit apply-suggestion runner failed", t)
             } finally {
                 running.set(false)
                 scheduleRequestedRerun()
@@ -76,15 +97,20 @@ class KritProjectService(private val project: Project) : Disposable {
             return
         }
         try {
-            val report = KritRunner.analyzeProject(project)
-            findingsByFile = report.findings.groupBy { canonicalPath(it.file, project.basePath) }
-            restartHighlighting()
+            refreshFindings()
         } catch (t: Throwable) {
             log.warn("krit project runner failed", t)
         } finally {
             running.set(false)
             scheduleRequestedRerun()
         }
+    }
+
+    private fun refreshFindings() {
+        val result = KritRunner.analyzeProject(project)
+        findingsByFile = result.report.findings.groupBy { canonicalPath(it.file, project.basePath) }
+        lastReportJson = result.rawJson
+        restartHighlighting()
     }
 
     private fun scheduleScan(delayMs: Long) {

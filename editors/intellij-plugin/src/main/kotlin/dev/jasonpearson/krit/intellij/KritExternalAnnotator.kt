@@ -29,11 +29,10 @@ class KritExternalAnnotator : ExternalAnnotator<PsiFile, List<KritFinding>>() {
         for (finding in annotationResult.orEmpty()) {
             val annotation = holder.newAnnotation(highlightSeverity(finding), finding.displayMessage)
                 .range(KritRanges.rangeFor(file, finding))
-            if (finding.fixable) {
-                annotation.withFix(KritApplyFixesIntention(finding.fixLevel))
+            for (intention in KritIntentions.forFinding(finding)) {
+                annotation.withFix(intention)
             }
-            annotation
-                .create()
+            annotation.create()
         }
     }
 
@@ -46,20 +45,49 @@ class KritExternalAnnotator : ExternalAnnotator<PsiFile, List<KritFinding>>() {
     }
 }
 
+object KritIntentions {
+    // Suggestions and the autofix slot are mutually exclusive per finding:
+    // when a rule emits suggestions the user picks one explicitly, so the
+    // catch-all "apply auto-fixes" entry would conflict.
+    fun forFinding(finding: KritFinding): List<IntentionAction> {
+        val applicable = finding.suggestedFixes.filter { it.edits.isNotEmpty() }
+        if (applicable.isNotEmpty()) {
+            return applicable.map { KritApplySuggestionIntention(finding.findingId, it) }
+        }
+        if (finding.fixable) {
+            return listOf(KritApplyFixesIntention(finding.fixLevel))
+        }
+        return emptyList()
+    }
+}
+
 class KritApplyFixesIntention(private val fixLevel: String?) : IntentionAction {
-    override fun getText(): String = "Apply Krit ${normalizedFixLevel()} auto-fixes"
+    override fun getText(): String = KritFixLabels.applyFixesTitle(fixLevel)
 
     override fun getFamilyName(): String = text
 
     override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?): Boolean = true
 
     override fun invoke(project: Project, editor: Editor?, file: PsiFile?) {
-        project.service<KritProjectService>().applyFixes(normalizedFixLevel())
+        project.service<KritProjectService>().applyFixes(KritFixLabels.normalizeFixLevel(fixLevel))
     }
 
     override fun startInWriteAction(): Boolean = false
+}
 
-    private fun normalizedFixLevel(): String {
-        return fixLevel.orEmpty().ifBlank { "idiomatic" }
+class KritApplySuggestionIntention(
+    private val findingId: String,
+    private val suggestion: KritSuggestedFix,
+) : IntentionAction {
+    override fun getText(): String = KritFixLabels.suggestionTitle(suggestion)
+
+    override fun getFamilyName(): String = KritFixLabels.SUGGESTION_FAMILY_NAME
+
+    override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?): Boolean = true
+
+    override fun invoke(project: Project, editor: Editor?, file: PsiFile?) {
+        project.service<KritProjectService>().applySuggestion(findingId, suggestion.id)
     }
+
+    override fun startInWriteAction(): Boolean = false
 }

@@ -12,8 +12,8 @@
   <depends>org.jetbrains.kotlin</depends>
 
   <extensions defaultExtensionNs="com.intellij">
-    <projectService serviceImplementation="dev.krit.intellij.KritProjectService"/>
-    <externalAnnotator language="kotlin" implementationClass="dev.krit.intellij.KritExternalAnnotator"/>
+    <projectService serviceImplementation="dev.jasonpearson.krit.intellij.KritProjectService"/>
+    <externalAnnotator language="kotlin" implementationClass="dev.jasonpearson.krit.intellij.KritExternalAnnotator"/>
     <localInspection
       language="kotlin"
       displayName="Krit"
@@ -22,7 +22,7 @@
       enabledByDefault="true"
       level="WARNING"
       shortName="Krit"
-      implementationClass="dev.krit.intellij.KritInspection"/>
+      implementationClass="dev.jasonpearson.krit.intellij.KritInspection"/>
   </extensions>
 
   <extensions defaultExtensionNs="org.jetbrains.kotlin">

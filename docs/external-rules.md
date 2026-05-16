@@ -55,8 +55,8 @@ LSP/MCP servers see externals identically to built-ins.
 ## Kotlin rule jars (experimental)
 
 Krit now has the first daemon-backed path for Kotlin-authored rule
-jars. A rule jar exposes `dev.krit.api.KritRule` through
-`META-INF/services/dev.krit.api.KritRule`; the `krit-types` daemon
+jars. A rule jar exposes `dev.jasonpearson.krit.api.KritRule` through
+`META-INF/services/dev.jasonpearson.krit.api.KritRule`; the `krit-types` daemon
 loads the jar, reads `@KritRuleInfo` metadata, runs the selected rules
 per Kotlin file, and returns findings that Krit merges into the normal
 JSON/SARIF/baseline output path.
@@ -80,7 +80,7 @@ krit --custom-rule-jars build-logic/krit-rules/build/libs/krit-rules.jar .
 The current annotation is named `@KritRuleInfo` because Kotlin cannot
 define an annotation class and a ServiceLoader interface both named
 `KritRule` in the same package. The ServiceLoader interface keeps the
-stable `dev.krit.api.KritRule` name.
+stable `dev.jasonpearson.krit.api.KritRule` name.
 
 ## Open design questions for out-of-tree loading
 

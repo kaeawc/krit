@@ -4,7 +4,7 @@ plugins {
     `maven-publish`
 }
 
-group = "dev.krit"
+group = "dev.jasonpearson.krit"
 version = "0.1.0"
 
 repositories {
@@ -14,8 +14,8 @@ repositories {
 gradlePlugin {
     plugins {
         create("krit") {
-            id = "dev.krit"
-            implementationClass = "dev.krit.gradle.KritPlugin"
+            id = "dev.jasonpearson.krit"
+            implementationClass = "dev.jasonpearson.krit.gradle.KritPlugin"
             displayName = "Krit Kotlin Lint"
             description = "Static analysis for Kotlin using tree-sitter"
         }

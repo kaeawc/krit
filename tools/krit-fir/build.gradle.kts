@@ -23,7 +23,7 @@ tasks.shadowJar {
     mergeServiceFiles()
     manifest {
         attributes(
-            "Main-Class" to "dev.krit.fir.MainKt",
+            "Main-Class" to "dev.jasonpearson.krit.fir.MainKt",
             "Multi-Release" to "true",
         )
     }

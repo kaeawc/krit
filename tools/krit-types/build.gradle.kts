@@ -37,7 +37,7 @@ tasks.shadowJar {
     mergeServiceFiles() // Required: Analysis API uses ServiceLoader extensively
     manifest {
         attributes(
-            "Main-Class" to "dev.krit.types.MainKt",
+            "Main-Class" to "dev.jasonpearson.krit.types.MainKt",
             "Multi-Release" to "true",
         )
     }

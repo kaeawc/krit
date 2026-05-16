@@ -21,7 +21,7 @@ type Options struct {
 func DefaultOptions() Options {
 	return Options{
 		Java:       "java",
-		HelperMain: "dev.krit.javafacts.Main",
+		HelperMain: "dev.jasonpearson.krit.javafacts.Main",
 		Timeout:    30 * time.Second,
 	}
 }
@@ -44,7 +44,7 @@ func Invoke(ctx context.Context, helperClasspath string, files []string, opts Op
 		opts.Java = "java"
 	}
 	if opts.HelperMain == "" {
-		opts.HelperMain = "dev.krit.javafacts.Main"
+		opts.HelperMain = "dev.jasonpearson.krit.javafacts.Main"
 	}
 	if opts.Timeout == 0 {
 		opts.Timeout = 30 * time.Second

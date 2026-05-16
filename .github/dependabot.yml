@@ -63,3 +63,14 @@ updates:
     groups:
       gradle-minor-patch:
         update-types: [minor, patch]
+
+  # Custom-rule authoring Gradle plugin (published artifact)
+  - package-ecosystem: gradle
+    directory: /krit-custom-rule-plugin
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies, gradle]
+    groups:
+      gradle-minor-patch:
+        update-types: [minor, patch]

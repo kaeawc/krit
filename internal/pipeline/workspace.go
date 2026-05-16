@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"container/list"
 	"context"
 	"path/filepath"
 	"sort"
@@ -29,6 +30,20 @@ type WorkspaceState struct {
 
 	mu     sync.RWMutex
 	parsed map[string]parsedEntry
+	// parsedLRU orders parsed entries by access recency; front = MRU,
+	// back = LRU. Each element's Value is the entry's key (string).
+	// Guarded by mu.
+	parsedLRU *list.List
+	// parsedBytes sums bytes across resident parsed entries
+	// (approximated by file.Content length). Guarded by mu.
+	parsedBytes int64
+	// maxParsedBytes caps parsedBytes; when > 0, inserts that would
+	// push the total over evict LRU entries until the new total fits.
+	// Zero (the default) disables eviction. Read atomically on the
+	// hot path so a cache hit can skip LRU promotion (and the write
+	// lock) when no cap is active.
+	maxParsedBytes  atomic.Int64
+	parsedEvictions atomic.Int64
 	// dirty tracks paths that have been invalidated since the last
 	// DrainDirty call. Populated by Touch (intended to be called
 	// alongside Invalidate from the file watcher); drained by daemon
@@ -158,6 +173,12 @@ type xfileSlot[T any] struct {
 type parsedEntry struct {
 	contentHash string
 	file        *scanner.File
+	// bytes approximates the entry's resident cost via
+	// len(file.Content). Walking the tree-sitter AST to size it
+	// exactly would defeat the point of a fast cache; source size is
+	// a monotonic proxy that's enough to bound growth.
+	bytes int64
+	elem  *list.Element
 }
 
 // NewWorkspaceState returns an empty workspace state rooted at repoRoot.
@@ -165,8 +186,47 @@ type parsedEntry struct {
 // extension; passing "" is valid.
 func NewWorkspaceState(repoRoot string) *WorkspaceState {
 	return &WorkspaceState{
-		repoRoot: repoRoot,
-		parsed:   make(map[string]parsedEntry),
+		repoRoot:  repoRoot,
+		parsed:    make(map[string]parsedEntry),
+		parsedLRU: list.New(),
+	}
+}
+
+// SetMaxParsedBytes sets the resident byte cap for the parsed cache.
+// n <= 0 disables eviction (unlimited, the default). Lowering n below
+// the current parsedBytes evicts LRU entries until parsedBytes <= n.
+func (w *WorkspaceState) SetMaxParsedBytes(n int64) {
+	if w == nil {
+		return
+	}
+	if n < 0 {
+		n = 0
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.maxParsedBytes.Store(n)
+	w.evictLRULocked()
+}
+
+// evictLRULocked drops back-of-list entries until parsedBytes fits
+// under maxParsedBytes. Caller holds w.mu. Cap of 0 disables.
+func (w *WorkspaceState) evictLRULocked() {
+	maxBytes := w.maxParsedBytes.Load()
+	if maxBytes <= 0 {
+		return
+	}
+	for w.parsedBytes > maxBytes {
+		oldest := w.parsedLRU.Back()
+		if oldest == nil {
+			return
+		}
+		key := oldest.Value.(string)
+		w.parsedLRU.Remove(oldest)
+		if e, ok := w.parsed[key]; ok {
+			w.parsedBytes -= e.bytes
+			delete(w.parsed, key)
+		}
+		w.parsedEvictions.Add(1)
 	}
 }
 
@@ -199,6 +259,7 @@ func (w *WorkspaceState) ParseFileWithHit(ctx context.Context, path string, cont
 	entry, ok := w.parsed[key]
 	w.mu.RUnlock()
 	if ok && entry.contentHash == hash {
+		w.promoteLRU(key, entry.elem)
 		w.hits.Add(1)
 		return entry.file, true, nil
 	}
@@ -214,14 +275,62 @@ func (w *WorkspaceState) ParseFileWithHit(ctx context.Context, path string, cont
 	// identity. The freshly parsed file is discarded; same content,
 	// same content hash.
 	if existing, ok := w.parsed[key]; ok && existing.contentHash == hash {
+		if existing.elem != nil && w.maxParsedBytes.Load() > 0 {
+			w.parsedLRU.MoveToFront(existing.elem)
+		}
 		w.mu.Unlock()
 		w.hits.Add(1)
 		return existing.file, true, nil
 	}
-	w.parsed[key] = parsedEntry{contentHash: hash, file: file}
+	w.storeParsedLocked(key, parsedEntry{
+		contentHash: hash,
+		file:        file,
+		bytes:       fileResidentBytes(file),
+	})
 	w.mu.Unlock()
 	w.misses.Add(1)
 	return file, false, nil
+}
+
+// promoteLRU moves the entry for key to the front of parsedLRU when
+// the cached element identity still matches elem. Skips work entirely
+// when no cap is active so the cache-hit fast path stays RLock-only —
+// LRU order doesn't matter without eviction, and SetMaxParsedBytes
+// rebuilds order from current insertion sequence if a cap is enabled
+// later. The elem identity guard catches a racing Invalidate +
+// re-insert between the RLock read and the Lock here.
+func (w *WorkspaceState) promoteLRU(key string, elem *list.Element) {
+	if w == nil || elem == nil || w.maxParsedBytes.Load() == 0 {
+		return
+	}
+	w.mu.Lock()
+	if e, ok := w.parsed[key]; ok && e.elem == elem {
+		w.parsedLRU.MoveToFront(elem)
+	}
+	w.mu.Unlock()
+}
+
+// storeParsedLocked installs entry under key, replacing any prior
+// entry's LRU node + byte accounting, then runs eviction. Caller
+// holds w.mu.
+func (w *WorkspaceState) storeParsedLocked(key string, entry parsedEntry) {
+	if prior, ok := w.parsed[key]; ok {
+		if prior.elem != nil {
+			w.parsedLRU.Remove(prior.elem)
+		}
+		w.parsedBytes -= prior.bytes
+	}
+	entry.elem = w.parsedLRU.PushFront(key)
+	w.parsedBytes += entry.bytes
+	w.parsed[key] = entry
+	w.evictLRULocked()
+}
+
+func fileResidentBytes(f *scanner.File) int64 {
+	if f == nil {
+		return 0
+	}
+	return int64(len(f.Content))
 }
 
 // LookupParsedByPath returns the cached *scanner.File for path
@@ -259,10 +368,17 @@ func (w *WorkspaceState) StoreParsed(path string, content []byte, file *scanner.
 	hash := hashutil.Default().HashContent(key, content)
 	w.mu.Lock()
 	if existing, ok := w.parsed[key]; ok && existing.contentHash == hash {
+		if existing.elem != nil && w.maxParsedBytes.Load() > 0 {
+			w.parsedLRU.MoveToFront(existing.elem)
+		}
 		w.mu.Unlock()
 		return
 	}
-	w.parsed[key] = parsedEntry{contentHash: hash, file: file}
+	w.storeParsedLocked(key, parsedEntry{
+		contentHash: hash,
+		file:        file,
+		bytes:       fileResidentBytes(file),
+	})
 	w.mu.Unlock()
 }
 
@@ -276,7 +392,13 @@ func (w *WorkspaceState) Invalidate(path string) {
 	}
 	key := normalizeKey(path)
 	w.mu.Lock()
-	delete(w.parsed, key)
+	if e, ok := w.parsed[key]; ok {
+		if e.elem != nil {
+			w.parsedLRU.Remove(e.elem)
+		}
+		w.parsedBytes -= e.bytes
+		delete(w.parsed, key)
+	}
 	w.mu.Unlock()
 	w.typeInfoMu.Lock()
 	delete(w.typeInfo, key)
@@ -436,6 +558,8 @@ func (w *WorkspaceState) InvalidateAll() {
 	}
 	w.mu.Lock()
 	w.parsed = make(map[string]parsedEntry)
+	w.parsedLRU.Init()
+	w.parsedBytes = 0
 	w.dirty = nil
 	w.mu.Unlock()
 
@@ -943,9 +1067,12 @@ func (w *WorkspaceState) InvalidateOracleFilter() {
 // WorkspaceStats is a point-in-time snapshot of cache utilisation,
 // useful for testing and verbose logging.
 type WorkspaceStats struct {
-	ParsedEntries int
-	Hits          int64
-	Misses        int64
+	ParsedEntries   int
+	ParsedBytes     int64
+	MaxParsedBytes  int64
+	ParsedEvictions int64
+	Hits            int64
+	Misses          int64
 }
 
 // Stats returns a snapshot of the current cache state.
@@ -955,11 +1082,15 @@ func (w *WorkspaceState) Stats() WorkspaceStats {
 	}
 	w.mu.RLock()
 	n := len(w.parsed)
+	bytes := w.parsedBytes
 	w.mu.RUnlock()
 	return WorkspaceStats{
-		ParsedEntries: n,
-		Hits:          w.hits.Load(),
-		Misses:        w.misses.Load(),
+		ParsedEntries:   n,
+		ParsedBytes:     bytes,
+		MaxParsedBytes:  w.maxParsedBytes.Load(),
+		ParsedEvictions: w.parsedEvictions.Load(),
+		Hits:            w.hits.Load(),
+		Misses:          w.misses.Load(),
 	}
 }
 

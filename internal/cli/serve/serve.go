@@ -103,6 +103,7 @@ func Run(args []string) int {
 	socketFlag := fs.String("socket", "", "Unix socket path (default <root>/.krit/daemon.sock)")
 	stopFlag := fs.Bool("stop", false, "Stop a running daemon at --socket")
 	idleFlag := fs.Duration("idle-timeout", 30*time.Minute, "Auto-shutdown after no request for this duration; 0 disables")
+	maxParseBytesFlag := fs.Int64("max-parse-bytes", 0, "Cap on resident parsed-file bytes; over the cap, LRU entries are evicted. 0 disables")
 	noWatcherFlag := fs.Bool("no-watcher", false, "Disable filesystem watching for cache invalidation")
 	// --strict-verify reruns every analyze in-process from cold caches
 	// and fails the response on row-level divergence vs the daemon's
@@ -135,6 +136,7 @@ func Run(args []string) int {
 
 	state := newDaemonState(root)
 	state.strictVerify = *strictVerifyFlag
+	state.workspace.SetMaxParsedBytes(*maxParseBytesFlag)
 	warmStart := time.Now()
 	if err := state.warm(); err != nil {
 		fmt.Fprintf(os.Stderr, "krit serve: warm: %v\n", err)

@@ -37,7 +37,7 @@ func diffCrossFileEntryPaths(oldEntries, newEntries []fingerprintEntry) (map[str
 	return removePaths, addPaths
 }
 
-func selectFilesByPath[T interface{ *File | *xmlCacheFile }](files []T, paths map[string]bool) []T {
+func selectFilesByPath[T interface{ *File | *XMLCacheFile }](files []T, paths map[string]bool) []T {
 	if len(paths) == 0 {
 		return nil
 	}
@@ -50,7 +50,7 @@ func selectFilesByPath[T interface{ *File | *xmlCacheFile }](files []T, paths ma
 		switch v := any(f).(type) {
 		case *File:
 			path = v.Path
-		case *xmlCacheFile:
+		case *XMLCacheFile:
 			path = v.Path
 		}
 		if paths[path] {
@@ -97,7 +97,7 @@ func shouldUseCrossFileOverlay(prev CrossFileCacheMeta, current []fingerprintEnt
 	return len(meta.OverlayEntries)+len(meta.RemovedPayloadPaths) <= crossFileOverlayMaxEntries
 }
 
-func buildIndexFromPriorOverlay(cacheDir string, entries []fingerprintEntry, files []*File, javaFiles []*File, xmlFiles []*xmlCacheFile, workers int, priorLoader PriorIndexLoader, tracker perf.Tracker) (*CodeIndex, bool) {
+func buildIndexFromPriorOverlay(cacheDir string, entries []fingerprintEntry, files []*File, javaFiles []*File, xmlFiles []*XMLCacheFile, workers int, priorLoader PriorIndexLoader, tracker perf.Tracker) (*CodeIndex, bool) {
 	var priorIdx *CodeIndex
 	var priorMeta CrossFileCacheMeta
 	var ok bool

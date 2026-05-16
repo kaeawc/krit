@@ -356,6 +356,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			CodeIndexCache:               s.workspace.CodeIndex,
 			CodeIndexSnapshotLoader:      s.workspace.LoadCodeIndexSnapshot,
 			CodeIndexSnapshotSaver:       s.workspace.StoreCodeIndexSnapshot,
+			XMLFilesLoader:               s.workspace.XMLFiles,
 			JavaSourceIndexCache:         s.workspace.JavaSourceIndex,
 			ResolverCache:                s.workspace.Resolver,
 			ResolverFingerprintCache:     s.workspace.ResolverFingerprint,

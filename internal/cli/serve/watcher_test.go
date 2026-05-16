@@ -27,6 +27,7 @@ type countingState struct {
 	invalidateCalls atomic.Int64
 	bumpCalls       atomic.Int64
 	javaBumpCalls   atomic.Int64
+	xmlBumpCalls    atomic.Int64
 }
 
 func (c *countingState) Invalidate(path string)  { c.invalidateCalls.Add(1) }
@@ -38,6 +39,7 @@ func (c *countingState) InvalidateOracleFilter() {}
 func (c *countingState) Touch(path string)       {}
 func (c *countingState) BumpSourceMTimeVersion() { c.bumpCalls.Add(1) }
 func (c *countingState) BumpJavaSourceVersion()  { c.javaBumpCalls.Add(1) }
+func (c *countingState) BumpXMLFilesVersion()    { c.xmlBumpCalls.Add(1) }
 
 // waitForCondition polls fn every 5ms up to 2s. Returns true when fn
 // turns true; false on timeout. Used to bridge the async fsnotify
@@ -510,6 +512,7 @@ func (c *chmodFilterCountingState) InvalidateOracleFilter() {}
 func (c *chmodFilterCountingState) Touch(string)            {}
 func (c *chmodFilterCountingState) BumpSourceMTimeVersion() { c.bumpCalls.Add(1) }
 func (c *chmodFilterCountingState) BumpJavaSourceVersion()  {}
+func (c *chmodFilterCountingState) BumpXMLFilesVersion()    {}
 
 // TestFileWatcher_BumpsMTimeVersionOnKotlinEdit asserts the watcher
 // drives the daemon-resident stats-clean memo: a real .kt edit must
@@ -596,5 +599,41 @@ func TestFileWatcher_BumpsJavaSourceVersionOnJavaEdit(t *testing.T) {
 	time.Sleep(80 * time.Millisecond)
 	if got := state.javaBumpCalls.Load(); got != 0 {
 		t.Errorf("Kotlin edit must NOT bump Java counter; got %d", got)
+	}
+}
+
+// TestFileWatcher_BumpsXMLFilesVersionOnXMLEdit pins the .xml-event
+// hook. Edits to layout/manifest/navigation XMLs must invalidate the
+// daemon-resident XMLCacheFile slot so the next analyze re-walks the
+// project. Kotlin / Java edits, on the other hand, MUST NOT bump
+// the XML counter — XML content is independent and we want to reuse
+// the cached slice across the (much more common) source edits.
+func TestFileWatcher_BumpsXMLFilesVersionOnXMLEdit(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "layout.xml")
+	if err := os.WriteFile(path, []byte(`<View/>`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	state := &countingState{}
+	w, err := startFileWatcherWithState(context.Background(), root, state, nil)
+	if err != nil {
+		t.Fatalf("startFileWatcher: %v", err)
+	}
+	defer w.Stop()
+
+	if err := os.WriteFile(path, []byte(`<TextView/>`), 0o644); err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+	if !waitForCondition(func() bool { return state.xmlBumpCalls.Load() >= 1 }) {
+		t.Errorf("expected BumpXMLFilesVersion after .xml edit, got %d", state.xmlBumpCalls.Load())
+	}
+	// Sanity: a Kotlin edit must NOT bump the XML counter.
+	state.xmlBumpCalls.Store(0)
+	if err := os.WriteFile(filepath.Join(root, "Bar.kt"), []byte("fun b() {}\n"), 0o644); err != nil {
+		t.Fatalf("write kt: %v", err)
+	}
+	time.Sleep(80 * time.Millisecond)
+	if got := state.xmlBumpCalls.Load(); got != 0 {
+		t.Errorf("Kotlin edit must NOT bump XML counter; got %d", got)
 	}
 }

@@ -98,6 +98,21 @@ type WorkspaceState struct {
 	cachedJavaSourceIndex   *javafacts.SourceIndex
 	cachedJavaSourceVersion uint64
 
+	xmlFilesMu sync.Mutex
+	// xmlFilesVersion is bumped on every .xml watcher event. The
+	// resident XMLCacheFile slot uses it to detect whether its last
+	// build is still valid without re-walking the project for layouts
+	// / manifests / navigation files (~200 ms on the kotlin compiler
+	// corpus's 520 XMLs; many seconds on Android-heavy repos with
+	// thousands of resource XMLs).
+	xmlFilesVersion uint64
+	// cachedXMLFiles is the last successful XML walk, valid while
+	// cachedXMLFilesVersion == xmlFilesVersion. A bump on the watcher
+	// side rotates the version; the next lookup misses and rebuilds
+	// via scanner.LoadXMLFilesForCache.
+	cachedXMLFiles        []*scanner.XMLCacheFile
+	cachedXMLFilesVersion uint64
+
 	codeIndexSnapshotMu sync.Mutex
 	// codeIndexSnapshot is the last successfully built *CodeIndex,
 	// retained across watcher invalidations of the fingerprint-keyed
@@ -367,6 +382,56 @@ func (w *WorkspaceState) BumpJavaSourceVersion() {
 	w.javaSourceMu.Unlock()
 }
 
+// XMLFiles returns the daemon-resident []*scanner.XMLCacheFile when
+// its version still matches the watcher's xmlFilesVersion; otherwise
+// it invokes build, stores the result under the current version, and
+// returns it. The build closure runs without the slot mutex held so
+// concurrent readers (none today — analyze is per-project serial)
+// would not block; a watcher event mid-build advances the counter and
+// the would-be store is skipped so the next call rebuilds.
+//
+// XML files contribute reference data to the cross-file index;
+// build() must scan the same root set scanner.LoadXMLFilesForCache
+// does so the cache is content-equivalent to a fresh walk. nil
+// receiver always builds — same safety contract as the other
+// resident caches.
+func (w *WorkspaceState) XMLFiles(build func() []*scanner.XMLCacheFile) []*scanner.XMLCacheFile {
+	if w == nil {
+		return build()
+	}
+	w.xmlFilesMu.Lock()
+	if w.cachedXMLFiles != nil && w.cachedXMLFilesVersion == w.xmlFilesVersion {
+		v := w.cachedXMLFiles
+		w.xmlFilesMu.Unlock()
+		return v
+	}
+	currentVersion := w.xmlFilesVersion
+	w.xmlFilesMu.Unlock()
+
+	files := build()
+
+	w.xmlFilesMu.Lock()
+	if w.xmlFilesVersion == currentVersion {
+		w.cachedXMLFiles = files
+		w.cachedXMLFilesVersion = currentVersion
+	}
+	w.xmlFilesMu.Unlock()
+	return files
+}
+
+// BumpXMLFilesVersion advances the version counter so the next
+// XMLFiles call rebuilds. Called by the watcher on every .xml file
+// event (layout/manifest/navigation changes can rotate the CodeIndex
+// fingerprint and the rule-set's XML reference targets).
+func (w *WorkspaceState) BumpXMLFilesVersion() {
+	if w == nil {
+		return
+	}
+	w.xmlFilesMu.Lock()
+	w.xmlFilesVersion++
+	w.xmlFilesMu.Unlock()
+}
+
 // Touch records that path has changed on disk since the last
 // DrainDirty. Intended to be called alongside Invalidate from the
 // file watcher so consumers can later ask "what changed since I last
@@ -457,6 +522,10 @@ func (w *WorkspaceState) InvalidateAll() {
 	w.cachedJavaSourceIndex = nil
 	w.javaSourceVersion++
 	w.javaSourceMu.Unlock()
+	w.xmlFilesMu.Lock()
+	w.cachedXMLFiles = nil
+	w.xmlFilesVersion++
+	w.xmlFilesMu.Unlock()
 	w.resolverFpMu.Lock()
 	w.cachedResolverFp = ""
 	w.cachedResolverFpPresent = false

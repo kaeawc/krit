@@ -79,7 +79,7 @@ func TestLoadXMLFilesForCache_StableOrder(t *testing.T) {
 // for tests and future call sites: ascending path lex order, no
 // secondary key needed because Path is unique within a project.
 func TestSortXMLCacheFiles_TotalOrder(t *testing.T) {
-	in := []*xmlCacheFile{
+	in := []*XMLCacheFile{
 		{Path: "/c.xml"}, {Path: "/a.xml"}, {Path: "/b.xml"},
 	}
 	want := []string{"/a.xml", "/b.xml", "/c.xml"}
@@ -90,7 +90,7 @@ func TestSortXMLCacheFiles_TotalOrder(t *testing.T) {
 	}
 }
 
-func pathsOf(files []*xmlCacheFile) []string {
+func pathsOf(files []*XMLCacheFile) []string {
 	out := make([]string, len(files))
 	for i, f := range files {
 		out[i] = f.Path

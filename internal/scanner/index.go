@@ -109,6 +109,20 @@ type PriorIndexLoader func() (*CodeIndex, CrossFileCacheMeta, bool)
 // callback — non-daemon callers ignore it.
 type SnapshotSaver func(idx *CodeIndex, meta CrossFileCacheMeta)
 
+// XMLFilesLoader, when non-nil, is consulted by
+// BuildIndexCachedWithPrior INSTEAD of the unconditional
+// loadXMLFilesForCache disk walk. The build closure is the fallback
+// — the daemon's version-gated slot calls it on a cache miss. nil
+// loader falls through to the legacy disk walk every call.
+//
+// On Android-heavy corpora the XML walk is one of the largest
+// remaining costs (~200 ms / 520 XMLs on the kotlin compiler corpus,
+// scaling roughly linearly to thousands of files on real Android
+// projects). A daemon that hasn't seen any .xml watcher event since
+// the last build returns the cached slice in O(1) instead of
+// repaying the walk + read + hash on every call.
+type XMLFilesLoader func(build func() []*XMLCacheFile) []*XMLCacheFile
+
 // BuildIndexCachedWithPrior is BuildIndexCached with an optional
 // in-memory prior-index loader and a snapshot-save callback. When the
 // loader returns a hit, the overlay rebuild path uses the supplied
@@ -124,6 +138,16 @@ type SnapshotSaver func(idx *CodeIndex, meta CrossFileCacheMeta)
 //
 // nil loader + nil saver restores legacy BuildIndexCached behavior.
 func BuildIndexCachedWithPrior(cacheDir string, files []*File, workers int, priorLoader PriorIndexLoader, saver SnapshotSaver, tracker perf.Tracker, javaFiles ...*File) (*CodeIndex, bool) {
+	return BuildIndexCachedWithLoaders(cacheDir, files, workers, priorLoader, saver, nil, tracker, javaFiles...)
+}
+
+// BuildIndexCachedWithLoaders extends BuildIndexCachedWithPrior with
+// an optional XMLFilesLoader so daemon callers can short-circuit the
+// ~200 ms disk walk that loads every layout / manifest / navigation
+// XML on each invocation. nil for either loader falls back to the
+// pre-cache disk path; the entry point exists as a separate symbol
+// so the historic BuildIndexCachedWithPrior signature stays stable.
+func BuildIndexCachedWithLoaders(cacheDir string, files []*File, workers int, priorLoader PriorIndexLoader, saver SnapshotSaver, xmlLoader XMLFilesLoader, tracker perf.Tracker, javaFiles ...*File) (*CodeIndex, bool) {
 	if cacheDir == "" {
 		return BuildIndexWithTracker(files, workers, tracker, javaFiles...), false
 	}
@@ -136,7 +160,12 @@ func BuildIndexCachedWithPrior(cacheDir string, files []*File, workers int, prio
 
 	// Pre-load XML files so fingerprint and reference extraction share
 	// one disk walk. Also gives the cache a complete file-set snapshot.
-	xmlFiles := loadXMLFilesForCache(files)
+	var xmlFiles []*XMLCacheFile
+	if xmlLoader != nil {
+		xmlFiles = xmlLoader(func() []*XMLCacheFile { return loadXMLFilesForCache(files) })
+	} else {
+		xmlFiles = loadXMLFilesForCache(files)
+	}
 	entries := crossFileFingerprintEntries(files, javaFiles, xmlFiles)
 	fingerprint := fingerprintCrossFileEntries(entries)
 	snapshotMeta := func() CrossFileCacheMeta {

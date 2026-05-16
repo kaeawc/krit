@@ -34,6 +34,11 @@ type watcherState interface {
 	// Kotlin edits don't affect the Java source index so the two
 	// version counters are intentionally separate.
 	BumpJavaSourceVersion()
+	// BumpXMLFilesVersion drives the daemon-resident XMLCacheFile
+	// slot. Called on every .xml file event (layout/manifest/
+	// navigation). Kotlin/Java edits don't move XML hashes so the
+	// counter is kept independent.
+	BumpXMLFilesVersion()
 }
 
 const defaultDebounceWindow = 50 * time.Millisecond
@@ -257,6 +262,19 @@ func (fw *fileWatcher) handle(ev fsnotify.Event) {
 		fw.state.Touch(ev.Name)
 		fw.state.BumpSourceMTimeVersion()
 		fw.state.BumpJavaSourceVersion()
+	case isXMLPath(ev.Name):
+		// .xml edits (layouts/manifests/navigation) contribute to
+		// CodeIndex reference data, so drop the same downstream
+		// slots a .kt/.java edit drops AND rotate the dedicated
+		// XML version counter. Kotlin/Java edits don't move XML
+		// hashes so the counter stays independent — same shape
+		// as the .java case above.
+		fw.state.Invalidate(ev.Name)
+		fw.state.InvalidateCodeIndex()
+		fw.state.InvalidateDependents()
+		fw.state.Touch(ev.Name)
+		fw.state.BumpSourceMTimeVersion()
+		fw.state.BumpXMLFilesVersion()
 	}
 }
 
@@ -345,6 +363,14 @@ func isKotlinPath(p string) bool {
 // edits don't need to invalidate the Java source index).
 func isJavaPath(p string) bool {
 	return strings.HasSuffix(p, ".java")
+}
+
+// isXMLPath reports whether the path's basename ends in .xml. XML
+// edits invalidate the daemon's resident XMLCacheFile slot via a
+// separate XMLFilesVersion counter — Kotlin/Java edits don't touch
+// XML content so the slot can stay across most edits.
+func isXMLPath(p string) bool {
+	return strings.HasSuffix(p, ".xml")
 }
 
 // isKritConfigPath reports whether the path is the krit.yml /

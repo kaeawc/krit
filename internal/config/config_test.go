@@ -983,3 +983,104 @@ func TestLoadConfigInvalidTypes(t *testing.T) {
 		t.Error("expected active=true")
 	}
 }
+
+func TestLookupValue(t *testing.T) {
+	data := map[string]interface{}{
+		"top":   "value",
+		"deep":  map[string]interface{}{"a": map[string]interface{}{"b": 42}},
+		"mixed": map[string]interface{}{"leaf": []interface{}{"x", "y"}},
+	}
+
+	cases := []struct {
+		name    string
+		path    []string
+		want    interface{}
+		wantOk  bool
+		isSlice bool
+	}{
+		{"top-level hit", []string{"top"}, "value", true, false},
+		{"deep hit", []string{"deep", "a", "b"}, 42, true, false},
+		{"slice leaf", []string{"mixed", "leaf"}, nil, true, true},
+		{"missing top", []string{"nope"}, nil, false, false},
+		{"missing mid", []string{"deep", "nope", "b"}, nil, false, false},
+		{"missing leaf", []string{"deep", "a", "nope"}, nil, false, false},
+		{"path through non-map", []string{"top", "more"}, nil, false, false},
+		{"empty path", nil, nil, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := lookupValue(data, tc.path...)
+			if ok != tc.wantOk {
+				t.Fatalf("ok = %v, want %v (got = %v)", ok, tc.wantOk, got)
+			}
+			if !ok {
+				return
+			}
+			if tc.isSlice {
+				if _, isSlice := got.([]interface{}); !isSlice {
+					t.Errorf("expected []interface{}, got %T", got)
+				}
+				return
+			}
+			if got != tc.want {
+				t.Errorf("got = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLookupValueNilData(t *testing.T) {
+	if _, ok := lookupValue(nil, "any"); ok {
+		t.Error("expected (nil, false) on nil data")
+	}
+}
+
+func TestLookupMap(t *testing.T) {
+	data := map[string]interface{}{
+		"section": map[string]interface{}{"key": "val"},
+		"scalar":  "not-a-map",
+	}
+	m, ok := lookupMap(data, "section")
+	if !ok {
+		t.Fatal("expected hit on section")
+	}
+	if m["key"] != "val" {
+		t.Errorf("expected key=val, got %v", m["key"])
+	}
+	if _, ok := lookupMap(data, "scalar"); ok {
+		t.Error("expected miss on scalar leaf")
+	}
+	if _, ok := lookupMap(data, "missing"); ok {
+		t.Error("expected miss on missing key")
+	}
+}
+
+func TestNewConfigFromData(t *testing.T) {
+	cfg := NewConfigFromData(map[string]interface{}{
+		"style": map[string]interface{}{
+			"MagicNumber": map[string]interface{}{
+				"active":    true,
+				"threshold": 7,
+			},
+		},
+	})
+	if active := cfg.IsRuleActive("style", "MagicNumber"); active == nil || !*active {
+		t.Errorf("expected active=true, got %v", active)
+	}
+	if got := cfg.GetInt("style", "MagicNumber", "threshold", 0); got != 7 {
+		t.Errorf("expected threshold=7, got %d", got)
+	}
+	if got := cfg.GetInt("style", "MagicNumber", "missing", 99); got != 99 {
+		t.Errorf("expected default 99 on missing key, got %d", got)
+	}
+}
+
+func TestNewConfigFromDataNil(t *testing.T) {
+	cfg := NewConfigFromData(nil)
+	if cfg == nil {
+		t.Fatal("expected non-nil config for nil data")
+	}
+	if cfg.IsRuleActive("x", "y") != nil {
+		t.Error("expected nil for empty-config lookup")
+	}
+}

@@ -177,6 +177,13 @@ type AnalyzeProjectArgs struct {
 	// CustomRuleJars are Kotlin custom-rule plugin jars loaded by the
 	// resident krit-types daemon.
 	CustomRuleJars []string `json:"custom_rule_jars,omitempty"`
+	// InputTypesPath mirrors --input-types: an absolute path to a
+	// prebuilt oracle JSON dump. When non-empty, the daemon bypasses
+	// its resident OracleDaemon for this call and loads the dump
+	// directly. The path is read by the daemon process, so callers
+	// must hand the daemon a path it can open (the CLI resolves to
+	// absolute before forwarding).
+	InputTypesPath string `json:"input_types_path,omitempty"`
 	// RequireWarm, when true, makes the verb fail fast (with a typed
 	// error) instead of paying cold-warm cost. Clients that want a
 	// hard SLA set this — useful for IDE workflows that can show a

@@ -150,6 +150,43 @@ move them onto the daemon path once `FindingColumns` is reachable over the
 wire. If/when that happens, drop them from the meta bucket in
 `daemonCompatibleFlags`.
 
+## Oracle I/O & sampling
+
+This bucket lists flags that look related to `--input-types` (which IS daemon-
+routable) but stay in-process for distinct reasons.
+
+### `--output-types`
+
+`runOutputTypesFlag` at `internal/cli/scan/early_exits.go:404` is a standalone
+oracle dump: it locates `krit-types.jar`, runs the JVM (or honors
+`--no-cache-oracle` to bypass the cache), writes the resulting JSON to the
+caller-supplied path, and exits *before* any rules are loaded or fired. The
+daemon's `AnalyzeProject` verb is a rule-running path; routing `--output-types`
+through it would either (a) need a brand-new dump-only verb that duplicates
+what the daemon's resident `OracleDaemon` already produces internally, or
+(b) waste the rule-dispatch work the user explicitly asked to skip.
+
+Daemon routing would only make sense if we added a wire verb like
+`DumpOracle` that returns the oracle daemon's current snapshot. That's a
+new feature, not a routing tweak.
+
+### `--delta`
+
+`filterColumnsByDelta` at `internal/cli/scan/delta.go:18` shells out to `git
+worktree add` for the base ref, re-execs `krit` itself inside the worktree to
+produce a baseline JSON report, and then filters the current-scan findings to
+only those NOT present in the baseline. The orchestration is entirely a CLI-
+side wrapper: the *base* sub-scan can already hit the daemon (it's just
+another `krit` invocation), so the only thing daemon-routing the wrapper
+would save is the parent-process `git worktree add` — which is the dominant
+cost.
+
+Daemon routing would mean either teaching the daemon how to spawn worktrees
+(adds filesystem-mutating side effects to a long-lived service) or returning
+`FindingColumns` from the wire so the CLI can run the diff client-side
+without re-execing. The latter is the same wire change the audit short-
+circuits would benefit from; revisit together.
+
 ## Adding a new flag
 
 When introducing a new CLI flag, decide which bucket it belongs in:

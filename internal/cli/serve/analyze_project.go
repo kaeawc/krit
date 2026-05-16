@@ -131,6 +131,7 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		basePath:        in.Args.BasePath,
 		createBaseline:  args.CreateBaseline,
 		dryRun:          args.DryRun,
+		includeColumns:  args.IncludeColumns,
 		releaseLock:     state.analyzeMu.Unlock,
 	}, nil
 }
@@ -147,6 +148,7 @@ type streamingAnalyzeResponse struct {
 	basePath        string
 	createBaseline  bool
 	dryRun          bool
+	includeColumns  bool
 	releaseLock     func()
 }
 
@@ -236,6 +238,24 @@ func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Wr
 			return err
 		}
 		if _, err := w.Write(profileBytes); err != nil {
+			return err
+		}
+	}
+	if r.includeColumns {
+		// Ship the post-pipeline FindingColumns so CLI-side audit /
+		// delta paths (--rule-audit, --baseline-audit, --delta) can
+		// run their column-oriented work locally without needing to
+		// reconstruct the column index from the findings JSON. The
+		// segment is only emitted when the caller opts in so non-
+		// audit scans keep the original envelope shape.
+		columnsBytes, err := json.Marshal(&res.FinalFindings)
+		if err != nil {
+			return fmt.Errorf("marshal columns: %w", err)
+		}
+		if _, err := w.Write([]byte(`,"columns":`)); err != nil {
+			return err
+		}
+		if _, err := w.Write(columnsBytes); err != nil {
 			return err
 		}
 	}

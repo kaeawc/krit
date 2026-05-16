@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -181,5 +182,109 @@ func TestAnalyzeProject_DryRunMatchesInProcess(t *testing.T) {
 					directRes.Fixup.StrippedByLevel, verbResult.Stats.DryRunStrippedByLevel)
 			}
 		})
+	}
+}
+
+// TestAnalyzeProject_IncludeColumnsMatchesInProcess pins the
+// equivalence between the daemon-routed IncludeColumns path (used by
+// --rule-audit, --baseline-audit, --delta) and the in-process
+// FinalFindings produced by RunProject. The daemon ships its post-
+// pipeline FindingColumns over the wire; the CLI decodes them and
+// runs audits / delta filters locally. Both must agree on every
+// finding row (file/line/rule/message) for byte-identical audit
+// output.
+func TestAnalyzeProject_IncludeColumnsMatchesInProcess(t *testing.T) {
+	socket, state := startServerForTest(t)
+
+	writeKotlinFile(t, state.root, "Foo.kt",
+		"package demo\n\nclass Foo {\n    fun greet() = println(\"hi\")\n}\n")
+	writeKotlinFile(t, state.root, "Bar.kt",
+		"package demo\n\nfun bar(unused: Int): Int { return 42 }\n")
+
+	basePath, _ := filepath.Abs(state.root)
+
+	cfg := config.NewConfig()
+	rules.ApplyConfig(cfg)
+	activeRules := rules.ActiveRulesV2(map[string]bool{}, map[string]bool{}, false, false, false)
+	repoDir := oracle.FindRepoDir([]string{state.root})
+	if repoDir == "" {
+		repoDir = state.root
+	}
+	pc, err := scanner.NewParseCacheWithCap(repoDir, cacheutil.DefaultParseCacheCapBytes)
+	if err != nil {
+		t.Fatalf("ParseCache: %v", err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+
+	directRes, err := pipeline.RunProject(context.Background(), pipeline.ProjectInput{
+		Args: pipeline.ProjectArgs{
+			Config:      cfg,
+			Paths:       []string{state.root},
+			ActiveRules: activeRules,
+			Format:      "json",
+			Version:     "test",
+			BasePath:    basePath,
+		},
+		Host: pipeline.ProjectHostState{ParseCache: pc},
+	})
+	if err != nil {
+		t.Fatalf("direct RunProject: %v", err)
+	}
+
+	var verbResult daemon.AnalyzeProjectResult
+	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
+		daemon.AnalyzeProjectArgs{
+			Format:         "json",
+			BasePath:       basePath,
+			IncludeColumns: true,
+		}, &verbResult); err != nil {
+		t.Fatalf("verb call: %v", err)
+	}
+
+	if len(verbResult.Columns) == 0 {
+		t.Fatal("expected non-empty columns payload from daemon when IncludeColumns=true")
+	}
+	var verbColumns scanner.FindingColumns
+	if err := json.Unmarshal(verbResult.Columns, &verbColumns); err != nil {
+		t.Fatalf("decode columns: %v", err)
+	}
+
+	if directRes.FinalFindings.Len() != verbColumns.Len() {
+		t.Fatalf("Len mismatch: direct=%d verb=%d", directRes.FinalFindings.Len(), verbColumns.Len())
+	}
+	for row := 0; row < directRes.FinalFindings.Len(); row++ {
+		if got, want := verbColumns.FileAt(row), directRes.FinalFindings.FileAt(row); got != want {
+			t.Errorf("row %d File mismatch: direct=%q verb=%q", row, want, got)
+		}
+		if got, want := verbColumns.LineAt(row), directRes.FinalFindings.LineAt(row); got != want {
+			t.Errorf("row %d Line mismatch: direct=%d verb=%d", row, want, got)
+		}
+		if got, want := verbColumns.RuleAt(row), directRes.FinalFindings.RuleAt(row); got != want {
+			t.Errorf("row %d Rule mismatch: direct=%q verb=%q", row, want, got)
+		}
+		if got, want := verbColumns.MessageAt(row), directRes.FinalFindings.MessageAt(row); got != want {
+			t.Errorf("row %d Message mismatch: direct=%q verb=%q", row, want, got)
+		}
+	}
+}
+
+// TestAnalyzeProject_IncludeColumnsAbsentByDefault pins the
+// no-regression contract: when IncludeColumns is false (the default)
+// the response carries no Columns segment so non-audit / non-delta
+// scans stay on the original wire envelope shape the fast-scan
+// response decoder is keyed on.
+func TestAnalyzeProject_IncludeColumnsAbsentByDefault(t *testing.T) {
+	socket, state := startServerForTest(t)
+
+	writeKotlinFile(t, state.root, "Demo.kt",
+		"package demo\n\nfun foo() {}\n")
+
+	var verbResult daemon.AnalyzeProjectResult
+	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
+		daemon.AnalyzeProjectArgs{Format: "json"}, &verbResult); err != nil {
+		t.Fatalf("verb call: %v", err)
+	}
+	if len(verbResult.Columns) != 0 {
+		t.Errorf("Columns = %s; want empty on default IncludeColumns=false response", verbResult.Columns)
 	}
 }

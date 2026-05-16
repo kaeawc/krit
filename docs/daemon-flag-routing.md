@@ -129,26 +129,18 @@ larger change than wiring a flag through.
 
 ## Audits that ship with the analysis
 
-`--baseline-audit` and `--rule-audit` are listed in the in-process bucket
-because they are short-circuits that *consume* the live findings produced by
-the same scan invocation. `RunBaselineAuditColumns`
-(`internal/cli/scan/baseline_audit.go:34`) and the rule-audit short-circuit
-(`internal/cli/scan/output_shortcircuits.go:30`, dispatching to
-`RunRuleAuditColumns` at `internal/cli/scan/rule_audit.go:75`) both take a
-`*scanner.FindingColumns` produced by the in-process analysis path and emit a
-report instead of normal findings.
-
-The daemon today returns serialized `Findings` bytes via
-`AnalyzeProject` (`internal/cli/scan/daemon_delegate.go:48`), not the
-column-oriented `FindingColumns` structure these audits walk. Routing audit
-flags through the daemon would require either teaching the audits to operate
-on serialized output (losing efficient access to per-finding columns) or
-extending the daemon wire to return `FindingColumns` directly.
-
-These flags are listed here for completeness — Bucket A's owner may decide to
-move them onto the daemon path once `FindingColumns` is reachable over the
-wire. If/when that happens, drop them from the meta bucket in
-`daemonCompatibleFlags`.
+`--baseline-audit` and `--rule-audit` are **now routed via daemon**. The
+daemon emits an optional `columns` segment in the analyze-project response
+when `AnalyzeProjectArgs.IncludeColumns` is true (the CLI sets it whenever
+`--baseline-audit`, `--rule-audit`, or `--delta` is present). The CLI
+deserialises the segment into a `*scanner.FindingColumns` and replays
+`RunBaselineAuditColumns` (`internal/cli/scan/baseline_audit.go:34`) /
+`RunRuleAuditColumns` (`internal/cli/scan/rule_audit.go:75`) locally,
+producing the same audit output the in-process flow does. The non-audit
+common path stays on the original `{findings,stats[,dispatch_profile]}`
+envelope: the `columns` field is `omitempty` and the fast-scan response
+decoder treats it as another optional segment after `dispatch_profile`
+(see `scanOptionalColumns` in `internal/daemon/response_scan.go`).
 
 ## Oracle I/O & sampling
 
@@ -172,20 +164,17 @@ new feature, not a routing tweak.
 
 ### `--delta`
 
-`filterColumnsByDelta` at `internal/cli/scan/delta.go:18` shells out to `git
-worktree add` for the base ref, re-execs `krit` itself inside the worktree to
-produce a baseline JSON report, and then filters the current-scan findings to
-only those NOT present in the baseline. The orchestration is entirely a CLI-
-side wrapper: the *base* sub-scan can already hit the daemon (it's just
-another `krit` invocation), so the only thing daemon-routing the wrapper
-would save is the parent-process `git worktree add` — which is the dominant
-cost.
-
-Daemon routing would mean either teaching the daemon how to spawn worktrees
-(adds filesystem-mutating side effects to a long-lived service) or returning
-`FindingColumns` from the wire so the CLI can run the diff client-side
-without re-execing. The latter is the same wire change the audit short-
-circuits would benefit from; revisit together.
+`--delta` is **now routed via daemon** for the current-tree scan portion.
+The CLI still owns the `git worktree add` + re-exec pass that produces the
+base-ref snapshot (daemon-side worktree management would add filesystem-
+mutating side effects to a long-lived service — explicitly out of scope).
+Once the daemon serves the current-tree scan with `IncludeColumns=true`
+the CLI applies `filterColumnsNewSince` (`internal/cli/scan/delta.go:111`)
+locally against the deserialised `FindingColumns` and re-emits the filtered
+set via `pipeline.OutputPhase{}.Run` so format, base path, and warning
+promotion match the in-process flow. The wire addition was shared with
+`--rule-audit` / `--baseline-audit`; see "Audits that ship with the
+analysis" above for the response-shape rationale.
 
 ## Adding a new flag
 

@@ -51,44 +51,66 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 	}
 
 	fmt.Fprintln(os.Stderr, "info: using daemon")
-	// --sample-rule short-circuits the normal write path: the daemon
-	// returns the full JSON envelope, the CLI parses it back into
-	// columns, and the sampler prints a deterministic per-rule sample
-	// to stdout. Forwarding the JSON envelope through the writer would
-	// be confusing for an interactive flag, so it is consumed here.
-	if *f.SampleRule != "" {
+	if handled, code := dispatchDaemonShortCircuits(f, paths, res); handled {
+		return true, code
+	}
+	return true, writeDaemonFindings(f, res, start)
+}
+
+// dispatchDaemonShortCircuits handles the per-flag post-response
+// branches that consume the daemon's findings JSON (or its columns
+// segment) instead of streaming bytes to the output writer. Pulled
+// out of tryDaemonDelegate so the per-call body stays under the
+// gocyclo cap as new column-consuming flags (--rule-audit,
+// --baseline-audit, --delta) join the daemon path.
+//
+// handled=false means no short-circuit fired and the caller should
+// fall through to writeDaemonFindings; handled=true returns the
+// short-circuit's exit code as-is.
+func dispatchDaemonShortCircuits(f *scanFlags, paths []string, res daemon.AnalyzeProjectResult) (handled bool, code int) {
+	switch {
+	case *f.SampleRule != "":
+		// --sample-rule consumes the JSON envelope and prints a
+		// deterministic per-rule sample. Forwarding the envelope
+		// verbatim would be confusing for an interactive flag.
 		return true, runDaemonSampleRule(f, paths, res.Findings)
-	}
-
-	// CreateBaseline replaces the findings-write path entirely: we
-	// don't want findings JSON on stdout, just the XML baseline file.
-	// Mirrors applyBaselinesAndDiff's early-exit semantics.
-	if *f.CreateBaseline != "" {
+	case *f.CreateBaseline != "":
+		// CreateBaseline replaces the findings-write path entirely:
+		// no findings JSON, just the XML baseline file.
 		return true, runDaemonCreateBaseline(f, res.Stats)
-	}
-
-	// DryRun (without --fix) prints the fixable-file list to stdout
-	// and a summary to stderr — no findings JSON. Mirrors
-	// printDryRunFixResult exactly: file-per-line on stdout plus the
-	// "N fix(es) available across M file(s)" stderr summary.
-	if *f.DryRun {
+	case *f.DryRun:
+		// DryRun prints the fixable-file list + summary lines; no
+		// findings JSON. Mirrors printDryRunFixResult byte-for-byte.
 		runDaemonDryRun(f, res.Stats)
 		return true, 0
+	case *f.RuleAudit:
+		return true, runDaemonRuleAudit(f, paths, res.Columns)
+	case *f.BaselineAudit:
+		return true, runDaemonBaselineAudit(f, paths, res.Columns)
+	case *f.Delta != "":
+		return true, runDaemonDelta(f, paths, res.Columns)
 	}
+	return false, 0
+}
 
+// writeDaemonFindings handles the common path: stream the daemon's
+// findings JSON to the configured output writer, surface any
+// profile warnings, render the dispatch-profile table when armed,
+// and produce the final exit code.
+func writeDaemonFindings(f *scanFlags, res daemon.AnalyzeProjectResult, start time.Time) int {
 	w, closer, openErr := openDaemonOutputWriter(f)
 	if openErr != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", openErr)
-		return true, 2
+		return 2
 	}
 	if _, err := w.Write(res.Findings); err != nil {
 		_ = closer()
 		fmt.Fprintf(os.Stderr, "error: write findings: %v\n", err)
-		return true, 2
+		return 2
 	}
 	if err := closer(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: close output: %v\n", err)
-		return true, 2
+		return 2
 	}
 	for _, msg := range res.Stats.ProfileWarnings {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", msg)
@@ -96,7 +118,7 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 	if *f.ProfileDispatch && res.DispatchProfile != nil && len(res.DispatchProfile.Timings) > 0 {
 		emitDaemonDispatchProfile(res.DispatchProfile)
 	}
-	return true, finalScanExit(os.Stderr, res.Stats.FindingsCount, time.Since(start), *f.Quiet)
+	return finalScanExit(os.Stderr, res.Stats.FindingsCount, time.Since(start), *f.Quiet)
 }
 
 // metaVerbName tags the routable read-only meta queries the daemon
@@ -362,6 +384,15 @@ func emitDaemonDispatchProfile(p *daemon.DispatchProfile) {
 // The daemon never touches user files; the file write happens with the
 // CLI's CWD and permissions, preserving the daemon's read-only invariant.
 //
+// --rule-audit, --baseline-audit, and --delta are daemon-compatible
+// too: the daemon ships post-pipeline FindingColumns on the wire
+// (under AnalyzeProjectResult.Columns) when AnalyzeProjectArgs.
+// IncludeColumns is true, and the CLI runs the audit / delta filter
+// locally against the deserialized columns. --delta's worktree
+// orchestration stays CLI-side (daemon-side worktree spawning would
+// add filesystem side-effects to a long-lived service); only the
+// current-tree scan and the delta diff step are daemon-routable.
+//
 // --fix, --fix-binary, and --remove-dead-code stay in-process. Each
 // would need a separate fix-payload-over-the-wire design where the
 // daemon serialises text edits / binary operations and the CLI replays
@@ -371,7 +402,7 @@ func emitDaemonDispatchProfile(p *daemon.DispatchProfile) {
 func daemonCompatibleFlags(f *scanFlags) bool {
 	mutating := []bool{*f.Fix, *f.RemoveDeadCode, *f.FixBinary}
 	meta := []bool{*f.Init, *f.Doctor, *f.Version, *f.List, *f.ValidateConfig, *f.GenerateSchema,
-		*f.BaselineAudit, *f.RuleAudit, *f.OracleFilterFingerprint, *f.ListExperiments}
+		*f.OracleFilterFingerprint, *f.ListExperiments}
 	for _, group := range [][]bool{mutating, meta} {
 		for _, on := range group {
 			if on {
@@ -379,7 +410,7 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 			}
 		}
 	}
-	strs := []string{*f.Completions, *f.OutputTypes, *f.Delta,
+	strs := []string{*f.Completions, *f.OutputTypes,
 		*f.PromoteExperiment, *f.DeprecateExperiment, *f.NewExperiment, *f.ExperimentMatrix}
 	for _, s := range strs {
 		if s != "" {
@@ -426,6 +457,19 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 	if *f.CreateBaseline != "" {
 		baselinePath = ""
 	}
+	// --rule-audit / --baseline-audit / --delta need the post-pipeline
+	// FindingColumns shipped back so the CLI can run the audit or
+	// delta filter locally. The daemon ships the columns alongside
+	// the normal findings JSON only when IncludeColumns is true so
+	// non-audit / non-delta scans stay on the original
+	// {findings,stats[,dispatch_profile]} wire shape.
+	//
+	// Also force JSON format when --rule-audit's caller picked a
+	// non-default --format: the audit short-circuit consumes columns
+	// directly and discards the findings JSON, but the daemon still
+	// streams it. --baseline-audit / --delta tolerate any format on
+	// the daemon side because the bytes are discarded the same way.
+	includeColumns := *f.RuleAudit || *f.BaselineAudit || *f.Delta != ""
 	return daemon.AnalyzeProjectArgs{
 		Paths:            paths,
 		Format:           format,
@@ -449,6 +493,7 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		CreateBaseline:   *f.CreateBaseline != "",
 		DryRun:           *f.DryRun,
 		FixLevel:         *f.FixLevel,
+		IncludeColumns:   includeColumns,
 		ClientBinaryHash: daemonclient.CurrentBinaryHash(),
 	}
 }

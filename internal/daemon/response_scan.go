@@ -87,7 +87,15 @@ func scanOKEnvelope(line []byte, findingsStart int, out *AnalyzeProjectResult) (
 	// per-file timing fan-out. The latter only appears when the
 	// CLI passed --profile-dispatch; the common case still hits
 	// the original 2-byte tail check.
-	profileStart, profileEnd, tailStart, ok := scanOptionalDispatchProfile(line, statsEnd)
+	profileStart, profileEnd, profileTail, ok := scanOptionalDispatchProfile(line, statsEnd)
+	if !ok {
+		return false, nil
+	}
+	// An optional `,"columns":<obj>` may follow the profile (or
+	// stats when no profile was emitted). Populated only when the
+	// CLI passed --rule-audit / --baseline-audit / --delta —
+	// otherwise this branch is a no-op and the tail stays `}}`.
+	columnsStart, columnsEnd, tailStart, ok := scanOptionalColumns(line, profileTail)
 	if !ok {
 		return false, nil
 	}
@@ -105,6 +113,11 @@ func scanOKEnvelope(line []byte, findingsStart int, out *AnalyzeProjectResult) (
 		}
 	} else {
 		out.DispatchProfile = nil
+	}
+	if columnsEnd > columnsStart {
+		out.Columns = append(out.Columns[:0], line[columnsStart:columnsEnd]...)
+	} else {
+		out.Columns = nil
 	}
 	return true, nil
 }
@@ -126,6 +139,25 @@ func scanOptionalDispatchProfile(line []byte, statsEnd int) (profileStart, profi
 		return 0, 0, 0, false
 	}
 	return profileStart, end, end, true
+}
+
+// scanOptionalColumns walks the optional columns segment that may
+// follow stats (or dispatch_profile, when both are emitted). Returns
+// the [start,end) byte range of the columns object (zero-zero when
+// absent) plus the tail-start index the caller uses to locate the
+// closing `}}`. ok=false means a malformed columns value — the outer
+// scanner falls back to json.Unmarshal in that case.
+func scanOptionalColumns(line []byte, prevEnd int) (columnsStart, columnsEnd, tailStart int, ok bool) {
+	const columnsKey = `,"columns":`
+	if !hasPrefixAt(line, prevEnd, columnsKey) {
+		return 0, 0, prevEnd, true
+	}
+	columnsStart = prevEnd + len(columnsKey)
+	end, err := jsonValueEnd(line, columnsStart)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	return columnsStart, end, end, true
 }
 
 // scanErrorEnvelope handles the {"ok":false,"error":"..."} branch.

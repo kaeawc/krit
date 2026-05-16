@@ -1,6 +1,7 @@
 package output
 
 import (
+	"encoding/json"
 	"strconv"
 	"unicode/utf8"
 )
@@ -69,6 +70,16 @@ func appendFindingJSON(dst []byte, f JSONFinding) []byte {
 	if f.Effort != "" {
 		dst = append(dst, `,"effort":`...)
 		dst = appendJSONString(dst, f.Effort)
+	}
+
+	if len(f.SuggestedFixes) > 0 {
+		// json.Marshal on JSONSuggestedFix slices cannot fail (no channels,
+		// unsupported types, or custom marshalers in the type graph), so the
+		// error path is unreachable. Field ordering must match the
+		// JSONFinding declaration to stay byte-identical to json.Marshal(f).
+		raw, _ := json.Marshal(f.SuggestedFixes)
+		dst = append(dst, `,"suggestedFixes":`...)
+		dst = append(dst, raw...)
 	}
 
 	dst = append(dst, '}')

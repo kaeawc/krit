@@ -47,6 +47,33 @@ type JSONFinding struct {
 	FixLevel   string  `json:"fixLevel,omitempty"`
 	Confidence float64 `json:"confidence,omitempty"`
 	Effort     string  `json:"effort,omitempty"`
+	// SuggestedFixes carries non-autofix, ordered recommendations from the
+	// rule. It is intentionally additive: presence here does NOT change the
+	// fixable / fixLevel semantics, which remain tied to the rule's single
+	// autofix slot. Order mirrors the order the rule emitted them.
+	SuggestedFixes []JSONSuggestedFix `json:"suggestedFixes,omitempty"`
+}
+
+// JSONSuggestedFix is one suggested fix attached to a finding. It is
+// distinct from the autofix slot (`fixable` / `fixLevel`): a finding may
+// carry suggestions without being autofixable.
+type JSONSuggestedFix struct {
+	ID               string              `json:"id"`
+	Title            string              `json:"title"`
+	Detail           string              `json:"detail,omitempty"`
+	Edits            []JSONSuggestedEdit `json:"edits,omitempty"`
+	ApplicationToken string              `json:"applicationToken,omitempty"`
+}
+
+// JSONSuggestedEdit is one text edit inside a JSONSuggestedFix.
+type JSONSuggestedEdit struct {
+	TargetFile  string `json:"targetFile,omitempty"`
+	StartLine   int    `json:"startLine,omitempty"`
+	EndLine     int    `json:"endLine,omitempty"`
+	StartByte   int    `json:"startByte,omitempty"`
+	EndByte     int    `json:"endByte,omitempty"`
+	ByteMode    bool   `json:"byteMode,omitempty"`
+	Replacement string `json:"replacement"`
 }
 
 // JSONSummary summarizes findings.
@@ -388,6 +415,7 @@ func buildJSONFindings(columns *scanner.FindingColumns, fixLevels, efforts map[s
 			*fixableCount = *fixableCount + 1
 		}
 		finding.Effort = efforts[rule]
+		finding.SuggestedFixes = buildSuggestedFixes(&cols, row)
 		byRuleSet[ruleSet]++
 		byRule[rule]++
 
@@ -405,4 +433,39 @@ func buildJSONFindings(columns *scanner.FindingColumns, fixLevels, efforts map[s
 	}
 	buf = append(buf, ']')
 	return json.RawMessage(buf)
+}
+
+// buildSuggestedFixes copies the suggested-fix payload for one row out of
+// the columnar pool into the per-finding JSON shape. Order is preserved
+// because SuggestedFixesAt walks the pool slice in the same order the rule
+// appended.
+func buildSuggestedFixes(cols *scanner.FindingColumns, row int) []JSONSuggestedFix {
+	src := cols.SuggestedFixesAt(row)
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]JSONSuggestedFix, len(src))
+	for i, fix := range src {
+		out[i] = JSONSuggestedFix{
+			ID:               fix.ID,
+			Title:            fix.Title,
+			Detail:           fix.Detail,
+			ApplicationToken: fix.ApplicationToken,
+		}
+		if len(fix.Edits) > 0 {
+			out[i].Edits = make([]JSONSuggestedEdit, len(fix.Edits))
+			for j, edit := range fix.Edits {
+				out[i].Edits[j] = JSONSuggestedEdit{
+					TargetFile:  edit.TargetFile,
+					StartLine:   edit.StartLine,
+					EndLine:     edit.EndLine,
+					StartByte:   edit.StartByte,
+					EndByte:     edit.EndByte,
+					ByteMode:    edit.ByteMode,
+					Replacement: edit.Replacement,
+				}
+			}
+		}
+	}
+	return out
 }

@@ -6,49 +6,55 @@ import (
 )
 
 type findingColumnsJSON struct {
-	Files          []string    `json:"files,omitempty"`
-	RuleSets       []string    `json:"ruleSets,omitempty"`
-	Rules          []string    `json:"rules,omitempty"`
-	Messages       []string    `json:"messages,omitempty"`
-	FixPool        []Fix       `json:"fixPool,omitempty"`
-	BinaryFixPool  []BinaryFix `json:"binaryFixPool,omitempty"`
-	FileIdx        []uint32    `json:"fileIdx,omitempty"`
-	Line           []uint32    `json:"line,omitempty"`
-	Col            []uint16    `json:"col,omitempty"`
-	StartByte      []uint32    `json:"startByte,omitempty"`
-	EndByte        []uint32    `json:"endByte,omitempty"`
-	RuleSetIdx     []uint16    `json:"ruleSetIdx,omitempty"`
-	RuleIdx        []uint16    `json:"ruleIdx,omitempty"`
-	SeverityID     []uint8     `json:"severityID,omitempty"`
-	MessageIdx     []uint32    `json:"messageIdx,omitempty"`
-	Confidence     []uint8     `json:"confidence,omitempty"`
-	FixStart       []uint32    `json:"fixStart,omitempty"`
-	BinaryFixStart []uint32    `json:"binaryFixStart,omitempty"`
-	N              int         `json:"n,omitempty"`
+	Files             []string       `json:"files,omitempty"`
+	RuleSets          []string       `json:"ruleSets,omitempty"`
+	Rules             []string       `json:"rules,omitempty"`
+	Messages          []string       `json:"messages,omitempty"`
+	FixPool           []Fix          `json:"fixPool,omitempty"`
+	BinaryFixPool     []BinaryFix    `json:"binaryFixPool,omitempty"`
+	SuggestedFixPool  []SuggestedFix `json:"suggestedFixPool,omitempty"`
+	FileIdx           []uint32       `json:"fileIdx,omitempty"`
+	Line              []uint32       `json:"line,omitempty"`
+	Col               []uint16       `json:"col,omitempty"`
+	StartByte         []uint32       `json:"startByte,omitempty"`
+	EndByte           []uint32       `json:"endByte,omitempty"`
+	RuleSetIdx        []uint16       `json:"ruleSetIdx,omitempty"`
+	RuleIdx           []uint16       `json:"ruleIdx,omitempty"`
+	SeverityID        []uint8        `json:"severityID,omitempty"`
+	MessageIdx        []uint32       `json:"messageIdx,omitempty"`
+	Confidence        []uint8        `json:"confidence,omitempty"`
+	FixStart          []uint32       `json:"fixStart,omitempty"`
+	BinaryFixStart    []uint32       `json:"binaryFixStart,omitempty"`
+	SuggestedFixStart []uint32       `json:"suggestedFixStart,omitempty"`
+	SuggestedFixCount []uint16       `json:"suggestedFixCount,omitempty"`
+	N                 int            `json:"n,omitempty"`
 }
 
 // MarshalJSON persists finding columns with a stable lowercase schema rather
 // than exposing Go field names directly.
 func (c FindingColumns) MarshalJSON() ([]byte, error) {
 	return json.Marshal(findingColumnsJSON{
-		Files:          c.Files,
-		RuleSets:       c.RuleSets,
-		Rules:          c.Rules,
-		Messages:       c.Messages,
-		FixPool:        c.FixPool,
-		BinaryFixPool:  c.BinaryFixPool,
-		FileIdx:        c.FileIdx,
-		Line:           c.Line,
-		Col:            c.Col,
-		StartByte:      omitZeroUint32Column(c.StartByte),
-		EndByte:        omitZeroUint32Column(c.EndByte),
-		RuleSetIdx:     c.RuleSetIdx,
-		RuleIdx:        c.RuleIdx,
-		SeverityID:     c.SeverityID,
-		MessageIdx:     c.MessageIdx,
-		Confidence:     c.Confidence,
-		FixStart:       c.FixStart,
-		BinaryFixStart: c.BinaryFixStart,
+		Files:             c.Files,
+		RuleSets:          c.RuleSets,
+		Rules:             c.Rules,
+		Messages:          c.Messages,
+		FixPool:           c.FixPool,
+		BinaryFixPool:     c.BinaryFixPool,
+		SuggestedFixPool:  c.SuggestedFixPool,
+		FileIdx:           c.FileIdx,
+		Line:              c.Line,
+		Col:               c.Col,
+		StartByte:         omitZeroUint32Column(c.StartByte),
+		EndByte:           omitZeroUint32Column(c.EndByte),
+		RuleSetIdx:        c.RuleSetIdx,
+		RuleIdx:           c.RuleIdx,
+		SeverityID:        c.SeverityID,
+		MessageIdx:        c.MessageIdx,
+		Confidence:        c.Confidence,
+		FixStart:          c.FixStart,
+		BinaryFixStart:    c.BinaryFixStart,
+		SuggestedFixStart: omitZeroUint32Column(c.SuggestedFixStart),
+		SuggestedFixCount: omitZeroUint16Column(c.SuggestedFixCount),
 	})
 }
 
@@ -92,29 +98,37 @@ func (c *FindingColumns) UnmarshalJSON(data []byte) error {
 	}
 
 	*c = FindingColumns{
-		Files:          append([]string(nil), payload.Files...),
-		RuleSets:       append([]string(nil), payload.RuleSets...),
-		Rules:          append([]string(nil), payload.Rules...),
-		Messages:       append([]string(nil), payload.Messages...),
-		FixPool:        append([]Fix(nil), payload.FixPool...),
-		FileIdx:        append([]uint32(nil), payload.FileIdx...),
-		Line:           append([]uint32(nil), payload.Line...),
-		Col:            append([]uint16(nil), payload.Col...),
-		StartByte:      normalizeOptionalUint32Column(payload.StartByte, rowCount),
-		EndByte:        normalizeOptionalUint32Column(payload.EndByte, rowCount),
-		RuleSetIdx:     append([]uint16(nil), payload.RuleSetIdx...),
-		RuleIdx:        append([]uint16(nil), payload.RuleIdx...),
-		SeverityID:     append([]uint8(nil), payload.SeverityID...),
-		MessageIdx:     append([]uint32(nil), payload.MessageIdx...),
-		Confidence:     append([]uint8(nil), payload.Confidence...),
-		FixStart:       append([]uint32(nil), payload.FixStart...),
-		BinaryFixStart: append([]uint32(nil), payload.BinaryFixStart...),
-		N:              rowCount,
+		Files:             append([]string(nil), payload.Files...),
+		RuleSets:          append([]string(nil), payload.RuleSets...),
+		Rules:             append([]string(nil), payload.Rules...),
+		Messages:          append([]string(nil), payload.Messages...),
+		FixPool:           append([]Fix(nil), payload.FixPool...),
+		FileIdx:           append([]uint32(nil), payload.FileIdx...),
+		Line:              append([]uint32(nil), payload.Line...),
+		Col:               append([]uint16(nil), payload.Col...),
+		StartByte:         normalizeOptionalUint32Column(payload.StartByte, rowCount),
+		EndByte:           normalizeOptionalUint32Column(payload.EndByte, rowCount),
+		RuleSetIdx:        append([]uint16(nil), payload.RuleSetIdx...),
+		RuleIdx:           append([]uint16(nil), payload.RuleIdx...),
+		SeverityID:        append([]uint8(nil), payload.SeverityID...),
+		MessageIdx:        append([]uint32(nil), payload.MessageIdx...),
+		Confidence:        append([]uint8(nil), payload.Confidence...),
+		FixStart:          append([]uint32(nil), payload.FixStart...),
+		BinaryFixStart:    append([]uint32(nil), payload.BinaryFixStart...),
+		SuggestedFixStart: normalizeOptionalUint32Column(payload.SuggestedFixStart, rowCount),
+		SuggestedFixCount: normalizeOptionalUint16Column(payload.SuggestedFixCount, rowCount),
+		N:                 rowCount,
 	}
 	if len(payload.BinaryFixPool) > 0 {
 		c.BinaryFixPool = make([]BinaryFix, len(payload.BinaryFixPool))
 		for i, fix := range payload.BinaryFixPool {
 			c.BinaryFixPool[i] = cloneBinaryFix(fix)
+		}
+	}
+	if len(payload.SuggestedFixPool) > 0 {
+		c.SuggestedFixPool = make([]SuggestedFix, len(payload.SuggestedFixPool))
+		for i, fix := range payload.SuggestedFixPool {
+			c.SuggestedFixPool[i] = cloneSuggestedFix(fix)
 		}
 	}
 	return nil
@@ -127,7 +141,23 @@ func normalizeOptionalUint32Column(values []uint32, rowCount int) []uint32 {
 	return make([]uint32, rowCount)
 }
 
+func normalizeOptionalUint16Column(values []uint16, rowCount int) []uint16 {
+	if len(values) == rowCount {
+		return append([]uint16(nil), values...)
+	}
+	return make([]uint16, rowCount)
+}
+
 func omitZeroUint32Column(values []uint32) []uint32 {
+	for _, value := range values {
+		if value != 0 {
+			return values
+		}
+	}
+	return nil
+}
+
+func omitZeroUint16Column(values []uint16) []uint16 {
 	for _, value := range values {
 		if value != 0 {
 			return values
@@ -167,8 +197,31 @@ func validateFindingColumnsIndexes(payload *findingColumnsJSON) error {
 			return fmt.Errorf("scanner: invalid binaryFixStart at row %d", row)
 		}
 	}
+	if err := validateSuggestedFixRanges(payload); err != nil {
+		return err
+	}
 	if payload.N < 0 {
 		return fmt.Errorf("scanner: invalid FindingColumns row count")
+	}
+	return nil
+}
+
+func validateSuggestedFixRanges(payload *findingColumnsJSON) error {
+	if len(payload.SuggestedFixStart) == 0 || len(payload.SuggestedFixCount) == 0 {
+		return nil
+	}
+	if len(payload.SuggestedFixStart) != len(payload.SuggestedFixCount) {
+		return fmt.Errorf("scanner: suggestedFixStart and suggestedFixCount length mismatch")
+	}
+	poolLen := uint32(len(payload.SuggestedFixPool))
+	for row, ref := range payload.SuggestedFixStart {
+		if ref == 0 {
+			continue
+		}
+		count := uint32(payload.SuggestedFixCount[row])
+		if count == 0 || ref-1+count > poolLen {
+			return fmt.Errorf("scanner: invalid suggestedFix range at row %d", row)
+		}
 	}
 	return nil
 }

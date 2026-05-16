@@ -43,18 +43,23 @@ func PutKotlinParser(p *sitter.Parser) {
 // columnar accessors; construct Finding only at serialization or emit
 // boundaries.
 type Finding struct {
-	File       string
-	Line       int
-	Col        int
-	StartByte  int
-	EndByte    int
-	RuleSet    string
-	Rule       string
-	Severity   string
-	Message    string
-	Fix        *Fix       // nil if no auto-fix available
-	BinaryFix  *BinaryFix // nil if no binary fix available
-	Confidence float64    // 0.0-1.0, 0 means not set
+	File      string
+	Line      int
+	Col       int
+	StartByte int
+	EndByte   int
+	RuleSet   string
+	Rule      string
+	Severity  string
+	Message   string
+	Fix       *Fix       // nil if no auto-fix available
+	BinaryFix *BinaryFix // nil if no binary fix available
+	// SuggestedFixes carries ordered, non-autofix suggestions in the
+	// rule-defined order. Presence here is informational and does NOT
+	// imply the finding is autofixable — that semantic stays tied to
+	// Fix / BinaryFix. See suggested_fix.go for details.
+	SuggestedFixes []SuggestedFix
+	Confidence     float64 // 0.0-1.0, 0 means not set
 }
 
 // Fix describes an auto-fix for a finding.

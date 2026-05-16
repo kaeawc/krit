@@ -23,12 +23,13 @@ var findingRowOrderPool = sync.Pool{
 // FindingColumns stores finding rows in mostly-scalar parallel slices.
 // String-heavy fields are interned into side tables so the hot row data stays flat.
 type FindingColumns struct {
-	Files         []string
-	RuleSets      []string
-	Rules         []string
-	Messages      []string
-	FixPool       []Fix
-	BinaryFixPool []BinaryFix
+	Files            []string
+	RuleSets         []string
+	Rules            []string
+	Messages         []string
+	FixPool          []Fix
+	BinaryFixPool    []BinaryFix
+	SuggestedFixPool []SuggestedFix
 
 	FileIdx        []uint32
 	Line           []uint32
@@ -42,7 +43,14 @@ type FindingColumns struct {
 	Confidence     []uint8
 	FixStart       []uint32
 	BinaryFixStart []uint32
-	N              int
+	// SuggestedFixStart is the 1-based start index into SuggestedFixPool for
+	// the suggestions attached to a row. 0 means no suggestions.
+	SuggestedFixStart []uint32
+	// SuggestedFixCount is the number of suggestions attached to a row,
+	// stored in pool insertion order. Capped to math.MaxUint16; rules that
+	// emit more share the cap.
+	SuggestedFixCount []uint16
+	N                 int
 
 	fileLexRanks    []uint32
 	ruleSetLexRanks []uint16
@@ -71,18 +79,20 @@ type FindingCollector struct {
 func NewFindingCollector(capacity int) *FindingCollector {
 	return &FindingCollector{
 		columns: FindingColumns{
-			FileIdx:        make([]uint32, 0, capacity),
-			Line:           make([]uint32, 0, capacity),
-			Col:            make([]uint16, 0, capacity),
-			StartByte:      make([]uint32, 0, capacity),
-			EndByte:        make([]uint32, 0, capacity),
-			RuleSetIdx:     make([]uint16, 0, capacity),
-			RuleIdx:        make([]uint16, 0, capacity),
-			SeverityID:     make([]uint8, 0, capacity),
-			MessageIdx:     make([]uint32, 0, capacity),
-			Confidence:     make([]uint8, 0, capacity),
-			FixStart:       make([]uint32, 0, capacity),
-			BinaryFixStart: make([]uint32, 0, capacity),
+			FileIdx:           make([]uint32, 0, capacity),
+			Line:              make([]uint32, 0, capacity),
+			Col:               make([]uint16, 0, capacity),
+			StartByte:         make([]uint32, 0, capacity),
+			EndByte:           make([]uint32, 0, capacity),
+			RuleSetIdx:        make([]uint16, 0, capacity),
+			RuleIdx:           make([]uint16, 0, capacity),
+			SeverityID:        make([]uint8, 0, capacity),
+			MessageIdx:        make([]uint32, 0, capacity),
+			Confidence:        make([]uint8, 0, capacity),
+			FixStart:          make([]uint32, 0, capacity),
+			BinaryFixStart:    make([]uint32, 0, capacity),
+			SuggestedFixStart: make([]uint32, 0, capacity),
+			SuggestedFixCount: make([]uint16, 0, capacity),
 		},
 		fileIdx:    make(map[string]uint32),
 		ruleSetIdx: make(map[string]uint16),
@@ -115,6 +125,9 @@ func (c *FindingCollector) Append(f Finding) {
 	c.columns.Confidence = append(c.columns.Confidence, confidenceToByte(f.Confidence))
 	c.columns.FixStart = append(c.columns.FixStart, c.appendFix(f.Fix))
 	c.columns.BinaryFixStart = append(c.columns.BinaryFixStart, c.appendBinaryFix(f.BinaryFix))
+	start, count := c.appendSuggestedFixes(f.SuggestedFixes)
+	c.columns.SuggestedFixStart = append(c.columns.SuggestedFixStart, start)
+	c.columns.SuggestedFixCount = append(c.columns.SuggestedFixCount, count)
 	c.columns.N++
 }
 
@@ -143,6 +156,9 @@ func (c *FindingCollector) AppendRow(columns *FindingColumns, row int) {
 	c.columns.Confidence = append(c.columns.Confidence, columns.Confidence[row])
 	c.columns.FixStart = append(c.columns.FixStart, c.appendExistingFix(columns, row))
 	c.columns.BinaryFixStart = append(c.columns.BinaryFixStart, c.appendExistingBinaryFix(columns, row))
+	start, count := c.appendExistingSuggestedFixes(columns, row)
+	c.columns.SuggestedFixStart = append(c.columns.SuggestedFixStart, start)
+	c.columns.SuggestedFixCount = append(c.columns.SuggestedFixCount, count)
 	c.columns.N++
 }
 
@@ -179,6 +195,12 @@ func (c *FindingCollector) AppendColumns(columns *FindingColumns) {
 			c.columns.BinaryFixPool = append(c.columns.BinaryFixPool, cloneBinaryFix(fix))
 		}
 	}
+	suggestedFixOffset := len(c.columns.SuggestedFixPool)
+	if len(columns.SuggestedFixPool) > 0 {
+		for _, fix := range columns.SuggestedFixPool {
+			c.columns.SuggestedFixPool = append(c.columns.SuggestedFixPool, cloneSuggestedFix(fix))
+		}
+	}
 
 	for i := 0; i < columns.Len(); i++ {
 		c.columns.FileIdx = append(c.columns.FileIdx, fileIdx[columns.FileIdx[i]])
@@ -203,6 +225,20 @@ func (c *FindingCollector) AppendColumns(columns *FindingColumns) {
 			binaryFixStart += uint32(binaryFixOffset)
 		}
 		c.columns.BinaryFixStart = append(c.columns.BinaryFixStart, binaryFixStart)
+
+		suggestedStart := uint32(0)
+		suggestedCount := uint16(0)
+		if i < len(columns.SuggestedFixStart) {
+			suggestedStart = columns.SuggestedFixStart[i]
+		}
+		if i < len(columns.SuggestedFixCount) {
+			suggestedCount = columns.SuggestedFixCount[i]
+		}
+		if suggestedStart > 0 {
+			suggestedStart += uint32(suggestedFixOffset)
+		}
+		c.columns.SuggestedFixStart = append(c.columns.SuggestedFixStart, suggestedStart)
+		c.columns.SuggestedFixCount = append(c.columns.SuggestedFixCount, suggestedCount)
 		c.columns.N++
 	}
 }
@@ -253,24 +289,26 @@ func (c *FindingColumns) Clone() FindingColumns {
 	}
 
 	clone := FindingColumns{
-		Files:          append([]string(nil), c.Files...),
-		RuleSets:       append([]string(nil), c.RuleSets...),
-		Rules:          append([]string(nil), c.Rules...),
-		Messages:       append([]string(nil), c.Messages...),
-		FileIdx:        append([]uint32(nil), c.FileIdx...),
-		Line:           append([]uint32(nil), c.Line...),
-		Col:            append([]uint16(nil), c.Col...),
-		StartByte:      append([]uint32(nil), c.StartByte...),
-		EndByte:        append([]uint32(nil), c.EndByte...),
-		RuleSetIdx:     append([]uint16(nil), c.RuleSetIdx...),
-		RuleIdx:        append([]uint16(nil), c.RuleIdx...),
-		SeverityID:     append([]uint8(nil), c.SeverityID...),
-		MessageIdx:     append([]uint32(nil), c.MessageIdx...),
-		Confidence:     append([]uint8(nil), c.Confidence...),
-		FixStart:       append([]uint32(nil), c.FixStart...),
-		BinaryFixStart: append([]uint32(nil), c.BinaryFixStart...),
-		N:              c.N,
-		fileLexRanks:   append([]uint32(nil), c.fileLexRanks...),
+		Files:             append([]string(nil), c.Files...),
+		RuleSets:          append([]string(nil), c.RuleSets...),
+		Rules:             append([]string(nil), c.Rules...),
+		Messages:          append([]string(nil), c.Messages...),
+		FileIdx:           append([]uint32(nil), c.FileIdx...),
+		Line:              append([]uint32(nil), c.Line...),
+		Col:               append([]uint16(nil), c.Col...),
+		StartByte:         append([]uint32(nil), c.StartByte...),
+		EndByte:           append([]uint32(nil), c.EndByte...),
+		RuleSetIdx:        append([]uint16(nil), c.RuleSetIdx...),
+		RuleIdx:           append([]uint16(nil), c.RuleIdx...),
+		SeverityID:        append([]uint8(nil), c.SeverityID...),
+		MessageIdx:        append([]uint32(nil), c.MessageIdx...),
+		Confidence:        append([]uint8(nil), c.Confidence...),
+		FixStart:          append([]uint32(nil), c.FixStart...),
+		BinaryFixStart:    append([]uint32(nil), c.BinaryFixStart...),
+		SuggestedFixStart: append([]uint32(nil), c.SuggestedFixStart...),
+		SuggestedFixCount: append([]uint16(nil), c.SuggestedFixCount...),
+		N:                 c.N,
+		fileLexRanks:      append([]uint32(nil), c.fileLexRanks...),
 		ruleSetLexRanks: append([]uint16(nil),
 			c.ruleSetLexRanks...),
 		ruleLexRanks: append([]uint16(nil), c.ruleLexRanks...),
@@ -282,6 +320,12 @@ func (c *FindingColumns) Clone() FindingColumns {
 		clone.BinaryFixPool = make([]BinaryFix, len(c.BinaryFixPool))
 		for i, fix := range c.BinaryFixPool {
 			clone.BinaryFixPool[i] = cloneBinaryFix(fix)
+		}
+	}
+	if len(c.SuggestedFixPool) > 0 {
+		clone.SuggestedFixPool = make([]SuggestedFix, len(c.SuggestedFixPool))
+		for i, fix := range c.SuggestedFixPool {
+			clone.SuggestedFixPool[i] = cloneSuggestedFix(fix)
 		}
 	}
 	return clone
@@ -352,6 +396,37 @@ func (c *FindingColumns) FixAt(i int) *Fix {
 		return &fix
 	}
 	return nil
+}
+
+// HasSuggestedFixes reports whether row i carries any suggestions.
+// Independent of HasFix / HasBinaryFix.
+func (c *FindingColumns) HasSuggestedFixes(i int) bool {
+	if c == nil || i < 0 || i >= len(c.SuggestedFixStart) {
+		return false
+	}
+	return c.SuggestedFixStart[i] > 0 && c.suggestedFixCountAt(i) > 0
+}
+
+func (c *FindingColumns) suggestedFixCountAt(i int) uint16 {
+	if i < 0 || i >= len(c.SuggestedFixCount) {
+		return 0
+	}
+	return c.SuggestedFixCount[i]
+}
+
+// SuggestedFixesAt returns a defensive copy of row i's suggestions in
+// rule-emitted order, or nil when none are present.
+func (c *FindingColumns) SuggestedFixesAt(i int) []SuggestedFix {
+	if !c.HasSuggestedFixes(i) {
+		return nil
+	}
+	start := int(c.SuggestedFixStart[i]) - 1
+	end := start + int(c.suggestedFixCountAt(i))
+	out := make([]SuggestedFix, 0, end-start)
+	for idx := start; idx < end; idx++ {
+		out = append(out, cloneSuggestedFix(c.SuggestedFixPool[idx]))
+	}
+	return out
 }
 
 // BinaryFixAt returns a cloned binary fix for row i, or nil when absent.
@@ -436,6 +511,7 @@ func (c *FindingColumns) Finding(i int) Finding {
 	}
 	finding.Fix = c.FixAt(i)
 	finding.BinaryFix = c.BinaryFixAt(i)
+	finding.SuggestedFixes = c.SuggestedFixesAt(i)
 	return finding
 }
 
@@ -576,6 +652,8 @@ func (c *FindingColumns) SortByFileLine() {
 		swapSlice(c.Confidence, i, j)
 		swapSlice(c.FixStart, i, j)
 		swapSlice(c.BinaryFixStart, i, j)
+		swapSlice(c.SuggestedFixStart, i, j)
+		swapSlice(c.SuggestedFixCount, i, j)
 	})
 }
 
@@ -737,6 +815,40 @@ func (c *FindingCollector) appendExistingBinaryFix(columns *FindingColumns, row 
 	}
 	c.columns.BinaryFixPool = append(c.columns.BinaryFixPool, cloneBinaryFix(columns.BinaryFixPool[ref-1]))
 	return uint32(len(c.columns.BinaryFixPool))
+}
+
+func (c *FindingCollector) appendSuggestedFixes(fixes []SuggestedFix) (uint32, uint16) {
+	if len(fixes) == 0 {
+		return 0, 0
+	}
+	start := uint32(len(c.columns.SuggestedFixPool)) + 1
+	count := len(fixes)
+	if count > math.MaxUint16 {
+		count = math.MaxUint16
+	}
+	for i := 0; i < count; i++ {
+		c.columns.SuggestedFixPool = append(c.columns.SuggestedFixPool, cloneSuggestedFix(fixes[i]))
+	}
+	return start, uint16(count)
+}
+
+func (c *FindingCollector) appendExistingSuggestedFixes(columns *FindingColumns, row int) (uint32, uint16) {
+	if row < 0 || row >= len(columns.SuggestedFixStart) {
+		return 0, 0
+	}
+	ref := columns.SuggestedFixStart[row]
+	if ref == 0 || row >= len(columns.SuggestedFixCount) {
+		return 0, 0
+	}
+	count := columns.SuggestedFixCount[row]
+	if count == 0 {
+		return 0, 0
+	}
+	start := uint32(len(c.columns.SuggestedFixPool)) + 1
+	for i := uint16(0); i < count; i++ {
+		c.columns.SuggestedFixPool = append(c.columns.SuggestedFixPool, cloneSuggestedFix(columns.SuggestedFixPool[int(ref-1)+int(i)]))
+	}
+	return start, count
 }
 
 func severityToID(severity string) uint8 {

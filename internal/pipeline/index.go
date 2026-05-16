@@ -92,6 +92,13 @@ type IndexInput struct {
 	// allowed (no snapshot is retained — disables the fast path
 	// for future calls).
 	CodeIndexSnapshotSaver func(*scanner.CodeIndex, scanner.CrossFileCacheMeta)
+	// XMLFilesLoader, when non-nil, short-circuits the
+	// scanner-internal disk walk that loads layout/manifest/
+	// navigation XMLs on every BuildIndexCachedWithLoaders call.
+	// The callback returns either the daemon's resident slice or
+	// the result of build. nil falls back to the unconditional
+	// walk — non-daemon callers keep their existing behavior.
+	XMLFilesLoader scanner.XMLFilesLoader
 	// JavaSourceIndexCache wires the daemon's resident
 	// *javafacts.SourceIndex cache through to CrossFilePhase. See
 	// IndexResult.JavaSourceIndexCache for semantics.
@@ -1141,7 +1148,7 @@ func (p IndexPhase) runCodeIndexBuild(in IndexInput, result *IndexResult) {
 		indexTracker := crossTracker.Serial("indexBuild")
 		if in.CrossFileCacheDir != "" {
 			var hit bool
-			codeIndex, hit = scanner.BuildIndexCachedWithPrior(in.CrossFileCacheDir, parsedFiles, crossWorkers, in.CodeIndexSnapshotLoader, in.CodeIndexSnapshotSaver, indexTracker, parsedJavaFiles...)
+			codeIndex, hit = scanner.BuildIndexCachedWithLoaders(in.CrossFileCacheDir, parsedFiles, crossWorkers, in.CodeIndexSnapshotLoader, in.CodeIndexSnapshotSaver, in.XMLFilesLoader, indexTracker, parsedJavaFiles...)
 			if in.Verbose {
 				if hit {
 					in.logf("verbose: Cross-file index cache: HIT\n")

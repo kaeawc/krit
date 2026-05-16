@@ -205,6 +205,12 @@ type ProjectHostState struct {
 	// it via the loader.
 	// *WorkspaceState.StoreCodeIndexSnapshot satisfies the shape.
 	CodeIndexSnapshotSaver func(*scanner.CodeIndex, scanner.CrossFileCacheMeta)
+	// XMLFilesLoader, when non-nil, short-circuits the scanner's
+	// disk walk for layout/manifest/navigation XMLs. The daemon
+	// supplies its WorkspaceState.XMLFiles wrapped to match the
+	// scanner.XMLFilesLoader signature so .xml watcher events drive
+	// invalidation through WorkspaceState.BumpXMLFilesVersion.
+	XMLFilesLoader scanner.XMLFilesLoader
 	// JavaSourceIndexCache, when non-nil, lets CrossFilePhase short-
 	// circuit the ~100 ms content-hash key SourceIndexForFiles otherwise
 	// computes on every warm call. The watcher's .java events drive
@@ -769,6 +775,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		CodeIndexCache:           host.CodeIndexCache,
 		CodeIndexSnapshotLoader:  host.CodeIndexSnapshotLoader,
 		CodeIndexSnapshotSaver:   host.CodeIndexSnapshotSaver,
+		XMLFilesLoader:           host.XMLFilesLoader,
 		JavaSourceIndexCache:     host.JavaSourceIndexCache,
 		ResolverCache:            host.ResolverCache,
 		ResolverFingerprintCache: host.ResolverFingerprintCache,

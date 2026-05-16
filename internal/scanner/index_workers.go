@@ -191,7 +191,7 @@ func buildJavaShardJobs(javaFiles []*File) []shardJob {
 	return jobs
 }
 
-func buildXMLShardJobs(xmlFiles []*xmlCacheFile) []shardJob {
+func buildXMLShardJobs(xmlFiles []*XMLCacheFile) []shardJob {
 	jobs := make([]shardJob, 0, len(xmlFiles))
 	for _, f := range xmlFiles {
 		if f == nil {
@@ -222,7 +222,7 @@ func buildXMLShardJobs(xmlFiles []*xmlCacheFile) []shardJob {
 // file's references and persisted back). A nil bloom means no shard
 // contributed any references, and callers should treat it as "no
 // prebuilt filter"; the rebuild path will create one.
-func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, xmlFiles []*xmlCacheFile, workers int, tracker perf.Tracker) ([]Symbol, []Reference, *bloom.BloomFilter) {
+func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, xmlFiles []*XMLCacheFile, workers int, tracker perf.Tracker) ([]Symbol, []Reference, *bloom.BloomFilter) {
 	if workers < 1 {
 		workers = 1
 	}
@@ -362,7 +362,7 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 // collectIndexDataInternal is the shared body. A non-nil preloadedXML
 // skips the per-run XML disk walk and reuses the caller's read bytes;
 // nil falls back to a fresh walk.
-func collectIndexDataInternal(files []*File, workers int, tracker perf.Tracker, preloadedXML []*xmlCacheFile, javaFiles ...*File) ([]Symbol, []Reference) {
+func collectIndexDataInternal(files []*File, workers int, tracker perf.Tracker, preloadedXML []*XMLCacheFile, javaFiles ...*File) ([]Symbol, []Reference) {
 	var (
 		symbols []Symbol
 		refs    []Reference

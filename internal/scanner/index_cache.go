@@ -137,7 +137,7 @@ type fingerprintEntry struct {
 
 // crossFileFingerprintEntries snapshots every file contribution. Sorting makes
 // the eventual fingerprint order-independent.
-func crossFileFingerprintEntries(kotlinFiles, javaFiles []*File, xmlFiles []*xmlCacheFile) []fingerprintEntry {
+func crossFileFingerprintEntries(kotlinFiles, javaFiles []*File, xmlFiles []*XMLCacheFile) []fingerprintEntry {
 	entries := make([]fingerprintEntry, 0, len(kotlinFiles)+len(javaFiles)+len(xmlFiles))
 	for _, f := range kotlinFiles {
 		if f == nil {

@@ -22,10 +22,10 @@ var classRefPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`<([a-z][a-zA-Z0-9_.]+\.[A-Z][a-zA-Z0-9]*)`), // FQN as XML tag
 }
 
-// xmlCacheFile is a pre-loaded XML source whose content and hash are
+// XMLCacheFile is a pre-loaded XML source whose content and hash are
 // consumed by both the cross-file cache fingerprint and the reference
 // walk, so each file is read from disk once.
-type xmlCacheFile struct {
+type XMLCacheFile struct {
 	Path    string
 	Content []byte
 	Hash    string
@@ -61,8 +61,8 @@ func isXMLPrunedDir(base string) bool {
 	return strings.HasPrefix(base, "values")
 }
 
-func walkXMLFilesInRoot(root string) []*xmlCacheFile {
-	var local []*xmlCacheFile
+func walkXMLFilesInRoot(root string) []*XMLCacheFile {
+	var local []*XMLCacheFile
 	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			if info != nil && info.IsDir() && isXMLPrunedDir(info.Name()) {
@@ -77,7 +77,7 @@ func walkXMLFilesInRoot(root string) []*xmlCacheFile {
 		if err != nil {
 			return nil //nolint:nilerr // skip-and-continue: per-file read/parse error inside Walk callback
 		}
-		local = append(local, &xmlCacheFile{
+		local = append(local, &XMLCacheFile{
 			Path:    path,
 			Content: content,
 			Hash:    contentHashForFile(path, content),
@@ -87,10 +87,19 @@ func walkXMLFilesInRoot(root string) []*xmlCacheFile {
 	return local
 }
 
+// LoadXMLFilesForCache is the exported wrapper around the package-
+// private XML walk. The daemon's resident-XML cache uses it as the
+// build closure when the slot misses or the .xml watcher version
+// has bumped — every other caller reaches the same code through
+// the unexported helper inside BuildIndexCachedWithPrior.
+func LoadXMLFilesForCache(ktFiles []*File) []*XMLCacheFile {
+	return loadXMLFilesForCache(ktFiles)
+}
+
 // loadXMLFilesForCache walks the project for XML reference-candidate
 // files, reads them, and hashes each. The result feeds both the cache
 // fingerprint and the reference extraction in a single I/O pass.
-func loadXMLFilesForCache(ktFiles []*File) []*xmlCacheFile {
+func loadXMLFilesForCache(ktFiles []*File) []*XMLCacheFile {
 	if len(ktFiles) == 0 {
 		return nil
 	}
@@ -104,7 +113,7 @@ func loadXMLFilesForCache(ktFiles []*File) []*xmlCacheFile {
 	var (
 		mu  sync.Mutex
 		wg  sync.WaitGroup
-		out []*xmlCacheFile
+		out []*XMLCacheFile
 	)
 	for r := range roots {
 		wg.Add(1)
@@ -129,15 +138,15 @@ func loadXMLFilesForCache(ktFiles []*File) []*xmlCacheFile {
 	return out
 }
 
-// sortXMLCacheFiles orders xmlCacheFile entries by path. It is the
+// sortXMLCacheFiles orders XMLCacheFile entries by path. It is the
 // canonical ordering for any aggregated XML file slice in the
 // scanner — exposed as a named helper so the determinism property is
 // documented and reusable for tests.
-func sortXMLCacheFiles(files []*xmlCacheFile) {
+func sortXMLCacheFiles(files []*XMLCacheFile) {
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 }
 
-func collectXMLReferencesFromLoaded(files []*xmlCacheFile) []Reference {
+func collectXMLReferencesFromLoaded(files []*XMLCacheFile) []Reference {
 	if len(files) == 0 {
 		return nil
 	}

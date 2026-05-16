@@ -13,13 +13,23 @@ import (
 // resourceKey is the cache key for the dispatcher's per-resDir resource
 // rules. The active resource-deps mask is folded in so toggling the
 // rule set's resource needs flips the key correctly.
+//
+// JavaSemanticFactsFP is intentionally NOT folded in: resource rules
+// dispatch on files with scanner.LangXML, and the only consumer of
+// ctx.JavaSemanticFacts (semantic_rule_helpers.javaSemanticCallFact)
+// hard-gates on scanner.LangJava and returns no facts otherwise. So
+// rotating Java semantic facts (which happens on every .java edit
+// when JavaFacts-needing rules are active) cannot change resource
+// findings — including the fingerprint would force a full
+// resourceRuleChecks rerun on every Java edit even though the
+// resource-rule output is byte-identical. Same reasoning applies to
+// the other XML-only keys below.
 func (in AndroidInput) resourceKey(resDir, resDirFP string, deps rules.AndroidDataDependency, valueKinds android.ValuesScanKind) string {
 	return scanner.AndroidFindingsKey(scanner.AndroidFindingsKeyInputs{
-		Kind:                scanner.AndroidFindingsKindResources,
-		RuleHash:            in.RuleHash,
-		LibraryFactsFP:      in.LibraryFactsFP,
-		JavaSemanticFactsFP: in.JavaSemanticFactsFP,
-		InputFP:             resDirFP,
+		Kind:           scanner.AndroidFindingsKindResources,
+		RuleHash:       in.RuleHash,
+		LibraryFactsFP: in.LibraryFactsFP,
+		InputFP:        resDirFP,
 		// Pack (resDir path, deps mask, valueKinds mask) into Extra so
 		// rule-set masks flipping invalidates the cache and so two
 		// identical-content resDirs at different paths don't share an
@@ -41,24 +51,26 @@ func uintptrToHex(v uint64) string {
 	return string(buf[:])
 }
 
+// manifestKey / manifestBundleKey: manifest rules dispatch on
+// scanner.LangXML AndroidManifest.xml files. JavaSemanticFactsFP is
+// dropped for the same reason as resourceKey — manifest rules cannot
+// observe Java semantic facts. See the resourceKey comment.
 func (in AndroidInput) manifestKey(contentHash, bundleFP string) string {
 	return scanner.AndroidFindingsKey(scanner.AndroidFindingsKeyInputs{
-		Kind:                scanner.AndroidFindingsKindManifest,
-		RuleHash:            in.RuleHash,
-		LibraryFactsFP:      in.LibraryFactsFP,
-		JavaSemanticFactsFP: in.JavaSemanticFactsFP,
-		InputFP:             contentHash,
-		Extra:               bundleFP,
+		Kind:           scanner.AndroidFindingsKindManifest,
+		RuleHash:       in.RuleHash,
+		LibraryFactsFP: in.LibraryFactsFP,
+		InputFP:        contentHash,
+		Extra:          bundleFP,
 	})
 }
 
 func (in AndroidInput) manifestBundleKey(bundleFP string) string {
 	return scanner.AndroidFindingsKey(scanner.AndroidFindingsKeyInputs{
-		Kind:                scanner.AndroidFindingsKindManifestBundle,
-		RuleHash:            in.RuleHash,
-		LibraryFactsFP:      in.LibraryFactsFP,
-		JavaSemanticFactsFP: in.JavaSemanticFactsFP,
-		InputFP:             bundleFP,
+		Kind:           scanner.AndroidFindingsKindManifestBundle,
+		RuleHash:       in.RuleHash,
+		LibraryFactsFP: in.LibraryFactsFP,
+		InputFP:        bundleFP,
 	})
 }
 
@@ -79,14 +91,14 @@ func (in AndroidInput) resourceSourceKey(srcPath, srcContentHash, mergedIdxFP st
 	})
 }
 
+// resourceBundleKey: XML-only path, same reasoning as resourceKey.
 func (in AndroidInput) resourceBundleKey(mergedFP string, deps rules.AndroidDataDependency, valueKinds android.ValuesScanKind) string {
 	return scanner.AndroidFindingsKey(scanner.AndroidFindingsKeyInputs{
-		Kind:                scanner.AndroidFindingsKindResourceBundle,
-		RuleHash:            in.RuleHash,
-		LibraryFactsFP:      in.LibraryFactsFP,
-		JavaSemanticFactsFP: in.JavaSemanticFactsFP,
-		InputFP:             mergedFP,
-		Extra:               uintptrToHex(uint64(deps)) + "\x00" + uintptrToHex(uint64(valueKinds)),
+		Kind:           scanner.AndroidFindingsKindResourceBundle,
+		RuleHash:       in.RuleHash,
+		LibraryFactsFP: in.LibraryFactsFP,
+		InputFP:        mergedFP,
+		Extra:          uintptrToHex(uint64(deps)) + "\x00" + uintptrToHex(uint64(valueKinds)),
 	})
 }
 
@@ -101,24 +113,25 @@ func (in AndroidInput) resourceSourceIndexBundleKey(mergedFP string, deps rules.
 	})
 }
 
+// iconKey / iconBundleKey: icon rules walk drawable PNGs/SVGs. They
+// don't run rule code against Java/Kotlin source, so the semantic-
+// facts contribution is irrelevant. Same reasoning as resourceKey.
 func (in AndroidInput) iconKey(resDir, resDirFP string) string {
 	return scanner.AndroidFindingsKey(scanner.AndroidFindingsKeyInputs{
-		Kind:                scanner.AndroidFindingsKindIcons,
-		RuleHash:            in.RuleHash,
-		LibraryFactsFP:      in.LibraryFactsFP,
-		JavaSemanticFactsFP: in.JavaSemanticFactsFP,
-		InputFP:             resDirFP,
-		Extra:               resDir,
+		Kind:           scanner.AndroidFindingsKindIcons,
+		RuleHash:       in.RuleHash,
+		LibraryFactsFP: in.LibraryFactsFP,
+		InputFP:        resDirFP,
+		Extra:          resDir,
 	})
 }
 
 func (in AndroidInput) iconBundleKey(mergedFP string) string {
 	return scanner.AndroidFindingsKey(scanner.AndroidFindingsKeyInputs{
-		Kind:                scanner.AndroidFindingsKindIconBundle,
-		RuleHash:            in.RuleHash,
-		LibraryFactsFP:      in.LibraryFactsFP,
-		JavaSemanticFactsFP: in.JavaSemanticFactsFP,
-		InputFP:             mergedFP,
+		Kind:           scanner.AndroidFindingsKindIconBundle,
+		RuleHash:       in.RuleHash,
+		LibraryFactsFP: in.LibraryFactsFP,
+		InputFP:        mergedFP,
 	})
 }
 

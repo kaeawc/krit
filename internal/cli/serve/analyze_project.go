@@ -273,6 +273,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 	if repoDir == "" {
 		repoDir = s.root
 	}
+	androidCacheWriter, androidCacheDir := s.androidCacheWriterFor(repoDir)
 	// --no-cache disables every on-disk cache for this single call:
 	// parse cache, AnalysisCache, findings bundle store, cross-file/
 	// findings/type-index disk shards. Resident WorkspaceState slots
@@ -366,6 +367,12 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 		crossFileCacheDir = ""
 		crossFindingsCacheDir = ""
 		typeIndexCacheDir = ""
+		// Drop the Android cache pointers too — the
+		// androidFindingsCacheable gate checks both writer and dir,
+		// so emptying them matches the other on-disk cache zeroing
+		// above.
+		androidCacheWriter = nil
+		androidCacheDir = ""
 	}
 
 	return pipeline.ProjectInput{
@@ -411,6 +418,8 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			SourceMTimeVersion:           s.workspace.SourceMTimeVersion,
 			BundleOutput:                 s.workspace.BundleOutput,
 			StoreBundleOutput:            s.workspace.StoreBundleOutput,
+			AndroidCacheWriter:           androidCacheWriter,
+			AndroidCacheDir:              androidCacheDir,
 			CrossFileCacheDir:            crossFileCacheDir,
 			CrossFindingsCacheDir:        crossFindingsCacheDir,
 			TypeIndexCacheDir:            typeIndexCacheDir,

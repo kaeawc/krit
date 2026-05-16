@@ -225,6 +225,20 @@ type daemonState struct {
 	parseCache     *scanner.ParseCache
 	parseCacheErr  error
 
+	// androidCacheWriterOnce gates lazy construction of the resident
+	// Android findings cache writer + cache-dir path. The CLI runner
+	// pairs these so AndroidPhase can persist resource/manifest/icon
+	// rule results between runs; the daemon previously left both
+	// fields zero, which made the entire androidFindingsCacheable
+	// gate evaluate to false and forced every analyze to rerun all
+	// resource rules (~8 s on the Signal-Android corpus). One
+	// resident writer is shared across analyze calls — the async
+	// writer queues per Save, so concurrent analyze serialization is
+	// not required.
+	androidCacheWriterOnce sync.Once
+	androidCacheWriter     *scanner.AndroidCacheWriter
+	androidCacheDir        string
+
 	// analysisCacheMu guards lazy construction of the resident
 	// *cache.Cache + its file path, scoped per scan-path set. Pipeline
 	// dispatch merges per-file findings into the cache and saves it on
@@ -605,6 +619,39 @@ func (s *daemonState) closeParseCache() {
 	}
 	_ = s.parseCache.Close()
 	s.parseCache = nil
+}
+
+// androidCacheWriterFor returns the daemon's resident
+// AndroidCacheWriter and its on-disk cache directory, constructing
+// both lazily on the first call. Returns (nil, "") when repoDir is
+// empty — the AndroidPhase treats a nil writer as "caching disabled"
+// and just skips the persistence step, so the rest of the analyze
+// still runs correctly without it. workers is the worker count
+// passed to NewAndroidCacheWriter; the daemon picks a fixed small
+// value because the writer caps it to 4 internally.
+func (s *daemonState) androidCacheWriterFor(repoDir string) (*scanner.AndroidCacheWriter, string) {
+	if s == nil {
+		return nil, ""
+	}
+	s.androidCacheWriterOnce.Do(func() {
+		if repoDir == "" {
+			return
+		}
+		s.androidCacheDir = scanner.AndroidFindingsCacheDir(repoDir)
+		s.androidCacheWriter = scanner.NewAndroidCacheWriter(2)
+	})
+	return s.androidCacheWriter, s.androidCacheDir
+}
+
+// closeAndroidCacheWriter flushes queued Android cache writes and
+// releases the writer. Called from Server shutdown; safe to call
+// when no writer exists.
+func (s *daemonState) closeAndroidCacheWriter() {
+	if s == nil || s.androidCacheWriter == nil {
+		return
+	}
+	_ = s.androidCacheWriter.Close()
+	s.androidCacheWriter = nil
 }
 
 func (s *daemonState) warm() error {

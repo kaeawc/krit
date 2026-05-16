@@ -126,3 +126,36 @@ func TestDaemonStateCloseParseCacheIdempotent(t *testing.T) {
 		t.Errorf("expected parseCache to be nil after close, got %p", state.parseCache)
 	}
 }
+
+// TestDaemonStateAndroidCacheWriterLifecycle pins the lazy-init +
+// idempotent-close contract for the resident Android findings
+// cache writer. Mirrors the parse cache pattern: first call builds,
+// repeated calls return the same instance; closing twice must not
+// panic.
+func TestDaemonStateAndroidCacheWriterLifecycle(t *testing.T) {
+	state := newDaemonState(t.TempDir())
+	w1, dir1 := state.androidCacheWriterFor(state.root)
+	if w1 == nil || dir1 == "" {
+		t.Fatalf("first androidCacheWriterFor returned (%p, %q), want non-empty", w1, dir1)
+	}
+	w2, dir2 := state.androidCacheWriterFor(state.root)
+	if w2 != w1 || dir2 != dir1 {
+		t.Errorf("second call did not reuse the resident writer: got (%p,%q) want (%p,%q)", w2, dir2, w1, dir1)
+	}
+	state.closeAndroidCacheWriter()
+	state.closeAndroidCacheWriter() // must not panic
+	if state.androidCacheWriter != nil {
+		t.Errorf("expected androidCacheWriter to be nil after close, got %p", state.androidCacheWriter)
+	}
+}
+
+// TestDaemonStateAndroidCacheWriterEmptyRepo: with no repoDir the
+// helper must return (nil, "") and stay that way — the AndroidPhase
+// treats a nil writer as "caching disabled" and degrades gracefully.
+func TestDaemonStateAndroidCacheWriterEmptyRepo(t *testing.T) {
+	state := newDaemonState("")
+	w, dir := state.androidCacheWriterFor("")
+	if w != nil || dir != "" {
+		t.Errorf("empty-repo path: want (nil, \"\"), got (%p, %q)", w, dir)
+	}
+}

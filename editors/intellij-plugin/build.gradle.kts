@@ -5,7 +5,7 @@ plugins {
     id("org.jetbrains.intellij.platform") version "2.16.0"
 }
 
-group = "dev.krit"
+group = "dev.jasonpearson.krit"
 version = "0.1.0-SNAPSHOT"
 
 repositories {

@@ -17,7 +17,7 @@ func TestJavacHelperEmitsReceiverAndClassFacts(t *testing.T) {
 		t.Skip("java not available")
 	}
 	repoRoot := filepath.Clean(filepath.Join("..", ".."))
-	helper := filepath.Join(repoRoot, "tools", "krit-java-facts", "src", "main", "java", "dev", "krit", "javafacts", "Main.java")
+	helper := filepath.Join(repoRoot, "tools", "krit-java-facts", "src", "main", "java", "dev", "jasonpearson", "krit", "javafacts", "Main.java")
 	classes := filepath.Join(t.TempDir(), "classes")
 	if err := os.MkdirAll(classes, 0755); err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ class Browser {
 class MyHandler extends Handler {}
 class MyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {}`)
 	out := filepath.Join(t.TempDir(), "facts.json")
-	cmd := exec.Command(java, "-cp", classes, "dev.krit.javafacts.Main", "--out", out, "--classpath", srcRoot, target)
+	cmd := exec.Command(java, "-cp", classes, "dev.jasonpearson.krit.javafacts.Main", "--out", out, "--classpath", srcRoot, target)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("run helper: %v\n%s", err, output)
 	}

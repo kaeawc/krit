@@ -127,7 +127,7 @@ func compileJavaFactsHelper(scanPaths []string) (classpath string, cleanup func(
 		}
 	}
 	if helper == "" {
-		helper = filepath.Join(repoDir, "tools", "krit-java-facts", "src", "main", "java", "dev", "krit", "javafacts", "Main.java")
+		helper = filepath.Join(repoDir, "tools", "krit-java-facts", "src", "main", "java", "dev", "jasonpearson", "krit", "javafacts", "Main.java")
 	}
 	if _, statErr := os.Stat(helper); statErr != nil {
 		// Same non-fatal warning pattern as the javac lookup above.
@@ -149,7 +149,7 @@ func javaFactsHelperSourcePath(root string) string {
 	if root == "" {
 		return ""
 	}
-	helper := filepath.Join(root, "tools", "krit-java-facts", "src", "main", "java", "dev", "krit", "javafacts", "Main.java")
+	helper := filepath.Join(root, "tools", "krit-java-facts", "src", "main", "java", "dev", "jasonpearson", "krit", "javafacts", "Main.java")
 	if _, err := os.Stat(helper); err == nil {
 		return helper
 	}

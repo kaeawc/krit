@@ -158,7 +158,7 @@ func isExecutableJar(path string) bool {
 		if err != nil {
 			return false
 		}
-		return strings.Contains(string(data), "Main-Class: dev.krit.fir.MainKt")
+		return strings.Contains(string(data), "Main-Class: dev.jasonpearson.krit.fir.MainKt")
 	}
 	return false
 }

@@ -18,7 +18,7 @@ val testGenerator by sourceSets.creating {
 
 val generateTests by tasks.registering(JavaExec::class) {
     description = "Regenerates JUnit test methods from src/test/data/diagnostic/ files"
-    mainClass.set("dev.krit.fir.tests.GenerateTestsKt")
+    mainClass.set("dev.jasonpearson.krit.fir.tests.GenerateTestsKt")
     classpath = sourceSets["testGenerator"].runtimeClasspath
     val dataDir = project.file("src/test/data/diagnostic")
     val outDir = layout.buildDirectory.dir("generated/source/tests").get().asFile

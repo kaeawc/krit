@@ -8,7 +8,7 @@ Add the plugin to your `build.gradle.kts`:
 
 ```kotlin
 plugins {
-    id("dev.krit") version "0.2.0"
+    id("dev.jasonpearson.krit") version "0.2.0"
 }
 
 krit {

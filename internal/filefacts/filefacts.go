@@ -10,11 +10,22 @@
 package filefacts
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
+
+// slotTypeMismatch panics with the offending slot key when a cache slot
+// is reused with a different generic instantiation. The slot is a
+// programmer-controlled constant, so a mismatch is a bug at the call
+// site, not a runtime data condition. Failing loud here surfaces the
+// offending slot instead of the opaque "interface conversion" panic the
+// runtime would otherwise produce.
+func slotTypeMismatch(slot string, want, got any) {
+	panic(fmt.Sprintf("filefacts: slot %q type mismatch: want %T, got %T", slot, want, got))
+}
 
 // Cache memoizes per-file facts for a single analysis run. The zero
 // value is unusable; obtain one with NewCache. A nil *Cache is a valid
@@ -44,11 +55,21 @@ func StringFact[T any](c *Cache, key, slot string, compute func() T) T {
 	}
 	k := stringSlotKey{key: key, slot: slot}
 	if cached, ok := c.stringSlots.Load(k); ok {
-		return cached.(T)
+		typed, tok := cached.(T)
+		if !tok {
+			var zero T
+			slotTypeMismatch(slot, zero, cached)
+		}
+		return typed
 	}
 	v := compute()
 	actual, _ := c.stringSlots.LoadOrStore(k, v)
-	return actual.(T)
+	typed, tok := actual.(T)
+	if !tok {
+		var zero T
+		slotTypeMismatch(slot, zero, actual)
+	}
+	return typed
 }
 
 type fileSlotKey struct {
@@ -73,11 +94,21 @@ func FileFact[T any](c *Cache, file *scanner.File, slot string, compute func() T
 	}
 	key := fileSlotKey{file: file, slot: slot}
 	if cached, ok := c.fileSlots.Load(key); ok {
-		return cached.(T)
+		typed, tok := cached.(T)
+		if !tok {
+			var zero T
+			slotTypeMismatch(slot, zero, cached)
+		}
+		return typed
 	}
 	v := compute()
 	actual, _ := c.fileSlots.LoadOrStore(key, v)
-	return actual.(T)
+	typed, tok := actual.(T)
+	if !tok {
+		var zero T
+		slotTypeMismatch(slot, zero, actual)
+	}
+	return typed
 }
 
 // NodeFact returns a per-(file, node) derived value, computing on
@@ -89,11 +120,21 @@ func NodeFact[T any](c *Cache, file *scanner.File, idx uint32, slot string, comp
 	}
 	key := nodeSlotKey{file: file, idx: idx, slot: slot}
 	if cached, ok := c.nodeSlots.Load(key); ok {
-		return cached.(T)
+		typed, tok := cached.(T)
+		if !tok {
+			var zero T
+			slotTypeMismatch(slot, zero, cached)
+		}
+		return typed
 	}
 	v := compute()
 	actual, _ := c.nodeSlots.LoadOrStore(key, v)
-	return actual.(T)
+	typed, tok := actual.(T)
+	if !tok {
+		var zero T
+		slotTypeMismatch(slot, zero, actual)
+	}
+	return typed
 }
 
 // NewCache returns a fresh, empty Cache. Use one Cache per analysis

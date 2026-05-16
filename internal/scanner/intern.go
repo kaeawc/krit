@@ -101,6 +101,17 @@ func internBytes(b []byte) string {
 	return globalStringPool.Intern(bytesToStringView(b))
 }
 
+// bytesToStringView returns a zero-copy string aliasing b's backing
+// array. The result MUST NOT outlive the caller's reference to b, and
+// b MUST NOT be mutated while the view is in use. Used only as the
+// lookup key into the StringPool: Intern's RLock-and-Load path reads
+// the view, and on insert the value is replaced with strings.Clone'd
+// storage before being stored, so no aliasing escapes the pool.
+//
+// UTF-8 validity: tree-sitter feeds valid-UTF-8 source bytes (we only
+// parse Kotlin/Java/XML/Gradle source files, which are required to be
+// UTF-8 by their respective specs). The view never escapes to a
+// boundary that re-validates UTF-8; map lookups operate on raw bytes.
 func bytesToStringView(b []byte) string {
 	if len(b) == 0 {
 		return ""

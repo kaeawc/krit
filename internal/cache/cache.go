@@ -22,6 +22,16 @@ import (
 
 const CacheFileName = "incremental.cache"
 
+// cachePayloadVersion is mixed into ComputeConfigHash so that a change to
+// the on-disk payload schema (FileEntry / FindingColumns JSON shape, the
+// columnar binary format, etc.) automatically invalidates older entries
+// instead of silently failing to deserialize at read time.
+//
+// Bump when the cached payload schema changes in a non-backwards-compatible
+// way. Old entries become unreachable (different RuleSetHash) and will be
+// garbage-collected by the next `krit cache clean` or LRU pass.
+const cachePayloadVersion = "v1"
+
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {
 	if repoDir == "" {
@@ -267,6 +277,11 @@ func ComputeConfigHash(ruleNames []string, cfg *config.Config, editorConfigEnabl
 
 	h := hashutil.Hasher().New()
 	h.Write([]byte(strings.Join(sorted, ",")))
+
+	// Schema version of the cached payload. Bumping cachePayloadVersion
+	// invalidates all prior entries.
+	h.Write([]byte("|payload="))
+	h.Write([]byte(cachePayloadVersion))
 
 	// Include editorconfig marker so "with editorconfig" and "without" produce different hashes
 	if editorConfigEnabled {

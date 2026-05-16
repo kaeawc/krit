@@ -23,7 +23,7 @@ jobs:
           fetch-depth: 0
           # Default GITHUB_TOKEN won't trigger downstream workflows on tag
           # push — use a PAT with workflow scope so release.yml fires.
-          token: ${{ secrets.NIGHTLY_TAG_TOKEN }}
+          token: ${{ secrets.KRIT_NIGHTLY_TAG_TOKEN }}
 
       - name: Compute next nightly tag
         id: compute

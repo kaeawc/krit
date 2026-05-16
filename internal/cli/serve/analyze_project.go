@@ -356,6 +356,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			CodeIndexCache:               s.workspace.CodeIndex,
 			JavaSourceIndexCache:         s.workspace.JavaSourceIndex,
 			ResolverCache:                s.workspace.Resolver,
+			ResolverFingerprintCache:     s.workspace.ResolverFingerprint,
 			OracleFilterCache:            s.workspace.OracleFilter,
 			AndroidProjectCache:          s.workspace.AndroidProject,
 			GradleFindingsCache:          s.workspace.GradleFindings,

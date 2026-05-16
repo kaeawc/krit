@@ -98,6 +98,19 @@ type WorkspaceState struct {
 	cachedJavaSourceIndex   *javafacts.SourceIndex
 	cachedJavaSourceVersion uint64
 
+	resolverFpMu sync.Mutex
+	// cachedResolverFp is the last computed resolverFingerprint
+	// string, valid while cachedResolverFpVersion ==
+	// sourceMTimeVersion. Recomputing the fingerprint hashes 18 k
+	// Kotlin file contents (~135 ms on the kotlin corpus), so a
+	// resident memo gated on the watcher-driven source version skips
+	// that work whenever no Kotlin / Java / Gradle event has fired
+	// since the last successful compute. A nil receiver / empty
+	// fingerprint always recomputes (no caching).
+	cachedResolverFp        string
+	cachedResolverFpVersion uint64
+	cachedResolverFpPresent bool
+
 	typeInfoMu sync.Mutex
 	// typeInfo caches per-file *typeinfer.FileTypeInfo across analyzes.
 	// The watcher's Invalidate(path) drops the corresponding entry —
@@ -432,6 +445,10 @@ func (w *WorkspaceState) InvalidateAll() {
 	w.cachedJavaSourceIndex = nil
 	w.javaSourceVersion++
 	w.javaSourceMu.Unlock()
+	w.resolverFpMu.Lock()
+	w.cachedResolverFp = ""
+	w.cachedResolverFpPresent = false
+	w.resolverFpMu.Unlock()
 }
 
 // LibraryFacts returns the cached *librarymodel.Facts when its
@@ -773,6 +790,43 @@ func (w *WorkspaceState) Resolver(fingerprint string, build func() typeinfer.Typ
 	}
 	w.xfileMu.Unlock()
 	return v
+}
+
+// ResolverFingerprint returns the resolver fingerprint string,
+// reusing the last successful compute when no source-path watcher
+// event has fired since (i.e. sourceMTimeVersion is unchanged). On
+// a miss it snapshots the current version, invokes build (without
+// holding the mutex), and stores the result if the version is still
+// the snapshot — a concurrent watcher event between snapshot and
+// store invalidates the would-be entry so the next call recomputes.
+//
+// build must produce a fingerprint string deterministic in its
+// inputs; the cache only short-circuits when nothing watched has
+// changed, so build's inputs are guaranteed identical on a hit. A
+// nil receiver always builds (no caching).
+func (w *WorkspaceState) ResolverFingerprint(build func() string) string {
+	if w == nil {
+		return build()
+	}
+	currentVersion := w.sourceMTimeVersion.Load()
+	w.resolverFpMu.Lock()
+	if w.cachedResolverFpPresent && w.cachedResolverFpVersion == currentVersion {
+		v := w.cachedResolverFp
+		w.resolverFpMu.Unlock()
+		return v
+	}
+	w.resolverFpMu.Unlock()
+
+	fp := build()
+
+	w.resolverFpMu.Lock()
+	if w.sourceMTimeVersion.Load() == currentVersion {
+		w.cachedResolverFp = fp
+		w.cachedResolverFpVersion = currentVersion
+		w.cachedResolverFpPresent = true
+	}
+	w.resolverFpMu.Unlock()
+	return fp
 }
 
 // InvalidateResolver drops the cached resolver. Called when any

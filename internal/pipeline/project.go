@@ -197,6 +197,14 @@ type ProjectHostState struct {
 	// files, so mismatches force a complete rebuild rather than a
 	// stale-entry leak. *WorkspaceState satisfies this interface.
 	ResolverCache ResolverCache
+	// ResolverFingerprintCache, when non-nil, short-circuits the
+	// resolverFingerprint compute that gates ResolverCache. The
+	// fingerprint hashes every Kotlin file's content; on the kotlin
+	// corpus that's ~135 ms even when the resolver itself is cached.
+	// The cache returns the prior fingerprint when no source-path
+	// watcher event has fired since the last successful compute.
+	// *WorkspaceState.ResolverFingerprint satisfies the callback shape.
+	ResolverFingerprintCache func(build func() string) string
 	// OracleFilterCache, when non-nil and Args.OracleEnabled is true,
 	// memoizes the oracle CallTargetFilterSummary across calls.
 	// RunProject computes the filter once per file-set + rule-set
@@ -731,32 +739,33 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		buildCodeIndex = true
 	}
 	indexInput := IndexInput{
-		ParseResult:            parseResult,
-		PrebuiltResolver:       host.PrebuiltResolver,
-		PrebuiltLibraryFacts:   host.PrebuiltLibraryFacts,
-		PrebuiltAndroidProject: host.PrebuiltAndroidProject,
-		LibraryFactsCache:      host.LibraryFactsCache,
-		CodeIndexCache:         host.CodeIndexCache,
-		JavaSourceIndexCache:   host.JavaSourceIndexCache,
-		ResolverCache:          host.ResolverCache,
-		AndroidProjectCache:    host.AndroidProjectCache,
-		CrossFileCacheDir:      host.CrossFileCacheDir,
-		CrossFindingsCacheDir:  host.CrossFindingsCacheDir,
-		TypeIndexCacheDir:      host.TypeIndexCacheDir,
-		ResidentFileTypeInfo:   host.ResidentFileTypeInfo,
-		Reporter:               host.Reporter,
-		Tracker:                host.Tracker,
-		Verbose:                host.Reporter.VerboseEnabled(),
-		BuildCodeIndex:         buildCodeIndex,
-		CrossFileParentTracker: crossTracker,
-		CrossFileJobsFlag:      args.Workers,
-		CrossFileJavaPaths:     args.JavaPaths,
-		ParseCache:             host.ParseCache,
-		BuildModuleIndex:       hasModuleAwareRule,
-		ModuleParentTracker:    moduleTracker,
-		ModuleScanRoot:         scanRoot,
-		ModuleJobsFlag:         args.Workers,
-		ModuleHasAwareRule:     hasModuleAwareRule,
+		ParseResult:              parseResult,
+		PrebuiltResolver:         host.PrebuiltResolver,
+		PrebuiltLibraryFacts:     host.PrebuiltLibraryFacts,
+		PrebuiltAndroidProject:   host.PrebuiltAndroidProject,
+		LibraryFactsCache:        host.LibraryFactsCache,
+		CodeIndexCache:           host.CodeIndexCache,
+		JavaSourceIndexCache:     host.JavaSourceIndexCache,
+		ResolverCache:            host.ResolverCache,
+		ResolverFingerprintCache: host.ResolverFingerprintCache,
+		AndroidProjectCache:      host.AndroidProjectCache,
+		CrossFileCacheDir:        host.CrossFileCacheDir,
+		CrossFindingsCacheDir:    host.CrossFindingsCacheDir,
+		TypeIndexCacheDir:        host.TypeIndexCacheDir,
+		ResidentFileTypeInfo:     host.ResidentFileTypeInfo,
+		Reporter:                 host.Reporter,
+		Tracker:                  host.Tracker,
+		Verbose:                  host.Reporter.VerboseEnabled(),
+		BuildCodeIndex:           buildCodeIndex,
+		CrossFileParentTracker:   crossTracker,
+		CrossFileJobsFlag:        args.Workers,
+		CrossFileJavaPaths:       args.JavaPaths,
+		ParseCache:               host.ParseCache,
+		BuildModuleIndex:         hasModuleAwareRule,
+		ModuleParentTracker:      moduleTracker,
+		ModuleScanRoot:           scanRoot,
+		ModuleJobsFlag:           args.Workers,
+		ModuleHasAwareRule:       hasModuleAwareRule,
 	}
 	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)
 	if warm.result == nil {

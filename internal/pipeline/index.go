@@ -88,6 +88,14 @@ type IndexInput struct {
 	// entire perFileExtraction + merge + resolveSupertypes skip on
 	// warm-no-change runs.
 	ResolverCache ResolverCache
+	// ResolverFingerprintCache, when non-nil, short-circuits the
+	// resolverFingerprint compute (which hashes every Kotlin file's
+	// content — ~135 ms on an 18 k-file corpus) when no source-path
+	// watcher event has fired since the last successful compute. The
+	// callback returns either the cached fingerprint or the result
+	// of build. nil disables the optimization and the fingerprint is
+	// computed on every call.
+	ResolverFingerprintCache func(build func() string) string
 	// AndroidProjectCache, when non-nil and PrebuiltAndroidProject is
 	// nil, memoizes the detected *android.Project across calls so
 	// detectAndroidProject skips its ~1s tree walk on warm reruns.
@@ -459,7 +467,15 @@ func (p IndexPhase) buildBaseResolver(ctx context.Context, in IndexInput, caps a
 		return r
 	}
 	if in.ResolverCache != nil {
-		return in.ResolverCache(resolverFingerprint(in.KotlinFiles), build), nil
+		var fp string
+		if in.ResolverFingerprintCache != nil {
+			fp = in.ResolverFingerprintCache(func() string {
+				return resolverFingerprint(in.KotlinFiles)
+			})
+		} else {
+			fp = resolverFingerprint(in.KotlinFiles)
+		}
+		return in.ResolverCache(fp, build), nil
 	}
 	return build(), nil
 }

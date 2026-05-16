@@ -1,13 +1,17 @@
 package scan
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/kaeawc/krit/internal/cli/daemonclient"
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/output"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // tryDaemonDelegate attempts to dispatch the current scan through a
@@ -47,6 +51,14 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 	}
 
 	fmt.Fprintln(os.Stderr, "info: using daemon")
+	// --sample-rule short-circuits the normal write path: the daemon
+	// returns the full JSON envelope, the CLI parses it back into
+	// columns, and the sampler prints a deterministic per-rule sample
+	// to stdout. Forwarding the JSON envelope through the writer would
+	// be confusing for an interactive flag, so it is consumed here.
+	if *f.SampleRule != "" {
+		return true, runDaemonSampleRule(f, paths, res.Findings)
+	}
 	w, closer, openErr := openDaemonOutputWriter(f)
 	if openErr != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", openErr)
@@ -157,6 +169,35 @@ func callMetaVerb(client *daemonclient.Client, f *scanFlags, paths []string, ver
 	return daemon.MetaResult{}, fmt.Errorf("unknown meta verb %d", verb)
 }
 
+// runDaemonSampleRule decodes the daemon's JSON envelope into a
+// FindingColumns and runs the sampler. Mirrors the in-process
+// runner.outputPhase short-circuit so users see the same human output
+// regardless of whether the daemon served the call.
+func runDaemonSampleRule(f *scanFlags, paths []string, findingsJSON []byte) int {
+	var report output.JSONReport
+	if err := json.Unmarshal(findingsJSON, &report); err != nil {
+		fmt.Fprintf(os.Stderr, "error: decode daemon findings: %v\n", err)
+		return 2
+	}
+	collector := scanner.NewFindingCollector(len(report.Findings))
+	for _, finding := range report.Findings {
+		collector.Append(scanner.Finding{
+			File:    finding.File,
+			Line:    finding.Line,
+			Col:     finding.Column,
+			RuleSet: finding.RuleSet,
+			Rule:    finding.Rule,
+			Message: finding.Message,
+		})
+	}
+	columns := collector.Columns()
+	basePath := *f.BasePath
+	if basePath == "" && len(paths) > 0 {
+		basePath, _ = filepath.Abs(paths[0])
+	}
+	return RunSampleFindingsColumns(columns, *f.SampleRule, *f.SampleCount, *f.SampleContext, basePath)
+}
+
 // daemonCompatibleFlags reports whether the requested flag set can be
 // served by the daemon's analyze-project verb. Modes that write files,
 // invoke profiling, or run meta commands stay on the in-process path.
@@ -191,7 +232,7 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 		}
 	}
 	strs := []string{*f.CreateBaseline, *f.CPUProfile, *f.MemProfile,
-		*f.Completions, *f.SampleRule, *f.InputTypes, *f.OutputTypes, *f.Delta,
+		*f.Completions, *f.OutputTypes, *f.Delta,
 		*f.PromoteExperiment, *f.DeprecateExperiment, *f.NewExperiment, *f.ExperimentMatrix}
 	for _, s := range strs {
 		if s != "" {
@@ -210,6 +251,25 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 	if *f.Report != "" {
 		format = *f.Report
 	}
+	// --sample-rule asks for JSON findings post-processed on the CLI
+	// side. Force the daemon to emit JSON regardless of the user's
+	// --format choice so the writer can decode the envelope. The
+	// human-formatted sampler output is then printed by the CLI.
+	if *f.SampleRule != "" {
+		format = "json"
+	}
+	// Resolve --input-types to an absolute path before forwarding:
+	// the daemon process has its own CWD (the project root) and a
+	// caller-relative path would resolve elsewhere. filepath.Abs
+	// only fails when CWD is unreadable; in that case forward the
+	// raw value so the daemon can return a clean "open" error rather
+	// than silently swallowing the flag.
+	inputTypesPath := *f.InputTypes
+	if inputTypesPath != "" {
+		if abs, err := filepath.Abs(inputTypesPath); err == nil {
+			inputTypesPath = abs
+		}
+	}
 	return daemon.AnalyzeProjectArgs{
 		Paths:            paths,
 		Format:           format,
@@ -224,6 +284,7 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		DisableRules:     *f.DisableRules,
 		ShowPerf:         *f.Perf || *f.PerfRules,
 		PerfRules:        *f.PerfRules,
+		InputTypesPath:   inputTypesPath,
 		ClientBinaryHash: daemonclient.CurrentBinaryHash(),
 	}
 }

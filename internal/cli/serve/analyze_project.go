@@ -340,10 +340,11 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			WarningsAsErrors: args.WarningsAsErrors,
 			IncludeGenerated: args.IncludeGenerated,
 			Version:          kritVersion(),
-			OracleEnabled:    oracleDaemon != nil,
+			OracleEnabled:    oracleDaemon != nil || args.InputTypesPath != "",
 			ShowPerf:         args.ShowPerf || args.PerfRules,
 			PerfRules:        args.PerfRules,
 			CustomRuleJars:   args.CustomRuleJars,
+			InputTypesPath:   args.InputTypesPath,
 			// Wire is line-delimited; compact JSON keeps the body
 			// free of internal newlines.
 			JSONCompact: true,

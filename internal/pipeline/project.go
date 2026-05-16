@@ -94,6 +94,12 @@ type ProjectArgs struct {
 	// CustomRuleJars are Kotlin custom-rule plugin jars loaded by the
 	// krit-types daemon and merged into the standard finding stream.
 	CustomRuleJars []string
+	// InputTypesPath mirrors --input-types: an explicit oracle JSON
+	// path that bypasses the krit-types JVM (one-shot or daemon) and
+	// loads the prebuilt facts directly. When non-empty the daemon
+	// host skips its resident OracleDaemon for this call so the
+	// auto-detect oracle path can honour the user-supplied dump.
+	InputTypesPath string
 	// TargetedResolution, when true, runs active rules' expression
 	// selectors through the configured expression resolver before
 	// dispatch. The pass is optional: missing resolver/sink or a rule
@@ -784,6 +790,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		ModuleScanRoot:           scanRoot,
 		ModuleJobsFlag:           args.Workers,
 		ModuleHasAwareRule:       hasModuleAwareRule,
+		InputTypesPath:           args.InputTypesPath,
 	}
 	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)
 	if warm.result == nil {
@@ -1246,7 +1253,20 @@ func wireAnalysisCacheLookup(in *IndexInput, args ProjectArgs, host ProjectHostS
 // daemon handle. Extracted from RunProject to keep its cyclomatic
 // complexity manageable.
 func wireOracleHandles(in *IndexInput, args ProjectArgs, host ProjectHostState, kotlinFiles []*scanner.File) {
-	if !args.OracleEnabled || host.OracleDaemon == nil {
+	if !args.OracleEnabled {
+		return
+	}
+	// --input-types points at a prebuilt oracle JSON; skip the JVM
+	// daemon entirely so runOracle takes the auto-detect path that
+	// honours InputTypesPath. The user-supplied dump is the source of
+	// truth for this call — burning JVM time would be wasted work and
+	// would also lose any oracle deltas the dump captured.
+	if args.InputTypesPath != "" {
+		in.OracleEnabled = true
+		in.OracleScanPaths = args.Paths
+		return
+	}
+	if host.OracleDaemon == nil {
 		return
 	}
 	in.OracleEnabled = true

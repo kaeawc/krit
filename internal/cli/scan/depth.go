@@ -63,7 +63,7 @@ func resolveDepthPreset(flagValue string, cfg *config.Config, w io.Writer) Depth
 			flagValue, validDepthList(), DepthBalanced)
 	}
 	if cfg != nil {
-		if raw := cfg.GetTopLevelString("analysis", "depth", ""); raw != "" {
+		if raw := cfg.Analysis().Depth; raw != "" {
 			if p, ok := parseDepthPreset(raw); ok && p != "" {
 				return p
 			}

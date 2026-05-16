@@ -1084,3 +1084,68 @@ func TestNewConfigFromDataNil(t *testing.T) {
 		t.Error("expected nil for empty-config lookup")
 	}
 }
+
+func TestTypedSections(t *testing.T) {
+	cfg := NewConfigFromData(map[string]interface{}{
+		"analysis": map[string]interface{}{"depth": "deep"},
+		"parseCache": map[string]interface{}{
+			"maxSizeMB": 512,
+		},
+		"lsp": map[string]interface{}{
+			"classpath": []interface{}{"/a.jar", "/b.jar"},
+		},
+		"oracle": map[string]interface{}{
+			"classpath": []interface{}{"/c.jar"},
+		},
+	})
+
+	if got := cfg.Analysis().Depth; got != "deep" {
+		t.Errorf("Analysis().Depth = %q, want %q", got, "deep")
+	}
+	if got := cfg.ParseCache().MaxSizeMB; got != 512 {
+		t.Errorf("ParseCache().MaxSizeMB = %d, want %d", got, 512)
+	}
+	lspCP := cfg.LSP().Classpath
+	if len(lspCP) != 2 || lspCP[0] != "/a.jar" || lspCP[1] != "/b.jar" {
+		t.Errorf("LSP().Classpath = %v, want [/a.jar /b.jar]", lspCP)
+	}
+	oracleCP := cfg.Oracle().Classpath
+	if len(oracleCP) != 1 || oracleCP[0] != "/c.jar" {
+		t.Errorf("Oracle().Classpath = %v, want [/c.jar]", oracleCP)
+	}
+}
+
+func TestTypedSectionsEmpty(t *testing.T) {
+	cfg := NewConfigFromData(nil)
+	if got := cfg.Analysis().Depth; got != "" {
+		t.Errorf("expected empty Depth on empty config, got %q", got)
+	}
+	if got := cfg.ParseCache().MaxSizeMB; got != 0 {
+		t.Errorf("expected MaxSizeMB=0 on empty config, got %d", got)
+	}
+	if got := cfg.LSP().Classpath; got != nil {
+		t.Errorf("expected nil LSP classpath on empty config, got %v", got)
+	}
+	if got := cfg.Oracle().Classpath; got != nil {
+		t.Errorf("expected nil Oracle classpath on empty config, got %v", got)
+	}
+}
+
+func TestTypedSectionsNilConfig(t *testing.T) {
+	var cfg *Config
+	// Each typed accessor must tolerate a nil receiver and return the
+	// zero value of its struct (matching the underlying GetTopLevel*
+	// contract).
+	if got := cfg.Analysis().Depth; got != "" {
+		t.Errorf("nil cfg Analysis().Depth = %q, want empty", got)
+	}
+	if got := cfg.ParseCache().MaxSizeMB; got != 0 {
+		t.Errorf("nil cfg ParseCache().MaxSizeMB = %d, want 0", got)
+	}
+	if got := cfg.LSP().Classpath; got != nil {
+		t.Errorf("nil cfg LSP().Classpath = %v, want nil", got)
+	}
+	if got := cfg.Oracle().Classpath; got != nil {
+		t.Errorf("nil cfg Oracle().Classpath = %v, want nil", got)
+	}
+}

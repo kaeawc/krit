@@ -27,6 +27,34 @@ type SLOConfig struct {
 	MaxErrorsPerKLOC   *float64
 }
 
+// AnalysisConfig is the typed shape of the top-level `analysis:` block.
+// Empty Depth means "not configured" — callers fall back to their own
+// default (typically the CLI-flag default).
+type AnalysisConfig struct {
+	Depth string
+}
+
+// ParseCacheConfig is the typed shape of the top-level `parseCache:`
+// block. Zero MaxSizeMB means "not configured" — caller decides whether
+// that disables the parse cache or applies its own default.
+type ParseCacheConfig struct {
+	MaxSizeMB int
+}
+
+// LSPConfig is the typed shape of the top-level `lsp:` block. Used by
+// the LSP server to extend the JVM classpath beyond what's auto-derived
+// from Gradle. Nil/empty Classpath means "no user override".
+type LSPConfig struct {
+	Classpath []string
+}
+
+// OracleConfig is the typed shape of the top-level `oracle:` block.
+// Used by the JVM-backed Kotlin Analysis API daemon. Nil/empty
+// Classpath means "no user override".
+type OracleConfig struct {
+	Classpath []string
+}
+
 // NewConfig creates an empty Config.
 func NewConfig() *Config {
 	return &Config{data: make(map[string]interface{})}
@@ -365,6 +393,37 @@ func (c *Config) ModuleTemplate() ModuleTemplateConfig {
 		FeatureRoot:        c.GetTopLevelString("module_template", "feature_root", ""),
 		RequiredSubmodules: c.GetTopLevelStringList("module_template", "required_submodules"),
 		RequiredPlugins:    c.GetTopLevelStringList("module_template", "required_plugins"),
+	}
+}
+
+// Analysis returns the typed `analysis:` block. Prefer this over
+// GetTopLevelString("analysis", ...) at call sites; the typed accessor
+// keeps the key name in one place and makes future schema additions
+// safer.
+func (c *Config) Analysis() AnalysisConfig {
+	return AnalysisConfig{
+		Depth: c.GetTopLevelString("analysis", "depth", ""),
+	}
+}
+
+// ParseCache returns the typed `parseCache:` block.
+func (c *Config) ParseCache() ParseCacheConfig {
+	return ParseCacheConfig{
+		MaxSizeMB: c.GetTopLevelInt("parseCache", "maxSizeMB", 0),
+	}
+}
+
+// LSP returns the typed `lsp:` block.
+func (c *Config) LSP() LSPConfig {
+	return LSPConfig{
+		Classpath: c.GetTopLevelStringList("lsp", "classpath"),
+	}
+}
+
+// Oracle returns the typed `oracle:` block.
+func (c *Config) Oracle() OracleConfig {
+	return OracleConfig{
+		Classpath: c.GetTopLevelStringList("oracle", "classpath"),
 	}
 }
 

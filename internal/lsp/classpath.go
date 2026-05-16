@@ -14,8 +14,8 @@ func lspClasspath(root string, cfg *config.Config, initClasspath []string) []str
 	var out []string
 	out = append(out, initClasspath...)
 	if cfg != nil {
-		out = append(out, cfg.GetTopLevelStringList("lsp", "classpath")...)
-		out = append(out, cfg.GetTopLevelStringList("oracle", "classpath")...)
+		out = append(out, cfg.LSP().Classpath...)
+		out = append(out, cfg.Oracle().Classpath...)
 	}
 	if env := os.Getenv("CLASSPATH"); env != "" {
 		out = append(out, filepath.SplitList(env)...)

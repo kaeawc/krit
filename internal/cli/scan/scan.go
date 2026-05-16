@@ -212,7 +212,7 @@ func resolveParseCacheCap(flagMB int, cfg *config.Config) int64 {
 		return int64(flagMB) * 1024 * 1024
 	}
 	if cfg != nil {
-		if mb := cfg.GetTopLevelInt("parseCache", "maxSizeMB", 0); mb != 0 {
+		if mb := cfg.ParseCache().MaxSizeMB; mb != 0 {
 			if mb < 0 {
 				return -1
 			}

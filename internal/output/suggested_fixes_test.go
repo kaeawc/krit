@@ -3,12 +3,24 @@ package output
 import (
 	"bytes"
 	"encoding/json"
+	"regexp"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
+
+// durationMsField matches the report's wall-clock-derived durationMs
+// payload. FormatJSONColumns computes it from time.Since(start) at call
+// time, which is not deterministic across two calls in a row. Tests
+// that compare cold/warm or repeated formatter output byte-for-byte
+// must strip this field first.
+var durationMsField = regexp.MustCompile(`"durationMs":\s*\d+`)
+
+func stripDurationMs(b []byte) []byte {
+	return durationMsField.ReplaceAll(b, []byte(`"durationMs":0`))
+}
 
 // TestSuggestedFixes_JSONShape covers the fixture-rule acceptance criterion:
 // a rule emits one finding with two suggested fixes, and both appear in the
@@ -127,8 +139,8 @@ func TestSuggestedFixes_DeterministicSerialization(t *testing.T) {
 		},
 	}
 
-	first := runJSONFormatterBytes(t, findings)
-	second := runJSONFormatterBytes(t, findings)
+	first := stripDurationMs(runJSONFormatterBytes(t, findings))
+	second := stripDurationMs(runJSONFormatterBytes(t, findings))
 	if !bytes.Equal(first, second) {
 		t.Fatalf("non-deterministic JSON output:\n--- first ---\n%s\n--- second ---\n%s",
 			first, second)
@@ -136,8 +148,8 @@ func TestSuggestedFixes_DeterministicSerialization(t *testing.T) {
 
 	// Cross-collector merge must preserve per-finding suggestion ordering.
 	mergedCols := mergedCollectorColumns(findings)
-	formatA := formatColumns(t, mergedCols)
-	formatB := formatColumns(t, mergedCols)
+	formatA := stripDurationMs(formatColumns(t, mergedCols))
+	formatB := stripDurationMs(formatColumns(t, mergedCols))
 	if !bytes.Equal(formatA, formatB) {
 		t.Fatalf("non-deterministic JSON output from merged collector")
 	}
@@ -193,8 +205,8 @@ func TestSuggestedFixes_ColdWarmRoundTrip(t *testing.T) {
 		t.Fatalf("unmarshal warm columns: %v", err)
 	}
 
-	coldJSON := formatColumns(t, &cold)
-	warmJSON := formatColumns(t, &warm)
+	coldJSON := stripDurationMs(formatColumns(t, &cold))
+	warmJSON := stripDurationMs(formatColumns(t, &warm))
 	if !bytes.Equal(coldJSON, warmJSON) {
 		t.Fatalf("cold vs warm JSON drift:\ncold: %s\nwarm: %s", coldJSON, warmJSON)
 	}

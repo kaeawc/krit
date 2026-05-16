@@ -25,9 +25,11 @@ vet:
 #   - java-support-coverage: rules declaring NeedsTypeInfo/NeedsResolver must
 #     carry an explicit Java LanguageSupport entry (existing rules are
 #     grandfathered; new ones must classify)
+#   - fix-mode-mutual-exclusion: every registered rule must declare exactly
+#     one fix mode (autofix XOR suggested), see docs/suggested-fixes.md
 lint-rules:
 	go test ./internal/ruleslinter/ -run 'TestRulesPackageHasNoCapabilityDrift|TestRulesPackageHasNoNewAdHocCaches|TestRulesPackageHasOptInReasons|TestRulesPackageHasNoDefensiveContextGuards' -count=1
-	go test ./internal/rules/ -run 'TestRulesWithTypeInfoDeclareExplicitJavaSupport' -count=1
+	go test ./internal/rules/ -run 'TestRulesWithTypeInfoDeclareExplicitJavaSupport|TestRegistryFixModeIsValid|TestRegistryFixModeIsObservable' -count=1
 
 lint: build
 	./krit .

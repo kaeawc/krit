@@ -57,6 +57,7 @@ nav:
   - Quickstart: quickstart.md
   - Configuration: configuration.md
   - Rules: rules.md
+  - Suggested fixes: suggested-fixes.md
   - Rule Scope: rule-scope.md
   - External Rules: external-rules.md
   - Integrations: integrations.md

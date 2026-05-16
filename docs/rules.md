@@ -47,6 +47,15 @@ Krit recognizes common Compose patterns without extra config:
 
 `krit --fix .` applies cosmetic + idiomatic. `krit --fix --fix-level=semantic .` applies everything. Use `--dry-run` to preview.
 
+## Suggested fixes
+
+A rule that cannot reduce to a single safe rewrite may instead emit
+**suggested fixes** — an ordered, user-selectable list. Autofix and
+suggested fixes are mutually exclusive per rule, and the order is
+rule-recommended. See [Suggested fixes](suggested-fixes.md) for the
+full contract, an authoring example, JSON shape, and integration
+guidance.
+
 ## Rule types (internals)
 
 - **Node-dispatched rules** — register `NodeTypes` and receive matching flat AST nodes.

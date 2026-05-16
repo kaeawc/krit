@@ -378,6 +378,14 @@ func TestFileWatcher_TouchPropagatesOnGradleWrite(t *testing.T) {
 
 // TestFileWatcher_DebounceEditorSavePattern verifies that three rapid events
 // for the same Kotlin file coalesce into a single Invalidate call.
+//
+// Events are injected directly via handle() rather than driven through
+// os.WriteFile + fsnotify. The OS-event path is already covered by
+// TestFileWatcher_InvalidatesOnWrite et al.; here we want to pin the
+// debounce-coalescing contract without taking a dependency on
+// fsnotify/kqueue delivery latency, which under -race + parallel test
+// load can stretch past a short debounce window and split the burst
+// into two timer firings (see issue #284 item 5).
 func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
 	root := t.TempDir()
 	ktPath := filepath.Join(root, "Foo.kt")
@@ -395,16 +403,17 @@ func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
 	defer w.Stop()
 	<-w.Ready()
 
-	// Simulate three Write+Write+Chmod events within 5ms — a typical
-	// editor save burst.
-	for range 3 {
-		if err := os.WriteFile(ktPath, []byte("fun a() { 1 }\n"), 0o644); err != nil {
-			t.Fatalf("rewrite: %v", err)
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
+	// Inject a typical editor save burst: Write+Write+Chmod within the
+	// debounce window. Chmod-only events are filtered upstream, so the
+	// burst is two Writes + one Chmod that still belongs to the same
+	// logical save. The debounce timer must coalesce these into a
+	// single Invalidate call.
+	w.handle(fsnotify.Event{Name: ktPath, Op: fsnotify.Write})
+	w.handle(fsnotify.Event{Name: ktPath, Op: fsnotify.Write})
+	w.handle(fsnotifyEventChmod(ktPath))
 
-	// Wait for the debounce window to fire (window + generous margin).
+	// Wait for the debounce timer to fire (window + generous margin
+	// for goroutine scheduling under -race).
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if state.invalidateCalls.Load() > 0 {
@@ -412,6 +421,8 @@ func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+	// Extra settle so a stray second timer firing would surface.
+	time.Sleep(2 * window)
 
 	if got := state.invalidateCalls.Load(); got != 1 {
 		t.Errorf("Invalidate called %d times, want 1 (debounce should coalesce burst)", got)
@@ -591,12 +602,13 @@ func TestFileWatcher_BumpsJavaSourceVersionOnJavaEdit(t *testing.T) {
 	if !waitForCondition(func() bool { return state.javaBumpCalls.Load() >= 1 }) {
 		t.Errorf("expected BumpJavaSourceVersion after .java edit, got %d", state.javaBumpCalls.Load())
 	}
-	// Sanity: a non-Java edit must NOT bump the Java counter.
+	// Sanity: a non-Java edit must NOT bump the Java counter. Inject
+	// the event directly via handle() so we don't race against
+	// delayed fsnotify deliveries for the .java write above — under
+	// -race a late duplicate Write for Foo.java could land after the
+	// reset and flake this assertion (see issue #284 item 5).
 	state.javaBumpCalls.Store(0)
-	if err := os.WriteFile(filepath.Join(root, "Bar.kt"), []byte("fun b() {}\n"), 0o644); err != nil {
-		t.Fatalf("write kt: %v", err)
-	}
-	time.Sleep(80 * time.Millisecond)
+	w.handle(fsnotify.Event{Name: filepath.Join(root, "Bar.kt"), Op: fsnotify.Write})
 	if got := state.javaBumpCalls.Load(); got != 0 {
 		t.Errorf("Kotlin edit must NOT bump Java counter; got %d", got)
 	}
@@ -627,12 +639,13 @@ func TestFileWatcher_BumpsXMLFilesVersionOnXMLEdit(t *testing.T) {
 	if !waitForCondition(func() bool { return state.xmlBumpCalls.Load() >= 1 }) {
 		t.Errorf("expected BumpXMLFilesVersion after .xml edit, got %d", state.xmlBumpCalls.Load())
 	}
-	// Sanity: a Kotlin edit must NOT bump the XML counter.
+	// Sanity: a Kotlin edit must NOT bump the XML counter. Inject the
+	// event directly via handle() so we don't race against delayed
+	// fsnotify deliveries for the .xml write above — under -race a
+	// late duplicate Write for layout.xml could land after the reset
+	// and flake this assertion (see issue #284 item 5).
 	state.xmlBumpCalls.Store(0)
-	if err := os.WriteFile(filepath.Join(root, "Bar.kt"), []byte("fun b() {}\n"), 0o644); err != nil {
-		t.Fatalf("write kt: %v", err)
-	}
-	time.Sleep(80 * time.Millisecond)
+	w.handle(fsnotify.Event{Name: filepath.Join(root, "Bar.kt"), Op: fsnotify.Write})
 	if got := state.xmlBumpCalls.Load(); got != 0 {
 		t.Errorf("Kotlin edit must NOT bump XML counter; got %d", got)
 	}

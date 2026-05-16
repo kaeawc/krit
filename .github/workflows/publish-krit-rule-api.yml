@@ -1,0 +1,89 @@
+name: Publish krit-rule-api
+
+# Publishes dev.jasonpearson.krit:krit-rule-api to Maven Central
+# (Sonatype Central Portal) on every v* tag, alongside the binary
+# release in release.yml.
+#
+# workflow_dispatch is also wired up so a maintainer can republish a
+# specific version (e.g. after a Central staging rejection) without
+# cutting a new git tag.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (without leading v). Defaults to the current tag.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        with:
+          distribution: zulu
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+        with:
+          cache-cleanup: on-success
+          validate-wrappers: true
+
+      # Derive the artifact version from the tag (vX.Y.Z → X.Y.Z) or
+      # the manual-dispatch input. Fail closed if neither is present
+      # so we never publish an accidental 0.0.0-SNAPSHOT as a release.
+      - name: Resolve publish version
+        id: version
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -n "${DISPATCH_VERSION:-}" ]; then
+            ver="${DISPATCH_VERSION}"
+          elif [[ "${GITHUB_REF_TYPE:-}" = "tag" ]] && [[ "${GITHUB_REF_NAME}" =~ ^v ]]; then
+            ver="${GITHUB_REF_NAME#v}"
+          else
+            echo "::error::No version available — workflow_dispatch needs an input and push must be a v* tag"
+            exit 1
+          fi
+          echo "version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "Publishing krit-rule-api version: ${ver}"
+
+      # Stage + publish in a single Gradle invocation so signing,
+      # javadoc/sources jars, POM generation, and the JVM cold start
+      # are paid once. The staging-dir publish runs first in the task
+      # graph and serves as a fail-fast check before the network
+      # publish to Central.
+      - name: Publish to Sonatype Central Portal
+        working-directory: tools/krit-rule-api
+        env:
+          KRIT_VERSION: ${{ steps.version.outputs.version }}
+          SIGNING_KEY: ${{ secrets.MAVEN_CENTRAL_SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.MAVEN_CENTRAL_SIGNING_PASSWORD }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon \
+            publishAllPublicationsToStagingDirRepository \
+            publishAllPublicationsToCentralPortalRepository
+
+      # Only upload the staged bundle on failure — it's a debug aid for
+      # diagnosing a rejected publish, not an archival artifact.
+      - name: Upload staged artifacts for inspection
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: krit-rule-api-${{ steps.version.outputs.version }}
+          path: tools/krit-rule-api/build/staging-deploy/
+          if-no-files-found: warn
+          retention-days: 14

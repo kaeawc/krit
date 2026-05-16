@@ -110,12 +110,18 @@ func TestTryDaemonDelegate_HashMismatchFallsBack(t *testing.T) {
 	}
 }
 
-// TestTryDaemonDelegate_FlagBlocksDelegation exercises the
-// compatibility filter: `--fix` (and friends) must not be silently
-// dispatched through the daemon since the daemon doesn't perform
-// file rewrites.
-func TestTryDaemonDelegate_FlagBlocksDelegation(t *testing.T) {
-	socketDir := startMockDaemon(t, mockBehavior{})
+// TestTryDaemonDelegate_FixRoutesViaDaemon confirms `--fix` now
+// delegates to the daemon: the daemon ships FindingColumns under
+// the optional "columns" wire segment and the CLI replays
+// fixer.ApplyAllFixesColumns locally so the "daemon never writes
+// user files" invariant holds. The mock daemon returns empty
+// columns, so the CLI's runDaemonFix short-circuits with an
+// "info: No auto-fixable issues found." line; the assertion here
+// is on the routing (handled=true), not the message.
+func TestTryDaemonDelegate_FixRoutesViaDaemon(t *testing.T) {
+	socketDir := startMockDaemon(t, mockBehavior{
+		columns: `{"n":0}`,
+	})
 	root := newRoot(t)
 	linkSock(t, root, filepath.Join(socketDir, "d.sock"))
 
@@ -123,8 +129,8 @@ func TestTryDaemonDelegate_FlagBlocksDelegation(t *testing.T) {
 	*f.Fix = true
 
 	handled, _ := tryDaemonDelegate(f, []string{root}, root)
-	if handled {
-		t.Fatalf("expected fall-through with --fix; got handled=true")
+	if !handled {
+		t.Fatalf("expected handled=true with --fix routed through daemon; got fall-through")
 	}
 }
 
@@ -201,6 +207,11 @@ type mockBehavior struct {
 	rejectHash    bool
 	findings      string
 	findingsCount int
+	// columns, when non-empty, populates AnalyzeProjectResult.Columns
+	// so callers can exercise the daemon-routed --fix / --rule-audit /
+	// --baseline-audit / --delta / --remove-dead-code paths that
+	// consume the optional FindingColumns wire segment.
+	columns string
 }
 
 // startMockDaemon spins up a minimal server with status, shutdown,
@@ -236,10 +247,14 @@ func startMockDaemon(t *testing.T, b mockBehavior) string {
 		if findings == "" {
 			findings = `{"rules":[],"line":[]}`
 		}
-		return daemon.AnalyzeProjectResult{
+		result := daemon.AnalyzeProjectResult{
 			Findings: json.RawMessage(findings),
 			Stats:    daemon.AnalyzeProjectStats{FindingsCount: b.findingsCount},
-		}, nil
+		}
+		if b.columns != "" {
+			result.Columns = json.RawMessage(b.columns)
+		}
+		return result, nil
 	})
 	if err := srv.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
@@ -389,9 +404,17 @@ func TestDaemonCompatibleFlags_PerfAllowed(t *testing.T) {
 		{"--profile-dispatch", func(f *scanFlags) { *f.ProfileDispatch = true }, true},
 		{"--cpuprofile", func(f *scanFlags) { *f.CPUProfile = "/tmp/cpu.pprof" }, true},
 		{"--memprofile", func(f *scanFlags) { *f.MemProfile = "/tmp/mem.pprof" }, true},
-		{"--fix", func(f *scanFlags) { *f.Fix = true }, false},
-		{"--fix-binary", func(f *scanFlags) { *f.FixBinary = true }, false},
-		{"--remove-dead-code", func(f *scanFlags) { *f.RemoveDeadCode = true }, false},
+		// --fix, --fix-binary, --remove-dead-code are daemon-served:
+		// the daemon ships FindingColumns on the wire under the
+		// optional "columns" segment (no fixes applied daemon-side
+		// because args.Fix / args.FixBinary are not forwarded across
+		// the wire), and the CLI replays fixer.ApplyAllFixesColumns /
+		// fixer.ApplyBinaryFixesBatchColumns / RunDeadCodeRemovalColumns
+		// locally, preserving the "daemon never writes user files"
+		// invariant.
+		{"--fix", func(f *scanFlags) { *f.Fix = true }, true},
+		{"--fix-binary", func(f *scanFlags) { *f.FixBinary = true }, true},
+		{"--remove-dead-code", func(f *scanFlags) { *f.RemoveDeadCode = true }, true},
 		// --no-cache rides on AnalyzeProjectArgs.NoCache; daemon
 		// nils its on-disk cache pointers for the call but stays
 		// the right place to serve it.
@@ -586,11 +609,12 @@ func startMockClearCacheDaemon(t *testing.T, cleared bool) string {
 }
 
 // TestBuildDaemonAnalyzeArgs_ForwardsIncludeColumns confirms each
-// column-consuming flag (--rule-audit, --baseline-audit, --delta)
-// flips AnalyzeProjectArgs.IncludeColumns to true so the daemon
-// emits the post-pipeline FindingColumns under the optional
-// "columns" wire segment. Other flag sets keep it false to preserve
-// the original {findings,stats[,dispatch_profile]} envelope.
+// column-consuming flag (--rule-audit, --baseline-audit, --delta,
+// --fix, --fix-binary, --remove-dead-code) flips
+// AnalyzeProjectArgs.IncludeColumns to true so the daemon emits the
+// post-pipeline FindingColumns under the optional "columns" wire
+// segment. Other flag sets keep it false to preserve the original
+// {findings,stats[,dispatch_profile]} envelope.
 func TestBuildDaemonAnalyzeArgs_ForwardsIncludeColumns(t *testing.T) {
 	tests := []struct {
 		name string
@@ -602,6 +626,9 @@ func TestBuildDaemonAnalyzeArgs_ForwardsIncludeColumns(t *testing.T) {
 		{"--baseline-audit", func(f *scanFlags) { *f.BaselineAudit = true }, true},
 		{"--delta", func(f *scanFlags) { *f.Delta = "main" }, true},
 		{"--rule-audit and --delta", func(f *scanFlags) { *f.RuleAudit = true; *f.Delta = "main" }, true},
+		{"--fix", func(f *scanFlags) { *f.Fix = true }, true},
+		{"--fix-binary", func(f *scanFlags) { *f.FixBinary = true }, true},
+		{"--remove-dead-code", func(f *scanFlags) { *f.RemoveDeadCode = true }, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

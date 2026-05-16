@@ -5,6 +5,7 @@ import (
 
 	climabihash "github.com/kaeawc/krit/internal/cli/abihash"
 	climapi "github.com/kaeawc/krit/internal/cli/api"
+	climapplysuggestion "github.com/kaeawc/krit/internal/cli/applysuggestion"
 	climbisect "github.com/kaeawc/krit/internal/cli/bisect"
 	climblastradius "github.com/kaeawc/krit/internal/cli/blastradius"
 	climbreakage "github.com/kaeawc/krit/internal/cli/breakage"
@@ -79,6 +80,7 @@ const (
 	verbBisectStructure
 	verbDeltaRisk
 	verbTraces
+	verbApplySuggestion
 )
 
 var verbByName = map[string]subcommandVerb{
@@ -118,6 +120,7 @@ var verbByName = map[string]subcommandVerb{
 	"bisect-structure":   verbBisectStructure,
 	"delta-risk":         verbDeltaRisk,
 	"traces":             verbTraces,
+	"apply-suggestion":   verbApplySuggestion,
 }
 
 func classifyVerb(arg string) subcommandVerb {
@@ -222,6 +225,8 @@ func runVerbAndExitC(verb subcommandVerb, rest []string) bool {
 	switch verb {
 	case verbTraces:
 		os.Exit(climtraces.Run(rest))
+	case verbApplySuggestion:
+		os.Exit(climapplysuggestion.Run(rest))
 	}
 	return false
 }

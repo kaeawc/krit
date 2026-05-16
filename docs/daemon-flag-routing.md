@@ -132,8 +132,9 @@ larger change than wiring a flag through.
 `--baseline-audit` and `--rule-audit` are **now routed via daemon**. The
 daemon emits an optional `columns` segment in the analyze-project response
 when `AnalyzeProjectArgs.IncludeColumns` is true (the CLI sets it whenever
-`--baseline-audit`, `--rule-audit`, or `--delta` is present). The CLI
-deserialises the segment into a `*scanner.FindingColumns` and replays
+`--baseline-audit`, `--rule-audit`, `--delta`, `--fix`, `--fix-binary`,
+or `--remove-dead-code` is present). The CLI deserialises the segment
+into a `*scanner.FindingColumns` and replays
 `RunBaselineAuditColumns` (`internal/cli/scan/baseline_audit.go:34`) /
 `RunRuleAuditColumns` (`internal/cli/scan/rule_audit.go:75`) locally,
 producing the same audit output the in-process flow does. The non-audit
@@ -141,6 +142,45 @@ common path stays on the original `{findings,stats[,dispatch_profile]}`
 envelope: the `columns` field is `omitempty` and the fast-scan response
 decoder treats it as another optional segment after `dispatch_profile`
 (see `scanOptionalColumns` in `internal/daemon/response_scan.go`).
+
+## Fixes that ship with the analysis
+
+`--fix`, `--fix-binary`, and `--remove-dead-code` are **now routed via
+daemon**. The same `columns` wire segment used by `--rule-audit` /
+`--baseline-audit` / `--delta` carries the post-pipeline
+`FindingColumns` — which serialise `FixPool` / `BinaryFixPool`
+alongside the finding rows (see `internal/scanner/findings_json.go`)
+— so no new fix-payload schema was required. The CLI flips
+`IncludeColumns=true` in `buildDaemonAnalyzeArgs` whenever any of the
+three flags is set.
+
+The daemon-side pipeline never invokes `FixupPhase` apply because
+`args.Fix` / `args.FixBinary` are not forwarded across the wire —
+`runFixupPhase` (`internal/pipeline/project.go`) short-circuits when
+none of `Fix`, `FixBinary`, `DryRun` is set, returning the raw
+`CrossFileResult` unchanged. CLI-side replay:
+
+- `runDaemonFix` (`internal/cli/scan/daemon_fix.go`) decodes the
+  columns, runs `pipeline.FixupPhase{}` locally with
+  `Apply=*f.Fix && !*f.DryRun`, `ApplyBinary=*f.FixBinary`, and the
+  resolved `MaxFixLevel`, then replays the same
+  `info: Applied N fix(es)…` / `info: %d binary fix(es) applied.`
+  lines `runner.printFixupResult` emits in-process. The same short-
+  circuit conditions (`--output==""`, `--format=json`, `--report==""`,
+  `--fix`) drive an early return with exit code 0 / 1; otherwise the
+  daemon-routed flow re-renders the post-strip columns through
+  `pipeline.OutputPhase` locally so the findings emit matches the
+  in-process flow.
+
+- `runDaemonRemoveDeadCode` decodes the columns and calls
+  `RunDeadCodeRemovalColumns(cols, format, *f.DryRun, *f.FixSuffix)`
+  — the same entry point the in-process `applyBaselinesAndDiff` uses.
+
+This preserves the "daemon never writes user files" invariant: every
+`os.WriteFile`, `os.Rename`, and `cwebp` / `optipng` subprocess
+launched by `fixer.ApplyAllFixesColumns` /
+`fixer.ApplyBinaryFixesBatchColumns` runs with the CLI's CWD and
+permissions, not the daemon's.
 
 ## Oracle I/O & sampling
 

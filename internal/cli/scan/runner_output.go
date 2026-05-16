@@ -7,6 +7,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func (r *runner) printVerboseBanner() {
@@ -33,44 +34,59 @@ func (r *runner) printVerboseBanner() {
 }
 
 func (r *runner) printFixupResult(fixRes pipeline.FixupResult) {
+	printFixupResult(r.f, fixRes, r.start)
+}
+
+func (r *runner) printBinaryFixResult(fixRes pipeline.FixupResult) {
+	printBinaryFixResult(r.f, fixRes)
+}
+
+// printFixupResult is the runner-independent fixup reporter. The
+// daemon-routed --fix path uses it too so the user-visible info /
+// dry-run / applied lines stay byte-identical regardless of which
+// path executed the scan.
+func printFixupResult(f *scanFlags, fixRes pipeline.FixupResult, start time.Time) {
 	fixableCount := fixRes.FixableCount
 	strippedByLevel := fixRes.StrippedByLevel
 	if fixableCount == 0 {
-		if !*r.f.Quiet {
+		if !*f.Quiet {
 			if strippedByLevel > 0 {
 				fmt.Fprintf(os.Stderr, "info: No auto-fixable issues at level %s. %d fix(es) available at higher levels (use --fix-level=semantic).\n",
-					*r.f.FixLevel, strippedByLevel)
+					*f.FixLevel, strippedByLevel)
 			} else {
 				fmt.Fprintln(os.Stderr, "info: No auto-fixable issues found.")
 			}
 		}
 		return
 	}
-	if *r.f.DryRun {
-		r.printDryRunFixResult(fixableCount)
+	if *f.DryRun {
+		printDryRunFixResult(f, &fixRes.Findings, fixableCount)
 	} else {
-		r.printAppliedFixResult(fixRes)
+		printAppliedFixResult(f, fixRes, start)
 	}
 }
 
-func (r *runner) printDryRunFixResult(fixableCount int) {
+// printDryRunFixResult prints one file per line (the files with at
+// least one available text fix) plus the summary line. Iterates the
+// post-strip columns so the file list reflects the MaxFixLevel cap.
+func printDryRunFixResult(f *scanFlags, cols *scanner.FindingColumns, fixableCount int) {
 	seen := make(map[string]bool)
-	for row := 0; row < r.allColumns.Len(); row++ {
-		if !r.allColumns.HasFix(row) {
+	for row := 0; row < cols.Len(); row++ {
+		if !cols.HasFix(row) {
 			continue
 		}
-		file := r.allColumns.FileAt(row)
+		file := cols.FileAt(row)
 		if !seen[file] {
 			seen[file] = true
 			fmt.Println(file)
 		}
 	}
-	if !*r.f.Quiet {
+	if !*f.Quiet {
 		fmt.Fprintf(os.Stderr, "info: %d fix(es) available across %d file(s).\n", fixableCount, len(seen))
 	}
 }
 
-func (r *runner) printAppliedFixResult(fixRes pipeline.FixupResult) {
+func printAppliedFixResult(f *scanFlags, fixRes pipeline.FixupResult, start time.Time) {
 	binarySet := make(map[error]bool, len(fixRes.BinaryErrors))
 	for _, e := range fixRes.BinaryErrors {
 		binarySet[e] = true
@@ -81,26 +97,26 @@ func (r *runner) printAppliedFixResult(fixRes pipeline.FixupResult) {
 		}
 		fmt.Fprintf(os.Stderr, "error: %v\n", e)
 	}
-	if !*r.f.Quiet {
+	if !*f.Quiet {
 		suffix := "in place"
-		if *r.f.FixSuffix != "" {
-			suffix = "with suffix '" + *r.f.FixSuffix + "'"
+		if *f.FixSuffix != "" {
+			suffix = "with suffix '" + *f.FixSuffix + "'"
 		}
 		fmt.Fprintf(os.Stderr, "info: Applied %d fix(es) across %d file(s) %s in %v.\n",
-			fixRes.TextApplied, len(fixRes.ModifiedFiles), suffix, time.Since(r.start).Round(time.Millisecond))
+			fixRes.TextApplied, len(fixRes.ModifiedFiles), suffix, time.Since(start).Round(time.Millisecond))
 	}
 }
 
-func (r *runner) printBinaryFixResult(fixRes pipeline.FixupResult) {
-	if !*r.f.FixBinary {
+func printBinaryFixResult(f *scanFlags, fixRes pipeline.FixupResult) {
+	if !*f.FixBinary {
 		return
 	}
 	for _, e := range fixRes.BinaryErrors {
 		fmt.Fprintf(os.Stderr, "error: binary fix: %v\n", e)
 	}
-	if fixRes.BinaryApplied > 0 && !*r.f.Quiet {
+	if fixRes.BinaryApplied > 0 && !*f.Quiet {
 		mode := "applied"
-		if *r.f.DryRun {
+		if *f.DryRun {
 			mode = "available"
 		}
 		fmt.Fprintf(os.Stderr, "info: %d binary fix(es) %s.\n", fixRes.BinaryApplied, mode)

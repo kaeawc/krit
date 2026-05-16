@@ -118,8 +118,24 @@ func dispatchDaemonShortCircuits(f *scanFlags, paths []string, res daemon.Analyz
 		return true, runDaemonRuleAudit(f, paths, res.Columns)
 	case *f.BaselineAudit:
 		return true, runDaemonBaselineAudit(f, paths, res.Columns)
+	case *f.RemoveDeadCode:
+		// --remove-dead-code mirrors the in-process
+		// applyBaselinesAndDiff short-circuit: take the daemon-
+		// shipped columns, run BuildPlanColumns + Apply locally so
+		// the daemon never edits user source, and emit the
+		// dry-run / apply report.
+		return true, runDaemonRemoveDeadCode(f, paths, res.Columns)
 	case *f.Delta != "":
 		return true, runDaemonDelta(f, paths, res.Columns)
+	case *f.Fix || *f.FixBinary:
+		// --fix / --fix-binary mirror the in-process runFixup path:
+		// the daemon ships post-pipeline FindingColumns (no fixes
+		// applied daemon-side because args.Fix/FixBinary are not on
+		// the wire), and the CLI replays
+		// fixer.ApplyAllFixesColumns /
+		// fixer.ApplyBinaryFixesBatchColumns locally with the
+		// user's --fix-level cap.
+		return runDaemonFix(f, paths, res)
 	}
 	return false, 0
 }
@@ -501,21 +517,24 @@ func daemonAutoStartDisabled() bool {
 // add filesystem side-effects to a long-lived service); only the
 // current-tree scan and the delta diff step are daemon-routable.
 //
-// --fix, --fix-binary, and --remove-dead-code stay in-process. Each
-// would need a separate fix-payload-over-the-wire design where the
-// daemon serialises text edits / binary operations and the CLI replays
-// them; the existing fix application code path is intertwined with
-// per-rule context that doesn't currently survive serialisation. Land
-// those in follow-up PRs once a payload schema exists.
+// --fix, --fix-binary, and --remove-dead-code are now daemon-
+// compatible too. No new wire schema was required: the daemon already
+// ships the post-pipeline FindingColumns (FixPool / BinaryFixPool
+// included) under AnalyzeProjectResult.Columns when
+// AnalyzeProjectArgs.IncludeColumns is true, and the daemon-side
+// pipeline never invokes FixupPhase apply because args.Fix /
+// args.FixBinary are not forwarded across the wire. The CLI replays
+// fixer.ApplyAllFixesColumns / fixer.ApplyBinaryFixesBatchColumns /
+// RunDeadCodeRemovalColumns against the deserialised columns locally
+// (see runDaemonFix / runDaemonRemoveDeadCode), preserving the
+// "daemon never writes user files" invariant — every os.WriteFile
+// / os.Rename still happens with the CLI's CWD and permissions.
 func daemonCompatibleFlags(f *scanFlags) bool {
-	mutating := []bool{*f.Fix, *f.RemoveDeadCode, *f.FixBinary}
 	meta := []bool{*f.Init, *f.Doctor, *f.Version, *f.List, *f.ValidateConfig, *f.GenerateSchema,
 		*f.OracleFilterFingerprint, *f.ListExperiments}
-	for _, group := range [][]bool{mutating, meta} {
-		for _, on := range group {
-			if on {
-				return false
-			}
+	for _, on := range meta {
+		if on {
+			return false
 		}
 	}
 	strs := []string{*f.Completions,
@@ -565,11 +584,12 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 	if *f.CreateBaseline != "" {
 		baselinePath = ""
 	}
-	// --rule-audit / --baseline-audit / --delta need the post-pipeline
-	// FindingColumns shipped back so the CLI can run the audit or
-	// delta filter locally. The daemon ships the columns alongside
-	// the normal findings JSON only when IncludeColumns is true so
-	// non-audit / non-delta scans stay on the original
+	// --rule-audit / --baseline-audit / --delta / --fix / --fix-binary
+	// / --remove-dead-code need the post-pipeline FindingColumns
+	// shipped back so the CLI can run the audit / delta filter / fix
+	// application locally. The daemon ships the columns alongside the
+	// normal findings JSON only when IncludeColumns is true so non-
+	// column-consuming scans stay on the original
 	// {findings,stats[,dispatch_profile]} wire shape.
 	//
 	// Also force JSON format when --rule-audit's caller picked a
@@ -577,7 +597,8 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 	// directly and discards the findings JSON, but the daemon still
 	// streams it. --baseline-audit / --delta tolerate any format on
 	// the daemon side because the bytes are discarded the same way.
-	includeColumns := *f.RuleAudit || *f.BaselineAudit || *f.Delta != ""
+	includeColumns := *f.RuleAudit || *f.BaselineAudit || *f.Delta != "" ||
+		*f.Fix || *f.FixBinary || *f.RemoveDeadCode
 	return daemon.AnalyzeProjectArgs{
 		Paths:            paths,
 		Format:           format,

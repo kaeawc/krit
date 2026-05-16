@@ -157,8 +157,9 @@ type ProjectHostState struct {
 	// cache. ParsePhase checks it before any disk read. See
 	// ParseInput.ResidentFiles.
 	ResidentFiles ResidentFileCache
-	// PrebuiltResolver, when non-nil, short-circuits resolver
-	// construction inside IndexPhase. The daemon keeps one resident.
+	// PrebuiltResolver, when non-nil, lets IndexPhase skip resolver
+	// construction and reuse a daemon-resident TypeResolver. The daemon
+	// keeps one resident across calls.
 	PrebuiltResolver typeinfer.TypeResolver
 	// PrebuiltLibraryFacts, when non-nil, is forwarded to rule
 	// contexts instead of being rebuilt from detected Gradle files.
@@ -211,8 +212,8 @@ type ProjectHostState struct {
 	// files, so mismatches force a complete rebuild rather than a
 	// stale-entry leak. *WorkspaceState satisfies this interface.
 	ResolverCache ResolverCache
-	// ResolverFingerprintCache, when non-nil, short-circuits the
-	// resolverFingerprint compute that gates ResolverCache. The
+	// ResolverFingerprintCache, when non-nil, lets the host return a
+	// cached resolverFingerprint instead of recomputing it. The
 	// fingerprint hashes every Kotlin file's content; on the kotlin
 	// corpus that's ~135 ms even when the resolver itself is cached.
 	// The cache returns the prior fingerprint when no source-path
@@ -242,12 +243,12 @@ type ProjectHostState struct {
 	// covers that case.
 	GradleFindingsCache func(key string, build func() scanner.FindingColumns) scanner.FindingColumns
 	// BundleStatsClean / MarkBundleStatsClean are the daemon's
-	// watcher-gated short-circuit for the manifest fileStatsMatch
-	// sweep. When BundleStatsClean(key) returns true, preparseBundle-
-	// FingerprintTracked skips the 18k os.Stat syscalls — the
-	// watcher has guaranteed nothing changed since the last
-	// successful match. Either both are nil (CLI path / first
-	// daemon call) or both are set together. *WorkspaceState
+	// watcher-gated cache for the manifest fileStatsMatch sweep. When
+	// BundleStatsClean(key) returns true, preparseBundleFingerprintTracked
+	// skips the 18k os.Stat syscalls — the watcher has guaranteed
+	// nothing changed since the last successful match, so the sweep
+	// result is necessarily true. Either both are nil (CLI path /
+	// first daemon call) or both are set together. *WorkspaceState
 	// satisfies the contract.
 	BundleStatsClean     func(bundleKey string) bool
 	MarkBundleStatsClean func(bundleKey string, version uint64)
@@ -259,11 +260,12 @@ type ProjectHostState struct {
 	SourceMTimeVersion func() uint64
 	// BundleOutput / StoreBundleOutput are the daemon-side cache for
 	// pre-formatted bundle-hit JSON. When BundleOutput(key) returns
-	// non-nil, the bundle-hit OutputPhase short-circuit emits the
-	// cached findings bytes verbatim and rebuilds only the dynamic
-	// envelope fields (durationMs, perf stats). Skips ~24 ms of
-	// json.Marshal-equivalent byte concatenation on every warm
-	// analyze. *WorkspaceState satisfies both signatures.
+	// non-nil, the bundle-hit OutputPhase reuses the cached findings
+	// bytes verbatim and rebuilds only the dynamic envelope fields
+	// (durationMs, perf stats). Saves ~24 ms of json.Marshal-equivalent
+	// byte concatenation on every warm analyze, and on a hit before
+	// the bundle Load it also avoids ~11 ms of zstd+gob decode.
+	// *WorkspaceState satisfies both signatures.
 	BundleOutput      func(bundleKey string) *CachedBundleOutput
 	StoreBundleOutput func(bundleKey string, output *CachedBundleOutput)
 	// CrossFileCacheDir, when non-empty, enables the on-disk cross-file
@@ -1447,24 +1449,26 @@ type dispatchTimings struct {
 }
 
 // runDispatchOrLoadBundle resolves dispatch + cross-file findings via
-// four increasingly conservative paths:
+// four cache layers, tried from most-precise to fall-through:
 //
-//  1. Full-fingerprint Load. RunFingerprint identical to a prior run →
-//     replay cached bundle, skip dispatch + cross-file entirely.
-//  2. Structural reuse. Prior manifest exists, planner says exactly 1 file
-//     changed + every non-SourceSet fingerprint field is stable →
-//     load the prior bundle, save an alias under the current content
-//     fingerprint, and skip dispatch + cross-file entirely.
-//  3. Delta path fallback. If structural reuse cannot save the alias,
-//     dispatch only on the changed file, re-run cross-file, filter
-//     replacement to the changed path, ApplyDelta against the prior
-//     bundle.
-//  4. Full dispatch. Normal DispatchPhase + CrossFilePhase.
-//
-// Structural reuse is the load-bearing #55 perf win for body-only
-// Kotlin edits: the source content hash moves, but the cross-file
-// structural fingerprint remains stable, so the whole findings bundle
-// can be replayed.
+//  1. cacheHitFullBundle: RunFingerprint identical to a prior run.
+//     The findings-bundle store has bytes for this exact key, so we
+//     replay them and skip dispatch + cross-file entirely.
+//  2. cacheHitStructuralBundle: prior manifest exists, the conservative
+//     delta planner says exactly one file changed, and every non-
+//     SourceSet fingerprint field is stable. The prior bundle is still
+//     correct under the new SourceSet hash (body-only Kotlin edit), so
+//     we load it, save an alias under the current key, and skip
+//     dispatch + cross-file entirely. This is the load-bearing #55
+//     win for body-only edits.
+//  3. cacheHitDeltaBundle: structural reuse cannot save the alias, but
+//     the planner still believes a single-file delta is safe. Dispatch
+//     runs only on the changed file, cross-file re-runs, the
+//     replacement is filtered to the changed path, and ApplyDelta
+//     merges against the prior bundle. Bundle "hit" is false because
+//     we paid dispatch work, even though most findings come from cache.
+//  4. cacheMissFullDispatch: no cache layer applies. Normal
+//     DispatchPhase + CrossFilePhase.
 func runDispatchOrLoadBundle(
 	ctx context.Context,
 	args ProjectArgs,
@@ -1475,46 +1479,39 @@ func runDispatchOrLoadBundle(
 	bundleEnabled bool,
 	manifest deltaManifestData,
 ) (DispatchResult, CrossFileResult, bool, dispatchTimings, error) {
-	// Track the bundle-fast-paths so --perf shows where a warm
-	// "nothing structurally changed" analyze spends its 100-300 ms —
-	// most of it is the disk-backed bundle Load. Without these
-	// scopes the post-parse bundle hit shows up as unattributed time
-	// under crossFileAnalysis (the parent scope opened in
-	// runProjectIndexPhase wraps the entire IndexPhase + dispatch
-	// flow, so a bundle hit halfway through leaves a "gap" with no
-	// children for the user to investigate).
+	// Each bundle-cache layer gets its own perf scope so --perf can
+	// show where a warm "nothing structurally changed" analyze spends
+	// its 100-300 ms — most of it is the disk-backed bundle Load.
+	// Without these scopes the post-parse bundle hit shows up as
+	// unattributed time under crossFileAnalysis (the parent scope
+	// opened in runProjectIndexPhase wraps the entire IndexPhase +
+	// dispatch flow, so a bundle hit halfway through leaves a "gap"
+	// with no children for the user to investigate).
 	tracker := host.Tracker
 	tracked := tracker != nil && tracker.IsEnabled()
 	if bundleEnabled {
-		var cached *scanner.FindingColumns
-		var ok bool
-		loadFn := func() {
-			cached, ok = host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, runFP)
+		// cacheHitFullBundle: RunFingerprint matches a prior run
+		// exactly; the prior bytes are guaranteed correct for this
+		// request.
+		if d, c, ok := tryBundleLayer(tracker, tracked, "dispatchBundleLoad", indexResult, func() (*scanner.FindingColumns, bool) {
+			cached, found := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, runFP)
+			return cached, found
+		}); ok {
+			return d, c, true, dispatchTimings{}, nil
 		}
-		if tracked {
-			tracker.TrackVoid("dispatchBundleLoad", loadFn)
-		} else {
-			loadFn()
-		}
-		if ok && cached != nil {
-			d := DispatchResult{IndexResult: indexResult, Findings: *cached}
-			return d, CrossFileResult{DispatchResult: d}, true, dispatchTimings{}, nil
-		}
-		var stableCached *scanner.FindingColumns
-		var stableOK bool
-		stableFn := func() {
-			stableCached, stableOK = tryLoadStructurallyStableBundle(host, runFP, manifest)
-		}
-		if tracked {
-			tracker.TrackVoid("dispatchStableBundleLoad", stableFn)
-		} else {
-			stableFn()
-		}
-		if stableOK && stableCached != nil {
-			d := DispatchResult{IndexResult: indexResult, Findings: *stableCached}
-			return d, CrossFileResult{DispatchResult: d}, true, dispatchTimings{}, nil
+		// cacheHitStructuralBundle: SourceSet hash drifted but every
+		// other fingerprint field is stable and the planner says a
+		// single body-only edit. Prior bundle replays under a new
+		// alias.
+		if d, c, ok := tryBundleLayer(tracker, tracked, "dispatchStableBundleLoad", indexResult, func() (*scanner.FindingColumns, bool) {
+			return tryLoadStructurallyStableBundle(host, runFP, manifest)
+		}); ok {
+			return d, c, true, dispatchTimings{}, nil
 		}
 		reportFindingsBundleMiss(host, manifest, runFP)
+		// cacheHitDeltaBundle: no bundle replay possible, but the
+		// conservative delta planner still believes single-file
+		// dispatch + ApplyDelta against the prior bundle is safe.
 		var deltaD DispatchResult
 		var deltaC CrossFileResult
 		var deltaOK bool
@@ -1547,6 +1544,35 @@ func runDispatchOrLoadBundle(
 		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, fmt.Errorf("crossfile: %w", err)
 	}
 	return d, c, false, dispatchTimings{dispatchMs: dispatchMs, crossFileMs: crossMs}, nil
+}
+
+// tryBundleLayer wraps a single bundle-cache lookup in its own perf
+// scope and packages the (cached → DispatchResult/CrossFileResult)
+// adaptation that both the full-fingerprint and structural-reuse
+// layers need. Returns (_, _, false) when the layer misses (caller
+// falls through to the next layer); returns (d, c, true) when the
+// cached FindingColumns is non-nil and the caller should short-return
+// with bundleHit=true.
+func tryBundleLayer(
+	tracker perf.Tracker,
+	tracked bool,
+	scope string,
+	indexResult IndexResult,
+	load func() (*scanner.FindingColumns, bool),
+) (DispatchResult, CrossFileResult, bool) {
+	var cached *scanner.FindingColumns
+	var ok bool
+	fn := func() { cached, ok = load() }
+	if tracked {
+		tracker.TrackVoid(scope, fn)
+	} else {
+		fn()
+	}
+	if !ok || cached == nil {
+		return DispatchResult{}, CrossFileResult{}, false
+	}
+	d := DispatchResult{IndexResult: indexResult, Findings: *cached}
+	return d, CrossFileResult{DispatchResult: d}, true
 }
 
 func tryLoadStructurallyStableBundle(host ProjectHostState, runFP scanner.RunFingerprint, manifest deltaManifestData) (*scanner.FindingColumns, bool) {
@@ -1651,13 +1677,13 @@ func tryLoadFindingsBundleBeforeParse(
 		return ProjectResult{}, false, nil
 	}
 
-	// Fast-fast path: when the formatted-output cache already has
-	// bytes for this fingerprint we can skip the 30 MB
-	// FindingsBundleStore.Load entirely (~11 ms zstd+gob decode).
-	// The cached bytes are derived purely from the (FindingColumns,
-	// active rules) pair the fingerprint already encodes, so by
+	// cacheHitBundleOutput (pre-Load): when the formatted-output cache
+	// already has bytes for this fingerprint we can skip the 30 MB
+	// FindingsBundleStore.Load entirely (~11 ms zstd+gob decode). The
+	// cached bytes are a pure function of the (FindingColumns, active
+	// rules) pair that the fingerprint already encodes, so by
 	// definition they're valid for this request. Eligibility mirrors
-	// the format-cache fast path's filter preconditions below.
+	// the post-Load BundleOutput cache hit below.
 	if canUseBundleOutputCache(args, host) {
 		if cachedOut := host.BundleOutput(scanner.FindingsBundleKey(fp)); cachedOut != nil {
 			if bundleTracker != nil {
@@ -1775,9 +1801,9 @@ func emitBundleHitOutput(
 	}, true, nil
 }
 
-// canUseBundleOutputCache reports whether the bundle-hit fast path
-// (cached findings JSON + handwritten envelope) is safe for this
-// request. The cached bytes are derived purely from the
+// canUseBundleOutputCache reports whether the BundleOutput cache
+// (cached findings JSON + handwritten envelope) is safe to consult
+// for this request. The cached bytes are a pure function of the
 // FindingColumns + active rules — anything that mutates the
 // post-bundle column set (baseline filter, diff filter, severity
 // promotion, min-confidence threshold) makes them incorrect, so
@@ -1848,10 +1874,10 @@ func serveBundleHitFromOutputCache(
 		return ProjectResult{}, true, fmt.Errorf("output: %w", err)
 	}
 	// FinalFindings carries the decoded columns when available
-	// (cache miss path that just built them). On the fast-fast
-	// path where we skipped the bundle Load, the caller doesn't
-	// need the column data — only FindingsCount, which we read
-	// from out2.Total.
+	// (cache miss path that just built them). On the pre-Load
+	// BundleOutput cache hit where we skipped the bundle Load, the
+	// caller doesn't need the column data — only FindingsCount,
+	// which we read from out2.Total.
 	var finalFindings scanner.FindingColumns
 	if cached != nil {
 		finalFindings = *cached
@@ -1982,10 +2008,12 @@ func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, t
 	}
 	var statsOK bool
 	track("fileStatsMatch", func() {
-		// Daemon fast path: when the watcher hasn't seen a source-
-		// path event since the last successful sweep AND the cache
-		// records a clean version for this manifest, the sweep
-		// result is necessarily true. Skip the 18k os.Stat calls.
+		// BundleStatsClean cache hit: when the watcher hasn't seen a
+		// source-path event since the last successful sweep AND the
+		// cache records a clean version for this manifest, the sweep
+		// result is necessarily true — every file stat we would
+		// re-check is still the one the prior sweep verified. Skip
+		// the 18k os.Stat calls.
 		if host.BundleStatsClean != nil && host.BundleStatsClean(key) {
 			statsOK = true
 			return
@@ -2398,8 +2426,9 @@ func crossFileStructuralFingerprint(kotlinFiles, javaFiles []*scanner.File, prio
 }
 
 // sourceSetFingerprint hashes sorted (path, content-hash) tuples of
-// every parsed Kotlin and Java file. Same prior/dirty short-circuit
-// shape as crossFileStructuralFingerprint.
+// every parsed Kotlin and Java file. Same prior/dirty reuse shape as
+// crossFileStructuralFingerprint: unchanged paths take their hash
+// verbatim from prior, only dirty paths get rehashed.
 func sourceSetFingerprint(kotlinFiles, javaFiles []*scanner.File, prior map[string]string, dirty map[string]bool) string {
 	entries := make([]string, 0, len(kotlinFiles)+len(javaFiles))
 	add := func(f *scanner.File) {

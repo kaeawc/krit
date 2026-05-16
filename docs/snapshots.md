@@ -296,6 +296,74 @@ When changing the on-disk shape of a `Blob`, `Metrics`, or
    migrator; readers from older krit versions refuse to read v(N+1)
    data with the upgrade hint above.
 
+## Bisect-structure: explaining breakages
+
+Snapshots are the substrate. On top of them, the `breakage`,
+`bisect-structure`, and `delta-risk` verbs turn the timeline into a
+failure-localization layer: given a failure (test, build, runtime, or
+a krit-finding regression), point at the commit *and* the structural
+change that pushed the codebase into the failure mode, with a
+confidence score.
+
+### Recording events
+
+```bash
+# Ingest a JUnit XML report from CI
+krit breakage record --kind junit --from junit.xml --commit "$SHA"
+
+# Ingest `go test -json` output
+go test -json ./... | krit breakage record --kind gotest --commit "$SHA"
+
+# Or hand-write `{events: [...]}` JSON
+krit breakage record --kind generic --from events.json --commit "$SHA"
+
+# List what's stored
+krit breakage list
+```
+
+Events live in `.krit/snapshots/breakage_events.json` next to the
+captured manifests, deduplicated by `HashID(kind, signature, sha,
+source)` so re-ingesting the same CI run is idempotent.
+
+A `krit snapshot capture` on a commit that introduces new findings
+also writes synthetic `krit-finding-regression` events automatically —
+self-bootstrap. No external integration is required to start
+producing signal.
+
+### Bisecting
+
+```bash
+krit bisect-structure --from <good-sha> --to <bad-sha> --event <id>
+```
+
+The output is a ranked list of `(commit, module, reason, confidence)`
+candidates fused across four tiers:
+
+| Tier | Signal                                                          | Prior |
+|------|-----------------------------------------------------------------|-------|
+| 1    | Stack frame maps to a symbol in the snapshot graph              | 0.95  |
+| 2    | Test file owns module (parallel `src/test` / `src/androidTest`) | 0.85  |
+| 3    | Symbol/module touched in the diff between adjacent snapshots    | 0.60  |
+| 4    | Historical co-occurrence — module previously implicated         | 0.50  |
+
+Each tier contributes signals independently; the dispatcher takes the
+max prior per `(commit, module)` bucket and boosts by the number of
+agreeing tiers. `--max-results` caps the candidate list (default 10),
+`--format json` emits the full structure.
+
+### Delta-risk
+
+```bash
+krit delta-risk --from <sha> --to <sha>
+```
+
+Without a specific event, score a structural delta against historical
+breakage patterns. The candidate vector is per-module deltas in LOC,
+fan-in/fan-out, cyclomatic complexity, files, symbols, and
+public-API surface; the score is the maximum cosine similarity
+against any historical event's delta vector. Higher means the current
+delta looks more like a previously-recorded breakage.
+
 ## MCP
 
 The `snapshot` MCP tool exposes the read-only operations to AI agents:

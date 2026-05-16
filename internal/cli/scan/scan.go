@@ -288,6 +288,9 @@ func Run() int {
 
 	ctx := context.Background()
 	repoDir := oracle.FindRepoDir(flag.Args())
+	if tryDaemonClearCache(f, repoDir) {
+		return 0
+	}
 	if handled, code := tryDaemonDelegate(f, flag.Args(), repoDir); handled {
 		return code
 	}

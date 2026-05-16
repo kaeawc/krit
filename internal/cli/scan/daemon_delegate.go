@@ -198,6 +198,38 @@ func runDaemonSampleRule(f *scanFlags, paths []string, findingsJSON []byte) int 
 	return RunSampleFindingsColumns(columns, *f.SampleRule, *f.SampleCount, *f.SampleContext, basePath)
 }
 
+// tryDaemonClearCache routes --clear-cache through a running daemon
+// when one is reachable. Returning true means the daemon performed
+// the clear and the caller should exit 0; false means the caller
+// falls back to in-process clear-cache (which still works when no
+// daemon is up). --clear-matrix-cache stays in-process: the matrix
+// cache lives in ~/.cache/krit and the daemon binary doesn't link
+// the registration code, so there's nothing for it to coordinate.
+func tryDaemonClearCache(f *scanFlags, repoDir string) bool {
+	if f == nil || *f.NoDaemon || !*f.ClearCache {
+		return false
+	}
+	client, ok := daemonclient.TryConnect(repoDir, *f.DaemonSocket)
+	if !ok {
+		return false
+	}
+	res, err := client.ClearCache(daemon.ClearCacheArgs{})
+	if err != nil {
+		if daemonclient.IsBinaryHashMismatch(err) {
+			fmt.Fprintf(os.Stderr, "warning: krit daemon rejected request (%v); falling back to in-process. Restart it with: krit daemon restart\n", err)
+			return false
+		}
+		fmt.Fprintf(os.Stderr, "warning: krit daemon clear-cache failed (%v); falling back to in-process\n", err)
+		return false
+	}
+	if res.Cleared {
+		fmt.Fprintln(os.Stderr, "info: Cache cleared (via daemon).")
+	} else {
+		fmt.Fprintln(os.Stderr, "info: Cache clear completed with errors (via daemon).")
+	}
+	return true
+}
+
 // daemonCompatibleFlags reports whether the requested flag set can be
 // served by the daemon's analyze-project verb. Modes that write files,
 // invoke profiling, or run meta commands stay on the in-process path.
@@ -223,8 +255,14 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 	meta := []bool{*f.Init, *f.Doctor, *f.Version, *f.List, *f.ValidateConfig, *f.GenerateSchema,
 		*f.BaselineAudit, *f.RuleAudit, *f.OracleFilterFingerprint, *f.ListExperiments}
 	profiling := []bool{*f.ProfileDispatch}
-	cacheOps := []bool{*f.NoCache, *f.ClearCache, *f.ClearMatrixCache}
-	for _, group := range [][]bool{mutating, meta, profiling, cacheOps} {
+	// --no-cache, --clear-cache, --clear-matrix-cache are now daemon-
+	// routable: --no-cache rides on AnalyzeProjectArgs.NoCache (the
+	// daemon nils every disk-cache pointer for this single call), the
+	// two clear-* flags are handled by tryDaemonCacheClear before
+	// tryDaemonDelegate runs (early-exit verbs that also drop the
+	// daemon's resident WorkspaceState slots so the next analyze
+	// rebuilds from cold).
+	for _, group := range [][]bool{mutating, meta, profiling} {
 		for _, on := range group {
 			if on {
 				return false
@@ -285,6 +323,7 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		ShowPerf:         *f.Perf || *f.PerfRules,
 		PerfRules:        *f.PerfRules,
 		InputTypesPath:   inputTypesPath,
+		NoCache:          *f.NoCache,
 		ClientBinaryHash: daemonclient.CurrentBinaryHash(),
 	}
 }

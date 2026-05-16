@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/config"
@@ -272,6 +273,13 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 	if repoDir == "" {
 		repoDir = s.root
 	}
+	// --no-cache disables every on-disk cache for this single call:
+	// parse cache, AnalysisCache, findings bundle store, cross-file/
+	// findings/type-index disk shards. Resident WorkspaceState slots
+	// stay live — they're per-process memory keyed on input
+	// fingerprints, so a no-cache call can reuse them without
+	// dirtying state for subsequent calls. The next analyze without
+	// NoCache resumes normal cache behavior.
 	parseCache, err := s.parseCacheFor(repoDir, cacheutil.DefaultParseCacheCapBytes)
 	if err != nil {
 		// A failed parse cache isn't fatal — RunProject tolerates
@@ -281,12 +289,21 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 		// read-only.
 		parseCache = nil
 	}
+	if args.NoCache {
+		parseCache = nil
+	}
 
 	// AnalysisCache is daemon-resident: lazy-loaded on first request,
 	// keyed by the resolved cache file path so distinct scan-path sets
 	// don't share an entry. DispatchPhase will merge new findings into
 	// it and persist to disk on each call.
-	analysisCache, analysisCachePath := s.analysisCacheFor(paths)
+	var (
+		analysisCache     *cache.Cache
+		analysisCachePath string
+	)
+	if !args.NoCache {
+		analysisCache, analysisCachePath = s.analysisCacheFor(paths)
+	}
 
 	// OracleDaemon is daemon-resident: lazy-started on first request
 	// when krit-types.jar is found. nil daemon means oracle stays
@@ -324,6 +341,31 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 	var perfTracker perf.Tracker
 	if args.ShowPerf || args.PerfRules {
 		perfTracker = perf.New(true)
+	}
+
+	// Disk-cache wiring: --no-cache nils every on-disk cache pointer
+	// for this single call. Resident WorkspaceState slots stay live
+	// because they're keyed on input fingerprints — reuse is
+	// idempotent and a no-cache call cannot dirty them for subsequent
+	// calls.
+	var (
+		crossFileCacheDir     = scanner.CrossFileCacheDir(repoDir)
+		crossFindingsCacheDir = scanner.CrossFindingsCacheDir(repoDir)
+		typeIndexCacheDir     = typeinfer.TypeIndexCacheDir(repoDir)
+		findingsBundleStore   scanner.FindingsBundleStore
+		findingsBundleRoot    string
+		manifestLoader        pipeline.FindingsBundleManifestLoader
+		manifestSaver         pipeline.FindingsBundleManifestSaver
+	)
+	if !args.NoCache {
+		findingsBundleStore = scanner.DiskFindingsBundleStore{}
+		findingsBundleRoot = repoDir
+		manifestLoader = s.loadManifest
+		manifestSaver = s.saveManifest
+	} else {
+		crossFileCacheDir = ""
+		crossFindingsCacheDir = ""
+		typeIndexCacheDir = ""
 	}
 
 	return pipeline.ProjectInput{
@@ -369,18 +411,18 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			SourceMTimeVersion:           s.workspace.SourceMTimeVersion,
 			BundleOutput:                 s.workspace.BundleOutput,
 			StoreBundleOutput:            s.workspace.StoreBundleOutput,
-			CrossFileCacheDir:            scanner.CrossFileCacheDir(repoDir),
-			CrossFindingsCacheDir:        scanner.CrossFindingsCacheDir(repoDir),
-			TypeIndexCacheDir:            typeinfer.TypeIndexCacheDir(repoDir),
+			CrossFileCacheDir:            crossFileCacheDir,
+			CrossFindingsCacheDir:        crossFindingsCacheDir,
+			TypeIndexCacheDir:            typeIndexCacheDir,
 			ResidentFileTypeInfo:         s.workspace,
 			AnalysisCache:                analysisCache,
 			AnalysisCacheFilePath:        analysisCachePath,
 			AnalysisCacheLookup:          analysisCache != nil,
 			OracleDaemon:                 oracleDaemon,
-			FindingsBundleStore:          scanner.DiskFindingsBundleStore{},
-			FindingsBundleCacheRoot:      repoDir,
-			FindingsBundleManifestLoader: s.loadManifest,
-			FindingsBundleManifestSaver:  s.saveManifest,
+			FindingsBundleStore:          findingsBundleStore,
+			FindingsBundleCacheRoot:      findingsBundleRoot,
+			FindingsBundleManifestLoader: manifestLoader,
+			FindingsBundleManifestSaver:  manifestSaver,
 			PriorContentHashes:           priorManifest.ContentHashes,
 			PriorStructuralFPs:           priorManifest.StructuralFPs,
 		},

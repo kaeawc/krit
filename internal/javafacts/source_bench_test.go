@@ -4,15 +4,16 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/corpustest"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // BenchmarkSourceIndexKey_LargeCorpus measures the key-computation
 // cost SourceIndexForFiles pays on every call — including warm
 // cache hits, since the key has to be computed before the lookup.
-// The kotlin corpus has ~2k Java files; this bench builds a
-// synthetic equivalent so the measurement doesn't depend on a
-// real ~/github/kotlin checkout.
+// The Kotlin compiler corpus has ~2k Java files; this bench builds
+// a synthetic equivalent so the measurement doesn't depend on a
+// real checkout.
 func BenchmarkSourceIndexKey_LargeCorpus(b *testing.B) {
 	files := buildSyntheticJavaFiles(2000, 5000)
 	b.ResetTimer()
@@ -54,9 +55,10 @@ func BenchmarkSourceIndexForFiles_WarmHit_WithKotlin(b *testing.B) {
 
 func buildSyntheticKotlinFiles(n int) []*scanner.File {
 	out := make([]*scanner.File, n)
+	corpus := corpustest.KotlinCorpusPath()
 	for i := 0; i < n; i++ {
 		out[i] = &scanner.File{
-			Path:     fmt.Sprintf("/Users/jason/github/kotlin/some/kotlin/File%d.kt", i),
+			Path:     fmt.Sprintf("%s/some/kotlin/File%d.kt", corpus, i),
 			Language: scanner.LangKotlin,
 			Content:  []byte("package demo\nclass C\n"),
 		}
@@ -70,9 +72,10 @@ func buildSyntheticJavaFiles(n, contentBytes int) []*scanner.File {
 	for i := range content {
 		content[i] = byte('A' + (i % 26))
 	}
+	corpus := corpustest.KotlinCorpusPath()
 	for i := 0; i < n; i++ {
 		out[i] = &scanner.File{
-			Path:     fmt.Sprintf("/Users/jason/github/kotlin/some/dir/File%d.java", i),
+			Path:     fmt.Sprintf("%s/some/dir/File%d.java", corpus, i),
 			Language: scanner.LangJava,
 			Content:  content,
 		}

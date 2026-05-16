@@ -9,14 +9,15 @@ import (
 
 // BenchmarkJSONUnmarshal_LargeFindingsEnvelope measures the per-call
 // cost of decoding the daemon's response envelope when the embedded
-// Data field carries a 30 MB findings JSON. The kotlin-corpus warm
-// baseline pays this every analyze even on a bundle hit, so a hand-
-// rolled framed-binary wire (Data length prefix + raw bytes) would
-// remove this from the critical path.
+// Data field carries a 30 MB findings JSON. The Kotlin compiler
+// corpus warm baseline pays this every analyze even on a bundle
+// hit, so a hand-rolled framed-binary wire (Data length prefix +
+// raw bytes) would remove this from the critical path.
 func BenchmarkJSONUnmarshal_LargeFindingsEnvelope(b *testing.B) {
-	// Synthesize a Response payload roughly mirroring the ~/github/kotlin
-	// warm baseline: ~30 MB of findings JSON inside the daemon's
-	// {"ok":true,"data":{"findings":...,"stats":...}} envelope.
+	// Synthesize a Response payload roughly mirroring the Kotlin
+	// compiler corpus warm baseline: ~30 MB of findings JSON inside
+	// the daemon's {"ok":true,"data":{"findings":...,"stats":...}}
+	// envelope.
 	findings := bytes.Repeat([]byte(`{"file":"src/dir/File.kt","line":42,"col":1,"ruleSet":"style","rule":"MaxLineLength","severity":"warning","message":"Line exceeds maximum length","fixable":false,"confidence":0.75},`), 87_000)
 	findings = findings[:len(findings)-1] // trim trailing comma
 	body := `{"findings":[` + string(findings) + `],"stats":{"ok":true}}`

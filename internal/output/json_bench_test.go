@@ -7,14 +7,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kaeawc/krit/internal/corpustest"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // BenchmarkFormatJSONColumns_LargeCorpus measures the per-finding cost
 // of the JSON formatter against a synthetic 87,000-finding payload,
-// matching the warm-bundle output size on ~/github/kotlin. Reflection-
-// based json.Marshal dominates wall-time here, so a hand-written
-// finding encoder would show up immediately as a delta on this bench.
+// matching the warm-bundle output size on the Kotlin compiler corpus.
+// Reflection-based json.Marshal dominates wall-time here, so a hand-
+// written finding encoder would show up immediately as a delta on
+// this bench.
 func BenchmarkFormatJSONColumns_LargeCorpus(b *testing.B) {
 	cols := buildSyntheticColumns(87_000)
 	b.ResetTimer()
@@ -66,9 +68,10 @@ func BenchmarkFormatJSONColumns_Discard(b *testing.B) {
 
 func buildSyntheticColumns(n int) *scanner.FindingColumns {
 	collector := scanner.NewFindingCollector(n)
+	corpus := corpustest.KotlinCorpusPath()
 	for i := 0; i < n; i++ {
 		f := scanner.Finding{
-			File:       fmt.Sprintf("/Users/jason/github/kotlin/some/dir/File%d.kt", i%2000),
+			File:       fmt.Sprintf("%s/some/dir/File%d.kt", corpus, i%2000),
 			Line:       i%500 + 1,
 			Col:        i%80 + 1,
 			RuleSet:    pickRuleSet(i),

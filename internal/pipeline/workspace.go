@@ -98,6 +98,18 @@ type WorkspaceState struct {
 	cachedJavaSourceIndex   *javafacts.SourceIndex
 	cachedJavaSourceVersion uint64
 
+	codeIndexSnapshotMu sync.Mutex
+	// codeIndexSnapshot is the last successfully built *CodeIndex,
+	// retained across watcher invalidations of the fingerprint-keyed
+	// codeIndex slot. scanner.BuildIndexCachedWithPrior consults it
+	// via a host-provided loader so an overlay rebuild reuses the
+	// in-memory prior instead of re-decoding the ~1M-symbol payload
+	// from disk (~2.6 s on the kotlin corpus). BuildIndexIncremental
+	// mutates the prior in place; per-project analyze serialization
+	// keeps readers from observing a half-mutated snapshot.
+	codeIndexSnapshot     *scanner.CodeIndex
+	codeIndexSnapshotMeta scanner.CrossFileCacheMeta
+
 	resolverFpMu sync.Mutex
 	// cachedResolverFp is the last computed resolverFingerprint
 	// string, valid while cachedResolverFpVersion ==
@@ -449,6 +461,10 @@ func (w *WorkspaceState) InvalidateAll() {
 	w.cachedResolverFp = ""
 	w.cachedResolverFpPresent = false
 	w.resolverFpMu.Unlock()
+	w.codeIndexSnapshotMu.Lock()
+	w.codeIndexSnapshot = nil
+	w.codeIndexSnapshotMeta = scanner.CrossFileCacheMeta{}
+	w.codeIndexSnapshotMu.Unlock()
 }
 
 // LibraryFacts returns the cached *librarymodel.Facts when its
@@ -790,6 +806,46 @@ func (w *WorkspaceState) Resolver(fingerprint string, build func() typeinfer.Typ
 	}
 	w.xfileMu.Unlock()
 	return v
+}
+
+// LoadCodeIndexSnapshot returns the daemon's last-successfully-built
+// CodeIndex plus the meta it was built from. The third return value
+// is false when no snapshot has been stored yet. Unlike the
+// fingerprint-keyed CodeIndex slot, this snapshot survives watcher
+// invalidations — scanner.BuildIndexCachedWithPrior uses it to skip
+// the disk decode of the prior payload during the overlay rebuild.
+//
+// Callers must NOT mutate the returned index outside the
+// scanner.BuildIndexIncremental code path that is documented to
+// adopt the prior in place. The daemon's per-project analyze mutex
+// keeps that mutation exclusive to one in-flight build.
+func (w *WorkspaceState) LoadCodeIndexSnapshot() (*scanner.CodeIndex, scanner.CrossFileCacheMeta, bool) {
+	if w == nil {
+		return nil, scanner.CrossFileCacheMeta{}, false
+	}
+	w.codeIndexSnapshotMu.Lock()
+	defer w.codeIndexSnapshotMu.Unlock()
+	if w.codeIndexSnapshot == nil {
+		return nil, scanner.CrossFileCacheMeta{}, false
+	}
+	return w.codeIndexSnapshot, w.codeIndexSnapshotMeta, true
+}
+
+// StoreCodeIndexSnapshot records the just-built CodeIndex and its
+// meta as the new resident snapshot. The daemon's runCodeIndexBuild
+// calls this on every successful BuildIndexCachedWithPrior return so
+// the next analyze can skip the disk decode of the prior payload.
+//
+// nil idx clears the snapshot — useful for InvalidateAll-style
+// resets when the workspace state itself becomes stale.
+func (w *WorkspaceState) StoreCodeIndexSnapshot(idx *scanner.CodeIndex, meta scanner.CrossFileCacheMeta) {
+	if w == nil {
+		return
+	}
+	w.codeIndexSnapshotMu.Lock()
+	w.codeIndexSnapshot = idx
+	w.codeIndexSnapshotMeta = meta
+	w.codeIndexSnapshotMu.Unlock()
 }
 
 // ResolverFingerprint returns the resolver fingerprint string,

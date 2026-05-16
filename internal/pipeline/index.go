@@ -79,6 +79,19 @@ type IndexInput struct {
 	// calls. Forwarded to IndexResult so CrossFilePhase consults it
 	// before calling scanner.BuildIndex.
 	CodeIndexCache CodeIndexCache
+	// CodeIndexSnapshotLoader returns the daemon-resident prior
+	// CodeIndex (and its meta) when one exists. runCodeIndexBuild
+	// passes it to scanner.BuildIndexCachedWithPrior so the overlay
+	// rebuild path can skip its ~2.6 s gob decode of the on-disk
+	// prior payload. nil disables the fast path and the legacy
+	// disk-decode branch runs.
+	CodeIndexSnapshotLoader func() (*scanner.CodeIndex, scanner.CrossFileCacheMeta, bool)
+	// CodeIndexSnapshotSaver records the just-built CodeIndex and
+	// meta as the new daemon-resident snapshot. Called by
+	// runCodeIndexBuild after every successful build. nil is
+	// allowed (no snapshot is retained — disables the fast path
+	// for future calls).
+	CodeIndexSnapshotSaver func(*scanner.CodeIndex, scanner.CrossFileCacheMeta)
 	// JavaSourceIndexCache wires the daemon's resident
 	// *javafacts.SourceIndex cache through to CrossFilePhase. See
 	// IndexResult.JavaSourceIndexCache for semantics.
@@ -1128,7 +1141,7 @@ func (p IndexPhase) runCodeIndexBuild(in IndexInput, result *IndexResult) {
 		indexTracker := crossTracker.Serial("indexBuild")
 		if in.CrossFileCacheDir != "" {
 			var hit bool
-			codeIndex, hit = scanner.BuildIndexCached(in.CrossFileCacheDir, parsedFiles, crossWorkers, indexTracker, parsedJavaFiles...)
+			codeIndex, hit = scanner.BuildIndexCachedWithPrior(in.CrossFileCacheDir, parsedFiles, crossWorkers, in.CodeIndexSnapshotLoader, in.CodeIndexSnapshotSaver, indexTracker, parsedJavaFiles...)
 			if in.Verbose {
 				if hit {
 					in.logf("verbose: Cross-file index cache: HIT\n")

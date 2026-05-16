@@ -97,8 +97,24 @@ func shouldUseCrossFileOverlay(prev CrossFileCacheMeta, current []fingerprintEnt
 	return len(meta.OverlayEntries)+len(meta.RemovedPayloadPaths) <= crossFileOverlayMaxEntries
 }
 
-func buildIndexFromPriorOverlay(cacheDir string, entries []fingerprintEntry, files []*File, javaFiles []*File, xmlFiles []*xmlCacheFile, workers int, tracker perf.Tracker) (*CodeIndex, bool) {
-	priorIdx, priorMeta, ok := LoadCurrentCrossFileCacheIndex(cacheDir)
+func buildIndexFromPriorOverlay(cacheDir string, entries []fingerprintEntry, files []*File, javaFiles []*File, xmlFiles []*xmlCacheFile, workers int, priorLoader PriorIndexLoader, tracker perf.Tracker) (*CodeIndex, bool) {
+	var priorIdx *CodeIndex
+	var priorMeta CrossFileCacheMeta
+	var ok bool
+	var loaderHit bool
+	if priorLoader != nil {
+		// Daemon fast path: skip the ~2.6 s gob decode of the prior
+		// payload when the same process built it last analyze. The
+		// loader returns the resident pointer; BuildIndexIncremental
+		// mutates it in place — the daemon's per-project mutex
+		// serializes us with any other reader.
+		if loaded, loadedMeta, loaderOk := priorLoader(); loaderOk && loaded != nil && len(loadedMeta.Entries) > 0 {
+			priorIdx, priorMeta, ok, loaderHit = loaded, loadedMeta, true, true
+		}
+	}
+	if !ok {
+		priorIdx, priorMeta, ok = LoadCurrentCrossFileCacheIndex(cacheDir)
+	}
 	if !ok || len(priorMeta.Entries) == 0 {
 		return nil, false
 	}
@@ -117,8 +133,14 @@ func buildIndexFromPriorOverlay(cacheDir string, entries []fingerprintEntry, fil
 	meta.KotlinFiles = len(files)
 	meta.JavaFiles = len(javaFiles)
 	meta.XMLFiles = len(xmlFiles)
-	if _, _, ok := loadCrossFileOverlayEntries(cacheDir, meta.OverlayEntries); !ok {
-		return nil, false
+	// Overlay entries are kept on disk so a future process can also
+	// reuse them. When we came from a resident-prior loader, the disk
+	// overlay state may not include the overlay entries we need; in
+	// that case fall back to a fresh full build by reporting miss.
+	if !loaderHit {
+		if _, _, overlayOk := loadCrossFileOverlayEntries(cacheDir, meta.OverlayEntries); !overlayOk {
+			return nil, false
+		}
 	}
 	if err := SaveCrossFileCacheOverlay(cacheDir, fingerprintCrossFileEntries(entries), meta, idx); err != nil {
 		return nil, false

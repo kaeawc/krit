@@ -184,6 +184,20 @@ type ProjectHostState struct {
 	// the disk-backed cross-file cache (CrossFileCacheDir) and finally
 	// to scanner.BuildIndex. *WorkspaceState satisfies this interface.
 	CodeIndexCache CodeIndexCache
+	// CodeIndexSnapshotLoader returns the daemon-resident prior
+	// CodeIndex along with the meta it was built from, surviving
+	// every watcher invalidation of CodeIndexCache. runCodeIndexBuild
+	// hands it to scanner.BuildIndexCachedWithPrior so an overlay
+	// rebuild reuses the in-memory prior instead of paying the
+	// ~2.6 s disk decode on every .kt edit.
+	// *WorkspaceState.LoadCodeIndexSnapshot satisfies the shape.
+	CodeIndexSnapshotLoader func() (*scanner.CodeIndex, scanner.CrossFileCacheMeta, bool)
+	// CodeIndexSnapshotSaver records the just-built CodeIndex and
+	// meta as the new daemon-resident snapshot. Called after every
+	// successful BuildIndexCachedWithPrior so the next analyze sees
+	// it via the loader.
+	// *WorkspaceState.StoreCodeIndexSnapshot satisfies the shape.
+	CodeIndexSnapshotSaver func(*scanner.CodeIndex, scanner.CrossFileCacheMeta)
 	// JavaSourceIndexCache, when non-nil, lets CrossFilePhase short-
 	// circuit the ~100 ms content-hash key SourceIndexForFiles otherwise
 	// computes on every warm call. The watcher's .java events drive
@@ -745,6 +759,8 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		PrebuiltAndroidProject:   host.PrebuiltAndroidProject,
 		LibraryFactsCache:        host.LibraryFactsCache,
 		CodeIndexCache:           host.CodeIndexCache,
+		CodeIndexSnapshotLoader:  host.CodeIndexSnapshotLoader,
+		CodeIndexSnapshotSaver:   host.CodeIndexSnapshotSaver,
 		JavaSourceIndexCache:     host.JavaSourceIndexCache,
 		ResolverCache:            host.ResolverCache,
 		ResolverFingerprintCache: host.ResolverFingerprintCache,

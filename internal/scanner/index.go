@@ -90,6 +90,40 @@ func BuildIndex(files []*File, workers int, javaFiles ...*File) *CodeIndex {
 // the result is written back. Returns the index and a bool reporting
 // whether the cache was hit.
 func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.Tracker, javaFiles ...*File) (*CodeIndex, bool) {
+	return BuildIndexCachedWithPrior(cacheDir, files, workers, nil, nil, tracker, javaFiles...)
+}
+
+// PriorIndexLoader returns the most-recent CodeIndex and its meta when
+// the daemon has one resident in memory. A nil loader (or a loader
+// that returns ok=false) falls back to LoadCurrentCrossFileCacheIndex's
+// disk decode — the legacy path. The resident-prior path avoids the
+// ~2.6s gob decode of a 1M-symbol payload on every .kt-edit-triggered
+// overlay rebuild.
+type PriorIndexLoader func() (*CodeIndex, CrossFileCacheMeta, bool)
+
+// SnapshotSaver, when non-nil, is invoked by BuildIndexCachedWithPrior
+// after every successful build with the just-built index and its
+// fingerprint-keyed meta. The daemon supplies its
+// WorkspaceState.StoreCodeIndexSnapshot so the next analyze's
+// PriorIndexLoader sees the new resident snapshot. nil disables the
+// callback — non-daemon callers ignore it.
+type SnapshotSaver func(idx *CodeIndex, meta CrossFileCacheMeta)
+
+// BuildIndexCachedWithPrior is BuildIndexCached with an optional
+// in-memory prior-index loader and a snapshot-save callback. When the
+// loader returns a hit, the overlay rebuild path uses the supplied
+// prior instead of loading the payload from disk. After a successful
+// build the saver (when non-nil) records the new index + meta so the
+// next call's loader can short-circuit again.
+//
+// Important: BuildIndexIncremental mutates the prior pointer in place
+// (adds symbols, replaces lookup maps). Callers that share the prior
+// with concurrent readers must serialize access externally. The daemon
+// already serializes per-project analyze under a single mutex so the
+// resident snapshot is exclusive to the in-flight build.
+//
+// nil loader + nil saver restores legacy BuildIndexCached behavior.
+func BuildIndexCachedWithPrior(cacheDir string, files []*File, workers int, priorLoader PriorIndexLoader, saver SnapshotSaver, tracker perf.Tracker, javaFiles ...*File) (*CodeIndex, bool) {
 	if cacheDir == "" {
 		return BuildIndexWithTracker(files, workers, tracker, javaFiles...), false
 	}
@@ -105,17 +139,32 @@ func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.
 	xmlFiles := loadXMLFilesForCache(files)
 	entries := crossFileFingerprintEntries(files, javaFiles, xmlFiles)
 	fingerprint := fingerprintCrossFileEntries(entries)
+	snapshotMeta := func() CrossFileCacheMeta {
+		return CrossFileCacheMeta{
+			Fingerprint: fingerprint,
+			KotlinFiles: len(files),
+			JavaFiles:   len(javaFiles),
+			XMLFiles:    len(xmlFiles),
+			Entries:     append([]fingerprintEntry(nil), entries...),
+		}
+	}
 
 	// Warm path: full payload hit via unpackFull (includes lookup maps).
 	if cachedIdx, ok := LoadCrossFileCacheIndex(cacheDir, fingerprint); ok {
 		cachedIdx.Files = appendSourceFiles(cachedIdx.Files, files, javaFiles)
 		cachedIdx.Fingerprint = fingerprint
+		if saver != nil {
+			saver(cachedIdx, snapshotMeta())
+		}
 		return cachedIdx, true
 	}
 
-	if idx, ok := buildIndexFromPriorOverlay(cacheDir, entries, files, javaFiles, xmlFiles, workers, tracker); ok {
+	if idx, ok := buildIndexFromPriorOverlay(cacheDir, entries, files, javaFiles, xmlFiles, workers, priorLoader, tracker); ok {
 		idx.Files = appendSourceFiles(idx.Files, files, javaFiles)
 		idx.Fingerprint = fingerprint
+		if saver != nil {
+			saver(idx, snapshotMeta())
+		}
 		return idx, false
 	}
 
@@ -136,6 +185,9 @@ func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.
 	}
 	// Best-effort persistence; any error just means the next run rebuilds.
 	_ = SaveCrossFileCacheIndex(cacheDir, fingerprint, meta, idx)
+	if saver != nil {
+		saver(idx, snapshotMeta())
+	}
 	return idx, false
 }
 

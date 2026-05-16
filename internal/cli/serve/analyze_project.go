@@ -354,6 +354,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			Tracker:                      perfTracker,
 			LibraryFactsCache:            s.workspace.LibraryFacts,
 			CodeIndexCache:               s.workspace.CodeIndex,
+			JavaSourceIndexCache:         s.workspace.JavaSourceIndex,
 			ResolverCache:                s.workspace.Resolver,
 			OracleFilterCache:            s.workspace.OracleFilter,
 			AndroidProjectCache:          s.workspace.AndroidProject,

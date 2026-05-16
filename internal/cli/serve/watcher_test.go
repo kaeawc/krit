@@ -26,6 +26,7 @@ func fsnotifyEventChmod(path string) fsnotify.Event {
 type countingState struct {
 	invalidateCalls atomic.Int64
 	bumpCalls       atomic.Int64
+	javaBumpCalls   atomic.Int64
 }
 
 func (c *countingState) Invalidate(path string)  { c.invalidateCalls.Add(1) }
@@ -36,6 +37,7 @@ func (c *countingState) InvalidateResolver()     {}
 func (c *countingState) InvalidateOracleFilter() {}
 func (c *countingState) Touch(path string)       {}
 func (c *countingState) BumpSourceMTimeVersion() { c.bumpCalls.Add(1) }
+func (c *countingState) BumpJavaSourceVersion()  { c.javaBumpCalls.Add(1) }
 
 // waitForCondition polls fn every 5ms up to 2s. Returns true when fn
 // turns true; false on timeout. Used to bridge the async fsnotify
@@ -507,6 +509,7 @@ func (c *chmodFilterCountingState) InvalidateResolver()     {}
 func (c *chmodFilterCountingState) InvalidateOracleFilter() {}
 func (c *chmodFilterCountingState) Touch(string)            {}
 func (c *chmodFilterCountingState) BumpSourceMTimeVersion() { c.bumpCalls.Add(1) }
+func (c *chmodFilterCountingState) BumpJavaSourceVersion()  {}
 
 // TestFileWatcher_BumpsMTimeVersionOnKotlinEdit asserts the watcher
 // drives the daemon-resident stats-clean memo: a real .kt edit must
@@ -558,5 +561,40 @@ func TestFileWatcher_BumpsMTimeVersionOnGradleEdit(t *testing.T) {
 	}
 	if !waitForCondition(func() bool { return state.bumpCalls.Load() >= 1 }) {
 		t.Errorf("expected BumpSourceMTimeVersion after gradle edit, got %d", state.bumpCalls.Load())
+	}
+}
+
+// TestFileWatcher_BumpsJavaSourceVersionOnJavaEdit pins the
+// .java-event hook. The watcher must invoke BumpJavaSourceVersion
+// (the daemon's javafacts.SourceIndex invalidation signal) on any
+// .java file event so the next analyze rebuilds the Java source
+// index instead of serving stale facts from the resident cache.
+func TestFileWatcher_BumpsJavaSourceVersionOnJavaEdit(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "Foo.java")
+	if err := os.WriteFile(path, []byte("class Foo {}\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	state := &countingState{}
+	w, err := startFileWatcherWithState(context.Background(), root, state, nil)
+	if err != nil {
+		t.Fatalf("startFileWatcher: %v", err)
+	}
+	defer w.Stop()
+
+	if err := os.WriteFile(path, []byte("class Foo2 {}\n"), 0o644); err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+	if !waitForCondition(func() bool { return state.javaBumpCalls.Load() >= 1 }) {
+		t.Errorf("expected BumpJavaSourceVersion after .java edit, got %d", state.javaBumpCalls.Load())
+	}
+	// Sanity: a non-Java edit must NOT bump the Java counter.
+	state.javaBumpCalls.Store(0)
+	if err := os.WriteFile(filepath.Join(root, "Bar.kt"), []byte("fun b() {}\n"), 0o644); err != nil {
+		t.Fatalf("write kt: %v", err)
+	}
+	time.Sleep(80 * time.Millisecond)
+	if got := state.javaBumpCalls.Load(); got != 0 {
+		t.Errorf("Kotlin edit must NOT bump Java counter; got %d", got)
 	}
 }

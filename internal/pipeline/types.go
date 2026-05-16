@@ -311,6 +311,14 @@ type IndexResult struct {
 	// pass on warm calls. Nil means no in-memory cache. *WorkspaceState
 	// satisfies this interface.
 	CodeIndexCache CodeIndexCache
+	// JavaSourceIndexCache, when non-nil, lets CrossFilePhase consult a
+	// daemon-resident *javafacts.SourceIndex slot before paying
+	// SourceIndexForFiles' ~100 ms content-hash key build on every
+	// warm call. The callback receives a build func and returns either
+	// the cached slot (when the watcher's javaSourceVersion is still
+	// current) or the build's result. *WorkspaceState's
+	// JavaSourceIndex method satisfies this signature.
+	JavaSourceIndexCache func(build func() *javafacts.SourceIndex) *javafacts.SourceIndex
 	// WarmCrossFindings carries cross-rule findings loaded before
 	// parsing on an all-files analysis-cache hit.
 	WarmCrossFindings *scanner.FindingColumns

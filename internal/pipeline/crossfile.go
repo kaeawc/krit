@@ -150,6 +150,18 @@ func (p CrossFilePhase) runCrossPhase(ctx context.Context, in DispatchResult, co
 	crossTracker := in.CrossFileParentTracker
 	var javaSourceIndex *javafacts.SourceIndex
 	buildJavaSourceIndex := func() {
+		// Daemon fast path: when the watcher hasn't seen any .java
+		// event since the last successful build, return the cached
+		// *SourceIndex without paying SourceIndexForFiles' ~100 ms
+		// content-hash key construction. The wrapper takes the
+		// build closure so a cache miss still produces a valid
+		// index for the live parsedFiles set.
+		if in.JavaSourceIndexCache != nil {
+			javaSourceIndex = in.JavaSourceIndexCache(func() *javafacts.SourceIndex {
+				return javaSourceIndexForParsedFiles(parsedFiles)
+			})
+			return
+		}
 		javaSourceIndex = javaSourceIndexForParsedFiles(parsedFiles)
 	}
 	if crossTracker != nil {

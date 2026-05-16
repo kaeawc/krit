@@ -9,6 +9,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -81,6 +82,21 @@ type WorkspaceState struct {
 	// the same key produce byte-identical findings JSON and can
 	// reuse the same buffer.
 	bundleOutput map[string]*CachedBundleOutput
+
+	javaSourceMu sync.Mutex
+	// javaSourceVersion is bumped on every .java watcher event. The
+	// resident javaSourceIndex slot uses it to detect whether its
+	// last build is still valid without re-hashing every Java file's
+	// content (the SourceIndexForFiles path otherwise spends ~100 ms
+	// per 2 k Java files just computing its content-hash key, even
+	// on a warm cache hit).
+	javaSourceVersion uint64
+	// cachedJavaSourceIndex is the last successful build, valid while
+	// cachedJavaSourceVersion == javaSourceVersion. A bump on the
+	// watcher side rotates the version; the next lookup misses and
+	// rebuilds via SourceIndexForFiles.
+	cachedJavaSourceIndex   *javafacts.SourceIndex
+	cachedJavaSourceVersion uint64
 
 	typeInfoMu sync.Mutex
 	// typeInfo caches per-file *typeinfer.FileTypeInfo across analyzes.
@@ -277,6 +293,55 @@ func (w *WorkspaceState) StoreFileTypeInfo(path string, info *typeinfer.FileType
 	w.typeInfoMu.Unlock()
 }
 
+// JavaSourceIndex returns the daemon-resident *javafacts.SourceIndex
+// when its version still matches the watcher's javaSourceVersion;
+// otherwise it invokes build, stores the result under the current
+// version, and returns it. Caller-supplied build is what guards
+// correctness (it sees the live parsed-file set); the slot just
+// short-circuits the ~100 ms content-hash key SourceIndexForFiles
+// pays on every warm call.
+//
+// nil receiver always builds (no caching) so the CLI's
+// in-process path doesn't accidentally hit a stale resident slot.
+func (w *WorkspaceState) JavaSourceIndex(build func() *javafacts.SourceIndex) *javafacts.SourceIndex {
+	if w == nil {
+		return build()
+	}
+	w.javaSourceMu.Lock()
+	if w.cachedJavaSourceIndex != nil && w.cachedJavaSourceVersion == w.javaSourceVersion {
+		v := w.cachedJavaSourceIndex
+		w.javaSourceMu.Unlock()
+		return v
+	}
+	currentVersion := w.javaSourceVersion
+	w.javaSourceMu.Unlock()
+
+	idx := build()
+
+	w.javaSourceMu.Lock()
+	// Only store when the version we observed is still current —
+	// a watcher event during build() advances the counter and the
+	// next call must rebuild.
+	if w.javaSourceVersion == currentVersion {
+		w.cachedJavaSourceIndex = idx
+		w.cachedJavaSourceVersion = currentVersion
+	}
+	w.javaSourceMu.Unlock()
+	return idx
+}
+
+// BumpJavaSourceVersion advances the version counter so the next
+// JavaSourceIndex call rebuilds. Called by the watcher on every
+// .java file event.
+func (w *WorkspaceState) BumpJavaSourceVersion() {
+	if w == nil {
+		return
+	}
+	w.javaSourceMu.Lock()
+	w.javaSourceVersion++
+	w.javaSourceMu.Unlock()
+}
+
 // Touch records that path has changed on disk since the last
 // DrainDirty. Intended to be called alongside Invalidate from the
 // file watcher so consumers can later ask "what changed since I last
@@ -363,6 +428,10 @@ func (w *WorkspaceState) InvalidateAll() {
 	w.typeInfoMu.Lock()
 	w.typeInfo = nil
 	w.typeInfoMu.Unlock()
+	w.javaSourceMu.Lock()
+	w.cachedJavaSourceIndex = nil
+	w.javaSourceVersion++
+	w.javaSourceMu.Unlock()
 }
 
 // LibraryFacts returns the cached *librarymodel.Facts when its

@@ -29,6 +29,11 @@ type watcherState interface {
 	// bundle-stats-clean memo. Called once per coalesced source-path
 	// event so the next analyze knows a `os.Stat` sweep is required.
 	BumpSourceMTimeVersion()
+	// BumpJavaSourceVersion drives the daemon-resident
+	// javafacts.SourceIndex cache. Called on every .java file event;
+	// Kotlin edits don't affect the Java source index so the two
+	// version counters are intentionally separate.
+	BumpJavaSourceVersion()
 }
 
 const defaultDebounceWindow = 50 * time.Millisecond
@@ -238,6 +243,20 @@ func (fw *fileWatcher) handle(ev fsnotify.Event) {
 		// fires per burst — the dirty-set's map semantics already dedup
 		// Touch, but Invalidate and CodeIndex drops are not free.
 		fw.scheduleKotlinInvalidate(ev.Name)
+	case isJavaPath(ev.Name):
+		// .java edits invalidate the daemon-resident
+		// javafacts.SourceIndex cache. Kotlin and Java live on
+		// separate version counters so a Kotlin edit doesn't
+		// needlessly invalidate the Java source index (which is
+		// expensive to rebuild: ~100 ms of content hashing).
+		fw.state.Invalidate(ev.Name)
+		fw.state.InvalidateCodeIndex()
+		fw.state.InvalidateDependents()
+		fw.state.InvalidateResolver()
+		fw.state.InvalidateOracleFilter()
+		fw.state.Touch(ev.Name)
+		fw.state.BumpSourceMTimeVersion()
+		fw.state.BumpJavaSourceVersion()
 	}
 }
 
@@ -317,6 +336,15 @@ func (fw *fileWatcher) warn(format string, args ...any) {
 // .kts. Mirrors the precommit/cli filter.
 func isKotlinPath(p string) bool {
 	return strings.HasSuffix(p, ".kt") || strings.HasSuffix(p, ".kts")
+}
+
+// isJavaPath reports whether the path's basename ends in .java. Java
+// edits invalidate the daemon's resident javafacts.SourceIndex cache;
+// they're routed through a dedicated case in fileWatcher.handle so
+// the bump can hit a separate JavaSourceVersion counter (Kotlin
+// edits don't need to invalidate the Java source index).
+func isJavaPath(p string) bool {
+	return strings.HasSuffix(p, ".java")
 }
 
 // isKritConfigPath reports whether the path is the krit.yml /

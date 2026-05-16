@@ -184,6 +184,12 @@ type ProjectHostState struct {
 	// the disk-backed cross-file cache (CrossFileCacheDir) and finally
 	// to scanner.BuildIndex. *WorkspaceState satisfies this interface.
 	CodeIndexCache CodeIndexCache
+	// JavaSourceIndexCache, when non-nil, lets CrossFilePhase short-
+	// circuit the ~100 ms content-hash key SourceIndexForFiles otherwise
+	// computes on every warm call. The watcher's .java events drive
+	// invalidation through WorkspaceState.BumpJavaSourceVersion.
+	// *WorkspaceState.JavaSourceIndex satisfies the callback shape.
+	JavaSourceIndexCache func(build func() *javafacts.SourceIndex) *javafacts.SourceIndex
 	// ResolverCache, when non-nil, memoizes the typeinfer.TypeResolver
 	// across calls. IndexPhase consults the slot before falling through
 	// to a fresh resolver + IndexFilesParallel*. The slot is keyed by
@@ -731,6 +737,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		PrebuiltAndroidProject: host.PrebuiltAndroidProject,
 		LibraryFactsCache:      host.LibraryFactsCache,
 		CodeIndexCache:         host.CodeIndexCache,
+		JavaSourceIndexCache:   host.JavaSourceIndexCache,
 		ResolverCache:          host.ResolverCache,
 		AndroidProjectCache:    host.AndroidProjectCache,
 		CrossFileCacheDir:      host.CrossFileCacheDir,

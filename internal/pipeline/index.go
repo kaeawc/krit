@@ -15,6 +15,7 @@ import (
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
@@ -78,6 +79,10 @@ type IndexInput struct {
 	// calls. Forwarded to IndexResult so CrossFilePhase consults it
 	// before calling scanner.BuildIndex.
 	CodeIndexCache CodeIndexCache
+	// JavaSourceIndexCache wires the daemon's resident
+	// *javafacts.SourceIndex cache through to CrossFilePhase. See
+	// IndexResult.JavaSourceIndexCache for semantics.
+	JavaSourceIndexCache func(build func() *javafacts.SourceIndex) *javafacts.SourceIndex
 	// ResolverCache, when non-nil and PrebuiltResolver is nil,
 	// memoizes the constructed TypeResolver across calls. Buys an
 	// entire perFileExtraction + merge + resolveSupertypes skip on
@@ -586,6 +591,7 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 		CrossFindingsCacheDir: in.CrossFindingsCacheDir,
 		CrossFileCacheDir:     in.CrossFileCacheDir,
 		CodeIndexCache:        in.CodeIndexCache,
+		JavaSourceIndexCache:  in.JavaSourceIndexCache,
 	}
 
 	caps := unionNeeds(in.ActiveRules)

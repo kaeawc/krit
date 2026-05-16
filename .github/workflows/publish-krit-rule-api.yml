@@ -2,7 +2,9 @@ name: Publish krit-rule-api
 
 # Publishes dev.jasonpearson.krit:krit-rule-api to Maven Central
 # (Sonatype Central Portal) on every v* tag, alongside the binary
-# release in release.yml.
+# release in release.yml. Uses the vanniktech maven-publish-plugin
+# with automaticRelease=true — staged artifacts are promoted by
+# Central automatically once validation passes.
 #
 # workflow_dispatch is also wired up so a maintainer can republish a
 # specific version (e.g. after a Central staging rejection) without
@@ -59,31 +61,18 @@ jobs:
           echo "version=${ver}" >> "$GITHUB_OUTPUT"
           echo "Publishing krit-rule-api version: ${ver}"
 
-      # Stage + publish in a single Gradle invocation so signing,
-      # javadoc/sources jars, POM generation, and the JVM cold start
-      # are paid once. The staging-dir publish runs first in the task
-      # graph and serves as a fail-fast check before the network
-      # publish to Central.
-      - name: Publish to Sonatype Central Portal
+      # Vanniktech maven-publish-plugin reads ORG_GRADLE_PROJECT_* env vars
+      # as Gradle properties. mavenCentralAutomaticPublishing=true in
+      # gradle.properties means Central promotes the staged release
+      # without manual UI clicks once it passes validation.
+      - name: Publish to Maven Central
         working-directory: tools/krit-rule-api
         env:
-          KRIT_VERSION: ${{ steps.version.outputs.version }}
-          SIGNING_KEY: ${{ secrets.MAVEN_CENTRAL_SIGNING_KEY }}
-          SIGNING_PASSWORD: ${{ secrets.MAVEN_CENTRAL_SIGNING_PASSWORD }}
-          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
-          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_IN_MEMORY_KEY_ID }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
         run: |
-          ./gradlew --no-daemon \
-            publishAllPublicationsToStagingDirRepository \
-            publishAllPublicationsToCentralPortalRepository
-
-      # Only upload the staged bundle on failure — it's a debug aid for
-      # diagnosing a rejected publish, not an archival artifact.
-      - name: Upload staged artifacts for inspection
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
-        with:
-          name: krit-rule-api-${{ steps.version.outputs.version }}
-          path: tools/krit-rule-api/build/staging-deploy/
-          if-no-files-found: warn
-          retention-days: 14
+          ./gradlew --no-daemon --no-configuration-cache publish \
+            -PVERSION_NAME=${{ steps.version.outputs.version }}

@@ -132,15 +132,43 @@ larger change than wiring a flag through.
 `--baseline-audit` and `--rule-audit` are **now routed via daemon**. The
 daemon emits an optional `columns` segment in the analyze-project response
 when `AnalyzeProjectArgs.IncludeColumns` is true (the CLI sets it whenever
-`--baseline-audit`, `--rule-audit`, or `--delta` is present). The CLI
-deserialises the segment into a `*scanner.FindingColumns` and replays
-`RunBaselineAuditColumns` (`internal/cli/scan/baseline_audit.go:34`) /
-`RunRuleAuditColumns` (`internal/cli/scan/rule_audit.go:75`) locally,
-producing the same audit output the in-process flow does. The non-audit
-common path stays on the original `{findings,stats[,dispatch_profile]}`
-envelope: the `columns` field is `omitempty` and the fast-scan response
-decoder treats it as another optional segment after `dispatch_profile`
-(see `scanOptionalColumns` in `internal/daemon/response_scan.go`).
+`--baseline-audit`, `--rule-audit`, `--delta`, `--fix`, `--fix-binary`, or
+`--remove-dead-code` is present). The CLI deserialises the segment into a
+`*scanner.FindingColumns` and replays `RunBaselineAuditColumns`
+(`internal/cli/scan/baseline_audit.go:34`) / `RunRuleAuditColumns`
+(`internal/cli/scan/rule_audit.go:75`) locally, producing the same audit
+output the in-process flow does. The non-audit common path stays on the
+original `{findings,stats[,dispatch_profile]}` envelope: the `columns`
+field is `omitempty` and the fast-scan response decoder treats it as
+another optional segment after `dispatch_profile` (see
+`scanOptionalColumns` in `internal/daemon/response_scan.go`).
+
+## Fix-applying flags
+
+`--fix`, `--fix-binary`, and `--remove-dead-code` are **now routed via
+daemon**, reusing the same `IncludeColumns` wire payload as the audit
+flags. `scanner.FindingColumns` already carries `FixPool []Fix` and
+`BinaryFixPool []BinaryFix` inline (see `internal/scanner/findings_json.go`),
+so the daemon needs no separate fix-payload schema — the existing column
+serialisation is the schema.
+
+The pattern is the same as `--rule-audit`:
+
+1. The CLI flips `AnalyzeProjectArgs.IncludeColumns = true` in
+   `buildDaemonAnalyzeArgs` (`internal/cli/scan/daemon_delegate.go`).
+2. The daemon ships post-pipeline `FindingColumns` (with `FixPool` /
+   `BinaryFixPool` inline) under `AnalyzeProjectResult.Columns`.
+3. The CLI deserialises the columns and runs `pipeline.FixupPhase`
+   (`--fix` / `--fix-binary`) or `deadcode.BuildPlanColumns` +
+   `plan.Apply` (`--remove-dead-code`) **locally**.
+
+The daemon never writes user files. All file writes happen with the
+CLI's CWD and permissions, preserving the daemon's read-only invariant.
+See `runDaemonFix` and `runDaemonRemoveDeadCode` in
+`internal/cli/scan/daemon_columns.go`, and
+`TestAnalyzeProject_FixViaColumnsMatchesInProcess` in
+`internal/cli/serve/analyze_project_writeout_test.go` for the
+byte-identical equivalence proof.
 
 ## Oracle I/O & sampling
 

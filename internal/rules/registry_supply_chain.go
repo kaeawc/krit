@@ -88,7 +88,11 @@ func registerSupplyChainRules() {
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			Needs: api.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Fix: api.FixIdiomatic, Implementation: r,
+			Needs: api.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
+			SuggestedFixes: []api.SuggestedFix{
+				{ID: DependenciesInRootProjectMoveSuggestionID, Title: dependenciesInRootProjectMoveSuggestionTitle, Level: api.FixSemantic},
+				{ID: DependenciesInRootProjectAllowSuggestionID, Title: dependenciesInRootProjectAllowSuggestionTitle, Level: api.FixIdiomatic},
+			},
 			Check: r.check,
 		})
 	}

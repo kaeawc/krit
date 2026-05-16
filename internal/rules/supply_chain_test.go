@@ -422,6 +422,56 @@ func readFile(t *testing.T, path string) string {
 	return string(content)
 }
 
+// applySuggestionEdits applies the edits of the named suggested fix on the
+// given finding through the same fixer pipeline used by `krit apply-suggestion`.
+// It fails the test when the suggestion or its edits are missing or do not
+// apply cleanly.
+func applySuggestionEdits(t *testing.T, finding scanner.Finding, suggestionID string) {
+	t.Helper()
+	var sug *scanner.SuggestedFix
+	for i := range finding.SuggestedFixes {
+		if finding.SuggestedFixes[i].ID == suggestionID {
+			sug = &finding.SuggestedFixes[i]
+			break
+		}
+	}
+	if sug == nil {
+		t.Fatalf("suggestion %q not found on finding", suggestionID)
+	}
+	if len(sug.Edits) == 0 {
+		t.Fatalf("suggestion %q has no edits to apply", suggestionID)
+	}
+	edits := make([]scanner.Finding, 0, len(sug.Edits))
+	for _, edit := range sug.Edits {
+		edits = append(edits, scanner.Finding{
+			File:     finding.File,
+			Line:     finding.Line,
+			Col:      finding.Col,
+			RuleSet:  finding.RuleSet,
+			Rule:     finding.Rule,
+			Severity: finding.Severity,
+			Message:  finding.Message,
+			Fix: &scanner.Fix{
+				TargetFile:  edit.TargetFile,
+				StartLine:   edit.StartLine,
+				EndLine:     edit.EndLine,
+				StartByte:   edit.StartByte,
+				EndByte:     edit.EndByte,
+				ByteMode:    edit.ByteMode,
+				Replacement: edit.Replacement,
+			},
+		})
+	}
+	columns := scanner.CollectFindings(edits)
+	applied, _, errs := fixer.ApplyAllFixesColumns(&columns, "")
+	if len(errs) > 0 {
+		t.Fatalf("ApplyAllFixesColumns errors: %v", errs)
+	}
+	if applied != len(sug.Edits) {
+		t.Fatalf("applied fixes = %d, want %d", applied, len(sug.Edits))
+	}
+}
+
 func TestDependencySnapshotInRelease(t *testing.T) {
 	r := findGradleRule(t, "DependencySnapshotInRelease")
 
@@ -499,7 +549,31 @@ dependencies {
 func TestDependenciesInRootProject(t *testing.T) {
 	r := findGradleRule(t, "DependenciesInRootProject")
 
-	t.Run("root build dependencies trigger", func(t *testing.T) {
+	t.Run("rule advertises suggested fixes and no autofix", func(t *testing.T) {
+		if r.Fix != api.FixNone {
+			t.Fatalf("Fix = %v, want FixNone (rule must not advertise an autofix)", r.Fix)
+		}
+		if mode := r.FixMode(); mode != api.FixModeSuggested {
+			t.Fatalf("FixMode = %v, want FixModeSuggested", mode)
+		}
+		if len(r.SuggestedFixes) != 2 {
+			t.Fatalf("SuggestedFixes count = %d, want 2", len(r.SuggestedFixes))
+		}
+		wantIDs := []string{
+			rulespkg.DependenciesInRootProjectMoveSuggestionID,
+			rulespkg.DependenciesInRootProjectAllowSuggestionID,
+		}
+		for i, want := range wantIDs {
+			if got := r.SuggestedFixes[i].ID; got != want {
+				t.Errorf("SuggestedFixes[%d].ID = %q, want %q", i, got, want)
+			}
+		}
+		if err := r.ValidateFixMode(); err != nil {
+			t.Fatalf("ValidateFixMode: %v", err)
+		}
+	})
+
+	t.Run("root build dependencies emit ordered suggestions", func(t *testing.T) {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "settings.gradle.kts"), `pluginManagement { repositories { gradlePluginPortal() } }`)
 		buildPath := filepath.Join(root, "build.gradle.kts")
@@ -519,15 +593,31 @@ dependencies {
 		if !strings.Contains(findings[0].Message, "implementation") {
 			t.Fatalf("expected message to name implementation, got %q", findings[0].Message)
 		}
-		if findings[0].Fix == nil {
-			t.Fatal("expected finding to include config autofix")
+		if findings[0].Fix != nil {
+			t.Fatal("finding must not carry an autofix when SuggestedFixes are emitted")
 		}
-		if got, want := findings[0].Fix.TargetFile, filepath.Join(root, "krit.yml"); got != want {
-			t.Fatalf("Fix.TargetFile = %q, want %q", got, want)
+		got := findings[0].SuggestedFixes
+		if len(got) != 2 {
+			t.Fatalf("expected 2 suggested fixes, got %d", len(got))
+		}
+		if got[0].ID != rulespkg.DependenciesInRootProjectMoveSuggestionID {
+			t.Errorf("suggestion[0].ID = %q, want %q", got[0].ID, rulespkg.DependenciesInRootProjectMoveSuggestionID)
+		}
+		if len(got[0].Edits) != 0 {
+			t.Errorf("moveToOwningModule must be guidance-only (no edits), got %d", len(got[0].Edits))
+		}
+		if got[1].ID != rulespkg.DependenciesInRootProjectAllowSuggestionID {
+			t.Errorf("suggestion[1].ID = %q, want %q", got[1].ID, rulespkg.DependenciesInRootProjectAllowSuggestionID)
+		}
+		if len(got[1].Edits) != 1 {
+			t.Fatalf("addAllowedConfigurations must carry exactly 1 edit, got %d", len(got[1].Edits))
+		}
+		if want := filepath.Join(root, "krit.yml"); got[1].Edits[0].TargetFile != want {
+			t.Errorf("edit.TargetFile = %q, want %q", got[1].Edits[0].TargetFile, want)
 		}
 	})
 
-	t.Run("autofix creates root krit config allowlist", func(t *testing.T) {
+	t.Run("applying allow suggestion writes root krit config allowlist", func(t *testing.T) {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "settings.gradle.kts"), ``)
 		buildPath := filepath.Join(root, "build.gradle.kts")
@@ -542,15 +632,8 @@ dependencies {
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
+		applySuggestionEdits(t, findings[0], rulespkg.DependenciesInRootProjectAllowSuggestionID)
 
-		columns := scanner.CollectFindings(findings)
-		applied, _, errs := fixer.ApplyAllFixesColumns(&columns, "")
-		if len(errs) > 0 {
-			t.Fatalf("ApplyAllFixesColumns errors: %v", errs)
-		}
-		if applied != 1 {
-			t.Fatalf("applied fixes = %d, want 1", applied)
-		}
 		got := readFile(t, filepath.Join(root, "krit.yml"))
 		for _, want := range []string{"classpath", "detektPlugins", "implementation", "ksp", "testImplementation"} {
 			if !strings.Contains(got, "- "+want) {
@@ -559,7 +642,7 @@ dependencies {
 		}
 	})
 
-	t.Run("autofix preserves generated krit config header", func(t *testing.T) {
+	t.Run("applying allow suggestion preserves generated krit config header", func(t *testing.T) {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "settings.gradle.kts"), ``)
 		writeFile(t, filepath.Join(root, "krit.yml"), `# Generated by krit init (bubbletea TUI)
@@ -579,15 +662,8 @@ style:
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
+		applySuggestionEdits(t, findings[0], rulespkg.DependenciesInRootProjectAllowSuggestionID)
 
-		columns := scanner.CollectFindings(findings)
-		applied, _, errs := fixer.ApplyAllFixesColumns(&columns, "")
-		if len(errs) > 0 {
-			t.Fatalf("ApplyAllFixesColumns errors: %v", errs)
-		}
-		if applied != 1 {
-			t.Fatalf("applied fixes = %d, want 1", applied)
-		}
 		got := readFile(t, filepath.Join(root, "krit.yml"))
 		if !strings.HasPrefix(got, "# Generated by krit init (bubbletea TUI)\n# Profile: balanced\n\n") {
 			t.Fatalf("krit.yml header not preserved:\n%s", got)

@@ -111,6 +111,17 @@ type DependenciesInRootProjectRule struct {
 
 func (r *DependenciesInRootProjectRule) Confidence() float64 { return 0.85 }
 
+// Suggested-fix identifiers and canonical titles for the
+// DependenciesInRootProject rule. The titles are shared between the rule's
+// registry catalog (api.Rule.SuggestedFixes) and the per-finding emit so
+// IDE quick-fix menus and the CLI list view show the same label.
+const (
+	DependenciesInRootProjectMoveSuggestionID     = "moveToOwningModule"
+	dependenciesInRootProjectMoveSuggestionTitle  = "Move dependencies into an owning module"
+	DependenciesInRootProjectAllowSuggestionID    = "addAllowedConfigurations"
+	dependenciesInRootProjectAllowSuggestionTitle = "Add configurations to allowedConfigurations in the root Krit config"
+)
+
 func (r *DependenciesInRootProjectRule) check(ctx *api.Context) {
 	path, content := ctx.GradlePath, ctx.GradleContent
 	if !isRootGradleProjectScript(path) {
@@ -128,27 +139,48 @@ func (r *DependenciesInRootProjectRule) check(ctx *api.Context) {
 			Message:    fmt.Sprintf("Root project dependencies block declares %s. Move project dependencies into an owning module or add legitimate root tooling configurations to allowedConfigurations.", strings.Join(block.configurations, ", ")),
 			Confidence: r.Confidence(),
 		}
-		finding.Fix = rootDependencyAllowedConfigurationsFix(path, r.AllowedConfigurations, block.configurations)
+		finding.SuggestedFixes = r.suggestedFixesForBlock(path, block.configurations)
 		ctx.Emit(finding)
 	}
 }
 
-func rootDependencyAllowedConfigurationsFix(gradlePath string, existingAllowed, missing []string) *scanner.Fix {
+func (r *DependenciesInRootProjectRule) suggestedFixesForBlock(gradlePath string, missing []string) []scanner.SuggestedFix {
+	joined := strings.Join(missing, ", ")
+	suggestions := []scanner.SuggestedFix{
+		{
+			ID:     DependenciesInRootProjectMoveSuggestionID,
+			Title:  dependenciesInRootProjectMoveSuggestionTitle,
+			Detail: fmt.Sprintf("Declare %s in the module that owns the code instead of the root project. Root build scripts should configure plugins and conventions; application and runtime dependencies belong to an owning module's build.gradle(.kts).", joined),
+		},
+	}
+
+	allowSuggestion := scanner.SuggestedFix{
+		ID:     DependenciesInRootProjectAllowSuggestionID,
+		Title:  dependenciesInRootProjectAllowSuggestionTitle,
+		Detail: fmt.Sprintf("Add %s to allowedConfigurations in krit.yml so the listed root-project configurations no longer trigger this rule. Use this when the root dependency block is intentional (e.g. classpath, detektPlugins, lintChecks).", joined),
+	}
+	if edit, ok := rootDependencyAllowedConfigurationsEdit(gradlePath, r.AllowedConfigurations, missing); ok {
+		allowSuggestion.Edits = []scanner.SuggestedEdit{edit}
+	}
+	return append(suggestions, allowSuggestion)
+}
+
+func rootDependencyAllowedConfigurationsEdit(gradlePath string, existingAllowed, missing []string) (scanner.SuggestedEdit, bool) {
 	targetPath, content, ok := rootKritConfigForFix(filepath.Dir(gradlePath))
 	if !ok {
-		return nil
+		return scanner.SuggestedEdit{}, false
 	}
 	replacement, ok := mergeRootDependencyAllowedConfigurations(content, existingAllowed, missing)
 	if !ok {
-		return nil
+		return scanner.SuggestedEdit{}, false
 	}
-	return &scanner.Fix{
+	return scanner.SuggestedEdit{
 		TargetFile:  targetPath,
 		ByteMode:    true,
 		StartByte:   0,
 		EndByte:     len(content),
 		Replacement: replacement,
-	}
+	}, true
 }
 
 func rootKritConfigForFix(root string) (string, []byte, bool) {

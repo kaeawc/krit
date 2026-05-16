@@ -292,7 +292,6 @@ var knownFixableRulesWithoutPerRuleFixture = map[string]bool{
 	// TestApplyPluginTwice's "fix removes duplicate apply line" subtest.
 	"ApplyPluginTwice":                   true,
 	"BooleanPropertyNaming":              true,
-	"DependenciesInRootProject":          true,
 	"ExplicitItLambdaMultipleParameters": true,
 	"FunctionOnlyReturningConstant":      true,
 	"MissingPackageDeclaration":          true,

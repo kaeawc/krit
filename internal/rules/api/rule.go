@@ -918,6 +918,12 @@ type Rule struct {
 	// Fix metadata
 	Fix FixLevel // FixNone → not fixable
 
+	// SuggestedFixes declares an ordered list of user-selectable
+	// suggestions the rule can emit. Slice position is the recommended
+	// display and application order. Mutually exclusive with Fix; see
+	// SuggestedFix and FixMode for the full contract.
+	SuggestedFixes []SuggestedFix
+
 	// Cost is the rule's weight class. When left at CostUnset, the
 	// dispatcher derives a Cost from Needs / NodeTypes / JavaFacts via
 	// rules.CostFor. Rules may pin an explicit Cost when the derived
@@ -1293,6 +1299,9 @@ func Register(r *Rule) {
 	}
 	if r.Needs.Has(NeedsAggregate) && r.Aggregate == nil {
 		panic("api.Register: rule " + r.ID + " declares NeedsAggregate but Aggregate is nil")
+	}
+	if err := r.ValidateFixMode(); err != nil {
+		panic("api.Register: " + err.Error())
 	}
 	if r.IntroducedIn == "" {
 		r.IntroducedIn = DefaultIntroducedIn

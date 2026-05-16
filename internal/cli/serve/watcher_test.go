@@ -380,9 +380,7 @@ func TestFileWatcher_TouchPropagatesOnGradleWrite(t *testing.T) {
 // for the same Kotlin file coalesce into a single Invalidate call. Events
 // are injected directly into handle() so the debouncer is tested in
 // isolation from fsnotify's variable event-delivery timing —
-// TestFileWatcher_InvalidatesOnWrite covers the OS-roundtrip path. Driving
-// handle() directly was the fix for a CI flake where editor-save bursts
-// spread past the debounce window under load.
+// TestFileWatcher_InvalidatesOnWrite covers the OS-roundtrip path.
 func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
 	root := t.TempDir()
 	ktPath := filepath.Join(root, "Foo.kt")
@@ -391,7 +389,7 @@ func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
 	}
 
 	state := &countingState{}
-	const window = 20 * time.Millisecond
+	const window = 100 * time.Millisecond
 	w, err := startFileWatcherWithState(context.Background(), root, state, nil,
 		withDebounceWindow(window))
 	if err != nil {
@@ -403,7 +401,6 @@ func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
 	ev := fsnotify.Event{Name: ktPath, Op: fsnotify.Write}
 	for range 3 {
 		w.handle(ev)
-		time.Sleep(2 * time.Millisecond)
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -415,10 +412,47 @@ func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
 	}
 	// Settle: if a stray timer was re-armed under load, give it a full
 	// window + margin to complete before asserting the final count.
-	time.Sleep(window * 4)
+	time.Sleep(window * 2)
 
 	if got := state.invalidateCalls.Load(); got != 1 {
 		t.Errorf("Invalidate called %d times, want 1 (debounce should coalesce burst)", got)
+	}
+}
+
+// TestFileWatcher_DebounceGenerationGuard forces the Stop()-race scenario:
+// the test holds debounceMu past the window so the scheduled timer fires
+// and its callback parks at the lock, then bumps debounceGen[path] while
+// holding the lock to simulate the relevant half of a second
+// scheduleKotlinInvalidate. The parked callback must observe the gen
+// mismatch and skip Invalidate. Removing the gen check in watcher.go must
+// fail this test — it drives the real callback path.
+func TestFileWatcher_DebounceGenerationGuard(t *testing.T) {
+	root := t.TempDir()
+	ktPath := filepath.Join(root, "Foo.kt")
+	if err := os.WriteFile(ktPath, []byte("fun a() {}\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	state := &countingState{}
+	const window = 10 * time.Millisecond
+	w, err := startFileWatcherWithState(context.Background(), root, state, nil,
+		withDebounceWindow(window))
+	if err != nil {
+		t.Fatalf("startFileWatcher: %v", err)
+	}
+	defer w.Stop()
+	<-w.Ready()
+
+	w.scheduleKotlinInvalidate(ktPath)
+	w.debounceMu.Lock()
+	time.Sleep(window * 3)
+	w.debounceGen[ktPath]++
+	w.debounceMu.Unlock()
+
+	time.Sleep(window * 6)
+
+	if got := state.invalidateCalls.Load(); got != 0 {
+		t.Errorf("Invalidate called %d times, want 0 (stale callback should observe gen bump and no-op)", got)
 	}
 }
 

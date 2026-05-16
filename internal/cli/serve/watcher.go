@@ -80,8 +80,17 @@ type fileWatcher struct {
 	// emit on a single logical save. Each path gets its own sliding timer;
 	// events within debounceWindow of each other are collapsed into one
 	// Invalidate+Touch call.
+	//
+	// debounceGen is a per-path generation counter that guards against the
+	// time.Timer.Stop() race: when a timer's callback goroutine has already
+	// been scheduled but hasn't acquired debounceMu yet, Stop() returns
+	// false and the callback will still run. Without a guard, both the
+	// stale callback and the freshly-installed timer fire Invalidate. Each
+	// scheduleKotlinInvalidate bumps the gen and the callback no-ops if
+	// its captured gen no longer matches.
 	debounceMu     sync.Mutex
 	debounce       map[string]*time.Timer
+	debounceGen    map[string]uint64
 	debounceWindow time.Duration
 }
 
@@ -106,6 +115,7 @@ func startFileWatcherWithState(ctx context.Context, root string, state watcherSt
 		done:           make(chan struct{}),
 		ready:          make(chan struct{}),
 		debounce:       make(map[string]*time.Timer),
+		debounceGen:    make(map[string]uint64),
 		debounceWindow: defaultDebounceWindow,
 	}
 	for _, opt := range opts {
@@ -286,9 +296,16 @@ func (fw *fileWatcher) scheduleKotlinInvalidate(path string) {
 	if t, ok := fw.debounce[path]; ok {
 		t.Stop()
 	}
+	fw.debounceGen[path]++
+	gen := fw.debounceGen[path]
 	fw.debounce[path] = time.AfterFunc(fw.debounceWindow, func() {
 		fw.debounceMu.Lock()
+		if fw.debounceGen[path] != gen {
+			fw.debounceMu.Unlock()
+			return
+		}
 		delete(fw.debounce, path)
+		delete(fw.debounceGen, path)
 		fw.debounceMu.Unlock()
 		fw.state.Invalidate(path)
 		fw.state.InvalidateCodeIndex()

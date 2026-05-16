@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 
 	"github.com/kaeawc/krit/internal/cli/scan"
@@ -12,6 +14,7 @@ import (
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/store"
 )
 
 // handleListRules implements the list-rules verb. Captures the same
@@ -144,4 +147,58 @@ func handleOracleFilterFingerprint(_ context.Context, state *daemonState, raw js
 		Stderr:   stderr.Bytes(),
 		ExitCode: code,
 	}, nil
+}
+
+// handleDumpTypes implements the dump-types verb. Mirrors the CLI's
+// --output-types in-process flow: locates krit-types.jar against the
+// requested scan paths, finds Kotlin source dirs, and writes the
+// oracle JSON dump to args.OutputPath. No rules are loaded or fired —
+// this is a standalone JVM dump, identical in shape to what
+// scan.RunOutputTypesTo would have produced on the CLI side. The
+// captured stderr (verbose lines, dump errors) is replayed by the CLI
+// on the user's terminal; the exit code is the CLI's exit code.
+//
+// args.OutputPath must be absolute: the CLI absolutizes before
+// forwarding because the daemon process has its own CWD (the project
+// root) and would otherwise resolve a relative path against the wrong
+// directory. Empty OutputPath returns exit code 2 with an explanatory
+// error — the CLI gate already prevents this in practice.
+func handleDumpTypes(_ context.Context, state *daemonState, raw json.RawMessage) (any, error) {
+	var args daemon.DumpTypesArgs
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &args); err != nil {
+			return nil, fmt.Errorf("decode args: %w", err)
+		}
+	}
+	if args.OutputPath == "" {
+		var stderr bytes.Buffer
+		fmt.Fprintln(&stderr, "error: dump-types: output_path is required")
+		return daemon.MetaResult{Stderr: stderr.Bytes(), ExitCode: 2}, nil
+	}
+	paths := args.Paths
+	if len(paths) == 0 {
+		paths = []string{state.root}
+	}
+	var stderr bytes.Buffer
+	code := scan.RunOutputTypesTo(&stderr, scan.RunOutputTypesOpts{
+		OutputPath:    args.OutputPath,
+		NoCacheOracle: args.NoCacheOracle,
+		Verbose:       args.Verbose,
+		Store:         daemonResolvedStore(state.root),
+		Paths:         paths,
+	})
+	return daemon.MetaResult{Stderr: stderr.Bytes(), ExitCode: code}, nil
+}
+
+// daemonResolvedStore mirrors scan.resolvedStore for the daemon: when
+// <root>/.krit/store exists, route oracle cache reads/writes through
+// the unified file store so dump-types calls land in the same cache
+// the in-process CLI populates. Returns nil otherwise (legacy file
+// layout), matching the CLI's empty-StoreDir default semantics.
+func daemonResolvedStore(root string) *store.FileStore {
+	dir := filepath.Join(root, ".krit", "store")
+	if _, err := os.Stat(dir); err != nil {
+		return nil
+	}
+	return store.New(dir)
 }

@@ -147,20 +147,22 @@ decoder treats it as another optional segment after `dispatch_profile`
 This bucket lists flags that look related to `--input-types` (which IS daemon-
 routable) but stay in-process for distinct reasons.
 
-### `--output-types`
+### `--output-types` (now routed via daemon)
 
-`runOutputTypesFlag` at `internal/cli/scan/early_exits.go:404` is a standalone
-oracle dump: it locates `krit-types.jar`, runs the JVM (or honors
-`--no-cache-oracle` to bypass the cache), writes the resulting JSON to the
-caller-supplied path, and exits *before* any rules are loaded or fired. The
-daemon's `AnalyzeProject` verb is a rule-running path; routing `--output-types`
-through it would either (a) need a brand-new dump-only verb that duplicates
-what the daemon's resident `OracleDaemon` already produces internally, or
-(b) waste the rule-dispatch work the user explicitly asked to skip.
+`--output-types` routes through the daemon's `dump-types` meta verb
+(`handleDumpTypes` at `internal/cli/serve/meta_verbs.go`). The verb runs
+`scan.RunOutputTypesTo` against the requested scan paths, which locates
+`krit-types.jar`, invokes the JVM (or honours `--no-cache-oracle` to bypass
+the cache), and writes the resulting oracle JSON to the path the CLI provides.
+The CLI absolutizes `--output-types` before forwarding (same convention as
+`--input-types` and `--cpuprofile` / `--memprofile`) so the daemon — which has
+its own CWD — writes to the user's intended location. Captured stderr and exit
+code ride back in `MetaResult` and are replayed against the CLI's streams so
+daemon-routed and in-process invocations remain byte-equivalent.
 
-Daemon routing would only make sense if we added a wire verb like
-`DumpOracle` that returns the oracle daemon's current snapshot. That's a
-new feature, not a routing tweak.
+This routes the dump through the same resident oracle cache the daemon
+populates for analyze-project, so warm `--output-types` calls land on a hot
+cache instead of paying full JVM warmup again.
 
 ### `--delta`
 

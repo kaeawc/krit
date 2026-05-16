@@ -39,6 +39,7 @@ const (
 	VerbListExperiments         = "list-experiments"
 	VerbValidateConfig          = "validate-config"
 	VerbOracleFilterFingerprint = "oracle-filter-fingerprint"
+	VerbDumpTypes               = "dump-types"
 )
 
 // ErrBinaryHashMismatchPrefix is the error.Error() prefix the daemon
@@ -488,4 +489,20 @@ type ValidateConfigArgs struct {
 type OracleFilterFingerprintArgs struct {
 	Paths    []string `json:"paths,omitempty"`
 	AllRules bool     `json:"all_rules,omitempty"`
+}
+
+// DumpTypesArgs drives the dump-types verb (CLI's --output-types). The
+// daemon locates krit-types.jar, invokes the JVM (honouring
+// NoCacheOracle to bypass the incremental cache), and writes the
+// resulting oracle JSON dump to OutputPath. No rules are loaded or
+// fired. Paths is the explicit scan target; empty falls back to the
+// daemon's --root. OutputPath must be absolute — the daemon process
+// has its own CWD (the project root) and would otherwise resolve a
+// caller-relative path against the wrong directory; the CLI absolutizes
+// before forwarding.
+type DumpTypesArgs struct {
+	Paths         []string `json:"paths,omitempty"`
+	OutputPath    string   `json:"output_path"`
+	NoCacheOracle bool     `json:"no_cache_oracle,omitempty"`
+	Verbose       bool     `json:"verbose,omitempty"`
 }

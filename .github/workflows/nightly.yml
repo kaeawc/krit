@@ -1,0 +1,89 @@
+name: Nightly
+on:
+  schedule:
+    # 06:00 UTC daily. Picks up everything merged the previous US workday
+    # while keeping the release artifacts ready before EU morning.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Tag even if no commits since last nightly'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          # Default GITHUB_TOKEN won't trigger downstream workflows on tag
+          # push — use a PAT with workflow scope so release.yml fires.
+          token: ${{ secrets.KRIT_NIGHTLY_TAG_TOKEN }}
+
+      - name: Compute next nightly tag
+        id: compute
+        env:
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+
+          # Latest stable tag = vX.Y.Z with no prerelease suffix.
+          latest_stable=$(git tag --list 'v*' --sort=-v:refname \
+            | grep -Ev '-' \
+            | head -1)
+          if [ -z "$latest_stable" ]; then
+            echo "No stable tag found; defaulting base to v0.0.0" >&2
+            latest_stable="v0.0.0"
+          fi
+          echo "Latest stable: $latest_stable"
+
+          # Bump minor: vA.B.C -> vA.(B+1).0
+          ver="${latest_stable#v}"
+          major="${ver%%.*}"
+          rest="${ver#*.}"
+          minor="${rest%%.*}"
+          next_minor=$((minor + 1))
+          base="v${major}.${next_minor}.0"
+
+          date_stamp=$(date -u +%Y%m%d)
+          tag="${base}-nightly.${date_stamp}"
+
+          # If a nightly with today's stamp already exists, append a -N suffix.
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            n=2
+            while git rev-parse -q --verify "refs/tags/${tag}.${n}" >/dev/null; do
+              n=$((n + 1))
+            done
+            tag="${tag}.${n}"
+          fi
+          echo "Next tag: $tag"
+
+          # Skip if no new commits since the most recent nightly (unless forced).
+          last_nightly=$(git tag --list 'v*-nightly.*' --sort=-creatordate | head -1)
+          if [ -n "$last_nightly" ] && [ "$FORCE" != "true" ]; then
+            if [ "$(git rev-list --count "${last_nightly}..HEAD")" -eq 0 ]; then
+              echo "No commits since $last_nightly; skipping." >&2
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Push tag
+        if: steps.compute.outputs.skip != 'true'
+        env:
+          TAG: ${{ steps.compute.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "krit-nightly[bot]"
+          git config user.email "krit-nightly@users.noreply.github.com"
+          git tag -a "$TAG" -m "Nightly $TAG"
+          git push origin "$TAG"
+          echo "Pushed $TAG — release.yml will pick it up."

@@ -217,11 +217,19 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
+          # Any tag with a SemVer prerelease suffix (e.g. v1.5.0-nightly.20260516,
+          # v1.5.0-beta.1, v1.5.0-rc1) is marked as a GitHub prerelease so it
+          # doesn't show up under the "Latest" badge.
+          prerelease_flag=""
+          case "$TAG" in
+            *-*) prerelease_flag="--prerelease" ;;
+          esac
           # shellcheck disable=SC2046
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG" \
             --generate-notes \
+            $prerelease_flag \
             $(ls *.tar.gz *.zip *.jar *.sbom.json checksums.txt checksums.txt.sig 2>/dev/null)
 
       - name: Publish Homebrew cask

@@ -1488,12 +1488,11 @@ func runDispatchOrLoadBundle(
 	// dispatch flow, so a bundle hit halfway through leaves a "gap"
 	// with no children for the user to investigate).
 	tracker := host.Tracker
-	tracked := tracker != nil && tracker.IsEnabled()
 	if bundleEnabled {
 		// cacheHitFullBundle: RunFingerprint matches a prior run
 		// exactly; the prior bytes are guaranteed correct for this
 		// request.
-		if d, c, ok := tryBundleLayer(tracker, tracked, "dispatchBundleLoad", indexResult, func() (*scanner.FindingColumns, bool) {
+		if d, c, ok := tryBundleLayer(tracker, "dispatchBundleLoad", indexResult, func() (*scanner.FindingColumns, bool) {
 			cached, found := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, runFP)
 			return cached, found
 		}); ok {
@@ -1503,7 +1502,7 @@ func runDispatchOrLoadBundle(
 		// other fingerprint field is stable and the planner says a
 		// single body-only edit. Prior bundle replays under a new
 		// alias.
-		if d, c, ok := tryBundleLayer(tracker, tracked, "dispatchStableBundleLoad", indexResult, func() (*scanner.FindingColumns, bool) {
+		if d, c, ok := tryBundleLayer(tracker, "dispatchStableBundleLoad", indexResult, func() (*scanner.FindingColumns, bool) {
 			return tryLoadStructurallyStableBundle(host, runFP, manifest)
 		}); ok {
 			return d, c, true, dispatchTimings{}, nil
@@ -1519,7 +1518,7 @@ func runDispatchOrLoadBundle(
 		deltaFn := func() {
 			deltaD, deltaC, deltaOK, deltaErr = tryDeltaDispatch(ctx, args, host, indexResult, parseResult, runFP, manifest)
 		}
-		if tracked {
+		if tracker != nil && tracker.IsEnabled() {
 			tracker.TrackVoid("dispatchDeltaPath", deltaFn)
 		} else {
 			deltaFn()
@@ -1555,7 +1554,6 @@ func runDispatchOrLoadBundle(
 // with bundleHit=true.
 func tryBundleLayer(
 	tracker perf.Tracker,
-	tracked bool,
 	scope string,
 	indexResult IndexResult,
 	load func() (*scanner.FindingColumns, bool),
@@ -1563,7 +1561,7 @@ func tryBundleLayer(
 	var cached *scanner.FindingColumns
 	var ok bool
 	fn := func() { cached, ok = load() }
-	if tracked {
+	if tracker != nil && tracker.IsEnabled() {
 		tracker.TrackVoid(scope, fn)
 	} else {
 		fn()

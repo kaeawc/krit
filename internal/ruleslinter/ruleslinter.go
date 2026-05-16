@@ -92,6 +92,20 @@ var adHocCacheInfraFiles = map[string]bool{
 // grandfatheredAdHocCaches; legitimate infrastructure files are listed
 // in adHocCacheInfraFiles. Test files are skipped.
 func AnalyzeAdHocCaches(dir string) ([]Violation, error) {
+	return walkRulesPackageDir(dir, func(name string) bool {
+		return adHocCacheInfraFiles[name]
+	}, scanAdHocCaches)
+}
+
+// walkRulesPackageDir parses every non-test .go file in dir (skipping
+// directories, test files, and any filename for which extraSkip returns
+// true) and concatenates the violations returned by scan. Results are
+// sorted by (filename, offset). extraSkip may be nil.
+func walkRulesPackageDir(
+	dir string,
+	extraSkip func(basename string) bool,
+	scan func(fset *token.FileSet, file *ast.File, basename string) []Violation,
+) ([]Violation, error) {
 	fset := token.NewFileSet()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -105,7 +119,7 @@ func AnalyzeAdHocCaches(dir string) ([]Violation, error) {
 		if strings.HasSuffix(e.Name(), "_test.go") {
 			continue
 		}
-		if adHocCacheInfraFiles[e.Name()] {
+		if extraSkip != nil && extraSkip(e.Name()) {
 			continue
 		}
 		path := filepath.Join(dir, e.Name())
@@ -113,7 +127,7 @@ func AnalyzeAdHocCaches(dir string) ([]Violation, error) {
 		if err != nil {
 			return nil, fmt.Errorf("ruleslinter: parse %s: %w", path, err)
 		}
-		violations = append(violations, scanAdHocCaches(fset, f, e.Name())...)
+		violations = append(violations, scan(fset, f, e.Name())...)
 	}
 	sort.Slice(violations, func(i, j int) bool {
 		if violations[i].Position.Filename != violations[j].Position.Filename {
@@ -885,33 +899,9 @@ func isMergeCollectorsCall(call *ast.CallExpr) bool {
 //
 // Test files are skipped.
 func AnalyzeOptInReason(dir string) ([]Violation, error) {
-	fset := token.NewFileSet()
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("ruleslinter: read dir: %w", err)
-	}
-	var violations []Violation
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
-			continue
-		}
-		if strings.HasSuffix(e.Name(), "_test.go") {
-			continue
-		}
-		path := filepath.Join(dir, e.Name())
-		f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		if err != nil {
-			return nil, fmt.Errorf("ruleslinter: parse %s: %w", path, err)
-		}
-		violations = append(violations, scanOptInReason(fset, f)...)
-	}
-	sort.Slice(violations, func(i, j int) bool {
-		if violations[i].Position.Filename != violations[j].Position.Filename {
-			return violations[i].Position.Filename < violations[j].Position.Filename
-		}
-		return violations[i].Position.Offset < violations[j].Position.Offset
+	return walkRulesPackageDir(dir, nil, func(fset *token.FileSet, file *ast.File, _ string) []Violation {
+		return scanOptInReason(fset, file)
 	})
-	return violations, nil
 }
 
 func scanOptInReason(fset *token.FileSet, file *ast.File) []Violation {
@@ -1048,40 +1038,14 @@ func optInReasonName(expr ast.Expr) string {
 // rule source containing the pattern as a string fixture, do not trip
 // the gate.
 func AnalyzeDefensiveContextGuards(dir string) ([]Violation, error) {
-	fset := token.NewFileSet()
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("ruleslinter: read dir: %w", err)
-	}
-	var violations []Violation
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
-			continue
-		}
-		if strings.HasSuffix(e.Name(), "_test.go") {
-			continue
-		}
+	return walkRulesPackageDir(dir, func(name string) bool {
 		// dispatcher.go legitimately reads ctx.File / ctx.Idx to wire the
-		// context up; api/ is the package that defines the Context type.
-		// Neither lives at the rules-package root we scan, but skip
-		// dispatcher.go defensively in case the scan dir is widened later.
-		if e.Name() == "dispatcher.go" || strings.HasPrefix(e.Name(), "dispatcher_") {
-			continue
-		}
-		path := filepath.Join(dir, e.Name())
-		f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		if err != nil {
-			return nil, fmt.Errorf("ruleslinter: parse %s: %w", path, err)
-		}
-		violations = append(violations, scanDefensiveContextGuards(fset, f)...)
-	}
-	sort.Slice(violations, func(i, j int) bool {
-		if violations[i].Position.Filename != violations[j].Position.Filename {
-			return violations[i].Position.Filename < violations[j].Position.Filename
-		}
-		return violations[i].Position.Offset < violations[j].Position.Offset
+		// context up; skip it (and any sibling dispatcher_*.go) so the
+		// gate only inspects rule callbacks, not the dispatcher itself.
+		return name == "dispatcher.go" || strings.HasPrefix(name, "dispatcher_")
+	}, func(fset *token.FileSet, file *ast.File, _ string) []Violation {
+		return scanDefensiveContextGuards(fset, file)
 	})
-	return violations, nil
 }
 
 // scanDefensiveContextGuards inspects every function in file whose
@@ -1090,6 +1054,11 @@ func AnalyzeDefensiveContextGuards(dir string) ([]Violation, error) {
 // ctx.Idx == 0). Functions that return values are skipped — they are
 // helpers, not rule callbacks, and may be invoked from non-dispatcher
 // paths.
+//
+// Limitation: init-form guards like `if x := ctx.File; x == nil { return }`
+// are not detected (the analysis would have to track the assigned name
+// through the body). New code should not introduce that shape; the bare
+// `if ctx.File == nil { return }` form is what previously accumulated.
 func scanDefensiveContextGuards(fset *token.FileSet, file *ast.File) []Violation {
 	var out []Violation
 	for _, decl := range file.Decls {
@@ -1118,14 +1087,26 @@ func scanDefensiveContextGuards(fset *token.FileSet, file *ast.File) []Violation
 			if !condReferencesContextGuard(ifStmt.Cond, ctxName) {
 				continue
 			}
+			advice := "Delete the guard"
+			if _, compound := ifStmt.Cond.(*ast.BinaryExpr); compound && condIsLogicalOr(ifStmt.Cond) {
+				advice = "Drop the dispatcher-guaranteed half of the `||`, or split the remaining check into a separate `if`"
+			}
 			out = append(out, Violation{
 				RuleID:   fn.Name.Name,
 				Position: fset.Position(ifStmt.Pos()),
-				Message:  "defensive `if " + ctxName + ".File == nil` / `" + ctxName + ".Idx == 0` guard in rule callback; the dispatcher guarantees both. Delete the guard — see internal/rules/dispatcher.go.",
+				Message:  "defensive `if " + ctxName + ".File == nil` / `" + ctxName + ".Idx == 0` guard in rule callback; the dispatcher guarantees both. " + advice + " — see internal/rules/dispatcher.go.",
 			})
 		}
 	}
 	return out
+}
+
+// condIsLogicalOr reports whether the top-level operator of cond is `||`.
+// Used to tailor the violation message when the guard is compounded with
+// a real precondition.
+func condIsLogicalOr(cond ast.Expr) bool {
+	bin, ok := cond.(*ast.BinaryExpr)
+	return ok && bin.Op == token.LOR
 }
 
 // ifBodyIsBareReturn reports whether body is `{ return }` — a single bare

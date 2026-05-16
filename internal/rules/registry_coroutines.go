@@ -1064,46 +1064,37 @@ func registerCoroutinesSupervisorScopeInEventHandler() {
 
 func registerCoroutinesWithContextInSuspendFunctionNoop() {
 	r := &WithContextInSuspendFunctionNoopRule{BaseRule: BaseRule{RuleName: "WithContextInSuspendFunctionNoop", RuleSetName: "coroutines", Sev: "info", Desc: "Detects nested withContext calls using the same dispatcher as the parent, which is redundant."}}
+	// Capability narrowing: this rule was previously declared
+	// NeedsTypeInfo|NeedsOracleCallTargets with an OracleCallTargetFilter for
+	// `withContext`. The actual check is entirely source-visible — it relies
+	// on the kotlinx.coroutines.withContext import (or wildcard), absence of
+	// a local function shadowing the name, the bare-identifier call shape,
+	// and a navigation-chain match for Dispatchers.X. No KAA/type-info fact
+	// is required, so the rule now declares zero capabilities.
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes:  []string{"call_expression"},
-		Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+		Languages:  []scanner.Language{scanner.LangKotlin},
 		Confidence: 0.75, Implementation: r,
-		OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"withContext"}},
-		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallExpressionName(file, idx) != "withContext" {
+				return
+			}
+			// The inner call must resolve to kotlinx.coroutines.withContext.
+			if !withContextCallResolves(file, idx) {
 				return
 			}
 			dispatcher := extractWithContextDispatcher(ctx, idx)
 			if dispatcher == "" {
 				return
 			}
-			skippedSelf := false
-			for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-				if file.FlatType(p) == "function_declaration" {
-					break
-				}
-				if file.FlatType(p) != "call_expression" {
-					continue
-				}
-				if !skippedSelf && flatCallNameAny(file, p) == "withContext" {
-					pd := extractWithContextDispatcher(ctx, p)
-					if pd == dispatcher {
-						skippedSelf = true
-						continue
-					}
-				}
-				if flatCallNameAny(file, p) == "withContext" {
-					parentDispatcher := extractWithContextDispatcher(ctx, p)
-					if parentDispatcher == dispatcher {
-						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-							fmt.Sprintf("Redundant nested withContext(%s). The parent already switches to this dispatcher.", dispatcher))
-						return
-					}
-				}
+			parentDispatcher := withContextSameScopeAncestor(ctx, idx, dispatcher)
+			if parentDispatcher == "" || parentDispatcher != dispatcher {
+				return
 			}
+			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				fmt.Sprintf("Redundant nested withContext(%s). The parent already switches to this dispatcher.", dispatcher))
 		},
 	})
 }

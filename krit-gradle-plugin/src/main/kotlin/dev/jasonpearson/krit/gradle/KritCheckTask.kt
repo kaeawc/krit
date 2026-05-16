@@ -220,10 +220,17 @@ abstract class KritCheckTask @Inject constructor(
     }
 
     private fun MutableList<String>.addCustomRuleJarArgs() {
-        val jars = customRuleJars.files
-        if (jars.isNotEmpty()) {
+        appendCustomRuleJarArgs(customRuleJars.files.map { it.absolutePath })
+    }
+
+    companion object {
+        // Forces --daemon on when jars are present: the CLI hard-errors otherwise
+        // (see internal/pipeline/custom_kotlin_rules.go).
+        internal fun MutableList<String>.appendCustomRuleJarArgs(jarPaths: Collection<String>) {
+            if (jarPaths.isEmpty()) return
             add("--custom-rule-jars")
-            add(jars.joinToString(",") { it.absolutePath })
+            add(jarPaths.joinToString(","))
+            if ("--daemon" !in this) add("--daemon")
         }
     }
 }

@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
+import dev.jasonpearson.krit.gradle.KritCheckTask.Companion.appendCustomRuleJarArgs
 
 class KritPluginTest {
 
@@ -299,5 +300,33 @@ class KritPluginTest {
         // Without Android plugin, no variant-specific tasks
         assertEquals(null, project.tasks.findByName("kritCheckDebug"))
         assertEquals(null, project.tasks.findByName("kritCheckRelease"))
+    }
+
+    // --- Custom rule jars + --daemon auto-pass ---
+
+    @Test
+    fun `appendCustomRuleJarArgs is a no-op when jar list is empty`() {
+        val args = mutableListOf<String>()
+        args.appendCustomRuleJarArgs(emptyList())
+        assertTrue(args.isEmpty(), "empty jar list should not mutate args, was: $args")
+    }
+
+    @Test
+    fun `appendCustomRuleJarArgs adds --daemon automatically when jars present`() {
+        val args = mutableListOf("--format=sarif")
+        args.appendCustomRuleJarArgs(listOf("/jars/a.jar", "/jars/b.jar"))
+        val index = args.indexOf("--custom-rule-jars")
+        assertTrue(index >= 0, "expected --custom-rule-jars, was: $args")
+        assertEquals("/jars/a.jar,/jars/b.jar", args[index + 1])
+        assertTrue("--daemon" in args,
+            "expected --daemon to be auto-passed when custom-rule jars configured, was: $args")
+    }
+
+    @Test
+    fun `appendCustomRuleJarArgs does not duplicate --daemon when already present`() {
+        val args = mutableListOf("--daemon", "--format=sarif")
+        args.appendCustomRuleJarArgs(listOf("/jars/a.jar"))
+        assertEquals(1, args.count { it == "--daemon" },
+            "--daemon should not be duplicated, was: $args")
     }
 }

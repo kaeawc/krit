@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kaeawc/krit/internal/cli/daemonclient"
 	"github.com/kaeawc/krit/internal/daemon"
 )
 
@@ -31,36 +32,66 @@ func TestTryDaemonDelegate_NoDaemonShortCircuits(t *testing.T) {
 	}
 }
 
-// TestTryDaemonDelegate_NoSocketFallsBack is the auto-detect path:
-// no daemon listening, no fallback flag, the CLI should simply hand
-// off to in-process by returning handled=false.
-func TestTryDaemonDelegate_NoSocketFallsBack(t *testing.T) {
+// TestTryDaemonDelegate_StartFailureFallsBack is the auto-start path:
+// if no daemon can be started, the CLI should hand off to in-process
+// by returning handled=false.
+func TestTryDaemonDelegate_StartFailureFallsBack(t *testing.T) {
 	root := newRoot(t)
 	f := freshScanFlags(t)
+	stubEnsureDaemonForScan(t, func(string, daemonclient.SpawnOptions) (*daemonclient.Client, bool, error) {
+		return nil, false, fmt.Errorf("boom")
+	})
 
 	handled, _ := tryDaemonDelegate(f, []string{root}, root)
 	if handled {
-		t.Fatalf("expected fall-through when no daemon is reachable")
+		t.Fatalf("expected fall-through when daemon start fails")
 	}
 }
 
-// TestTryDaemonDelegate_StaleSocketFallsBack pins the kill -9 case:
-// a leftover socket inode with no listener must not propagate as an
-// error — the CLI should silently drop into in-process mode.
-func TestTryDaemonDelegate_StaleSocketFallsBack(t *testing.T) {
+func TestTryDaemonDelegate_AutoStartDisabledKeepsExistingDiscoveryBehavior(t *testing.T) {
+	t.Setenv("KRIT_NO_DAEMON_AUTOSTART", "1")
 	root := newRoot(t)
-	socket := daemon.DefaultSocketPath(root)
-	if err := os.MkdirAll(filepath.Dir(socket), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(socket, []byte{}, 0o600); err != nil {
-		t.Fatalf("create stale: %v", err)
-	}
 	f := freshScanFlags(t)
+	stubEnsureDaemonForScan(t, func(string, daemonclient.SpawnOptions) (*daemonclient.Client, bool, error) {
+		t.Fatal("ensureDaemonForScan should not be called when autostart is disabled")
+		return nil, false, nil
+	})
 
 	handled, _ := tryDaemonDelegate(f, []string{root}, root)
 	if handled {
-		t.Fatalf("expected fall-through on stale socket; got handled=true")
+		t.Fatalf("expected fall-through with autostart disabled and no running daemon")
+	}
+}
+
+func TestTryDaemonDelegate_AutoStartsDaemon(t *testing.T) {
+	socketDir := startMockDaemon(t, mockBehavior{
+		findings:      `{"rules":["X"],"line":[1]}`,
+		findingsCount: 1,
+	})
+	root := newRoot(t)
+	f := freshScanFlags(t)
+	stubEnsureDaemonForScan(t, func(repoRoot string, opts daemonclient.SpawnOptions) (*daemonclient.Client, bool, error) {
+		if repoRoot != root {
+			t.Fatalf("repoRoot = %q, want %q", repoRoot, root)
+		}
+		if !opts.AutoRestart {
+			t.Fatal("AutoRestart = false, want true")
+		}
+		linkSock(t, root, filepath.Join(socketDir, "d.sock"))
+		client, ok := daemonclient.Discover(root)
+		return client, ok, nil
+	})
+
+	out := redirectStdout(t)
+	handled, code := tryDaemonDelegate(f, []string{root}, root)
+	if !handled {
+		t.Fatalf("expected handled=true after daemon auto-start")
+	}
+	if code != 1 {
+		t.Fatalf("code = %d, want 1", code)
+	}
+	if want := `{"rules":["X"],"line":[1]}`; out() != want {
+		t.Errorf("findings byte mismatch:\n got %q\nwant %q", out(), want)
 	}
 }
 
@@ -128,6 +159,13 @@ func freshScanFlags(t *testing.T) *scanFlags {
 	t.Helper()
 	fs := flag.NewFlagSet("scan-test", flag.ContinueOnError)
 	return registerScanFlags(fs)
+}
+
+func stubEnsureDaemonForScan(t *testing.T, fn func(string, daemonclient.SpawnOptions) (*daemonclient.Client, bool, error)) {
+	t.Helper()
+	orig := ensureDaemonForScan
+	ensureDaemonForScan = fn
+	t.Cleanup(func() { ensureDaemonForScan = orig })
 }
 
 // linkSock places root/.krit/daemon.sock pointing at socket so the

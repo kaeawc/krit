@@ -14,12 +14,15 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
+var ensureDaemonForScan = daemonclient.EnsureCompatible
+
 // tryDaemonDelegate attempts to dispatch the current scan through a
-// running krit daemon. handled=true means the daemon produced the
-// output and the caller should exit with the returned code;
-// handled=false means the caller falls back to the in-process path.
-// Fallback is silent except for the daemon-talked-but-failed case,
-// which logs a warning and continues.
+// compatible krit daemon, starting or replacing one when needed.
+// handled=true means the daemon produced the output and the caller
+// should exit with the returned code; handled=false means the caller
+// falls back to the in-process path. Fallback is silent except when
+// daemon startup or a daemon call fails after the flag set has been
+// accepted for delegation.
 func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int) {
 	if f == nil || *f.NoDaemon {
 		return false, 0
@@ -34,11 +37,37 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 	if !daemonCompatibleFlags(f) {
 		return false, 0
 	}
-	client, ok := daemonclient.TryConnect(repoDir, *f.DaemonSocket)
+	if *f.DaemonSocket != "" {
+		client, ok := daemonclient.TryConnect(repoDir, *f.DaemonSocket)
+		if !ok {
+			return false, 0
+		}
+		return runDaemonAnalyze(client, f, paths)
+	}
+	if daemonAutoStartDisabled() {
+		client, ok := daemonclient.TryConnect(repoDir, "")
+		if !ok {
+			return false, 0
+		}
+		return runDaemonAnalyze(client, f, paths)
+	}
+	client, ok, err := ensureDaemonForScan(repoDir, daemonclient.SpawnOptions{
+		Binary:      daemonBinaryForScan(),
+		WaitTimeout: 30 * time.Second,
+		LogPath:     filepath.Join(repoDir, ".krit", "daemon.log"),
+		AutoRestart: true,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: krit daemon unavailable (%v); falling back to in-process\n", err)
+		return false, 0
+	}
 	if !ok {
 		return false, 0
 	}
+	return runDaemonAnalyze(client, f, paths)
+}
 
+func runDaemonAnalyze(client *daemonclient.Client, f *scanFlags, paths []string) (bool, int) {
 	start := time.Now()
 	res, err := client.AnalyzeProject(buildDaemonAnalyzeArgs(f, paths))
 	if err != nil {
@@ -50,7 +79,9 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 		return false, 0
 	}
 
-	fmt.Fprintln(os.Stderr, "info: using daemon")
+	if !*f.Quiet {
+		fmt.Fprintln(os.Stderr, "info: using daemon")
+	}
 	if handled, code := dispatchDaemonShortCircuits(f, paths, res); handled {
 		return true, code
 	}
@@ -338,6 +369,18 @@ func emitDaemonDispatchProfile(p *daemon.DispatchProfile) {
 		}
 	}
 	reportDispatchProfile(timings, p.Workers, time.Duration(p.WallMs)*time.Millisecond)
+}
+
+func daemonBinaryForScan() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return exe
+}
+
+func daemonAutoStartDisabled() bool {
+	return os.Getenv("KRIT_NO_DAEMON_AUTOSTART") == "1"
 }
 
 // daemonCompatibleFlags reports whether the requested flag set can be

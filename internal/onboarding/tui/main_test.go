@@ -23,6 +23,9 @@ func TestMain(m *testing.M) {
 	if err := cmd.Run(); err != nil {
 		log.Fatalf("failed to build krit binary: %v", err)
 	}
+	if err := os.Setenv("KRIT_NO_DAEMON_AUTOSTART", "1"); err != nil {
+		log.Fatalf("failed to set test env: %v", err)
+	}
 
 	code := m.Run()
 	os.RemoveAll(tmp)

@@ -31,6 +31,9 @@ func TestMain(m *testing.M) {
 	if err := cmd.Run(); err != nil {
 		log.Fatalf("failed to build krit binary: %v", err)
 	}
+	if err := os.Setenv("KRIT_NO_DAEMON_AUTOSTART", "1"); err != nil {
+		log.Fatalf("failed to set test env: %v", err)
+	}
 
 	code := m.Run()
 
@@ -522,7 +525,7 @@ func keysOf(m map[string]interface{}) []string {
 }
 
 func TestPlaygroundWebService(t *testing.T) {
-	out, err := exec.Command(binPath, "-f", "json", "-no-type-inference", "-no-type-oracle", "-q", "../../playground/kotlin-webservice/").CombinedOutput()
+	out, err := exec.Command(binPath, "--no-daemon", "-f", "json", "-no-type-inference", "-no-type-oracle", "-q", "../../playground/kotlin-webservice/").CombinedOutput()
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
@@ -545,7 +548,7 @@ func TestPlaygroundWebService(t *testing.T) {
 }
 
 func TestPlaygroundAndroidApp(t *testing.T) {
-	out, err := exec.Command(binPath, "-f", "json", "-no-type-inference", "-no-type-oracle", "-q", "../../playground/android-app/").CombinedOutput()
+	out, err := exec.Command(binPath, "--no-daemon", "-f", "json", "-no-type-inference", "-no-type-oracle", "-q", "../../playground/android-app/").CombinedOutput()
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {

@@ -288,7 +288,7 @@ func TestDaemonAnalyzeProject_RoundTrip(t *testing.T) {
 	}
 	t.Cleanup(func() { _, _, _ = runKrit(t, "daemon", "stop", "--repo", repo) })
 
-	stdout, stderr, code := runKrit(t, "--no-type-inference", "--no-type-oracle", "-q", "-f", "json", repo)
+	stdout, stderr, code := runKrit(t, "--no-type-inference", "--no-type-oracle", "-f", "json", repo)
 	// Findings present -> exit 1; the test directory is clean iff no
 	// rules fired, but the seeded UnusedVariable should fire.
 	if code != 1 {

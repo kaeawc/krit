@@ -37,6 +37,9 @@ func copyDir(t *testing.T, src, dst string) {
 		if info.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err

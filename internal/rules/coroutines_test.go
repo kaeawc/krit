@@ -1543,6 +1543,197 @@ suspend fun loadData() {
 	}
 }
 
+// --- WithContextInSuspendFunctionNoop regression tests ---
+
+// Different dispatchers — inner switch is meaningful.
+func TestWithContextInSuspendFunctionNoop_NegativeDifferentDispatchers(t *testing.T) {
+	findings := runRuleByName(t, "WithContextInSuspendFunctionNoop", `
+package test
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+suspend fun loadData() {
+    withContext(Dispatchers.IO) {
+        withContext(Dispatchers.Main) {
+            updateUi()
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings, got %d", len(findings))
+	}
+}
+
+// Injected dispatcher variable — cannot prove symbolic equality, must stay quiet.
+func TestWithContextInSuspendFunctionNoop_NegativeInjectedDispatcher(t *testing.T) {
+	findings := runRuleByName(t, "WithContextInSuspendFunctionNoop", `
+package test
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+class Repo(private val io: CoroutineDispatcher) {
+    suspend fun loadData() {
+        withContext(io) {
+            withContext(Dispatchers.IO) {
+                fetch()
+            }
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings, got %d", len(findings))
+	}
+}
+
+// Local function named withContext shadows kotlinx.coroutines.withContext.
+func TestWithContextInSuspendFunctionNoop_NegativeLocalShadow(t *testing.T) {
+	findings := runRuleByName(t, "WithContextInSuspendFunctionNoop", `
+package test
+import kotlinx.coroutines.Dispatchers
+suspend fun withContext(d: Any, block: suspend () -> Unit) { block() }
+suspend fun loadData() {
+    withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
+            fetch()
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings, got %d", len(findings))
+	}
+}
+
+// Missing kotlinx.coroutines.withContext import — bare call could be anything.
+func TestWithContextInSuspendFunctionNoop_NegativeMissingImport(t *testing.T) {
+	findings := runRuleByName(t, "WithContextInSuspendFunctionNoop", `
+package test
+import kotlinx.coroutines.Dispatchers
+suspend fun loadData() {
+    withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
+            fetch()
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings, got %d", len(findings))
+	}
+}
+
+// Intervening launch — different coroutine context, no redundancy.
+func TestWithContextInSuspendFunctionNoop_NegativeInterveningLaunch(t *testing.T) {
+	findings := runRuleByName(t, "WithContextInSuspendFunctionNoop", `
+package test
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+suspend fun loadData(scope: CoroutineScope) {
+    withContext(Dispatchers.IO) {
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                fetch()
+            }
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings, got %d", len(findings))
+	}
+}
+
+// Intervening coroutineScope { ... } — child coroutine builder, not a withContext;
+// don't bleed comparison through it.
+func TestWithContextInSuspendFunctionNoop_NegativeInterveningCoroutineScope(t *testing.T) {
+	findings := runRuleByName(t, "WithContextInSuspendFunctionNoop", `
+package test
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
+suspend fun loadData() {
+    withContext(Dispatchers.IO) {
+        coroutineScope {
+            withContext(Dispatchers.IO) {
+                fetch()
+            }
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings, got %d", len(findings))
+	}
+}
+
+// Nested local function declaration boundary — inner withContext is in a
+// separate function body, do not compare against outer suspend function.
+func TestWithContextInSuspendFunctionNoop_NegativeNestedFunction(t *testing.T) {
+	findings := runRuleByName(t, "WithContextInSuspendFunctionNoop", `
+package test
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+suspend fun loadData() {
+    withContext(Dispatchers.IO) {
+        suspend fun helper() {
+            withContext(Dispatchers.IO) {
+                fetch()
+            }
+        }
+        helper()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings, got %d", len(findings))
+	}
+}
+
+// Comment containing the words "withContext" must not match anything; AST-based
+// dispatch already enforces this but lock the regression.
+func TestWithContextInSuspendFunctionNoop_NegativeCommentLookalike(t *testing.T) {
+	findings := runRuleByName(t, "WithContextInSuspendFunctionNoop", `
+package test
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+suspend fun loadData() {
+    // withContext(Dispatchers.IO) { withContext(Dispatchers.IO) { } }
+    val msg = "withContext(Dispatchers.IO) inside withContext(Dispatchers.IO)"
+    withContext(Dispatchers.IO) {
+        println(msg)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings, got %d", len(findings))
+	}
+}
+
+// Capability declaration must stay narrow: this rule does not need oracle or
+// type info.
+func TestWithContextInSuspendFunctionNoop_StaysASTOnly(t *testing.T) {
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "WithContextInSuspendFunctionNoop" {
+			rule = r
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("WithContextInSuspendFunctionNoop not registered")
+	}
+	if rule.Needs != 0 {
+		t.Fatalf("WithContextInSuspendFunctionNoop Needs=%v, want 0 (AST + imports only)", rule.Needs)
+	}
+	if rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil || rule.Oracle != nil {
+		t.Fatalf("WithContextInSuspendFunctionNoop unexpectedly carries oracle metadata: %+v %+v %+v",
+			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+	}
+}
+
 // --- LaunchWithoutCoroutineExceptionHandler ---
 
 func TestLaunchWithoutCoroutineExceptionHandler_Positive(t *testing.T) {

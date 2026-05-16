@@ -162,6 +162,5 @@ var grandfatheredTypeInfoRulesWithoutExplicitJavaSupport = map[string]bool{
 	"ViewHolder":                                     true,
 	"ViewTag":                                        true,
 	"Wakelock":                                       true,
-	"WithContextInSuspendFunctionNoop":               true,
 	"WrongConstant":                                  true,
 }

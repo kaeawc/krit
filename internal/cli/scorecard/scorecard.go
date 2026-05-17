@@ -59,7 +59,7 @@ func Build(paths []string, configPath string) ([]Row, error) {
 	if err != nil {
 		return nil, err
 	}
-	graph, err := module.DiscoverModules(root)
+	graph, err := module.DiscoverModules(context.Background(), root)
 	if err != nil {
 		return nil, fmt.Errorf("discovering modules: %w", err)
 	}

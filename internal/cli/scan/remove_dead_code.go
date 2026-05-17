@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -27,7 +28,7 @@ func RunDeadCodeRemovalColumns(columns *scanner.FindingColumns, format string, d
 		})
 	}
 
-	result := plan.Apply(suffix)
+	result := plan.Apply(context.Background(), suffix)
 	appliedSummary := summary
 	appliedSummary.Declarations = result.Declarations
 	appliedSummary.Files = result.Files

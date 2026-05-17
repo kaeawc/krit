@@ -41,7 +41,7 @@ func BenchmarkApplyFixes_ByteMode_Single(b *testing.B) {
 				ByteMode:    true,
 			}),
 		}
-		_, err := ApplyFixes(path, findings, ".fixed")
+		_, err := ApplyFixes(b.Context(), path, findings, ".fixed")
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -59,7 +59,7 @@ func BenchmarkApplyFixes_ByteMode_Multiple(b *testing.B) {
 			benchFinding(path, &scanner.Fix{StartByte: 34, EndByte: 39, Replacement: "w = 40", ByteMode: true}),
 			benchFinding(path, &scanner.Fix{StartByte: 44, EndByte: 49, Replacement: "v = 50", ByteMode: true}),
 		}
-		_, err := ApplyFixes(path, findings, ".fixed")
+		_, err := ApplyFixes(b.Context(), path, findings, ".fixed")
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -77,7 +77,7 @@ func BenchmarkApplyFixes_LineMode_Single(b *testing.B) {
 				Replacement: "val x = 42",
 			}),
 		}
-		_, err := ApplyFixes(path, findings, ".fixed")
+		_, err := ApplyFixes(b.Context(), path, findings, ".fixed")
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -95,7 +95,7 @@ func BenchmarkApplyFixes_LineMode_Multiple(b *testing.B) {
 			benchFinding(path, &scanner.Fix{StartLine: 4, EndLine: 4, Replacement: "val d = 40"}),
 			benchFinding(path, &scanner.Fix{StartLine: 5, EndLine: 5, Replacement: "val e = 50"}),
 		}
-		_, err := ApplyFixes(path, findings, ".fixed")
+		_, err := ApplyFixes(b.Context(), path, findings, ".fixed")
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -107,7 +107,7 @@ func BenchmarkValidateFixResult(b *testing.B) {
 	fixed := []byte("fun main() {\n    println(\"world\")\n}\n")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = ValidateFixResult("test.kt", original, fixed)
+		_ = ValidateFixResult(b.Context(), "test.kt", original, fixed)
 	}
 }
 

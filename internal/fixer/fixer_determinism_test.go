@@ -47,7 +47,7 @@ func TestApplyAllFixesColumns_StableErrorOrder(t *testing.T) {
 	// 200 iterations to amplify any scheduler-driven non-determinism.
 	for i := 0; i < 200; i++ {
 		columns := scanner.CollectFindings(findings)
-		_, _, errs := ApplyAllFixesColumns(&columns, "")
+		_, _, errs := ApplyAllFixesColumns(t.Context(), &columns, "")
 		if len(errs) != len(want) {
 			t.Fatalf("iter %d: got %d errors, want %d", i, len(errs), len(want))
 		}

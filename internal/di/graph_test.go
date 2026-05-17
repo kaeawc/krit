@@ -36,7 +36,7 @@ class Router @Inject constructor(
 @Singleton
 class Api @Inject constructor()`)
 
-	moduleGraph, err := module.DiscoverModules(root)
+	moduleGraph, err := module.DiscoverModules(t.Context(), root)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}

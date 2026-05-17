@@ -102,7 +102,7 @@ func TestAccessorReferencedRespectsBoundaries(t *testing.T) {
 
 func runVersionCatalogUnused(t *testing.T, projectDir string, ignored []string, scanConvention bool) []scanner.Finding {
 	t.Helper()
-	graph, err := module.DiscoverModules(projectDir)
+	graph, err := module.DiscoverModules(t.Context(), projectDir)
 	if err != nil {
 		t.Fatalf("DiscoverModules(%s): %v", projectDir, err)
 	}

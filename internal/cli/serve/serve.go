@@ -655,7 +655,7 @@ func (s *daemonState) closeAndroidCacheWriter() {
 }
 
 func (s *daemonState) warm() error {
-	graph, err := module.DiscoverModules(s.root)
+	graph, err := module.DiscoverModules(context.Background(), s.root)
 	if err != nil {
 		return fmt.Errorf("discovering modules: %w", err)
 	}

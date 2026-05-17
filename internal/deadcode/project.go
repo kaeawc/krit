@@ -90,7 +90,7 @@ func AnalyzeProject(scanRoot string, opts ProjectOptions) ([]ProjectFinding, err
 }
 
 func buildProjectIndex(scanRoot string, paths []string, workers int) (*module.Graph, *scanner.CodeIndex, map[string]*scanner.File, error) {
-	graph, _ := module.DiscoverModules(scanRoot)
+	graph, _ := module.DiscoverModules(context.Background(), scanRoot)
 	if graph != nil {
 		_ = module.ParseAllDependencies(graph)
 	}

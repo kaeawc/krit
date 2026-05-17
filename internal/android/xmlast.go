@@ -69,7 +69,7 @@ func (n *XMLNode) ChildrenByTag(tag string) []*XMLNode {
 	return out
 }
 
-func ParseXMLAST(data []byte) (*XMLNode, error) {
+func ParseXMLAST(ctx context.Context, data []byte) (*XMLNode, error) {
 	pc := activeXMLParseCache.Load()
 	if cached, ok := pc.Load(data); ok {
 		return cached, nil
@@ -78,7 +78,7 @@ func ParseXMLAST(data []byte) (*XMLNode, error) {
 	parser := xmlParserPool.Get().(*sitter.Parser)
 	defer xmlParserPool.Put(parser)
 
-	tree, err := parser.ParseCtx(context.Background(), nil, data)
+	tree, err := parser.ParseCtx(ctx, nil, data)
 	if err != nil {
 		return nil, fmt.Errorf("parse xml: %w", err)
 	}

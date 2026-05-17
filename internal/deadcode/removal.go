@@ -1,6 +1,7 @@
 package deadcode
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"sort"
@@ -170,12 +171,12 @@ func (p Plan) Summary() Summary {
 }
 
 // Apply runs the plan through the shared fix engine.
-func (p Plan) Apply(suffix string) ApplyResult {
+func (p Plan) Apply(ctx context.Context, suffix string) ApplyResult {
 	if p.candidateColumns.Len() == 0 {
 		return ApplyResult{}
 	}
 
-	declarations, files, errors := fixer.ApplyAllFixesColumns(&p.candidateColumns, suffix)
+	declarations, files, errors := fixer.ApplyAllFixesColumns(ctx, &p.candidateColumns, suffix)
 	return ApplyResult{
 		Declarations: declarations,
 		Files:        files,

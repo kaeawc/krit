@@ -303,7 +303,7 @@ func TestFix_doesNotApplySuggestedEdits(t *testing.T) {
 		// No Fix slot: suggested fix is not an autofix.
 	}}
 	cols := scanner.CollectFindings(findings)
-	applied, modified, errs := fixer.ApplyAllFixesColumns(&cols, "")
+	applied, modified, errs := fixer.ApplyAllFixesColumns(t.Context(), &cols, "")
 	if len(errs) > 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}

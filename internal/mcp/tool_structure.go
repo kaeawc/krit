@@ -70,7 +70,7 @@ func (s *Server) structureModules(args structureArgs) ToolResult {
 		return errorResult("project_root must be a directory")
 	}
 
-	graph, err := module.DiscoverModules(args.ProjectRoot)
+	graph, err := module.DiscoverModules(context.Background(), args.ProjectRoot)
 	if err != nil {
 		return errorResult("discovering modules: " + err.Error())
 	}
@@ -253,7 +253,7 @@ func (s *Server) structurePkgDrift(args structureArgs) ToolResult {
 
 	// Discover modules from the first path so we can resolve real source roots.
 	// Fall back to canonical /src/{main,test}/{kotlin,java} if no graph is found.
-	graph, _ := module.DiscoverModules(args.Paths[0])
+	graph, _ := module.DiscoverModules(context.Background(), args.Paths[0])
 
 	ktFiles, err := scanner.CollectKotlinFiles(args.Paths, nil)
 	if err != nil {

@@ -223,7 +223,7 @@ func applyAndCompare(t *testing.T, sourcePath, baseName string, findings []scann
 	}
 
 	columns := scanner.CollectFindings(findings)
-	nFixes, _, fixErrs := fixer.ApplyAllFixesColumns(&columns, "")
+	nFixes, _, fixErrs := fixer.ApplyAllFixesColumns(t.Context(), &columns, "")
 	if len(fixErrs) > 0 {
 		t.Fatalf("ApplyAllFixesColumns error: %v", fixErrs[0])
 	}

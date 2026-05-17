@@ -10,7 +10,7 @@ func TestParseXMLAST_ManifestFixture(t *testing.T) {
     </application>
 </manifest>`)
 
-	root, err := ParseXMLAST(data)
+	root, err := ParseXMLAST(t.Context(), data)
 	if err != nil {
 		t.Fatalf("ParseXMLAST failed: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestParseXMLAST_ManifestFixture(t *testing.T) {
 }
 
 func TestParseXMLAST_EmptyInput(t *testing.T) {
-	_, err := ParseXMLAST([]byte{})
+	_, err := ParseXMLAST(t.Context(), []byte{})
 	if err == nil {
 		t.Fatal("expected error for empty input")
 	}
@@ -62,7 +62,7 @@ func TestParseXMLAST_ChildrenByTag(t *testing.T) {
   <other name="x"/>
 </root>`)
 
-	root, err := ParseXMLAST(data)
+	root, err := ParseXMLAST(t.Context(), data)
 	if err != nil {
 		t.Fatalf("ParseXMLAST failed: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestParseXMLAST_ChildrenByTag(t *testing.T) {
 
 func TestParseXMLAST_MissingAttr(t *testing.T) {
 	data := []byte(`<root attr="val"/>`)
-	root, err := ParseXMLAST(data)
+	root, err := ParseXMLAST(t.Context(), data)
 	if err != nil {
 		t.Fatalf("ParseXMLAST failed: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestParseXMLAST_MissingAttr(t *testing.T) {
 
 func TestParseXMLAST_ChildByTag_NotFound(t *testing.T) {
 	data := []byte(`<root><child/></root>`)
-	root, err := ParseXMLAST(data)
+	root, err := ParseXMLAST(t.Context(), data)
 	if err != nil {
 		t.Fatalf("ParseXMLAST failed: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestParseXMLAST_NestedElements(t *testing.T) {
   </b>
 </a>`)
 
-	root, err := ParseXMLAST(data)
+	root, err := ParseXMLAST(t.Context(), data)
 	if err != nil {
 		t.Fatalf("ParseXMLAST failed: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestParseXMLAST_NestedElements(t *testing.T) {
 func TestParseXMLAST_TextContent(t *testing.T) {
 	data := []byte(`<root><message>Hello World</message></root>`)
 
-	root, err := ParseXMLAST(data)
+	root, err := ParseXMLAST(t.Context(), data)
 	if err != nil {
 		t.Fatalf("ParseXMLAST failed: %v", err)
 	}

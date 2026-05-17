@@ -86,7 +86,7 @@ type moduleInfo struct {
 }
 
 func renderGraph(root, format string) (string, error) {
-	graph, err := module.DiscoverModules(root)
+	graph, err := module.DiscoverModules(context.Background(), root)
 	if err != nil {
 		return "", fmt.Errorf("discovering modules: %w", err)
 	}

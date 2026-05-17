@@ -108,7 +108,7 @@ func Run(args []string) int {
 	idx := scanner.BuildIndex(files, runtime.NumCPU())
 
 	hits := computeImpact(idx, changed)
-	graph, _ := module.DiscoverModules(root)
+	graph, _ := module.DiscoverModules(context.Background(), root)
 	return emitImpact(*jsonFlag, root, changed, hits, graph)
 }
 

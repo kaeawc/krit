@@ -97,7 +97,7 @@ func Analyze(root, base string) (Report, error) {
 		return Report{}, errs[0]
 	}
 	index := scanner.BuildIndex(files, runtime.NumCPU())
-	graph, _ := module.DiscoverModules(root)
+	graph, _ := module.DiscoverModules(context.Background(), root)
 	if graph == nil {
 		graph = module.NewModuleGraph(root)
 	}

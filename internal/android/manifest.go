@@ -2,6 +2,7 @@
 package android
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"os"
@@ -165,7 +166,7 @@ func ParseManifestBytes(data []byte) (*Manifest, error) {
 	if err := xml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parsing manifest XML: %w", err)
 	}
-	root, err := ParseXMLAST(data)
+	root, err := ParseXMLAST(context.Background(), data)
 	if err != nil {
 		return nil, fmt.Errorf("parsing manifest tree-sitter AST: %w", err)
 	}

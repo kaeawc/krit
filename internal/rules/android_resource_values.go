@@ -3,6 +3,7 @@ package rules
 // Android Resource XML rules: Value/string rules.
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -357,7 +358,7 @@ func readLocaleConfigLocales(path string) ([]string, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	root, err := android.ParseXMLAST(data)
+	root, err := android.ParseXMLAST(context.Background(), data)
 	if err != nil {
 		return nil, 0, err
 	}

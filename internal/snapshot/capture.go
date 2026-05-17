@@ -72,7 +72,7 @@ func Capture(opts CaptureOptions) (*Result, error) {
 		version = "dev"
 	}
 
-	graph, err := module.DiscoverModules(root)
+	graph, err := module.DiscoverModules(context.Background(), root)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: discover modules: %w", err)
 	}

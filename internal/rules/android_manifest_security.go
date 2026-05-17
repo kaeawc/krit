@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"os"
@@ -595,7 +596,7 @@ func (r *NetworkSecurityConfigDebugOverridesRule) check(ctx *api.Context) {
 	if err != nil {
 		return
 	}
-	root, err := android.ParseXMLAST(data)
+	root, err := android.ParseXMLAST(context.Background(), data)
 	if err != nil {
 		return
 	}

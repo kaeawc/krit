@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -187,7 +188,7 @@ func (r *PluralsMissingZeroRule) scanValuesDir(ctx *api.Context, dir, lang strin
 		if err != nil {
 			continue
 		}
-		root, err := android.ParseXMLAST(data)
+		root, err := android.ParseXMLAST(context.Background(), data)
 		if err != nil || root == nil || root.Tag != "resources" {
 			continue
 		}

@@ -75,6 +75,10 @@ type Fix struct {
 	StartByte int
 	EndByte   int
 	ByteMode  bool // if true, use byte offsets instead of line offsets
+	// Safety is the FixLevel (1=cosmetic, 2=idiomatic, 3=semantic), or
+	// 0 when unset. Stored as uint8 to avoid a scanner→rules import
+	// cycle. The fixup phase falls back to the rule registry when 0.
+	Safety uint8
 }
 
 // Language identifies which source language a File holds. Used by the

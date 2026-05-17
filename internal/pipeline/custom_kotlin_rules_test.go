@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -78,6 +79,138 @@ func TestPluginFindingsToColumns(t *testing.T) {
 	fix := cols.FixAt(0)
 	if fix == nil || fix.Replacement != "replacement" {
 		t.Fatalf("FixAt(0) = %#v", fix)
+	}
+}
+
+func TestPluginFixToScannerPopulatesSafety(t *testing.T) {
+	tests := []struct {
+		safety string
+		want   uint8
+	}{
+		{"cosmetic", uint8(rules.FixCosmetic)},
+		{"idiomatic", uint8(rules.FixIdiomatic)},
+		{"semantic", uint8(rules.FixSemantic)},
+		{"", uint8(rules.FixSemantic)},        // unset → conservative
+		{"unknown", uint8(rules.FixSemantic)}, // unrecognized → conservative
+	}
+	for _, tt := range tests {
+		t.Run(tt.safety, func(t *testing.T) {
+			got := pluginFixToScanner(&oracle.PluginFix{
+				StartLine:   1,
+				EndLine:     1,
+				Replacement: "x",
+				Safety:      tt.safety,
+			})
+			if got == nil {
+				t.Fatal("pluginFixToScanner = nil")
+			}
+			if got.Safety != tt.want {
+				t.Errorf("Safety = %d, want %d", got.Safety, tt.want)
+			}
+		})
+	}
+
+	if got := pluginFixToScanner(nil); got != nil {
+		t.Errorf("pluginFixToScanner(nil) = %#v, want nil", got)
+	}
+}
+
+func TestFixupGatesPluginSemanticFixUnderCosmeticLevel(t *testing.T) {
+	// Plugin rule reports a SEMANTIC fix; --fix-level cosmetic must
+	// strip it just like any built-in FixSemantic. We seed scanner.Fix
+	// the same way pluginFixToScanner does so the registry doesn't
+	// know the rule but the fix carries Safety directly.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Example.kt")
+	original := "val foo = 1\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cols := pluginFindingsToColumns([]oracle.PluginFinding{{
+		File:       path,
+		Line:       1,
+		Column:     1,
+		RuleSet:    "myteam",
+		RuleID:     "MyTeam/SemanticRule",
+		Severity:   "warning",
+		Message:    "semantic plugin fix",
+		Confidence: 0.9,
+		Fix: &oracle.PluginFix{
+			StartLine:   1,
+			EndLine:     1,
+			Replacement: "val bar = 1",
+			Safety:      "semantic",
+		},
+	}})
+
+	out, err := (FixupPhase{}).Run(context.Background(), FixupInput{
+		CrossFileResult: CrossFileResult{
+			DispatchResult: DispatchResult{Findings: cols},
+		},
+		Apply:       true,
+		MaxFixLevel: rules.FixCosmetic,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out.AppliedFixes != 0 {
+		t.Errorf("AppliedFixes = %d, want 0 (semantic plugin fix must be stripped)", out.AppliedFixes)
+	}
+	if out.StrippedByLevel != 1 {
+		t.Errorf("StrippedByLevel = %d, want 1", out.StrippedByLevel)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != original {
+		t.Errorf("file changed: got %q, want %q", string(got), original)
+	}
+}
+
+func TestFixupAppliesPluginCosmeticFixUnderCosmeticLevel(t *testing.T) {
+	// Counterpart to the semantic-strip test: a plugin fix declared
+	// COSMETIC must survive the same --fix-level cosmetic gate even
+	// though the rule isn't in the built-in registry (where the
+	// fallback would otherwise classify it as FixSemantic).
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Example.kt")
+	if err := os.WriteFile(path, []byte("val foo = 1\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cols := pluginFindingsToColumns([]oracle.PluginFinding{{
+		File:     path,
+		Line:     1,
+		Column:   1,
+		RuleSet:  "myteam",
+		RuleID:   "MyTeam/CosmeticRule",
+		Severity: "warning",
+		Message:  "cosmetic plugin fix",
+		Fix: &oracle.PluginFix{
+			StartLine:   1,
+			EndLine:     1,
+			Replacement: "val bar = 1",
+			Safety:      "cosmetic",
+		},
+	}})
+
+	out, err := (FixupPhase{}).Run(context.Background(), FixupInput{
+		CrossFileResult: CrossFileResult{
+			DispatchResult: DispatchResult{Findings: cols},
+		},
+		Apply:       true,
+		MaxFixLevel: rules.FixCosmetic,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out.AppliedFixes != 1 {
+		t.Errorf("AppliedFixes = %d, want 1 (cosmetic plugin fix must apply)", out.AppliedFixes)
+	}
+	if out.StrippedByLevel != 0 {
+		t.Errorf("StrippedByLevel = %d, want 0", out.StrippedByLevel)
 	}
 }
 

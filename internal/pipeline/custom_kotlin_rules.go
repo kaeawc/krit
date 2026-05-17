@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -89,11 +90,18 @@ func pluginFixToScanner(fix *oracle.PluginFix) *scanner.Fix {
 	if fix == nil {
 		return nil
 	}
-	return &scanner.Fix{
+	out := &scanner.Fix{
 		StartLine:   fix.StartLine,
 		EndLine:     fix.EndLine,
 		Replacement: fix.Replacement,
 	}
+	if lvl, ok := rules.ParseFixLevel(fix.Safety); ok {
+		out.Safety = uint8(lvl)
+	} else {
+		// Unknown/missing → semantic so --fix-level still gates it.
+		out.Safety = uint8(rules.FixSemantic)
+	}
+	return out
 }
 
 func formatPluginErrors(errors map[string]string) string {

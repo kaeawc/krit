@@ -71,6 +71,11 @@ func (FixupPhase) Run(_ context.Context, in FixupInput) (FixupResult, error) {
 			}
 		}
 		strippedByLevel = columns.StripTextFixes(func(row int) bool {
+			// Per-fix Safety wins so non-registry sources (plugin rules)
+			// participate in --fix-level gating.
+			if fix := columns.FixAt(row); fix != nil && fix.Safety > 0 {
+				return rules.FixLevel(fix.Safety) > in.MaxFixLevel
+			}
 			lvl, ok := ruleLevels[columns.RuleAt(row)]
 			if !ok {
 				// Unknown or unfixable rule: default to FixSemantic (most conservative).

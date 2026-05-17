@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -746,7 +747,7 @@ func runCommentsCrossFileFixture(t *testing.T, ruleName string, files map[string
 		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 			t.Fatal(err)
 		}
-		file, err := scanner.ParseFile(path)
+		file, err := scanner.ParseFile(context.Background(), path)
 		if err != nil {
 			t.Fatal(err)
 		}

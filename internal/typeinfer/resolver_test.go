@@ -1,6 +1,7 @@
 package typeinfer
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,7 @@ func parseTestFile(t *testing.T, src string) *scanner.File {
 	if err := os.WriteFile(tmpFile, []byte(src), 0644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := scanner.ParseFile(tmpFile)
+	f, err := scanner.ParseFile(context.Background(), tmpFile)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,7 +19,7 @@ class Config {
 `), 0644); err != nil {
 		t.Fatal(err)
 	}
-	file, err := scanner.ParseJavaFile(path)
+	file, err := scanner.ParseJavaFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

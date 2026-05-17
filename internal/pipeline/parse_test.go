@@ -494,7 +494,7 @@ func TestParsePhase_Run_ResidentCache(t *testing.T) {
 	writeKt(t, coldPath, "class Cold {}\n")
 
 	// Pre-parse Hot.kt so we can hand a real *scanner.File to the cache.
-	hotFile, err := scanner.ParseFile(hotPath)
+	hotFile, err := scanner.ParseFile(context.Background(), hotPath)
 	if err != nil {
 		t.Fatalf("pre-parse Hot.kt: %v", err)
 	}

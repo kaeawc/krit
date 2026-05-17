@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -76,7 +77,7 @@ func TestParseCache_RoundTrip(t *testing.T) {
 	src := largeSource()
 	path := writeKotlin(t, repo, "Round.kt", src)
 
-	miss, err := ParseKotlinFileCached(path, pc)
+	miss, err := ParseKotlinFileCached(context.Background(), path, pc)
 	if err != nil {
 		t.Fatalf("parse (miss): %v", err)
 	}
@@ -84,7 +85,7 @@ func TestParseCache_RoundTrip(t *testing.T) {
 		t.Fatal("expected FlatTree on miss")
 	}
 
-	hit, err := ParseKotlinFileCached(path, pc)
+	hit, err := ParseKotlinFileCached(context.Background(), path, pc)
 	if err != nil {
 		t.Fatalf("parse (hit): %v", err)
 	}
@@ -120,7 +121,7 @@ func TestParseCache_HitAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewParseCache run1: %v", err)
 	}
-	f1, err := ParseKotlinFileCached(path, pc1)
+	f1, err := ParseKotlinFileCached(context.Background(), path, pc1)
 	if err != nil {
 		t.Fatalf("parse run1: %v", err)
 	}
@@ -164,10 +165,10 @@ func TestParseCache_AsyncSaveFlushVisibleAfterRestart(t *testing.T) {
 	ktPath := writeKotlin(t, repo, "Async.kt", largeSource())
 	javaPath := writeJava(t, repo, "Async.java", largeJavaSource())
 
-	if _, err := ParseKotlinFileCached(ktPath, pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), ktPath, pc); err != nil {
 		t.Fatalf("parse kotlin: %v", err)
 	}
-	if _, err := ParseJavaFileCached(javaPath, pc); err != nil {
+	if _, err := ParseJavaFileCached(context.Background(), javaPath, pc); err != nil {
 		t.Fatalf("parse java: %v", err)
 	}
 	if err := pc.Close(); err != nil {
@@ -206,7 +207,7 @@ func TestParseCache_HasWritesExcludesReadHits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewParseCache: %v", err)
 	}
-	if _, err := ParseKotlinFileCached(path, pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), path, pc); err != nil {
 		t.Fatalf("parse prime: %v", err)
 	}
 	if !pc.HasWrites() {
@@ -245,7 +246,7 @@ func TestParseCache_AsyncConcurrentWritesSamePack(t *testing.T) {
 
 	src := largeSource()
 	path := writeKotlin(t, repo, "AsyncSamePack.kt", src)
-	seed, err := ParseKotlinFileCached(path, nil)
+	seed, err := ParseKotlinFileCached(context.Background(), path, nil)
 	if err != nil {
 		t.Fatalf("seed parse: %v", err)
 	}
@@ -285,7 +286,7 @@ func TestParseCache_AddPerfEntriesRecordsFlushPendingWrite(t *testing.T) {
 
 	src := largeSource()
 	path := writeKotlin(t, repo, "FlushPending.kt", src)
-	seed, err := ParseKotlinFileCached(path, nil)
+	seed, err := ParseKotlinFileCached(context.Background(), path, nil)
 	if err != nil {
 		t.Fatalf("seed parse: %v", err)
 	}
@@ -319,7 +320,7 @@ func TestParseCache_SkipsUnchangedPackRewrite(t *testing.T) {
 	repo := t.TempDir()
 	src := largeSource()
 	path := writeKotlin(t, repo, "Unchanged.kt", src)
-	seed, err := ParseKotlinFileCached(path, nil)
+	seed, err := ParseKotlinFileCached(context.Background(), path, nil)
 	if err != nil {
 		t.Fatalf("seed parse: %v", err)
 	}
@@ -370,7 +371,7 @@ func TestParseCache_GrammarVersionMismatch(t *testing.T) {
 		t.Fatalf("NewParseCache: %v", err)
 	}
 	src := largeSource()
-	if _, err := ParseKotlinFileCached(writeKotlin(t, repo, "GV.kt", src), pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), writeKotlin(t, repo, "GV.kt", src), pc); err != nil {
 		t.Fatalf("seed parse: %v", err)
 	}
 
@@ -405,7 +406,7 @@ func TestParseCache_ContentChangeMisses(t *testing.T) {
 		t.Fatalf("NewParseCache: %v", err)
 	}
 	src := largeSource()
-	if _, err := ParseKotlinFileCached(writeKotlin(t, repo, "CC.kt", src), pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), writeKotlin(t, repo, "CC.kt", src), pc); err != nil {
 		t.Fatalf("seed parse: %v", err)
 	}
 
@@ -425,7 +426,7 @@ func TestParseCache_CorruptEntryTreatedAsMiss(t *testing.T) {
 		t.Fatalf("NewParseCache: %v", err)
 	}
 	src := largeSource()
-	if _, err := ParseKotlinFileCached(writeKotlin(t, repo, "Bad.kt", src), pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), writeKotlin(t, repo, "Bad.kt", src), pc); err != nil {
 		t.Fatalf("seed parse: %v", err)
 	}
 	hash := hashutil.HashHex([]byte(src))
@@ -450,7 +451,7 @@ func TestParseCache_SmallFileSkipsCache(t *testing.T) {
 		t.Fatalf("test assumes tiny source < threshold, got %d", len(tiny))
 	}
 	path := writeKotlin(t, repo, "Tiny.kt", tiny)
-	if _, err := ParseKotlinFileCached(path, pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), path, pc); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	entries := filepath.Join(pc.Dir(), "entries")
@@ -475,7 +476,7 @@ func TestParseCache_ConcurrentWritesSameHash(t *testing.T) {
 	src := largeSource()
 	path := writeKotlin(t, repo, "Conc.kt", src)
 	// Seed so we have a real FlatTree to write.
-	seed, err := ParseKotlinFileCached(path, nil)
+	seed, err := ParseKotlinFileCached(context.Background(), path, nil)
 	if err != nil {
 		t.Fatalf("seed parse: %v", err)
 	}
@@ -529,7 +530,7 @@ func measureEntrySize(t *testing.T, src string) int64 {
 		t.Fatalf("measure NewParseCacheWithCap: %v", err)
 	}
 	p := writeKotlin(t, repo, "M.kt", src)
-	if _, err := ParseKotlinFileCached(p, pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), p, pc); err != nil {
 		t.Fatalf("measure parse: %v", err)
 	}
 	return pc.Stats().Bytes
@@ -560,15 +561,15 @@ func TestParseCache_LRUEvictsUnderCap(t *testing.T) {
 	pathB := writeKotlin(t, repo, "B.kt", srcB)
 	pathC := writeKotlin(t, repo, "C.kt", srcC)
 
-	if _, err := ParseKotlinFileCached(pathA, pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), pathA, pc); err != nil {
 		t.Fatalf("parse A: %v", err)
 	}
 	time.Sleep(5 * time.Millisecond)
-	if _, err := ParseKotlinFileCached(pathB, pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), pathB, pc); err != nil {
 		t.Fatalf("parse B: %v", err)
 	}
 	time.Sleep(5 * time.Millisecond)
-	if _, err := ParseKotlinFileCached(pathC, pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), pathC, pc); err != nil {
 		t.Fatalf("parse C: %v", err)
 	}
 
@@ -625,11 +626,11 @@ func TestParseCache_LRUHotEntrySurvivesEviction(t *testing.T) {
 	pathB := writeKotlin(t, repo, "B.kt", srcB)
 	pathC := writeKotlin(t, repo, "C.kt", srcC)
 
-	if _, err := ParseKotlinFileCached(pathA, pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), pathA, pc); err != nil {
 		t.Fatalf("parse A: %v", err)
 	}
 	time.Sleep(5 * time.Millisecond)
-	if _, err := ParseKotlinFileCached(pathB, pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), pathB, pc); err != nil {
 		t.Fatalf("parse B: %v", err)
 	}
 	time.Sleep(5 * time.Millisecond)
@@ -640,7 +641,7 @@ func TestParseCache_LRUHotEntrySurvivesEviction(t *testing.T) {
 	}
 	time.Sleep(5 * time.Millisecond)
 
-	if _, err := ParseKotlinFileCached(pathC, pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), pathC, pc); err != nil {
 		t.Fatalf("parse C: %v", err)
 	}
 	pc.Evict()
@@ -664,7 +665,7 @@ func TestParseCache_UnlimitedCapNeverEvicts(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		src := largeSource() + "\n// variant " + strconv.Itoa(i) + "\n"
 		path := writeKotlin(t, repo, "V"+strconv.Itoa(i)+".kt", src)
-		if _, err := ParseKotlinFileCached(path, pc); err != nil {
+		if _, err := ParseKotlinFileCached(context.Background(), path, pc); err != nil {
 			t.Fatalf("parse v%d: %v", i, err)
 		}
 	}
@@ -681,7 +682,7 @@ func TestClearParseCache_Removes(t *testing.T) {
 		t.Fatalf("NewParseCache: %v", err)
 	}
 	src := largeSource()
-	if _, err := ParseKotlinFileCached(writeKotlin(t, repo, "Clr.kt", src), pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), writeKotlin(t, repo, "Clr.kt", src), pc); err != nil {
 		t.Fatalf("seed parse: %v", err)
 	}
 	if err := ClearParseCache(repo); err != nil {

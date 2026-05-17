@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,7 +26,7 @@ class AppCoordinator
 		t.Fatal(err)
 	}
 
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
@@ -60,7 +61,7 @@ class FeatureModule
 		t.Fatal(err)
 	}
 
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}

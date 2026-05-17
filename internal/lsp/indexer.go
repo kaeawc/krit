@@ -20,7 +20,7 @@ func (SourceWorkspaceIndexer) BuildWorkspaceIndex(ctx context.Context, root stri
 	if root == "" {
 		return oracle.BuildIndex(nil), nil
 	}
-	kotlin, java, err := scanner.CollectKotlinAndJavaFiles([]string{root}, nil)
+	kotlin, java, err := scanner.CollectKotlinAndJavaFiles(ctx, []string{root}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +28,7 @@ func (SourceWorkspaceIndexer) BuildWorkspaceIndex(ctx context.Context, root stri
 	if progress != nil {
 		progress(0, total)
 	}
-	kotlinFiles, errs := scanner.ScanFiles(kotlin, runtime.NumCPU())
+	kotlinFiles, errs := scanner.ScanFiles(ctx, kotlin, runtime.NumCPU())
 	if len(errs) > 0 {
 		return nil, errs[0]
 	}
@@ -38,7 +38,7 @@ func (SourceWorkspaceIndexer) BuildWorkspaceIndex(ctx context.Context, root stri
 	if progress != nil {
 		progress(len(kotlinFiles), total)
 	}
-	javaFiles, errs := scanner.ScanJavaFiles(java, runtime.NumCPU())
+	javaFiles, errs := scanner.ScanJavaFiles(ctx, java, runtime.NumCPU())
 	if len(errs) > 0 {
 		return nil, errs[0]
 	}

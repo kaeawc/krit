@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -17,7 +18,7 @@ func writeAndParseKotlin(t *testing.T, dir, name, content string) *File {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	f, err := ParseFile(path)
+	f, err := ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("parse %s: %v", path, err)
 	}
@@ -126,7 +127,7 @@ func TestDependentsIndex_DropsNonKotlin(t *testing.T) {
 	if err := os.WriteFile(javaPath, []byte("package x; class Foo {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	jf, err := ParseJavaFile(javaPath)
+	jf, err := ParseJavaFile(context.Background(), javaPath)
 	if err != nil {
 		t.Fatal(err)
 	}

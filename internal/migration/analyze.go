@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"context"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -43,15 +44,15 @@ func Analyze(opts Options) (Report, error) {
 	if root == "" {
 		root = "."
 	}
-	kotlinPaths, javaPaths, err := scanner.CollectKotlinAndJavaFiles([]string{root}, nil)
+	kotlinPaths, javaPaths, err := scanner.CollectKotlinAndJavaFiles(context.Background(), []string{root}, nil)
 	if err != nil {
 		return Report{}, err
 	}
-	kotlinFiles, errs := scanner.ScanFiles(kotlinPaths, runtime.NumCPU())
+	kotlinFiles, errs := scanner.ScanFiles(context.Background(), kotlinPaths, runtime.NumCPU())
 	if len(errs) > 0 {
 		return Report{}, errs[0]
 	}
-	javaFiles, errs := scanner.ScanJavaFiles(javaPaths, runtime.NumCPU())
+	javaFiles, errs := scanner.ScanJavaFiles(context.Background(), javaPaths, runtime.NumCPU())
 	if len(errs) > 0 {
 		return Report{}, errs[0]
 	}

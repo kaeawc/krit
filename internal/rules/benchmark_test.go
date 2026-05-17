@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,7 +20,7 @@ func parseFixtureB(b *testing.B, relPath string) *scanner.File {
 	if _, err := os.Stat(abs); err != nil {
 		b.Skipf("fixture not found: %s", abs)
 	}
-	f, err := scanner.ParseFile(abs)
+	f, err := scanner.ParseFile(context.Background(), abs)
 	if err != nil {
 		b.Fatalf("ParseFile(%s): %v", abs, err)
 	}

@@ -78,8 +78,8 @@ func Capture(opts CaptureOptions) (*Result, error) {
 	}
 
 	ktPaths, javaPaths, fileToModule := collectSources(graph, root)
-	ktFiles, _ := scanner.ScanFilesCached(ktPaths, workers, nil)
-	javaFiles, _ := scanner.ScanJavaFilesCached(javaPaths, workers, nil)
+	ktFiles, _ := scanner.ScanFilesCached(context.Background(), ktPaths, workers, nil)
+	javaFiles, _ := scanner.ScanJavaFilesCached(context.Background(), javaPaths, workers, nil)
 
 	idx := scanner.BuildIndex(ktFiles, workers, javaFiles...)
 
@@ -143,7 +143,7 @@ func collectSources(graph *module.Graph, repoRoot string) (kotlin, java []string
 			if len(roots) == 0 {
 				roots = []string{filepath.Join(mod.Dir, "src", "main", "kotlin"), filepath.Join(mod.Dir, "src", "main", "java")}
 			}
-			ktForMod, jvForMod, _ := scanner.CollectKotlinAndJavaFiles(roots, nil)
+			ktForMod, jvForMod, _ := scanner.CollectKotlinAndJavaFiles(context.Background(), roots, nil)
 			for _, p := range ktForMod {
 				if !seenKt[p] {
 					seenKt[p] = true
@@ -162,7 +162,7 @@ func collectSources(graph *module.Graph, repoRoot string) (kotlin, java []string
 	}
 
 	if len(kotlin) == 0 && len(java) == 0 {
-		ktForRoot, jvForRoot, _ := scanner.CollectKotlinAndJavaFiles([]string{repoRoot}, nil)
+		ktForRoot, jvForRoot, _ := scanner.CollectKotlinAndJavaFiles(context.Background(), []string{repoRoot}, nil)
 		for _, p := range ktForRoot {
 			if !seenKt[p] {
 				seenKt[p] = true

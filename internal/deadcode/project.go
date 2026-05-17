@@ -1,6 +1,7 @@
 package deadcode
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -98,12 +99,12 @@ func buildProjectIndex(scanRoot string, paths []string, workers int) (*module.Gr
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	files, _ := scanner.ScanFiles(ktPaths, workers)
+	files, _ := scanner.ScanFiles(context.Background(), ktPaths, workers)
 	javaPaths, err := scanner.CollectJavaFiles(paths, nil)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	javaFiles, _ := scanner.ScanJavaFiles(javaPaths, workers)
+	javaFiles, _ := scanner.ScanJavaFiles(context.Background(), javaPaths, workers)
 	idx := scanner.BuildIndex(files, workers, javaFiles...)
 
 	allFiles := make([]*scanner.File, 0, len(files)+len(javaFiles))

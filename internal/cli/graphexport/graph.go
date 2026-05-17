@@ -1,6 +1,7 @@
 package graphexport
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -134,7 +135,7 @@ func renderPackageGraph(root, format string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("collecting Kotlin files: %w", err)
 	}
-	files, parseErrs := scanner.ScanFiles(paths, runtime.NumCPU())
+	files, parseErrs := scanner.ScanFiles(context.Background(), paths, runtime.NumCPU())
 	if len(parseErrs) > 0 {
 		return "", fmt.Errorf("parsing Kotlin files: %w", parseErrs[0])
 	}

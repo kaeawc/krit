@@ -1,6 +1,7 @@
 package editorconfigdrift
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -26,7 +27,7 @@ func Run(args []string) int {
 
 	summary := newSummary()
 	for _, path := range files {
-		file, err := scanner.ParseFile(path)
+		file, err := scanner.ParseFile(context.Background(), path)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "editorconfig-drift: parsing %s: %v\n", path, err)
 			continue

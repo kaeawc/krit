@@ -39,7 +39,7 @@ func TestCrossFilePhase_CodeIndexCache_BuildsOnceAcrossRuns(t *testing.T) {
 	if err := os.WriteFile(src, []byte("package test\n\nclass Sample\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := scanner.ParseFile(src)
+	parsed, err := scanner.ParseFile(context.Background(), src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,8 +93,8 @@ func TestCodeIndexFingerprint_StableAndDistinct(t *testing.T) {
 	if err := os.WriteFile(b, []byte("package x\nclass B\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pa, _ := scanner.ParseFile(a)
-	pb, _ := scanner.ParseFile(b)
+	pa, _ := scanner.ParseFile(context.Background(), a)
+	pb, _ := scanner.ParseFile(context.Background(), b)
 
 	fp1 := codeIndexFingerprint([]*scanner.File{pa, pb}, nil)
 	fp2 := codeIndexFingerprint([]*scanner.File{pb, pa}, nil)

@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -77,11 +78,11 @@ func BuildWalkthrough(root string, limit int) (Walkthrough, error) {
 	if err != nil {
 		return Walkthrough{}, fmt.Errorf("collecting Java files: %w", err)
 	}
-	kotlinFiles, parseErrs := scanner.ScanFiles(kotlinPaths, runtime.NumCPU())
+	kotlinFiles, parseErrs := scanner.ScanFiles(context.Background(), kotlinPaths, runtime.NumCPU())
 	if len(parseErrs) > 0 {
 		return Walkthrough{}, fmt.Errorf("parsing Kotlin files: %w", parseErrs[0])
 	}
-	javaFiles, javaErrs := scanner.ScanJavaFiles(javaPaths, runtime.NumCPU())
+	javaFiles, javaErrs := scanner.ScanJavaFiles(context.Background(), javaPaths, runtime.NumCPU())
 	if len(javaErrs) > 0 {
 		return Walkthrough{}, fmt.Errorf("parsing Java files: %w", javaErrs[0])
 	}

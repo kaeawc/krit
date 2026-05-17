@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -382,7 +383,7 @@ func runWrongViewCastOnJava(t *testing.T, code string, idx *android.ResourceInde
 	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
 		t.Fatal(err)
 	}
-	file, err := scanner.ParseJavaFile(path)
+	file, err := scanner.ParseJavaFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -26,7 +26,7 @@ func TestFileStructuralFingerprint_BodyEditStable(t *testing.T) {
 	if err := os.WriteFile(path, v1, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f1, err := scanner.ParseFile(path)
+	f1, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestFileStructuralFingerprint_BodyEditStable(t *testing.T) {
 	if err := os.WriteFile(path, v2, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f2, err := scanner.ParseFile(path)
+	f2, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,12 +61,12 @@ func TestFileStructuralFingerprint_DeclarationChangeMoves(t *testing.T) {
 	if err := os.WriteFile(path, v1, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f1, _ := scanner.ParseFile(path)
+	f1, _ := scanner.ParseFile(context.Background(), path)
 
 	if err := os.WriteFile(path, v2, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f2, _ := scanner.ParseFile(path)
+	f2, _ := scanner.ParseFile(context.Background(), path)
 
 	fp1 := scanner.FileStructuralFingerprint(f1)
 	fp2 := scanner.FileStructuralFingerprint(f2)

@@ -1,6 +1,7 @@
 package typeinfer
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,7 +16,7 @@ func TestIndexFilesParallelCachedWithTrackerReusesUnchangedFiles(t *testing.T) {
 	if err := os.WriteFile(aPath, []byte("package demo\nclass A { val name: String = \"a\" }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	file, err := scanner.ParseFile(aPath)
+	file, err := scanner.ParseFile(context.Background(), aPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,11 +51,11 @@ func TestIndexFilesParallelCachedInvalidatesChangedFileOnly(t *testing.T) {
 	if err := os.WriteFile(bPath, []byte("class B\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	aFile, err := scanner.ParseFile(aPath)
+	aFile, err := scanner.ParseFile(context.Background(), aPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bFile, err := scanner.ParseFile(bPath)
+	bFile, err := scanner.ParseFile(context.Background(), bPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +66,7 @@ func TestIndexFilesParallelCachedInvalidatesChangedFileOnly(t *testing.T) {
 	if err := os.WriteFile(bPath, []byte("class C\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	bChanged, err := scanner.ParseFile(bPath)
+	bChanged, err := scanner.ParseFile(context.Background(), bPath)
 	if err != nil {
 		t.Fatal(err)
 	}

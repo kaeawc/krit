@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,7 +39,7 @@ fun logOnlyInDebug() {
 }
 `)
 
-		file, err := scanner.ParseFile(sourcePath)
+		file, err := scanner.ParseFile(context.Background(), sourcePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", sourcePath, err)
 		}
@@ -70,7 +71,7 @@ fun logOnlyInDebug() {
 }
 `)
 
-		file, err := scanner.ParseFile(sourcePath)
+		file, err := scanner.ParseFile(context.Background(), sourcePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", sourcePath, err)
 		}
@@ -92,7 +93,7 @@ func TestBuildConfigDebugInverted(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "release-engineering", "BuildConfigDebugInverted.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -103,7 +104,7 @@ func TestBuildConfigDebugInverted(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -125,7 +126,7 @@ func TestAllProjectsBlock(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "release-engineering", "all-projects-block", "build.gradle.kts")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -136,7 +137,7 @@ func TestAllProjectsBlock(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -158,7 +159,7 @@ func TestHardcodedEnvironmentName(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "release-engineering", "HardcodedEnvironmentName.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -169,7 +170,7 @@ func TestHardcodedEnvironmentName(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -383,7 +384,7 @@ func runVisibleForTestingCallerRule(t *testing.T, files map[string]string) []sca
 	for rel, content := range files {
 		path := filepath.Join(root, filepath.FromSlash(rel))
 		writeModuleFile(t, path, content)
-		file, err := scanner.ParseFile(path)
+		file, err := scanner.ParseFile(context.Background(), path)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", path, err)
 		}
@@ -635,7 +636,7 @@ func runTimberTreeNotPlantedRule(t *testing.T, files map[string]string, fakeTarg
 	for rel, content := range files {
 		path := filepath.Join(root, filepath.FromSlash(rel))
 		writeModuleFile(t, path, content)
-		file, err := scanner.ParseFile(path)
+		file, err := scanner.ParseFile(context.Background(), path)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", path, err)
 		}
@@ -820,7 +821,7 @@ func runOpenForTestingCallerRule(t *testing.T, files map[string]string) []scanne
 	for rel, content := range files {
 		path := filepath.Join(root, filepath.FromSlash(rel))
 		writeModuleFile(t, path, content)
-		file, err := scanner.ParseFile(path)
+		file, err := scanner.ParseFile(context.Background(), path)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", path, err)
 		}
@@ -904,14 +905,14 @@ func runTestFixtureAccessedFromProductionRule(t *testing.T, registered *api.Rule
 		}
 		switch {
 		case strings.HasSuffix(path, ".kt"), strings.HasSuffix(path, ".kts"):
-			file, parseErr := scanner.ParseFile(path)
+			file, parseErr := scanner.ParseFile(context.Background(), path)
 			if parseErr != nil {
 				return parseErr
 			}
 			kotlinFiles = append(kotlinFiles, file)
 			parsedFiles = append(parsedFiles, file)
 		case strings.HasSuffix(path, ".java"):
-			file, parseErr := scanner.ParseJavaFile(path)
+			file, parseErr := scanner.ParseJavaFile(context.Background(), path)
 			if parseErr != nil {
 				return parseErr
 			}
@@ -955,7 +956,7 @@ func TestCommentedOutCodeBlock(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "release-engineering", "CommentedOutCodeBlock.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -966,7 +967,7 @@ func TestCommentedOutCodeBlock(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -988,7 +989,7 @@ func TestGradleBuildContainsTodo(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "release-engineering", "gradle-build-contains-todo", "build.gradle.kts")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -999,7 +1000,7 @@ func TestGradleBuildContainsTodo(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -1136,7 +1137,7 @@ func TestCommentedOutImport(t *testing.T) {
 	root := fixtureRoot(t)
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "CommentedOutImport.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "positive", "release-engineering", "CommentedOutImport.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1147,7 +1148,7 @@ func TestCommentedOutImport(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "CommentedOutImport.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "negative", "release-engineering", "CommentedOutImport.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1167,7 +1168,7 @@ func TestDebugToastInProduction(t *testing.T) {
 	root := fixtureRoot(t)
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "DebugToastInProduction.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "positive", "release-engineering", "DebugToastInProduction.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1178,7 +1179,7 @@ func TestDebugToastInProduction(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "DebugToastInProduction.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "negative", "release-engineering", "DebugToastInProduction.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1198,7 +1199,7 @@ func TestMergeConflictMarkerLeftover(t *testing.T) {
 	root := fixtureRoot(t)
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "MergeConflictMarkerLeftover.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "positive", "release-engineering", "MergeConflictMarkerLeftover.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1209,7 +1210,7 @@ func TestMergeConflictMarkerLeftover(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "MergeConflictMarkerLeftover.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "negative", "release-engineering", "MergeConflictMarkerLeftover.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1283,7 +1284,7 @@ func TestPrintlnInProduction(t *testing.T) {
 	root := fixtureRoot(t)
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "PrintlnInProduction.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "positive", "release-engineering", "PrintlnInProduction.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1294,7 +1295,7 @@ func TestPrintlnInProduction(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "PrintlnInProduction.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "negative", "release-engineering", "PrintlnInProduction.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1500,7 +1501,7 @@ func TestPrintStackTraceInProduction(t *testing.T) {
 	root := fixtureRoot(t)
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "PrintStackTraceInProduction.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "positive", "release-engineering", "PrintStackTraceInProduction.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1511,7 +1512,7 @@ func TestPrintStackTraceInProduction(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "PrintStackTraceInProduction.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "negative", "release-engineering", "PrintStackTraceInProduction.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1615,7 +1616,7 @@ func TestHardcodedLocalhostUrl(t *testing.T) {
 	root := fixtureRoot(t)
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "HardcodedLocalhostUrl.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "positive", "release-engineering", "HardcodedLocalhostUrl.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1626,7 +1627,7 @@ func TestHardcodedLocalhostUrl(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "HardcodedLocalhostUrl.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "negative", "release-engineering", "HardcodedLocalhostUrl.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1670,7 +1671,7 @@ func TestTestOnlyImportInProduction(t *testing.T) {
 	root := fixtureRoot(t)
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "TestOnlyImportInProduction.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "positive", "release-engineering", "TestOnlyImportInProduction.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1681,7 +1682,7 @@ func TestTestOnlyImportInProduction(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "TestOnlyImportInProduction.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "negative", "release-engineering", "TestOnlyImportInProduction.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1840,7 +1841,7 @@ func TestNonAsciiIdentifier(t *testing.T) {
 	root := fixtureRoot(t)
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "NonAsciiIdentifier.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "positive", "release-engineering", "NonAsciiIdentifier.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1851,7 +1852,7 @@ func TestNonAsciiIdentifier(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "NonAsciiIdentifier.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "negative", "release-engineering", "NonAsciiIdentifier.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1871,7 +1872,7 @@ func TestHardcodedLogTag(t *testing.T) {
 	root := fixtureRoot(t)
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "HardcodedLogTag.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "positive", "release-engineering", "HardcodedLogTag.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -1882,7 +1883,7 @@ func TestHardcodedLogTag(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "HardcodedLogTag.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "negative", "release-engineering", "HardcodedLogTag.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}

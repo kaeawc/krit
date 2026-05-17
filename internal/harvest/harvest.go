@@ -1,6 +1,7 @@
 package harvest
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -62,7 +63,7 @@ func ExtractFixture(target Target, ruleName string) (Result, error) {
 		return Result{}, fmt.Errorf("rule %s requires module-aware analysis and cannot be harvested from a single source file yet", ruleName)
 	}
 
-	file, err := scanner.ParseFile(target.Path)
+	file, err := scanner.ParseFile(context.Background(), target.Path)
 	if err != nil {
 		return Result{}, err
 	}

@@ -185,16 +185,17 @@ func (f *File) LineOffset(lineIdx int) int {
 	return len(f.Content)
 }
 
-// ParseFile parses a Kotlin file and returns the AST.
-func ParseFile(path string) (*File, error) {
-	return ParseKotlinFileCached(path, nil)
+// ParseFile parses a Kotlin file and returns the AST. The ctx is forwarded
+// to the tree-sitter parser so callers can cancel a long-running parse.
+func ParseFile(ctx context.Context, path string) (*File, error) {
+	return ParseKotlinFileCached(ctx, path, nil)
 }
 
 // ParseKotlinFileCached parses a Kotlin file, consulting the parse cache
 // first when pc is non-nil. On a cache hit the tree-sitter parse and
 // flattenTree walk are both skipped. A nil pc behaves exactly like
-// ParseFile.
-func ParseKotlinFileCached(path string, pc *ParseCache) (*File, error) {
+// ParseFile. The ctx is forwarded to the tree-sitter parser.
+func ParseKotlinFileCached(ctx context.Context, path string, pc *ParseCache) (*File, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -206,7 +207,7 @@ func ParseKotlinFileCached(path string, pc *ParseCache) (*File, error) {
 
 	parser := GetKotlinParser()
 	defer PutKotlinParser(parser)
-	tree, err := parser.ParseCtx(context.Background(), nil, content)
+	tree, err := parser.ParseCtx(ctx, nil, content)
 	if err != nil {
 		return nil, err
 	}
@@ -267,8 +268,8 @@ func collectKotlinJavaFile(path string, _ []string, _ *fileignore.Matcher, seenK
 	}
 }
 
-func collectKotlinJavaFromGit(dir string, excludes []string, matcher *fileignore.Matcher, seenKt, seenJv map[string]bool, kotlin, java *[]string) bool {
-	files, ok := gitLsKotlinJava(dir)
+func collectKotlinJavaFromGit(ctx context.Context, dir string, excludes []string, matcher *fileignore.Matcher, seenKt, seenJv map[string]bool, kotlin, java *[]string) bool {
+	files, ok := gitLsKotlinJava(ctx, dir)
 	if !ok {
 		return false
 	}
@@ -309,7 +310,7 @@ func collectKotlinJavaByWalk(dir string, excludes []string, matcher *fileignore.
 // CollectKotlinAndJavaFiles walks the tree once and returns Kotlin and Java
 // files separately. Equivalent to calling CollectKotlinFiles and CollectJavaFiles
 // but does a single filesystem traversal.
-func CollectKotlinAndJavaFiles(paths []string, excludes []string) (kotlin []string, java []string, err error) {
+func CollectKotlinAndJavaFiles(ctx context.Context, paths []string, excludes []string) (kotlin []string, java []string, err error) {
 	seenKt := make(map[string]bool)
 	seenJv := make(map[string]bool)
 	ignoreMatchers := make(map[string]*fileignore.Matcher)
@@ -329,7 +330,7 @@ func CollectKotlinAndJavaFiles(paths []string, excludes []string) (kotlin []stri
 			collectKotlinJavaFile(p, excludes, matcher, seenKt, seenJv, &kotlin, &java)
 			continue
 		}
-		if collectKotlinJavaFromGit(p, excludes, matcher, seenKt, seenJv, &kotlin, &java) {
+		if collectKotlinJavaFromGit(ctx, p, excludes, matcher, seenKt, seenJv, &kotlin, &java) {
 			continue
 		}
 		if walkErr := collectKotlinJavaByWalk(p, excludes, matcher, seenKt, seenJv, &kotlin, &java); walkErr != nil {
@@ -340,23 +341,24 @@ func CollectKotlinAndJavaFiles(paths []string, excludes []string) (kotlin []stri
 }
 
 // ScanFiles parses all files in parallel and returns parsed File objects.
-func ScanFiles(paths []string, workers int) ([]*File, []error) {
-	return scanFilesParallel(paths, workers, ParseFile)
+// The ctx is forwarded to each per-file parse.
+func ScanFiles(ctx context.Context, paths []string, workers int) ([]*File, []error) {
+	return scanFilesParallel(ctx, paths, workers, ParseFile)
 }
 
 // ScanFilesCached is like ScanFiles but routes every file through
 // ParseKotlinFileCached so the on-disk parse cache is consulted (and
 // populated) on each file. A nil pc is a no-op cache.
-func ScanFilesCached(paths []string, workers int, pc *ParseCache) ([]*File, []error) {
-	return scanFilesParallel(paths, workers, func(p string) (*File, error) {
-		return ParseKotlinFileCached(p, pc)
+func ScanFilesCached(ctx context.Context, paths []string, workers int, pc *ParseCache) ([]*File, []error) {
+	return scanFilesParallel(ctx, paths, workers, func(c context.Context, p string) (*File, error) {
+		return ParseKotlinFileCached(c, p, pc)
 	})
 }
 
 // gitLsKotlinJava returns Kotlin (.kt/.kts) and Java (.java) paths
 // tracked by the git repo rooted at dir.
-func gitLsKotlinJava(dir string) ([]string, bool) {
-	return GitLsFilesByExt(dir, []string{".kt", ".kts", ".java"})
+func gitLsKotlinJava(ctx context.Context, dir string) ([]string, bool) {
+	return GitLsFilesByExt(ctx, dir, []string{".kt", ".kts", ".java"})
 }
 
 // GitLsFilesByExt returns paths tracked by the git repo rooted at dir
@@ -367,7 +369,7 @@ func gitLsKotlinJava(dir string) ([]string, bool) {
 // is unavailable, or when ls-files exits non-zero — callers fall back to
 // a manual walk. ls-files reports paths relative to the repo top, so we
 // require dir to be the top to keep caller path-joining sound.
-func GitLsFilesByExt(dir string, extensions []string) ([]string, bool) {
+func GitLsFilesByExt(ctx context.Context, dir string, extensions []string) ([]string, bool) {
 	if len(extensions) == 0 {
 		return nil, false
 	}
@@ -382,7 +384,7 @@ func GitLsFilesByExt(dir string, extensions []string) ([]string, bool) {
 	for _, ext := range extensions {
 		args = append(args, "*"+ext)
 	}
-	cmd := exec.CommandContext(context.Background(), gitBin, args...)
+	cmd := exec.CommandContext(ctx, gitBin, args...)
 	stdout, err := cmd.Output()
 	if err != nil {
 		return nil, false
@@ -478,24 +480,25 @@ func collectSourceFiles(paths []string, excludes []string, isSourceFile func(str
 	return files, nil
 }
 
-// ParseJavaFile parses a Java file and returns a File with its AST.
-func ParseJavaFile(path string) (*File, error) {
-	return ParseJavaFileCached(path, nil)
+// ParseJavaFile parses a Java file and returns a File with its AST. The
+// ctx is forwarded to the tree-sitter parser.
+func ParseJavaFile(ctx context.Context, path string) (*File, error) {
+	return ParseJavaFileCached(ctx, path, nil)
 }
 
 // ParseJavaFileCached parses a Java file, consulting the parse cache
 // first when pc is non-nil. On a cache hit the tree-sitter parse and
 // flattenTree walk are both skipped. A nil pc behaves exactly like an
-// uncached parse.
-func ParseJavaFileCached(path string, pc *ParseCache) (*File, error) {
-	return parseJavaFileCached(path, pc, javaParseOptions{buildLines: true})
+// uncached parse. The ctx is forwarded to the tree-sitter parser.
+func ParseJavaFileCached(ctx context.Context, path string, pc *ParseCache) (*File, error) {
+	return parseJavaFileCached(ctx, path, pc, javaParseOptions{buildLines: true})
 }
 
 // ParseJavaFileCachedForIndex is a reference-indexing-only Java parse path.
 // It skips line splitting and, on parse-cache misses, precomputes Java
 // references so index construction can reuse the same flattened tree walk.
-func ParseJavaFileCachedForIndex(path string, pc *ParseCache, stats *JavaIndexPerf) (*File, error) {
-	return parseJavaFileCached(path, pc, javaParseOptions{
+func ParseJavaFileCachedForIndex(ctx context.Context, path string, pc *ParseCache, stats *JavaIndexPerf) (*File, error) {
+	return parseJavaFileCached(ctx, path, pc, javaParseOptions{
 		buildLines:                 false,
 		precomputeReferencesOnMiss: true,
 		perf:                       stats,
@@ -508,7 +511,7 @@ type javaParseOptions struct {
 	perf                       *JavaIndexPerf
 }
 
-func parseJavaFileCached(path string, pc *ParseCache, opts javaParseOptions) (*File, error) {
+func parseJavaFileCached(ctx context.Context, path string, pc *ParseCache, opts javaParseOptions) (*File, error) {
 	readStart := time.Now()
 	content, err := os.ReadFile(path)
 	if opts.perf != nil {
@@ -538,7 +541,7 @@ func parseJavaFileCached(path string, pc *ParseCache, opts javaParseOptions) (*F
 	parser.SetLanguage(java.GetLanguage())
 	defer parser.Close()
 	parseStart := time.Now()
-	tree, err := parser.ParseCtx(context.Background(), nil, content)
+	tree, err := parser.ParseCtx(ctx, nil, content)
 	if opts.perf != nil {
 		opts.perf.TreeSitterParseNs.Add(time.Since(parseStart).Nanoseconds())
 	}
@@ -601,23 +604,23 @@ func newJavaFileFromFlatTreeWithOptions(path string, content []byte, tree *FlatT
 }
 
 // ScanJavaFiles parses all Java files in parallel (for reference indexing only).
-func ScanJavaFiles(paths []string, workers int) ([]*File, []error) {
-	return scanFilesParallel(paths, workers, ParseJavaFile)
+func ScanJavaFiles(ctx context.Context, paths []string, workers int) ([]*File, []error) {
+	return scanFilesParallel(ctx, paths, workers, ParseJavaFile)
 }
 
 // ScanJavaFilesCached is like ScanJavaFiles but routes every file through
 // ParseJavaFileCached so the on-disk parse cache is consulted (and
 // populated) on each file. A nil pc is a no-op cache.
-func ScanJavaFilesCached(paths []string, workers int, pc *ParseCache) ([]*File, []error) {
-	return scanFilesParallel(paths, workers, func(p string) (*File, error) {
-		return ParseJavaFileCached(p, pc)
+func ScanJavaFilesCached(ctx context.Context, paths []string, workers int, pc *ParseCache) ([]*File, []error) {
+	return scanFilesParallel(ctx, paths, workers, func(c context.Context, p string) (*File, error) {
+		return ParseJavaFileCached(c, p, pc)
 	})
 }
 
 // ScanJavaFilesCachedForIndex parses Java files for cross-file indexing.
-func ScanJavaFilesCachedForIndex(paths []string, workers int, pc *ParseCache, stats *JavaIndexPerf) ([]*File, []error) {
-	return scanFilesParallel(paths, workers, func(p string) (*File, error) {
-		return ParseJavaFileCachedForIndex(p, pc, stats)
+func ScanJavaFilesCachedForIndex(ctx context.Context, paths []string, workers int, pc *ParseCache, stats *JavaIndexPerf) ([]*File, []error) {
+	return scanFilesParallel(ctx, paths, workers, func(c context.Context, p string) (*File, error) {
+		return ParseJavaFileCachedForIndex(c, p, pc, stats)
 	})
 }
 
@@ -641,7 +644,7 @@ type scanBatchResult struct {
 	errs  []indexedError
 }
 
-func scanFilesParallel(paths []string, workers int, parse func(string) (*File, error)) ([]*File, []error) {
+func scanFilesParallel(ctx context.Context, paths []string, workers int, parse func(context.Context, string) (*File, error)) ([]*File, []error) {
 	if len(paths) == 0 {
 		return nil, nil
 	}
@@ -667,7 +670,7 @@ func scanFilesParallel(paths []string, workers int, parse func(string) (*File, e
 			}
 
 			for _, input := range inputs {
-				f, err := parse(input.path)
+				f, err := parse(ctx, input.path)
 				if err != nil {
 					local.errs = append(local.errs, indexedError{index: input.index, err: err})
 					continue

@@ -1,6 +1,7 @@
 package oracle
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -440,7 +441,7 @@ func TestFlatRangeLookups(t *testing.T) {
 	if err := os.WriteFile(path, []byte("fun main() { foo() }\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	file, err := scanner.ParseKotlinFileCached(path, nil)
+	file, err := scanner.ParseKotlinFileCached(context.Background(), path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

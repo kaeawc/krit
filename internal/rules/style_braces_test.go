@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,7 +20,7 @@ func parseBracesInline(t *testing.T, code string) *scanner.File {
 	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := scanner.ParseFile(path)
+	f, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +36,7 @@ func parseBracesPath(t *testing.T, name, code string) *scanner.File {
 	if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := scanner.ParseFile(path)
+	f, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

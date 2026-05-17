@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -212,7 +213,7 @@ func (s *Server) structureBreadth(args structureArgs) ToolResult {
 		return errorResult("no Kotlin files found in the specified paths")
 	}
 
-	files, _ := scanner.ScanFiles(ktFiles, 4)
+	files, _ := scanner.ScanFiles(context.Background(), ktFiles, 4)
 
 	threshold := args.Threshold
 	if threshold <= 0 {
@@ -262,7 +263,7 @@ func (s *Server) structurePkgDrift(args structureArgs) ToolResult {
 		return errorResult("no Kotlin files found in the specified paths")
 	}
 
-	files, _ := scanner.ScanFiles(ktFiles, 4)
+	files, _ := scanner.ScanFiles(context.Background(), ktFiles, 4)
 
 	type driftJSON struct {
 		File            string `json:"file"`
@@ -322,9 +323,9 @@ func buildIndexForPaths(paths []string) (*scanner.CodeIndex, error) {
 	if len(ktFiles) == 0 {
 		return nil, errors.New("no Kotlin files found in the specified paths")
 	}
-	files, _ := scanner.ScanFiles(ktFiles, 4)
+	files, _ := scanner.ScanFiles(context.Background(), ktFiles, 4)
 	javaPaths, _ := scanner.CollectJavaFiles(paths, nil)
-	javaFiles, _ := scanner.ScanFiles(javaPaths, 4)
+	javaFiles, _ := scanner.ScanFiles(context.Background(), javaPaths, 4)
 	return scanner.BuildIndex(files, 4, javaFiles...), nil
 }
 

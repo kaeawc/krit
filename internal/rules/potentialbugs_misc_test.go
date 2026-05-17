@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ func benchmarkRuleByName(b *testing.B, ruleName string, code string) {
 	if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
 		b.Fatal(err)
 	}
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		b.Fatalf("ParseFile(%s): %v", path, err)
 	}

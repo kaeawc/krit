@@ -1,6 +1,7 @@
 package rename
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -137,7 +138,7 @@ func TestApply_JavaCrossPackageRename(t *testing.T) {
 		"    public OldName useIt() { return new OldName(); }\n"+
 		"}\n")
 
-	files, errs := scanner.ScanJavaFiles([]string{declPath, usePath}, 1)
+	files, errs := scanner.ScanJavaFiles(context.Background(), []string{declPath, usePath}, 1)
 	for _, e := range errs {
 		if e != nil {
 			t.Fatalf("scan: %v", e)
@@ -505,7 +506,7 @@ func TestBuildPlan_NoConflictsWhenDestinationFree(t *testing.T) {
 
 func buildKotlinPlan(t *testing.T, paths []string, fromFQN, toFQN string) Plan {
 	t.Helper()
-	files, errs := scanner.ScanFiles(paths, 1)
+	files, errs := scanner.ScanFiles(context.Background(), paths, 1)
 	for _, e := range errs {
 		if e != nil {
 			t.Fatalf("scan: %v", e)

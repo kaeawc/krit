@@ -1,6 +1,7 @@
 package filefacts
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,7 +31,7 @@ func parseSample(t *testing.T) *scanner.File {
 	if err := os.WriteFile(path, []byte(sampleKotlin), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -247,7 +248,7 @@ func parseTestFile(t *testing.T, source string) *scanner.File {
 	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := scanner.ParseFile(path)
+	f, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -92,7 +92,7 @@ func Analyze(root, base string) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	files, errs := scanner.ScanFiles(paths, runtime.NumCPU())
+	files, errs := scanner.ScanFiles(context.Background(), paths, runtime.NumCPU())
 	if len(errs) > 0 {
 		return Report{}, errs[0]
 	}

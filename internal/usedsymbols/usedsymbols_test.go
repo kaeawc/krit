@@ -1,6 +1,7 @@
 package usedsymbols
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,7 +16,7 @@ func parseSource(t *testing.T, src string) *scanner.File {
 	if err := os.WriteFile(path, []byte(src), 0644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	f, err := scanner.ParseFile(path)
+	f, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}

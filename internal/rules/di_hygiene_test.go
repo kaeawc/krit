@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,7 @@ func TestBindsInsteadOfProvides(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "BindsInsteadOfProvides.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -35,7 +36,7 @@ func TestBindsInsteadOfProvides(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -57,7 +58,7 @@ func TestBindsReturnTypeMatchesParam(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "BindsReturnTypeMatchesParam.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -71,7 +72,7 @@ func TestBindsReturnTypeMatchesParam(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -96,7 +97,7 @@ func TestComponentMissingModule(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "ComponentMissingModule.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -110,7 +111,7 @@ func TestComponentMissingModule(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -132,7 +133,7 @@ func TestBindsMismatchedArity(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "BindsMismatchedArity.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -143,7 +144,7 @@ func TestBindsMismatchedArity(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -165,7 +166,7 @@ func TestAnvilContributesBindingWithoutScope(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "AnvilContributesBindingWithoutScope.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -176,7 +177,7 @@ func TestAnvilContributesBindingWithoutScope(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -217,7 +218,7 @@ func TestAnvilMergeComponentEmptyScope(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "AnvilMergeComponentEmptyScope.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -232,7 +233,7 @@ func TestAnvilMergeComponentEmptyScope(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -324,7 +325,7 @@ func TestDeadBindings(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "DeadBindings.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -338,7 +339,7 @@ func TestDeadBindings(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -391,7 +392,7 @@ func TestHiltInstallInMismatch(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "HiltInstallInMismatch.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -405,7 +406,7 @@ func TestHiltInstallInMismatch(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -430,7 +431,7 @@ func TestSubcomponentNotInstalled(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "SubcomponentNotInstalled.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -444,7 +445,7 @@ func TestSubcomponentNotInstalled(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -496,7 +497,7 @@ func TestIntoMapDuplicateKey(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "IntoMapDuplicateKey.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -507,7 +508,7 @@ func TestIntoMapDuplicateKey(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -573,7 +574,7 @@ func TestIntoSetDuplicateType(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "IntoSetDuplicateType.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -584,7 +585,7 @@ func TestIntoSetDuplicateType(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -606,7 +607,7 @@ func TestProviderInsteadOfLazy(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "ProviderInsteadOfLazy.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -620,7 +621,7 @@ func TestProviderInsteadOfLazy(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -642,7 +643,7 @@ func TestLazyInsteadOfDirect(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "LazyInsteadOfDirect.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -653,7 +654,7 @@ func TestLazyInsteadOfDirect(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -675,7 +676,7 @@ func TestHiltSingletonWithActivityDep(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "HiltSingletonWithActivityDep.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -689,7 +690,7 @@ func TestHiltSingletonWithActivityDep(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -711,7 +712,7 @@ func TestInjectOnAbstractClass(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "InjectOnAbstractClass.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -725,7 +726,7 @@ func TestInjectOnAbstractClass(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -747,7 +748,7 @@ func TestSingletonOnMutableClass(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "SingletonOnMutableClass.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -758,7 +759,7 @@ func TestSingletonOnMutableClass(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -780,7 +781,7 @@ func TestMetroFactoryDeclarationShape(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "MetroFactoryDeclarationShape.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -791,7 +792,7 @@ func TestMetroFactoryDeclarationShape(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -813,7 +814,7 @@ func TestScopeOnParameterizedClass(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "ScopeOnParameterizedClass.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -827,7 +828,7 @@ func TestScopeOnParameterizedClass(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -849,7 +850,7 @@ func TestMissingJvmSuppressWildcards(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "MissingJvmSuppressWildcards.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -860,7 +861,7 @@ func TestMissingJvmSuppressWildcards(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -882,7 +883,7 @@ func TestModuleWithNonStaticProvides(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "ModuleWithNonStaticProvides.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -896,7 +897,7 @@ func TestModuleWithNonStaticProvides(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -918,7 +919,7 @@ func TestIntoMapMissingKey(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "IntoMapMissingKey.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -932,7 +933,7 @@ func TestIntoMapMissingKey(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -954,7 +955,7 @@ func TestIntoSetOnNonSetReturn(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "IntoSetOnNonSetReturn.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -968,7 +969,7 @@ func TestIntoSetOnNonSetReturn(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -990,7 +991,7 @@ func TestHiltEntryPointOnNonInterface(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "di-hygiene", "HiltEntryPointOnNonInterface.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -1001,7 +1002,7 @@ func TestHiltEntryPointOnNonInterface(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -1025,7 +1026,7 @@ func parseKotlinFiles(t *testing.T, filesAndContents ...string) []*scanner.File 
 		if err := os.WriteFile(path, []byte(filesAndContents[i+1]), 0o644); err != nil {
 			t.Fatalf("WriteFile(%s): %v", path, err)
 		}
-		file, err := scanner.ParseFile(path)
+		file, err := scanner.ParseFile(context.Background(), path)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", path, err)
 		}

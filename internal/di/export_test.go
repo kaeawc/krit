@@ -2,6 +2,7 @@ package di
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -62,7 +63,7 @@ func parseDIFile(t *testing.T, content string) *scanner.File {
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

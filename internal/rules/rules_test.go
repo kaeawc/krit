@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,7 +135,7 @@ func TestPositiveFixtures(t *testing.T) {
 		count++
 		t.Run("positive/"+ruleName, func(t *testing.T) {
 			t.Parallel()
-			file, err := scanner.ParseFile(path)
+			file, err := scanner.ParseFile(context.Background(), path)
 			if err != nil {
 				t.Fatalf("failed to parse %s: %v", path, err)
 			}
@@ -188,7 +189,7 @@ func TestNegativeFixtures(t *testing.T) {
 		count++
 		t.Run("negative/"+ruleName, func(t *testing.T) {
 			t.Parallel()
-			file, err := scanner.ParseFile(path)
+			file, err := scanner.ParseFile(context.Background(), path)
 			if err != nil {
 				t.Fatalf("failed to parse %s: %v", path, err)
 			}

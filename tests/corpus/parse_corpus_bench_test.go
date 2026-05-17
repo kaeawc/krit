@@ -13,6 +13,7 @@
 package corpus_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,7 +51,7 @@ func BenchmarkParseKotlinCorpus(b *testing.B) {
 	var parseErrors int
 	for i := 0; i < b.N; i++ {
 		for _, p := range paths {
-			f, err := scanner.ParseFile(p)
+			f, err := scanner.ParseFile(context.Background(), p)
 			if err != nil {
 				// Real corpora occasionally contain test fixtures
 				// the parser intentionally rejects. Don't fail

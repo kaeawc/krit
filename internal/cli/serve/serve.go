@@ -865,13 +865,13 @@ func resolveAbiHashTargetForDaemon(state *daemonState, target string) ([]*scanne
 		if err != nil {
 			return nil, fmt.Errorf("collecting %s: %w", target, err)
 		}
-		files, _ := scanner.ScanFiles(paths, runtime.NumCPU())
+		files, _ := scanner.ScanFiles(context.Background(), paths, runtime.NumCPU())
 		return files, nil
 	}
 	if !strings.HasSuffix(path, ".kt") {
 		return nil, fmt.Errorf("expected a .kt file or directory, got %s", target)
 	}
-	f, err := scanner.ParseFile(path)
+	f, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", target, err)
 	}

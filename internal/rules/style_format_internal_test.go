@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,7 +57,7 @@ func parseInlineKt(t *testing.T, code string) *scanner.File {
 	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := scanner.ParseFile(path)
+	f, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

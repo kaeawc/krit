@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +21,7 @@ func parseInline(t *testing.T, code string) *scanner.File {
 	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := scanner.ParseFile(path)
+	f, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +41,7 @@ func runRuleByNameOnJava(t *testing.T, ruleName string, code string) []scanner.F
 	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
 		t.Fatal(err)
 	}
-	file, err := scanner.ParseJavaFile(path)
+	file, err := scanner.ParseJavaFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +57,7 @@ func runRuleByNameOnJavaPath(t *testing.T, ruleName, filename, code string) []sc
 	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
 		t.Fatal(err)
 	}
-	file, err := scanner.ParseJavaFile(path)
+	file, err := scanner.ParseJavaFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +77,7 @@ func runRuleByNameOnJavaWithSemanticCalls(t *testing.T, ruleName string, code st
 	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
 		t.Fatal(err)
 	}
-	file, err := scanner.ParseJavaFile(path)
+	file, err := scanner.ParseJavaFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +127,7 @@ func parseJavaFixture(t *testing.T, path string) *scanner.File {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal(err)
 	}
-	file, err := scanner.ParseJavaFile(path)
+	file, err := scanner.ParseJavaFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -906,7 +907,7 @@ func parseInlineWithName(t *testing.T, filename string, code string) *scanner.Fi
 	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := scanner.ParseFile(path)
+	f, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

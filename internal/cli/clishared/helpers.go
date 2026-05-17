@@ -3,6 +3,7 @@
 package clishared
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -147,7 +148,7 @@ func ScanModuleKotlinFiles(mod *module.Module) []*scanner.File {
 	}
 	files := make([]*scanner.File, 0, len(ktFiles))
 	for _, path := range ktFiles {
-		f, err := scanner.ParseFile(path)
+		f, err := scanner.ParseFile(context.Background(), path)
 		if err != nil {
 			continue
 		}

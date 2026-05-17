@@ -2,6 +2,7 @@ package parity_test
 
 import (
 	"archive/zip"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -327,7 +328,7 @@ func rewritePackage(source, packageName string) string {
 
 func runGoRule(t *testing.T, root, ruleName, fixture string) []scanner.Finding {
 	t.Helper()
-	file, err := scanner.ParseFile(filepath.Join(root, fixture))
+	file, err := scanner.ParseFile(context.Background(), filepath.Join(root, fixture))
 	if err != nil {
 		t.Fatal(err)
 	}

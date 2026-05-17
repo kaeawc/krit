@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -94,7 +95,7 @@ func walkPrecompileFixtures(t *testing.T, kind string, fn func(t *testing.T, rul
 			name := strings.TrimSuffix(fx.Name(), ".kt")
 			t.Run(kind+"/"+ruleID+"/"+name, func(t *testing.T) {
 				t.Parallel()
-				file, err := scanner.ParseFile(path)
+				file, err := scanner.ParseFile(context.Background(), path)
 				if err != nil {
 					t.Fatalf("parse %s: %v", path, err)
 				}

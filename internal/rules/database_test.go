@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -226,7 +227,7 @@ func TestRoomConflictStrategyReplaceOnFk(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "database", "RoomConflictStrategyReplaceOnFk.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -240,7 +241,7 @@ func TestRoomConflictStrategyReplaceOnFk(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -297,7 +298,7 @@ func TestRoomEntityChangedMigrationMissing(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "database", "RoomEntityChangedMigrationMissing.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -311,7 +312,7 @@ func TestRoomEntityChangedMigrationMissing(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -390,7 +391,7 @@ func TestRoomRelationWithoutIndex(t *testing.T) {
 	negativePath := filepath.Join(root, "negative", "database", "RoomRelationWithoutIndex.kt")
 
 	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(positivePath)
+		file, err := scanner.ParseFile(context.Background(), positivePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
@@ -404,7 +405,7 @@ func TestRoomRelationWithoutIndex(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(negativePath)
+		file, err := scanner.ParseFile(context.Background(), negativePath)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
@@ -859,7 +860,7 @@ fun open(context: Context): AppDb =
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
@@ -1146,7 +1147,7 @@ func TestRoomFlowQueryWithoutDistinct_Fixtures(t *testing.T) {
 	root := fixtureRoot(t)
 
 	t.Run("positive fixture flags caller missing distinctUntilChanged", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "positive", "database", "RoomFlowQueryWithoutDistinct.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "positive", "database", "RoomFlowQueryWithoutDistinct.kt"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1161,7 +1162,7 @@ func TestRoomFlowQueryWithoutDistinct_Fixtures(t *testing.T) {
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "negative", "database", "RoomFlowQueryWithoutDistinct.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "negative", "database", "RoomFlowQueryWithoutDistinct.kt"))
 		if err != nil {
 			t.Fatal(err)
 		}

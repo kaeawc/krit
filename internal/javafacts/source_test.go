@@ -1,6 +1,7 @@
 package javafacts
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -228,7 +229,7 @@ func parseJavaSource(t *testing.T, name, src string) *scanner.File {
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	file, err := scanner.ParseJavaFile(path)
+	file, err := scanner.ParseJavaFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

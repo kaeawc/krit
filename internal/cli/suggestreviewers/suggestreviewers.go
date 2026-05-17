@@ -284,7 +284,7 @@ func changedFqnsFromFiles(root string, changedRel []string) []string {
 		if err != nil || info.IsDir() {
 			continue
 		}
-		f, err := scanner.ParseFile(full)
+		f, err := scanner.ParseFile(context.Background(), full)
 		if err != nil {
 			continue
 		}
@@ -304,7 +304,7 @@ func buildIndex(root string) *scanner.CodeIndex {
 	if err != nil {
 		return nil
 	}
-	files, _ := scanner.ScanFiles(paths, runtime.NumCPU())
+	files, _ := scanner.ScanFiles(context.Background(), paths, runtime.NumCPU())
 	return scanner.BuildIndex(files, runtime.NumCPU())
 }
 

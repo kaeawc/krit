@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,7 +40,7 @@ func inlineKotlin(t *testing.T, src string) *scanner.File {
 	if err := os.WriteFile(path, []byte(src), 0644); err != nil {
 		t.Fatalf("write inline source: %v", err)
 	}
-	f, err := scanner.ParseFile(path)
+	f, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("parse inline source: %v", err)
 	}

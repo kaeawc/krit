@@ -22,7 +22,7 @@ func TestIndexPhase_TypeIndexCacheDir_HitsOnSecondRun(t *testing.T) {
 	if err := os.WriteFile(src, []byte("package test\n\nclass Sample\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := scanner.ParseFile(src)
+	parsed, err := scanner.ParseFile(context.Background(), src)
 	if err != nil {
 		t.Fatal(err)
 	}

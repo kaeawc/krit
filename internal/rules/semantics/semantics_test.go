@@ -1,6 +1,7 @@
 package semantics
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -215,7 +216,7 @@ func parseKotlin(t *testing.T, content string) *scanner.File {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}

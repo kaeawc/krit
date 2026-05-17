@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -255,7 +256,7 @@ class MyTest {
 	if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

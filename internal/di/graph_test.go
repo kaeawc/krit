@@ -1,6 +1,7 @@
 package di
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -47,7 +48,7 @@ class Api @Inject constructor()`)
 	if err != nil {
 		t.Fatalf("CollectKotlinFiles: %v", err)
 	}
-	files, errs := scanner.ScanFiles(paths, 2)
+	files, errs := scanner.ScanFiles(context.Background(), paths, 2)
 	if len(errs) > 0 {
 		t.Fatalf("ScanFiles returned errors: %v", errs)
 	}

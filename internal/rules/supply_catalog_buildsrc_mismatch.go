@@ -2,6 +2,7 @@ package rules
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -239,7 +240,7 @@ func buildSrcDirs(rootDir string) []string {
 }
 
 func (r *VersionCatalogBuildSrcMismatchRule) scanKotlin(ctx *api.Context, catalogPath, path string, coords map[string]catalogCoord) {
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil || file == nil || file.FlatTree == nil {
 		return
 	}

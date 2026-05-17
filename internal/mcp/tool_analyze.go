@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"sort"
@@ -113,7 +114,7 @@ func (s *Server) analyzeProject(args analyzeArgs) ToolResult {
 		return errorResult("no Kotlin files found in the specified paths")
 	}
 
-	files, _ := scanner.ScanFiles(ktFiles, 4)
+	files, _ := scanner.ScanFiles(context.Background(), ktFiles, 4)
 
 	type fileResult struct {
 		File     string `json:"file"`
@@ -355,7 +356,7 @@ func (s *Server) analyzeImpact(args analyzeArgs) ToolResult {
 		if len(ktFiles) == 0 {
 			return errorResult("no Kotlin files found in the specified paths")
 		}
-		files, _ := scanner.ScanFiles(ktFiles, 4)
+		files, _ := scanner.ScanFiles(context.Background(), ktFiles, 4)
 		collector := scanner.NewFindingCollector(len(files) * 8)
 		for _, f := range files {
 			cols, _ := s.analyzer.Dispatcher.RunColumnsWithStats(f)

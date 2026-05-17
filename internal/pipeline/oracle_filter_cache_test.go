@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -23,8 +24,8 @@ func TestOracleFilterFingerprint_StableAndDistinct(t *testing.T) {
 	if err := os.WriteFile(b, []byte("package x\nclass B\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pa, _ := scanner.ParseFile(a)
-	pb, _ := scanner.ParseFile(b)
+	pa, _ := scanner.ParseFile(context.Background(), a)
+	pb, _ := scanner.ParseFile(context.Background(), b)
 
 	r1 := api.FakeRule("R1")
 	r2 := api.FakeRule("R2")

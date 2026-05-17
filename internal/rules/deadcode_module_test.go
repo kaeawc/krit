@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,7 +21,7 @@ func writeAndParse(t *testing.T, dir, name, content string) *scanner.File {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := scanner.ParseFile(path)
+	f, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile(%s): %v", path, err)
 	}
@@ -36,7 +37,7 @@ func writeAndParseJava(t *testing.T, dir, name, content string) *scanner.File {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := scanner.ParseJavaFile(path)
+	f, err := scanner.ParseJavaFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseJavaFile(%s): %v", path, err)
 	}

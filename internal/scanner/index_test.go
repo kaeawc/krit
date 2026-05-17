@@ -350,7 +350,7 @@ public final class Widget {
 `), 0o644); err != nil {
 		t.Fatalf("write java: %v", err)
 	}
-	file, err := ParseJavaFile(path)
+	file, err := ParseJavaFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseJavaFile: %v", err)
 	}
@@ -415,11 +415,11 @@ public class JavaHelper {
 fun use(helper: JavaHelper) = helper.label()
 `)
 
-	kt, err := ParseFile(kotlinPath)
+	kt, err := ParseFile(context.Background(), kotlinPath)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
-	javaFile, err := ParseJavaFile(javaPath)
+	javaFile, err := ParseJavaFile(context.Background(), javaPath)
 	if err != nil {
 		t.Fatalf("ParseJavaFile: %v", err)
 	}
@@ -447,11 +447,11 @@ func TestBuildIndex_JavaFilesAppearInIndexFiles(t *testing.T) {
 		t.Fatalf("write java: %v", err)
 	}
 	kotlinPath := writeTempKt(t, dir, "UseJava.kt", "package com.example\n")
-	kt, err := ParseFile(kotlinPath)
+	kt, err := ParseFile(context.Background(), kotlinPath)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
-	javaFile, err := ParseJavaFile(javaPath)
+	javaFile, err := ParseJavaFile(context.Background(), javaPath)
 	if err != nil {
 		t.Fatalf("ParseJavaFile: %v", err)
 	}
@@ -488,7 +488,7 @@ class UseJava {
 `), 0o644); err != nil {
 		t.Fatalf("write java: %v", err)
 	}
-	file, err := ParseJavaFile(path)
+	file, err := ParseJavaFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseJavaFile: %v", err)
 	}
@@ -524,11 +524,11 @@ class UseKotlin {
 `), 0o644); err != nil {
 		t.Fatalf("write java: %v", err)
 	}
-	kt, err := ParseFile(kotlinPath)
+	kt, err := ParseFile(context.Background(), kotlinPath)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
-	javaFile, err := ParseJavaFile(javaPath)
+	javaFile, err := ParseJavaFile(context.Background(), javaPath)
 	if err != nil {
 		t.Fatalf("ParseJavaFile: %v", err)
 	}
@@ -574,15 +574,15 @@ class UseKotlin {
 `), 0o644); err != nil {
 		t.Fatalf("write java: %v", err)
 	}
-	imported, err := ParseFile(importedPath)
+	imported, err := ParseFile(context.Background(), importedPath)
 	if err != nil {
 		t.Fatalf("ParseFile imported: %v", err)
 	}
-	local, err := ParseFile(localPath)
+	local, err := ParseFile(context.Background(), localPath)
 	if err != nil {
 		t.Fatalf("ParseFile local: %v", err)
 	}
-	javaFile, err := ParseJavaFile(javaPath)
+	javaFile, err := ParseJavaFile(context.Background(), javaPath)
 	if err != nil {
 		t.Fatalf("ParseJavaFile: %v", err)
 	}
@@ -614,11 +614,11 @@ import com.example.api.JavaApi
 
 fun call(api: JavaApi) = api.label()
 `)
-	javaFile, err := ParseJavaFile(javaPath)
+	javaFile, err := ParseJavaFile(context.Background(), javaPath)
 	if err != nil {
 		t.Fatalf("ParseJavaFile: %v", err)
 	}
-	kt, err := ParseFile(kotlinPath)
+	kt, err := ParseFile(context.Background(), kotlinPath)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
@@ -652,7 +652,7 @@ class UseKotlin {
 `), 0o644); err != nil {
 		t.Fatalf("write java: %v", err)
 	}
-	file, err := ParseJavaFile(path)
+	file, err := ParseJavaFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseJavaFile: %v", err)
 	}
@@ -766,11 +766,11 @@ class SharedClass {}
 fun caller() { sharedFunction() }
 `)
 
-	f1, err := ParseFile(file1)
+	f1, err := ParseFile(context.Background(), file1)
 	if err != nil {
 		t.Fatalf("ParseFile file1: %v", err)
 	}
-	f2, err := ParseFile(file2)
+	f2, err := ParseFile(context.Background(), file2)
 	if err != nil {
 		t.Fatalf("ParseFile file2: %v", err)
 	}
@@ -840,11 +840,11 @@ fun caller() {
 }
 `)
 
-	f1, err := ParseFile(file1)
+	f1, err := ParseFile(context.Background(), file1)
 	if err != nil {
 		t.Fatalf("ParseFile file1: %v", err)
 	}
-	f2, err := ParseFile(file2)
+	f2, err := ParseFile(context.Background(), file2)
 	if err != nil {
 		t.Fatalf("ParseFile file2: %v", err)
 	}
@@ -927,15 +927,15 @@ fun caller() { sharedFunction() }
 fun anotherCaller() { sharedFunction() }
 `)
 
-	f1, err := ParseFile(file1)
+	f1, err := ParseFile(context.Background(), file1)
 	if err != nil {
 		t.Fatalf("ParseFile file1: %v", err)
 	}
-	f2, err := ParseFile(file2)
+	f2, err := ParseFile(context.Background(), file2)
 	if err != nil {
 		t.Fatalf("ParseFile file2: %v", err)
 	}
-	f3, err := ParseFile(file3)
+	f3, err := ParseFile(context.Background(), file3)
 	if err != nil {
 		t.Fatalf("ParseFile file3: %v", err)
 	}
@@ -979,11 +979,11 @@ fun localOnly() {}
 fun caller() { sharedFunction() }
 `)
 
-	f1, err := ParseFile(file1)
+	f1, err := ParseFile(context.Background(), file1)
 	if err != nil {
 		t.Fatalf("ParseFile file1: %v", err)
 	}
-	f2, err := ParseFile(file2)
+	f2, err := ParseFile(context.Background(), file2)
 	if err != nil {
 		t.Fatalf("ParseFile file2: %v", err)
 	}
@@ -1017,11 +1017,11 @@ class SharedClass {}
 fun caller() { sharedFunction() }
 `)
 
-	f1, err := ParseFile(file1)
+	f1, err := ParseFile(context.Background(), file1)
 	if err != nil {
 		t.Fatalf("ParseFile file1: %v", err)
 	}
-	f2, err := ParseFile(file2)
+	f2, err := ParseFile(context.Background(), file2)
 	if err != nil {
 		t.Fatalf("ParseFile file2: %v", err)
 	}
@@ -1054,8 +1054,8 @@ fun targetFunc() {}
 // targetFunc is documented here
 fun caller() { targetFunc() }
 `)
-	file1, _ := ParseFile(f1)
-	file2, _ := ParseFile(f2)
+	file1, _ := ParseFile(context.Background(), f1)
+	file2, _ := ParseFile(context.Background(), f2)
 	idx := BuildIndex([]*File{file1, file2}, 1)
 
 	// Should be referenced outside file (in actual code, not just comments)
@@ -1070,7 +1070,7 @@ func TestCountNonCommentRefsInFile(t *testing.T) {
 fun myFunc() {}
 fun caller() { myFunc() }
 `)
-	file1, _ := ParseFile(f1)
+	file1, _ := ParseFile(context.Background(), f1)
 	idx := BuildIndex([]*File{file1}, 1)
 
 	count := idx.CountNonCommentRefsInFile("myFunc", f1)

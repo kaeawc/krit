@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +29,7 @@ func parseJavaInline(t *testing.T, code string) *scanner.File {
 	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
 		t.Fatal(err)
 	}
-	file, err := scanner.ParseJavaFile(path)
+	file, err := scanner.ParseJavaFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +104,7 @@ func TestDatabaseQueryOnMainThread_Fixtures(t *testing.T) {
 	root := fixtureRoot(t)
 
 	t.Run("positive fixture includes SQLite Room and SQLDelight", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "positive", "resource-cost", "DatabaseQueryOnMainThread.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "positive", "resource-cost", "DatabaseQueryOnMainThread.kt"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -114,7 +115,7 @@ func TestDatabaseQueryOnMainThread_Fixtures(t *testing.T) {
 	})
 
 	t.Run("negative fixture keeps repository wrappers clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "negative", "resource-cost", "DatabaseQueryOnMainThread.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "negative", "resource-cost", "DatabaseQueryOnMainThread.kt"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -129,7 +130,7 @@ func TestRoomLoadsAllWhereFirstUsed_Fixtures(t *testing.T) {
 	root := fixtureRoot(t)
 
 	t.Run("positive fixture requires Room DAO evidence", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "positive", "resource-cost", "RoomLoadsAllWhereFirstUsed.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "positive", "resource-cost", "RoomLoadsAllWhereFirstUsed.kt"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -144,7 +145,7 @@ func TestRoomLoadsAllWhereFirstUsed_Fixtures(t *testing.T) {
 	})
 
 	t.Run("negative fixture ignores limited Room queries and plain collections", func(t *testing.T) {
-		file, err := scanner.ParseFile(filepath.Join(root, "negative", "resource-cost", "RoomLoadsAllWhereFirstUsed.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(root, "negative", "resource-cost", "RoomLoadsAllWhereFirstUsed.kt"))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -1,6 +1,7 @@
 package impact
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -57,7 +58,7 @@ class Unrelated { fun nothing() = 0 }
 	if err != nil {
 		t.Fatalf("collect: %v", err)
 	}
-	files, _ := scanner.ScanFiles(paths, runtime.NumCPU())
+	files, _ := scanner.ScanFiles(context.Background(), paths, runtime.NumCPU())
 	idx := scanner.BuildIndex(files, runtime.NumCPU())
 
 	hits := computeImpact(idx, []string{"com.acme.core.UserRepository.load"})

@@ -1,6 +1,7 @@
 package digraph
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -43,7 +44,7 @@ func Run(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: collect files: %v\n", err)
 		return 1
 	}
-	parsed, errs := scanner.ScanFiles(files, runtime.NumCPU())
+	parsed, errs := scanner.ScanFiles(context.Background(), files, runtime.NumCPU())
 	if len(errs) > 0 {
 		fmt.Fprintf(os.Stderr, "error: parse: %v\n", errs[0])
 		return 1

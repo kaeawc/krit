@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -229,9 +230,9 @@ android {
 	var file *scanner.File
 	var err error
 	if strings.HasSuffix(fileName, ".java") {
-		file, err = scanner.ParseJavaFile(path)
+		file, err = scanner.ParseJavaFile(context.Background(), path)
 	} else {
-		file, err = scanner.ParseFile(path)
+		file, err = scanner.ParseFile(context.Background(), path)
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -2666,7 +2667,7 @@ func runJavaRuleByName(t *testing.T, ruleName string, code string) []scanner.Fin
 	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
 		t.Fatal(err)
 	}
-	file, err := scanner.ParseJavaFile(path)
+	file, err := scanner.ParseJavaFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

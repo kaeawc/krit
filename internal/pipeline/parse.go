@@ -72,7 +72,7 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 	)
 	parseStart := time.Now()
 	_ = in.trackSerial("parse", func() error {
-		kotlinFiles, parseErrs, residentHits = scanWithResident(kotlinPaths, workers, in.ParseCache, in.ResidentFiles, scanner.ScanFilesCached)
+		kotlinFiles, parseErrs, residentHits = scanWithResident(ctx, kotlinPaths, workers, in.ParseCache, in.ResidentFiles, scanner.ScanFilesCached)
 		return nil
 	})
 	in.logf("verbose: Parsed %d files in %v (%d errors, %d workers, %d resident hits)\n",
@@ -131,7 +131,7 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 			parseErrs = append(parseErrs, javaErr)
 		} else if len(javaPaths) > 0 {
 			var javaParseErrs []error
-			javaFiles, javaParseErrs, _ = scanWithResident(javaPaths, workers, in.ParseCache, in.ResidentFiles, scanner.ScanJavaFilesCached)
+			javaFiles, javaParseErrs, _ = scanWithResident(ctx, javaPaths, workers, in.ParseCache, in.ResidentFiles, scanner.ScanJavaFilesCached)
 			parseErrs = append(parseErrs, javaParseErrs...)
 			if !in.IncludeGenerated {
 				javaFiles, _ = filterGeneratedSourceFilesWithAllowlist(javaFiles, in.IncludeGeneratedAllowlist)
@@ -273,14 +273,15 @@ func NeedsJavaBeforeDispatch(rules []*api.Rule) bool {
 // just forwards every path to scan, matching the pre-#254 behavior.
 // Errors from scan are returned unchanged.
 func scanWithResident(
+	ctx context.Context,
 	paths []string,
 	workers int,
 	pc *scanner.ParseCache,
 	cache ResidentFileCache,
-	scan func([]string, int, *scanner.ParseCache) ([]*scanner.File, []error),
+	scan func(context.Context, []string, int, *scanner.ParseCache) ([]*scanner.File, []error),
 ) ([]*scanner.File, []error, int) {
 	if cache == nil || len(paths) == 0 {
-		files, errs := scan(paths, workers, pc)
+		files, errs := scan(ctx, paths, workers, pc)
 		return files, errs, 0
 	}
 	hits := make([]*scanner.File, 0, len(paths))
@@ -292,7 +293,7 @@ func scanWithResident(
 		}
 		misses = append(misses, p)
 	}
-	freshFiles, errs := scan(misses, workers, pc)
+	freshFiles, errs := scan(ctx, misses, workers, pc)
 	for _, f := range freshFiles {
 		if f == nil {
 			continue

@@ -1,6 +1,7 @@
 package module
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -61,13 +62,13 @@ func TestBuildPerModuleIndex_AssignsFilesToModules(t *testing.T) {
 	allPaths := []string{appFile, libFile, rootFile}
 	var allFiles []*scanner.File
 	for _, p := range allPaths {
-		f, err := scanner.ParseFile(p)
+		f, err := scanner.ParseFile(context.Background(), p)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", p, err)
 		}
 		allFiles = append(allFiles, f)
 	}
-	javaParsed, err := scanner.ParseJavaFile(libJavaFile)
+	javaParsed, err := scanner.ParseJavaFile(context.Background(), libJavaFile)
 	if err != nil {
 		t.Fatalf("ParseJavaFile(%s): %v", libJavaFile, err)
 	}

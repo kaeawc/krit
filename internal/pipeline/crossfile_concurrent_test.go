@@ -89,7 +89,7 @@ func writeParsedJavaFile(t *testing.T, code string, name string) *scanner.File {
 	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	file, err := scanner.ParseJavaFile(path)
+	file, err := scanner.ParseJavaFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}

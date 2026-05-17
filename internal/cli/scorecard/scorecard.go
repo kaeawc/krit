@@ -1,6 +1,7 @@
 package scorecard
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -72,7 +73,7 @@ func Build(paths []string, configPath string) ([]Row, error) {
 	if err != nil {
 		return nil, fmt.Errorf("collecting Kotlin files: %w", err)
 	}
-	files, parseErrs := scanner.ScanFiles(kotlinPaths, runtime.NumCPU())
+	files, parseErrs := scanner.ScanFiles(context.Background(), kotlinPaths, runtime.NumCPU())
 	if len(parseErrs) > 0 {
 		return nil, fmt.Errorf("parsing Kotlin files: %w", parseErrs[0])
 	}

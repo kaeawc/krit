@@ -1,6 +1,7 @@
 package typeinfer
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,7 +20,7 @@ func parseFixtureTI(b *testing.B, relPath string) *scanner.File {
 	if _, err := os.Stat(abs); err != nil {
 		b.Skipf("fixture not found: %s", abs)
 	}
-	f, err := scanner.ParseFile(abs)
+	f, err := scanner.ParseFile(context.Background(), abs)
 	if err != nil {
 		b.Fatalf("ParseFile(%s): %v", abs, err)
 	}
@@ -70,7 +71,7 @@ func BenchmarkIndexFileParallel_HeavyDeclarations(b *testing.B) {
 	if err := os.WriteFile(path, []byte(sb.String()), 0o644); err != nil {
 		b.Fatal(err)
 	}
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -116,7 +117,7 @@ func BenchmarkIndexFileParallel_HeavyImportsAndDeclarations(b *testing.B) {
 	if err := os.WriteFile(path, []byte(sb.String()), 0o644); err != nil {
 		b.Fatal(err)
 	}
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -150,7 +151,7 @@ func BenchmarkIndexFilesParallel(b *testing.B) {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".kt" {
 			continue
 		}
-		f, err := scanner.ParseFile(filepath.Join(fixtureDir, e.Name()))
+		f, err := scanner.ParseFile(context.Background(), filepath.Join(fixtureDir, e.Name()))
 		if err != nil {
 			continue
 		}

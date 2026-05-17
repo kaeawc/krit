@@ -78,7 +78,7 @@ func Analyze(root, since string) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	files, errs := scanner.ScanFiles(paths, 1)
+	files, errs := scanner.ScanFiles(context.Background(), paths, 1)
 	if len(errs) > 0 {
 		return Report{}, errs[0]
 	}

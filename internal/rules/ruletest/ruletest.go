@@ -32,6 +32,7 @@
 package ruletest
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -193,7 +194,7 @@ func writeAndParseKotlin(t *testing.T, src string) *scanner.File {
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatalf("ruletest: write Kotlin temp file: %v", err)
 	}
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ruletest: parse Kotlin: %v", err)
 	}
@@ -206,7 +207,7 @@ func writeAndParseJava(t *testing.T, src string) *scanner.File {
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatalf("ruletest: write Java temp file: %v", err)
 	}
-	file, err := scanner.ParseJavaFile(path)
+	file, err := scanner.ParseJavaFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ruletest: parse Java: %v", err)
 	}

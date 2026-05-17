@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -302,11 +303,11 @@ func TestCrossFileOverlayCacheSmallEditAvoidsPayloadRewrite(t *testing.T) {
 	if err := os.WriteFile(bPath, []byte("class B\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	aFile, err := ParseFile(aPath)
+	aFile, err := ParseFile(context.Background(), aPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bFile, err := ParseFile(bPath)
+	bFile, err := ParseFile(context.Background(), bPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +328,7 @@ func TestCrossFileOverlayCacheSmallEditAvoidsPayloadRewrite(t *testing.T) {
 	if err := os.WriteFile(bPath, []byte("class C\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	bChanged, err := ParseFile(bPath)
+	bChanged, err := ParseFile(context.Background(), bPath)
 	if err != nil {
 		t.Fatal(err)
 	}

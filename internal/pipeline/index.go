@@ -681,7 +681,7 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 	})
 
 	if in.BuildCodeIndex {
-		p.runCodeIndexBuild(in, &result)
+		p.runCodeIndexBuild(ctx, in, &result)
 	}
 
 	if in.BuildModuleIndex {
@@ -1096,7 +1096,7 @@ func loadFilesForOracleFilter(paths []string) []*scanner.File {
 // index. Tracker labels ("javaIndexing", "codeIndexBuild", inner
 // "indexBuild") stay under the caller-supplied "crossFileAnalysis"
 // parent so rule execution siblings can continue to nest under it.
-func (p IndexPhase) runCodeIndexBuild(in IndexInput, result *IndexResult) {
+func (p IndexPhase) runCodeIndexBuild(ctx context.Context, in IndexInput, result *IndexResult) {
 	if in.CrossFileParentTracker == nil {
 		return
 	}
@@ -1129,7 +1129,7 @@ func (p IndexPhase) runCodeIndexBuild(in IndexInput, result *IndexResult) {
 		if len(javaFilePaths) > 0 {
 			crossWorkers = phaseWorkerCount("crossFileAnalysis", in.CrossFileJobsFlag, len(parsedFiles)+len(javaFilePaths))
 			var javaErrs []error
-			parsedJavaFiles, javaErrs = scanner.ScanJavaFilesCachedForIndex(javaFilePaths, crossWorkers, in.ParseCache, javaPerf)
+			parsedJavaFiles, javaErrs = scanner.ScanJavaFilesCachedForIndex(ctx, javaFilePaths, crossWorkers, in.ParseCache, javaPerf)
 			if len(javaErrs) > 0 && in.Verbose {
 				in.logf("verbose: Java file parsing: %d errors\n", len(javaErrs))
 			}

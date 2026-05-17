@@ -22,7 +22,7 @@ func writeKotlin(t *testing.T, dir, name, code string) *scanner.File {
 	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
 		t.Fatalf("WriteFile(%s): %v", path, err)
 	}
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile(%s): %v", path, err)
 	}
@@ -35,7 +35,7 @@ func writeJava(t *testing.T, dir, name, code string) *scanner.File {
 	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
 		t.Fatalf("WriteFile(%s): %v", path, err)
 	}
-	file, err := scanner.ParseJavaFile(path)
+	file, err := scanner.ParseJavaFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseJavaFile(%s): %v", path, err)
 	}

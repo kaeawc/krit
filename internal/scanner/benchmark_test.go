@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,9 +17,9 @@ func helperParseFixture(b *testing.B, relPath string) *File {
 	if err != nil {
 		b.Fatalf("cannot resolve path %s: %v", relPath, err)
 	}
-	f, err := ParseFile(abs)
+	f, err := ParseFile(context.Background(), abs)
 	if err != nil {
-		b.Fatalf("ParseFile(%s): %v", abs, err)
+		b.Fatalf("ParseFile(context.Background(), %s): %v", abs, err)
 	}
 	return f
 }
@@ -34,7 +35,7 @@ func BenchmarkParseFile(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := ParseFile(path)
+		_, err := ParseFile(context.Background(), path)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -51,7 +52,7 @@ func BenchmarkParseFile_Large(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := ParseFile(path)
+		_, err := ParseFile(context.Background(), path)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -84,7 +85,7 @@ func BenchmarkParseFile_Inline(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := ParseFile(tmpFile)
+		_, err := ParseFile(context.Background(), tmpFile)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -105,7 +106,7 @@ func BenchmarkParseFile_WithPool(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := ParseFile(path)
+		_, err := ParseFile(context.Background(), path)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -131,9 +132,9 @@ fun shared%d(): Int = %d
 		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 			b.Fatalf("write %s: %v", path, err)
 		}
-		file, err := ParseFile(path)
+		file, err := ParseFile(context.Background(), path)
 		if err != nil {
-			b.Fatalf("ParseFile(%s): %v", path, err)
+			b.Fatalf("ParseFile(context.Background(), %s): %v", path, err)
 		}
 		files = append(files, file)
 	}
@@ -217,9 +218,9 @@ func benchParseIdentifiers(b *testing.B) (*File, []uint32) {
 		b.Fatal(err)
 	}
 
-	f, err := ParseFile(tmpFile)
+	f, err := ParseFile(context.Background(), tmpFile)
 	if err != nil {
-		b.Fatalf("ParseFile(%s): %v", tmpFile, err)
+		b.Fatalf("ParseFile(context.Background(), %s): %v", tmpFile, err)
 	}
 
 	var identifiers []uint32
@@ -281,9 +282,9 @@ func BenchmarkFlatHasModifier(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	f, err := ParseFile(tmpFile)
+	f, err := ParseFile(context.Background(), tmpFile)
 	if err != nil {
-		b.Fatalf("ParseFile(%s): %v", tmpFile, err)
+		b.Fatalf("ParseFile(context.Background(), %s): %v", tmpFile, err)
 	}
 
 	var decls []uint32
@@ -356,9 +357,9 @@ func BenchmarkNodeTextVsZeroCopy(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	f, err := ParseFile(tmpFile)
+	f, err := ParseFile(context.Background(), tmpFile)
 	if err != nil {
-		b.Fatalf("ParseFile(%s): %v", tmpFile, err)
+		b.Fatalf("ParseFile(context.Background(), %s): %v", tmpFile, err)
 	}
 
 	var allNodes []uint32

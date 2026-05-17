@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,7 +22,7 @@ func runRuleByNameOnPath(t *testing.T, ruleName, filename, code string) []scanne
 		t.Fatal(err)
 	}
 
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

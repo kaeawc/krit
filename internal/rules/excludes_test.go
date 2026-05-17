@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -60,7 +61,7 @@ fun check(x: Boolean) {
 		t.Fatal(err)
 	}
 
-	file, err := scanner.ParseFile(testPath)
+	file, err := scanner.ParseFile(context.Background(), testPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +119,7 @@ fun check(x: Boolean) {
 		t.Fatal(err)
 	}
 
-	file, err := scanner.ParseFile(mainPath)
+	file, err := scanner.ParseFile(context.Background(), mainPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +166,7 @@ fun check(x: Boolean) {
 		t.Fatal(err)
 	}
 
-	file, err := scanner.ParseFile(specPath)
+	file, err := scanner.ParseFile(context.Background(), specPath)
 	if err != nil {
 		t.Fatal(err)
 	}

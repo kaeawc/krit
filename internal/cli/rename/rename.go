@@ -1,6 +1,7 @@
 package rename
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -124,7 +125,7 @@ func buildRenamePlan(paths []string, workers int, target krename.Target) (krenam
 	if err != nil {
 		return krename.Plan{}, err
 	}
-	parsedFiles, scanErrs := scanner.ScanFiles(kotlinPaths, workers)
+	parsedFiles, scanErrs := scanner.ScanFiles(context.Background(), kotlinPaths, workers)
 	if err := joinErrors(scanErrs); err != nil {
 		return krename.Plan{}, err
 	}
@@ -133,7 +134,7 @@ func buildRenamePlan(paths []string, workers int, target krename.Target) (krenam
 	if err != nil {
 		return krename.Plan{}, err
 	}
-	parsedJavaFiles, javaErrs := scanner.ScanJavaFiles(javaPaths, workers)
+	parsedJavaFiles, javaErrs := scanner.ScanJavaFiles(context.Background(), javaPaths, workers)
 	if err := joinErrors(javaErrs); err != nil {
 		return krename.Plan{}, err
 	}

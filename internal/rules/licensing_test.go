@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -449,7 +450,7 @@ func TestSpdxIdentifierMismatchWithProject(t *testing.T) {
 		defer restoreDefaults()
 
 		loadFixtureRuleConfig(t, filepath.Join(positiveDir, "krit.yml"))
-		file, err := scanner.ParseFile(filepath.Join(positiveDir, "Mismatch.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(positiveDir, "Mismatch.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}
@@ -467,7 +468,7 @@ func TestSpdxIdentifierMismatchWithProject(t *testing.T) {
 		defer restoreDefaults()
 
 		loadFixtureRuleConfig(t, filepath.Join(negativeDir, "krit.yml"))
-		file, err := scanner.ParseFile(filepath.Join(negativeDir, "Match.kt"))
+		file, err := scanner.ParseFile(context.Background(), filepath.Join(negativeDir, "Match.kt"))
 		if err != nil {
 			t.Fatalf("ParseFile: %v", err)
 		}

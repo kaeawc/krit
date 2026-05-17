@@ -1,6 +1,7 @@
 package usedsymbols
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -99,7 +100,7 @@ func runUsedSymbolsFile(path string, asJSON bool) int {
 		fmt.Fprintf(os.Stderr, "expected a .kt file or :module path, got %s\n", path)
 		return 1
 	}
-	f, err := scanner.ParseFile(path)
+	f, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "parsing %s: %v\n", path, err)
 		return 1

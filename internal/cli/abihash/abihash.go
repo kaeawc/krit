@@ -1,6 +1,7 @@
 package abihash
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -130,13 +131,13 @@ func resolveAbiHashTarget(target string) ([]*scanner.File, error) {
 		if err != nil {
 			return nil, fmt.Errorf("collecting %s: %w", target, err)
 		}
-		files, _ := scanner.ScanFiles(paths, runtime.NumCPU())
+		files, _ := scanner.ScanFiles(context.Background(), paths, runtime.NumCPU())
 		return files, nil
 	}
 	if !strings.HasSuffix(target, ".kt") {
 		return nil, fmt.Errorf("expected a .kt file or directory, got %s", target)
 	}
-	f, err := scanner.ParseFile(target)
+	f, err := scanner.ParseFile(context.Background(), target)
 	if err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", target, err)
 	}

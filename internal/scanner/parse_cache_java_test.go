@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -47,7 +48,7 @@ func TestParseCache_Java_RoundTrip(t *testing.T) {
 	src := largeJavaSource()
 	path := writeJava(t, repo, "Round.java", src)
 
-	miss, err := ParseJavaFileCached(path, pc)
+	miss, err := ParseJavaFileCached(context.Background(), path, pc)
 	if err != nil {
 		t.Fatalf("parse (miss): %v", err)
 	}
@@ -55,7 +56,7 @@ func TestParseCache_Java_RoundTrip(t *testing.T) {
 		t.Fatal("expected FlatTree on miss")
 	}
 
-	hit, err := ParseJavaFileCached(path, pc)
+	hit, err := ParseJavaFileCached(context.Background(), path, pc)
 	if err != nil {
 		t.Fatalf("parse (hit): %v", err)
 	}
@@ -81,7 +82,7 @@ func TestParseJavaFileCachedForIndex_RecordsMissPerfAndPrecomputesRefs(t *testin
 	path := writeJava(t, repo, "Foo.java", src)
 
 	stats := &JavaIndexPerf{}
-	file, err := ParseJavaFileCachedForIndex(path, nil, stats)
+	file, err := ParseJavaFileCachedForIndex(context.Background(), path, nil, stats)
 	if err != nil {
 		t.Fatalf("parse index java: %v", err)
 	}
@@ -125,7 +126,7 @@ func TestParseJavaFileCachedForIndex_RecordsCacheHitPerf(t *testing.T) {
 
 	src := largeJavaSource()
 	path := writeJava(t, repo, "Hit.java", src)
-	seed, err := ParseJavaFileCached(path, nil)
+	seed, err := ParseJavaFileCached(context.Background(), path, nil)
 	if err != nil {
 		t.Fatalf("seed parse: %v", err)
 	}
@@ -134,7 +135,7 @@ func TestParseJavaFileCachedForIndex_RecordsCacheHitPerf(t *testing.T) {
 	}
 
 	stats := &JavaIndexPerf{}
-	hit, err := ParseJavaFileCachedForIndex(path, pc, stats)
+	hit, err := ParseJavaFileCachedForIndex(context.Background(), path, pc, stats)
 	if err != nil {
 		t.Fatalf("parse index java hit: %v", err)
 	}
@@ -179,7 +180,7 @@ func TestParseCache_Java_CrossLanguageIsolation(t *testing.T) {
 	// on either axis.
 	src := largeJavaSource()
 	path := writeJava(t, repo, "Iso.java", src)
-	if _, err := ParseJavaFileCached(path, pc); err != nil {
+	if _, err := ParseJavaFileCached(context.Background(), path, pc); err != nil {
 		t.Fatalf("seed java: %v", err)
 	}
 	// Kotlin Load on the same bytes must miss — the Kotlin shard never
@@ -200,7 +201,7 @@ func TestParseCache_Java_GrammarVersionMismatch(t *testing.T) {
 		t.Fatalf("NewParseCache: %v", err)
 	}
 	src := largeJavaSource()
-	if _, err := ParseJavaFileCached(writeJava(t, repo, "GV.java", src), pc); err != nil {
+	if _, err := ParseJavaFileCached(context.Background(), writeJava(t, repo, "GV.java", src), pc); err != nil {
 		t.Fatalf("seed parse: %v", err)
 	}
 
@@ -232,7 +233,7 @@ func TestParseCache_Java_ContentChangeMisses(t *testing.T) {
 		t.Fatalf("NewParseCache: %v", err)
 	}
 	src := largeJavaSource()
-	if _, err := ParseJavaFileCached(writeJava(t, repo, "CC.java", src), pc); err != nil {
+	if _, err := ParseJavaFileCached(context.Background(), writeJava(t, repo, "CC.java", src), pc); err != nil {
 		t.Fatalf("seed parse: %v", err)
 	}
 
@@ -256,7 +257,7 @@ func TestParseCache_Java_SmallFileSkipsCache(t *testing.T) {
 		t.Fatalf("test assumes tiny source < threshold, got %d", len(tiny))
 	}
 	path := writeJava(t, repo, "Tiny.java", tiny)
-	if _, err := ParseJavaFileCached(path, pc); err != nil {
+	if _, err := ParseJavaFileCached(context.Background(), path, pc); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	entries := filepath.Join(pc.JavaDir(), "entries")
@@ -279,7 +280,7 @@ func TestParseCache_Java_ConcurrentWritesSameHash(t *testing.T) {
 	}
 	src := largeJavaSource()
 	path := writeJava(t, repo, "Conc.java", src)
-	seed, err := ParseJavaFileCached(path, nil)
+	seed, err := ParseJavaFileCached(context.Background(), path, nil)
 	if err != nil {
 		t.Fatalf("seed parse: %v", err)
 	}
@@ -326,10 +327,10 @@ func TestParseCache_ClearRemovesBothLanguages(t *testing.T) {
 	// Seed one entry per language.
 	ktSrc := largeSource()
 	jSrc := largeJavaSource()
-	if _, err := ParseKotlinFileCached(writeKotlin(t, repo, "K.kt", ktSrc), pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), writeKotlin(t, repo, "K.kt", ktSrc), pc); err != nil {
 		t.Fatalf("kotlin seed: %v", err)
 	}
-	if _, err := ParseJavaFileCached(writeJava(t, repo, "J.java", jSrc), pc); err != nil {
+	if _, err := ParseJavaFileCached(context.Background(), writeJava(t, repo, "J.java", jSrc), pc); err != nil {
 		t.Fatalf("java seed: %v", err)
 	}
 	if err := pc.Clear(); err != nil {
@@ -367,7 +368,7 @@ func TestScanJavaFilesCachedForIndex_ParallelPerfAggregation(t *testing.T) {
 	}
 
 	stats := &JavaIndexPerf{}
-	files, errs := ScanJavaFilesCachedForIndex(paths, 4, nil, stats)
+	files, errs := ScanJavaFilesCachedForIndex(context.Background(), paths, 4, nil, stats)
 	for _, err := range errs {
 		if err != nil {
 			t.Fatalf("unexpected parse error: %v", err)

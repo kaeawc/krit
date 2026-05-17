@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,7 +17,7 @@ func TestDispatcher_DefersCrossFileAndModuleAwareRules(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
@@ -61,7 +62,7 @@ func TestDispatcher_RunWithStats_TracksRuleBuckets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
@@ -100,7 +101,7 @@ func TestDispatcher_RunWithStats_TracksLineRuleInvocations(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
@@ -147,7 +148,7 @@ func TestDispatcher_FlatDispatchRuleRunsOnFlatTree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
@@ -196,7 +197,7 @@ fun live() {
 		t.Fatal(err)
 	}
 
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
@@ -255,7 +256,7 @@ fun second() = 2
 		t.Fatal(err)
 	}
 
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
@@ -315,7 +316,7 @@ func TestDispatcher_ConfidenceProviderOverridesDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
@@ -347,7 +348,7 @@ func TestDispatcher_ExplicitFindingConfidenceBeatsRuleDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}

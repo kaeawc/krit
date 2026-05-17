@@ -56,7 +56,7 @@ func parseKotlinForTest(t *testing.T, path, content string) *scanner.File {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write kt: %v", err)
 	}
-	f, err := scanner.ParseFile(path)
+	f, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile %s: %v", path, err)
 	}

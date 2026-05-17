@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1869,7 +1870,7 @@ func BenchmarkNoNameShadowing_LargeFile(b *testing.B) {
 	if err := os.WriteFile(path, []byte(src.String()), 0o644); err != nil {
 		b.Fatal(err)
 	}
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		b.Fatal(err)
 	}

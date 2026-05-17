@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,7 +87,7 @@ func runUntestedPublicAPIFixture(t *testing.T, files map[string]string) []scanne
 		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 			t.Fatal(err)
 		}
-		file, err := scanner.ParseFile(path)
+		file, err := scanner.ParseFile(context.Background(), path)
 		if err != nil {
 			t.Fatal(err)
 		}

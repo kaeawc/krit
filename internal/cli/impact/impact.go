@@ -245,7 +245,7 @@ func relPath(root, p string) string {
 
 // changedFQNsFromFile returns the FQNs declared in a single Kotlin file.
 func changedFQNsFromFile(path string) ([]string, error) {
-	f, err := scanner.ParseFile(path)
+	f, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
@@ -315,6 +315,6 @@ func scanProjectKotlinFiles(root string) ([]*scanner.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("collecting Kotlin files: %w", err)
 	}
-	files, _ := scanner.ScanFiles(paths, runtime.NumCPU())
+	files, _ := scanner.ScanFiles(context.Background(), paths, runtime.NumCPU())
 	return files, nil
 }

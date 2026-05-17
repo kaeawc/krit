@@ -40,7 +40,7 @@ func TestIndexPhase_ResolverCache_BuildsOnceAcrossRuns(t *testing.T) {
 	if err := os.WriteFile(src, []byte("package test\n\nclass Sample\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := scanner.ParseFile(src)
+	parsed, err := scanner.ParseFile(context.Background(), src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestIndexPhase_ResolverCache_RebuildsOnContentChange(t *testing.T) {
 	if err := os.WriteFile(src, []byte("package test\nclass A\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	parsed1, err := scanner.ParseFile(src)
+	parsed1, err := scanner.ParseFile(context.Background(), src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestIndexPhase_ResolverCache_RebuildsOnContentChange(t *testing.T) {
 	if err := os.WriteFile(src, []byte("package test\nclass B\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	parsed2, err := scanner.ParseFile(src)
+	parsed2, err := scanner.ParseFile(context.Background(), src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,8 +143,8 @@ func TestResolverFingerprint_StableAndDistinct(t *testing.T) {
 	if err := os.WriteFile(b, []byte("package x\nclass B\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pa, _ := scanner.ParseFile(a)
-	pb, _ := scanner.ParseFile(b)
+	pa, _ := scanner.ParseFile(context.Background(), a)
+	pb, _ := scanner.ParseFile(context.Background(), b)
 
 	fp1 := resolverFingerprint([]*scanner.File{pa, pb})
 	fp2 := resolverFingerprint([]*scanner.File{pb, pa})

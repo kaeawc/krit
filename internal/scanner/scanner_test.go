@@ -132,7 +132,7 @@ func TestParseFile_ValidKotlinFile(t *testing.T) {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	f, err := ParseFile(path)
+	f, err := ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile returned error: %v", err)
 	}
@@ -161,11 +161,11 @@ func TestParseFile_InternsPath(t *testing.T) {
 	firstPath := strings.Clone(path)
 	secondPath := string([]byte(path))
 
-	first, err := ParseFile(firstPath)
+	first, err := ParseFile(context.Background(), firstPath)
 	if err != nil {
 		t.Fatalf("ParseFile returned error: %v", err)
 	}
-	second, err := ParseFile(secondPath)
+	second, err := ParseFile(context.Background(), secondPath)
 	if err != nil {
 		t.Fatalf("ParseFile returned error: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestParseFile_InternsPath(t *testing.T) {
 }
 
 func TestParseFile_NonexistentFile(t *testing.T) {
-	_, err := ParseFile("/nonexistent/path/Foo.kt")
+	_, err := ParseFile(context.Background(), "/nonexistent/path/Foo.kt")
 	if err == nil {
 		t.Fatal("expected error for nonexistent file")
 	}
@@ -539,7 +539,7 @@ func TestParseFile_MalformedKotlin(t *testing.T) {
 	os.WriteFile(path, []byte("package test\nfun broken( { class }}} if while\n"), 0644)
 
 	// Tree-sitter is error-recovering — it should parse without returning an error
-	file, err := ParseFile(path)
+	file, err := ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("expected no error (tree-sitter recovers), got: %v", err)
 	}
@@ -776,7 +776,7 @@ func TestScanFiles_PreservesInputOrder(t *testing.T) {
 		t.Fatalf("failed to write second file: %v", err)
 	}
 
-	files, errs := ScanFiles([]string{secondPath, missingPath, firstPath}, 2)
+	files, errs := ScanFiles(context.Background(), []string{secondPath, missingPath, firstPath}, 2)
 	if len(files) != 2 {
 		t.Fatalf("expected 2 parsed files, got %d", len(files))
 	}

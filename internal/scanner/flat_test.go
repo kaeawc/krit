@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -225,7 +226,7 @@ func TestParseFile_PopulatesFlatTree(t *testing.T) {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	file, err := ParseFile(path)
+	file, err := ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("ParseFile returned error: %v", err)
 	}

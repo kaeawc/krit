@@ -137,7 +137,7 @@ func scanKotlinFiles(root string) ([]*scanner.File, error) {
 		if !strings.HasSuffix(path, ".kt") {
 			return nil
 		}
-		file, err := scanner.ParseFile(path)
+		file, err := scanner.ParseFile(context.Background(), path)
 		if err == nil {
 			out = append(out, file)
 		}

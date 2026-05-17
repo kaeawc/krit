@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -273,9 +274,9 @@ func fixableFixtureRuleName(name string) string {
 
 func parseFixableSourceFixture(path string) (*scanner.File, error) {
 	if strings.HasSuffix(path, ".java") {
-		return scanner.ParseJavaFile(path)
+		return scanner.ParseJavaFile(context.Background(), path)
 	}
-	return scanner.ParseFile(path)
+	return scanner.ParseFile(context.Background(), path)
 }
 
 func truncate(s string, max int) string {

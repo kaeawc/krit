@@ -77,7 +77,7 @@ func TestIndexPhase_Run_BuildsResolver_WhenRuleNeedsIt(t *testing.T) {
 	if err := os.WriteFile(kt, []byte("class A { val x: Int = 1 }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	file, err := scanner.ParseFile(kt)
+	file, err := scanner.ParseFile(context.Background(), kt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestIndexPhase_Run_JavaIndexingChildTimings(t *testing.T) {
 	if err := os.WriteFile(java, []byte("package a;\npublic class B { A a; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	kotlinFile, err := scanner.ParseFile(kt)
+	kotlinFile, err := scanner.ParseFile(context.Background(), kt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +309,7 @@ func TestIndexPhase_Run_ReusesCollectedCrossFileJavaPaths(t *testing.T) {
 	if err := os.WriteFile(java, []byte("package a;\npublic class B { A a; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	kotlinFile, err := scanner.ParseFile(kt)
+	kotlinFile, err := scanner.ParseFile(context.Background(), kt)
 	if err != nil {
 		t.Fatal(err)
 	}

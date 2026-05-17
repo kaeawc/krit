@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -267,7 +268,7 @@ func BenchmarkUnnecessaryTemporaryInstantiation_NoMatch(b *testing.B) {
 	if err := os.WriteFile(path, []byte(src.String()), 0644); err != nil {
 		b.Fatal(err)
 	}
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		b.Fatal(err)
 	}

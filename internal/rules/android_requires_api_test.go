@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,7 +37,7 @@ func runRequiresApi(t *testing.T, source string, minSdk int) []scanner.Finding {
 	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
-	file, err := scanner.ParseFile(path)
+	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
 	}

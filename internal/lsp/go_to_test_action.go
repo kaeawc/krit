@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -61,7 +62,7 @@ func buildWorkspaceCodeIndex(root string) (*scanner.CodeIndex, error) {
 	}
 	files := make([]*scanner.File, 0, len(paths))
 	for _, path := range paths {
-		file, err := scanner.ParseFile(path)
+		file, err := scanner.ParseFile(context.Background(), path)
 		if err != nil {
 			continue
 		}

@@ -1,6 +1,7 @@
 package selecttests
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -71,7 +72,7 @@ func parseFixture(t *testing.T, root string, files map[string]string) []*scanner
 		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 			t.Fatal(err)
 		}
-		file, err := scanner.ParseFile(path)
+		file, err := scanner.ParseFile(context.Background(), path)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -103,7 +104,7 @@ func BuildModuleReadmeSummary(root, modulePath string) (ModuleReadmeSummary, err
 	if err != nil {
 		return ModuleReadmeSummary{}, fmt.Errorf("collecting Kotlin files: %w", err)
 	}
-	parsed, parseErrs := scanner.ScanFiles(kotlinPaths, runtime.NumCPU())
+	parsed, parseErrs := scanner.ScanFiles(context.Background(), kotlinPaths, runtime.NumCPU())
 	if len(parseErrs) > 0 {
 		return ModuleReadmeSummary{}, fmt.Errorf("parsing Kotlin files: %w", parseErrs[0])
 	}

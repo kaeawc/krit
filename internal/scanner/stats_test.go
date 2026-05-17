@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"sync"
 	"testing"
 )
@@ -20,7 +21,7 @@ func TestParseCache_StatsCounters(t *testing.T) {
 	path := writeKotlin(t, repo, "S.kt", src)
 
 	// First parse: miss (no cached entry), writes an entry.
-	if _, err := ParseKotlinFileCached(path, pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), path, pc); err != nil {
 		t.Fatalf("parse 1: %v", err)
 	}
 	// Second load: should be a hit.
@@ -62,7 +63,7 @@ func TestParseCache_StatsRaceClean(t *testing.T) {
 	src := largeSource()
 
 	// Seed one entry so Load can both hit and miss.
-	if _, err := ParseKotlinFileCached(writeKotlin(t, repo, "A.kt", src), pc); err != nil {
+	if _, err := ParseKotlinFileCached(context.Background(), writeKotlin(t, repo, "A.kt", src), pc); err != nil {
 		t.Fatalf("seed parse: %v", err)
 	}
 

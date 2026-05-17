@@ -28,7 +28,7 @@ func parsedKotlinFile(t *testing.T, content string) *scanner.File {
 	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := scanner.ParseFile(p)
+	f, err := scanner.ParseFile(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func parsedJavaFile(t *testing.T, content string) *scanner.File {
 	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := scanner.ParseJavaFile(p)
+	f, err := scanner.ParseJavaFile(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestCrossFilePhase_SuppressionPassesThrough_WhenNoIndex(t *testing.T) {
 	if err := os.WriteFile(p, []byte("class A\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := scanner.ParseFile(p)
+	f, err := scanner.ParseFile(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +302,7 @@ func TestCrossFilePhase_ExcludeGlobSuppressesCrossFileFinding(t *testing.T) {
 	if err := os.WriteFile(p, []byte("class T\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := scanner.ParseFile(p)
+	f, err := scanner.ParseFile(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
 	}

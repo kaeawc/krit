@@ -654,6 +654,92 @@ func TestScanResourceDir_ValuesLastWriteWinsInFilenameOrder(t *testing.T) {
 	}
 }
 
+// Regression: a string-array declared empty in a locale overlay
+// (e.g. values-fr/arrays.xml with `<string-array name="colors"/>`) must not
+// erase the populated default from values/arrays.xml when partial indexes are
+// merged. Without this guarantee the InconsistentArraysResource rule fires on
+// arrays that ARE fully populated in the default configuration.
+func TestMergeResourceIndexes_StringArrayEmptyLocaleDoesNotEraseDefault(t *testing.T) {
+	defaultIdx := newResourceIndex()
+	defaultIdx.StringArrays["colors"] = []string{"Red", "Green", "Blue"}
+
+	localeIdx := newResourceIndex()
+	localeIdx.StringArrays["colors"] = []string{}
+
+	// Default scanned first, locale overlay scanned after (lexicographic order
+	// of values/ < values-fr/ in os.ReadDir output).
+	merged := MergeResourceIndexes(defaultIdx, localeIdx)
+	if got := merged.StringArrays["colors"]; len(got) != 3 {
+		t.Fatalf("expected populated default to survive empty locale overlay, got %#v", got)
+	}
+
+	// Reverse merge order: still must not erase the populated configuration.
+	reversed := MergeResourceIndexes(localeIdx, defaultIdx)
+	if got := reversed.StringArrays["colors"]; len(got) != 3 {
+		t.Fatalf("expected populated configuration to survive in either merge order, got %#v", got)
+	}
+}
+
+// Regression: an empty `<plurals name="songs"/>` overlay in a locale config
+// must not erase the populated default. Without this guarantee the
+// MissingQuantityResource rule would fire on plurals that ARE fully defined in
+// the default configuration.
+func TestMergeResourceIndexes_PluralsEmptyLocaleDoesNotEraseDefault(t *testing.T) {
+	defaultIdx := newResourceIndex()
+	defaultIdx.Plurals["songs"] = map[string]string{"one": "%d song", "other": "%d songs"}
+
+	localeIdx := newResourceIndex()
+	localeIdx.Plurals["songs"] = map[string]string{}
+
+	merged := MergeResourceIndexes(defaultIdx, localeIdx)
+	if got := merged.Plurals["songs"]; len(got) != 2 {
+		t.Fatalf("expected populated default plurals to survive empty locale overlay, got %#v", got)
+	}
+
+	reversed := MergeResourceIndexes(localeIdx, defaultIdx)
+	if got := reversed.Plurals["songs"]; len(got) != 2 {
+		t.Fatalf("expected populated plurals to survive in either merge order, got %#v", got)
+	}
+}
+
+// Regression: an end-to-end scan of a res/ tree where values-fr/arrays.xml
+// declares an empty `<string-array name="colors"/>` and values/arrays.xml is
+// populated must yield a merged ResourceIndex with the default array intact.
+func TestScanResourceDir_LocaleEmptyArrayDoesNotEraseDefault(t *testing.T) {
+	tmp := t.TempDir()
+	resDir := filepath.Join(tmp, "res")
+	defaultValues := filepath.Join(resDir, "values")
+	frValues := filepath.Join(resDir, "values-fr")
+	if err := os.MkdirAll(defaultValues, 0o755); err != nil {
+		t.Fatalf("mkdir default values: %v", err)
+	}
+	if err := os.MkdirAll(frValues, 0o755); err != nil {
+		t.Fatalf("mkdir fr values: %v", err)
+	}
+	writeValuesFile(t, defaultValues, "arrays.xml", `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="colors">
+        <item>Red</item>
+        <item>Green</item>
+        <item>Blue</item>
+    </string-array>
+</resources>
+`)
+	writeValuesFile(t, frValues, "arrays.xml", `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="colors"/>
+</resources>
+`)
+
+	idx, err := ScanResourceDir(resDir)
+	if err != nil {
+		t.Fatalf("ScanResourceDir: %v", err)
+	}
+	if got := idx.StringArrays["colors"]; len(got) != 3 {
+		t.Fatalf("expected populated default colors to survive empty French overlay, got %#v", got)
+	}
+}
+
 func TestLazyValuesScan_LoadIntoPreservesValuesSemantics(t *testing.T) {
 	tmp := t.TempDir()
 	valuesDir := filepath.Join(tmp, "values")

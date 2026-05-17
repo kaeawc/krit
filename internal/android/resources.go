@@ -393,10 +393,27 @@ func (idx *ResourceIndex) mergeDrawableEntries(other *ResourceIndex) {
 }
 
 func (idx *ResourceIndex) mergeCollectionEntries(other *ResourceIndex) {
+	// A locale overlay (e.g. values-fr/arrays.xml) may declare a collection's
+	// shape without items (`<string-array name="colors"/>` or
+	// `<plurals name="songs"/>`) when the translation is incomplete. Allowing
+	// that empty overlay to overwrite the populated default would make rules
+	// such as InconsistentArraysResource and MissingQuantityResource fire on
+	// resources that ARE defined in the default configuration. Preserve the
+	// populated entry instead.
 	for name, items := range other.StringArrays {
+		if len(items) == 0 {
+			if existing, ok := idx.StringArrays[name]; ok && len(existing) > 0 {
+				continue
+			}
+		}
 		idx.StringArrays[name] = items
 	}
 	for name, quantities := range other.Plurals {
+		if len(quantities) == 0 {
+			if existing, ok := idx.Plurals[name]; ok && len(existing) > 0 {
+				continue
+			}
+		}
 		idx.Plurals[name] = quantities
 	}
 }

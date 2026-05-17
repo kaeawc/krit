@@ -219,6 +219,24 @@ func TestInconsistentArraysResource(t *testing.T) {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+
+	// Regression: cross-locale merge must not let an empty <string-array> in a
+	// translation overlay (e.g. values-fr/arrays.xml) erase the populated
+	// default in values/arrays.xml, which would then make this rule fire on a
+	// fully-defined array.
+	t.Run("empty locale overlay does not erase populated default", func(t *testing.T) {
+		defaultIdx := emptyIndex()
+		defaultIdx.StringArrays["colors"] = []string{"Red", "Green", "Blue"}
+
+		localeIdx := emptyIndex()
+		localeIdx.StringArrays["colors"] = []string{}
+
+		merged := android.MergeResourceIndexes(defaultIdx, localeIdx)
+		findings := runResourceRule(r, merged)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings after merging empty French overlay onto populated default, got %d:", len(findings))
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------

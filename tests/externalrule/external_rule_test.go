@@ -346,7 +346,16 @@ func runKrit(t *testing.T, bin, repoRoot string, args ...string) string {
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = repoRoot
 	cmd.Env = os.Environ()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
+	// Always log stderr (even on success) when verbose — daemon-spawn
+	// warnings emitted to stderr by krit are silently consumed by
+	// `cmd.Output` and have hidden CI failures before. Log at the test
+	// level so go test -v carries them into the run log.
+	if stderr.Len() > 0 {
+		t.Logf("krit %v stderr:\n%s", args, stderr.String())
+	}
 	if err != nil {
 		var exitErr *exec.ExitError
 		// Exit code 1 = findings present; surface stdout so the caller
@@ -354,12 +363,8 @@ func runKrit(t *testing.T, bin, repoRoot string, args ...string) string {
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			return string(out)
 		}
-		stderr := ""
-		if exitErr != nil {
-			stderr = string(exitErr.Stderr)
-		}
 		t.Fatalf("krit %v: %v\nstderr: %s\nstdout: %s",
-			args, err, stderr, string(out))
+			args, err, stderr.String(), string(out))
 	}
 	return string(out)
 }

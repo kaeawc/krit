@@ -1,5 +1,10 @@
 package dev.jasonpearson.krit.api
 
+import org.jetbrains.kotlin.psi.KtCallExpression
+import org.jetbrains.kotlin.psi.KtExpression
+import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.KtLambdaExpression
+
 /**
  * ServiceLoader entry point implemented by Kotlin-authored Krit rules.
  */
@@ -29,12 +34,60 @@ annotation class KritRuleInfo(
 
 /**
  * Kotlin source file view exposed to custom rules.
+ *
+ * `ktFile` is the Kotlin compiler PSI root for the source. It is `null`
+ * when the daemon could not load the file (e.g. parse errors) or when
+ * the rule was invoked through a path that does not parse Kotlin source.
  */
 class KritFile(
     val path: String,
     val text: String,
-    val ktFile: Any? = null,
+    val ktFile: KtFile? = null,
 )
+
+/**
+ * Narrow, type-aware queries backed by the Kotlin Analysis API.
+ *
+ * Available on [RuleContext.resolver] when the rule declares
+ * [Capability.NEEDS_RESOLVER] and the daemon successfully built a
+ * resolver-backed session for the file. Each method opens (or re-uses)
+ * a Kotlin Analysis API session under the hood; returning typed
+ * primitives avoids leaking JetBrains-internal types onto the rule API
+ * surface, so rule jars do not need to depend on the Analysis API
+ * artifacts directly.
+ *
+ * The bridge methods are intentionally minimal — additions are
+ * source-compatible (default implementations may evolve in minor
+ * releases), but the surface is deliberately small to keep the API
+ * stable. See `docs/external-rules.md` for the long-form contract.
+ */
+interface Resolver {
+    /** Returns true if the call's resolved target is a `suspend` function. */
+    fun isSuspendCall(call: KtCallExpression): Boolean
+
+    /**
+     * Returns the fully-qualified name of the resolved callable target
+     * for [call] (e.g. `kotlinx.coroutines.delay`), or `null` if the
+     * target is unresolved.
+     */
+    fun resolvedCallFqName(call: KtCallExpression): String?
+
+    /**
+     * Returns true when [lambda]'s functional type is a
+     * `kotlin.coroutines.SuspendFunction*` — i.e. the lambda body
+     * itself is treated as a `suspend` block. Returns false when the
+     * lambda's type is unresolved.
+     */
+    fun isLambdaSuspend(lambda: KtLambdaExpression): Boolean
+
+    /**
+     * Returns the rendered fully-qualified type of [expression], or
+     * `null` when the type is unresolved. The exact rendering format is
+     * implementation-defined; prefer this for diagnostic messages, not
+     * for parsing.
+     */
+    fun expressionType(expression: KtExpression): String?
+}
 
 /**
  * Per-invocation context passed to custom rules.
@@ -53,6 +106,12 @@ class KritFile(
 class RuleContext(
     val ruleId: String,
     val config: Map<String, Any?> = emptyMap(),
+    /**
+     * Type-aware queries backed by the Kotlin Analysis API. Non-null
+     * only when the rule declared [Capability.NEEDS_RESOLVER] and the
+     * daemon successfully prepared a session for the current file.
+     */
+    val resolver: Resolver? = null,
 ) {
     /** Returns the [key] option as a String, or [default] if absent / wrong type. */
     fun stringOption(key: String, default: String = ""): String =

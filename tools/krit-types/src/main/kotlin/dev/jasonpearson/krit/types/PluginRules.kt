@@ -1,16 +1,35 @@
 package dev.jasonpearson.krit.types
 
+import dev.jasonpearson.krit.api.Capability
 import dev.jasonpearson.krit.api.Finding
 import dev.jasonpearson.krit.api.FixSafety
 import dev.jasonpearson.krit.api.KritFile
 import dev.jasonpearson.krit.api.KritRule
 import dev.jasonpearson.krit.api.KritRuleInfo
+import dev.jasonpearson.krit.api.Resolver
 import dev.jasonpearson.krit.api.RuleContext
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
+import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
+import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
+import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.singleVariableAccessCall
+import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
+import org.jetbrains.kotlin.analysis.api.types.KaClassType
+import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
+import org.jetbrains.kotlin.psi.KtCallExpression
+import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.KtLabeledExpression
+import org.jetbrains.kotlin.psi.KtLambdaArgument
+import org.jetbrains.kotlin.psi.KtLambdaExpression
+import org.jetbrains.kotlin.psi.KtValueArgument
+import org.jetbrains.kotlin.psi.KtValueArgumentList
 import java.io.File
 import java.net.URLClassLoader
+import java.util.IdentityHashMap
 import java.util.ServiceLoader
 import java.util.jar.JarFile
 
@@ -163,7 +182,12 @@ fun DaemonSession.handleAnalyzeFileWithPlugins(request: DaemonRequest): String {
         for (loaded in PluginRuleRegistry.selected(request.ruleIds)) {
             try {
                 val options = request.ruleConfigs?.get(loaded.descriptor.ruleId).orEmpty()
-                val ctx = RuleContext(loaded.descriptor.ruleId, options)
+                val resolver = if (ktFile != null && loaded.descriptor.needs.contains(Capability.NEEDS_RESOLVER.name)) {
+                    AnalysisApiResolver(ktFile)
+                } else {
+                    null
+                }
+                val ctx = RuleContext(loaded.descriptor.ruleId, options, resolver)
                 for (finding in loaded.rule.check(file, ctx)) {
                     findings.add(toPluginFinding(file.path, loaded.descriptor, finding))
                 }
@@ -175,6 +199,129 @@ fun DaemonSession.handleAnalyzeFileWithPlugins(request: DaemonRequest): String {
     } catch (t: Throwable) {
         """{"id":${request.id},"error":"${escJsonStr(t.message ?: "analyzeFile failed")}"}"""
     }
+}
+
+/**
+ * `Resolver` bridge backed by per-call Kotlin Analysis API sessions,
+ * memoized on the requesting PSI element. Each public method opens
+ * `analyze(ktFile) {}` and swallows KAA exceptions — KAA throws on
+ * half-resolved bodies fairly liberally; bubbling those up would turn
+ * one malformed expression into a whole-rule failure. Mirrors the
+ * resilience pattern used in `analyzeKtFile`'s call resolver.
+ *
+ * Identity-keyed caches avoid re-resolving the same call twice when a
+ * rule asks `isSuspendCall` and then `resolvedCallFqName` on the same
+ * `KtCallExpression`, or asks `isLambdaSuspend` for an outer lambda
+ * once per inner suspend call.
+ */
+private class AnalysisApiResolver(private val ktFile: KtFile) : Resolver {
+    private val callTargetCache = IdentityHashMap<KtCallExpression, CallTarget>()
+    private val lambdaSuspendCache = IdentityHashMap<KtLambdaExpression, Boolean>()
+
+    override fun isSuspendCall(call: KtCallExpression): Boolean =
+        resolveCallTarget(call).isSuspend
+
+    override fun resolvedCallFqName(call: KtCallExpression): String? =
+        resolveCallTarget(call).fqName
+
+    override fun isLambdaSuspend(lambda: KtLambdaExpression): Boolean {
+        if (!lambda.isInModule()) return false
+        lambdaSuspendCache[lambda]?.let { return it }
+        val answer = try {
+            analyze(ktFile) {
+                val call = lambda.enclosingValueCall()
+                if (call != null && callHasSuspendFunctionalParam(call)) return@analyze true
+                // Fall back to the lambda's own inferred type — covers
+                // explicit `suspend { ... }` block expressions whose
+                // inferred type already carries the suspend modifier.
+                val type = lambda.expressionType
+                (type is KaFunctionType) && type.isSuspend
+            }
+        } catch (_: Throwable) {
+            false
+        }
+        lambdaSuspendCache[lambda] = answer
+        return answer
+    }
+
+    @OptIn(KaExperimentalApi::class)
+    override fun expressionType(expression: KtExpression): String? {
+        if (!expression.isInModule()) return null
+        return try {
+            analyze(ktFile) {
+                val type = expression.expressionType ?: return@analyze null
+                (type as? KaClassType)?.classId?.asFqNameString() ?: type.toString()
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private data class CallTarget(val isSuspend: Boolean, val fqName: String?) {
+        companion object {
+            val UNKNOWN = CallTarget(isSuspend = false, fqName = null)
+        }
+    }
+
+    private fun resolveCallTarget(call: KtCallExpression): CallTarget {
+        if (!call.isInModule()) return CallTarget.UNKNOWN
+        callTargetCache[call]?.let { return it }
+        val target = try {
+            analyze(ktFile) {
+                val callInfo = call.resolveToCall() ?: return@analyze CallTarget.UNKNOWN
+                val callable: KaCallableMemberCall<*, *> =
+                    callInfo.singleFunctionCallOrNull()
+                        ?: callInfo.singleVariableAccessCall()
+                        ?: return@analyze CallTarget.UNKNOWN
+                val symbol = callable.partiallyAppliedSymbol.symbol
+                val suspend = (symbol is KaNamedFunctionSymbol) && symbol.isSuspend
+                val fqn = symbol.callableId?.asSingleFqName()?.asString()
+                CallTarget(suspend, fqn)
+            }
+        } catch (_: Throwable) {
+            CallTarget.UNKNOWN
+        }
+        callTargetCache[call] = target
+        return target
+    }
+
+    // FIR represents a lambda literal passed to a `suspend () -> R`
+    // parameter with the lambda's own type unchanged — the suspend
+    // conversion happens at the argument boundary. Walk up through the
+    // wrapping arg/label/list nodes to find the enclosing call so we
+    // can ask the resolved function symbol whether any value parameter
+    // is a suspend functional type.
+    private fun KtLambdaExpression.enclosingValueCall(): KtCallExpression? {
+        var anc: com.intellij.psi.PsiElement? = parent
+        while (anc != null) {
+            if (anc is KtCallExpression) return anc
+            if (anc !is KtLambdaArgument &&
+                anc !is KtValueArgument &&
+                anc !is KtValueArgumentList &&
+                anc !is KtLabeledExpression
+            ) {
+                return null
+            }
+            anc = anc.parent
+        }
+        return null
+    }
+
+    // Heuristic — single-lambda-parameter calls are unambiguous; calls
+    // with multiple functional parameters where only some are suspend
+    // (rare) will be over-approximated as suspend-allowed. Trading a
+    // small false-negative cost (suspend-in-non-suspend-lambda misses)
+    // for cheap, mapping-independent logic.
+    private fun org.jetbrains.kotlin.analysis.api.KaSession.callHasSuspendFunctionalParam(
+        call: KtCallExpression,
+    ): Boolean {
+        val memberCall = call.resolveToCall()?.singleFunctionCallOrNull() ?: return false
+        val symbol = memberCall.partiallyAppliedSymbol.symbol as? KaFunctionSymbol ?: return false
+        return symbol.valueParameters.any { (it.returnType as? KaFunctionType)?.isSuspend == true }
+    }
+
+    private fun org.jetbrains.kotlin.psi.KtElement.isInModule(): Boolean =
+        containingKtFile === ktFile
 }
 
 @OptIn(KaExperimentalApi::class)

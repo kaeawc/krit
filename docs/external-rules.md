@@ -107,10 +107,9 @@ class NoTodoRule : KritRule {
 
 - `path` — canonical source path.
 - `text` — raw source bytes (UTF-8).
-- `ktFile` — the Kotlin compiler `KtFile` PSI root, typed as `Any?`
-  on the API surface so consumers without the compiler on their
-  classpath still compile. Cast to `org.jetbrains.kotlin.psi.KtFile`
-  inside the rule if you need PSI walking.
+- `ktFile` — the Kotlin compiler `KtFile` PSI root (`KtFile?`). Walk
+  it with the standard `org.jetbrains.kotlin.psi.*` types. Null when
+  the daemon could not parse the file.
 
 `RuleContext` exposes:
 
@@ -120,10 +119,44 @@ class NoTodoRule : KritRule {
   `intOption`, `boolOption`, `stringListOption`) instead of casting
   directly; they fall through to the supplied default when the option
   is absent or the wrong type.
+- `resolver: Resolver?` — narrow, type-aware queries backed by the
+  Kotlin Analysis API. Non-null when the rule declared
+  `Capability.NEEDS_RESOLVER` and the daemon successfully prepared a
+  session for the current file. Methods (see `Resolver` Kdoc):
+  `isSuspendCall(KtCallExpression)`, `resolvedCallFqName(...)`,
+  `isLambdaSuspend(KtLambdaExpression)`, `expressionType(...)`.
 
-The PSI / resolver expansion is tracked under
-[#308](https://github.com/kaeawc/krit/issues/308); the rest of this
-doc calls out what is deferred.
+The PSI surface is the Kotlin compiler's. To compile against it, add
+the JetBrains intellij-dependencies redirector to your consumer
+`settings.gradle.kts` (the host plugin can't add it for you when
+`FAIL_ON_PROJECT_REPOS` is enabled):
+
+```kotlin
+// settings.gradle.kts
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        mavenCentral()
+        exclusiveContent {
+            forRepository {
+                maven("https://redirector.kotlinlang.org/maven/intellij-dependencies")
+            }
+            filter {
+                includeModule("org.jetbrains.kotlin", "kotlin-compiler")
+            }
+        }
+    }
+}
+```
+
+The host plugin adds `kotlin-compiler:<kotlinVersion>` to
+`compileOnly` automatically — no extra dependency declaration needed.
+
+Working example: `examples/external-rule/SuspendInNonSuspendLambdaRule`
+flags `suspend` function calls inside non-suspend lambda bodies. It
+walks PSI ancestors to find the enclosing lambda, asks the resolver
+for the lambda's bound parameter type, and skips the call when that
+type is suspend.
 
 ### 3. Register the implementation (manual path only)
 
@@ -275,7 +308,7 @@ expects. Today the daemon reports declared capabilities back through
 
 | Capability | Today | Target (per [#308](https://github.com/kaeawc/krit/issues/308)) |
 | --- | --- | --- |
-| `NEEDS_RESOLVER` | Advisory metadata only. `file.ktFile` is non-null when the daemon loaded the file, but the resolver / `KaSession` is not on `RuleContext`. | Typed expression resolution, declaration lookup, supertype/subtype queries. |
+| `NEEDS_RESOLVER` | `RuleContext.resolver` is non-null. Methods: `isSuspendCall`, `resolvedCallFqName`, `isLambdaSuspend`, `expressionType`. The bridge opens a fresh Kotlin Analysis API session per query; expect microsecond-class overhead per call. | Wider `KaSession` exposure (symbols, supertype queries, diagnostics) once the API surface stabilizes. |
 | `NEEDS_CROSS_FILE` | Advisory. | Cross-file declaration index (decl → references, references → decl). |
 | `NEEDS_MODULE_INDEX` | Advisory. | Gradle module identity + per-module dependency graph. |
 | `NEEDS_PARSED_FILES` | Already true for Kotlin custom rules — the daemon parses the file before invoking `check()`. | No change. |
@@ -325,6 +358,15 @@ broader sense: the API may add fields and methods in a minor release.
 Source-compatible changes are favored, but anything labeled
 experimental on the Krit side may shift without a major version bump
 until the SDK stabilizes.
+
+**Resolver surface.** `Resolver` is the narrowest surface we could
+ship that still lets rules express type-aware checks. We intentionally
+do not expose `KaSession`, `KaSymbol`, or other JetBrains-internal
+types — the Kotlin Analysis API is itself unstable across compiler
+versions, and direct exposure would couple every rule jar to the exact
+analysis-api-for-ide version Krit links. The methods on `Resolver`
+will grow in source-compatible ways (new methods, new defaults); the
+underlying KAA calls may change without notice between Krit releases.
 
 **SDK version.** Krit publishes `dev.jasonpearson.krit:krit-rule-api`
 to Maven Central in lockstep with each Krit release (see

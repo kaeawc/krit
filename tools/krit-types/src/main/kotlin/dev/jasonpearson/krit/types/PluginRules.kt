@@ -339,6 +339,7 @@ private data class PluginFinding(
     val message: String,
     val confidence: Double,
     val fix: PluginFix?,
+    val suggestedFixes: List<PluginSuggestedFix>,
 )
 
 private data class PluginFix(
@@ -346,6 +347,19 @@ private data class PluginFix(
     val endLine: Int,
     val replacement: String,
     val safety: String,
+)
+
+private data class PluginSuggestedFix(
+    val id: String,
+    val title: String,
+    val detail: String,
+    val edits: List<PluginSuggestedEdit>,
+)
+
+private data class PluginSuggestedEdit(
+    val startLine: Int,
+    val endLine: Int,
+    val replacement: String,
 )
 
 private fun toPluginFinding(path: String, descriptor: PluginRuleDescriptor, finding: Finding): PluginFinding {
@@ -369,6 +383,22 @@ private fun toPluginFinding(path: String, descriptor: PluginRuleDescriptor, find
                     FixSafety.COSMETIC -> "cosmetic"
                     FixSafety.IDIOMATIC -> "idiomatic"
                     FixSafety.SEMANTIC -> "semantic"
+                },
+            )
+        },
+        suggestedFixes = if (finding.suggestedFixes.isEmpty()) emptyList()
+        else finding.suggestedFixes.map { sf ->
+            PluginSuggestedFix(
+                id = sf.id,
+                title = sf.title,
+                detail = sf.detail,
+                edits = if (sf.edits.isEmpty()) emptyList()
+                else sf.edits.map { e ->
+                    PluginSuggestedEdit(
+                        startLine = e.startLine,
+                        endLine = e.endLine,
+                        replacement = e.replacement,
+                    )
                 },
             )
         },
@@ -428,6 +458,32 @@ private fun buildAnalyzeFileResponse(
             sb.append("\"replacement\":").append(esc(finding.fix.replacement)).append(',')
             sb.append("\"safety\":").append(esc(finding.fix.safety))
             sb.append('}')
+        }
+        if (finding.suggestedFixes.isNotEmpty()) {
+            sb.append(",\"suggestedFixes\":[")
+            for ((i, sf) in finding.suggestedFixes.withIndex()) {
+                if (i > 0) sb.append(',')
+                sb.append('{')
+                sb.append("\"id\":").append(esc(sf.id)).append(',')
+                sb.append("\"title\":").append(esc(sf.title))
+                if (sf.detail.isNotEmpty()) {
+                    sb.append(",\"detail\":").append(esc(sf.detail))
+                }
+                if (sf.edits.isNotEmpty()) {
+                    sb.append(",\"edits\":[")
+                    for ((j, e) in sf.edits.withIndex()) {
+                        if (j > 0) sb.append(',')
+                        sb.append('{')
+                        sb.append("\"startLine\":").append(e.startLine).append(',')
+                        sb.append("\"endLine\":").append(e.endLine).append(',')
+                        sb.append("\"replacement\":").append(esc(e.replacement))
+                        sb.append('}')
+                    }
+                    sb.append(']')
+                }
+                sb.append('}')
+            }
+            sb.append(']')
         }
         sb.append('}')
     }

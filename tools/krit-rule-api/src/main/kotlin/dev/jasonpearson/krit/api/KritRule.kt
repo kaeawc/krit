@@ -188,7 +188,11 @@ class RuleContext(
 }
 
 /**
- * A finding emitted by a custom Kotlin rule.
+ * A finding emitted by a custom Kotlin rule. `fix` is the singular
+ * auto-applied rewrite; `suggestedFixes` is an ordered list of
+ * advisory alternatives. See [Fix] and [SuggestedFix], and the
+ * "`Finding.fix` vs `Finding.suggestedFixes`" section of
+ * `docs/external-rules.md` for the full contract.
  */
 data class Finding(
     val message: String,
@@ -198,16 +202,51 @@ data class Finding(
     val endByte: Int = 0,
     val confidence: Double = 0.75,
     val fix: Fix? = null,
+    val suggestedFixes: List<SuggestedFix> = emptyList(),
 )
 
 /**
- * Text edit offered as an autofix for a finding.
+ * Single auto-applied text edit. Singular because `krit --fix` writes
+ * exactly one rewrite per finding — multiple alternatives belong in
+ * [Finding.suggestedFixes]. Gated by [safety] and the user's
+ * `--fix-level` cap.
  */
 data class Fix(
     val startLine: Int,
     val endLine: Int,
     val replacement: String,
     val safety: FixSafety = FixSafety.IDIOMATIC,
+)
+
+/**
+ * An informational, rule-ordered alternative offered alongside a
+ * finding. Not auto-applied — even when [edits] are non-empty,
+ * surfacing and application is up to the consumer (typically an IDE
+ * code-action picker). Use this whenever a rule has more than one
+ * reasonable rewrite, or when the rewrite needs human judgement that
+ * `krit --fix`'s safety-tier gate can't express.
+ *
+ * @property id stable identifier for this suggestion within the rule
+ *   (so consumers can dedupe across runs / link to telemetry).
+ * @property title short label shown to the user — typically the
+ *   imperative ("Replace with `requireNotNull(...)`").
+ * @property detail longer-form rationale or rendered diff preview.
+ * @property edits zero or more text edits that together apply the
+ *   suggestion. Empty means the suggestion is purely informational
+ *   (e.g. "open the migration doc").
+ */
+data class SuggestedFix(
+    val id: String,
+    val title: String,
+    val detail: String = "",
+    val edits: List<SuggestedEdit> = emptyList(),
+)
+
+/** One text edit inside a [SuggestedFix]. */
+data class SuggestedEdit(
+    val startLine: Int,
+    val endLine: Int,
+    val replacement: String,
 )
 
 /** Supported source languages for custom rule dispatch. */

@@ -200,17 +200,18 @@ type AnalyzePluginFileResult struct {
 // PluginFinding is a custom Kotlin rule finding before conversion into
 // scanner.FindingColumns by the Go pipeline.
 type PluginFinding struct {
-	File       string     `json:"file"`
-	Line       int        `json:"line"`
-	Column     int        `json:"column"`
-	StartByte  int        `json:"startByte,omitempty"`
-	EndByte    int        `json:"endByte,omitempty"`
-	RuleSet    string     `json:"ruleSet"`
-	RuleID     string     `json:"ruleId"`
-	Severity   string     `json:"severity"`
-	Message    string     `json:"message"`
-	Confidence float64    `json:"confidence,omitempty"`
-	Fix        *PluginFix `json:"fix,omitempty"`
+	File           string               `json:"file"`
+	Line           int                  `json:"line"`
+	Column         int                  `json:"column"`
+	StartByte      int                  `json:"startByte,omitempty"`
+	EndByte        int                  `json:"endByte,omitempty"`
+	RuleSet        string               `json:"ruleSet"`
+	RuleID         string               `json:"ruleId"`
+	Severity       string               `json:"severity"`
+	Message        string               `json:"message"`
+	Confidence     float64              `json:"confidence,omitempty"`
+	Fix            *PluginFix           `json:"fix,omitempty"`
+	SuggestedFixes []PluginSuggestedFix `json:"suggestedFixes,omitempty"`
 }
 
 // PluginFix is a line-oriented text edit produced by a Kotlin custom rule.
@@ -219,6 +220,22 @@ type PluginFix struct {
 	EndLine     int    `json:"endLine"`
 	Replacement string `json:"replacement"`
 	Safety      string `json:"safety,omitempty"`
+}
+
+// PluginSuggestedFix mirrors dev.jasonpearson.krit.api.SuggestedFix.
+// Informational alternatives — not auto-applied by `krit --fix`.
+type PluginSuggestedFix struct {
+	ID     string                `json:"id"`
+	Title  string                `json:"title"`
+	Detail string                `json:"detail,omitempty"`
+	Edits  []PluginSuggestedEdit `json:"edits,omitempty"`
+}
+
+// PluginSuggestedEdit is one line-based text edit within a PluginSuggestedFix.
+type PluginSuggestedEdit struct {
+	StartLine   int    `json:"startLine"`
+	EndLine     int    `json:"endLine"`
+	Replacement string `json:"replacement"`
 }
 
 // ListPlugins loads plugin jars into the daemon and returns their descriptors.

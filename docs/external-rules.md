@@ -363,6 +363,51 @@ the `fix` payload is stripped. Pick the most conservative tier that
 honestly describes the rewrite: marking a semantic change as cosmetic
 will silently apply it under any user's `--fix-level`.
 
+## `Finding.fix` vs `Finding.suggestedFixes`
+
+A finding can carry both an auto-applied fix and a list of advisory
+alternatives — they serve different consumers:
+
+| Field | Singular? | Auto-applied by `krit --fix`? | Typical consumer |
+| --- | --- | --- | --- |
+| `fix: Fix?` | yes | yes, gated by `safety` × `--fix-level` | CLI rewrites, CI auto-fix bots |
+| `suggestedFixes: List<SuggestedFix>` | ordered list, may be empty | no — informational only | IDE code-action picker, code-review UI |
+
+`Fix` is singular by design: `krit --fix` writes exactly one rewrite
+per finding (otherwise the rewrite is ambiguous). When a rule has
+multiple viable rewrites, put the safest/default one in `fix` and
+list the alternatives in `suggestedFixes`. If none are safe enough
+to auto-apply, leave `fix` null and let consumers pick from
+`suggestedFixes`.
+
+`SuggestedFix(id, title, detail, edits)` is descriptive — `id` is
+stable across runs (for IDE dedupe), `title` is the imperative label
+the user picks from, `detail` is longer-form rationale, and `edits`
+holds zero or more `SuggestedEdit(startLine, endLine, replacement)`
+text edits. An empty `edits` list signals a purely informational
+suggestion (e.g. "read the migration guide").
+
+```kotlin
+Finding(
+    message = "TODO left in source",
+    line = 12,
+    column = 3,
+    fix = Fix(12, 12, "// Followed up in JIRA-1234", FixSafety.COSMETIC),
+    suggestedFixes = listOf(
+        SuggestedFix(
+            id = "delete-todo",
+            title = "Delete the TODO",
+            edits = listOf(SuggestedEdit(12, 13, "")),
+        ),
+        SuggestedFix(
+            id = "open-doc",
+            title = "Open the migration guide",
+            detail = "https://internal.example.com/migrations/todo-cleanup",
+        ),
+    ),
+)
+```
+
 ## Versioning and compatibility
 
 **Maturity.** `@KritRuleInfo.maturity` defaults to `EXPERIMENTAL`.

@@ -88,17 +88,18 @@ func pluginFindingsToColumns(findings []oracle.PluginFinding) scanner.FindingCol
 	out := make([]scanner.Finding, 0, len(findings))
 	for _, finding := range findings {
 		out = append(out, scanner.Finding{
-			File:       finding.File,
-			Line:       finding.Line,
-			Col:        finding.Column,
-			StartByte:  finding.StartByte,
-			EndByte:    finding.EndByte,
-			RuleSet:    finding.RuleSet,
-			Rule:       finding.RuleID,
-			Severity:   finding.Severity,
-			Message:    finding.Message,
-			Confidence: finding.Confidence,
-			Fix:        pluginFixToScanner(finding.Fix),
+			File:           finding.File,
+			Line:           finding.Line,
+			Col:            finding.Column,
+			StartByte:      finding.StartByte,
+			EndByte:        finding.EndByte,
+			RuleSet:        finding.RuleSet,
+			Rule:           finding.RuleID,
+			Severity:       finding.Severity,
+			Message:        finding.Message,
+			Confidence:     finding.Confidence,
+			Fix:            pluginFixToScanner(finding.Fix),
+			SuggestedFixes: pluginSuggestedFixesToScanner(finding.SuggestedFixes),
 		})
 	}
 	return scanner.CollectFindings(out)
@@ -118,6 +119,33 @@ func pluginFixToScanner(fix *oracle.PluginFix) *scanner.Fix {
 	} else {
 		// Unknown/missing → semantic so --fix-level still gates it.
 		out.Safety = uint8(rules.FixSemantic)
+	}
+	return out
+}
+
+func pluginSuggestedFixesToScanner(fixes []oracle.PluginSuggestedFix) []scanner.SuggestedFix {
+	if len(fixes) == 0 {
+		return nil
+	}
+	out := make([]scanner.SuggestedFix, 0, len(fixes))
+	for _, fix := range fixes {
+		var edits []scanner.SuggestedEdit
+		if len(fix.Edits) > 0 {
+			edits = make([]scanner.SuggestedEdit, 0, len(fix.Edits))
+			for _, e := range fix.Edits {
+				edits = append(edits, scanner.SuggestedEdit{
+					StartLine:   e.StartLine,
+					EndLine:     e.EndLine,
+					Replacement: e.Replacement,
+				})
+			}
+		}
+		out = append(out, scanner.SuggestedFix{
+			ID:     fix.ID,
+			Title:  fix.Title,
+			Detail: fix.Detail,
+			Edits:  edits,
+		})
 	}
 	return out
 }

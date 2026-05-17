@@ -467,6 +467,7 @@ func (r *runner) runOracleIndex() (int, error) {
 	var err error
 	var preloadedCache *cache.Cache
 	r.tracker.TrackVoid("oracleIndex", func() {
+		staleOraclePaths := computeStaleOraclePaths(r.paths, r.files, r.tracker, *r.f.Verbose)
 		in := pipeline.IndexInput{
 			ParseResult:       pipeline.ParseResult{ActiveRules: r.activeRules},
 			Reporter:          r.reporter,
@@ -482,6 +483,7 @@ func (r *runner) runOracleIndex() (int, error) {
 			UseDaemon:         *r.f.Daemon,
 			Store:             r.oracleStore,
 			OracleCacheWriter: r.oracleCacheWriter,
+			StaleOraclePaths:  staleOraclePaths,
 			Verbose:           *r.f.Verbose,
 
 			PreloadedAnalysisCache: nil,

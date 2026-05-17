@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/arch"
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
@@ -397,6 +398,13 @@ type ProjectHostState struct {
 	// repos and only when the bundle-fingerprint check needs them.
 	PriorContentHashes map[string]string
 	PriorStructuralFPs map[string]string
+	// PriorAbiHashes is the daemon-side hint of last-run per-file
+	// public-ABI hashes. Used by buildManifestData to carry forward
+	// hashes for files that were not parsed this run (cache-hit
+	// path), so a warm run that parses only dirty files still
+	// persists a complete manifest. nil means "no hint" — buildManifestData
+	// computes fresh for every parsed Kotlin file.
+	PriorAbiHashes map[string]string
 	// FindingsBundleManifestLoader, when non-nil, overrides the disk
 	// load of the prior-run manifest. Daemon callers wire this to an
 	// in-memory cache so the 10.9 MB JSON file (kotlin-corpus scale)
@@ -1306,6 +1314,12 @@ type deltaManifestData struct {
 	contentHashes map[string]string
 	structuralFPs map[string]string
 	fileStats     map[string]scanner.FileStat
+	// abiHashes is per-file public-ABI hash (Kotlin files only).
+	// Computed lazily by buildManifestData and persisted in
+	// FindingsBundleManifest.AbiHashes. The oracle freshness gate
+	// uses (eventually) this map to distinguish body-only edits from
+	// public-API edits; v1 only records the data.
+	abiHashes map[string]string
 }
 
 // buildManifestData prepares per-file content + structural fingerprints
@@ -1341,7 +1355,9 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 	contentHashes := make(map[string]string, total)
 	structuralFPs := make(map[string]string, total)
 	fileStats := make(map[string]scanner.FileStat, total)
+	abiHashes := make(map[string]string, len(parseResult.KotlinFiles))
 	dirty := dirtyPathSet(host.SourceSetDirty)
+	priorAbi := host.PriorAbiHashes
 	for path, f := range parsedByPath {
 		contentHashes[path] = priorOrCompute(host.PriorContentHashes, dirty, path, func() string {
 			return hashutil.Default().HashContent(path, f.Content)
@@ -1351,6 +1367,11 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 		})
 		if stat, ok := statForPath(path); ok {
 			fileStats[path] = stat
+		}
+		if f != nil && f.Language == scanner.LangKotlin {
+			abiHashes[path] = priorOrCompute(priorAbi, dirty, path, func() string {
+				return arch.HashAbiSignatures(arch.ExtractAbiSignatures([]*scanner.File{f}))
+			})
 		}
 	}
 	for path, hash := range host.PriorContentHashes {
@@ -1370,6 +1391,11 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 		if stat, ok := statForPath(path); ok {
 			fileStats[path] = stat
 		}
+		if priorAbi != nil {
+			if a, ok := priorAbi[path]; ok {
+				abiHashes[path] = a
+			}
+		}
 	}
 	return deltaManifestData{
 		enabled:       true,
@@ -1377,6 +1403,7 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 		contentHashes: contentHashes,
 		structuralFPs: structuralFPs,
 		fileStats:     fileStats,
+		abiHashes:     abiHashes,
 	}
 }
 
@@ -1396,6 +1423,7 @@ func saveDeltaManifest(host ProjectHostState, m deltaManifestData, runFP scanner
 		ContentHashes: m.contentHashes,
 		StructuralFPs: m.structuralFPs,
 		FileStats:     m.fileStats,
+		AbiHashes:     m.abiHashes,
 	}
 	if err := scanner.SaveFindingsBundleManifest(host.FindingsBundleCacheRoot, m.manifestKey, manifest); err != nil {
 		return err

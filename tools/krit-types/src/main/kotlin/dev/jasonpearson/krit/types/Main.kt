@@ -205,6 +205,7 @@ fun handleRequestLine(
         when (request.method) {
             "analyze" -> RequestResult.Response(session.handleAnalyze(request))
             "analyzeAll" -> RequestResult.Response(session.handleAnalyzeAll(request))
+            "analyzeFiles" -> RequestResult.Response(session.handleAnalyzeFiles(request))
             "analyzeWithDeps" -> RequestResult.Response(session.handleAnalyzeWithDeps(request))
             "listPlugins" -> RequestResult.Response(session.handleListPlugins(request))
             "analyzeFile" -> RequestResult.Response(session.handleAnalyzeFileWithPlugins(request))
@@ -309,6 +310,60 @@ class DaemonSession(
                 if (lastMtime == null || currentMtime != lastMtime) {
                     filesToAnalyze.add(ktFile)
                     fileTimestamps[ktFile.virtualFilePath] = currentMtime
+                }
+            } else {
+                errors[requestedPath] = "File not found in source module"
+            }
+        }
+
+        val files = mutableMapOf<String, FileResult>()
+        val deps = mutableMapOf<String, ClassResult>()
+        val callFilter = request.callFilter ?: args.callFilter
+
+        for (ktFile in filesToAnalyze) {
+            try {
+                analyzeKtFile(ktFile, files, deps, args.expressions, memo = memo, callFilter = callFilter, declarationProfile = args.declarationProfile, callTargetMemo = callTargetMemo, includeDiagnostics = args.diagnostics)
+            } catch (e: Exception) {
+                errors[ktFile.virtualFilePath] = e.message ?: "Analysis failed"
+                System.err.println("Error analyzing ${ktFile.virtualFilePath}: ${e.message}")
+            }
+        }
+
+        return buildDaemonResponse(request.id, files, deps, errors)
+    }
+
+    // Variant of handleAnalyze for the freshness gate. Skips the
+    // mtime short-circuit (the Go caller has already proved the files
+    // are dirty; re-checking would corrupt the cache by returning an
+    // empty FileResult). No cacheDeps output — partial reanalyze
+    // merges into the existing types.json without touching the per-file
+    // cache.
+    @OptIn(KaExperimentalApi::class)
+    fun handleAnalyzeFiles(request: DaemonRequest): String {
+        val requestedFiles = request.files
+        if (requestedFiles.isNullOrEmpty()) {
+            return """{"id":${request.id},"result":{"files":{},"dependencies":{}}}"""
+        }
+
+        val ktFiles = sourceModule.psiRoots.filterIsInstance<KtFile>()
+        val filesToAnalyze = mutableListOf<KtFile>()
+        val errors = mutableMapOf<String, String>()
+
+        for (requestedPath in requestedFiles) {
+            val resolvedPath = File(requestedPath).canonicalPath
+            val ktFile = ktFiles.find { file ->
+                file.virtualFilePath == resolvedPath ||
+                    file.virtualFilePath.endsWith(requestedPath) ||
+                    file.virtualFilePath == requestedPath
+            }
+            if (ktFile != null) {
+                filesToAnalyze.add(ktFile)
+                // Update the timestamp so any subsequent handleAnalyze
+                // call on the same session won't redundantly re-analyze
+                // a file we just refreshed.
+                val fileOnDisk = File(ktFile.virtualFilePath)
+                if (fileOnDisk.exists()) {
+                    fileTimestamps[ktFile.virtualFilePath] = fileOnDisk.lastModified()
                 }
             } else {
                 errors[requestedPath] = "File not found in source module"

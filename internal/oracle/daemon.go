@@ -129,21 +129,71 @@ func (d *Daemon) AnalyzeAllWithCallFilter(callFilter *CallTargetFilterSummary) (
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	var params map[string]interface{}
-	if callFilter != nil && callFilter.Enabled {
-		params = map[string]interface{}{
-			"callFilterCalleeNames":          callFilter.CalleeNames,
-			"callFilterLexicalHintsByCallee": callFilter.LexicalHintsByCallee,
-			"callFilterLexicalSkipByCallee":  callFilter.LexicalSkipByCallee,
-			"callFilterRuleProfiles":         callFilter.RuleProfiles,
-		}
-	}
+	params := callFilterParams(callFilter)
 	result, err := d.sendResult("analyzeAll", params)
 	if err != nil {
 		return nil, err
 	}
 
 	return unmarshalOracleData(result)
+}
+
+// AnalyzeFilesWithCallFilter asks the daemon to analyze only the listed
+// .kt paths and return their updated oracle facts. Unlike
+// AnalyzeAllWithCallFilter, the JVM tool reuses its resident KAA build
+// session and re-runs analysis only for the requested file subset —
+// callers are responsible for merging the returned facts into any
+// fuller state they hold. The empty file list is treated as a no-op
+// (returns an empty Data) rather than degrading to analyzeAll, so a
+// stale hint can't accidentally trigger a full reanalysis. callFilter
+// narrows call-target resolution exactly as in analyzeAll.
+//
+// Use case: the warm-path freshness gate has identified one or two
+// .kt files whose content (or public ABI) has changed since the prior
+// run; we want fresh oracle facts for just those files, then merge
+// with the cached types.json's per-file entries for everything else.
+// Avoids the full-module reanalyze cost (5+ seconds on kotlin-corpus
+// scale).
+func (d *Daemon) AnalyzeFilesWithCallFilter(files []string, callFilter *CallTargetFilterSummary) (*Data, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if len(files) == 0 {
+		// Empty file list is intentional: callers should pass a stat-
+		// diff result that may be empty on clean warm runs. Returning
+		// an empty Data avoids a no-op JVM round-trip and lets the
+		// caller skip the merge step entirely.
+		return &Data{Files: map[string]*File{}, Dependencies: map[string]*Class{}}, nil
+	}
+
+	params := callFilterParams(callFilter)
+	if params == nil {
+		params = map[string]interface{}{}
+	}
+	params["files"] = files
+
+	result, err := d.sendResult("analyzeFiles", params)
+	if err != nil {
+		return nil, err
+	}
+
+	return unmarshalOracleData(result)
+}
+
+// callFilterParams packs a CallTargetFilterSummary into the wire
+// representation the krit-types daemon expects. Returns nil when the
+// filter is nil/disabled — both analyzeAll and analyzeFiles tolerate
+// the omitted-filter case server-side.
+func callFilterParams(callFilter *CallTargetFilterSummary) map[string]interface{} {
+	if callFilter == nil || !callFilter.Enabled {
+		return nil
+	}
+	return map[string]interface{}{
+		"callFilterCalleeNames":          callFilter.CalleeNames,
+		"callFilterLexicalHintsByCallee": callFilter.LexicalHintsByCallee,
+		"callFilterLexicalSkipByCallee":  callFilter.LexicalSkipByCallee,
+		"callFilterRuleProfiles":         callFilter.RuleProfiles,
+	}
 }
 
 // DecompileJar asks krit-types to produce Kotlin source for a class resolved

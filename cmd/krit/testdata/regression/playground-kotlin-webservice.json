@@ -1,12 +1,12 @@
 {
   "project": "../../playground/kotlin-webservice/",
-  "findings_count": 64,
+  "findings_count": 65,
   "findings": [
     {
       "rule": "DependenciesInRootProject",
       "ruleSet": "supply-chain",
       "file": "build.gradle.kts",
-      "line": 17,
+      "line": 20,
       "col": 0,
       "message": "Root project dependencies block declares implementation. Move project dependencies into an owning module or add legitimate root tooling configurations to allowedConfigurations."
     },
@@ -41,6 +41,14 @@
       "line": 6,
       "col": 0,
       "message": "Wildcard import 'io.ktor.server.routing.*' should be replaced with explicit imports."
+    },
+    {
+      "rule": "ForbiddenComment",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/Application.kt",
+      "line": 10,
+      "col": 0,
+      "message": "Forbidden comment marker 'TODO:' found."
     },
     {
       "rule": "WildcardImport",

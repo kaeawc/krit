@@ -8,10 +8,45 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
 var errBreakerOpen = errors.New("daemon: circuit breaker open")
+
+// handshakeNoiseError is returned by waitPipeReady / waitPortReady when the
+// daemon's first stdout line is JVM unified-log output (typically a `[cds]`
+// or `[aot]` warning) instead of the expected JSON ready message. Callers
+// recognise it via errors.As to drive a one-shot self-heal: purge the
+// AppCDS/Leyden caches keyed by the jar and retrain on the second attempt.
+type handshakeNoiseError struct {
+	line string
+}
+
+func (e *handshakeNoiseError) Error() string {
+	return fmt.Sprintf("daemon ready message replaced by JVM log line: %s", e.line)
+}
+
+// looksLikeJVMUnifiedLog reports whether a daemon-stdout line matches the
+// `[<time>][<level>][<tag>] ...` shape that the JVM's -Xlog output uses.
+// We use it as the trigger for the self-healing retry; matching false
+// negatives just means we surface the original parse error verbatim, which
+// is no worse than today's behaviour.
+func looksLikeJVMUnifiedLog(line string) bool {
+	if !strings.HasPrefix(line, "[") {
+		return false
+	}
+	// Two or more bracketed segments (e.g. "[0.014s][warning][cds]").
+	// Plain `[0]`/`[1, 2]` JSON arrays only have one bracket pair, so this
+	// keeps real JSON safe.
+	rest := line[1:]
+	closeIdx := strings.Index(rest, "]")
+	if closeIdx < 0 {
+		return false
+	}
+	rest = rest[closeIdx+1:]
+	return strings.HasPrefix(rest, "[")
+}
 
 const (
 	breakerThreshold = 3
@@ -211,6 +246,9 @@ func waitPipeReady(cmd *exec.Cmd, scanner *bufio.Scanner) (*daemonResponse, erro
 	var readyResp daemonResponse
 	if err := json.Unmarshal([]byte(line), &readyResp); err != nil {
 		cmd.Process.Kill()
+		if looksLikeJVMUnifiedLog(line) {
+			return nil, &handshakeNoiseError{line: line}
+		}
 		return nil, fmt.Errorf("daemon ready message: invalid JSON: %w (got: %s)", err, line)
 	}
 	if readyResp.Error != "" {
@@ -259,6 +297,9 @@ func waitPortReady(cmd *exec.Cmd, stdoutPipe io.Reader) (*startDaemonReady, erro
 	var ready startDaemonReady
 	if err := json.Unmarshal([]byte(line), &ready); err != nil {
 		cmd.Process.Kill()
+		if looksLikeJVMUnifiedLog(line) {
+			return nil, &handshakeNoiseError{line: line}
+		}
 		return nil, fmt.Errorf("daemon ready message: invalid JSON: %w (got: %s)", err, line)
 	}
 	if !ready.Ready || ready.Port == 0 {

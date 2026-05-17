@@ -1,0 +1,23 @@
+# Krit configuration for the kotlin-webservice playground.
+#
+# This project demonstrates the dev.jasonpearson.krit Gradle plugin paired
+# with a custom-rule jar built by dev.jasonpearson.krit.custom. The custom
+# rules live under ../custom-rules and are wired in via the build.gradle.kts
+# `customRules(project(":custom-rules"))` call.
+
+style:
+  WildcardImport:
+    active: true
+  MagicNumber:
+    active: true
+    ignoreNumbers:
+      - -1
+      - 0
+      - 1
+      - 2
+
+empty-blocks:
+  EmptyFunctionBlock:
+    active: true
+  EmptyCatchBlock:
+    active: true

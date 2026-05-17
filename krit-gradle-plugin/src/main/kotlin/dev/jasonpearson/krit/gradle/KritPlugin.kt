@@ -137,6 +137,7 @@ class KritPlugin : Plugin<Project> {
         // Register the aggregate kritCheck task
         project.tasks.register("kritCheck", KritCheckTask::class.java) {
             setSource(extension.source)
+            sourceRoots.from(extension.source)
             description = "Run krit analysis on all Kotlin sources"
         }
 
@@ -208,6 +209,7 @@ class KritPlugin : Plugin<Project> {
                             if (project.tasks.findByName(taskName) == null) {
                                 project.tasks.register(taskName, KritCheckTask::class.java) {
                                     setSource(project.files(kotlinDirs))
+                                    sourceRoots.from(kotlinDirs)
                                     description = "Run krit analysis on the '$name' source set"
                                 }
                             }
@@ -288,6 +290,7 @@ class KritPlugin : Plugin<Project> {
                             if (project.tasks.findByName(taskName) == null) {
                                 project.tasks.register(taskName, KritCheckTask::class.java) {
                                     setSource(project.files(sourceDirs))
+                                    sourceRoots.from(sourceDirs)
                                     description =
                                         "Run krit analysis on the '$variantName' variant sources"
                                 }

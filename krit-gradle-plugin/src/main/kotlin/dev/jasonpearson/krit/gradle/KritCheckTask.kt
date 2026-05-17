@@ -69,6 +69,17 @@ abstract class KritCheckTask @Inject constructor(
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val customRuleJars: org.gradle.api.file.ConfigurableFileCollection
 
+    /**
+     * Source root directories (e.g. `src/main/kotlin`) used when custom
+     * rules are loaded. The JVM-backed custom-rule daemon discovers
+     * Kotlin sources by walking these roots for nested `kotlin`/`java`
+     * directories; the leaf files in `source` give it nothing to walk.
+     */
+    @get:InputFiles
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val sourceRoots: org.gradle.api.file.ConfigurableFileCollection
+
     @get:Internal
     abstract val cacheDir: DirectoryProperty
 
@@ -151,7 +162,7 @@ abstract class KritCheckTask @Inject constructor(
             if (cacheDir.isPresent) { add("--cache-dir"); add(cacheDir.get().asFile.absolutePath) }
             addCustomRuleJarArgs()
             add("-q")
-            source.files.forEach { add(it.absolutePath) }
+            appendScanPaths()
         }
 
         val result = execOps.exec {
@@ -175,7 +186,7 @@ abstract class KritCheckTask @Inject constructor(
                 if (cacheDir.isPresent) { add("--cache-dir"); add(cacheDir.get().asFile.absolutePath) }
                 addCustomRuleJarArgs()
                 add("-q")
-                source.files.forEach { add(it.absolutePath) }
+                appendScanPaths()
             }
 
             execOps.exec {
@@ -221,6 +232,25 @@ abstract class KritCheckTask @Inject constructor(
 
     private fun MutableList<String>.addCustomRuleJarArgs() {
         appendCustomRuleJarArgs(customRuleJars.files.map { it.absolutePath })
+    }
+
+    /**
+     * Appends scan paths to the CLI argv: source root directories when
+     * custom rules are loaded (the daemon needs roots), otherwise the
+     * per-file list (keeps Gradle's incremental input tracking sharp).
+     */
+    private fun MutableList<String>.appendScanPaths() {
+        val needsRoots = !customRuleJars.isEmpty && !sourceRoots.isEmpty
+        if (needsRoots) {
+            // Skip missing roots so the default `src/main/kotlin` +
+            // `src/test/kotlin` convention doesn't fail projects that only
+            // ship one of them.
+            sourceRoots.files
+                .filter { it.exists() }
+                .forEach { add(it.absolutePath) }
+        } else {
+            source.files.forEach { add(it.absolutePath) }
+        }
     }
 
     companion object {

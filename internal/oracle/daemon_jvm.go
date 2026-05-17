@@ -167,6 +167,11 @@ func buildJVMBaseArgs() []string {
 // `-XX:AOTMode=record`. Callers should call appendStartupCacheArgs
 // instead so the daemon launch picks Leyden when available and falls
 // back to AppCDS otherwise.
+//
+// `-Xlog:cds=off` is appended because `-Xshare:auto`'s fallback warning
+// (e.g. on classpath mismatch) writes `[cds]` chatter to stdout, which
+// overwrites the daemon's first stdout line — the JSON ready message
+// the parent expects.
 func appendAppCDSArgs(args []string, jarPath string, verbose bool) []string {
 	archivePath, err := cdsArchivePath(jarPath)
 	if err != nil {
@@ -183,6 +188,7 @@ func appendAppCDSArgs(args []string, jarPath string, verbose bool) []string {
 			reporter().Verbosef("verbose: AppCDS: training archive %s\n", archivePath)
 		}
 	}
+	args = append(args, "-Xlog:cds=off")
 	return args
 }
 
@@ -195,10 +201,15 @@ func appendAppCDSArgs(args []string, jarPath string, verbose bool) []string {
 // line: both `-XX:AOTCache=` and `-XX:AOTMode=record` reject
 // `-Xshare:*` and `-XX:SharedArchiveFile=`/`-XX:ArchiveClassesAtExit=`.
 // Callers must never combine the two — use appendStartupCacheArgs.
+//
+// `-Xlog:aot=off` is gated on the same JDK 25+ check because older JDKs
+// reject the unknown tag with an `[error][logging] Invalid tag 'aot'`
+// line on stdout, which itself corrupts the daemon handshake.
 func appendLeydenAOTArgs(args []string, javaPath, jarPath string, verbose bool) ([]string, bool) {
 	if cachedJDKMajorVersion() < 25 {
 		return args, false
 	}
+	args = append(args, "-Xlog:aot=off")
 	leydenConfig, configErr := aotConfigPath(jarPath)
 	leydenCache, cacheErr := aotCachePath(jarPath)
 	if configErr != nil || cacheErr != nil {
@@ -248,6 +259,36 @@ func appendStartupCacheArgs(args []string, javaPath, jarPath string, verbose boo
 		return args
 	}
 	return appendAppCDSArgs(args, jarPath, verbose)
+}
+
+// jvmCacheSuffixes lists every per-jar artifact purgeJVMCachesForJar
+// removes. Keep in sync with the suffix arguments passed to jarCachePath
+// elsewhere in this file (cdsArchivePath, cracCheckpointPath,
+// aotConfigPath, aotCachePath).
+var jvmCacheSuffixes = []string{".jsa", ".crac", ".aotconf", ".aot"}
+
+// purgeJVMCachesForJar deletes the AppCDS/CRaC/Leyden cache files keyed by
+// `jarPath`'s content hash. Used as a self-heal after the daemon hands us
+// JVM unified-log chatter instead of a JSON ready message — almost always
+// because a `.jsa` archive recorded a classpath at training time that no
+// longer matches the runtime jar location.
+//
+// Failures to remove are intentionally swallowed: if the file is already
+// gone there is nothing to do, and if it's locked the retraining write
+// will overwrite it anyway.
+func purgeJVMCachesForJar(jarPath string, verbose bool) {
+	// Hash the jar once and append each suffix, instead of calling four
+	// separate path-derivation helpers that each re-hash the file.
+	base, err := jarCachePath(jarPath, "")
+	if err != nil {
+		return
+	}
+	for _, suffix := range jvmCacheSuffixes {
+		p := base + suffix
+		if rmErr := os.Remove(p); rmErr == nil && verbose {
+			reporter().Verbosef("verbose: purged stale JVM cache %s\n", p)
+		}
+	}
 }
 
 // openDaemonLogFile opens (or creates) the daemon log file and wires it to cmd.Stderr.

@@ -7,6 +7,7 @@ import io.ktor.server.routing.*
 import com.example.routes.configureUserRoutes
 
 fun main() {
+    // TODO: read port from an environment variable before going to production
     embeddedServer(Netty, port = 8080) {
         configureRouting()
     }.start(wait = true)

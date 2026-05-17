@@ -3,6 +3,7 @@ package oracle
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -220,7 +221,37 @@ func connectDaemonTCP(cmd *exec.Cmd, port int, srcHash string, slot int) (net.Co
 }
 
 // StartDaemon launches the krit-types JVM process in daemon mode.
+//
+// If the JVM corrupts the JSON ready line with `[cds]`/`[aot]` log chatter
+// (almost always because an AppCDS/Leyden archive in the per-jar cache was
+// trained against a now-missing absolute classpath), the AppCDS+Leyden
+// caches for this jar are purged and the spawn is retried once. The
+// second attempt sees no cache files, so the JVM takes the training path
+// and starts cleanly.
 func StartDaemon(jarPath string, sourceDirs []string, classpath []string, verbose bool) (*Daemon, error) {
+	return retryOnHandshakeNoise(jarPath, verbose, func() (*Daemon, error) {
+		return startDaemonOnce(jarPath, sourceDirs, classpath, verbose)
+	})
+}
+
+// retryOnHandshakeNoise runs spawn once, and if the daemon's handshake
+// was overwritten by JVM unified-log chatter (a `handshakeNoiseError`),
+// purges the per-jar AppCDS/Leyden caches and retries exactly once. Other
+// errors (or success) are returned directly.
+func retryOnHandshakeNoise(jarPath string, verbose bool, spawn func() (*Daemon, error)) (*Daemon, error) {
+	d, err := spawn()
+	var noise *handshakeNoiseError
+	if !errors.As(err, &noise) {
+		return d, err
+	}
+	if verbose {
+		reporter().Verbosef("verbose: daemon handshake polluted by JVM log line; purging JVM caches and retrying: %s\n", noise.line)
+	}
+	purgeJVMCachesForJar(jarPath, verbose)
+	return spawn()
+}
+
+func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, verbose bool) (*Daemon, error) {
 	javaPath, err := exec.LookPath("java")
 	if err != nil {
 		return nil, fmt.Errorf("java not found in PATH: %w", err)
@@ -401,6 +432,12 @@ func StartDaemonWithPort(jarPath string, sourceDirs []string, classpath []string
 }
 
 func StartDaemonWithPortSlot(jarPath string, sourceDirs []string, classpath []string, verbose bool, slot int) (*Daemon, error) {
+	return retryOnHandshakeNoise(jarPath, verbose, func() (*Daemon, error) {
+		return startDaemonWithPortSlotOnce(jarPath, sourceDirs, classpath, verbose, slot)
+	})
+}
+
+func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath []string, verbose bool, slot int) (*Daemon, error) {
 	javaPath, err := exec.LookPath("java")
 	if err != nil {
 		return nil, fmt.Errorf("java not found in PATH: %w", err)

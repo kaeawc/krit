@@ -116,6 +116,12 @@ func jdkMajorVersion(javaPath string) int {
 // buildLeydenAOTCache runs the Leyden AOT create step: it compiles the AOT
 // cache from an existing configuration file and exits immediately without
 // running the application. Fast (seconds), must complete before daemon launch.
+//
+// On JVM crashes during create (seen on some JDK 26 builds with Kotlin
+// shadow JARs that exercise IntelliJ verification paths) the JVM leaves
+// behind a zero-byte or partial cache file. Removing it here keeps the
+// next daemon launch from picking it up and aborting VM init with
+// "Unable to read generic CDS file map header from AOT cache".
 func buildLeydenAOTCache(javaPath, jarPath, configPath, cachePath string, verbose bool) error {
 	args := []string{
 		"-XX:AOTMode=create",
@@ -128,7 +134,16 @@ func buildLeydenAOTCache(javaPath, jarPath, configPath, cachePath string, verbos
 	}
 	cmd := exec.CommandContext(context.Background(), javaPath, args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
+		_ = os.Remove(cachePath)
 		return fmt.Errorf("leyden AOT create: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	// Sanity-check the produced cache. Some JVM error paths exit
+	// non-zero but only after touching the cache file, so cmd.Run
+	// might still return nil on certain builds. Drop the file if it
+	// looks empty so the use-branch fallback path stays correct.
+	if info, statErr := os.Stat(cachePath); statErr != nil || info.Size() == 0 {
+		_ = os.Remove(cachePath)
+		return fmt.Errorf("leyden AOT create: produced empty cache %s", cachePath)
 	}
 	return nil
 }
@@ -145,6 +160,13 @@ func buildJVMBaseArgs() []string {
 }
 
 // appendAppCDSArgs appends AppCDS flags to args and returns the result.
+//
+// Mutually exclusive with Leyden AOT: on JDK 25+ where Project Leyden
+// applies, AppCDS's `-Xshare:auto` and `-XX:SharedArchiveFile=` /
+// `-XX:ArchiveClassesAtExit=` flags conflict with `-XX:AOTCache=` /
+// `-XX:AOTMode=record`. Callers should call appendStartupCacheArgs
+// instead so the daemon launch picks Leyden when available and falls
+// back to AppCDS otherwise.
 func appendAppCDSArgs(args []string, jarPath string, verbose bool) []string {
 	archivePath, err := cdsArchivePath(jarPath)
 	if err != nil {
@@ -164,37 +186,68 @@ func appendAppCDSArgs(args []string, jarPath string, verbose bool) []string {
 	return args
 }
 
-// appendLeydenAOTArgs appends Project Leyden AOT flags (JDK 25+) to args and returns the result.
-func appendLeydenAOTArgs(args []string, javaPath, jarPath string, verbose bool) []string {
+// appendLeydenAOTArgs appends Project Leyden AOT flags (JDK 25+) to args
+// and returns (newArgs, true) when at least one AOT flag was added.
+// Returns (args, false) on older JDKs or when path resolution failed,
+// signalling the caller it should fall back to AppCDS.
+//
+// Leyden AOT and AppCDS are mutually exclusive on the launch command
+// line: both `-XX:AOTCache=` and `-XX:AOTMode=record` reject
+// `-Xshare:*` and `-XX:SharedArchiveFile=`/`-XX:ArchiveClassesAtExit=`.
+// Callers must never combine the two — use appendStartupCacheArgs.
+func appendLeydenAOTArgs(args []string, javaPath, jarPath string, verbose bool) ([]string, bool) {
 	if cachedJDKMajorVersion() < 25 {
-		return args
+		return args, false
 	}
 	leydenConfig, configErr := aotConfigPath(jarPath)
 	leydenCache, cacheErr := aotCachePath(jarPath)
 	if configErr != nil || cacheErr != nil {
-		return args
+		return args, false
 	}
-	if _, statErr := os.Stat(leydenCache); statErr == nil {
+	if info, statErr := os.Stat(leydenCache); statErr == nil && info.Size() > 0 {
 		args = append(args, "-XX:AOTCache="+leydenCache)
 		if verbose {
 			reporter().Verbosef("verbose: Leyden AOT: using cache %s\n", leydenCache)
 		}
-	} else if _, statErr := os.Stat(leydenConfig); statErr == nil {
+		return args, true
+	} else if statErr == nil {
+		// Empty or unreadable cache from a previous crash — discard
+		// so we don't poison the daemon launch with an invalid cache.
+		_ = os.Remove(leydenCache)
+		if verbose {
+			reporter().Verbosef("verbose: Leyden AOT: discarded empty cache %s\n", leydenCache)
+		}
+	}
+	if _, statErr := os.Stat(leydenConfig); statErr == nil {
 		if err := buildLeydenAOTCache(javaPath, jarPath, leydenConfig, leydenCache, verbose); err == nil {
 			args = append(args, "-XX:AOTCache="+leydenCache)
 			if verbose {
 				reporter().Verbosef("verbose: Leyden AOT: built and using cache %s\n", leydenCache)
 			}
+			return args, true
 		} else if verbose {
 			reporter().Verbosef("verbose: Leyden AOT: cache build failed (%v), starting without AOT\n", err)
 		}
-	} else {
-		args = append(args, "-XX:AOTMode=record", "-XX:AOTConfiguration="+leydenConfig)
-		if verbose {
-			reporter().Verbosef("verbose: Leyden AOT: recording class profile → %s\n", leydenConfig)
-		}
+		return args, false
 	}
-	return args
+	args = append(args, "-XX:AOTMode=record", "-XX:AOTConfiguration="+leydenConfig)
+	if verbose {
+		reporter().Verbosef("verbose: Leyden AOT: recording class profile → %s\n", leydenConfig)
+	}
+	return args, true
+}
+
+// appendStartupCacheArgs prefers Project Leyden AOT (JDK 25+) and falls
+// back to AppCDS on older JDKs or when Leyden setup failed. The two are
+// mutually exclusive on the JVM command line — combining them aborts
+// VM init with `Option AOTConfiguration cannot be used at the same time
+// with -Xshare:auto, ...`.
+func appendStartupCacheArgs(args []string, javaPath, jarPath string, verbose bool) []string {
+	args, addedAOT := appendLeydenAOTArgs(args, javaPath, jarPath, verbose)
+	if addedAOT {
+		return args
+	}
+	return appendAppCDSArgs(args, jarPath, verbose)
 }
 
 // openDaemonLogFile opens (or creates) the daemon log file and wires it to cmd.Stderr.

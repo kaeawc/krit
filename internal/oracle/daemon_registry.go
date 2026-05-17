@@ -227,8 +227,7 @@ func StartDaemon(jarPath string, sourceDirs []string, classpath []string, verbos
 	}
 
 	args := buildJVMBaseArgs()
-	args = appendAppCDSArgs(args, jarPath, verbose)
-	args = appendLeydenAOTArgs(args, javaPath, jarPath, verbose)
+	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgsFromEnv())
 	args = append(args, "-jar", jarPath, "--daemon")
 	if len(sourceDirs) > 0 {
@@ -408,8 +407,7 @@ func StartDaemonWithPortSlot(jarPath string, sourceDirs []string, classpath []st
 	}
 
 	args := buildJVMBaseArgs()
-	args = appendAppCDSArgs(args, jarPath, false)
-	args = appendLeydenAOTArgs(args, javaPath, jarPath, verbose)
+	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgsFromEnv())
 	args = append(args, "-jar", jarPath, "--daemon", "--port", "0")
 	if len(sourceDirs) > 0 {

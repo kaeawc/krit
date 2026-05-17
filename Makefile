@@ -1,4 +1,4 @@
-.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression daemon-verify all install install-completions watch
+.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression daemon-verify test-fanotify all install install-completions watch
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
@@ -64,6 +64,27 @@ daemon-verify:
 	go test ./internal/daemon/ -run 'TestCompare|TestDiff' -count=1
 
 ci: build vet test integration regression daemon-verify
+
+# test-fanotify exercises the Linux-only fanotify watcher backend
+# inside a Docker container with CAP_SYS_ADMIN. macOS / Windows
+# developers can't run fanotify locally — this target gives them a
+# kernel that supports FAN_REPORT_DFID_NAME (Linux 5.17+). The
+# --security-opt unconfined arg is needed so the apparmor profile
+# Docker Desktop ships doesn't block fanotify_init.
+#
+# --tmpfs /tmp is critical: Docker's default /tmp is on overlayfs,
+# which doesn't implement the kernel's file-handle export hooks, so
+# FAN_MARK_FILESYSTEM fails with EOPNOTSUPP. tmpfs does export
+# handles, so t.TempDir() (which uses /tmp) lands on a filesystem
+# fanotify can actually mark.
+test-fanotify:
+	docker build -f Dockerfile.fanotify -t krit-fanotify-test .
+	docker run --rm \
+		--cap-add=SYS_ADMIN \
+		--cap-add=DAC_READ_SEARCH \
+		--security-opt apparmor=unconfined \
+		--tmpfs /tmp:exec \
+		krit-fanotify-test
 
 DESTDIR ?=
 

@@ -8,15 +8,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
-
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-func fsnotifyEventChmod(path string) fsnotify.Event {
-	return fsnotify.Event{Name: path, Op: fsnotify.Chmod}
+// chmodEvent constructs a normalized backendEvent with only the Chmod
+// bit set. Used by tests covering the dropped-on-purpose Chmod path —
+// fsnotify on macOS emits spurious chmods that the watcher must
+// ignore so unrelated cache slots don't churn.
+func chmodEvent(path string) backendEvent {
+	return backendEvent{Path: path, Op: opChmod}
 }
 
 // countingState is a watcherState fake that counts Invalidate calls
@@ -398,7 +400,7 @@ func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
 	defer w.Stop()
 	<-w.Ready()
 
-	ev := fsnotify.Event{Name: ktPath, Op: fsnotify.Write}
+	ev := backendEvent{Path: ktPath, Op: opWrite}
 	for range 3 {
 		w.handle(ev)
 	}
@@ -523,8 +525,8 @@ func TestFileWatcher_IgnoresChmodOnlyEvents(t *testing.T) {
 	// Inject a Chmod-only event directly through handle() — going
 	// through os.Chmod would also trigger a Stat() that on some
 	// platforms emits Write, defeating the test's purpose.
-	w.handle(fsnotifyEventChmod(gradlePath))
-	w.handle(fsnotifyEventChmod(ktPath))
+	w.handle(chmodEvent(gradlePath))
+	w.handle(chmodEvent(ktPath))
 	time.Sleep(20 * time.Millisecond)
 
 	if got := state.libraryFactsInvalidations.Load(); got != 0 {

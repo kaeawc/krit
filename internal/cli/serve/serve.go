@@ -105,6 +105,14 @@ func Run(args []string) int {
 	idleFlag := fs.Duration("idle-timeout", 30*time.Minute, "Auto-shutdown after no request for this duration; 0 disables")
 	maxParseBytesFlag := fs.Int64("max-parse-bytes", 0, "Cap on resident parsed-file bytes; over the cap, LRU entries are evicted. 0 disables")
 	noWatcherFlag := fs.Bool("no-watcher", false, "Disable filesystem watching for cache invalidation")
+	// auto probes fanotify (Linux 5.17+, needs CAP_SYS_ADMIN +
+	// CAP_DAC_READ_SEARCH) and falls back to fsnotify silently
+	// elsewhere. Users on platforms without fanotify, or without the
+	// caps, see no behaviour change; users who run `setcap
+	// cap_sys_admin,cap_dac_read_search+ep /path/to/krit` once
+	// transparently get the faster backend on the next daemon start.
+	// See docs/perf.md for the trade-offs.
+	watchBackendFlag := fs.String("watch-backend", "auto", "Filesystem-watch backend: auto (default; fanotify if available, else fsnotify), fsnotify, or fanotify")
 	// --strict-verify reruns every analyze in-process from cold caches
 	// and fails the response on row-level divergence vs the daemon's
 	// resident path. Doubles per-request CPU; intended for alpha and
@@ -155,15 +163,31 @@ func Run(args []string) int {
 		return 1
 	}
 
+	resolvedBackend := ""
 	if !*noWatcherFlag {
-		if w, err := startFileWatcher(ctx, root, state.workspace, srv.Reporter, withConfigChangeCallback(state.InvalidateConfig)); err != nil {
+		backendKind, ok := parseWatcherBackendKind(*watchBackendFlag)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "krit serve: unknown --watch-backend %q; using auto\n", *watchBackendFlag)
+		}
+		watcherOpts := []watcherOption{
+			withConfigChangeCallback(state.InvalidateConfig),
+			withBackendKind(backendKind),
+		}
+		if w, err := startFileWatcher(ctx, root, state.workspace, srv.Reporter, watcherOpts...); err != nil {
 			fmt.Fprintf(os.Stderr, "krit serve: filesystem watcher disabled: %v\n", err)
 		} else {
 			defer w.Stop()
+			resolvedBackend = w.BackendKind().String()
 		}
 	}
-	fmt.Printf("krit daemon: ready (%d files, %d modules, warm in %.1fs)\n",
-		state.fileCount(), state.moduleCount(), state.warmDuration.Seconds())
+	watcherLine := ""
+	if resolvedBackend != "" {
+		watcherLine = fmt.Sprintf(", watcher=%s", resolvedBackend)
+	} else if *noWatcherFlag {
+		watcherLine = ", watcher=off"
+	}
+	fmt.Printf("krit daemon: ready (%d files, %d modules, warm in %.1fs%s)\n",
+		state.fileCount(), state.moduleCount(), state.warmDuration.Seconds(), watcherLine)
 	srv.Wait()
 	return 0
 }

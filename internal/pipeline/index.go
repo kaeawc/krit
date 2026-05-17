@@ -204,6 +204,14 @@ type IndexInput struct {
 	// reanalyze. Absolute paths; entries outside the scan set are
 	// ignored.
 	StaleOraclePaths []string
+	// PriorAbiHashes is the per-file public-ABI hash map persisted by
+	// the prior run's FindingsBundleManifest. When non-nil and the
+	// CodeIndex was built before runOracle (v3 reorder), Run extends
+	// StaleOraclePaths with transitive dependents of files whose
+	// current ABI hash differs from prior. nil disables transitive
+	// expansion — the freshness gate falls back to per-file
+	// invalidation.
+	PriorAbiHashes map[string]string
 	// Verbose gates oracle stderr diagnostics. Matches --verbose.
 	Verbose bool
 
@@ -682,6 +690,11 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 	if in.BuildCodeIndex {
 		p.runCodeIndexBuild(in, &result)
 	}
+
+	// v3 transitive ABI invalidation. When prior ABI hashes and the
+	// CodeIndex are both available, promote per-file invalidation to
+	// transitive dependents of any file whose ABI hash differs.
+	in.StaleOraclePaths = maybeExpandStaleByAbiDependents(in, result.CodeIndex)
 
 	if !in.SkipOracle && in.OracleEnabled && resolverForOracle != nil && len(rules.KotlinOracleRulesV2(in.ActiveRules)) > 0 {
 		resolverForOracle = p.runOracle(in, resolverForOracle, result.CodeIndex, &result)

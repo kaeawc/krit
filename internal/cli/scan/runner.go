@@ -63,6 +63,19 @@ func (r *runner) projectInput() pipeline.ProjectInput {
 		if repoDir := oracle.FindRepoDir(r.paths); repoDir != "" {
 			host.FindingsBundleStore = scanner.DiskFindingsBundleStore{}
 			host.FindingsBundleCacheRoot = repoDir
+			// Load the prior bundle manifest so RunProjectAnalysis can
+			// seed StaleOraclePaths (stat-diff) and IndexPhase.Run can
+			// expand it via transitive ABI dependents. Best-effort:
+			// missing manifest (first warm run after upgrade, fresh
+			// repo) leaves the maps nil and falls back to per-file scope.
+			if key := scanner.FindingsBundleManifestKey(repoDir, r.paths); key != "" {
+				if prior, ok := scanner.LoadFindingsBundleManifest(repoDir, key); ok {
+					host.PriorContentHashes = prior.ContentHashes
+					host.PriorStructuralFPs = prior.StructuralFPs
+					host.PriorFileStats = prior.FileStats
+					host.PriorAbiHashes = prior.AbiHashes
+				}
+			}
 		}
 	}
 	return pipeline.ProjectInput{

@@ -398,6 +398,13 @@ type ProjectHostState struct {
 	// repos and only when the bundle-fingerprint check needs them.
 	PriorContentHashes map[string]string
 	PriorStructuralFPs map[string]string
+	// PriorFileStats is the per-file size+mtime tuple from the prior
+	// run's FindingsBundleManifest. runProjectIndexPhase consults it
+	// (via scanner.StaleOracleCandidates) to seed StaleOraclePaths
+	// before IndexPhase.Run, so the oracle freshness gate can do
+	// per-file partial reanalyze on warm scans without re-walking
+	// every file's content hash. nil disables the optimization.
+	PriorFileStats map[string]scanner.FileStat
 	// PriorAbiHashes is the daemon-side hint of last-run per-file
 	// public-ABI hashes. Used by buildManifestData to carry forward
 	// hashes for files that were not parsed this run (cache-hit
@@ -813,6 +820,8 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		ModuleJobsFlag:           args.Workers,
 		ModuleHasAwareRule:       hasModuleAwareRule,
 		InputTypesPath:           args.InputTypesPath,
+		PriorAbiHashes:           host.PriorAbiHashes,
+		StaleOraclePaths:         seedStaleOraclePaths(args, host, parseResult),
 	}
 	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)
 	if warm.result == nil {
@@ -1303,6 +1312,33 @@ func wireOracleHandles(in *IndexInput, args ProjectArgs, host ProjectHostState, 
 		summary := rules.BuildOracleCallTargetFilterV2ForFiles(args.ActiveRules, kotlinFiles)
 		return &summary
 	})
+}
+
+// seedStaleOraclePaths produces the initial StaleOraclePaths slice for
+// IndexInput by stat-diffing the current parsed Kotlin file set against
+// the prior bundle manifest's FileStats. Empty when the host has no
+// prior manifest stats (cold daemon, first warm run after upgrade) or
+// when no .kt files were parsed (skip-modules-only invocation). The
+// transitive-ABI expansion in IndexPhase.Run extends this seed when
+// PriorAbiHashes is also non-nil and the CodeIndex was built.
+func seedStaleOraclePaths(args ProjectArgs, host ProjectHostState, parseResult ParseResult) []string {
+	if len(host.PriorFileStats) == 0 || len(parseResult.KotlinFiles) == 0 {
+		return nil
+	}
+	prior := scanner.FindingsBundleManifest{
+		ContentHashes: host.PriorContentHashes,
+		FileStats:     host.PriorFileStats,
+		AbiHashes:     host.PriorAbiHashes,
+	}
+	paths := make([]string, 0, len(parseResult.KotlinFiles))
+	for _, f := range parseResult.KotlinFiles {
+		if f != nil {
+			paths = append(paths, f.Path)
+		}
+	}
+	stale := scanner.StaleOracleCandidates(paths, prior, scanner.StatFile)
+	_ = args // reserved for future per-args policy (e.g. force-stale all on rule-set change)
+	return stale
 }
 
 // deltaManifestData carries the precomputed per-file inputs the delta

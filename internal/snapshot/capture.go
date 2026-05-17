@@ -15,6 +15,9 @@ import (
 
 // CaptureOptions controls a single Capture invocation.
 type CaptureOptions struct {
+	// Ctx is the parent context for module discovery, file collection,
+	// parsing, and findings sub-runs. Nil defaults to context.Background().
+	Ctx         context.Context
 	RepoRoot    string
 	CommitSHA   string
 	KritVersion string
@@ -71,15 +74,19 @@ func Capture(opts CaptureOptions) (*Result, error) {
 	if version == "" {
 		version = "dev"
 	}
+	ctx := opts.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
-	graph, err := module.DiscoverModules(context.Background(), root)
+	graph, err := module.DiscoverModules(ctx, root)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: discover modules: %w", err)
 	}
 
-	ktPaths, javaPaths, fileToModule := collectSources(graph, root)
-	ktFiles, _ := scanner.ScanFilesCached(context.Background(), ktPaths, workers, nil)
-	javaFiles, _ := scanner.ScanJavaFilesCached(context.Background(), javaPaths, workers, nil)
+	ktPaths, javaPaths, fileToModule := collectSources(ctx, graph, root)
+	ktFiles, _ := scanner.ScanFilesCached(ctx, ktPaths, workers, nil)
+	javaFiles, _ := scanner.ScanJavaFilesCached(ctx, javaPaths, workers, nil)
 
 	idx := scanner.BuildIndex(ktFiles, workers, javaFiles...)
 
@@ -101,7 +108,7 @@ func Capture(opts CaptureOptions) (*Result, error) {
 	result := &Result{Blob: blob, Metrics: metrics}
 
 	if opts.WithFindings {
-		findings, err := RunFindings(context.Background(), root, opts.CommitSHA, FindingsRunOptions{
+		findings, err := RunFindings(ctx, root, opts.CommitSHA, FindingsRunOptions{
 			RepoRelativeTo: root,
 			Workers:        workers,
 		})
@@ -126,7 +133,7 @@ func Capture(opts CaptureOptions) (*Result, error) {
 // attribution for downstream rollups. When the project has no Gradle
 // modules (e.g. a plain Kotlin tree) it falls back to a single
 // repo-root walk.
-func collectSources(graph *module.Graph, repoRoot string) (kotlin, java []string, fileToModule map[string]string) {
+func collectSources(ctx context.Context, graph *module.Graph, repoRoot string) (kotlin, java []string, fileToModule map[string]string) {
 	fileToModule = make(map[string]string)
 	seenKt := make(map[string]bool)
 	seenJv := make(map[string]bool)
@@ -143,7 +150,7 @@ func collectSources(graph *module.Graph, repoRoot string) (kotlin, java []string
 			if len(roots) == 0 {
 				roots = []string{filepath.Join(mod.Dir, "src", "main", "kotlin"), filepath.Join(mod.Dir, "src", "main", "java")}
 			}
-			ktForMod, jvForMod, _ := scanner.CollectKotlinAndJavaFiles(context.Background(), roots, nil)
+			ktForMod, jvForMod, _ := scanner.CollectKotlinAndJavaFiles(ctx, roots, nil)
 			for _, p := range ktForMod {
 				if !seenKt[p] {
 					seenKt[p] = true
@@ -162,7 +169,7 @@ func collectSources(graph *module.Graph, repoRoot string) (kotlin, java []string
 	}
 
 	if len(kotlin) == 0 && len(java) == 0 {
-		ktForRoot, jvForRoot, _ := scanner.CollectKotlinAndJavaFiles(context.Background(), []string{repoRoot}, nil)
+		ktForRoot, jvForRoot, _ := scanner.CollectKotlinAndJavaFiles(ctx, []string{repoRoot}, nil)
 		for _, p := range ktForRoot {
 			if !seenKt[p] {
 				seenKt[p] = true

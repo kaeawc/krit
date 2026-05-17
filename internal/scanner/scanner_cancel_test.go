@@ -4,58 +4,54 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 )
+
+const kotlinFixtureSrc = "package fixture\n\nclass Sample { fun greet() = \"hi\" }\n"
 
 func writeKotlinFixtures(t *testing.T, count int) []string {
 	t.Helper()
 	dir := t.TempDir()
 	paths := make([]string, count)
-	src := []byte("package fixture\n\nclass Sample { fun greet() = \"hi\" }\n")
 	for i := 0; i < count; i++ {
-		p := filepath.Join(dir, fmt.Sprintf("Sample%d.kt", i))
-		if err := os.WriteFile(p, src, 0o644); err != nil {
-			t.Fatalf("write fixture: %v", err)
-		}
-		paths[i] = p
+		paths[i] = writeKotlin(t, dir, fmt.Sprintf("Sample%d.kt", i), kotlinFixtureSrc)
 	}
 	return paths
 }
 
-func TestScanFilesPreCancelledCtxStopsShort(t *testing.T) {
-	paths := writeKotlinFixtures(t, 16)
-
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-
-	files, errs := ScanFiles(ctx, paths, 4)
-
-	if len(files) != 0 {
-		t.Fatalf("expected zero files parsed for pre-cancelled ctx, got %d", len(files))
-	}
-	if !errsContain(errs, context.Canceled) {
-		t.Fatalf("expected context.Canceled in errs, got %v", errs)
-	}
-}
-
-func TestScanFilesPreCancelledCtxReturnsCancelErr(t *testing.T) {
+func TestScanFilesPreCancelledCtxSurfacesCancellation(t *testing.T) {
 	paths := writeKotlinFixtures(t, 8)
 
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
+	type scanFn func(context.Context, []string, int) ([]*File, []error)
+	cases := []struct {
+		name string
+		scan scanFn
+	}{
+		{"ScanFiles", ScanFiles},
+		{"ScanFilesCached", func(ctx context.Context, p []string, w int) ([]*File, []error) {
+			return ScanFilesCached(ctx, p, w, nil)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
 
-	_, errs := ScanFilesCached(ctx, paths, 2, nil)
+			files, errs := tc.scan(ctx, paths, 4)
 
-	if !errsContain(errs, context.Canceled) {
-		t.Fatalf("expected context.Canceled in errs, got %v", errs)
+			if len(files) != 0 {
+				t.Fatalf("expected zero files for pre-cancelled ctx, got %d", len(files))
+			}
+			if got := countErrs(errs, context.Canceled); got != 1 {
+				t.Fatalf("expected exactly one context.Canceled error, got %d (errs=%v)", got, errs)
+			}
+		})
 	}
 }
 
-func TestScanFilesDeadlineSurfacesError(t *testing.T) {
-	paths := writeKotlinFixtures(t, 64)
+func TestScanFilesDeadlineSurfacesDeadlineExceeded(t *testing.T) {
+	paths := writeKotlinFixtures(t, 8)
 
 	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
 	defer cancel()
@@ -65,8 +61,8 @@ func TestScanFilesDeadlineSurfacesError(t *testing.T) {
 	if len(files) != 0 {
 		t.Fatalf("expected zero files for expired deadline, got %d", len(files))
 	}
-	if !errsContainAny(errs, context.DeadlineExceeded, context.Canceled) {
-		t.Fatalf("expected DeadlineExceeded or Canceled in errs, got %v", errs)
+	if !errsContain(errs, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded in errs, got %v", errs)
 	}
 }
 
@@ -83,20 +79,16 @@ func TestScanFilesSucceedsWithLiveCtx(t *testing.T) {
 	}
 }
 
-func errsContain(errs []error, target error) bool {
+func countErrs(errs []error, target error) int {
+	n := 0
 	for _, e := range errs {
 		if errors.Is(e, target) {
-			return true
+			n++
 		}
 	}
-	return false
+	return n
 }
 
-func errsContainAny(errs []error, targets ...error) bool {
-	for _, t := range targets {
-		if errsContain(errs, t) {
-			return true
-		}
-	}
-	return false
+func errsContain(errs []error, target error) bool {
+	return countErrs(errs, target) > 0
 }

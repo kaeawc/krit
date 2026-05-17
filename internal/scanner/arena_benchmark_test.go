@@ -1,7 +1,6 @@
 package scanner
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -57,7 +56,7 @@ func benchmarkParseKotlinTree(b *testing.B, src string) (*sitter.Tree, []byte) {
 	parser := GetKotlinParser()
 	defer PutKotlinParser(parser)
 
-	tree, err := parser.ParseCtx(context.Background(), nil, content)
+	tree, err := parser.ParseCtx(b.Context(), nil, content)
 	if err != nil {
 		b.Fatalf("failed to parse Kotlin benchmark source: %v", err)
 	}

@@ -43,6 +43,9 @@ can opt into JVM-backed Kotlin Analysis API/FIR helper facts (`tools/krit-types/
   fixable rules also need fixable fixtures.
 - Auto-fixes must produce ktfmt-compatible output and declare `FixCosmetic`,
   `FixIdiomatic`, or `FixSemantic`.
+- After source-level edits the warm path reanalyzes only the changed files
+  plus their ABI dependents; use `--no-cache-oracle` (or delete
+  `.krit/types.json`) when a rule change requires a clean oracle pass.
 
 ## Rule Implementation Guardrails
 
@@ -164,6 +167,28 @@ built.
 Cross-file dead-code detection indexes Kotlin declarations and Kotlin, Java,
 and XML references. Bloom filters provide fast negative reference checks and
 are cached per shard for warm runs.
+
+### Oracle Freshness Gate
+
+The warm-path oracle short-circuit guards against silently serving stale KAA
+facts after source edits. The gate runs in two phases. First, a stat-diff pass
+compares `FindingsBundleManifest.FileStats` (size + mtime) against the on-disk
+.kt files and flags any drifted files as stale candidates. Second, those
+candidates are promoted via an ABI-hash diff: each prior run persists per-file
+`arch.HashAbiSignatures` (`FindingsBundleManifest.AbiHashes`); when a
+candidate's current ABI hash differs from prior, the cross-file `CodeIndex`'s
+`TransitiveDependents(names, excludeFile)` lookup extends the stale set with
+every file that textually references the changed file's identifiers. The
+combined stale set is routed through `oracle.InvokeCachedWithOptions` (or the
+daemon's `analyzeFiles` command), so only those files re-run on the JVM
+oracle and the rest of the cached `types.json` is reused.
+
+Ordering matters: `IndexPhase.Run` builds the cross-file `CodeIndex` before
+`runOracle` so the transitive lookup is available to the freshness gate.
+Two control surfaces bypass the gate entirely — `--no-cache-oracle` forces a
+full reanalysis, and deleting `.krit/types.json` resets the cache. The
+`freshnessGateFresh` and `freshnessGateStale` perf events report which path a
+warm run took and how many files were promoted.
 
 Suppression is built into the dispatcher: `@Suppress("RuleName")` on any
 declaration suppresses that rule for the declaration's scope, and the

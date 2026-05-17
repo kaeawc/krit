@@ -16,6 +16,33 @@ interface KritRule {
 }
 
 /**
+ * Base class for type-aware rules: unpacks [KritFile.ktFile] and
+ * [RuleContext.resolver] so the rule body sees non-null PSI and
+ * resolver. Subclasses must declare [Capability.NEEDS_RESOLVER] on
+ * their [KritRuleInfo] — when the resolver isn't available (parse
+ * failure, non-Kotlin source, or `NEEDS_RESOLVER` not declared) the
+ * rule produces no findings.
+ */
+abstract class TypeAwareRule : KritRule {
+    final override fun check(file: KritFile, ctx: RuleContext): List<Finding> {
+        val ktFile = file.ktFile ?: return emptyList()
+        val resolver = ctx.resolver ?: return emptyList()
+        return check(file, ctx, ktFile, resolver)
+    }
+
+    /**
+     * Analyze [ktFile] with full PSI + [resolver] access. Both
+     * arguments are guaranteed non-null.
+     */
+    abstract fun check(
+        file: KritFile,
+        ctx: RuleContext,
+        ktFile: KtFile,
+        resolver: Resolver,
+    ): List<Finding>
+}
+
+/**
  * Runtime metadata for a Kotlin-authored Krit rule.
  *
  * The ServiceLoader contract uses [KritRule] as the implementation type, so
@@ -50,44 +77,57 @@ class KritFile(
  *
  * Available on [RuleContext.resolver] when the rule declares
  * [Capability.NEEDS_RESOLVER] and the daemon successfully built a
- * resolver-backed session for the file. Each method opens (or re-uses)
- * a Kotlin Analysis API session under the hood; returning typed
- * primitives avoids leaking JetBrains-internal types onto the rule API
- * surface, so rule jars do not need to depend on the Analysis API
- * artifacts directly.
+ * resolver-backed session for the file. Returning typed primitives
+ * (rather than JetBrains-internal symbol types) keeps rule jars off
+ * the Analysis API artifacts.
  *
- * The bridge methods are intentionally minimal — additions are
- * source-compatible (default implementations may evolve in minor
- * releases), but the surface is deliberately small to keep the API
- * stable. See `docs/external-rules.md` for the long-form contract.
+ * The surface is deliberately small. Additions are source-compatible;
+ * underlying KAA calls may shift between Krit releases — see
+ * `docs/external-rules.md` for the stability contract.
  */
 interface Resolver {
-    /** Returns true if the call's resolved target is a `suspend` function. */
-    fun isSuspendCall(call: KtCallExpression): Boolean
-
     /**
-     * Returns the fully-qualified name of the resolved callable target
-     * for [call] (e.g. `kotlinx.coroutines.delay`), or `null` if the
-     * target is unresolved.
+     * Resolves [call] to its target callable. Returns `null` when the
+     * call is unresolved (e.g. references a missing import or a
+     * member of an unresolved receiver). Non-null results carry every
+     * call-level fact in [CallResolution] so callers don't pay for
+     * the resolution twice.
      */
-    fun resolvedCallFqName(call: KtCallExpression): String?
+    fun resolveCall(call: KtCallExpression): CallResolution?
 
     /**
-     * Returns true when [lambda]'s functional type is a
-     * `kotlin.coroutines.SuspendFunction*` — i.e. the lambda body
-     * itself is treated as a `suspend` block. Returns false when the
-     * lambda's type is unresolved.
+     * Returns true when [lambda] is bound to a
+     * `kotlin.coroutines.SuspendFunction*` type — either because the
+     * lambda literal is itself `suspend { ... }` or because it was
+     * passed to a `suspend () -> R` parameter at a call site. Returns
+     * false when the lambda is unresolved.
      */
     fun isLambdaSuspend(lambda: KtLambdaExpression): Boolean
 
     /**
      * Returns the rendered fully-qualified type of [expression], or
-     * `null` when the type is unresolved. The exact rendering format is
-     * implementation-defined; prefer this for diagnostic messages, not
-     * for parsing.
+     * `null` when the type is unresolved. The rendering format is
+     * implementation-defined; prefer this for diagnostic messages,
+     * not for parsing.
      */
     fun expressionType(expression: KtExpression): String?
 }
+
+/**
+ * Successfully-resolved call target. Fields hold every call-level
+ * fact the resolver can answer cheaply once a call has been resolved.
+ * Returned by [Resolver.resolveCall]; rules that only need a single
+ * fact still get the rest for free.
+ */
+data class CallResolution(
+    /**
+     * Fully-qualified name of the resolved callable target
+     * (e.g. `kotlinx.coroutines.delay`).
+     */
+    val fqName: String,
+    /** True when the target is a `suspend` function. */
+    val isSuspend: Boolean,
+)
 
 /**
  * Per-invocation context passed to custom rules.

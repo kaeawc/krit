@@ -50,6 +50,12 @@ tasks.shadowJar {
         exclude(dependency("com.github.ben-manes.caffeine:caffeine:.*"))
         exclude(dependency("org.jetbrains.intellij.deps.kotlinx:kotlinx-coroutines-core:.*"))
         exclude(dependency("org.jetbrains.kotlinx:kotlinx-serialization-core:.*"))
+        // Custom-rule SPI types (TypeAwareRule, Resolver, Finding, …)
+        // are referenced only by rule jars at runtime, not by krit-types
+        // itself. Minimize would strip everything past the
+        // KritRule/KritFile/RuleContext entry points and break
+        // ServiceLoader resolution.
+        exclude(project(":krit-rule-api"))
     }
 }
 

@@ -11,6 +11,8 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import java.io.DataInputStream
 import java.io.File
+import java.io.InputStream
+import java.util.jar.JarFile
 
 /**
  * Emits `META-INF/services/dev.jasonpearson.krit.api.KritRule` listing every
@@ -31,6 +33,17 @@ abstract class KritRuleServicesTask : DefaultTask() {
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val resourcesDirs: ConfigurableFileCollection
+
+    /**
+     * Compile classpath — used to resolve abstract base classes
+     * (e.g. `TypeAwareRule`) that live outside [classesDirs] when
+     * walking the supertype chain. Without it, a rule that extends
+     * `TypeAwareRule` instead of implementing `KritRule` directly
+     * wouldn't be recognized as a service candidate.
+     */
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val compileClasspath: ConfigurableFileCollection
 
     @get:OutputDirectory
     abstract val outputDir: DirectoryProperty
@@ -91,16 +104,18 @@ abstract class KritRuleServicesTask : DefaultTask() {
         for (root in classesDirs.files) {
             if (!root.isDirectory) continue
             root.walkTopDown().filter { it.isFile && it.name.endsWith(".class") }.forEach { file ->
-                parseClass(file)?.let { byName[it.name] = it }
+                file.inputStream().buffered().use { parseClass(it) }?.let { byName[it.name] = it }
             }
         }
 
         val memo = HashMap<String, Boolean>(byName.size * 2)
+        val classpathClasses = ClasspathClassResolver(compileClasspath.files)
         fun implementsKritRule(name: String, seen: MutableSet<String>): Boolean {
             if (name == KRIT_RULE_INTERFACE) return true
             memo[name]?.let { return it }
             if (!seen.add(name)) return false
-            val info = byName[name] ?: return false.also { memo[name] = false }
+            val info = byName[name] ?: classpathClasses.lookup(name)
+                ?: return false.also { memo[name] = false }
             val result = info.interfaces.any { implementsKritRule(it, seen) } ||
                 (info.superName != null && info.superName != "java/lang/Object" &&
                     implementsKritRule(info.superName, seen))
@@ -118,66 +133,35 @@ abstract class KritRuleServicesTask : DefaultTask() {
         return results
     }
 
-    private fun parseClass(file: File): ClassInfo? {
-        return try {
-            DataInputStream(file.inputStream().buffered()).use { input ->
-                if (input.readInt() != CLASS_MAGIC) return null
-                input.skipBytes(4) // minor + major version
-                val poolCount = input.readUnsignedShort()
-                val utf = arrayOfNulls<String>(poolCount)
-                val classRef = IntArray(poolCount)
-                var i = 1
-                while (i < poolCount) {
-                    when (input.readUnsignedByte()) {
-                        CONST_UTF8 -> utf[i] = input.readUTF()
-                        CONST_CLASS -> classRef[i] = input.readUnsignedShort()
-                        CONST_STRING, CONST_METHOD_TYPE, CONST_MODULE, CONST_PACKAGE ->
-                            input.skipBytes(2)
-                        CONST_FIELDREF, CONST_METHODREF, CONST_IFACE_METHODREF,
-                        CONST_NAMEANDTYPE, CONST_DYNAMIC, CONST_INVOKEDYNAMIC ->
-                            input.skipBytes(4)
-                        CONST_INTEGER, CONST_FLOAT -> input.skipBytes(4)
-                        CONST_LONG, CONST_DOUBLE -> {
-                            input.skipBytes(8)
-                            i++ // long/double take two slots
+    /**
+     * Lazily resolves classes from the compile classpath jars on
+     * demand. Only walks jar entries the supertype chain actually
+     * requires — typically `dev/jasonpearson/krit/api/KritRule` and
+     * `dev/jasonpearson/krit/api/TypeAwareRule`.
+     */
+    private class ClasspathClassResolver(jars: Set<File>) {
+        private val jarFiles = jars.filter { it.isFile && it.name.endsWith(".jar") }
+        private val cache = mutableMapOf<String, ClassInfo?>()
+
+        fun lookup(internalName: String): ClassInfo? {
+            cache[internalName]?.let { return it }
+            if (cache.containsKey(internalName)) return null
+            val entryName = "$internalName.class"
+            for (jarFile in jarFiles) {
+                JarFile(jarFile).use { jar ->
+                    val entry = jar.getEntry(entryName) ?: return@use
+                    jar.getInputStream(entry).buffered().use { stream ->
+                        parseClass(stream)?.let {
+                            cache[internalName] = it
+                            return it
                         }
-                        CONST_METHODHANDLE -> input.skipBytes(3)
-                        else -> return null
                     }
-                    i++
                 }
-                val access = input.readUnsignedShort()
-                val thisRef = input.readUnsignedShort()
-                val superRef = input.readUnsignedShort()
-                val ifaceCount = input.readUnsignedShort()
-                val ifaceRefs = List(ifaceCount) { input.readUnsignedShort() }
-
-                fun nameOf(ref: Int): String? {
-                    if (ref <= 0 || ref >= poolCount) return null
-                    return utf[classRef[ref]]
-                }
-
-                val thisName = nameOf(thisRef) ?: return null
-                ClassInfo(
-                    name = thisName,
-                    superName = nameOf(superRef),
-                    interfaces = ifaceRefs.mapNotNull { nameOf(it) },
-                    isInterface = (access and ACC_INTERFACE) != 0,
-                    isAbstract = (access and ACC_ABSTRACT) != 0,
-                )
             }
-        } catch (_: Exception) {
-            null
+            cache[internalName] = null
+            return null
         }
     }
-
-    private data class ClassInfo(
-        val name: String,
-        val superName: String?,
-        val interfaces: List<String>,
-        val isInterface: Boolean,
-        val isAbstract: Boolean,
-    )
 
     companion object {
         const val KRIT_RULE_SERVICE_NAME = "dev.jasonpearson.krit.api.KritRule"
@@ -211,5 +195,66 @@ abstract class KritRuleServicesTask : DefaultTask() {
                 "# or list fully-qualified rule class names below (one per line).\n" +
                 "# See: https://github.com/kaeawc/krit/blob/main/krit-custom-rule-plugin/README.md\n"
             )
+
+        internal data class ClassInfo(
+            val name: String,
+            val superName: String?,
+            val interfaces: List<String>,
+            val isInterface: Boolean,
+            val isAbstract: Boolean,
+        )
+
+        internal fun parseClass(stream: InputStream): ClassInfo? {
+            return try {
+                DataInputStream(stream).use { input ->
+                    if (input.readInt() != CLASS_MAGIC) return null
+                    input.skipBytes(4) // minor + major version
+                    val poolCount = input.readUnsignedShort()
+                    val utf = arrayOfNulls<String>(poolCount)
+                    val classRef = IntArray(poolCount)
+                    var i = 1
+                    while (i < poolCount) {
+                        when (input.readUnsignedByte()) {
+                            CONST_UTF8 -> utf[i] = input.readUTF()
+                            CONST_CLASS -> classRef[i] = input.readUnsignedShort()
+                            CONST_STRING, CONST_METHOD_TYPE, CONST_MODULE, CONST_PACKAGE ->
+                                input.skipBytes(2)
+                            CONST_FIELDREF, CONST_METHODREF, CONST_IFACE_METHODREF,
+                            CONST_NAMEANDTYPE, CONST_DYNAMIC, CONST_INVOKEDYNAMIC ->
+                                input.skipBytes(4)
+                            CONST_INTEGER, CONST_FLOAT -> input.skipBytes(4)
+                            CONST_LONG, CONST_DOUBLE -> {
+                                input.skipBytes(8)
+                                i++ // long/double take two slots
+                            }
+                            CONST_METHODHANDLE -> input.skipBytes(3)
+                            else -> return null
+                        }
+                        i++
+                    }
+                    val access = input.readUnsignedShort()
+                    val thisRef = input.readUnsignedShort()
+                    val superRef = input.readUnsignedShort()
+                    val ifaceCount = input.readUnsignedShort()
+                    val ifaceRefs = List(ifaceCount) { input.readUnsignedShort() }
+
+                    fun nameOf(ref: Int): String? {
+                        if (ref <= 0 || ref >= poolCount) return null
+                        return utf[classRef[ref]]
+                    }
+
+                    val thisName = nameOf(thisRef) ?: return null
+                    ClassInfo(
+                        name = thisName,
+                        superName = nameOf(superRef),
+                        interfaces = ifaceRefs.mapNotNull { nameOf(it) },
+                        isInterface = (access and ACC_INTERFACE) != 0,
+                        isAbstract = (access and ACC_ABSTRACT) != 0,
+                    )
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
     }
 }

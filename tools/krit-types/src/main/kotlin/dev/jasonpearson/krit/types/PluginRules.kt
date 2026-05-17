@@ -1,5 +1,6 @@
 package dev.jasonpearson.krit.types
 
+import dev.jasonpearson.krit.api.CallResolution
 import dev.jasonpearson.krit.api.Capability
 import dev.jasonpearson.krit.api.Finding
 import dev.jasonpearson.krit.api.FixSafety
@@ -215,14 +216,30 @@ fun DaemonSession.handleAnalyzeFileWithPlugins(request: DaemonRequest): String {
  * once per inner suspend call.
  */
 private class AnalysisApiResolver(private val ktFile: KtFile) : Resolver {
-    private val callTargetCache = IdentityHashMap<KtCallExpression, CallTarget>()
+    private val callResolutionCache = IdentityHashMap<KtCallExpression, CallResolution?>()
     private val lambdaSuspendCache = IdentityHashMap<KtLambdaExpression, Boolean>()
 
-    override fun isSuspendCall(call: KtCallExpression): Boolean =
-        resolveCallTarget(call).isSuspend
-
-    override fun resolvedCallFqName(call: KtCallExpression): String? =
-        resolveCallTarget(call).fqName
+    override fun resolveCall(call: KtCallExpression): CallResolution? {
+        if (!call.isInModule()) return null
+        if (callResolutionCache.containsKey(call)) return callResolutionCache[call]
+        val resolution = try {
+            analyze(ktFile) {
+                val callInfo = call.resolveToCall() ?: return@analyze null
+                val callable: KaCallableMemberCall<*, *> =
+                    callInfo.singleFunctionCallOrNull()
+                        ?: callInfo.singleVariableAccessCall()
+                        ?: return@analyze null
+                val symbol = callable.partiallyAppliedSymbol.symbol
+                val fqn = symbol.callableId?.asSingleFqName()?.asString() ?: return@analyze null
+                val suspend = (symbol is KaNamedFunctionSymbol) && symbol.isSuspend
+                CallResolution(fqName = fqn, isSuspend = suspend)
+            }
+        } catch (_: Throwable) {
+            null
+        }
+        callResolutionCache[call] = resolution
+        return resolution
+    }
 
     override fun isLambdaSuspend(lambda: KtLambdaExpression): Boolean {
         if (!lambda.isInModule()) return false
@@ -255,34 +272,6 @@ private class AnalysisApiResolver(private val ktFile: KtFile) : Resolver {
         } catch (_: Throwable) {
             null
         }
-    }
-
-    private data class CallTarget(val isSuspend: Boolean, val fqName: String?) {
-        companion object {
-            val UNKNOWN = CallTarget(isSuspend = false, fqName = null)
-        }
-    }
-
-    private fun resolveCallTarget(call: KtCallExpression): CallTarget {
-        if (!call.isInModule()) return CallTarget.UNKNOWN
-        callTargetCache[call]?.let { return it }
-        val target = try {
-            analyze(ktFile) {
-                val callInfo = call.resolveToCall() ?: return@analyze CallTarget.UNKNOWN
-                val callable: KaCallableMemberCall<*, *> =
-                    callInfo.singleFunctionCallOrNull()
-                        ?: callInfo.singleVariableAccessCall()
-                        ?: return@analyze CallTarget.UNKNOWN
-                val symbol = callable.partiallyAppliedSymbol.symbol
-                val suspend = (symbol is KaNamedFunctionSymbol) && symbol.isSuspend
-                val fqn = symbol.callableId?.asSingleFqName()?.asString()
-                CallTarget(suspend, fqn)
-            }
-        } catch (_: Throwable) {
-            CallTarget.UNKNOWN
-        }
-        callTargetCache[call] = target
-        return target
     }
 
     // FIR represents a lambda literal passed to a `suspend () -> R`

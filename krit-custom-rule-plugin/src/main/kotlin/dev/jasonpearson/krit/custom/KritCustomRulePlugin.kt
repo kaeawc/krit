@@ -56,6 +56,10 @@ class KritCustomRulePlugin : Plugin<Project> {
             description = "Generates META-INF/services for KritRule implementations."
             classesDirs.from(mainSourceSet.output.classesDirs)
             resourcesDirs.from(mainSourceSet.resources.srcDirs)
+            // Resolve abstract base classes that live on the compile
+            // classpath (e.g. TypeAwareRule from krit-rule-api) when
+            // walking the supertype chain.
+            compileClasspath.from(mainSourceSet.compileClasspath)
             outputDir.convention(
                 project.layout.buildDirectory.dir("generated/krit/services")
             )

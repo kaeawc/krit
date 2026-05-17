@@ -123,8 +123,26 @@ class NoTodoRule : KritRule {
   Kotlin Analysis API. Non-null when the rule declared
   `Capability.NEEDS_RESOLVER` and the daemon successfully prepared a
   session for the current file. Methods (see `Resolver` Kdoc):
-  `isSuspendCall(KtCallExpression)`, `resolvedCallFqName(...)`,
-  `isLambdaSuspend(KtLambdaExpression)`, `expressionType(...)`.
+  `resolveCall(KtCallExpression) → CallResolution?`,
+  `isLambdaSuspend(KtLambdaExpression)`, `expressionType(...)`. Prefer
+  extending `TypeAwareRule` for rules that always need PSI + resolver
+  — it eliminates the boilerplate null check on `file.ktFile` and
+  `ctx.resolver`:
+
+  ```kotlin
+  class MyRule : TypeAwareRule() {
+      override fun check(
+          file: KritFile,
+          ctx: RuleContext,
+          ktFile: KtFile,
+          resolver: Resolver,
+      ): List<Finding> {
+          val resolved = resolver.resolveCall(callExpr) ?: return emptyList()
+          if (resolved.isSuspend) { ... }
+          // ...
+      }
+  }
+  ```
 
 The PSI surface is the Kotlin compiler's. To compile against it, add
 the JetBrains intellij-dependencies redirector to your consumer
@@ -308,7 +326,7 @@ expects. Today the daemon reports declared capabilities back through
 
 | Capability | Today | Target (per [#308](https://github.com/kaeawc/krit/issues/308)) |
 | --- | --- | --- |
-| `NEEDS_RESOLVER` | `RuleContext.resolver` is non-null. Methods: `isSuspendCall`, `resolvedCallFqName`, `isLambdaSuspend`, `expressionType`. The bridge opens a fresh Kotlin Analysis API session per query; expect microsecond-class overhead per call. | Wider `KaSession` exposure (symbols, supertype queries, diagnostics) once the API surface stabilizes. |
+| `NEEDS_RESOLVER` | `RuleContext.resolver` is non-null (or extend `TypeAwareRule` for a non-null typed handoff). Methods: `resolveCall`, `isLambdaSuspend`, `expressionType`. The bridge opens a fresh Kotlin Analysis API session per query and memoizes per-element results, so two queries on the same call cost one resolve. | Wider `KaSession` exposure (symbols, supertype queries, diagnostics) once the API surface stabilizes. |
 | `NEEDS_CROSS_FILE` | Advisory. | Cross-file declaration index (decl → references, references → decl). |
 | `NEEDS_MODULE_INDEX` | Advisory. | Gradle module identity + per-module dependency graph. |
 | `NEEDS_PARSED_FILES` | Already true for Kotlin custom rules — the daemon parses the file before invoking `check()`. | No change. |

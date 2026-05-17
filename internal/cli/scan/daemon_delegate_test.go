@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -657,6 +658,26 @@ func TestBuildDaemonAnalyzeArgs_ForwardsNoCache(t *testing.T) {
 	args2 := buildDaemonAnalyzeArgs(f2, []string{"/tmp"})
 	if args2.NoCache {
 		t.Errorf("NoCache = true with default flags, want false")
+	}
+}
+
+// TestBuildDaemonAnalyzeArgs_ForwardsCustomRuleJars confirms the
+// --custom-rule-jars flag rides on AnalyzeProjectArgs.CustomRuleJars
+// so the daemon's analyze-project path loads the plugin rules.
+// Without this the daemon runs the scan without plugin dispatch and
+// returns zero plugin findings.
+func TestBuildDaemonAnalyzeArgs_ForwardsCustomRuleJars(t *testing.T) {
+	f := freshScanFlags(t)
+	*f.CustomRuleJars = "/tmp/a.jar,/tmp/b.jar"
+	args := buildDaemonAnalyzeArgs(f, []string{"/tmp"})
+	want := []string{"/tmp/a.jar", "/tmp/b.jar"}
+	if !reflect.DeepEqual(args.CustomRuleJars, want) {
+		t.Errorf("CustomRuleJars = %v, want %v", args.CustomRuleJars, want)
+	}
+	f2 := freshScanFlags(t)
+	args2 := buildDaemonAnalyzeArgs(f2, []string{"/tmp"})
+	if len(args2.CustomRuleJars) != 0 {
+		t.Errorf("CustomRuleJars = %v with default flags, want empty", args2.CustomRuleJars)
 	}
 }
 

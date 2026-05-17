@@ -33,11 +33,11 @@ func TestRulesPackageHasNoCapabilityDrift(t *testing.T) {
 	t.Fatalf("ruleslinter found %d capability-declaration violation(s):\n%s", len(violations), b.String())
 }
 
-// TestRulesPackageHasNoNewAdHocCaches is the gate against new sync.Map
-// memoization in rule files. Existing instances are listed in
-// grandfatheredAdHocCaches and shrink as caches migrate to a shared
-// per-run facts layer (internal/filefacts/). New ad-hoc caches fail
-// here.
+// TestRulesPackageHasNoNewAdHocCaches is the gate against sync.Map
+// memoization in rule files. Rule-local memoization belongs in the
+// shared per-run facts layer (internal/filefacts/); any package-level
+// sync.Map or mutex+map pair in a rule file fails here. Legitimate
+// dispatcher infrastructure is listed in adHocCacheInfraFiles.
 func TestRulesPackageHasNoNewAdHocCaches(t *testing.T) {
 	_, thisFile, _, _ := runtime.Caller(0)
 	rulesDir := filepath.Join(filepath.Dir(thisFile), "..", "rules")
@@ -241,31 +241,6 @@ var newCache sync.Map
 	}
 	if !strings.Contains(violations[0].Message, "filefacts") {
 		t.Fatalf("want filefacts hint, got %q", violations[0].Message)
-	}
-}
-
-func TestAnalyzeAdHocCaches_AcceptsGrandfathered(t *testing.T) {
-	dir := t.TempDir()
-	src := `package rules
-
-import "sync"
-
-var allowedCache sync.Map
-`
-	if err := os.WriteFile(filepath.Join(dir, "exempt_test_fixture.go"), []byte(src), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	saved := grandfatheredAdHocCaches
-	defer func() { grandfatheredAdHocCaches = saved }()
-	grandfatheredAdHocCaches = map[AdHocCacheException]bool{
-		{File: "exempt_test_fixture.go", Name: "allowedCache"}: true,
-	}
-	violations, err := AnalyzeAdHocCaches(dir)
-	if err != nil {
-		t.Fatalf("AnalyzeAdHocCaches: %v", err)
-	}
-	if len(violations) != 0 {
-		t.Fatalf("want 0 violations, got %d: %v", len(violations), violations)
 	}
 }
 

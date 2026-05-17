@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -265,6 +267,94 @@ func TestSelectPluginRulesNilConfigKeepsEveryRuleWithoutOptions(t *testing.T) {
 	}
 	if len(opts) != 0 {
 		t.Fatalf("ruleOptions = %v, want empty", opts)
+	}
+}
+
+func TestReportPluginDiagnosticsWarnsAndAggregatesErrors(t *testing.T) {
+	warn := &bytes.Buffer{}
+	reporter := &diag.Reporter{Warning: warn}
+
+	err := reportPluginDiagnostics(reporter, []oracle.PluginLoadDiagnostic{
+		{
+			Jar: "/tmp/z.jar", Level: oracle.PluginDiagError,
+			RuleSDKVersion: "1.0.0", DaemonSDKVersion: "2.0.0",
+			Message: "rule jar built against krit-rule-api 1.0.0 is incompatible with daemon krit-rule-api 2.0.0 (major version mismatch); rebuild against 2.0.0",
+		},
+		{
+			Jar: "/tmp/a.jar", Level: oracle.PluginDiagWarn,
+			RuleSDKVersion: "1.2.0", DaemonSDKVersion: "1.3.0",
+			Message: "minor version differs",
+		},
+		{
+			Jar: "/tmp/m.jar", Level: oracle.PluginDiagError,
+			RuleSDKVersion: "", DaemonSDKVersion: "1.3.0",
+			Message: "missing manifest",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error from PluginDiagError diagnostics")
+	}
+	msg := err.Error()
+	// Errors are sorted by full formatted line so the output is
+	// deterministic across map iteration.
+	wantOrder := []string{"/tmp/m.jar", "/tmp/z.jar"}
+	for i, jar := range wantOrder {
+		idx := strings.Index(msg, jar)
+		if idx < 0 {
+			t.Fatalf("error missing %s: %q", jar, msg)
+		}
+		if i > 0 && idx < strings.Index(msg, wantOrder[i-1]) {
+			t.Fatalf("errors not sorted: %q", msg)
+		}
+	}
+	if !strings.Contains(msg, "incompatible custom rule jar(s); rebuild") {
+		t.Errorf("error missing remediation prefix: %q", msg)
+	}
+
+	gotWarn := warn.String()
+	if !strings.Contains(gotWarn, "warn: krit-rule-api: /tmp/a.jar: minor version differs") {
+		t.Errorf("warn output missing formatted warn line: %q", gotWarn)
+	}
+	if strings.Contains(gotWarn, "/tmp/z.jar") || strings.Contains(gotWarn, "/tmp/m.jar") {
+		t.Errorf("errors leaked into warn stream: %q", gotWarn)
+	}
+}
+
+func TestReportPluginDiagnosticsNoOpOnEmpty(t *testing.T) {
+	warn := &bytes.Buffer{}
+	reporter := &diag.Reporter{Warning: warn}
+	if err := reportPluginDiagnostics(reporter, nil); err != nil {
+		t.Fatalf("nil diagnostics should be a no-op: %v", err)
+	}
+	if warn.Len() != 0 {
+		t.Errorf("nil diagnostics wrote to reporter: %q", warn.String())
+	}
+}
+
+func TestReportPluginDiagnosticsUnknownLevelStillSurfaces(t *testing.T) {
+	warn := &bytes.Buffer{}
+	reporter := &diag.Reporter{Warning: warn}
+	err := reportPluginDiagnostics(reporter, []oracle.PluginLoadDiagnostic{
+		{Jar: "/tmp/x.jar", Level: oracle.PluginDiagLevel("info"), Message: "fyi"},
+	})
+	if err != nil {
+		t.Fatalf("unknown-level diagnostic should not be fatal: %v", err)
+	}
+	if !strings.Contains(warn.String(), "/tmp/x.jar") {
+		t.Errorf("unknown-level diagnostic should still print via warn stream: %q", warn.String())
+	}
+}
+
+func TestPluginLoadDiagnosticFormat(t *testing.T) {
+	d := oracle.PluginLoadDiagnostic{
+		Jar:     "/tmp/acme.jar",
+		Level:   oracle.PluginDiagWarn,
+		Message: "minor version differs",
+	}
+	got := d.Format()
+	want := "warn: krit-rule-api: /tmp/acme.jar: minor version differs"
+	if got != want {
+		t.Errorf("Format() = %q, want %q", got, want)
 	}
 }
 

@@ -238,13 +238,44 @@ type PluginRuleDescriptor struct {
 
 // ListPluginsResult is the result payload for the krit-types listPlugins verb.
 type ListPluginsResult struct {
-	Rules []PluginRuleDescriptor `json:"rules"`
+	Rules       []PluginRuleDescriptor `json:"rules"`
+	Diagnostics []PluginLoadDiagnostic `json:"diagnostics,omitempty"`
 }
 
 // AnalyzePluginFileResult is the result payload for the krit-types analyzeFile verb.
 type AnalyzePluginFileResult struct {
 	Findings []PluginFinding   `json:"findings"`
 	Errors   map[string]string `json:"errors,omitempty"`
+}
+
+// PluginDiagLevel mirrors PluginLoadDiagnostic.Level on the krit-types
+// Kotlin side (lowercased enum name). Typed so a switch over
+// d.Level gets exhaustiveness help and a typo like "WARN" fails at
+// compile time.
+type PluginDiagLevel string
+
+// Diagnostic level values emitted by PluginLoadDiagnostic.Level.
+const (
+	PluginDiagWarn  PluginDiagLevel = "warn"
+	PluginDiagError PluginDiagLevel = "error"
+)
+
+// PluginLoadDiagnostic is the per-jar load-time SDK compatibility verdict
+// emitted by the daemon. See docs/external-rules.md#compatibility-matrix.
+type PluginLoadDiagnostic struct {
+	Jar              string          `json:"jar"`
+	Level            PluginDiagLevel `json:"level"`
+	RuleSDKVersion   string          `json:"ruleSdkVersion"`
+	DaemonSDKVersion string          `json:"daemonSdkVersion"`
+	Message          string          `json:"message"`
+}
+
+// Format renders the diagnostic in the "<level>: krit-rule-api: <jar>:
+// <message>" shape shared by every sink (CLI early-exit, scan reporter,
+// fatal-aggregation prefix). Centralises the framing so the three
+// consumers can't drift.
+func (d PluginLoadDiagnostic) Format() string {
+	return fmt.Sprintf("%s: krit-rule-api: %s: %s", d.Level, d.Jar, d.Message)
 }
 
 // PluginFinding is a custom Kotlin rule finding before conversion into

@@ -410,6 +410,9 @@ func listPluginRuleDescriptors(customRuleJars []string, paths []string) []oracle
 		fmt.Fprintf(os.Stderr, "error: custom-rule plugins: %v\n", err)
 		os.Exit(2)
 	}
+	for _, diag := range list.Diagnostics {
+		fmt.Fprintln(os.Stderr, diag.Format())
+	}
 	return list.Rules
 }
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -27,6 +28,9 @@ func runKotlinPluginRulesAndMerge(ctx context.Context, args ProjectArgs, host Pr
 	list, err := daemon.ListPlugins(args.CustomRuleJars)
 	if err != nil {
 		return fmt.Errorf("list Kotlin custom rules: %w", err)
+	}
+	if err := reportPluginDiagnostics(host.Reporter, list.Diagnostics); err != nil {
+		return err
 	}
 	ruleIDs, ruleOptions := selectPluginRules(list.Rules, args.Config)
 	if len(ruleIDs) == 0 {
@@ -120,6 +124,30 @@ func pluginFixToScanner(fix *oracle.PluginFix) *scanner.Fix {
 		out.Safety = uint8(rules.FixSemantic)
 	}
 	return out
+}
+
+// reportPluginDiagnostics surfaces per-jar SDK-compatibility verdicts from
+// the daemon. Errors fail the run because the daemon already refused to
+// load any rules from those jars — silently dropping them would hide the
+// fact that the rules never ran.
+func reportPluginDiagnostics(reporter *diag.Reporter, diagnostics []oracle.PluginLoadDiagnostic) error {
+	var fatal []string
+	for _, d := range diagnostics {
+		line := d.Format()
+		if d.Level == oracle.PluginDiagError {
+			fatal = append(fatal, line)
+			continue
+		}
+		reporter.Warnf("%s\n", line)
+	}
+	if len(fatal) == 0 {
+		return nil
+	}
+	sort.Strings(fatal)
+	return fmt.Errorf(
+		"incompatible custom rule jar(s); rebuild against the daemon's krit-rule-api version:\n  %s",
+		strings.Join(fatal, "\n  "),
+	)
 }
 
 func formatPluginErrors(errors map[string]string) string {

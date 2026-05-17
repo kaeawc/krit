@@ -7,6 +7,7 @@ import dev.jasonpearson.krit.api.KritFile
 import dev.jasonpearson.krit.api.KritRule
 import dev.jasonpearson.krit.api.KritRuleInfo
 import dev.jasonpearson.krit.api.Resolver
+import dev.jasonpearson.krit.api.RuleApiVersion
 import dev.jasonpearson.krit.api.RuleContext
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.analyze
@@ -48,11 +49,105 @@ private data class PluginRuleDescriptor(
     val sdkVersion: String,
 )
 
+internal data class PluginLoadDiagnostic(
+    val jar: String,
+    val level: Level,
+    val ruleSdkVersion: String,
+    val daemonSdkVersion: String,
+    val message: String,
+) {
+    enum class Level { WARN, ERROR }
+}
+
+/**
+ * Semver-based compatibility gate for the rule SDK. The compatibility
+ * matrix and the rationale for each verdict live in
+ * `docs/external-rules.md#compatibility-matrix` — keep that in sync when
+ * changing this policy.
+ */
+internal object SdkCompatibility {
+    val DAEMON_SDK_VERSION: String = RuleApiVersion.VERSION
+
+    private const val DEV_SNAPSHOT = "0.0.0-SNAPSHOT"
+
+    fun check(
+        jar: String,
+        ruleSdkVersion: String,
+        daemonSdkVersion: String = DAEMON_SDK_VERSION,
+    ): PluginLoadDiagnostic? {
+        if (ruleSdkVersion.isBlank()) {
+            return PluginLoadDiagnostic(
+                jar = jar,
+                level = PluginLoadDiagnostic.Level.WARN,
+                ruleSdkVersion = "",
+                daemonSdkVersion = daemonSdkVersion,
+                message = "rule jar is missing the Krit-SDK-Version manifest attribute; " +
+                    "rebuild against dev.jasonpearson.krit:krit-rule-api:$daemonSdkVersion",
+            )
+        }
+        if (ruleSdkVersion == DEV_SNAPSHOT || daemonSdkVersion == DEV_SNAPSHOT) {
+            return null
+        }
+        val rule = Semver.parse(ruleSdkVersion)
+        val daemon = Semver.parse(daemonSdkVersion)
+        if (rule == null) {
+            return PluginLoadDiagnostic(
+                jar = jar,
+                level = PluginLoadDiagnostic.Level.WARN,
+                ruleSdkVersion = ruleSdkVersion,
+                daemonSdkVersion = daemonSdkVersion,
+                message = "could not parse rule Krit-SDK-Version '$ruleSdkVersion'; " +
+                    "expected semver matching daemon $daemonSdkVersion",
+            )
+        }
+        if (daemon == null) return null
+        if (rule.major == daemon.major && rule.minor == daemon.minor) {
+            return null
+        }
+        val breaking = rule.major != daemon.major ||
+            (rule.major == 0 && rule.minor != daemon.minor)
+        val level = if (breaking) PluginLoadDiagnostic.Level.ERROR else PluginLoadDiagnostic.Level.WARN
+        val reason = when {
+            rule.major != daemon.major -> "major version mismatch"
+            rule.major == 0 -> "0.x minor version mismatch (treated as breaking under semver)"
+            else -> "minor version differs"
+        }
+        val verb = if (breaking) "is incompatible with" else "may not be fully compatible with"
+        return PluginLoadDiagnostic(
+            jar = jar,
+            level = level,
+            ruleSdkVersion = ruleSdkVersion,
+            daemonSdkVersion = daemonSdkVersion,
+            message = "rule jar built against krit-rule-api $ruleSdkVersion " +
+                "$verb daemon krit-rule-api $daemonSdkVersion ($reason); " +
+                "rebuild against $daemonSdkVersion",
+        )
+    }
+}
+
+internal data class Semver(val major: Int, val minor: Int, val patch: Int) {
+    companion object {
+        // Accept `1.2.3`, `1.2.3-rc1`, `1.2.3+build.7`. Pre-release / build
+        // metadata is ignored for compatibility comparisons — the policy is
+        // expressed in terms of MAJOR.MINOR only.
+        private val SEMVER = Regex("""^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$""")
+        fun parse(s: String): Semver? {
+            val m = SEMVER.matchEntire(s.trim()) ?: return null
+            return Semver(
+                major = m.groupValues[1].toInt(),
+                minor = m.groupValues[2].toInt(),
+                patch = m.groupValues[3].toInt(),
+            )
+        }
+    }
+}
+
 private object PluginRuleRegistry {
     private val classloaders = mutableListOf<URLClassLoader>()
     private val loadedJars = linkedSetOf<String>()
     private val ruleIdsByJar = linkedMapOf<String, MutableList<String>>()
     private val rules = linkedMapOf<String, LoadedPluginRule>()
+    private val diagnosticsByJar = linkedMapOf<String, PluginLoadDiagnostic>()
 
     @Synchronized
     fun load(jars: List<String>) {
@@ -64,9 +159,18 @@ private object PluginRuleRegistry {
             if (file.path in loadedJars) {
                 continue
             }
+            val sdkVersion = readSdkVersion(file)
+            val diagnostic = SdkCompatibility.check(file.path, sdkVersion)
+            diagnostic?.let { diagnosticsByJar[file.path] = it }
+            if (diagnostic?.level == PluginLoadDiagnostic.Level.ERROR) {
+                // Mark the jar as visited so a repeat listPlugins call
+                // doesn't reopen an incompatible jar; the diagnostic itself
+                // surfaces in the response.
+                loadedJars.add(file.path)
+                continue
+            }
             val loader = URLClassLoader(arrayOf(file.toURI().toURL()), KritRule::class.java.classLoader)
             try {
-                val sdkVersion = readSdkVersion(file)
                 val serviceRules = ServiceLoader.load(KritRule::class.java, loader).iterator()
                 val jarRuleIds = ruleIdsByJar.getOrPut(file.path) { mutableListOf() }
                 while (serviceRules.hasNext()) {
@@ -107,6 +211,13 @@ private object PluginRuleRegistry {
                 throw t
             }
         }
+    }
+
+    @Synchronized
+    fun diagnosticsForJars(jars: List<String>): List<PluginLoadDiagnostic> {
+        if (jars.isEmpty()) return emptyList()
+        val wanted = jars.map { File(it).canonicalFile.path }.toSet()
+        return diagnosticsByJar.values.filter { it.jar in wanted }
     }
 
     @Synchronized
@@ -158,7 +269,11 @@ fun DaemonSession.handleListPlugins(request: DaemonRequest): String {
     val jars = request.pluginJars.orEmpty()
     return try {
         PluginRuleRegistry.load(jars)
-        buildListPluginsResponse(request.id, PluginRuleRegistry.descriptorsForJars(jars))
+        buildListPluginsResponse(
+            id = request.id,
+            descriptors = PluginRuleRegistry.descriptorsForJars(jars),
+            diagnostics = PluginRuleRegistry.diagnosticsForJars(jars),
+        )
     } catch (t: Throwable) {
         """{"id":${request.id},"error":"${escJsonStr(t.message ?: "listPlugins failed")}"}"""
     }
@@ -195,7 +310,11 @@ fun DaemonSession.handleAnalyzeFileWithPlugins(request: DaemonRequest): String {
                 errors[loaded.descriptor.ruleId] = t.message ?: "rule failed"
             }
         }
-        buildAnalyzeFileResponse(request.id, findings, errors)
+        buildAnalyzeFileResponse(
+            id = request.id,
+            findings = findings,
+            errors = errors,
+        )
     } catch (t: Throwable) {
         """{"id":${request.id},"error":"${escJsonStr(t.message ?: "analyzeFile failed")}"}"""
     }
@@ -386,7 +505,11 @@ private fun toPluginFinding(path: String, descriptor: PluginRuleDescriptor, find
     )
 }
 
-private fun buildListPluginsResponse(id: Long, descriptors: List<PluginRuleDescriptor>): String {
+private fun buildListPluginsResponse(
+    id: Long,
+    descriptors: List<PluginRuleDescriptor>,
+    diagnostics: List<PluginLoadDiagnostic>,
+): String {
     val sb = StringBuilder()
     sb.append("""{"id":""").append(id).append(""","result":{"rules":[""")
     var first = true
@@ -406,8 +529,28 @@ private fun buildListPluginsResponse(id: Long, descriptors: List<PluginRuleDescr
         }
         sb.append('}')
     }
-    sb.append("]}}")
+    sb.append(']')
+    appendDiagnostics(sb, diagnostics)
+    sb.append('}').append('}')
     return sb.toString()
+}
+
+private fun appendDiagnostics(sb: StringBuilder, diagnostics: List<PluginLoadDiagnostic>) {
+    if (diagnostics.isEmpty()) return
+    sb.append(",\"diagnostics\":[")
+    var first = true
+    for (d in diagnostics) {
+        if (!first) sb.append(',')
+        first = false
+        sb.append('{')
+        sb.append("\"jar\":").append(esc(d.jar)).append(',')
+        sb.append("\"level\":").append(esc(d.level.name.lowercase())).append(',')
+        sb.append("\"ruleSdkVersion\":").append(esc(d.ruleSdkVersion)).append(',')
+        sb.append("\"daemonSdkVersion\":").append(esc(d.daemonSdkVersion)).append(',')
+        sb.append("\"message\":").append(esc(d.message))
+        sb.append('}')
+    }
+    sb.append(']')
 }
 
 private fun buildAnalyzeFileResponse(

@@ -32,6 +32,54 @@ java {
     withJavadocJar()
 }
 
+// Codegen so RuleApiVersion.VERSION tracks `version` automatically rather
+// than drifting from a hand-edited constant; the daemon reads it at
+// jar-load time to compare against the consumer rule jar's Krit-SDK-Version.
+val generateRuleApiVersion = tasks.register("generateRuleApiVersion") {
+    val versionString = version.toString()
+    val outputDir = layout.buildDirectory.dir("generated/source/ruleApiVersion/main")
+    inputs.property("ruleApiVersion", versionString)
+    outputs.dir(outputDir)
+    doLast {
+        val pkgDir = outputDir.get().asFile.resolve("dev/jasonpearson/krit/api")
+        pkgDir.mkdirs()
+        pkgDir.resolve("RuleApiVersion.kt").writeText(
+            """
+            |package dev.jasonpearson.krit.api
+            |
+            |/**
+            | * Version of `dev.jasonpearson.krit:krit-rule-api` baked in at build time.
+            | *
+            | * The Krit daemon compares this against the `Krit-SDK-Version` manifest
+            | * attribute stamped by `dev.jasonpearson.krit.custom` on each rule jar to
+            | * emit a load-time compatibility diagnostic. See `docs/external-rules.md`.
+            | */
+            |public object RuleApiVersion {
+            |    public const val VERSION: String = "$versionString"
+            |}
+            |
+            """.trimMargin()
+        )
+    }
+}
+
+sourceSets {
+    named("main") {
+        java.srcDir(generateRuleApiVersion.map { layout.buildDirectory.dir("generated/source/ruleApiVersion/main") })
+    }
+}
+
+tasks.named<Jar>("jar") {
+    val versionString = version.toString()
+    manifest {
+        attributes(
+            "Implementation-Title" to "krit-rule-api",
+            "Implementation-Version" to versionString,
+            "Implementation-Vendor" to "dev.jasonpearson",
+        )
+    }
+}
+
 publishing {
     publications {
         create<MavenPublication>("maven") {

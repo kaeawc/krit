@@ -370,13 +370,66 @@ underlying KAA calls may change without notice between Krit releases.
 
 **SDK version.** Krit publishes `dev.jasonpearson.krit:krit-rule-api`
 to Maven Central in lockstep with each Krit release (see
-[release notes](release.md)). A rule jar built against
-`krit-rule-api:X.Y.Z` is expected to run on Krit `X.Y.Z`. Patch-level
-binary compatibility (rule jar built on `0.2.0` running on `0.2.1`)
-is intended; minor and major bumps may require a recompile. The
-`Krit-SDK-Version` manifest attribute is the audit trail — Krit reads
-it when listing plugins and will use it to surface a mismatch warning
-once the gate lands.
+[release notes](release.md)). The `krit-rule-api` jar carries an
+`Implementation-Version` manifest attribute matching the published
+coordinate, and the `dev.jasonpearson.krit.custom` plugin stamps
+`Krit-SDK-Version` into every consumer rule jar's manifest. The Krit
+daemon reads both at load time and compares them via the
+[compatibility matrix](#compatibility-matrix) below.
+
+#### Compatibility matrix
+
+The daemon's verdict for a rule jar's `Krit-SDK-Version` vs. the
+daemon's own bundled `krit-rule-api` version:
+
+| Rule jar SDK | Daemon SDK | Verdict | Behavior |
+| --- | --- | --- | --- |
+| Exact match | — | ok | Silent. |
+| Patch differs only (e.g. `1.2.3` vs. `1.2.7`) | within same `1.x.y` | ok | Silent. The API is source- and binary-compatible across patch releases. |
+| Minor differs (e.g. `1.2.x` vs. `1.3.x`), major ≥ 1 | same major | warn | Rules still load; reporter prints a drift warning. New `Resolver` methods may not exist; rebuild against the daemon's version to stay supported. |
+| Minor differs under `0.x` (e.g. `0.2.x` vs. `0.3.x`) | major = 0 | error | Daemon refuses to load any rules from the jar. Pre-1.0 minor bumps are treated as breaking under semver. |
+| Major differs (e.g. `1.x.y` vs. `2.x.y`) | — | error | Daemon refuses to load. Rebuild required. |
+| Missing `Krit-SDK-Version` manifest attribute | — | warn | Rules still load. Suggests the jar was built by hand or with an old version of the custom-rule plugin. |
+| Unparseable version string | — | warn | Rules still load; the daemon cannot reason about compatibility. |
+| Either side `0.0.0-SNAPSHOT` (local dev) | — | ok | Silent — composite-build dogfooding wouldn't otherwise be useful. |
+
+Diagnostics surface in two places:
+
+- **CLI**: `--list-rules --custom-rule-jars …` prints a `warn:` /
+  `error:` line per jar before the rule table.
+- **Scan**: warnings are routed through the standard warning stream
+  (stderr by default). An `error`-level diagnostic fails the run with
+  an `incompatible custom rule jar(s); rebuild …` message — silently
+  skipping the jar would hide the fact that the rules never ran.
+
+The same diagnostics ride on the daemon's `listPlugins` RPC response
+under `result.diagnostics`, so other consumers (LSP, MCP, Gradle) can
+render them their own way. `analyzeFile` does not re-emit them — call
+`listPlugins` first if you need to surface compatibility verdicts in
+a custom front-end.
+
+**Semver policy for `krit-rule-api`.** The rule API follows standard
+semver, with the usual pre-1.0 caveat that minor bumps may be
+breaking. Concretely:
+
+- **Patch** (`X.Y.Z` → `X.Y.(Z+1)`): bug fixes, doc-only changes,
+  internal refactors. Source- and binary-compatible. Existing rule
+  jars run unchanged.
+- **Minor** (`X.Y.*` → `X.(Y+1).0`): additive only — new `Resolver`
+  methods (with default implementations once Kotlin allows on
+  interfaces, otherwise via new abstract methods scoped to the
+  daemon-side implementation), new `Capability` enum entries, new
+  `KritRuleInfo` fields with defaults. Rebuilding against the new
+  version is recommended but not required to keep loading.
+- **Major** (`X.*.*` → `(X+1).0.0`): removed or renamed symbols,
+  changed method signatures, semantic changes to existing methods. A
+  rebuild is required.
+- **Pre-1.0** (`0.Y.Z`): minor bumps may be breaking. The daemon
+  treats them as breaking by default.
+
+Pre-release identifiers (`-rc1`, `-alpha`) and build metadata
+(`+sha.abc`) are ignored for compatibility comparisons; the policy is
+expressed in terms of `MAJOR.MINOR` only.
 
 **ServiceLoader contract.** The interface name
 `dev.jasonpearson.krit.api.KritRule` is stable. The metadata

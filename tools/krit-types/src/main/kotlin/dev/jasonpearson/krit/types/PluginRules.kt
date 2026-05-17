@@ -142,12 +142,72 @@ internal data class Semver(val major: Int, val minor: Int, val patch: Int) {
     }
 }
 
+internal data class CapabilityViolation(
+    val ruleId: String,
+    val unsupported: List<String>,
+)
+
+/**
+ * Single source of truth for the set of [Capability] values the daemon
+ * can actually deliver into [RuleContext] today. Anything outside this
+ * set must be rejected at jar load time so a rule cannot silently run
+ * without the facts it asked for. See `docs/external-rules.md#capability-semantics`
+ * for the user-facing matrix and the policy.
+ */
+internal object PluginCapabilities {
+    const val TRACKING_ISSUE_URL: String = "https://github.com/kaeawc/krit/issues/308"
+
+    val SUPPORTED: Set<String> = setOf(
+        Capability.NEEDS_RESOLVER.name,
+        // The daemon always parses the Kotlin file before invoking the
+        // rule; declaring NEEDS_PARSED_FILES is honored as a no-op hint
+        // rather than rejected, so existing rules that opt in stay
+        // forward-compatible.
+        Capability.NEEDS_PARSED_FILES.name,
+    )
+
+    fun unsupported(needs: List<String>): List<String> =
+        needs.filter { it !in SUPPORTED }
+
+    fun buildLoadDiagnostic(
+        jar: String,
+        ruleSdkVersion: String,
+        daemonSdkVersion: String,
+        violations: List<CapabilityViolation>,
+    ): PluginLoadDiagnostic {
+        // Sort by rule ID so the message is deterministic across
+        // ServiceLoader iteration order — otherwise the same offending
+        // jar would produce different diagnostic strings on different
+        // runs, breaking exact-match assertions in downstream tests.
+        val rendered = violations
+            .sortedBy { it.ruleId }
+            .joinToString(separator = "; ") { (id, caps) ->
+                "$id: ${caps.joinToString(separator = ", ")}"
+            }
+        val message = "rule jar declares capabilities the daemon does not yet provide " +
+            "to plugin rules; the rule would run without the facts it asked for. " +
+            "Remove the declaration(s) or wait for support (tracked on " +
+            "$TRACKING_ISSUE_URL). Unsupported: [$rendered]"
+        return PluginLoadDiagnostic(
+            jar = jar,
+            level = PluginLoadDiagnostic.Level.ERROR,
+            ruleSdkVersion = ruleSdkVersion,
+            daemonSdkVersion = daemonSdkVersion,
+            message = message,
+        )
+    }
+}
+
 private object PluginRuleRegistry {
     private val classloaders = mutableListOf<URLClassLoader>()
     private val loadedJars = linkedSetOf<String>()
     private val ruleIdsByJar = linkedMapOf<String, MutableList<String>>()
     private val rules = linkedMapOf<String, LoadedPluginRule>()
-    private val diagnosticsByJar = linkedMapOf<String, PluginLoadDiagnostic>()
+    // Multiple diagnostics per jar: a jar can carry both an SDK-compat
+    // warn AND a capability-error in the same load. Keeping them as a
+    // flat ordered list preserves emission order for deterministic
+    // listPlugins responses.
+    private val diagnostics: MutableList<PluginLoadDiagnostic> = mutableListOf()
 
     @Synchronized
     fun load(jars: List<String>) {
@@ -160,9 +220,9 @@ private object PluginRuleRegistry {
                 continue
             }
             val sdkVersion = readSdkVersion(file)
-            val diagnostic = SdkCompatibility.check(file.path, sdkVersion)
-            diagnostic?.let { diagnosticsByJar[file.path] = it }
-            if (diagnostic?.level == PluginLoadDiagnostic.Level.ERROR) {
+            val sdkDiagnostic = SdkCompatibility.check(file.path, sdkVersion)
+            sdkDiagnostic?.let { diagnostics.add(it) }
+            if (sdkDiagnostic?.level == PluginLoadDiagnostic.Level.ERROR) {
                 // Mark the jar as visited so a repeat listPlugins call
                 // doesn't reopen an incompatible jar; the diagnostic itself
                 // surfaces in the response.
@@ -170,54 +230,85 @@ private object PluginRuleRegistry {
                 continue
             }
             val loader = URLClassLoader(arrayOf(file.toURI().toURL()), KritRule::class.java.classLoader)
+            val staged: List<LoadedPluginRule>
             try {
-                val serviceRules = ServiceLoader.load(KritRule::class.java, loader).iterator()
-                val jarRuleIds = ruleIdsByJar.getOrPut(file.path) { mutableListOf() }
-                while (serviceRules.hasNext()) {
-                    val rule = serviceRules.next()
-                    val info = rule.javaClass.getAnnotation(KritRuleInfo::class.java)
-                    val descriptor = if (info != null) {
-                        PluginRuleDescriptor(
-                            ruleId = info.id,
-                            category = info.category,
-                            severity = info.severity.name.lowercase(),
-                            maturity = info.maturity.name.lowercase(),
-                            languages = info.languages.map { it.name.lowercase() },
-                            needs = info.needs.map { it.name },
-                            sdkVersion = sdkVersion,
-                        )
-                    } else {
-                        PluginRuleDescriptor(
-                            ruleId = rule.javaClass.name,
-                            category = "custom",
-                            severity = "warning",
-                            maturity = "experimental",
-                            languages = listOf("kotlin"),
-                            needs = emptyList(),
-                            sdkVersion = sdkVersion,
-                        )
-                    }
-                    jarRuleIds.add(descriptor.ruleId)
-                    rules[descriptor.ruleId] = LoadedPluginRule(rule, descriptor)
-                }
-                loadedJars.add(file.path)
-                classloaders.add(loader)
+                staged = stageRules(loader, sdkVersion)
             } catch (t: Throwable) {
-                ruleIdsByJar.remove(file.path)
-                try {
-                    loader.close()
-                } catch (_: Exception) {
-                }
+                loader.closeQuietly()
                 throw t
             }
+            val violations = staged.mapNotNull { loaded ->
+                val unsupported = PluginCapabilities.unsupported(loaded.descriptor.needs)
+                if (unsupported.isEmpty()) null else CapabilityViolation(loaded.descriptor.ruleId, unsupported)
+            }
+            if (violations.isNotEmpty()) {
+                diagnostics.add(
+                    PluginCapabilities.buildLoadDiagnostic(
+                        jar = file.path,
+                        ruleSdkVersion = sdkVersion,
+                        daemonSdkVersion = SdkCompatibility.DAEMON_SDK_VERSION,
+                        violations = violations,
+                    ),
+                )
+                loadedJars.add(file.path)
+                loader.closeQuietly()
+                continue
+            }
+            val jarRuleIds = ruleIdsByJar.getOrPut(file.path) { mutableListOf() }
+            for (loaded in staged) {
+                jarRuleIds.add(loaded.descriptor.ruleId)
+                rules[loaded.descriptor.ruleId] = loaded
+            }
+            loadedJars.add(file.path)
+            classloaders.add(loader)
         }
+    }
+
+    // Loader close is best-effort: a failure to release JAR file
+    // handles shouldn't mask the diagnostic or error we're about to
+    // surface, since the diagnostic is the user-actionable signal.
+    private fun URLClassLoader.closeQuietly() {
+        try {
+            close()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun stageRules(loader: URLClassLoader, sdkVersion: String): List<LoadedPluginRule> {
+        val staged = mutableListOf<LoadedPluginRule>()
+        for (rule in ServiceLoader.load(KritRule::class.java, loader)) {
+            val info = rule.javaClass.getAnnotation(KritRuleInfo::class.java)
+            val descriptor = if (info != null) {
+                PluginRuleDescriptor(
+                    ruleId = info.id,
+                    category = info.category,
+                    severity = info.severity.name.lowercase(),
+                    maturity = info.maturity.name.lowercase(),
+                    languages = info.languages.map { it.name.lowercase() },
+                    needs = info.needs.map { it.name },
+                    sdkVersion = sdkVersion,
+                )
+            } else {
+                PluginRuleDescriptor(
+                    ruleId = rule.javaClass.name,
+                    category = "custom",
+                    severity = "warning",
+                    maturity = "experimental",
+                    languages = listOf("kotlin"),
+                    needs = emptyList(),
+                    sdkVersion = sdkVersion,
+                )
+            }
+            staged.add(LoadedPluginRule(rule, descriptor))
+        }
+        return staged
     }
 
     @Synchronized
     fun diagnosticsForJars(jars: List<String>): List<PluginLoadDiagnostic> {
         if (jars.isEmpty()) return emptyList()
         val wanted = jars.map { File(it).canonicalFile.path }.toSet()
-        return diagnosticsByJar.values.filter { it.jar in wanted }
+        return diagnostics.filter { it.jar in wanted }
     }
 
     @Synchronized

@@ -307,8 +307,14 @@ func TestReportPluginDiagnosticsWarnsAndAggregatesErrors(t *testing.T) {
 			t.Fatalf("errors not sorted: %q", msg)
 		}
 	}
-	if !strings.Contains(msg, "incompatible custom rule jar(s); rebuild") {
+	if !strings.Contains(msg, "custom rule jar(s) failed to load") {
 		t.Errorf("error missing remediation prefix: %q", msg)
+	}
+	if !strings.Contains(msg, "rebuild against the daemon's krit-rule-api version") {
+		t.Errorf("error missing SDK-rebuild hint: %q", msg)
+	}
+	if !strings.Contains(msg, "remove unsupported capability declarations") {
+		t.Errorf("error missing capability remediation hint: %q", msg)
 	}
 
 	gotWarn := warn.String()

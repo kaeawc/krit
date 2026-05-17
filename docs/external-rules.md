@@ -301,25 +301,53 @@ may not be known to the binary at config-load time.
 ## Capability semantics
 
 `@KritRuleInfo.needs` declares which project-scope facts the rule
-expects. Today the daemon reports declared capabilities back through
-`listPlugins` but does not yet plumb every one of them into the
-`RuleContext` exposed to `check()`. Treat the list below as
-*request now, receive when the SDK lands the corresponding hook*.
+expects. The daemon either delivers the requested fact into
+`RuleContext` or refuses to load the jar — there is no third "advisory"
+state. The list below is the supported surface today; the unsupported
+entries stay in the enum so existing source continues to compile, but
+the values are `@Deprecated` (warn) and a rule that declares one fails
+at jar load with a clear, copy-pasteable diagnostic. Tracked on
+[#308](https://github.com/kaeawc/krit/issues/308).
 
-| Capability | Today | Target (per [#308](https://github.com/kaeawc/krit/issues/308)) |
+| Capability | Status | What it gives you |
 | --- | --- | --- |
-| `NEEDS_RESOLVER` | `RuleContext.resolver` is non-null. Methods: `isSuspendCall`, `resolvedCallFqName`, `isLambdaSuspend`, `expressionType`. The bridge opens a fresh Kotlin Analysis API session per query; expect microsecond-class overhead per call. | Wider `KaSession` exposure (symbols, supertype queries, diagnostics) once the API surface stabilizes. |
-| `NEEDS_CROSS_FILE` | Advisory. | Cross-file declaration index (decl → references, references → decl). |
-| `NEEDS_MODULE_INDEX` | Advisory. | Gradle module identity + per-module dependency graph. |
-| `NEEDS_PARSED_FILES` | Already true for Kotlin custom rules — the daemon parses the file before invoking `check()`. | No change. |
-| `NEEDS_MANIFEST` | Advisory. | Android `AndroidManifest.xml` view. |
-| `NEEDS_RESOURCES` | Advisory. | Parsed `res/` tree (strings, drawables, layouts). |
-| `NEEDS_GRADLE` | Advisory. | Version catalog + applied plugins / dependencies. |
+| `NEEDS_RESOLVER` | **supported** | Populates `RuleContext.resolver` with the [`Resolver`](#) bridge. Methods: `isSuspendCall`, `resolvedCallFqName`, `isLambdaSuspend`, `expressionType`. Each call opens a Kotlin Analysis API session — expect microsecond-class overhead per query. |
+| `NEEDS_PARSED_FILES` | **supported (implicit)** | The daemon always parses the Kotlin file before invoking `check()` and exposes the result on `KritFile.ktFile`. Declaring it is a forward-compatible hint; omitting it changes nothing today. |
+| `NEEDS_CROSS_FILE` | `@Deprecated` — fails load | Cross-file declaration index (decl → references, references → decl). Not yet plumbed. |
+| `NEEDS_MODULE_INDEX` | `@Deprecated` — fails load | Gradle module identity + per-module dependency graph. Not yet plumbed. |
+| `NEEDS_MANIFEST` | `@Deprecated` — fails load | Android `AndroidManifest.xml` view. Not yet plumbed. |
+| `NEEDS_RESOURCES` | `@Deprecated` — fails load | Parsed `res/` tree (strings, drawables, layouts). Not yet plumbed. |
+| `NEEDS_GRADLE` | `@Deprecated` — fails load | Version catalog + applied plugins / dependencies. Not yet plumbed. |
 
-Declaring a capability you do not yet need is harmless — declaring one
-you do need is the forward-compatible way to opt in once the
-corresponding hook lands. Capabilities the daemon does not expose
-today are tracked on [#308](https://github.com/kaeawc/krit/issues/308).
+### What a load failure looks like
+
+A jar that declares an unsupported capability is rejected at
+`listPlugins` time, before any rule from that jar runs:
+
+```
+error: krit-rule-api: /tmp/acme-rules.jar: rule jar declares capabilities
+the daemon does not yet provide to plugin rules; the rule would run
+without the facts it asked for. Remove the declaration(s) or wait for
+support (tracked on https://github.com/kaeawc/krit/issues/308).
+Unsupported: [acme.NoTodo: NEEDS_GRADLE]
+```
+
+The diagnostic surfaces on the same channels as the SDK-compat verdict:
+`--list-rules` prints it before the rule table, `krit` (scan) fails the
+run, and `listPlugins` returns it under `result.diagnostics`. The
+remediation is to either delete the bad enum from `@KritRuleInfo.needs`
+or — once the corresponding hook lands — rebuild against a daemon that
+moves the entry into the supported set.
+
+### Promoting a capability from deprecated to supported
+
+When the daemon learns to deliver one of the deprecated capabilities
+(e.g. `NEEDS_GRADLE`), promotion is a minor-version change on
+`krit-rule-api`: the `@Deprecated` marker is removed, `RuleContext`
+grows the new accessor, the daemon adds the entry to
+`PluginCapabilities.SUPPORTED`, and the matrix above flips. Existing
+rule jars that already declared the capability start running with the
+new fact wired in — no rule-jar rebuild required.
 
 ## FixSafety levels
 

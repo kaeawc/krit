@@ -179,14 +179,77 @@ enum class Severity { ERROR, WARNING, INFO }
 /** Rule maturity used for default activation and experimental gating. */
 enum class Maturity { STABLE, EXPERIMENTAL, DEPRECATED }
 
-/** Capabilities a custom rule needs from the Krit daemon. */
+/**
+ * Capabilities a custom rule needs from the Krit daemon.
+ *
+ * Each value documents which `RuleContext` hook the daemon wires up when
+ * the rule declares it. Capabilities marked `@Deprecated` are not yet
+ * delivered to plugin rules — declaring one of those fails the jar at
+ * load time with a clear message (see `PluginRules.kt`). The
+ * load-time gate exists so a typo or a too-optimistic declaration
+ * cannot silently degrade to "rule runs without the facts it asked
+ * for". Tracked on https://github.com/kaeawc/krit/issues/308.
+ *
+ * Adding a new capability is a minor-version change (additive, default
+ * not-required). Promoting a deprecated entry to "supported" is also a
+ * minor-version change. Removing a deprecated entry is a major-version
+ * change.
+ */
 enum class Capability {
+    /**
+     * Populates [RuleContext.resolver] with a [Resolver] backed by per-
+     * call Kotlin Analysis API sessions. Honored when the daemon
+     * successfully prepares a session for the current file.
+     */
     NEEDS_RESOLVER,
+
+    @Deprecated(
+        message = "NEEDS_CROSS_FILE is not yet delivered to plugin rules. " +
+            "Declaring it causes the rule jar to fail at load time. Tracked " +
+            "on https://github.com/kaeawc/krit/issues/308.",
+        level = DeprecationLevel.WARNING,
+    )
     NEEDS_CROSS_FILE,
+
+    @Deprecated(
+        message = "NEEDS_MODULE_INDEX is not yet delivered to plugin rules. " +
+            "Declaring it causes the rule jar to fail at load time. Tracked " +
+            "on https://github.com/kaeawc/krit/issues/308.",
+        level = DeprecationLevel.WARNING,
+    )
     NEEDS_MODULE_INDEX,
+
+    /**
+     * Indicates the rule walks a parsed Kotlin file. Always satisfied
+     * for Kotlin plugin rules — the daemon parses the source before
+     * invoking `check()` and exposes the result on [KritFile.ktFile].
+     * Declaring this capability is a forward-compatible hint; omitting
+     * it changes nothing today.
+     */
     NEEDS_PARSED_FILES,
+
+    @Deprecated(
+        message = "NEEDS_MANIFEST is not yet delivered to plugin rules. " +
+            "Declaring it causes the rule jar to fail at load time. Tracked " +
+            "on https://github.com/kaeawc/krit/issues/308.",
+        level = DeprecationLevel.WARNING,
+    )
     NEEDS_MANIFEST,
+
+    @Deprecated(
+        message = "NEEDS_RESOURCES is not yet delivered to plugin rules. " +
+            "Declaring it causes the rule jar to fail at load time. Tracked " +
+            "on https://github.com/kaeawc/krit/issues/308.",
+        level = DeprecationLevel.WARNING,
+    )
     NEEDS_RESOURCES,
+
+    @Deprecated(
+        message = "NEEDS_GRADLE is not yet delivered to plugin rules. " +
+            "Declaring it causes the rule jar to fail at load time. Tracked " +
+            "on https://github.com/kaeawc/krit/issues/308.",
+        level = DeprecationLevel.WARNING,
+    )
     NEEDS_GRADLE,
 }
 

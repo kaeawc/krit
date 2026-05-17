@@ -126,10 +126,12 @@ func pluginFixToScanner(fix *oracle.PluginFix) *scanner.Fix {
 	return out
 }
 
-// reportPluginDiagnostics surfaces per-jar SDK-compatibility verdicts from
-// the daemon. Errors fail the run because the daemon already refused to
-// load any rules from those jars — silently dropping them would hide the
-// fact that the rules never ran.
+// reportPluginDiagnostics surfaces per-jar load-time verdicts from the
+// daemon (SDK-compat verdicts plus capability gate from
+// docs/external-rules.md#capability-semantics). Errors fail the run
+// because the daemon already refused to load any rules from those jars
+// — silently dropping them would hide the fact that the rules never
+// ran.
 func reportPluginDiagnostics(reporter *diag.Reporter, diagnostics []oracle.PluginLoadDiagnostic) error {
 	var fatal []string
 	for _, d := range diagnostics {
@@ -145,7 +147,7 @@ func reportPluginDiagnostics(reporter *diag.Reporter, diagnostics []oracle.Plugi
 	}
 	sort.Strings(fatal)
 	return fmt.Errorf(
-		"incompatible custom rule jar(s); rebuild against the daemon's krit-rule-api version:\n  %s",
+		"custom rule jar(s) failed to load; see per-jar message for the fix (rebuild against the daemon's krit-rule-api version, or remove unsupported capability declarations):\n  %s",
 		strings.Join(fatal, "\n  "),
 	)
 }

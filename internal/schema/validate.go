@@ -77,6 +77,10 @@ func ValidateConfig(cfg *config.Config) []ValidationError {
 			}
 			continue
 		}
+		if key == config.PluginRulesKey {
+			errs = append(errs, validatePluginRules(val)...)
+			continue
+		}
 
 		setMap, ok := val.(map[string]interface{})
 		if !ok {
@@ -174,6 +178,69 @@ func validateSLOs(raw interface{}) []ValidationError {
 				errs = append(errs, ValidationError{
 					Path:    fieldPath,
 					Message: fmt.Sprintf("unknown config key '%s'", key),
+					Level:   "error",
+				})
+			}
+		}
+	}
+	return errs
+}
+
+// validatePluginRules checks the top-level pluginRules section.
+// Shape: pluginRules: { <ruleID>: { active: bool, options: { ... } } }.
+// Rule IDs are accepted as-is — they belong to user-supplied jars and
+// the validator has no registry to check them against.
+func validatePluginRules(raw interface{}) []ValidationError {
+	section, ok := raw.(map[string]interface{})
+	if !ok {
+		return []ValidationError{{
+			Path:    config.PluginRulesKey,
+			Message: fmt.Sprintf("expected object, got %T", raw),
+			Level:   "error",
+		}}
+	}
+	var errs []ValidationError
+	ruleIDs := make([]string, 0, len(section))
+	for id := range section {
+		ruleIDs = append(ruleIDs, id)
+	}
+	sort.Strings(ruleIDs)
+	for _, ruleID := range ruleIDs {
+		ruleVal := section[ruleID]
+		path := config.PluginRulesKey + "." + ruleID
+		ruleMap, ok := ruleVal.(map[string]interface{})
+		if !ok {
+			errs = append(errs, ValidationError{
+				Path:    path,
+				Message: fmt.Sprintf("expected object, got %T", ruleVal),
+				Level:   "error",
+			})
+			continue
+		}
+		keys := make([]string, 0, len(ruleMap))
+		for k := range ruleMap {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			fieldPath := path + "." + key
+			switch key {
+			case "active":
+				if err := checkType(fieldPath, ruleMap[key], OptionTypeBool); err != nil {
+					errs = append(errs, *err)
+				}
+			case "options":
+				if _, ok := ruleMap[key].(map[string]interface{}); !ok {
+					errs = append(errs, ValidationError{
+						Path:    fieldPath,
+						Message: fmt.Sprintf("expected object, got %T", ruleMap[key]),
+						Level:   "error",
+					})
+				}
+			default:
+				errs = append(errs, ValidationError{
+					Path:    fieldPath,
+					Message: fmt.Sprintf("unknown config key '%s' (allowed: active, options)", key),
 					Level:   "error",
 				})
 			}

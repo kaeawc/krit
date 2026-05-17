@@ -64,6 +64,87 @@ func TestGenerateSchema_HasConfigurableRules(t *testing.T) {
 	}
 }
 
+func TestGenerateSchema_HasPluginRules(t *testing.T) {
+	schema := GenerateSchema(CollectRuleMeta())
+	pluginRules, ok := schema.Properties["pluginRules"]
+	if !ok {
+		t.Fatal("schema missing pluginRules section")
+	}
+	if pluginRules.Type != "object" {
+		t.Fatalf("pluginRules.type = %q, want object", pluginRules.Type)
+	}
+	if pluginRules.Description == "" {
+		t.Error("pluginRules missing description")
+	}
+}
+
+func TestValidateConfig_PluginRulesAcceptsActiveAndOptions(t *testing.T) {
+	cfg := config.NewConfig()
+	cfg.Data()["pluginRules"] = map[string]interface{}{
+		"acme.NoTodo": map[string]interface{}{
+			"active": false,
+			"options": map[string]interface{}{
+				"maxLineLength": 100,
+			},
+		},
+	}
+	for _, e := range ValidateConfig(cfg) {
+		if e.Level == "error" {
+			t.Errorf("unexpected error: %s", e)
+		}
+	}
+}
+
+func TestValidateConfig_PluginRulesRejectsUnknownKey(t *testing.T) {
+	cfg := config.NewConfig()
+	cfg.Data()["pluginRules"] = map[string]interface{}{
+		"acme.NoTodo": map[string]interface{}{
+			"bogus": true,
+		},
+	}
+	found := false
+	for _, e := range ValidateConfig(cfg) {
+		if e.Path == "pluginRules.acme.NoTodo.bogus" && e.Level == "error" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected error for unknown plugin-rule key 'bogus'")
+	}
+}
+
+func TestValidateConfig_PluginRulesRejectsBadActiveType(t *testing.T) {
+	cfg := config.NewConfig()
+	cfg.Data()["pluginRules"] = map[string]interface{}{
+		"acme.NoTodo": map[string]interface{}{
+			"active": "yes",
+		},
+	}
+	found := false
+	for _, e := range ValidateConfig(cfg) {
+		if e.Path == "pluginRules.acme.NoTodo.active" && e.Level == "error" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected type error for non-bool active")
+	}
+}
+
+func TestValidateConfig_PluginRulesRejectsScalarSection(t *testing.T) {
+	cfg := config.NewConfig()
+	cfg.Data()["pluginRules"] = "nope"
+	found := false
+	for _, e := range ValidateConfig(cfg) {
+		if e.Path == "pluginRules" && e.Level == "error" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected error for scalar pluginRules")
+	}
+}
+
 func TestGenerateSchema_HasModuleTemplate(t *testing.T) {
 	schema := GenerateSchema(CollectRuleMeta())
 	moduleTemplate, ok := schema.Properties["module_template"]

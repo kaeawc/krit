@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/jsonschema"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -216,6 +217,9 @@ func GenerateSchema(metas []RuleMeta) *jsonschema.Schema {
 	}).AdditionalPropertiesFalse().WithRequired("id", "pattern", "message")
 	props["customRules"] = jsonschema.Array(customRulesItem, "Config-defined pattern rules registered at runtime.")
 
+	props[config.PluginRulesKey] = jsonschema.Object(map[string]*jsonschema.Schema{}).
+		WithDescription("Per-plugin-rule configuration for rules loaded from --custom-rule-jars. Keyed by rule ID (matching @KritRuleInfo.id); each entry takes {active: bool, options: {...}}.")
+
 	for _, setName := range sortedKeys(bySet) {
 		setMetas := bySet[setName]
 		ruleProps := map[string]*jsonschema.Schema{
@@ -305,7 +309,14 @@ func sortedKeys(m map[string][]RuleMeta) []string {
 
 // KnownRuleSets returns the set of known ruleset names from the registry.
 func KnownRuleSets() map[string]bool {
-	sets := map[string]bool{"config": true, "module_template": true, "slos": true, "testSourcePaths": true, "testSourcePathsOverride": true}
+	sets := map[string]bool{
+		"config":                  true,
+		"module_template":         true,
+		"slos":                    true,
+		"testSourcePaths":         true,
+		"testSourcePathsOverride": true,
+		config.PluginRulesKey:     true,
+	}
 	for _, r := range api.Registry {
 		sets[r.Category] = true
 	}

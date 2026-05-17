@@ -112,8 +112,16 @@ class NoTodoRule : KritRule {
   classpath still compile. Cast to `org.jetbrains.kotlin.psi.KtFile`
   inside the rule if you need PSI walking.
 
-`RuleContext` currently exposes only the active `ruleId`. The PSI /
-resolver expansion is tracked under
+`RuleContext` exposes:
+
+- `ruleId` — the active rule's `@KritRuleInfo.id`.
+- `config: Map<String, Any?>` — the per-rule `options` map from the
+  consumer's `krit.yml`. Use the typed accessors (`stringOption`,
+  `intOption`, `boolOption`, `stringListOption`) instead of casting
+  directly; they fall through to the supplied default when the option
+  is absent or the wrong type.
+
+The PSI / resolver expansion is tracked under
 [#308](https://github.com/kaeawc/krit/issues/308); the rest of this
 doc calls out what is deferred.
 
@@ -216,6 +224,46 @@ krit --custom-rule-jars my-rules/build/libs/my-rules-0.1.0-krit-rules.jar src/
 `--custom-rule-jars` keeps Krit on the in-process path (the
 daemon-eligibility gate routes around it), so first runs do not need
 the prebuilt `krit-types` daemon on disk.
+
+## Per-rule configuration (`pluginRules`)
+
+The consumer's `krit.yml` controls plugin rules through a dedicated
+top-level `pluginRules` section, keyed by `@KritRuleInfo.id`:
+
+```yaml
+pluginRules:
+  acme.NoTodo:
+    active: false           # silence a noisy rule without removing the jar
+  acme.MaxLineLength:
+    options:
+      maxLineLength: 100    # forwarded as RuleContext.config["maxLineLength"]
+      ignoredFiles:
+        - 'generated/**'
+```
+
+Each entry accepts two keys:
+
+| Key | Type | Behavior |
+| --- | --- | --- |
+| `active` | bool | When `false`, Krit skips the rule before sending the RPC — zero findings, zero work. Omit to use the rule's default activation. |
+| `options` | map | Free-form key/value pairs exposed verbatim to the rule via `RuleContext.config`. Values come through with their YAML types (string, int, bool, list). |
+
+Inside the rule, read options through the typed helpers so a missing
+or wrong-typed value falls back to your default:
+
+```kotlin
+override fun check(file: KritFile, ctx: RuleContext): List<Finding> {
+    val max = ctx.intOption("maxLineLength", default = 120)
+    val ignored = ctx.stringListOption("ignoredFiles")
+    // ...
+}
+```
+
+`krit --validate-config` validates the `pluginRules` shape (object,
+allowed keys `active` / `options`, correct types) so typos surface
+before analysis runs. The rule IDs themselves are *not* validated
+against the loaded jars — IDs are owned by user-supplied plugins and
+may not be known to the binary at config-load time.
 
 ## Capability semantics
 

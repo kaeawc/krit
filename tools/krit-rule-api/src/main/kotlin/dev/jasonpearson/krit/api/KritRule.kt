@@ -38,10 +38,55 @@ class KritFile(
 
 /**
  * Per-invocation context passed to custom rules.
+ *
+ * `config` is the per-rule options map from the consumer's `krit.yml`:
+ *
+ *   pluginRules:
+ *     acme.NoTodo:
+ *       options:
+ *         maxLineLength: 100
+ *
+ * Values come straight from the YAML parser, so use the typed accessors
+ * (`intOption`, `boolOption`, `stringOption`, `stringListOption`) rather
+ * than casting. The map is empty when the user did not configure the rule.
  */
 class RuleContext(
     val ruleId: String,
-)
+    val config: Map<String, Any?> = emptyMap(),
+) {
+    /** Returns the [key] option as a String, or [default] if absent / wrong type. */
+    fun stringOption(key: String, default: String = ""): String =
+        (config[key] as? String) ?: default
+
+    /** Returns the [key] option as a Boolean, or [default] if absent / wrong type. */
+    fun boolOption(key: String, default: Boolean = false): Boolean =
+        (config[key] as? Boolean) ?: default
+
+    /**
+     * Returns the [key] option as an Int, or [default] if absent or
+     * not parseable as a 32-bit integer. Accepts numeric YAML values
+     * (Int, Long, Double) and decimal string literals.
+     */
+    fun intOption(key: String, default: Int = 0): Int {
+        return when (val v = config[key]) {
+            is Int -> v
+            is Long -> v.toInt()
+            is Double -> v.toInt()
+            is String -> v.toIntOrNull() ?: default
+            else -> default
+        }
+    }
+
+    /**
+     * Returns the [key] option as a list of strings, dropping any
+     * non-string entries. Returns an empty list when the option is
+     * absent or not a list.
+     */
+    fun stringListOption(key: String): List<String> {
+        val raw = config[key] as? List<*> ?: return emptyList()
+        return raw.mapNotNull { it as? String }
+    }
+}
 
 /**
  * A finding emitted by a custom Kotlin rule.

@@ -124,6 +124,70 @@ func TestMergeMaps(t *testing.T) {
 	}
 }
 
+func TestPluginRulesAccessors(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "plugins.yml")
+	content := `
+pluginRules:
+  acme.NoTodo:
+    active: false
+    options:
+      maxLineLength: 120
+      ignored:
+        - 'TODO'
+        - 'FIXME'
+  acme.OptInOnly:
+    active: true
+  acme.NoOptions: {}
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+
+	if got := cfg.IsPluginRuleActive("acme.NoTodo"); got == nil || *got {
+		t.Errorf("acme.NoTodo active = %v, want false", got)
+	}
+	if got := cfg.IsPluginRuleActive("acme.OptInOnly"); got == nil || !*got {
+		t.Errorf("acme.OptInOnly active = %v, want true", got)
+	}
+	if got := cfg.IsPluginRuleActive("acme.Unmentioned"); got != nil {
+		t.Errorf("unmentioned rule active = %v, want nil", *got)
+	}
+	if got := cfg.IsPluginRuleActive("acme.NoOptions"); got != nil {
+		t.Errorf("acme.NoOptions active = %v, want nil (no active key)", *got)
+	}
+
+	opts := cfg.PluginRuleOptions("acme.NoTodo")
+	if opts == nil {
+		t.Fatal("expected non-nil options for acme.NoTodo")
+	}
+	if opts["maxLineLength"] != 120 {
+		t.Errorf("maxLineLength = %v, want 120", opts["maxLineLength"])
+	}
+	ignored, ok := opts["ignored"].([]interface{})
+	if !ok {
+		t.Fatalf("ignored type = %T, want []interface{}", opts["ignored"])
+	}
+	if len(ignored) != 2 {
+		t.Fatalf("ignored len = %d, want 2", len(ignored))
+	}
+
+	if got := cfg.PluginRuleOptions("acme.OptInOnly"); got != nil {
+		t.Errorf("OptInOnly options = %v, want nil", got)
+	}
+	if got := cfg.PluginRuleOptions(""); got != nil {
+		t.Errorf("empty ruleID options = %v, want nil", got)
+	}
+	var nilCfg *Config
+	if got := nilCfg.IsPluginRuleActive("x"); got != nil {
+		t.Errorf("nil config active = %v, want nil", got)
+	}
+}
+
 func TestLoadConfigExplicitPath(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "custom.yml")

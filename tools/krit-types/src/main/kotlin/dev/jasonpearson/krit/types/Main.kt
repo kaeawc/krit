@@ -654,7 +654,12 @@ data class DaemonRequest(
     val pluginJars: List<String>? = null,
     val ruleIds: List<String>? = null,
     val path: String? = null,
-    val source: String? = null
+    val source: String? = null,
+    // ruleConfigs maps a plugin rule's @KritRuleInfo.id to its
+    // configured `options` map from krit.yml's pluginRules section.
+    // Null when the request omitted the field; an absent key inside
+    // means no options were configured for that rule.
+    val ruleConfigs: Map<String, Map<String, Any?>>? = null
 )
 
 /** 1-based line/col tuple used in resolveExpressionTypes requests. */
@@ -688,7 +693,8 @@ fun parseRequest(json: String): DaemonRequest {
     val ruleIds = extractJsonStringArray(json, "ruleIds")
     val path = extractJsonString(json, "path")
     val source = extractJsonString(json, "source")
-    return DaemonRequest(id, method, files, timings, callFilter, declarationProfile, expressionPositions, jarPath, fqn, pluginJars, ruleIds, path, source)
+    val ruleConfigs = extractJsonNestedObjectMap(json, "ruleConfigs")
+    return DaemonRequest(id, method, files, timings, callFilter, declarationProfile, expressionPositions, jarPath, fqn, pluginJars, ruleIds, path, source, ruleConfigs)
 }
 
 /**
@@ -849,6 +855,142 @@ fun extractJsonStringArrayMap(json: String, key: String): Map<String, List<Strin
         }
     }
     return null
+}
+
+/**
+ * Parses a two-level JSON object: { "<outer>": { "<inner>": <value>, ... }, ... }
+ * where inner values are arbitrary JSON (string / number / boolean / null /
+ * array / object). Used for the analyzeFile `ruleConfigs` payload:
+ *
+ *   "ruleConfigs": {
+ *       "acme.NoTodo": { "maxLineLength": 100, "ignored": ["X"] }
+ *   }
+ *
+ * Returns null when the key is absent or the shape mismatches; callers treat
+ * that as "no per-rule options."
+ */
+@Suppress("ReturnCount")
+fun extractJsonNestedObjectMap(json: String, key: String): Map<String, Map<String, Any?>>? {
+    val keyPattern = """"$key""""
+    val keyIdx = json.indexOf(keyPattern)
+    if (keyIdx < 0) return null
+    var i = json.indexOf(':', keyIdx)
+    if (i < 0) return null
+    i = skipJsonWhitespace(json, i + 1)
+    if (i >= json.length || json[i] != '{') return null
+    i++
+
+    val out = linkedMapOf<String, Map<String, Any?>>()
+    while (i < json.length) {
+        i = skipJsonWhitespace(json, i)
+        if (i < json.length && json[i] == '}') return out
+        val keyResult = parseJsonStringLiteral(json, i) ?: return null
+        val outerKey = keyResult.first
+        i = skipJsonWhitespace(json, keyResult.second)
+        if (i >= json.length || json[i] != ':') return null
+        i = skipJsonWhitespace(json, i + 1)
+        val innerResult = parseJsonObjectLiteral(json, i) ?: return null
+        out[outerKey] = innerResult.first
+        i = skipJsonWhitespace(json, innerResult.second)
+        when {
+            i < json.length && json[i] == ',' -> i++
+            i < json.length && json[i] == '}' -> return out
+            else -> return null
+        }
+    }
+    return null
+}
+
+@Suppress("ReturnCount")
+private fun parseJsonObjectLiteral(json: String, start: Int): Pair<Map<String, Any?>, Int>? {
+    var i = skipJsonWhitespace(json, start)
+    if (i >= json.length || json[i] != '{') return null
+    i++
+    val out = linkedMapOf<String, Any?>()
+    while (i < json.length) {
+        i = skipJsonWhitespace(json, i)
+        if (i < json.length && json[i] == '}') return out to i + 1
+        val keyResult = parseJsonStringLiteral(json, i) ?: return null
+        val key = keyResult.first
+        i = skipJsonWhitespace(json, keyResult.second)
+        if (i >= json.length || json[i] != ':') return null
+        i = skipJsonWhitespace(json, i + 1)
+        val valueResult = parseJsonValue(json, i) ?: return null
+        out[key] = valueResult.first
+        i = skipJsonWhitespace(json, valueResult.second)
+        when {
+            i < json.length && json[i] == ',' -> i++
+            i < json.length && json[i] == '}' -> return out to i + 1
+            else -> return null
+        }
+    }
+    return null
+}
+
+@Suppress("ReturnCount")
+private fun parseJsonValue(json: String, start: Int): Pair<Any?, Int>? {
+    val i = skipJsonWhitespace(json, start)
+    if (i >= json.length) return null
+    return when (val c = json[i]) {
+        '"' -> parseJsonStringLiteral(json, i)
+        '{' -> parseJsonObjectLiteral(json, i)
+        '[' -> parseJsonAnyArrayLiteral(json, i)
+        't' -> if (json.startsWith("true", i)) (true as Any) to i + 4 else null
+        'f' -> if (json.startsWith("false", i)) (false as Any) to i + 5 else null
+        'n' -> if (json.startsWith("null", i)) (null as Any?) to i + 4 else null
+        else -> {
+            if (c == '-' || c.isDigit()) parseJsonNumber(json, i) else null
+        }
+    }
+}
+
+@Suppress("ReturnCount")
+private fun parseJsonAnyArrayLiteral(json: String, start: Int): Pair<List<Any?>, Int>? {
+    var i = skipJsonWhitespace(json, start)
+    if (i >= json.length || json[i] != '[') return null
+    i++
+    val out = mutableListOf<Any?>()
+    while (i < json.length) {
+        i = skipJsonWhitespace(json, i)
+        if (i < json.length && json[i] == ']') return out to i + 1
+        val v = parseJsonValue(json, i) ?: return null
+        out.add(v.first)
+        i = skipJsonWhitespace(json, v.second)
+        when {
+            i < json.length && json[i] == ',' -> i++
+            i < json.length && json[i] == ']' -> return out to i + 1
+            else -> return null
+        }
+    }
+    return null
+}
+
+@Suppress("ReturnCount")
+private fun parseJsonNumber(json: String, start: Int): Pair<Any, Int>? {
+    var i = start
+    if (i < json.length && json[i] == '-') i++
+    val numStart = i
+    while (i < json.length && json[i].isDigit()) i++
+    var isFloat = false
+    if (i < json.length && json[i] == '.') {
+        isFloat = true
+        i++
+        while (i < json.length && json[i].isDigit()) i++
+    }
+    if (i < json.length && (json[i] == 'e' || json[i] == 'E')) {
+        isFloat = true
+        i++
+        if (i < json.length && (json[i] == '+' || json[i] == '-')) i++
+        while (i < json.length && json[i].isDigit()) i++
+    }
+    if (i == numStart) return null
+    val literal = json.substring(start, i)
+    val parsed: Any = if (isFloat) {
+        literal.toDoubleOrNull() ?: return null
+    } else {
+        literal.toLongOrNull() ?: literal.toDoubleOrNull() ?: return null
+    }
+    return parsed to i
 }
 
 fun skipJsonWhitespace(json: String, start: Int): Int {

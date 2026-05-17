@@ -162,7 +162,8 @@ fun DaemonSession.handleAnalyzeFileWithPlugins(request: DaemonRequest): String {
         val errors = linkedMapOf<String, String>()
         for (loaded in PluginRuleRegistry.selected(request.ruleIds)) {
             try {
-                val ctx = RuleContext(loaded.descriptor.ruleId)
+                val options = request.ruleConfigs?.get(loaded.descriptor.ruleId).orEmpty()
+                val ctx = RuleContext(loaded.descriptor.ruleId, options)
                 for (finding in loaded.rule.check(file, ctx)) {
                     findings.add(toPluginFinding(file.path, loaded.descriptor, finding))
                 }

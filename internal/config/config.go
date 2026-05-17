@@ -424,6 +424,53 @@ func (c *Config) Oracle() OracleConfig {
 	}
 }
 
+// PluginRulesKey is the top-level `krit.yml` section that configures
+// Kotlin plugin-jar rules loaded via --custom-rule-jars. Shape:
+//
+//	pluginRules:
+//	  acme.NoTodo:
+//	    active: false
+//	    options:
+//	      maxLineLength: 100
+const PluginRulesKey = "pluginRules"
+
+// IsPluginRuleActive returns the configured active flag for a plugin
+// rule loaded from a custom-rule jar. Returns nil if not specified,
+// in which case the daemon's default activation wins.
+func (c *Config) IsPluginRuleActive(ruleID string) *bool {
+	if c == nil || c.data == nil || ruleID == "" {
+		return nil
+	}
+	m, ok := lookupMap(c.data, PluginRulesKey, ruleID)
+	if !ok {
+		return nil
+	}
+	v, ok := m["active"]
+	if !ok {
+		return nil
+	}
+	b, ok := toBool(v)
+	if !ok {
+		return nil
+	}
+	return &b
+}
+
+// PluginRuleOptions returns the configured `options` map for a plugin
+// rule loaded from a custom-rule jar. Returns nil if no options are
+// declared. The returned map is the caller's to read but must not be
+// mutated.
+func (c *Config) PluginRuleOptions(ruleID string) map[string]interface{} {
+	if c == nil || c.data == nil || ruleID == "" {
+		return nil
+	}
+	m, ok := lookupMap(c.data, PluginRulesKey, ruleID, "options")
+	if !ok {
+		return nil
+	}
+	return m
+}
+
 func (c *Config) TestSourcePaths() []string {
 	return c.GetTopLevelList("testSourcePaths")
 }

@@ -4,9 +4,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -211,6 +213,57 @@ func TestFixupAppliesPluginCosmeticFixUnderCosmeticLevel(t *testing.T) {
 	}
 	if out.StrippedByLevel != 0 {
 		t.Errorf("StrippedByLevel = %d, want 0", out.StrippedByLevel)
+	}
+}
+
+func TestSelectPluginRulesSkipsDisabledAndCollectsOptions(t *testing.T) {
+	loaded := []oracle.PluginRuleDescriptor{
+		{RuleID: "acme.NoTodo"},
+		{RuleID: "acme.NoFixme"},
+		{RuleID: "acme.OptInOnly"},
+		{RuleID: ""}, // dropped: empty IDs come from malformed jars
+	}
+	cfg := config.NewConfigFromData(map[string]interface{}{
+		"pluginRules": map[string]interface{}{
+			"acme.NoTodo": map[string]interface{}{
+				"active": false,
+			},
+			"acme.NoFixme": map[string]interface{}{
+				"options": map[string]interface{}{
+					"maxLineLength": 100,
+				},
+			},
+			"acme.OptInOnly": map[string]interface{}{
+				"active": true,
+			},
+		},
+	})
+
+	ids, opts := selectPluginRules(loaded, cfg)
+
+	wantIDs := []string{"acme.NoFixme", "acme.OptInOnly"}
+	if !reflect.DeepEqual(ids, wantIDs) {
+		t.Fatalf("ruleIDs = %v, want %v", ids, wantIDs)
+	}
+	wantOpts := map[string]map[string]interface{}{
+		"acme.NoFixme": {"maxLineLength": 100},
+	}
+	if !reflect.DeepEqual(opts, wantOpts) {
+		t.Fatalf("ruleOptions = %v, want %v", opts, wantOpts)
+	}
+}
+
+func TestSelectPluginRulesNilConfigKeepsEveryRuleWithoutOptions(t *testing.T) {
+	loaded := []oracle.PluginRuleDescriptor{
+		{RuleID: "acme.A"},
+		{RuleID: "acme.B"},
+	}
+	ids, opts := selectPluginRules(loaded, nil)
+	if !reflect.DeepEqual(ids, []string{"acme.A", "acme.B"}) {
+		t.Fatalf("ruleIDs = %v, want passthrough", ids)
+	}
+	if len(opts) != 0 {
+		t.Fatalf("ruleOptions = %v, want empty", opts)
 	}
 }
 

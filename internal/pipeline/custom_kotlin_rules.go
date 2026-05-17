@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -27,12 +28,7 @@ func runKotlinPluginRulesAndMerge(ctx context.Context, args ProjectArgs, host Pr
 	if err != nil {
 		return fmt.Errorf("list Kotlin custom rules: %w", err)
 	}
-	ruleIDs := make([]string, 0, len(list.Rules))
-	for _, rule := range list.Rules {
-		if rule.RuleID != "" {
-			ruleIDs = append(ruleIDs, rule.RuleID)
-		}
-	}
+	ruleIDs, ruleOptions := selectPluginRules(list.Rules, args.Config)
 	if len(ruleIDs) == 0 {
 		return nil
 	}
@@ -48,7 +44,7 @@ func runKotlinPluginRulesAndMerge(ctx context.Context, args ProjectArgs, host Pr
 			return ctx.Err()
 		default:
 		}
-		result, err := daemon.AnalyzePluginFile(args.CustomRuleJars, file.Path, file.Content, ruleIDs)
+		result, err := daemon.AnalyzePluginFile(args.CustomRuleJars, file.Path, file.Content, ruleIDs, ruleOptions)
 		if err != nil {
 			return fmt.Errorf("run Kotlin custom rules on %s: %w", file.Path, err)
 		}
@@ -61,6 +57,28 @@ func runKotlinPluginRulesAndMerge(ctx context.Context, args ProjectArgs, host Pr
 	}
 	crossFileResult.Findings = *collector.Columns()
 	return nil
+}
+
+// selectPluginRules picks which jar-loaded rules to dispatch and collects
+// each rule's configured options from `pluginRules:` in krit.yml. A rule
+// is skipped when the user explicitly set `active: false`; the absence of
+// any pluginRules entry preserves the daemon's default activation.
+func selectPluginRules(loaded []oracle.PluginRuleDescriptor, cfg *config.Config) ([]string, map[string]map[string]interface{}) {
+	ruleIDs := make([]string, 0, len(loaded))
+	options := map[string]map[string]interface{}{}
+	for _, rule := range loaded {
+		if rule.RuleID == "" {
+			continue
+		}
+		if active := cfg.IsPluginRuleActive(rule.RuleID); active != nil && !*active {
+			continue
+		}
+		ruleIDs = append(ruleIDs, rule.RuleID)
+		if opts := cfg.PluginRuleOptions(rule.RuleID); len(opts) > 0 {
+			options[rule.RuleID] = opts
+		}
+	}
+	return ruleIDs, options
 }
 
 func pluginFindingsToColumns(findings []oracle.PluginFinding) scanner.FindingColumns {

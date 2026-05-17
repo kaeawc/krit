@@ -2296,7 +2296,7 @@
           }
         },
         "LogConditional": {
-          "description": "Unconditional logging calls [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
+          "description": "Unconditional logging calls [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7153,7 +7153,7 @@
           }
         },
         "WithContextInSuspendFunctionNoop": {
-          "description": "Detects nested withContext calls using the same dispatcher as the parent, which is redundant. [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
+          "description": "Detects nested withContext calls using the same dispatcher as the parent, which is redundant. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10795,6 +10795,10 @@
           "default": true
         }
       }
+    },
+    "pluginRules": {
+      "description": "Per-plugin-rule configuration for rules loaded from --custom-rule-jars. Keyed by rule ID (matching @KritRuleInfo.id); each entry takes {active: bool, options: {...}}.",
+      "type": "object"
     },
     "potential-bugs": {
       "description": "Configuration for the potential-bugs ruleset.",

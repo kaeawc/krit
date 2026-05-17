@@ -243,7 +243,10 @@ func (d *Daemon) ListPlugins(jars []string) (ListPluginsResult, error) {
 }
 
 // AnalyzePluginFile runs selected Kotlin custom rules against one source file.
-func (d *Daemon) AnalyzePluginFile(jars []string, path string, source []byte, ruleIDs []string) (AnalyzePluginFileResult, error) {
+// ruleConfigs maps each rule ID to its configured `options` map; an empty
+// or nil map is omitted from the request so the daemon's RuleContext.config
+// stays empty for those rules.
+func (d *Daemon) AnalyzePluginFile(jars []string, path string, source []byte, ruleIDs []string, ruleConfigs map[string]map[string]interface{}) (AnalyzePluginFileResult, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -252,6 +255,9 @@ func (d *Daemon) AnalyzePluginFile(jars []string, path string, source []byte, ru
 		"path":    path,
 		"source":  string(source),
 		"ruleIds": ruleIDs,
+	}
+	if len(ruleConfigs) > 0 {
+		params["ruleConfigs"] = ruleConfigs
 	}
 	result, err := d.sendResult("analyzeFile", params)
 	if err != nil {

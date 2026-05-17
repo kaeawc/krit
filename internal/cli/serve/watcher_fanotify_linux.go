@@ -93,7 +93,7 @@ func newFanotifyBackend(root string) (watcherBackend, error) {
 	if err := unix.FanotifyMark(fd, markFlags, mask, unix.AT_FDCWD, rootAbs); err != nil {
 		_ = unix.Close(fd)
 		if errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOSYS) || errors.Is(err, syscall.EPERM) {
-			return nil, fmt.Errorf("%w: %v", errFanotifyUnsupported, err)
+			return nil, fmt.Errorf("%w: %w", errFanotifyUnsupported, err)
 		}
 		return nil, fmt.Errorf("fanotify_mark %s: %w", rootAbs, err)
 	}
@@ -443,4 +443,3 @@ func opFromFanotifyMask(mask uint64) backendOp {
 	}
 	return op
 }
-

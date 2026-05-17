@@ -11,6 +11,7 @@ import (
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
+	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
@@ -51,6 +52,18 @@ func (r *runner) projectInput() pipeline.ProjectInput {
 	}
 	if r.useCache {
 		host.TypeIndexCacheDir = typeinfer.TypeIndexCacheDir(oracle.FindRepoDir(r.paths))
+		// Wire the bundle manifest store for one-shot CLI scans so the
+		// oracle freshness gate has prior-run file stats to compare
+		// against on warm runs. Without this, runOracleIndex's
+		// computeStaleOraclePaths always returns nil and the lazy-load
+		// short-circuit silently serves a stale types.json after an
+		// in-place edit. The bundle store also opportunistically
+		// short-circuits whole runs when the RunFingerprint matches
+		// — that's a secondary win on top of the freshness signal.
+		if repoDir := oracle.FindRepoDir(r.paths); repoDir != "" {
+			host.FindingsBundleStore = scanner.DiskFindingsBundleStore{}
+			host.FindingsBundleCacheRoot = repoDir
+		}
 	}
 	return pipeline.ProjectInput{
 		Args: pipeline.ProjectArgs{

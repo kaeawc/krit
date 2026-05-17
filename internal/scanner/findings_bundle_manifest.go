@@ -9,6 +9,21 @@ import (
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
+// StatFile is the default FileStatProvider: a thin os.Stat wrapper
+// that returns the size + modtime tuple stored in FindingsBundleManifest.
+// Callers needing a stub for tests should pass their own provider to
+// StaleOracleCandidates.
+func StatFile(path string) (FileStat, bool) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return FileStat{}, false
+	}
+	return FileStat{
+		Size:            info.Size(),
+		ModTimeUnixNano: info.ModTime().UnixNano(),
+	}, true
+}
+
 // FindingsBundleManifest persists the data the ConservativeDeltaPlanner
 // needs to decide whether a single-file edit can take the delta path:
 //
@@ -23,7 +38,16 @@ import (
 //
 // Keyed by a stable run identifier (the project root + sorted scan
 // paths) so distinct projects don't trample each other.
-const findingsBundleManifestVersion = 1
+// findingsBundleManifestVersion bumps whenever the on-disk schema
+// changes in a way that prior daemons would mis-read. Bumping this
+// invalidates every cached manifest so callers fall back to recompute;
+// daemons forward-compat by virtue of treating "wrong version" as
+// "missing" in LoadFindingsBundleManifestFromPath.
+//
+// v1 → v2: AbiHashes added. v1 readers silently ignore the new field;
+// v2 readers tolerate v1 manifests at load time (treated as ok=false
+// in LoadFindingsBundleManifestFromPath so the next save rewrites).
+const findingsBundleManifestVersion = 2
 
 type FindingsBundleManifest struct {
 	Version       int                 `json:"version"`
@@ -33,6 +57,15 @@ type FindingsBundleManifest struct {
 	ContentHashes map[string]string   `json:"contentHashes"`
 	StructuralFPs map[string]string   `json:"structuralFps,omitempty"`
 	FileStats     map[string]FileStat `json:"fileStats,omitempty"`
+	// AbiHashes is per-file public-API hash computed via
+	// arch.ExtractAbiSignatures + arch.HashAbiSignatures. Populated by
+	// buildManifestData when bundleEnabled. The oracle freshness gate
+	// reads this field to distinguish body-only edits (skip dependent
+	// invalidation) from public-ABI edits (eventually drives
+	// transitive invalidation in a future iteration; v1 only invalidates
+	// the edited file itself via stat comparison). Kotlin files only;
+	// Java entries are absent.
+	AbiHashes map[string]string `json:"abiHashes,omitempty"`
 }
 
 type FileStat struct {
@@ -122,6 +155,62 @@ func LoadFindingsBundleManifestFromPath(path string) (FindingsBundleManifest, bo
 		return FindingsBundleManifest{}, false
 	}
 	return m, true
+}
+
+// FileStatProvider returns the on-disk stat for a path. Callers pass
+// os.Stat-backed implementations in production; tests substitute a
+// stub for deterministic input.
+type FileStatProvider func(path string) (FileStat, bool)
+
+// StaleOracleCandidates returns the subset of paths whose file stat
+// differs from the prior manifest entry. Used by the oracle
+// freshness gate to identify .kt files that need a partial KAA
+// reanalyze without paying for a full content-hash recompute first
+// — the InvokeCachedWithOptions classifier then verifies via SHA-256
+// inside the JVM-bound miss path. A nil or empty prior manifest is
+// treated as "everything is potentially stale" so we never silently
+// reuse an oracle JSON that has no manifest evidence behind it; the
+// caller should special-case this if the historical lazy-load
+// behavior is desired (e.g. one-shot CLI with no daemon).
+//
+// stat is required and must be non-nil. Files whose stat is
+// unavailable (deleted, unreadable) are treated as stale.
+func StaleOracleCandidates(paths []string, prior FindingsBundleManifest, stat FileStatProvider) []string {
+	if stat == nil {
+		return paths
+	}
+	if len(prior.FileStats) == 0 && len(prior.ContentHashes) == 0 {
+		return paths
+	}
+	priorStats := prior.FileStats
+	stale := make([]string, 0)
+	for _, path := range paths {
+		current, ok := stat(path)
+		if !ok {
+			stale = append(stale, path)
+			continue
+		}
+		if priorStats == nil {
+			// Manifest predates FileStats — fall back to "if prior
+			// had a content hash we trust it, otherwise stale". This
+			// keeps freshly-upgraded daemons from re-running every
+			// file when the on-disk manifest format is one version
+			// behind.
+			if _, hadHash := prior.ContentHashes[path]; !hadHash {
+				stale = append(stale, path)
+			}
+			continue
+		}
+		priorStat, hadStat := priorStats[path]
+		if !hadStat {
+			stale = append(stale, path)
+			continue
+		}
+		if priorStat != current {
+			stale = append(stale, path)
+		}
+	}
+	return stale
 }
 
 // SaveFindingsBundleManifest persists the run manifest atomically.

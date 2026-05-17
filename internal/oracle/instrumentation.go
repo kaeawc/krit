@@ -27,6 +27,13 @@ type InvocationOptions struct {
 	// class/member. Nil or a full profile preserves pre-profile extraction;
 	// narrow profiles skip KAA traversal for unused sections.
 	DeclarationProfile *DeclarationProfileSummary
+	// ForcedMisses lists absolute .kt paths that the cache classifier
+	// must treat as misses without consulting the per-file content
+	// hash. Used by the warm-path freshness gate to route a known-stale
+	// file (e.g. an ABI edit detected by the bundle manifest comparator)
+	// through a partial JVM reanalyze instead of letting it ride on a
+	// stale cached entry. Empty preserves the pre-#NNN behavior.
+	ForcedMisses []string
 }
 
 func (o InvocationOptions) tracker() perf.Tracker {

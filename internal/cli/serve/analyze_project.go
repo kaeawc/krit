@@ -531,6 +531,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			FindingsBundleManifestSaver:  diskCache.manifestSaver,
 			PriorContentHashes:           priorManifest.ContentHashes,
 			PriorStructuralFPs:           priorManifest.StructuralFPs,
+			PriorAbiHashes:               priorManifest.AbiHashes,
 		},
 	}, nil
 }

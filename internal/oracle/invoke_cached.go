@@ -321,6 +321,53 @@ func assembleAndWriteOracle(
 	return outputPath, nil
 }
 
+// splitForcedMisses partitions ktFiles into the subset that should
+// be passed through the cache classifier and the subset that the
+// caller has already pre-decided are stale. Paths in forcedMisses
+// that are NOT in ktFiles are silently dropped — the caller's hint
+// may include paths that fell out of the current source set (e.g.
+// after a path filter) and we must not force-analyze something the
+// JVM wasn't asked to look at.
+//
+// Returns (classifyInput, forcedInScan): classifyInput is the
+// subset whose membership in the cache will be checked by
+// ClassifyFilesWithStoreScopedV2; forcedInScan is the subset that
+// will be appended to the resulting miss list verbatim. When
+// forcedMisses is empty both slices reuse ktFiles' backing array
+// so the common path allocates nothing.
+func splitForcedMisses(ktFiles []string, forcedMisses []string) ([]string, []string) {
+	if len(forcedMisses) == 0 {
+		return ktFiles, nil
+	}
+	forcedSet := make(map[string]bool, len(forcedMisses))
+	for _, p := range forcedMisses {
+		forcedSet[p] = true
+	}
+	classifyInput := make([]string, 0, len(ktFiles))
+	forcedInScan := make([]string, 0, len(forcedSet))
+	for _, p := range ktFiles {
+		if forcedSet[p] {
+			forcedInScan = append(forcedInScan, p)
+			continue
+		}
+		classifyInput = append(classifyInput, p)
+	}
+	return classifyInput, forcedInScan
+}
+
+// recordForcedMissCount emits a perf event when the caller supplied a
+// forced-miss hint. Kept as a helper to bound the cyclomatic complexity
+// of InvokeCachedWithOptions.
+func recordForcedMissCount(tracker perf.Tracker, declared, inScan int) {
+	if declared <= 0 {
+		return
+	}
+	addOracleInstant(tracker, "forcedMisses", map[string]int64{
+		"declared": int64(declared),
+		"inScan":   int64(inScan),
+	}, nil)
+}
+
 // InvokeCachedWithOptions is InvokeCached plus optional deep perf
 // instrumentation for the cache/filter/JVM path.
 func InvokeCachedWithOptions(
@@ -375,8 +422,14 @@ func InvokeCachedWithOptions(
 		ktFiles = applyOracleFilter(ktFiles, filterListPath, tracker, verbose)
 	}
 
+	classifyInput, forcedInScan := splitForcedMisses(ktFiles, opts.ForcedMisses)
+	recordForcedMissCount(tracker, len(opts.ForcedMisses), len(forcedInScan))
+
 	startClassify := time.Now()
-	hits, misses := ClassifyFilesWithStoreScopedV2(s, cacheDir, ktFiles, callFilterScope, declarationProfileScope)
+	hits, misses := ClassifyFilesWithStoreScopedV2(s, cacheDir, classifyInput, callFilterScope, declarationProfileScope)
+	if len(forcedInScan) > 0 {
+		misses = append(misses, forcedInScan...)
+	}
 	classifyElapsed := time.Since(startClassify)
 	perf.AddEntryDetails(tracker, "cacheClassify", classifyElapsed, map[string]int64{
 		"files":  int64(len(ktFiles)),

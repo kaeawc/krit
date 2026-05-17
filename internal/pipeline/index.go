@@ -198,6 +198,12 @@ type IndexInput struct {
 	// OracleCacheWriter, when non-nil, defers cold oracle cache-entry
 	// persistence until the caller flushes it later in the run.
 	OracleCacheWriter *oracle.CacheWriter
+	// StaleOraclePaths lists .kt paths that the freshness gate should
+	// treat as KAA-stale even when a cached types.json exists. Empty
+	// keeps the lazy-load fast path; non-empty routes through a partial
+	// reanalyze. Absolute paths; entries outside the scan set are
+	// ignored.
+	StaleOraclePaths []string
 	// Verbose gates oracle stderr diagnostics. Matches --verbose.
 	Verbose bool
 
@@ -812,6 +818,61 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 
 	var oracleData *oracle.Data
 	oracleTracker.TrackVoid("jvmAnalyze", func() {
+		// Partial reanalyze path: when the caller has prior-manifest
+		// evidence of exactly which .kt files changed (StaleOraclePaths
+		// populated by the daemon's bundle-manifest comparator), ask
+		// the resident JVM session to re-analyze only that subset and
+		// merge the fresh facts into the cached types.json on disk.
+		// This avoids the full-module reanalyze cost (5+ seconds on
+		// kotlin-corpus scale) on warm runs that touch one or two
+		// files. Falls back to analyzeAll when:
+		//   - StaleOraclePaths is empty (cold run, no prior manifest)
+		//   - The on-disk types.json doesn't exist (nothing to merge
+		//     into; partial would return a per-file slice the dispatcher
+		//     can't use)
+		//   - The partial call itself errors (defensive)
+		cachedTypesPath := oracle.CachePath(scanPaths)
+		canPartial := len(in.StaleOraclePaths) > 0 && cachedTypesPath != ""
+		if canPartial {
+			if _, err := os.Stat(cachedTypesPath); err != nil {
+				canPartial = false
+			}
+		}
+		if canPartial {
+			perf.AddEntryDetails(oracleTracker, "daemonPartialReanalyze", 0, map[string]int64{
+				"stalePaths": int64(len(in.StaleOraclePaths)),
+			}, nil)
+			fresh, err := d.AnalyzeFilesWithCallFilter(in.StaleOraclePaths, callFilterPtr)
+			if err != nil {
+				in.warnf("warning: daemon analyzeFiles (fallback to analyzeAll): %v\n", err)
+				od, allErr := d.AnalyzeAllWithCallFilter(callFilterPtr)
+				if allErr != nil {
+					in.warnf("warning: daemon analyzeAll: %v\n", allErr)
+					return
+				}
+				oracleData = od
+				return
+			}
+			// Merge fresh facts into the on-disk types.json. The
+			// cached JSON holds the full project's per-file entries
+			// from the prior cold/warm run; the fresh slice only
+			// covers the stale paths. mergeFreshIntoCachedTypes
+			// rewrites types.json with the union (fresh wins on
+			// overlap), then loads the merged result.
+			merged, mergeErr := oracle.MergeFreshIntoCachedTypes(cachedTypesPath, fresh)
+			if mergeErr != nil {
+				in.warnf("warning: oracle partial merge (fallback to analyzeAll): %v\n", mergeErr)
+				od, allErr := d.AnalyzeAllWithCallFilter(callFilterPtr)
+				if allErr != nil {
+					in.warnf("warning: daemon analyzeAll: %v\n", allErr)
+					return
+				}
+				oracleData = od
+				return
+			}
+			oracleData = merged
+			return
+		}
 		od, err := d.AnalyzeAllWithCallFilter(callFilterPtr)
 		if err != nil {
 			in.warnf("warning: daemon analyzeAll: %v\n", err)
@@ -956,6 +1017,7 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		CallFilter:         callFilterPtr,
 		DeclarationProfile: &declarationProfileSummary,
 		DisableDiagnostics: !in.OracleDiagnostics || !rules.NeedsOracleDiagnostics(oracleRules),
+		ForcedMisses:       in.StaleOraclePaths,
 	}
 	var res string
 	var err error
@@ -1000,6 +1062,7 @@ func (p IndexPhase) loadOracleFromPath(in IndexInput, oraclePath string, oracleT
 // configures a lazy lookup and wraps base.
 func (p IndexPhase) runAutoDetectOracle(in IndexInput, oracleRules []*api.Rule, scanPaths []string, loadOracleFilterFiles func() []*scanner.File, oracleTracker perf.Tracker, base typeinfer.TypeResolver) typeinfer.TypeResolver {
 	var oraclePath string
+	var cachedTypesJSONExists bool
 	oracleTracker.TrackVoid("findSources", func() {
 		if in.InputTypesPath != "" {
 			oraclePath = in.InputTypesPath
@@ -1009,14 +1072,33 @@ func (p IndexPhase) runAutoDetectOracle(in IndexInput, oracleRules []*api.Rule, 
 		if cached != "" {
 			if _, err := os.Stat(cached); err == nil {
 				oraclePath = cached
+				cachedTypesJSONExists = true
 			}
 		}
 	})
 
-	if oraclePath == "" {
+	// Freshness gate: reuse the resolved oracle path (cached types.json
+	// OR --input-types) unless the caller flagged stale paths. With
+	// stale-path evidence we re-run the JVM oracle so
+	// InvokeCachedWithOptions can do a partial reanalyze of just the
+	// stale subset; an absent path likewise triggers a cold JVM run.
+	staleHit := cachedTypesJSONExists && len(in.StaleOraclePaths) > 0
+	if staleHit || oraclePath == "" {
+		if staleHit && in.Verbose {
+			in.logf("verbose: oracle freshness gate: %d stale path(s) — routing through partial reanalyze\n", len(in.StaleOraclePaths))
+		}
+		if staleHit {
+			perf.AddEntryDetails(oracleTracker, "freshnessGateStale", 0, map[string]int64{
+				"stalePaths": int64(len(in.StaleOraclePaths)),
+			}, nil)
+		}
 		jvmTracker := oracleTracker.Serial("jvmAnalyze")
 		oraclePath = p.runJvmAnalyze(in, oracleRules, scanPaths, loadOracleFilterFiles, jvmTracker)
 		jvmTracker.End()
+	} else if cachedTypesJSONExists {
+		perf.AddEntryDetails(oracleTracker, "freshnessGateFresh", 0, map[string]int64{
+			"path": 1,
+		}, nil)
 	}
 
 	if oraclePath == "" {

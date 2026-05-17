@@ -15,6 +15,14 @@ version = (findProperty("kritVersion") as String?)
 
 val isSnapshot = version.toString().endsWith("-SNAPSHOT")
 
+val kotlinVersion = "2.3.21"
+
+dependencies {
+    // PSI types are surfaced on the rule API but provided at runtime
+    // by the krit-types daemon — keep them off the published rule jar.
+    compileOnly("org.jetbrains.kotlin:kotlin-compiler:$kotlinVersion")
+}
+
 kotlin {
     jvmToolchain(21)
 }

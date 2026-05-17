@@ -18,6 +18,18 @@ dependencyResolutionManagement {
     repositories {
         mavenLocal()
         mavenCentral()
+        // `org.jetbrains.kotlin:kotlin-compiler` (used at compileOnly
+        // by the rule API for PSI types) lives in JetBrains' redirector,
+        // not Maven Central. Exclusive content keeps everything else
+        // resolving from Central.
+        exclusiveContent {
+            forRepository {
+                maven("https://redirector.kotlinlang.org/maven/intellij-dependencies")
+            }
+            filter {
+                includeModule("org.jetbrains.kotlin", "kotlin-compiler")
+            }
+        }
     }
 }
 

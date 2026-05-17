@@ -25,6 +25,15 @@ import (
 const (
 	ruleID              = "example.NoPrintln"
 	expectedPrintlnLine = 5 // samples/.../Greeter.kt: line 5 holds the println(
+
+	// SuspendInNonSuspendLambdaRule fires on doSuspendWork() inside
+	// runRegularBlock { ... } at SuspendMisuse.kt:21. The rule
+	// requires NEEDS_RESOLVER and asks the daemon-backed Resolver
+	// whether the enclosing lambda's parameter type is suspend; on
+	// SuspendOk.kt the parameter is `suspend () -> Unit` so the rule
+	// must NOT fire.
+	suspendRuleID           = "example.SuspendInNonSuspendLambda"
+	expectedSuspendCallLine = 21
 )
 
 func TestExternalRuleExample_EndToEnd(t *testing.T) {
@@ -119,6 +128,66 @@ func TestExternalRuleExample_EndToEnd(t *testing.T) {
 		if positiveLines[0] != expectedPrintlnLine {
 			t.Errorf("expected positive finding on line %d (println call), got line %d",
 				expectedPrintlnLine, positiveLines[0])
+		}
+	})
+
+	t.Run("type-aware rule fires only on positive sample", func(t *testing.T) {
+		// Type-aware sample rule: declared NEEDS_RESOLVER, calls
+		// resolver.isSuspendCall / isLambdaSuspend. The positive
+		// sample has a `suspend` call inside a `() -> Unit` lambda;
+		// the negative has the same call inside a `suspend () -> Unit`
+		// lambda. The resolver must distinguish them — without it,
+		// both fixtures look identical at the AST level.
+		positiveSuspendFile, err := filepath.Abs(filepath.Join(
+			samplesDir, "src", "main", "kotlin", "com", "example", "positive", "SuspendMisuse.kt"))
+		if err != nil {
+			t.Fatalf("absolutize positive suspend sample: %v", err)
+		}
+
+		stdout := runKrit(t, kritBin, repoRoot,
+			"--custom-rule-jars", jarPath,
+			"--daemon",
+			"-f", "json",
+			"--no-cache",
+			"--experimental",
+			"-q",
+			samplesDir,
+		)
+
+		var payload struct {
+			Findings []struct {
+				File string `json:"file"`
+				Line int    `json:"line"`
+				Rule string `json:"rule"`
+			} `json:"findings"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+			t.Fatalf("invalid JSON output: %v\n--- stdout ---\n%s", err, stdout)
+		}
+
+		var suspendLines []int
+		for _, finding := range payload.Findings {
+			if finding.Rule != suspendRuleID {
+				continue
+			}
+			abs, err := filepath.Abs(finding.File)
+			if err != nil {
+				t.Fatalf("absolutize finding path %q: %v", finding.File, err)
+			}
+			if abs == positiveSuspendFile {
+				suspendLines = append(suspendLines, finding.Line)
+			} else {
+				t.Errorf("unexpected %s finding outside positive sample: %s:%d",
+					suspendRuleID, finding.File, finding.Line)
+			}
+		}
+		if len(suspendLines) != 1 {
+			t.Fatalf("expected exactly 1 %s finding in positive sample, got %d (findings=%+v)",
+				suspendRuleID, len(suspendLines), payload.Findings)
+		}
+		if suspendLines[0] != expectedSuspendCallLine {
+			t.Errorf("expected positive finding on line %d (suspend call), got line %d",
+				expectedSuspendCallLine, suspendLines[0])
 		}
 	})
 

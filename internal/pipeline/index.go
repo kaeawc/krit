@@ -668,8 +668,23 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 		resolverForOracle = built
 	}
 	p.indexPrebuiltResolver(in, caps)
+
+	// v3 ABI invalidation: build the cross-file CodeIndex BEFORE
+	// running the oracle so the oracle freshness gate can consult
+	// idx.TransitiveDependents(...) when expanding StaleOraclePaths
+	// to cover transitive ABI fan-out. The reorder is a no-op when
+	// no rule needs cross-file data — runCodeIndexBuild is still
+	// gated on in.BuildCodeIndex (set from
+	// hasIndexBackedCrossFileRule || moduleNeeds.NeedsIndex in
+	// RunProject). Cold runs lose the prior parallelism between
+	// parsing and the JVM oracle's first work; warm runs benefit
+	// from a CodeIndex cache hit that was previously deferred.
+	if in.BuildCodeIndex {
+		p.runCodeIndexBuild(in, &result)
+	}
+
 	if !in.SkipOracle && in.OracleEnabled && resolverForOracle != nil && len(rules.KotlinOracleRulesV2(in.ActiveRules)) > 0 {
-		resolverForOracle = p.runOracle(in, resolverForOracle, &result)
+		resolverForOracle = p.runOracle(in, resolverForOracle, result.CodeIndex, &result)
 	}
 
 	track("buildTypeResolver", func() {
@@ -685,10 +700,6 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 	track("detectAndroidProject", func() {
 		p.detectAndroidProject(in, &result)
 	})
-
-	if in.BuildCodeIndex {
-		p.runCodeIndexBuild(in, &result)
-	}
 
 	if in.BuildModuleIndex {
 		p.runModuleIndexBuild(in, &result)
@@ -798,7 +809,14 @@ var _ Phase[IndexInput, IndexResult] = IndexPhase{}
 
 // runDaemonOracle starts a daemon, analyzes all files, and wraps base in
 // a CompositeResolver. Returns the updated resolver.
-func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scanPaths []string, loadOracleFilterFiles func() []*scanner.File, oracleTracker perf.Tracker, base typeinfer.TypeResolver, result *IndexResult) typeinfer.TypeResolver {
+//
+// codeIndex is the cross-file *scanner.CodeIndex built by
+// runCodeIndexBuild earlier in IndexPhase.Run (v3 reorder). nil-safe:
+// callers without cross-file rules pass nil. Currently unused inside
+// the daemon path; the parent integration step will consume it via
+// idx.TransitiveDependents(...) when expanding StaleOraclePaths.
+func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scanPaths []string, loadOracleFilterFiles func() []*scanner.File, oracleTracker perf.Tracker, base typeinfer.TypeResolver, codeIndex *scanner.CodeIndex, result *IndexResult) typeinfer.TypeResolver {
+	_ = codeIndex // reserved for v3 transitive ABI invalidation; see runOracle docstring.
 	callFilterPtr := selectOracleCallFilter(in, oracleRules, loadOracleFilterFiles, oracleTracker)
 
 	var d *oracle.Daemon
@@ -1060,7 +1078,14 @@ func (p IndexPhase) loadOracleFromPath(in IndexInput, oraclePath string, oracleT
 // runAutoDetectOracle resolves the oracle JSON path via explicit
 // --input-types, a cached types.json, or by invoking krit-types, then
 // configures a lazy lookup and wraps base.
-func (p IndexPhase) runAutoDetectOracle(in IndexInput, oracleRules []*api.Rule, scanPaths []string, loadOracleFilterFiles func() []*scanner.File, oracleTracker perf.Tracker, base typeinfer.TypeResolver) typeinfer.TypeResolver {
+//
+// codeIndex is the cross-file *scanner.CodeIndex built by
+// runCodeIndexBuild earlier in IndexPhase.Run (v3 reorder). nil-safe:
+// callers without cross-file rules pass nil. Currently unused inside
+// the auto-detect path; the parent integration step will consume it
+// via idx.TransitiveDependents(...) when expanding StaleOraclePaths.
+func (p IndexPhase) runAutoDetectOracle(in IndexInput, oracleRules []*api.Rule, scanPaths []string, loadOracleFilterFiles func() []*scanner.File, oracleTracker perf.Tracker, base typeinfer.TypeResolver, codeIndex *scanner.CodeIndex) typeinfer.TypeResolver {
+	_ = codeIndex // reserved for v3 transitive ABI invalidation; see runOracle docstring.
 	var oraclePath string
 	var cachedTypesJSONExists bool
 	oracleTracker.TrackVoid("findSources", func() {
@@ -1114,7 +1139,15 @@ func (p IndexPhase) runAutoDetectOracle(in IndexInput, oracleRules []*api.Rule, 
 // where requested, and wraps base in an oracle.CompositeResolver on
 // success. Verbose stderr lines and perf tracker labels match the
 // pre-refactor output exactly.
-func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result *IndexResult) typeinfer.TypeResolver {
+//
+// codeIndex is the cross-file *scanner.CodeIndex built by
+// runCodeIndexBuild earlier in IndexPhase.Run (v3 reorder). nil is
+// permitted — callers that don't build a code index (no rule needs
+// cross-file data) pass nil and the oracle decision path falls back
+// to its prior behavior. Today this slot is plumbed but unused; the
+// downstream integration step will consume it via
+// idx.TransitiveDependents(...) when expanding StaleOraclePaths.
+func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, codeIndex *scanner.CodeIndex, result *IndexResult) typeinfer.TypeResolver {
 	oracleRules := rules.KotlinOracleRulesV2(in.ActiveRules)
 	if len(oracleRules) == 0 {
 		return base
@@ -1135,9 +1168,9 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 
 	var resolver typeinfer.TypeResolver
 	if in.UseDaemon {
-		resolver = p.runDaemonOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, result)
+		resolver = p.runDaemonOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, codeIndex, result)
 	} else {
-		resolver = p.runAutoDetectOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base)
+		resolver = p.runAutoDetectOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, codeIndex)
 	}
 
 	oracleTracker.End()

@@ -257,6 +257,28 @@ func TestBuildDaemonAnalyzeArgs_ForwardsColumnsForNonJSONFormat(t *testing.T) {
 	}
 }
 
+// TestBuildDaemonAnalyzeArgs_RespectsReportOverride pins the regression
+// path that broke CI: --report (or resolveEffectiveFormat's auto-promote
+// json -> plain when stdout is a char device) must flow into the wire
+// args alongside writeDaemonFindings's same decision. If the wire side
+// uses raw *f.Format while the local renderer uses resolveEffectiveFormat,
+// the daemon ships no columns ("json" wire, IncludeColumns=false) and
+// the CLI tries to render "plain" from an empty columns segment, exit 2.
+// CI's run_lint_test redirects -f json to /dev/null (char-device on
+// Linux) and tripped exactly this skew.
+func TestBuildDaemonAnalyzeArgs_RespectsReportOverride(t *testing.T) {
+	f := freshScanFlags(t)
+	*f.Format = "json"
+	*f.Report = "plain"
+	args := buildDaemonAnalyzeArgs(f, []string{"/tmp"})
+	if !args.IncludeColumns {
+		t.Errorf("IncludeColumns = false, want true when --report=plain promotes the effective format")
+	}
+	if args.Format != "json" {
+		t.Errorf("wire Format = %q, want %q (plain riding the columns wire)", args.Format, "json")
+	}
+}
+
 // TestTryDaemonDelegate_HappyPathReturnsExitFromFindings closes the
 // loop: on a clean delegation, the CLI surfaces FindingsCount via
 // the standard exit-code rule (0 = clean, 1 = any finding).

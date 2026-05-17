@@ -587,10 +587,15 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 // propagated; anything outside that set should have been filtered
 // upstream.
 func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectArgs {
-	format := *f.Format
-	if *f.Report != "" {
-		format = *f.Report
-	}
+	// Use resolveEffectiveFormat so the wire-side and the local-side
+	// (writeDaemonFindings) agree on what the CLI is going to render:
+	// `-f json` to a char-device stdout (e.g. /dev/null in CI's
+	// run_lint_test) auto-promotes to "plain", and if the wire decision
+	// here is taken on raw *f.Format the daemon ships no columns while
+	// writeDaemonFindings tries to render them. See formatNeedsLocalColumnar
+	// below — the includeColumns / wireFormat rewrite for plain / checkstyle
+	// only fires when both sides see the promoted "plain".
+	format := resolveEffectiveFormat(f)
 	// --sample-rule asks for JSON findings post-processed on the CLI
 	// side. Force the daemon to emit JSON regardless of the user's
 	// --format choice so the writer can decode the envelope. The

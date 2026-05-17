@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/bits-and-blooms/bloom/v3"
@@ -479,6 +480,54 @@ func symbolReferenceNames(sym Symbol) []string {
 		return []string{sym.Name}
 	}
 	return []string{sym.Name, sym.FQN}
+}
+
+// TransitiveDependents returns the deduped, sorted set of files that
+// reference any of the given simple symbol names, excluding the
+// originating file (so a class's own declaring file isn't flagged as
+// its own dependent). Used by the warm-path freshness gate to extend
+// per-file ABI invalidation into transitive dependents: when file X's
+// public ABI changes, this query identifies the files whose cached
+// oracle facts may be stale because they resolved against X's old
+// surface.
+//
+// excludeFile may be empty when the caller wants every file referencing
+// any of the names. Names whose bloom filter check fails are skipped
+// without a map lookup — common case where most public-API edits
+// don't ripple far. Deterministic output order so downstream
+// consumers (StaleOraclePaths) hash to a stable value across runs.
+func (idx *CodeIndex) TransitiveDependents(names []string, excludeFile string) []string {
+	if idx == nil || len(names) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		if idx.refBloom != nil && !idx.refBloom.TestString(name) {
+			continue
+		}
+		files := idx.refFilesByName[name]
+		if files == nil {
+			continue
+		}
+		for f := range files {
+			if f == excludeFile {
+				continue
+			}
+			seen[f] = true
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(seen))
+	for f := range seen {
+		out = append(out, f)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // BloomStats returns the bloom filter memory usage in bytes.

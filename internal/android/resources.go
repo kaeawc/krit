@@ -774,7 +774,7 @@ func (idx *ResourceIndex) scanDrawableDir(dir string, maxWorkers int) {
 }
 
 func (idx *ResourceIndex) parseDrawableSelectorBytes(path, resName string, data []byte) {
-	root, err := ParseXMLAST(data)
+	root, err := ParseXMLAST(context.Background(), data)
 	if err != nil || root == nil || root.Tag != "selector" {
 		return
 	}
@@ -804,7 +804,7 @@ func (idx *ResourceIndex) parseDrawableSelectorBytes(path, resName string, data 
 }
 
 func parseLayoutBytes(data []byte) (*Layout, error) {
-	rootNode, err := ParseXMLAST(data)
+	rootNode, err := ParseXMLAST(context.Background(), data)
 	if err != nil {
 		return nil, err
 	}

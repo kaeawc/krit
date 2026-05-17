@@ -52,7 +52,7 @@ func (FixupPhase) Name() string { return "fixup" }
 // Per-file fix errors are returned via FixupResult.FixErrors — they do
 // not cause Run itself to fail. Only catastrophic failures bubble up as
 // a non-nil error return.
-func (FixupPhase) Run(_ context.Context, in FixupInput) (FixupResult, error) {
+func (FixupPhase) Run(ctx context.Context, in FixupInput) (FixupResult, error) {
 	if !in.Apply && !in.ApplyBinary && !in.CountOnly {
 		return FixupResult{CrossFileResult: in.CrossFileResult}, nil
 	}
@@ -103,7 +103,7 @@ func (FixupPhase) Run(_ context.Context, in FixupInput) (FixupResult, error) {
 			touched[columns.FileAt(row)] = struct{}{}
 		})
 
-		applied, _, errs := fixer.ApplyAllFixesColumns(&columns, in.Suffix)
+		applied, _, errs := fixer.ApplyAllFixesColumns(ctx, &columns, in.Suffix)
 		textFixes = applied
 		fixErrs = append(fixErrs, errs...)
 

@@ -28,14 +28,14 @@ fun log() {
 		Match:       `((simple_identifier) @match (#eq? @match "Timber"))`,
 		Replacement: "logger",
 	}
-	dry, err := Run(root, recipe, false)
+	dry, err := Run(t.Context(), root, recipe, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if dry.Matches != 1 || dry.EditsApplied != 0 {
 		t.Fatalf("dry run = %+v, want one unapplied match", dry)
 	}
-	applied, err := Run(root, recipe, true)
+	applied, err := Run(t.Context(), root, recipe, true)
 	if err != nil {
 		t.Fatal(err)
 	}

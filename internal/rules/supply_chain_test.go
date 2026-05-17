@@ -51,7 +51,7 @@ func TestCompileSdkMismatchAcrossModules(t *testing.T) {
 func runCompileSdkMismatchAcrossModulesRule(t *testing.T, projectDir string) []scanner.Finding {
 	t.Helper()
 
-	graph, err := module.DiscoverModules(projectDir)
+	graph, err := module.DiscoverModules(t.Context(), projectDir)
 	if err != nil {
 		t.Fatalf("DiscoverModules(%s): %v", projectDir, err)
 	}
@@ -463,7 +463,7 @@ func applySuggestionEdits(t *testing.T, finding scanner.Finding, suggestionID st
 		})
 	}
 	columns := scanner.CollectFindings(edits)
-	applied, _, errs := fixer.ApplyAllFixesColumns(&columns, "")
+	applied, _, errs := fixer.ApplyAllFixesColumns(t.Context(), &columns, "")
 	if len(errs) > 0 {
 		t.Fatalf("ApplyAllFixesColumns errors: %v", errs)
 	}

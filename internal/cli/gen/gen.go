@@ -86,7 +86,7 @@ type TestFileSummary struct {
 }
 
 func BuildModuleReadmeSummary(root, modulePath string) (ModuleReadmeSummary, error) {
-	graph, err := module.DiscoverModules(root)
+	graph, err := module.DiscoverModules(context.Background(), root)
 	if err != nil {
 		return ModuleReadmeSummary{}, fmt.Errorf("discovering modules: %w", err)
 	}

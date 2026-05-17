@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -50,7 +51,7 @@ func discoverSLOGraph(paths []string) *module.Graph {
 	if err == nil && !info.IsDir() {
 		root = filepath.Dir(root)
 	}
-	graph, err := module.DiscoverModules(root)
+	graph, err := module.DiscoverModules(context.Background(), root)
 	if err != nil {
 		return nil
 	}

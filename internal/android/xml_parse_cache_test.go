@@ -53,7 +53,7 @@ func TestXMLParseCache_RoundTrip(t *testing.T) {
 	data := largeManifest()
 
 	// Cold parse populates the cache.
-	freshRoot, err := ParseXMLAST(data)
+	freshRoot, err := ParseXMLAST(t.Context(), data)
 	if err != nil {
 		t.Fatalf("fresh ParseXMLAST: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestXMLParseCache_RoundTrip(t *testing.T) {
 	}
 
 	// Warm parse should hit.
-	cachedRoot, err := ParseXMLAST(data)
+	cachedRoot, err := ParseXMLAST(t.Context(), data)
 	if err != nil {
 		t.Fatalf("warm ParseXMLAST: %v", err)
 	}
@@ -116,10 +116,10 @@ func TestXMLParseCache_SkipsSmallFiles(t *testing.T) {
 	SetActiveXMLParseCache(pc)
 
 	small := []byte(`<root><a/></root>`)
-	if _, err := ParseXMLAST(small); err != nil {
+	if _, err := ParseXMLAST(t.Context(), small); err != nil {
 		t.Fatalf("ParseXMLAST: %v", err)
 	}
-	if _, err := ParseXMLAST(small); err != nil {
+	if _, err := ParseXMLAST(t.Context(), small); err != nil {
 		t.Fatalf("ParseXMLAST: %v", err)
 	}
 
@@ -208,7 +208,7 @@ func TestXMLParseCache_GrammarMismatchForcesMiss(t *testing.T) {
 	SetActiveXMLParseCache(pc)
 
 	data := largeManifest()
-	if _, err := ParseXMLAST(data); err != nil {
+	if _, err := ParseXMLAST(t.Context(), data); err != nil {
 		t.Fatalf("ParseXMLAST: %v", err)
 	}
 	if err := pc.Close(); err != nil {
@@ -296,7 +296,7 @@ func TestXMLParseCache_ClearViaRegistry(t *testing.T) {
 	SetActiveXMLParseCache(pc)
 
 	data := largeManifest()
-	if _, err := ParseXMLAST(data); err != nil {
+	if _, err := ParseXMLAST(t.Context(), data); err != nil {
 		t.Fatalf("ParseXMLAST: %v", err)
 	}
 	if err := pc.Close(); err != nil {

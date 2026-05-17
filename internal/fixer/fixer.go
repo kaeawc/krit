@@ -41,13 +41,13 @@ func splitTextFixRowsByMode(fixes []textFixRow) (byteFixes, lineFixes []textFixR
 
 // ValidateFixResult checks whether the given content (for a .kt file) still parses
 // without additional errors compared to the original. This is opt-in validation.
-func ValidateFixResult(path string, original, fixed []byte) error {
+func ValidateFixResult(ctx context.Context, path string, original, fixed []byte) error {
 	if !strings.HasSuffix(path, ".kt") && !strings.HasSuffix(path, ".kts") {
 		return nil // only validate Kotlin files
 	}
 
-	origErrors := countParseErrors(original)
-	fixedErrors := countParseErrors(fixed)
+	origErrors := countParseErrors(ctx, original)
+	fixedErrors := countParseErrors(ctx, fixed)
 
 	if fixedErrors > origErrors {
 		return fmt.Errorf("fix produced %d parse errors (original had %d)", fixedErrors, origErrors)
@@ -56,10 +56,10 @@ func ValidateFixResult(path string, original, fixed []byte) error {
 }
 
 // countParseErrors parses content as Kotlin and counts ERROR nodes in the flat tree.
-func countParseErrors(content []byte) int {
+func countParseErrors(ctx context.Context, content []byte) int {
 	parser := scanner.GetKotlinParser()
 	defer scanner.PutKotlinParser(parser)
-	tree, err := parser.ParseCtx(context.Background(), nil, content)
+	tree, err := parser.ParseCtx(ctx, nil, content)
 	if err != nil {
 		return 1 // treat parse failure as one error
 	}
@@ -86,7 +86,7 @@ type FixResult struct {
 // ApplyAllFixesColumns applies text fixes from columnar findings across all files.
 // It reconstructs only rows that carry text fixes, preserving the existing file-level
 // fixer behavior without materializing the entire finding set.
-func ApplyAllFixesColumns(columns *scanner.FindingColumns, suffix string) (totalFixes int, filesModified int, errors []error) {
+func ApplyAllFixesColumns(ctx context.Context, columns *scanner.FindingColumns, suffix string) (totalFixes int, filesModified int, errors []error) {
 	if columns == nil || columns.Len() == 0 {
 		return 0, 0, nil
 	}
@@ -105,7 +105,7 @@ func ApplyAllFixesColumns(columns *scanner.FindingColumns, suffix string) (total
 	// of CI log diff noise — see #27.
 	for _, path := range iterutil.SortedKeys(byFile) {
 		rows := byFile[path]
-		res, err := applyFixesDetailedColumns(path, columns, rows, suffix, false)
+		res, err := applyFixesDetailedColumns(ctx, path, columns, rows, suffix, false)
 		if err != nil {
 			errors = append(errors, fmt.Errorf("%s: %w", path, err))
 			continue
@@ -118,7 +118,7 @@ func ApplyAllFixesColumns(columns *scanner.FindingColumns, suffix string) (total
 	return
 }
 
-func applyFixesDetailedColumns(path string, columns *scanner.FindingColumns, rows []int, suffix string, validate bool) (FixResult, error) {
+func applyFixesDetailedColumns(ctx context.Context, path string, columns *scanner.FindingColumns, rows []int, suffix string, validate bool) (FixResult, error) {
 	if columns == nil || len(rows) == 0 {
 		return FixResult{}, nil
 	}
@@ -167,7 +167,7 @@ func applyFixesDetailedColumns(path string, columns *scanner.FindingColumns, row
 	}
 
 	if validate {
-		if err := ValidateFixResult(path, content, []byte(result)); err != nil {
+		if err := ValidateFixResult(ctx, path, content, []byte(result)); err != nil {
 			return FixResult{DroppedFixes: droppedFixes}, fmt.Errorf("fix validation failed for %s: %w", path, err)
 		}
 	}

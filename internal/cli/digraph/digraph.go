@@ -34,7 +34,7 @@ func Run(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	moduleGraph, err := module.DiscoverModules(root)
+	moduleGraph, err := module.DiscoverModules(context.Background(), root)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: discover modules: %v\n", err)
 		return 1

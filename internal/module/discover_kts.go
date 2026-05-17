@@ -45,12 +45,12 @@ type parsedSettings struct {
 // projectDir overrides go through the regex parseProjectDirOverrides
 // because tree-sitter Kotlin doesn't model script-level assignments
 // cleanly.
-func parseSettingsKts(rootDir, src string) parsedSettings {
+func parseSettingsKts(ctx context.Context, rootDir, src string) parsedSettings {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	parser.SetLanguage(kotlin.GetLanguage())
 
-	tree, err := parser.ParseCtx(context.Background(), nil, []byte(src))
+	tree, err := parser.ParseCtx(ctx, nil, []byte(src))
 	if err != nil || tree == nil {
 		return parsedSettings{overrides: parseProjectDirOverrides(src)}
 	}

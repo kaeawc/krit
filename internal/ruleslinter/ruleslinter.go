@@ -62,23 +62,6 @@ func (v Violation) String() string {
 	return fmt.Sprintf("%s: rule %s: %s", v.Position, label, v.Message)
 }
 
-// AdHocCacheException identifies a sync.Map declaration that pre-dates
-// the no-ad-hoc-cache gate and is allowed to exist temporarily. Each
-// entry is keyed by file basename + var/field name. Removing an entry
-// here is part of the migration of that cache to a shared facts layer
-// (typically internal/filefacts/).
-type AdHocCacheException struct {
-	File string // basename within the rules dir, e.g. "complexity.go"
-	Name string // identifier of the sync.Map var or field
-}
-
-// grandfatheredAdHocCaches lists package-level sync.Map declarations and
-// rule-struct sync.Map fields that existed before the gate landed. They
-// represent rule-local memoization that should migrate to a shared
-// per-run facts layer. The list MUST shrink over time; new entries are
-// not accepted.
-var grandfatheredAdHocCaches = map[AdHocCacheException]bool{}
-
 // adHocCacheInfraFiles holds files that contain sync.Map declarations
 // which are NOT rule-local memoization but legitimate dispatcher
 // infrastructure.
@@ -88,8 +71,7 @@ var adHocCacheInfraFiles = map[string]bool{
 
 // AnalyzeAdHocCaches scans every .go file in dir for sync.Map
 // declarations (package-level vars or struct fields) and returns one
-// violation per unknown declaration. Known cases are listed in
-// grandfatheredAdHocCaches; legitimate infrastructure files are listed
+// violation per declaration. Legitimate infrastructure files are listed
 // in adHocCacheInfraFiles. Test files are skipped.
 func AnalyzeAdHocCaches(dir string) ([]Violation, error) {
 	return walkRulesPackageDir(dir, func(name string) bool {
@@ -138,12 +120,9 @@ func walkRulesPackageDir(
 	return violations, nil
 }
 
-func scanAdHocCaches(fset *token.FileSet, file *ast.File, basename string) []Violation {
+func scanAdHocCaches(fset *token.FileSet, file *ast.File, _ string) []Violation {
 	var out []Violation
 	report := func(name string, pos token.Pos, message string) {
-		if grandfatheredAdHocCaches[AdHocCacheException{File: basename, Name: name}] {
-			return
-		}
 		out = append(out, Violation{
 			RuleID:   name,
 			Position: fset.Position(pos),

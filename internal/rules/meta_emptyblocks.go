@@ -15,7 +15,7 @@ func (r *EmptyCatchBlockRule) Meta() api.RuleDescriptor {
 		ID:            "EmptyCatchBlock",
 		RuleSet:       "empty-blocks",
 		DefaultActive: true,
-		FixLevel:      "semantic",
+		FixLevel:      "none",
 		Options: []api.ConfigOption{
 			api.RegexOption(api.RegexOptionSpec[EmptyCatchBlockRule]{
 				Name:        "allowedExceptionNameRegex",

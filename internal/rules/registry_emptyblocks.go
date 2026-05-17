@@ -28,9 +28,14 @@ func registerEmptyblocksRules() {
 
 func registerEmptyblocksEmptyCatchBlock() {
 	r := &EmptyCatchBlockRule{BaseRule: BaseRule{RuleName: "EmptyCatchBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects catch blocks with an empty body that silently swallow exceptions."}}
+	// Fix neutered: the previous autofix inserted a `// TODO: handle
+	// exception` comment, which is FixSemantic-shaped but does not
+	// actually handle the exception — the catch still silently swallows
+	// every Throwable. The rule still reports the finding so the
+	// developer can write a real handler.
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"catch_block", "catch_clause"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"catch_block", "catch_clause"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: api.FixNone, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !isBlockEmptyFlat(file, idx) {
@@ -45,21 +50,8 @@ func registerEmptyblocksEmptyCatchBlock() {
 					return
 				}
 			}
-			f := r.Finding(file, file.FlatRow(idx)+1, 1,
-				"Empty catch block detected. Empty catch blocks should be avoided.")
-			nodeText := file.FlatNodeText(idx)
-			braceStart := strings.Index(nodeText, "{")
-			braceEnd := strings.LastIndex(nodeText, "}")
-			if braceStart >= 0 && braceEnd > braceStart {
-				indent := detectIndent(file.Content, int(file.FlatStartByte(idx)))
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   int(file.FlatStartByte(idx)) + braceStart,
-					EndByte:     int(file.FlatStartByte(idx)) + braceEnd + 1,
-					Replacement: "{\n" + indent + "    // TODO: handle exception\n" + indent + "}",
-				}
-			}
-			ctx.Emit(f)
+			ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, 1,
+				"Empty catch block detected. Empty catch blocks should be avoided."))
 		},
 	})
 }
@@ -372,16 +364,13 @@ func registerEmptyblocksEmptyFunctionBlock() {
 			if !isBlockEmptyFlat(file, body) {
 				return
 			}
-			inner := bodyText
-			if i := strings.Index(inner, "{"); i >= 0 {
-				inner = inner[i+1:]
-			}
-			if j := strings.LastIndex(inner, "}"); j >= 0 {
-				inner = inner[:j]
-			}
-			trimmedInner := strings.TrimSpace(inner)
-			if strings.HasPrefix(trimmedInner, "//") || strings.HasPrefix(trimmedInner, "/*") ||
-				strings.Contains(trimmedInner, "TODO") {
+			// Whether the body holds any comment is a lexical question
+			// the AST answers directly: a `// TODO` or `/* TODO */` is a
+			// `line_comment` / `block_comment` node. A bare text scan for
+			// "//" / "/*" / "TODO" would also match those tokens when
+			// they appear inside string literals or identifiers, which is
+			// the kind of false positive the rule guardrails call out.
+			if blockHasCommentFlat(file, body) {
 				return
 			}
 			f := r.Finding(file, file.FlatRow(idx)+1, 1,

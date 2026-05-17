@@ -29,6 +29,54 @@ fun foo() {
 	}
 }
 
+// TestEmptyFunctionBlock_NegativeCommentOnly is a lexical-negative
+// regression for the bodyText scan that used to read
+// `strings.HasPrefix(trimmedInner, "//") || strings.Contains(trimmedInner, "TODO")`.
+// The replacement uses blockHasCommentFlat, which asks the AST whether
+// a comment node lives inside the body. Both a line-comment marker and
+// a block-comment marker must continue to suppress the finding, and
+// the comment text containing the word "TODO" must not influence the
+// outcome any differently than a comment without it.
+func TestEmptyFunctionBlock_NegativeCommentOnly(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{
+			name: "line comment with TODO",
+			src: `
+fun foo() {
+    // TODO: implement later
+}
+`,
+		},
+		{
+			name: "line comment without TODO",
+			src: `
+fun foo() {
+    // intentionally left as a placeholder
+}
+`,
+		},
+		{
+			name: "block comment with TODO",
+			src: `
+fun foo() {
+    /* TODO: implement later */
+}
+`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "EmptyFunctionBlock", tc.src)
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings, got %d", len(findings))
+			}
+		})
+	}
+}
+
 func TestEmptyFunctionBlock_Java(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "EmptyFunctionBlock", `
 package test;
@@ -146,6 +194,28 @@ fun foo() {
 `)
 	if len(findings) == 0 {
 		t.Fatal("expected finding for empty catch block")
+	}
+}
+
+// TestEmptyCatchBlock_DoesNotEmitFix pins the autofix removal. The
+// previous autofix inserted `// TODO: handle exception`, which is
+// not a real fix — the catch still swallows the exception. The rule
+// must continue to flag the violation but must never attach a Fix.
+func TestEmptyCatchBlock_DoesNotEmitFix(t *testing.T) {
+	findings := runRuleByName(t, "EmptyCatchBlock", `
+fun foo() {
+    try {
+        doSomething()
+    } catch (e: Exception) {}
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for empty catch block")
+	}
+	for _, f := range findings {
+		if f.Fix != nil {
+			t.Fatalf("EmptyCatchBlock must not emit a Fix; got %+v", f.Fix)
+		}
 	}
 }
 

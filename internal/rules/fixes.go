@@ -61,7 +61,7 @@ func (r *ElseCaseInsteadOfExhaustiveWhenRule) IsFixable() bool  { return true }
 func (r *EmptyDefaultConstructorRule) IsFixable() bool   { return true }
 func (r *EmptyInitBlockRule) IsFixable() bool            { return true }
 func (r *EmptySecondaryConstructorRule) IsFixable() bool { return true }
-func (r *EmptyCatchBlockRule) IsFixable() bool           { return true }
+func (r *EmptyCatchBlockRule) IsFixable() bool           { return false }
 func (r *EmptyClassBlockRule) IsFixable() bool           { return true }
 func (r *EmptyDoWhileBlockRule) IsFixable() bool         { return true }
 func (r *EmptyElseBlockRule) IsFixable() bool            { return true }

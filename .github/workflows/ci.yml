@@ -61,6 +61,36 @@ jobs:
       - name: Integration tests
         run: make integration
 
+  # fanotify exercises the Linux-only watcher backend that needs
+  # CAP_SYS_ADMIN (fanotify_mark) and CAP_DAC_READ_SEARCH
+  # (open_by_handle_at). These tests live behind the
+  # fanotify_integration build tag so `go test ./...` on a developer
+  # laptop stays quiet. The runner is already Linux; we just need to
+  # invoke `go test` under sudo so the test process holds the
+  # required capabilities. /tmp on GHA runners is ext4, which
+  # exports file handles, so FAN_MARK_FILESYSTEM is supported
+  # without the Dockerfile.fanotify tmpfs gymnastics local devs need.
+  fanotify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+      - name: Show kernel + filesystem context
+        run: |
+          uname -a
+          echo "fs of \$TMPDIR (/tmp):"
+          stat -f -c '%T' /tmp || true
+      - name: Run fanotify integration tests
+        # -E preserves the Go env (GOCACHE, GOMODCACHE, etc.) set by
+        # setup-go; PATH is re-exported because sudo strips it by
+        # default even with -E on many distros.
+        run: |
+          sudo -E env "PATH=$PATH" "HOME=$HOME" \
+            go test -tags fanotify_integration -count=1 -v \
+            ./internal/cli/serve/ -run TestFanotify
+
   intellij-plugin:
     runs-on: ubuntu-latest
     steps:

@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
-
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/pipeline"
@@ -54,10 +52,14 @@ const defaultDebounceWindow = 50 * time.Millisecond
 // WorkspaceState catches. Errors are logged via a Reporter and never
 // crash the daemon.
 type fileWatcher struct {
-	w        *fsnotify.Watcher
+	w        watcherBackend
 	root     string
 	state    watcherState
 	reporter *diag.Reporter
+	// backendKind records which backend implementation w wraps. Pure
+	// diagnostic — used by the daemon's status verb so operators can
+	// confirm the configured backend is active.
+	backendKind watcherBackendKind
 	// onConfigChange fires when the watcher observes an edit to a
 	// krit.yml / .krit.yml file. Daemon callers wire this to
 	// daemonState.InvalidateConfig so the next analyze-project verb
@@ -103,12 +105,7 @@ func startFileWatcher(ctx context.Context, root string, state *pipeline.Workspac
 }
 
 func startFileWatcherWithState(ctx context.Context, root string, state watcherState, reporter *diag.Reporter, opts ...watcherOption) (*fileWatcher, error) {
-	w, err := fsnotify.NewWatcher()
-	if err != nil {
-		return nil, err
-	}
 	fw := &fileWatcher{
-		w:              w,
 		root:           root,
 		state:          state,
 		reporter:       reporter,
@@ -117,21 +114,36 @@ func startFileWatcherWithState(ctx context.Context, root string, state watcherSt
 		debounce:       make(map[string]*time.Timer),
 		debounceGen:    make(map[string]uint64),
 		debounceWindow: defaultDebounceWindow,
+		backendKind:    kindAuto,
 	}
 	for _, opt := range opts {
 		opt(fw)
 	}
+	w, resolved, err := newWatcherBackend(fw.backendKind, root, reporter)
+	if err != nil {
+		return nil, err
+	}
+	fw.w = w
+	fw.backendKind = resolved
 	// Add the root synchronously so files written directly under it
 	// are caught from t=0. The recursive descent runs in a goroutine —
 	// on a 60k-file repo a sync walk costs multiple seconds, which is
-	// the daemon's first-call latency budget.
-	if err := w.Add(root); err != nil {
-		_ = w.Close()
+	// the daemon's first-call latency budget. For fanotify the first
+	// Add marks the containing filesystem; subsequent Adds during the
+	// recursive walk are no-ops handled inside the backend.
+	if err := fw.w.Add(root); err != nil {
+		_ = fw.w.Close()
 		return nil, err
 	}
 	go fw.populate()
 	go fw.run(ctx)
 	return fw, nil
+}
+
+// withBackendKind selects the watcherBackend implementation. Defaults
+// to kindFsnotify; serve.go wires this from --watch-backend.
+func withBackendKind(k watcherBackendKind) watcherOption {
+	return func(fw *fileWatcher) { fw.backendKind = k }
 }
 
 // populate walks the project tree and registers each directory with
@@ -149,6 +161,13 @@ func (fw *fileWatcher) populate() {
 // walk has finished. Tests that exercise pre-existing subtrees can
 // wait on it; production callers don't need to.
 func (fw *fileWatcher) Ready() <-chan struct{} { return fw.ready }
+
+// BackendKind returns the watcher backend that was actually
+// resolved by the dispatcher. For kindAuto callers this is the
+// only way to tell whether fanotify or fsnotify is live — serve.go
+// logs it at startup so users see whether their setcap setup
+// took effect.
+func (fw *fileWatcher) BackendKind() watcherBackendKind { return fw.backendKind }
 
 // watcherOption tunes startFileWatcher. Variadic so callers without a
 // daemonState (e.g. unit tests of the watcher itself) don't need to
@@ -170,7 +189,9 @@ func withDebounceWindow(d time.Duration) watcherOption {
 // Stop releases the watcher. Safe to call multiple times.
 func (fw *fileWatcher) Stop() {
 	fw.closeOnce.Do(func() {
-		_ = fw.w.Close()
+		if fw.w != nil {
+			_ = fw.w.Close()
+		}
 		<-fw.done
 	})
 }
@@ -179,16 +200,18 @@ func (fw *fileWatcher) Stop() {
 // cancelled.
 func (fw *fileWatcher) run(ctx context.Context) {
 	defer close(fw.done)
+	events := fw.w.Events()
+	errs := fw.w.Errors()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case event, ok := <-fw.w.Events:
+		case event, ok := <-events:
 			if !ok {
 				return
 			}
 			fw.handle(event)
-		case err, ok := <-fw.w.Errors:
+		case err, ok := <-errs:
 			if !ok {
 				return
 			}
@@ -197,17 +220,18 @@ func (fw *fileWatcher) run(ctx context.Context) {
 	}
 }
 
-// handle dispatches a single fsnotify event. Newly created
+// handle dispatches a single normalized backendEvent. Newly created
 // directories get a fresh watch so additions in subtrees don't slip
-// past; .kt/.kts file events invalidate the per-file parse cache and
-// the cross-file CodeIndex; Gradle / version-catalog edits also
-// invalidate the cached LibraryFacts since they describe the
+// past (fsnotify only — fanotify's filesystem mark catches them
+// automatically); .kt/.kts file events invalidate the per-file parse
+// cache and the cross-file CodeIndex; Gradle / version-catalog edits
+// also invalidate the cached LibraryFacts since they describe the
 // project's dependency closure.
-func (fw *fileWatcher) handle(ev fsnotify.Event) {
-	if ev.Op&fsnotify.Create != 0 {
-		if info, err := os.Stat(ev.Name); err == nil && info.IsDir() {
-			if err := fw.addRecursive(ev.Name); err != nil {
-				fw.warn("watch new dir %s: %v\n", ev.Name, err)
+func (fw *fileWatcher) handle(ev backendEvent) {
+	if ev.Op&opCreate != 0 {
+		if info, err := os.Stat(ev.Path); err == nil && info.IsDir() {
+			if err := fw.addRecursive(ev.Path); err != nil {
+				fw.warn("watch new dir %s: %v\n", ev.Path, err)
 			}
 			return
 		}
@@ -225,7 +249,7 @@ func (fw *fileWatcher) handle(ev fsnotify.Event) {
 	// Drop Chmod entirely: content-changing edits always also emit
 	// Write, Create, Remove, or Rename (modern editors' atomic-save
 	// dance is rename+create, never bare chmod).
-	relevant := ev.Op & (fsnotify.Write | fsnotify.Create | fsnotify.Remove | fsnotify.Rename)
+	relevant := ev.Op & (opWrite | opCreate | opRemove | opRename)
 	if relevant == 0 {
 		return
 	}
@@ -233,56 +257,56 @@ func (fw *fileWatcher) handle(ev fsnotify.Event) {
 	// isKotlinPath because of its extension, but it drives library
 	// facts, not the per-file parse cache.
 	switch {
-	case isKritConfigPath(ev.Name):
+	case isKritConfigPath(ev.Path):
 		// krit.yml / .krit.yml drives rule selection. The cached
 		// config on the daemon is now stale; the next analyze-project
 		// call rebuilds.
 		if fw.onConfigChange != nil {
 			fw.onConfigChange()
 		}
-		fw.state.Touch(ev.Name)
-	case isLibraryConfigPath(ev.Name):
+		fw.state.Touch(ev.Path)
+	case isLibraryConfigPath(ev.Path):
 		fw.state.InvalidateLibraryFacts()
 		fw.state.InvalidateCodeIndex()
 		fw.state.InvalidateDependents()
 		// Touch the path so daemon verbs reporting "files changed
 		// since last analyze" see Gradle/version-catalog edits.
-		fw.state.Touch(ev.Name)
+		fw.state.Touch(ev.Path)
 		// Gradle files contribute to the bundle manifest's
 		// FileStats sweep, so any change invalidates the
 		// stats-clean memo just like a .kt edit.
 		fw.state.BumpSourceMTimeVersion()
-	case isKotlinPath(ev.Name):
+	case isKotlinPath(ev.Path):
 		// Editors emit Write+Write+Chmod on a single logical save.
 		// Coalesce within debounceWindow so only one Invalidate+Touch
 		// fires per burst — the dirty-set's map semantics already dedup
 		// Touch, but Invalidate and CodeIndex drops are not free.
-		fw.scheduleKotlinInvalidate(ev.Name)
-	case isJavaPath(ev.Name):
+		fw.scheduleKotlinInvalidate(ev.Path)
+	case isJavaPath(ev.Path):
 		// .java edits invalidate the daemon-resident
 		// javafacts.SourceIndex cache. Kotlin and Java live on
 		// separate version counters so a Kotlin edit doesn't
 		// needlessly invalidate the Java source index (which is
 		// expensive to rebuild: ~100 ms of content hashing).
-		fw.state.Invalidate(ev.Name)
+		fw.state.Invalidate(ev.Path)
 		fw.state.InvalidateCodeIndex()
 		fw.state.InvalidateDependents()
 		fw.state.InvalidateResolver()
 		fw.state.InvalidateOracleFilter()
-		fw.state.Touch(ev.Name)
+		fw.state.Touch(ev.Path)
 		fw.state.BumpSourceMTimeVersion()
 		fw.state.BumpJavaSourceVersion()
-	case isXMLPath(ev.Name):
+	case isXMLPath(ev.Path):
 		// .xml edits (layouts/manifests/navigation) contribute to
 		// CodeIndex reference data, so drop the same downstream
 		// slots a .kt/.java edit drops AND rotate the dedicated
 		// XML version counter. Kotlin/Java edits don't move XML
 		// hashes so the counter stays independent — same shape
 		// as the .java case above.
-		fw.state.Invalidate(ev.Name)
+		fw.state.Invalidate(ev.Path)
 		fw.state.InvalidateCodeIndex()
 		fw.state.InvalidateDependents()
-		fw.state.Touch(ev.Name)
+		fw.state.Touch(ev.Path)
 		fw.state.BumpSourceMTimeVersion()
 		fw.state.BumpXMLFilesVersion()
 	}

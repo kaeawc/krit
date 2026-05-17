@@ -1,0 +1,32 @@
+# Dockerfile.fanotify — Linux test harness for the fanotify watcher
+# backend. macOS / Windows developers can't exercise fanotify locally
+# because the syscall is Linux-only; this image gives the test suite
+# a kernel that supports FAN_REPORT_DFID_NAME (Linux 5.17+, which
+# Docker Desktop's VM provides out of the box).
+#
+# Usage:
+#   make test-fanotify
+#
+# The container must run with CAP_SYS_ADMIN and an unconfined
+# apparmor profile so fanotify_init / fanotify_mark / open_by_handle_at
+# don't fail with EPERM. The Makefile target sets both.
+
+FROM golang:1.25-bookworm
+
+# fanotify_init with FAN_REPORT_DFID_NAME requires Linux 5.17+ and
+# CAP_SYS_ADMIN; open_by_handle_at additionally needs the kernel to
+# expose /proc/self/fd. Bookworm's base image is fine — we just need
+# Go and a writable workspace.
+WORKDIR /src
+
+# Copy go.mod + go.sum first so dependency download caches across
+# source-only changes.
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# The default entrypoint runs the fanotify-tagged tests. Override
+# with `docker run ... go test ./...` to exercise the full suite
+# from within the same container.
+CMD ["go", "test", "-tags", "fanotify_integration", "-count=1", "-v", "./internal/cli/serve/"]

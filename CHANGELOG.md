@@ -4,6 +4,23 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Linux fanotify watcher backend for the daemon: filesystem-wide kernel mark
+  with FAN_REPORT_DFID_NAME + open_by_handle_at path resolution.
+  Auto-selected on Linux when `CAP_SYS_ADMIN` + `CAP_DAC_READ_SEARCH` are
+  available (`setcap cap_sys_admin,cap_dac_read_search+ep $(command -v krit)`),
+  fsnotify otherwise. Skips the per-directory inotify walk on huge repos.
+- `--watch-backend` flag on `krit serve`: `auto` (default), `fsnotify`, or
+  `fanotify`.
+- `docs/perf.md`: catalog of every performance-tuning option, with when to
+  use each and what you give up.
+- `make test-fanotify` Docker target + CI job to exercise the fanotify
+  path on platforms / users without the required capabilities.
+
+### Changed
+- `krit daemon: ready` startup line now reports the resolved watcher
+  backend (`watcher=fsnotify` / `watcher=fanotify` / `watcher=off`).
+
 ## [0.2.0] - 2026-05-11
 
 ### Added

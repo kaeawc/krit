@@ -144,6 +144,13 @@ type ProjectArgs struct {
 	// ShowPerf builds OutputInput.CacheBudget. Zero falls back to
 	// cacheutil.DefaultParseCacheCapBytes.
 	ParseCacheCapBytes int64
+	// RequireFinalFindings forces the pipeline to populate
+	// ProjectResult.FinalFindings even when the streaming bundle-output
+	// fast-path could otherwise skip loading the FindingsBundle. The
+	// daemon sets this when AnalyzeProjectArgs.IncludeColumns is true so
+	// the wire's "columns" segment carries real column data; without it,
+	// the pre-Load BundleOutput cache hit returns empty findings.
+	RequireFinalFindings bool
 }
 
 // ProjectHostState is the long-lived subset of ProjectInput: state a
@@ -764,13 +771,28 @@ func awaitAnalysisCacheFuture(host ProjectHostState) ProjectHostState {
 
 func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan, parseResult ParseResult) (IndexResult, error) {
 	hasIndexBackedCrossFileRule, hasParsedFilesRule, hasModuleAwareRule := ClassifyCrossFileNeeds(args.ActiveRules)
+	// IndexPhase's runCodeIndexBuild and runModuleIndexBuild treat a
+	// nil parent tracker as "this phase is disabled" and early-return
+	// without producing CodeIndex / Graph / ModuleIndex. That coupling
+	// is correct when perf timing is the only consumer, but it silently
+	// drops cross-file / module-aware findings when callers (like the
+	// daemon, which sets host.Tracker to a nil interface unless --perf
+	// is requested) leave host.Tracker unset. Fall back to a no-op
+	// tracker so the IndexPhase steps still execute. Issue: warm-path
+	// daemon returns ~31k fewer findings than in-process on Signal-
+	// Android because ModuleDeadCode / cross-file rules see nil Graph
+	// / CodeIndex.
+	hostTracker := host.Tracker
+	if hostTracker == nil {
+		hostTracker = perf.New(false)
+	}
 	var crossTracker perf.Tracker
-	if host.Tracker != nil && (hasIndexBackedCrossFileRule || hasParsedFilesRule) {
-		crossTracker = host.Tracker.Serial("crossFileAnalysis")
+	if hasIndexBackedCrossFileRule || hasParsedFilesRule {
+		crossTracker = hostTracker.Serial("crossFileAnalysis")
 	}
 	var moduleTracker perf.Tracker
-	if host.Tracker != nil && hasModuleAwareRule {
-		moduleTracker = host.Tracker.Serial("moduleAwareAnalysis")
+	if hasModuleAwareRule {
+		moduleTracker = hostTracker.Serial("moduleAwareAnalysis")
 	}
 	scanRoot := "."
 	if len(args.Paths) > 0 {
@@ -1902,6 +1924,15 @@ func canUseBundleOutputCache(args ProjectArgs, host ProjectHostState) bool {
 		return false
 	}
 	if args.WarningsAsErrors || args.MinConfidence > 0 {
+		return false
+	}
+	// RequireFinalFindings means the caller (daemon w/ IncludeColumns)
+	// needs the post-pipeline FindingColumns alongside the formatted
+	// bytes. The pre-Load BundleOutput cache path skips
+	// FindingsBundleStore.Load and leaves FinalFindings empty, which
+	// would ship empty columns on the wire — fall through to the bundle
+	// load + OutputPhase route so FinalFindings is populated.
+	if args.RequireFinalFindings {
 		return false
 	}
 	return true

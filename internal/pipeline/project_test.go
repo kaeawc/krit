@@ -168,3 +168,78 @@ func TestRunProjectAnalysis_RunsTargetedResolutionBeforeDispatch(t *testing.T) {
 		t.Fatalf("expected resolver request for %s; got %v", path, resolver.calls[0])
 	}
 }
+
+// TestRunProjectAnalysis_ModuleAwareRule_RunsWithoutTracker is the
+// regression test for the daemon warm-path bug where module-aware
+// rules silently emitted zero findings when host.Tracker was nil
+// (i.e. --perf not enabled).
+//
+// IndexPhase.runModuleIndexBuild used to early-return when
+// in.ModuleParentTracker was nil, which left result.Graph and
+// result.ModuleIndex unset. CrossFilePhase.collectModuleAwareFindings
+// then bailed because in.Graph was nil and no NeedsModuleIndex rule
+// ever ran. On Signal-Android with -all-rules this dropped ~31k
+// findings (ModuleDeadCode, PackageDependencyCycle,
+// VersionCatalogUnused, ...) from the daemon's response relative to
+// in-process.
+//
+// The fix substitutes a no-op tracker when host.Tracker is nil so the
+// IndexPhase steps still produce their outputs. This test pins that
+// behavior by constructing a minimal multi-module Gradle project,
+// registering a NeedsModuleIndex rule, and asserting it actually
+// runs even when ProjectHostState carries no Tracker.
+func TestRunProjectAnalysis_ModuleAwareRule_RunsWithoutTracker(t *testing.T) {
+	dir := t.TempDir()
+	// settings.gradle.kts with one explicit module so DiscoverModules
+	// returns a non-empty Graph and ModuleHasAwareRule fires.
+	if err := os.WriteFile(filepath.Join(dir, "settings.gradle.kts"),
+		[]byte("include(\":app\")\n"), 0644); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+	appDir := filepath.Join(dir, "app")
+	srcDir := filepath.Join(appDir, "src", "main", "kotlin")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "build.gradle.kts"),
+		[]byte("plugins { kotlin(\"jvm\") }\n"), 0644); err != nil {
+		t.Fatalf("write app build: %v", err)
+	}
+	ktPath := filepath.Join(srcDir, "Sample.kt")
+	if err := os.WriteFile(ktPath,
+		[]byte("package p\nclass X\n"), 0644); err != nil {
+		t.Fatalf("write sample: %v", err)
+	}
+
+	// Register a fake NeedsModuleIndex rule that counts invocations.
+	var moduleRuleCalls int
+	rule := &api.Rule{
+		ID:          "FakeModuleAwareRule",
+		Category:    "test",
+		Description: "module-aware test rule",
+		Needs:       api.NeedsModuleIndex,
+		Check: func(ctx *api.Context) {
+			moduleRuleCalls++
+			if ctx.ModuleIndex == nil {
+				t.Errorf("module-aware rule got nil ModuleIndex")
+			}
+		},
+	}
+
+	// Crucial: leave host.Tracker unset (nil interface) — that's the
+	// exact daemon-without-perf condition that triggered the bug.
+	_, err := RunProjectAnalysis(context.Background(), ProjectInput{
+		Args: ProjectArgs{
+			Config:      config.NewConfig(),
+			Paths:       []string{dir},
+			ActiveRules: []*api.Rule{rule},
+		},
+		Host: ProjectHostState{},
+	})
+	if err != nil {
+		t.Fatalf("RunProjectAnalysis: %v", err)
+	}
+	if moduleRuleCalls == 0 {
+		t.Fatalf("expected module-aware rule to run at least once with nil Tracker; got 0 calls")
+	}
+}

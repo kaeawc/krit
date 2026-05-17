@@ -1179,10 +1179,14 @@ func loadFilesForOracleFilter(paths []string) []*scanner.File {
 // "indexBuild") stay under the caller-supplied "crossFileAnalysis"
 // parent so rule execution siblings can continue to nest under it.
 func (p IndexPhase) runCodeIndexBuild(ctx context.Context, in IndexInput, result *IndexResult) {
-	if in.CrossFileParentTracker == nil {
-		return
-	}
+	// Treat a nil tracker as "no perf telemetry" rather than "skip
+	// this phase entirely" — callers that don't enable --perf still
+	// need a populated CodeIndex so NeedsCrossFile rules see the
+	// project's symbol/reference graph.
 	crossTracker := in.CrossFileParentTracker
+	if crossTracker == nil {
+		crossTracker = perf.New(false)
+	}
 	parsedFiles := in.KotlinFiles
 	paths := in.Paths
 
@@ -1275,10 +1279,18 @@ func addJavaIndexPerfEntries(tracker perf.Tracker, s scanner.JavaIndexPerfSnapsh
 // "moduleAwareAnalysis" parent tracker and End()-s it after rule
 // execution siblings have run. Rule execution itself stays in main.go.
 func (p IndexPhase) runModuleIndexBuild(ctx context.Context, in IndexInput, result *IndexResult) {
-	if in.ModuleParentTracker == nil {
-		return
-	}
+	// Treat a nil tracker as "no perf telemetry" rather than "skip
+	// this phase entirely" — callers that don't enable --perf still
+	// need result.Graph + result.ModuleIndex populated so
+	// NeedsModuleIndex rules (ModuleDeadCode, PackageDependencyCycle,
+	// VersionCatalogUnused, ...) actually execute. The daemon hit
+	// this bug: without --perf it returned ~31k fewer findings than
+	// the in-process baseline on Signal-Android because every
+	// module-aware rule saw a nil Graph.
 	moduleTracker := in.ModuleParentTracker
+	if moduleTracker == nil {
+		moduleTracker = perf.New(false)
+	}
 
 	scanRoot := in.ModuleScanRoot
 	if scanRoot == "" {

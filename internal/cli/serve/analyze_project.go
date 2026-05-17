@@ -494,6 +494,12 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			// Wire is line-delimited; compact JSON keeps the body
 			// free of internal newlines.
 			JSONCompact: true,
+			// IncludeColumns asks the pipeline for the post-pipeline
+			// FindingColumns so streamingAnalyzeResponse can ship them
+			// in the "columns" wire segment. Without this the pre-Load
+			// BundleOutput cache fast-path returns FinalFindings empty
+			// and the CLI gets {} for columns.
+			RequireFinalFindings: args.IncludeColumns,
 		},
 		Host: pipeline.ProjectHostState{
 			ParseCache:                   parseCache,

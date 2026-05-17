@@ -3,17 +3,20 @@ package scan
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kaeawc/krit/internal/cli/daemonclient"
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // TestTryDaemonDelegate_NoDaemonShortCircuits guards the
@@ -132,6 +135,125 @@ func TestTryDaemonDelegate_FixRoutesViaDaemon(t *testing.T) {
 	handled, _ := tryDaemonDelegate(f, []string{root}, root)
 	if !handled {
 		t.Fatalf("expected handled=true with --fix routed through daemon; got fall-through")
+	}
+}
+
+// TestTryDaemonDelegate_CheckstyleRoutesViaColumns confirms `-f
+// checkstyle` rides the FindingColumns wire segment (IncludeColumns=true)
+// so the daemon's findings JSON byte stream cannot corrupt the envelope.
+// The CLI renders the columnar Checkstyle XML locally; the daemon's
+// AnalyzeProjectResult.Findings carries inert JSON that's discarded by
+// writeDaemonFindings on this branch.
+func TestTryDaemonDelegate_CheckstyleRoutesViaColumns(t *testing.T) {
+	cols := scanner.CollectFindings([]scanner.Finding{{
+		File:     "foo.kt",
+		Line:     12,
+		Col:      3,
+		Severity: "warning",
+		RuleSet:  "rs",
+		Rule:     "R1",
+		Message:  "msg",
+	}})
+	colsBytes, err := json.Marshal(&cols)
+	if err != nil {
+		t.Fatalf("marshal columns: %v", err)
+	}
+	socketDir := startMockDaemon(t, mockBehavior{
+		findings:      `{"rules":["R1"],"line":[12]}`,
+		findingsCount: 1,
+		columns:       string(colsBytes),
+	})
+	root := newRoot(t)
+	linkSock(t, root, filepath.Join(socketDir, "d.sock"))
+
+	out := redirectStdout(t)
+	f := freshScanFlags(t)
+	*f.Format = "checkstyle"
+
+	handled, code := tryDaemonDelegate(f, []string{root}, root)
+	if !handled {
+		t.Fatalf("expected handled=true for -f checkstyle via daemon")
+	}
+	if code != 1 {
+		t.Errorf("expected exit 1 with findings; got %d", code)
+	}
+	got := out()
+	if !strings.HasPrefix(got, "<?xml") {
+		t.Fatalf("expected checkstyle XML output; got %q", got)
+	}
+	if err := xml.Unmarshal([]byte(got), new(struct {
+		XMLName xml.Name `xml:"checkstyle"`
+	})); err != nil {
+		t.Fatalf("checkstyle output does not parse as XML: %v\nbody: %s", err, got)
+	}
+	if !strings.Contains(got, "foo.kt") || !strings.Contains(got, "R1") {
+		t.Errorf("checkstyle output missing finding fields:\n%s", got)
+	}
+}
+
+// TestTryDaemonDelegate_PlainRoutesViaColumns mirrors the checkstyle
+// case for `-f plain`: the daemon ships FindingColumns, the CLI runs
+// FormatPlainColumns locally.
+func TestTryDaemonDelegate_PlainRoutesViaColumns(t *testing.T) {
+	cols := scanner.CollectFindings([]scanner.Finding{{
+		File:     "bar.kt",
+		Line:     7,
+		Col:      4,
+		Severity: "error",
+		RuleSet:  "rs",
+		Rule:     "R2",
+		Message:  "boom",
+	}})
+	colsBytes, err := json.Marshal(&cols)
+	if err != nil {
+		t.Fatalf("marshal columns: %v", err)
+	}
+	socketDir := startMockDaemon(t, mockBehavior{
+		findings:      `{"rules":["R2"],"line":[7]}`,
+		findingsCount: 1,
+		columns:       string(colsBytes),
+	})
+	root := newRoot(t)
+	linkSock(t, root, filepath.Join(socketDir, "d.sock"))
+
+	out := redirectStdout(t)
+	f := freshScanFlags(t)
+	*f.Format = "plain"
+
+	handled, code := tryDaemonDelegate(f, []string{root}, root)
+	if !handled {
+		t.Fatalf("expected handled=true for -f plain via daemon")
+	}
+	if code != 1 {
+		t.Errorf("expected exit 1 with findings; got %d", code)
+	}
+	got := out()
+	if got == "" {
+		t.Fatal("expected non-empty plain output")
+	}
+	if !strings.Contains(got, "bar.kt") || !strings.Contains(got, "R2") || !strings.Contains(got, "boom") {
+		t.Errorf("plain output missing finding fields:\n%s", got)
+	}
+}
+
+// TestBuildDaemonAnalyzeArgs_ForwardsColumnsForNonJSONFormat pins the
+// daemon-side optimisation: -f checkstyle / -f plain set IncludeColumns
+// (so the columnar wire segment ships back) and rewrite Format=json on
+// the wire so the daemon does not waste cycles formatting XML/text the
+// CLI is going to discard anyway.
+func TestBuildDaemonAnalyzeArgs_ForwardsColumnsForNonJSONFormat(t *testing.T) {
+	for _, format := range []string{"checkstyle", "plain"} {
+		t.Run(format, func(t *testing.T) {
+			f := freshScanFlags(t)
+			*f.Format = format
+			args := buildDaemonAnalyzeArgs(f, []string{"/tmp"})
+			if !args.IncludeColumns {
+				t.Errorf("IncludeColumns = false, want true for -f %s", format)
+			}
+			if args.Format != "json" {
+				t.Errorf("wire Format = %q, want %q for -f %s", args.Format, "json", format)
+			}
+		})
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/iterutil"
 	"github.com/kaeawc/krit/internal/logger"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -175,11 +176,22 @@ func applyFixesDetailedColumns(path string, columns *scanner.FindingColumns, row
 	if suffix != "" {
 		outPath = path + suffix
 	}
-	if err := os.WriteFile(outPath, []byte(result), 0644); err != nil {
+	if err := fsutil.WriteFileAtomic(outPath, []byte(result), filePerm(outPath)); err != nil {
 		return FixResult{DroppedFixes: droppedFixes}, err
 	}
 
 	return FixResult{Applied: len(fixes), DroppedFixes: droppedFixes}, nil
+}
+
+// filePerm returns the existing file's permission bits so atomic overwrite
+// preserves them (e.g. 0o600 source files stay 0o600). os.WriteFile preserves
+// the mode of an existing file implicitly; WriteFileAtomic creates a fresh
+// inode via tempfile+rename, so the caller must pass the desired perms.
+func filePerm(path string) os.FileMode {
+	if info, err := os.Stat(path); err == nil {
+		return info.Mode().Perm()
+	}
+	return 0o644
 }
 
 func collectTextFixRows(path string, columns *scanner.FindingColumns, rows []int) []textFixRow {

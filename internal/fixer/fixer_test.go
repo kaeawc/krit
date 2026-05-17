@@ -1069,6 +1069,95 @@ func TestDeduplicateByteFixesReverse_SingleFix(t *testing.T) {
 	}
 }
 
+// TestApplyFixes_AtomicWrite_OriginalPreservedOnFailure simulates a "kill
+// mid-write" scenario by making the parent directory read-only so the atomic
+// tempfile create fails. The fixer must surface the error AND leave the
+// original file content untouched — no truncation, no leaked tempfile.
+//
+// Regression guard for the fsutil.WriteFileAtomic switch: a plain os.WriteFile
+// would have either truncated the file before the write failed or, on a
+// permission failure, returned without ever touching it. The atomic path is
+// stronger — it guarantees the original is preserved on ANY write failure,
+// not just the ones that happen before truncation.
+func TestApplyFixes_AtomicWrite_OriginalPreservedOnFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permissions; cannot simulate write failure")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.kt")
+	original := "val x = 1\nval y = 2\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("write original: %v", err)
+	}
+
+	// Make the parent directory read+execute only so os.CreateTemp inside
+	// WriteFileAtomic fails. t.Cleanup restores perms so TempDir cleanup works.
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("chmod dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	findings := []scanner.Finding{
+		finding(path, &scanner.Fix{
+			StartByte:   0,
+			EndByte:     9,
+			Replacement: "val x = 42",
+			ByteMode:    true,
+		}),
+	}
+
+	_, err := ApplyFixes(path, findings, "")
+	if err == nil {
+		t.Fatal("expected write failure, got nil")
+	}
+
+	got := readFile(t, path)
+	if got != original {
+		t.Fatalf("original file modified after failed write: got %q, want %q", got, original)
+	}
+
+	matches, err := filepath.Glob(filepath.Join(dir, ".test.kt.tmp-*"))
+	if err != nil {
+		t.Fatalf("Glob: %v", err)
+	}
+	if len(matches) > 0 {
+		t.Errorf("tempfile leaked after failed atomic write: %v", matches)
+	}
+}
+
+// TestApplyFixes_AtomicWrite_PreservesFileMode locks in that the atomic write
+// path preserves the existing file's permission bits. os.WriteFile preserved
+// perms implicitly when overwriting; WriteFileAtomic creates a fresh inode via
+// tempfile+rename, so the fixer must stat and forward the existing perms.
+func TestApplyFixes_AtomicWrite_PreservesFileMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.kt")
+	if err := os.WriteFile(path, []byte("val x = 1\n"), 0o600); err != nil {
+		t.Fatalf("write original: %v", err)
+	}
+
+	findings := []scanner.Finding{
+		finding(path, &scanner.Fix{
+			StartByte:   4,
+			EndByte:     9,
+			Replacement: "y = 2",
+			ByteMode:    true,
+		}),
+	}
+	if _, err := ApplyFixes(path, findings, ""); err != nil {
+		t.Fatalf("ApplyFixes: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("perms not preserved: got %o, want 0600", got)
+	}
+}
+
 func TestDeduplicateLineFixesReverse_SingleFix(t *testing.T) {
 	fixes := []scanner.Finding{
 		findingWithRule("f.kt", "rule-A", &scanner.Fix{

@@ -12,6 +12,7 @@ import (
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func TestRunKotlinPluginRulesRequiresDaemonWhenJarsConfigured(t *testing.T) {
@@ -275,6 +276,51 @@ func TestFormatPluginErrorsDeterministic(t *testing.T) {
 	want := "ARule: a failed; ZRule: z failed"
 	if got != want {
 		t.Fatalf("formatPluginErrors = %q, want %q", got, want)
+	}
+}
+
+func TestPluginFindingsRoundTripThroughBaseline(t *testing.T) {
+	// Issue #307: plugin findings must produce stable BaselineIDs that
+	// survive a --create-baseline / --baseline round-trip the same way
+	// built-in findings do. Guards against a future regression that
+	// drops plugin findings before the baseline writer without needing
+	// the JVM daemon.
+	dir := t.TempDir()
+	cols := pluginFindingsToColumns([]oracle.PluginFinding{{
+		File:    filepath.Join(dir, "Example.kt"),
+		Line:    1,
+		Column:  1,
+		RuleSet: "myteam",
+		RuleID:  "MyTeam/AvoidThing",
+		Message: "avoid thing",
+	}})
+	if cols.Len() != 1 {
+		t.Fatalf("pluginFindingsToColumns Len = %d, want 1", cols.Len())
+	}
+
+	baselinePath := filepath.Join(dir, "baseline.xml")
+	if err := scanner.WriteBaselineColumns(baselinePath, &cols, dir); err != nil {
+		t.Fatalf("WriteBaselineColumns: %v", err)
+	}
+
+	baseline, err := scanner.LoadBaseline(baselinePath)
+	if err != nil {
+		t.Fatalf("LoadBaseline: %v", err)
+	}
+	if len(baseline.CurrentIssues) != 1 {
+		t.Fatalf("baseline CurrentIssues = %d, want 1: %+v",
+			len(baseline.CurrentIssues), baseline.CurrentIssues)
+	}
+	for id := range baseline.CurrentIssues {
+		if !strings.HasPrefix(id, "MyTeam/AvoidThing:") {
+			t.Errorf("baseline ID %q does not start with plugin rule prefix", id)
+		}
+	}
+
+	filtered := scanner.FilterColumnsByBaseline(&cols, baseline, dir)
+	if filtered.Len() != 0 {
+		t.Fatalf("baseline did not suppress plugin finding: Len = %d, findings = %+v",
+			filtered.Len(), filtered.Findings())
 	}
 }
 

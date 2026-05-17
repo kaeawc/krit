@@ -1,6 +1,7 @@
 package android
 
 import (
+	"encoding/xml"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -60,6 +61,31 @@ func TestParseManifest_UsesPermissions(t *testing.T) {
 		if up.Name != want[i] {
 			t.Errorf("UsesPermissions[%d] = %q, want %q", i, up.Name, want[i])
 		}
+	}
+}
+
+func TestParseManifest_UsesPermissionToolsNode(t *testing.T) {
+	const data = `<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.example.app">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        tools:node="remove" />
+</manifest>`
+
+	var m Manifest
+	if err := xml.Unmarshal([]byte(data), &m); err != nil {
+		t.Fatalf("xml.Unmarshal: %v", err)
+	}
+	if len(m.UsesPermissions) != 2 {
+		t.Fatalf("UsesPermissions count = %d, want 2", len(m.UsesPermissions))
+	}
+	if m.UsesPermissions[0].ToolsNode != "" {
+		t.Errorf("UsesPermissions[0].ToolsNode = %q, want empty", m.UsesPermissions[0].ToolsNode)
+	}
+	if m.UsesPermissions[1].ToolsNode != ToolsNodeRemove {
+		t.Errorf("UsesPermissions[1].ToolsNode = %q, want %q", m.UsesPermissions[1].ToolsNode, ToolsNodeRemove)
 	}
 }
 

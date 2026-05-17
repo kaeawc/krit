@@ -116,6 +116,32 @@ func TestConvertManifest_UsesTreeSitterLines(t *testing.T) {
 	}
 }
 
+func TestConvertManifest_DropsUsesPermissionWithToolsNodeRemove(t *testing.T) {
+	m := &Manifest{
+		UsesPermissions: []UsesPermission{
+			{Name: "android.permission.INTERNET"},
+			{Name: "android.permission.READ_EXTERNAL_STORAGE", ToolsNode: ToolsNodeRemove},
+			{Name: "android.permission.WRITE_EXTERNAL_STORAGE", ToolsNode: ToolsNodeRemoveAll},
+			{Name: "android.permission.CAMERA", ToolsNode: "replace"},
+		},
+	}
+
+	got := ConvertManifest(m, "/tmp/AndroidManifest.xml")
+
+	want := []string{
+		"android.permission.INTERNET",
+		"android.permission.CAMERA",
+	}
+	if len(got.UsesPermissions) != len(want) {
+		t.Fatalf("UsesPermissions = %#v, want %#v", got.UsesPermissions, want)
+	}
+	for i, p := range got.UsesPermissions {
+		if p != want[i] {
+			t.Errorf("UsesPermissions[%d] = %q, want %q", i, p, want[i])
+		}
+	}
+}
+
 func TestConvertManifest_PreservesLocaleConfigWithoutOtherApplicationFields(t *testing.T) {
 	m := &Manifest{
 		Application: Application{

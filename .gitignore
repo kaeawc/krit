@@ -67,6 +67,9 @@ android-lint-checks/
 # Claude sub-agent worktrees (isolated per-task copies)
 .claude/worktrees/
 
+# Claude scheduled-tasks runtime lock (per-machine state, not source)
+.claude/scheduled_tasks.lock
+
 # Claire agent scratch directory (worktrees, per-task state)
 .claire/
 

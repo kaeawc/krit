@@ -670,6 +670,9 @@ func scanFilesParallel(ctx context.Context, paths []string, workers int, parse f
 			}
 
 			for _, input := range inputs {
+				if ctx.Err() != nil {
+					return
+				}
 				f, err := parse(ctx, input.path)
 				if err != nil {
 					local.errs = append(local.errs, indexedError{index: input.index, err: err})

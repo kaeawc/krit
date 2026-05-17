@@ -611,6 +611,7 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		Experimental:     *f.Experimental,
 		EnableRules:      *f.EnableRules,
 		DisableRules:     *f.DisableRules,
+		CustomRuleJars:   parseCustomRuleJars(*f.CustomRuleJars),
 		ShowPerf:         *f.Perf || *f.PerfRules,
 		PerfRules:        *f.PerfRules,
 		InputTypesPath:   inputTypesPath,

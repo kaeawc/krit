@@ -30,9 +30,17 @@ type UsesSdk struct {
 	TargetSdkVersion string `xml:"http://schemas.android.com/apk/res/android targetSdkVersion,attr"`
 }
 
+// Manifest-merger tools:node directives used by libraries and apps to
+// override library-contributed elements.
+const (
+	ToolsNodeRemove    = "remove"
+	ToolsNodeRemoveAll = "removeAll"
+)
+
 // UsesPermission is a <uses-permission> element.
 type UsesPermission struct {
-	Name string `xml:"http://schemas.android.com/apk/res/android name,attr"`
+	Name      string `xml:"http://schemas.android.com/apk/res/android name,attr"`
+	ToolsNode string `xml:"http://schemas.android.com/tools node,attr"`
 }
 
 // Permission is a <permission> element.

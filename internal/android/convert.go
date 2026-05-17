@@ -119,6 +119,12 @@ func convertPermissions(m *Manifest, cm *ConvertedManifest) {
 		if perm.Name == "" {
 			continue
 		}
+		// tools:node="remove"/"removeAll" instructs the manifest merger
+		// to drop a permission contributed by a library — the app is not
+		// requesting it.
+		if perm.ToolsNode == ToolsNodeRemove || perm.ToolsNode == ToolsNodeRemoveAll {
+			continue
+		}
 		cm.UsesPermissions = append(cm.UsesPermissions, perm.Name)
 	}
 	for _, perm := range m.Permissions {

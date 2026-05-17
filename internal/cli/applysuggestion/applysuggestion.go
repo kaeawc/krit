@@ -17,6 +17,7 @@ package applysuggestion
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -108,7 +109,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	cols := buildFindingColumns(finding, sug, edits)
-	applied, _, errs := fixer.ApplyAllFixesColumns(&cols, "")
+	applied, _, errs := fixer.ApplyAllFixesColumns(context.Background(), &cols, "")
 	for _, e := range errs {
 		fmt.Fprintf(stderr, "apply-suggestion: %v\n", e)
 	}

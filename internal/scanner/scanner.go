@@ -707,6 +707,9 @@ func scanFilesParallel(ctx context.Context, paths []string, workers int, parse f
 			errs = append(errs, errSlots[i])
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		errs = append(errs, err)
+	}
 	return files, errs
 }
 

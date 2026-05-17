@@ -133,7 +133,7 @@ func TestApplyUsesSharedFixEngine(t *testing.T) {
 		},
 	})
 
-	result := plan.Apply("")
+	result := plan.Apply(t.Context(), "")
 	if len(result.Errors) > 0 {
 		t.Fatalf("unexpected apply errors: %v", result.Errors)
 	}
@@ -187,7 +187,7 @@ func TestBuildPlanColumnsApplyKeepsColumnarFixState(t *testing.T) {
 		t.Fatalf("expected 1 candidate, got %d", len(plan.Candidates))
 	}
 
-	result := plan.Apply("")
+	result := plan.Apply(t.Context(), "")
 	if len(result.Errors) > 0 {
 		t.Fatalf("unexpected apply errors: %v", result.Errors)
 	}

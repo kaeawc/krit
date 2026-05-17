@@ -195,7 +195,7 @@ rootProject.projectDir.resolve("compat").listFiles()!!.forEach {
 		t.Fatal(err)
 	}
 
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -244,7 +244,7 @@ compatDir.listFiles()!!.forEach {
 		}
 	}
 
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -278,7 +278,7 @@ rootProject.projectDir.resolve("samples").listFiles()?.forEach { f ->
 		}
 	}
 
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -309,7 +309,7 @@ rootProject.projectDir.resolve("apps").listFiles()!!.forEach {
 		t.Fatal(err)
 	}
 
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -340,7 +340,7 @@ rootProject.projectDir.resolve("apps").listFiles()!!.forEach {
 		t.Fatal(err)
 	}
 
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -376,7 +376,7 @@ rootProject.projectDir.resolve("compat").listFiles()!!.forEach {
 		}
 	}
 
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -400,7 +400,7 @@ for (f in compatDir.listFiles()!!) {
 	makeModule(t, dir, "compat", "k220")
 	makeModule(t, dir, "compat", "k230")
 
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -427,7 +427,7 @@ rootProject.projectDir.resolve("apps").walk().forEach {
 	makeModule(t, dir, "apps", "alpha")
 	makeModule(t, dir, "apps", "nested", "beta")
 
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -450,7 +450,7 @@ rootProject.projectDir.resolve("compat").listFiles()!!
 	writeSettings(t, dir, content)
 	makeModule(t, dir, "compat", "k220")
 
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -472,7 +472,7 @@ rootProject.projectDir.resolve("apps").listFiles()!!
 	writeSettings(t, dir, content)
 	makeModule(t, dir, "apps", "alpha")
 
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -494,7 +494,7 @@ java.nio.file.Files.list(rootProject.projectDir.resolve("apps")).forEach {
 	writeSettings(t, dir, content)
 	makeModule(t, dir, "apps", "alpha")
 
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -520,7 +520,7 @@ compatRoot.listFiles()!!.forEach {
 	makeModule(t, dir, "compat", "k220")
 	makeModule(t, dir, "compat", "k230")
 
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -542,7 +542,7 @@ include(":${prefix}:bar")
 `
 	writeSettings(t, dir, content)
 
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -565,7 +565,7 @@ rootProject.projectDir.resolve("compat").listFiles()!!.forEach {
 	writeSettings(t, dir, content)
 	makeModule(t, dir, "compat", "k220")
 
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -585,7 +585,7 @@ include(":app")
 `
 	writeSettings(t, dir, content)
 
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -621,7 +621,7 @@ func makeModule(t *testing.T, dir string, parts ...string) {
 
 func TestDiscoverModulesNoSettingsFile(t *testing.T) {
 	dir := t.TempDir()
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -646,7 +646,7 @@ project(":tools").projectDir = file("build-tools/custom")
 		t.Fatal(err)
 	}
 
-	graph, err := DiscoverModules(dir)
+	graph, err := DiscoverModules(t.Context(), dir)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}

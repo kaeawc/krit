@@ -52,7 +52,7 @@ func runUsedSymbolsModule(modulePath string, asJSON bool) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	graph, err := module.DiscoverModules(root)
+	graph, err := module.DiscoverModules(context.Background(), root)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "discovering modules: %v\n", err)
 		return 1

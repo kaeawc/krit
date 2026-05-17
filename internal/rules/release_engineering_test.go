@@ -1014,7 +1014,7 @@ func TestGradleBuildContainsTodo(t *testing.T) {
 func runConventionPluginDeadCodeRule(t *testing.T, projectDir string) []scanner.Finding {
 	t.Helper()
 
-	graph, err := module.DiscoverModules(projectDir)
+	graph, err := module.DiscoverModules(t.Context(), projectDir)
 	if err != nil {
 		t.Fatalf("DiscoverModules(%s): %v", projectDir, err)
 	}
@@ -1092,7 +1092,7 @@ func configTemplate() config.ModuleTemplateConfig {
 func runModuleTemplateConformanceRule(t *testing.T, projectDir string, tmpl config.ModuleTemplateConfig) []scanner.Finding {
 	t.Helper()
 
-	graph, err := module.DiscoverModules(projectDir)
+	graph, err := module.DiscoverModules(t.Context(), projectDir)
 	if err != nil {
 		t.Fatalf("DiscoverModules(%s): %v", projectDir, err)
 	}

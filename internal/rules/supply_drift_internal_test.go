@@ -56,7 +56,7 @@ func TestConventionPluginAppliedToWrongTarget(t *testing.T) {
 
 func runConventionPluginAppliedToWrongTarget(t *testing.T, root string, pluginTargetMap []string) []scanner.Finding {
 	t.Helper()
-	graph, err := module.DiscoverModules(root)
+	graph, err := module.DiscoverModules(t.Context(), root)
 	if err != nil {
 		t.Fatal(err)
 	}

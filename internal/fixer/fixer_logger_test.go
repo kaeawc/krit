@@ -34,7 +34,7 @@ func TestApplyFixesDroppedOverlapLogsViaPkgLog(t *testing.T) {
 		}),
 	}
 
-	if _, err := ApplyFixesDetailed(path, findings, "", false); err != nil {
+	if _, err := ApplyFixesDetailed(t.Context(), path, findings, "", false); err != nil {
 		t.Fatalf("ApplyFixesDetailed: %v", err)
 	}
 

@@ -1,6 +1,7 @@
 package fixer
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,16 +32,16 @@ func readFile(t *testing.T, path string) string {
 // shims that preserve the old API shape by routing through the columnar
 // fixer entry point. They exist so the test suite can continue to exercise
 // per-file fix application without a wholesale rewrite.
-func ApplyFixes(path string, findings []scanner.Finding, suffix string) (int, error) {
-	return ApplyFixesWithValidation(path, findings, suffix, false)
+func ApplyFixes(ctx context.Context, path string, findings []scanner.Finding, suffix string) (int, error) {
+	return ApplyFixesWithValidation(ctx, path, findings, suffix, false)
 }
 
-func ApplyFixesWithValidation(path string, findings []scanner.Finding, suffix string, validate bool) (int, error) {
-	res, err := ApplyFixesDetailed(path, findings, suffix, validate)
+func ApplyFixesWithValidation(ctx context.Context, path string, findings []scanner.Finding, suffix string, validate bool) (int, error) {
+	res, err := ApplyFixesDetailed(ctx, path, findings, suffix, validate)
 	return res.Applied, err
 }
 
-func ApplyFixesDetailed(path string, findings []scanner.Finding, suffix string, validate bool) (FixResult, error) {
+func ApplyFixesDetailed(ctx context.Context, path string, findings []scanner.Finding, suffix string, validate bool) (FixResult, error) {
 	filtered := make([]scanner.Finding, 0, len(findings))
 	for _, f := range findings {
 		if f.File == path && f.Fix != nil {
@@ -57,12 +58,12 @@ func ApplyFixesDetailed(path string, findings []scanner.Finding, suffix string, 
 			rows = append(rows, i)
 		}
 	}
-	return applyFixesDetailedColumns(path, &columns, rows, suffix, validate)
+	return applyFixesDetailedColumns(ctx, path, &columns, rows, suffix, validate)
 }
 
-func ApplyAllFixes(findings []scanner.Finding, suffix string) (int, int, []error) {
+func ApplyAllFixes(ctx context.Context, findings []scanner.Finding, suffix string) (int, int, []error) {
 	columns := scanner.CollectFindings(findings)
-	return ApplyAllFixesColumns(&columns, suffix)
+	return ApplyAllFixesColumns(ctx, &columns, suffix)
 }
 
 func TestApplyAllFixesColumns_TargetFile(t *testing.T) {
@@ -90,7 +91,7 @@ func TestApplyAllFixesColumns_TargetFile(t *testing.T) {
 		},
 	}})
 
-	applied, modified, errs := ApplyAllFixesColumns(&columns, "")
+	applied, modified, errs := ApplyAllFixesColumns(t.Context(), &columns, "")
 	if len(errs) > 0 {
 		t.Fatalf("ApplyAllFixesColumns errors: %v", errs)
 	}
@@ -144,7 +145,7 @@ func TestByteModeFix_SimpleReplace(t *testing.T) {
 		}),
 	}
 
-	n, err := ApplyFixes(path, findings, "")
+	n, err := ApplyFixes(t.Context(), path, findings, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -168,7 +169,7 @@ func TestByteModeFix_Deletion(t *testing.T) {
 		}),
 	}
 
-	n, err := ApplyFixes(path, findings, "")
+	n, err := ApplyFixes(t.Context(), path, findings, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -192,7 +193,7 @@ func TestByteModeFix_Insertion(t *testing.T) {
 		}),
 	}
 
-	n, err := ApplyFixes(path, findings, "")
+	n, err := ApplyFixes(t.Context(), path, findings, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -222,7 +223,7 @@ func TestByteModeFix_MultipleNonOverlapping(t *testing.T) {
 		}),
 	}
 
-	n, err := ApplyFixes(path, findings, "")
+	n, err := ApplyFixes(t.Context(), path, findings, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -252,7 +253,7 @@ func TestByteModeFix_OverlappingDedup(t *testing.T) {
 		}),
 	}
 
-	n, err := ApplyFixes(path, findings, "")
+	n, err := ApplyFixes(t.Context(), path, findings, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -282,7 +283,7 @@ func TestLineModeFix_ReplaceLine(t *testing.T) {
 		}),
 	}
 
-	n, err := ApplyFixes(path, findings, "")
+	n, err := ApplyFixes(t.Context(), path, findings, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -305,7 +306,7 @@ func TestLineModeFix_DeleteLine(t *testing.T) {
 		}),
 	}
 
-	n, err := ApplyFixes(path, findings, "")
+	n, err := ApplyFixes(t.Context(), path, findings, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -328,7 +329,7 @@ func TestLineModeFix_MultiLine(t *testing.T) {
 		}),
 	}
 
-	n, err := ApplyFixes(path, findings, "")
+	n, err := ApplyFixes(t.Context(), path, findings, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -352,7 +353,7 @@ func TestNoFixesApplied(t *testing.T) {
 		{File: path, Line: 1, Rule: "test", Message: "no fix"},
 	}
 
-	n, err := ApplyFixes(path, findings, "")
+	n, err := ApplyFixes(t.Context(), path, findings, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -376,7 +377,7 @@ func TestIdenticalContent(t *testing.T) {
 		}),
 	}
 
-	n, err := ApplyFixes(path, findings, "")
+	n, err := ApplyFixes(t.Context(), path, findings, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -398,7 +399,7 @@ func TestSuffixMode(t *testing.T) {
 		}),
 	}
 
-	n, err := ApplyFixes(path, findings, ".new")
+	n, err := ApplyFixes(t.Context(), path, findings, ".new")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -438,7 +439,7 @@ func TestApplyAllFixes_MultipleFiles(t *testing.T) {
 		},
 	}
 
-	totalFixes, filesModified, errs := ApplyAllFixes(findings, "")
+	totalFixes, filesModified, errs := ApplyAllFixes(t.Context(), findings, "")
 	if len(errs) > 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -495,13 +496,13 @@ func TestApplyAllFixesColumns_MatchesSliceBehavior(t *testing.T) {
 	}
 
 	sliceFindings, _, wantFiles := makeFixture(t)
-	wantFixes, wantModified, wantErrs := ApplyAllFixes(sliceFindings, "")
+	wantFixes, wantModified, wantErrs := ApplyAllFixes(t.Context(), sliceFindings, "")
 	if len(wantErrs) > 0 {
 		t.Fatalf("slice ApplyAllFixes errors: %v", wantErrs)
 	}
 
 	_, columns, gotFiles := makeFixture(t)
-	gotFixes, gotModified, gotErrs := ApplyAllFixesColumns(&columns, "")
+	gotFixes, gotModified, gotErrs := ApplyAllFixesColumns(t.Context(), &columns, "")
 	if len(gotErrs) > 0 {
 		t.Fatalf("columnar ApplyAllFixesColumns errors: %v", gotErrs)
 	}
@@ -543,14 +544,14 @@ func TestApplyFixesDetailedColumns_ReportsDroppedOverlapLikeSlicePath(t *testing
 	}
 
 	path := writeTestFile(t, "abcdefghij")
-	want, err := ApplyFixesDetailed(path, makeFindings(path), "", false)
+	want, err := ApplyFixesDetailed(t.Context(), path, makeFindings(path), "", false)
 	if err != nil {
 		t.Fatalf("slice ApplyFixesDetailed error: %v", err)
 	}
 
 	path = writeTestFile(t, "abcdefghij")
 	columns := scanner.CollectFindings(makeFindings(path))
-	got, err := applyFixesDetailedColumns(path, &columns, []int{0, 1}, "", false)
+	got, err := applyFixesDetailedColumns(t.Context(), path, &columns, []int{0, 1}, "", false)
 	if err != nil {
 		t.Fatalf("columnar applyFixesDetailedColumns error: %v", err)
 	}
@@ -580,7 +581,7 @@ func TestBoundsCheck_InvalidRange(t *testing.T) {
 		}),
 	}
 
-	n, err := ApplyFixes(path, findings, "")
+	n, err := ApplyFixes(t.Context(), path, findings, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -605,7 +606,7 @@ func TestBoundsCheck_NegativeStartByte(t *testing.T) {
 		}),
 	}
 
-	n, err := ApplyFixes(path, findings, "")
+	n, err := ApplyFixes(t.Context(), path, findings, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -629,7 +630,7 @@ func TestBoundsCheck_StartGreaterThanEnd(t *testing.T) {
 		}),
 	}
 
-	n, err := ApplyFixes(path, findings, "")
+	n, err := ApplyFixes(t.Context(), path, findings, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -648,7 +649,7 @@ func TestLineModeFix_InvalidLineRange(t *testing.T) {
 		}),
 	}
 
-	n, err := ApplyFixes(path, findings, "")
+	n, err := ApplyFixes(t.Context(), path, findings, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -730,7 +731,7 @@ func TestMixedMode_ReturnsError(t *testing.T) {
 		}),
 	}
 
-	_, err := ApplyFixes(path, findings, "")
+	_, err := ApplyFixes(t.Context(), path, findings, "")
 	if err == nil {
 		t.Fatalf("expected mixed-mode error, got nil")
 	}
@@ -754,7 +755,7 @@ func TestMixedMode_OnlyByte_NoRejection(t *testing.T) {
 			ByteMode:    true,
 		}),
 	}
-	n, err := ApplyFixes(path, findings, "")
+	n, err := ApplyFixes(t.Context(), path, findings, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -776,7 +777,7 @@ func TestMixedMode_OnlyLine_NoRejection(t *testing.T) {
 			Replacement: "REPLACED",
 		}),
 	}
-	n, err := ApplyFixes(path, findings, "")
+	n, err := ApplyFixes(t.Context(), path, findings, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -794,7 +795,7 @@ func TestMixedMode_OnlyLine_NoRejection(t *testing.T) {
 func TestValidateFixResult_ValidKotlin(t *testing.T) {
 	original := []byte("fun main() { println(\"hello\") }")
 	fixed := []byte("fun main() { println(\"world\") }")
-	err := ValidateFixResult("test.kt", original, fixed)
+	err := ValidateFixResult(t.Context(), "test.kt", original, fixed)
 	if err != nil {
 		t.Fatalf("expected no error for valid Kotlin, got: %v", err)
 	}
@@ -803,7 +804,7 @@ func TestValidateFixResult_ValidKotlin(t *testing.T) {
 func TestValidateFixResult_InvalidKotlin(t *testing.T) {
 	original := []byte("fun main() { println(\"hello\") }")
 	fixed := []byte("fun main() { println(\"hello\"")
-	err := ValidateFixResult("test.kt", original, fixed)
+	err := ValidateFixResult(t.Context(), "test.kt", original, fixed)
 	if err == nil {
 		t.Fatal("expected error for broken Kotlin syntax")
 	}
@@ -814,7 +815,7 @@ func TestValidateFixResult_InvalidKotlin(t *testing.T) {
 
 func TestValidateFixResult_NonKotlinFile(t *testing.T) {
 	// Non-Kotlin files are skipped
-	err := ValidateFixResult("test.java", []byte("broken{{{"), []byte("also broken{{{"))
+	err := ValidateFixResult(t.Context(), "test.java", []byte("broken{{{"), []byte("also broken{{{"))
 	if err != nil {
 		t.Fatalf("expected no error for non-Kotlin file, got: %v", err)
 	}
@@ -823,7 +824,7 @@ func TestValidateFixResult_NonKotlinFile(t *testing.T) {
 func TestValidateFixResult_KtsFile(t *testing.T) {
 	original := []byte("val x = 1")
 	fixed := []byte("val x = {{{")
-	err := ValidateFixResult("build.gradle.kts", original, fixed)
+	err := ValidateFixResult(t.Context(), "build.gradle.kts", original, fixed)
 	if err == nil {
 		t.Fatal("expected error for broken .kts syntax")
 	}
@@ -846,7 +847,7 @@ func TestApplyFixesWithValidation_RejectsInvalidFix(t *testing.T) {
 		}),
 	}
 
-	_, err := ApplyFixesWithValidation(path, findings, "", true)
+	_, err := ApplyFixesWithValidation(t.Context(), path, findings, "", true)
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
@@ -879,7 +880,7 @@ func TestApplyFixesWithValidation_AcceptsValidFix(t *testing.T) {
 		}),
 	}
 
-	n, err := ApplyFixesWithValidation(path, findings, "", true)
+	n, err := ApplyFixesWithValidation(t.Context(), path, findings, "", true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -923,7 +924,7 @@ func TestByteConflictDetection_DroppedFixReported(t *testing.T) {
 		}),
 	}
 
-	res, err := ApplyFixesDetailed(path, findings, "", false)
+	res, err := ApplyFixesDetailed(t.Context(), path, findings, "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -955,7 +956,7 @@ func TestByteConflictDetection_NoOverlap_NoDrop(t *testing.T) {
 		}),
 	}
 
-	res, err := ApplyFixesDetailed(path, findings, "", false)
+	res, err := ApplyFixesDetailed(t.Context(), path, findings, "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -982,7 +983,7 @@ func TestLineConflictDetection_DroppedFixReported(t *testing.T) {
 		}),
 	}
 
-	res, err := ApplyFixesDetailed(path, findings, "", false)
+	res, err := ApplyFixesDetailed(t.Context(), path, findings, "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1011,7 +1012,7 @@ func TestLineConflictDetection_NoOverlap_NoDrop(t *testing.T) {
 		}),
 	}
 
-	res, err := ApplyFixesDetailed(path, findings, "", false)
+	res, err := ApplyFixesDetailed(t.Context(), path, findings, "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1041,7 +1042,7 @@ func TestByteConflictDetection_MultipleDrops(t *testing.T) {
 		}),
 	}
 
-	res, err := ApplyFixesDetailed(path, findings, "", false)
+	res, err := ApplyFixesDetailed(t.Context(), path, findings, "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1107,7 +1108,7 @@ func TestApplyFixes_AtomicWrite_OriginalPreservedOnFailure(t *testing.T) {
 		}),
 	}
 
-	_, err := ApplyFixes(path, findings, "")
+	_, err := ApplyFixes(t.Context(), path, findings, "")
 	if err == nil {
 		t.Fatal("expected write failure, got nil")
 	}
@@ -1145,7 +1146,7 @@ func TestApplyFixes_AtomicWrite_PreservesFileMode(t *testing.T) {
 			ByteMode:    true,
 		}),
 	}
-	if _, err := ApplyFixes(path, findings, ""); err != nil {
+	if _, err := ApplyFixes(t.Context(), path, findings, ""); err != nil {
 		t.Fatalf("ApplyFixes: %v", err)
 	}
 

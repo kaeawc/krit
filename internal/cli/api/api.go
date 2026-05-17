@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -19,7 +20,7 @@ func resolveModuleSurface(modulePath string) ([]arch.APIEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	graph, err := module.DiscoverModules(scanRoot)
+	graph, err := module.DiscoverModules(context.Background(), scanRoot)
 	if err != nil {
 		return nil, fmt.Errorf("discovering modules: %w", err)
 	}

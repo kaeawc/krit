@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -110,7 +111,7 @@ func forEachStringInValuesDir(dir string, visit func(path string, s *android.XML
 		if err != nil {
 			continue
 		}
-		root, err := android.ParseXMLAST(data)
+		root, err := android.ParseXMLAST(context.Background(), data)
 		if err != nil || root == nil || root.Tag != "resources" {
 			continue
 		}

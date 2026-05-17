@@ -29,7 +29,7 @@ type Result struct {
 	Edits         []Edit
 }
 
-func Run(root string, recipe Recipe, apply bool) (Result, error) {
+func Run(ctx context.Context, root string, recipe Recipe, apply bool) (Result, error) {
 	paths, err := sourceFiles(root, recipe.Language)
 	if err != nil {
 		return Result{}, err
@@ -37,7 +37,7 @@ func Run(root string, recipe Recipe, apply bool) (Result, error) {
 	var all []Edit
 	matchedFiles := make(map[string]bool)
 	for _, path := range paths {
-		edits, err := EditsForFile(path, recipe)
+		edits, err := EditsForFile(ctx, path, recipe)
 		if err != nil {
 			return Result{}, err
 		}
@@ -58,7 +58,7 @@ func Run(root string, recipe Recipe, apply bool) (Result, error) {
 	return result, nil
 }
 
-func EditsForFile(path string, recipe Recipe) ([]Edit, error) {
+func EditsForFile(ctx context.Context, path string, recipe Recipe) ([]Edit, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -74,7 +74,7 @@ func EditsForFile(path string, recipe Recipe) ([]Edit, error) {
 	defer query.Close()
 	parser := sitter.NewParser()
 	parser.SetLanguage(lang)
-	tree, err := parser.ParseCtx(context.Background(), nil, content)
+	tree, err := parser.ParseCtx(ctx, nil, content)
 	if err != nil {
 		return nil, err
 	}

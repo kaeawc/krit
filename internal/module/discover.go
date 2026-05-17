@@ -1,6 +1,7 @@
 package module
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,7 +13,7 @@ var settingsFiles = []string{"settings.gradle.kts", "settings.gradle"}
 
 // DiscoverModules parses a Gradle settings file to discover all modules
 // in the project rooted at rootDir. Returns nil if no settings file is found.
-func DiscoverModules(rootDir string) (*Graph, error) {
+func DiscoverModules(ctx context.Context, rootDir string) (*Graph, error) {
 	rootDir, err := filepath.Abs(rootDir)
 	if err != nil {
 		return nil, err
@@ -35,7 +36,7 @@ func DiscoverModules(rootDir string) (*Graph, error) {
 		// Kotlin DSL — tree-sitter parse handles both static include()
 		// calls and dynamic dir.listFiles().forEach { include(...) }
 		// idioms. See discover_kts.go.
-		parsed := parseSettingsKts(rootDir, content)
+		parsed := parseSettingsKts(ctx, rootDir, content)
 		modulePaths = parsed.paths
 		dirOverrides = parsed.overrides
 	} else {

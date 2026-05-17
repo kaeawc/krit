@@ -518,7 +518,7 @@ func resolverFingerprint(files []*scanner.File) string {
 
 // discoverModuleGraph performs a best-effort module discovery when
 // SkipModules is false and BuildModuleIndex is not set.
-func (p IndexPhase) discoverModuleGraph(in IndexInput) *module.Graph {
+func (p IndexPhase) discoverModuleGraph(ctx context.Context, in IndexInput) *module.Graph {
 	if p.SkipModules || in.BuildModuleIndex {
 		return nil
 	}
@@ -529,7 +529,7 @@ func (p IndexPhase) discoverModuleGraph(in IndexInput) *module.Graph {
 			scanRoot = in.Paths[0]
 		}
 	}
-	graph, err := module.DiscoverModules(scanRoot)
+	graph, err := module.DiscoverModules(ctx, scanRoot)
 	if err != nil {
 		return nil
 	}
@@ -671,7 +671,7 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 	})
 
 	track("discoverModuleGraph", func() {
-		if graph := p.discoverModuleGraph(in); graph != nil {
+		if graph := p.discoverModuleGraph(ctx, in); graph != nil {
 			result.Graph = graph
 		}
 	})
@@ -685,7 +685,7 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 	}
 
 	if in.BuildModuleIndex {
-		p.runModuleIndexBuild(in, &result)
+		p.runModuleIndexBuild(ctx, in, &result)
 	}
 
 	if !in.SkipCache && in.CacheEnabled {
@@ -1192,7 +1192,7 @@ func addJavaIndexPerfEntries(tracker perf.Tracker, s scanner.JavaIndexPerfSnapsh
 // builds the PerModuleIndex. The caller supplies the
 // "moduleAwareAnalysis" parent tracker and End()-s it after rule
 // execution siblings have run. Rule execution itself stays in main.go.
-func (p IndexPhase) runModuleIndexBuild(in IndexInput, result *IndexResult) {
+func (p IndexPhase) runModuleIndexBuild(ctx context.Context, in IndexInput, result *IndexResult) {
 	if in.ModuleParentTracker == nil {
 		return
 	}
@@ -1211,7 +1211,7 @@ func (p IndexPhase) runModuleIndexBuild(in IndexInput, result *IndexResult) {
 		modErr error
 	)
 	moduleTracker.TrackVoid("moduleDiscovery", func() {
-		graph, modErr = module.DiscoverModules(scanRoot)
+		graph, modErr = module.DiscoverModules(ctx, scanRoot)
 	})
 	if modErr != nil && in.Verbose {
 		in.logf("verbose: Module discovery error: %v\n", modErr)

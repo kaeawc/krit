@@ -16,6 +16,7 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
 import javax.inject.Inject
+import dev.jasonpearson.krit.gradle.KritCheckTask.Companion.appendCustomRuleJarArgs
 
 /**
  * Gradle task that invokes the krit binary to create a baseline file.
@@ -55,6 +56,11 @@ abstract class KritBaselineTask @Inject constructor(
     @get:Input
     abstract val typeInference: Property<Boolean>
 
+    @get:InputFiles
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val customRuleJars: ConfigurableFileCollection
+
     init {
         group = BasePlugin.BUILD_GROUP
         description = "Create a krit baseline file from current findings"
@@ -79,6 +85,7 @@ abstract class KritBaselineTask @Inject constructor(
             if (config.isPresent) { add("--config"); add(config.get().asFile.absolutePath) }
             if (noCache.get()) add("--no-cache")
             if (!typeInference.get()) add("--no-type-inference")
+            appendCustomRuleJarArgs(customRuleJars.files.map { it.absolutePath })
             add("-q")
             sourceFiles.forEach { add(it.absolutePath) }
         }

@@ -121,6 +121,60 @@ func TestExternalRuleExample_EndToEnd(t *testing.T) {
 				expectedPrintlnLine, positiveLines[0])
 		}
 	})
+
+	t.Run("baseline captures and suppresses plugin findings", func(t *testing.T) {
+		// Issue #307: plugin findings must participate in baselines —
+		// write a baseline, then re-run with --baseline and confirm the
+		// plugin finding is filtered out by the same BaselineID path
+		// built-in findings travel through.
+		baselineDir := t.TempDir()
+		baselinePath := filepath.Join(baselineDir, "baseline.xml")
+
+		runKrit(t, kritBin, repoRoot,
+			"--create-baseline", baselinePath,
+			"--custom-rule-jars", jarPath,
+			"--daemon",
+			"--no-cache",
+			"-q",
+			samplesDir,
+		)
+
+		data, err := os.ReadFile(baselinePath)
+		if err != nil {
+			t.Fatalf("read baseline %s: %v", baselinePath, err)
+		}
+		if !strings.Contains(string(data), ruleID) {
+			t.Fatalf("baseline did not capture plugin rule %q; contents:\n%s",
+				ruleID, string(data))
+		}
+
+		stdout := runKrit(t, kritBin, repoRoot,
+			"--baseline", baselinePath,
+			"--custom-rule-jars", jarPath,
+			"--daemon",
+			"-f", "json",
+			"--no-cache",
+			"-q",
+			samplesDir,
+		)
+
+		var payload struct {
+			Findings []struct {
+				File string `json:"file"`
+				Line int    `json:"line"`
+				Rule string `json:"rule"`
+			} `json:"findings"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+			t.Fatalf("invalid JSON output: %v\n--- stdout ---\n%s", err, stdout)
+		}
+		for _, finding := range payload.Findings {
+			if finding.Rule == ruleID {
+				t.Fatalf("plugin finding %s:%d not suppressed by baseline; payload=%+v",
+					finding.File, finding.Line, payload.Findings)
+			}
+		}
+	})
 }
 
 // locateLocalKritRuleApi returns the version under

@@ -131,6 +131,7 @@ class KritPlugin : Plugin<Project> {
             parallel.convention(extension.parallel)
             noCache.convention(extension.noCache)
             typeInference.convention(extension.typeInference)
+            customRuleJars.from(extension.customRuleJars)
         }
 
         // Register the aggregate kritCheck task

@@ -127,6 +127,20 @@ class KritPluginTest {
     }
 
     @Test
+    fun `kritBaseline task receives custom rule jars from extension`() {
+        val project = newProject()
+
+        val extension = project.extensions.getByType(KritExtension::class.java)
+        val task = project.tasks.getByName("kritBaseline") as KritBaselineTask
+        val rulesJar = project.file("build-logic/krit-rules/build/libs/krit-rules.jar")
+
+        extension.customRules(rulesJar)
+
+        assertTrue(task.customRuleJars.files.contains(rulesJar),
+            "kritBaseline must inherit customRuleJars so the baseline captures plugin findings")
+    }
+
+    @Test
     fun `platform detection returns valid platform`() {
         val platform = KritBinaryResolver.detectPlatform()
         assertTrue(platform.os in listOf("darwin", "linux", "windows"))

@@ -137,6 +137,56 @@ class RealBrowser {
 	}
 }
 
+// TestSourceFactsImportsOrMentions_IgnoresFqnsInsideCommentsAndStrings is
+// a lexical-negative regression for the ImportsOrMentions fallback. The
+// previous implementation fell back to `strings.Contains(content, fqn)`,
+// so a Javadoc or string literal that happened to contain the FQN would
+// wrongly count as a real reference. After the AST-aware rewrite, the
+// haystack is built from scoped-identifier nodes only and comments /
+// string literals are excluded by construction.
+func TestSourceFactsImportsOrMentions_IgnoresFqnsInsideCommentsAndStrings(t *testing.T) {
+	file := parseJavaSource(t, "CommentsOnly.java", `
+package test;
+
+/**
+ * Historical note: this class used to depend on android.webkit.WebView,
+ * but the integration has since been removed.
+ */
+class CommentsOnly {
+  // android.webkit.WebView used to be the bridge target.
+  private static final String NOTE = "android.webkit.WebView is no longer used";
+
+  void run() {
+    /* android.webkit.WebView -- still referenced in CHANGELOG */
+    System.out.println(NOTE);
+  }
+}
+`)
+	if SourceFactsForFile(file).ImportsOrMentions("android.webkit.WebView") {
+		t.Fatal("FQN appears only inside comments and string literals — ImportsOrMentions must return false")
+	}
+}
+
+// TestSourceFactsImportsOrMentions_FindsFullyQualifiedReferenceInCode
+// pins down the positive side of the lexical-aware rewrite: when the
+// FQN really is written out in code (a fully qualified reference with
+// no import), ImportsOrMentions must still report true so that rules
+// guarded by it do not regress.
+func TestSourceFactsImportsOrMentions_FindsFullyQualifiedReferenceInCode(t *testing.T) {
+	file := parseJavaSource(t, "FullyQualified.java", `
+package test;
+
+class FullyQualified {
+  void setup(android.webkit.WebView webView) {
+    webView.addJavascriptInterface(new Object(), "bridge");
+  }
+}
+`)
+	if !SourceFactsForFile(file).ImportsOrMentions("android.webkit.WebView") {
+		t.Fatal("fully qualified WebView reference should be detected")
+	}
+}
+
 func TestSourceFactsResolveType_KnowsJavaLangSystemRuntimeAndLocalShadows(t *testing.T) {
 	file := parseJavaSource(t, "Lifecycle.java", `
 package test;

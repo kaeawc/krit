@@ -137,3 +137,54 @@ class Holder {
 		t.Errorf("property.Params should be nil, got %+v", identifier.Params)
 	}
 }
+
+// TestIndexClassFlat_DoesNotMisclassifyClassWithNestedInterfaceAsInterface
+// is a lexical-negative regression for indexClassFlat. The old
+// implementation tested `strings.Contains(file.FlatNodeText(...), "interface ")`
+// on the first 256 bytes of the class_declaration node, which matched
+// any nested `interface Foo` inside the body, plus matches inside string
+// literals or qualified-name references that happened to contain the
+// keyword. The AST-based check should only honor the keyword when it
+// appears as a direct child token of the class_declaration itself.
+func TestIndexClassFlat_DoesNotMisclassifyClassWithNestedInterfaceAsInterface(t *testing.T) {
+	src := `
+package com.example
+
+class Outer {
+    interface Listener {
+        fun onEvent()
+    }
+
+    val tag: String = "interface "
+}
+`
+	file := parseTestFile(t, src)
+	fi := IndexFileParallel(file)
+	if fi == nil {
+		t.Fatal("expected FileTypeInfo")
+	}
+	var outer, listener *ClassInfo
+	for _, ci := range fi.Classes {
+		if ci == nil {
+			continue
+		}
+		switch ci.Name {
+		case "Outer":
+			outer = ci
+		case "Listener":
+			listener = ci
+		}
+	}
+	if outer == nil {
+		t.Fatal("expected Outer class info")
+	}
+	if outer.Kind != "class" {
+		t.Errorf("Outer.Kind = %q, want %q (nested interface and string literal must not promote the outer declaration)", outer.Kind, "class")
+	}
+	if listener == nil {
+		t.Fatal("expected nested Listener interface info")
+	}
+	if listener.Kind != "interface" {
+		t.Errorf("Listener.Kind = %q, want %q", listener.Kind, "interface")
+	}
+}

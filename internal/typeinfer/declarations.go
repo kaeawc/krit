@@ -241,7 +241,7 @@ func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it 
 	name := flatDeclarationName(file, flatIdx)
 	supertypes := flatDeclarationSupertypes(file, flatIdx)
 	mods := flatReadModifierFlags(file, flatIdx)
-	isInterface := strings.Contains(trimmedNodePrefix(file.FlatNodeText(flatIdx), 256), "interface ")
+	isInterface := flatClassIsInterface(file, flatIdx)
 	kind := r.classKind(mods.enum, mods.sealed, isInterface)
 
 	if name == "" {
@@ -438,11 +438,29 @@ func flatExtractEnumEntries(file *scanner.File, idx uint32) []string {
 	return entries
 }
 
-func trimmedNodePrefix(text string, limit int) string {
-	if limit > 0 && len(text) > limit {
-		text = text[:limit]
+// flatClassIsInterface reports whether the given class_declaration node is an
+// interface declaration. Tree-sitter Kotlin emits the keyword as an
+// anonymous child token of type "interface" (or, in some grammar variants,
+// a "class" token whose text is literally "interface"). Iterating direct
+// children avoids matching the keyword inside the body, string literals,
+// comments, or nested declarations the way a raw text scan would.
+func flatClassIsInterface(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
 	}
-	return text
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "interface":
+			return true
+		case "class":
+			if file.FlatNodeTextEquals(child, "interface") {
+				return true
+			}
+		case "class_body":
+			return false
+		}
+	}
+	return false
 }
 
 func declarationLine(file *scanner.File, flatIdx uint32) int {

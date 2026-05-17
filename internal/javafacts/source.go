@@ -25,6 +25,12 @@ type JavaFileFacts struct {
 	StaticImports   map[string]string
 	WildcardImports []string
 	Classes         map[string]JavaClassFact
+	// codeMentions is a newline-joined haystack of qualified identifier
+	// node texts (scoped_identifier, scoped_type_identifier) collected
+	// directly from the Java AST. It excludes comments and string
+	// literals so that ImportsOrMentions does not match an FQN that
+	// only appears in a doc comment or a string constant.
+	codeMentions string
 }
 
 type JavaClassFact struct {
@@ -165,7 +171,7 @@ func (f *JavaFileFacts) ImportsOrMentions(fqn string) bool {
 			return true
 		}
 	}
-	return strings.Contains(stringContent(f), fqn)
+	return strings.Contains(f.codeMentions, fqn)
 }
 
 func buildSourceFactsForFile(file *scanner.File) *JavaFileFacts {
@@ -213,7 +219,30 @@ func buildSourceFactsForFile(file *scanner.File) *JavaFileFacts {
 			addFieldFacts(file, facts, node)
 		}
 	})
+	facts.codeMentions = collectJavaCodeMentions(file)
 	return facts
+}
+
+// collectJavaCodeMentions returns a newline-joined haystack of every
+// qualified-identifier-bearing AST node in file. Comments and string /
+// character literals are separate AST nodes, so they are excluded by
+// construction. This is the lexical-aware fallback for ImportsOrMentions:
+// an FQN counts as "mentioned" only when it appears in a real code
+// reference (a scoped_identifier or annotation target), not when it
+// merely appears as a substring inside a doc comment or string constant.
+func collectJavaCodeMentions(file *scanner.File) string {
+	if file == nil || file.FlatTree == nil {
+		return ""
+	}
+	var b strings.Builder
+	file.FlatWalkAllNodes(0, func(node uint32) {
+		switch file.FlatType(node) {
+		case "scoped_identifier", "scoped_type_identifier", "scoped_absolute_identifier", "package_declaration":
+			b.WriteString(file.FlatNodeText(node))
+			b.WriteByte('\n')
+		}
+	})
+	return b.String()
 }
 
 func addClassFact(file *scanner.File, facts *JavaFileFacts, node uint32) {
@@ -437,25 +466,6 @@ func sourceIndexKey(files []*scanner.File) string {
 		}
 	}
 	return strings.Join(parts, "\x00")
-}
-
-func stringContent(f *JavaFileFacts) string {
-	if f == nil {
-		return ""
-	}
-	if f.Content != "" {
-		return f.Content
-	}
-	var b strings.Builder
-	for _, imported := range f.Imports {
-		b.WriteString(imported)
-		b.WriteByte('\n')
-	}
-	for _, imported := range f.StaticImports {
-		b.WriteString(imported)
-		b.WriteByte('\n')
-	}
-	return b.String()
 }
 
 func knownJavaSimpleType(name string) string {

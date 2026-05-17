@@ -8198,7 +8198,7 @@
       "additionalProperties": false,
       "properties": {
         "EmptyCatchBlock": {
-          "description": "Detects catch blocks with an empty body that silently swallow exceptions. [fixable: semantic] [precision: ast-backed] [noisiness: normal]",
+          "description": "Detects catch blocks with an empty body that silently swallow exceptions. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

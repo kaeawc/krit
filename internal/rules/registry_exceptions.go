@@ -84,10 +84,10 @@ func registerExceptionsRules() {
 		r := &NotImplementedDeclarationRule{BaseRule: BaseRule{RuleName: "NotImplementedDeclaration", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects TODO() calls that throw NotImplementedError at runtime."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Languages: []scanner.Language{scanner.LangKotlin}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if flatCallExpressionName(file, idx) != "TODO" {
+				if !isKotlinTODOCall(file, idx) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,

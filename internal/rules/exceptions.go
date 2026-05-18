@@ -103,6 +103,31 @@ type NotImplementedDeclarationRule struct {
 // roadmap/17.
 func (r *NotImplementedDeclarationRule) Confidence() float64 { return 0.75 }
 
+// isKotlinTODOCall reports whether the call_expression at idx is a call to
+// `kotlin.TODO()` — either the unqualified `TODO(...)` (kotlin's TODO is
+// imported automatically from the `kotlin` package) or the fully-qualified
+// `kotlin.TODO(...)`. Member calls like `foo.TODO()` or `Items.TODO()` on
+// non-kotlin receivers are NOT kotlin.TODO and must not be flagged.
+func isKotlinTODOCall(file *scanner.File, idx uint32) bool {
+	if file == nil || file.FlatType(idx) != "call_expression" {
+		return false
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "simple_identifier":
+			// Bare `TODO(...)` — kotlin.TODO is auto-imported from the
+			// `kotlin` package and is the only realistic referent for an
+			// unqualified TODO call at top-level expression position.
+			return file.FlatNodeTextEquals(child, "TODO")
+		case "navigation_expression":
+			// Qualified call. Only `kotlin.TODO(...)` counts as kotlin.TODO.
+			segments := flatNavigationChainIdentifiers(file, child)
+			return len(segments) == 2 && segments[0] == "kotlin" && segments[1] == "TODO"
+		}
+	}
+	return false
+}
+
 // RethrowCaughtExceptionRule detects catch { throw e } where e is the caught variable.
 type RethrowCaughtExceptionRule struct {
 	FlatDispatchBase

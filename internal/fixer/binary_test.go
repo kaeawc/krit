@@ -1,6 +1,7 @@
 package fixer
 
 import (
+	"context"
 	"image"
 	"image/color"
 	"image/gif"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -79,7 +81,7 @@ func TestApplyBinaryFixes_SkipsNilBinaryFix(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixes(findings, false)
+	applied, errors := ApplyBinaryFixes(context.Background(), findings, false)
 	if applied != 0 {
 		t.Errorf("expected 0 applied, got %d", applied)
 	}
@@ -89,7 +91,7 @@ func TestApplyBinaryFixes_SkipsNilBinaryFix(t *testing.T) {
 }
 
 func TestApplyBinaryFixes_EmptyFindings(t *testing.T) {
-	applied, errors := ApplyBinaryFixes(nil, false)
+	applied, errors := ApplyBinaryFixes(context.Background(), nil, false)
 	if applied != 0 {
 		t.Errorf("expected 0 applied, got %d", applied)
 	}
@@ -116,7 +118,7 @@ func TestApplyBinaryFixes_CwebpNotFound(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixes(findings, false)
+	applied, errors := ApplyBinaryFixes(context.Background(), findings, false)
 	if applied != 0 {
 		t.Errorf("expected 0 applied when cwebp missing, got %d", applied)
 	}
@@ -150,7 +152,7 @@ func TestApplyBinaryFixes_DryRunWithCwebp(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixes(findings, true)
+	applied, errors := ApplyBinaryFixes(context.Background(), findings, true)
 	if applied != 1 {
 		t.Errorf("expected 1 applied in dry-run, got %d", applied)
 	}
@@ -187,7 +189,7 @@ func TestApplyBinaryFixes_MultipleFindingsMixed(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixes(findings, false)
+	applied, errors := ApplyBinaryFixes(context.Background(), findings, false)
 	if applied != 0 {
 		t.Errorf("expected 0 applied (cwebp missing), got %d", applied)
 	}
@@ -200,7 +202,7 @@ func TestConvertToWebP_TargetPathGeneration(t *testing.T) {
 	// Override PATH to ensure cwebp is not found so we get a predictable error
 	t.Setenv("PATH", t.TempDir())
 
-	err := convertToWebP("/some/path/icon.png", "", false)
+	err := convertToWebP(context.Background(), "/some/path/icon.png", "", false)
 	if err == nil {
 		t.Fatal("expected error when cwebp not found")
 	}
@@ -212,12 +214,50 @@ func TestConvertToWebP_TargetPathGeneration(t *testing.T) {
 func TestConvertToWebP_CustomTargetPath(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
-	err := convertToWebP("/some/path/icon.png", "/other/path/icon.webp", false)
+	err := convertToWebP(context.Background(), "/some/path/icon.png", "/other/path/icon.webp", false)
 	if err == nil {
 		t.Fatal("expected error when cwebp not found")
 	}
 	if !containsStr(err.Error(), "cwebp not found") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestConvertToWebP_HonorsContextCancellation drops a fake `cwebp`
+// shim onto PATH that sleeps indefinitely, then invokes convertToWebP
+// with a context that is cancelled almost immediately. On the pre-fix
+// code (context.Background hard-coded) the call would hang for the
+// full sleep duration; with the ctx parameter threaded through, the
+// wedged subprocess is killed and the call returns promptly.
+func TestConvertToWebP_HonorsContextCancellation(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "cwebp")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\nsleep 3600\n"), 0o755); err != nil {
+		t.Fatalf("write fake cwebp: %v", err)
+	}
+	t.Setenv("PATH", dir)
+	src := filepath.Join(dir, "in.png")
+	writeStaticPNG(t, src)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- convertToWebP(ctx, src, "", false)
+	}()
+	// Give the subprocess a moment to start before cancelling.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected convertToWebP to return an error once the subprocess is killed")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("convertToWebP did not return after cancellation; context was not propagated to the cwebp subprocess")
 	}
 }
 
@@ -244,7 +284,7 @@ func TestApplyBinaryFixes_DeleteFile(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixes(findings, false)
+	applied, errors := ApplyBinaryFixes(context.Background(), findings, false)
 	if applied != 1 {
 		t.Errorf("expected 1 applied, got %d", applied)
 	}
@@ -276,7 +316,7 @@ func TestApplyBinaryFixes_DeleteFile_DryRun(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixes(findings, true)
+	applied, errors := ApplyBinaryFixes(context.Background(), findings, true)
 	if applied != 1 {
 		t.Errorf("expected 1 applied in dry-run, got %d", applied)
 	}
@@ -303,7 +343,7 @@ func TestApplyBinaryFixes_DeleteFile_Missing(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixes(findings, false)
+	applied, errors := ApplyBinaryFixes(context.Background(), findings, false)
 	if applied != 0 {
 		t.Errorf("expected 0 applied for missing file, got %d", applied)
 	}
@@ -339,7 +379,7 @@ func TestApplyBinaryFixes_DeleteSourceAfterConvert_NoCwebp(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixes(findings, false)
+	applied, errors := ApplyBinaryFixes(context.Background(), findings, false)
 	if applied != 0 {
 		t.Errorf("expected 0 applied (cwebp missing), got %d", applied)
 	}
@@ -353,7 +393,7 @@ func TestApplyBinaryFixes_DeleteSourceAfterConvert_NoCwebp(t *testing.T) {
 }
 
 func TestApplyBinaryFixesBatch_EmptyFindings(t *testing.T) {
-	applied, errors := ApplyBinaryFixesBatch(nil, false)
+	applied, errors := ApplyBinaryFixesBatch(context.Background(), nil, false)
 	if applied != 0 {
 		t.Errorf("expected 0 applied, got %d", applied)
 	}
@@ -384,7 +424,7 @@ func TestApplyBinaryFixesBatch_DeletesOnly(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixesBatch(findings, false)
+	applied, errors := ApplyBinaryFixesBatch(context.Background(), findings, false)
 	if applied != 2 {
 		t.Errorf("expected 2 applied, got %d", applied)
 	}
@@ -412,7 +452,7 @@ func TestApplyBinaryFixesBatch_DryRunDeletesPreserved(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixesBatch(findings, true)
+	applied, errors := ApplyBinaryFixesBatch(context.Background(), findings, true)
 	if applied != 1 {
 		t.Errorf("expected 1 applied in dry-run, got %d", applied)
 	}
@@ -454,7 +494,7 @@ func TestApplyBinaryFixesBatch_OrderConvertBeforeDelete(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixesBatch(findings, false)
+	applied, errors := ApplyBinaryFixesBatch(context.Background(), findings, false)
 	// Conversion fails (no cwebp) -> 0 from conversion.
 	// Explicit delete should still succeed -> 1.
 	if applied != 1 {
@@ -475,7 +515,7 @@ func TestApplyBinaryFixesBatch_SkipsNilBinaryFix(t *testing.T) {
 		{File: "test.kt", Rule: "SomeRule", Message: "no fix"},
 	}
 
-	applied, errors := ApplyBinaryFixesBatch(findings, false)
+	applied, errors := ApplyBinaryFixesBatch(context.Background(), findings, false)
 	if applied != 0 {
 		t.Errorf("expected 0 applied, got %d", applied)
 	}
@@ -504,7 +544,7 @@ func TestApplyBinaryFixes_CreateFile(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixes(findings, false)
+	applied, errors := ApplyBinaryFixes(context.Background(), findings, false)
 	if applied != 1 {
 		t.Errorf("expected 1 applied, got %d", applied)
 	}
@@ -537,7 +577,7 @@ func TestApplyBinaryFixes_CreateFile_DryRun(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixes(findings, true)
+	applied, errors := ApplyBinaryFixes(context.Background(), findings, true)
 	if applied != 1 {
 		t.Errorf("expected 1 applied in dry-run, got %d", applied)
 	}
@@ -571,7 +611,7 @@ func TestApplyBinaryFixes_MoveFile(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixes(findings, false)
+	applied, errors := ApplyBinaryFixes(context.Background(), findings, false)
 	if applied != 1 {
 		t.Errorf("expected 1 applied, got %d", applied)
 	}
@@ -613,7 +653,7 @@ func TestApplyBinaryFixes_MoveFile_DryRun(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixes(findings, true)
+	applied, errors := ApplyBinaryFixes(context.Background(), findings, true)
 	if applied != 1 {
 		t.Errorf("expected 1 applied in dry-run, got %d", applied)
 	}
@@ -645,7 +685,7 @@ func TestApplyBinaryFixes_MoveFile_MissingSource(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixes(findings, false)
+	applied, errors := ApplyBinaryFixes(context.Background(), findings, false)
 	if applied != 0 {
 		t.Errorf("expected 0 applied, got %d", applied)
 	}
@@ -679,7 +719,7 @@ func TestApplyBinaryFixes_OptimizePNG_NoTool(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixes(findings, false)
+	applied, errors := ApplyBinaryFixes(context.Background(), findings, false)
 	if applied != 0 {
 		t.Errorf("expected 0 applied when no PNG optimizer, got %d", applied)
 	}
@@ -707,7 +747,7 @@ func TestApplyBinaryFixes_OptimizePNG_DryRun_NoTool(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixes(findings, true)
+	applied, errors := ApplyBinaryFixes(context.Background(), findings, true)
 	if applied != 0 {
 		t.Errorf("expected 0 applied, got %d", applied)
 	}
@@ -732,7 +772,7 @@ func TestApplyBinaryFixes_HintOnly_Skipped(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixes(findings, false)
+	applied, errors := ApplyBinaryFixes(context.Background(), findings, false)
 	if applied != 0 {
 		t.Errorf("expected 0 applied for hint-only fix, got %d", applied)
 	}
@@ -756,7 +796,7 @@ func TestApplyBinaryFixesBatch_HintOnly_Skipped(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixesBatch(findings, false)
+	applied, errors := ApplyBinaryFixesBatch(context.Background(), findings, false)
 	if applied != 0 {
 		t.Errorf("expected 0 applied for hint-only fix, got %d", applied)
 	}
@@ -782,7 +822,7 @@ func TestApplyBinaryFixesBatch_CreateFile(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixesBatch(findings, false)
+	applied, errors := ApplyBinaryFixesBatch(context.Background(), findings, false)
 	if applied != 1 {
 		t.Errorf("expected 1 applied, got %d", applied)
 	}
@@ -818,7 +858,7 @@ func TestApplyBinaryFixesBatch_MoveFile(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixesBatch(findings, false)
+	applied, errors := ApplyBinaryFixesBatch(context.Background(), findings, false)
 	if applied != 1 {
 		t.Errorf("expected 1 applied, got %d", applied)
 	}
@@ -871,7 +911,7 @@ func TestApplyBinaryFixesBatch_MixedTypes(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixesBatch(findings, false)
+	applied, errors := ApplyBinaryFixesBatch(context.Background(), findings, false)
 	if applied != 3 {
 		t.Errorf("expected 3 applied, got %d", applied)
 	}
@@ -935,13 +975,13 @@ func TestApplyBinaryFixesBatchColumns_MatchesSliceBehavior(t *testing.T) {
 	}
 
 	sliceFindings, _, wantDeleted, wantMoved, wantCreated := makeFixture(t)
-	wantApplied, wantErrors := ApplyBinaryFixesBatch(sliceFindings, false)
+	wantApplied, wantErrors := ApplyBinaryFixesBatch(context.Background(), sliceFindings, false)
 	if len(wantErrors) != 0 {
 		t.Fatalf("slice ApplyBinaryFixesBatch errors: %v", wantErrors)
 	}
 
 	_, columns, gotDeleted, gotMoved, gotCreated := makeFixture(t)
-	gotApplied, gotErrors := ApplyBinaryFixesBatchColumns(&columns, false)
+	gotApplied, gotErrors := ApplyBinaryFixesBatchColumns(context.Background(), &columns, false)
 	if len(gotErrors) != 0 {
 		t.Fatalf("columnar ApplyBinaryFixesBatchColumns errors: %v", gotErrors)
 	}
@@ -1001,7 +1041,7 @@ func TestApplyBinaryFixesBatch_DryRun_MixedTypes(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixesBatch(findings, true)
+	applied, errors := ApplyBinaryFixesBatch(context.Background(), findings, true)
 	if applied != 3 {
 		t.Errorf("expected 3 applied in dry-run, got %d", applied)
 	}
@@ -1121,7 +1161,7 @@ func TestApplyBinaryFixesBatch_SkipsConversionWithDirectRefs(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixesBatch(findings, false, []string{srcDir})
+	applied, errors := ApplyBinaryFixesBatch(context.Background(), findings, false, []string{srcDir})
 
 	// Conversion should be skipped due to direct references.
 	if applied != 0 {
@@ -1169,7 +1209,7 @@ func TestApplyBinaryFixesBatch_AllowsConversionWithNoRefs(t *testing.T) {
 		},
 	}
 
-	_, errors := ApplyBinaryFixesBatch(findings, false, []string{srcDir})
+	_, errors := ApplyBinaryFixesBatch(context.Background(), findings, false, []string{srcDir})
 
 	// Should attempt conversion (fail because no cwebp, not because of refs).
 	if len(errors) != 1 {
@@ -1337,7 +1377,7 @@ func TestApplyBinaryFixesBatch_SkipsAnimatedGIF(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixesBatch(findings, false)
+	applied, errors := ApplyBinaryFixesBatch(context.Background(), findings, false)
 	if applied != 0 {
 		t.Errorf("expected 0 applied for animated GIF, got %d", applied)
 	}
@@ -1375,7 +1415,7 @@ func TestApplyBinaryFixesBatch_SkipsLowMinSdk(t *testing.T) {
 		},
 	}
 
-	applied, errors := ApplyBinaryFixesBatch(findings, false)
+	applied, errors := ApplyBinaryFixesBatch(context.Background(), findings, false)
 	if applied != 0 {
 		t.Errorf("expected 0 applied for low minSdk, got %d", applied)
 	}

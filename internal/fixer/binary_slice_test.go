@@ -1,6 +1,7 @@
 package fixer
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,7 +16,9 @@ import (
 
 // ApplyBinaryFixes processes binary fix findings one at a time in the order
 // they appear. Retained for tests that exercise per-finding error semantics.
-func ApplyBinaryFixes(findings []scanner.Finding, dryRun bool) (applied int, errors []error) {
+// `ctx` bounds the external subprocesses spawned for WebP conversion and
+// PNG optimization; tests typically pass context.Background().
+func ApplyBinaryFixes(ctx context.Context, findings []scanner.Finding, dryRun bool) (applied int, errors []error) {
 	for _, f := range findings {
 		if f.BinaryFix == nil {
 			continue
@@ -25,7 +28,7 @@ func ApplyBinaryFixes(findings []scanner.Finding, dryRun bool) (applied int, err
 		}
 		switch f.BinaryFix.Type {
 		case scanner.BinaryFixConvertWebP:
-			err := convertToWebP(f.BinaryFix.SourcePath, f.BinaryFix.TargetPath, dryRun)
+			err := convertToWebP(ctx, f.BinaryFix.SourcePath, f.BinaryFix.TargetPath, dryRun)
 			if err != nil {
 				errors = append(errors, err)
 				continue
@@ -77,7 +80,7 @@ func ApplyBinaryFixes(findings []scanner.Finding, dryRun bool) (applied int, err
 				applied++
 			}
 		case scanner.BinaryFixOptimizePNG:
-			err := optimizePNG(f.BinaryFix.SourcePath, dryRun)
+			err := optimizePNG(ctx, f.BinaryFix.SourcePath, dryRun)
 			if err != nil {
 				errors = append(errors, err)
 			} else {
@@ -91,14 +94,14 @@ func ApplyBinaryFixes(findings []scanner.Finding, dryRun bool) (applied int, err
 // ApplyBinaryFixesBatch processes all binary fix findings in a safe order:
 // first all conversions and optimizations, then file creates/moves, then all
 // deletions. Slice counterpart of ApplyBinaryFixesBatchColumns.
-func ApplyBinaryFixesBatch(findings []scanner.Finding, dryRun bool, searchDirs ...[]string) (applied int, errors []error) {
+func ApplyBinaryFixesBatch(ctx context.Context, findings []scanner.Finding, dryRun bool, searchDirs ...[]string) (applied int, errors []error) {
 	var fixes []*scanner.BinaryFix
 	for i := range findings {
 		if findings[i].BinaryFix != nil {
 			fixes = append(fixes, findings[i].BinaryFix)
 		}
 	}
-	return applyBinaryFixesBatchRaw(fixes, dryRun, searchDirs...)
+	return applyBinaryFixesBatchRaw(ctx, fixes, dryRun, searchDirs...)
 }
 
 // Slice-taking key/meta extractors for deduplicateFixesReverse. Exercised

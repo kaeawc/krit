@@ -114,7 +114,7 @@ func (FixupPhase) Run(ctx context.Context, in FixupInput) (FixupResult, error) {
 
 	var binaryErrs []error
 	if in.ApplyBinary {
-		applied, errs := fixer.ApplyBinaryFixesBatchColumns(&columns, in.DryRunBinary)
+		applied, errs := fixer.ApplyBinaryFixesBatchColumns(ctx, &columns, in.DryRunBinary)
 		binaryFixes = applied
 		binaryErrs = errs
 		fixErrs = append(fixErrs, errs...)

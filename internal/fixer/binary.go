@@ -64,7 +64,10 @@ func ValidateBinaryFix(fix *scanner.BinaryFix, searchDirs []string) ([]android.F
 
 // ApplyBinaryFixesBatchColumns applies binary fixes from columnar findings in the
 // same safe order as ApplyBinaryFixesBatch, working directly with columnar data.
-func ApplyBinaryFixesBatchColumns(columns *scanner.FindingColumns, dryRun bool, searchDirs ...[]string) (applied int, errors []error) {
+// `ctx` is propagated to every external subprocess (cwebp, optipng, pngcrush)
+// so the caller can apply a timeout or honor cancellation — a stuck
+// converter no longer hangs the LSP/MCP server or CLI run.
+func ApplyBinaryFixesBatchColumns(ctx context.Context, columns *scanner.FindingColumns, dryRun bool, searchDirs ...[]string) (applied int, errors []error) {
 	if columns == nil || columns.Len() == 0 {
 		return 0, nil
 	}
@@ -75,12 +78,15 @@ func ApplyBinaryFixesBatchColumns(columns *scanner.FindingColumns, dryRun bool, 
 			fixes = append(fixes, bf)
 		}
 	})
-	return applyBinaryFixesBatchRaw(fixes, dryRun, searchDirs...)
+	return applyBinaryFixesBatchRaw(ctx, fixes, dryRun, searchDirs...)
 }
 
 // applyBinaryFixesBatchRaw is the core implementation shared by ApplyBinaryFixesBatch
 // and ApplyBinaryFixesBatchColumns, operating on raw *BinaryFix pointers.
-func applyBinaryFixesBatchRaw(fixes []*scanner.BinaryFix, dryRun bool, searchDirs ...[]string) (applied int, errors []error) {
+func applyBinaryFixesBatchRaw(ctx context.Context, fixes []*scanner.BinaryFix, dryRun bool, searchDirs ...[]string) (applied int, errors []error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var refDirs []string
 	if len(searchDirs) > 0 {
 		refDirs = searchDirs[0]
@@ -103,21 +109,22 @@ func applyBinaryFixesBatchRaw(fixes []*scanner.BinaryFix, dryRun bool, searchDir
 			optimizations = append(optimizations, bf)
 		}
 	}
-	return applyBinaryFixPartitions(conversions, creates, moves, deletions, optimizations, dryRun, refDirs)
+	return applyBinaryFixPartitions(ctx, conversions, creates, moves, deletions, optimizations, dryRun, refDirs)
 }
 
 // applyBinaryFixPartitions runs the 6-pass ordered apply logic on pre-partitioned fix slices.
 // Order: conversions → optimizations → creates → moves → (delete-source for conversions) → explicit deletions.
 func applyBinaryFixPartitions(
+	ctx context.Context,
 	conversions, creates, moves, deletions, optimizations []*scanner.BinaryFix,
 	dryRun bool,
 	refDirs []string,
 ) (applied int, errors []error) {
-	n, errs, converted := applyWebPConversions(conversions, dryRun, refDirs)
+	n, errs, converted := applyWebPConversions(ctx, conversions, dryRun, refDirs)
 	applied += n
 	errors = append(errors, errs...)
 
-	n, errs = applyPNGOptimizations(optimizations, dryRun)
+	n, errs = applyPNGOptimizations(ctx, optimizations, dryRun)
 	applied += n
 	errors = append(errors, errs...)
 
@@ -139,7 +146,7 @@ func applyBinaryFixPartitions(
 	return
 }
 
-func applyWebPConversions(conversions []*scanner.BinaryFix, dryRun bool, refDirs []string) (int, []error, map[string]bool) {
+func applyWebPConversions(ctx context.Context, conversions []*scanner.BinaryFix, dryRun bool, refDirs []string) (int, []error, map[string]bool) {
 	applied := 0
 	var errors []error
 	converted := make(map[string]bool)
@@ -157,7 +164,7 @@ func applyWebPConversions(conversions []*scanner.BinaryFix, dryRun bool, refDirs
 			errors = append(errors, fmt.Errorf("skipped conversion of %s: %d direct file reference(s) found", bf.SourcePath, len(refs)))
 			continue
 		}
-		if err := convertToWebP(bf.SourcePath, bf.TargetPath, dryRun); err != nil {
+		if err := convertToWebP(ctx, bf.SourcePath, bf.TargetPath, dryRun); err != nil {
 			errors = append(errors, err)
 			continue
 		}
@@ -167,11 +174,11 @@ func applyWebPConversions(conversions []*scanner.BinaryFix, dryRun bool, refDirs
 	return applied, errors, converted
 }
 
-func applyPNGOptimizations(optimizations []*scanner.BinaryFix, dryRun bool) (int, []error) {
+func applyPNGOptimizations(ctx context.Context, optimizations []*scanner.BinaryFix, dryRun bool) (int, []error) {
 	applied := 0
 	var errors []error
 	for _, bf := range optimizations {
-		if err := optimizePNG(bf.SourcePath, dryRun); err != nil {
+		if err := optimizePNG(ctx, bf.SourcePath, dryRun); err != nil {
 			errors = append(errors, err)
 		} else {
 			applied++
@@ -257,7 +264,8 @@ func applyExplicitDeletions(deletions []*scanner.BinaryFix, dryRun bool) (int, [
 // convertToWebP converts an image file to WebP format using cwebp.
 // If dst is empty, generates the target path by replacing the file extension with .webp.
 // In dry-run mode, validates that cwebp is available but does not perform conversion.
-func convertToWebP(src, dst string, dryRun bool) error {
+// `ctx` bounds the subprocess so a wedged cwebp does not block the caller.
+func convertToWebP(ctx context.Context, src, dst string, dryRun bool) error {
 	if dst == "" {
 		dst = strings.TrimSuffix(src, filepath.Ext(src)) + ".webp"
 	}
@@ -268,7 +276,7 @@ func convertToWebP(src, dst string, dryRun bool) error {
 	if dryRun {
 		return nil
 	}
-	cmd := exec.CommandContext(context.Background(), cwebp, "-q", "80", src, "-o", dst)
+	cmd := exec.CommandContext(ctx, cwebp, "-q", "80", src, "-o", dst)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("cwebp failed: %w: %s", err, string(output))
 	}
@@ -277,14 +285,15 @@ func convertToWebP(src, dst string, dryRun bool) error {
 
 // optimizePNG runs optipng (or pngcrush as fallback) for lossless PNG optimization.
 // In dry-run mode, validates that a tool is available but does not perform optimization.
-func optimizePNG(src string, dryRun bool) error {
+// `ctx` bounds the subprocess so a wedged optimizer does not block the caller.
+func optimizePNG(ctx context.Context, src string, dryRun bool) error {
 	// Try optipng first, then pngcrush as fallback.
 	optipng, err := exec.LookPath("optipng")
 	if err == nil {
 		if dryRun {
 			return nil
 		}
-		cmd := exec.CommandContext(context.Background(), optipng, "-o2", "-quiet", src)
+		cmd := exec.CommandContext(ctx, optipng, "-o2", "-quiet", src)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("optipng failed on %s: %w: %s", src, err, string(output))
 		}
@@ -297,7 +306,7 @@ func optimizePNG(src string, dryRun bool) error {
 			return nil
 		}
 		tmp := src + ".crush"
-		cmd := exec.CommandContext(context.Background(), pngcrush, "-q", src, tmp)
+		cmd := exec.CommandContext(ctx, pngcrush, "-q", src, tmp)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			os.Remove(tmp) // clean up on failure
 			return fmt.Errorf("pngcrush failed on %s: %w: %s", src, err, string(output))

@@ -496,3 +496,66 @@ func TestFlatWalkSuppressions_NestedClasses(t *testing.T) {
 		t.Error("@Suppress on Inner class must not bleed to outerFun")
 	}
 }
+
+// TestSuppressionFilter_FileLevelAppliesToInvalidLineNumbers verifies
+// that an `@file:Suppress(...)` annotation still matches when the
+// caller passes an out-of-range line number. The pre-fix
+// IsSuppressed converted line<=0 to byteOffset=0 (file-level was
+// preserved) but converted line>lastLine to byteOffset=len(Content),
+// which sits past the exclusive `EndByte` of every annotation —
+// silently losing the file-level suppression for findings reported
+// on stale or otherwise out-of-range line numbers.
+func TestSuppressionFilter_FileLevelAppliesToInvalidLineNumbers(t *testing.T) {
+	src := "@file:Suppress(\"MagicNumber\")\nclass A {\n    val x = 42\n}\n"
+	f := parsedFileForFilter(t, "A.kt", src)
+	sf := BuildSuppressionFilter(f, nil, nil, "")
+
+	cases := []struct {
+		name string
+		line int
+	}{
+		{name: "line zero treated as file-level finding", line: 0},
+		{name: "negative line still falls back to file-level", line: -1},
+		{name: "line past last line still sees file-level suppression", line: 1_000_000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if !sf.IsSuppressed("MagicNumber", "", tc.line) {
+				t.Fatalf("@file:Suppress(\"MagicNumber\") should suppress findings reported with line=%d", tc.line)
+			}
+			// Sanity: a different rule must not be silenced.
+			if sf.IsSuppressed("OtherRule", "", tc.line) {
+				t.Fatalf("@file:Suppress(\"MagicNumber\") must not silence OtherRule (line=%d)", tc.line)
+			}
+		})
+	}
+}
+
+// TestSuppressionByteOffsetForLine pins the conversion contract:
+// invalid line numbers map to file-level lookups, valid lines map to
+// the start byte of that line, and lines past EOF clamp to the last
+// in-file byte so file-level suppression still applies.
+func TestSuppressionByteOffsetForLine(t *testing.T) {
+	src := "line1\nline2\nline3\n" // 18 bytes total
+	f := parsedFileForFilter(t, "A.kt", src)
+
+	cases := []struct {
+		name string
+		line int
+		want int
+	}{
+		{name: "line zero", line: 0, want: 0},
+		{name: "negative line", line: -5, want: 0},
+		{name: "first line", line: 1, want: 0},
+		{name: "second line", line: 2, want: len("line1\n")},
+		{name: "third line", line: 3, want: len("line1\nline2\n")},
+		{name: "past last line clamps to last in-file byte", line: 999, want: len(src) - 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := suppressionByteOffsetForLine(f, tc.line); got != tc.want {
+				t.Fatalf("suppressionByteOffsetForLine(line=%d) = %d, want %d", tc.line, got, tc.want)
+			}
+		})
+	}
+}

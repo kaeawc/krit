@@ -124,15 +124,37 @@ func (f *SuppressionFilter) IsSuppressed(ruleID, ruleSet string, line int) bool 
 		}
 	}
 	if f.annotations != nil && f.file != nil {
-		byteOffset := 0
-		if line > 0 {
-			byteOffset = f.file.LineOffset(line - 1)
-		}
+		byteOffset := suppressionByteOffsetForLine(f.file, line)
 		if f.annotations.isSuppressedWithAliases(byteOffset, ruleID, ruleSet, aliases) {
 			return true
 		}
 	}
 	return false
+}
+
+// suppressionByteOffsetForLine maps a 1-based finding line to a byte
+// offset inside `file` that suppression-range checks can use.
+//
+//   - `line >= 1` and within the file: returns the byte offset of the
+//     start of that line.
+//   - `line <= 0`: treats the finding as file-level (line is unknown
+//     or the rule reports on the whole file) and returns 0. With
+//     `EndByte` exclusive, a `@file:Suppress(...)` covering [0,
+//     fileSize) still matches byte 0.
+//   - `line` past the last line: clamps to the last byte in the file
+//     so file-level suppressions still apply. `f.file.LineOffset`
+//     returns `len(Content)` for out-of-range indices, which is past
+//     the exclusive `EndByte` and would silently miss file-level
+//     suppressions.
+func suppressionByteOffsetForLine(file *File, line int) int {
+	if line <= 0 {
+		return 0
+	}
+	offset := file.LineOffset(line - 1)
+	if n := len(file.Content); n > 0 && offset >= n {
+		return n - 1
+	}
+	return offset
 }
 
 // IsFileExcluded reports whether the given rule is globally excluded

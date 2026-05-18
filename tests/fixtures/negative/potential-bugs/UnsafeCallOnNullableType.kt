@@ -60,6 +60,10 @@ class AppInspiredSafePatterns {
 
     fun requireController(): Controller = controller!!
 
+    // Regression: expression-body `requireX` with a parameter (and therefore
+    // a `=` somewhere in the function text) must still be exempt.
+    fun requireNonNull(x: Controller?): Controller = x!!
+
     fun assignedBeforeUse() {
         if (controller == null) {
             controller = Controller()

@@ -42,16 +42,41 @@ func isRequireFunctionBangBodyFlat(file *scanner.File, idx uint32) bool {
 			return false
 		}
 	}
-	fnText := file.FlatNodeText(fn)
-	if !strings.Contains(fnText, "=") {
+	// The exemption is intended for `fun requireX(): T = expr!!` — the
+	// expression-body form where the function name documents the precondition.
+	// Detect this structurally via the AST: the function_body must start with
+	// `=` (expression body), not `{` (block body). A scan of `fnText` for `=`
+	// also matches default args like `requireX(x: Int = 0)` and block-body
+	// `val y = ...` assignments, silently skipping real `!!` bugs.
+	return flatFunctionHasExpressionBody(file, fn)
+}
+
+// flatFunctionHasExpressionBody reports whether the function_declaration at fn
+// uses an expression body (`fun f(): T = expr`) rather than a block body
+// (`fun f(): T { ... }`). A function with no body at all (abstract / interface)
+// returns false.
+func flatFunctionHasExpressionBody(file *scanner.File, fn uint32) bool {
+	if file == nil || fn == 0 || file.FlatType(fn) != "function_declaration" {
 		return false
 	}
-	afterEq := strings.SplitN(fnText, "=", 2)
-	if len(afterEq) != 2 {
+	body, ok := file.FlatFindChild(fn, "function_body")
+	if !ok || body == 0 {
 		return false
 	}
-	body := strings.TrimSpace(afterEq[1])
-	return !strings.HasPrefix(body, "{")
+	// The function_body's first non-named child is either `=` (expression
+	// body) or `{` (block body).
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatIsNamed(child) {
+			continue
+		}
+		switch file.FlatType(child) {
+		case "=":
+			return true
+		case "{":
+			return false
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------

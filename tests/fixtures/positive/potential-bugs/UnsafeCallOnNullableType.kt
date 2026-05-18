@@ -55,3 +55,22 @@ class AppInspiredUnsafePatterns {
         controller!!.start()
     }
 }
+
+// Regression: `requireX` exemption must be limited to expression bodies.
+// Block-body `requireX` with a default arg or local `val x = ...` should
+// still fire — the old `strings.SplitN(fnText, "=", 2)` heuristic incorrectly
+// matched the default-arg `=` and the assignment `=`, silently skipping these
+// real `!!` bugs.
+class RequireBlockBodyShouldFire {
+    private fun compute(): Int? = 1
+    private fun makeFoo(): String? = null
+
+    fun requireFoo(x: Int = 0): String {
+        val y = compute()
+        return y!!.toString()
+    }
+
+    fun requireBar(): String {
+        return makeFoo()!!
+    }
+}

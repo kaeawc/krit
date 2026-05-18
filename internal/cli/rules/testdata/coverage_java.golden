@@ -6,8 +6,8 @@ AbstractClassCanBeInterface                     style                partial    
 
 Total: 784 rule(s)
   supported: 119
-  partial: 455
-  pending: 140
+  partial: 453
+  pending: 142
   needs-design: 0
   not-applicable: 49
   (unclassified): 21

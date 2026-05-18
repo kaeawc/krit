@@ -178,7 +178,6 @@ negative SQLiteString
 negative ScrollViewCountResource
 negative ScrollViewSizeResource
 negative ServiceExportedManifest
-negative SetTextI18n
 negative ShiftFlags
 negative ShortAlarm
 negative SmallSpResource
@@ -235,7 +234,6 @@ negative VersionCatalogUnused
 negative VisibleForTestingCallerInNonTest
 negative WebViewAllowFileAccess
 negative WebViewInScrollViewResource
-negative WrongCall
 negative WrongCaseResource
 negative WrongFolderResource
 negative WrongManifestParentManifest
@@ -408,7 +406,6 @@ positive SQLiteString
 positive ScrollViewCountResource
 positive ScrollViewSizeResource
 positive ServiceExportedManifest
-positive SetTextI18n
 positive ShiftFlags
 positive ShortAlarm
 positive SmallSpResource
@@ -465,7 +462,6 @@ positive VersionCatalogUnused
 positive VisibleForTestingCallerInNonTest
 positive WebViewAllowFileAccess
 positive WebViewInScrollViewResource
-positive WrongCall
 positive WrongCaseResource
 positive WrongFolderResource
 positive WrongManifestParentManifest

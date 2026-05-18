@@ -920,21 +920,65 @@ fun work() {}
 // ---------------------------------------------------------------------------
 
 func TestWrongCall(t *testing.T) {
-	t.Run("positive direct onDraw call", func(t *testing.T) {
-		findings := runRuleByName(t, "WrongCall", `
+	t.Run("positive direct onDraw call inside View subclass", func(t *testing.T) {
+		// Receiver-type proof: enclosing class extends View, so child.onDraw()
+		// dispatches to a View method and should fire.
+		findings := runRuleByNameWithResolver(t, "WrongCall", `
 package test
-fun refresh() {
-    view.onDraw(canvas)
+import android.view.View
+class CustomView : View() {
+    private val child: View = TODO()
+    fun forceRedraw(canvas: android.graphics.Canvas) {
+        child.onDraw(canvas)
+    }
 }`)
 		if len(findings) == 0 {
 			t.Fatal("expected findings")
 		}
 	})
 	t.Run("negative super.onDraw call", func(t *testing.T) {
-		findings := runRuleByName(t, "WrongCall", `
+		findings := runRuleByNameWithResolver(t, "WrongCall", `
 package test
 override fun onDraw(canvas: Canvas) {
     super.onDraw(canvas)
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative bare onDraw call with no receiver evidence", func(t *testing.T) {
+		// No enclosing class, no resolver receiver evidence — must not fire.
+		findings := runRuleByNameWithResolver(t, "WrongCall", `
+package test
+fun refresh() {
+    view.onDraw(canvas)
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative onDraw on non-View receiver root", func(t *testing.T) {
+		findings := runRuleByNameWithResolver(t, "WrongCall", `
+package test
+class Renderer {
+    fun draw(canvas: android.graphics.Canvas) {
+        val h = Helper()
+        h.onDraw(canvas)
+    }
+}
+class Helper { fun onDraw(c: android.graphics.Canvas) {} }`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative onDraw on NotificationCompat builder chain", func(t *testing.T) {
+		// Receiver chain rooted at a known non-View symbol — must not fire.
+		findings := runRuleByNameWithResolver(t, "WrongCall", `
+package test
+class Renderer {
+    fun build(builder: Any) {
+        NotificationCompat.Builder(builder, "ch").onDraw(builder)
+    }
 }`)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))

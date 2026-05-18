@@ -6,6 +6,7 @@ import (
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 func registerAndroidCorrectnessRules() {
@@ -516,7 +517,9 @@ func registerAndroidCorrectnessSetTextI18n() {
 	r := &SetTextI18nRule{AndroidRule: alcRule("SetTextI18n", "TextView with internationalization issues", ALSWarning, 6)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes:  []string{"call_expression"},
+		Needs:      api.NeedsTypeInfo,
+		Confidence: 0.75, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallExpressionName(file, idx) != "setText" {
@@ -531,18 +534,136 @@ func registerAndroidCorrectnessSetTextI18n() {
 			if firstArg == 0 {
 				return
 			}
+			hasLiteral := false
 			for expr := file.FlatFirstChild(firstArg); expr != 0; expr = file.FlatNextSib(expr) {
 				if !file.FlatIsNamed(expr) {
 					continue
 				}
 				t := file.FlatType(expr)
 				if t == "line_string_literal" || t == "string_literal" {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Do not pass hardcoded text to setText. Use resource strings with placeholders.")
+					hasLiteral = true
 				}
+				break
+			}
+			if !hasLiteral {
 				return
 			}
+			if !setTextI18nReceiverIsTextView(ctx, idx) {
+				return
+			}
+			ctx.EmitAt(file.FlatRow(idx)+1, 1, "Do not pass hardcoded text to setText. Use resource strings with placeholders.")
 		},
 	})
+}
+
+// setTextI18nReceiverIsTextView reports whether the receiver of a setText
+// call_expression is a TextView (or a likely TextView subtype). It refuses
+// to fire when the receiver chain starts with a known non-View symbol
+// (NotificationCompat, RemoteViews, ...) and skips when no receiver
+// evidence is available.
+func setTextI18nReceiverIsTextView(ctx *api.Context, call uint32) bool {
+	file := ctx.File
+	navExpr, _ := flatCallExpressionParts(file, call)
+	if navExpr == 0 {
+		// Bare `setText("...")` — only flag when the enclosing class is
+		// a TextView subtype. Otherwise we have no receiver evidence.
+		classIdx, ok := flatEnclosingAncestor(file, call, "class_declaration", "object_declaration")
+		if !ok || classIdx == 0 {
+			return false
+		}
+		for _, super := range androidDirectSupertypesFlat(file, classIdx) {
+			if super.simple == "TextView" ||
+				super.simple == "Button" ||
+				super.simple == "EditText" ||
+				super.simple == "AppCompatTextView" ||
+				super.simple == "AppCompatEditText" ||
+				super.simple == "AppCompatButton" ||
+				super.simple == "MaterialButton" ||
+				super.simple == "TextInputEditText" ||
+				super.name == "android.widget.TextView" {
+				return true
+			}
+			if ctx.Resolver != nil {
+				fqn := super.name
+				if !super.qualified {
+					if resolved := ctx.Resolver.ResolveImport(super.simple, file); resolved != "" {
+						fqn = resolved
+					}
+				}
+				typ := &typeinfer.ResolvedType{Name: super.simple, FQN: fqn, Kind: typeinfer.TypeClass}
+				if androidTypeIsTextViewSubtype(ctx.Resolver, typ) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	// Navigation receiver: walk down to the leftmost identifier.
+	recv := file.FlatNamedChild(navExpr, 0)
+	if recv == 0 {
+		return false
+	}
+	// Hard skip: receiver chain rooted at a known non-View symbol.
+	if androidReceiverIsKnownNonView(file, recv) {
+		return false
+	}
+	// Receiver is `this`/`super`: check enclosing class.
+	switch file.FlatType(recv) {
+	case "this_expression", "super_expression":
+		classIdx, ok := flatEnclosingAncestor(file, call, "class_declaration", "object_declaration")
+		if !ok || classIdx == 0 {
+			return false
+		}
+		for _, super := range androidDirectSupertypesFlat(file, classIdx) {
+			if super.simple == "TextView" || super.simple == "Button" ||
+				super.simple == "EditText" || super.simple == "AppCompatTextView" ||
+				super.simple == "AppCompatEditText" || super.simple == "AppCompatButton" ||
+				super.simple == "MaterialButton" || super.simple == "TextInputEditText" ||
+				super.name == "android.widget.TextView" {
+				return true
+			}
+		}
+		return false
+	}
+	if ctx.Resolver != nil {
+		typ := ctx.Resolver.ResolveFlatNode(recv, file)
+		if typ != nil && typ.Name != "" {
+			if androidTypeIsTextViewSubtype(ctx.Resolver, typ) {
+				return true
+			}
+			// Receiver resolved to a non-TextView type — refuse to fire.
+			return false
+		}
+	}
+	// Heuristic: if the trailing identifier of the chain matches a
+	// TextView simple name, accept (covers `binding.textView.setText("...")`).
+	// The receiver expression IS the navigation chain whose tail names
+	// the field/variable holding the call target.
+	field := setTextI18nReceiverFieldName(file, recv)
+	if field != "" {
+		lower := strings.ToLower(field)
+		if strings.Contains(lower, "textview") || strings.Contains(lower, "edittext") ||
+			strings.Contains(lower, "button") || strings.HasSuffix(lower, "text") ||
+			lower == "tv" || lower == "et" || lower == "btn" {
+			return true
+		}
+	}
+	// Truly unknown — skip rather than false-positive.
+	return false
+}
+
+// setTextI18nReceiverFieldName returns the trailing identifier of the
+// receiver subtree (the field/variable holding the call target). For
+// `binding.helloTextView` the receiver expression is the navigation
+// expression itself and the trailing identifier is "helloTextView".
+func setTextI18nReceiverFieldName(file *scanner.File, recv uint32) string {
+	switch file.FlatType(recv) {
+	case "simple_identifier":
+		return file.FlatNodeText(recv)
+	case "navigation_expression":
+		return flatNavigationExpressionLastIdentifier(file, recv)
+	}
+	return ""
 }
 
 func registerAndroidCorrectnessStopShip() {
@@ -558,7 +679,9 @@ func registerAndroidCorrectnessWrongCall() {
 	r := &WrongCallRule{AndroidRule: alcRule("WrongCall", "Using wrong draw/layout method", ALSError, 6)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
+		NodeTypes:  []string{"call_expression"},
+		Needs:      api.NeedsTypeInfo,
+		Confidence: r.Confidence(), Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			name := flatCallExpressionName(file, idx)
@@ -581,6 +704,34 @@ func registerAndroidCorrectnessWrongCall() {
 				if file.FlatHasModifier(fn, "override") {
 					return
 				}
+			}
+			// Receiver-type proof: require positive evidence the call is
+			// a View method. Either the receiver resolves to a View
+			// subtype, or the enclosing class extends View (so the
+			// `obj.onDraw()` call really is dispatching to a View method
+			// implementation). Without proof, refuse to fire — a method
+			// named `onDraw` on a non-View class is an unrelated callback.
+			recvNamed := file.FlatNamedChild(navExpr, 0)
+			if recvNamed != 0 {
+				// Hard skip: receiver chain rooted at a known non-View
+				// symbol (NotificationCompat, RemoteViews, ...).
+				if androidReceiverIsKnownNonView(file, recvNamed) {
+					return
+				}
+				if ctx.Resolver != nil {
+					typ := ctx.Resolver.ResolveFlatNode(recvNamed, file)
+					if typ != nil && typ.Name != "" {
+						if !androidTypeIsViewSubtype(ctx.Resolver, typ) {
+							return
+						}
+						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Suspicious method call; should probably call draw/measure/layout instead of "+name+".")
+						return
+					}
+				}
+			}
+			// Fallback: require the enclosing class extends View.
+			if !androidEnclosingClassExtendsView(file, idx, ctx.Resolver) {
+				return
 			}
 			ctx.EmitAt(file.FlatRow(idx)+1, 1, "Suspicious method call; should probably call draw/measure/layout instead of "+name+".")
 		},

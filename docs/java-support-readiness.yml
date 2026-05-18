@@ -388,6 +388,9 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_base_test.go
+  SetTextI18n:
+    status: pending
+    reason: Kotlin call_expression coverage only; Java method_invocation parity for TextView/Button receivers still needs implementation.
   SimpleDateFormat:
     status: supported
     fixtures:
@@ -464,6 +467,9 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_source_test.go
+  WrongCall:
+    status: pending
+    reason: Kotlin call_expression coverage only; Java method_invocation parity for View subclass receivers still needs implementation.
   XmlExternalEntity:
     status: supported
     fixtures:

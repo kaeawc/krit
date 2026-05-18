@@ -521,7 +521,7 @@ func TestParseValuesFile_StreamingParserPreservesResourceData(t *testing.T) {
 		Integers:     make(map[string]string),
 		Booleans:     make(map[string]string),
 	}
-	if _, err := idx.scanValuesDir(valuesDir, 1); err != nil {
+	if _, err := idx.scanValuesDir(valuesDir); err != nil {
 		t.Fatalf("scanValuesDir: %v", err)
 	}
 
@@ -558,6 +558,58 @@ func TestParseValuesFile_StreamingParserPreservesResourceData(t *testing.T) {
 	}
 }
 
+func TestParseValuesFile_TracksDimenAndStyleItemLines(t *testing.T) {
+	tmp := t.TempDir()
+	valuesDir := filepath.Join(tmp, "values")
+	if err := os.MkdirAll(valuesDir, 0o755); err != nil {
+		t.Fatalf("mkdir values dir: %v", err)
+	}
+
+	writeValuesFile(t, valuesDir, "dimens_styles.xml", `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="gutter">12dp</dimen>
+    <dimen name="title_size">14dp</dimen>
+    <style name="TextAppearance.Title" parent="@android:style/TextAppearance">
+        <item name="android:textSize">14dp</item>
+        <item name="android:textColor">#000</item>
+    </style>
+</resources>
+`)
+
+	idx := newResourceIndex()
+	if _, err := idx.scanValuesDir(valuesDir); err != nil {
+		t.Fatalf("scanValuesDir: %v", err)
+	}
+
+	gutterLoc, ok := idx.DimensionsLocation["gutter"]
+	if !ok {
+		t.Fatalf("expected DimensionsLocation entry for gutter; got %#v", idx.DimensionsLocation)
+	}
+	if gutterLoc.Line != 3 {
+		t.Errorf("expected gutter dimen on line 3, got %d", gutterLoc.Line)
+	}
+	if gutterLoc.FilePath == "" {
+		t.Error("expected DimensionsLocation to record file path")
+	}
+
+	style := idx.Styles["TextAppearance.Title"]
+	if style == nil {
+		t.Fatal("expected TextAppearance.Title style")
+	}
+	if style.FilePath == "" {
+		t.Error("expected Style.FilePath to be recorded")
+	}
+	if style.Line != 5 {
+		t.Errorf("expected style declaration on line 5, got %d", style.Line)
+	}
+	if got := style.ItemLines["android:textSize"]; got != 6 {
+		t.Errorf("expected textSize item on line 6, got %d", got)
+	}
+	if got := style.ItemLines["android:textColor"]; got != 7 {
+		t.Errorf("expected textColor item on line 7, got %d", got)
+	}
+}
+
 func TestParseValuesFile_TracksExtraTextLine(t *testing.T) {
 	tmp := t.TempDir()
 	valuesDir := filepath.Join(tmp, "values")
@@ -583,7 +635,7 @@ func TestParseValuesFile_TracksExtraTextLine(t *testing.T) {
 		Integers:     make(map[string]string),
 		Booleans:     make(map[string]string),
 	}
-	if _, err := idx.scanValuesDir(valuesDir, 1); err != nil {
+	if _, err := idx.scanValuesDir(valuesDir); err != nil {
 		t.Fatalf("scanValuesDir: %v", err)
 	}
 
@@ -617,7 +669,7 @@ func TestParseValuesFile_RejectsNonResourcesRoot(t *testing.T) {
 		Integers:     make(map[string]string),
 		Booleans:     make(map[string]string),
 	}
-	_, err := idx.scanValuesDir(valuesDir, 1)
+	_, err := idx.scanValuesDir(valuesDir)
 	if err == nil {
 		t.Fatal("expected error for non-resources root")
 	}

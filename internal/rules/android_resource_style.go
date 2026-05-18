@@ -4,6 +4,7 @@ package rules
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
@@ -61,6 +62,82 @@ func isPxValue(val string) bool {
 	return true
 }
 
+// pxValueExempt mirrors AOSP PxUsageDetector: `0px` (and any other numeric
+// value evaluating to 0, e.g. `0.0px`) and exactly `1px` are intentionally
+// allowed. 0px is density-independent because 0 * any-scale is 0; 1px is the
+// classic hairline divider idiom — see AOSP issue 55722.
+func pxValueExempt(val string) bool {
+	val = strings.TrimSpace(val)
+	if val == "1px" {
+		return true
+	}
+	if !strings.HasSuffix(val, "px") {
+		return false
+	}
+	n, ok := parseLeadingNumber(val[:len(val)-2])
+	return ok && n == 0
+}
+
+// inOrMmValueExempt mirrors AOSP: a 0-valued `0mm` / `0in` is allowed.
+func inOrMmValueExempt(val, unit string) bool {
+	val = strings.TrimSpace(val)
+	if !strings.HasSuffix(val, unit) {
+		return false
+	}
+	n, ok := parseLeadingNumber(val[:len(val)-len(unit)])
+	return ok && n == 0
+}
+
+func parseLeadingNumber(s string) (float64, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	n, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// resolveDimenReference resolves an @dimen/... (or @package:dimen/...)
+// reference against the project's dimensions map. Returns the literal value
+// and the location of the <dimen> declaration when found.
+func resolveDimenReference(idx *android.ResourceIndex, val string) (string, android.StringLocation, bool) {
+	val = strings.TrimSpace(val)
+	if !strings.HasPrefix(val, "@") {
+		return "", android.StringLocation{}, false
+	}
+	rest := val[1:]
+	if i := strings.Index(rest, ":"); i >= 0 {
+		rest = rest[i+1:]
+	}
+	const prefix = "dimen/"
+	if !strings.HasPrefix(rest, prefix) {
+		return "", android.StringLocation{}, false
+	}
+	name := rest[len(prefix):]
+	if name == "" {
+		return "", android.StringLocation{}, false
+	}
+	resolved, ok := idx.Dimensions[name]
+	if !ok {
+		return "", android.StringLocation{}, false
+	}
+	loc := idx.DimensionsLocation[name]
+	return resolved, loc, true
+}
+
+// isTextSizeAttr matches the AOSP ATTR_TEXT_SIZE / "android:textSize" pair.
+func isTextSizeAttr(name string) bool {
+	return name == "android:textSize" || name == "textSize"
+}
+
+// isLayoutHeightAttr matches the AOSP ATTR_LAYOUT_HEIGHT / "android:layout_height" pair.
+func isLayoutHeightAttr(name string) bool {
+	return name == "android:layout_height" || name == "layout_height"
+}
+
 // Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
 // anti-patterns and attribute mismatches via structural checks on style
 // XML. Classified per roadmap/17.
@@ -72,7 +149,7 @@ func (r *PxUsageResourceRule) check(ctx *api.Context) {
 		walkViews(layout.RootView, func(v *android.View) {
 			for _, attr := range pxDimensionAttrs {
 				val := v.Attributes[attr]
-				if isPxValue(val) {
+				if isPxValue(val) && !pxValueExempt(val) {
 					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("Avoid using `px` in `%s=\"%s\"`. Use `dp` or `sp` instead for density-independent sizing.",
 							attr, val)))
@@ -80,12 +157,29 @@ func (r *PxUsageResourceRule) check(ctx *api.Context) {
 			}
 		})
 	}
-	// Also check values/dimens
+	// values/dimens.xml dimensions
 	for name, val := range idx.Dimensions {
-		if isPxValue(val) {
-			ctx.Emit(resourceFinding("res/values/dimens.xml", 0, r.BaseRule,
-				fmt.Sprintf("Dimension `%s` uses `px` value `%s`. Use `dp` or `sp` instead.",
-					name, val)))
+		if !isPxValue(val) || pxValueExempt(val) {
+			continue
+		}
+		loc := idx.DimensionsLocation[name]
+		path := loc.FilePath
+		if path == "" {
+			path = "res/values/dimens.xml"
+		}
+		ctx.Emit(resourceFinding(path, loc.Line, r.BaseRule,
+			fmt.Sprintf("Dimension `%s` uses `px` value `%s`. Use `dp` or `sp` instead.",
+				name, val)))
+	}
+	// values/styles.xml <style><item> entries (parity with AOSP checkStyleItem).
+	for _, style := range idx.Styles {
+		for itemName, val := range style.Items {
+			if !isPxValue(val) || pxValueExempt(val) {
+				continue
+			}
+			ctx.Emit(resourceFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule,
+				fmt.Sprintf("Style `%s` item `%s` uses `px` value `%s`. Use `dp` or `sp` instead.",
+					style.Name, itemName, val)))
 		}
 	}
 }
@@ -134,13 +228,53 @@ func (r *SpUsageResourceRule) check(ctx *api.Context) {
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			val := v.Attributes["android:textSize"]
+			if val == "" {
+				return
+			}
 			if isDpValue(val) {
 				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`android:textSize=\"%s\"` uses `dp`. Use `sp` instead so text respects the user's font size preference.",
 						val)))
+				return
+			}
+			if resolved, loc, ok := resolveDimenReference(idx, val); ok && isDpValue(resolved) {
+				origin := dimenOriginSuffix(loc, resolved)
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					fmt.Sprintf("`android:textSize=\"%s\"` resolves to a `dp` value%s. Use `sp` instead so text respects the user's font size preference.",
+						val, origin)))
 			}
 		})
 	}
+	// Style items: <item name="android:textSize">14dp</item> or <item name="textSize">14dp</item>
+	for _, style := range idx.Styles {
+		for itemName, val := range style.Items {
+			if !isTextSizeAttr(itemName) {
+				continue
+			}
+			if isDpValue(val) {
+				ctx.Emit(resourceFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule,
+					fmt.Sprintf("Style `%s` item `%s=\"%s\"` uses `dp`. Use `sp` instead so text respects the user's font size preference.",
+						style.Name, itemName, val)))
+				continue
+			}
+			if resolved, loc, ok := resolveDimenReference(idx, val); ok && isDpValue(resolved) {
+				origin := dimenOriginSuffix(loc, resolved)
+				ctx.Emit(resourceFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule,
+					fmt.Sprintf("Style `%s` item `%s=\"%s\"` resolves to a `dp` value%s. Use `sp` instead so text respects the user's font size preference.",
+						style.Name, itemName, val, origin)))
+			}
+		}
+	}
+}
+
+// dimenOriginSuffix produces a short " (foo is N in path)"-style suffix
+// pointing at the resolved dimension declaration. Empty when the source
+// location is unknown.
+func dimenOriginSuffix(loc android.StringLocation, resolved string) string {
+	if loc.FilePath == "" {
+		return fmt.Sprintf(" (%s)", resolved)
+	}
+	return fmt.Sprintf(" (`%s` in `%s`)", resolved, loc.FilePath)
 }
 
 // ---------------------------------------------------------------------------
@@ -181,17 +315,49 @@ func (r *SmallSpResourceRule) check(ctx *api.Context) {
 			if textSize == "" {
 				return
 			}
-			sp, ok := parseSpValue(textSize)
-			if !ok {
+			if handleSpLiteral(ctx, r.BaseRule, layout.FilePath, v.Line, textSize, "", "android:textSize") {
 				return
 			}
-			if sp < 12 {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
-					fmt.Sprintf("Text size `%s` is too small (below 12sp). Consider using at least 12sp for readability.",
-						textSize)))
+			if resolved, loc, ok := resolveDimenReference(idx, textSize); ok {
+				origin := dimenOriginSuffix(loc, resolved)
+				handleSpLiteral(ctx, r.BaseRule, layout.FilePath, v.Line, resolved, origin, "android:textSize=\""+textSize+"\"")
 			}
 		})
 	}
+	for _, style := range idx.Styles {
+		for itemName, val := range style.Items {
+			if !isTextSizeAttr(itemName) && !isLayoutHeightAttr(itemName) {
+				continue
+			}
+			line := style.ItemLines[itemName]
+			label := fmt.Sprintf("style `%s` item `%s`", style.Name, itemName)
+			if handleSpLiteral(ctx, r.BaseRule, style.FilePath, line, val, "", label) {
+				continue
+			}
+			if resolved, loc, ok := resolveDimenReference(idx, val); ok {
+				origin := dimenOriginSuffix(loc, resolved)
+				handleSpLiteral(ctx, r.BaseRule, style.FilePath, line, resolved, origin,
+					fmt.Sprintf("%s=\"%s\"", label, val))
+			}
+		}
+	}
+}
+
+// handleSpLiteral parses val as an sp literal; when below 12sp, emits a
+// SmallSp finding. The returned bool means "val was a recognized sp value"
+// — callers use it to skip the @dimen fallback, since a literal sp value
+// has already been fully evaluated whether or not a finding was emitted.
+func handleSpLiteral(ctx *api.Context, rule BaseRule, path string, line int, val, origin, label string) (handled bool) {
+	sp, ok := parseSpValue(val)
+	if !ok {
+		return false
+	}
+	if sp < 12 {
+		ctx.Emit(resourceFinding(path, line, rule,
+			fmt.Sprintf("Text size `%s`%s is too small (below 12sp) for `%s`. Consider using at least 12sp for readability.",
+				val, origin, label)))
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------------
@@ -247,20 +413,39 @@ func (r *InOrMmUsageResourceRule) check(ctx *api.Context) {
 		walkViews(layout.RootView, func(v *android.View) {
 			for _, attr := range pxDimensionAttrs {
 				val := v.Attributes[attr]
-				if unit, ok := isInOrMmValue(val); ok {
-					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
-						fmt.Sprintf("Avoid using `%s` units in `%s=\"%s\"`. Use `dp` or `sp` for density-independent sizing.",
-							unit, attr, val)))
+				unit, ok := isInOrMmValue(val)
+				if !ok || inOrMmValueExempt(val, unit) {
+					continue
 				}
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					fmt.Sprintf("Avoid using `%s` units in `%s=\"%s\"`. Use `dp` or `sp` for density-independent sizing.",
+						unit, attr, val)))
 			}
 		})
 	}
-	// Also check values/dimens
 	for name, val := range idx.Dimensions {
-		if unit, ok := isInOrMmValue(val); ok {
-			ctx.Emit(resourceFinding("res/values/dimens.xml", 0, r.BaseRule,
-				fmt.Sprintf("Dimension `%s` uses `%s` value `%s`. Use `dp` or `sp` instead.",
-					name, unit, val)))
+		unit, ok := isInOrMmValue(val)
+		if !ok || inOrMmValueExempt(val, unit) {
+			continue
+		}
+		loc := idx.DimensionsLocation[name]
+		path := loc.FilePath
+		if path == "" {
+			path = "res/values/dimens.xml"
+		}
+		ctx.Emit(resourceFinding(path, loc.Line, r.BaseRule,
+			fmt.Sprintf("Dimension `%s` uses `%s` value `%s`. Use `dp` or `sp` instead.",
+				name, unit, val)))
+	}
+	for _, style := range idx.Styles {
+		for itemName, val := range style.Items {
+			unit, ok := isInOrMmValue(val)
+			if !ok || inOrMmValueExempt(val, unit) {
+				continue
+			}
+			ctx.Emit(resourceFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule,
+				fmt.Sprintf("Style `%s` item `%s` uses `%s` value `%s`. Use `dp` or `sp` instead.",
+					style.Name, itemName, unit, val)))
 		}
 	}
 }

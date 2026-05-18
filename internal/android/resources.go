@@ -52,19 +52,20 @@ type ResourceIndex struct {
 	// StringsTrailingWS marks strings whose raw XML text content ended with
 	// whitespace before TrimSpace. Significant in some locales and in
 	// concatenated strings.
-	StringsTrailingWS map[string]bool
-	StringsLocation   map[string]StringLocation    // string name -> file path and line
-	Colors            map[string]string            // color name -> value
-	Dimensions        map[string]string            // dimen name -> value
-	Styles            map[string]*Style            // style name -> style definition
-	Drawables         []string                     // drawable resource names
-	DrawableSelectors map[string][]SelectorItem    // selector drawable name -> child items
-	StringArrays      map[string][]string          // string-array name -> items
-	Plurals           map[string]map[string]string // plural name -> quantity -> value
-	Integers          map[string]string            // integer name -> value
-	Booleans          map[string]string            // bool name -> value
-	IDs               map[string]bool              // declared @+id names
-	ExtraTexts        []ExtraTextEntry             // stray text nodes in values files
+	StringsTrailingWS  map[string]bool
+	StringsLocation    map[string]StringLocation    // string name -> file path and line
+	Colors             map[string]string            // color name -> value
+	Dimensions         map[string]string            // dimen name -> value
+	DimensionsLocation map[string]StringLocation    // dimen name -> file path and line
+	Styles             map[string]*Style            // style name -> style definition
+	Drawables          []string                     // drawable resource names
+	DrawableSelectors  map[string][]SelectorItem    // selector drawable name -> child items
+	StringArrays       map[string][]string          // string-array name -> items
+	Plurals            map[string]map[string]string // plural name -> quantity -> value
+	Integers           map[string]string            // integer name -> value
+	Booleans           map[string]string            // bool name -> value
+	IDs                map[string]bool              // declared @+id names
+	ExtraTexts         []ExtraTextEntry             // stray text nodes in values files
 }
 
 // SelectorItem records a child <item> in a drawable selector XML file.
@@ -103,9 +104,12 @@ type View struct {
 
 // Style represents an Android style definition.
 type Style struct {
-	Name   string
-	Parent string
-	Items  map[string]string // item name -> value
+	Name      string
+	Parent    string
+	FilePath  string            // absolute path to the values XML file containing the style
+	Line      int               // 1-based line of the <style> element
+	Items     map[string]string // item name -> value
+	ItemLines map[string]int    // item name -> 1-based line of the <item> element
 }
 
 // ResourceScanStats captures where time is spent while indexing a res/ directory.
@@ -241,6 +245,7 @@ func newResourceIndex() *ResourceIndex {
 		StringsLocation:     make(map[string]StringLocation),
 		Colors:              make(map[string]string),
 		Dimensions:          make(map[string]string),
+		DimensionsLocation:  make(map[string]StringLocation),
 		Styles:              make(map[string]*Style),
 		DrawableSelectors:   make(map[string][]SelectorItem),
 		StringArrays:        make(map[string][]string),
@@ -300,6 +305,9 @@ func (idx *ResourceIndex) ensureMaps() {
 	}
 	if idx.Dimensions == nil {
 		idx.Dimensions = make(map[string]string)
+	}
+	if idx.DimensionsLocation == nil {
+		idx.DimensionsLocation = make(map[string]StringLocation)
 	}
 	if idx.Styles == nil {
 		idx.Styles = make(map[string]*Style)
@@ -367,6 +375,9 @@ func (idx *ResourceIndex) mergeColorDimenEntries(other *ResourceIndex) {
 	}
 	for name, value := range other.Dimensions {
 		idx.Dimensions[name] = value
+	}
+	for name, loc := range other.DimensionsLocation {
+		idx.DimensionsLocation[name] = loc
 	}
 	for name, style := range other.Styles {
 		idx.Styles[name] = style
@@ -677,9 +688,11 @@ func collectIDs(v *View, ids map[string]bool) {
 	}
 }
 
-// scanValuesDir parses all XML files in a values directory.
-func (idx *ResourceIndex) scanValuesDir(dir string, maxWorkers int) (ResourceScanStats, error) {
-	return idx.scanValuesDirKinds(dir, maxWorkers, ValuesScanAll)
+// scanValuesDir parses all XML files in a values directory. Single-threaded
+// — callers that need a worker pool use NewLazyValuesScan / scanValuesDirKinds
+// directly.
+func (idx *ResourceIndex) scanValuesDir(dir string) (ResourceScanStats, error) {
+	return idx.scanValuesDirKinds(dir, 1, ValuesScanAll)
 }
 
 func (idx *ResourceIndex) scanValuesDirKinds(dir string, maxWorkers int, kinds ValuesScanKind) (ResourceScanStats, error) {
@@ -887,8 +900,9 @@ func (idx *ResourceIndex) parseValuesXMLKinds(path string, data []byte, kinds Va
 	dec := xml.NewDecoder(bytes.NewReader(data))
 	needStringLines := kinds&ValuesScanStrings != 0
 	needExtraTextLines := kinds&ValuesScanExtraText != 0
+	needDimenLines := kinds&ValuesScanDimensions != 0
 	var lines *lineIndex
-	if needStringLines || needExtraTextLines {
+	if needStringLines || needExtraTextLines || needDimenLines {
 		lines = newLineIndex(data)
 	}
 	for {
@@ -937,11 +951,13 @@ func (idx *ResourceIndex) parseResourcesRootKinds(dec *xml.Decoder, path string,
 			}
 		case xml.StartElement:
 			elemLine := 0
-			if kinds&ValuesScanStrings != 0 && t.Name.Local == "string" {
-				// Capture line number before decoding the element.
-				elemLine = lines.lineAtOffset(dec.InputOffset())
+			if lines != nil {
+				switch t.Name.Local {
+				case "string", "dimen", "style":
+					elemLine = lines.lineAtOffset(dec.InputOffset())
+				}
 			}
-			if err := idx.parseResourceElementKinds(dec, t, path, elemLine, kinds); err != nil {
+			if err := idx.parseResourceElementKinds(dec, t, path, elemLine, kinds, lines); err != nil {
 				return fmt.Errorf("parsing XML %s: %w", path, err)
 			}
 		case xml.EndElement:
@@ -952,14 +968,14 @@ func (idx *ResourceIndex) parseResourcesRootKinds(dec *xml.Decoder, path string,
 	}
 }
 
-func (idx *ResourceIndex) parseResourceElementKinds(dec *xml.Decoder, start xml.StartElement, path string, line int, kinds ValuesScanKind) error {
+func (idx *ResourceIndex) parseResourceElementKinds(dec *xml.Decoder, start xml.StartElement, path string, line int, kinds ValuesScanKind, lines *lineIndex) error {
 	switch start.Name.Local {
 	case "string":
 		return idx.parseStringElement(dec, start, path, line, kinds)
 	case "color":
 		return idx.parseColorElement(dec, start, kinds)
 	case "dimen":
-		return idx.parseDimenElement(dec, start, kinds)
+		return idx.parseDimenElement(dec, start, path, line, kinds)
 	case "integer":
 		return idx.parseIntegerElement(dec, start, kinds)
 	case "bool":
@@ -968,7 +984,7 @@ func (idx *ResourceIndex) parseResourceElementKinds(dec *xml.Decoder, start xml.
 		if kinds&ValuesScanDimensions == 0 {
 			return skipElement(dec, start)
 		}
-		return idx.parseStyleElement(dec, start)
+		return idx.parseStyleElement(dec, start, path, line, lines)
 	case "string-array":
 		if kinds&ValuesScanArrays == 0 {
 			return skipElement(dec, start)
@@ -1033,7 +1049,7 @@ func (idx *ResourceIndex) parseColorElement(dec *xml.Decoder, start xml.StartEle
 	return nil
 }
 
-func (idx *ResourceIndex) parseDimenElement(dec *xml.Decoder, start xml.StartElement, kinds ValuesScanKind) error {
+func (idx *ResourceIndex) parseDimenElement(dec *xml.Decoder, start xml.StartElement, path string, line int, kinds ValuesScanKind) error {
 	if kinds&ValuesScanDimensions == 0 {
 		return skipElement(dec, start)
 	}
@@ -1044,6 +1060,10 @@ func (idx *ResourceIndex) parseDimenElement(dec *xml.Decoder, start xml.StartEle
 	}
 	if name != "" {
 		idx.Dimensions[name] = text
+		if idx.DimensionsLocation == nil {
+			idx.DimensionsLocation = make(map[string]StringLocation)
+		}
+		idx.DimensionsLocation[name] = StringLocation{FilePath: path, Line: line}
 	}
 	return nil
 }
@@ -1078,16 +1098,19 @@ func (idx *ResourceIndex) parseBoolElement(dec *xml.Decoder, start xml.StartElem
 	return nil
 }
 
-func (idx *ResourceIndex) parseStyleElement(dec *xml.Decoder, start xml.StartElement) error {
+func (idx *ResourceIndex) parseStyleElement(dec *xml.Decoder, start xml.StartElement, path string, line int, lines *lineIndex) error {
 	name := xmlAttr(start.Attr, "name")
 	if name == "" {
 		return skipElement(dec, start)
 	}
 
 	style := &Style{
-		Name:   name,
-		Parent: xmlAttr(start.Attr, "parent"),
-		Items:  make(map[string]string),
+		Name:      name,
+		Parent:    xmlAttr(start.Attr, "parent"),
+		FilePath:  path,
+		Line:      line,
+		Items:     make(map[string]string),
+		ItemLines: make(map[string]int),
 	}
 	for {
 		tok, err := dec.Token()
@@ -1103,12 +1126,17 @@ func (idx *ResourceIndex) parseStyleElement(dec *xml.Decoder, start xml.StartEle
 				continue
 			}
 			itemName := xmlAttr(t.Attr, "name")
+			itemLine := 0
+			if lines != nil {
+				itemLine = lines.lineAtOffset(dec.InputOffset())
+			}
 			text, err := decodeSimpleElementText(dec, t)
 			if err != nil {
 				return err
 			}
 			if itemName != "" {
 				style.Items[itemName] = text
+				style.ItemLines[itemName] = itemLine
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {

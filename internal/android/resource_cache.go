@@ -30,8 +30,8 @@ import (
 )
 
 const (
-	resourceCacheVersion    uint32 = 2
-	resourceCacheVersionStr        = "2"
+	resourceCacheVersion    uint32 = 3
+	resourceCacheVersionStr        = "3"
 
 	resourceCacheDirName = "resource-cache"
 	resourceCacheEntries = "entries"
@@ -270,6 +270,9 @@ func cloneResourceIndex(idx *ResourceIndex) *ResourceIndex {
 	for k, v := range idx.Dimensions {
 		out.Dimensions[k] = v
 	}
+	for k, v := range idx.DimensionsLocation {
+		out.DimensionsLocation[k] = v
+	}
 	for k, v := range idx.Styles {
 		out.Styles[k] = cloneStyle(v)
 	}
@@ -342,6 +345,12 @@ func cloneStyle(style *Style) *Style {
 	}
 	out := *style
 	out.Items = cloneStringMap(style.Items)
+	if style.ItemLines != nil {
+		out.ItemLines = make(map[string]int, len(style.ItemLines))
+		for k, v := range style.ItemLines {
+			out.ItemLines[k] = v
+		}
+	}
 	return &out
 }
 

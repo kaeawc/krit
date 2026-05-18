@@ -278,6 +278,108 @@ func TestApply_crossFileEdit(t *testing.T) {
 	}
 }
 
+// TestApply_overlappingEditsReportPostDedupCount is the regression for
+// the apply-suggestion reporting bug: when two edits in the same
+// suggestion overlap, fixer.deduplicateFixesReverse drops one, but the
+// CLI used to report the full submitted count. The success line must
+// report the post-dedup applied count, and the dropped edit must be
+// surfaced as a warning with a clear reason on stderr.
+func TestApply_overlappingEditsReportPostDedupCount(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "a.kt")
+	if err := os.WriteFile(src, []byte("abcdefghij"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	// Two byte-mode edits that overlap at bytes 2-8 — dedup keeps the
+	// longer span (rule emits two via the same suggestion id).
+	report := output.JSONReport{
+		Findings: []output.JSONFinding{{
+			File: "a.kt", Line: 1, Column: 1, RuleSet: "demo", Rule: "OverlapRule",
+			Message: "overlap",
+			SuggestedFixes: []output.JSONSuggestedFix{{
+				ID: "overlap", Title: "overlapping edits",
+				Edits: []output.JSONSuggestedEdit{
+					{StartByte: 2, EndByte: 5, ByteMode: true, Replacement: "Z"},
+					{StartByte: 2, EndByte: 8, ByteMode: true, Replacement: "A"},
+				},
+			}},
+		}},
+	}
+	path := reportFile(t, report)
+	var stdout, stderr bytes.Buffer
+	rc := run([]string{
+		"--finding", "OverlapRule:a.kt:1:1",
+		"--suggestion", "overlap",
+		"--base", dir,
+		path,
+	}, nil, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%s", rc, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "1 edit(s) across") {
+		t.Errorf("expected post-dedup applied count of 1, got: %s", out)
+	}
+	if strings.Contains(out, "2 edit(s) across") {
+		t.Errorf("output still reports inflated submitted count: %s", out)
+	}
+	if !strings.Contains(out, "1 edit(s) dropped") {
+		t.Errorf("expected dropped summary on stdout, got: %s", out)
+	}
+	errOut := stderr.String()
+	if !strings.Contains(errOut, "dropped edit") || !strings.Contains(errOut, "because") {
+		t.Errorf("expected dropped-edit warning with reason on stderr, got: %s", errOut)
+	}
+	got, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatalf("read modified source: %v", err)
+	}
+	if string(got) != "abAij" {
+		t.Errorf("file content: got %q want %q", got, "abAij")
+	}
+}
+
+// TestApply_droppedReasonIsSurfaced asserts the canonical overlap
+// reason string flows through to user-visible output, so the user can
+// understand why an edit was skipped without re-reading the fixer
+// source.
+func TestApply_droppedReasonIsSurfaced(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "a.kt")
+	if err := os.WriteFile(src, []byte("abcdefghij"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	report := output.JSONReport{
+		Findings: []output.JSONFinding{{
+			File: "a.kt", Line: 1, Column: 1, Rule: "OverlapRule",
+			SuggestedFixes: []output.JSONSuggestedFix{{
+				ID: "overlap",
+				Edits: []output.JSONSuggestedEdit{
+					{StartByte: 2, EndByte: 5, ByteMode: true, Replacement: "Z"},
+					{StartByte: 2, EndByte: 8, ByteMode: true, Replacement: "A"},
+				},
+			}},
+		}},
+	}
+	path := reportFile(t, report)
+	var stdout, stderr bytes.Buffer
+	rc := run([]string{
+		"--finding", "OverlapRule:a.kt:1:1",
+		"--suggestion", "overlap",
+		"--base", dir,
+		path,
+	}, nil, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%s", rc, stderr.String())
+	}
+	errOut := stderr.String()
+	// The reason text comes from internal/fixer; require a substring
+	// from the canonical message so a typo there fails the test.
+	if !strings.Contains(errOut, "overlaps with") {
+		t.Errorf("expected canonical overlap reason in warning, got: %s", errOut)
+	}
+}
+
 // TestFix_doesNotApplySuggestedEdits guards the mutual exclusion between
 // --fix and suggested fixes. A finding with no autofix (Fix=nil) but a
 // suggested fix carrying edits must not be touched by the

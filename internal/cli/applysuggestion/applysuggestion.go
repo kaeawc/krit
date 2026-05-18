@@ -109,15 +109,27 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	cols := buildFindingColumns(finding, sug, edits)
-	applied, _, errs := fixer.ApplyAllFixesColumns(context.Background(), &cols, "")
+	applied, _, dropped, errs := fixer.ApplyAllFixesColumnsDetailed(context.Background(), &cols, "")
 	for _, e := range errs {
 		fmt.Fprintf(stderr, "apply-suggestion: %v\n", e)
 	}
 	if len(errs) > 0 {
 		return 1
 	}
+	for _, d := range dropped {
+		reason := d.Reason
+		if reason == "" {
+			reason = "overlapping conflict"
+		}
+		fmt.Fprintf(stderr, "apply-suggestion: warning: dropped edit from %s at %s:%d because %s\n",
+			d.Rule, d.File, d.Line, reason)
+	}
+	appliedTargets := summarizeAppliedTargets(edits, dropped)
 	fmt.Fprintf(stdout, "applied suggestion %q for finding %q (%d edit(s) across %s)\n",
-		sug.ID, *findingID, applied, summarizeTargets(edits))
+		sug.ID, *findingID, applied, appliedTargets)
+	if len(dropped) > 0 {
+		fmt.Fprintf(stdout, "  %d edit(s) dropped due to overlap; see warnings above\n", len(dropped))
+	}
 	return 0
 }
 
@@ -305,4 +317,34 @@ func summarizeTargets(edits []output.JSONSuggestedEdit) string {
 	}
 	sort.Strings(out)
 	return strings.Join(out, ", ")
+}
+
+// summarizeAppliedTargets is summarizeTargets minus any file whose only
+// edits were all dropped. This keeps the "applied … across X" string in
+// sync with the post-dedup count: if a file's sole edit was dropped, it
+// did not actually get touched, so reporting it as a target would be
+// just as misleading as the inflated edit count we're fixing.
+func summarizeAppliedTargets(edits []output.JSONSuggestedEdit, dropped []fixer.DroppedFix) string {
+	if len(dropped) == 0 {
+		return summarizeTargets(edits)
+	}
+	droppedPerFile := make(map[string]int, len(dropped))
+	for _, d := range dropped {
+		droppedPerFile[d.File]++
+	}
+	editsPerFile := make(map[string]int, len(edits))
+	for _, e := range edits {
+		editsPerFile[e.TargetFile]++
+	}
+	kept := make([]output.JSONSuggestedEdit, 0, len(edits))
+	for _, e := range edits {
+		if droppedPerFile[e.TargetFile] >= editsPerFile[e.TargetFile] {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	if len(kept) == 0 {
+		return "no files"
+	}
+	return summarizeTargets(kept)
 }

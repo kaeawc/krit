@@ -78,6 +78,12 @@ func countParseErrors(ctx context.Context, content []byte) int {
 }
 
 // FixResult holds the result of applying fixes to a file.
+//
+// Applied counts text edits that actually made it into the rewritten
+// file — i.e. the input fix count minus any fixes removed by overlap
+// dedup. DroppedFixes carries the rejected fixes (with a Reason) so
+// user-facing callers can explain why an edit was skipped instead of
+// silently inflating the "applied" total.
 type FixResult struct {
 	Applied      int
 	DroppedFixes []DroppedFix
@@ -86,9 +92,23 @@ type FixResult struct {
 // ApplyAllFixesColumns applies text fixes from columnar findings across all files.
 // It reconstructs only rows that carry text fixes, preserving the existing file-level
 // fixer behavior without materializing the entire finding set.
+//
+// totalFixes counts only fixes that were actually written to disk
+// (overlap-dropped fixes are excluded). Callers that need the
+// dropped-fix detail to surface as user-visible warnings should use
+// ApplyAllFixesColumnsDetailed.
 func ApplyAllFixesColumns(ctx context.Context, columns *scanner.FindingColumns, suffix string) (totalFixes int, filesModified int, errors []error) {
+	totalFixes, filesModified, _, errors = ApplyAllFixesColumnsDetailed(ctx, columns, suffix)
+	return
+}
+
+// ApplyAllFixesColumnsDetailed is the same as ApplyAllFixesColumns but
+// also returns the aggregate list of fixes dropped due to overlap
+// conflicts (with their Reason populated). The returned dropped slice
+// is ordered by file path so callers can render stable diagnostics.
+func ApplyAllFixesColumnsDetailed(ctx context.Context, columns *scanner.FindingColumns, suffix string) (totalFixes int, filesModified int, dropped []DroppedFix, errors []error) {
 	if columns == nil || columns.Len() == 0 {
-		return 0, 0, nil
+		return 0, 0, nil, nil
 	}
 
 	byFile := make(map[string][]int)
@@ -113,6 +133,9 @@ func ApplyAllFixesColumns(ctx context.Context, columns *scanner.FindingColumns, 
 		if res.Applied > 0 {
 			totalFixes += res.Applied
 			filesModified++
+		}
+		if len(res.DroppedFixes) > 0 {
+			dropped = append(dropped, res.DroppedFixes...)
 		}
 	}
 	return
@@ -180,7 +203,7 @@ func applyFixesDetailedColumns(ctx context.Context, path string, columns *scanne
 		return FixResult{DroppedFixes: droppedFixes}, err
 	}
 
-	return FixResult{Applied: len(fixes), DroppedFixes: droppedFixes}, nil
+	return FixResult{Applied: len(fixes) - len(droppedFixes), DroppedFixes: droppedFixes}, nil
 }
 
 // filePerm returns the existing file's permission bits so atomic overwrite
@@ -378,10 +401,17 @@ func uniqueNames(n int, get func(int) string) []string {
 
 // DroppedFix records a fix that was dropped due to overlap conflict.
 type DroppedFix struct {
-	Rule string
-	File string
-	Line int
+	Rule   string
+	File   string
+	Line   int
+	Reason string
 }
+
+// overlapDropReason is the canonical reason string used when
+// deduplicateFixesReverse rejects an overlapping fix. Surfaced through
+// FixResult.DroppedFixes / ApplyAllFixesColumnsDetailed so user-facing
+// CLIs (e.g. apply-suggestion) can explain why an edit was skipped.
+const overlapDropReason = "overlaps with a higher-priority fix at the same target range"
 
 // deduplicateFixesReverse removes overlapping fixes from a reverse-sorted
 // slice. The caller supplies key extractors that return the start and end
@@ -411,6 +441,6 @@ func textFixRowLineEnd(f textFixRow) int   { return f.fix.EndLine }
 func textFixRowLineStart(f textFixRow) int { return f.fix.StartLine }
 func textFixRowDroppedFor(path string) func(textFixRow) DroppedFix {
 	return func(f textFixRow) DroppedFix {
-		return DroppedFix{Rule: f.rule, File: path, Line: f.line}
+		return DroppedFix{Rule: f.rule, File: path, Line: f.line, Reason: overlapDropReason}
 	}
 }

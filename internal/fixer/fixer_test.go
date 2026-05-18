@@ -257,9 +257,9 @@ func TestByteModeFix_OverlappingDedup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Both findings are counted even though one is deduplicated
-	if n != 2 {
-		t.Fatalf("expected 2 fixes counted, got %d", n)
+	// Only the surviving (non-overlapping) fix is counted.
+	if n != 1 {
+		t.Fatalf("expected 1 fix applied after overlap dedup, got %d", n)
 	}
 	got := readFile(t, path)
 	// The fix with higher StartByte (4-8) is applied first in reverse order.
@@ -1031,14 +1031,18 @@ func TestByteConflictDetection_DroppedFixReported(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Applied != 2 {
-		t.Fatalf("expected 2 fixes counted, got %d", res.Applied)
+	// Applied is the post-dedup count: 2 submitted - 1 dropped = 1.
+	if res.Applied != 1 {
+		t.Fatalf("expected 1 fix applied (post-dedup), got %d", res.Applied)
 	}
 	if len(res.DroppedFixes) != 1 {
 		t.Fatalf("expected 1 dropped fix, got %d", len(res.DroppedFixes))
 	}
 	if res.DroppedFixes[0].Rule != "rule-A" {
 		t.Fatalf("expected dropped rule 'rule-A', got %q", res.DroppedFixes[0].Rule)
+	}
+	if res.DroppedFixes[0].Reason == "" {
+		t.Fatalf("expected non-empty Reason on dropped fix, got %#v", res.DroppedFixes[0])
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"strings"
 
@@ -270,7 +271,7 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 			Message: sarifText{Text: cols.MessageAt(row)},
 			Locations: []sarifLocation{{
 				PhysicalLocation: sarifPhysicalLocation{
-					ArtifactLocation: sarifArtifactLocation{URI: cols.FileAt(row)},
+					ArtifactLocation: sarifArtifactLocation{URI: pathToSARIFURI(cols.FileAt(row))},
 					Region:           sarifRegion{StartLine: cols.LineAt(row), StartColumn: cols.ColumnAt(row)},
 				},
 			}},
@@ -439,6 +440,82 @@ func FormatCheckstyleColumns(w io.Writer, columns *scanner.FindingColumns) {
 		fmt.Fprintln(w, `  </file>`)
 	}
 	fmt.Fprintln(w, `</checkstyle>`)
+}
+
+// pathToSARIFURI converts a filesystem path into a SARIF-safe
+// artifactLocation.uri reference. SARIF 2.1.0 requires the value to be a
+// valid URI reference per RFC 3986, so spaces, '#', '?', other reserved
+// characters, and non-ASCII scalars must be percent-encoded. Windows
+// backslashes are normalised to forward slashes.
+//
+// Encoding rules:
+//   - Empty input returns "" unchanged.
+//   - Absolute POSIX paths ("/foo/bar") become "file:///foo/bar" with each
+//     path segment percent-encoded.
+//   - Windows drive paths ("C:\\foo\\bar") become "file:///C:/foo/bar".
+//   - Windows UNC paths ("\\\\srv\\share\\foo") become
+//     "file://srv/share/foo".
+//   - Relative paths stay relative (no file:// scheme is prepended) so that
+//     SARIF consumers can resolve them against their own uriBaseId — but
+//     reserved characters in each path segment are still percent-encoded.
+//
+// Slashes between segments are preserved verbatim; url.PathEscape is applied
+// per segment to keep them as path separators rather than encoding them.
+func pathToSARIFURI(path string) string {
+	if path == "" {
+		return ""
+	}
+	// UNC path: \\server\share\rest
+	if strings.HasPrefix(path, `\\`) {
+		rest := strings.TrimPrefix(path, `\\`)
+		rest = strings.ReplaceAll(rest, `\`, "/")
+		parts := strings.SplitN(rest, "/", 2)
+		host := parts[0]
+		tail := ""
+		if len(parts) == 2 {
+			tail = parts[1]
+		}
+		return "file://" + encodeURIHost(host) + "/" + encodeURIPath(tail)
+	}
+	// Windows drive: C:\foo or C:/foo
+	if len(path) >= 2 && path[1] == ':' && isASCIILetter(path[0]) {
+		drive := string(path[0]) + ":"
+		rest := strings.TrimLeft(path[2:], `\/`)
+		rest = strings.ReplaceAll(rest, `\`, "/")
+		return "file:///" + drive + "/" + encodeURIPath(rest)
+	}
+	// POSIX absolute path.
+	if strings.HasPrefix(path, "/") {
+		rest := strings.TrimPrefix(path, "/")
+		return "file:///" + encodeURIPath(rest)
+	}
+	// Relative path: keep relative, normalise backslashes, encode segments.
+	normalized := strings.ReplaceAll(path, `\`, "/")
+	return encodeURIPath(normalized)
+}
+
+// encodeURIPath percent-encodes each '/'-separated segment with
+// url.PathEscape while preserving the slashes themselves.
+func encodeURIPath(p string) string {
+	if p == "" {
+		return ""
+	}
+	segs := strings.Split(p, "/")
+	for i, s := range segs {
+		segs[i] = url.PathEscape(s)
+	}
+	return strings.Join(segs, "/")
+}
+
+// encodeURIHost percent-encodes a host component for use in a file:// URI
+// authority (UNC hosts). url.PathEscape is conservative enough — '/' and
+// '?' would terminate the host but neither appears after our SplitN.
+func encodeURIHost(h string) string {
+	return url.PathEscape(h)
+}
+
+func isASCIILetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 func xmlEscape(s string) string {

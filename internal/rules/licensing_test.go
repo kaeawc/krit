@@ -27,6 +27,90 @@ fun currentFeature() = 42
 	}
 }
 
+// TestCopyrightYearOutdated_BlockCommentContinuationLines verifies that
+// continuation lines inside a `/* ... */` header — including lines
+// that have no `*` decoration — are still scanned for outdated
+// copyright years. The pre-fix logic relied on the leading-character
+// heuristic alone, so the first un-decorated continuation line
+// broke out of the loop and the outdated year went undetected.
+func TestCopyrightYearOutdated_BlockCommentContinuationLines(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		code string
+		want int
+	}{
+		{
+			name: "continuation line without star prefix",
+			code: `
+/*
+Copyright (c) 2018 Krit Authors
+*/
+package test
+
+fun currentFeature() = 42
+`,
+			want: 1,
+		},
+		{
+			name: "continuation line indented but no star",
+			code: `
+/*
+  Copyright 2018 Example Corp
+*/
+package test
+
+fun currentFeature() = 42
+`,
+			want: 1,
+		},
+		{
+			name: "blank line inside block then bare copyright",
+			code: `
+/*
+
+Copyright 2018 Example Corp
+
+*/
+package test
+
+fun currentFeature() = 42
+`,
+			want: 1,
+		},
+		{
+			name: "current year in unstarred continuation does not fire",
+			code: `
+/*
+Copyright 2025 Example Corp
+*/
+package test
+
+fun currentFeature() = 42
+`,
+			want: 0,
+		},
+		{
+			name: "code after closed block does not fire",
+			code: `
+/*
+License: MIT
+*/
+package test
+
+val s = "Copyright 2018 used as data, not a header"
+`,
+			want: 0,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "CopyrightYearOutdated", tc.code)
+			if len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %d: %v", tc.want, len(findings), findings)
+			}
+		})
+	}
+}
+
 func TestCopyrightYearOutdated_Negative(t *testing.T) {
 	findings := runRuleByName(t, "CopyrightYearOutdated", `
 /*

@@ -113,19 +113,27 @@ func lookupMap(data map[string]interface{}, path ...string) (map[string]interfac
 }
 
 // LoadConfig loads a YAML config file and returns a Config.
-// If path is empty, it auto-detects krit.yml or .krit.yml from the project root,
+// If path is empty, it auto-detects krit.yml or .krit.yml from the supplied
+// search roots (or the current working directory when no roots are passed),
 // falling back to config/default-krit.yml relative to the executable.
-func LoadConfig(path string) (*Config, error) {
+//
+// Pass the analyzed-project root(s) so detection is independent of where
+// `krit` was invoked from: `krit /some/path` must find /some/path/krit.yml
+// even when the user's CWD is elsewhere.
+func LoadConfig(path string, roots ...string) (*Config, error) {
 	if path != "" {
 		return loadFile(path)
 	}
-	return autoDetect()
+	return autoDetect(roots...)
 }
 
 // LoadAndMerge loads defaults first, then merges user config on top.
-// If userPath is empty, auto-detection is used for the user config.
+// If userPath is empty, auto-detection is used for the user config and
+// `roots` controls which directories are probed (the analyzed project
+// root(s)). When no roots are supplied, the current working directory is
+// used as a last resort — preserving the legacy single-arg call shape.
 // If no user config is found, defaults alone are returned.
-func LoadAndMerge(userPath string, defaultPath string) (*Config, error) {
+func LoadAndMerge(userPath string, defaultPath string, roots ...string) (*Config, error) {
 	var base *Config
 	if defaultPath != "" {
 		var err error
@@ -146,7 +154,7 @@ func LoadAndMerge(userPath string, defaultPath string) (*Config, error) {
 			return nil, fmt.Errorf("loading config %s: %w", userPath, err)
 		}
 	} else {
-		user, err = autoDetect()
+		user, err = autoDetect(roots...)
 		if err != nil || user == nil {
 			// No user config found, return defaults only
 			return base, nil //nolint:nilerr // autoDetect failure is non-fatal: krit.yml is optional, caller proceeds with built-in defaults
@@ -178,13 +186,62 @@ func loadFile(path string) (*Config, error) {
 // (e.g. krit.yaml) is a one-line change.
 var Filenames = []string{"krit.yml", ".krit.yml"}
 
-func autoDetect() (*Config, error) {
-	for _, name := range Filenames {
-		if _, err := os.Stat(name); err == nil {
-			return loadFile(name)
+// autoDetect probes the supplied search roots for the first krit.yml /
+// .krit.yml present and loads it. Each root may be a directory, a file
+// (in which case its parent directory is probed), or an empty string
+// (skipped). When no roots are supplied, the current working directory
+// is probed — preserving legacy callers that invoke LoadConfig with no
+// path and no analyzed-project context.
+//
+// First match wins, in caller order. Returns (nil, nil) when no config
+// is found; non-existence is a normal outcome, not an error.
+func autoDetect(roots ...string) (*Config, error) {
+	candidates := autoDetectDirs(roots)
+	seen := make(map[string]struct{}, len(candidates))
+	for _, dir := range candidates {
+		if dir == "" {
+			continue
+		}
+		if _, ok := seen[dir]; ok {
+			continue
+		}
+		seen[dir] = struct{}{}
+		for _, name := range Filenames {
+			candidate := filepath.Join(dir, name)
+			fi, err := os.Stat(candidate)
+			if err != nil {
+				continue
+			}
+			if fi.IsDir() {
+				continue
+			}
+			return loadFile(candidate)
 		}
 	}
 	return nil, nil
+}
+
+// autoDetectDirs normalises raw search-root entries to a list of
+// directories to probe. Files contribute their parent directory; empty
+// entries are dropped. When the resulting list is empty, the current
+// working directory is used so legacy `autoDetect()` calls (no roots)
+// keep finding `./krit.yml`.
+func autoDetectDirs(roots []string) []string {
+	out := make([]string, 0, len(roots)+1)
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		dir := root
+		if fi, err := os.Stat(root); err == nil && !fi.IsDir() {
+			dir = filepath.Dir(root)
+		}
+		out = append(out, dir)
+	}
+	if len(out) == 0 {
+		out = append(out, ".")
+	}
+	return out
 }
 
 // FindDefaultConfig locates the default config file.

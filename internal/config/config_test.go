@@ -1265,3 +1265,268 @@ func TestTypedSectionsNilConfig(t *testing.T) {
 		t.Errorf("nil cfg Oracle().Classpath = %v, want nil", got)
 	}
 }
+
+// withCwd runs fn with the process working directory temporarily set
+// to dir. Restores the prior working directory before returning (even
+// on failure) so neighbouring tests are unaffected.
+func withCwd(t *testing.T, dir string, fn func()) {
+	t.Helper()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir %s: %v", dir, err)
+	}
+	defer func() {
+		if cerr := os.Chdir(prev); cerr != nil {
+			t.Fatalf("restore cwd: %v", cerr)
+		}
+	}()
+	fn()
+}
+
+// TestLoadConfigAutoDetectFromAnalyzedRoot is the regression test for
+// the CWD-relative autoDetect bug: invoking `krit /some/path` from a
+// different working directory must still find /some/path/krit.yml when
+// the analyzed root is threaded through to LoadConfig.
+func TestLoadConfigAutoDetectFromAnalyzedRoot(t *testing.T) {
+	analyzed := t.TempDir()
+	configPath := filepath.Join(analyzed, "krit.yml")
+	if err := os.WriteFile(configPath, []byte(`
+style:
+  MagicNumber:
+    active: true
+    threshold: 999
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Force CWD to a directory with no krit.yml so the CWD fallback can
+	// not accidentally succeed.
+	other := t.TempDir()
+	withCwd(t, other, func() {
+		cfg, err := LoadConfig("", analyzed)
+		if err != nil {
+			t.Fatalf("LoadConfig from analyzed root: %v", err)
+		}
+		if cfg == nil {
+			t.Fatal("expected config loaded from analyzed root, got nil (silent fallback to defaults)")
+		}
+		if got := cfg.GetInt("style", "MagicNumber", "threshold", 0); got != 999 {
+			t.Errorf("expected threshold=999 from analyzed root krit.yml, got %d", got)
+		}
+	})
+}
+
+// TestLoadConfigAutoDetectFromAnalyzedFile mirrors the directory case
+// for a file argument (`krit /some/path/Foo.kt`): the file's parent
+// directory should be probed for krit.yml.
+func TestLoadConfigAutoDetectFromAnalyzedFile(t *testing.T) {
+	analyzed := t.TempDir()
+	configPath := filepath.Join(analyzed, ".krit.yml")
+	if err := os.WriteFile(configPath, []byte("style:\n  MagicNumber:\n    active: false\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	filePath := filepath.Join(analyzed, "Example.kt")
+	if err := os.WriteFile(filePath, []byte("class Example\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	other := t.TempDir()
+	withCwd(t, other, func() {
+		cfg, err := LoadConfig("", filePath)
+		if err != nil {
+			t.Fatalf("LoadConfig from analyzed file: %v", err)
+		}
+		if cfg == nil {
+			t.Fatal("expected config loaded from analyzed file's dir, got nil")
+		}
+		active := cfg.IsRuleActive("style", "MagicNumber")
+		if active == nil || *active != false {
+			t.Errorf("expected MagicNumber active=false from .krit.yml, got %v", active)
+		}
+	})
+}
+
+// TestLoadConfigCwdFallbackWithoutRoots locks in the legacy behaviour:
+// when no roots are supplied (`LoadConfig("")` from the project root
+// with no analyzed paths), the current working directory is still
+// probed. The arity-preserving variadic must not regress this.
+func TestLoadConfigCwdFallbackWithoutRoots(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "krit.yml")
+	if err := os.WriteFile(configPath, []byte("style:\n  MagicNumber:\n    active: true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	withCwd(t, dir, func() {
+		cfg, err := LoadConfig("")
+		if err != nil {
+			t.Fatalf("LoadConfig CWD fallback: %v", err)
+		}
+		if cfg == nil {
+			t.Fatal("expected CWD-relative krit.yml to load, got nil")
+		}
+		active := cfg.IsRuleActive("style", "MagicNumber")
+		if active == nil || !*active {
+			t.Errorf("expected MagicNumber active=true from CWD krit.yml, got %v", active)
+		}
+	})
+}
+
+// TestLoadConfigExplicitPathOverridesRoots makes the precedence
+// explicit: an explicit path always wins, regardless of any analyzed
+// roots passed alongside it.
+func TestLoadConfigExplicitPathOverridesRoots(t *testing.T) {
+	rootDir := t.TempDir()
+	rootCfg := filepath.Join(rootDir, "krit.yml")
+	if err := os.WriteFile(rootCfg, []byte("style:\n  MagicNumber:\n    threshold: 1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	explicitDir := t.TempDir()
+	explicitCfg := filepath.Join(explicitDir, "explicit.yml")
+	if err := os.WriteFile(explicitCfg, []byte("style:\n  MagicNumber:\n    threshold: 42\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(explicitCfg, rootDir)
+	if err != nil {
+		t.Fatalf("LoadConfig explicit: %v", err)
+	}
+	if got := cfg.GetInt("style", "MagicNumber", "threshold", 0); got != 42 {
+		t.Errorf("expected explicit threshold=42 to win over root threshold=1, got %d", got)
+	}
+}
+
+// TestLoadAndMergeAutoDetectFromAnalyzedRoot is the LoadAndMerge twin
+// of the LoadConfig regression: defaults plus root-relative krit.yml,
+// invoked from a foreign CWD.
+func TestLoadAndMergeAutoDetectFromAnalyzedRoot(t *testing.T) {
+	defaultsDir := t.TempDir()
+	defaultPath := filepath.Join(defaultsDir, "defaults.yml")
+	if err := os.WriteFile(defaultPath, []byte(`
+style:
+  MaxLineLength:
+    active: true
+    maxLineLength: 120
+  MagicNumber:
+    active: true
+    threshold: 5
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	analyzed := t.TempDir()
+	userPath := filepath.Join(analyzed, "krit.yml")
+	if err := os.WriteFile(userPath, []byte(`
+style:
+  MagicNumber:
+    threshold: 99
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	other := t.TempDir()
+	withCwd(t, other, func() {
+		cfg, err := LoadAndMerge("", defaultPath, analyzed)
+		if err != nil {
+			t.Fatalf("LoadAndMerge: %v", err)
+		}
+		if cfg == nil {
+			t.Fatal("expected merged config, got nil")
+		}
+		// User override pulled from analyzed root.
+		if got := cfg.GetInt("style", "MagicNumber", "threshold", 0); got != 99 {
+			t.Errorf("expected user override threshold=99, got %d (user krit.yml silently ignored?)", got)
+		}
+		// Default still present for unrelated keys.
+		if got := cfg.GetInt("style", "MaxLineLength", "maxLineLength", 0); got != 120 {
+			t.Errorf("expected default maxLineLength=120, got %d", got)
+		}
+	})
+}
+
+// TestLoadAndMergeExplicitPathOverridesRoots — `--config FILE` wins
+// over both the analyzed root probe and the CWD fallback.
+func TestLoadAndMergeExplicitPathOverridesRoots(t *testing.T) {
+	defaultsDir := t.TempDir()
+	defaultPath := filepath.Join(defaultsDir, "defaults.yml")
+	_ = os.WriteFile(defaultPath, []byte("style:\n  MagicNumber:\n    threshold: 1\n"), 0644)
+
+	rootDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(rootDir, "krit.yml"), []byte("style:\n  MagicNumber:\n    threshold: 2\n"), 0644)
+
+	explicitDir := t.TempDir()
+	explicitPath := filepath.Join(explicitDir, "explicit.yml")
+	_ = os.WriteFile(explicitPath, []byte("style:\n  MagicNumber:\n    threshold: 42\n"), 0644)
+
+	cfg, err := LoadAndMerge(explicitPath, defaultPath, rootDir)
+	if err != nil {
+		t.Fatalf("LoadAndMerge: %v", err)
+	}
+	if got := cfg.GetInt("style", "MagicNumber", "threshold", 0); got != 42 {
+		t.Errorf("expected explicit threshold=42 (overrides root=2 and default=1), got %d", got)
+	}
+}
+
+// TestAutoDetectFirstRootWins covers multi-root precedence: when more
+// than one root has a krit.yml, the first root in caller order wins.
+func TestAutoDetectFirstRootWins(t *testing.T) {
+	first := t.TempDir()
+	second := t.TempDir()
+	_ = os.WriteFile(filepath.Join(first, "krit.yml"), []byte("style:\n  MagicNumber:\n    threshold: 1\n"), 0644)
+	_ = os.WriteFile(filepath.Join(second, "krit.yml"), []byte("style:\n  MagicNumber:\n    threshold: 2\n"), 0644)
+
+	other := t.TempDir()
+	withCwd(t, other, func() {
+		cfg, err := LoadConfig("", first, second)
+		if err != nil {
+			t.Fatalf("LoadConfig: %v", err)
+		}
+		if got := cfg.GetInt("style", "MagicNumber", "threshold", 0); got != 1 {
+			t.Errorf("expected first-root threshold=1 to win, got %d", got)
+		}
+	})
+}
+
+// TestAutoDetectSkipsEmptyAndMissingRoots — empty strings and roots
+// that don't exist are silently skipped; the next root is probed.
+func TestAutoDetectSkipsEmptyAndMissingRoots(t *testing.T) {
+	good := t.TempDir()
+	_ = os.WriteFile(filepath.Join(good, "krit.yml"), []byte("style:\n  MagicNumber:\n    threshold: 7\n"), 0644)
+
+	other := t.TempDir()
+	withCwd(t, other, func() {
+		cfg, err := LoadConfig("", "", "/no/such/dir", good)
+		if err != nil {
+			t.Fatalf("LoadConfig: %v", err)
+		}
+		if cfg == nil {
+			t.Fatal("expected hit on third root")
+		}
+		if got := cfg.GetInt("style", "MagicNumber", "threshold", 0); got != 7 {
+			t.Errorf("expected threshold=7 from good root, got %d", got)
+		}
+	})
+}
+
+// TestAutoDetectKritYmlPrecedence — when both krit.yml and .krit.yml
+// exist in the same root, krit.yml wins (the order in Filenames).
+func TestAutoDetectKritYmlPrecedence(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "krit.yml"), []byte("style:\n  MagicNumber:\n    threshold: 1\n"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, ".krit.yml"), []byte("style:\n  MagicNumber:\n    threshold: 2\n"), 0644)
+
+	other := t.TempDir()
+	withCwd(t, other, func() {
+		cfg, err := LoadConfig("", dir)
+		if err != nil {
+			t.Fatalf("LoadConfig: %v", err)
+		}
+		if got := cfg.GetInt("style", "MagicNumber", "threshold", 0); got != 1 {
+			t.Errorf("expected krit.yml threshold=1 to win, got %d", got)
+		}
+	})
+}

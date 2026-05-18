@@ -243,6 +243,130 @@ func TestConfigDisablesRule(t *testing.T) {
 	}
 }
 
+// TestConfigAutoDetectFromAnalyzedRoot is the CLI-level regression for
+// the autoDetect-relative-to-CWD bug. Invokes the krit binary from a
+// foreign CWD with the analyzed path pointing at a directory whose
+// krit.yml disables UnusedVariable. The config must take effect even
+// though the binary's CWD has no krit.yml of its own and --config is
+// not passed.
+func TestConfigAutoDetectFromAnalyzedRoot(t *testing.T) {
+	analyzed := writeTempKt(t, "AutoDetect.kt", "package test\n\nfun example() {\n    val x = 1\n}\n")
+	configPath := filepath.Join(analyzed, "krit.yml")
+	if err := os.WriteFile(configPath, []byte("style:\n  UnusedVariable:\n    active: false\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run from a CWD that does not contain a krit.yml so the buggy
+	// CWD-relative autoDetect would silently fall back to defaults.
+	foreignCwd := t.TempDir()
+	cmd := exec.Command(binPath, "--no-cache", "--no-type-inference", "--no-type-oracle", "-q", "-f", "json", analyzed)
+	cmd.Dir = foreignCwd
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("unexpected error running krit: %v\nstderr: %s", err, stderr.String())
+		}
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(stdout.String()), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nstdout: %s\nstderr: %s", err, stdout.String(), stderr.String())
+	}
+	findings, _ := result["findings"].([]interface{})
+	for _, f := range findings {
+		fm := f.(map[string]interface{})
+		if fm["rule"] == "UnusedVariable" {
+			t.Fatalf("UnusedVariable should be disabled by analyzed-root krit.yml (CWD=%s, analyzed=%s); config silently ignored. findings=%v", foreignCwd, analyzed, findings)
+		}
+	}
+}
+
+// TestConfigExplicitOverridesAnalyzedRoot — when both a krit.yml in
+// the analyzed root and an explicit --config are present, --config
+// wins.
+func TestConfigExplicitOverridesAnalyzedRoot(t *testing.T) {
+	analyzed := writeTempKt(t, "Override.kt", "package test\n\nfun example() {\n    val x = 1\n}\n")
+	// Root config would disable UnusedVariable…
+	rootCfg := filepath.Join(analyzed, "krit.yml")
+	if err := os.WriteFile(rootCfg, []byte("style:\n  UnusedVariable:\n    active: false\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// …but --config points at a different file that re-enables it.
+	explicitDir := t.TempDir()
+	explicitCfg := filepath.Join(explicitDir, "explicit.yml")
+	if err := os.WriteFile(explicitCfg, []byte("style:\n  UnusedVariable:\n    active: true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	foreignCwd := t.TempDir()
+	cmd := exec.Command(binPath, "--no-cache", "--no-type-inference", "--no-type-oracle", "-q", "-f", "json", "--config", explicitCfg, analyzed)
+	cmd.Dir = foreignCwd
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("unexpected error: %v\nstderr: %s", err, stderr.String())
+		}
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(stdout.String()), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nstdout: %s", err, stdout.String())
+	}
+	findings, _ := result["findings"].([]interface{})
+	found := false
+	for _, f := range findings {
+		fm := f.(map[string]interface{})
+		if fm["rule"] == "UnusedVariable" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("explicit --config should override analyzed-root krit.yml: expected UnusedVariable finding, got: %v", findings)
+	}
+}
+
+// TestConfigAutoDetectFromCwdNoArgs locks in the legacy CWD-relative
+// behaviour: invoking krit with no path arguments still picks up a
+// krit.yml in the current working directory.
+func TestConfigAutoDetectFromCwdNoArgs(t *testing.T) {
+	dir := writeTempKt(t, "Cwd.kt", "package test\n\nfun example() {\n    val x = 1\n}\n")
+	configPath := filepath.Join(dir, "krit.yml")
+	if err := os.WriteFile(configPath, []byte("style:\n  UnusedVariable:\n    active: false\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(binPath, "--no-cache", "--no-type-inference", "--no-type-oracle", "-q", "-f", "json", ".")
+	cmd.Dir = dir
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("unexpected error: %v\nstderr: %s", err, stderr.String())
+		}
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(stdout.String()), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nstdout: %s", err, stdout.String())
+	}
+	findings, _ := result["findings"].([]interface{})
+	for _, f := range findings {
+		fm := f.(map[string]interface{})
+		if fm["rule"] == "UnusedVariable" {
+			t.Fatalf("CWD-relative krit.yml should disable UnusedVariable, but rule fired: %v", findings)
+		}
+	}
+}
+
 func TestRunAndroidProjectAnalysisColumns_EmptyProject(t *testing.T) {
 	project := &android.Project{}
 	result, err := (pipeline.AndroidPhase{}).Run(context.Background(), pipeline.AndroidInput{Project: project})

@@ -246,7 +246,13 @@ func loadScanConfig(f *scanFlags) *config.Config {
 	if userCfgPath == "" {
 		userCfgPath = detectConfigForScanArgs(flag.Args())
 	}
-	cfg, cfgErr := config.LoadAndMerge(userCfgPath, defaultCfgPath)
+	// Pass the analyzed-path roots so config auto-detection works when
+	// invoked from a different CWD (e.g. `krit /some/path` from $HOME).
+	// detectConfigForScanArgs probes only the immediate dir of arg[0];
+	// threading the full arg list into LoadAndMerge keeps detection
+	// working when other arg shapes (multiple roots, file paths) are
+	// passed without --config.
+	cfg, cfgErr := config.LoadAndMerge(userCfgPath, defaultCfgPath, flag.Args()...)
 	if cfgErr != nil {
 		fmt.Fprintf(os.Stderr, "warning: config: %v\n", cfgErr)
 	}

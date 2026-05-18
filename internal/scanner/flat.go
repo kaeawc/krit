@@ -66,9 +66,10 @@ func (n FlatNode) TypeName() string {
 // is O(1); without it, walking from FirstChild would be O(sibling_index)
 // per call and O(N²) across adjacent callers.
 //
-// NodesByType is a posting list indexed by node type ID, giving direct
-// access to all nodes of a given type without a full tree walk. The
-// dispatcher uses this to skip nodes whose type has no subscribed rules.
+// NodeTypeOffsets/NodeTypeIndices form a CSR (compressed sparse row)
+// posting list indexed by node type ID, giving direct access to all
+// nodes of a given type without a full tree walk. The dispatcher uses
+// this to skip nodes whose type has no subscribed rules.
 type FlatTree struct {
 	Types         []uint16
 	Parents       []uint32
@@ -83,11 +84,38 @@ type FlatTree struct {
 	NamedCounts   []uint16
 	Flags         []uint8
 
-	// NodesByType[typeID] is a slice of node indices for nodes of that
-	// type in document order. A nil/empty entry means no nodes of that
-	// type appear in this tree. Built by flattenTree, rebuilt by the
-	// parse cache after type-table remap.
-	NodesByType [][]uint32
+	// NodeTypeOffsets and NodeTypeIndices form a CSR posting list:
+	// nodes of type t are at NodeTypeIndices[NodeTypeOffsets[t]:NodeTypeOffsets[t+1]]
+	// in document order. NodeTypeOffsets has length maxType+2 with the
+	// trailing entry equal to len(NodeTypeIndices) so [t:t+1] slicing
+	// works for every valid typeID. Both are nil for an empty tree or
+	// an ad-hoc tree that never had the posting list built.
+	NodeTypeOffsets []uint32
+	NodeTypeIndices []uint32
+}
+
+// NodesOfType returns the indices of every node with the given type ID
+// in document order. Zero-allocation: the result is a slice view into
+// NodeTypeIndices. Returns nil when the posting list is absent or
+// typeID is out of range.
+func (t *FlatTree) NodesOfType(typeID uint16) []uint32 {
+	if t == nil {
+		return nil
+	}
+	off := t.NodeTypeOffsets
+	if int(typeID)+1 >= len(off) {
+		return nil
+	}
+	return t.NodeTypeIndices[off[typeID]:off[typeID+1]]
+}
+
+// NumNodeTypes returns the number of type buckets in the posting list
+// (maxType+1). Zero when the posting list has not been built.
+func (t *FlatTree) NumNodeTypes() int {
+	if t == nil || len(t.NodeTypeOffsets) == 0 {
+		return 0
+	}
+	return len(t.NodeTypeOffsets) - 1
 }
 
 // Len returns the number of nodes in the tree. Safe on a nil receiver.
@@ -205,12 +233,19 @@ func flattenTree(root *sitter.Node) *FlatTree {
 	return t
 }
 
-// buildNodesByType reconstructs the per-type posting list from t.Types.
+// buildNodesByType reconstructs the CSR posting list from t.Types.
 // Used by the parse cache after remapping local type IDs back to the
-// process-global table.
+// process-global table. Allocates exactly two slices; the alloc-budget
+// regression test in flat_csr_test.go locks the budget.
+//
+// Counting sort with offsets-as-write-cursor. Forward iteration over
+// Types in the scatter pass outperforms the textbook reverse-scatter
+// variant (better branch prediction / instruction-level parallelism on
+// real workloads), at the cost of a final right-shift restore pass.
 func (t *FlatTree) buildNodesByType() {
 	if t == nil || len(t.Types) == 0 {
-		t.NodesByType = nil
+		t.NodeTypeOffsets = nil
+		t.NodeTypeIndices = nil
 		return
 	}
 	var maxType uint16
@@ -219,20 +254,33 @@ func (t *FlatTree) buildNodesByType() {
 			maxType = tID
 		}
 	}
-	counts := make([]uint32, int(maxType)+1)
+	// Length maxType+2 so the trailing entry is the closing bound and
+	// callers can slice indices[offsets[t]:offsets[t+1]] for any
+	// valid typeID without a length check.
+	offsets := make([]uint32, int(maxType)+2)
 	for _, tID := range t.Types {
-		counts[tID]++
+		offsets[int(tID)+1]++
 	}
-	out := make([][]uint32, int(maxType)+1)
-	for tID, c := range counts {
-		if c > 0 {
-			out[tID] = make([]uint32, 0, c)
-		}
+	for i := 1; i < len(offsets); i++ {
+		offsets[i] += offsets[i-1]
 	}
+	indices := make([]uint32, len(t.Types))
+	// Use offsets as a write cursor; restore by shifting right one
+	// slot after the scatter. Post-scatter offsets[t-1] equals the
+	// original offsets[t], so a right shift recovers the bucket
+	// starts. Trailing offsets[maxType+1] stays put — no bucket
+	// maxType+1 exists, so it was never advanced.
 	for i, tID := range t.Types {
-		out[tID] = append(out[tID], uint32(i))
+		slot := offsets[tID]
+		indices[slot] = uint32(i)
+		offsets[tID] = slot + 1
 	}
-	t.NodesByType = out
+	for i := len(offsets) - 1; i > 0; i-- {
+		offsets[i] = offsets[i-1]
+	}
+	offsets[0] = 0
+	t.NodeTypeOffsets = offsets
+	t.NodeTypeIndices = indices
 }
 
 // FlatNodeText returns the source text spanned by the flattened node.
@@ -270,9 +318,9 @@ func FlatNodeString(tree *FlatTree, idx uint32, content []byte, pool *StringPool
 }
 
 // FlatWalkNodes calls fn for every node of the given type. Uses the
-// NodesByType posting list when available for direct O(matches) access;
-// falls back to a linear scan over t.Types when the posting list has
-// not been built (e.g. ad-hoc test trees).
+// CSR posting list when available for direct O(matches) access; falls
+// back to a linear scan over t.Types when the posting list has not
+// been built (e.g. ad-hoc test trees).
 func FlatWalkNodes(tree *FlatTree, nodeType string, fn func(uint32)) {
 	if tree == nil {
 		return
@@ -281,8 +329,8 @@ func FlatWalkNodes(tree *FlatTree, nodeType string, fn func(uint32)) {
 	if !ok {
 		return
 	}
-	if int(typeID) < len(tree.NodesByType) {
-		for _, idx := range tree.NodesByType[typeID] {
+	if len(tree.NodeTypeOffsets) > 0 {
+		for _, idx := range tree.NodesOfType(typeID) {
 			fn(idx)
 		}
 		return

@@ -61,9 +61,10 @@ var parseCacheVersionStr = strconv.FormatUint(uint64(parseCacheVersion), 10)
 // match the writer's. Version, grammar, content hash, and language live
 // in the owning sidecar/path rather than being duplicated in every entry.
 //
-// The fields mirror FlatTree's parallel-slice layout (SoA). NodesByType
-// is NOT serialized because it depends on the type-ID space, which is
-// remapped on load; we rebuild it post-remap.
+// The fields mirror FlatTree's parallel-slice layout (SoA). The CSR
+// posting list (NodeTypeOffsets/NodeTypeIndices) is NOT serialized
+// because it depends on the type-ID space, which is remapped on load;
+// we rebuild it post-remap.
 type parseCacheEntry struct {
 	NodeTypeTable []string
 	Types         []uint16
@@ -389,7 +390,7 @@ func (lc *langCache) loadByHash(hash string) (*FlatTree, bool) {
 // flatTreeFromEntry rebuilds a FlatTree from a freshly-decoded cache
 // entry. The entry's Types slice holds LOCAL indices into entry.NodeTypeTable;
 // they are remapped to the process-global NodeTypeTable in place. The
-// NodesByType posting list is rebuilt post-remap.
+// CSR posting list is rebuilt post-remap.
 func flatTreeFromEntry(entry *parseCacheEntry) *FlatTree {
 	remapEntryTypes(entry.Types, entry.NodeTypeTable)
 	tree := &FlatTree{
@@ -546,8 +547,8 @@ func (lc *langCache) saveAsync(path string, content []byte, tree *FlatTree, writ
 }
 
 // cloneTreeForCacheSave makes a defensive shallow copy of the SoA slices
-// in tree so an async writer can encode without contention. NodesByType
-// is NOT cloned (and not used for encoding).
+// in tree so an async writer can encode without contention. The CSR
+// posting list is NOT cloned (and not used for encoding).
 func cloneTreeForCacheSave(tree *FlatTree) *FlatTree {
 	if tree == nil {
 		return nil

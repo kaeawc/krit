@@ -421,9 +421,10 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 	// a closure — closures would defeat the compiler's inlining and add
 	// allocation overhead per Run call):
 	//
-	//   1. Posting-list path: iterate tree.NodesByType[typeID] for each
-	//      typeID that has at least one subscribed rule. Visits ONLY
-	//      indices of subscribed types, skipping the bulk of the tree.
+	//   1. Posting-list path: iterate the CSR posting list
+	//      (tree.NodeTypeOffsets / NodeTypeIndices) for each typeID that
+	//      has at least one subscribed rule. Visits ONLY indices of
+	//      subscribed types, skipping the bulk of the tree.
 	//
 	//   2. Full walk path: a single pass over every node. Used when
 	//      there is at least one rule registered with nil NodeTypes
@@ -442,7 +443,16 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 			// at line ~493 and in the allNodeRules block at line ~516.
 			// Keep all three in sync — extracting to a helper measurably
 			// regresses small-file dispatch (closures defeat inlining).
-			n := len(tree.NodesByType)
+			// Hoist the CSR arrays into locals so the compiler can
+			// keep them in registers across the loop and prove that
+			// offsets[typeID] / offsets[typeID+1] are in-bounds from
+			// the n bound below (n == len(offsets)-1).
+			offsets := tree.NodeTypeOffsets
+			postingIndices := tree.NodeTypeIndices
+			n := len(offsets) - 1
+			if n < 0 {
+				n = 0
+			}
 			if n > len(flatTypeRules) {
 				n = len(flatTypeRules)
 			}
@@ -451,7 +461,7 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 				if len(handlers) == 0 {
 					continue
 				}
-				indices := tree.NodesByType[typeID]
+				indices := postingIndices[offsets[typeID]:offsets[typeID+1]]
 				if len(indices) == 0 {
 					continue
 				}
@@ -938,10 +948,7 @@ func (d *Dispatcher) RunResourceSource(file *scanner.File, idx *android.Resource
 		// indices for types with subscribers, skipping the bulk of the
 		// tree.
 		for typeID, handlers := range rulesByType {
-			var indices []uint32
-			if int(typeID) < len(tree.NodesByType) {
-				indices = tree.NodesByType[typeID]
-			}
+			indices := tree.NodesOfType(typeID)
 			for _, flatIdx := range indices {
 				flatNode := tree.Node(flatIdx)
 				for _, r := range handlers {

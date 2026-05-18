@@ -504,6 +504,100 @@ func diffLocaleSets(configLocales, valuesLocales []string) (missing, extra []str
 }
 
 // ---------------------------------------------------------------------------
+// UseAlpha2Resource
+// ---------------------------------------------------------------------------
+
+// UseAlpha2ResourceRule detects Android resource locale folders that use a
+// 3-letter ISO 639-2 language code instead of the 2-letter ISO 639-1 code
+// Android resource selection expects (e.g. `values-eng/` should be
+// `values-en/`).
+type UseAlpha2ResourceRule struct {
+	ValuesResourceBase
+	AndroidRule
+}
+
+// Confidence reports a tier-1 (high) base confidence. The check is a pure
+// structural match on real `values-<lang>` directory names recovered from
+// the merged resource index, with no source-text heuristics.
+func (r *UseAlpha2ResourceRule) Confidence() float64 { return 0.95 }
+
+var alpha3to2LocaleCode = map[string]string{
+	"eng": "en", "fra": "fr", "deu": "de", "spa": "es", "ita": "it",
+	"por": "pt", "rus": "ru", "jpn": "ja", "kor": "ko", "zho": "zh",
+	"ara": "ar", "hin": "hi", "tur": "tr", "pol": "pl", "nld": "nl",
+	"swe": "sv", "nor": "no", "dan": "da", "fin": "fi", "tha": "th",
+}
+
+func (r *UseAlpha2ResourceRule) check(ctx *api.Context) {
+	idx := ctx.ResourceIndex
+	if idx == nil {
+		return
+	}
+	for _, resRoot := range resourceRootsFromIndex(idx) {
+		entries, err := os.ReadDir(resRoot)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			code, ok := alpha3LanguageFromValuesDir(name)
+			if !ok {
+				continue
+			}
+			replacement, ok := alpha3to2LocaleCode[code]
+			if !ok {
+				continue
+			}
+			ctx.Emit(resourceFinding(filepath.Join(resRoot, name), 1, r.BaseRule,
+				fmt.Sprintf("Use 2-letter ISO 639-1 code `%s` instead of 3-letter code `%s` in locale folder.",
+					replacement, code)))
+		}
+	}
+}
+
+// alpha3LanguageFromValuesDir extracts the language code from a
+// `values-<qualifier>` directory name when the first qualifier segment is a
+// 3-letter language code. BCP 47 (`b+xxx+...`) directories are recognized;
+// other qualifiers (orientation, density, smallest width, etc.) and codes
+// that are not exactly three lowercase letters are rejected.
+func alpha3LanguageFromValuesDir(dir string) (string, bool) {
+	if !strings.HasPrefix(dir, "values-") {
+		return "", false
+	}
+	qualifier := strings.TrimPrefix(dir, "values-")
+	if strings.HasPrefix(qualifier, "b+") {
+		parts := strings.Split(strings.TrimPrefix(qualifier, "b+"), "+")
+		if len(parts) == 0 || !isAlpha3LowerCode(parts[0]) {
+			return "", false
+		}
+		return parts[0], true
+	}
+	first := qualifier
+	if i := strings.IndexByte(qualifier, '-'); i >= 0 {
+		first = qualifier[:i]
+	}
+	if !isAlpha3LowerCode(first) {
+		return "", false
+	}
+	return first, true
+}
+
+func isAlpha3LowerCode(s string) bool {
+	if len(s) != 3 {
+		return false
+	}
+	for _, r := range s {
+		if r < 'a' || r > 'z' {
+			return false
+		}
+	}
+	return true
+}
+
+// ---------------------------------------------------------------------------
 // MissingQuantityResource
 // ---------------------------------------------------------------------------
 

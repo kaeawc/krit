@@ -19,6 +19,7 @@ func TestAndroidDependencyMetadata(t *testing.T) {
 	check("AllowBackupManifest", rules.AndroidDepManifest)
 	check("LocaleConfigMissing", rules.AndroidDepManifest)
 	check("LocaleConfigStale", rules.AndroidDepValues)
+	check("UseAlpha2", rules.AndroidDepValues)
 	check("HardcodedValuesResource", rules.AndroidDepLayout)
 	check("MissingQuantityResource", rules.AndroidDepValuesPlurals)
 	check("StringFormatInvalidResource", rules.AndroidDepValuesStrings)

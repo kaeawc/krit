@@ -986,6 +986,144 @@ func TestLocaleConfigStale(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// UseAlpha2 (resource folder)
+// ---------------------------------------------------------------------------
+
+func TestUseAlpha2Resource(t *testing.T) {
+	r := findResourceRule(t, "UseAlpha2")
+
+	write := func(t *testing.T, path, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s): %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile(%s): %v", path, err)
+		}
+	}
+
+	scan := func(t *testing.T, root string) *android.ResourceIndex {
+		t.Helper()
+		idx, err := android.ScanResourceDir(root)
+		if err != nil {
+			t.Fatalf("ScanResourceDir(%s): %v", root, err)
+		}
+		return idx
+	}
+
+	writeBase := func(t *testing.T, resDir string) {
+		write(t, filepath.Join(resDir, "values", "strings.xml"),
+			"<resources><string name=\"app_name\">App</string></resources>\n")
+	}
+
+	t.Run("3-letter locale folder triggers", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		writeBase(t, resDir)
+		write(t, filepath.Join(resDir, "values-eng", "strings.xml"),
+			"<resources><string name=\"app_name\">App</string></resources>\n")
+
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if !strings.Contains(findings[0].Message, "`en`") {
+			t.Fatalf("expected message to suggest `en`, got %q", findings[0].Message)
+		}
+		if !strings.Contains(findings[0].File, "values-eng") {
+			t.Fatalf("expected finding path to point at values-eng, got %q", findings[0].File)
+		}
+	})
+
+	t.Run("2-letter locale folder is clean", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		writeBase(t, resDir)
+		write(t, filepath.Join(resDir, "values-en", "strings.xml"),
+			"<resources><string name=\"app_name\">App</string></resources>\n")
+
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("unknown 3-letter code is clean", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		writeBase(t, resDir)
+		write(t, filepath.Join(resDir, "values-xyz", "strings.xml"),
+			"<resources><string name=\"app_name\">App</string></resources>\n")
+
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings (unknown code), got %d", len(findings))
+		}
+	})
+
+	t.Run("Japanese 3-letter folder triggers", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		writeBase(t, resDir)
+		write(t, filepath.Join(resDir, "values-jpn", "strings.xml"),
+			"<resources><string name=\"app_name\">App</string></resources>\n")
+
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if !strings.Contains(findings[0].Message, "`ja`") {
+			t.Fatalf("expected message to suggest `ja`, got %q", findings[0].Message)
+		}
+	})
+
+	t.Run("3-letter language with region triggers", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		writeBase(t, resDir)
+		write(t, filepath.Join(resDir, "values-eng-rUS", "strings.xml"),
+			"<resources><string name=\"app_name\">App</string></resources>\n")
+
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if !strings.Contains(findings[0].Message, "`en`") {
+			t.Fatalf("expected message to suggest `en`, got %q", findings[0].Message)
+		}
+	})
+
+	t.Run("BCP 47 b+eng+US triggers", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		writeBase(t, resDir)
+		write(t, filepath.Join(resDir, "values-b+eng+US", "strings.xml"),
+			"<resources><string name=\"app_name\">App</string></resources>\n")
+
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("non-locale qualifier values-night is clean", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		writeBase(t, resDir)
+		write(t, filepath.Join(resDir, "values-night", "colors.xml"),
+			"<resources><color name=\"bg\">#000</color></resources>\n")
+
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings (non-locale qualifier), got %d", len(findings))
+		}
+	})
+
+	t.Run("Kotlin string literal mentioning values-eng is clean", func(t *testing.T) {
+		// Regression: the previous line-scan implementation flagged this.
+		resDir := filepath.Join(t.TempDir(), "res")
+		writeBase(t, resDir)
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings without a real values-eng folder, got %d", len(findings))
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
 // LayoutClickableWithoutMinSize
 // ---------------------------------------------------------------------------
 

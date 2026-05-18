@@ -4635,7 +4635,7 @@
           }
         },
         "UseAlpha2": {
-          "description": "3-letter ISO code in locale folder [precision: heuristic/text-backed] [noisiness: noisy] [capabilities: line-pass]",
+          "description": "3-letter ISO code in locale folder [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

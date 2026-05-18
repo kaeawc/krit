@@ -138,15 +138,6 @@ func (r *UnknownIDInLayoutRule) Meta() api.RuleDescriptor {
 	}
 }
 
-func (r *UseAlpha2Rule) Meta() api.RuleDescriptor {
-	return api.RuleDescriptor{
-		ID:            "UseAlpha2",
-		RuleSet:       "android-lint",
-		DefaultActive: false,
-		OptInReason:   api.OptInReasonAndroidOnly,
-	}
-}
-
 func (r *ViewConstructorRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "ViewConstructor",

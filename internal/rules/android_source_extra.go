@@ -2012,29 +2012,6 @@ func (r *LocaleFolderRule) check(ctx *api.Context) {
 	}
 }
 
-type UseAlpha2Rule struct {
-	LineBase
-	AndroidRule
-}
-
-var alpha3to2 = map[string]string{"eng": "en", "fra": "fr", "deu": "de", "spa": "es", "ita": "it", "por": "pt", "rus": "ru", "jpn": "ja", "kor": "ko", "zho": "zh", "ara": "ar", "hin": "hi", "tur": "tr", "pol": "pl", "nld": "nl", "swe": "sv", "nor": "no", "dan": "da", "fin": "fi", "tha": "th"}
-var alpha3FolderRe = regexp.MustCompile(`values-([a-z]{3})\b`)
-
-func (r *UseAlpha2Rule) check(ctx *api.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if scanner.IsCommentLine(line) {
-			continue
-		}
-		if m := alpha3FolderRe.FindStringSubmatch(line); m != nil {
-			if repl, ok := alpha3to2[m[1]]; ok {
-				ctx.Emit(r.Finding(file, i+1, 1,
-					"Use 2-letter ISO 639-1 code `"+repl+"` instead of 3-letter code `"+m[1]+"` in locale folder."))
-			}
-		}
-	}
-}
-
 type MangledCRLFRule struct {
 	LineBase
 	AndroidRule

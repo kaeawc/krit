@@ -145,6 +145,15 @@ func (r *UnusedQuantityResourceRule) Meta() api.RuleDescriptor {
 	}
 }
 
+func (r *UseAlpha2ResourceRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "UseAlpha2",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
+	}
+}
+
 func (r *WebViewInScrollViewResourceRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "WebViewInScrollViewResource",

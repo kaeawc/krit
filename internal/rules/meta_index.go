@@ -679,7 +679,7 @@ func AllMetaProviders() []api.MetaProvider {
 		(*UnusedResourcesRule)(nil),
 		(*UnusedUnaryOperatorRule)(nil),
 		(*UnusedVariableRule)(nil),
-		(*UseAlpha2Rule)(nil),
+		(*UseAlpha2ResourceRule)(nil),
 		(*UseAnyOrNoneInsteadOfFindRule)(nil),
 		(*UseArrayLiteralsInAnnotationsRule)(nil),
 		(*UseCheckNotNullRule)(nil),

@@ -104,6 +104,22 @@ func registerAndroidResourceValuesRules() {
 		})
 	}
 	{
+		r := &UseAlpha2ResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "UseAlpha2", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "UseAlpha2",
+			Brief:      "3-letter ISO code in locale folder",
+			Category:   ALCI18N,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &MissingQuantityResourceRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "MissingQuantityResource", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "MissingQuantity",

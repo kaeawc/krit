@@ -193,19 +193,57 @@ var Filenames = []string{"krit.yml", ".krit.yml"}
 // is probed — preserving legacy callers that invoke LoadConfig with no
 // path and no analyzed-project context.
 //
-// First match wins, in caller order. Returns (nil, nil) when no config
-// is found; non-existence is a normal outcome, not an error.
+// For each root, autoDetect walks upward through ancestor directories
+// looking for a config file at each level. The walk stops at a VCS
+// boundary (`.git`, `.hg`, or `.jj` entry; file *or* directory — a
+// submodule's `.git` is a file that points into the parent superproject
+// gitdir), at the user's home directory, or at the filesystem root.
+// Closest-to-source match wins.
+//
+// First non-empty result across all roots wins, in caller order.
+// Returns (nil, nil) when no config is found; non-existence is a normal
+// outcome, not an error.
 func autoDetect(roots ...string) (*Config, error) {
-	candidates := autoDetectDirs(roots)
-	seen := make(map[string]struct{}, len(candidates))
-	for _, dir := range candidates {
-		if dir == "" {
+	dirs := autoDetectDirs(roots)
+	seen := make(map[string]struct{}, len(dirs)*4)
+	for _, start := range dirs {
+		if start == "" {
 			continue
 		}
-		if _, ok := seen[dir]; ok {
-			continue
+		if cfg, err := walkUpForConfig(start, seen); cfg != nil || err != nil {
+			return cfg, err
+		}
+	}
+	return nil, nil
+}
+
+// walkUpForConfig walks from `start` upward toward the filesystem root,
+// returning the first krit.yml / .krit.yml found at any level. Stops at
+// VCS boundaries (`.git`/`.hg`/`.jj`), the user home directory, the
+// filesystem root, or the first ancestor already in `seen` (so multiple
+// search roots that share a common parent walk it only once).
+//
+// $HOME is a *before-probe* boundary — `~/krit.yml` is never picked up
+// by walk-up — while VCS markers are *after-probe* boundaries, so a
+// worktree root that owns both `.git/` and a `krit.yml` is still a
+// valid match.
+func walkUpForConfig(start string, seen map[string]struct{}) (*Config, error) {
+	abs, err := filepath.Abs(start)
+	if err != nil {
+		abs = start
+	}
+	home, _ := os.UserHomeDir()
+	dir := abs
+	for {
+		if _, visited := seen[dir]; visited {
+			return nil, nil
 		}
 		seen[dir] = struct{}{}
+
+		if home != "" && dir == home {
+			return nil, nil
+		}
+
 		for _, name := range Filenames {
 			candidate := filepath.Join(dir, name)
 			fi, err := os.Stat(candidate)
@@ -217,8 +255,35 @@ func autoDetect(roots ...string) (*Config, error) {
 			}
 			return loadFile(candidate)
 		}
+
+		if IsVCSRoot(dir) {
+			return nil, nil
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return nil, nil
+		}
+		dir = parent
 	}
-	return nil, nil
+}
+
+// vcsMarkers is the set of filenames that mark the root of a
+// version-controlled project. Treated liberally — a marker matches
+// whether it's a directory (normal worktree) or a file (a submodule's
+// `.git` is a pointer file into the superproject's gitdir).
+var vcsMarkers = []string{".git", ".hg", ".jj"}
+
+// IsVCSRoot reports whether `dir` is the root of a version-controlled
+// project. Shared with `internal/projectroot` so config walk-up and
+// project-root detection agree on what counts as a worktree boundary.
+func IsVCSRoot(dir string) bool {
+	for _, name := range vcsMarkers {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // autoDetectDirs normalises raw search-root entries to a list of

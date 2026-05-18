@@ -1530,3 +1530,265 @@ func TestAutoDetectKritYmlPrecedence(t *testing.T) {
 		}
 	})
 }
+
+// writeGitDir installs a normal worktree `.git/` directory marker. The
+// content doesn't matter — `IsVCSRoot` only checks for existence.
+func writeGitDir(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+}
+
+// writeGitFile installs a submodule-style `.git` file marker, which
+// points into the superproject's gitdir. Walk-up must treat this as a
+// boundary even though it's a file, not a directory.
+func writeGitFile(t *testing.T, dir string) {
+	t.Helper()
+	path := filepath.Join(dir, ".git")
+	if err := os.WriteFile(path, []byte("gitdir: ../../.git/modules/sub\n"), 0644); err != nil {
+		t.Fatalf("write .git file: %v", err)
+	}
+}
+
+// withHome stubs $HOME via t.Setenv (auto-restored on cleanup). Tests
+// using this helper must NOT call t.Parallel() — $HOME is process-wide.
+func withHome(t *testing.T, dir string, fn func()) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	fn()
+}
+
+// TestAutoDetectWalkUpFindsAncestorConfig is the headline behavior: a
+// krit.yml at the repo root is found when krit is invoked against a
+// nested source directory.
+func TestAutoDetectWalkUpFindsAncestorConfig(t *testing.T) {
+	root := t.TempDir()
+	withHome(t, t.TempDir(), func() {
+		writeGitDir(t, root)
+		_ = os.WriteFile(filepath.Join(root, "krit.yml"),
+			[]byte("style:\n  MagicNumber:\n    threshold: 42\n"), 0644)
+		nested := filepath.Join(root, "apps", "web", "src", "main", "kotlin")
+		if err := os.MkdirAll(nested, 0755); err != nil {
+			t.Fatalf("mkdir nested: %v", err)
+		}
+
+		other := t.TempDir()
+		withCwd(t, other, func() {
+			cfg, err := LoadConfig("", nested)
+			if err != nil {
+				t.Fatalf("LoadConfig walking up: %v", err)
+			}
+			if cfg == nil {
+				t.Fatal("expected to find root krit.yml via walk-up; got nil")
+			}
+			if got := cfg.GetInt("style", "MagicNumber", "threshold", 0); got != 42 {
+				t.Errorf("expected threshold=42 from root krit.yml, got %d", got)
+			}
+		})
+	})
+}
+
+// TestAutoDetectWalkUpClosestWins verifies first-match-wins semantics —
+// a closer-to-source config takes precedence over an ancestor.
+func TestAutoDetectWalkUpClosestWins(t *testing.T) {
+	root := t.TempDir()
+	withHome(t, t.TempDir(), func() {
+		writeGitDir(t, root)
+		_ = os.WriteFile(filepath.Join(root, "krit.yml"),
+			[]byte("style:\n  MagicNumber:\n    threshold: 1\n"), 0644)
+		middle := filepath.Join(root, "apps", "web")
+		if err := os.MkdirAll(middle, 0755); err != nil {
+			t.Fatalf("mkdir middle: %v", err)
+		}
+		_ = os.WriteFile(filepath.Join(middle, "krit.yml"),
+			[]byte("style:\n  MagicNumber:\n    threshold: 2\n"), 0644)
+		leaf := filepath.Join(middle, "src", "main", "kotlin")
+		if err := os.MkdirAll(leaf, 0755); err != nil {
+			t.Fatalf("mkdir leaf: %v", err)
+		}
+
+		other := t.TempDir()
+		withCwd(t, other, func() {
+			cfg, err := LoadConfig("", leaf)
+			if err != nil {
+				t.Fatalf("LoadConfig: %v", err)
+			}
+			if got := cfg.GetInt("style", "MagicNumber", "threshold", 0); got != 2 {
+				t.Errorf("expected closest-to-source threshold=2 to win, got %d", got)
+			}
+		})
+	})
+}
+
+// TestAutoDetectStopsAtVCSDirectoryBoundary makes sure walk-up does NOT
+// reach outside a worktree even if an outer ancestor has a krit.yml.
+func TestAutoDetectStopsAtVCSDirectoryBoundary(t *testing.T) {
+	outer := t.TempDir()
+	withHome(t, t.TempDir(), func() {
+		_ = os.WriteFile(filepath.Join(outer, "krit.yml"),
+			[]byte("style:\n  MagicNumber:\n    threshold: 999\n"), 0644)
+		inner := filepath.Join(outer, "project")
+		if err := os.MkdirAll(inner, 0755); err != nil {
+			t.Fatalf("mkdir inner: %v", err)
+		}
+		writeGitDir(t, inner) // inner is its own worktree
+		nested := filepath.Join(inner, "src", "main", "kotlin")
+		if err := os.MkdirAll(nested, 0755); err != nil {
+			t.Fatalf("mkdir nested: %v", err)
+		}
+
+		other := t.TempDir()
+		withCwd(t, other, func() {
+			cfg, err := LoadConfig("", nested)
+			if err != nil {
+				t.Fatalf("LoadConfig: %v", err)
+			}
+			if cfg != nil {
+				got := cfg.GetInt("style", "MagicNumber", "threshold", -1)
+				t.Errorf("walk-up reached outside worktree; got config with threshold=%d", got)
+			}
+		})
+	})
+}
+
+// TestAutoDetectStopsAtSubmoduleGitFile pins the submodule case: a
+// submodule's `.git` is a file, not a directory, but it still marks a
+// worktree boundary.
+func TestAutoDetectStopsAtSubmoduleGitFile(t *testing.T) {
+	outer := t.TempDir()
+	withHome(t, t.TempDir(), func() {
+		writeGitDir(t, outer) // superproject .git/
+		_ = os.WriteFile(filepath.Join(outer, "krit.yml"),
+			[]byte("style:\n  MagicNumber:\n    threshold: 1\n"), 0644)
+
+		submodule := filepath.Join(outer, "vendor", "lib")
+		if err := os.MkdirAll(submodule, 0755); err != nil {
+			t.Fatalf("mkdir submodule: %v", err)
+		}
+		writeGitFile(t, submodule) // submodule .git FILE
+		nested := filepath.Join(submodule, "src")
+		if err := os.MkdirAll(nested, 0755); err != nil {
+			t.Fatalf("mkdir nested: %v", err)
+		}
+
+		other := t.TempDir()
+		withCwd(t, other, func() {
+			cfg, err := LoadConfig("", nested)
+			if err != nil {
+				t.Fatalf("LoadConfig: %v", err)
+			}
+			if cfg != nil {
+				got := cfg.GetInt("style", "MagicNumber", "threshold", -1)
+				t.Errorf("walk-up crossed submodule boundary; got threshold=%d", got)
+			}
+		})
+	})
+}
+
+// TestAutoDetectStopsAtHome ensures we never walk into $HOME's
+// krit.yml, even when no VCS marker is present along the way.
+func TestAutoDetectStopsAtHome(t *testing.T) {
+	home := t.TempDir()
+	withHome(t, home, func() {
+		// Stash a config directly in $HOME that we must NOT pick up.
+		_ = os.WriteFile(filepath.Join(home, "krit.yml"),
+			[]byte("style:\n  MagicNumber:\n    threshold: 9001\n"), 0644)
+		nested := filepath.Join(home, "scratch", "project")
+		if err := os.MkdirAll(nested, 0755); err != nil {
+			t.Fatalf("mkdir nested: %v", err)
+		}
+
+		other := t.TempDir()
+		withCwd(t, other, func() {
+			cfg, err := LoadConfig("", nested)
+			if err != nil {
+				t.Fatalf("LoadConfig: %v", err)
+			}
+			if cfg != nil {
+				got := cfg.GetInt("style", "MagicNumber", "threshold", -1)
+				t.Errorf("walk-up reached $HOME; got threshold=%d", got)
+			}
+		})
+	})
+}
+
+// TestAutoDetectExplicitPathSkipsWalkUp verifies `-c FILE` is still the
+// authoritative override — walk-up only fires when path is empty.
+func TestAutoDetectExplicitPathSkipsWalkUp(t *testing.T) {
+	root := t.TempDir()
+	withHome(t, t.TempDir(), func() {
+		writeGitDir(t, root)
+		_ = os.WriteFile(filepath.Join(root, "krit.yml"),
+			[]byte("style:\n  MagicNumber:\n    threshold: 11\n"), 0644)
+		nested := filepath.Join(root, "src")
+		if err := os.MkdirAll(nested, 0755); err != nil {
+			t.Fatalf("mkdir nested: %v", err)
+		}
+		explicit := filepath.Join(nested, "explicit.yml")
+		_ = os.WriteFile(explicit, []byte("style:\n  MagicNumber:\n    threshold: 22\n"), 0644)
+
+		cfg, err := LoadConfig(explicit, nested)
+		if err != nil {
+			t.Fatalf("LoadConfig: %v", err)
+		}
+		if got := cfg.GetInt("style", "MagicNumber", "threshold", 0); got != 22 {
+			t.Errorf("explicit path must win; got %d", got)
+		}
+	})
+}
+
+// TestAutoDetectNoConfigAnywhere keeps the legacy "not an error" return
+// contract for projects without any krit.yml on the walk.
+func TestAutoDetectNoConfigAnywhere(t *testing.T) {
+	root := t.TempDir()
+	withHome(t, t.TempDir(), func() {
+		writeGitDir(t, root)
+		nested := filepath.Join(root, "src")
+		if err := os.MkdirAll(nested, 0755); err != nil {
+			t.Fatalf("mkdir nested: %v", err)
+		}
+
+		other := t.TempDir()
+		withCwd(t, other, func() {
+			cfg, err := LoadConfig("", nested)
+			if err != nil {
+				t.Fatalf("LoadConfig unexpectedly errored: %v", err)
+			}
+			if cfg != nil {
+				t.Errorf("expected nil config when no krit.yml on the walk-up, got %+v", cfg)
+			}
+		})
+	})
+}
+
+// TestAutoDetectVisitsEachAncestorOnce makes the walker memoise across
+// roots so two analyzed directories that share an ancestor only probe
+// shared parents once. Reuses the same root layout to exercise the
+// `seen` map.
+func TestAutoDetectVisitsEachAncestorOnce(t *testing.T) {
+	root := t.TempDir()
+	withHome(t, t.TempDir(), func() {
+		writeGitDir(t, root)
+		_ = os.WriteFile(filepath.Join(root, "krit.yml"),
+			[]byte("style:\n  MagicNumber:\n    threshold: 7\n"), 0644)
+		a := filepath.Join(root, "apps", "a")
+		b := filepath.Join(root, "apps", "b")
+		for _, dir := range []string{a, b} {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				t.Fatalf("mkdir %s: %v", dir, err)
+			}
+		}
+
+		other := t.TempDir()
+		withCwd(t, other, func() {
+			cfg, err := LoadConfig("", a, b)
+			if err != nil {
+				t.Fatalf("LoadConfig: %v", err)
+			}
+			if got := cfg.GetInt("style", "MagicNumber", "threshold", 0); got != 7 {
+				t.Errorf("expected shared-ancestor config (threshold=7), got %d", got)
+			}
+		})
+	})
+}

@@ -16,14 +16,17 @@ plugins {
 }
 ```
 
-That's it for most projects — drop a `krit.yml` next to the build file and
-`./gradlew kritCheck` works.
+That's it for most projects — drop a `krit.yml` at the repo root (or next
+to the build file) and `./gradlew kritCheck` works. The CLI walks upward
+from each analyzed directory looking for `krit.yml` / `.krit.yml`,
+stopping at the worktree boundary (`.git` / `.hg` / `.jj`), so one config
+at the root covers every subproject without per-module wiring.
 
 ### Common configuration
 
 ```kotlin
 krit {
-    config = file("krit.yml")               // optional; auto-discovered when omitted
+    config = file("krit.yml")               // optional; explicit override of walk-up discovery
     baseline = file("krit-baseline.xml")    // optional
     ignoreFailures = false                  // fail the build on findings
 

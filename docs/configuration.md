@@ -4,10 +4,16 @@ Krit reads `krit.yml` or `.krit.yml` from the project root. It accepts the same 
 
 ## Resolution order
 
-1. `--config FILE` flag
-2. `krit.yml` in the working directory
-3. `.krit.yml` in the working directory
-4. Built-in defaults
+1. `--config FILE` flag (explicit override).
+2. `krit.yml` or `.krit.yml`, found by walking *upward* from the analyzed
+   directory. The closest-to-source file wins; the walk stops at the
+   worktree root (`.git` / `.hg` / `.jj` marker, file or directory), at
+   `$HOME`, or at the filesystem root.
+3. Built-in defaults.
+
+The walk-up step means a single config at the repo root covers every
+subproject without per-module wiring, while a subproject can still
+override by dropping its own `krit.yml` closer to the source.
 
 ## Example
 

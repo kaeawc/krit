@@ -35,10 +35,15 @@ func Find(scanPaths []string) string {
 	}
 }
 
-var rootMarkers = append([]string{".git"}, append(config.Filenames, "settings.gradle", "settings.gradle.kts")...)
+// kritRootMarkers are krit-specific signals that a directory is a
+// project root, on top of the VCS markers shared via `config.IsVCSRoot`.
+var kritRootMarkers = append(append([]string{}, config.Filenames...), "settings.gradle", "settings.gradle.kts")
 
 func isRootMarkerDir(dir string) bool {
-	for _, name := range rootMarkers {
+	if config.IsVCSRoot(dir) {
+		return true
+	}
+	for _, name := range kritRootMarkers {
 		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
 			return true
 		}

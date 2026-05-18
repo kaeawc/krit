@@ -135,105 +135,7 @@ func hardcodedEnvironmentLiteral(text string, labelPresent bool) string {
 // backslash escapes inside regular strings are honored so an escaped
 // quote does not prematurely close the literal.
 func gradleStripCommentsFull(content string) string {
-	var b strings.Builder
-	b.Grow(len(content))
-	n := len(content)
-	i := 0
-	for i < n {
-		c := content[i]
-		// Block comment.
-		if c == '/' && i+1 < n && content[i+1] == '*' {
-			b.WriteByte(' ')
-			b.WriteByte(' ')
-			i += 2
-			for i < n {
-				if content[i] == '*' && i+1 < n && content[i+1] == '/' {
-					b.WriteByte(' ')
-					b.WriteByte(' ')
-					i += 2
-					break
-				}
-				if content[i] == '\n' {
-					b.WriteByte('\n')
-				} else {
-					b.WriteByte(' ')
-				}
-				i++
-			}
-			continue
-		}
-		// Line comment.
-		if c == '/' && i+1 < n && content[i+1] == '/' {
-			for i < n && content[i] != '\n' {
-				b.WriteByte(' ')
-				i++
-			}
-			continue
-		}
-		// Triple-quoted string (Kotlin raw / Groovy multi-line). Bodies
-		// are written through unchanged so plugin-id references inside
-		// such strings remain visible to substring checks; we only
-		// skip the lexer past the closing delimiter so a stray `*/` or
-		// `//` inside the string does not start a comment.
-		if (c == '"' || c == '\'') && i+2 < n && content[i+1] == c && content[i+2] == c {
-			quote := c
-			b.WriteByte(quote)
-			b.WriteByte(quote)
-			b.WriteByte(quote)
-			i += 3
-			for i < n {
-				if i+2 < n && content[i] == quote && content[i+1] == quote && content[i+2] == quote {
-					b.WriteByte(quote)
-					b.WriteByte(quote)
-					b.WriteByte(quote)
-					i += 3
-					break
-				}
-				b.WriteByte(content[i])
-				i++
-			}
-			continue
-		}
-		// Regular string literal — body preserved, but the lexer
-		// consumes through the closing quote so `//` inside the string
-		// is not misread as a line comment.
-		if c == '"' || c == '\'' {
-			quote := c
-			b.WriteByte(quote)
-			i++
-			escaped := false
-			for i < n {
-				if content[i] == '\n' {
-					// Unterminated literal; bail without consuming the
-					// newline so subsequent code is processed normally.
-					break
-				}
-				if escaped {
-					escaped = false
-					b.WriteByte(content[i])
-					i++
-					continue
-				}
-				if content[i] == '\\' {
-					escaped = true
-					b.WriteByte(content[i])
-					i++
-					continue
-				}
-				if content[i] == quote {
-					b.WriteByte(quote)
-					i++
-					break
-				}
-				b.WriteByte(content[i])
-				i++
-			}
-			continue
-		}
-		b.WriteByte(c)
-		i++
-	}
-	return b.String()
+	return gradleStripContent(content, true)
 }
 
 // gradleStripCommentsAndStringBodiesFull returns content with Gradle
@@ -243,101 +145,155 @@ func gradleStripCommentsFull(content string) string {
 // punctuation positions, and newlines, so a substring search for a code
 // token such as `applicationId` only sees real DSL references.
 func gradleStripCommentsAndStringBodiesFull(content string) string {
+	return gradleStripContent(content, false)
+}
+
+// gradleStripContent is the shared lexer behind gradleStripCommentsFull
+// and gradleStripCommentsAndStringBodiesFull. preserveStringBodies
+// controls whether string literal bodies are written through verbatim
+// (true) or replaced with spaces (false).
+func gradleStripContent(content string, preserveStringBodies bool) string {
 	var b strings.Builder
 	b.Grow(len(content))
 	n := len(content)
 	i := 0
 	for i < n {
 		c := content[i]
-		// Block comment.
 		if c == '/' && i+1 < n && content[i+1] == '*' {
-			b.WriteByte(' ')
-			b.WriteByte(' ')
-			i += 2
-			for i < n {
-				if content[i] == '*' && i+1 < n && content[i+1] == '/' {
-					b.WriteByte(' ')
-					b.WriteByte(' ')
-					i += 2
-					break
-				}
-				if content[i] == '\n' {
-					b.WriteByte('\n')
-				} else {
-					b.WriteByte(' ')
-				}
-				i++
-			}
+			i = gradleConsumeBlockComment(&b, content, i)
 			continue
 		}
-		// Line comment.
 		if c == '/' && i+1 < n && content[i+1] == '/' {
-			for i < n && content[i] != '\n' {
-				b.WriteByte(' ')
-				i++
-			}
+			i = gradleConsumeLineComment(&b, content, i)
 			continue
 		}
-		// Triple-quoted string body — blanked out.
 		if (c == '"' || c == '\'') && i+2 < n && content[i+1] == c && content[i+2] == c {
-			quote := c
-			b.WriteByte(quote)
-			b.WriteByte(quote)
-			b.WriteByte(quote)
-			i += 3
-			for i < n {
-				if i+2 < n && content[i] == quote && content[i+1] == quote && content[i+2] == quote {
-					b.WriteByte(quote)
-					b.WriteByte(quote)
-					b.WriteByte(quote)
-					i += 3
-					break
-				}
-				if content[i] == '\n' {
-					b.WriteByte('\n')
-				} else {
-					b.WriteByte(' ')
-				}
-				i++
-			}
+			i = gradleConsumeTripleQuoted(&b, content, i, preserveStringBodies)
 			continue
 		}
-		// Regular string literal — body blanked out.
 		if c == '"' || c == '\'' {
-			quote := c
-			b.WriteByte(quote)
-			i++
-			escaped := false
-			for i < n {
-				if content[i] == '\n' {
-					break
-				}
-				if escaped {
-					escaped = false
-					b.WriteByte(' ')
-					i++
-					continue
-				}
-				if content[i] == '\\' {
-					escaped = true
-					b.WriteByte(' ')
-					i++
-					continue
-				}
-				if content[i] == quote {
-					b.WriteByte(quote)
-					i++
-					break
-				}
-				b.WriteByte(' ')
-				i++
-			}
+			i = gradleConsumeRegularString(&b, content, i, preserveStringBodies)
 			continue
 		}
 		b.WriteByte(c)
 		i++
 	}
 	return b.String()
+}
+
+// gradleConsumeBlockComment writes a blanked-out block comment starting
+// at content[i] (which must be `/*`) and returns the index just past the
+// closing `*/`, or n if unterminated.
+func gradleConsumeBlockComment(b *strings.Builder, content string, i int) int {
+	n := len(content)
+	b.WriteByte(' ')
+	b.WriteByte(' ')
+	i += 2
+	for i < n {
+		if content[i] == '*' && i+1 < n && content[i+1] == '/' {
+			b.WriteByte(' ')
+			b.WriteByte(' ')
+			return i + 2
+		}
+		if content[i] == '\n' {
+			b.WriteByte('\n')
+		} else {
+			b.WriteByte(' ')
+		}
+		i++
+	}
+	return i
+}
+
+// gradleConsumeLineComment writes a blanked-out line comment starting at
+// content[i] (which must be `//`) and returns the index of the next
+// newline (or n).
+func gradleConsumeLineComment(b *strings.Builder, content string, i int) int {
+	n := len(content)
+	for i < n && content[i] != '\n' {
+		b.WriteByte(' ')
+		i++
+	}
+	return i
+}
+
+// gradleConsumeTripleQuoted handles a triple-quoted string literal
+// starting at content[i] (which must be three identical quote bytes).
+// When preserveBody is true, the body is written through verbatim;
+// otherwise non-newline bytes are blanked. Returns the index past the
+// closing delimiter or n if unterminated.
+func gradleConsumeTripleQuoted(b *strings.Builder, content string, i int, preserveBody bool) int {
+	n := len(content)
+	quote := content[i]
+	b.WriteByte(quote)
+	b.WriteByte(quote)
+	b.WriteByte(quote)
+	i += 3
+	for i < n {
+		if i+2 < n && content[i] == quote && content[i+1] == quote && content[i+2] == quote {
+			b.WriteByte(quote)
+			b.WriteByte(quote)
+			b.WriteByte(quote)
+			return i + 3
+		}
+		if preserveBody {
+			b.WriteByte(content[i])
+		} else if content[i] == '\n' {
+			b.WriteByte('\n')
+		} else {
+			b.WriteByte(' ')
+		}
+		i++
+	}
+	return i
+}
+
+// gradleConsumeRegularString handles a single- or double-quoted string
+// literal starting at content[i]. preserveBody mirrors
+// gradleConsumeTripleQuoted's semantics. Returns the index past the
+// closing quote, or before a bare newline for an unterminated literal.
+func gradleConsumeRegularString(b *strings.Builder, content string, i int, preserveBody bool) int {
+	n := len(content)
+	quote := content[i]
+	b.WriteByte(quote)
+	i++
+	escaped := false
+	for i < n {
+		if content[i] == '\n' {
+			return i
+		}
+		if escaped {
+			escaped = false
+			if preserveBody {
+				b.WriteByte(content[i])
+			} else {
+				b.WriteByte(' ')
+			}
+			i++
+			continue
+		}
+		if content[i] == '\\' {
+			escaped = true
+			if preserveBody {
+				b.WriteByte(content[i])
+			} else {
+				b.WriteByte(' ')
+			}
+			i++
+			continue
+		}
+		if content[i] == quote {
+			b.WriteByte(quote)
+			return i + 1
+		}
+		if preserveBody {
+			b.WriteByte(content[i])
+		} else {
+			b.WriteByte(' ')
+		}
+		i++
+	}
+	return i
 }
 
 // gradleContainsCodeToken reports whether content contains needle as a

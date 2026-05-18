@@ -118,6 +118,51 @@ fun name() = listOf("a", "b").first()`,
 	}
 }
 
+func TestHasPlatformType_NegativeJavaSubstringInIdentifier(t *testing.T) {
+	// "Java" appearing inside an identifier (parseJavadoc, getJavadocFor)
+	// must not trigger the rule — the substring "Java" is not at a token
+	// boundary, so it is not a Java-interop reference.
+	cases := []string{
+		`package test
+fun renderDocs(content: String) = parseJavadoc(content)`,
+		`package test
+fun lookupDoc(id: Int) = registry.getJavadocFor(id)`,
+		`package test
+fun decode(raw: String) = base64.decodeRaJava(raw)`,
+	}
+	for i, src := range cases {
+		findings := runRuleByName(t, "HasPlatformType", src)
+		if len(findings) != 0 {
+			t.Errorf("case %d: 'Java' inside identifier must not fire: got %d findings", i, len(findings))
+		}
+	}
+}
+
+func TestHasPlatformType_NegativeJavaxSubstringInIdentifier(t *testing.T) {
+	// "Javax" appearing inside an identifier must not trigger.
+	src := `
+package test
+fun render(html: String) = TemplateJavaxFooHelper.process(html)
+`
+	findings := runRuleByName(t, "HasPlatformType", src)
+	if len(findings) != 0 {
+		t.Errorf("'Javax' inside identifier must not fire: got %d findings", len(findings))
+	}
+}
+
+func TestHasPlatformType_PositiveJavaIdentifierAtTokenStart(t *testing.T) {
+	// "Java" at the start of an identifier still fires — this is the
+	// existing positive case (JavaClass.getData()) and remains intact.
+	src := `
+package test
+fun load() = JavaSerializer.from(input)
+`
+	findings := runRuleByName(t, "HasPlatformType", src)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for 'JavaSerializer' at token start")
+	}
+}
+
 // --- IgnoredReturnValue ---
 
 func TestIgnoredReturnValue_Positive(t *testing.T) {

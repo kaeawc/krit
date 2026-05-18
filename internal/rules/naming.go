@@ -1095,6 +1095,33 @@ func containsIdentifierToken(text, name string) bool {
 	}
 }
 
+// containsIdentifierStart reports whether text contains an occurrence of
+// prefix where the preceding byte is not part of a Kotlin identifier,
+// so the match begins a new identifier token. Unlike
+// containsIdentifierToken this does not require a trailing boundary,
+// which lets `Java` match `JavaSerializer` while still excluding
+// `parseJavadoc`.
+func containsIdentifierStart(text, prefix string) bool {
+	if prefix == "" {
+		return false
+	}
+	start := 0
+	for {
+		idx := strings.Index(text[start:], prefix)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		if pos == 0 || !isIdentByte(text[pos-1]) {
+			return true
+		}
+		start = pos + 1
+		if start >= len(text) {
+			return false
+		}
+	}
+}
+
 func isExtensionFunctionDeclFlat(file *scanner.File, idx uint32) bool {
 	if file == nil || file.FlatType(idx) != "function_declaration" {
 		return false

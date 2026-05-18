@@ -163,7 +163,7 @@ func registerPotentialbugsMiscRules() {
 
 				line := file.FlatRow(idx) + 1
 				for _, prefix := range []string{"java.", "javax.", "android.", "Java", "Javax"} {
-					if strings.Contains(exprText, prefix) {
+					if containsIdentifierStart(exprText, prefix) {
 						ctx.EmitAt(line, 1,
 							"Public function with expression body should have an explicit return type to avoid platform types.")
 						return

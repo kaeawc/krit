@@ -97,4 +97,45 @@ func TestStringContainsHtmlWithoutCDATA(t *testing.T) {
 			t.Fatalf("expected finding in values-fr, got: %s", findings[0].File)
 		}
 	})
+
+	// Regression: xliff:g placeholders are the canonical Android i18n shape
+	// and must not be flagged. The original implementation fired on every
+	// <string> that had any child element.
+	t.Run("xliff:g placeholder is clean", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		write(t, filepath.Join(resDir, "values", "strings.xml"),
+			"<resources xmlns:xliff=\"urn:oasis:names:tc:xliff:document:1.2\">"+
+				"<string name=\"played\">Hello <xliff:g id=\"num\" example=\"3\">%d</xliff:g> times</string>"+
+				"</resources>\n")
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for xliff:g placeholder, got %d: %v", len(findings), findings)
+		}
+	})
+
+	// Regression: <annotation> spans are an Android-supported markup primitive
+	// (SpannedString.Annotation) and must not be flagged.
+	t.Run("annotation span is clean", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		write(t, filepath.Join(resDir, "values", "strings.xml"),
+			"<resources><string name=\"title\">Welcome <annotation font=\"title_emphasis\">friend</annotation>!</string></resources>\n")
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for <annotation>, got %d: %v", len(findings), findings)
+		}
+	})
+
+	// Mixing xliff placeholder with real unescaped HTML markup should still
+	// trigger — the rule should look at the non-placeholder children.
+	t.Run("xliff:g plus inline HTML still triggers", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		write(t, filepath.Join(resDir, "values", "strings.xml"),
+			"<resources xmlns:xliff=\"urn:oasis:names:tc:xliff:document:1.2\">"+
+				"<string name=\"mixed\">Won <xliff:g id=\"n\">%d</xliff:g> <b>games</b></string>"+
+				"</resources>\n")
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding for xliff + <b>, got %d: %v", len(findings), findings)
+		}
+	})
 }

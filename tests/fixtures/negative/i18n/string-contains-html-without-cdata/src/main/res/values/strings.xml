@@ -1,5 +1,9 @@
-<resources>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
     <string name="html_msg"><![CDATA[Click <a href="https://example.com">here</a>]]></string>
     <string name="entity_msg">Click &lt;a href="https://example.com"&gt;here&lt;/a&gt;</string>
     <string name="plain_msg">Hello world</string>
+    <!-- xliff:g placeholders are the canonical Android i18n shape and must not trigger. -->
+    <string name="played_count">You played <xliff:g id="num_games" example="3">%d</xliff:g> games today</string>
+    <!-- <annotation> spans are an Android Spanned primitive (SpannedString.Annotation), not HTML. -->
+    <string name="welcome_title">Welcome <annotation font="title_emphasis">friend</annotation>!</string>
 </resources>

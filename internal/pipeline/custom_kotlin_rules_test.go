@@ -9,9 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/librarymodel"
+	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -483,20 +485,20 @@ func TestAnyRuleNeedsGradleHonorsSelection(t *testing.T) {
 	// acme.GradleButInactive is loaded but the user disabled it via
 	// krit.yml; the gradle payload should not be built just because a
 	// loaded-but-unselected rule declares NEEDS_GRADLE.
-	if anyRuleNeedsGradle(loaded, []string{"acme.Resolver"}) {
+	if anyRuleNeedsCapability(loaded, []string{"acme.Resolver"}, capabilityNeedsGradle) {
 		t.Errorf("unselected NEEDS_GRADLE rule must not trigger plumb")
 	}
 	// acme.Gradle is selected → true.
-	if !anyRuleNeedsGradle(loaded, []string{"acme.Resolver", "acme.Gradle"}) {
+	if !anyRuleNeedsCapability(loaded, []string{"acme.Resolver", "acme.Gradle"}, capabilityNeedsGradle) {
 		t.Errorf("acme.Gradle declares NEEDS_GRADLE; gradle plumb required")
 	}
 	// Empty selection → false.
-	if anyRuleNeedsGradle(loaded, nil) {
+	if anyRuleNeedsCapability(loaded, nil, capabilityNeedsGradle) {
 		t.Errorf("empty selection should not trigger gradle plumb")
 	}
 	// Rules with no needs → false.
 	plain := []oracle.PluginRuleDescriptor{{RuleID: "x", Needs: nil}}
-	if anyRuleNeedsGradle(plain, []string{"x"}) {
+	if anyRuleNeedsCapability(plain, []string{"x"}, capabilityNeedsGradle) {
 		t.Errorf("rule without NEEDS_GRADLE should not trigger plumb")
 	}
 }
@@ -537,5 +539,195 @@ func TestBuildGradlePayloadProjectsSubsetOfProfile(t *testing.T) {
 func TestBuildGradlePayloadNilProfileReturnsNil(t *testing.T) {
 	if got := buildGradlePayload(nil); got != nil {
 		t.Errorf("nil profile must yield nil payload, got %+v", got)
+	}
+}
+
+func TestAnyRuleNeedsCapabilityHandlesAllCapabilityValues(t *testing.T) {
+	// The five capability constants must each be recognized by name —
+	// a typo in the const string would silently skip the plumb.
+	tests := []struct{ capability, need string }{
+		{capabilityNeedsGradle, "NEEDS_GRADLE"},
+		{capabilityNeedsManifest, "NEEDS_MANIFEST"},
+		{capabilityNeedsResources, "NEEDS_RESOURCES"},
+		{capabilityNeedsModuleIndex, "NEEDS_MODULE_INDEX"},
+		{capabilityNeedsCrossFile, "NEEDS_CROSS_FILE"},
+	}
+	for _, tc := range tests {
+		if tc.capability != tc.need {
+			t.Errorf("capability const %q drifted from Capability.%s.name", tc.capability, tc.need)
+		}
+		loaded := []oracle.PluginRuleDescriptor{{RuleID: "r", Needs: []string{tc.need}}}
+		if !anyRuleNeedsCapability(loaded, []string{"r"}, tc.capability) {
+			t.Errorf("%s should be detected as needed", tc.capability)
+		}
+	}
+}
+
+func TestBuildManifestPayloadParsesXMLAndProjectsToWire(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "AndroidManifest.xml")
+	const xml = `<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.acme.app">
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <application>
+        <activity android:name="com.acme.MainActivity" android:exported="true"/>
+        <activity android:name="com.acme.HiddenActivity"/>
+        <service android:name="com.acme.MyService" android:exported="false"/>
+        <receiver android:name="com.acme.BootReceiver" android:exported="true"/>
+    </application>
+</manifest>`
+	if err := os.WriteFile(manifestPath, []byte(xml), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	project := &android.Project{ManifestPaths: []string{manifestPath}}
+	got := buildManifestPayload(project)
+	if got == nil {
+		t.Fatal("expected non-nil payload")
+	}
+	if got.Package != "com.acme.app" {
+		t.Errorf("Package = %q", got.Package)
+	}
+	if got.MinSdk != 24 || got.TargetSdk != 34 {
+		t.Errorf("Sdk = %+v", got)
+	}
+	if !reflect.DeepEqual(got.Permissions, []string{"android.permission.INTERNET"}) {
+		t.Errorf("Permissions = %v", got.Permissions)
+	}
+	if !reflect.DeepEqual(got.Activities, []string{"com.acme.MainActivity", "com.acme.HiddenActivity"}) {
+		t.Errorf("Activities = %v", got.Activities)
+	}
+	if !reflect.DeepEqual(got.ExportedActivities, []string{"com.acme.MainActivity"}) {
+		t.Errorf("ExportedActivities = %v", got.ExportedActivities)
+	}
+	if len(got.ExportedServices) != 0 {
+		t.Errorf("ExportedServices should be empty for exported=false service: %v", got.ExportedServices)
+	}
+	if !reflect.DeepEqual(got.ExportedReceivers, []string{"com.acme.BootReceiver"}) {
+		t.Errorf("ExportedReceivers = %v", got.ExportedReceivers)
+	}
+}
+
+func TestBuildManifestPayloadReturnsNilWhenAndroidProjectAbsent(t *testing.T) {
+	if got := buildManifestPayload(nil); got != nil {
+		t.Errorf("nil project must yield nil payload, got %+v", got)
+	}
+	if got := buildManifestPayload(&android.Project{}); got != nil {
+		t.Errorf("empty manifest paths must yield nil payload, got %+v", got)
+	}
+}
+
+func TestBuildResourcesPayloadEncodesNameValuePairs(t *testing.T) {
+	dir := t.TempDir()
+	valuesDir := filepath.Join(dir, "values")
+	if err := os.MkdirAll(valuesDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	const stringsXml = `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Acme</string>
+    <string name="ok">OK</string>
+    <color name="primary">#FF0000</color>
+    <dimen name="margin_default">16dp</dimen>
+</resources>`
+	if err := os.WriteFile(filepath.Join(valuesDir, "strings.xml"), []byte(stringsXml), 0o644); err != nil {
+		t.Fatalf("write strings.xml: %v", err)
+	}
+	project := &android.Project{ResDirs: []string{dir}}
+	got := buildResourcesPayload(project)
+	if got == nil {
+		t.Fatal("expected non-nil payload")
+	}
+	// Order is enforced by sort.Strings in buildResourcesPayload.
+	if !reflect.DeepEqual(got.Strings, []string{"app_name=Acme", "ok=OK"}) {
+		t.Errorf("Strings = %v", got.Strings)
+	}
+	if !reflect.DeepEqual(got.Colors, []string{"primary=#FF0000"}) {
+		t.Errorf("Colors = %v", got.Colors)
+	}
+	if !reflect.DeepEqual(got.Dimensions, []string{"margin_default=16dp"}) {
+		t.Errorf("Dimensions = %v", got.Dimensions)
+	}
+}
+
+func TestBuildResourcesPayloadReturnsNilForEmptyProject(t *testing.T) {
+	if got := buildResourcesPayload(nil); got != nil {
+		t.Errorf("nil project must yield nil payload, got %+v", got)
+	}
+	if got := buildResourcesPayload(&android.Project{}); got != nil {
+		t.Errorf("empty res dirs must yield nil payload, got %+v", got)
+	}
+}
+
+func TestBuildModulesPayloadEncodesPipeDelimitedEntries(t *testing.T) {
+	graph := module.NewModuleGraph("/abs/root")
+	graph.Modules[":app"] = &module.Module{
+		Path: ":app",
+		Dir:  "/abs/app",
+		Dependencies: []module.Dependency{
+			{ModulePath: ":core", Configuration: "implementation"},
+			{ModulePath: ":data", Configuration: "implementation"},
+		},
+		SourceRoots: []string{"/abs/app/src/main/kotlin"},
+	}
+	graph.Modules[":core"] = &module.Module{Path: ":core", Dir: "/abs/core"}
+	got := buildModulesPayload(graph)
+	if got == nil {
+		t.Fatal("expected non-nil payload")
+	}
+	// Sorted by path: :app, :core.
+	wantApp := ":app|/abs/app|:core,:data|/abs/app/src/main/kotlin"
+	wantCore := ":core|/abs/core||"
+	if got.Modules[0] != wantApp {
+		t.Errorf("modules[0] = %q, want %q", got.Modules[0], wantApp)
+	}
+	if got.Modules[1] != wantCore {
+		t.Errorf("modules[1] = %q, want %q", got.Modules[1], wantCore)
+	}
+}
+
+func TestBuildModulesPayloadReturnsNilForEmptyGraph(t *testing.T) {
+	if got := buildModulesPayload(nil); got != nil {
+		t.Errorf("nil graph must yield nil payload, got %+v", got)
+	}
+	if got := buildModulesPayload(module.NewModuleGraph("/abs")); got != nil {
+		t.Errorf("empty modules must yield nil payload, got %+v", got)
+	}
+}
+
+func TestBuildCrossFilePayloadEncodesDeclarationsAndReferences(t *testing.T) {
+	index := &scanner.CodeIndex{
+		Symbols: []scanner.Symbol{
+			{FQN: "com.acme.Foo", Kind: "class", File: "/abs/Foo.kt", Line: 10, Visibility: "public"},
+			{FQN: "", Kind: "function"}, // skipped — no FQN
+		},
+		References: []scanner.Reference{
+			{Name: "Foo", File: "/abs/Bar.kt", Line: 5},
+			{Name: "Foo", File: "/abs/Baz.kt", Line: 7},
+			{Name: "Foo", File: "/abs/CommentRef.kt", Line: 3, InComment: true}, // skipped — comment
+			{Name: ""}, // skipped — no name
+		},
+	}
+	got := buildCrossFilePayload(index)
+	if got == nil {
+		t.Fatal("expected non-nil payload")
+	}
+	wantDecls := []string{"com.acme.Foo|class|/abs/Foo.kt|10|public"}
+	if !reflect.DeepEqual(got.Declarations, wantDecls) {
+		t.Errorf("Declarations = %v, want %v", got.Declarations, wantDecls)
+	}
+	wantRefs := []string{"Foo|/abs/Bar.kt,/abs/Baz.kt"}
+	if !reflect.DeepEqual(got.NonCommentRefsByName, wantRefs) {
+		t.Errorf("NonCommentRefsByName = %v, want %v", got.NonCommentRefsByName, wantRefs)
+	}
+}
+
+func TestBuildCrossFilePayloadReturnsNilForEmptyIndex(t *testing.T) {
+	if got := buildCrossFilePayload(nil); got != nil {
+		t.Errorf("nil index must yield nil payload, got %+v", got)
+	}
+	if got := buildCrossFilePayload(&scanner.CodeIndex{}); got != nil {
+		t.Errorf("empty index must yield nil payload, got %+v", got)
 	}
 }

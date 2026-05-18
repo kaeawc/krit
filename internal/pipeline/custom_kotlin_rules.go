@@ -4,20 +4,29 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/librarymodel"
+	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// capabilityNeedsGradle mirrors `Capability.NEEDS_GRADLE.name` from
-// tools/krit-rule-api. Kept as a const so a typo can't silently turn
-// the gradle plumb into a no-op.
-const capabilityNeedsGradle = "NEEDS_GRADLE"
+// capabilityNeeds* mirror the `Capability.NEEDS_*.name` values from
+// tools/krit-rule-api. Kept as constants so a typo can't silently turn
+// the plumbing into a no-op.
+const (
+	capabilityNeedsGradle      = "NEEDS_GRADLE"
+	capabilityNeedsManifest    = "NEEDS_MANIFEST"
+	capabilityNeedsResources   = "NEEDS_RESOURCES"
+	capabilityNeedsModuleIndex = "NEEDS_MODULE_INDEX"
+	capabilityNeedsCrossFile   = "NEEDS_CROSS_FILE"
+)
 
 func runKotlinPluginRulesAndMerge(ctx context.Context, args ProjectArgs, host ProjectHostState, indexResult IndexResult, crossFileResult *CrossFileResult, bundleHit bool) error {
 	if len(args.CustomRuleJars) == 0 || bundleHit {
@@ -44,8 +53,24 @@ func runKotlinPluginRulesAndMerge(ctx context.Context, args ProjectArgs, host Pr
 	}
 
 	var gradlePayload *oracle.PluginGradleProfile
-	if anyRuleNeedsGradle(list.Rules, ruleIDs) && indexResult.LibraryFacts != nil {
+	if anyRuleNeedsCapability(list.Rules, ruleIDs, capabilityNeedsGradle) && indexResult.LibraryFacts != nil {
 		gradlePayload = buildGradlePayload(&indexResult.LibraryFacts.Profile)
+	}
+	var manifestPayload *oracle.PluginManifestProfile
+	if anyRuleNeedsCapability(list.Rules, ruleIDs, capabilityNeedsManifest) {
+		manifestPayload = buildManifestPayload(indexResult.AndroidProject)
+	}
+	var resourcesPayload *oracle.PluginResourcesProfile
+	if anyRuleNeedsCapability(list.Rules, ruleIDs, capabilityNeedsResources) {
+		resourcesPayload = buildResourcesPayload(indexResult.AndroidProject)
+	}
+	var modulesPayload *oracle.PluginModulesProfile
+	if anyRuleNeedsCapability(list.Rules, ruleIDs, capabilityNeedsModuleIndex) {
+		modulesPayload = buildModulesPayload(indexResult.Graph)
+	}
+	var crossFilePayload *oracle.PluginCrossFileProfile
+	if anyRuleNeedsCapability(list.Rules, ruleIDs, capabilityNeedsCrossFile) {
+		crossFilePayload = buildCrossFilePayload(indexResult.CodeIndex)
 	}
 
 	collector := scanner.NewFindingCollector(crossFileResult.Findings.Len())
@@ -59,7 +84,7 @@ func runKotlinPluginRulesAndMerge(ctx context.Context, args ProjectArgs, host Pr
 			return ctx.Err()
 		default:
 		}
-		result, err := daemon.AnalyzePluginFile(args.CustomRuleJars, file.Path, file.Content, ruleIDs, ruleOptions, gradlePayload)
+		result, err := daemon.AnalyzePluginFile(args.CustomRuleJars, file.Path, file.Content, ruleIDs, ruleOptions, gradlePayload, manifestPayload, resourcesPayload, modulesPayload, crossFilePayload)
 		if err != nil {
 			return fmt.Errorf("run Kotlin custom rules on %s: %w", file.Path, err)
 		}
@@ -74,11 +99,11 @@ func runKotlinPluginRulesAndMerge(ctx context.Context, args ProjectArgs, host Pr
 	return nil
 }
 
-// anyRuleNeedsGradle reports whether any of the selected rules declared
-// NEEDS_GRADLE. Callers use this to skip building the Gradle wire
-// payload when no rule will read it — keeps the wire size minimal for
-// the common case where rules only need source.
-func anyRuleNeedsGradle(loaded []oracle.PluginRuleDescriptor, selected []string) bool {
+// anyRuleNeedsCapability reports whether any of the selected rules
+// declared the named capability. Callers use this to skip building the
+// matching wire payload when no rule will read it — keeps the wire
+// size minimal for the common case where rules only need source.
+func anyRuleNeedsCapability(loaded []oracle.PluginRuleDescriptor, selected []string, capability string) bool {
 	if len(selected) == 0 {
 		return false
 	}
@@ -91,7 +116,7 @@ func anyRuleNeedsGradle(loaded []oracle.PluginRuleDescriptor, selected []string)
 			continue
 		}
 		for _, need := range rule.Needs {
-			if need == capabilityNeedsGradle {
+			if need == capability {
 				return true
 			}
 		}
@@ -145,6 +170,226 @@ func uniqueStrings(in []string) []string {
 		}
 	}
 	return in[:w]
+}
+
+// buildManifestPayload parses the first AndroidManifest.xml the
+// AndroidProject detector found and projects it into the narrow wire
+// schema the krit-types daemon expects. Returns nil when no manifest
+// path is known or the file cannot be parsed — the daemon then leaves
+// `RuleContext.manifest` null for the rule.
+func buildManifestPayload(project *android.Project) *oracle.PluginManifestProfile {
+	if project == nil || len(project.ManifestPaths) == 0 {
+		return nil
+	}
+	var manifest *android.Manifest
+	for _, path := range project.ManifestPaths {
+		parsed, err := android.ParseManifest(path)
+		if err == nil && parsed != nil {
+			manifest = parsed
+			break
+		}
+	}
+	if manifest == nil {
+		return nil
+	}
+	out := &oracle.PluginManifestProfile{
+		Package:   manifest.Package,
+		MinSdk:    parseSdkInt(manifest.UsesSdk.MinSdkVersion),
+		TargetSdk: parseSdkInt(manifest.UsesSdk.TargetSdkVersion),
+	}
+	for _, p := range manifest.UsesPermissions {
+		if p.Name != "" {
+			out.Permissions = append(out.Permissions, p.Name)
+		}
+	}
+	for _, a := range manifest.Application.Activities {
+		if a.Name == "" {
+			continue
+		}
+		out.Activities = append(out.Activities, a.Name)
+		if android.IsExported(android.Component{Name: a.Name, Exported: a.Exported, Permission: a.Permission}, len(a.IntentFilters) > 0) {
+			out.ExportedActivities = append(out.ExportedActivities, a.Name)
+		}
+	}
+	for _, s := range manifest.Application.Services {
+		if s.Name == "" {
+			continue
+		}
+		out.Services = append(out.Services, s.Name)
+		if android.IsExported(android.Component{Name: s.Name, Exported: s.Exported, Permission: s.Permission}, len(s.IntentFilters) > 0) {
+			out.ExportedServices = append(out.ExportedServices, s.Name)
+		}
+	}
+	for _, r := range manifest.Application.Receivers {
+		if r.Name == "" {
+			continue
+		}
+		out.Receivers = append(out.Receivers, r.Name)
+		if android.IsExported(android.Component{Name: r.Name, Exported: r.Exported, Permission: r.Permission}, len(r.IntentFilters) > 0) {
+			out.ExportedReceivers = append(out.ExportedReceivers, r.Name)
+		}
+	}
+	return out
+}
+
+func parseSdkInt(raw string) int {
+	if raw == "" {
+		return 0
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 0 {
+		return 0
+	}
+	return v
+}
+
+// buildResourcesPayload scans every res/ directory the AndroidProject
+// detector found and projects the merged ResourceIndex into the wire
+// schema. Strings/colors/dimensions are encoded as `"name=value"`
+// strings so the daemon-side parser can lean on `extractJsonStringArray`.
+// Returns nil when no res/ dir is known or scanning fails entirely.
+func buildResourcesPayload(project *android.Project) *oracle.PluginResourcesProfile {
+	if project == nil || len(project.ResDirs) == 0 {
+		return nil
+	}
+	merged := &android.ResourceIndex{}
+	for _, dir := range project.ResDirs {
+		idx, err := android.ScanResourceDir(dir)
+		if err != nil || idx == nil {
+			continue
+		}
+		merged = android.MergeResourceIndexes(merged, idx)
+	}
+	out := &oracle.PluginResourcesProfile{}
+	for name, value := range merged.Strings {
+		out.Strings = append(out.Strings, name+"="+value)
+	}
+	for name, value := range merged.Colors {
+		out.Colors = append(out.Colors, name+"="+value)
+	}
+	for name, value := range merged.Dimensions {
+		out.Dimensions = append(out.Dimensions, name+"="+value)
+	}
+	for name := range merged.Layouts {
+		out.Layouts = append(out.Layouts, name)
+	}
+	for name := range merged.IDs {
+		out.IDs = append(out.IDs, name)
+	}
+	out.Drawables = append(out.Drawables, merged.Drawables...)
+	sort.Strings(out.Strings)
+	sort.Strings(out.Drawables)
+	sort.Strings(out.Layouts)
+	sort.Strings(out.Colors)
+	sort.Strings(out.Dimensions)
+	sort.Strings(out.IDs)
+	// Drawables is the only field built from a slice (across multi-res/
+	// configurations), so only it can carry true duplicates after merge;
+	// the map-sourced fields are unique by construction.
+	out.Drawables = uniqueStrings(out.Drawables)
+	if len(out.Strings) == 0 && len(out.Drawables) == 0 && len(out.Layouts) == 0 &&
+		len(out.Colors) == 0 && len(out.Dimensions) == 0 && len(out.IDs) == 0 {
+		return nil
+	}
+	return out
+}
+
+// buildModulesPayload encodes each Gradle module as a single
+// pipe-delimited `"path|directory|dependsOn,..|sourceRoots,..."` string.
+// Gradle module paths never contain pipes or commas, so the encoding
+// stays unambiguous without escaping.
+func buildModulesPayload(graph *module.Graph) *oracle.PluginModulesProfile {
+	if graph == nil || len(graph.Modules) == 0 {
+		return nil
+	}
+	paths := make([]string, 0, len(graph.Modules))
+	for path := range graph.Modules {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	out := &oracle.PluginModulesProfile{}
+	for _, path := range paths {
+		mod := graph.Modules[path]
+		if mod == nil {
+			continue
+		}
+		deps := make([]string, 0, len(mod.Dependencies))
+		for _, dep := range mod.Dependencies {
+			if dep.ModulePath != "" {
+				deps = append(deps, dep.ModulePath)
+			}
+		}
+		out.Modules = append(out.Modules, strings.Join([]string{
+			mod.Path,
+			mod.Dir,
+			strings.Join(deps, ","),
+			strings.Join(mod.SourceRoots, ","),
+		}, "|"))
+	}
+	if len(out.Modules) == 0 {
+		return nil
+	}
+	return out
+}
+
+// buildCrossFilePayload projects the scanner.CodeIndex into the wire
+// schema: declarations as `"fqn|kind|file|line|visibility"` and
+// references pre-grouped by name as `"name|file1,file2,..."` (only
+// non-comment references count, mirroring the dead-code use case the
+// index is most often used for).
+func buildCrossFilePayload(index *scanner.CodeIndex) *oracle.PluginCrossFileProfile {
+	if index == nil {
+		return nil
+	}
+	out := &oracle.PluginCrossFileProfile{}
+	if len(index.Symbols) > 0 {
+		out.Declarations = make([]string, 0, len(index.Symbols))
+		for _, sym := range index.Symbols {
+			if sym.FQN == "" {
+				continue
+			}
+			out.Declarations = append(out.Declarations, strings.Join([]string{
+				sym.FQN,
+				sym.Kind,
+				sym.File,
+				strconv.Itoa(sym.Line),
+				sym.Visibility,
+			}, "|"))
+		}
+		sort.Strings(out.Declarations)
+	}
+	if len(index.References) > 0 {
+		filesByName := map[string][]string{}
+		seenPerName := map[string]map[string]struct{}{}
+		for _, ref := range index.References {
+			if ref.Name == "" || ref.InComment {
+				continue
+			}
+			if seenPerName[ref.Name] == nil {
+				seenPerName[ref.Name] = map[string]struct{}{}
+			}
+			if _, ok := seenPerName[ref.Name][ref.File]; ok {
+				continue
+			}
+			seenPerName[ref.Name][ref.File] = struct{}{}
+			filesByName[ref.Name] = append(filesByName[ref.Name], ref.File)
+		}
+		names := make([]string, 0, len(filesByName))
+		for name := range filesByName {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		out.NonCommentRefsByName = make([]string, 0, len(names))
+		for _, name := range names {
+			files := filesByName[name]
+			sort.Strings(files)
+			out.NonCommentRefsByName = append(out.NonCommentRefsByName, name+"|"+strings.Join(files, ","))
+		}
+	}
+	if len(out.Declarations) == 0 && len(out.NonCommentRefsByName) == 0 {
+		return nil
+	}
+	return out
 }
 
 // selectPluginRules picks which jar-loaded rules to dispatch and collects

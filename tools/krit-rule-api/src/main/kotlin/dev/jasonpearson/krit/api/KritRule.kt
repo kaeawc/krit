@@ -145,6 +145,174 @@ interface GradleContext {
 }
 
 /**
+ * Parsed `AndroidManifest.xml` view. Available on [RuleContext.manifest]
+ * when the rule declares [Capability.NEEDS_MANIFEST] and the daemon
+ * detected an `AndroidManifest.xml` in the project (a pure Kotlin
+ * library project leaves this null).
+ *
+ * The surface is intentionally narrow: scalar attributes for the most
+ * common access patterns, plus query methods for the unbounded
+ * collections (`<uses-permission>`, components). Walk the file directly
+ * via `KritFile` if a rule needs richer manifest evidence than this
+ * exposes.
+ */
+interface ManifestContext {
+    /** `<manifest package="...">`, or null when unparseable. */
+    val packageName: String?
+
+    /** `<uses-sdk android:minSdkVersion="...">`, or null when unset. */
+    val minSdk: Int?
+
+    /** `<uses-sdk android:targetSdkVersion="...">`, or null when unset. */
+    val targetSdk: Int?
+
+    /** Returns true when the manifest lists `<uses-permission android:name="[name]"/>`. */
+    fun hasPermission(name: String): Boolean
+
+    /** Returns true when an `<activity android:name="[name]"/>` is declared. */
+    fun hasActivity(name: String): Boolean
+
+    /**
+     * Returns true when the named activity is exported. A component is
+     * considered exported when `android:exported="true"`, or when the
+     * attribute is unset and the component declares at least one
+     * `<intent-filter>` (the pre-API-31 implicit-export default).
+     * Returns false when the activity is not declared.
+     */
+    fun isActivityExported(name: String): Boolean
+
+    /** Returns true when a `<service android:name="[name]"/>` is declared. */
+    fun hasService(name: String): Boolean
+
+    /**
+     * Returns true when the named service is exported (same semantics
+     * as [isActivityExported]).
+     */
+    fun isServiceExported(name: String): Boolean
+
+    /** Returns true when a `<receiver android:name="[name]"/>` is declared. */
+    fun hasReceiver(name: String): Boolean
+
+    /**
+     * Returns true when the named receiver is exported (same semantics
+     * as [isActivityExported]).
+     */
+    fun isReceiverExported(name: String): Boolean
+}
+
+/**
+ * Parsed `res/` tree. Available on [RuleContext.resources] when the
+ * rule declares [Capability.NEEDS_RESOURCES] and the daemon detected
+ * at least one Android `res/` directory.
+ *
+ * Lookups are by resource name (the identifier you'd reference as
+ * `R.string.foo` / `R.drawable.bar` from code). Values are the rendered
+ * resource value (translatable string, hex color, dimension literal).
+ * `hasXxx(name)` is cheaper than `xxxValue(name) != null` because it
+ * skips the rendered-value lookup.
+ */
+interface ResourcesContext {
+    /** Returns the `@string/[name]` value, or null when undeclared. */
+    fun stringValue(name: String): String?
+
+    /** Returns true when `@string/[name]` is declared. */
+    fun hasString(name: String): Boolean
+
+    /** Returns true when `@drawable/[name]` is declared. */
+    fun hasDrawable(name: String): Boolean
+
+    /** Returns true when `@layout/[name]` is declared. */
+    fun hasLayout(name: String): Boolean
+
+    /** Returns the `@color/[name]` value (hex), or null when undeclared. */
+    fun colorValue(name: String): String?
+
+    /** Returns true when `@color/[name]` is declared. */
+    fun hasColor(name: String): Boolean
+
+    /** Returns the `@dimen/[name]` value (e.g. `"16dp"`), or null when undeclared. */
+    fun dimensionValue(name: String): String?
+
+    /** Returns true when `@dimen/[name]` is declared. */
+    fun hasDimension(name: String): Boolean
+
+    /** Returns true when `@+id/[name]` is declared in any layout. */
+    fun hasId(name: String): Boolean
+}
+
+/**
+ * Gradle module identity + per-module dependency graph. Available on
+ * [RuleContext.moduleIndex] when the rule declares
+ * [Capability.NEEDS_MODULE_INDEX] and the daemon discovered at least
+ * one Gradle module.
+ *
+ * `modulePaths` is the list of Gradle paths (`:app`, `:core:util`) in
+ * the order the daemon discovered them. Use the lookup methods rather
+ * than walking the list directly when you only care about one module.
+ */
+interface ModuleIndexContext {
+    /** Discovered Gradle module paths, in daemon-discovery order. */
+    val modulePaths: List<String>
+
+    /** Returns the absolute filesystem directory for `[modulePath]`, or null. */
+    fun directoryOf(modulePath: String): String?
+
+    /**
+     * Returns the Gradle paths the named module declares as project
+     * dependencies (any configuration). Empty list when the module has
+     * no project deps or is not in the index.
+     */
+    fun dependenciesOf(modulePath: String): List<String>
+
+    /**
+     * Returns the source-root directories for `[modulePath]`. Empty
+     * list when the module has no declared source roots or is not in
+     * the index.
+     */
+    fun sourceRootsOf(modulePath: String): List<String>
+}
+
+/**
+ * Cross-file declaration / reference index. Available on
+ * [RuleContext.crossFile] when the rule declares
+ * [Capability.NEEDS_CROSS_FILE] and the daemon's cross-file pass ran.
+ *
+ * The wire payload can be sizable on large projects — declare this
+ * capability only when the rule genuinely needs whole-project
+ * visibility. The query API stays narrow: FQN → declaration site, and
+ * unqualified name → list of files that mention it.
+ */
+interface CrossFileContext {
+    /** Returns the declaration site for `[fqn]` (e.g. `com.acme.Foo`), or null. */
+    fun declarationByFqn(fqn: String): CrossFileDeclaration?
+
+    /**
+     * Returns the list of files that contain at least one non-comment
+     * reference to the unqualified identifier `[name]`. Returns an
+     * empty list when the name is unreferenced.
+     */
+    fun referenceFiles(name: String): List<String>
+
+    /**
+     * Returns true when at least one non-comment file references the
+     * unqualified identifier `[name]`.
+     */
+    fun isReferenced(name: String): Boolean
+}
+
+/**
+ * One declaration site surfaced through [CrossFileContext]. `kind` is
+ * one of `class`, `interface`, `object`, `function`, `property`.
+ */
+data class CrossFileDeclaration(
+    val fqn: String,
+    val kind: String,
+    val file: String,
+    val line: Int,
+    val visibility: String? = null,
+)
+
+/**
  * Per-invocation context passed to custom rules.
  *
  * `config` is the per-rule options map from the consumer's `krit.yml`:
@@ -173,6 +341,30 @@ class RuleContext(
      * facts for the project.
      */
     val gradle: GradleContext? = null,
+    /**
+     * Parsed `AndroidManifest.xml` view. Non-null only when the rule
+     * declared [Capability.NEEDS_MANIFEST] and the project ships a
+     * parseable `AndroidManifest.xml`.
+     */
+    val manifest: ManifestContext? = null,
+    /**
+     * Parsed `res/` tree. Non-null only when the rule declared
+     * [Capability.NEEDS_RESOURCES] and the project ships at least one
+     * Android `res/` directory.
+     */
+    val resources: ResourcesContext? = null,
+    /**
+     * Gradle module identity + dependency graph. Non-null only when
+     * the rule declared [Capability.NEEDS_MODULE_INDEX] and the daemon
+     * discovered at least one Gradle module.
+     */
+    val moduleIndex: ModuleIndexContext? = null,
+    /**
+     * Cross-file declaration / reference index. Non-null only when the
+     * rule declared [Capability.NEEDS_CROSS_FILE] and the daemon's
+     * cross-file pass ran.
+     */
+    val crossFile: CrossFileContext? = null,
 ) {
     /** Returns the [key] option as a String, or [default] if absent / wrong type. */
     fun stringOption(key: String, default: String = ""): String =
@@ -243,18 +435,14 @@ enum class Maturity { STABLE, EXPERIMENTAL, DEPRECATED }
 /**
  * Capabilities a custom rule needs from the Krit daemon.
  *
- * Each value documents which `RuleContext` hook the daemon wires up when
- * the rule declares it. Capabilities marked `@Deprecated` are not yet
- * delivered to plugin rules — declaring one of those fails the jar at
- * load time with a clear message (see `PluginRules.kt`). The
- * load-time gate exists so a typo or a too-optimistic declaration
- * cannot silently degrade to "rule runs without the facts it asked
- * for". Tracked on https://github.com/kaeawc/krit/issues/357.
+ * Each value documents which `RuleContext` hook the daemon wires up
+ * when the rule declares it. The daemon either delivers the fact into
+ * `RuleContext` or refuses to load the jar — there is no third
+ * "advisory" state. See `docs/external-rules.md#capability-semantics`
+ * for the user-facing matrix.
  *
  * Adding a new capability is a minor-version change (additive, default
- * not-required). Promoting a deprecated entry to "supported" is also a
- * minor-version change. Removing a deprecated entry is a major-version
- * change.
+ * not-required). Removing a capability is a major-version change.
  */
 enum class Capability {
     /**
@@ -264,20 +452,17 @@ enum class Capability {
      */
     NEEDS_RESOLVER,
 
-    @Deprecated(
-        message = "NEEDS_CROSS_FILE is not yet delivered to plugin rules. " +
-            "Declaring it causes the rule jar to fail at load time. Tracked " +
-            "on https://github.com/kaeawc/krit/issues/357.",
-        level = DeprecationLevel.WARNING,
-    )
+    /**
+     * Populates [RuleContext.crossFile] with a [CrossFileContext] view
+     * of declarations and references indexed across the project.
+     */
     NEEDS_CROSS_FILE,
 
-    @Deprecated(
-        message = "NEEDS_MODULE_INDEX is not yet delivered to plugin rules. " +
-            "Declaring it causes the rule jar to fail at load time. Tracked " +
-            "on https://github.com/kaeawc/krit/issues/357.",
-        level = DeprecationLevel.WARNING,
-    )
+    /**
+     * Populates [RuleContext.moduleIndex] with a [ModuleIndexContext]
+     * view of every discovered Gradle module and its declared
+     * project-dependency edges.
+     */
     NEEDS_MODULE_INDEX,
 
     /**
@@ -289,20 +474,17 @@ enum class Capability {
      */
     NEEDS_PARSED_FILES,
 
-    @Deprecated(
-        message = "NEEDS_MANIFEST is not yet delivered to plugin rules. " +
-            "Declaring it causes the rule jar to fail at load time. Tracked " +
-            "on https://github.com/kaeawc/krit/issues/357.",
-        level = DeprecationLevel.WARNING,
-    )
+    /**
+     * Populates [RuleContext.manifest] with a [ManifestContext] view
+     * of the project's parsed `AndroidManifest.xml`.
+     */
     NEEDS_MANIFEST,
 
-    @Deprecated(
-        message = "NEEDS_RESOURCES is not yet delivered to plugin rules. " +
-            "Declaring it causes the rule jar to fail at load time. Tracked " +
-            "on https://github.com/kaeawc/krit/issues/357.",
-        level = DeprecationLevel.WARNING,
-    )
+    /**
+     * Populates [RuleContext.resources] with a [ResourcesContext] view
+     * of the project's parsed `res/` tree (strings, drawables,
+     * layouts, colors, dimens, ids).
+     */
     NEEDS_RESOURCES,
 
     /**

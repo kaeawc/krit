@@ -340,13 +340,82 @@ type PluginGradleProfile struct {
 	Deps              []string `json:"deps,omitempty"`
 }
 
-// AnalyzePluginFile runs selected Kotlin custom rules against one source file.
-// ruleConfigs maps each rule ID to its configured `options` map; an empty
-// or nil map is omitted from the request so the daemon's RuleContext.config
-// stays empty for those rules. gradle is forwarded only when at least one
-// selected rule declared NEEDS_GRADLE — keeps wire size minimal for the
-// common case.
-func (d *Daemon) AnalyzePluginFile(jars []string, path string, source []byte, ruleIDs []string, ruleConfigs map[string]map[string]interface{}, gradle *PluginGradleProfile) (AnalyzePluginFileResult, error) {
+// PluginManifestProfile is the wire payload that backs `RuleContext.manifest`
+// on the Kotlin side. See `ManifestContext` in tools/krit-rule-api for the
+// rule-facing surface and `ManifestProfilePayload` in tools/krit-types for
+// the daemon-side mirror. ExportedActivities / ExportedServices /
+// ExportedReceivers are the subsets of the corresponding name lists that
+// declare `android:exported="true"`; the Kotlin side builds a HashSet on
+// first lookup.
+type PluginManifestProfile struct {
+	Package            string   `json:"package,omitempty"`
+	MinSdk             int      `json:"minSdk,omitempty"`
+	TargetSdk          int      `json:"targetSdk,omitempty"`
+	Permissions        []string `json:"permissions,omitempty"`
+	Activities         []string `json:"activities,omitempty"`
+	ExportedActivities []string `json:"exportedActivities,omitempty"`
+	Services           []string `json:"services,omitempty"`
+	ExportedServices   []string `json:"exportedServices,omitempty"`
+	Receivers          []string `json:"receivers,omitempty"`
+	ExportedReceivers  []string `json:"exportedReceivers,omitempty"`
+}
+
+// PluginResourcesProfile is the wire payload that backs
+// `RuleContext.resources`. See `ResourcesContext` in tools/krit-rule-api
+// for the rule-facing surface. Strings/Colors/Dimensions are flat
+// `"name=value"` lists so the daemon-side parser can lean on the same
+// `extractJsonStringArray` it uses for the gradle deps list; the parser
+// splits on the first `=` so values containing `=` round-trip cleanly.
+type PluginResourcesProfile struct {
+	Strings    []string `json:"strings,omitempty"`
+	Drawables  []string `json:"drawables,omitempty"`
+	Layouts    []string `json:"layouts,omitempty"`
+	Colors     []string `json:"colors,omitempty"`
+	Dimensions []string `json:"dimensions,omitempty"`
+	IDs        []string `json:"ids,omitempty"`
+}
+
+// PluginModulesProfile is the wire payload that backs
+// `RuleContext.moduleIndex`. See `ModuleIndexContext` in tools/krit-rule-api
+// for the rule-facing surface. Each module is encoded as a single
+// `"path|directory|dependsOn,..|sourceRoots,..."` pipe-delimited string
+// — Gradle module paths never contain pipes or commas, so the encoding
+// stays unambiguous without escaping.
+type PluginModulesProfile struct {
+	Modules []string `json:"modules,omitempty"`
+}
+
+// PluginCrossFileProfile is the wire payload that backs
+// `RuleContext.crossFile`. See `CrossFileContext` in tools/krit-rule-api
+// for the rule-facing surface. Declarations are encoded as
+// `"fqn|kind|file|line|visibility"` strings; NonCommentRefsByName as
+// `"name|file1,file2,..."` strings (non-comment references only) so the
+// daemon can answer the two query methods without rehashing every entry.
+type PluginCrossFileProfile struct {
+	Declarations         []string `json:"declarations,omitempty"`
+	NonCommentRefsByName []string `json:"nonCommentRefsByName,omitempty"`
+}
+
+// AnalyzePluginFile runs selected Kotlin custom rules against one source
+// file. ruleConfigs maps each rule ID to its configured `options` map; an
+// empty or nil map is omitted from the request so the daemon's
+// RuleContext.config stays empty for those rules. Each project-scope
+// payload (gradle / manifest / resources / moduleIndex / crossFile) is
+// forwarded only when at least one selected rule declared the matching
+// capability — keeps wire size minimal for the common case where most
+// rules only need source.
+func (d *Daemon) AnalyzePluginFile(
+	jars []string,
+	path string,
+	source []byte,
+	ruleIDs []string,
+	ruleConfigs map[string]map[string]interface{},
+	gradle *PluginGradleProfile,
+	manifest *PluginManifestProfile,
+	resources *PluginResourcesProfile,
+	modules *PluginModulesProfile,
+	crossFile *PluginCrossFileProfile,
+) (AnalyzePluginFileResult, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -361,6 +430,18 @@ func (d *Daemon) AnalyzePluginFile(jars []string, path string, source []byte, ru
 	}
 	if gradle != nil {
 		params["gradle"] = gradle
+	}
+	if manifest != nil {
+		params["manifest"] = manifest
+	}
+	if resources != nil {
+		params["resources"] = resources
+	}
+	if modules != nil {
+		params["moduleIndex"] = modules
+	}
+	if crossFile != nil {
+		params["crossFile"] = crossFile
 	}
 	result, err := d.sendResult("analyzeFile", params)
 	if err != nil {

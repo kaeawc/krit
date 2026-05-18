@@ -10,34 +10,18 @@ class PluginCapabilitiesTest {
     private val jar = "/tmp/acme-rules.jar"
 
     @Test
-    fun resolverAndParsedFilesAreSupported() {
-        assertTrue(PluginCapabilities.unsupported(listOf(Capability.NEEDS_RESOLVER.name)).isEmpty())
-        assertTrue(PluginCapabilities.unsupported(listOf(Capability.NEEDS_PARSED_FILES.name)).isEmpty())
-    }
-
-    @Suppress("DEPRECATION")
-    @Test
-    fun unsupportedListsEveryDeprecatedCapability() {
-        val unsupported = PluginCapabilities.unsupported(
-            listOf(
-                Capability.NEEDS_RESOLVER.name,
-                Capability.NEEDS_CROSS_FILE.name,
-                Capability.NEEDS_MODULE_INDEX.name,
-                Capability.NEEDS_PARSED_FILES.name,
-                Capability.NEEDS_MANIFEST.name,
-                Capability.NEEDS_RESOURCES.name,
-                Capability.NEEDS_GRADLE.name,
-            ),
-        )
-        assertEquals(
-            listOf(
-                Capability.NEEDS_CROSS_FILE.name,
-                Capability.NEEDS_MODULE_INDEX.name,
-                Capability.NEEDS_MANIFEST.name,
-                Capability.NEEDS_RESOURCES.name,
-            ),
-            unsupported,
-        )
+    fun everyEnumValueIsSupported() {
+        // Issue #357 promotes the final four `@Deprecated` capabilities
+        // (MANIFEST, RESOURCES, MODULE_INDEX, CROSS_FILE) to supported.
+        // A Capability enum value must be either in SUPPORTED or
+        // removed from the enum entirely — there is no third
+        // "advisory" state.
+        for (capability in Capability.values()) {
+            assertTrue(
+                PluginCapabilities.unsupported(listOf(capability.name)).isEmpty(),
+                "$capability should be supported but unsupported() returned a non-empty list",
+            )
+        }
     }
 
     @Test
@@ -56,7 +40,6 @@ class PluginCapabilitiesTest {
         assertEquals(listOf("NEEDS_TIME_TRAVEL"), unsupported)
     }
 
-    @Suppress("DEPRECATION")
     @Test
     fun loadDiagnosticIsErrorLevelWithRuleIdAndCapability() {
         val diagnostic = PluginCapabilities.buildLoadDiagnostic(
@@ -64,10 +47,10 @@ class PluginCapabilitiesTest {
             ruleSdkVersion = "1.2.3",
             daemonSdkVersion = "1.2.3",
             violations = listOf(
-                CapabilityViolation("acme.NoTodo", listOf(Capability.NEEDS_GRADLE.name)),
+                CapabilityViolation("acme.NoTodo", listOf("NEEDS_TIME_TRAVEL")),
                 CapabilityViolation(
                     "acme.NoFixme",
-                    listOf(Capability.NEEDS_MANIFEST.name, Capability.NEEDS_RESOURCES.name),
+                    listOf("NEEDS_QUANTUM_TUNNEL", "NEEDS_WORMHOLE"),
                 ),
             ),
         )
@@ -77,16 +60,15 @@ class PluginCapabilitiesTest {
         assertEquals("1.2.3", diagnostic.daemonSdkVersion)
         assertTrue(diagnostic.message.contains("acme.NoTodo"), diagnostic.message)
         assertTrue(diagnostic.message.contains("acme.NoFixme"), diagnostic.message)
-        assertTrue(diagnostic.message.contains(Capability.NEEDS_GRADLE.name), diagnostic.message)
-        assertTrue(diagnostic.message.contains(Capability.NEEDS_MANIFEST.name), diagnostic.message)
-        assertTrue(diagnostic.message.contains(Capability.NEEDS_RESOURCES.name), diagnostic.message)
+        assertTrue(diagnostic.message.contains("NEEDS_TIME_TRAVEL"), diagnostic.message)
+        assertTrue(diagnostic.message.contains("NEEDS_QUANTUM_TUNNEL"), diagnostic.message)
+        assertTrue(diagnostic.message.contains("NEEDS_WORMHOLE"), diagnostic.message)
         assertTrue(
             diagnostic.message.contains(PluginCapabilities.TRACKING_ISSUE_URL),
             diagnostic.message,
         )
     }
 
-    @Suppress("DEPRECATION")
     @Test
     fun loadDiagnosticOrdersRulesAlphabeticallyForDeterminism() {
         val diagnostic = PluginCapabilities.buildLoadDiagnostic(
@@ -94,8 +76,8 @@ class PluginCapabilitiesTest {
             ruleSdkVersion = "1.2.3",
             daemonSdkVersion = "1.2.3",
             violations = listOf(
-                CapabilityViolation("z.RuleZ", listOf(Capability.NEEDS_GRADLE.name)),
-                CapabilityViolation("a.RuleA", listOf(Capability.NEEDS_MANIFEST.name)),
+                CapabilityViolation("z.RuleZ", listOf("NEEDS_TIME_TRAVEL")),
+                CapabilityViolation("a.RuleA", listOf("NEEDS_QUANTUM_TUNNEL")),
             ),
         )
         val idxA = diagnostic.message.indexOf("a.RuleA")

@@ -404,25 +404,49 @@ func cleanStaleDaemonSlot(sourceDirs []string, verbose bool, slot int) {
 		return
 	}
 
-	// Try SIGTERM first, then SIGKILL after timeout
-	proc.Signal(syscall.SIGTERM)
-
-	// Wait up to 5 seconds for graceful exit
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if !isProcessAlive(info.PID) {
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
+	// SIGTERM, then SIGKILL after timeout. The PID file is only removed
+	// once the process is confirmed dead — otherwise a follow-up
+	// StartDaemonWithPort race could write a new PID file while a stale
+	// JVM is still binding the same TCP port. waitUntilDead handles the
+	// "SIGKILL needs more than a few hundred ms" case (loaded host,
+	// kernel reaping lag) with a longer bounded loop.
+	_ = proc.Signal(syscall.SIGTERM)
+	if waitUntilDead(info.PID, 5*time.Second) {
+		removePIDFileSlot(hash, slot)
+		return
 	}
 
-	// Force kill if still alive
-	if isProcessAlive(info.PID) {
-		proc.Signal(syscall.SIGKILL)
-		time.Sleep(500 * time.Millisecond)
+	if verbose {
+		reporter().Verbosef("verbose: SIGTERM ignored by daemon slot %d (PID %d); sending SIGKILL\n", slot, info.PID)
+	}
+	_ = proc.Signal(syscall.SIGKILL)
+	if waitUntilDead(info.PID, 3*time.Second) {
+		removePIDFileSlot(hash, slot)
+		return
 	}
 
+	// SIGKILL didn't take effect within the bound — best-effort report
+	// and drop the PID file anyway so future invocations don't get
+	// wedged on it. The kernel will eventually reap; the worst case is
+	// a brief window where the new daemon's port-0 bind dodges the
+	// zombie's old port (port-0 always picks an unused one).
+	reporter().Verbosef("verbose: daemon slot %d (PID %d) survived SIGKILL within timeout; PID file removed regardless\n", slot, info.PID)
 	removePIDFileSlot(hash, slot)
+}
+
+// waitUntilDead polls isProcessAlive at 100ms intervals up to timeout.
+// Returns true if the process is observed dead before timeout. Used by
+// cleanStaleDaemonSlot to confirm SIGTERM/SIGKILL took effect before
+// removing the PID file.
+func waitUntilDead(pid int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !isProcessAlive(pid) {
+			return true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return !isProcessAlive(pid)
 }
 
 // StartDaemonWithPort launches the krit-types JVM process in daemon mode with

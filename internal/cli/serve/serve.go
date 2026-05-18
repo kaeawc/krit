@@ -143,6 +143,13 @@ func Run(args []string) int {
 	}
 
 	state := newDaemonState(root)
+	// Shut down every oracle JVM child this serve invocation owns
+	// before returning. Shared (PID-file-reused) daemons just drop the
+	// TCP connection; owned daemons get a graceful Shutdown→Kill. The
+	// defer covers normal exit, srv.Wait() return, and signalContext
+	// cancellation — SIGKILL still orphans the children, but that's
+	// the expected ceiling for unrecoverable parent death.
+	defer state.closeOracleDaemons()
 	state.strictVerify = *strictVerifyFlag
 	state.workspace.SetMaxParsedBytes(*maxParseBytesFlag)
 	warmStart := time.Now()
@@ -517,8 +524,16 @@ func (s *daemonState) pingOracleDaemon() {
 	}
 }
 
-// closeOracleDaemons shuts down every cached daemon. Called from the
-// serve shutdown hook so JVM children don't survive their parent.
+// closeOracleDaemons shuts down every cached daemon. Deferred from
+// Run() so the JVM children this serve invocation owns don't survive
+// their parent on normal exit (signalContext cancel, srv.Wait return,
+// or any return path). SIGKILL on serve still orphans the children —
+// they self-terminate on the 30-minute idle timeout in that case.
+//
+// Daemons connected to via PID-file reuse (shared=true) have their
+// TCP connections closed but the underlying process is left alive
+// for the next krit invocation to find. Daemons started by serve
+// (shared=false) get a graceful Shutdown→Kill via Daemon.Close.
 func (s *daemonState) closeOracleDaemons() {
 	if s == nil {
 		return

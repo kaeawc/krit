@@ -33,6 +33,18 @@ func (o OracleWorkspaceIndexer) BuildWorkspaceIndex(ctx context.Context, root st
 		}
 		return nil, err
 	}
+	// Ready, when set, transfers ownership of the daemon handle to the
+	// caller (the LSP server stores it in oracleDaemon and releases on
+	// handleShutdown). When Ready is nil, no one else will release the
+	// connection — drop it on return so the TCP socket and log file
+	// handle don't leak. The daemon process itself stays alive on its
+	// idle timer either way.
+	releaseOnReturn := o.Ready == nil
+	defer func() {
+		if releaseOnReturn {
+			_ = d.Release()
+		}
+	}()
 	if o.Ready != nil {
 		o.Ready(d)
 	}

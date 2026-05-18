@@ -342,6 +342,37 @@ func TestLineModeFix_MultiLine(t *testing.T) {
 	}
 }
 
+// TestLineModeFix_TrailingNewlineIdempotent guards against a regression in
+// applyLineFixes where strings.Split("// noop\n", "\n") yielded
+// ["// noop", ""], so each --fix pass inserted an extra blank line. Two
+// passes with the same Replacement must produce the same content as one.
+func TestLineModeFix_TrailingNewlineIdempotent(t *testing.T) {
+	path := writeTestFile(t, "line1\nline2\nline3")
+	makeFinding := func() scanner.Finding {
+		return finding(path, &scanner.Fix{
+			StartLine:   2,
+			EndLine:     2,
+			Replacement: "// noop\n",
+		})
+	}
+
+	if _, err := ApplyFixes(t.Context(), path, []scanner.Finding{makeFinding()}, ""); err != nil {
+		t.Fatalf("first pass: %v", err)
+	}
+	afterFirst := readFile(t, path)
+	if afterFirst != "line1\n// noop\nline3" {
+		t.Fatalf("after first pass: got %q, want %q", afterFirst, "line1\n// noop\nline3")
+	}
+
+	if _, err := ApplyFixes(t.Context(), path, []scanner.Finding{makeFinding()}, ""); err != nil {
+		t.Fatalf("second pass: %v", err)
+	}
+	afterSecond := readFile(t, path)
+	if afterSecond != afterFirst {
+		t.Fatalf("second pass not idempotent: got %q, want %q", afterSecond, afterFirst)
+	}
+}
+
 // --------------- Edge cases ---------------
 
 func TestNoFixesApplied(t *testing.T) {

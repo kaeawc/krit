@@ -259,9 +259,15 @@ func applyLineFixes(result string, lineFixes []textFixRow, path string) (string,
 		if start < 0 || end > len(lines) || start > end {
 			continue
 		}
-		replacement := strings.Split(fix.Replacement, "\n")
-		if fix.Replacement == "" {
-			replacement = nil
+		// Trim one trailing newline before splitting: `lines` was built
+		// with strings.Split on "\n", so each element is a line without
+		// a trailing newline. A Replacement like "// noop\n" would split
+		// into ["// noop", ""], appending a blank line on every pass and
+		// breaking idempotency. Treat the trailing "\n" as the line
+		// terminator the lines model already implies.
+		var replacement []string
+		if fix.Replacement != "" {
+			replacement = strings.Split(strings.TrimSuffix(fix.Replacement, "\n"), "\n")
 		}
 		newLines := make([]string, 0, len(lines)-end+start+len(replacement))
 		newLines = append(newLines, lines[:start]...)

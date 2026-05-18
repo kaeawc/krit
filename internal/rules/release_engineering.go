@@ -443,10 +443,22 @@ func readSourceModuleGradleInfo(dir string) sourceModuleGradleInfo {
 		return sourceModuleGradleInfo{}
 	}
 	content := string(data)
+	// Plugin ids live inside string literals (`id("com.android.application")`,
+	// `classpath 'com.android.library'`), so for those checks we only
+	// strip comments and keep string bodies. `applicationId` is a real
+	// DSL property identifier, so for that check we additionally blank
+	// out string bodies — otherwise a description like
+	// `description = "applicationId is configured per flavor"` would
+	// flip a library module to "application" classification.
+	commentsStripped := gradleStripCommentsFull(content)
+	codeOnly := gradleStripCommentsAndStringBodiesFull(content)
 	return sourceModuleGradleInfo{
-		found:         true,
-		isApplication: strings.Contains(content, "com.android.application") || strings.Contains(content, "applicationId") || containsPluginSuffix(content, "application"),
-		isLibrary:     strings.Contains(content, "com.android.library") || containsPluginSuffix(content, "library"),
+		found: true,
+		isApplication: strings.Contains(commentsStripped, "com.android.application") ||
+			gradleContainsCodeToken(codeOnly, "applicationId") ||
+			containsPluginSuffix(commentsStripped, "application"),
+		isLibrary: strings.Contains(commentsStripped, "com.android.library") ||
+			containsPluginSuffix(commentsStripped, "library"),
 	}
 }
 
@@ -659,8 +671,21 @@ func hasLoggingImport(file *scanner.File) bool {
 			break
 		}
 		pkg := strings.TrimSpace(strings.TrimPrefix(trimmed, "import "))
+		// Strip a trailing alias (`import a.b.C as D`) and Java's
+		// optional `;` terminator so the prefix anchor compares against
+		// the qualified name itself.
+		if before, _, ok := strings.Cut(pkg, " as "); ok {
+			pkg = strings.TrimSpace(before)
+		}
+		pkg = strings.TrimSpace(strings.TrimSuffix(pkg, ";"))
 		for _, prefix := range loggingImports {
-			if strings.Contains(pkg, prefix) {
+			// Anchor the match at the start of the import path so
+			// `import foo.mu.X` or `import com.example.demu.X` does not
+			// falsely qualify as a logging import. Class-name entries
+			// (e.g. `timber.log.Timber`) and package-prefix entries
+			// ending in `.` (e.g. `java.util.logging.`) are both
+			// covered by HasPrefix.
+			if strings.HasPrefix(pkg, prefix) {
 				return true
 			}
 		}

@@ -124,6 +124,252 @@ func hardcodedEnvironmentLiteral(text string, labelPresent bool) string {
 	return unquoted
 }
 
+// gradleStripCommentsFull returns content with Gradle (Groovy /
+// Kotlin DSL) line comments and block comments replaced by spaces
+// (preserving newlines). String literal bodies are preserved verbatim,
+// which lets classifier substring checks see plugin-id strings like
+// `'com.android.library'` while ignoring `// classpath
+// 'com.android.application'` and `/* ... applicationId ... */` blocks.
+// Triple-quoted Kotlin / Groovy strings are recognised so a `*/`
+// embedded inside a raw string does not falsely close a comment, and
+// backslash escapes inside regular strings are honored so an escaped
+// quote does not prematurely close the literal.
+func gradleStripCommentsFull(content string) string {
+	var b strings.Builder
+	b.Grow(len(content))
+	n := len(content)
+	i := 0
+	for i < n {
+		c := content[i]
+		// Block comment.
+		if c == '/' && i+1 < n && content[i+1] == '*' {
+			b.WriteByte(' ')
+			b.WriteByte(' ')
+			i += 2
+			for i < n {
+				if content[i] == '*' && i+1 < n && content[i+1] == '/' {
+					b.WriteByte(' ')
+					b.WriteByte(' ')
+					i += 2
+					break
+				}
+				if content[i] == '\n' {
+					b.WriteByte('\n')
+				} else {
+					b.WriteByte(' ')
+				}
+				i++
+			}
+			continue
+		}
+		// Line comment.
+		if c == '/' && i+1 < n && content[i+1] == '/' {
+			for i < n && content[i] != '\n' {
+				b.WriteByte(' ')
+				i++
+			}
+			continue
+		}
+		// Triple-quoted string (Kotlin raw / Groovy multi-line). Bodies
+		// are written through unchanged so plugin-id references inside
+		// such strings remain visible to substring checks; we only
+		// skip the lexer past the closing delimiter so a stray `*/` or
+		// `//` inside the string does not start a comment.
+		if (c == '"' || c == '\'') && i+2 < n && content[i+1] == c && content[i+2] == c {
+			quote := c
+			b.WriteByte(quote)
+			b.WriteByte(quote)
+			b.WriteByte(quote)
+			i += 3
+			for i < n {
+				if i+2 < n && content[i] == quote && content[i+1] == quote && content[i+2] == quote {
+					b.WriteByte(quote)
+					b.WriteByte(quote)
+					b.WriteByte(quote)
+					i += 3
+					break
+				}
+				b.WriteByte(content[i])
+				i++
+			}
+			continue
+		}
+		// Regular string literal — body preserved, but the lexer
+		// consumes through the closing quote so `//` inside the string
+		// is not misread as a line comment.
+		if c == '"' || c == '\'' {
+			quote := c
+			b.WriteByte(quote)
+			i++
+			escaped := false
+			for i < n {
+				if content[i] == '\n' {
+					// Unterminated literal; bail without consuming the
+					// newline so subsequent code is processed normally.
+					break
+				}
+				if escaped {
+					escaped = false
+					b.WriteByte(content[i])
+					i++
+					continue
+				}
+				if content[i] == '\\' {
+					escaped = true
+					b.WriteByte(content[i])
+					i++
+					continue
+				}
+				if content[i] == quote {
+					b.WriteByte(quote)
+					i++
+					break
+				}
+				b.WriteByte(content[i])
+				i++
+			}
+			continue
+		}
+		b.WriteByte(c)
+		i++
+	}
+	return b.String()
+}
+
+// gradleStripCommentsAndStringBodiesFull returns content with Gradle
+// (Groovy / Kotlin DSL) comments and string literal bodies replaced by
+// spaces (preserving newlines). Both regular and triple-quoted strings
+// are handled. The output preserves quote characters, comment-start
+// punctuation positions, and newlines, so a substring search for a code
+// token such as `applicationId` only sees real DSL references.
+func gradleStripCommentsAndStringBodiesFull(content string) string {
+	var b strings.Builder
+	b.Grow(len(content))
+	n := len(content)
+	i := 0
+	for i < n {
+		c := content[i]
+		// Block comment.
+		if c == '/' && i+1 < n && content[i+1] == '*' {
+			b.WriteByte(' ')
+			b.WriteByte(' ')
+			i += 2
+			for i < n {
+				if content[i] == '*' && i+1 < n && content[i+1] == '/' {
+					b.WriteByte(' ')
+					b.WriteByte(' ')
+					i += 2
+					break
+				}
+				if content[i] == '\n' {
+					b.WriteByte('\n')
+				} else {
+					b.WriteByte(' ')
+				}
+				i++
+			}
+			continue
+		}
+		// Line comment.
+		if c == '/' && i+1 < n && content[i+1] == '/' {
+			for i < n && content[i] != '\n' {
+				b.WriteByte(' ')
+				i++
+			}
+			continue
+		}
+		// Triple-quoted string body — blanked out.
+		if (c == '"' || c == '\'') && i+2 < n && content[i+1] == c && content[i+2] == c {
+			quote := c
+			b.WriteByte(quote)
+			b.WriteByte(quote)
+			b.WriteByte(quote)
+			i += 3
+			for i < n {
+				if i+2 < n && content[i] == quote && content[i+1] == quote && content[i+2] == quote {
+					b.WriteByte(quote)
+					b.WriteByte(quote)
+					b.WriteByte(quote)
+					i += 3
+					break
+				}
+				if content[i] == '\n' {
+					b.WriteByte('\n')
+				} else {
+					b.WriteByte(' ')
+				}
+				i++
+			}
+			continue
+		}
+		// Regular string literal — body blanked out.
+		if c == '"' || c == '\'' {
+			quote := c
+			b.WriteByte(quote)
+			i++
+			escaped := false
+			for i < n {
+				if content[i] == '\n' {
+					break
+				}
+				if escaped {
+					escaped = false
+					b.WriteByte(' ')
+					i++
+					continue
+				}
+				if content[i] == '\\' {
+					escaped = true
+					b.WriteByte(' ')
+					i++
+					continue
+				}
+				if content[i] == quote {
+					b.WriteByte(quote)
+					i++
+					break
+				}
+				b.WriteByte(' ')
+				i++
+			}
+			continue
+		}
+		b.WriteByte(c)
+		i++
+	}
+	return b.String()
+}
+
+// gradleContainsCodeToken reports whether content contains needle as a
+// whole token outside string literals or comments. Caller should pass
+// the output of gradleStripCommentsAndStringBodiesFull as content so
+// the check only sees real code. Word-boundary matching uses
+// isGradleIdentByte so `myApplicationIdSuffix` won't be reported for
+// `applicationId`, and `com.android.application2` won't be reported
+// for `com.android.application`.
+func gradleContainsCodeToken(content, needle string) bool {
+	for offset := 0; ; {
+		idx := strings.Index(content[offset:], needle)
+		if idx < 0 {
+			return false
+		}
+		idx += offset
+		offset = idx + len(needle)
+		if idx > 0 && isGradleIdentByte(content[idx-1]) {
+			continue
+		}
+		end := idx + len(needle)
+		if end < len(content) && isGradleIdentByte(content[end]) {
+			continue
+		}
+		return true
+	}
+}
+
+func isGradleIdentByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '$'
+}
+
 // stripBlockComments removes /* ... */ regions from line, threading the
 // open-block state across lines. The returned bool reports whether the
 // line ends still inside an unclosed block comment.

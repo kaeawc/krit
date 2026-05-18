@@ -20,13 +20,17 @@ func FindingColumnsToDiagnostics(columns *scanner.FindingColumns) []Diagnostic {
 func rowToDiagnostic(columns *scanner.FindingColumns, row int) Diagnostic {
 	severity := mapSeverity(columns.SeverityAt(row))
 
-	// LSP lines and characters are 0-based; krit lines are 1-based, cols are 0-based.
+	// LSP lines and characters are 0-based; krit lines and columns are 1-based.
 	findingLine := columns.LineAt(row)
 	line := uint32(0)
 	if findingLine > 0 {
 		line = uint32(findingLine - 1)
 	}
-	col := uint32(columns.ColumnAt(row))
+	findingCol := columns.ColumnAt(row)
+	col := uint32(0)
+	if findingCol > 0 {
+		col = uint32(findingCol - 1)
+	}
 
 	return Diagnostic{
 		Range: Range{

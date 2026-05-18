@@ -561,8 +561,8 @@ func TestFindingToDiagnostic(t *testing.T) {
 			if d.Range.Start.Line != 9 {
 				t.Errorf("line: got %d, want 9", d.Range.Start.Line)
 			}
-			if d.Range.Start.Character != 5 {
-				t.Errorf("col: got %d, want 5", d.Range.Start.Character)
+			if d.Range.Start.Character != 4 {
+				t.Errorf("col: got %d, want 4", d.Range.Start.Character)
 			}
 			if d.Code != "style/TestRule" {
 				t.Errorf("code: got %q, want %q", d.Code, "style/TestRule")
@@ -3202,13 +3202,13 @@ func TestFindingsToDiagnostics_FieldMapping(t *testing.T) {
 
 	diags := FindingsToDiagnostics(findings)
 
-	// First finding: line 10 -> 9 (0-based), col 5, error -> severity 1
+	// First finding: line 10 -> 9 (0-based), col 5 -> 4 (0-based), error -> severity 1
 	d := diags[0]
 	if d.Range.Start.Line != 9 {
 		t.Errorf("expected line 9 (0-based), got %d", d.Range.Start.Line)
 	}
-	if d.Range.Start.Character != 5 {
-		t.Errorf("expected character 5, got %d", d.Range.Start.Character)
+	if d.Range.Start.Character != 4 {
+		t.Errorf("expected character 4 (0-based), got %d", d.Range.Start.Character)
 	}
 	if d.Range.End.Line != d.Range.Start.Line || d.Range.End.Character != d.Range.Start.Character {
 		t.Error("expected start and end positions to be equal")

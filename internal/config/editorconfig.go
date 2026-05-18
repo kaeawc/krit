@@ -133,15 +133,76 @@ func parseEditorConfig(path string) (props map[string]string, isRoot bool) {
 	return props, isRoot
 }
 
-// matchesKotlin checks if an editorconfig section glob matches Kotlin files.
+// matchesKotlin reports whether an editorconfig section glob matches Kotlin
+// source files (.kt or .kts). Only true Kotlin-applicable globs return true;
+// substring lookalikes such as `*.kt.tmpl`, `*.ktx`, `*.ktm`, or `hot_keys.cfg`
+// must not apply Kotlin settings.
+//
+// The .editorconfig spec uses fnmatch-style globs with optional brace
+// alternation. We support the common forms used in practice:
+//   - `*` (universal)
+//   - `*.kt`, `*.kts`
+//   - compound extension lists: `*.{kt,kts}`, `*.{java,kt,kts}`
+//   - top-level brace alternation: `{*.kt,*.kts}`, `{*.kt,Makefile}`
+//
+// Patterns are anchored at the end after brace expansion: only branches that
+// actually terminate in `.kt` or `.kts` count as Kotlin matches.
 func matchesKotlin(section string) bool {
 	section = strings.TrimSpace(section)
+	if section == "" {
+		return false
+	}
 	if section == "*" {
 		return true
 	}
-	// Match common patterns: *.kt, *.kts, *.{kt,kts}, {*.kt,*.kts}
-	lower := strings.ToLower(section)
-	return strings.Contains(lower, "kt")
+	for _, branch := range expandBraces(section) {
+		if kotlinBranchMatches(branch) {
+			return true
+		}
+	}
+	return false
+}
+
+// kotlinBranchMatches reports whether a single (brace-free) glob branch
+// matches Kotlin source files. The pattern must end with `.kt` or `.kts` —
+// substring matches like `*.kt.tmpl` or `*.ktx` are rejected.
+func kotlinBranchMatches(branch string) bool {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return false
+	}
+	lower := strings.ToLower(branch)
+	return strings.HasSuffix(lower, ".kt") || strings.HasSuffix(lower, ".kts")
+}
+
+// expandBraces performs a single level of brace alternation expansion on a
+// glob pattern. `*.{kt,kts}` expands to `*.kt`, `*.kts`; `{*.kt,*.kts}`
+// expands to `*.kt`, `*.kts`. Patterns without braces are returned as-is.
+// Nested or malformed braces fall back to returning the original string.
+func expandBraces(pattern string) []string {
+	openIdx := strings.IndexByte(pattern, '{')
+	if openIdx < 0 {
+		return []string{pattern}
+	}
+	closeIdx := strings.IndexByte(pattern[openIdx:], '}')
+	if closeIdx < 0 {
+		return []string{pattern}
+	}
+	closeIdx += openIdx
+
+	prefix := pattern[:openIdx]
+	suffix := pattern[closeIdx+1:]
+	inner := pattern[openIdx+1 : closeIdx]
+
+	var out []string
+	for _, alt := range strings.Split(inner, ",") {
+		alt = strings.TrimSpace(alt)
+		expanded := prefix + alt + suffix
+		// Allow one additional pass for patterns like `*.{kt,kts}` nested
+		// inside an outer `{...,...}` block.
+		out = append(out, expandBraces(expanded)...)
+	}
+	return out
 }
 
 func applyProps(ec *EditorConfig, props map[string]string) {
@@ -150,6 +211,16 @@ func applyProps(ec *EditorConfig, props map[string]string) {
 			ec.MaxLineLength = -1
 		} else if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			ec.MaxLineLength = n
+		}
+	}
+
+	// Resolve tab_width first so indent_size = tab in the same section sees
+	// the section's own tab_width rather than stale state from a previous
+	// merge pass or a zero default. map iteration order is randomized, so
+	// the previous ordering by chance was unreliable.
+	if v, ok := props["tab_width"]; ok {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			ec.TabWidth = n
 		}
 	}
 
@@ -167,12 +238,6 @@ func applyProps(ec *EditorConfig, props map[string]string) {
 		// get a coherent indent width for indent-touching fixes (NoTabs).
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			ec.IndentSize = n
-		}
-	}
-
-	if v, ok := props["tab_width"]; ok {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			ec.TabWidth = n
 		}
 	}
 

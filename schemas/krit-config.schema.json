@@ -12326,7 +12326,7 @@
           }
         },
         "GradleBuildContainsTodo": {
-          "description": "Detects TODO comments in build.gradle(.kts) files that may block release readiness. [precision: heuristic/text-backed] [noisiness: noisy] [capabilities: line-pass]",
+          "description": "Detects TODO comments in build.gradle(.kts) files that may block release readiness. [precision: project-structure-aware] [noisiness: normal] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

@@ -129,6 +129,41 @@ func isGradleCommentLine(line string) bool {
 	return strings.HasPrefix(t, "//") || strings.HasPrefix(t, "*") || strings.HasPrefix(t, "/*")
 }
 
+// gradleLineCommentStart returns the byte index of the first `//` that
+// begins a real Gradle line comment — i.e. one outside a single- or
+// double-quoted string literal. Returns -1 when the line has no comment
+// or only sees `//` inside a string (e.g. `"https://x"`). Backslash
+// escapes inside literals are honored.
+func gradleLineCommentStart(line string) int {
+	var inQuote byte
+	escaped := false
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		if inQuote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if c == '\\' {
+				escaped = true
+				continue
+			}
+			if c == inQuote {
+				inQuote = 0
+			}
+			continue
+		}
+		if c == '"' || c == '\'' {
+			inQuote = c
+			continue
+		}
+		if c == '/' && i+1 < len(line) && line[i+1] == '/' {
+			return i
+		}
+	}
+	return -1
+}
+
 // ---------------------------------------------------------------------------
 // Rule: GradlePluginCompatibility
 // ---------------------------------------------------------------------------

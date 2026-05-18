@@ -1,7 +1,8 @@
 plugins {
     kotlin("jvm") version "2.3.21"
     application
-    id("dev.jasonpearson.krit")
+    // No `id("dev.jasonpearson.krit")` — auto-applied by the
+    // dev.jasonpearson.krit.settings plugin from settings.gradle.kts.
 }
 
 group = "com.example"
@@ -26,10 +27,10 @@ dependencies {
     kritCustomRules(project(":custom-rules"))
 }
 
+// `krit.yml` next to this file is auto-discovered by the CLI's walk-up
+// config search, so no `config = file(...)` line is needed. `ignoreFailures`
+// flows in from the root settings.
 krit {
-    config = file("krit.yml")
-    ignoreFailures = true
-
     reports {
         plain.required = true
         json.required = true

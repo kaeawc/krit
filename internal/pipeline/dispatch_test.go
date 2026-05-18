@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/kaeawc/krit/internal/cache"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -303,5 +304,80 @@ func TestDispatchPhase_Run_ParallelDoesNotDeadlock(t *testing.T) {
 	}
 	if got := checked.Load(); got != n {
 		t.Errorf("check invocations = %d, want %d", got, n)
+	}
+}
+
+// TestDispatchPhase_Run_StopsQueuedFilesOnContextCancel verifies that
+// once the caller cancels the dispatch context, queued (not-yet-
+// started) file-level goroutines bail out without running the
+// dispatcher. errgroup.SetLimit serialises goroutine starts; without
+// the cancellation guard, every queued worker would still invoke
+// RunWithStats even when the caller already gave up.
+func TestDispatchPhase_Run_StopsQueuedFilesOnContextCancel(t *testing.T) {
+	dir := t.TempDir()
+	const n = 64
+	files := make([]*scanner.File, 0, n)
+	for i := 0; i < n; i++ {
+		files = append(files, writeKotlin(t, dir, fmt.Sprintf("F%d.kt", i), classDeclKotlin))
+	}
+
+	var (
+		ran     atomic.Int64
+		release = make(chan struct{})
+	)
+	rule := api.FakeRule("DispatchCancelObserver",
+		api.WithNodeTypes("class_declaration"),
+		api.WithSeverity(api.SeverityWarning),
+		api.WithCheck(func(ctx *api.Context) {
+			ran.Add(1)
+			// Block the first goroutines so the cancellation has time
+			// to fire before the queue drains. release unblocks them
+			// once the test cancels the context.
+			<-release
+		}),
+	)
+
+	in := IndexResult{
+		ParseResult: ParseResult{
+			ActiveRules: []*api.Rule{rule},
+			KotlinFiles: files,
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	type result struct {
+		out DispatchResult
+		err error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		out, err := (DispatchPhase{}).Run(ctx, in)
+		resultCh <- result{out: out, err: err}
+	}()
+
+	// Wait for some workers to start, then cancel. The remaining queued
+	// files should never enter the rule callback after the guard sees
+	// the cancellation.
+	deadline := time.After(2 * time.Second)
+	for ran.Load() == 0 {
+		select {
+		case <-deadline:
+			cancel()
+			close(release)
+			<-resultCh
+			t.Fatalf("no workers started before deadline")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	cancel()
+	close(release)
+	res := <-resultCh
+
+	if !errors.Is(res.err, context.Canceled) {
+		t.Fatalf("Run err = %v, want context.Canceled", res.err)
+	}
+	if got := ran.Load(); got >= int64(n) {
+		t.Fatalf("rule callback ran on %d/%d files; expected fewer once context was cancelled", got, n)
 	}
 }

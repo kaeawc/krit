@@ -203,12 +203,21 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 		ruleTracker = in.Tracker.Serial("ruleExecution")
 	}
 
-	g, _ := errgroup.WithContext(ctx)
+	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(workers)
 	sourceFiles := in.SourceFiles()
 	sort.SliceStable(sourceFiles, func(i, j int) bool {
 		return len(sourceFiles[i].Content) > len(sourceFiles[j].Content)
 	})
+	dispatchState := dispatchFileState{
+		dispatcher:     dispatcher,
+		useCache:       useCache,
+		mu:             &mu,
+		allColumns:     &allColumns,
+		fileTimings:    &fileTimings,
+		findingsByFile: findingsByFile,
+		acc:            &acc,
+	}
 	for _, f := range sourceFiles {
 		if in.CacheResult != nil && in.CacheResult.CachedPaths[f.Path] {
 			continue
@@ -219,46 +228,19 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 		}
 		file, dispatched := f, dispatchedAt
 		g.Go(func() error {
-
-			var startedAt, finishedRunAt, lockedAt time.Time
-			if in.ProfileDispatch {
-				startedAt = time.Now()
+			// Honor cancellation at the per-file boundary. errgroup's
+			// SetLimit serialises submissions but does not abort
+			// already-queued goroutines; without this guard every queued
+			// file would still call into the dispatcher even after the
+			// caller cancelled ctx. RunWithStats itself does not (yet)
+			// accept a ctx, so per-rule preemption is still coarse, but
+			// skipping the remaining files turns "cancel and wait for
+			// the entire sweep to drain" into "cancel and finish the
+			// in-progress files only".
+			if err := gctx.Err(); err != nil {
+				return err
 			}
-
-			fileColumns, fileStats := dispatcher.RunWithStats(file)
-
-			if in.ProfileDispatch {
-				finishedRunAt = time.Now()
-			}
-
-			mu.Lock()
-			if in.ProfileDispatch {
-				lockedAt = time.Now()
-			}
-			if fileColumns.Len() > 0 {
-				collector := scanner.NewFindingCollector(allColumns.Len() + fileColumns.Len())
-				collector.AppendColumns(&allColumns)
-				collector.AppendColumns(&fileColumns)
-				allColumns = *collector.Columns()
-			}
-			if useCache {
-				findingsByFile[file.Path] = fileColumns
-			}
-			mergeStats(&acc, fileStats)
-			if in.ProfileDispatch {
-				endAt := time.Now()
-				fileTimings = append(fileTimings, FileTiming{
-					Path:     file.Path,
-					Size:     len(file.Content),
-					QueueMs:  startedAt.Sub(dispatched).Milliseconds(),
-					RunMs:    finishedRunAt.Sub(startedAt).Milliseconds(),
-					LockMs:   lockedAt.Sub(finishedRunAt).Milliseconds(),
-					AggMs:    endAt.Sub(lockedAt).Milliseconds(),
-					TotalMs:  endAt.Sub(dispatched).Milliseconds(),
-					Findings: fileColumns.Len(),
-				})
-			}
-			mu.Unlock()
+			dispatchState.runFile(in, file, dispatched)
 			return nil
 		})
 	}
@@ -290,6 +272,62 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 		FileTimings:    fileTimings,
 		FindingsByFile: findingsByFile,
 	}, nil
+}
+
+// dispatchFileState carries the per-Run shared state that each
+// file-level goroutine needs to consult or mutate. Extracted so the
+// per-file body lives outside (DispatchPhase).Run, keeping Run's
+// cyclomatic complexity below the project lint threshold.
+type dispatchFileState struct {
+	dispatcher     *rules.Dispatcher
+	useCache       bool
+	mu             *sync.Mutex
+	allColumns     *scanner.FindingColumns
+	fileTimings    *[]FileTiming
+	findingsByFile map[string]scanner.FindingColumns
+	acc            *rules.RunStats
+}
+
+func (s dispatchFileState) runFile(in IndexResult, file *scanner.File, dispatched time.Time) {
+	var startedAt, finishedRunAt, lockedAt time.Time
+	if in.ProfileDispatch {
+		startedAt = time.Now()
+	}
+
+	fileColumns, fileStats := s.dispatcher.RunWithStats(file)
+
+	if in.ProfileDispatch {
+		finishedRunAt = time.Now()
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if in.ProfileDispatch {
+		lockedAt = time.Now()
+	}
+	if fileColumns.Len() > 0 {
+		collector := scanner.NewFindingCollector(s.allColumns.Len() + fileColumns.Len())
+		collector.AppendColumns(s.allColumns)
+		collector.AppendColumns(&fileColumns)
+		*s.allColumns = *collector.Columns()
+	}
+	if s.useCache {
+		s.findingsByFile[file.Path] = fileColumns
+	}
+	mergeStats(s.acc, fileStats)
+	if in.ProfileDispatch {
+		endAt := time.Now()
+		*s.fileTimings = append(*s.fileTimings, FileTiming{
+			Path:     file.Path,
+			Size:     len(file.Content),
+			QueueMs:  startedAt.Sub(dispatched).Milliseconds(),
+			RunMs:    finishedRunAt.Sub(startedAt).Milliseconds(),
+			LockMs:   lockedAt.Sub(finishedRunAt).Milliseconds(),
+			AggMs:    endAt.Sub(lockedAt).Milliseconds(),
+			TotalMs:  endAt.Sub(dispatched).Milliseconds(),
+			Findings: fileColumns.Len(),
+		})
+	}
 }
 
 type oracleLookupProvider interface {

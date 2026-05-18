@@ -27,7 +27,10 @@ func FindingToDiagnostic(f scanner.Finding) Diagnostic {
 	if f.Line > 0 {
 		line = uint32(f.Line - 1)
 	}
-	col := uint32(f.Col)
+	col := uint32(0)
+	if f.Col > 0 {
+		col = uint32(f.Col - 1)
+	}
 
 	return Diagnostic{
 		Range: Range{

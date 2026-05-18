@@ -18,45 +18,131 @@ import (
 type permissionAPI struct {
 	api             string
 	callee          string
-	perm            string
+	requirement     missingPermissionRequirement
 	callTargets     []string
 	receiverTypes   []string
 	staticReceivers []string
+}
+
+// missingPermissionRequirementKind mirrors AOSP Lint's PermissionRequirement /
+// PermissionHolder model: a @RequiresPermission may name a single permission,
+// require all of a set (allOf), or accept any one of a set (anyOf). Each
+// flavor has distinct guard-coverage semantics.
+type missingPermissionRequirementKind int
+
+const (
+	missingPermissionRequirementSingle missingPermissionRequirementKind = iota
+	missingPermissionRequirementAnyOf
+	missingPermissionRequirementAllOf
+)
+
+type missingPermissionRequirement struct {
+	kind  missingPermissionRequirementKind
+	perms []string
+}
+
+func singlePermRequirement(perm string) missingPermissionRequirement {
+	return missingPermissionRequirement{kind: missingPermissionRequirementSingle, perms: []string{perm}}
+}
+
+func (r missingPermissionRequirement) empty() bool { return len(r.perms) == 0 }
+
+// describe renders the requirement for the diagnostic message.
+func (r missingPermissionRequirement) describe() string {
+	if len(r.perms) == 0 {
+		return ""
+	}
+	if len(r.perms) == 1 {
+		return r.perms[0]
+	}
+	sep := " and "
+	if r.kind == missingPermissionRequirementAnyOf {
+		sep = " or "
+	}
+	return strings.Join(r.perms, sep)
+}
+
+// messageSuffix returns "permission" or "permissions" to match the requirement
+// arity in the diagnostic.
+func (r missingPermissionRequirement) messageSuffix() string {
+	if len(r.perms) > 1 {
+		return "permissions"
+	}
+	return "permission"
+}
+
+// satisfied reports whether the requirement is fully met given a predicate
+// that answers whether a specific permission is guarded at the call site.
+// anyOf is satisfied by any guarded perm; allOf requires every perm guarded.
+func (r missingPermissionRequirement) satisfied(has func(perm string) bool) bool {
+	if len(r.perms) == 0 {
+		return false
+	}
+	if r.kind == missingPermissionRequirementAllOf {
+		for _, p := range r.perms {
+			if !has(p) {
+				return false
+			}
+		}
+		return true
+	}
+	for _, p := range r.perms {
+		if has(p) {
+			return true
+		}
+	}
+	return false
+}
+
+// covers reports whether holding this requirement (e.g. on an enclosing
+// function) guarantees the caller holds the given specific permission.
+// allOf=[A,B] covers A and B; single P covers P; anyOf never covers a
+// specific permission because the actual held perm is unknown.
+func (r missingPermissionRequirement) covers(perm string) bool {
+	if perm == "" || len(r.perms) == 0 || r.kind == missingPermissionRequirementAnyOf {
+		return false
+	}
+	for _, p := range r.perms {
+		if p == perm {
+			return true
+		}
+	}
+	return false
 }
 
 var missingPermissionAPIs = []permissionAPI{
 	{
 		api:           "requestLocationUpdates",
 		callee:        "requestLocationUpdates",
-		perm:          "ACCESS_FINE_LOCATION",
+		requirement:   singlePermRequirement("ACCESS_FINE_LOCATION"),
 		callTargets:   []string{"android.location.LocationManager.requestLocationUpdates"},
 		receiverTypes: []string{"android.location.LocationManager"},
 	},
 	{
 		api:           "getLastKnownLocation",
 		callee:        "getLastKnownLocation",
-		perm:          "ACCESS_FINE_LOCATION",
+		requirement:   singlePermRequirement("ACCESS_FINE_LOCATION"),
 		callTargets:   []string{"android.location.LocationManager.getLastKnownLocation"},
 		receiverTypes: []string{"android.location.LocationManager"},
 	},
 	{
 		api:           "getCellLocation",
 		callee:        "getCellLocation",
-		perm:          "ACCESS_COARSE_LOCATION",
+		requirement:   singlePermRequirement("ACCESS_COARSE_LOCATION"),
 		callTargets:   []string{"android.telephony.TelephonyManager.getCellLocation"},
 		receiverTypes: []string{"android.telephony.TelephonyManager"},
 	},
 	{
 		api:             "Camera.open",
 		callee:          "open",
-		perm:            "CAMERA",
+		requirement:     singlePermRequirement("CAMERA"),
 		callTargets:     []string{"android.hardware.Camera.open"},
 		staticReceivers: []string{"android.hardware.Camera"},
 	},
 	{
 		api:           "setAudioSource",
 		callee:        "setAudioSource",
-		perm:          "RECORD_AUDIO",
+		requirement:   singlePermRequirement("RECORD_AUDIO"),
 		callTargets:   []string{"android.media.MediaRecorder.setAudioSource"},
 		receiverTypes: []string{"android.media.MediaRecorder"},
 	},
@@ -815,13 +901,13 @@ func (r *MissingPermissionRule) check(ctx *api.Context) {
 	if !ok {
 		return
 	}
-	if missingPermissionHasStructuralGuard(ctx, ctx.Idx, match.perm) {
+	if missingPermissionHasStructuralGuard(ctx, ctx.Idx, match.requirement) {
 		return
 	}
 	line := file.FlatRow(ctx.Idx) + 1
 	col := file.FlatCol(ctx.Idx) + 1
 	f := r.Finding(file, line, col,
-		match.api+" requires "+match.perm+" permission. Ensure checkSelfPermission() is called before this API.")
+		match.api+" requires "+match.requirement.describe()+" "+match.requirement.messageSuffix()+". Ensure checkSelfPermission() is called before this API.")
 	f.Confidence = confidence
 	ctx.Emit(f)
 }
@@ -868,7 +954,7 @@ func missingPermissionHasAnnotatedSameFileCandidate(ctx *api.Context, call uint3
 		if found || !missingPermissionFunctionHasName(file, fn, callee) {
 			return
 		}
-		if _, ok := missingPermissionRequiredPermissionAnnotation(ctx, fn); ok && semantics.SameFileDeclarationMatch(ctx, fn, call) {
+		if req, ok := missingPermissionRequiredPermissionAnnotation(ctx, fn); ok && !req.empty() && semantics.SameFileDeclarationMatch(ctx, fn, call) {
 			found = true
 		}
 	})
@@ -981,21 +1067,27 @@ func missingPermissionAnnotatedSameFileTarget(ctx *api.Context, call uint32, tar
 		if found || !semantics.SameFileDeclarationMatch(ctx, fn, call) {
 			return
 		}
-		perm, ok := missingPermissionRequiredPermissionAnnotation(ctx, fn)
-		if !ok {
+		req, ok := missingPermissionRequiredPermissionAnnotation(ctx, fn)
+		if !ok || req.empty() {
 			return
 		}
-		out = permissionAPI{api: target.CalleeName, callee: target.CalleeName, perm: perm}
+		out = permissionAPI{api: target.CalleeName, callee: target.CalleeName, requirement: req}
 		found = true
 	})
 	return out, found
 }
 
-func missingPermissionHasStructuralGuard(ctx *api.Context, call uint32, perm string) bool {
-	return missingPermissionEnclosingPermissionCondition(ctx, call, perm) ||
-		missingPermissionHasPrecedingGrantedReturnGuard(ctx, call, perm) ||
-		missingPermissionEnclosingAnnotationRequires(ctx, call, perm) ||
-		missingPermissionEnclosingCatchesSecurityException(ctx, call)
+func missingPermissionHasStructuralGuard(ctx *api.Context, call uint32, req missingPermissionRequirement) bool {
+	// SecurityException catches do not name a specific permission, so they
+	// cover the requirement regardless of arity.
+	if missingPermissionEnclosingCatchesSecurityException(ctx, call) {
+		return true
+	}
+	return req.satisfied(func(perm string) bool {
+		return missingPermissionEnclosingPermissionCondition(ctx, call, perm) ||
+			missingPermissionHasPrecedingGrantedReturnGuard(ctx, call, perm) ||
+			missingPermissionEnclosingAnnotationRequires(ctx, call, perm)
+	})
 }
 
 type missingPermissionGuardState int
@@ -1212,7 +1304,7 @@ func missingPermissionEnclosingAnnotationRequires(ctx *api.Context, call uint32,
 	for owner, ok := ctx.File.FlatParent(call); ok; owner, ok = ctx.File.FlatParent(owner) {
 		switch ctx.File.FlatType(owner) {
 		case "function_declaration", "class_declaration", "object_declaration":
-			if required, ok := missingPermissionRequiredPermissionAnnotation(ctx, owner); ok && required == perm {
+			if required, ok := missingPermissionRequiredPermissionAnnotation(ctx, owner); ok && required.covers(perm) {
 				return true
 			}
 		}
@@ -1220,34 +1312,58 @@ func missingPermissionEnclosingAnnotationRequires(ctx *api.Context, call uint32,
 	return false
 }
 
-func missingPermissionRequiredPermissionAnnotation(ctx *api.Context, node uint32) (string, bool) {
+func missingPermissionRequiredPermissionAnnotation(ctx *api.Context, node uint32) (missingPermissionRequirement, bool) {
 	file := ctx.File
 	if mods, ok := file.FlatFindChild(node, "modifiers"); ok {
-		if perm, ok := missingPermissionAnnotationContainerPermission(ctx, mods); ok {
-			return perm, true
+		if req, ok := missingPermissionAnnotationContainerRequirement(ctx, mods); ok {
+			return req, true
 		}
 	}
 	for prev, ok := file.FlatPrevSibling(node); ok; prev, ok = file.FlatPrevSibling(prev) {
 		switch file.FlatType(prev) {
 		case "prefix_expression", "annotation", "modifiers":
-			if perm, ok := missingPermissionAnnotationContainerPermission(ctx, prev); ok {
-				return perm, true
+			if req, ok := missingPermissionAnnotationContainerRequirement(ctx, prev); ok {
+				return req, true
 			}
 		default:
 			if strings.TrimSpace(file.FlatNodeText(prev)) != "" {
-				return "", false
+				return missingPermissionRequirement{}, false
 			}
 		}
 	}
-	return "", false
+	return missingPermissionRequirement{}, false
 }
 
-func missingPermissionAnnotationContainerPermission(ctx *api.Context, container uint32) (string, bool) {
+func missingPermissionAnnotationContainerRequirement(ctx *api.Context, container uint32) (missingPermissionRequirement, bool) {
 	file := ctx.File
-	var perm string
 	if !missingPermissionAnnotationContainerHasRequiresPermission(file, container) {
-		return "", false
+		return missingPermissionRequirement{}, false
 	}
+	// Inspect named arguments first so anyOf/allOf semantics win over the
+	// fall-back scan that would otherwise grab the first permission literal.
+	var named missingPermissionRequirement
+	file.FlatWalkNodes(container, "value_argument", func(arg uint32) {
+		if !named.empty() {
+			return
+		}
+		name := missingPermissionValueArgumentName(file, arg)
+		if name != "anyOf" && name != "allOf" {
+			return
+		}
+		perms := missingPermissionCollectPerms(ctx, arg)
+		if len(perms) == 0 {
+			return
+		}
+		kind := missingPermissionRequirementAnyOf
+		if name == "allOf" {
+			kind = missingPermissionRequirementAllOf
+		}
+		named = missingPermissionRequirement{kind: kind, perms: perms}
+	})
+	if !named.empty() {
+		return named, true
+	}
+	var perm string
 	file.FlatWalkAllNodes(container, func(candidate uint32) {
 		if perm != "" {
 			return
@@ -1256,7 +1372,64 @@ func missingPermissionAnnotationContainerPermission(ctx *api.Context, container 
 			perm = p
 		}
 	})
-	return perm, perm != ""
+	if perm == "" {
+		return missingPermissionRequirement{}, false
+	}
+	return singlePermRequirement(perm), true
+}
+
+// missingPermissionValueArgumentName returns the name of a Kotlin named value
+// argument (e.g. "anyOf" in `anyOf = [...]`), or "" for positional arguments.
+// Mirrors valueArgumentExpression's label handling but extracts the label
+// rather than skipping it.
+func missingPermissionValueArgumentName(file *scanner.File, arg uint32) string {
+	if file == nil || arg == 0 || file.FlatType(arg) != "value_argument" {
+		return ""
+	}
+	for child := file.FlatFirstChild(arg); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		switch file.FlatType(child) {
+		case "value_argument_label":
+			var name string
+			file.FlatWalkAllNodes(child, func(node uint32) {
+				if name == "" && file.FlatType(node) == "simple_identifier" {
+					name = file.FlatNodeString(node, nil)
+				}
+			})
+			return name
+		case "simple_identifier":
+			if next, ok := file.FlatNextSibling(child); ok && file.FlatType(next) == "=" {
+				return file.FlatNodeString(child, nil)
+			}
+			return ""
+		default:
+			return ""
+		}
+	}
+	return ""
+}
+
+// missingPermissionCollectPerms walks a value-argument subtree (typically a
+// collection literal in anyOf/allOf) and returns each recognized permission
+// constant in source order, de-duplicated.
+func missingPermissionCollectPerms(ctx *api.Context, node uint32) []string {
+	file := ctx.File
+	if file == nil || node == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	file.FlatWalkAllNodes(node, func(candidate uint32) {
+		p, ok := missingPermissionExprPermissionName(ctx, candidate)
+		if !ok || seen[p] {
+			return
+		}
+		seen[p] = true
+		out = append(out, p)
+	})
+	return out
 }
 
 func missingPermissionFileHasRequiresPermissionAnnotation(file *scanner.File) bool {

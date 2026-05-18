@@ -809,6 +809,183 @@ class Screen {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+
+	// anyOf / allOf semantics — mirror AOSP PermissionRequirement model so that
+	// callers guarding any-of-N or all-of-N permissions are not flagged falsely.
+	t.Run("negative - anyOf annotation satisfied by coarse guard", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import androidx.annotation.RequiresPermission
+
+@RequiresPermission(anyOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
+fun locateUser() {}
+
+fun open() {
+    if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PERMISSION_GRANTED) {
+        locateUser()
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative - anyOf annotation satisfied by fine guard", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import androidx.annotation.RequiresPermission
+
+@RequiresPermission(anyOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
+fun locateUser() {}
+
+fun open() {
+    if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PERMISSION_GRANTED) {
+        locateUser()
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("positive - anyOf annotation with no listed permission guarded", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import androidx.annotation.RequiresPermission
+
+@RequiresPermission(anyOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
+fun locateUser() {}
+
+fun open() {
+    if (checkSelfPermission(Manifest.permission.CAMERA) == PERMISSION_GRANTED) {
+        locateUser()
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("positive - allOf annotation needs every listed permission guarded", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import androidx.annotation.RequiresPermission
+
+@RequiresPermission(allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
+fun locateUserStrict() {}
+
+fun open() {
+    if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PERMISSION_GRANTED) {
+        locateUserStrict()
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("negative - allOf annotation satisfied by guarding every permission", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import androidx.annotation.RequiresPermission
+
+@RequiresPermission(allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
+fun locateUserStrict() {}
+
+fun open() {
+    if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PERMISSION_GRANTED) {
+        if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PERMISSION_GRANTED) {
+            locateUserStrict()
+        }
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative - enclosing allOf annotation covers location call", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import android.location.LocationManager
+import androidx.annotation.RequiresPermission
+
+@RequiresPermission(allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
+fun track(manager: LocationManager) {
+    manager.requestLocationUpdates("gps", 0, 0f, listener)
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("positive - enclosing anyOf annotation does not cover specific perm", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import android.location.LocationManager
+import androidx.annotation.RequiresPermission
+
+@RequiresPermission(anyOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
+fun track(manager: LocationManager) {
+    manager.requestLocationUpdates("gps", 0, 0f, listener)
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("message - anyOf describes alternatives with 'or'", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import androidx.annotation.RequiresPermission
+
+@RequiresPermission(anyOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
+fun locateUser() {}
+
+fun open() {
+    locateUser()
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		msg := findings[0].Message
+		if !strings.Contains(msg, "ACCESS_FINE_LOCATION or ACCESS_COARSE_LOCATION") {
+			t.Fatalf("expected message to describe anyOf alternatives with 'or'; got %q", msg)
+		}
+		if !strings.Contains(msg, "permissions") {
+			t.Fatalf("expected plural 'permissions' suffix; got %q", msg)
+		}
+	})
+	t.Run("message - allOf describes conjunction with 'and'", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import androidx.annotation.RequiresPermission
+
+@RequiresPermission(allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
+fun locateUserStrict() {}
+
+fun open() {
+    locateUserStrict()
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		msg := findings[0].Message
+		if !strings.Contains(msg, "ACCESS_FINE_LOCATION and ACCESS_COARSE_LOCATION") {
+			t.Fatalf("expected message to describe allOf conjunction with 'and'; got %q", msg)
+		}
+	})
 }
 
 // =====================================================================

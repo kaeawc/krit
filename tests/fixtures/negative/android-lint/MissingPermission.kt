@@ -45,3 +45,23 @@ class Fake {
 fun localSameName(fake: Fake) {
     fake.requestLocationUpdates()
 }
+
+@androidx.annotation.RequiresPermission(anyOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
+fun locateUser() {}
+
+fun openWithCoarseGuard() {
+    if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == GRANTED) {
+        locateUser()
+    }
+}
+
+@androidx.annotation.RequiresPermission(allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
+fun locateUserStrict() {}
+
+fun openWithBothGuards() {
+    if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == GRANTED) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == GRANTED) {
+            locateUserStrict()
+        }
+    }
+}

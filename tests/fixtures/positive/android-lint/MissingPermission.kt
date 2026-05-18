@@ -39,3 +39,19 @@ class LocationTracker {
         }
     }
 }
+
+@androidx.annotation.RequiresPermission(anyOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION])
+fun locateUser() {}
+
+fun openAnyOfWithoutAnyGuard() {
+    locateUser()
+}
+
+@androidx.annotation.RequiresPermission(allOf = [android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION])
+fun locateUserStrict() {}
+
+fun openAllOfWithOnlyOneGuard() {
+    if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PERMISSION_GRANTED) {
+        locateUserStrict()
+    }
+}

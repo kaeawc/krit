@@ -47,6 +47,15 @@ func (r *LocaleConfigStaleResourceRule) Meta() api.RuleDescriptor {
 	}
 }
 
+func (r *LocaleFolderRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "LocaleFolder",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
+	}
+}
+
 func (r *MissingQuantityResourceRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "MissingQuantityResource",
@@ -142,6 +151,15 @@ func (r *UnusedQuantityResourceRule) Meta() api.RuleDescriptor {
 		ID:            "UnusedQuantityResource",
 		RuleSet:       "android-lint",
 		DefaultActive: true,
+	}
+}
+
+func (r *UseAlpha2Rule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "UseAlpha2",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 

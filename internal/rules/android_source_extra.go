@@ -1984,57 +1984,6 @@ type GridLayoutRule struct {
 // Classified per roadmap/17.
 func (r *GridLayoutRule) Confidence() float64 { return 0.85 }
 
-type LocaleFolderRule struct {
-	LineBase
-	AndroidRule
-}
-
-var localeFolderBadRe = regexp.MustCompile(`values-[a-z]{2}_[A-Z]{2}`)
-
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
-func (r *LocaleFolderRule) Confidence() float64 { return 0.75 }
-
-func (r *LocaleFolderRule) check(ctx *api.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if scanner.IsCommentLine(line) {
-			continue
-		}
-		if localeFolderBadRe.MatchString(line) {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				"Wrong locale folder naming `"+localeFolderBadRe.FindString(line)+"`. Use `values-<lang>-r<REGION>` format (e.g., `values-en-rUS`)."))
-		}
-	}
-}
-
-type UseAlpha2Rule struct {
-	LineBase
-	AndroidRule
-}
-
-var alpha3to2 = map[string]string{"eng": "en", "fra": "fr", "deu": "de", "spa": "es", "ita": "it", "por": "pt", "rus": "ru", "jpn": "ja", "kor": "ko", "zho": "zh", "ara": "ar", "hin": "hi", "tur": "tr", "pol": "pl", "nld": "nl", "swe": "sv", "nor": "no", "dan": "da", "fin": "fi", "tha": "th"}
-var alpha3FolderRe = regexp.MustCompile(`values-([a-z]{3})\b`)
-
-func (r *UseAlpha2Rule) check(ctx *api.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if scanner.IsCommentLine(line) {
-			continue
-		}
-		if m := alpha3FolderRe.FindStringSubmatch(line); m != nil {
-			if repl, ok := alpha3to2[m[1]]; ok {
-				ctx.Emit(r.Finding(file, i+1, 1,
-					"Use 2-letter ISO 639-1 code `"+repl+"` instead of 3-letter code `"+m[1]+"` in locale folder."))
-			}
-		}
-	}
-}
-
 type MangledCRLFRule struct {
 	LineBase
 	AndroidRule

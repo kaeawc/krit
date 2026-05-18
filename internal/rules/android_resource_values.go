@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1349,6 +1350,103 @@ func (r *ExtraTextResourceRule) check(ctx *api.Context) {
 			fmt.Sprintf("Extraneous text `%s` found in resource file. "+
 				"Text outside elements is usually a mistake.",
 				truncate(et.Text, 40))))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LocaleFolder / UseAlpha2
+// ---------------------------------------------------------------------------
+
+// LocaleFolderRule flags `values-XX_YY` style directory names — the BCP-47
+// underscore form Android does not accept. The correct form is
+// `values-<lang>-r<REGION>`.
+type LocaleFolderRule struct {
+	ValuesResourceBase
+	AndroidRule
+}
+
+var localeFolderBadRe = regexp.MustCompile(`^values-(?:[a-z0-9]+-)*([a-z]{2})_([A-Z]{2})(?:-|$)`)
+
+// Confidence reports a tier-3 (high) base confidence: the rule matches against
+// actual `res/values-*/` directory names from `os.ReadDir`, not source text,
+// so the only error path is a filesystem read failure.
+func (r *LocaleFolderRule) Confidence() float64 { return 0.95 }
+
+func (r *LocaleFolderRule) check(ctx *api.Context) {
+	forEachValuesQualifierDir(ctx, func(resRoot, name string) {
+		m := localeFolderBadRe.FindStringSubmatch(name)
+		if m == nil {
+			return
+		}
+		ctx.Emit(resourceFinding(filepath.Join(resRoot, name), 1, r.BaseRule,
+			"Wrong locale folder naming `"+name+"`. Use `values-<lang>-r<REGION>` format (e.g., `values-"+m[1]+"-r"+m[2]+"`)."))
+	})
+}
+
+// UseAlpha2Rule flags 3-letter ISO 639-2 locale codes (e.g. `values-eng`)
+// that have a 2-letter ISO 639-1 equivalent — Android resource resolution
+// uses 639-1 codes, so `values-eng/` is silently ignored.
+type UseAlpha2Rule struct {
+	ValuesResourceBase
+	AndroidRule
+}
+
+var alpha3to2 = map[string]string{"eng": "en", "fra": "fr", "deu": "de", "spa": "es", "ita": "it", "por": "pt", "rus": "ru", "jpn": "ja", "kor": "ko", "zho": "zh", "ara": "ar", "hin": "hi", "tur": "tr", "pol": "pl", "nld": "nl", "swe": "sv", "nor": "no", "dan": "da", "fin": "fi", "tha": "th"}
+var alpha3FolderRe = regexp.MustCompile(`^values-([a-z]{3})(?:-|$)`)
+
+// Confidence reports a tier-3 (high) base confidence: the 3→2 letter mapping
+// is a closed allow-list, so an unknown 3-letter token (`mcc`, `xyz`, ...)
+// cannot trigger a false positive.
+func (r *UseAlpha2Rule) Confidence() float64 { return 0.95 }
+
+func (r *UseAlpha2Rule) check(ctx *api.Context) {
+	forEachValuesQualifierDir(ctx, func(resRoot, name string) {
+		m := alpha3FolderRe.FindStringSubmatch(name)
+		if m == nil {
+			return
+		}
+		repl, ok := alpha3to2[m[1]]
+		if !ok {
+			return
+		}
+		ctx.Emit(resourceFinding(filepath.Join(resRoot, name), 1, r.BaseRule,
+			"Use 2-letter ISO 639-1 code `"+repl+"` instead of 3-letter code `"+m[1]+"` in locale folder."))
+	})
+}
+
+// forEachValuesQualifierDir visits every `values-*` sub-directory under each
+// resource root inferred from ctx.ResourceIndex. The walk is sorted and reads
+// each resource root at most once per rule invocation.
+//
+// Caveat: the resource-findings cache is keyed by `resDirContentFingerprint`,
+// which hashes file paths but not bare directory entries. An *empty*
+// `values-XX_YY/` (committed without any XML file) therefore does not
+// invalidate cached findings — in practice users always commit a strings.xml
+// alongside the new qualifier, so the gap is narrow.
+func forEachValuesQualifierDir(ctx *api.Context, visit func(resRoot, dirName string)) {
+	if ctx == nil || ctx.ResourceIndex == nil {
+		return
+	}
+	for _, resRoot := range resourceRootsFromIndex(ctx.ResourceIndex) {
+		entries, err := os.ReadDir(resRoot)
+		if err != nil {
+			continue
+		}
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if !strings.HasPrefix(name, "values-") {
+				continue
+			}
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			visit(resRoot, name)
+		}
 	}
 }
 

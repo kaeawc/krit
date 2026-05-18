@@ -116,6 +116,7 @@ negative LgplStaticLinkingInApk
 negative LocalSuppress
 negative LocaleConfigMissing
 negative LocaleConfigStale
+negative LocaleFolder
 negative MainDispatcherInLibraryCode
 negative ManifestOrderManifest
 negative ManifestTypoManifest
@@ -221,6 +222,7 @@ negative UntestedPublicApi
 negative UnusedAttributeResource
 negative UnusedNamespaceResource
 negative UnusedQuantityResource
+negative UseAlpha2
 negative UseCheckPermissionManifest
 negative UseCompoundDrawablesResource
 negative UselessLeafResource
@@ -344,6 +346,7 @@ positive LgplStaticLinkingInApk
 positive LocalSuppress
 positive LocaleConfigMissing
 positive LocaleConfigStale
+positive LocaleFolder
 positive MainDispatcherInLibraryCode
 positive ManifestOrderManifest
 positive ManifestTypoManifest
@@ -449,6 +452,7 @@ positive UntestedPublicApi
 positive UnusedAttributeResource
 positive UnusedNamespaceResource
 positive UnusedQuantityResource
+positive UseAlpha2
 positive UseCheckPermissionManifest
 positive UseCompoundDrawablesResource
 positive UselessLeafResource

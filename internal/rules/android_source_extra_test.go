@@ -1032,60 +1032,6 @@ fun build(ctx: Context) {
 }
 
 // =====================================================================
-// LocaleFolder tests
-// =====================================================================
-
-func TestLocaleFolder_Extra(t *testing.T) {
-	t.Run("positive - underscore locale folder", func(t *testing.T) {
-		findings := runRuleByName(t, "LocaleFolder", `
-package test
-
-val path = "res/values-en_US/strings.xml"
-`)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-	t.Run("negative - correct locale folder", func(t *testing.T) {
-		findings := runRuleByName(t, "LocaleFolder", `
-package test
-
-val path = "res/values-en-rUS/strings.xml"
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
-
-// =====================================================================
-// UseAlpha2 tests
-// =====================================================================
-
-func TestUseAlpha2_Extra(t *testing.T) {
-	t.Run("positive - 3-letter code", func(t *testing.T) {
-		findings := runRuleByName(t, "UseAlpha2", `
-package test
-
-val path = "res/values-eng/strings.xml"
-`)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-	t.Run("negative - 2-letter code", func(t *testing.T) {
-		findings := runRuleByName(t, "UseAlpha2", `
-package test
-
-val path = "res/values-en/strings.xml"
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
-
-// =====================================================================
 // MangledCRLF tests
 // =====================================================================
 

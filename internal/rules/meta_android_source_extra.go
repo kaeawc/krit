@@ -39,15 +39,6 @@ func (r *LibraryCustomViewRule) Meta() api.RuleDescriptor {
 	}
 }
 
-func (r *LocaleFolderRule) Meta() api.RuleDescriptor {
-	return api.RuleDescriptor{
-		ID:            "LocaleFolder",
-		RuleSet:       "android-lint",
-		DefaultActive: false,
-		OptInReason:   api.OptInReasonAndroidOnly,
-	}
-}
-
 func (r *MangledCRLFRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "MangledCRLF",
@@ -132,15 +123,6 @@ func (r *TrulyRandomRule) Meta() api.RuleDescriptor {
 func (r *UnknownIDInLayoutRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "UnknownIdInLayout",
-		RuleSet:       "android-lint",
-		DefaultActive: false,
-		OptInReason:   api.OptInReasonAndroidOnly,
-	}
-}
-
-func (r *UseAlpha2Rule) Meta() api.RuleDescriptor {
-	return api.RuleDescriptor{
-		ID:            "UseAlpha2",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
 		OptInReason:   api.OptInReasonAndroidOnly,

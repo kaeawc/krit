@@ -1,7 +1,6 @@
 package rules_test
 
 import (
-	"strings"
 	"testing"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -474,94 +473,6 @@ fun example() {
 }`)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
-
-// ---------------------------------------------------------------------------
-// LocaleFolder
-// ---------------------------------------------------------------------------
-
-func TestLocaleFolder(t *testing.T) {
-	t.Run("underscore locale triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "LocaleFolder", `
-package test
-val path = "res/values-en_US/strings.xml"
-`)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-
-	t.Run("correct locale format is clean", func(t *testing.T) {
-		findings := runRuleByName(t, "LocaleFolder", `
-package test
-val path = "res/values-en-rUS/strings.xml"
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("simple locale is clean", func(t *testing.T) {
-		findings := runRuleByName(t, "LocaleFolder", `
-package test
-val path = "res/values-en/strings.xml"
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
-
-// ---------------------------------------------------------------------------
-// UseAlpha2
-// ---------------------------------------------------------------------------
-
-func TestUseAlpha2(t *testing.T) {
-	t.Run("3-letter code triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "UseAlpha2", `
-package test
-val path = "res/values-eng/strings.xml"
-`)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-		if !strings.Contains(findings[0].Message, "en") {
-			t.Fatalf("expected message to suggest 'en', got %s", findings[0].Message)
-		}
-	})
-
-	t.Run("2-letter code is clean", func(t *testing.T) {
-		findings := runRuleByName(t, "UseAlpha2", `
-package test
-val path = "res/values-en/strings.xml"
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("unknown 3-letter code is clean", func(t *testing.T) {
-		findings := runRuleByName(t, "UseAlpha2", `
-package test
-val path = "res/values-xyz/strings.xml"
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings (unknown code), got %d", len(findings))
-		}
-	})
-
-	t.Run("Japanese code triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "UseAlpha2", `
-package test
-val path = "res/values-jpn/strings.xml"
-`)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-		if !strings.Contains(findings[0].Message, "ja") {
-			t.Fatalf("expected message to suggest 'ja', got %s", findings[0].Message)
 		}
 	})
 }

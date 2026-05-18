@@ -14,7 +14,7 @@ func registerHotspotRules() {
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			Needs: api.NeedsLinePass, Implementation: r,
+			NodeTypes: []string{"source_file"}, Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}

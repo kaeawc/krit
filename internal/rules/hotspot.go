@@ -6,6 +6,7 @@ import (
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sourceheader"
 )
 
 // GodClassOrModuleRule reports Kotlin source files that import from an
@@ -13,7 +14,7 @@ import (
 // side of the concept; class-level ownership can reuse the same thresholding
 // approach with AST ownership in a later iteration.
 type GodClassOrModuleRule struct {
-	LineBase
+	FlatDispatchBase
 	BaseRule
 	AllowedDistinctPackages int
 }
@@ -22,21 +23,22 @@ type GodClassOrModuleRule struct {
 // threshold is a project-sensitive heuristic. Classified per roadmap/17.
 func (r *GodClassOrModuleRule) Confidence() float64 { return 0.75 }
 
+// Walks `import_header` AST nodes instead of `file.Lines` so the count
+// excludes `import ` text inside block comments, KDoc, and raw-string
+// literals — the original line-prefix scan miscounted those.
 func (r *GodClassOrModuleRule) check(ctx *api.Context) {
 	file := ctx.File
 	packages := make(map[string]struct{})
 	firstImportLine := 0
 
-	for i, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "import ") {
-			continue
+	file.FlatWalkNodes(ctx.Idx, "import_header", func(node uint32) {
+		imp := sourceheader.FirstHeaderLine(file.FlatNodeText(node), "import")
+		if imp == "" {
+			return
 		}
 		if firstImportLine == 0 {
-			firstImportLine = i + 1
+			firstImportLine = file.FlatRow(node) + 1
 		}
-
-		imp := strings.TrimSpace(strings.TrimPrefix(trimmed, "import "))
 		if idx := strings.Index(imp, " as "); idx >= 0 {
 			imp = strings.TrimSpace(imp[:idx])
 		}
@@ -45,13 +47,13 @@ func (r *GodClassOrModuleRule) check(ctx *api.Context) {
 		} else if lastDot := strings.LastIndex(imp, "."); lastDot > 0 {
 			imp = imp[:lastDot]
 		} else {
-			continue
+			return
 		}
 		if imp == "" {
-			continue
+			return
 		}
 		packages[imp] = struct{}{}
-	}
+	})
 
 	if len(packages) <= r.AllowedDistinctPackages {
 		return

@@ -78,6 +78,44 @@ class FeatureModule
 	}
 }
 
+func TestGodClassOrModuleRule_IgnoresImportTextInStringsAndComments(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "DocsHeavy.kt")
+	code := "package test\n\n" +
+		"import alpha.analytics.AnalyticsClient\n" +
+		"import beta.auth.SessionStore\n" +
+		"\n" +
+		"/*\n" +
+		" * import gamma.cache.MemoryCache\n" +
+		" * import delta.config.RuntimeConfig\n" +
+		" */\n" +
+		"\n" +
+		"val sample = \"\"\"\n" +
+		"import epsilon.fake.FakeOne\n" +
+		"import zeta.fake.FakeTwo\n" +
+		"\"\"\"\n" +
+		"\n" +
+		"class DocsHeavy\n"
+	if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	file, err := scanner.ParseFile(context.Background(), path)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	rule := &GodClassOrModuleRule{
+		BaseRule:                BaseRule{RuleName: "GodClassOrModule", RuleSetName: "architecture", Sev: "warning"},
+		AllowedDistinctPackages: 2,
+	}
+	ctx := api.FakeContext(file)
+	rule.check(ctx)
+	findings := api.ContextFindings(ctx)
+	if len(findings) != 0 {
+		t.Fatalf("expected only real imports to count, got %d findings: %+v", len(findings), findings)
+	}
+}
+
 func TestFanInFanOutHotspotRule_FlagsHighFanInClass(t *testing.T) {
 	rule := &FanInFanOutHotspotRule{
 		BaseRule:                BaseRule{RuleName: "FanInFanOutHotspot", RuleSetName: "architecture", Sev: "info"},

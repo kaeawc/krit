@@ -373,6 +373,78 @@ func TestLineModeFix_TrailingNewlineIdempotent(t *testing.T) {
 	}
 }
 
+func TestLineModeFix_PreservesCRLF(t *testing.T) {
+	path := writeTestFile(t, "line1\r\nline2\r\nline3\r\n")
+	findings := []scanner.Finding{
+		finding(path, &scanner.Fix{
+			StartLine:   2,
+			EndLine:     2,
+			Replacement: "replaced",
+		}),
+	}
+
+	n, err := ApplyFixes(t.Context(), path, findings, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 fix applied, got %d", n)
+	}
+	got := readFile(t, path)
+	want := "line1\r\nreplaced\r\nline3\r\n"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestLineModeFix_CRLF_MultiLineReplacement(t *testing.T) {
+	path := writeTestFile(t, "line1\r\nline2\r\nline3\r\n")
+	findings := []scanner.Finding{
+		finding(path, &scanner.Fix{
+			StartLine:   2,
+			EndLine:     2,
+			Replacement: "a\nb",
+		}),
+	}
+
+	n, err := ApplyFixes(t.Context(), path, findings, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 fix applied, got %d", n)
+	}
+	got := readFile(t, path)
+	want := "line1\r\na\r\nb\r\nline3\r\n"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestLineModeFix_CRLF_DeleteLine(t *testing.T) {
+	path := writeTestFile(t, "line1\r\nline2\r\nline3\r\n")
+	findings := []scanner.Finding{
+		finding(path, &scanner.Fix{
+			StartLine:   2,
+			EndLine:     2,
+			Replacement: "",
+		}),
+	}
+
+	n, err := ApplyFixes(t.Context(), path, findings, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 fix applied, got %d", n)
+	}
+	got := readFile(t, path)
+	want := "line1\r\nline3\r\n"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
 // --------------- Edge cases ---------------
 
 func TestNoFixesApplied(t *testing.T) {

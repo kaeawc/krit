@@ -251,7 +251,8 @@ func applyLineFixes(result string, lineFixes []textFixRow, path string) (string,
 	canonicalSortLineFixes(lineFixes)
 	var dropped []DroppedFix
 	lineFixes, dropped = deduplicateFixesReverse(lineFixes, textFixRowLineEnd, textFixRowLineStart, textFixRowDroppedFor(path))
-	lines := strings.Split(result, "\n")
+	sep := detectLineEnding(result)
+	lines := splitLinesForJoin(result, sep)
 	for _, f := range lineFixes {
 		fix := f.fix
 		start := fix.StartLine - 1
@@ -267,7 +268,7 @@ func applyLineFixes(result string, lineFixes []textFixRow, path string) (string,
 		// terminator the lines model already implies.
 		var replacement []string
 		if fix.Replacement != "" {
-			replacement = strings.Split(strings.TrimSuffix(fix.Replacement, "\n"), "\n")
+			replacement = splitLinesForJoin(strings.TrimSuffix(fix.Replacement, "\n"), sep)
 		}
 		newLines := make([]string, 0, len(lines)-end+start+len(replacement))
 		newLines = append(newLines, lines[:start]...)
@@ -275,7 +276,32 @@ func applyLineFixes(result string, lineFixes []textFixRow, path string) (string,
 		newLines = append(newLines, lines[end:]...)
 		lines = newLines
 	}
-	return strings.Join(lines, "\n"), dropped
+	return strings.Join(lines, sep), dropped
+}
+
+// detectLineEnding returns "\r\n" if the first newline in s is preceded by
+// a carriage return, otherwise "\n". Rules emit replacement text with bare
+// "\n", so applyLineFixes needs the source's ending to avoid producing a
+// file with mixed CRLF/LF lines (which corrupts Windows checkouts).
+func detectLineEnding(s string) string {
+	i := strings.IndexByte(s, '\n')
+	if i > 0 && s[i-1] == '\r' {
+		return "\r\n"
+	}
+	return "\n"
+}
+
+// splitLinesForJoin splits s on "\n" and, when sep is "\r\n", strips the
+// trailing "\r" each line carries so that the subsequent Join(sep) produces
+// uniform CRLF output instead of leaving stray "\r" embedded mid-line.
+func splitLinesForJoin(s, sep string) []string {
+	lines := strings.Split(s, "\n")
+	if sep == "\r\n" {
+		for i, ln := range lines {
+			lines[i] = strings.TrimSuffix(ln, "\r")
+		}
+	}
+	return lines
 }
 
 // canonicalSortByteFixes orders byte-mode fixes for reverse-walk

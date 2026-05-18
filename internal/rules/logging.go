@@ -1359,14 +1359,24 @@ func (r *StructuredLogKeyMixedCaseRule) check(ctx *api.Context) {
 
 func collectStructuredLogKeys(file *scanner.File) []structuredLogKeyOccurrence {
 	var keys []structuredLogKeyOccurrence
+	var st lineScanState
 	for i, line := range file.Lines {
-		for _, match := range structuredAddKeyValueRe.FindAllStringSubmatch(line, -1) {
+		// Pre-filter: skip the lexical scrub and regex scans when the
+		// line cannot match either pattern. State still needs to advance
+		// so a subsequent line that does contain a candidate sees an
+		// accurate `inBlockComment` / `inRawString`.
+		if !strings.Contains(line, "addKeyValue") && !strings.Contains(line, "MDC") {
+			scanLineState(line, &st)
+			continue
+		}
+		scrubbed := stripCommentsAndRawStrings(line, &st)
+		for _, match := range structuredAddKeyValueRe.FindAllStringSubmatch(scrubbed, -1) {
 			if len(match) < 2 {
 				continue
 			}
 			keys = appendStructuredLogKey(keys, match[1], i+1)
 		}
-		for _, match := range structuredMDCPutRe.FindAllStringSubmatch(line, -1) {
+		for _, match := range structuredMDCPutRe.FindAllStringSubmatch(scrubbed, -1) {
 			if len(match) < 2 {
 				continue
 			}

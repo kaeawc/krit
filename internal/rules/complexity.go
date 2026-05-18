@@ -352,29 +352,92 @@ type lineScanState struct {
 // raw-string state — occurrences inside comments or regular strings are
 // ignored.
 func scanLineState(line string, st *lineScanState) {
+	scanLineLexical(line, st, nil)
+}
+
+// stripCommentsAndRawStrings returns a copy of `line` where every byte
+// inside a line comment, block comment, or raw `"""..."""` string
+// literal is replaced with a single space. Regular `"..."` string
+// literals are preserved verbatim — they typically hold real call
+// arguments that line-based rules want to inspect, and Kotlin's
+// requirement to escape inner `"` characters makes it hard for a
+// regular string's body to fabricate a false positive for patterns
+// that need a `"` boundary.
+//
+// The returned string has the same length as the input so column
+// positions are stable; callers can run regex matches against the
+// scrubbed line and reject hits that originated in non-code regions
+// without losing positional information.
+//
+// `st` carries multi-line block-comment and raw-string state across
+// calls; callers iterating over `file.Lines` should declare one
+// lineScanState outside the loop and reuse it.
+func stripCommentsAndRawStrings(line string, st *lineScanState) string {
+	if line == "" {
+		return ""
+	}
+	// Fast path: when no multi-line construct is open and the line cannot
+	// start one (no `//`, `/*`, or `"""`), the scrub is a no-op and state
+	// stays clean. Regular `"..."` strings are preserved verbatim and do
+	// not carry state across lines, so we don't need to detect them here.
+	if !st.inBlockComment && !st.inRawString &&
+		!strings.Contains(line, "//") &&
+		!strings.Contains(line, "/*") &&
+		!strings.Contains(line, `"""`) {
+		return line
+	}
+	out := []byte(line)
+	scanLineLexical(line, st, out)
+	return string(out)
+}
+
+// scanLineLexical is the shared body of scanLineState and
+// stripCommentsAndRawStrings. It advances `st` across `line` and, when
+// `mask` is non-nil, overwrites every byte that falls inside a line
+// comment, block comment, or raw string with a space. Regular `"..."`
+// strings advance the lexer's state (so `\"` and inner `"` are handled
+// correctly) but their bytes are never masked.
+func scanLineLexical(line string, st *lineScanState, mask []byte) {
 	i := 0
 	n := len(line)
 	inLineComment := false
 	inRegString := false
+	scrub := func(j int) {
+		if mask != nil {
+			mask[j] = ' '
+		}
+	}
 	for i < n {
 		if inLineComment {
-			return
+			if mask == nil {
+				return
+			}
+			scrub(i)
+			i++
+			continue
 		}
 		if st.inBlockComment {
 			if i+1 < n && line[i] == '*' && line[i+1] == '/' {
+				scrub(i)
+				scrub(i + 1)
 				st.inBlockComment = false
 				i += 2
 				continue
 			}
+			scrub(i)
 			i++
 			continue
 		}
 		if st.inRawString {
 			if i+2 < n && line[i] == '"' && line[i+1] == '"' && line[i+2] == '"' {
+				scrub(i)
+				scrub(i + 1)
+				scrub(i + 2)
 				st.inRawString = false
 				i += 3
 				continue
 			}
+			scrub(i)
 			i++
 			continue
 		}
@@ -394,16 +457,23 @@ func scanLineState(line string, st *lineScanState) {
 		// Code position.
 		if i+1 < n && line[i] == '/' && line[i+1] == '/' {
 			inLineComment = true
+			scrub(i)
+			scrub(i + 1)
 			i += 2
 			continue
 		}
 		if i+1 < n && line[i] == '/' && line[i+1] == '*' {
 			st.inBlockComment = true
+			scrub(i)
+			scrub(i + 1)
 			i += 2
 			continue
 		}
 		if i+2 < n && line[i] == '"' && line[i+1] == '"' && line[i+2] == '"' {
 			st.inRawString = true
+			scrub(i)
+			scrub(i + 1)
+			scrub(i + 2)
 			i += 3
 			continue
 		}

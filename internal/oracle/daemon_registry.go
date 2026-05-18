@@ -151,6 +151,11 @@ func writePIDFileSlot(pid, port int, sourcesHash string, slot int) error {
 	}
 	portPath := daemonPortPathForSlot(sourcesHash, slot)
 	if err := os.WriteFile(portPath, []byte(strconv.Itoa(port)+"\n"), 0644); err != nil {
+		// Roll back the .pid we just wrote so future invocations don't
+		// see an orphan .pid pointing at the now-killed daemon process
+		// and waste a connect attempt before falling through to
+		// cleanStaleDaemon.
+		_ = os.Remove(pidPath)
 		return fmt.Errorf("write port file: %w", err)
 	}
 	return nil
@@ -507,6 +512,12 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 
 	if err := writePIDFileSlot(cmd.Process.Pid, ready.Port, srcHash, slot); err != nil {
 		cmd.Process.Kill()
+		// writePIDFileSlot already rolls back .pid on .port failure,
+		// but defensively remove both here so a partial write from a
+		// future writer (e.g. .pid+.port both written, then a
+		// follow-on bookkeeping step fails) can't leave stale entries
+		// pointing at a daemon we just killed.
+		removePIDFileSlot(srcHash, slot)
 		return nil, fmt.Errorf("write PID file: %w", err)
 	}
 

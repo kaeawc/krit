@@ -456,6 +456,26 @@ type oracleDaemonEntry struct {
 	daemon     *oracle.Daemon
 	jarPath    string
 	sourceDirs []string
+	// closeFn, when non-nil, replaces entry.daemon.Close() in
+	// closeOracleDaemons. Used by tests to inject a controllable
+	// close — production code leaves it nil.
+	closeFn func() error
+}
+
+// close routes to closeFn when set (tests) and to daemon.Close()
+// otherwise (production). nil-receiver and nil-daemon are no-ops so
+// closeOracleDaemons can safely call this on every cached entry.
+func (e *oracleDaemonEntry) close() error {
+	if e == nil {
+		return nil
+	}
+	if e.closeFn != nil {
+		return e.closeFn()
+	}
+	if e.daemon == nil {
+		return nil
+	}
+	return e.daemon.Close()
 }
 
 // ensureOracleDaemon lazy-starts (or reuses) a krit-types JVM daemon
@@ -534,19 +554,41 @@ func (s *daemonState) pingOracleDaemon() {
 // TCP connections closed but the underlying process is left alive
 // for the next krit invocation to find. Daemons started by serve
 // (shared=false) get a graceful Shutdown→Kill via Daemon.Close.
+//
+// The registry mutex is held only long enough to snapshot the entry
+// list and clear the map; Daemon.Close (which can block for the
+// 10s shutdown grace period per daemon) runs after the mutex is
+// released. Closes run concurrently so N daemons shut down in
+// ~one grace period rather than N×grace period, and the registry
+// mutex never blocks an insertion path during exit.
 func (s *daemonState) closeOracleDaemons() {
 	if s == nil {
 		return
 	}
 	s.oracleDaemonMu.Lock()
-	defer s.oracleDaemonMu.Unlock()
+	entries := make([]*oracleDaemonEntry, 0, len(s.oracleDaemonByKey))
 	for _, entry := range s.oracleDaemonByKey {
-		if entry == nil || entry.daemon == nil {
+		if entry == nil {
 			continue
 		}
-		_ = entry.daemon.Close()
+		if entry.daemon == nil && entry.closeFn == nil {
+			continue
+		}
+		entries = append(entries, entry)
 	}
 	s.oracleDaemonByKey = map[string]*oracleDaemonEntry{}
+	s.oracleDaemonMu.Unlock()
+
+	var wg sync.WaitGroup
+	wg.Add(len(entries))
+	for _, entry := range entries {
+		entry := entry
+		go func() {
+			defer wg.Done()
+			_ = entry.close()
+		}()
+	}
+	wg.Wait()
 }
 
 // analysisCacheEntry holds a lazily-loaded *cache.Cache and the file

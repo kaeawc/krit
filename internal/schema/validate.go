@@ -2,6 +2,7 @@ package schema
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/kaeawc/krit/internal/config"
@@ -322,11 +323,7 @@ func validateRuleFields(setName, ruleName string, ruleMap map[string]interface{}
 func checkType(path string, val interface{}, expected OptionType) *ValidationError {
 	switch expected {
 	case OptionTypeInt:
-		switch val.(type) {
-		case int, int64, float64:
-			return nil
-		}
-		return &ValidationError{Path: path, Message: fmt.Sprintf("expected integer, got %T", val), Level: "error"}
+		return checkInt(path, val)
 	case OptionTypeBool:
 		if _, ok := val.(bool); !ok {
 			return &ValidationError{Path: path, Message: fmt.Sprintf("expected boolean, got %T", val), Level: "error"}
@@ -344,14 +341,56 @@ func checkType(path string, val interface{}, expected OptionType) *ValidationErr
 			return &ValidationError{Path: path, Message: fmt.Sprintf("invalid regex: %v", err), Level: "error"}
 		}
 	case OptionTypeStringSlice:
-		if _, ok := val.([]interface{}); !ok {
-			if _, ok := val.([]string); !ok {
-				// Also accept a single string as a one-element list
-				if _, ok := val.(string); !ok {
-					return &ValidationError{Path: path, Message: fmt.Sprintf("expected array of strings, got %T", val), Level: "error"}
+		return checkStringSlice(path, val)
+	}
+	return nil
+}
+
+// checkInt validates an OptionTypeInt value. YAML decodes plain integer
+// literals like `2` as float64, so an integral float that fits in int64 is
+// accepted. Fractional values, non-finite floats, and floats outside int64
+// range are rejected with a message that names the option and the value.
+func checkInt(path string, val interface{}) *ValidationError {
+	switch v := val.(type) {
+	case int, int64:
+		return nil
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return &ValidationError{Path: path, Message: fmt.Sprintf("expected integer for %q, got non-finite float %v", path, v), Level: "error"}
+		}
+		if math.Trunc(v) != v {
+			return &ValidationError{Path: path, Message: fmt.Sprintf("expected integer for %q, got non-integer float %v", path, v), Level: "error"}
+		}
+		if v < math.MinInt64 || v > math.MaxInt64 {
+			return &ValidationError{Path: path, Message: fmt.Sprintf("expected integer for %q, value %v exceeds int64 range", path, v), Level: "error"}
+		}
+		return nil
+	}
+	return &ValidationError{Path: path, Message: fmt.Sprintf("expected integer, got %T", val), Level: "error"}
+}
+
+// checkStringSlice validates an OptionTypeStringSlice value. YAML decodes
+// arrays as []interface{}, so each element must be checked individually.
+// A bare string is also accepted as a one-element list to match historic
+// loader behavior.
+func checkStringSlice(path string, val interface{}) *ValidationError {
+	switch v := val.(type) {
+	case []interface{}:
+		for i, elem := range v {
+			if _, ok := elem.(string); !ok {
+				return &ValidationError{
+					Path:    path,
+					Message: fmt.Sprintf("expected string element in %q at index %d, got %T", path, i, elem),
+					Level:   "error",
 				}
 			}
 		}
+	case []string:
+		// Already typed as []string by the loader; nothing to verify.
+	case string:
+		// Also accept a single string as a one-element list.
+	default:
+		return &ValidationError{Path: path, Message: fmt.Sprintf("expected array of strings, got %T", val), Level: "error"}
 	}
 	return nil
 }

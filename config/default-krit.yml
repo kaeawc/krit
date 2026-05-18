@@ -633,10 +633,8 @@ style:
   ForbiddenMethodCall:
     active: false
     methods:
-      - reason: 'print writes directly to standard output; prefer a logger for application code.'
-        value: 'kotlin.io.print'
-      - reason: 'println writes directly to standard output; prefer a logger for application code.'
-        value: 'kotlin.io.println'
+      - 'kotlin.io.print'
+      - 'kotlin.io.println'
   MandatoryBracesLoops:
     active: false
   MaxChainedCallsOnSameLine:
@@ -889,8 +887,7 @@ style:
   ForbiddenAnnotation:
     active: false
     annotations:
-      - value: 'SuppressWarnings'
-        reason: 'Use @Suppress instead.'
+      - 'SuppressWarnings'
   ForbiddenNamedParam:
     active: false
     methods:

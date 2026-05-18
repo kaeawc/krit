@@ -369,6 +369,137 @@ func TestValidateConfig_WrongType(t *testing.T) {
 	}
 }
 
+func TestValidateConfig_IntAcceptsIntegerValues(t *testing.T) {
+	cases := []struct {
+		name  string
+		value interface{}
+	}{
+		{"int", 42},
+		{"int64", int64(42)},
+		{"integral float64", float64(42)},
+		{"zero", 0},
+		{"negative int", -3},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.NewConfig()
+			cfg.Set("complexity", "LongMethod", "allowedLines", tc.value)
+			errs := ValidateConfig(cfg)
+			for _, e := range errs {
+				if e.Path == "complexity.LongMethod.allowedLines" && e.Level == "error" {
+					t.Errorf("unexpected error for %v: %s", tc.value, e)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateConfig_IntRejectsNonIntegralFloat(t *testing.T) {
+	cfg := config.NewConfig()
+	cfg.Set("complexity", "LongMethod", "allowedLines", 2.5)
+
+	errs := ValidateConfig(cfg)
+	found := false
+	for _, e := range errs {
+		if e.Path == "complexity.LongMethod.allowedLines" && e.Level == "error" {
+			found = true
+			if !strings.Contains(e.Message, "allowedLines") {
+				t.Errorf("error message missing option name: %q", e.Message)
+			}
+			if !strings.Contains(e.Message, "2.5") {
+				t.Errorf("error message missing offending value: %q", e.Message)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected error for non-integral float where int expected")
+	}
+}
+
+func TestValidateConfig_IntRejectsStringValue(t *testing.T) {
+	cfg := config.NewConfig()
+	cfg.Set("complexity", "LongMethod", "allowedLines", "2")
+
+	errs := ValidateConfig(cfg)
+	found := false
+	for _, e := range errs {
+		if e.Path == "complexity.LongMethod.allowedLines" && e.Level == "error" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected error for string where int expected")
+	}
+}
+
+func TestValidateConfig_IntRejectsOutOfRangeFloat(t *testing.T) {
+	cfg := config.NewConfig()
+	// 2^63 exceeds the range of int64; cannot represent as int
+	cfg.Set("complexity", "LongMethod", "allowedLines", float64(1e20))
+
+	errs := ValidateConfig(cfg)
+	found := false
+	for _, e := range errs {
+		if e.Path == "complexity.LongMethod.allowedLines" && e.Level == "error" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected error for out-of-range float where int expected")
+	}
+}
+
+func TestValidateConfig_StringSliceAcceptsStrings(t *testing.T) {
+	cfg := config.NewConfig()
+	cfg.Data()["testSourcePaths"] = []interface{}{"a", "b"}
+
+	errs := ValidateConfig(cfg)
+	for _, e := range errs {
+		if e.Path == "testSourcePaths" && e.Level == "error" {
+			t.Errorf("unexpected error: %s", e)
+		}
+	}
+}
+
+func TestValidateConfig_StringSliceAcceptsEmpty(t *testing.T) {
+	cfg := config.NewConfig()
+	cfg.Data()["testSourcePaths"] = []interface{}{}
+
+	errs := ValidateConfig(cfg)
+	for _, e := range errs {
+		if e.Path == "testSourcePaths" && e.Level == "error" {
+			t.Errorf("unexpected error: %s", e)
+		}
+	}
+}
+
+func TestValidateConfig_StringSliceRejectsNonStringElement(t *testing.T) {
+	cfg := config.NewConfig()
+	cfg.Data()["testSourcePaths"] = []interface{}{"a", 1}
+
+	errs := ValidateConfig(cfg)
+	found := false
+	for _, e := range errs {
+		if e.Path == "testSourcePaths" && e.Level == "error" {
+			found = true
+			if !strings.Contains(e.Message, "testSourcePaths") && !strings.Contains(e.Message, "index 1") && !strings.Contains(e.Message, "[1]") {
+				t.Errorf("error message missing index/name context: %q", e.Message)
+			}
+			if !strings.Contains(e.Message, "int") {
+				t.Errorf("error message missing offending type: %q", e.Message)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected error for non-string element in string slice")
+	}
+}
+
 func TestValidateConfig_InvalidNamingRegex(t *testing.T) {
 	cfg := config.NewConfig()
 	cfg.Set("naming", "ClassNaming", "classPattern", "[unclosed")

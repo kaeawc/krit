@@ -1,20 +1,12 @@
 package rules
 
 import (
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
-
-// structuredAddKeyValueRe matches `addKeyValue("key", ...)` and captures the
-// key literal. Used by StructuredLogKeyMixedCaseRule.
-var structuredAddKeyValueRe = regexp.MustCompile(`\baddKeyValue\s*\(\s*"([^"]+)"`)
-
-// structuredMDCPutRe matches `MDC.put("key", ...)` and captures the key
-// literal. Used by StructuredLogKeyMixedCaseRule.
-var structuredMDCPutRe = regexp.MustCompile(`\bMDC\s*\.\s*put\s*\(\s*"([^"]+)"`)
 
 // LogLevelGuardMissingRule detects debug/trace logger calls whose message
 // template interpolates a call expression, causing eager work when the level is
@@ -1286,7 +1278,7 @@ func observedIdentifierExpr(file *scanner.File, expr uint32, identifiers map[str
 // StructuredLogKeyMixedCaseRule detects files that mostly use one structured
 // logging key convention but contain minority keys using the other convention.
 type StructuredLogKeyMixedCaseRule struct {
-	LineBase
+	FlatDispatchBase
 	BaseRule
 
 	MinKeys          int
@@ -1295,107 +1287,92 @@ type StructuredLogKeyMixedCaseRule struct {
 
 func (r *StructuredLogKeyMixedCaseRule) Confidence() float64 { return 0.75 }
 
-type structuredLogKeyOccurrence struct {
-	key        string
-	convention string
-	line       int
+// structuredLogKeyDecision carries the per-file majority/minority verdict.
+// Empty strings mean "no finding for this file".
+type structuredLogKeyDecision struct {
+	minority string
+	majority string
 }
 
-func (r *StructuredLogKeyMixedCaseRule) check(ctx *api.Context) {
-	file := ctx.File
-	if file == nil {
-		return
+// structuredLogKeyAtCall returns the static structured-log key written at
+// `call` when it is an `addKeyValue(...)` or `MDC.put(...)` invocation whose
+// first positional argument is a non-interpolated string literal. The
+// receiver check rejects `someMap.put("k", v)` look-alikes.
+func structuredLogKeyAtCall(file *scanner.File, call uint32) (string, bool) {
+	switch flatCallExpressionName(file, call) {
+	case "addKeyValue":
+	case "put":
+		if flatReceiverNameFromCall(file, call) != "MDC" {
+			return "", false
+		}
+	default:
+		return "", false
 	}
-	keys := collectStructuredLogKeys(file)
+	return mdcStaticKeyFlat(file, call)
+}
+
+func (r *StructuredLogKeyMixedCaseRule) decisionFor(ctx *api.Context) structuredLogKeyDecision {
+	file := ctx.File
 	minKeys := r.MinKeys
 	if minKeys == 0 {
 		minKeys = 3
-	}
-	if len(keys) < minKeys {
-		return
-	}
-	snake, camel := 0, 0
-	for _, key := range keys {
-		switch key.convention {
-		case "snake_case":
-			snake++
-		case "camelCase":
-			camel++
-		}
-	}
-	total := snake + camel
-	if total < minKeys || snake == 0 || camel == 0 {
-		return
 	}
 	threshold := r.ThresholdPercent
 	if threshold == 0 {
 		threshold = 70
 	}
-	majority, minority := "", ""
-	switch {
-	case snake*100 >= total*threshold:
-		majority, minority = "snake_case", "camelCase"
-	case camel*100 >= total*threshold:
-		majority, minority = "camelCase", "snake_case"
-	default:
+	return filefacts.FileFact(ctx.Facts, file, "structuredLogKeyDecision", func() structuredLogKeyDecision {
+		snake, camel := 0, 0
+		tree := file.FlatTree
+		callTypeID, ok := scanner.LookupFlatNodeType("call_expression")
+		if !ok || tree == nil || int(callTypeID) >= len(tree.NodesByType) {
+			return structuredLogKeyDecision{}
+		}
+		for _, flatIdx := range tree.NodesByType[callTypeID] {
+			key, ok := structuredLogKeyAtCall(file, flatIdx)
+			if !ok {
+				continue
+			}
+			switch structuredLogKeyConvention(key) {
+			case "snake_case":
+				snake++
+			case "camelCase":
+				camel++
+			}
+		}
+		total := snake + camel
+		if total < minKeys || snake == 0 || camel == 0 {
+			return structuredLogKeyDecision{}
+		}
+		switch {
+		case snake*100 >= total*threshold:
+			return structuredLogKeyDecision{minority: "camelCase", majority: "snake_case"}
+		case camel*100 >= total*threshold:
+			return structuredLogKeyDecision{minority: "snake_case", majority: "camelCase"}
+		}
+		return structuredLogKeyDecision{}
+	})
+}
+
+func (r *StructuredLogKeyMixedCaseRule) check(ctx *api.Context) {
+	idx, file := ctx.Idx, ctx.File
+	if file == nil || file.FlatTree == nil {
 		return
 	}
-	for _, key := range keys {
-		if key.convention != minority {
-			continue
-		}
-		ctx.Emit(scanner.Finding{
-			File:       file.Path,
-			Line:       key.line,
-			Col:        1,
-			RuleSet:    r.RuleSetName,
-			Rule:       r.RuleName,
-			Severity:   r.Sev,
-			Message:    "Structured log key " + key.key + " uses " + minority + " in a file that mostly uses " + majority + ". Keep structured log keys consistent within a file.",
-			Confidence: r.Confidence(),
-		})
+	key, ok := structuredLogKeyAtCall(file, idx)
+	if !ok {
+		return
 	}
-}
-
-func collectStructuredLogKeys(file *scanner.File) []structuredLogKeyOccurrence {
-	var keys []structuredLogKeyOccurrence
-	var st lineScanState
-	for i, line := range file.Lines {
-		// Pre-filter: skip the lexical scrub and regex scans when the
-		// line cannot match either pattern. State still needs to advance
-		// so a subsequent line that does contain a candidate sees an
-		// accurate `inBlockComment` / `inRawString`.
-		if !strings.Contains(line, "addKeyValue") && !strings.Contains(line, "MDC") {
-			scanLineState(line, &st)
-			continue
-		}
-		scrubbed := stripCommentsAndRawStrings(line, &st)
-		for _, match := range structuredAddKeyValueRe.FindAllStringSubmatch(scrubbed, -1) {
-			if len(match) < 2 {
-				continue
-			}
-			keys = appendStructuredLogKey(keys, match[1], i+1)
-		}
-		for _, match := range structuredMDCPutRe.FindAllStringSubmatch(scrubbed, -1) {
-			if len(match) < 2 {
-				continue
-			}
-			keys = appendStructuredLogKey(keys, match[1], i+1)
-		}
-	}
-	return keys
-}
-
-func appendStructuredLogKey(keys []structuredLogKeyOccurrence, key string, line int) []structuredLogKeyOccurrence {
 	convention := structuredLogKeyConvention(key)
 	if convention == "" {
-		return keys
+		return
 	}
-	return append(keys, structuredLogKeyOccurrence{
-		key:        key,
-		convention: convention,
-		line:       line,
-	})
+	decision := r.decisionFor(ctx)
+	if decision.minority == "" || convention != decision.minority {
+		return
+	}
+	ctx.EmitAt(file.FlatRow(idx)+1, 1,
+		"Structured log key "+key+" uses "+decision.minority+" in a file that mostly uses "+decision.majority+". Keep structured log keys consistent within a file.")
 }
 
 // LoggerStringConcatRule detects SLF4J/Logback/log4j-style logger calls whose
@@ -1478,9 +1455,10 @@ type MdcPutNoRemoveRule struct {
 // shapes without confirming the receiver type. Classified per roadmap/17.
 func (r *MdcPutNoRemoveRule) Confidence() float64 { return 0.75 }
 
-// mdcStaticKeyFlat returns the literal key value of an MDC.put / MDC.remove
-// call when the first argument is a non-interpolated string literal. The
-// boolean is false when the key is dynamic.
+// mdcStaticKeyFlat returns the literal value of `call`'s first positional
+// argument when that argument is a non-interpolated string literal. Used by
+// MDC.put / MDC.remove key tracking and by StructuredLogKeyMixedCaseRule's
+// key-convention scan. The boolean is false when the argument is dynamic.
 func mdcStaticKeyFlat(file *scanner.File, call uint32) (string, bool) {
 	_, args := flatCallExpressionParts(file, call)
 	if args == 0 {

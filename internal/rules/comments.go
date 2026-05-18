@@ -229,15 +229,17 @@ func (r *AbsentOrWrongFileLicenseRule) check(ctx *api.Context) {
 			break
 		}
 	}
-	licenseComment := "/* " + r.LicenseTemplate + " */\n"
 	if !hasFirstComment {
 		f := r.Finding(file, 1, 1, "File does not have a valid license header.")
-		// Auto-fix: insert the license template at byte 0
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   0,
-			EndByte:     0,
-			Replacement: licenseComment,
+		// Auto-fix only when LicenseTemplate is a literal header — a regex
+		// pattern is not safe to inline as Kotlin source.
+		if !r.IsRegex {
+			f.Fix = &scanner.Fix{
+				ByteMode:    true,
+				StartByte:   0,
+				EndByte:     0,
+				Replacement: "/* " + r.LicenseTemplate + " */\n",
+			}
 		}
 		ctx.Emit(f)
 		return
@@ -260,12 +262,13 @@ func (r *AbsentOrWrongFileLicenseRule) check(ctx *api.Context) {
 		}
 	}
 	f := r.Finding(file, 1, 1, "File does not have a valid license header.")
-	// Auto-fix: replace existing wrong license comment with correct one
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(firstComment)),
-		EndByte:     int(file.FlatEndByte(firstComment)),
-		Replacement: "/* " + r.LicenseTemplate + " */",
+	if !r.IsRegex {
+		f.Fix = &scanner.Fix{
+			ByteMode:    true,
+			StartByte:   int(file.FlatStartByte(firstComment)),
+			EndByte:     int(file.FlatEndByte(firstComment)),
+			Replacement: "/* " + r.LicenseTemplate + " */",
+		}
 	}
 	ctx.Emit(f)
 }

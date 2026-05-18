@@ -42,4 +42,5 @@ const (
 	slotTestQualityMockNames        = "testQualityMockNames"
 	slotTestQualityAssertionHelpers = "testQualityAssertionHelpers"
 	slotUnusedImportRefs            = "unusedImportRefs"
+	slotPrintBuiltinShadows         = "printBuiltinShadows"
 )

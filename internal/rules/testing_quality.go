@@ -197,7 +197,7 @@ func (r *AssertTrueOnComparisonRule) Confidence() float64 { return 0.75 }
 // MixedAssertionLibrariesRule detects files that import both JUnit Assert and
 // Truth APIs in the import header.
 type MixedAssertionLibrariesRule struct {
-	LineBase
+	FlatDispatchBase
 	BaseRule
 }
 
@@ -208,41 +208,12 @@ func (r *MixedAssertionLibrariesRule) Confidence() float64 { return 0.75 }
 
 func (r *MixedAssertionLibrariesRule) check(ctx *api.Context) {
 	file := ctx.File
-	var hasJUnitAssertImport bool
-	var hasTruthImport bool
-
-	for i, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-
-		switch {
-		case trimmed == "", scanner.IsCommentLine(line):
-			continue
-		case strings.HasPrefix(trimmed, "@file:"):
-			continue
-		case strings.HasPrefix(trimmed, "package "):
-			continue
-		case strings.HasPrefix(trimmed, "import "):
-			if strings.HasPrefix(trimmed, "import org.junit.Assert.") {
-				hasJUnitAssertImport = true
-				if hasTruthImport {
-					ctx.Emit(r.Finding(file, i+1, 1,
-						"Avoid mixing JUnit Assert and Truth imports in the same file; pick one assertion library."))
-					return
-				}
-			}
-			if strings.HasPrefix(trimmed, "import com.google.common.truth.Truth.") {
-				hasTruthImport = true
-				if hasJUnitAssertImport {
-					ctx.Emit(r.Finding(file, i+1, 1,
-						"Avoid mixing JUnit Assert and Truth imports in the same file; pick one assertion library."))
-					return
-				}
-			}
-			continue
-		default:
-			return
-		}
+	imports := fileFactsCache().Imports(file)
+	if !imports.HasAnyPrefix("org.junit.Assert.") || !imports.HasAnyPrefix("com.google.common.truth.Truth.") {
+		return
 	}
+	ctx.Emit(r.Finding(file, file.FlatRow(ctx.Idx)+1, 1,
+		"Avoid mixing JUnit Assert and Truth imports in the same file; pick one assertion library."))
 }
 
 // ---------------------------------------------------------------------------

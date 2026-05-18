@@ -115,8 +115,11 @@ func registerTestingQualityMixedAssertionLibraries() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		Needs: api.NeedsLinePass, Implementation: r,
-		Check: r.check,
+		NodeTypes:      []string{"source_file"},
+		Languages:      []scanner.Language{scanner.LangKotlin},
+		Confidence:     r.Confidence(),
+		Implementation: r,
+		Check:          r.check,
 	})
 }
 

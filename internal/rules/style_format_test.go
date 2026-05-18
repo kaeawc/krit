@@ -430,6 +430,38 @@ fun main() {
 	}
 }
 
+func TestCascadingCallWrapping_IgnoresRawString(t *testing.T) {
+	findings := runRuleByName(t, "CascadingCallWrapping", `
+package test
+
+fun main() {
+    val sql = """
+        SELECT foo.bar
+        .baz
+        FROM t
+    """.trimIndent()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings inside raw string, got %d", len(findings))
+	}
+}
+
+func TestCascadingCallWrapping_IgnoresBlockComment(t *testing.T) {
+	findings := runRuleByName(t, "CascadingCallWrapping", `
+package test
+
+/*
+val x = foo.bar
+.baz
+*/
+fun main() {}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings inside block comment, got %d", len(findings))
+	}
+}
+
 func TestCascadingCallWrapping_HonorsIncludeElvis(t *testing.T) {
 	// IncludeElvis was previously a dead config — exposed in metadata but
 	// never consulted. Configure it via the rule pointer and verify

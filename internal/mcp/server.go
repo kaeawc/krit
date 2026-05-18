@@ -16,7 +16,39 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
+// protocolVersion is the latest MCP protocol revision this server speaks.
+// It is the version returned to clients that omit `protocolVersion` or that
+// request a version the server does not recognize. Per the MCP spec
+// (https://modelcontextprotocol.io/specification/2025-06-18/basic/lifecycle),
+// when the server doesn't support the client's requested version it MUST
+// respond with another version it supports, and SHOULD pick the latest.
 const protocolVersion = "2024-11-05"
+
+// supportedProtocolVersions enumerates every MCP revision this server can
+// speak with a client, ordered newest-first. Per the spec, if the client
+// requests one of these we MUST echo it back; otherwise we respond with
+// protocolVersion (the latest). Add a new revision here when wire-level
+// compatibility is verified; do not just bump protocolVersion or older
+// clients will be told to disconnect.
+var supportedProtocolVersions = []string{
+	"2024-11-05",
+}
+
+// negotiateProtocolVersion picks the server-side response for the client's
+// requested protocolVersion. Empty client version (field omitted) is
+// treated as "client did not negotiate" and gets the server default.
+// Returns the version to send back.
+func negotiateProtocolVersion(clientVersion string) string {
+	if clientVersion == "" {
+		return protocolVersion
+	}
+	for _, v := range supportedProtocolVersions {
+		if v == clientVersion {
+			return v
+		}
+	}
+	return protocolVersion
+}
 
 // Server implements an MCP server over stdio using JSON-RPC 2.0.
 type Server struct {
@@ -137,10 +169,24 @@ func (s *Server) handleMessage(req *Request) {
 	}
 }
 
-// handleInitialize responds with server capabilities.
+// handleInitialize responds with server capabilities. Negotiates the
+// protocol version per the MCP spec: if the client's requested version
+// is one we support we echo it back; otherwise we return our latest
+// supported version and let the client decide whether to disconnect.
+// `initialize` is a request (has an id) in practice; we still gate the
+// reply on req.ID != nil so a malformed notification-style initialize
+// doesn't produce a stray `"id":null` response.
 func (s *Server) handleInitialize(req *Request) {
+	var params InitializeParams
+	if len(req.Params) > 0 {
+		// Best-effort decode: a bad params blob shouldn't break
+		// initialize, the spec only requires us to negotiate a
+		// version we can speak. An empty/invalid params falls
+		// through to the server default.
+		_ = json.Unmarshal(req.Params, &params)
+	}
 	result := InitializeResult{
-		ProtocolVersion: protocolVersion,
+		ProtocolVersion: negotiateProtocolVersion(params.ProtocolVersion),
 		Capabilities: ServerCaps{
 			Tools:     &ToolsCap{},
 			Resources: &ResourcesCap{},
@@ -151,11 +197,19 @@ func (s *Server) handleInitialize(req *Request) {
 			Version: "0.0.1",
 		},
 	}
+	if req.ID == nil {
+		return
+	}
 	s.sendResponse(req.ID, result, nil)
 }
 
 // handleToolsList returns the list of available tools.
 func (s *Server) handleToolsList(req *Request) {
+	if req.ID == nil {
+		// JSON-RPC 2.0 notifications (no id) must not get a
+		// response, even for known methods. Drop silently.
+		return
+	}
 	result := ToolsListResult{
 		Tools: toolDefinitions(),
 	}
@@ -164,6 +218,12 @@ func (s *Server) handleToolsList(req *Request) {
 
 // handleToolsCall dispatches a tool call.
 func (s *Server) handleToolsCall(req *Request) {
+	if req.ID == nil {
+		// Notification form is meaningless for tools/call (the
+		// client wants a result); drop silently rather than
+		// emitting a stray `"id":null` response.
+		return
+	}
 	var params ToolCallParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		s.sendResponse(req.ID, nil, &RPCError{
@@ -202,6 +262,9 @@ func (s *Server) handleToolsCall(req *Request) {
 
 // handleResourcesList returns the list of available resources.
 func (s *Server) handleResourcesList(req *Request) {
+	if req.ID == nil {
+		return
+	}
 	result := ResourcesListResult{
 		Resources: resourceDefinitions(),
 	}
@@ -210,6 +273,9 @@ func (s *Server) handleResourcesList(req *Request) {
 
 // handleResourcesRead returns the content of a resource.
 func (s *Server) handleResourcesRead(req *Request) {
+	if req.ID == nil {
+		return
+	}
 	var params ResourceReadParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		s.sendResponse(req.ID, nil, &RPCError{
@@ -240,6 +306,9 @@ func (s *Server) handleResourcesRead(req *Request) {
 
 // handlePromptsList returns the list of available prompts.
 func (s *Server) handlePromptsList(req *Request) {
+	if req.ID == nil {
+		return
+	}
 	result := PromptsListResult{
 		Prompts: promptDefinitions(),
 	}
@@ -248,6 +317,9 @@ func (s *Server) handlePromptsList(req *Request) {
 
 // handlePromptsGet returns a prompt with its messages.
 func (s *Server) handlePromptsGet(req *Request) {
+	if req.ID == nil {
+		return
+	}
 	var params PromptGetParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		s.sendResponse(req.ID, nil, &RPCError{

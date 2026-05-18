@@ -1870,3 +1870,200 @@ func mustJSON(t *testing.T, v interface{}) json.RawMessage {
 	}
 	return data
 }
+
+// runServerRaw feeds raw NDJSON lines straight at the server. Necessary
+// for notification tests because json.Marshal of Request{ID: nil} with
+// `id,omitempty` already drops the field, but constructing a request
+// with ID set to typed nil is awkward; raw lines let the test express
+// "no id field at all" unambiguously.
+func runServerRaw(t *testing.T, lines ...string) []byte {
+	t.Helper()
+	var input strings.Builder
+	for _, line := range lines {
+		input.WriteString(line)
+		if !strings.HasSuffix(line, "\n") {
+			input.WriteString("\n")
+		}
+	}
+	var output bytes.Buffer
+	reader := bufio.NewReader(strings.NewReader(input.String()))
+	server := NewServer(reader, &output)
+	server.buildDispatcher()
+	for {
+		msg, err := jsonrpc.ReadMessageNDJSON(reader)
+		if err != nil {
+			break
+		}
+		var req Request
+		if err := json.Unmarshal(msg, &req); err != nil {
+			t.Fatalf("unmarshal request: %v", err)
+		}
+		server.handleMessage(&req)
+	}
+	return output.Bytes()
+}
+
+// TestNotificationsProduceNoResponse verifies that JSON-RPC notifications
+// (messages with no `id` field) for known MCP methods never produce a
+// response. The previous implementation called sendResponse(req.ID, …)
+// unconditionally, which emitted a response with `"id":null` — a
+// violation of JSON-RPC 2.0 (responses MUST correlate to a request id,
+// and notifications MUST NOT receive a response).
+func TestNotificationsProduceNoResponse(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+	}{
+		{"tools/list notification", `{"jsonrpc":"2.0","method":"tools/list"}`},
+		{"tools/call notification", `{"jsonrpc":"2.0","method":"tools/call","params":{"name":"analyze","arguments":{"code":"fun x(){}"}}}`},
+		{"resources/list notification", `{"jsonrpc":"2.0","method":"resources/list"}`},
+		{"resources/read notification", `{"jsonrpc":"2.0","method":"resources/read","params":{"uri":"krit://rules"}}`},
+		{"prompts/list notification", `{"jsonrpc":"2.0","method":"prompts/list"}`},
+		{"prompts/get notification", `{"jsonrpc":"2.0","method":"prompts/get","params":{"name":"review_kotlin","arguments":{"code":"fun x(){}"}}}`},
+		{"initialize notification", `{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}`},
+		{"unknown method notification", `{"jsonrpc":"2.0","method":"does/not/exist"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := runServerRaw(t, tc.line)
+			if len(bytes.TrimSpace(out)) != 0 {
+				t.Errorf("expected no response for notification %q, got %q", tc.name, string(out))
+			}
+		})
+	}
+}
+
+// TestNotificationDoesNotBlockSubsequentRequest pairs a notification with
+// a real request to confirm the server keeps processing after dropping
+// the notification — the fix must not accidentally break the message loop.
+func TestNotificationDoesNotBlockSubsequentRequest(t *testing.T) {
+	out := runServerRaw(t,
+		`{"jsonrpc":"2.0","method":"tools/list"}`,
+		`{"jsonrpc":"2.0","id":42,"method":"tools/list"}`,
+	)
+	outReader := bufio.NewReader(bytes.NewReader(out))
+	var responses []Response
+	for {
+		msg, err := jsonrpc.ReadMessageNDJSON(outReader)
+		if err != nil {
+			break
+		}
+		var resp Response
+		if err := json.Unmarshal(msg, &resp); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+		responses = append(responses, resp)
+	}
+	if len(responses) != 1 {
+		t.Fatalf("expected exactly 1 response (only the request, not the notification), got %d: %s", len(responses), string(out))
+	}
+	// The response id must correlate to the request, not be `null` (which
+	// is what the bug would produce for the dropped notification).
+	idFloat, ok := responses[0].ID.(float64)
+	if !ok {
+		t.Fatalf("response id has unexpected type %T (%v); should be the request id, not null", responses[0].ID, responses[0].ID)
+	}
+	if int(idFloat) != 42 {
+		t.Errorf("expected response id 42, got %v", responses[0].ID)
+	}
+}
+
+// TestInitializeNegotiatesSupportedVersion covers the spec rule: if the
+// client requests a version the server supports, the server MUST echo
+// that same version.
+func TestInitializeNegotiatesSupportedVersion(t *testing.T) {
+	// Pick the first (newest) supported version so this stays
+	// meaningful if/when the list grows.
+	supported := supportedProtocolVersions[0]
+	params := fmt.Sprintf(`{"protocolVersion":%q,"capabilities":{}}`, supported)
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(params),
+	})
+	if len(responses) != 1 {
+		t.Fatalf("expected 1 response, got %d", len(responses))
+	}
+	data, _ := json.Marshal(responses[0].Result)
+	var result InitializeResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if result.ProtocolVersion != supported {
+		t.Errorf("server returned %q, want %q (client requested supported version, server MUST echo it)", result.ProtocolVersion, supported)
+	}
+}
+
+// TestInitializeFallsBackForUnsupportedVersion covers the spec rule: if
+// the client requests a version the server does not support (e.g. a
+// future spec revision), the server MUST respond with another version
+// it supports (we return the server's latest = protocolVersion).
+func TestInitializeFallsBackForUnsupportedVersion(t *testing.T) {
+	// "9999-12-31" is well beyond anything we will ever publish; the
+	// server cannot possibly support it.
+	params := `{"protocolVersion":"9999-12-31","capabilities":{}}`
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(params),
+	})
+	if len(responses) != 1 {
+		t.Fatalf("expected 1 response, got %d", len(responses))
+	}
+	data, _ := json.Marshal(responses[0].Result)
+	var result InitializeResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if result.ProtocolVersion != protocolVersion {
+		t.Errorf("server returned %q for unsupported client version, want server default %q", result.ProtocolVersion, protocolVersion)
+	}
+}
+
+// TestInitializeOmittedVersionUsesServerDefault covers the case where
+// the client sends `initialize` without a `protocolVersion` field. The
+// MCP spec says the client MUST send one, but a defensive server should
+// still respond with its supported version rather than echoing the
+// empty string back as a "version".
+func TestInitializeOmittedVersionUsesServerDefault(t *testing.T) {
+	params := `{"capabilities":{}}`
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(params),
+	})
+	if len(responses) != 1 {
+		t.Fatalf("expected 1 response, got %d", len(responses))
+	}
+	data, _ := json.Marshal(responses[0].Result)
+	var result InitializeResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if result.ProtocolVersion != protocolVersion {
+		t.Errorf("server returned %q when client omitted protocolVersion, want server default %q", result.ProtocolVersion, protocolVersion)
+	}
+}
+
+// TestNegotiateProtocolVersion exercises the pure helper directly so
+// each spec rule has a one-line regression case independent of the
+// JSON-RPC plumbing.
+func TestNegotiateProtocolVersion(t *testing.T) {
+	for _, supported := range supportedProtocolVersions {
+		if got := negotiateProtocolVersion(supported); got != supported {
+			t.Errorf("negotiate(%q) = %q, want %q (echo supported version)", supported, got, supported)
+		}
+	}
+	if got := negotiateProtocolVersion(""); got != protocolVersion {
+		t.Errorf("negotiate(\"\") = %q, want %q (server default)", got, protocolVersion)
+	}
+	if got := negotiateProtocolVersion("9999-12-31"); got != protocolVersion {
+		t.Errorf("negotiate(future) = %q, want %q (server default)", got, protocolVersion)
+	}
+	if got := negotiateProtocolVersion("1999-01-01"); got != protocolVersion {
+		t.Errorf("negotiate(past) = %q, want %q (server default)", got, protocolVersion)
+	}
+}

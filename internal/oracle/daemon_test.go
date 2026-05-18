@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -632,6 +633,154 @@ func TestDaemon_ShutdownNotStarted(t *testing.T) {
 	err := d.Shutdown()
 	if err != nil {
 		t.Errorf("expected nil error for shutdown of non-started daemon, got: %v", err)
+	}
+}
+
+// TestDaemon_Shutdown_WedgedProcess_KillsAndReleasesLock simulates a daemon
+// JVM that accepts the "shutdown" request but never actually exits — modelled
+// here by a long-running `sleep` subprocess paired with a hand-rolled JSON
+// responder for the wire. The bug under test: an earlier Shutdown
+// implementation held d.mu for the full timeout window and never reaped the
+// Wait() goroutine after killing, so a wedged JVM could stall every other
+// Daemon caller and leak goroutines.
+//
+// The test confirms:
+//  1. Shutdown returns within the configured timeout + a small grace window.
+//  2. d.mu is released before Shutdown returns (a concurrent acquire
+//     succeeds while Shutdown is still in its Wait phase).
+//  3. The subprocess is force-killed and synchronously reaped (ProcessState
+//     populated, no Wait goroutine outlives Shutdown).
+func TestDaemon_Shutdown_WedgedProcess_KillsAndReleasesLock(t *testing.T) {
+	// Spawn a long-running subprocess that won't exit on its own. We
+	// decouple wire I/O from this process so sendResult("shutdown") can
+	// return quickly via a mock responder, while cmd.Wait() still blocks
+	// — modelling a JVM that ack'd shutdown and then wedged.
+	cmd := exec.Command("sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start sleep: %v", err)
+	}
+	t.Cleanup(func() {
+		if cmd.ProcessState == nil && cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	})
+
+	// Mock wire: client writes to clientWriter, daemon-side responder
+	// reads from clientReader and writes acks back through daemonWriter
+	// which the Daemon reads from daemonReader via bufio.Scanner.
+	clientReader, clientWriter := io.Pipe()
+	daemonReader, daemonWriter := io.Pipe()
+	sc := bufio.NewScanner(daemonReader)
+	sc.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
+
+	responderDone := make(chan struct{})
+	go func() {
+		defer close(responderDone)
+		reqScanner := bufio.NewScanner(clientReader)
+		reqScanner.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
+		if !reqScanner.Scan() {
+			return
+		}
+		var req daemonRequest
+		_ = json.Unmarshal([]byte(reqScanner.Text()), &req)
+		if req.Method != "shutdown" {
+			t.Errorf("expected shutdown method on wire, got %q", req.Method)
+		}
+		resp := fmt.Sprintf(`{"id": %d, "result": {}}`, req.ID) + "\n"
+		_, _ = daemonWriter.Write([]byte(resp))
+	}()
+
+	d := &Daemon{
+		cmd:     cmd,
+		stdin:   clientWriter,
+		stdout:  sc,
+		nextID:  1,
+		started: true,
+	}
+
+	// Shrink the shutdown grace so the test runs in ~half a second.
+	prevGrace := shutdownGracePeriod
+	shutdownGracePeriod = 400 * time.Millisecond
+	t.Cleanup(func() { shutdownGracePeriod = prevGrace })
+
+	// Settle goroutine count before measuring. Other tests in the package
+	// can leave background goroutines lingering for a tick or two.
+	runtime.GC()
+	time.Sleep(50 * time.Millisecond)
+	baselineGoroutines := runtime.NumGoroutine()
+
+	// Run Shutdown on a goroutine so we can prove from the main goroutine
+	// that d.mu is released during the Wait window. The original buggy
+	// implementation held d.mu for the entire timeout, so the concurrent
+	// acquire below would have stalled for the full 10s window.
+	shutdownDone := make(chan error, 1)
+	shutdownStart := time.Now()
+	go func() {
+		shutdownDone <- d.Shutdown()
+	}()
+
+	// Wait until the responder has answered the "shutdown" request —
+	// after which the fixed Shutdown releases d.mu and enters its Wait
+	// window. The buggy code would still be holding d.mu here.
+	select {
+	case <-responderDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("mock responder never saw shutdown request")
+	}
+
+	// Now d.mu must be observably acquirable from another goroutine
+	// (the wait-for-process path runs without the lock held).
+	lockAcquired := make(chan struct{})
+	go func() {
+		d.mu.Lock()
+		// Touch a field inside the critical section so staticcheck
+		// doesn't flag the acquire-release pair as empty. The lock
+		// reachability is the point of the test, not the read.
+		_ = d.started
+		d.mu.Unlock()
+		close(lockAcquired)
+	}()
+	select {
+	case <-lockAcquired:
+		// good — lock is reachable during Shutdown's wait window
+	case <-time.After(2 * time.Second):
+		t.Error("d.mu was not released during Shutdown's wait window")
+	}
+
+	// Shutdown itself must finish within shutdownTimeout + reap grace.
+	select {
+	case err := <-shutdownDone:
+		elapsed := time.Since(shutdownStart)
+		if err == nil {
+			t.Errorf("expected timeout error from Shutdown, got nil")
+		} else if !strings.Contains(err.Error(), "did not exit within timeout") {
+			t.Errorf("expected 'did not exit within timeout' error, got: %v", err)
+		}
+		// 400ms shutdown + 5s reap grace + slack for slow CI.
+		if elapsed > 8*time.Second {
+			t.Errorf("Shutdown took %s, expected well under 8s", elapsed)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Shutdown did not return; likely deadlocked on d.mu or Wait")
+	}
+
+	// The subprocess must be reaped synchronously by Shutdown. The fix
+	// awaits the Wait goroutine after Kill (bounded by a 5s grace) so
+	// ProcessState is populated by the time Shutdown returns.
+	if cmd.ProcessState == nil {
+		t.Error("expected cmd.ProcessState to be set after Shutdown reaped the killed process")
+	}
+
+	// Goroutine count should return to baseline. The Wait() goroutine
+	// must not outlive Shutdown — give the scheduler a moment to unwind.
+	runtime.GC()
+	time.Sleep(100 * time.Millisecond)
+	finalGoroutines := runtime.NumGoroutine()
+	// Allow small jitter from the runtime; the buggy version leaked the
+	// Wait goroutine for as long as the kernel held the process alive.
+	if finalGoroutines > baselineGoroutines+2 {
+		t.Errorf("goroutine leak: baseline=%d final=%d", baselineGoroutines, finalGoroutines)
 	}
 }
 

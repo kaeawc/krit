@@ -2,6 +2,7 @@ package oracle
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -55,7 +56,14 @@ type LazyLookup struct {
 	onError func(error)
 
 	once   sync.Once
-	loaded *Oracle
+	result atomic.Pointer[lazyResult]
+}
+
+// lazyResult packages the oracle/err pair so a single atomic store publishes
+// both fields, letting Loaded/Err/Stats observers skip sync.Once without a
+// data race.
+type lazyResult struct {
+	oracle *Oracle
 	err    error
 }
 
@@ -70,7 +78,10 @@ func (l *LazyLookup) get() *Oracle {
 		return nil
 	}
 	l.once.Do(l.load)
-	return l.loaded
+	if r := l.result.Load(); r != nil {
+		return r.oracle
+	}
+	return nil
 }
 
 // load is the once-guarded body invoked by both get() and Preload.
@@ -80,9 +91,9 @@ func (l *LazyLookup) load() {
 	state := preloadStateFor(l.path)
 	state.load(l.path)
 	<-state.done
-	l.loaded, l.err = state.loaded, state.err
-	if l.err != nil && l.onError != nil {
-		l.onError(l.err)
+	l.result.Store(&lazyResult{oracle: state.loaded, err: state.err})
+	if state.err != nil && l.onError != nil {
+		l.onError(state.err)
 	}
 }
 
@@ -104,7 +115,11 @@ func (l *LazyLookup) Preload() {
 
 // Loaded reports whether the JSON has been deserialized successfully.
 func (l *LazyLookup) Loaded() bool {
-	return l != nil && l.loaded != nil
+	if l == nil {
+		return false
+	}
+	r := l.result.Load()
+	return r != nil && r.oracle != nil
 }
 
 // Err reports the load error after a lookup attempts to load the JSON.
@@ -112,12 +127,18 @@ func (l *LazyLookup) Err() error {
 	if l == nil {
 		return nil
 	}
-	return l.err
+	if r := l.result.Load(); r != nil {
+		return r.err
+	}
+	return nil
 }
 
 func (l *LazyLookup) Stats() Stats {
-	if l != nil && l.loaded != nil {
-		return l.loaded.Stats()
+	if l == nil {
+		return Stats{}
+	}
+	if r := l.result.Load(); r != nil && r.oracle != nil {
+		return r.oracle.Stats()
 	}
 	return Stats{}
 }

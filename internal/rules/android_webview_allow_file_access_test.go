@@ -114,3 +114,52 @@ fun describe(): String = "webView.settings.setAllowFileAccess(true)"
 		t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
 	}
 }
+
+// TestWebViewAllowFileAccess_NegativeMultiArgOverload locks in the
+// callBoolArgIsTrue arity check: a same-named custom 2-arg method that
+// happens to pass `true` as its second argument must not be reported
+// as an Android WebSettings violation. The pre-fix helper only looked
+// at the first argument, so a call like `setAllowFileAccess(domain,
+// true)` would not fire — but a flipped-argument call
+// `setAllowFileAccess(true, domain)` on a WebSettings-like receiver
+// would. Requiring arity == 1 closes both forms.
+func TestWebViewAllowFileAccess_NegativeMultiArgOverload(t *testing.T) {
+	findings := runRuleByName(t, "WebViewAllowFileAccess", `
+import android.webkit.WebSettings
+import android.webkit.WebView
+
+// A custom WebSettings-shaped wrapper with a multi-arg overload.
+class WebSettingsWrapper {
+    var settings: WebSettingsWrapper = this
+    fun setAllowFileAccess(value: Boolean, audit: String) {}
+}
+
+fun configure(webView: WebView, settings: WebSettingsWrapper) {
+    settings.setAllowFileAccess(true, "audit-tag")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings on multi-arg overload, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestWebViewAllowFileAccess_JavaNegativeMultiArgOverload(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "WebViewAllowFileAccess", `
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+
+class WebSettingsWrapper {
+    public WebSettingsWrapper getSettings() { return this; }
+    public void setAllowFileAccess(boolean value, String audit) {}
+}
+
+class Page {
+    void bind(WebSettingsWrapper s) {
+        s.getSettings().setAllowFileAccess(true, "audit-tag");
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 Java findings on multi-arg overload, got %d: %v", len(findings), findings)
+	}
+}

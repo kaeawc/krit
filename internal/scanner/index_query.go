@@ -11,11 +11,23 @@ var sourceImportRe = regexp.MustCompile(`(?m)^\s*import\s+(?:static\s+)?([A-Za-z
 
 // SymbolsNamed returns declarations indexed under a simple or fully-qualified
 // name. A nil result means no matching declaration is known.
+//
+// The returned slice is a snapshot — concurrent mutation via
+// BuildIndexIncremental cannot tear it.
 func (idx *CodeIndex) SymbolsNamed(name string) []Symbol {
 	if idx == nil || name == "" {
 		return nil
 	}
-	return idx.symbolsByName[name]
+	idx.mu.RLock()
+	syms := idx.symbolsByName[name]
+	if syms == nil {
+		idx.mu.RUnlock()
+		return nil
+	}
+	out := make([]Symbol, len(syms))
+	copy(out, syms)
+	idx.mu.RUnlock()
+	return out
 }
 
 // SymbolByFQN returns the declaration with the exact fully-qualified name.
@@ -23,7 +35,9 @@ func (idx *CodeIndex) SymbolByFQN(fqn string) (Symbol, bool) {
 	if idx == nil || fqn == "" {
 		return Symbol{}, false
 	}
+	idx.mu.RLock()
 	sym, ok := idx.symbolsByFQN[fqn]
+	idx.mu.RUnlock()
 	return sym, ok
 }
 
@@ -175,7 +189,10 @@ func sourceImports(file *File) (map[string]string, []string) {
 	return explicit, wildcards
 }
 
-func (idx *CodeIndex) buildReferenceLookups(addToBloom bool) {
+// buildReferenceLookupsLocked rebuilds the per-name reference aggregates
+// from idx.References. Caller must hold idx.mu for writing (or be the
+// constructor — initial build runs before any pointer to idx escapes).
+func (idx *CodeIndex) buildReferenceLookupsLocked(addToBloom bool) {
 	if len(idx.References) == 0 {
 		idx.refCountByName = make(map[string]int)
 		idx.refFilesByName = make(map[string]map[string]bool)
@@ -243,7 +260,9 @@ func (a *referenceAggregate) add(ref Reference) {
 	a.nonCommentCounts[ref.File]++
 }
 
-func (idx *CodeIndex) addReferenceLookup(ref Reference) {
+// addReferenceLookupLocked records a single reference into the per-name
+// maps and bloom filter. Caller must hold idx.mu for writing.
+func (idx *CodeIndex) addReferenceLookupLocked(ref Reference) {
 	if idx.refCountByName == nil {
 		idx.refCountByName = make(map[string]int)
 	}
@@ -284,7 +303,10 @@ func (idx *CodeIndex) addReferenceLookup(ref Reference) {
 	idx.refBloom.AddString(ref.Name)
 }
 
-func (idx *CodeIndex) removeReferenceLookup(ref Reference) {
+// removeReferenceLookupLocked removes a single reference from the per-name
+// maps. The bloom filter is left untouched — it tolerates extra bits as
+// false positives. Caller must hold idx.mu for writing.
+func (idx *CodeIndex) removeReferenceLookupLocked(ref Reference) {
 	if idx.refCountByName != nil {
 		if next := idx.refCountByName[ref.Name] - 1; next > 0 {
 			idx.refCountByName[ref.Name] = next
@@ -329,9 +351,15 @@ func estimateUniqueReferenceNames(refCount int) int {
 	return estimated
 }
 
-// ReferenceCount returns how many times a name is referenced across all files.
+// MayHaveReference reports whether name appears in the bloom filter. False
+// positives are possible; false negatives are not.
 func (idx *CodeIndex) MayHaveReference(name string) bool {
-	if idx == nil || idx.refBloom == nil {
+	if idx == nil {
+		return false
+	}
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	if idx.refBloom == nil {
 		return false
 	}
 	return idx.refBloom.TestString(name)
@@ -339,12 +367,32 @@ func (idx *CodeIndex) MayHaveReference(name string) bool {
 
 // ReferenceCount returns how many times a name is referenced across all files.
 func (idx *CodeIndex) ReferenceCount(name string) int {
+	if idx == nil {
+		return 0
+	}
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
 	return idx.refCountByName[name]
 }
 
-// ReferenceFiles returns the set of files that reference a name.
+// ReferenceFiles returns a snapshot of the set of files that reference a
+// name. The returned map is owned by the caller — mutating it does not
+// affect the index, and concurrent index mutation cannot tear it.
 func (idx *CodeIndex) ReferenceFiles(name string) map[string]bool {
-	return idx.refFilesByName[name]
+	if idx == nil {
+		return nil
+	}
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	files := idx.refFilesByName[name]
+	if len(files) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(files))
+	for f, v := range files {
+		out[f] = v
+	}
+	return out
 }
 
 // SymbolReferenceCount returns the total number of references that can identify
@@ -362,8 +410,13 @@ func (idx *CodeIndex) SymbolReferenceCount(sym Symbol) int {
 
 // IsReferencedOutsideFile checks if a name is referenced in any file other than the given one.
 func (idx *CodeIndex) IsReferencedOutsideFile(name, file string) bool {
+	if idx == nil {
+		return false
+	}
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
 	// Fast path: bloom filter says name not referenced at all
-	if !idx.refBloom.TestString(name) {
+	if idx.refBloom == nil || !idx.refBloom.TestString(name) {
 		return false
 	}
 	files := idx.refFilesByName[name]
@@ -399,8 +452,13 @@ func (idx *CodeIndex) IsSymbolReferencedOutsideFile(sym Symbol, ignoreCommentRef
 // IsReferencedOutsideFileExcludingComments checks if a name has any non-comment
 // reference in a file other than the given one.
 func (idx *CodeIndex) IsReferencedOutsideFileExcludingComments(name, file string) bool {
+	if idx == nil {
+		return false
+	}
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
 	// Fast path: bloom filter says name not referenced at all
-	if !idx.refBloom.TestString(name) {
+	if idx.refBloom == nil || !idx.refBloom.TestString(name) {
 		return false
 	}
 	files := idx.nonCommentRefFilesByName[name]
@@ -417,6 +475,11 @@ func (idx *CodeIndex) IsReferencedOutsideFileExcludingComments(name, file string
 
 // CountNonCommentRefsInFile counts references to a name in a file that are NOT inside comments.
 func (idx *CodeIndex) CountNonCommentRefsInFile(name, file string) int {
+	if idx == nil {
+		return 0
+	}
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
 	files := idx.nonCommentRefCountByNameFile[name]
 	if files == nil {
 		return 0
@@ -434,11 +497,13 @@ func (idx *CodeIndex) countRefsInFileForSymbol(sym Symbol, file string, ignoreCo
 			count += idx.CountNonCommentRefsInFile(name, file)
 			continue
 		}
+		idx.mu.RLock()
 		for _, ref := range idx.References {
 			if ref.Name == name && ref.File == file {
 				count++
 			}
 		}
+		idx.mu.RUnlock()
 	}
 	return count
 }
@@ -446,8 +511,19 @@ func (idx *CodeIndex) countRefsInFileForSymbol(sym Symbol, file string, ignoreCo
 // UnusedSymbols returns symbols that are never referenced from any other file.
 // If ignoreCommentRefs is true, references inside comments don't count as usage.
 func (idx *CodeIndex) UnusedSymbols(ignoreCommentRefs bool) []Symbol {
+	if idx == nil {
+		return nil
+	}
+	// Snapshot the symbol slice under the read lock so the iteration is
+	// not racing with concurrent BuildIndexIncremental adds (which
+	// append-with-may-realloc into idx.Symbols).
+	idx.mu.RLock()
+	symbols := make([]Symbol, len(idx.Symbols))
+	copy(symbols, idx.Symbols)
+	idx.mu.RUnlock()
+
 	var unused []Symbol
-	for _, sym := range idx.Symbols {
+	for _, sym := range symbols {
 		if sym.IsOverride || sym.IsMain || sym.IsTest {
 			continue
 		}
@@ -483,6 +559,11 @@ func symbolReferenceNames(sym Symbol) []string {
 
 // BloomStats returns the bloom filter memory usage in bytes.
 func (idx *CodeIndex) BloomStats() (refBits, crossBits uint) {
+	if idx == nil {
+		return
+	}
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
 	if idx.refBloom != nil {
 		refBits = idx.refBloom.Cap()
 	}

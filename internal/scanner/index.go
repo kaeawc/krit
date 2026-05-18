@@ -1,6 +1,8 @@
 package scanner
 
 import (
+	"sync"
+
 	"github.com/bits-and-blooms/bloom/v3"
 
 	"github.com/kaeawc/krit/internal/perf"
@@ -76,6 +78,19 @@ type CodeIndex struct {
 	// Bloom filter for fast "is this name referenced?" checks.
 	// False positives are OK (we fall back to exact check), false negatives are not.
 	refBloom *bloom.BloomFilter
+
+	// mu guards the lookup maps (symbolsByName, symbolsByFQN,
+	// refCountByName, refFilesByName, nonCommentRefFilesByName,
+	// nonCommentRefCountByNameFile) and refBloom against concurrent
+	// mutation. The pipeline today serializes BuildIndexIncremental
+	// externally, but the contract is defended here so a future
+	// background flush / parallel indexer / concurrent reader cannot
+	// tear state. Read paths take an RLock; mutation paths
+	// (addSymbolToLookups, removeSymbolFromLookups, addReferenceLookup,
+	// removeReferenceLookup) take the write lock. Initial construction
+	// in buildCodeIndexWithBloom runs before any caller has a pointer
+	// to the index, so it does not lock.
+	mu sync.RWMutex
 }
 
 // BuildIndex constructs a cross-file index from parsed Kotlin and Java files.
@@ -268,19 +283,24 @@ func BuildIndexIncremental(base *CodeIndex, removePaths map[string]bool, addSymb
 	if base == nil {
 		return BuildIndexFromData(addSymbols, addRefs)
 	}
+	// Hold the write lock for the whole delta so readers either see the
+	// full pre-update or full post-update state — never a half-applied
+	// mix of removed symbols and unwritten adds.
+	base.mu.Lock()
+	defer base.mu.Unlock()
 	if len(removePaths) > 0 {
-		base.removeFileContributions(removePaths)
+		base.removeFileContributionsLocked(removePaths)
 	}
 	if len(addSymbols) > 0 {
 		base.Symbols = append(base.Symbols, addSymbols...)
 		for _, sym := range addSymbols {
-			base.addSymbolToLookups(sym)
+			base.addSymbolToLookupsLocked(sym)
 		}
 	}
 	if len(addRefs) > 0 {
 		base.References = append(base.References, addRefs...)
 		for _, ref := range addRefs {
-			base.addReferenceLookup(ref)
+			base.addReferenceLookupLocked(ref)
 		}
 	}
 	return base
@@ -341,18 +361,21 @@ func buildCodeIndexWithBloom(symbols []Symbol, refs []Reference, prebuilt *bloom
 	}
 
 	for _, sym := range idx.Symbols {
-		idx.addSymbolToLookups(sym)
+		idx.addSymbolToLookupsLocked(sym)
 	}
-	idx.buildReferenceLookups(prebuilt == nil)
+	idx.buildReferenceLookupsLocked(prebuilt == nil)
 
 	return idx
 }
 
-// addSymbolToLookups inserts sym into symbolsByName + symbolsByFQN.
+// addSymbolToLookupsLocked inserts sym into symbolsByName + symbolsByFQN.
 // Used by both the initial buildCodeIndexWithBloom loop and the
 // incremental BuildIndexIncremental path so both produce identical
 // map state for the same input set.
-func (idx *CodeIndex) addSymbolToLookups(sym Symbol) {
+//
+// Caller must hold idx.mu for writing (or be the constructor — initial
+// build runs before any pointer to idx escapes).
+func (idx *CodeIndex) addSymbolToLookupsLocked(sym Symbol) {
 	idx.symbolsByName[sym.Name] = append(idx.symbolsByName[sym.Name], sym)
 	if sym.FQN != "" {
 		idx.symbolsByFQN[sym.FQN] = sym
@@ -362,11 +385,13 @@ func (idx *CodeIndex) addSymbolToLookups(sym Symbol) {
 	}
 }
 
-// removeSymbolFromLookups deletes sym's entries from symbolsByName +
-// symbolsByFQN. Inverse of addSymbolToLookups — symbol equality is
+// removeSymbolFromLookupsLocked deletes sym's entries from symbolsByName +
+// symbolsByFQN. Inverse of addSymbolToLookupsLocked — symbol equality is
 // by full struct value, which matches how rebuildSymbolLookups
 // originally inserted them.
-func (idx *CodeIndex) removeSymbolFromLookups(sym Symbol) {
+//
+// Caller must hold idx.mu for writing.
+func (idx *CodeIndex) removeSymbolFromLookupsLocked(sym Symbol) {
 	dropSymbolFromSlice(idx.symbolsByName, sym.Name, sym)
 	if sym.FQN != "" {
 		if existing, ok := idx.symbolsByFQN[sym.FQN]; ok && existing == sym {
@@ -400,7 +425,9 @@ func dropSymbolFromSlice(m map[string][]Symbol, key string, target Symbol) {
 	}
 }
 
-func (idx *CodeIndex) removeFileContributions(paths map[string]bool) {
+// removeFileContributionsLocked drops all symbols and references that
+// originated from any of paths. Caller must hold idx.mu for writing.
+func (idx *CodeIndex) removeFileContributionsLocked(paths map[string]bool) {
 	if len(paths) == 0 {
 		return
 	}
@@ -421,14 +448,14 @@ func (idx *CodeIndex) removeFileContributions(paths map[string]bool) {
 		}
 		idx.Symbols = dst
 		for _, sym := range removed {
-			idx.removeSymbolFromLookups(sym)
+			idx.removeSymbolFromLookupsLocked(sym)
 		}
 	}
 	if len(idx.References) > 0 {
 		dst := idx.References[:0]
 		for _, ref := range idx.References {
 			if paths[ref.File] {
-				idx.removeReferenceLookup(ref)
+				idx.removeReferenceLookupLocked(ref)
 				continue
 			}
 			dst = append(dst, ref)

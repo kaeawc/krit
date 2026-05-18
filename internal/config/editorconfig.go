@@ -10,7 +10,9 @@ import (
 
 // EditorConfig holds parsed .editorconfig properties relevant to krit.
 // Only reads standard properties that affect analysis rules.
-// Does NOT read ktlint_*, ij_kotlin_*, or ktfmt_* properties.
+// Does NOT read ktlint_* or ktfmt_* properties. From the ij_* namespace,
+// only ij_kotlin_indent_size is consulted, as a fallback for indent_size
+// when projects configure indent width via the IntelliJ key alone.
 type EditorConfig struct {
 	MaxLineLength          int    // max_line_length (0 = not set, -1 = off)
 	IndentSize             int    // indent_size (0 = not set)
@@ -113,10 +115,12 @@ func parseEditorConfig(path string) (props map[string]string, isRoot bool) {
 			if len(parts) == 2 {
 				key := strings.TrimSpace(strings.ToLower(parts[0]))
 				value := strings.TrimSpace(parts[1])
-				// Only read standard properties — skip ktlint_*, ij_*, ktfmt_*
+				// Only read standard properties — skip ktlint_*, ktfmt_*, and
+				// most ij_* keys. ij_kotlin_indent_size is allowed through as
+				// a fallback for the standard indent_size key.
 				if !strings.HasPrefix(key, "ktlint_") &&
-					!strings.HasPrefix(key, "ij_") &&
-					!strings.HasPrefix(key, "ktfmt_") {
+					!strings.HasPrefix(key, "ktfmt_") &&
+					(!strings.HasPrefix(key, "ij_") || key == "ij_kotlin_indent_size") {
 					props[key] = value
 				}
 			}
@@ -156,6 +160,12 @@ func applyProps(ec *EditorConfig, props map[string]string) {
 				ec.IndentSize = ec.TabWidth
 			}
 		} else if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			ec.IndentSize = n
+		}
+	} else if v, ok := props["ij_kotlin_indent_size"]; ok {
+		// Fallback: projects that only set the IntelliJ-style key still
+		// get a coherent indent width for indent-touching fixes (NoTabs).
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			ec.IndentSize = n
 		}
 	}

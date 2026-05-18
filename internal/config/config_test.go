@@ -945,6 +945,58 @@ ktfmt_style = google
 	// Vendor props should be silently ignored (no error, no side effects)
 }
 
+func TestLoadEditorConfigKotlinIndentSizeFallback(t *testing.T) {
+	t.Run("ij_kotlin_indent_size populates IndentSize when indent_size absent", func(t *testing.T) {
+		dir := t.TempDir()
+		ecPath := filepath.Join(dir, ".editorconfig")
+		os.WriteFile(ecPath, []byte(`
+root = true
+
+[*.kt]
+ij_kotlin_indent_size = 2
+`), 0644)
+
+		ec := LoadEditorConfig(dir)
+		if ec.IndentSize != 2 {
+			t.Errorf("expected IndentSize=2 from ij_kotlin_indent_size fallback, got %d", ec.IndentSize)
+		}
+	})
+
+	t.Run("standard indent_size wins over ij_kotlin_indent_size", func(t *testing.T) {
+		dir := t.TempDir()
+		ecPath := filepath.Join(dir, ".editorconfig")
+		os.WriteFile(ecPath, []byte(`
+root = true
+
+[*.kt]
+indent_size = 4
+ij_kotlin_indent_size = 2
+`), 0644)
+
+		ec := LoadEditorConfig(dir)
+		if ec.IndentSize != 4 {
+			t.Errorf("expected indent_size=4 to win over ij_kotlin_indent_size, got %d", ec.IndentSize)
+		}
+	})
+
+	t.Run("ij_kotlin_indent_size flows through ApplyToConfig to NoTabs", func(t *testing.T) {
+		dir := t.TempDir()
+		ecPath := filepath.Join(dir, ".editorconfig")
+		os.WriteFile(ecPath, []byte(`
+root = true
+
+[*.kt]
+ij_kotlin_indent_size = 2
+`), 0644)
+
+		cfg := NewConfig()
+		LoadEditorConfig(dir).ApplyToConfig(cfg)
+		if got := cfg.GetInt("style", "NoTabs", "indentSize", 0); got != 2 {
+			t.Errorf("expected NoTabs.indentSize=2 from ij_kotlin_indent_size, got %d", got)
+		}
+	})
+}
+
 func TestApplyToConfig(t *testing.T) {
 	cfg := NewConfig()
 

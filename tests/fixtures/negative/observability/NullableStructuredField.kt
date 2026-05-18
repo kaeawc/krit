@@ -19,3 +19,8 @@ fun handle(logger: Logger, user: User) {
 fun nullable(logger: Logger, user: User?) {
     logger.atInfo().addKeyValue("user_id", user?.id ?: "anonymous").log("ready")
 }
+
+fun documented(logger: Logger) {
+    logger.atInfo().addKeyValue("note", "use ?. operator when nullable").log("ready")
+    logger.atInfo().addKeyValue("hint", "x?.y").log("ready")
+}

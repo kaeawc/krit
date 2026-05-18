@@ -430,11 +430,13 @@ func TestShutdownThenExit(t *testing.T) {
 		"rootUri":      "file:///tmp/test",
 		"capabilities": map[string]interface{}{},
 	})
+	initializedNotif := buildRequest(nil, "initialized", map[string]interface{}{})
 	shutdownReq := buildRequest(2, "shutdown", nil)
 	exitReq := buildRequest(nil, "exit", nil)
 
 	var input bytes.Buffer
 	input.Write(initReq)
+	input.Write(initializedNotif)
 	input.Write(shutdownReq)
 	input.Write(exitReq)
 
@@ -491,10 +493,12 @@ func TestUnknownMethodReturnsError(t *testing.T) {
 		"rootUri":      "file:///tmp/test",
 		"capabilities": map[string]interface{}{},
 	})
+	initializedNotif := buildRequest(nil, "initialized", map[string]interface{}{})
 	unknownReq := buildRequest(99, "textDocument/unknownMethod", nil)
 
 	var input bytes.Buffer
 	input.Write(initReq)
+	input.Write(initializedNotif)
 	input.Write(unknownReq)
 
 	var output bytes.Buffer

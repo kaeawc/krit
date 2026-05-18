@@ -167,7 +167,18 @@ func (s *Server) Run() {
 }
 
 // sendResponse sends a JSON-RPC response via the shared transport.
+//
+// Notifications (JSON-RPC 2.0 messages with no `id` member) MUST NOT receive
+// a response. The dispatcher routes notifications through the same per-method
+// handlers as requests, and several of those handlers unconditionally call
+// sendResponse with req.ID — which is nil for notifications. Gating the
+// emission here keeps every handler honest without each one needing to repeat
+// the nil-id check, and avoids emitting a response with `"id":null` that
+// strict LSP clients reject.
 func (s *Server) sendResponse(id interface{}, result interface{}, rpcErr *RPCError) {
+	if id == nil {
+		return
+	}
 	jsonrpc.SendResponse(s.writer, &s.mu, id, result, rpcErr)
 }
 
@@ -177,7 +188,41 @@ func (s *Server) sendNotification(method string, params interface{}) {
 }
 
 // handleMessage dispatches a JSON-RPC request or notification.
+//
+// Two protocol gates run before any per-method dispatch:
+//
+//   - Post-shutdown: once handleShutdown has set s.shutdown, the LSP spec
+//     requires the server to respond to every request other than `exit` with
+//     InvalidRequest (-32600). Notifications received after shutdown are
+//     silently dropped.
+//   - Pre-initialize: before the client's `initialize` request has been
+//     answered, every method other than `initialize`, `initialized`, and
+//     `exit` must be rejected with ServerNotInitialized (-32002). This
+//     prevents document handlers (didOpen / codeAction / ...) from running
+//     with a nil analyzer or unloaded config and matches the conformance
+//     behaviour modern LSP clients assume.
+//
+// Both gates only emit an error response when req.ID is non-nil; notifications
+// stay silent per JSON-RPC 2.0.
 func (s *Server) handleMessage(req *Request) {
+	if s.shutdown && req.Method != "exit" {
+		if req.ID != nil {
+			s.sendResponse(req.ID, nil, &RPCError{
+				Code:    -32600,
+				Message: "server is shutting down",
+			})
+		}
+		return
+	}
+	if !s.initialized && !isInitializationExempt(req.Method) {
+		if req.ID != nil {
+			s.sendResponse(req.ID, nil, &RPCError{
+				Code:    -32002,
+				Message: "server not initialized",
+			})
+		}
+		return
+	}
 	if s.handleLifecycleMessage(req) {
 		return
 	}
@@ -192,6 +237,19 @@ func (s *Server) handleMessage(req *Request) {
 			Code:    -32601,
 			Message: "method not found: " + req.Method,
 		})
+	}
+}
+
+// isInitializationExempt reports whether method may be processed before the
+// client has sent `initialized`. The LSP spec allows only initialize, the
+// initialized notification itself, and exit; everything else must be rejected
+// with ServerNotInitialized.
+func isInitializationExempt(method string) bool {
+	switch method {
+	case "initialize", "initialized", "exit":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -703,31 +761,8 @@ func findingColumnsToCodeActions(uri string, content string, columns *scanner.Fi
 			continue
 		}
 
-		var startPos, endPos Position
-		var newText string
-
-		if fix.ByteMode {
-			startPos = byteOffsetToPosition(content, fix.StartByte)
-			endPos = byteOffsetToPosition(content, fix.EndByte)
-			newText = fix.Replacement
-		} else if fix.StartLine > 0 && fix.EndLine > 0 {
-			lines := strings.Split(content, "\n")
-			startLine := fix.StartLine - 1 // 0-based
-			endLine := fix.EndLine         // exclusive
-			if startLine < 0 {
-				startLine = 0
-			}
-			if endLine > len(lines) {
-				endLine = len(lines)
-			}
-			startPos = Position{Line: uint32(startLine), Character: 0}
-			if endLine < len(lines) {
-				endPos = Position{Line: uint32(endLine), Character: 0}
-			} else {
-				endPos = byteOffsetToPosition(content, len(content))
-			}
-			newText = fix.Replacement
-		} else {
+		startPos, endPos, newText, ok := resolveFixPositions(content, fix)
+		if !ok {
 			continue
 		}
 
@@ -765,11 +800,20 @@ func findingColumnsToCodeActions(uri string, content string, columns *scanner.Fi
 
 // resolveFixPositions converts a fix's coordinates to LSP start/end positions
 // and replacement text. Returns ok=false when the fix has no usable coordinates.
+//
+// Rules emit Replacement strings with bare "\n" line terminators. When the
+// underlying document uses CRLF (common on Windows checkouts), returning the
+// LF text verbatim writes a mixed-ending file the next time the client
+// applies the edit — the same class of corruption fixed in
+// internal/fixer/fixer.go via detectLineEnding. Rewrite the replacement to
+// match the document's existing convention so TextEdit.newText stays
+// internally consistent with the lines it surrounds.
 func resolveFixPositions(contentStr string, fix *scanner.Fix) (startPos, endPos Position, newText string, ok bool) {
+	sep := detectDocumentLineEnding(contentStr)
 	if fix.ByteMode {
 		return byteOffsetToPosition(contentStr, fix.StartByte),
 			byteOffsetToPosition(contentStr, fix.EndByte),
-			fix.Replacement,
+			normalizeLineEndings(fix.Replacement, sep),
 			true
 	}
 	if fix.StartLine > 0 && fix.EndLine > 0 {
@@ -789,9 +833,38 @@ func resolveFixPositions(contentStr string, fix *scanner.Fix) (startPos, endPos 
 		} else {
 			end = byteOffsetToPosition(contentStr, len(contentStr))
 		}
-		return start, end, fix.Replacement, true
+		return start, end, normalizeLineEndings(fix.Replacement, sep), true
 	}
 	return Position{}, Position{}, "", false
+}
+
+// detectDocumentLineEnding mirrors internal/fixer.detectLineEnding: returns
+// "\r\n" when the first newline in the document is preceded by a carriage
+// return, otherwise "\n". The fixer helper is unexported and lives in a
+// different package, so we keep this LSP-local copy rather than widening the
+// fixer API just to share one branch.
+func detectDocumentLineEnding(s string) string {
+	i := strings.IndexByte(s, '\n')
+	if i > 0 && s[i-1] == '\r' {
+		return "\r\n"
+	}
+	return "\n"
+}
+
+// normalizeLineEndings rewrites replacement to use sep as its line terminator.
+// Replacement strings come from rule code with bare "\n"; on CRLF documents
+// the dispatcher would otherwise emit LF-only edits that corrupt the buffer
+// when applied. Strips any stray trailing "\r" left on each split line so the
+// rejoined output is uniform rather than mixed.
+func normalizeLineEndings(replacement, sep string) string {
+	if sep == "\n" || !strings.Contains(replacement, "\n") {
+		return replacement
+	}
+	parts := strings.Split(replacement, "\n")
+	for i, p := range parts {
+		parts[i] = strings.TrimSuffix(p, "\r")
+	}
+	return strings.Join(parts, sep)
 }
 
 // formattingColumns returns the cached or freshly-computed findings for a

@@ -23,6 +23,7 @@ func TestJARContentReturnsStub(t *testing.T) {
 		JARPath: "/no/such-coroutines-1.7.3.jar",
 		FQN:     "kotlinx.coroutines.CoroutineScope",
 	})
+	initializedNotif := buildRequest(nil, "initialized", map[string]interface{}{})
 	contentReq := buildRequest(2, "krit/jarContent", map[string]interface{}{
 		"uri": uri,
 	})
@@ -30,6 +31,7 @@ func TestJARContentReturnsStub(t *testing.T) {
 
 	var input, output bytes.Buffer
 	input.Write(initReq)
+	input.Write(initializedNotif)
 	input.Write(contentReq)
 	input.Write(exitReq)
 
@@ -129,6 +131,7 @@ func TestJARContentRejectsNonJARURI(t *testing.T) {
 		"rootUri":      rootURI,
 		"capabilities": map[string]interface{}{},
 	})
+	initializedNotif := buildRequest(nil, "initialized", map[string]interface{}{})
 	badReq := buildRequest(2, "krit/jarContent", map[string]interface{}{
 		"uri": "file:///tmp/Foo.kt",
 	})
@@ -136,6 +139,7 @@ func TestJARContentRejectsNonJARURI(t *testing.T) {
 
 	var input, output bytes.Buffer
 	input.Write(initReq)
+	input.Write(initializedNotif)
 	input.Write(badReq)
 	input.Write(exitReq)
 

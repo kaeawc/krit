@@ -950,18 +950,25 @@ func TestApplyFixesWithValidation_RejectsInvalidFix(t *testing.T) {
 		}),
 	}
 
-	_, err := ApplyFixesWithValidation(t.Context(), path, findings, "", true)
-	if err == nil {
-		t.Fatal("expected validation error")
+	res, err := ApplyFixesDetailed(t.Context(), path, findings, "", true)
+	if err != nil {
+		t.Fatalf("unexpected catastrophic error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "fix validation failed") {
-		t.Fatalf("expected validation failure message, got: %v", err)
+	if res.Applied != 0 {
+		t.Fatalf("applied = %d, want 0 when validation rejects the fix", res.Applied)
+	}
+	if len(res.DroppedFixes) != 1 {
+		t.Fatalf("DroppedFixes len = %d, want 1", len(res.DroppedFixes))
+	}
+	if !strings.Contains(res.DroppedFixes[0].Reason, "fix validation failed") {
+		t.Fatalf("DroppedFixes[0].Reason = %q, want it to mention fix validation failed",
+			res.DroppedFixes[0].Reason)
 	}
 
-	// Original file should be unchanged since validation failed before write
+	// Original file should be unchanged since validation rejected the fix
 	got := readFile(t, path)
 	if got != original {
-		t.Fatalf("original file should be unchanged after validation failure, got %q", got)
+		t.Fatalf("original file should be unchanged after validation rejection, got %q", got)
 	}
 }
 
@@ -1274,5 +1281,155 @@ func TestDeduplicateLineFixesReverse_SingleFix(t *testing.T) {
 	}
 	if len(dropped) != 0 {
 		t.Fatalf("expected 0 dropped, got %d", len(dropped))
+	}
+}
+
+// TestLineConflictDetection_AdjacentInclusiveEnd_DropsSecondFix is the
+// regression test for the off-by-one bug in deduplicateFixesReverse for
+// inclusive line ranges. Fix [5..7] and fix [7..7] both touch line 7
+// because applyLineFixes treats EndLine as inclusive (slicing
+// lines[start:end] where end == fix.EndLine). The dedup previously used
+// `endKey(f) > lastStart` with the raw EndLine and so kept both fixes;
+// the subsequent application loop then walked line 7 twice and garbled
+// output. After the fix one of the two fixes must be dropped.
+func TestLineConflictDetection_AdjacentInclusiveEnd_DropsSecondFix(t *testing.T) {
+	path := writeTestFile(t, "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\n")
+	findings := []scanner.Finding{
+		findingWithRule(path, "rule-A", &scanner.Fix{
+			StartLine:   5,
+			EndLine:     7,
+			Replacement: "REPLACED-A",
+		}),
+		findingWithRule(path, "rule-B", &scanner.Fix{
+			StartLine:   7,
+			EndLine:     7,
+			Replacement: "REPLACED-B",
+		}),
+	}
+
+	res, err := ApplyFixesDetailed(t.Context(), path, findings, "", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(res.DroppedFixes) != 1 {
+		t.Fatalf("expected exactly one dropped fix (both touch line 7), got %d: %#v",
+			len(res.DroppedFixes), res.DroppedFixes)
+	}
+
+	// Higher StartLine sorts first in the reverse-walk: rule-B (7..7) is
+	// kept; rule-A (5..7) overlaps line 7 and must be dropped.
+	if res.DroppedFixes[0].Rule != "rule-A" {
+		t.Fatalf("expected dropped rule 'rule-A', got %q", res.DroppedFixes[0].Rule)
+	}
+
+	got := readFile(t, path)
+	want := "line1\nline2\nline3\nline4\nline5\nline6\nREPLACED-B\nline8\n"
+	if got != want {
+		t.Fatalf("file content garbled by overlapping fixes:\n got:  %q\n want: %q", got, want)
+	}
+}
+
+// TestLineConflictDetection_AdjacentNonOverlapping_BothApply confirms
+// that the inclusive-to-half-open conversion in textFixRowLineEnd does
+// not over-drop. Fix [5..7] and fix [8..8] are adjacent but do NOT touch
+// any line in common, so both must apply.
+func TestLineConflictDetection_AdjacentNonOverlapping_BothApply(t *testing.T) {
+	path := writeTestFile(t, "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\n")
+	findings := []scanner.Finding{
+		findingWithRule(path, "rule-A", &scanner.Fix{
+			StartLine:   5,
+			EndLine:     7,
+			Replacement: "REPLACED-A",
+		}),
+		findingWithRule(path, "rule-B", &scanner.Fix{
+			StartLine:   8,
+			EndLine:     8,
+			Replacement: "REPLACED-B",
+		}),
+	}
+
+	res, err := ApplyFixesDetailed(t.Context(), path, findings, "", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.DroppedFixes) != 0 {
+		t.Fatalf("expected zero dropped fixes for adjacent-but-non-overlapping ranges, got %#v",
+			res.DroppedFixes)
+	}
+	if res.Applied != 2 {
+		t.Fatalf("applied = %d, want 2", res.Applied)
+	}
+
+	got := readFile(t, path)
+	want := "line1\nline2\nline3\nline4\nREPLACED-A\nREPLACED-B\nline9\n"
+	if got != want {
+		t.Fatalf("unexpected content:\n got:  %q\n want: %q", got, want)
+	}
+}
+
+// TestApplyAllFixesColumns_ValidationDropsBadFix is the integration-level
+// regression for the parse-validation safety net being engaged in
+// production. A fix that introduces new Kotlin parse errors must be
+// dropped: the file stays untouched on disk and DroppedFixes carries the
+// entry with a useful reason. Before this fix, ApplyAllFixesColumns
+// passed validate=false to applyFixesDetailedColumns, so broken output
+// was silently written.
+func TestApplyAllFixesColumns_ValidationDropsBadFix(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.kt")
+	original := "fun main() { println(\"hello\") }\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	// Replacement strips the closing brace + paren so the result no
+	// longer parses as Kotlin.
+	findings := []scanner.Finding{
+		findingWithRule(path, "broken-rule", &scanner.Fix{
+			StartByte:   0,
+			EndByte:     len(original) - 1,
+			Replacement: "fun main() { println(\"hello\"",
+			ByteMode:    true,
+		}),
+	}
+	cols := scanner.CollectFindings(findings)
+
+	applied, modified, errs := ApplyAllFixesColumns(t.Context(), &cols, "")
+	if len(errs) > 0 {
+		t.Fatalf("ApplyAllFixesColumns returned errors: %v", errs)
+	}
+	if applied != 0 {
+		t.Fatalf("applied = %d, want 0 when validation rejects fix", applied)
+	}
+	if modified != 0 {
+		t.Fatalf("modified = %d, want 0 when validation rejects fix", modified)
+	}
+
+	// File on disk must be unchanged.
+	got := readFile(t, path)
+	if got != original {
+		t.Fatalf("file modified despite validation rejection: got %q, want %q", got, original)
+	}
+
+	// Use applyFixesDetailedColumns directly to inspect the DroppedFix
+	// payload — ApplyAllFixesColumns intentionally throws the result
+	// away. validate=true mirrors the production behavior we just
+	// asserted above.
+	cols2 := scanner.CollectFindings(findings)
+	rows := []int{0}
+	res, err := applyFixesDetailedColumns(t.Context(), path, &cols2, rows, "", true)
+	if err != nil {
+		t.Fatalf("applyFixesDetailedColumns error: %v", err)
+	}
+	if len(res.DroppedFixes) != 1 {
+		t.Fatalf("DroppedFixes len = %d, want 1: %#v", len(res.DroppedFixes), res.DroppedFixes)
+	}
+	if res.DroppedFixes[0].Rule != "broken-rule" {
+		t.Fatalf("DroppedFixes[0].Rule = %q, want %q", res.DroppedFixes[0].Rule, "broken-rule")
+	}
+	if !strings.Contains(res.DroppedFixes[0].Reason, "fix validation failed") {
+		t.Fatalf("DroppedFixes[0].Reason = %q, want it to mention fix validation failed",
+			res.DroppedFixes[0].Reason)
 	}
 }

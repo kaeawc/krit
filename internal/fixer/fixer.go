@@ -55,7 +55,16 @@ func ValidateFixResult(ctx context.Context, path string, original, fixed []byte)
 	return nil
 }
 
-// countParseErrors parses content as Kotlin and counts ERROR nodes in the flat tree.
+// countParseErrors parses content as Kotlin and counts ERROR nodes in the
+// flat tree. Known grammar gaps in tree-sitter-kotlin are filtered so the
+// validation safety net does not reject legal, modern Kotlin output:
+//
+//   - The rangeUntil operator (`..<`, Kotlin 1.7.20+) is not in the
+//     tree-sitter grammar yet and surfaces as an ERROR node containing
+//     just `<` immediately after the `..` token. Treating it as a real
+//     parse error would block any autofix that emits `..<`, e.g.
+//     RangeUntilInsteadOfRangeTo, even though the output is valid
+//     Kotlin and compiles cleanly.
 func countParseErrors(ctx context.Context, content []byte) int {
 	parser := scanner.GetKotlinParser()
 	defer scanner.PutKotlinParser(parser)
@@ -70,11 +79,29 @@ func countParseErrors(ctx context.Context, content []byte) int {
 
 	count := 0
 	file.FlatWalkAllNodes(0, func(idx uint32) {
-		if file.FlatType(idx) == "ERROR" {
-			count++
+		if file.FlatType(idx) != "ERROR" {
+			return
 		}
+		if isRangeUntilGrammarGap(file, content, idx) {
+			return
+		}
+		count++
 	})
 	return count
+}
+
+// isRangeUntilGrammarGap reports whether the ERROR node at idx is the
+// `<` portion of a Kotlin rangeUntil operator (`..<`), which the
+// tree-sitter grammar models as a parse error.
+func isRangeUntilGrammarGap(file *scanner.File, content []byte, idx uint32) bool {
+	if file.FlatNodeText(idx) != "<" {
+		return false
+	}
+	start := int(file.FlatStartByte(idx))
+	if start < 2 || start > len(content) {
+		return false
+	}
+	return content[start-2] == '.' && content[start-1] == '.'
 }
 
 // FixResult holds the result of applying fixes to a file.
@@ -105,7 +132,13 @@ func ApplyAllFixesColumns(ctx context.Context, columns *scanner.FindingColumns, 
 	// of CI log diff noise — see #27.
 	for _, path := range iterutil.SortedKeys(byFile) {
 		rows := byFile[path]
-		res, err := applyFixesDetailedColumns(ctx, path, columns, rows, suffix, false)
+		// validate=true engages the post-fix Kotlin parse safety net for
+		// .kt/.kts files. Fixes that introduce new parse errors are
+		// dropped (file untouched, entries surface in DroppedFixes)
+		// instead of being silently written to disk. Non-Kotlin files
+		// short-circuit inside ValidateFixResult so the safety net has
+		// no measurable cost for Java/XML/Gradle batches.
+		res, err := applyFixesDetailedColumns(ctx, path, columns, rows, suffix, true)
 		if err != nil {
 			errors = append(errors, fmt.Errorf("%s: %w", path, err))
 			continue
@@ -168,7 +201,26 @@ func applyFixesDetailedColumns(ctx context.Context, path string, columns *scanne
 
 	if validate {
 		if err := ValidateFixResult(ctx, path, content, []byte(result)); err != nil {
-			return FixResult{DroppedFixes: droppedFixes}, fmt.Errorf("fix validation failed for %s: %w", path, err)
+			// Treat validation failure as a soft drop rather than a
+			// catastrophic error: the file stays untouched on disk and
+			// every fix that contributed to the rejected output is
+			// reported via DroppedFixes so callers (CLI, LSP, pipeline
+			// output) can surface why nothing was written. Returning an
+			// error here would abort the file's fix batch and the
+			// dropped fixes would be invisible to the user.
+			reason := fmt.Sprintf("fix validation failed: %v", err)
+			validationDrops := make([]DroppedFix, 0, len(fixes))
+			for _, f := range fixes {
+				validationDrops = append(validationDrops, DroppedFix{
+					Rule:   f.rule,
+					File:   path,
+					Line:   f.line,
+					Reason: reason,
+				})
+			}
+			pkgLog.Warn("dropped fix batch due to parse-validation failure",
+				"file", path, "fixes", len(fixes), "error", err)
+			return FixResult{DroppedFixes: append(droppedFixes, validationDrops...)}, nil
 		}
 	}
 
@@ -376,17 +428,27 @@ func uniqueNames(n int, get func(int) string) []string {
 	return out
 }
 
-// DroppedFix records a fix that was dropped due to overlap conflict.
+// DroppedFix records a fix that was dropped before being written to disk.
+// Reason describes why the fix was dropped (overlap conflict, parse-error
+// safety net, etc.) and is empty for overlap drops, which are the historic
+// default.
 type DroppedFix struct {
-	Rule string
-	File string
-	Line int
+	Rule   string
+	File   string
+	Line   int
+	Reason string
 }
 
 // deduplicateFixesReverse removes overlapping fixes from a reverse-sorted
-// slice. The caller supplies key extractors that return the start and end
-// offsets (byte or line depending on the fix mode) and a meta extractor
-// that shapes the DroppedFix entry for conflicts.
+// slice. The caller supplies key extractors that return the start and the
+// half-open end of each fix (byte or line depending on the fix mode) and
+// a meta extractor that shapes the DroppedFix entry for conflicts.
+//
+// The endKey extractor MUST return an exclusive end offset so the overlap
+// test (`endKey(f) > lastStart`) correctly rejects fixes whose range
+// touches the previously kept fix's start. Byte ranges are already
+// half-open in scanner.Fix; line ranges are inclusive on both ends, so
+// the line-mode extractor returns `EndLine + 1` to normalize.
 func deduplicateFixesReverse[T any](fixes []T, endKey, startKey func(T) int, meta func(T) DroppedFix) ([]T, []DroppedFix) {
 	if len(fixes) <= 1 {
 		return fixes, nil
@@ -407,7 +469,16 @@ func deduplicateFixesReverse[T any](fixes []T, endKey, startKey func(T) int, met
 
 func textFixRowByteEnd(f textFixRow) int   { return f.fix.EndByte }
 func textFixRowByteStart(f textFixRow) int { return f.fix.StartByte }
-func textFixRowLineEnd(f textFixRow) int   { return f.fix.EndLine }
+
+// textFixRowLineEnd returns an exclusive end-line key for the dedup pass.
+// applyLineFixes treats Fix.EndLine as inclusive (slicing lines[start:end]
+// where end == fix.EndLine), so two adjacent fixes like [5..7] and [7..7]
+// both touch line 7. The dedup uses `endKey > lastStart` with half-open
+// semantics, so we add 1 here to make the inclusive line range register
+// as overlapping with a later fix that starts on the same line. Without
+// this conversion the dedup would keep both fixes and applyLineFixes
+// would garble line 7 by editing it twice.
+func textFixRowLineEnd(f textFixRow) int   { return f.fix.EndLine + 1 }
 func textFixRowLineStart(f textFixRow) int { return f.fix.StartLine }
 func textFixRowDroppedFor(path string) func(textFixRow) DroppedFix {
 	return func(f textFixRow) DroppedFix {

@@ -274,7 +274,7 @@ func registerReleaseEngineeringRules() {
 		r := &GradleBuildContainsTodoRule{BaseRule: BaseRule{RuleName: "GradleBuildContainsTodo", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects TODO comments in build.gradle(.kts) files that may block release readiness."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			Needs: api.NeedsLinePass, Implementation: r,
+			Needs: api.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}

@@ -134,7 +134,7 @@ type CommentedOutCodeBlockRule struct {
 // GradleBuildContainsTodoRule flags TODO line comments in build.gradle(.kts)
 // scripts so release-affecting build work does not linger unnoticed.
 type GradleBuildContainsTodoRule struct {
-	LineBase
+	GradleBase
 	BaseRule
 }
 
@@ -144,24 +144,20 @@ type GradleBuildContainsTodoRule struct {
 func (r *GradleBuildContainsTodoRule) Confidence() float64 { return 0.75 }
 
 func (r *GradleBuildContainsTodoRule) check(ctx *api.Context) {
-	file := ctx.File
-	if !isGradleBuildScript(file.Path) {
-		return
-	}
-
-	for i, line := range file.Lines {
-		commentIdx := strings.Index(line, "//")
+	for i, raw := range strings.Split(ctx.GradleContent, "\n") {
+		commentIdx := gradleLineCommentStart(raw)
 		if commentIdx < 0 {
 			continue
 		}
-
-		comment := strings.TrimSpace(line[commentIdx+2:])
-		if !strings.HasPrefix(comment, "TODO") {
+		if !strings.HasPrefix(strings.TrimSpace(raw[commentIdx+2:]), "TODO") {
 			continue
 		}
-
-		ctx.Emit(r.Finding(file, i+1, commentIdx+1,
-			"TODO comment found in build.gradle(.kts); track build work in an issue or finish it before release."))
+		ctx.Emit(scanner.Finding{
+			File:    ctx.GradlePath,
+			Line:    i + 1,
+			Col:     commentIdx + 1,
+			Message: "TODO comment found in build.gradle(.kts); track build work in an issue or finish it before release.",
+		})
 	}
 }
 

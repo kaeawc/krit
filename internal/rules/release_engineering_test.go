@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
@@ -985,30 +986,40 @@ func TestGradleBuildContainsTodo(t *testing.T) {
 	}
 
 	root := fixtureRoot(t)
-	positivePath := filepath.Join(root, "positive", "release-engineering", "gradle-build-contains-todo", "build.gradle.kts")
-	negativePath := filepath.Join(root, "negative", "release-engineering", "gradle-build-contains-todo", "build.gradle.kts")
+	cases := []struct {
+		name string
+		path string
+	}{
+		{name: "kts", path: filepath.Join("gradle-build-contains-todo", "build.gradle.kts")},
+		{name: "groovy", path: filepath.Join("gradle-build-contains-todo", "build.gradle")},
+	}
 
-	t.Run("positive fixture triggers", func(t *testing.T) {
-		file, err := scanner.ParseFile(context.Background(), positivePath)
+	runFixture := func(t *testing.T, full string) []scanner.Finding {
+		t.Helper()
+		content, err := os.ReadFile(full)
 		if err != nil {
-			t.Fatalf("ParseFile(%s): %v", positivePath, err)
+			t.Fatalf("ReadFile(%s): %v", full, err)
 		}
-		findings := runRule(t, rule, file)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
+		cfg, _ := android.ParseBuildGradleContent(string(content))
+		return runGradleRule(rule, full, string(content), cfg)
+	}
 
-	t.Run("negative fixture is clean", func(t *testing.T) {
-		file, err := scanner.ParseFile(context.Background(), negativePath)
-		if err != nil {
-			t.Fatalf("ParseFile(%s): %v", negativePath, err)
-		}
-		findings := runRule(t, rule, file)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
+	for _, tc := range cases {
+		t.Run(tc.name+"/positive", func(t *testing.T) {
+			full := filepath.Join(root, "positive", "release-engineering", tc.path)
+			findings := runFixture(t, full)
+			if len(findings) != 1 {
+				t.Fatalf("expected 1 finding, got %d", len(findings))
+			}
+		})
+		t.Run(tc.name+"/negative", func(t *testing.T) {
+			full := filepath.Join(root, "negative", "release-engineering", tc.path)
+			findings := runFixture(t, full)
+			if len(findings) != 0 {
+				t.Fatalf("expected 0 findings, got %d", len(findings))
+			}
+		})
+	}
 }
 
 func runConventionPluginDeadCodeRule(t *testing.T, projectDir string) []scanner.Finding {

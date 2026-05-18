@@ -486,8 +486,22 @@ func TestTrulyRandom_Extra(t *testing.T) {
 		findings := runRuleByName(t, "TrulyRandom", `
 package test
 
+import java.security.SecureRandom
+
 fun init() {
     val rng = SecureRandom(byteArrayOf(1, 2, 3))
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("positive - fully qualified seeded SecureRandom", func(t *testing.T) {
+		findings := runRuleByName(t, "TrulyRandom", `
+package test
+
+fun init() {
+    val rng = java.security.SecureRandom(byteArrayOf(1, 2, 3))
 }
 `)
 		if len(findings) != 1 {
@@ -498,8 +512,101 @@ fun init() {
 		findings := runRuleByName(t, "TrulyRandom", `
 package test
 
+import java.security.SecureRandom
+
 fun init() {
     val rng = SecureRandom()
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative - local lookalike without import", func(t *testing.T) {
+		findings := runRuleByName(t, "TrulyRandom", `
+package test
+
+class SecureRandom(seed: ByteArray)
+
+fun init() {
+    val rng = SecureRandom(byteArrayOf(1, 2, 3))
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings (local lookalike), got %d", len(findings))
+		}
+	})
+	t.Run("negative - SecureRandom mention in raw string", func(t *testing.T) {
+		findings := runRuleByName(t, "TrulyRandom", `
+package test
+
+import java.security.SecureRandom
+
+fun usage(): String {
+    return """
+        Example: SecureRandom(byteArrayOf(1, 2))
+    """.trimIndent()
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings (raw string), got %d", len(findings))
+		}
+	})
+	t.Run("negative - SecureRandom in KDoc comment", func(t *testing.T) {
+		findings := runRuleByName(t, "TrulyRandom", `
+package test
+
+import java.security.SecureRandom
+
+/**
+ * Avoid SecureRandom(byteArrayOf(1, 2)) — it's predictable.
+ */
+fun init() {
+    val rng = SecureRandom()
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings (KDoc), got %d", len(findings))
+		}
+	})
+	t.Run("positive - Java new SecureRandom with seed", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "TrulyRandom", `
+package test;
+import java.security.SecureRandom;
+class Example {
+    SecureRandom rng() {
+        return new SecureRandom(new byte[]{1, 2, 3});
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("negative - Java new SecureRandom default", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "TrulyRandom", `
+package test;
+import java.security.SecureRandom;
+class Example {
+    SecureRandom rng() {
+        return new SecureRandom();
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative - Java local lookalike", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "TrulyRandom", `
+package test;
+class SecureRandom {
+    SecureRandom(byte[] seed) {}
+}
+class Example {
+    SecureRandom rng() {
+        return new SecureRandom(new byte[]{1, 2});
+    }
 }
 `)
 		if len(findings) != 0 {

@@ -846,31 +846,6 @@ func layoutInflationHasIntentionalNullParentContext(file *scanner.File, idx uint
 	return false
 }
 
-type TrulyRandomRule struct {
-	LineBase
-	AndroidRule
-}
-
-var secureRandomSeedRe = regexp.MustCompile(`SecureRandom\s*\(\s*(byteArrayOf|"[^"]*"|ByteArray)`)
-
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
-func (r *TrulyRandomRule) Confidence() float64 { return 0.75 }
-
-func (r *TrulyRandomRule) check(ctx *api.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if !scanner.IsCommentLine(line) && secureRandomSeedRe.MatchString(line) {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				"SecureRandom with a hardcoded seed is not secure. Use the default constructor for cryptographic randomness."))
-		}
-	}
-}
-
 type MissingPermissionRule struct {
 	FlatDispatchBase
 	AndroidRule

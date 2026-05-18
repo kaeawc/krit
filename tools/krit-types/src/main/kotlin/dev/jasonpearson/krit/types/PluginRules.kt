@@ -1,13 +1,18 @@
 package dev.jasonpearson.krit.types
 
 import dev.jasonpearson.krit.api.Capability
+import dev.jasonpearson.krit.api.CrossFileContext
+import dev.jasonpearson.krit.api.CrossFileDeclaration
 import dev.jasonpearson.krit.api.Finding
 import dev.jasonpearson.krit.api.FixSafety
 import dev.jasonpearson.krit.api.GradleContext
 import dev.jasonpearson.krit.api.KritFile
 import dev.jasonpearson.krit.api.KritRule
 import dev.jasonpearson.krit.api.KritRuleInfo
+import dev.jasonpearson.krit.api.ManifestContext
+import dev.jasonpearson.krit.api.ModuleIndexContext
 import dev.jasonpearson.krit.api.Resolver
+import dev.jasonpearson.krit.api.ResourcesContext
 import dev.jasonpearson.krit.api.RuleApiVersion
 import dev.jasonpearson.krit.api.RuleContext
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
@@ -165,11 +170,17 @@ internal object PluginCapabilities {
         // rather than rejected, so existing rules that opt in stay
         // forward-compatible.
         Capability.NEEDS_PARSED_FILES.name,
-        // NEEDS_GRADLE delivers RuleContext.gradle when the Go-side
-        // caller forwards a GradleProfilePayload — see
-        // `runKotlinPluginRulesAndMerge` in
-        // internal/pipeline/custom_kotlin_rules.go.
+        // Project-scope facts are delivered through the per-call
+        // analyzeFile payload by `runKotlinPluginRulesAndMerge` in
+        // internal/pipeline/custom_kotlin_rules.go. A rule that
+        // declares one of these but runs against a project that has
+        // no matching fact (e.g. NEEDS_MANIFEST on a pure-Kotlin
+        // library) sees the corresponding RuleContext field as null.
         Capability.NEEDS_GRADLE.name,
+        Capability.NEEDS_MANIFEST.name,
+        Capability.NEEDS_RESOURCES.name,
+        Capability.NEEDS_MODULE_INDEX.name,
+        Capability.NEEDS_CROSS_FILE.name,
     )
 
     fun unsupported(needs: List<String>): List<String> =
@@ -392,20 +403,29 @@ fun DaemonSession.handleAnalyzeFileWithPlugins(request: DaemonRequest): String {
         val findings = mutableListOf<PluginFinding>()
         val errors = linkedMapOf<String, String>()
         val gradleContext = request.gradleProfile?.let(::PayloadGradleContext)
+        val manifestContext = request.manifestProfile?.let(::PayloadManifestContext)
+        val resourcesContext = request.resourcesProfile?.let(::PayloadResourcesContext)
+        val moduleIndexContext = request.modulesProfile?.let(::PayloadModuleIndexContext)
+        val crossFileContext = request.crossFileProfile?.let(::PayloadCrossFileContext)
         for (loaded in PluginRuleRegistry.selected(request.ruleIds)) {
             try {
                 val options = request.ruleConfigs?.get(loaded.descriptor.ruleId).orEmpty()
-                val resolver = if (ktFile != null && loaded.descriptor.needs.contains(Capability.NEEDS_RESOLVER.name)) {
+                val needs = loaded.descriptor.needs
+                val resolver = if (ktFile != null && needs.contains(Capability.NEEDS_RESOLVER.name)) {
                     AnalysisApiResolver(ktFile)
                 } else {
                     null
                 }
-                val gradle = if (loaded.descriptor.needs.contains(Capability.NEEDS_GRADLE.name)) {
-                    gradleContext
-                } else {
-                    null
-                }
-                val ctx = RuleContext(loaded.descriptor.ruleId, options, resolver, gradle)
+                val ctx = RuleContext(
+                    ruleId = loaded.descriptor.ruleId,
+                    config = options,
+                    resolver = resolver,
+                    gradle = gradleContext.takeIf { needs.contains(Capability.NEEDS_GRADLE.name) },
+                    manifest = manifestContext.takeIf { needs.contains(Capability.NEEDS_MANIFEST.name) },
+                    resources = resourcesContext.takeIf { needs.contains(Capability.NEEDS_RESOURCES.name) },
+                    moduleIndex = moduleIndexContext.takeIf { needs.contains(Capability.NEEDS_MODULE_INDEX.name) },
+                    crossFile = crossFileContext.takeIf { needs.contains(Capability.NEEDS_CROSS_FILE.name) },
+                )
                 for (finding in loaded.rule.check(file, ctx)) {
                     findings.add(toPluginFinding(file.path, loaded.descriptor, finding))
                 }
@@ -585,6 +605,143 @@ internal class PayloadGradleContext(payload: GradleProfilePayload) : GradleConte
 
     override fun dependencyVersion(group: String, name: String): String? =
         versionByCoord["$group:$name"]
+}
+
+/**
+ * [ManifestContext] view backed by the [ManifestProfilePayload]
+ * forwarded over the wire. Per-component lookup sets are built lazily
+ * on first query — rules that only read scalar attributes (package,
+ * SDK versions) skip the set construction entirely.
+ */
+internal class PayloadManifestContext(payload: ManifestProfilePayload) : ManifestContext {
+    override val packageName: String? = payload.packageName
+    override val minSdk: Int? = payload.minSdk
+    override val targetSdk: Int? = payload.targetSdk
+
+    private val permissionSet: Set<String> by lazy { payload.permissions.toHashSet() }
+    private val activitySet: Set<String> by lazy { payload.activities.toHashSet() }
+    private val exportedActivitySet: Set<String> by lazy { payload.exportedActivities.toHashSet() }
+    private val serviceSet: Set<String> by lazy { payload.services.toHashSet() }
+    private val exportedServiceSet: Set<String> by lazy { payload.exportedServices.toHashSet() }
+    private val receiverSet: Set<String> by lazy { payload.receivers.toHashSet() }
+    private val exportedReceiverSet: Set<String> by lazy { payload.exportedReceivers.toHashSet() }
+
+    override fun hasPermission(name: String): Boolean = name in permissionSet
+    override fun hasActivity(name: String): Boolean = name in activitySet
+    override fun isActivityExported(name: String): Boolean = name in exportedActivitySet
+    override fun hasService(name: String): Boolean = name in serviceSet
+    override fun isServiceExported(name: String): Boolean = name in exportedServiceSet
+    override fun hasReceiver(name: String): Boolean = name in receiverSet
+    override fun isReceiverExported(name: String): Boolean = name in exportedReceiverSet
+}
+
+/**
+ * [ResourcesContext] view backed by the [ResourcesProfilePayload]
+ * forwarded over the wire. Maps are built lazily by parsing the flat
+ * `"name=value"` wire format — splitting on the first `=` so values
+ * containing `=` (e.g. URL-encoded strings) round-trip cleanly.
+ */
+internal class PayloadResourcesContext(payload: ResourcesProfilePayload) : ResourcesContext {
+    private val stringMap: Map<String, String> by lazy { parseNameValueList(payload.strings) }
+    private val colorMap: Map<String, String> by lazy { parseNameValueList(payload.colors) }
+    private val dimensionMap: Map<String, String> by lazy { parseNameValueList(payload.dimensions) }
+    private val drawableSet: Set<String> by lazy { payload.drawables.toHashSet() }
+    private val layoutSet: Set<String> by lazy { payload.layouts.toHashSet() }
+    private val idSet: Set<String> by lazy { payload.ids.toHashSet() }
+
+    override fun stringValue(name: String): String? = stringMap[name]
+    override fun hasString(name: String): Boolean = stringMap.containsKey(name)
+    override fun hasDrawable(name: String): Boolean = name in drawableSet
+    override fun hasLayout(name: String): Boolean = name in layoutSet
+    override fun colorValue(name: String): String? = colorMap[name]
+    override fun hasColor(name: String): Boolean = colorMap.containsKey(name)
+    override fun dimensionValue(name: String): String? = dimensionMap[name]
+    override fun hasDimension(name: String): Boolean = dimensionMap.containsKey(name)
+    override fun hasId(name: String): Boolean = name in idSet
+
+    private fun parseNameValueList(entries: List<String>): Map<String, String> {
+        val out = HashMap<String, String>(entries.size)
+        for (entry in entries) {
+            val eq = entry.indexOf('=')
+            if (eq <= 0) continue
+            out[entry.substring(0, eq)] = entry.substring(eq + 1)
+        }
+        return out
+    }
+}
+
+/**
+ * [ModuleIndexContext] view backed by the [ModulesProfilePayload]
+ * forwarded over the wire. Each module is encoded as the
+ * `path|directory|dependsOn-comma-list|sourceRoots-comma-list` shape
+ * documented on the payload; the parser splits and indexes on first
+ * query.
+ */
+internal class PayloadModuleIndexContext(payload: ModulesProfilePayload) : ModuleIndexContext {
+    private data class Entry(
+        val directory: String,
+        val dependsOn: List<String>,
+        val sourceRoots: List<String>,
+    )
+
+    private val byPath: Map<String, Entry> by lazy {
+        val out = LinkedHashMap<String, Entry>(payload.modules.size)
+        for (line in payload.modules) {
+            val parts = line.split('|')
+            if (parts.size < 4 || parts[0].isEmpty()) continue
+            val deps = parts[2].takeIf { it.isNotEmpty() }?.split(',') ?: emptyList()
+            val roots = parts[3].takeIf { it.isNotEmpty() }?.split(',') ?: emptyList()
+            out[parts[0]] = Entry(parts[1], deps, roots)
+        }
+        out
+    }
+
+    override val modulePaths: List<String> get() = byPath.keys.toList()
+    override fun directoryOf(modulePath: String): String? = byPath[modulePath]?.directory
+    override fun dependenciesOf(modulePath: String): List<String> =
+        byPath[modulePath]?.dependsOn.orEmpty()
+    override fun sourceRootsOf(modulePath: String): List<String> =
+        byPath[modulePath]?.sourceRoots.orEmpty()
+}
+
+/**
+ * [CrossFileContext] view backed by the [CrossFileProfilePayload]
+ * forwarded over the wire. Both the FQN→declaration map and the
+ * name→reference-files map are built lazily — many cross-file rules
+ * only query one direction.
+ */
+internal class PayloadCrossFileContext(payload: CrossFileProfilePayload) : CrossFileContext {
+    private val byFqn: Map<String, CrossFileDeclaration> by lazy {
+        val out = HashMap<String, CrossFileDeclaration>(payload.declarations.size)
+        for (entry in payload.declarations) {
+            val parts = entry.split('|')
+            if (parts.size < 4 || parts[0].isEmpty()) continue
+            val line = parts[3].toIntOrNull() ?: continue
+            val visibility = parts.getOrNull(4)?.takeIf { it.isNotEmpty() }
+            out[parts[0]] = CrossFileDeclaration(parts[0], parts[1], parts[2], line, visibility)
+        }
+        out
+    }
+
+    private val refFilesByName: Map<String, List<String>> by lazy {
+        val out = HashMap<String, List<String>>(payload.nonCommentRefsByName.size)
+        for (entry in payload.nonCommentRefsByName) {
+            val sep = entry.indexOf('|')
+            if (sep <= 0) continue
+            val name = entry.substring(0, sep)
+            val files = entry.substring(sep + 1)
+                .split(',')
+                .filter { it.isNotEmpty() }
+            if (files.isNotEmpty()) {
+                out[name] = files
+            }
+        }
+        out
+    }
+
+    override fun declarationByFqn(fqn: String): CrossFileDeclaration? = byFqn[fqn]
+    override fun referenceFiles(name: String): List<String> = refFilesByName[name].orEmpty()
+    override fun isReferenced(name: String): Boolean = refFilesByName.containsKey(name)
 }
 
 @OptIn(KaExperimentalApi::class)

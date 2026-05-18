@@ -310,33 +310,31 @@ may not be known to the binary at config-load time.
 `@KritRuleInfo.needs` declares which project-scope facts the rule
 expects. The daemon either delivers the requested fact into
 `RuleContext` or refuses to load the jar — there is no third "advisory"
-state. The list below is the supported surface today; the unsupported
-entries stay in the enum so existing source continues to compile, but
-the values are `@Deprecated` (warn) and a rule that declares one fails
-at jar load with a clear, copy-pasteable diagnostic. Tracked on
-[#357](https://github.com/kaeawc/krit/issues/357).
+state. A rule that declares a capability the daemon does not recognise
+(typo, ahead-of-daemon SDK) fails at jar load with a clear,
+copy-pasteable diagnostic.
 
 | Capability | Status | What it gives you |
 | --- | --- | --- |
 | `NEEDS_RESOLVER` | **supported** | Populates `RuleContext.resolver` with the [`Resolver`](#) bridge. Methods: `isSuspendCall`, `resolvedCallFqName`, `isLambdaSuspend`, `expressionType`. Each call opens a Kotlin Analysis API session — expect microsecond-class overhead per query. |
 | `NEEDS_PARSED_FILES` | **supported (implicit)** | The daemon always parses the Kotlin file before invoking `check()` and exposes the result on `KritFile.ktFile`. Declaring it is a forward-compatible hint; omitting it changes nothing today. |
-| `NEEDS_CROSS_FILE` | `@Deprecated` — fails load | Cross-file declaration index (decl → references, references → decl). Not yet plumbed. |
-| `NEEDS_MODULE_INDEX` | `@Deprecated` — fails load | Gradle module identity + per-module dependency graph. Not yet plumbed. |
-| `NEEDS_MANIFEST` | `@Deprecated` — fails load | Android `AndroidManifest.xml` view. Not yet plumbed. |
-| `NEEDS_RESOURCES` | `@Deprecated` — fails load | Parsed `res/` tree (strings, drawables, layouts). Not yet plumbed. |
 | `NEEDS_GRADLE` | **supported** | Populates `RuleContext.gradle` with a `GradleContext`. Properties: `minSdk`, `targetSdk`, `compileSdk`, `kotlinVersion`, `javaTargetVersion`, `agpVersion`. Methods: `hasDependency(group, name)`, `dependencyVersion(group, name)`. Null when the project has no Gradle build files. |
+| `NEEDS_MANIFEST` | **supported** | Populates `RuleContext.manifest` with a `ManifestContext`. Properties: `packageName`, `minSdk`, `targetSdk`. Methods: `hasPermission(name)`, `hasActivity(name)`, `isActivityExported(name)`, plus the matching `hasService`/`isServiceExported`/`hasReceiver`/`isReceiverExported` pairs. Null when the project has no `AndroidManifest.xml`. |
+| `NEEDS_RESOURCES` | **supported** | Populates `RuleContext.resources` with a `ResourcesContext`. Methods: `stringValue(name)`, `hasString(name)`, `colorValue(name)`, `dimensionValue(name)`, `hasDrawable(name)`, `hasLayout(name)`, `hasId(name)`. Null when the project has no Android `res/` directory. |
+| `NEEDS_MODULE_INDEX` | **supported** | Populates `RuleContext.moduleIndex` with a `ModuleIndexContext`. Properties: `modulePaths`. Methods: `directoryOf(modulePath)`, `dependenciesOf(modulePath)`, `sourceRootsOf(modulePath)`. Null when the project has no Gradle modules. |
+| `NEEDS_CROSS_FILE` | **supported** | Populates `RuleContext.crossFile` with a `CrossFileContext`. Methods: `declarationByFqn(fqn)`, `referenceFiles(name)`, `isReferenced(name)` (non-comment references only). Null when the daemon's cross-file pass did not run. The wire payload can be sizable on large projects — declare this capability only when the rule genuinely needs whole-project visibility. |
 
 ### What a load failure looks like
 
-A jar that declares an unsupported capability is rejected at
-`listPlugins` time, before any rule from that jar runs:
+A jar that declares an unrecognised capability (typo, ahead-of-daemon
+SDK) is rejected at `listPlugins` time, before any rule from that jar
+runs:
 
 ```
 error: krit-rule-api: /tmp/acme-rules.jar: rule jar declares capabilities
 the daemon does not yet provide to plugin rules; the rule would run
 without the facts it asked for. Remove the declaration(s) or wait for
-support (tracked on https://github.com/kaeawc/krit/issues/357).
-Unsupported: [acme.NoTodo: NEEDS_GRADLE]
+support. Unsupported: [acme.NoTodo: NEEDS_TIME_TRAVEL]
 ```
 
 The diagnostic surfaces on the same channels as the SDK-compat verdict:
@@ -346,15 +344,45 @@ remediation is to either delete the bad enum from `@KritRuleInfo.needs`
 or — once the corresponding hook lands — rebuild against a daemon that
 moves the entry into the supported set.
 
-### Promoting a capability from deprecated to supported
+### Wire payload cost
 
-When the daemon learns to deliver one of the deprecated capabilities
-(e.g. `NEEDS_GRADLE`), promotion is a minor-version change on
-`krit-rule-api`: the `@Deprecated` marker is removed, `RuleContext`
-grows the new accessor, the daemon adds the entry to
-`PluginCapabilities.SUPPORTED`, and the matrix above flips. Existing
-rule jars that already declared the capability start running with the
-new fact wired in — no rule-jar rebuild required.
+Project-scope payloads ride on every `analyzeFile` RPC the Go pipeline
+issues — one per Kotlin file. For payloads that are at most a few KB
+(gradle, manifest, module index, most projects' resources) the per-file
+re-serialisation is negligible. `NEEDS_CROSS_FILE` is different: on a
+100 KLOC project the declarations + references payload can run into
+the megabytes, and shipping it ~1000 times per scan is wasteful.
+
+A future change will hoist project-scope payloads onto a separate
+`setProjectContext` RPC the daemon caches per session; until then,
+declare `NEEDS_CROSS_FILE` only when the rule genuinely needs
+whole-project visibility, and prefer narrower lookups (`isReferenced`,
+`declarationByFqn`) over walking the full lists. Tracked alongside the
+per-file pattern in
+[#357](https://github.com/kaeawc/krit/issues/357).
+
+### Project facts can be null
+
+The project-scope accessors (`gradle`, `manifest`, `resources`,
+`moduleIndex`, `crossFile`) are non-null only when the rule declared
+the matching `@KritRuleInfo.needs` value AND the Go pipeline assembled
+a payload for that fact. A pure-Kotlin library project with no
+`AndroidManifest.xml` leaves `manifest` and `resources` null even when
+the rule declared them. Rules should defensively null-check before
+dereferencing.
+
+### Adding a new capability
+
+Adding a new capability is a minor-version change on `krit-rule-api`:
+extend the `Capability` enum, grow `RuleContext` with the matching
+`XxxContext` interface, mirror the wire payload on both sides
+(`PluginXxxProfile` in `internal/oracle/daemon.go`,
+`XxxProfilePayload` in `tools/krit-types/.../Main.kt`), wire the
+extractor and the `PayloadXxxContext` impl in `PluginRules.kt`, add
+the per-project builder in `internal/pipeline/custom_kotlin_rules.go`,
+add the value to `PluginCapabilities.SUPPORTED`, and update the matrix
+above. Existing rule jars that already declared the capability start
+running with the new fact wired in — no rule-jar rebuild required.
 
 ## FixSafety levels
 

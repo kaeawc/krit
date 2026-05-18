@@ -719,6 +719,19 @@ data class DaemonRequest(
     // any selected rule declares NEEDS_GRADLE. Null when no rule asked
     // for it (the common case — keeps wire size minimal).
     val gradleProfile: GradleProfilePayload? = null,
+    // Parsed AndroidManifest.xml facts. Null when no rule asked for
+    // NEEDS_MANIFEST or the project has no AndroidManifest.xml.
+    val manifestProfile: ManifestProfilePayload? = null,
+    // Parsed res/ tree facts. Null when no rule asked for NEEDS_RESOURCES
+    // or the project has no Android resource directories.
+    val resourcesProfile: ResourcesProfilePayload? = null,
+    // Per-module identity + dependency edges. Null when no rule asked
+    // for NEEDS_MODULE_INDEX or the project has no Gradle modules.
+    val modulesProfile: ModulesProfilePayload? = null,
+    // Cross-file declaration + reference index. Null when no rule
+    // asked for NEEDS_CROSS_FILE or the daemon's cross-file pass did
+    // not run for the project.
+    val crossFileProfile: CrossFileProfilePayload? = null,
 )
 
 /**
@@ -738,6 +751,66 @@ data class GradleProfilePayload(
     val javaTargetVersion: String?,
     val agpVersion: String?,
     val deps: List<String>,
+)
+
+/**
+ * Wire-format `AndroidManifest.xml` facts handed to plugin rules via
+ * `ManifestContext`. `exportedActivities` / `exportedServices` /
+ * `exportedReceivers` are flat string lists rather than per-component
+ * booleans so the wire payload can lean on `extractJsonStringArray`;
+ * the Kotlin-side `PayloadManifestContext` rebuilds the lookup sets
+ * lazily.
+ */
+data class ManifestProfilePayload(
+    val packageName: String?,
+    val minSdk: Int?,
+    val targetSdk: Int?,
+    val permissions: List<String>,
+    val activities: List<String>,
+    val exportedActivities: List<String>,
+    val services: List<String>,
+    val exportedServices: List<String>,
+    val receivers: List<String>,
+    val exportedReceivers: List<String>,
+)
+
+/**
+ * Wire-format Android `res/` tree handed to plugin rules via
+ * `ResourcesContext`. Strings/colors/dimensions are flat
+ * `"name=value"` lists so the wire format reuses the same `String[]`
+ * extractor — the daemon parses them back into maps on construction.
+ */
+data class ResourcesProfilePayload(
+    val strings: List<String>,
+    val drawables: List<String>,
+    val layouts: List<String>,
+    val colors: List<String>,
+    val dimensions: List<String>,
+    val ids: List<String>,
+)
+
+/**
+ * Wire-format Gradle-module identity + per-module dependency graph
+ * handed to plugin rules via `ModuleIndexContext`. Encoded as
+ * `path|directory|dependsOn,...|sourceRoots,...` strings so the wire
+ * can reuse `extractJsonStringArray`. Commas inside paths/directories
+ * are not supported — Gradle module paths never contain them.
+ */
+data class ModulesProfilePayload(
+    val modules: List<String>,
+)
+
+/**
+ * Wire-format cross-file index handed to plugin rules via
+ * `CrossFileContext`. Declarations are encoded as
+ * `fqn|kind|file|line|visibility` strings. References are pre-grouped
+ * by name as `name|file1,file2,...` strings (non-comment references
+ * only) so the daemon can answer `referenceFiles(name)` and
+ * `isReferenced(name)` without rehashing every entry.
+ */
+data class CrossFileProfilePayload(
+    val declarations: List<String>,
+    val nonCommentRefsByName: List<String>,
 )
 
 /** 1-based line/col tuple used in resolveExpressionTypes requests. */
@@ -773,7 +846,11 @@ fun parseRequest(json: String): DaemonRequest {
     val source = extractJsonString(json, "source")
     val ruleConfigs = extractJsonNestedObjectMap(json, "ruleConfigs")
     val gradleProfile = extractGradleProfilePayload(json)
-    return DaemonRequest(id, method, files, timings, callFilter, declarationProfile, expressionPositions, jarPath, fqn, pluginJars, ruleIds, path, source, ruleConfigs, gradleProfile)
+    val manifestProfile = extractManifestProfilePayload(json)
+    val resourcesProfile = extractResourcesProfilePayload(json)
+    val modulesProfile = extractModulesProfilePayload(json)
+    val crossFileProfile = extractCrossFileProfilePayload(json)
+    return DaemonRequest(id, method, files, timings, callFilter, declarationProfile, expressionPositions, jarPath, fqn, pluginJars, ruleIds, path, source, ruleConfigs, gradleProfile, manifestProfile, resourcesProfile, modulesProfile, crossFileProfile)
 }
 
 private fun extractGradleProfilePayload(json: String): GradleProfilePayload? {
@@ -786,6 +863,49 @@ private fun extractGradleProfilePayload(json: String): GradleProfilePayload? {
         javaTargetVersion = extractJsonString(outer, "javaTargetVersion"),
         agpVersion = extractJsonString(outer, "agpVersion"),
         deps = extractJsonStringArray(outer, "deps").orEmpty(),
+    )
+}
+
+private fun extractManifestProfilePayload(json: String): ManifestProfilePayload? {
+    val outer = extractJsonObjectBlock(json, "manifest") ?: return null
+    return ManifestProfilePayload(
+        packageName = extractJsonString(outer, "package"),
+        minSdk = extractJsonLong(outer, "minSdk")?.toInt()?.takeIf { it >= 0 },
+        targetSdk = extractJsonLong(outer, "targetSdk")?.toInt()?.takeIf { it >= 0 },
+        permissions = extractJsonStringArray(outer, "permissions").orEmpty(),
+        activities = extractJsonStringArray(outer, "activities").orEmpty(),
+        exportedActivities = extractJsonStringArray(outer, "exportedActivities").orEmpty(),
+        services = extractJsonStringArray(outer, "services").orEmpty(),
+        exportedServices = extractJsonStringArray(outer, "exportedServices").orEmpty(),
+        receivers = extractJsonStringArray(outer, "receivers").orEmpty(),
+        exportedReceivers = extractJsonStringArray(outer, "exportedReceivers").orEmpty(),
+    )
+}
+
+private fun extractResourcesProfilePayload(json: String): ResourcesProfilePayload? {
+    val outer = extractJsonObjectBlock(json, "resources") ?: return null
+    return ResourcesProfilePayload(
+        strings = extractJsonStringArray(outer, "strings").orEmpty(),
+        drawables = extractJsonStringArray(outer, "drawables").orEmpty(),
+        layouts = extractJsonStringArray(outer, "layouts").orEmpty(),
+        colors = extractJsonStringArray(outer, "colors").orEmpty(),
+        dimensions = extractJsonStringArray(outer, "dimensions").orEmpty(),
+        ids = extractJsonStringArray(outer, "ids").orEmpty(),
+    )
+}
+
+private fun extractModulesProfilePayload(json: String): ModulesProfilePayload? {
+    val outer = extractJsonObjectBlock(json, "moduleIndex") ?: return null
+    return ModulesProfilePayload(
+        modules = extractJsonStringArray(outer, "modules").orEmpty(),
+    )
+}
+
+private fun extractCrossFileProfilePayload(json: String): CrossFileProfilePayload? {
+    val outer = extractJsonObjectBlock(json, "crossFile") ?: return null
+    return CrossFileProfilePayload(
+        declarations = extractJsonStringArray(outer, "declarations").orEmpty(),
+        nonCommentRefsByName = extractJsonStringArray(outer, "nonCommentRefsByName").orEmpty(),
     )
 }
 

@@ -290,8 +290,11 @@ func registerObservabilityRules() {
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			Needs: api.NeedsLinePass, Confidence: r.Confidence(), Implementation: r,
-			Check: r.check,
+			NodeTypes:          []string{"call_expression"},
+			LexicalCalleeNames: []string{"addKeyValue", "put"},
+			Confidence:         r.Confidence(),
+			Implementation:     r,
+			Check:              r.check,
 		})
 	}
 	{

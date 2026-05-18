@@ -2053,6 +2053,70 @@ fun consistent(logger: Logger, map: MapLike, id: String) {
 	}
 }
 
+// TestStructuredLogKeyMixedCase_NegativeMdcPutLookalike asserts that `put`
+// calls on non-MDC receivers are not counted toward the key tally.
+func TestStructuredLogKeyMixedCase_NegativeMdcPutLookalike(t *testing.T) {
+	findings := runRuleByName(t, "StructuredLogKeyMixedCase", `
+package test
+
+object MDC { fun put(key: String, value: String) {} }
+class MapLike { fun put(key: String, value: String) {} }
+
+fun record(map: MapLike, id: String) {
+    MDC.put("user_id", id)
+    MDC.put("account_id", id)
+    MDC.put("session_id", id)
+    map.put("requestId", id)
+    map.put("anotherCamelKey", id)
+    map.put("yetAnotherCamel", id)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+	}
+}
+
+// TestStructuredLogKeyMixedCase_NegativeInterpolatedKey asserts that keys
+// built with string interpolation are not counted toward the convention
+// tally, since the literal prefix does not represent the runtime key.
+func TestStructuredLogKeyMixedCase_NegativeInterpolatedKey(t *testing.T) {
+	findings := runRuleByName(t, "StructuredLogKeyMixedCase", `
+package test
+
+object MDC { fun put(key: String, value: String) {} }
+
+fun record(id: String, i: Int) {
+    MDC.put("user_${i}", id)
+    MDC.put("account_${i}", id)
+    MDC.put("session_${i}", id)
+    MDC.put("requestId", id)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+	}
+}
+
+// TestStructuredLogKeyMixedCase_NegativeConcatenatedKey asserts that keys
+// built with `+` concatenation are not counted toward the convention tally.
+func TestStructuredLogKeyMixedCase_NegativeConcatenatedKey(t *testing.T) {
+	findings := runRuleByName(t, "StructuredLogKeyMixedCase", `
+package test
+
+object MDC { fun put(key: String, value: String) {} }
+
+fun record(suffix: String, id: String) {
+    MDC.put("user_" + suffix, id)
+    MDC.put("account_" + suffix, id)
+    MDC.put("session_" + suffix, id)
+    MDC.put("requestId", id)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestLoggerStringConcat_PositiveBareLoggerReceiver(t *testing.T) {
 	findings := runRuleByName(t, "LoggerStringConcat", `
 package test

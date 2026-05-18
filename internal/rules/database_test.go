@@ -1077,6 +1077,63 @@ fun querySafely(connection: Connection) {
 	}
 }
 
+// TestJdbcPreparedStatementNotClosed_PositiveLookalikeReceiver guards against
+// the substring-matching regression where an unrelated sibling identifier
+// (e.g. `apsCloser.close(` or `mystmt.close(`) whose name happens to end with
+// the statement variable name was mistaken as cleanup for the real
+// PreparedStatement, suppressing the leak finding.
+func TestJdbcPreparedStatementNotClosed_PositiveLookalikeReceiver(t *testing.T) {
+	findings := runRuleByName(t, "JdbcPreparedStatementNotClosed", `
+package test
+
+interface Connection {
+    fun prepareStatement(sql: String): PreparedStatement
+}
+
+interface PreparedStatement {
+    fun executeQuery(): ResultSet
+    fun close()
+}
+
+interface ResultSet
+
+class Closer {
+    fun close() {}
+}
+
+fun query(connection: Connection, apsCloser: Closer, mystmt: Closer) {
+    val stmt = connection.prepareStatement("SELECT 1")
+    stmt.executeQuery()
+    apsCloser.close()
+    mystmt.close()
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected leak finding for stmt; lookalike receivers apsCloser/mystmt must not suppress it")
+	}
+}
+
+// TestJdbcPreparedStatementNotClosed_NegativeLookalikeReceiverOnly verifies
+// that a sibling identifier whose name only suffix-matches the statement
+// variable does not, on its own, trigger spurious detection logic when no
+// real PreparedStatement is being leaked.
+func TestJdbcPreparedStatementNotClosed_NegativeLookalikeReceiverOnly(t *testing.T) {
+	findings := runRuleByName(t, "JdbcPreparedStatementNotClosed", `
+package test
+
+class Closer {
+    fun close() {}
+}
+
+fun query(apsCloser: Closer) {
+    apsCloser.close()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when no PreparedStatement is present, got %v", findings)
+	}
+}
+
 func TestRoomExportSchemaDisabled_Positive(t *testing.T) {
 	findings := runRuleByName(t, "RoomExportSchemaDisabled", `
 package test

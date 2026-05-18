@@ -169,6 +169,9 @@ func jdbcPreparedStatementCallFlat(file *scanner.File, idx uint32) bool {
 }
 
 func jdbcPreparedStatementHasCleanupFlat(file *scanner.File, idx uint32, stmtName string) bool {
+	if stmtName == "" {
+		return false
+	}
 	scope, ok := file.FlatParent(idx)
 	if !ok {
 		return false
@@ -182,11 +185,37 @@ func jdbcPreparedStatementHasCleanupFlat(file *scanner.File, idx uint32, stmtNam
 		}
 
 		childText := file.FlatNodeText(child)
-		if strings.Contains(childText, stmtName+".close(") || strings.Contains(childText, stmtName+".use") {
+		if jdbcCloseReceiverPresent(childText, stmtName) {
 			return true
 		}
 	}
 
+	return false
+}
+
+// jdbcCloseReceiverPresent reports whether text contains a `<stmtName>.close(`
+// or `<stmtName>.use` call where stmtName matches as a whole identifier token
+// (not just a trailing substring of an unrelated identifier such as
+// `apsCloser.close(` for a stmtName of `Closer`, or `xstmt.close(` for `stmt`).
+func jdbcCloseReceiverPresent(text, stmtName string) bool {
+	if stmtName == "" {
+		return false
+	}
+	for _, suffix := range []string{".close(", ".use"} {
+		needle := stmtName + suffix
+		start := 0
+		for {
+			rel := strings.Index(text[start:], needle)
+			if rel < 0 {
+				break
+			}
+			pos := start + rel
+			if pos == 0 || !isIdentChar(text[pos-1]) {
+				return true
+			}
+			start = pos + 1
+		}
+	}
 	return false
 }
 

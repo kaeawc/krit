@@ -1,6 +1,7 @@
 package oracle
 
 import (
+	"container/list"
 	"sync"
 	"sync/atomic"
 
@@ -15,9 +16,25 @@ type preloadState struct {
 	err    error
 }
 
+// preloadCacheCap bounds the number of distinct oracle JSON paths the
+// package-level preload cache retains. Each entry pins an *Oracle (tens
+// of MB for large repos) so an unbounded map leaks memory in long-running
+// daemons (`krit serve`, LSP) that touch a stream of distinct paths.
+// The cap is generous for realistic multi-project daemon use; once a
+// LazyLookup resolves it holds its own oracle pointer, so evicting a
+// completed entry only forces a re-Load on a future first lookup for
+// the same path.
+const preloadCacheCap = 64
+
+type preloadEntry struct {
+	path  string
+	state *preloadState
+}
+
 var (
 	preloadMu     sync.Mutex
-	preloadByPath = map[string]*preloadState{}
+	preloadByPath = map[string]*list.Element{}
+	preloadLRU    = list.New() // front = most-recently-used; back = LRU
 )
 
 // PreloadPath kicks off oracle JSON deserialization for path and keeps the
@@ -33,12 +50,31 @@ func PreloadPath(path string) {
 func preloadStateFor(path string) *preloadState {
 	preloadMu.Lock()
 	defer preloadMu.Unlock()
-	if state := preloadByPath[path]; state != nil {
-		return state
+	if elem := preloadByPath[path]; elem != nil {
+		preloadLRU.MoveToFront(elem)
+		return elem.Value.(*preloadEntry).state
 	}
 	state := &preloadState{done: make(chan struct{})}
-	preloadByPath[path] = state
+	entry := &preloadEntry{path: path, state: state}
+	elem := preloadLRU.PushFront(entry)
+	preloadByPath[path] = elem
+	for preloadLRU.Len() > preloadCacheCap {
+		oldest := preloadLRU.Back()
+		if oldest == nil {
+			break
+		}
+		preloadLRU.Remove(oldest)
+		delete(preloadByPath, oldest.Value.(*preloadEntry).path)
+	}
 	return state
+}
+
+// preloadCacheLen returns the current number of cached entries. Test-only
+// helper; not exported.
+func preloadCacheLen() int {
+	preloadMu.Lock()
+	defer preloadMu.Unlock()
+	return preloadLRU.Len()
 }
 
 func (s *preloadState) load(path string) {

@@ -783,16 +783,15 @@ func (r *AlwaysShowActionResourceRule) check(ctx *api.Context) {
 // ---------------------------------------------------------------------------
 
 // StateListReachableResourceRule detects unreachable items in selector
-// drawables. A non-last <item> with no state attributes (android:state_*)
-// catches all states, making subsequent items unreachable.
+// drawables. Selector items are matched top-down and chosen when the
+// runtime state set is a superset of the item's state qualifiers, so an
+// item whose qualifier set is a superset of any earlier item's is
+// unreachable.
 type StateListReachableResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
-// anti-patterns and attribute mismatches via structural checks on style
-// XML. Classified per roadmap/17.
 func (r *StateListReachableResourceRule) Confidence() float64 { return 0.75 }
 
 func (r *StateListReachableResourceRule) check(ctx *api.Context) {
@@ -801,24 +800,36 @@ func (r *StateListReachableResourceRule) check(ctx *api.Context) {
 		return
 	}
 	for _, items := range idx.DrawableSelectors {
-		for i, item := range items {
-			if i == len(items)-1 {
-				continue
-			}
-			if len(item.StateAttrs) == 0 {
+		for j := 1; j < len(items); j++ {
+			for i := 0; i < j; i++ {
+				if !stateAttrsSubsetOf(items[i].StateAttrs, items[j].StateAttrs) {
+					continue
+				}
 				ctx.Emit(scanner.Finding{
-					File:       item.FilePath,
-					Line:       item.Line,
+					File:       items[j].FilePath,
+					Line:       items[j].Line,
 					Col:        1,
 					RuleSet:    r.RuleSetName,
 					Rule:       r.RuleName,
 					Severity:   r.Sev,
-					Message:    "Selector item without state attributes catches all states; subsequent items are unreachable.",
+					Message:    fmt.Sprintf("This selector item is unreachable because item #%d is a more general match.", i+1),
 					Confidence: r.Confidence(),
 				})
+				break
 			}
 		}
 	}
+}
+
+// stateAttrsSubsetOf reports whether a's qualifiers are a subset of b's —
+// meaning b is matched only when a is also matched, so b is unreachable.
+func stateAttrsSubsetOf(a, b map[string]string) bool {
+	for name, value := range a {
+		if bv, ok := b[name]; !ok || bv != value {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------------

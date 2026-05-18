@@ -837,6 +837,39 @@ func TestScanResourceDir_ParsesDrawableSelectors(t *testing.T) {
 	if got := items[1].StateAttrs["android:state_pressed"]; got != "true" {
 		t.Fatalf("second item pressed state = %q, want true", got)
 	}
+	if _, present := items[1].StateAttrs["android:drawable"]; present {
+		t.Fatalf("bare android:drawable should not be tracked as a state qualifier: %#v", items[1].StateAttrs)
+	}
+}
+
+func TestScanResourceDir_DrawableSelectorCustomNamespaceState(t *testing.T) {
+	tmp := t.TempDir()
+	resDir := filepath.Join(tmp, "res")
+	drawableDir := filepath.Join(resDir, "drawable")
+	os.MkdirAll(drawableDir, 0o755)
+
+	writeFile(t, filepath.Join(drawableDir, "tile.xml"), `<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item app:state_custom="true" android:drawable="@drawable/custom" />
+    <item android:drawable="@drawable/normal" />
+</selector>
+`)
+
+	idx, err := ScanResourceDir(resDir)
+	if err != nil {
+		t.Fatalf("ScanResourceDir: %v", err)
+	}
+	items := idx.DrawableSelectors["tile"]
+	if len(items) != 2 {
+		t.Fatalf("expected 2 selector items, got %d", len(items))
+	}
+	if got := items[0].StateAttrs["app:state_custom"]; got != "true" {
+		t.Fatalf("custom-namespace state attr not tracked: %#v", items[0].StateAttrs)
+	}
+	if _, present := items[0].StateAttrs["android:drawable"]; present {
+		t.Fatalf("bare android:drawable should not be tracked: %#v", items[0].StateAttrs)
+	}
 }
 
 func TestIsLayoutView(t *testing.T) {

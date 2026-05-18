@@ -761,7 +761,7 @@ func TestStateListReachableResource(t *testing.T) {
 		}
 	})
 
-	t.Run("catch-all item before later state triggers", func(t *testing.T) {
+	t.Run("catch-all item masks later state", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.DrawableSelectors = map[string][]android.SelectorItem{
 			"button": {
@@ -773,8 +773,11 @@ func TestStateListReachableResource(t *testing.T) {
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
-		if findings[0].Line != 3 {
-			t.Fatalf("line = %d, want 3", findings[0].Line)
+		if findings[0].Line != 6 {
+			t.Fatalf("line = %d, want 6 (masked item)", findings[0].Line)
+		}
+		if !strings.Contains(findings[0].Message, "item #1") {
+			t.Fatalf("message should reference masking item #1: %q", findings[0].Message)
 		}
 	})
 
@@ -789,6 +792,66 @@ func TestStateListReachableResource(t *testing.T) {
 		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("earlier subset masks later superset", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.DrawableSelectors = map[string][]android.SelectorItem{
+			"button": {
+				{FilePath: "res/drawable/button.xml", Line: 3, StateAttrs: map[string]string{"android:state_pressed": "true"}},
+				{FilePath: "res/drawable/button.xml", Line: 6, StateAttrs: map[string]string{"android:state_pressed": "true", "android:state_focused": "true"}},
+			},
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Line != 6 {
+			t.Fatalf("line = %d, want 6", findings[0].Line)
+		}
+	})
+
+	t.Run("conflicting values are not a subset", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.DrawableSelectors = map[string][]android.SelectorItem{
+			"button": {
+				{FilePath: "res/drawable/button.xml", Line: 3, StateAttrs: map[string]string{"android:state_pressed": "true"}},
+				{FilePath: "res/drawable/button.xml", Line: 6, StateAttrs: map[string]string{"android:state_pressed": "false"}},
+			},
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("custom-namespace state attr is treated as a qualifier", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.DrawableSelectors = map[string][]android.SelectorItem{
+			"button": {
+				{FilePath: "res/drawable/button.xml", Line: 3, StateAttrs: map[string]string{"app:state_custom": "true"}},
+				{FilePath: "res/drawable/button.xml", Line: 6, StateAttrs: map[string]string{}},
+			},
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("only first masking pair reported per selector", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.DrawableSelectors = map[string][]android.SelectorItem{
+			"button": {
+				{FilePath: "res/drawable/button.xml", Line: 3, StateAttrs: map[string]string{}},
+				{FilePath: "res/drawable/button.xml", Line: 6, StateAttrs: map[string]string{"android:state_pressed": "true"}},
+				{FilePath: "res/drawable/button.xml", Line: 9, StateAttrs: map[string]string{"android:state_focused": "true"}},
+			},
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 2 {
+			t.Fatalf("expected 2 findings (one per masked item), got %d", len(findings))
 		}
 	})
 }

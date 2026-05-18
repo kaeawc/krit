@@ -790,6 +790,23 @@ func (idx *ResourceIndex) scanDrawableDir(dir string, maxWorkers int) {
 	}
 }
 
+// isSelectorStateAttr reports whether a `<selector><item>` attribute name
+// behaves as a state qualifier. An item matches when the runtime's current
+// state set is a superset of the item's qualifiers; items with no qualifiers
+// match everything. Android-namespaced state attrs (`android:state_*`) and
+// any non-android-namespaced attr (which may declare a custom state — see
+// https://issuetracker.google.com/22339) count as qualifiers; bare
+// presentation attrs like `android:drawable` do not.
+func isSelectorStateAttr(name string) bool {
+	if strings.HasPrefix(name, "android:state_") {
+		return true
+	}
+	if i := strings.IndexByte(name, ':'); i > 0 {
+		return name[:i] != "android"
+	}
+	return false
+}
+
 func (idx *ResourceIndex) parseDrawableSelectorBytes(path, resName string, data []byte) {
 	root, err := ParseXMLAST(context.Background(), data)
 	if err != nil || root == nil || root.Tag != "selector" {
@@ -806,7 +823,7 @@ func (idx *ResourceIndex) parseDrawableSelectorBytes(path, resName string, data 
 			StateAttrs: make(map[string]string),
 		}
 		for _, attr := range child.Attrs {
-			if strings.HasPrefix(attr.Name, "android:state_") {
+			if isSelectorStateAttr(attr.Name) {
 				item.StateAttrs[attr.Name] = attr.Value
 			}
 		}

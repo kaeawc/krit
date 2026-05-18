@@ -487,6 +487,100 @@ func TestExitWithoutShutdown(t *testing.T) {
 	}
 }
 
+// TestShutdown_RejectsRequestAndDropsNotification covers the post-shutdown
+// surface that the conformance test does not exercise: a notification (no
+// `id` field) sent after `shutdown` must be silently dropped (no response)
+// and the subsequent `exit` must still drive the process exit code to 0.
+// The post-shutdown request rejection is sanity-checked here too so the
+// full message sequence is exercised in one test.
+func TestShutdown_RejectsRequestAndDropsNotification(t *testing.T) {
+	initReq := buildRequest(1, "initialize", map[string]interface{}{
+		"processId":    1234,
+		"rootUri":      "file:///tmp/test",
+		"capabilities": map[string]interface{}{},
+	})
+	// The `initialized` notification ack is required by the LSP spec
+	// before the server lifts the pre-initialize gate; without it,
+	// post-shutdown requests would be rejected with -32002 instead of
+	// -32600 and we would not be exercising the shutdown gate at all.
+	initializedNotif := buildRequest(nil, "initialized", map[string]interface{}{})
+	shutdownReq := buildRequest(2, "shutdown", nil)
+	// A normal request after shutdown — must be rejected with -32600.
+	postShutdownReq := buildRequest(3, "textDocument/hover", map[string]interface{}{
+		"textDocument": map[string]interface{}{
+			"uri": "file:///tmp/test/Test.kt",
+		},
+		"position": map[string]interface{}{"line": 0, "character": 0},
+	})
+	// A notification after shutdown — must NOT produce a response.
+	postShutdownNotif := buildRequest(nil, "textDocument/didChange", map[string]interface{}{
+		"textDocument": map[string]interface{}{
+			"uri":     "file:///tmp/test/Test.kt",
+			"version": 2,
+		},
+		"contentChanges": []map[string]interface{}{{"text": "package x\n"}},
+	})
+	exitReq := buildRequest(nil, "exit", nil)
+
+	var input bytes.Buffer
+	input.Write(initReq)
+	input.Write(initializedNotif)
+	input.Write(shutdownReq)
+	input.Write(postShutdownReq)
+	input.Write(postShutdownNotif)
+	input.Write(exitReq)
+
+	var output bytes.Buffer
+
+	var capturedExitCode int
+	oldExit := exitFunc
+	exitFunc = func(code int) { capturedExitCode = code }
+	defer func() { exitFunc = oldExit }()
+
+	server := NewServer(bufio.NewReader(&input), &output)
+	server.Run()
+
+	msgs, err := collectMessages(output.Bytes())
+	if err != nil {
+		t.Fatalf("parse responses: %v", err)
+	}
+
+	// Expected outputs: initialize response, shutdown response, and an
+	// error response for the post-shutdown request. The notification must
+	// not produce any additional response.
+	if len(msgs) < 3 {
+		t.Fatalf("expected at least 3 messages (init, shutdown, post-shutdown error), got %d", len(msgs))
+	}
+
+	// Collect every response carrying ID == 3; there must be exactly one,
+	// and it must be an InvalidRequest error.
+	var postShutdownResps []Response
+	for _, raw := range msgs {
+		var resp Response
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			continue
+		}
+		if resp.ID == float64(3) {
+			postShutdownResps = append(postShutdownResps, resp)
+		}
+	}
+	if len(postShutdownResps) != 1 {
+		t.Fatalf("expected exactly 1 response for post-shutdown request (id=3), got %d", len(postShutdownResps))
+	}
+	resp := postShutdownResps[0]
+	if resp.Error == nil {
+		t.Fatalf("expected error response for post-shutdown request, got result=%v", resp.Result)
+	}
+	if resp.Error.Code != -32600 {
+		t.Errorf("expected error code -32600 (InvalidRequest), got %d", resp.Error.Code)
+	}
+
+	// exit must still be honoured after shutdown.
+	if capturedExitCode != 0 {
+		t.Errorf("expected exit code 0 after shutdown, got %d", capturedExitCode)
+	}
+}
+
 func TestUnknownMethodReturnsError(t *testing.T) {
 	initReq := buildRequest(1, "initialize", map[string]interface{}{
 		"processId":    1234,

@@ -235,13 +235,12 @@ func flattenTree(root *sitter.Node) *FlatTree {
 
 // buildNodesByType reconstructs the CSR posting list from t.Types.
 // Used by the parse cache after remapping local type IDs back to the
-// process-global table. Allocates exactly two slices; the alloc-budget
-// regression test in flat_csr_test.go locks the budget.
+// process-global table.
 //
-// Counting sort with offsets-as-write-cursor. Forward iteration over
-// Types in the scatter pass outperforms the textbook reverse-scatter
-// variant (better branch prediction / instruction-level parallelism on
-// real workloads), at the cost of a final right-shift restore pass.
+// Counting sort with offsets-as-write-cursor. Forward iteration in the
+// scatter pass outperformed the textbook reverse-scatter variant in
+// benchmarks (better branch prediction / instruction-level parallelism),
+// at the cost of a final right-shift restore pass.
 func (t *FlatTree) buildNodesByType() {
 	if t == nil || len(t.Types) == 0 {
 		t.NodeTypeOffsets = nil

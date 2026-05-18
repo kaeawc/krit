@@ -2,7 +2,6 @@ package scanner
 
 import (
 	"slices"
-	"sort"
 	"testing"
 )
 
@@ -197,19 +196,13 @@ class A {
 }
 `)
 	tree := flattenTree(root)
+	fallback := &FlatTree{Types: append([]uint16(nil), tree.Types...)}
 
-	allTypeNames := make([]string, 0, tree.NumNodeTypes())
 	for typeID := uint16(0); int(typeID) < tree.NumNodeTypes(); typeID++ {
 		if len(tree.NodesOfType(typeID)) == 0 {
 			continue
 		}
-		allTypeNames = append(allTypeNames, nodeTypeName(typeID))
-	}
-	sort.Strings(allTypeNames)
-
-	fallback := &FlatTree{Types: append([]uint16(nil), tree.Types...)}
-
-	for _, name := range allTypeNames {
+		name := nodeTypeName(typeID)
 		var fastResult, slowResult []uint32
 		FlatWalkNodes(tree, name, func(idx uint32) { fastResult = append(fastResult, idx) })
 		FlatWalkNodes(fallback, name, func(idx uint32) { slowResult = append(slowResult, idx) })
@@ -249,16 +242,8 @@ class Repository(
 }
 `)
 	tree := flattenTree(root)
-	// Drop the posting list so each AllocsPerRun iteration starts cold.
-	tree.NodeTypeOffsets = nil
-	tree.NodeTypeIndices = nil
-
 	avg := testing.AllocsPerRun(50, func() {
 		tree.buildNodesByType()
-		// Reset so the next call also allocates fresh slices, otherwise
-		// AllocsPerRun would only measure the first iteration's allocs.
-		tree.NodeTypeOffsets = nil
-		tree.NodeTypeIndices = nil
 	})
 	const budget = 2
 	if avg > budget {

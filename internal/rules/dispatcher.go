@@ -443,10 +443,9 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 			// at line ~493 and in the allNodeRules block at line ~516.
 			// Keep all three in sync — extracting to a helper measurably
 			// regresses small-file dispatch (closures defeat inlining).
-			// Hoist the CSR arrays into locals so the compiler can
-			// keep them in registers across the loop and prove that
-			// offsets[typeID] / offsets[typeID+1] are in-bounds from
-			// the n bound below (n == len(offsets)-1).
+			// Hoist the CSR arrays into locals so the compiler keeps
+			// them in registers across the loop and can prove the
+			// two-index slice expression in-bounds from the n clamp.
 			offsets := tree.NodeTypeOffsets
 			postingIndices := tree.NodeTypeIndices
 			n := len(offsets) - 1

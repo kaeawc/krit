@@ -1,12 +1,19 @@
 package exceptions
 
 class Example {
-    fun foo() {
+    fun bareNoMessage() {
+        TODO()
+    }
+
+    fun bareWithMessage() {
         TODO("implement later")
     }
 
-    fun bar() {
-        // Fully-qualified kotlin.TODO is still a kotlin.TODO usage.
+    fun fullyQualified() {
+        kotlin.TODO()
+    }
+
+    fun fullyQualifiedWithMessage() {
         kotlin.TODO("not yet")
     }
 }

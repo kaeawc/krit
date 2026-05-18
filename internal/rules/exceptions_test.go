@@ -304,34 +304,49 @@ fun process() {
 	}
 }
 
-// Local-lookalike: `foo.TODO()` is a member call, not kotlin.TODO. The rule
-// must require receiver/owner proof that the call resolves to the kotlin
-// stdlib TODO — bare `TODO(...)` or fully-qualified `kotlin.TODO(...)`.
-func TestExc_NotImplementedDeclaration_Negative_MemberReceiver(t *testing.T) {
+// Regression: flatCallExpressionName returns the rightmost identifier of a
+// navigation chain, so `svc.TODO()` would otherwise be reported as
+// `kotlin.TODO`. Only bare TODO() and the explicitly-qualified kotlin.TODO()
+// should fire.
+func TestExc_NotImplementedDeclaration_IgnoresNavigationReceivers(t *testing.T) {
 	findings := runRuleByName(t, "NotImplementedDeclaration", `
-class Tracker {
-    fun TODO(label: String) { println(label) }
+class Service {
+    fun TODO(): String = "x"
 }
 
-fun useTracker() {
-    val tracker = Tracker()
-    tracker.TODO("future")
+class Caller(private val svc: Service) {
+    fun a(): String = svc.TODO()
+    fun b(): String = this.svc.TODO()
 }
+
+object Registry {
+    fun TODO(): String = "y"
+}
+
+fun obj(): String = Registry.TODO()
 `)
 	if len(findings) != 0 {
-		t.Fatalf("expected no findings for member call foo.TODO(), got %d", len(findings))
+		t.Fatalf("expected no findings for non-kotlin receivers, got %d:\n%v", len(findings), findings)
 	}
 }
 
-// Fully-qualified `kotlin.TODO(...)` IS kotlin.TODO and must be flagged.
-func TestExc_NotImplementedDeclaration_Positive_FullyQualified(t *testing.T) {
+func TestExc_NotImplementedDeclaration_FiresOnKotlinQualified(t *testing.T) {
 	findings := runRuleByName(t, "NotImplementedDeclaration", `
-fun process() {
-    kotlin.TODO("not yet")
-}
+fun a(): Nothing = kotlin.TODO()
+fun b(): Nothing = kotlin.TODO("not yet")
 `)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for kotlin.TODO() call")
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings for kotlin.TODO() calls, got %d:\n%v", len(findings), findings)
+	}
+}
+
+func TestExc_NotImplementedDeclaration_FiresOnBareCall(t *testing.T) {
+	findings := runRuleByName(t, "NotImplementedDeclaration", `
+fun a(): Nothing = TODO()
+fun b(): Nothing = TODO("not yet")
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings for bare TODO() calls, got %d:\n%v", len(findings), findings)
 	}
 }
 

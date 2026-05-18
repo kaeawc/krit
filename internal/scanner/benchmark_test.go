@@ -155,11 +155,12 @@ func BenchmarkCollectIndexDataSharded_16Workers(b *testing.B) {
 
 func BenchmarkLineOffsets(b *testing.B) {
 	f := helperParseFixture(b, "../../tests/fixtures/positive/complexity/LargeClass.kt")
+	content := f.Content
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// Clear cache to force recomputation
-		f.lineOffsets = nil
-		_ = f.LineOffsets()
+		// Fresh File so sync.Once fires each iteration.
+		fresh := &File{Content: content}
+		_ = fresh.LineOffsets()
 	}
 }
 

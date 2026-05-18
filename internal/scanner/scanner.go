@@ -119,12 +119,13 @@ func (l Language) String() string {
 // File holds parsed source in flat form. The cgo parse tree is used
 // only during flattening and is not retained on the File.
 type File struct {
-	Path        string
-	Language    Language
-	Content     []byte
-	Lines       []string
-	FlatTree    *FlatTree
-	lineOffsets []int // cached byte offset of each line start
+	Path            string
+	Language        Language
+	Content         []byte
+	Lines           []string
+	FlatTree        *FlatTree
+	lineOffsets     []int // cached byte offset of each line start; populated under lineOffsetsOnce
+	lineOffsetsOnce sync.Once
 
 	// Generated is true when the file came from a build/generated/**
 	// directory and was kept by the parse phase's known-safe-generator
@@ -160,18 +161,21 @@ type File struct {
 	Suppression *SuppressionFilter
 }
 
-// LineOffsets returns the byte offset of each line start, computed lazily and cached.
+// LineOffsets returns the byte offset of each line start, computed lazily
+// and cached. The cache is populated exactly once via sync.Once so that
+// concurrent callers — the cross-file rule worker pool, suppression
+// filters, and rule bodies — can safely share a *File without racing on
+// the slice header.
 func (f *File) LineOffsets() []int {
-	if f.lineOffsets != nil {
-		return f.lineOffsets
-	}
-	offsets := []int{0}
-	for i, b := range f.Content {
-		if b == '\n' {
-			offsets = append(offsets, i+1)
+	f.lineOffsetsOnce.Do(func() {
+		offsets := []int{0}
+		for i, b := range f.Content {
+			if b == '\n' {
+				offsets = append(offsets, i+1)
+			}
 		}
-	}
-	f.lineOffsets = offsets
+		f.lineOffsets = offsets
+	})
 	return f.lineOffsets
 }
 

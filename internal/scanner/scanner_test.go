@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"unsafe"
 
@@ -87,6 +88,40 @@ func TestLineOffsets_Cached(t *testing.T) {
 	// Should be the same slice (cached)
 	if &offsets1[0] != &offsets2[0] {
 		t.Fatal("expected LineOffsets to return cached result")
+	}
+}
+
+// TestLineOffsets_Concurrent stresses the lazy cache from many goroutines
+// at once. Before the sync.Once fix, this raced on the f.lineOffsets
+// slice header (detected under `go test -race`) and could return torn
+// or empty results from concurrent suppression lookups.
+func TestLineOffsets_Concurrent(t *testing.T) {
+	var content strings.Builder
+	for i := 0; i < 1024; i++ {
+		content.WriteString("line\n")
+	}
+	f := &File{Content: []byte(content.String())}
+
+	const workers = 32
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	first := make([][]int, workers)
+	for w := 0; w < workers; w++ {
+		go func(idx int) {
+			defer wg.Done()
+			first[idx] = f.LineOffsets()
+		}(w)
+	}
+	wg.Wait()
+
+	want := first[0]
+	if len(want) != 1025 {
+		t.Fatalf("expected 1025 offsets, got %d", len(want))
+	}
+	for i := 1; i < workers; i++ {
+		if &first[i][0] != &want[0] {
+			t.Fatalf("worker %d observed a different cached slice", i)
+		}
 	}
 }
 

@@ -276,6 +276,79 @@ fun foo() {
 	}
 }
 
+// TestIsSuppressed_ExclusiveEndBoundary verifies that the suppression
+// range is treated as [StartByte, EndByte) — matching tree-sitter's
+// convention where EndByte is one past the last byte of the node. A
+// finding whose byte offset coincides with a suppression's EndByte
+// is past the annotation's scope and must NOT be suppressed.
+func TestIsSuppressed_ExclusiveEndBoundary(t *testing.T) {
+	src := `@Suppress("MagicNumber")
+fun foo() {
+    val x = 42
+}
+val y = 99
+`
+	root, content := parseKotlin(t, src)
+	idx := BuildSuppressionIndex(root, content)
+
+	if len(idx.suppressions) != 1 {
+		t.Fatalf("expected 1 suppression, got %d", len(idx.suppressions))
+	}
+	s := idx.suppressions[0]
+
+	// Boundary: the EndByte byte itself is past the annotation target.
+	if idx.IsSuppressed(s.EndByte, "MagicNumber", "") {
+		t.Errorf("byteOffset == EndByte (%d) must not be suppressed", s.EndByte)
+	}
+	// One byte before the end is still inside.
+	if !idx.IsSuppressed(s.EndByte-1, "MagicNumber", "") {
+		t.Errorf("byteOffset == EndByte-1 (%d) must still be suppressed", s.EndByte-1)
+	}
+	// Sanity: a finding past the annotation by a clearly separate value.
+	yOffset := findSubstringOffset(content, "val y = 99")
+	if idx.IsSuppressed(yOffset, "MagicNumber", "") {
+		t.Errorf("finding outside annotation must not be suppressed (offset %d, suppression end %d)", yOffset, s.EndByte)
+	}
+}
+
+// TestIsSuppressed_OuterFileLevelStillAppliesPastInner verifies that a
+// finding past an inner @Suppress(...) annotation still sees an outer
+// @file:Suppress(...) covering the entire file. The pre-fix code broke
+// out of the suppression-walk loop on the first nested suppression
+// whose EndByte was less than the finding's offset, missing the outer
+// file-level suppression (which is sorted earlier by StartByte but has
+// a larger EndByte).
+func TestIsSuppressed_OuterFileLevelStillAppliesPastInner(t *testing.T) {
+	src := `@file:Suppress("OuterRule")
+
+@Suppress("InnerRule")
+fun foo() {
+    val x = 42
+}
+
+val y = 99
+`
+	root, content := parseKotlin(t, src)
+	idx := BuildSuppressionIndex(root, content)
+
+	if len(idx.suppressions) < 2 {
+		t.Fatalf("expected at least 2 suppressions (file + function), got %d", len(idx.suppressions))
+	}
+
+	yOffset := findSubstringOffset(content, "val y = 99")
+	if yOffset < 0 {
+		t.Fatal("could not find 'val y = 99' in source")
+	}
+
+	if !idx.IsSuppressed(yOffset, "OuterRule", "") {
+		t.Error("expected file-level OuterRule suppression to apply past the inner function annotation")
+	}
+	// Sanity: InnerRule is only suppressed inside fun foo, not at val y.
+	if idx.IsSuppressed(yOffset, "InnerRule", "") {
+		t.Error("InnerRule should not be suppressed past its function annotation")
+	}
+}
+
 // findSubstringOffset returns the byte offset of the first occurrence of sub in content, or -1.
 func findSubstringOffset(content []byte, sub string) int {
 	s := string(content)

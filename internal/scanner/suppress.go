@@ -314,25 +314,35 @@ func (idx *SuppressionIndex) isSuppressedWithAliases(byteOffset int, ruleName, r
 		return false
 	}
 
-	// Binary search for the rightmost suppression starting at or before byteOffset
+	// Binary search for the rightmost suppression starting at or before byteOffset.
 	i := sort.Search(len(idx.suppressions), func(i int) bool {
 		return idx.suppressions[i].StartByte > byteOffset
 	})
 
-	// Check all suppressions that could contain this offset (walk backwards)
+	// Walk every candidate (StartByte <= byteOffset) and keep the ones
+	// whose range still contains the offset. The suppression interval is
+	// [StartByte, EndByte) — tree-sitter reports the byte one past the
+	// last byte of the node — so a finding at byteOffset == EndByte is
+	// past the annotation's scope and must not be suppressed.
+	//
+	// We cannot break early when one suppression's EndByte is at or
+	// before byteOffset: the list is sorted by StartByte ascending, and
+	// an earlier-listed (outer) suppression can have a larger EndByte
+	// than this nested one. For example, a `@file:Suppress(...)`
+	// covering the whole file appears before an inner `@Suppress(...)`
+	// on a function; a finding past the function but still inside the
+	// file must still see the file-level suppression.
 	for j := i - 1; j >= 0; j-- {
 		s := idx.suppressions[j]
-		if s.EndByte < byteOffset {
-			break // past this suppression's range
+		if byteOffset >= s.EndByte {
+			continue
 		}
-		if byteOffset >= s.StartByte && byteOffset <= s.EndByte {
-			if suppressionMatches(s.Rules, ruleName, ruleSetName) {
+		if suppressionMatches(s.Rules, ruleName, ruleSetName) {
+			return true
+		}
+		for _, alias := range aliases {
+			if suppressionMatches(s.Rules, alias, ruleSetName) {
 				return true
-			}
-			for _, alias := range aliases {
-				if suppressionMatches(s.Rules, alias, ruleSetName) {
-					return true
-				}
 			}
 		}
 	}

@@ -25,7 +25,7 @@ type NodeRef struct {
 
 // Valid reports whether the reference points at an existing flat node.
 func (r NodeRef) Valid() bool {
-	return r.File != nil && r.File.FlatTree != nil && int(r.Node) < len(r.File.FlatTree.Nodes)
+	return r.File != nil && r.File.FlatTree != nil && int(r.Node) < r.File.FlatTree.Len()
 }
 
 // CallTarget is the rule-facing view of a Kotlin call expression.

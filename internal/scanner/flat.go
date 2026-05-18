@@ -25,10 +25,11 @@ var (
 	nodeTypeSnapshot atomic.Pointer[[]string]
 )
 
-// FlatNode stores a tree-sitter node in a compact, cgo-free form.
-// Size: 40 bytes. PrevSib is stored explicitly so FlatPrevSibling can be
-// O(1); without it, prev-sibling access required walking from FirstChild
-// which gave O(sibling_index) per call and O(N²) across adjacent callers.
+// FlatNode is a value-type view of a single flattened node. The canonical
+// storage is the parallel slices on FlatTree (struct-of-arrays); this
+// view materializes those slices into a 40-byte value for callers that
+// prefer struct semantics. Hot paths should index FlatTree's parallel
+// slices directly to avoid the per-access struct construction.
 type FlatNode struct {
 	Type       uint16
 	Parent     uint32
@@ -59,9 +60,74 @@ func (n FlatNode) TypeName() string {
 	return nodeTypeName(n.Type)
 }
 
-// FlatTree holds a preorder-flattened syntax tree.
+// FlatTree holds a preorder-flattened syntax tree in struct-of-arrays form.
+// Field arrays are parallel: each is the same length, indexed by node ID
+// in document order. PrevSibs is stored explicitly so prev-sibling access
+// is O(1); without it, walking from FirstChild would be O(sibling_index)
+// per call and O(N²) across adjacent callers.
+//
+// NodesByType is a posting list indexed by node type ID, giving direct
+// access to all nodes of a given type without a full tree walk. The
+// dispatcher uses this to skip nodes whose type has no subscribed rules.
 type FlatTree struct {
-	Nodes []FlatNode
+	Types         []uint16
+	Parents       []uint32
+	FirstChildren []uint32
+	NextSibs      []uint32
+	PrevSibs      []uint32
+	StartBytes    []uint32
+	EndBytes      []uint32
+	StartRows     []uint16
+	StartCols     []uint16
+	ChildCounts   []uint16
+	NamedCounts   []uint16
+	Flags         []uint8
+
+	// NodesByType[typeID] is a slice of node indices for nodes of that
+	// type in document order. A nil/empty entry means no nodes of that
+	// type appear in this tree. Built by flattenTree, rebuilt by the
+	// parse cache after type-table remap.
+	NodesByType [][]uint32
+}
+
+// Len returns the number of nodes in the tree. Safe on a nil receiver.
+func (t *FlatTree) Len() int {
+	if t == nil {
+		return 0
+	}
+	return len(t.Types)
+}
+
+// Node materializes a FlatNode value at the given index. Hot paths
+// should prefer direct field access via t.Types[idx], etc.
+func (t *FlatTree) Node(idx uint32) FlatNode {
+	if t == nil || int(idx) >= len(t.Types) {
+		return FlatNode{}
+	}
+	return FlatNode{
+		Type:       t.Types[idx],
+		Parent:     t.Parents[idx],
+		FirstChild: t.FirstChildren[idx],
+		NextSib:    t.NextSibs[idx],
+		PrevSib:    t.PrevSibs[idx],
+		StartByte:  t.StartBytes[idx],
+		EndByte:    t.EndBytes[idx],
+		StartRow:   t.StartRows[idx],
+		StartCol:   t.StartCols[idx],
+		ChildCount: t.ChildCounts[idx],
+		NamedCount: t.NamedCounts[idx],
+		Flags:      t.Flags[idx],
+	}
+}
+
+// NodeIsNamed reports whether the node at idx is a named tree-sitter
+// node. O(1) field read against t.Flags — preferred over Node(idx).IsNamed()
+// in hot paths to avoid materializing the full FlatNode value.
+func (t *FlatTree) NodeIsNamed(idx uint32) bool {
+	if t == nil || int(idx) >= len(t.Flags) {
+		return false
+	}
+	return t.Flags[idx]&flatNodeFlagNamed != 0
 }
 
 func flattenTree(root *sitter.Node) *FlatTree {
@@ -69,30 +135,51 @@ func flattenTree(root *sitter.Node) *FlatTree {
 		return &FlatTree{}
 	}
 
-	nodes := make([]FlatNode, 0, estimateFlatCapacity(root))
+	capHint := estimateFlatCapacity(root)
+	t := &FlatTree{
+		Types:         make([]uint16, 0, capHint),
+		Parents:       make([]uint32, 0, capHint),
+		FirstChildren: make([]uint32, 0, capHint),
+		NextSibs:      make([]uint32, 0, capHint),
+		PrevSibs:      make([]uint32, 0, capHint),
+		StartBytes:    make([]uint32, 0, capHint),
+		EndBytes:      make([]uint32, 0, capHint),
+		StartRows:     make([]uint16, 0, capHint),
+		StartCols:     make([]uint16, 0, capHint),
+		ChildCounts:   make([]uint16, 0, capHint),
+		NamedCounts:   make([]uint16, 0, capHint),
+		Flags:         make([]uint8, 0, capHint),
+	}
+
 	var walk func(node *sitter.Node, parent uint32, hasParent bool) uint32
 	walk = func(node *sitter.Node, parent uint32, hasParent bool) uint32 {
-		idx := uint32(len(nodes))
+		idx := uint32(len(t.Types))
 		start := node.StartPoint()
-		flatNode := FlatNode{
-			Type:       internNodeType(node.Type()),
-			StartByte:  node.StartByte(),
-			EndByte:    node.EndByte(),
-			StartRow:   saturateUint16(start.Row),
-			StartCol:   saturateUint16(start.Column),
-			ChildCount: saturateUint16(node.ChildCount()),
-			NamedCount: saturateUint16(node.NamedChildCount()),
-		}
-		if hasParent {
-			flatNode.Parent = parent
-		}
+		typeID := internNodeType(node.Type())
+		var flags uint8
 		if node.IsNamed() {
-			flatNode.Flags |= flatNodeFlagNamed
+			flags |= flatNodeFlagNamed
 		}
 		if node.IsError() || node.HasError() {
-			flatNode.Flags |= flatNodeFlagError
+			flags |= flatNodeFlagError
 		}
-		nodes = append(nodes, flatNode)
+		var parentField uint32
+		if hasParent {
+			parentField = parent
+		}
+
+		t.Types = append(t.Types, typeID)
+		t.Parents = append(t.Parents, parentField)
+		t.FirstChildren = append(t.FirstChildren, 0)
+		t.NextSibs = append(t.NextSibs, 0)
+		t.PrevSibs = append(t.PrevSibs, 0)
+		t.StartBytes = append(t.StartBytes, node.StartByte())
+		t.EndBytes = append(t.EndBytes, node.EndByte())
+		t.StartRows = append(t.StartRows, saturateUint16(start.Row))
+		t.StartCols = append(t.StartCols, saturateUint16(start.Column))
+		t.ChildCounts = append(t.ChildCounts, saturateUint16(node.ChildCount()))
+		t.NamedCounts = append(t.NamedCounts, saturateUint16(node.NamedChildCount()))
+		t.Flags = append(t.Flags, flags)
 
 		var prevChild uint32
 		for i := 0; i < int(node.ChildCount()); i++ {
@@ -101,12 +188,12 @@ func flattenTree(root *sitter.Node) *FlatTree {
 				continue
 			}
 			childIdx := walk(child, idx, true)
-			if nodes[idx].FirstChild == 0 {
-				nodes[idx].FirstChild = childIdx
+			if t.FirstChildren[idx] == 0 {
+				t.FirstChildren[idx] = childIdx
 			}
 			if prevChild != 0 {
-				nodes[prevChild].NextSib = childIdx
-				nodes[childIdx].PrevSib = prevChild
+				t.NextSibs[prevChild] = childIdx
+				t.PrevSibs[childIdx] = prevChild
 			}
 			prevChild = childIdx
 		}
@@ -114,7 +201,38 @@ func flattenTree(root *sitter.Node) *FlatTree {
 	}
 
 	walk(root, 0, false)
-	return &FlatTree{Nodes: nodes}
+	t.buildNodesByType()
+	return t
+}
+
+// buildNodesByType reconstructs the per-type posting list from t.Types.
+// Used by the parse cache after remapping local type IDs back to the
+// process-global table.
+func (t *FlatTree) buildNodesByType() {
+	if t == nil || len(t.Types) == 0 {
+		t.NodesByType = nil
+		return
+	}
+	var maxType uint16
+	for _, tID := range t.Types {
+		if tID > maxType {
+			maxType = tID
+		}
+	}
+	counts := make([]uint32, int(maxType)+1)
+	for _, tID := range t.Types {
+		counts[tID]++
+	}
+	out := make([][]uint32, int(maxType)+1)
+	for tID, c := range counts {
+		if c > 0 {
+			out[tID] = make([]uint32, 0, c)
+		}
+	}
+	for i, tID := range t.Types {
+		out[tID] = append(out[tID], uint32(i))
+	}
+	t.NodesByType = out
 }
 
 // FlatNodeText returns the source text spanned by the flattened node.
@@ -125,11 +243,10 @@ func FlatNodeText(tree *FlatTree, idx uint32, content []byte) string {
 // FlatNodeBytes returns the source bytes spanned by the flattened node.
 // The returned slice aliases content and is only valid while content is live.
 func FlatNodeBytes(tree *FlatTree, idx uint32, content []byte) []byte {
-	if tree == nil || int(idx) >= len(tree.Nodes) {
+	if tree == nil || int(idx) >= len(tree.Types) {
 		return nil
 	}
-	node := tree.Nodes[idx]
-	return content[node.StartByte:node.EndByte]
+	return content[tree.StartBytes[idx]:tree.EndBytes[idx]]
 }
 
 // FlatNodeTextEquals reports whether the node's source text equals s.
@@ -152,7 +269,10 @@ func FlatNodeString(tree *FlatTree, idx uint32, content []byte, pool *StringPool
 	return pool.Intern(bytesToStringView(b))
 }
 
-// FlatWalkNodes calls fn for every node of the given type.
+// FlatWalkNodes calls fn for every node of the given type. Uses the
+// NodesByType posting list when available for direct O(matches) access;
+// falls back to a linear scan over t.Types when the posting list has
+// not been built (e.g. ad-hoc test trees).
 func FlatWalkNodes(tree *FlatTree, nodeType string, fn func(uint32)) {
 	if tree == nil {
 		return
@@ -161,8 +281,14 @@ func FlatWalkNodes(tree *FlatTree, nodeType string, fn func(uint32)) {
 	if !ok {
 		return
 	}
-	for i := range tree.Nodes {
-		if tree.Nodes[i].Type == typeID {
+	if int(typeID) < len(tree.NodesByType) {
+		for _, idx := range tree.NodesByType[typeID] {
+			fn(idx)
+		}
+		return
+	}
+	for i, t := range tree.Types {
+		if t == typeID {
 			fn(uint32(i))
 		}
 	}
@@ -175,15 +301,15 @@ func FlatWalkNodes(tree *FlatTree, nodeType string, fn func(uint32)) {
 // source_file root), which silently produced whole-file source reads when
 // the result was passed to FlatNodeText.
 func FlatFindChild(tree *FlatTree, parent uint32, childType string) (uint32, bool) {
-	if tree == nil || int(parent) >= len(tree.Nodes) {
+	if tree == nil || int(parent) >= len(tree.Types) {
 		return 0, false
 	}
 	typeID, ok := lookupNodeType(childType)
 	if !ok {
 		return 0, false
 	}
-	for child := tree.Nodes[parent].FirstChild; child != 0; child = tree.Nodes[child].NextSib {
-		if tree.Nodes[child].Type == typeID {
+	for child := tree.FirstChildren[parent]; child != 0; child = tree.NextSibs[child] {
+		if tree.Types[child] == typeID {
 			return child, true
 		}
 	}
@@ -196,11 +322,11 @@ func FlatHasModifier(tree *FlatTree, idx uint32, content []byte, modifier string
 	if !ok {
 		return false
 	}
-	for child := tree.Nodes[mods].FirstChild; child != 0; child = tree.Nodes[child].NextSib {
+	for child := tree.FirstChildren[mods]; child != 0; child = tree.NextSibs[child] {
 		if bytesEqualString(FlatNodeBytes(tree, child, content), modifier) {
 			return true
 		}
-		for grandChild := tree.Nodes[child].FirstChild; grandChild != 0; grandChild = tree.Nodes[grandChild].NextSib {
+		for grandChild := tree.FirstChildren[child]; grandChild != 0; grandChild = tree.NextSibs[grandChild] {
 			if bytesEqualString(FlatNodeBytes(tree, grandChild, content), modifier) {
 				return true
 			}
@@ -254,47 +380,49 @@ func (f *File) FlatHasModifier(idx uint32, modifier string) bool {
 }
 
 func (f *File) FlatType(idx uint32) string {
-	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Nodes) {
+	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Types) {
 		return ""
 	}
-	return f.FlatTree.Nodes[idx].TypeName()
+	return nodeTypeName(f.FlatTree.Types[idx])
 }
 
 func (f *File) FlatChildCount(idx uint32) int {
-	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Nodes) {
+	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Types) {
 		return 0
 	}
-	return int(f.FlatTree.Nodes[idx].ChildCount)
+	return int(f.FlatTree.ChildCounts[idx])
 }
 
 func (f *File) FlatChild(parent uint32, childIdx int) uint32 {
-	if f == nil || f.FlatTree == nil || int(parent) >= len(f.FlatTree.Nodes) || childIdx < 0 {
+	if f == nil || f.FlatTree == nil || int(parent) >= len(f.FlatTree.Types) || childIdx < 0 {
 		return 0
 	}
-	child := f.FlatTree.Nodes[parent].FirstChild
+	t := f.FlatTree
+	child := t.FirstChildren[parent]
 	for i := 0; child != 0; i++ {
 		if i == childIdx {
 			return child
 		}
-		child = f.FlatTree.Nodes[child].NextSib
+		child = t.NextSibs[child]
 	}
 	return 0
 }
 
 func (f *File) FlatNamedChildCount(idx uint32) int {
-	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Nodes) {
+	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Types) {
 		return 0
 	}
-	return int(f.FlatTree.Nodes[idx].NamedCount)
+	return int(f.FlatTree.NamedCounts[idx])
 }
 
 func (f *File) FlatNamedChild(parent uint32, childIdx int) uint32 {
-	if f == nil || f.FlatTree == nil || int(parent) >= len(f.FlatTree.Nodes) || childIdx < 0 {
+	if f == nil || f.FlatTree == nil || int(parent) >= len(f.FlatTree.Types) || childIdx < 0 {
 		return 0
 	}
+	t := f.FlatTree
 	namedIdx := 0
-	for child := f.FlatTree.Nodes[parent].FirstChild; child != 0; child = f.FlatTree.Nodes[child].NextSib {
-		if !f.FlatTree.Nodes[child].IsNamed() {
+	for child := t.FirstChildren[parent]; child != 0; child = t.NextSibs[child] {
+		if t.Flags[child]&flatNodeFlagNamed == 0 {
 			continue
 		}
 		if namedIdx == childIdx {
@@ -306,10 +434,11 @@ func (f *File) FlatNamedChild(parent uint32, childIdx int) uint32 {
 }
 
 func (f *File) FlatForEachChild(parent uint32, fn func(uint32)) {
-	if f == nil || f.FlatTree == nil || int(parent) >= len(f.FlatTree.Nodes) || fn == nil {
+	if f == nil || f.FlatTree == nil || int(parent) >= len(f.FlatTree.Types) || fn == nil {
 		return
 	}
-	for child := f.FlatTree.Nodes[parent].FirstChild; child != 0; child = f.FlatTree.Nodes[child].NextSib {
+	t := f.FlatTree
+	for child := t.FirstChildren[parent]; child != 0; child = t.NextSibs[child] {
 		fn(child)
 	}
 }
@@ -320,17 +449,17 @@ func (f *File) FlatHasChildOfType(parent uint32, childType string) bool {
 }
 
 func (f *File) FlatParent(idx uint32) (uint32, bool) {
-	if f == nil || f.FlatTree == nil || idx == 0 || int(idx) >= len(f.FlatTree.Nodes) {
+	if f == nil || f.FlatTree == nil || idx == 0 || int(idx) >= len(f.FlatTree.Types) {
 		return 0, false
 	}
-	return f.FlatTree.Nodes[idx].Parent, true
+	return f.FlatTree.Parents[idx], true
 }
 
 func (f *File) FlatNextSibling(idx uint32) (uint32, bool) {
-	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Nodes) {
+	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Types) {
 		return 0, false
 	}
-	next := f.FlatTree.Nodes[idx].NextSib
+	next := f.FlatTree.NextSibs[idx]
 	if next == 0 {
 		return 0, false
 	}
@@ -338,10 +467,10 @@ func (f *File) FlatNextSibling(idx uint32) (uint32, bool) {
 }
 
 func (f *File) FlatPrevSibling(idx uint32) (uint32, bool) {
-	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Nodes) {
+	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Types) {
 		return 0, false
 	}
-	prev := f.FlatTree.Nodes[idx].PrevSib
+	prev := f.FlatTree.PrevSibs[idx]
 	if prev == 0 {
 		return 0, false
 	}
@@ -358,20 +487,20 @@ func (f *File) FlatPrevSibling(idx uint32) (uint32, bool) {
 // Prefer this over `for i := 0; i < FlatChildCount(p); i++ { FlatChild(p, i) }`
 // which is O(k) per child access and O(N²) across the full iteration.
 func (f *File) FlatFirstChild(parent uint32) uint32 {
-	if f == nil || f.FlatTree == nil || int(parent) >= len(f.FlatTree.Nodes) {
+	if f == nil || f.FlatTree == nil || int(parent) >= len(f.FlatTree.Types) {
 		return 0
 	}
-	return f.FlatTree.Nodes[parent].FirstChild
+	return f.FlatTree.FirstChildren[parent]
 }
 
 // FlatNextSib returns the next sibling index, or 0 if idx is the last child.
 // O(1). Simpler variant of FlatNextSibling (which returns (uint32, bool))
 // for the linked-list iteration idiom.
 func (f *File) FlatNextSib(idx uint32) uint32 {
-	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Nodes) {
+	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Types) {
 		return 0
 	}
-	return f.FlatTree.Nodes[idx].NextSib
+	return f.FlatTree.NextSibs[idx]
 }
 
 // FlatIsNamed reports whether the node at idx is a named tree-sitter node
@@ -383,10 +512,10 @@ func (f *File) FlatNextSib(idx uint32) uint32 {
 //	    // ... use c as a named child ...
 //	}
 func (f *File) FlatIsNamed(idx uint32) bool {
-	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Nodes) {
+	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Types) {
 		return false
 	}
-	return f.FlatTree.Nodes[idx].IsNamed()
+	return f.FlatTree.Flags[idx]&flatNodeFlagNamed != 0
 }
 
 func (f *File) FlatHasAncestorOfType(idx uint32, ancestorType string) bool {
@@ -398,7 +527,7 @@ func (f *File) FlatHasAncestorOfType(idx uint32, ancestorType string) bool {
 		return false
 	}
 	for current, ok := f.FlatParent(idx); ok; current, ok = f.FlatParent(current) {
-		if f.FlatTree.Nodes[current].Type == typeID {
+		if f.FlatTree.Types[current] == typeID {
 			return true
 		}
 	}
@@ -410,7 +539,7 @@ func (f *File) FlatHasAnyAncestorOfType(idx uint32, ancestorTypes ...uint16) boo
 		return false
 	}
 	for current, ok := f.FlatParent(idx); ok; current, ok = f.FlatParent(current) {
-		currentType := f.FlatTree.Nodes[current].Type
+		currentType := f.FlatTree.Types[current]
 		for _, ancestorType := range ancestorTypes {
 			if currentType == ancestorType {
 				return true
@@ -421,19 +550,20 @@ func (f *File) FlatHasAnyAncestorOfType(idx uint32, ancestorTypes ...uint16) boo
 }
 
 func (f *File) FlatWalkNodes(root uint32, nodeType string, fn func(uint32)) {
-	if f == nil || f.FlatTree == nil || fn == nil || int(root) >= len(f.FlatTree.Nodes) {
+	if f == nil || f.FlatTree == nil || fn == nil || int(root) >= len(f.FlatTree.Types) {
 		return
 	}
 	typeID, ok := lookupNodeType(nodeType)
 	if !ok {
 		return
 	}
+	t := f.FlatTree
 	var walk func(uint32)
 	walk = func(idx uint32) {
-		if f.FlatTree.Nodes[idx].Type == typeID {
+		if t.Types[idx] == typeID {
 			fn(idx)
 		}
-		for child := f.FlatTree.Nodes[idx].FirstChild; child != 0; child = f.FlatTree.Nodes[child].NextSib {
+		for child := t.FirstChildren[idx]; child != 0; child = t.NextSibs[child] {
 			walk(child)
 		}
 	}
@@ -441,13 +571,14 @@ func (f *File) FlatWalkNodes(root uint32, nodeType string, fn func(uint32)) {
 }
 
 func (f *File) FlatWalkAllNodes(root uint32, fn func(uint32)) {
-	if f == nil || f.FlatTree == nil || fn == nil || int(root) >= len(f.FlatTree.Nodes) {
+	if f == nil || f.FlatTree == nil || fn == nil || int(root) >= len(f.FlatTree.Types) {
 		return
 	}
+	t := f.FlatTree
 	var walk func(uint32)
 	walk = func(idx uint32) {
 		fn(idx)
-		for child := f.FlatTree.Nodes[idx].FirstChild; child != 0; child = f.FlatTree.Nodes[child].NextSib {
+		for child := t.FirstChildren[idx]; child != 0; child = t.NextSibs[child] {
 			walk(child)
 		}
 	}
@@ -486,48 +617,51 @@ func (f *File) FlatFindModifierNode(idx uint32, modifier string) uint32 {
 }
 
 func (f *File) FlatStartByte(idx uint32) uint32 {
-	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Nodes) {
+	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Types) {
 		return 0
 	}
-	return f.FlatTree.Nodes[idx].StartByte
+	return f.FlatTree.StartBytes[idx]
 }
 
 func (f *File) FlatEndByte(idx uint32) uint32 {
-	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Nodes) {
+	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Types) {
 		return 0
 	}
-	return f.FlatTree.Nodes[idx].EndByte
+	return f.FlatTree.EndBytes[idx]
 }
 
 func (f *File) FlatRow(idx uint32) int {
-	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Nodes) {
+	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Types) {
 		return 0
 	}
-	return int(f.FlatTree.Nodes[idx].StartRow)
+	return int(f.FlatTree.StartRows[idx])
 }
 
 func (f *File) FlatCol(idx uint32) int {
-	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Nodes) {
+	if f == nil || f.FlatTree == nil || int(idx) >= len(f.FlatTree.Types) {
 		return 0
 	}
-	return int(f.FlatTree.Nodes[idx].StartCol)
+	return int(f.FlatTree.StartCols[idx])
 }
 
 func (f *File) FlatNamedDescendantForByteRange(startByte, endByte uint32) (uint32, bool) {
-	if f == nil || f.FlatTree == nil || len(f.FlatTree.Nodes) == 0 {
+	if f == nil || f.FlatTree == nil || len(f.FlatTree.Types) == 0 {
 		return 0, false
 	}
+	t := f.FlatTree
 	best := uint32(0)
 	bestSpan := uint32(math.MaxUint32)
 	found := false
-	for idx, node := range f.FlatTree.Nodes {
-		if !node.IsNamed() {
+	for idx := range t.Types {
+		if t.Flags[idx]&flatNodeFlagNamed == 0 {
 			continue
 		}
-		if node.StartByte > startByte || node.EndByte < endByte {
+		sb := t.StartBytes[idx]
+		eb := t.EndBytes[idx]
+		if sb > startByte || eb < endByte {
 			continue
 		}
-		span := node.EndByte - node.StartByte
+		span := eb - sb
 		if !found || span < bestSpan {
 			best = uint32(idx)
 			bestSpan = span

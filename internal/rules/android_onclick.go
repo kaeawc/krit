@@ -53,7 +53,7 @@ func (r *OnClickRule) check(ctx *api.Context) {
 		if file == nil || file.FlatTree == nil {
 			continue
 		}
-		for idx := range file.FlatTree.Nodes {
+		for idx := range file.FlatTree.Types {
 			classIdx := uint32(idx)
 			if file.FlatType(classIdx) != "class_declaration" {
 				continue
@@ -165,11 +165,10 @@ func parameterTypeNameIsView(file *scanner.File, parameter uint32) bool {
 // collectClassInflatedLayouts walks the class subtree once, capturing the
 // layout names referenced by setContentView(R.layout.X) and inflate(R.layout.X, ...).
 func collectClassInflatedLayouts(file *scanner.File, classIdx uint32, out map[string]struct{}) {
-	classNode := file.FlatTree.Nodes[classIdx]
-	end := classNode.EndByte
-	for cursor := classIdx + 1; int(cursor) < len(file.FlatTree.Nodes); cursor++ {
-		node := file.FlatTree.Nodes[cursor]
-		if node.StartByte >= end {
+	t := file.FlatTree
+	end := t.EndBytes[classIdx]
+	for cursor := classIdx + 1; int(cursor) < len(t.Types); cursor++ {
+		if t.StartBytes[cursor] >= end {
 			break
 		}
 		if file.FlatType(cursor) != "call_expression" {

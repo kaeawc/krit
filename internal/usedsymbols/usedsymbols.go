@@ -69,7 +69,7 @@ func Package(file *scanner.File) string {
 // Extract returns the deduplicated, sorted set of external symbols
 // referenced by file. The pkg/module filter is applied by the caller.
 func Extract(file *scanner.File) []Symbol {
-	if file == nil || file.FlatTree == nil || len(file.FlatTree.Nodes) == 0 {
+	if file == nil || file.FlatTree == nil || file.FlatTree.Len() == 0 {
 		return nil
 	}
 	_, it := scanHeaders(file)
@@ -188,7 +188,7 @@ func parseImportHeader(file *scanner.File, idx uint32, it *importTable) {
 // the import table alone wouldn't capture.
 func walkBody(file *scanner.File, it *importTable, add func(fqn, kind string, arity int)) {
 	tree := file.FlatTree
-	for i := uint32(1); i < uint32(len(tree.Nodes)); i++ {
+	for i := uint32(1); i < uint32(tree.Len()); i++ {
 		switch file.FlatType(i) {
 		case "navigation_expression":
 			handleNavigation(file, i, it, add)

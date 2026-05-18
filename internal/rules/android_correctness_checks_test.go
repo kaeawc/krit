@@ -425,12 +425,12 @@ func runWrongViewCastOnFile(t *testing.T, file *scanner.File, idx *android.Resou
 		wants[typ] = true
 	}
 	collector := scanner.NewFindingCollector(0)
-	for i := range file.FlatTree.Nodes {
+	for i := range file.FlatTree.Types {
 		flatIdx := uint32(i)
 		if !wants[file.FlatType(flatIdx)] {
 			continue
 		}
-		node := file.FlatTree.Nodes[i]
+		node := file.FlatTree.Node(flatIdx)
 		rule.Check(&api.Context{
 			File:              file,
 			Idx:               flatIdx,

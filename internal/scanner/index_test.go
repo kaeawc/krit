@@ -706,14 +706,29 @@ func TestCollectReferencesFlat_KDocReferenceInComment(t *testing.T) {
 	}
 	start := uint32(startOffset)
 	end := start + uint32(len("DocumentedType"))
+	tree := &FlatTree{
+		Types: []uint16{
+			internNodeType("source_file"),
+			internNodeType("multiline_comment"),
+			internNodeType("simple_identifier"),
+		},
+		Parents:       []uint32{0, 0, 1},
+		FirstChildren: []uint32{1, 2, 0},
+		NextSibs:      []uint32{0, 0, 0},
+		PrevSibs:      []uint32{0, 0, 0},
+		StartBytes:    []uint32{0, 0, start},
+		EndBytes:      []uint32{uint32(len(src)), uint32(len(src)), end},
+		StartRows:     []uint16{0, 0, 1},
+		StartCols:     []uint16{0, 0, 9},
+		ChildCounts:   []uint16{1, 1, 0},
+		NamedCounts:   []uint16{1, 1, 0},
+		Flags:         []uint8{flatNodeFlagNamed, flatNodeFlagNamed, flatNodeFlagNamed},
+	}
+	tree.buildNodesByType()
 	file := &File{
-		Path:    "demo.kt",
-		Content: src,
-		FlatTree: &FlatTree{Nodes: []FlatNode{
-			{Type: internNodeType("source_file"), FirstChild: 1, ChildCount: 1, NamedCount: 1, Flags: flatNodeFlagNamed, EndByte: uint32(len(src))},
-			{Type: internNodeType("multiline_comment"), Parent: 0, FirstChild: 2, StartByte: 0, EndByte: uint32(len(src)), StartRow: 0, ChildCount: 1, NamedCount: 1, Flags: flatNodeFlagNamed},
-			{Type: internNodeType("simple_identifier"), Parent: 1, StartByte: start, EndByte: end, StartRow: 1, StartCol: 9, Flags: flatNodeFlagNamed},
-		}},
+		Path:     "demo.kt",
+		Content:  src,
+		FlatTree: tree,
 	}
 
 	var refs []Reference

@@ -818,7 +818,7 @@ func flatIsUsedAsExpression(file *scanner.File, idx uint32) bool {
 
 func flatIsUsedAsExpressionInStatements(file *scanner.File, idx, parent uint32) bool {
 	for prev, ok := file.FlatPrevSibling(idx); ok; prev, ok = file.FlatPrevSibling(prev) {
-		if !file.FlatTree.Nodes[prev].IsNamed() {
+		if !file.FlatTree.NodeIsNamed(prev) {
 			continue
 		}
 		if file.FlatType(prev) == "jump_expression" {

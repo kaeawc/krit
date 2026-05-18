@@ -198,11 +198,11 @@ func collectJavaReferencesFlatUncached(file *File, refs *[]Reference) {
 	if !hasIdentifier && !hasTypeIdentifier && len(scopedIDs) == 0 {
 		return
 	}
-	nodes := file.FlatTree.Nodes
-	for i := range nodes {
-		node := nodes[i]
-		isSimple := (hasIdentifier && node.Type == identifierID) || (hasTypeIdentifier && node.Type == typeIdentifierID)
-		isScoped := hasNodeType(scopedIDs, node.Type)
+	t := file.FlatTree
+	for i := range t.Types {
+		nodeType := t.Types[i]
+		isSimple := (hasIdentifier && nodeType == identifierID) || (hasTypeIdentifier && nodeType == typeIdentifierID)
+		isScoped := hasNodeType(scopedIDs, nodeType)
 		if !isSimple && !isScoped {
 			continue
 		}
@@ -217,9 +217,9 @@ func collectJavaReferencesFlatUncached(file *File, refs *[]Reference) {
 		*refs = append(*refs, Reference{
 			Name:      name,
 			File:      file.Path,
-			Line:      int(node.StartRow) + 1,
-			StartByte: int(node.StartByte),
-			EndByte:   int(node.EndByte),
+			Line:      int(t.StartRows[i]) + 1,
+			StartByte: int(t.StartBytes[i]),
+			EndByte:   int(t.EndBytes[i]),
 			Language:  LangJava,
 		})
 		if isSimple {
@@ -227,9 +227,9 @@ func collectJavaReferencesFlatUncached(file *File, refs *[]Reference) {
 				*refs = append(*refs, Reference{
 					Name:      prop,
 					File:      file.Path,
-					Line:      int(node.StartRow) + 1,
-					StartByte: int(node.StartByte),
-					EndByte:   int(node.EndByte),
+					Line:      int(t.StartRows[i]) + 1,
+					StartByte: int(t.StartBytes[i]),
+					EndByte:   int(t.EndBytes[i]),
 					Language:  LangJava,
 				})
 			}

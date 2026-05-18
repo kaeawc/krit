@@ -11,7 +11,7 @@ func indexFile(file *File) ([]Symbol, []Reference) {
 	var symbols []Symbol
 	var references []Reference
 
-	if file == nil || file.FlatTree == nil || len(file.FlatTree.Nodes) == 0 {
+	if file == nil || file.FlatTree == nil || file.FlatTree.Len() == 0 {
 		return symbols, references
 	}
 
@@ -165,7 +165,7 @@ func collectReferencesFlat(file *File, refs *[]Reference) {
 	}
 
 	file.FlatWalkAllNodes(0, func(idx uint32) {
-		nodeType := file.FlatTree.Nodes[idx].Type
+		nodeType := file.FlatTree.Types[idx]
 		if (!hasSimpleID || nodeType != simpleID) && (!hasTypeID || nodeType != typeID) {
 			return
 		}

@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,8 +29,11 @@ import (
 )
 
 const (
-	parseCacheVersion    uint32 = 5
-	parseCacheVersionStr        = "5"
+	// Bumped to 6 when FlatTree migrated from AoS ([]FlatNode) to SoA
+	// (parallel slices per field). Old entries are not loadable: the
+	// gob payload shape changed from {NodeTypeTable, Nodes} to
+	// {NodeTypeTable, Types, Parents, FirstChildren, ...}.
+	parseCacheVersion uint32 = 6
 
 	// Files below this threshold parse in under a millisecond; the gob
 	// serialization + filesystem round-trip dominates the savings.
@@ -46,16 +50,34 @@ const (
 	parseCacheLRULock   = "lru.lock"
 )
 
-// parseCacheEntry is the compressed on-disk gob payload. NodeTypeTable maps the
-// entry's local FlatNode.Type indices back to node-type strings so a
-// reader can re-intern them into its own global NodeTypeTable — crucial
-// because the type table grows lazily and a fresh process's global
-// indices won't match the writer's. Version, grammar, content hash, and
-// language live in the owning sidecar/path rather than being duplicated
-// in every entry.
+// parseCacheVersionStr is the schema-version sidecar string; kept in
+// sync with parseCacheVersion via strconv to remove drift risk.
+var parseCacheVersionStr = strconv.FormatUint(uint64(parseCacheVersion), 10)
+
+// parseCacheEntry is the compressed on-disk gob payload. NodeTypeTable maps
+// the entry's local Type indices back to node-type strings so a reader
+// can re-intern them into its own global NodeTypeTable — crucial because
+// the type table grows lazily and a fresh process's global indices won't
+// match the writer's. Version, grammar, content hash, and language live
+// in the owning sidecar/path rather than being duplicated in every entry.
+//
+// The fields mirror FlatTree's parallel-slice layout (SoA). NodesByType
+// is NOT serialized because it depends on the type-ID space, which is
+// remapped on load; we rebuild it post-remap.
 type parseCacheEntry struct {
 	NodeTypeTable []string
-	Nodes         []FlatNode
+	Types         []uint16
+	Parents       []uint32
+	FirstChildren []uint32
+	NextSibs      []uint32
+	PrevSibs      []uint32
+	StartBytes    []uint32
+	EndBytes      []uint32
+	StartRows     []uint16
+	StartCols     []uint16
+	ChildCounts   []uint16
+	NamedCounts   []uint16
+	Flags         []uint8
 }
 
 // ParseCache persists FlatTree parse results keyed by content hash.
@@ -345,23 +367,47 @@ func (lc *langCache) loadByHash(hash string) (*FlatTree, bool) {
 		if lc.lru != nil {
 			lc.lru.Touch(hash)
 		}
-		remapEntryNodes(entry.Nodes, entry.NodeTypeTable)
+		tree := flatTreeFromEntry(entry)
 		lc.hits.Add(1)
-		return &FlatTree{Nodes: entry.Nodes}, true
+		return tree, true
 	}
 	if entry, ok := lc.loadLegacyEntry(hash); ok {
 		if lc.lru != nil {
 			lc.lru.Touch(hash)
 		}
-		remapEntryNodes(entry.Nodes, entry.NodeTypeTable)
+		tree := flatTreeFromEntry(entry)
 		lc.hits.Add(1)
-		return &FlatTree{Nodes: entry.Nodes}, true
+		return tree, true
 	}
 	if lc.lru != nil {
 		lc.lru.Forget(hash)
 	}
 	lc.misses.Add(1)
 	return nil, false
+}
+
+// flatTreeFromEntry rebuilds a FlatTree from a freshly-decoded cache
+// entry. The entry's Types slice holds LOCAL indices into entry.NodeTypeTable;
+// they are remapped to the process-global NodeTypeTable in place. The
+// NodesByType posting list is rebuilt post-remap.
+func flatTreeFromEntry(entry *parseCacheEntry) *FlatTree {
+	remapEntryTypes(entry.Types, entry.NodeTypeTable)
+	tree := &FlatTree{
+		Types:         entry.Types,
+		Parents:       entry.Parents,
+		FirstChildren: entry.FirstChildren,
+		NextSibs:      entry.NextSibs,
+		PrevSibs:      entry.PrevSibs,
+		StartBytes:    entry.StartBytes,
+		EndBytes:      entry.EndBytes,
+		StartRows:     entry.StartRows,
+		StartCols:     entry.StartCols,
+		ChildCounts:   entry.ChildCounts,
+		NamedCounts:   entry.NamedCounts,
+		Flags:         entry.Flags,
+	}
+	tree.buildNodesByType()
+	return tree
 }
 
 func (lc *langCache) loadPackedEntry(hash string) (*parseCacheEntry, bool) {
@@ -398,10 +444,10 @@ func (lc *langCache) loadLegacyEntry(hash string) (*parseCacheEntry, bool) {
 	return &entry, true
 }
 
-// remapEntryNodes rewrites each node's Type from the entry's local
+// remapEntryTypes rewrites each entry in types from the entry's local
 // index (into localTable) to the current process's global NodeTypeTable
-// index. Done in place on the node slice returned in the entry.
-func remapEntryNodes(nodes []FlatNode, localTable []string) {
+// index. Done in place.
+func remapEntryTypes(types []uint16, localTable []string) {
 	if len(localTable) == 0 {
 		return
 	}
@@ -409,9 +455,9 @@ func remapEntryNodes(nodes []FlatNode, localTable []string) {
 	for i, name := range localTable {
 		remap[i] = internNodeType(name)
 	}
-	for i := range nodes {
-		if int(nodes[i].Type) < len(remap) {
-			nodes[i].Type = remap[nodes[i].Type]
+	for i, t := range types {
+		if int(t) < len(remap) {
+			types[i] = remap[t]
 		}
 	}
 }
@@ -475,10 +521,10 @@ func (lc *langCache) saveAsync(path string, content []byte, tree *FlatTree, writ
 	if writer == nil {
 		return lc.saveEntry(hash, tree)
 	}
-	nodes := append([]FlatNode(nil), tree.Nodes...)
+	snap := cloneTreeForCacheSave(tree)
 	lc.asyncQueued.Add(1)
 	if writer.Submit(func() (int64, error) {
-		n, err := lc.encodePendingEntryFromOwnedNodes(hash, nodes)
+		n, err := lc.encodePendingEntryFromOwnedTree(hash, snap)
 		if err != nil {
 			lc.asyncFailed.Add(1)
 			return 0, err
@@ -489,7 +535,7 @@ func (lc *langCache) saveAsync(path string, content []byte, tree *FlatTree, writ
 	}) {
 		return nil
 	}
-	n, err := lc.saveEntryFromOwnedNodes(hash, nodes)
+	n, err := lc.saveEntryFromOwnedTree(hash, snap)
 	if err != nil {
 		lc.asyncFailed.Add(1)
 		return err
@@ -497,6 +543,29 @@ func (lc *langCache) saveAsync(path string, content []byte, tree *FlatTree, writ
 	lc.asyncCompleted.Add(1)
 	lc.asyncBytes.Add(n)
 	return err
+}
+
+// cloneTreeForCacheSave makes a defensive shallow copy of the SoA slices
+// in tree so an async writer can encode without contention. NodesByType
+// is NOT cloned (and not used for encoding).
+func cloneTreeForCacheSave(tree *FlatTree) *FlatTree {
+	if tree == nil {
+		return nil
+	}
+	return &FlatTree{
+		Types:         append([]uint16(nil), tree.Types...),
+		Parents:       append([]uint32(nil), tree.Parents...),
+		FirstChildren: append([]uint32(nil), tree.FirstChildren...),
+		NextSibs:      append([]uint32(nil), tree.NextSibs...),
+		PrevSibs:      append([]uint32(nil), tree.PrevSibs...),
+		StartBytes:    append([]uint32(nil), tree.StartBytes...),
+		EndBytes:      append([]uint32(nil), tree.EndBytes...),
+		StartRows:     append([]uint16(nil), tree.StartRows...),
+		StartCols:     append([]uint16(nil), tree.StartCols...),
+		ChildCounts:   append([]uint16(nil), tree.ChildCounts...),
+		NamedCounts:   append([]uint16(nil), tree.NamedCounts...),
+		Flags:         append([]uint8(nil), tree.Flags...),
+	}
 }
 
 func (lc *langCache) removeEntry(hash string) error {
@@ -557,19 +626,19 @@ func (pc *ParseCache) saveEntry(hash string, tree *FlatTree) error {
 }
 
 func (lc *langCache) saveEntry(hash string, tree *FlatTree) error {
-	local, cloned := buildLocalTableAndNodes(tree.Nodes)
+	local, cloned := buildLocalTableAndTree(tree)
 	_, err := lc.writeEntry(hash, local, cloned)
 	return err
 }
 
-func (lc *langCache) saveEntryFromOwnedNodes(hash string, nodes []FlatNode) (int64, error) {
-	local := rewriteNodesToLocalTypes(nodes)
-	return lc.writeEntry(hash, local, nodes)
+func (lc *langCache) saveEntryFromOwnedTree(hash string, tree *FlatTree) (int64, error) {
+	local := rewriteTreeToLocalTypes(tree)
+	return lc.writeEntry(hash, local, tree)
 }
 
-func (lc *langCache) encodePendingEntryFromOwnedNodes(hash string, nodes []FlatNode) (int64, error) {
-	local := rewriteNodesToLocalTypes(nodes)
-	blob, err := lc.encodeEntry(local, nodes)
+func (lc *langCache) encodePendingEntryFromOwnedTree(hash string, tree *FlatTree) (int64, error) {
+	local := rewriteTreeToLocalTypes(tree)
+	blob, err := lc.encodeEntry(local, tree)
 	if err != nil {
 		return 0, err
 	}
@@ -577,8 +646,8 @@ func (lc *langCache) encodePendingEntryFromOwnedNodes(hash string, nodes []FlatN
 	return int64(len(blob)), nil
 }
 
-func (lc *langCache) writeEntry(hash string, local []string, nodes []FlatNode) (int64, error) {
-	blob, err := lc.encodeEntry(local, nodes)
+func (lc *langCache) writeEntry(hash string, local []string, tree *FlatTree) (int64, error) {
+	blob, err := lc.encodeEntry(local, tree)
 	if err != nil {
 		return 0, fmt.Errorf("encode cache entry: %w", err)
 	}
@@ -589,10 +658,21 @@ func (lc *langCache) writeEntry(hash string, local []string, nodes []FlatNode) (
 	return size, nil
 }
 
-func (lc *langCache) encodeEntry(local []string, nodes []FlatNode) ([]byte, error) {
+func (lc *langCache) encodeEntry(local []string, tree *FlatTree) ([]byte, error) {
 	entry := parseCacheEntry{
 		NodeTypeTable: local,
-		Nodes:         nodes,
+		Types:         tree.Types,
+		Parents:       tree.Parents,
+		FirstChildren: tree.FirstChildren,
+		NextSibs:      tree.NextSibs,
+		PrevSibs:      tree.PrevSibs,
+		StartBytes:    tree.StartBytes,
+		EndBytes:      tree.EndBytes,
+		StartRows:     tree.StartRows,
+		StartCols:     tree.StartCols,
+		ChildCounts:   tree.ChildCounts,
+		NamedCounts:   tree.NamedCounts,
+		Flags:         tree.Flags,
 	}
 	start := time.Now()
 	blob, err := cacheutil.EncodeZstdGob(entry)
@@ -668,36 +748,57 @@ func (lc *langCache) writeEncodedEntries(writes []parseEncodedEntryWrite) error 
 	return nil
 }
 
-// buildLocalTableAndNodes walks nodes, collects the set of global Type
-// IDs actually used, and produces a parallel array of their string names
-// plus a clone of the node slice with Type rewritten to indices into
-// that local table.
-func buildLocalTableAndNodes(nodes []FlatNode) ([]string, []FlatNode) {
-	cloned := make([]FlatNode, len(nodes))
-	copy(cloned, nodes)
-	return rewriteNodesToLocalTypes(cloned), cloned
+// buildLocalTableAndTree walks tree.Types, collects the set of global
+// type IDs actually used, and produces a parallel array of their string
+// names plus a defensive shallow copy of the FlatTree with Types
+// rewritten to indices into that local table. Other SoA slices are
+// aliased — the caller must not mutate them — because they don't
+// participate in the remap.
+func buildLocalTableAndTree(tree *FlatTree) ([]string, *FlatTree) {
+	if tree == nil {
+		return nil, &FlatTree{}
+	}
+	cloned := &FlatTree{
+		Types:         append([]uint16(nil), tree.Types...),
+		Parents:       tree.Parents,
+		FirstChildren: tree.FirstChildren,
+		NextSibs:      tree.NextSibs,
+		PrevSibs:      tree.PrevSibs,
+		StartBytes:    tree.StartBytes,
+		EndBytes:      tree.EndBytes,
+		StartRows:     tree.StartRows,
+		StartCols:     tree.StartCols,
+		ChildCounts:   tree.ChildCounts,
+		NamedCounts:   tree.NamedCounts,
+		Flags:         tree.Flags,
+	}
+	return rewriteTreeToLocalTypes(cloned), cloned
 }
 
-func rewriteNodesToLocalTypes(nodes []FlatNode) []string {
+// rewriteTreeToLocalTypes rewrites tree.Types in place from global to
+// local type IDs and returns the parallel string table.
+func rewriteTreeToLocalTypes(tree *FlatTree) []string {
+	if tree == nil || len(tree.Types) == 0 {
+		return nil
+	}
 	var maxType uint16
-	for _, n := range nodes {
-		if n.Type > maxType {
-			maxType = n.Type
+	for _, t := range tree.Types {
+		if t > maxType {
+			maxType = t
 		}
 	}
 	// Dense lookup: globalToLocal[g] == 0 is the "unseen" sentinel, so
 	// stored slots are offset by 1 and subtracted on read.
 	globalToLocal := make([]uint16, int(maxType)+1)
 	local := make([]string, 0, 32)
-	for i := range nodes {
-		g := nodes[i].Type
+	for i, g := range tree.Types {
 		slot := globalToLocal[g]
 		if slot == 0 {
 			local = append(local, nodeTypeName(g))
 			slot = uint16(len(local))
 			globalToLocal[g] = slot
 		}
-		nodes[i].Type = slot - 1
+		tree.Types[i] = slot - 1
 	}
 	return local
 }

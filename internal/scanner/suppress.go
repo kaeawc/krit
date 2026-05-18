@@ -294,7 +294,7 @@ func BuildSuppressionIndexFlat(tree *FlatTree, content []byte) *SuppressionIndex
 	idx := &SuppressionIndex{
 		suppressions: make([]Suppression, 0, 16),
 	}
-	if tree == nil || len(tree.Nodes) == 0 {
+	if tree == nil || len(tree.Types) == 0 {
 		return idx
 	}
 	flatWalkForSuppressions(tree, 0, content, idx)
@@ -413,10 +413,10 @@ func suppressionMatches(rules map[string]bool, ruleName string, ruleSetName stri
 }
 
 func flatWalkForSuppressions(tree *FlatTree, idx uint32, content []byte, out *SuppressionIndex) {
-	if tree == nil || int(idx) >= len(tree.Nodes) {
+	if tree == nil || int(idx) >= len(tree.Types) {
 		return
 	}
-	nodeType := tree.Nodes[idx].TypeName()
+	nodeType := nodeTypeName(tree.Types[idx])
 
 	switch nodeType {
 	case "prefix_expression", "annotation":
@@ -441,8 +441,8 @@ func flatWalkForSuppressions(tree *FlatTree, idx uint32, content []byte, out *Su
 		return
 	}
 
-	for child := tree.Nodes[idx].FirstChild; child != 0; child = tree.Nodes[child].NextSib {
-		switch tree.Nodes[child].TypeName() {
+	for child := tree.FirstChildren[idx]; child != 0; child = tree.NextSibs[child] {
+		switch nodeTypeName(tree.Types[child]) {
 		case "prefix_expression", "annotation":
 			flatProcessSuppressionNode(tree, child, content, out)
 		case "file_annotation":
@@ -474,8 +474,8 @@ func flatProcessFileAnnotation(tree *FlatTree, idx uint32, content []byte, out *
 	// root's Parent field is also 0, making walk-until-parent==0 ambiguous).
 	var root uint32
 	out.suppressions = append(out.suppressions, Suppression{
-		StartByte: int(tree.Nodes[root].StartByte),
-		EndByte:   int(tree.Nodes[root].EndByte),
+		StartByte: int(tree.StartBytes[root]),
+		EndByte:   int(tree.EndBytes[root]),
 		Rules:     rules,
 	})
 }
@@ -486,9 +486,9 @@ func flatProcessSuppressionNode(tree *FlatTree, idx uint32, content []byte, out 
 		return false
 	}
 	parseText := textBytes
-	if tree.Nodes[idx].TypeName() == "prefix_expression" {
-		for child := tree.Nodes[idx].FirstChild; child != 0; child = tree.Nodes[child].NextSib {
-			if tree.Nodes[child].TypeName() == "annotation" && flatAnnotationHasArgs(tree, child) {
+	if nodeTypeName(tree.Types[idx]) == "prefix_expression" {
+		for child := tree.FirstChildren[idx]; child != 0; child = tree.NextSibs[child] {
+			if nodeTypeName(tree.Types[child]) == "annotation" && flatAnnotationHasArgs(tree, child) {
 				parseText = FlatNodeBytes(tree, child, content)
 				break
 			}
@@ -500,16 +500,16 @@ func flatProcessSuppressionNode(tree *FlatTree, idx uint32, content []byte, out 
 		return true
 	}
 	out.suppressions = append(out.suppressions, Suppression{
-		StartByte: int(tree.Nodes[target].StartByte),
-		EndByte:   int(tree.Nodes[target].EndByte),
+		StartByte: int(tree.StartBytes[target]),
+		EndByte:   int(tree.EndBytes[target]),
 		Rules:     rules,
 	})
 	return true
 }
 
 func flatAnnotationHasArgs(tree *FlatTree, idx uint32) bool {
-	for child := tree.Nodes[idx].FirstChild; child != 0; child = tree.Nodes[child].NextSib {
-		if tree.Nodes[child].TypeName() == "constructor_invocation" {
+	for child := tree.FirstChildren[idx]; child != 0; child = tree.NextSibs[child] {
+		if nodeTypeName(tree.Types[child]) == "constructor_invocation" {
 			return true
 		}
 	}
@@ -517,11 +517,11 @@ func flatAnnotationHasArgs(tree *FlatTree, idx uint32) bool {
 }
 
 func flatFindAnnotationTarget(tree *FlatTree, idx uint32) uint32 {
-	if tree.Nodes[idx].TypeName() == "prefix_expression" {
+	if nodeTypeName(tree.Types[idx]) == "prefix_expression" {
 		var annChild uint32
 		hasOperand := false
-		for child := tree.Nodes[idx].FirstChild; child != 0; child = tree.Nodes[child].NextSib {
-			if tree.Nodes[child].TypeName() == "annotation" {
+		for child := tree.FirstChildren[idx]; child != 0; child = tree.NextSibs[child] {
+			if nodeTypeName(tree.Types[child]) == "annotation" {
 				annChild = child
 			} else {
 				hasOperand = true
@@ -532,17 +532,17 @@ func flatFindAnnotationTarget(tree *FlatTree, idx uint32) uint32 {
 		}
 	}
 
-	parent := tree.Nodes[idx].Parent
+	parent := tree.Parents[idx]
 	if idx == 0 && parent == 0 {
 		return 0
 	}
-	if tree.Nodes[parent].TypeName() == "modifiers" {
-		return tree.Nodes[parent].Parent
+	if nodeTypeName(tree.Types[parent]) == "modifiers" {
+		return tree.Parents[parent]
 	}
-	parentType := tree.Nodes[parent].TypeName()
+	parentType := nodeTypeName(tree.Types[parent])
 	if parentType == "source_file" || parentType == "statements" || parentType == "class_body" {
 		foundSelf := false
-		for child := tree.Nodes[parent].FirstChild; child != 0; child = tree.Nodes[child].NextSib {
+		for child := tree.FirstChildren[parent]; child != 0; child = tree.NextSibs[child] {
 			if child == idx {
 				foundSelf = true
 				continue
@@ -550,7 +550,7 @@ func flatFindAnnotationTarget(tree *FlatTree, idx uint32) uint32 {
 			if !foundSelf {
 				continue
 			}
-			childType := tree.Nodes[child].TypeName()
+			childType := nodeTypeName(tree.Types[child])
 			if childType == "prefix_expression" || childType == "annotation" {
 				continue
 			}

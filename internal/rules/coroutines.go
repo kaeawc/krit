@@ -421,7 +421,7 @@ func walkCallsRespectingScope(file *scanner.File, root uint32, fn func(uint32) b
 		if stopped {
 			return
 		}
-		for child := file.FlatTree.Nodes[idx].FirstChild; child != 0; child = file.FlatTree.Nodes[child].NextSib {
+		for child := file.FlatTree.FirstChildren[idx]; child != 0; child = file.FlatTree.NextSibs[child] {
 			if stopped {
 				return
 			}

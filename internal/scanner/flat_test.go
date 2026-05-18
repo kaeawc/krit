@@ -45,8 +45,8 @@ abstract class Example(private val name: String) {
 	if flat == nil {
 		t.Fatal("expected non-nil FlatTree")
 	}
-	if len(flat.Nodes) != len(preorder) {
-		t.Fatalf("expected %d flat nodes, got %d", len(preorder), len(flat.Nodes))
+	if flat.Len() != len(preorder) {
+		t.Fatalf("expected %d flat nodes, got %d", len(preorder), flat.Len())
 	}
 
 	childrenByParent := make(map[int][]int)
@@ -55,7 +55,7 @@ abstract class Example(private val name: String) {
 	}
 
 	for idx, info := range preorder {
-		got := flat.Nodes[idx]
+		got := flat.Node(uint32(idx))
 		if got.TypeName() != info.node.Type() {
 			t.Errorf("node %d: expected type %q, got %q", idx, info.node.Type(), got.TypeName())
 		}
@@ -181,7 +181,7 @@ abstract class Example {
 		t.Fatalf("expected %q, got %q", "abstract", string(view))
 	}
 
-	content[flat.Nodes[modsIdx].StartByte] = 'A'
+	content[flat.StartBytes[modsIdx]] = 'A'
 	if string(view) != "Abstract" {
 		t.Fatalf("expected live view to reflect updated content, got %q", string(view))
 	}
@@ -212,7 +212,7 @@ abstract class Example {
 
 	pool := NewStringPool()
 	got := FlatNodeString(flat, modsIdx, content, pool)
-	content[flat.Nodes[modsIdx].StartByte] = 'A'
+	content[flat.StartBytes[modsIdx]] = 'A'
 	if got != "abstract" {
 		t.Fatalf("expected interned string to remain stable after content mutation, got %q", got)
 	}
@@ -233,10 +233,10 @@ func TestParseFile_PopulatesFlatTree(t *testing.T) {
 	if file.FlatTree == nil {
 		t.Fatal("expected ParseFile to populate FlatTree")
 	}
-	if len(file.FlatTree.Nodes) == 0 {
+	if file.FlatTree.Len() == 0 {
 		t.Fatal("expected FlatTree to contain nodes")
 	}
-	if file.FlatTree.Nodes[0].TypeName() != "source_file" {
-		t.Fatalf("expected flat root type source_file, got %q", file.FlatTree.Nodes[0].TypeName())
+	if nodeTypeName(file.FlatTree.Types[0]) != "source_file" {
+		t.Fatalf("expected flat root type source_file, got %q", nodeTypeName(file.FlatTree.Types[0]))
 	}
 }

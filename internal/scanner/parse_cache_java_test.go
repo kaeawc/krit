@@ -64,14 +64,14 @@ func TestParseCache_Java_RoundTrip(t *testing.T) {
 		t.Fatal("expected FlatTree on hit")
 	}
 
-	if len(hit.FlatTree.Nodes) != len(miss.FlatTree.Nodes) {
+	if hit.FlatTree.Len() != miss.FlatTree.Len() {
 		t.Fatalf("node count differs: miss=%d hit=%d",
-			len(miss.FlatTree.Nodes), len(hit.FlatTree.Nodes))
+			miss.FlatTree.Len(), hit.FlatTree.Len())
 	}
-	for i := range miss.FlatTree.Nodes {
-		if miss.FlatTree.Nodes[i].TypeName() != hit.FlatTree.Nodes[i].TypeName() {
+	for i := range miss.FlatTree.Types {
+		if nodeTypeName(miss.FlatTree.Types[i]) != nodeTypeName(hit.FlatTree.Types[i]) {
 			t.Fatalf("node %d type name differs: want %q got %q",
-				i, miss.FlatTree.Nodes[i].TypeName(), hit.FlatTree.Nodes[i].TypeName())
+				i, nodeTypeName(miss.FlatTree.Types[i]), nodeTypeName(hit.FlatTree.Types[i]))
 		}
 	}
 }
@@ -299,9 +299,9 @@ func TestParseCache_Java_ConcurrentWritesSameHash(t *testing.T) {
 	if !ok {
 		t.Fatal("expected hit after concurrent writes")
 	}
-	if len(tree.Nodes) != len(seed.FlatTree.Nodes) {
+	if tree.Len() != seed.FlatTree.Len() {
 		t.Fatalf("node count mismatch: want %d got %d",
-			len(seed.FlatTree.Nodes), len(tree.Nodes))
+			seed.FlatTree.Len(), tree.Len())
 	}
 }
 

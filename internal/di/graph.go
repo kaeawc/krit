@@ -75,7 +75,7 @@ func BuildGraph(files []*scanner.File, moduleGraph *module.Graph) *Graph {
 
 	var seeds []bindingSeed
 	for _, file := range files {
-		if file == nil || file.FlatTree == nil || len(file.FlatTree.Nodes) == 0 {
+		if file == nil || file.FlatTree == nil || file.FlatTree.Len() == 0 {
 			continue
 		}
 		pkg := packageNameFlat(file)

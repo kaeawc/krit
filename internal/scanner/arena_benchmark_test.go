@@ -18,7 +18,7 @@ func BenchmarkPerFileAllocationHotspots(b *testing.B) {
 		b.SetBytes(int64(len(content)))
 		for i := 0; i < b.N; i++ {
 			flat := flattenTree(root)
-			if len(flat.Nodes) == 0 {
+			if flat.Len() == 0 {
 				b.Fatal("expected flattened tree to contain nodes")
 			}
 		}
@@ -39,7 +39,7 @@ func BenchmarkPerFileAllocationHotspots(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			flat := flattenTree(root)
 			columns := CollectFindings(findings)
-			if len(flat.Nodes) == 0 {
+			if flat.Len() == 0 {
 				b.Fatal("expected flattened tree to contain nodes")
 			}
 			if columns.Len() != len(findings) {

@@ -198,6 +198,32 @@ jobs:
           name: krit-custom-rule-plugin-test-reports
           path: krit-custom-rule-plugin/build/reports/tests/test/
 
+  krit-settings-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        with:
+          distribution: zulu
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+        with:
+          cache-cleanup: on-success
+          validate-wrappers: true
+      # The settings plugin's functional test spins up a multi-project Gradle
+      # build that auto-applies `dev.jasonpearson.krit` (the host plugin).
+      # `settings.gradle.kts` composite-builds `../krit-gradle-plugin`, so a
+      # local checkout is sufficient — no mavenLocal staging needed.
+      - name: Validate krit-settings-plugin
+        working-directory: krit-settings-plugin
+        run: ./gradlew --no-daemon test --stacktrace
+      - name: Upload settings-plugin test reports
+        if: failure()
+        uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
+        with:
+          name: krit-settings-plugin-test-reports
+          path: krit-settings-plugin/build/reports/tests/test/
+
   golangci-lint:
     runs-on: ubuntu-latest
     steps:

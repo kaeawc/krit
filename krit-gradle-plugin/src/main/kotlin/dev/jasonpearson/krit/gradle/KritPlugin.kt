@@ -197,7 +197,7 @@ class KritPlugin : Plugin<Project> {
      * for each Kotlin source set (e.g., kritCheckMain, kritCheckTest).
      */
     private fun registerKotlinJvmSourceSetTasks(project: Project, extension: KritExtension) {
-        project.plugins.withId("org.jetbrains.kotlin.jvm") {
+        project.plugins.withId(KOTLIN_JVM_PLUGIN_ID) {
             project.afterEvaluate {
                 val kotlinExtension = project.extensions.findByName("kotlin")
                 if (kotlinExtension != null) {
@@ -250,8 +250,8 @@ class KritPlugin : Plugin<Project> {
      */
     private fun registerAndroidVariantTasks(project: Project, extension: KritExtension) {
         val androidPluginIds = listOf(
-            "com.android.application",
-            "com.android.library",
+            ANDROID_APPLICATION_PLUGIN_ID,
+            ANDROID_LIBRARY_PLUGIN_ID,
         )
 
         androidPluginIds.forEach { pluginId ->
@@ -262,8 +262,8 @@ class KritPlugin : Plugin<Project> {
                     // Access applicationVariants or libraryVariants via reflection to avoid
                     // a compile-time dependency on the Android Gradle Plugin
                     val variantsPropertyName = when (pluginId) {
-                        "com.android.application" -> "getApplicationVariants"
-                        "com.android.library" -> "getLibraryVariants"
+                        ANDROID_APPLICATION_PLUGIN_ID -> "getApplicationVariants"
+                        ANDROID_LIBRARY_PLUGIN_ID -> "getLibraryVariants"
                         else -> return@afterEvaluate
                     }
 
@@ -335,5 +335,21 @@ class KritPlugin : Plugin<Project> {
          * `dev.jasonpearson.krit.custom`'s `KritCustomRulePlugin`.
          */
         const val KRIT_RULE_BUNDLE_CATEGORY = "krit-rule-bundle"
+
+        const val KOTLIN_JVM_PLUGIN_ID = "org.jetbrains.kotlin.jvm"
+        const val ANDROID_APPLICATION_PLUGIN_ID = "com.android.application"
+        const val ANDROID_LIBRARY_PLUGIN_ID = "com.android.library"
+
+        /**
+         * Plugin IDs that trigger krit's per-source-set / per-variant task
+         * registration. The settings plugin's auto-application list mirrors
+         * this so the two can never drift — adding an entry here should add
+         * the same key to the settings plugin and the matching wiring above.
+         */
+        val LANGUAGE_PLUGIN_IDS = listOf(
+            KOTLIN_JVM_PLUGIN_ID,
+            ANDROID_APPLICATION_PLUGIN_ID,
+            ANDROID_LIBRARY_PLUGIN_ID,
+        )
     }
 }

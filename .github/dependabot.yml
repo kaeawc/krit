@@ -74,3 +74,14 @@ updates:
     groups:
       gradle-minor-patch:
         update-types: [minor, patch]
+
+  # Settings plugin (auto-applies krit across multi-project builds)
+  - package-ecosystem: gradle
+    directory: /krit-settings-plugin
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies, gradle]
+    groups:
+      gradle-minor-patch:
+        update-types: [minor, patch]

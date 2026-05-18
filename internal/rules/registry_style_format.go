@@ -61,8 +61,11 @@ func registerStyleFormatRules() {
 		r := &MaxChainedCallsOnSameLineRule{BaseRule: BaseRule{RuleName: "MaxChainedCallsOnSameLine", RuleSetName: "style", Sev: "warning", Desc: "Detects lines with more chained method calls than the configured maximum."}, MaxCalls: 5}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			Needs: api.NeedsLinePass, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Implementation: r,
-			Check: r.check,
+			NodeTypes:      []string{"call_expression", "navigation_expression", "method_invocation", "field_access"},
+			Languages:      []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			Confidence:     0.95,
+			Implementation: r,
+			Check:          r.check,
 		})
 	}
 	{

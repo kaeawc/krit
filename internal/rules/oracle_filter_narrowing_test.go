@@ -197,7 +197,7 @@ func TestVettedStyleAndNamingRulesStayOffKAA(t *testing.T) {
 		{"ForbiddenComment", 0},
 		{"FunctionNameMinLength", 0},
 		{"LongMethod", 0},
-		{"MaxChainedCallsOnSameLine", api.NeedsLinePass},
+		{"MaxChainedCallsOnSameLine", 0},
 		{"MultilineLambdaItParameter", 0},
 		{"NamedArguments", 0},
 		{"NoNameShadowing", 0},

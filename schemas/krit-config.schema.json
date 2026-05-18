@@ -14649,7 +14649,7 @@
           }
         },
         "MaxChainedCallsOnSameLine": {
-          "description": "Detects lines with more chained method calls than the configured maximum. [precision: heuristic/text-backed] [noisiness: noisy] [capabilities: line-pass]",
+          "description": "Detects lines with more chained method calls than the configured maximum. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

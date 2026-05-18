@@ -236,6 +236,92 @@ fun main() {
 	}
 }
 
+func TestMaxChainedCallsOnSameLine_IgnoresStringLiteralDots(t *testing.T) {
+	findings := runRuleByName(t, "MaxChainedCallsOnSameLine", `
+package test
+
+fun main() {
+    val s = "a.b.c.d.e.f.g"
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for dots inside a string literal, got %d", len(findings))
+	}
+}
+
+func TestMaxChainedCallsOnSameLine_IgnoresTrailingCommentDots(t *testing.T) {
+	findings := runRuleByName(t, "MaxChainedCallsOnSameLine", `
+package test
+
+fun main() {
+    val x = a.b // see x.y.z.w.q.r.s for context
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for dots in a trailing comment, got %d", len(findings))
+	}
+}
+
+func TestMaxChainedCallsOnSameLine_IgnoresDecimalLiteralDots(t *testing.T) {
+	findings := runRuleByName(t, "MaxChainedCallsOnSameLine", `
+package test
+
+fun main() {
+    val sum = 1.0 + 2.0 + 3.0 + 4.0 + 5.0 + 6.0
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for decimal-literal dots, got %d", len(findings))
+	}
+}
+
+func TestMaxChainedCallsOnSameLine_IgnoresImportDots(t *testing.T) {
+	findings := runRuleByName(t, "MaxChainedCallsOnSameLine", `
+package test
+
+import com.example.foo.bar.baz.qux.Quux
+
+fun main() {
+    val q = Quux
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for dots inside an import, got %d", len(findings))
+	}
+}
+
+func TestMaxChainedCallsOnSameLine_IgnoresRawStringDots(t *testing.T) {
+	findings := runRuleByName(t, "MaxChainedCallsOnSameLine", `
+package test
+
+fun main() {
+    val raw = """x.y.z.w.q.r.s.t"""
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for dots inside a raw string, got %d", len(findings))
+	}
+}
+
+func TestMaxChainedCallsOnSameLine_IgnoresWrappedChain(t *testing.T) {
+	findings := runRuleByName(t, "MaxChainedCallsOnSameLine", `
+package test
+
+fun main() {
+    val result = listOf(1, 2, 3)
+        .filter { true }
+        .map { it }
+        .flatMap { listOf(it) }
+        .sorted()
+        .take(1)
+        .first()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for an already-wrapped chain, got %d", len(findings))
+	}
+}
+
 // --- UnderscoresInNumericLiterals ---
 
 func TestUnderscoresInNumericLiterals_Positive(t *testing.T) {

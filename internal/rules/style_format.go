@@ -474,31 +474,181 @@ func (r *SpacingAfterPackageAndImportsRule) check(ctx *api.Context) {
 
 // MaxChainedCallsOnSameLineRule limits chained method calls on a single line.
 type MaxChainedCallsOnSameLineRule struct {
-	LineBase
+	FlatDispatchBase
 	BaseRule
 	MaxCalls int
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Style/formatting rule. Detection is pattern or regex based on line text;
-// deterministic byte checks have been promoted to tier-1 separately.
-// Classified per roadmap/17.
-func (r *MaxChainedCallsOnSameLineRule) Confidence() float64 { return 0.75 }
+// Confidence is 0.95 — chain depth is computed structurally from the
+// flat AST, so string-literal, decimal, import, and trailing-comment
+// dots no longer count.
+func (r *MaxChainedCallsOnSameLineRule) Confidence() float64 { return 0.95 }
 
 func (r *MaxChainedCallsOnSameLineRule) check(ctx *api.Context) {
 	file := ctx.File
 	if scanner.IsTestFile(file.Path) || isGradleBuildScript(file.Path) {
 		return
 	}
-	for i, line := range file.Lines {
-		if scanner.IsCommentLine(line) {
-			continue
-		}
-		dotCount := strings.Count(line, ".")
-		if dotCount > r.MaxCalls {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				fmt.Sprintf("Line has %d chained calls, max allowed is %d.", dotCount, r.MaxCalls)))
+	idx := ctx.Idx
+	nodeType := file.FlatType(idx)
+	// Only the chain head fires — inner chain nodes are skipped so a
+	// chain is reported once.
+	if parent, ok := file.FlatParent(idx); ok {
+		switch nodeType {
+		case "call_expression", "navigation_expression":
+			pt := file.FlatType(parent)
+			if pt == "call_expression" || pt == "navigation_expression" {
+				return
+			}
+		case "method_invocation", "field_access":
+			pt := file.FlatType(parent)
+			if pt == "method_invocation" || pt == "field_access" {
+				return
+			}
 		}
 	}
+	count, minRow, maxRow := chainStepCount(file, idx)
+	if count <= r.MaxCalls {
+		return
+	}
+	if minRow != maxRow {
+		return
+	}
+	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		fmt.Sprintf("Line has %d chained calls, max allowed is %d.", count, r.MaxCalls)))
+}
+
+// chainStepCount returns the number of `.foo` (or `?.foo`) steps in the
+// chain rooted at head, plus the min/max source row spanned by chain
+// steps. For Kotlin it counts navigation_suffix descendants reachable
+// through navigation_expression and call_expression skeleton nodes. For
+// Java it counts dots implied by the method_invocation / field_access
+// shape (1 dot per nested step, plus identifier_count-1 for simple
+// receiver chains on a method_invocation).
+func chainStepCount(file *scanner.File, head uint32) (count, minRow, maxRow int) {
+	if file == nil || head == 0 {
+		return 0, 0, 0
+	}
+	minRow = file.FlatRow(head)
+	maxRow = minRow
+	switch file.FlatType(head) {
+	case "call_expression", "navigation_expression":
+		count = walkKotlinChain(file, head, &minRow, &maxRow)
+	case "method_invocation", "field_access":
+		count = walkJavaChain(file, head, &minRow, &maxRow)
+	}
+	return count, minRow, maxRow
+}
+
+func trackChainRow(minRow, maxRow *int, r int) {
+	if r < *minRow {
+		*minRow = r
+	}
+	if r > *maxRow {
+		*maxRow = r
+	}
+}
+
+func walkKotlinChain(file *scanner.File, head uint32, minRow, maxRow *int) int {
+	count := 0
+	var walk func(uint32)
+	walk = func(n uint32) {
+		t := file.FlatType(n)
+		if t == "navigation_suffix" {
+			count++
+			trackChainRow(minRow, maxRow, file.FlatRow(n))
+			return
+		}
+		if t != "call_expression" && t != "navigation_expression" {
+			return
+		}
+		for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+			if !file.FlatIsNamed(c) {
+				continue
+			}
+			switch file.FlatType(c) {
+			case "navigation_expression", "call_expression", "navigation_suffix":
+				walk(c)
+			}
+		}
+	}
+	walk(head)
+	return count
+}
+
+func walkJavaChain(file *scanner.File, head uint32, minRow, maxRow *int) int {
+	count := 0
+	var walk func(uint32)
+	walk = func(n uint32) {
+		switch file.FlatType(n) {
+		case "method_invocation":
+			count += javaInvocationStep(file, n, minRow, maxRow, walk)
+		case "field_access":
+			count += javaFieldAccessStep(file, n, minRow, maxRow, walk)
+		}
+	}
+	walk(head)
+	return count
+}
+
+func javaInvocationStep(file *scanner.File, n uint32, minRow, maxRow *int, walk func(uint32)) int {
+	ids := 0
+	var nestedObj uint32
+	lastIdentRow := -1
+	for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "argument_list" {
+			break
+		}
+		if !file.FlatIsNamed(c) {
+			continue
+		}
+		switch file.FlatType(c) {
+		case "identifier":
+			ids++
+			lastIdentRow = file.FlatRow(c)
+		case "method_invocation", "field_access":
+			if nestedObj == 0 {
+				nestedObj = c
+			}
+		}
+	}
+	if nestedObj != 0 {
+		if lastIdentRow >= 0 {
+			trackChainRow(minRow, maxRow, lastIdentRow)
+		}
+		walk(nestedObj)
+		return ids
+	}
+	if ids > 1 {
+		if lastIdentRow >= 0 {
+			trackChainRow(minRow, maxRow, lastIdentRow)
+		}
+		return ids - 1
+	}
+	return 0
+}
+
+func javaFieldAccessStep(file *scanner.File, n uint32, minRow, maxRow *int, walk func(uint32)) int {
+	var nestedObj uint32
+	for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+		if !file.FlatIsNamed(c) {
+			continue
+		}
+		t := file.FlatType(c)
+		if t == "identifier" {
+			trackChainRow(minRow, maxRow, file.FlatRow(c))
+			continue
+		}
+		if t == "method_invocation" || t == "field_access" {
+			if nestedObj == 0 {
+				nestedObj = c
+			}
+		}
+	}
+	if nestedObj != 0 {
+		walk(nestedObj)
+	}
+	return 1
 }
 
 // CascadingCallWrappingRule checks that chained calls are wrapped consistently.

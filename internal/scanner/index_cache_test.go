@@ -374,6 +374,74 @@ func TestCrossFileOverlayCacheSmallEditAvoidsPayloadRewrite(t *testing.T) {
 	}
 }
 
+// TestWarmPriorOverlayDoesNotGrowFiles guards against the daemon-mode
+// memory leak where BuildIndexCachedWithLoaders' overlay path appended
+// the full kotlin+java file slice to a daemon-resident *CodeIndex
+// (returned by the prior loader) on every warm rebuild. Without the
+// fix, idx.Files grew by len(files)+len(javaFiles) on each invocation
+// and the saver stored the same pointer back, so the next call
+// appended on top of the previously-grown slice.
+func TestWarmPriorOverlayDoesNotGrowFiles(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := CrossFileCacheDir(dir)
+	aPath := filepath.Join(dir, "A.kt")
+	bPath := filepath.Join(dir, "B.kt")
+	if err := os.WriteFile(aPath, []byte("class A { fun call() = B() }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bPath, []byte("class B\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	aFile, err := ParseFile(context.Background(), aPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bFile, err := ParseFile(context.Background(), bPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		residentIdx  *CodeIndex
+		residentMeta CrossFileCacheMeta
+	)
+	loader := func() (*CodeIndex, CrossFileCacheMeta, bool) {
+		if residentIdx == nil {
+			return nil, CrossFileCacheMeta{}, false
+		}
+		return residentIdx, residentMeta, true
+	}
+	saver := func(idx *CodeIndex, meta CrossFileCacheMeta) {
+		residentIdx = idx
+		residentMeta = meta
+	}
+
+	// Cold build seeds the resident snapshot.
+	cold, _ := BuildIndexCachedWithPrior(cacheDir, []*File{aFile, bFile}, 2, loader, saver, nil)
+	if got, want := len(cold.Files), 2; got != want {
+		t.Fatalf("cold build len(Files) = %d, want %d", got, want)
+	}
+
+	// Repeated warm-prior overlay rebuilds: each rewrite of B.kt
+	// (different content each time) forces an overlay path, and
+	// the resident loader hands back the previously-built pointer.
+	// The bug appended the full file list on every call.
+	for i := 0; i < 5; i++ {
+		body := []byte("class B" + string(rune('0'+i)) + "\n")
+		if err := os.WriteFile(bPath, body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		bChanged, err := ParseFile(context.Background(), bPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		idx, _ := BuildIndexCachedWithPrior(cacheDir, []*File{aFile, bChanged}, 2, loader, saver, nil)
+		if got, want := len(idx.Files), 2; got != want {
+			t.Fatalf("warm overlay iter %d: len(Files) = %d, want %d (Files grew on warm rebuild)", i, got, want)
+		}
+	}
+}
+
 func TestCrossFileFingerprintIncludesBloomLibraryVersion(t *testing.T) {
 	if bloomLibraryVersion == "" {
 		t.Fatalf("bloomLibraryVersion must be set")

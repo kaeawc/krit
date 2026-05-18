@@ -189,7 +189,14 @@ func BuildIndexCachedWithLoaders(cacheDir string, files []*File, workers int, pr
 	}
 
 	if idx, ok := buildIndexFromPriorOverlay(cacheDir, entries, files, javaFiles, xmlFiles, workers, priorLoader, tracker); ok {
-		idx.Files = appendSourceFiles(idx.Files, files, javaFiles)
+		// The overlay path can return a daemon-resident *CodeIndex
+		// whose Files slice still holds the prior build's entries
+		// (BuildIndexIncremental mutates the prior in place). Replace
+		// the slice rather than appending so warm overlay rebuilds
+		// don't grow Files by len(files)+len(javaFiles) on every
+		// invocation. Disk-fallback priors arrive with Files == nil,
+		// so this is also correct for that case.
+		idx.Files = appendSourceFiles(nil, files, javaFiles)
 		idx.Fingerprint = fingerprint
 		if saver != nil {
 			saver(idx, snapshotMeta())

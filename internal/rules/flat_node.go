@@ -24,6 +24,57 @@ func flatEnclosingFunction(file *scanner.File, idx uint32) (uint32, bool) {
 	return flatEnclosingAncestor(file, idx, "function_declaration")
 }
 
+// localScopeBoundaryTypes lists node types that begin a new local
+// execution context. A walker that wants to inspect only the same
+// synchronous scope as `root` should refuse to descend into these
+// subtrees:
+//
+//   - function_declaration: nested local funs run only when called.
+//   - lambda_literal / anonymous_function: bodies run when invoked,
+//     often on a different thread (coroutine builders, callbacks).
+//   - class_declaration / object_declaration: nested type bodies and
+//     `object : I { ... }` expressions execute their member code on
+//     method invocation, not as part of the enclosing function.
+//
+// Sibling constructs that DO share the enclosing function's frame
+// (init/`anonymous_initializer`, `secondary_constructor` calls into
+// the primary, property getters/setters reachable through expressions)
+// are intentionally absent so an in-scope cleanup is still seen.
+var localScopeBoundaryTypes = map[string]struct{}{
+	"function_declaration": {},
+	"lambda_literal":       {},
+	"anonymous_function":   {},
+	"class_declaration":    {},
+	"object_declaration":   {},
+}
+
+// flatWalkLocalScope visits every descendant of `root` that lives in
+// the same local scope as `root` itself, stopping at any node listed
+// in localScopeBoundaryTypes. The callback is invoked for `root` and
+// for each in-scope descendant in pre-order. Use when a rule needs to
+// reason about the synchronous execution of a function body — e.g.
+// MDC.put/clear/remove pairing — without being misled by clean-up
+// calls inside coroutine builders, callbacks, or local helper
+// functions whose execution context is unknown.
+func flatWalkLocalScope(file *scanner.File, root uint32, fn func(uint32)) {
+	if file == nil || file.FlatTree == nil || root == 0 || fn == nil {
+		return
+	}
+	var walk func(uint32)
+	walk = func(idx uint32) {
+		if idx != root {
+			if _, isBoundary := localScopeBoundaryTypes[file.FlatType(idx)]; isBoundary {
+				return
+			}
+		}
+		fn(idx)
+		for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+			walk(child)
+		}
+	}
+	walk(root)
+}
+
 func flatLastNamedChild(file *scanner.File, idx uint32) uint32 {
 	if file == nil || idx == 0 || file.FlatNamedChildCount(idx) == 0 {
 		return 0

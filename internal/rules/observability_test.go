@@ -2161,3 +2161,114 @@ fun ping(logger: Logger, a: Int, b: Int) {
 		t.Fatalf("expected 0 findings on numeric concat outside arg, got %d: %v", len(findings), findings)
 	}
 }
+
+// TestMdcPutNoRemove_StopsAtLocalScopeBoundaries verifies that
+// MDC.clear() or MDC.remove() inside a nested lambda, local function,
+// or anonymous object is NOT treated as a matching cleanup for an
+// MDC.put on the enclosing function — those bodies run at a different
+// time or on a different thread, so the MDC value still leaks out of
+// the put's scope.
+func TestMdcPutNoRemove_StopsAtLocalScopeBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		code string
+		want int
+	}{
+		{
+			name: "clear inside coroutine launch lambda does not match",
+			code: `
+package test
+
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import org.slf4j.MDC
+
+fun emit(req: String) {
+    MDC.put("reqId", req)
+    GlobalScope.launch {
+        MDC.clear()
+    }
+}
+`,
+			want: 1,
+		},
+		{
+			name: "remove inside nested local fun does not match",
+			code: `
+package test
+
+import org.slf4j.MDC
+
+fun emit(req: String) {
+    MDC.put("reqId", req)
+    fun cleanup() {
+        MDC.remove("reqId")
+    }
+}
+`,
+			want: 1,
+		},
+		{
+			name: "clear inside anonymous object does not match",
+			code: `
+package test
+
+import org.slf4j.MDC
+
+interface Hook {
+    fun run()
+}
+
+fun emit(req: String) {
+    MDC.put("reqId", req)
+    val hook = object : Hook {
+        override fun run() {
+            MDC.clear()
+        }
+    }
+    hook.run()
+}
+`,
+			want: 1,
+		},
+		{
+			name: "remove in same scope still matches",
+			code: `
+package test
+
+import org.slf4j.MDC
+
+fun emit(req: String) {
+    MDC.put("reqId", req)
+    try {
+        // ...
+    } finally {
+        MDC.remove("reqId")
+    }
+}
+`,
+			want: 0,
+		},
+		{
+			name: "clear in same scope still matches",
+			code: `
+package test
+
+import org.slf4j.MDC
+
+fun emit(req: String) {
+    MDC.put("reqId", req)
+    MDC.clear()
+}
+`,
+			want: 0,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "MdcPutNoRemove", tc.code)
+			if len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %d: %v", tc.want, len(findings), findings)
+			}
+		})
+	}
+}

@@ -1501,14 +1501,20 @@ func mdcStaticKeyFlat(file *scanner.File, call uint32) (string, bool) {
 }
 
 // mdcRemoveOrClearMatchesFlat reports whether `fn`'s body contains an
-// MDC.remove(key) for the given key, or an MDC.clear() call. When the key is
-// not a static literal, any MDC.remove(...) call counts as a match.
+// MDC.remove(key) for the given key, or an MDC.clear() call, within
+// the same synchronous scope as the matching MDC.put. Calls that live
+// inside a nested lambda, anonymous function, or local class/object —
+// e.g. `launch { MDC.clear() }` — execute on a different thread or
+// at a different time and do not actually clean up the put we paired
+// against, so flatWalkLocalScope stops at those boundaries. When the
+// key is not a static literal, any in-scope MDC.remove(...) call
+// counts as a match.
 func mdcRemoveOrClearMatchesFlat(file *scanner.File, fn uint32, key string, keyKnown bool) bool {
 	if file == nil || fn == 0 {
 		return false
 	}
 	matched := false
-	file.FlatWalkAllNodes(fn, func(candidate uint32) {
+	flatWalkLocalScope(file, fn, func(candidate uint32) {
 		if matched {
 			return
 		}

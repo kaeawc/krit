@@ -515,11 +515,19 @@ func (r *CascadingCallWrappingRule) Confidence() float64 { return 0.75 }
 
 func (r *CascadingCallWrappingRule) check(ctx *api.Context) {
 	file := ctx.File
+	insideRawString := computeRawStringLines(file.Lines)
+	insideBlockComment := computeBlockCommentLines(file.Lines)
 	for i, line := range file.Lines {
+		if insideRawString[i] || insideBlockComment[i] {
+			continue
+		}
 		trimmed := strings.TrimSpace(line)
 		isDot := strings.HasPrefix(trimmed, ".")
 		isElvis := r.IncludeElvis && strings.HasPrefix(trimmed, "?:")
 		if (!isDot && !isElvis) || i == 0 {
+			continue
+		}
+		if insideRawString[i-1] || insideBlockComment[i-1] {
 			continue
 		}
 		prevTrimmed := strings.TrimSpace(file.Lines[i-1])

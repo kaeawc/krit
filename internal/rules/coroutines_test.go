@@ -1767,3 +1767,58 @@ fun start() {
 		t.Errorf("expected no findings, got %d", len(findings))
 	}
 }
+
+// --- SuspendFunSwallowedCancellation ---
+
+func TestSuspendFunSwallowedCancellation_RealRethrow(t *testing.T) {
+	findings := runRuleByName(t, "SuspendFunSwallowedCancellation", `
+package test
+import kotlinx.coroutines.CancellationException
+suspend fun doWork() {
+    try {
+        delay(1000)
+    } catch (e: CancellationException) {
+        println("cancelled")
+        throw e
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings when caught exception is actually rethrown, got %d:\n%v", len(findings), findings)
+	}
+}
+
+func TestSuspendFunSwallowedCancellation_CommentedRethrow(t *testing.T) {
+	findings := runRuleByName(t, "SuspendFunSwallowedCancellation", `
+package test
+import kotlinx.coroutines.CancellationException
+suspend fun doWork() {
+    try {
+        delay(1000)
+    } catch (e: CancellationException) {
+        println("cancelled")
+        // throw e — disabled while debugging
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding when rethrow only appears in a comment, got %d:\n%v", len(findings), findings)
+	}
+}
+
+func TestSuspendFunSwallowedCancellation_RethrowInStringLiteral(t *testing.T) {
+	findings := runRuleByName(t, "SuspendFunSwallowedCancellation", `
+package test
+import kotlinx.coroutines.CancellationException
+suspend fun doWork() {
+    try {
+        delay(1000)
+    } catch (e: CancellationException) {
+        println("note: caller can throw e to surface this")
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding when 'throw e' only appears in a string literal, got %d:\n%v", len(findings), findings)
+	}
+}

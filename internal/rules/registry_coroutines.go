@@ -2,7 +2,6 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/oracle"
@@ -460,13 +459,7 @@ func registerCoroutinesSuspendFunSwallowedCancellation() {
 				return
 			}
 			caughtVar := extractCaughtVarNameFlat(file, idx)
-			catchText := file.FlatNodeText(idx)
-			rethrowPattern := fmt.Sprintf(`\bthrow\s+%s\b`, regexp.QuoteMeta(caughtVar))
-			matched, err := regexp.MatchString(rethrowPattern, catchText)
-			if err != nil {
-				matched = strings.Contains(catchText, "throw "+caughtVar)
-			}
-			if !matched {
+			if !catchBodyRethrowsCaughtException(file, idx, caughtVar) {
 				msg := "CancellationException is caught but not rethrown. This can break structured concurrency."
 				if caughtType != "CancellationException" {
 					msg = fmt.Sprintf("Catching '%s' swallows CancellationException without rethrowing. This can break structured concurrency.", caughtType)

@@ -1,13 +1,10 @@
 package dev.jasonpearson.krit.gradle
 
 import org.gradle.api.Action
-import org.gradle.api.Project
-import org.gradle.api.UnknownTaskException
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.Property
-import org.gradle.jvm.tasks.Jar
 import javax.inject.Inject
 
 /**
@@ -31,12 +28,20 @@ import javax.inject.Inject
  *
  * Escape hatches (binary path, parallelism, cache toggles, fix level, etc.)
  * live under [advanced]. Project-level custom-rule wiring goes through the
- * `kritCustomRules` configuration in the `dependencies` block.
+ * `kritCustomRules` configuration in the `dependencies` block:
+ *
+ * ```
+ * dependencies { kritCustomRules(project(":custom-rules")) }
+ * ```
+ *
+ * For one-off jars or task outputs that don't fit the dependency-block model,
+ * append directly to [customRuleJars] (a `ConfigurableFileCollection`):
+ *
+ * ```
+ * krit { customRuleJars.from(file("libs/my-rules.jar")) }
+ * ```
  */
-abstract class KritExtension @Inject constructor(
-    private val project: Project,
-    objects: ObjectFactory,
-) {
+abstract class KritExtension @Inject constructor(objects: ObjectFactory) {
 
     /** Path to krit.yml. Optional — when unset, the CLI auto-discovers from the project root. */
     abstract val config: RegularFileProperty
@@ -64,38 +69,5 @@ abstract class KritExtension @Inject constructor(
     /** Configure advanced settings via DSL block. */
     fun advanced(action: Action<KritAdvanced>) {
         action.execute(advanced)
-    }
-
-    /**
-     * Add Kotlin custom-rule jars or projects that produce a jar task.
-     *
-     * For `Project` notations, prefers `kritRuleJar` (the stamped archive
-     * registered by `dev.jasonpearson.krit.custom`) over the default `jar`
-     * task — only the former carries the `Krit-SDK-Version` / `Krit-Vendor-Id`
-     * manifest attributes the daemon reads. The sibling project is configured
-     * before lookup so its lazily registered tasks are visible.
-     *
-     * Prefer the variant-aware form for project deps:
-     * ```
-     * dependencies { kritCustomRules(project(":custom-rules")) }
-     * ```
-     * which routes through Gradle's dependency graph instead of cross-project
-     * task lookup.
-     */
-    fun customRules(vararg notations: Any) {
-        notations.forEach { notation ->
-            if (notation is Project) {
-                project.evaluationDependsOn(notation.path)
-                val jarTask = try {
-                    notation.tasks.named("kritRuleJar", Jar::class.java)
-                } catch (_: UnknownTaskException) {
-                    notation.tasks.named("jar", Jar::class.java)
-                }
-                customRuleJars.from(jarTask.flatMap { it.archiveFile })
-                customRuleJars.builtBy(jarTask)
-            } else {
-                customRuleJars.from(notation)
-            }
-        }
     }
 }

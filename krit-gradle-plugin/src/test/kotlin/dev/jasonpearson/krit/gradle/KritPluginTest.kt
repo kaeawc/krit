@@ -2,7 +2,6 @@ package dev.jasonpearson.krit.gradle
 
 import org.gradle.api.Project
 import org.gradle.api.attributes.Category
-import org.gradle.api.tasks.bundling.Jar
 import org.gradle.testfixtures.ProjectBuilder
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -149,28 +148,41 @@ class KritPluginTest {
     }
 
     @Test
-    fun `top-level extension does not expose escape-hatch properties`() {
-        // Compile-time guard: KritExtension must NOT carry these knobs anymore.
-        // Reflection check keeps the regression test honest without re-introducing
-        // imports of the moved Property<*> APIs.
+    fun `KritExtension exposes only the supported top-level surface`() {
+        // KritExtension is the public DSL surface. Escape hatches live under
+        // `advanced { }`; custom-rule wiring goes through the `kritCustomRules`
+        // dependency configuration or the `customRuleJars` file collection.
+        // Each entry here pins one accessor (or DSL method name) that must NOT
+        // appear on KritExtension. The check runs via reflection so the test
+        // does not need to import the moved Property<*> APIs.
+        val forbidden = mapOf(
+            "getToolVersion" to "lives under `advanced`",
+            "getAllRules" to "lives under `advanced`",
+            "getFixLevel" to "lives under `advanced`",
+            "getParallel" to "lives under `advanced`",
+            "getNoCache" to "lives under `advanced`",
+            "getTypeInference" to "lives under `advanced`",
+            "getBinary" to "lives under `advanced`",
+            "getReportsDir" to "lives under `advanced`",
+            "getSource" to "lives under `advanced`",
+            "customRules" to "use the `kritCustomRules` dependency " +
+                "configuration or `customRuleJars.from(...)`",
+        )
         val publicMembers = KritExtension::class.java.methods.map { it.name }.toSet()
-        listOf("getToolVersion", "getAllRules", "getFixLevel", "getParallel",
-               "getNoCache", "getTypeInference", "getBinary", "getReportsDir",
-               "getSource")
-            .forEach { accessor ->
-                assertFalse(accessor in publicMembers,
-                    "KritExtension still exposes $accessor — it should live under `advanced`")
-            }
+        forbidden.forEach { (name, guidance) ->
+            assertFalse(name in publicMembers,
+                "KritExtension exposes $name; $guidance")
+        }
     }
 
     @Test
-    fun `custom rules file notation is configurable`() {
+    fun `customRuleJars accepts raw file notations`() {
         val project = newProject()
 
         val extension = project.extensions.getByType(KritExtension::class.java)
         val rulesJar = project.file("build-logic/krit-rules/build/libs/krit-rules.jar")
 
-        extension.customRules(rulesJar)
+        extension.customRuleJars.from(rulesJar)
 
         assertTrue(extension.customRuleJars.files.contains(rulesJar))
     }
@@ -183,7 +195,7 @@ class KritPluginTest {
         val task = project.tasks.getByName("kritCheck") as KritCheckTask
         val rulesJar = project.file("build-logic/krit-rules/build/libs/krit-rules.jar")
 
-        extension.customRules(rulesJar)
+        extension.customRuleJars.from(rulesJar)
 
         assertTrue(task.customRuleJars.files.contains(rulesJar))
     }
@@ -196,7 +208,7 @@ class KritPluginTest {
         val task = project.tasks.getByName("kritBaseline") as KritBaselineTask
         val rulesJar = project.file("build-logic/krit-rules/build/libs/krit-rules.jar")
 
-        extension.customRules(rulesJar)
+        extension.customRuleJars.from(rulesJar)
 
         assertTrue(task.customRuleJars.files.contains(rulesJar),
             "kritBaseline must inherit customRuleJars so the baseline captures plugin findings")
@@ -438,48 +450,4 @@ class KritPluginTest {
             "kritCheck task must inherit the resolved jars too")
     }
 
-    // --- customRules(Project) prefers kritRuleJar over default jar ---
-
-    @Test
-    fun `customRules(Project) prefers kritRuleJar when present`() {
-        val project = newProject()
-        val producer = ProjectBuilder.builder()
-            .withParent(project)
-            .withName("producer")
-            .build()
-        producer.pluginManager.apply("java")
-        val stampedJar = producer.tasks.register("kritRuleJar", Jar::class.java) {
-            archiveClassifier.set("krit-rules")
-        }
-
-        val extension = project.extensions.getByType(KritExtension::class.java)
-        extension.customRules(producer)
-
-        val expected = stampedJar.flatMap { it.archiveFile }.get().asFile
-        assertTrue(extension.customRuleJars.files.contains(expected),
-            "customRules(project) must pick up kritRuleJar's archive, was: ${extension.customRuleJars.files}")
-        val plainJar = producer.tasks.named("jar", Jar::class.java)
-            .flatMap { it.archiveFile }.get().asFile
-        assertFalse(extension.customRuleJars.files.contains(plainJar),
-            "must not also include the default unstamped jar")
-    }
-
-    @Test
-    fun `customRules(Project) falls back to jar when kritRuleJar absent`() {
-        val project = newProject()
-        val producer = ProjectBuilder.builder()
-            .withParent(project)
-            .withName("producer")
-            .build()
-        producer.pluginManager.apply("java")
-        // No kritRuleJar registered — the default jar should win.
-
-        val extension = project.extensions.getByType(KritExtension::class.java)
-        extension.customRules(producer)
-
-        val plainJar = producer.tasks.named("jar", Jar::class.java)
-            .flatMap { it.archiveFile }.get().asFile
-        assertTrue(extension.customRuleJars.files.contains(plainJar),
-            "without kritRuleJar, customRules(project) must fall back to the default jar")
-    }
 }

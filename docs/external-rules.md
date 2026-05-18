@@ -42,10 +42,10 @@ plugins {
 
 kritCustomRules {
     // All properties optional — defaults shown for visibility.
-    // ruleApiVersion.set("<krit-version>")
-    // sdkVersion.set("<krit-version>")
-    vendorId.set("acme")
-    defaultSeverity.set("warning")
+    // ruleApiVersion = "<krit-version>"
+    // sdkVersion = "<krit-version>"
+    vendorId = "acme"
+    defaultSeverity = "warning"
 }
 ```
 
@@ -208,8 +208,9 @@ is on the classpath.
 
 ### 5. Wire the jar into the consumer
 
-The consumer applies `dev.jasonpearson.krit` and adds the rules module
-via the `customRules(...)` DSL:
+The consumer applies `dev.jasonpearson.krit` and pulls the rules module
+through the `kritCustomRules` resolvable configuration in the
+`dependencies` block:
 
 ```kotlin
 // app/build.gradle.kts
@@ -217,15 +218,24 @@ plugins {
     id("dev.jasonpearson.krit") version "<krit-version>"
 }
 
-krit {
-    customRules(project(":my-rules"))
-    // Or pass an already-built jar:
-    // customRules(file("libs/my-rules-0.1.0-krit-rules.jar"))
+dependencies {
+    kritCustomRules(project(":my-rules"))
 }
 ```
 
-Passing a `Project` makes the consumer depend on the producer's `jar`
-task; passing a `File`/`FileCollection` just adds it to the classpath.
+`dev.jasonpearson.krit.custom` publishes the stamped `kritRuleJar`
+archive as an outgoing variant with a `krit-rule-bundle` category
+attribute; `kritCustomRules` resolves it through Gradle's dependency
+graph, so task ordering and artifact production are wired automatically
+(no `evaluationDependsOn`, no cross-project task lookup, Project-
+Isolation safe).
+
+For one-off jars or task outputs that don't fit the dependency-block
+model, append directly to `krit.customRuleJars`:
+
+```kotlin
+krit { customRuleJars.from(file("libs/my-rules-0.1.0-krit-rules.jar")) }
+```
 
 ### 6. Run Krit
 
@@ -239,7 +249,7 @@ Console output (text formatter, default):
 app/src/main/kotlin/com/acme/Foo.kt:12:3: warning [acme.NoTodo] TODO left in source
 ```
 
-JSON output (`krit { reports { json.enabled.set(true) } }` or
+JSON output (`krit { reports { json.required = true } }` or
 `--format json` from the CLI):
 
 ```json

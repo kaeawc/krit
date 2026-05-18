@@ -37,7 +37,7 @@ class KritPlugin : Plugin<Project> {
     override fun apply(project: Project) {
         project.pluginManager
 
-        val extension = project.extensions.create("krit", KritExtension::class.java, project)
+        val extension = project.extensions.create("krit", KritExtension::class.java)
 
         // Resolvable configuration for declaring custom-rule producers as
         // project dependencies, e.g. `dependencies { kritCustomRules(project(":rules")) }`.
@@ -57,7 +57,7 @@ class KritPlugin : Plugin<Project> {
 
         // Fold resolved bundles from `kritCustomRules` into the extension's
         // jar collection so they flow into kritCheck/kritBaseline like any
-        // explicit `customRules(file(...))` entry.
+        // explicit `customRuleJars.from(file(...))` entry.
         extension.customRuleJars.from(customRulesConfiguration)
 
         // Set conventions (defaults)

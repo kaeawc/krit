@@ -6,8 +6,8 @@ sibling [`kotlin-webservice`](../kotlin-webservice) project through the
 [`dev.jasonpearson.krit`](../../krit-gradle-plugin/README.md) plugin.
 
 The module deliberately has **no `settings.gradle.kts`** of its own — it is
-included as a subproject of `kotlin-webservice` so the host project can reference
-it via `customRules(project(":custom-rules"))`.
+included as a subproject of `kotlin-webservice` so the host project can pull
+the produced jar through `dependencies { kritCustomRules(project(":custom-rules")) }`.
 
 ## Rules
 
@@ -59,11 +59,9 @@ means the consumer cannot accidentally pick up a project's normal
 `runtimeElements` jar — the daemon-stamped variant is the only thing the
 host configuration will resolve.
 
-> **Alternatives** for one-off setups: `krit { customRules(file(...)) }`
-> accepts raw jars or task outputs, and `krit { customRules(project(":foo")) }`
-> resolves the project's `kritRuleJar` when present (falling back to its `jar`
-> task). Both bypass the dependency graph, so prefer `kritCustomRules` for
-> project deps.
+> **Raw jars / task outputs** that don't fit the dependency-block model:
+> append directly to `krit.customRuleJars`, e.g.
+> `krit { customRuleJars.from(file("libs/foo.jar")) }`.
 
 ## Running it
 

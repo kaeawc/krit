@@ -1,6 +1,6 @@
 # Krit Custom Rule Plugin
 
-Gradle plugin that scaffolds a module for authoring custom [Krit](https://github.com/kaeawc/krit) rules. It wires up the Kotlin compile classpath, generates the `META-INF/services` registration, and produces a properly-stamped jar that Krit's `--custom-rule-jars` flag (or the host plugin's `customRules(...)` DSL) consumes.
+Gradle plugin that scaffolds a module for authoring custom [Krit](https://github.com/kaeawc/krit) rules. It wires up the Kotlin compile classpath, generates the `META-INF/services` registration, and produces a properly-stamped jar consumed by Krit's `--custom-rule-jars` flag (or the host plugin's `kritCustomRules` configuration in the `dependencies` block).
 
 ## Usage
 
@@ -12,16 +12,16 @@ plugins {
 
 kritCustomRules {
     // Optional — defaults to the plugin's own version.
-    ruleApiVersion.set("0.2.0")
+    ruleApiVersion = "0.2.0"
 
     // Optional — written to the Krit-SDK-Version manifest attribute.
-    sdkVersion.set("0.2.0")
+    sdkVersion = "0.2.0"
 
     // Optional — recorded as Krit-Vendor-Id.
-    vendorId.set("acme")
+    vendorId = "acme"
 
     // Optional — fallback severity recorded as Krit-Default-Severity.
-    defaultSeverity.set("warning")
+    defaultSeverity = "warning"
 }
 ```
 
@@ -61,12 +61,23 @@ plugins {
 }
 
 dependencies {
-    // OR: krit { customRules(file("path/to/my-rules.jar")) }
+    kritCustomRules(project(":my-rules"))
 }
+```
 
-krit {
-    customRules(project(":my-rules"))
-}
+`dev.jasonpearson.krit.custom` publishes the stamped `kritRuleJar` as an
+outgoing variant with a `krit-rule-bundle` category attribute, and the
+host plugin's `kritCustomRules` configuration resolves that variant
+through Gradle's dependency graph — no `evaluationDependsOn`, no
+cross-project task lookup, Project-Isolation safe. See
+[docs/external-rules.md](../docs/external-rules.md#5-wire-the-jar-into-the-consumer)
+for the longer write-up.
+
+For raw jars or task outputs that don't fit the dependency-block model,
+append directly to `krit.customRuleJars`:
+
+```kotlin
+krit { customRuleJars.from(file("libs/my-rules-0.1.0-krit-rules.jar")) }
 ```
 
 ## What the plugin does

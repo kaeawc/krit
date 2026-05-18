@@ -1,8 +1,12 @@
 # External Rule Example
 
 Copy-paste starter for authoring a custom Krit rule. Builds a rule jar
-that the host Krit binary loads via `--custom-rule-jars` (or the
-`krit { customRules(...) }` DSL in the host Gradle plugin).
+that the host Krit binary loads via `--custom-rule-jars` (or, in a
+Gradle build, the `kritCustomRules` resolvable configuration on the host
+plugin — see [docs/external-rules.md](../../docs/external-rules.md#5-wire-the-jar-into-the-consumer)
+for the variant-resolution rationale and
+[krit-custom-rule-plugin](../../krit-custom-rule-plugin/README.md) for
+the rule-authoring DSL).
 
 ## Layout
 

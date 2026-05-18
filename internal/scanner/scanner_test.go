@@ -145,6 +145,41 @@ func TestLineOffset_OutOfRange(t *testing.T) {
 	}
 }
 
+func TestRowForByte(t *testing.T) {
+	// Content: "abc\ndef\nghi" → line starts at [0, 4, 8].
+	f := &File{Content: []byte("abc\ndef\nghi")}
+
+	cases := []struct {
+		byteOffset int
+		wantRow    int
+	}{
+		{0, 0},   // start of line 0
+		{2, 0},   // mid line 0
+		{3, 0},   // '\n' belongs to line 0
+		{4, 1},   // start of line 1
+		{6, 1},   // mid line 1
+		{7, 1},   // '\n' belongs to line 1
+		{8, 2},   // start of line 2
+		{10, 2},  // last byte of line 2
+		{100, 2}, // past content: clamped to last known row
+	}
+	for _, tc := range cases {
+		if got := f.RowForByte(tc.byteOffset); got != tc.wantRow {
+			t.Errorf("RowForByte(%d): expected %d, got %d", tc.byteOffset, tc.wantRow, got)
+		}
+	}
+}
+
+func TestRowForByte_EmptyContent(t *testing.T) {
+	f := &File{Content: []byte{}}
+	if got := f.RowForByte(0); got != 0 {
+		t.Errorf("RowForByte(0) on empty content: expected 0, got %d", got)
+	}
+	if got := f.RowForByte(10); got != 0 {
+		t.Errorf("RowForByte(10) on empty content: expected 0, got %d", got)
+	}
+}
+
 func parseTestKotlin(t *testing.T, src string) *sitter.Node {
 	t.Helper()
 	content := []byte(src)

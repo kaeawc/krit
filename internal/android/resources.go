@@ -10,12 +10,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
+
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func clampWorkers(maxWorkers, workItems int) int {
@@ -142,27 +143,13 @@ const (
 
 const ValuesScanAll = ValuesScanStrings | ValuesScanDimensions | ValuesScanPlurals | ValuesScanArrays | ValuesScanExtraText
 
-type lineIndex struct {
-	newlines []int64
-}
-
-func newLineIndex(data []byte) *lineIndex {
-	newlines := make([]int64, 0, bytes.Count(data, []byte{'\n'}))
-	for i, b := range data {
-		if b == '\n' {
-			newlines = append(newlines, int64(i))
-		}
-	}
-	return &lineIndex{newlines: newlines}
-}
-
-func (idx *lineIndex) lineAtOffset(offset int64) int {
-	if idx == nil {
+// lineAtOffset returns the 1-based line number for the given byte offset in
+// the file's content. A nil file is treated as the first line.
+func lineAtOffset(file *scanner.File, offset int64) int {
+	if file == nil {
 		return 1
 	}
-	return sort.Search(len(idx.newlines), func(i int) bool {
-		return idx.newlines[i] >= offset
-	}) + 1
+	return file.RowForByte(int(offset)) + 1
 }
 
 type resourceDirResult struct {
@@ -901,9 +888,9 @@ func (idx *ResourceIndex) parseValuesXMLKinds(path string, data []byte, kinds Va
 	needStringLines := kinds&ValuesScanStrings != 0
 	needExtraTextLines := kinds&ValuesScanExtraText != 0
 	needDimenLines := kinds&ValuesScanDimensions != 0
-	var lines *lineIndex
+	var lines *scanner.File
 	if needStringLines || needExtraTextLines || needDimenLines {
-		lines = newLineIndex(data)
+		lines = &scanner.File{Content: data, Language: scanner.LangXML, Path: path}
 	}
 	for {
 		tok, err := dec.Token()
@@ -925,7 +912,7 @@ func (idx *ResourceIndex) parseValuesXMLKinds(path string, data []byte, kinds Va
 	return fmt.Errorf("parsing XML %s: root element is not <resources>", path)
 }
 
-func (idx *ResourceIndex) parseResourcesRootKinds(dec *xml.Decoder, path string, _ []byte, root xml.StartElement, kinds ValuesScanKind, lines *lineIndex) error {
+func (idx *ResourceIndex) parseResourcesRootKinds(dec *xml.Decoder, path string, _ []byte, root xml.StartElement, kinds ValuesScanKind, lines *scanner.File) error {
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -944,7 +931,7 @@ func (idx *ResourceIndex) parseResourcesRootKinds(dec *xml.Decoder, path string,
 					offset := dec.InputOffset() - int64(len(t)) + int64(leadingTrimmedBytes(raw))
 					idx.ExtraTexts = append(idx.ExtraTexts, ExtraTextEntry{
 						FilePath: path,
-						Line:     lines.lineAtOffset(offset),
+						Line:     lineAtOffset(lines, offset),
 						Text:     text,
 					})
 				}
@@ -954,7 +941,7 @@ func (idx *ResourceIndex) parseResourcesRootKinds(dec *xml.Decoder, path string,
 			if lines != nil {
 				switch t.Name.Local {
 				case "string", "dimen", "style":
-					elemLine = lines.lineAtOffset(dec.InputOffset())
+					elemLine = lineAtOffset(lines, dec.InputOffset())
 				}
 			}
 			if err := idx.parseResourceElementKinds(dec, t, path, elemLine, kinds, lines); err != nil {
@@ -968,7 +955,7 @@ func (idx *ResourceIndex) parseResourcesRootKinds(dec *xml.Decoder, path string,
 	}
 }
 
-func (idx *ResourceIndex) parseResourceElementKinds(dec *xml.Decoder, start xml.StartElement, path string, line int, kinds ValuesScanKind, lines *lineIndex) error {
+func (idx *ResourceIndex) parseResourceElementKinds(dec *xml.Decoder, start xml.StartElement, path string, line int, kinds ValuesScanKind, lines *scanner.File) error {
 	switch start.Name.Local {
 	case "string":
 		return idx.parseStringElement(dec, start, path, line, kinds)
@@ -1098,7 +1085,7 @@ func (idx *ResourceIndex) parseBoolElement(dec *xml.Decoder, start xml.StartElem
 	return nil
 }
 
-func (idx *ResourceIndex) parseStyleElement(dec *xml.Decoder, start xml.StartElement, path string, line int, lines *lineIndex) error {
+func (idx *ResourceIndex) parseStyleElement(dec *xml.Decoder, start xml.StartElement, path string, line int, lines *scanner.File) error {
 	name := xmlAttr(start.Attr, "name")
 	if name == "" {
 		return skipElement(dec, start)
@@ -1128,7 +1115,7 @@ func (idx *ResourceIndex) parseStyleElement(dec *xml.Decoder, start xml.StartEle
 			itemName := xmlAttr(t.Attr, "name")
 			itemLine := 0
 			if lines != nil {
-				itemLine = lines.lineAtOffset(dec.InputOffset())
+				itemLine = lineAtOffset(lines, dec.InputOffset())
 			}
 			text, err := decodeSimpleElementText(dec, t)
 			if err != nil {

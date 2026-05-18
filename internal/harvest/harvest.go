@@ -96,24 +96,9 @@ func ExtractFixture(target Target, ruleName string) (Result, error) {
 		Col:       match.Col,
 		NodeType:  file.FlatType(node),
 		StartLine: file.FlatRow(node) + 1,
-		EndLine:   lineForByteOffset(file, int(file.FlatEndByte(node)-1)),
+		EndLine:   file.RowForByte(int(file.FlatEndByte(node)-1)) + 1,
 		Content:   content,
 	}, nil
-}
-
-func lineForByteOffset(file *scanner.File, offset int) int {
-	if file == nil {
-		return 1
-	}
-	offsets := file.LineOffsets()
-	line := 0
-	for i, start := range offsets {
-		if start > offset {
-			break
-		}
-		line = i
-	}
-	return line + 1
 }
 
 func WriteFixture(outPath string, result Result) error {

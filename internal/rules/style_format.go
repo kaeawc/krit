@@ -3,7 +3,6 @@ package rules
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -444,7 +443,7 @@ func (r *SpacingAfterPackageAndImportsRule) check(ctx *api.Context) {
 		}
 	}
 
-	endRow := lineOfByte(file, int(preludeCodeEndByte(file, idx)))
+	endRow := file.RowForByte(int(preludeCodeEndByte(file, idx)))
 	if endRow+1 >= len(file.Lines) {
 		return
 	}
@@ -462,19 +461,6 @@ func (r *SpacingAfterPackageAndImportsRule) check(ctx *api.Context) {
 		Replacement: "\n",
 	}
 	ctx.Emit(f)
-}
-
-// lineOfByte returns the 0-based line index containing byteOffset.
-func lineOfByte(file *scanner.File, byteOffset int) int {
-	offsets := file.LineOffsets()
-	if len(offsets) == 0 {
-		return 0
-	}
-	i := sort.Search(len(offsets), func(j int) bool { return offsets[j] > byteOffset })
-	if i == 0 {
-		return 0
-	}
-	return i - 1
 }
 
 // nextPreludeSibling returns the next file-scope sibling of a package/import

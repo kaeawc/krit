@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -187,6 +188,21 @@ func (f *File) LineOffset(lineIdx int) int {
 		return offsets[lineIdx]
 	}
 	return len(f.Content)
+}
+
+// RowForByte returns the 0-based line index containing the given byte offset.
+// Callers that need a 1-based line number should add 1. Returns 0 when the
+// file has no recorded line offsets.
+func (f *File) RowForByte(byteOffset int) int {
+	offsets := f.LineOffsets()
+	if len(offsets) == 0 {
+		return 0
+	}
+	i := sort.Search(len(offsets), func(j int) bool { return offsets[j] > byteOffset })
+	if i == 0 {
+		return 0
+	}
+	return i - 1
 }
 
 // ParseFile parses a Kotlin file and returns the AST. The ctx is forwarded

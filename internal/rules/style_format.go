@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -424,52 +425,90 @@ func (r *NewLineAtEndOfFileRule) check(ctx *api.Context) {
 
 // SpacingAfterPackageAndImportsRule checks for blank line after package/imports.
 type SpacingAfterPackageAndImportsRule struct {
-	LineBase
+	FlatDispatchBase
 	BaseRule
 }
 
-// Confidence bumps this line rule from the 0.75 line-rule default to
-// 0.95 — the detection uses `strings.HasPrefix(trimmed, "package ")`
-// and `"import "`, which are unambiguous line starts in Kotlin. No
-// heuristic path.
-func (r *SpacingAfterPackageAndImportsRule) Confidence() float64 { return 0.95 }
-
 func (r *SpacingAfterPackageAndImportsRule) check(ctx *api.Context) {
-	file := ctx.File
-	lastImportLine := -1
-	packageLine := -1
+	file, idx := ctx.File, ctx.Idx
 
-	for i, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "package ") {
-			packageLine = i
-		}
-		if strings.HasPrefix(trimmed, "import ") {
-			lastImportLine = i
+	// Kotlin's import_list span includes trailing blank lines, so fire on
+	// the trailing import_header / package_header and climb out of the list
+	// to see its successor — each file emits at most once.
+	next, hasNext := nextPreludeSibling(file, idx)
+	if hasNext {
+		switch file.FlatType(next) {
+		case "package_header", "import_list", "import_header",
+			"package_declaration", "import_declaration":
+			return
 		}
 	}
 
-	checkLine := lastImportLine
-	if checkLine < 0 {
-		checkLine = packageLine
+	endRow := lineOfByte(file, int(preludeCodeEndByte(file, idx)))
+	if endRow+1 >= len(file.Lines) {
+		return
 	}
-	if checkLine >= 0 && checkLine < len(file.Lines)-1 {
-		next := strings.TrimSpace(file.Lines[checkLine+1])
-		if next != "" {
-			f := r.Finding(file, checkLine+2, 1,
-				"Missing blank line after package/import declarations.")
-			// Insert a blank line after the checkLine
-			lineStart := file.LineOffset(checkLine + 1)
-			// Insert a newline at the position right after the checkLine's newline
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   lineStart,
-				EndByte:     lineStart,
-				Replacement: "\n",
-			}
-			ctx.Emit(f)
+	if strings.TrimSpace(file.Lines[endRow+1]) == "" {
+		return
+	}
+
+	lineStart := file.LineOffset(endRow + 1)
+	f := r.Finding(file, endRow+2, 1,
+		"Missing blank line after package/import declarations.")
+	f.Fix = &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   lineStart,
+		EndByte:     lineStart,
+		Replacement: "\n",
+	}
+	ctx.Emit(f)
+}
+
+// lineOfByte returns the 0-based line index containing byteOffset.
+func lineOfByte(file *scanner.File, byteOffset int) int {
+	offsets := file.LineOffsets()
+	if len(offsets) == 0 {
+		return 0
+	}
+	i := sort.Search(len(offsets), func(j int) bool { return offsets[j] > byteOffset })
+	if i == 0 {
+		return 0
+	}
+	return i - 1
+}
+
+// nextPreludeSibling returns the next file-scope sibling of a package/import
+// node. When idx is the last import_header inside a Kotlin import_list, it
+// climbs out and returns the list's next sibling instead — the list itself
+// is never dispatched.
+func nextPreludeSibling(file *scanner.File, idx uint32) (uint32, bool) {
+	if next, ok := file.FlatNextSibling(idx); ok {
+		return next, true
+	}
+	parent, ok := file.FlatParent(idx)
+	if !ok || file.FlatType(parent) != "import_list" {
+		return 0, false
+	}
+	return file.FlatNextSibling(parent)
+}
+
+// preludeCodeEndByte returns the end byte of the code portion of a
+// package/import declaration, ignoring trailing comment children. Kotlin
+// tree-sitter attaches trailing block/line comments to the preceding
+// import_header, so its raw EndByte sweeps past the real declaration.
+func preludeCodeEndByte(file *scanner.File, idx uint32) uint32 {
+	var lastCode uint32
+	for c := file.FlatFirstChild(idx); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "line_comment", "block_comment", "multiline_comment", "comment":
+			continue
 		}
+		lastCode = c
 	}
+	if lastCode != 0 {
+		return file.FlatEndByte(lastCode)
+	}
+	return file.FlatEndByte(idx)
 }
 
 // MaxChainedCallsOnSameLineRule limits chained method calls on a single line.

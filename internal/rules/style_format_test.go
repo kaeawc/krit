@@ -163,6 +163,57 @@ func TestSpacingAfterPackageAndImports_Negative(t *testing.T) {
 	}
 }
 
+// Import-shaped text inside a block comment must not anchor the finding.
+func TestSpacingAfterPackageAndImports_IgnoresImportTextInBlockComment(t *testing.T) {
+	code := "package style\n\n" +
+		"import com.example.Foo\n\n" +
+		"/*\nimport faux.Bar\n*/\n" +
+		"class MyClass\n"
+	findings := runRuleByName(t, "SpacingAfterPackageAndImports", code)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings; got %d: %+v", len(findings), findings)
+	}
+}
+
+// Import-shaped text inside a raw string must not anchor the finding.
+func TestSpacingAfterPackageAndImports_IgnoresImportTextInRawString(t *testing.T) {
+	code := "package style\n\n" +
+		"import com.example.Foo\n\n" +
+		"val s = \"\"\"\nimport faux.Bar\n\"\"\"\n\n" +
+		"class MyClass\n"
+	findings := runRuleByName(t, "SpacingAfterPackageAndImports", code)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings; got %d: %+v", len(findings), findings)
+	}
+}
+
+// Java: import-shaped text inside a block comment must not anchor the finding.
+func TestSpacingAfterPackageAndImports_JavaIgnoresImportTextInBlockComment(t *testing.T) {
+	code := "package style;\n\n" +
+		"import java.util.List;\n\n" +
+		"/*\nimport faux.Bar;\n*/\n" +
+		"class C {}\n"
+	findings := runRuleByNameOnJava(t, "SpacingAfterPackageAndImports", code)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings; got %d: %+v", len(findings), findings)
+	}
+}
+
+// Java: only the LAST import anchors; expect one finding at the class line.
+func TestSpacingAfterPackageAndImports_JavaMultipleImports(t *testing.T) {
+	code := "package style;\n" +
+		"import java.util.List;\n" +
+		"import java.util.Map;\n" +
+		"class C {}\n"
+	findings := runRuleByNameOnJava(t, "SpacingAfterPackageAndImports", code)
+	if len(findings) != 1 {
+		t.Fatalf("expected exactly 1 finding; got %d: %+v", len(findings), findings)
+	}
+	if findings[0].Line != 4 {
+		t.Fatalf("expected finding at line 4 (class line); got line %d", findings[0].Line)
+	}
+}
+
 // --- MaxChainedCallsOnSameLine ---
 
 func TestMaxChainedCallsOnSameLine_Positive(t *testing.T) {

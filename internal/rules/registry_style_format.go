@@ -53,7 +53,13 @@ func registerStyleFormatRules() {
 		r := &SpacingAfterPackageAndImportsRule{BaseRule: BaseRule{RuleName: "SpacingAfterPackageAndImports", RuleSetName: "style", Sev: "warning", Desc: "Detects missing blank lines after package and import declarations."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			Needs: api.NeedsLinePass, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Fix: api.FixCosmetic, Implementation: r,
+			NodeTypes: []string{
+				"package_header", "import_header",
+				"package_declaration", "import_declaration",
+			},
+			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			Confidence: 0.95,
+			Fix:        api.FixCosmetic, Implementation: r,
 			Check: r.check,
 		})
 	}

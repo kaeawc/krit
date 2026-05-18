@@ -131,17 +131,25 @@ func (r *CopyrightYearOutdatedRule) Confidence() float64 { return 0.75 }
 
 func (r *CopyrightYearOutdatedRule) check(ctx *api.Context) {
 	file := ctx.File
+	var st lineScanState
 	for i, line := range file.Lines {
+		// Snapshot state at the START of this line: a `/*` block opened
+		// on a previous line keeps us inside the header even when the
+		// continuation lines have no `*` decoration.
+		insideBlockComment := st.inBlockComment
+
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
+			scanLineState(line, &st)
 			continue
 		}
-		if !isHeaderCommentLine(trimmed) {
+		if !insideBlockComment && !isHeaderCommentLine(trimmed) {
 			break
 		}
 
 		match := copyrightHeaderYearRe.FindStringSubmatchIndex(line)
 		if match == nil {
+			scanLineState(line, &st)
 			continue
 		}
 

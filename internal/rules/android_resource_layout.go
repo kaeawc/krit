@@ -392,6 +392,11 @@ func (r *OrientationResourceRule) check(ctx *api.Context) {
 			if _, ok := v.Attributes["android:orientation"]; ok {
 				return
 			}
+			// style="..." may define orientation via a referenced style.
+			// We cannot reliably resolve resources here, so suppress.
+			if _, ok := v.Attributes["style"]; ok {
+				return
+			}
 			// A LinearLayout with a fixed-dp or attribute-referenced
 			// layout_height (e.g. "48dp", "?attr/actionBarSize") is
 			// almost always a "row" where the default horizontal
@@ -403,10 +408,43 @@ func (r *OrientationResourceRule) check(ctx *api.Context) {
 					return
 				}
 			}
+			switch len(v.Children) {
+			case 0:
+				// AOSP heuristic: empty LinearLayouts populated dynamically
+				// (signaled by android:id) — orientation matters when
+				// children are added later.
+				if v.ID == "" {
+					return
+				}
+			case 1:
+				// Single child cannot be pushed off-screen by a wrong
+				// default orientation.
+				return
+			default:
+				// AOSP heuristic: at least one non-last child has
+				// match_parent/fill_parent width without layout_weight,
+				// which would hide later siblings under horizontal layout.
+				if !hasMatchParentChildBeforeLast(v.Children) {
+					return
+				}
+			}
 			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 				"`LinearLayout` missing explicit `android:orientation`. The default is horizontal, which may not be intended."))
 		})
 	}
+}
+
+func hasMatchParentChildBeforeLast(children []*android.View) bool {
+	for _, c := range children[:len(children)-1] {
+		if c.LayoutWidth != "match_parent" && c.LayoutWidth != "fill_parent" {
+			continue
+		}
+		if _, ok := c.Attributes["android:layout_weight"]; ok {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------

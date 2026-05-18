@@ -693,7 +693,22 @@ func TestIncludeLayoutParamResource(t *testing.T) {
 func TestOrientationResource(t *testing.T) {
 	r := findResourceRule(t, "OrientationResource")
 
-	t.Run("LinearLayout without orientation triggers", func(t *testing.T) {
+	childWithWidth := func(width string) *android.View {
+		return &android.View{
+			Type:         "TextView",
+			Line:         2,
+			LayoutWidth:  width,
+			LayoutHeight: "wrap_content",
+			Attributes: map[string]string{
+				"android:layout_width":  width,
+				"android:layout_height": "wrap_content",
+			},
+		}
+	}
+	matchParentChild := func() *android.View { return childWithWidth("match_parent") }
+	wrapContentChild := func() *android.View { return childWithWidth("wrap_content") }
+
+	t.Run("multi-child match_parent triggers", func(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
 			Type: "LinearLayout",
 			Line: 1,
@@ -701,6 +716,24 @@ func TestOrientationResource(t *testing.T) {
 				"android:layout_width":  "match_parent",
 				"android:layout_height": "match_parent",
 			},
+			Children: []*android.View{matchParentChild(), wrapContentChild()},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("multi-child fill_parent triggers", func(t *testing.T) {
+		fill := childWithWidth("fill_parent")
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "LinearLayout",
+			Line: 1,
+			Attributes: map[string]string{
+				"android:layout_width":  "match_parent",
+				"android:layout_height": "match_parent",
+			},
+			Children: []*android.View{fill, wrapContentChild()},
 		})
 		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
@@ -717,10 +750,126 @@ func TestOrientationResource(t *testing.T) {
 				"android:layout_height": "match_parent",
 				"android:orientation":   "vertical",
 			},
+			Children: []*android.View{matchParentChild(), wrapContentChild()},
 		})
 		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("style attribute suppresses", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "LinearLayout",
+			Line: 1,
+			Attributes: map[string]string{
+				"style":                 "@style/MyLinear",
+				"android:layout_width":  "match_parent",
+				"android:layout_height": "match_parent",
+			},
+			Children: []*android.View{matchParentChild(), wrapContentChild()},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("single child is clean", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "LinearLayout",
+			Line: 1,
+			Attributes: map[string]string{
+				"android:layout_width":  "match_parent",
+				"android:layout_height": "match_parent",
+			},
+			Children: []*android.View{matchParentChild()},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("no match_parent siblings is clean", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "LinearLayout",
+			Line: 1,
+			Attributes: map[string]string{
+				"android:layout_width":  "match_parent",
+				"android:layout_height": "match_parent",
+			},
+			Children: []*android.View{wrapContentChild(), wrapContentChild()},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("last-child-only match_parent is clean", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "LinearLayout",
+			Line: 1,
+			Attributes: map[string]string{
+				"android:layout_width":  "match_parent",
+				"android:layout_height": "match_parent",
+			},
+			Children: []*android.View{wrapContentChild(), matchParentChild()},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("match_parent with layout_weight is clean", func(t *testing.T) {
+		weighted := matchParentChild()
+		weighted.Attributes["android:layout_weight"] = "1"
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "LinearLayout",
+			Line: 1,
+			Attributes: map[string]string{
+				"android:layout_width":  "match_parent",
+				"android:layout_height": "match_parent",
+			},
+			Children: []*android.View{weighted, wrapContentChild()},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("empty LinearLayout without id is clean", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "LinearLayout",
+			Line: 1,
+			Attributes: map[string]string{
+				"android:layout_width":  "match_parent",
+				"android:layout_height": "match_parent",
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("empty LinearLayout with id triggers", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "LinearLayout",
+			Line: 1,
+			ID:   "@+id/container",
+			Attributes: map[string]string{
+				"android:id":            "@+id/container",
+				"android:layout_width":  "match_parent",
+				"android:layout_height": "match_parent",
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 

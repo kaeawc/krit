@@ -169,6 +169,112 @@ fun testCompute() {
 	}
 }
 
+// Single emit per file even when many imports of both libraries are
+// present — source_file dispatches once, regardless of import count.
+func TestMixedAssertionLibraries_EmitsOnce(t *testing.T) {
+	findings := runRuleByName(t, "MixedAssertionLibraries", `
+package test
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
+
+fun testCompute() {
+    val actual = compute()
+    assertEquals(42, actual)
+    assertNotNull(actual)
+    assertThat(actual).isEqualTo(42)
+    assertWithMessage("x").that(actual).isEqualTo(42)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected exactly one finding, got %d", len(findings))
+	}
+}
+
+// Wildcard imports for both libraries trigger the rule via ImportFacts'
+// Wildcards prefix match.
+func TestMixedAssertionLibraries_WildcardImports(t *testing.T) {
+	findings := runRuleByName(t, "MixedAssertionLibraries", `
+package test
+
+import org.junit.Assert.*
+import com.google.common.truth.Truth.*
+
+fun testCompute() {
+    val actual = compute()
+    assertEquals(42, actual)
+    assertThat(actual).isEqualTo(42)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding for wildcard mixed imports, got %d", len(findings))
+	}
+}
+
+// Aliased imports still match — ImportFacts indexes the alias-stripped FQN.
+func TestMixedAssertionLibraries_AliasedImports(t *testing.T) {
+	findings := runRuleByName(t, "MixedAssertionLibraries", `
+package test
+
+import org.junit.Assert.assertEquals as junitEquals
+import com.google.common.truth.Truth.assertThat as truthAssertThat
+
+fun testCompute() {
+    val actual = compute()
+    junitEquals(42, actual)
+    truthAssertThat(actual).isEqualTo(42)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding for aliased mixed imports, got %d", len(findings))
+	}
+}
+
+// Comments and KDoc that mention the FQNs but never import them must not
+// trigger the rule — ImportFacts only inspects import_header AST nodes.
+func TestMixedAssertionLibraries_CommentMentionsOnly(t *testing.T) {
+	findings := runRuleByName(t, "MixedAssertionLibraries", `
+package test
+
+// Not actually importing: org.junit.Assert.assertEquals
+/* Block comment referencing com.google.common.truth.Truth.assertThat */
+/**
+ * KDoc that mentions org.junit.Assert.assertEquals and
+ * com.google.common.truth.Truth.assertThat.
+ */
+import com.google.common.truth.Truth.assertThat
+
+fun testCompute() {
+    val actual = compute()
+    assertThat(actual).isEqualTo(42)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for comment-only mentions, got %d", len(findings))
+	}
+}
+
+// Only one library imported is the common case and must stay clean.
+func TestMixedAssertionLibraries_OnlyJUnit(t *testing.T) {
+	findings := runRuleByName(t, "MixedAssertionLibraries", `
+package test
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+
+fun testCompute() {
+    val actual = compute()
+    assertEquals(42, actual)
+    assertNotNull(actual)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
 func TestAssertNullableWithNotNullAssertion_Positive(t *testing.T) {
 	findings := runRuleByName(t, "AssertNullableWithNotNullAssertion", `
 package test

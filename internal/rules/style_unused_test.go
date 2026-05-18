@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"strings"
 	"testing"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -62,6 +63,56 @@ fun main() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d: %#v", len(findings), findings)
+	}
+}
+
+func TestUnusedImport_BacktickQuotedShortName(t *testing.T) {
+	// '@' stands in for a backtick — raw strings can't contain backticks.
+	bt := func(s string) string { return strings.ReplaceAll(s, "@", "`") }
+	cases := []struct {
+		name string
+		code string
+	}{
+		{
+			name: "both sides backtick-quoted",
+			code: bt(`
+package test
+import com.used.Foo.Bar.@baz@
+fun main() { println(@baz@()) }
+`),
+		},
+		{
+			name: "backtick import, plain reference",
+			code: bt(`
+package test
+import com.used.Foo.Bar.@baz@
+fun main() { println(baz()) }
+`),
+		},
+		{
+			name: "plain import, backtick reference",
+			code: bt(`
+package test
+import com.used.Foo.Bar.baz
+fun main() { println(@baz@()) }
+`),
+		},
+		{
+			name: "backtick alias",
+			code: bt(`
+package test
+import com.used.Foo.Bar.baz as @qux@
+fun main() { println(qux()) }
+`),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "UnusedImport", tc.code)
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings, got %d: %#v", len(findings), findings)
+			}
+		})
 	}
 }
 

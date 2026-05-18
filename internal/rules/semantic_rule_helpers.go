@@ -1266,14 +1266,39 @@ func importShortNameFlat(file *scanner.File, idx uint32) string {
 		return ""
 	}
 	imp := strings.TrimSpace(strings.TrimPrefix(text, "import "))
-	if i := strings.Index(imp, " as "); i >= 0 {
-		return strings.TrimSpace(imp[i+4:])
+	aliasAt, lastDot := scanImportTail(imp)
+	if aliasAt >= 0 {
+		return strings.Trim(strings.TrimSpace(imp[aliasAt+4:]), "`")
 	}
-	parts := strings.Split(imp, ".")
-	if len(parts) == 0 || parts[len(parts)-1] == "*" {
+	last := imp[lastDot+1:]
+	if last == "" || last == "*" {
 		return ""
 	}
-	return parts[len(parts)-1]
+	return strings.Trim(last, "`")
+}
+
+// scanImportTail walks the import path once, returning the byte offset of an
+// " as " alias keyword (or -1) and the byte offset of the last '.' segment
+// separator (or -1). Backtick-quoted spans are opaque, so a space or '.'
+// inside `foo bar` or `a.b` does not split the path.
+func scanImportTail(imp string) (aliasAt, lastDot int) {
+	aliasAt, lastDot = -1, -1
+	inBacktick := false
+	for i := 0; i < len(imp); i++ {
+		switch imp[i] {
+		case '`':
+			inBacktick = !inBacktick
+		case ' ':
+			if !inBacktick && aliasAt < 0 && strings.HasPrefix(imp[i:], " as ") {
+				aliasAt = i
+			}
+		case '.':
+			if !inBacktick {
+				lastDot = i
+			}
+		}
+	}
+	return aliasAt, lastDot
 }
 
 var kotlinImplicitOperatorImportNames = map[string]struct{}{

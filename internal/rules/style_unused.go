@@ -42,7 +42,8 @@ func collectReferenceNamesOutsideImports(file *scanner.File) map[string]struct{}
 			return
 		}
 		if name := semantics.ReferenceName(file, n); name != "" {
-			names[name] = struct{}{}
+			// `foo` and foo resolve to the same symbol; canonicalize for lookup.
+			names[strings.Trim(name, "`")] = struct{}{}
 		}
 	})
 	return names

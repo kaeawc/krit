@@ -87,5 +87,13 @@ func writeAtomic(path string, perm os.FileMode, payload func(*os.File) error) er
 		return fmt.Errorf("rename tempfile: %w", err)
 	}
 
+	// fsync the parent directory so the rename's dirent is durable. Without
+	// this, a crash between rename and the kernel's dirent flush can lose the
+	// rename on POSIX filesystems, leaving the file missing or pointing at the
+	// pre-rename state. Best-effort: directory fsync is a no-op or rejected
+	// (EINVAL/ENOTSUP) on some platforms (notably Windows), and the rename
+	// itself already succeeded, so we don't propagate errors from this step.
+	syncDir(dir)
+
 	return nil
 }

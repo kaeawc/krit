@@ -164,6 +164,42 @@ func TestRace(t *testing.T) {
 	}
 }
 
+// TestParentDirSyncDoesNotBreakHappyPath asserts that the parent-directory
+// fsync added to guard against rename-without-dirent-flush data loss does not
+// regress the normal write path. We exercise nested and shallow directories
+// and verify the contents land correctly.
+func TestParentDirSyncDoesNotBreakHappyPath(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "a", "b", "c")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		dir  string
+	}{
+		{"root", root},
+		{"nested", nested},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(tc.dir, "out.bin")
+			want := []byte("parent-dir fsync happy path")
+			if err := WriteFileAtomic(path, want, 0o644); err != nil {
+				t.Fatalf("WriteFileAtomic: %v", err)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile: %v", err)
+			}
+			if string(got) != string(want) {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 // TestSyncCalled is the regression guard for the fsync guarantee.
 //
 // We cannot intercept OS-level syscalls in a portable Go test, so we verify

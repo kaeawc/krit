@@ -679,6 +679,15 @@ func extractPropertyTypeFlat(file *scanner.File, idx uint32) string {
 	return ""
 }
 
+// recycleCleanupMethodNames is the set of callees that finalize a recyclable
+// Android resource (TypedArray, Cursor, VelocityTracker, Parcel) when invoked
+// on the resource itself.
+var recycleCleanupMethodNames = map[string]bool{
+	"recycle": true,
+	"close":   true,
+	"use":     true,
+}
+
 func recycleVariableHasCleanupFlat(file *scanner.File, idx uint32, varName string) bool {
 	scope, ok := file.FlatParent(idx)
 	if !ok {
@@ -692,10 +701,7 @@ func recycleVariableHasCleanupFlat(file *scanner.File, idx uint32, varName strin
 			continue
 		}
 
-		childText := file.FlatNodeText(child)
-		if strings.Contains(childText, varName+".recycle()") ||
-			strings.Contains(childText, varName+".close()") ||
-			strings.Contains(childText, varName+".use") {
+		if subtreeHasCallOnReceiver(file, child, varName, recycleCleanupMethodNames) {
 			return true
 		}
 	}

@@ -24,3 +24,16 @@ fun querySafely(connection: Connection) {
         stmt.executeQuery()
     }
 }
+
+// Regression: a short-named statement `s` is properly closed; the
+// receiver-bound identifier-boundary check must recognise `s.close()`
+// (and must not be confused into thinking some other identifier ending
+// in 's' closed it).
+fun queryShortName(connection: Connection) {
+    val s = connection.prepareStatement("SELECT 1")
+    try {
+        s.executeQuery()
+    } finally {
+        s.close()
+    }
+}

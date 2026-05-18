@@ -23,3 +23,17 @@ fun loadAccounts(db: SQLiteDatabase) {
         // ...
     }
 }
+
+// Regression: a leaked short-named cursor `c` must FIRE even when a
+// longer-named sibling `vc.close()` is present in the same scope. The
+// substring scan that this rule used to use matched `vc.close(` as
+// evidence that `c` had been closed.
+fun loadUsersWithLookalike(db: SQLiteDatabase) {
+    val c = db.rawQuery("SELECT * FROM users", null)
+    val vc = db.rawQuery("SELECT * FROM admins", null)
+    while (c.moveToNext()) {
+        // ...
+    }
+    vc.close()
+    // c is never closed
+}

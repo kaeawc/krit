@@ -508,6 +508,43 @@ func ancestorCallNameIn(file *scanner.File, idx uint32, names map[string]bool) b
 	return false
 }
 
+// subtreeHasCallOnReceiver walks every call_expression inside `root`
+// (including root itself) and reports whether any call is invoked on a
+// bare receiver identifier exactly equal to `receiverName` with a callee
+// in `methodNames`. The receiver must be a simple_identifier — qualified
+// chains like `wrapper.s.close()` do not match `receiverName == "s"`,
+// and longer-name lookalikes like `vs.close()` do not match
+// `receiverName == "s"`. Used by resource-leak rules that previously
+// scanned source text with `strings.Contains` and incorrectly matched
+// longer identifiers ending in the same suffix.
+func subtreeHasCallOnReceiver(file *scanner.File, root uint32, receiverName string, methodNames map[string]bool) bool {
+	if file == nil || root == 0 || receiverName == "" || len(methodNames) == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(root, "call_expression", func(call uint32) {
+		if found {
+			return
+		}
+		if !methodNames[flatCallExpressionName(file, call)] {
+			return
+		}
+		navExpr, _ := flatCallExpressionParts(file, call)
+		if navExpr == 0 || file.FlatNamedChildCount(navExpr) == 0 {
+			return
+		}
+		first := file.FlatNamedChild(navExpr, 0)
+		if file.FlatType(first) != "simple_identifier" {
+			return
+		}
+		if !file.FlatNodeTextEquals(first, receiverName) {
+			return
+		}
+		found = true
+	})
+	return found
+}
+
 // functionHasReceiverCallAfter reports whether fn contains a call after target
 // whose receiver name and callee match. accept can reject same-name calls that
 // are not the API being searched for, such as Kotlin scope-function apply.

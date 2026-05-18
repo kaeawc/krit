@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/kaeawc/krit/internal/config"
@@ -93,11 +94,21 @@ func (e *FileEntry) UnmarshalJSON(data []byte) error {
 }
 
 // Cache holds the entire incremental analysis cache.
+//
+// Files is guarded by filesMu: the daemon shares a single *Cache across
+// concurrent analyze RPCs (see internal/cli/serve/serve.go), and a
+// background periodic-flush goroutine may iterate the map while a
+// pipeline run mutates it. All access to Files must go through the
+// exported methods, which take filesMu read/write as appropriate.
 type Cache struct {
 	Version   string               `json:"version"`
 	RuleHash  string               `json:"ruleHash"`
 	ScanPaths []string             `json:"scanPaths,omitempty"`
 	Files     map[string]FileEntry `json:"files"`
+
+	// filesMu guards Files. Heavy I/O (file hashing, os.Stat) is performed
+	// outside the lock; only the map access is serialised.
+	filesMu sync.RWMutex
 
 	// store, when non-nil, backs all reads and writes instead of the
 	// in-memory Files map.  Entries are persisted per-file so Save becomes
@@ -202,6 +213,10 @@ func LoadFromDir(dir string) *Cache {
 // It writes to a temporary file first, then renames for crash safety
 // and safe concurrent access.  When a store is attached, Save is a no-op
 // because entries are persisted individually on each UpdateEntry call.
+//
+// Save holds Cache.filesMu read-locked across encodeBinary so concurrent
+// writers cannot tear the map mid-iteration. The compressed byte buffer
+// is written to disk after the lock is released.
 func (c *Cache) Save(cacheFilePath string) error {
 	if c.backingStore != nil {
 		return nil
@@ -210,7 +225,9 @@ func (c *Cache) Save(cacheFilePath string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("create cache dir: %w", err)
 	}
+	c.filesMu.RLock()
 	data, err := encodeBinary(c)
+	c.filesMu.RUnlock()
 	if err != nil {
 		return fmt.Errorf("encode cache: %w", err)
 	}
@@ -386,7 +403,9 @@ func (c *Cache) CheckFiles(filePaths []string, ruleHash string, scanPaths ...str
 
 	for _, path := range filePaths {
 		abs, _ := filepath.Abs(path)
+		c.filesMu.RLock()
 		entry, ok := c.Files[abs]
+		c.filesMu.RUnlock()
 		if !ok {
 			continue
 		}
@@ -453,7 +472,9 @@ func (c *Cache) CheckFilesIncremental(
 
 	for _, path := range filePaths {
 		abs := absPath(path)
+		c.filesMu.RLock()
 		entry, ok := c.Files[abs]
+		c.filesMu.RUnlock()
 		if !ok {
 			continue
 		}
@@ -685,20 +706,45 @@ func (c *Cache) updateEntry(path string, columns scanner.FindingColumns) {
 	if err != nil {
 		return
 	}
-	c.Files[abs] = FileEntry{
+	// Compute hash outside the lock — SHA-256 + file I/O can be tens of
+	// milliseconds on large files and would otherwise stall every reader.
+	entry := FileEntry{
 		Hash:    ComputeFileHash(path),
 		ModTime: info.ModTime().UnixMilli(),
 		Size:    info.Size(),
 		Columns: columns,
 	}
+	c.filesMu.Lock()
+	c.Files[abs] = entry
+	c.filesMu.Unlock()
 	c.mutated.Store(true)
 }
 
 // Prune removes entries for files that no longer exist.
+//
+// Stat calls are performed outside the cache lock so concurrent readers
+// and writers are not blocked on disk I/O; only the snapshot and the
+// final delete pass hold the lock.
 func (c *Cache) Prune() {
+	c.filesMu.RLock()
+	paths := make([]string, 0, len(c.Files))
 	for path := range c.Files {
+		paths = append(paths, path)
+	}
+	c.filesMu.RUnlock()
+
+	stale := make([]string, 0)
+	for _, path := range paths {
 		if _, err := os.Stat(path); err != nil {
-			delete(c.Files, path)
+			stale = append(stale, path)
 		}
 	}
+	if len(stale) == 0 {
+		return
+	}
+	c.filesMu.Lock()
+	for _, path := range stale {
+		delete(c.Files, path)
+	}
+	c.filesMu.Unlock()
 }

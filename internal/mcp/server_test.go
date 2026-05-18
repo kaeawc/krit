@@ -134,8 +134,10 @@ func TestInitializeReturnsCapabilities(t *testing.T) {
 		t.Fatalf("unmarshal result: %v", err)
 	}
 
-	if result.ProtocolVersion != protocolVersion {
-		t.Errorf("expected protocol version %s, got %s", protocolVersion, result.ProtocolVersion)
+	// Client asked for "2024-11-05" which the server still supports; the
+	// response must echo the client's version, not the server's latest.
+	if result.ProtocolVersion != "2024-11-05" {
+		t.Errorf("expected protocol version 2024-11-05, got %s", result.ProtocolVersion)
 	}
 	if result.ServerInfo.Name != "krit-mcp" {
 		t.Errorf("expected server name krit-mcp, got %s", result.ServerInfo.Name)
@@ -148,6 +150,40 @@ func TestInitializeReturnsCapabilities(t *testing.T) {
 	}
 	if result.Capabilities.Prompts == nil {
 		t.Error("expected prompts capability")
+	}
+}
+
+// TestInitializeFallsBackForUnknownClientVersion guards the
+// negotiation half of the MCP spec: an unknown client version must
+// produce the server's latest supported version, not the client's
+// bogus one. The echo-supported-client-version half is covered by
+// `TestInitializeReturnsCapabilities` since the server currently
+// advertises only one entry in `supportedProtocolVersions`; when more
+// revisions are added, the explicit echo test should come back.
+func TestInitializeFallsBackForUnknownClientVersion(t *testing.T) {
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "initialize",
+		Params:  json.RawMessage(`{"protocolVersion":"1999-01-01","capabilities":{}}`),
+	})
+
+	if len(responses) != 1 {
+		t.Fatalf("expected 1 response, got %d", len(responses))
+	}
+
+	data, _ := json.Marshal(responses[0].Result)
+	var result InitializeResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+
+	if result.ProtocolVersion != supportedProtocolVersions[0] {
+		t.Errorf("unsupported client version should fall back to latest supported; got %q, want %q",
+			result.ProtocolVersion, supportedProtocolVersions[0])
+	}
+	if result.ProtocolVersion == "1999-01-01" {
+		t.Errorf("server must not echo an unsupported version verbatim")
 	}
 }
 

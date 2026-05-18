@@ -484,31 +484,66 @@ func (d *Daemon) Rebuild() error {
 	return err
 }
 
-// Shutdown gracefully stops the daemon.
+// shutdownGracePeriod bounds how long Shutdown waits for the JVM to
+// exit cleanly after the "shutdown" request before issuing Kill(). Tests
+// override the package-level variable so the goroutine-leak coverage
+// doesn't take 10s.
+var shutdownGracePeriod = 10 * time.Second
+
+// Shutdown gracefully stops the daemon. The wait goroutine is guaranteed
+// to return — on grace-period expiry we Kill() the process so cmd.Wait()
+// returns deterministically rather than leaking. The grace-period wait
+// runs outside d.mu so concurrent callers (Close, sendOnce timeout) are
+// not blocked behind a stuck JVM. The started→false flip is atomic with
+// the started check so two racing Shutdowns / Closes do not both attempt
+// to send the shutdown verb and wait.
 func (d *Daemon) Shutdown() error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-
 	if !d.started {
+		d.mu.Unlock()
 		return nil
 	}
-
-	// Send shutdown request — ignore errors since the process may close immediately
-	d.sendResult("shutdown", nil) //nolint:errcheck
-
+	// Claim the shutdown before we release the lock so a concurrent
+	// caller observes started=false and short-circuits.
 	d.started = false
+	cmd := d.cmd
+	// Send shutdown request while we still hold the lock — sendOnce
+	// would otherwise reject the call (started=false). Errors are
+	// ignored because the JVM may close the pipe before responding.
+	_, _ = d.sendOnce("shutdown", nil)
+	d.mu.Unlock()
 
-	// Wait for process to exit with a timeout
+	return waitForCmdExit(cmd)
+}
+
+// waitForCmdExit waits for cmd to exit. On grace-period expiry it
+// issues Kill() so cmd.Wait() returns and the inner goroutine never
+// leaks; without the Kill the goroutine would outlive the function,
+// holding a reference to cmd indefinitely while the JVM (zombie or
+// otherwise) refuses to reap. nil cmd is a no-op.
+func waitForCmdExit(cmd *exec.Cmd) error {
+	if cmd == nil {
+		return nil
+	}
 	done := make(chan error, 1)
 	go func() {
-		done <- d.cmd.Wait()
+		done <- cmd.Wait()
 	}()
 
+	timer := time.NewTimer(shutdownGracePeriod)
+	defer timer.Stop()
 	select {
 	case err := <-done:
 		return err
-	case <-time.After(10 * time.Second):
-		d.cmd.Process.Kill()
+	case <-timer.C:
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		// Block until the goroutine observes the Kill and returns; the
+		// kernel reaps the SIGKILLed process promptly so this never
+		// hangs in practice, but the deterministic join is the whole
+		// point of the fix.
+		<-done
 		return fmt.Errorf("daemon did not exit within timeout, killed")
 	}
 }
@@ -545,12 +580,14 @@ func (d *Daemon) Checkpoint() error {
 func (d *Daemon) Release() error {
 	d.mu.Lock()
 	d.started = false
+	conn := d.conn
+	logFile := d.logFile
 	d.mu.Unlock()
-	if d.conn != nil {
-		d.conn.Close()
+	if conn != nil {
+		conn.Close()
 	}
-	if d.logFile != nil {
-		d.logFile.Close()
+	if logFile != nil {
+		logFile.Close()
 	}
 	return nil
 }
@@ -558,39 +595,65 @@ func (d *Daemon) Release() error {
 // Close shuts down and cleans up. For shared (reused) daemons, only the TCP
 // connection is closed — the daemon process keeps running for future clients.
 // For owned daemons, the process is shut down and PID files are removed.
+//
+// All field reads happen under d.mu; the started flag is consumed
+// atomically (claim-and-flip under the lock) so concurrent Close /
+// Shutdown calls only run the heavy shutdown path once instead of
+// racing into a double-Wait + double-PID-remove. Callers that lose
+// the started claim still get conn/logFile cleanup, but skip the
+// shutdown handshake and PID-file removal that the winning caller
+// has already performed (or is performing).
 func (d *Daemon) Close() error {
-	if d.shared {
+	d.mu.Lock()
+	claimedShutdown := d.started
+	d.started = false
+	shared := d.shared
+	cmd := d.cmd
+	conn := d.conn
+	logFile := d.logFile
+	port := d.port
+	srcHash := d.sourcesHash
+	slot := d.slot
+	// Send the shutdown verb under the lock so sendOnce doesn't reject
+	// it (we just flipped started=false). Only the caller that won the
+	// claim gets to talk to the JVM here.
+	if claimedShutdown && !shared {
+		_, _ = d.sendOnce("shutdown", nil)
+	}
+	d.mu.Unlock()
+
+	if shared {
 		// We connected to an existing daemon — just close the TCP connection.
 		// The daemon keeps running for the next client.
-		d.mu.Lock()
-		d.started = false
-		d.mu.Unlock()
-		if d.conn != nil {
-			d.conn.Close()
+		if conn != nil {
+			conn.Close()
 		}
 		return nil
 	}
 
-	if d.started {
-		if err := d.Shutdown(); err != nil {
-			// Force kill as fallback
-			if d.cmd != nil && d.cmd.Process != nil {
-				d.cmd.Process.Kill()
+	if claimedShutdown {
+		if err := waitForCmdExit(cmd); err != nil {
+			// waitForCmdExit already issued Kill on the grace-period
+			// path; this is the belt-and-suspenders fallback for a
+			// non-timeout error (e.g., Wait returned immediately with
+			// a transport error).
+			if cmd != nil && cmd.Process != nil {
+				_ = cmd.Process.Kill()
 			}
 		}
 	}
 	// Clean up PID files if this was a persistent daemon we started.
-	// Use the Daemon's own sourcesHash so we only touch this repo's
-	// PID file entries — other repos' daemons under daemons/ are
-	// left alone.
-	if d.port != 0 && d.sourcesHash != "" {
-		removePIDFileSlot(d.sourcesHash, d.slot)
+	// Only the caller that won the started claim removes the PID file
+	// so the loser doesn't tear down a successor daemon that took the
+	// slot in between.
+	if claimedShutdown && port != 0 && srcHash != "" {
+		removePIDFileSlot(srcHash, slot)
 	}
-	if d.conn != nil {
-		d.conn.Close()
+	if conn != nil {
+		conn.Close()
 	}
-	if d.logFile != nil {
-		d.logFile.Close()
+	if logFile != nil {
+		logFile.Close()
 	}
 	return nil
 }

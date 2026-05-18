@@ -773,8 +773,15 @@ func (r *NullableStructuredFieldRule) shouldFlag(file *scanner.File, idx uint32)
 	if expr == 0 {
 		return false
 	}
-	text := file.FlatNodeText(expr)
-	return strings.Contains(text, "?.") && !strings.Contains(text, "?:")
+	// An Elvis expression supplies the fallback regardless of where the
+	// safe-call sits inside its left operand.
+	if file.FlatType(expr) == "elvis_expression" {
+		return false
+	}
+	// Walk the AST looking for an actual safe-call operator node. This
+	// avoids text-level false positives where the literal substring "?."
+	// appears inside a string literal, comment, or KDoc.
+	return flatNavigationHasSafeCall(file, expr)
 }
 
 func firstCorrelationSensitiveLogCallFlat(file *scanner.File, idx uint32) uint32 {

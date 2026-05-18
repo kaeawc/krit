@@ -1373,6 +1373,32 @@ fun nullable(logger: Logger, user: User?) {
 	}
 }
 
+// TestNullableStructuredField_NegativeStringLiteralContainsSafeCall guards
+// against a regression where the value expression's source text was scanned
+// with strings.Contains(text, "?.") and matched the literal bytes "?."
+// appearing inside a string literal (e.g. an error message), even though
+// no actual safe-call operator was present in the AST.
+func TestNullableStructuredField_NegativeStringLiteralContainsSafeCall(t *testing.T) {
+	findings := runRuleByName(t, "NullableStructuredField", `
+package test
+
+interface Logger {
+    fun atInfo(): Event
+}
+interface Event {
+    fun addKeyValue(key: String, value: Any?): Event
+    fun log(message: String)
+}
+
+fun handle(logger: Logger) {
+    logger.atInfo().addKeyValue("hint", "use ?. operator").log("ready")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestMetricTimerOutsideBlock_PositivePropertyRead(t *testing.T) {
 	findings := runRuleByName(t, "MetricTimerOutsideBlock", `
 package test

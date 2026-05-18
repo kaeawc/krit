@@ -4,7 +4,6 @@ import org.gradle.api.Action
 import org.gradle.api.Project
 import org.gradle.api.UnknownTaskException
 import org.gradle.api.file.ConfigurableFileCollection
-import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.Property
@@ -14,62 +13,42 @@ import javax.inject.Inject
 /**
  * DSL extension for configuring the krit Kotlin static analysis plugin.
  *
- * Usage in build.gradle.kts:
+ * The common-path surface is intentionally small — apply the plugin, drop a
+ * `krit.yml` next to the build file, and that's enough for most projects.
+ * The few settings most users want:
+ *
  * ```
  * krit {
- *     toolVersion.set("0.2.0")
- *     config.set(file("krit.yml"))
- *     ignoreFailures.set(false)
+ *     config = file("krit.yml")          // optional; auto-discovered when omitted
+ *     baseline = file("krit-baseline.xml")
+ *     ignoreFailures = false             // gate the build on findings
  *     reports {
- *         sarif { required.set(true) }
- *         json { required.set(false) }
+ *         sarif.required = true
+ *         json.required = true
  *     }
  * }
  * ```
+ *
+ * Escape hatches (binary path, parallelism, cache toggles, fix level, etc.)
+ * live under [advanced]. Project-level custom-rule wiring goes through the
+ * `kritCustomRules` configuration in the `dependencies` block.
  */
 abstract class KritExtension @Inject constructor(
     private val project: Project,
     objects: ObjectFactory,
 ) {
 
-    /** Krit binary version to download. Default: plugin's bundled version constant. */
-    abstract val toolVersion: Property<String>
-
-    /** Path to krit.yml config file. */
+    /** Path to krit.yml. Optional — when unset, the CLI auto-discovers from the project root. */
     abstract val config: RegularFileProperty
 
-    /** Severity threshold -- fail the build if findings at or above this level exist. */
+    /** Fail the build when findings exceed the configured severity threshold. Default: false. */
     abstract val ignoreFailures: Property<Boolean>
-
-    /** Enable all rules including opt-in (maps to --all-rules). */
-    abstract val allRules: Property<Boolean>
 
     /** Baseline file for suppressing known issues. */
     abstract val baseline: RegularFileProperty
 
-    /** Source directories to analyze. */
-    abstract val source: ConfigurableFileCollection
-
-    /** Kotlin custom-rule jars to load through krit-types. */
+    /** Kotlin custom-rule jars to load through krit-types. Populated by `kritCustomRules` deps. */
     abstract val customRuleJars: ConfigurableFileCollection
-
-    /** Reports output directory. */
-    abstract val reportsDir: DirectoryProperty
-
-    /** Auto-fix level: cosmetic, idiomatic, or semantic. */
-    abstract val fixLevel: Property<String>
-
-    /** Path to a local krit binary (skips download). */
-    abstract val binary: RegularFileProperty
-
-    /** Number of parallel jobs (maps to -j). Default: CPU count. */
-    abstract val parallel: Property<Int>
-
-    /** Disable incremental analysis cache (maps to --no-cache). */
-    abstract val noCache: Property<Boolean>
-
-    /** Enable type inference (default true). */
-    abstract val typeInference: Property<Boolean>
 
     /** Report format configuration. */
     val reports: KritReports = objects.newInstance(DefaultKritReports::class.java)
@@ -77,6 +56,14 @@ abstract class KritExtension @Inject constructor(
     /** Configure reports via DSL block. */
     fun reports(action: Action<KritReports>) {
         action.execute(reports)
+    }
+
+    /** Advanced/escape-hatch settings — see [KritAdvanced]. */
+    val advanced: KritAdvanced = objects.newInstance(DefaultKritAdvanced::class.java)
+
+    /** Configure advanced settings via DSL block. */
+    fun advanced(action: Action<KritAdvanced>) {
+        action.execute(advanced)
     }
 
     /**

@@ -61,20 +61,20 @@ class KritPlugin : Plugin<Project> {
         extension.customRuleJars.from(customRulesConfiguration)
 
         // Set conventions (defaults)
-        extension.toolVersion.convention(KRIT_DEFAULT_VERSION)
-        extension.allRules.convention(false)
         extension.ignoreFailures.convention(false)
-        extension.fixLevel.convention("idiomatic")
-        extension.parallel.convention(Runtime.getRuntime().availableProcessors())
-        extension.noCache.convention(false)
-        extension.typeInference.convention(true)
-        extension.source.setFrom("src/main/kotlin", "src/test/kotlin")
-        extension.reportsDir.convention(
+        extension.advanced.toolVersion.convention(KRIT_DEFAULT_VERSION)
+        extension.advanced.allRules.convention(false)
+        extension.advanced.fixLevel.convention("idiomatic")
+        extension.advanced.parallel.convention(Runtime.getRuntime().availableProcessors())
+        extension.advanced.noCache.convention(false)
+        extension.advanced.typeInference.convention(true)
+        extension.advanced.source.setFrom("src/main/kotlin", "src/test/kotlin")
+        extension.advanced.reportsDir.convention(
             project.layout.buildDirectory.dir("reports/krit")
         )
 
         // Set report conventions
-        val reportsDir = extension.reportsDir
+        val reportsDir = extension.advanced.reportsDir
         extension.reports.sarif.required.convention(true)
         extension.reports.sarif.outputLocation.convention(
             reportsDir.map { it.file("krit.sarif") }
@@ -97,7 +97,7 @@ class KritPlugin : Plugin<Project> {
             "kritBinaryResolver",
             KritBinaryResolver::class.java,
         ) {
-            parameters.version.set(extension.toolVersion)
+            parameters.version.set(extension.advanced.toolVersion)
             parameters.cacheDir.set(
                 project.layout.dir(
                     project.provider {
@@ -109,20 +109,22 @@ class KritPlugin : Plugin<Project> {
         }
 
         // Shared convention for resolving the krit binary
-        val kritBinaryFile = extension.binary.orElse(
+        val kritBinaryFile = extension.advanced.binary.orElse(
             project.layout.file(project.provider { binaryResolver.get().resolve() })
         )
+
+        val advanced = extension.advanced
 
         // Wire task defaults for all KritCheckTask instances
         project.tasks.withType(KritCheckTask::class.java).configureEach {
             kritBinary.convention(kritBinaryFile)
-            allRules.convention(extension.allRules)
+            allRules.convention(advanced.allRules)
             ignoreFailures.convention(extension.ignoreFailures)
             config.convention(extension.config)
             baseline.convention(extension.baseline)
-            parallel.convention(extension.parallel)
-            noCache.convention(extension.noCache)
-            typeInference.convention(extension.typeInference)
+            parallel.convention(advanced.parallel)
+            noCache.convention(advanced.noCache)
+            typeInference.convention(advanced.typeInference)
             customRuleJars.from(extension.customRuleJars)
             // Wire reports from extension
             sarifRequired.convention(extension.reports.sarif.required)
@@ -139,39 +141,39 @@ class KritPlugin : Plugin<Project> {
         project.tasks.withType(KritFormatTask::class.java).configureEach {
             kritBinary.convention(kritBinaryFile)
             config.convention(extension.config)
-            fixLevel.convention(extension.fixLevel)
-            parallel.convention(extension.parallel)
-            noCache.convention(extension.noCache)
-            typeInference.convention(extension.typeInference)
+            fixLevel.convention(advanced.fixLevel)
+            parallel.convention(advanced.parallel)
+            noCache.convention(advanced.noCache)
+            typeInference.convention(advanced.typeInference)
         }
 
         // Wire task defaults for all KritBaselineTask instances
         project.tasks.withType(KritBaselineTask::class.java).configureEach {
             kritBinary.convention(kritBinaryFile)
             config.convention(extension.config)
-            allRules.convention(extension.allRules)
-            parallel.convention(extension.parallel)
-            noCache.convention(extension.noCache)
-            typeInference.convention(extension.typeInference)
+            allRules.convention(advanced.allRules)
+            parallel.convention(advanced.parallel)
+            noCache.convention(advanced.noCache)
+            typeInference.convention(advanced.typeInference)
             customRuleJars.from(extension.customRuleJars)
         }
 
         // Register the aggregate kritCheck task
         project.tasks.register("kritCheck", KritCheckTask::class.java) {
-            setSource(extension.source)
-            sourceRoots.from(extension.source)
+            setSource(advanced.source)
+            sourceRoots.from(advanced.source)
             description = "Run krit analysis on all Kotlin sources"
         }
 
         // Register the kritFormat task
         project.tasks.register("kritFormat", KritFormatTask::class.java) {
-            source.setFrom(extension.source)
+            source.setFrom(advanced.source)
             description = "Apply krit auto-fixes to Kotlin sources"
         }
 
         // Register the kritBaseline task
         project.tasks.register("kritBaseline", KritBaselineTask::class.java) {
-            source.setFrom(extension.source)
+            source.setFrom(advanced.source)
             baselineFile.convention(
                 project.layout.buildDirectory.file("reports/krit/baseline.xml")
             )

@@ -396,7 +396,7 @@ replacement, safety)`. `FixSafety` mirrors the built-in tiers:
 | `SEMANTIC` | Behavior change that a human must review. | Replacing `==` with `equals(..., ignoreCase = true)`, swapping deprecated API for a non-equivalent replacement. |
 
 The consumer caps which tiers apply via `--fix-level` (CLI) or the
-`krit { fixLevel.set("...") }` Gradle DSL. The flag default is
+`krit { advanced { fixLevel = "..." } }` Gradle DSL. The flag default is
 `idiomatic`, and the cap is inclusive moving up the table:
 
 - `--fix-level=cosmetic` applies only `COSMETIC` fixes.

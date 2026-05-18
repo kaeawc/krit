@@ -27,18 +27,22 @@ dependencies {
 }
 
 krit {
-    config.set(file("krit.yml"))
-    ignoreFailures.set(true)
+    config = file("krit.yml")
+    ignoreFailures = true
 
-    // Use the krit binary built from this checkout (`make build` or
-    // `go build -o krit ./cmd/krit/` at the repo root) so the demo does not
-    // depend on a published release. Drop this line to fall back to the
-    // version downloaded from GitHub Releases.
-    val localKrit = rootDir.resolve("../../krit")
-    if (localKrit.isFile) {
-        binary.set(localKrit)
+    reports {
+        plain.required = true
+        json.required = true
     }
 
-    reports.plain.required.set(true)
-    reports.json.required.set(true)
+    advanced {
+        // Use the krit binary built from this checkout (`make build` or
+        // `go build -o krit ./cmd/krit/` at the repo root) so the demo does
+        // not depend on a published release. Drop this block to fall back to
+        // the version downloaded from GitHub Releases.
+        val localKrit = rootDir.resolve("../../krit")
+        if (localKrit.isFile) {
+            binary = localKrit
+        }
+    }
 }

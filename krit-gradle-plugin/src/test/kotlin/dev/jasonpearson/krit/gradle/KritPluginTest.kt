@@ -62,45 +62,105 @@ class KritPluginTest {
     }
 
     @Test
-    fun `extension has correct default values`() {
+    fun `top-level extension defaults are minimal and focused on user-facing knobs`() {
         val project = newProject()
 
         val extension = project.extensions.getByType(KritExtension::class.java)
-        assertEquals(KritPlugin.KRIT_DEFAULT_VERSION, extension.toolVersion.get())
-        assertEquals(false, extension.allRules.get())
         assertEquals(false, extension.ignoreFailures.get())
-        assertEquals("idiomatic", extension.fixLevel.get())
-        assertEquals(true, extension.typeInference.get())
-        assertEquals(false, extension.noCache.get())
-        assertEquals(Runtime.getRuntime().availableProcessors(), extension.parallel.get())
+        // config, baseline, customRuleJars are unset by default (user-provided or
+        // populated via the kritCustomRules configuration).
+        assertFalse(extension.config.isPresent, "config should default unset for auto-discovery")
+        assertFalse(extension.baseline.isPresent, "baseline should default unset")
     }
 
     @Test
-    fun `extension properties are configurable`() {
+    fun `ignoreFailures is configurable at the top level`() {
         val project = newProject()
-
         val extension = project.extensions.getByType(KritExtension::class.java)
-
-        extension.toolVersion.set("1.0.0")
-        assertEquals("1.0.0", extension.toolVersion.get())
-
-        extension.allRules.set(true)
-        assertEquals(true, extension.allRules.get())
 
         extension.ignoreFailures.set(true)
         assertEquals(true, extension.ignoreFailures.get())
+    }
 
-        extension.fixLevel.set("semantic")
-        assertEquals("semantic", extension.fixLevel.get())
+    @Test
+    fun `advanced extension exposes escape-hatch defaults`() {
+        val project = newProject()
 
-        extension.parallel.set(4)
-        assertEquals(4, extension.parallel.get())
+        val advanced = project.extensions.getByType(KritExtension::class.java).advanced
+        assertEquals(KritPlugin.KRIT_DEFAULT_VERSION, advanced.toolVersion.get())
+        assertEquals(false, advanced.allRules.get())
+        assertEquals("idiomatic", advanced.fixLevel.get())
+        assertEquals(true, advanced.typeInference.get())
+        assertEquals(false, advanced.noCache.get())
+        assertEquals(Runtime.getRuntime().availableProcessors(), advanced.parallel.get())
+    }
 
-        extension.noCache.set(true)
-        assertEquals(true, extension.noCache.get())
+    @Test
+    fun `advanced extension is configurable`() {
+        val project = newProject()
+        val advanced = project.extensions.getByType(KritExtension::class.java).advanced
 
-        extension.typeInference.set(false)
-        assertEquals(false, extension.typeInference.get())
+        advanced.toolVersion.set("1.0.0")
+        advanced.allRules.set(true)
+        advanced.fixLevel.set("semantic")
+        advanced.parallel.set(4)
+        advanced.noCache.set(true)
+        advanced.typeInference.set(false)
+
+        assertEquals("1.0.0", advanced.toolVersion.get())
+        assertEquals(true, advanced.allRules.get())
+        assertEquals("semantic", advanced.fixLevel.get())
+        assertEquals(4, advanced.parallel.get())
+        assertEquals(true, advanced.noCache.get())
+        assertEquals(false, advanced.typeInference.get())
+    }
+
+    @Test
+    fun `advanced block is configurable via action`() {
+        val project = newProject()
+        val extension = project.extensions.getByType(KritExtension::class.java)
+
+        extension.advanced {
+            parallel.set(7)
+            noCache.set(true)
+        }
+
+        assertEquals(7, extension.advanced.parallel.get())
+        assertEquals(true, extension.advanced.noCache.get())
+    }
+
+    @Test
+    fun `advanced settings flow through to task conventions`() {
+        val project = newProject()
+        val extension = project.extensions.getByType(KritExtension::class.java)
+
+        extension.advanced.parallel.set(11)
+        extension.advanced.allRules.set(true)
+        extension.advanced.fixLevel.set("semantic")
+
+        val check = project.tasks.getByName("kritCheck") as KritCheckTask
+        val fmt = project.tasks.getByName("kritFormat") as KritFormatTask
+        val baseline = project.tasks.getByName("kritBaseline") as KritBaselineTask
+
+        assertEquals(11, check.parallel.get())
+        assertEquals(true, check.allRules.get())
+        assertEquals("semantic", fmt.fixLevel.get())
+        assertEquals(true, baseline.allRules.get())
+    }
+
+    @Test
+    fun `top-level extension does not expose escape-hatch properties`() {
+        // Compile-time guard: KritExtension must NOT carry these knobs anymore.
+        // Reflection check keeps the regression test honest without re-introducing
+        // imports of the moved Property<*> APIs.
+        val publicMembers = KritExtension::class.java.methods.map { it.name }.toSet()
+        listOf("getToolVersion", "getAllRules", "getFixLevel", "getParallel",
+               "getNoCache", "getTypeInference", "getBinary", "getReportsDir",
+               "getSource")
+            .forEach { accessor ->
+                assertFalse(accessor in publicMembers,
+                    "KritExtension still exposes $accessor — it should live under `advanced`")
+            }
     }
 
     @Test

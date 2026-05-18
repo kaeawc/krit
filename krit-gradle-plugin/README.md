@@ -10,74 +10,77 @@ Add the plugin to your `build.gradle.kts`:
 plugins {
     id("dev.jasonpearson.krit") version "0.2.0"
 }
+```
 
+That's it for most projects — drop a `krit.yml` next to the build file and
+`./gradlew kritCheck` works.
+
+### Common configuration
+
+```kotlin
 krit {
-    // Krit binary version (downloaded automatically from GitHub Releases)
-    toolVersion.set("0.2.0")
+    config = file("krit.yml")               // optional; auto-discovered when omitted
+    baseline = file("krit-baseline.xml")    // optional
+    ignoreFailures = false                  // fail the build on findings
 
-    // Path to krit.yml configuration file
-    config.set(file("krit.yml"))
-
-    // Source directories to analyze (defaults to src/main/kotlin + src/test/kotlin)
-    source.setFrom("src/main/kotlin", "src/test/kotlin")
-
-    // Fail the build on findings (default: false)
-    ignoreFailures.set(false)
-
-    // Enable all rules including opt-in ones
-    allRules.set(false)
-
-    // Auto-fix level: "cosmetic", "idiomatic" (default), or "semantic"
-    fixLevel.set("idiomatic")
-
-    // Baseline file for suppressing known issues
-    baseline.set(file("krit-baseline.xml"))
-
-    // Number of parallel analysis jobs (default: CPU count)
-    parallel.set(Runtime.getRuntime().availableProcessors())
-
-    // Use a local krit binary instead of downloading
-    // binary.set(file("/usr/local/bin/krit"))
-
-    // Configure report outputs
     reports {
-        sarif {
-            required.set(true)  // enabled by default
-            outputLocation.set(file("build/reports/krit/krit.sarif"))
-        }
-        json {
-            required.set(true)
-            outputLocation.set(file("build/reports/krit/krit.json"))
-        }
-        plain {
-            required.set(false)  // disabled by default
-        }
-        checkstyle {
-            required.set(false)  // disabled by default
-        }
+        sarif.required = true               // default
+        json.required = true
+    }
+}
+```
+
+### Custom rules
+
+Wire a sibling rule project through the standard `dependencies` block:
+
+```kotlin
+dependencies {
+    kritCustomRules(project(":my-rules"))
+}
+```
+
+See [`krit-custom-rule-plugin`](../krit-custom-rule-plugin/README.md) for
+authoring the rule module itself.
+
+### Advanced / escape hatches
+
+For overrides most projects never need:
+
+```kotlin
+krit {
+    advanced {
+        toolVersion = "0.2.0"                       // pin the binary version
+        binary = file("/usr/local/bin/krit")        // skip the download entirely
+        parallel = 4                                // -j
+        noCache = false                             // --no-cache
+        typeInference = true
+        allRules = false
+        fixLevel = "idiomatic"                      // cosmetic | idiomatic | semantic
+        source.setFrom("src/main/kotlin")           // override auto-detection
+        reportsDir = layout.buildDirectory.dir("reports/krit")
     }
 }
 ```
 
 ### Reports
 
-The plugin supports four report formats: SARIF (default), JSON, plain text, and Checkstyle. Each format can be independently enabled or disabled, and output locations can be customized.
-
-By default, only the SARIF report is enabled. Reports are written to `build/reports/krit/` unless overridden.
+Four formats are supported: SARIF (the default), JSON, plain text, and Checkstyle. Each can be toggled independently, and output locations can be customized:
 
 ```kotlin
 krit {
     reports {
-        // Enable multiple formats
-        sarif { required.set(true) }
-        json { required.set(true) }
+        sarif.required = true                                   // default
+        json.required = true
         checkstyle {
-            required.set(true)
-            outputLocation.set(file("build/reports/checkstyle/krit.xml"))
+            required = true
+            outputLocation = file("build/reports/checkstyle/krit.xml")
         }
     }
 }
 ```
+
+Reports are written to `build/reports/krit/` unless overridden via `advanced.reportsDir`.
 
 ### Per-Source-Set Tasks
 
@@ -127,27 +130,13 @@ Then reference the baseline in your configuration:
 
 ```kotlin
 krit {
-    baseline.set(file("build/reports/krit/baseline.xml"))
+    baseline = file("build/reports/krit/baseline.xml")
 }
 ```
 
 ## Binary Resolution
 
-The plugin automatically downloads the correct platform-specific krit binary from GitHub Releases and caches it in `~/.gradle/krit/`. Supported platforms:
-
-- `darwin-arm64` (macOS Apple Silicon)
-- `darwin-amd64` (macOS Intel)
-- `linux-arm64`
-- `linux-amd64`
-- `windows-amd64`
-
-To use a locally installed binary instead:
-
-```kotlin
-krit {
-    binary.set(file("/usr/local/bin/krit"))
-}
-```
+The plugin downloads the correct platform-specific krit binary from GitHub Releases and caches it in `~/.gradle/krit/`. Supported platforms: `darwin-arm64`, `darwin-amd64`, `linux-arm64`, `linux-amd64`, `windows-amd64`. To skip the download and use a local binary, set `advanced.binary` (see [Advanced / escape hatches](#advanced--escape-hatches) above).
 
 ## Requirements
 

@@ -87,3 +87,68 @@ func TestAsyncWriter_CloseWhileSubmittingDoesNotPanic(t *testing.T) {
 	_ = w.Close()
 	<-done
 }
+
+// TestAsyncWriter_ConcurrentRecordErrAndFlush exercises the mutex
+// contract around `firstErr`: many workers reporting errors at the
+// same time as another goroutine reading them via Flush must not
+// race, deadlock, or drop any error from the joined chain. The
+// `-race` detector is the primary guard here; the post-flush
+// equality check on Close ensures every reported error is also
+// surfaced when there is no remaining in-flight work.
+func TestAsyncWriter_ConcurrentRecordErrAndFlush(t *testing.T) {
+	const (
+		workers    = 8
+		jobsPerSub = 64
+	)
+	w := cacheutil.NewAsyncWriter(workers, workers*jobsPerSub)
+	want := errors.New("boom")
+
+	var submitted atomic.Int64
+	submit := func() {
+		for i := 0; i < jobsPerSub; i++ {
+			if w.Submit(func() (int64, error) { return 0, want }) {
+				submitted.Add(1)
+			}
+		}
+	}
+
+	var wg = make(chan struct{}, workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			submit()
+			wg <- struct{}{}
+		}()
+	}
+	// Race a stream of Flush() calls against the in-flight workers.
+	stopFlush := make(chan struct{})
+	flushDone := make(chan struct{})
+	go func() {
+		defer close(flushDone)
+		for {
+			select {
+			case <-stopFlush:
+				return
+			default:
+				_ = w.Flush()
+			}
+		}
+	}()
+
+	for i := 0; i < workers; i++ {
+		<-wg
+	}
+	close(stopFlush)
+	<-flushDone
+
+	closeErr := w.Close()
+	if !errors.Is(closeErr, want) {
+		t.Fatalf("expected joined error chain to contain %q after Close, got %v", want, closeErr)
+	}
+	if got := submitted.Load(); got != int64(workers*jobsPerSub) {
+		t.Fatalf("submitted %d jobs, want %d", got, workers*jobsPerSub)
+	}
+	stats := w.Stats()
+	if stats.Failed != int64(workers*jobsPerSub) {
+		t.Fatalf("Failed = %d, want %d", stats.Failed, workers*jobsPerSub)
+	}
+}

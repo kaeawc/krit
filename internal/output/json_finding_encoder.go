@@ -157,13 +157,14 @@ func appendJSONEscapedByte(dst []byte, b byte) []byte {
 }
 
 // appendJSONFloat appends a float64 using the same shortest-form
-// representation encoding/json uses (strconv 'g' with -1 precision).
-// Notable cases that match json.Marshal: 0.75 → "0.75", 0.85 → "0.85",
-// 0.95 → "0.95", 1 → "1", 0.5 → "0.5".
+// representation encoding/json uses. It mirrors the encoder in the
+// standard library's encoding/json/encode.go: 'f' format for
+// magnitudes in [1e-6, 1e21), 'e' format otherwise, both with -1
+// precision; then trim a single leading zero from the exponent of
+// negative-exponent 'e' results (`1e-07` → `1e-7`) so the output is
+// byte-identical to `json.Marshal`. Notable cases: 0.75 → "0.75",
+// 1 → "1", 1e-7 → "1e-7", 1e21 → "1e+21", 1e-10 → "1e-10".
 func appendJSONFloat(dst []byte, v float64) []byte {
-	// json.Marshal for non-integer floats uses 'g' format with the
-	// shortest representation that round-trips. For integer-valued
-	// floats it omits the decimal (e.g. 1 not 1.0).
 	abs := v
 	if abs < 0 {
 		abs = -abs
@@ -172,10 +173,20 @@ func appendJSONFloat(dst []byte, v float64) []byte {
 	if abs != 0 && (abs < 1e-6 || abs >= 1e21) {
 		fmtByte = 'e'
 	}
-	// strconv emits "1.2e+05" / "1.2"; both match encoding/json's
-	// default float formatting (shortest round-trippable form, sign-
-	// prefixed exponent for 'e').
-	return strconv.AppendFloat(dst, v, fmtByte, -1, 64)
+	start := len(dst)
+	dst = strconv.AppendFloat(dst, v, fmtByte, -1, 64)
+	if fmtByte == 'e' {
+		// strconv.AppendFloat pads single-digit negative exponents to
+		// two digits ("1e-07"); encoding/json strips that pad
+		// ("1e-7"). Mirror the stdlib's last-four-byte fixup so our
+		// output round-trips byte-identically against `json.Marshal`.
+		n := len(dst)
+		if n-start >= 4 && dst[n-4] == 'e' && dst[n-3] == '-' && dst[n-2] == '0' {
+			dst[n-2] = dst[n-1]
+			dst = dst[:n-1]
+		}
+	}
+	return dst
 }
 
 // jsonSafe[b] is true when byte b can appear in a JSON string body

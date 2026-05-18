@@ -171,3 +171,47 @@ func mustMarshal(t *testing.T, f JSONFinding) string {
 	}
 	return string(b)
 }
+
+// TestAppendJSONFloat_MatchesJSONMarshal locks in byte-identical
+// equivalence between our hand-rolled `appendJSONFloat` and
+// `json.Marshal` across the value ranges the encoder switches between
+// 'f' and 'e' formats and the exponent-padding boundary where the
+// stdlib trims a leading zero from negative single-digit exponents.
+func TestAppendJSONFloat_MatchesJSONMarshal(t *testing.T) {
+	values := []float64{
+		0,
+		1,
+		-1,
+		0.5,
+		-0.5,
+		0.75,
+		0.85,
+		0.95,
+		1e-5,
+		1e-6,  // boundary: just below — uses 'e' on the stdlib side too.
+		1e-7,  // strconv emits 1e-07; stdlib trims to 1e-7.
+		1e-8,  // 1e-08 → 1e-8.
+		1e-9,  // 1e-09 → 1e-9.
+		1e-10, // two-digit exponent stays 1e-10.
+		-1e-7, // negative number, negative exponent: same trim path.
+		1e20,
+		1e21, // boundary: at threshold — uses 'e'.
+		1e22,
+		1e100,
+		-1e100,
+		1234567.89,
+		1.0 / 3.0,
+	}
+	for _, v := range values {
+		t.Run(fmt.Sprintf("%g", v), func(t *testing.T) {
+			want, err := json.Marshal(v)
+			if err != nil {
+				t.Fatalf("json.Marshal(%v): %v", v, err)
+			}
+			got := appendJSONFloat(nil, v)
+			if !bytes.Equal(got, want) {
+				t.Fatalf("appendJSONFloat(%v) = %q, json.Marshal = %q", v, got, want)
+			}
+		})
+	}
+}

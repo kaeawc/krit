@@ -1,6 +1,8 @@
 package scanner
 
 import (
+	"sync"
+
 	"github.com/bits-and-blooms/bloom/v3"
 
 	"github.com/kaeawc/krit/internal/perf"
@@ -76,6 +78,19 @@ type CodeIndex struct {
 	// Bloom filter for fast "is this name referenced?" checks.
 	// False positives are OK (we fall back to exact check), false negatives are not.
 	refBloom *bloom.BloomFilter
+
+	// refMu guards refCountByName, refFilesByName,
+	// nonCommentRefFilesByName, nonCommentRefCountByNameFile, and
+	// refBloom against concurrent mutation. Add/remove lookup helpers
+	// take the write lock; the read accessors (MayHaveReference,
+	// ReferenceFiles, ReferenceCount, IsReferencedOutsideFile,
+	// IsReferencedOutsideFileExcludingComments, CountNonCommentRefsInFile,
+	// externalReferenceFiles) take the read lock. The lock covers only
+	// the reference lookup state — Symbols/References/Files slices and
+	// the symbol lookup maps are still expected to be stable for the
+	// lifetime of a published index, which matches the daemon's
+	// per-project analyze mutex contract for prior-overlay mutations.
+	refMu sync.RWMutex
 }
 
 // BuildIndex constructs a cross-file index from parsed Kotlin and Java files.

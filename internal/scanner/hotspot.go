@@ -53,6 +53,8 @@ func isClassLikeSymbol(kind string) bool {
 }
 
 func (idx *CodeIndex) externalReferenceFiles(name, declaringFile string, ignoreCommentRefs bool) []string {
+	idx.refMu.RLock()
+	defer idx.refMu.RUnlock()
 	var source map[string]bool
 	if ignoreCommentRefs {
 		source = idx.nonCommentRefFilesByName[name]

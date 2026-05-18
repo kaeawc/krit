@@ -358,15 +358,17 @@ func isDottedCallChainLine(trimmed string) bool {
 	return dots >= 3
 }
 
-// isLogCallLine returns true if the trimmed line is a Log.<level>(...) call.
+// logCallLineRe matches a trimmed line that begins with a Log / Timber
+// `<level>(` call. An optional dotted package or receiver prefix is
+// allowed so fully-qualified forms like `android.util.Log.d(...)` and
+// `timber.log.Timber.d(...)` are treated the same as the unqualified
+// `Log.d(...)` / `Timber.d(...)`.
+var logCallLineRe = regexp.MustCompile(`^(?:[A-Za-z0-9_.]+\.)?(?:Log\.(?:d|i|w|e|v|wtf)|Timber\.(?:d|i|w|e|v))\(`)
+
+// isLogCallLine returns true if the trimmed line is a Log.<level>(...)
+// or Timber.<level>(...) call, including fully-qualified variants.
 func isLogCallLine(trimmed string) bool {
-	prefixes := []string{"Log.d(", "Log.i(", "Log.w(", "Log.e(", "Log.v(", "Log.wtf(", "Timber.d(", "Timber.i(", "Timber.w(", "Timber.e(", "Timber.v("}
-	for _, p := range prefixes {
-		if strings.HasPrefix(trimmed, p) {
-			return true
-		}
-	}
-	return false
+	return logCallLineRe.MatchString(trimmed)
 }
 
 // containsURLLiteral returns true if the line contains an http(s) URL

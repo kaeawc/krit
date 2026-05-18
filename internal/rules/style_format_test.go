@@ -69,6 +69,30 @@ func TestMaxLineLength_Negative(t *testing.T) {
 	}
 }
 
+func TestMaxLineLength_SkipsFullyQualifiedLogCall(t *testing.T) {
+	// A fully-qualified `android.util.Log.d(...)` call whose overflow
+	// position lands on a concatenated-identifier argument (not inside a
+	// string literal) used to be flagged because the prefix check only
+	// matched lines starting with `Log.`. The same call without the
+	// qualifier was already skipped — this locks the qualified form to
+	// the same treatment.
+	long := `android.util.Log.d(TAGTAGTAGTAGTAGTAGTAGTAG, msgMsgMsgMsgMsgMsgMsgMsgMsg + extraExtraExtraExtraExtraExtraExtraExtraExtraExtraExtra)`
+	code := "package test\nfun main() {\n    " + long + "\n}\n"
+	findings := runRuleByName(t, "MaxLineLength", code)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for fully-qualified Log call, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestMaxLineLength_SkipsFullyQualifiedTimberCall(t *testing.T) {
+	long := `timber.log.Timber.d(TAGTAGTAGTAGTAGTAGTAGTAG, msgMsgMsgMsgMsgMsgMsgMsgMsg + extraExtraExtraExtraExtraExtraExtraExtraExtraExtraExtra)`
+	code := "package test\nfun main() {\n    " + long + "\n}\n"
+	findings := runRuleByName(t, "MaxLineLength", code)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for fully-qualified Timber call, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestMaxLineLength_Java(t *testing.T) {
 	longLine := "String result = aaaaaaaa + bbbbbbbb + cccccccc + dddddddd + eeeeeeee + ffffffff + gggggggg + hhhhhhhh + iiiiiiii + jjjjjjjj;"
 	code := "package test;\nclass Example {\n  void run() {\n    " + longLine + "\n  }\n}\n"

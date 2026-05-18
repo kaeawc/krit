@@ -1,10 +1,12 @@
 package dev.jasonpearson.krit.custom
 
 import org.gradle.api.Project
+import org.gradle.api.attributes.Category
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.testfixtures.ProjectBuilder
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -89,6 +91,33 @@ class KritCustomRulePluginTest {
         assertEquals("9.9.9", manifestValue(jar, "Krit-SDK-Version"))
         assertEquals("acme", manifestValue(jar, "Krit-Vendor-Id"))
         assertEquals("error", manifestValue(jar, "Krit-Default-Severity"))
+    }
+
+    @Test
+    fun `kritRuleBundleElements configuration is registered as consumable variant`() {
+        val project = newProject()
+        val config = project.configurations.findByName("kritRuleBundleElements")
+        assertNotNull(config, "kritRuleBundleElements outgoing configuration should be registered")
+        assertTrue(config!!.isCanBeConsumed,
+            "kritRuleBundleElements must be consumable so the host's kritCustomRules can pull it")
+        assertFalse(config.isCanBeResolved,
+            "kritRuleBundleElements is a producer variant; it should not be resolvable")
+        val category = config.attributes.getAttribute(Category.CATEGORY_ATTRIBUTE)
+        assertNotNull(category, "kritRuleBundleElements must declare a Category attribute")
+        assertEquals("krit-rule-bundle", category!!.name)
+    }
+
+    @Test
+    fun `kritRuleBundleElements publishes the stamped kritRuleJar archive`() {
+        val project = newProject()
+        val config = project.configurations.getByName("kritRuleBundleElements")
+        val artifacts = config.outgoing.artifacts
+        assertEquals(1, artifacts.size, "expected exactly one outgoing artifact, was: $artifacts")
+        val artifactFile = artifacts.single().file
+        val expected = (project.tasks.getByName("kritRuleJar") as Jar)
+            .archiveFile.get().asFile
+        assertEquals(expected.absolutePath, artifactFile.absolutePath,
+            "outgoing artifact must be kritRuleJar's stamped archive")
     }
 
     private fun manifestValue(jar: Jar, key: String): String? {

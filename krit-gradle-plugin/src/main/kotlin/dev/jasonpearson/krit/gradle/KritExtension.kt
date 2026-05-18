@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.gradle
 
 import org.gradle.api.Action
 import org.gradle.api.Project
+import org.gradle.api.UnknownTaskException
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
@@ -26,7 +27,10 @@ import javax.inject.Inject
  * }
  * ```
  */
-abstract class KritExtension @Inject constructor(objects: ObjectFactory) {
+abstract class KritExtension @Inject constructor(
+    private val project: Project,
+    objects: ObjectFactory,
+) {
 
     /** Krit binary version to download. Default: plugin's bundled version constant. */
     abstract val toolVersion: Property<String>
@@ -75,11 +79,31 @@ abstract class KritExtension @Inject constructor(objects: ObjectFactory) {
         action.execute(reports)
     }
 
-    /** Add Kotlin custom-rule jars or projects that produce a jar task. */
+    /**
+     * Add Kotlin custom-rule jars or projects that produce a jar task.
+     *
+     * For `Project` notations, prefers `kritRuleJar` (the stamped archive
+     * registered by `dev.jasonpearson.krit.custom`) over the default `jar`
+     * task — only the former carries the `Krit-SDK-Version` / `Krit-Vendor-Id`
+     * manifest attributes the daemon reads. The sibling project is configured
+     * before lookup so its lazily registered tasks are visible.
+     *
+     * Prefer the variant-aware form for project deps:
+     * ```
+     * dependencies { kritCustomRules(project(":custom-rules")) }
+     * ```
+     * which routes through Gradle's dependency graph instead of cross-project
+     * task lookup.
+     */
     fun customRules(vararg notations: Any) {
         notations.forEach { notation ->
             if (notation is Project) {
-                val jarTask = notation.tasks.named("jar", Jar::class.java)
+                project.evaluationDependsOn(notation.path)
+                val jarTask = try {
+                    notation.tasks.named("kritRuleJar", Jar::class.java)
+                } catch (_: UnknownTaskException) {
+                    notation.tasks.named("jar", Jar::class.java)
+                }
                 customRuleJars.from(jarTask.flatMap { it.archiveFile })
                 customRuleJars.builtBy(jarTask)
             } else {

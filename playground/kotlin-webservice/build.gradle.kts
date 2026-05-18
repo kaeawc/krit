@@ -1,5 +1,3 @@
-import org.gradle.api.tasks.bundling.Jar
-
 plugins {
     kotlin("jvm") version "2.3.21"
     application
@@ -22,22 +20,15 @@ dependencies {
     implementation("io.ktor:ktor-server-netty:3.4.3")
     implementation("io.ktor:ktor-server-content-negotiation:3.4.3")
     implementation("io.ktor:ktor-serialization-kotlinx-json:3.4.3")
-}
 
-// `kritRuleJar` (provided by dev.jasonpearson.krit.custom) is the stamped jar
-// that contains both the generated `META-INF/services/...KritRule` file and the
-// `Krit-SDK-Version` / `Krit-Vendor-Id` manifest attributes that the krit
-// daemon reads at load time. The default `jar` task from kotlin("jvm") does
-// not include those, so consume the stamped jar explicitly. The
-// `evaluationDependsOn` call ensures :custom-rules has registered its tasks
-// before we look up `kritRuleJar`.
-evaluationDependsOn(":custom-rules")
-val customRulesJar = project(":custom-rules").tasks.named("kritRuleJar", Jar::class.java)
+    // `dev.jasonpearson.krit.custom` publishes a `krit-rule-bundle` variant
+    // here; the host plugin's `kritCustomRules` configuration resolves it.
+    kritCustomRules(project(":custom-rules"))
+}
 
 krit {
     config.set(file("krit.yml"))
     ignoreFailures.set(true)
-    customRules(customRulesJar.flatMap { it.archiveFile })
 
     // Use the krit binary built from this checkout (`make build` or
     // `go build -o krit ./cmd/krit/` at the repo root) so the demo does not

@@ -1,6 +1,8 @@
 package dev.jasonpearson.krit.gradle
 
 import org.gradle.api.Project
+import org.gradle.api.attributes.Category
+import org.gradle.api.tasks.bundling.Jar
 import org.gradle.testfixtures.ProjectBuilder
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -342,5 +344,82 @@ class KritPluginTest {
         args.appendCustomRuleJarArgs(listOf("/jars/a.jar"))
         assertEquals(1, args.count { it == "--daemon" },
             "--daemon should not be duplicated, was: $args")
+    }
+
+    // --- kritCustomRules resolvable configuration (variant-aware wiring) ---
+
+    @Test
+    fun `kritCustomRules configuration is registered with krit-rule-bundle category`() {
+        val project = newProject()
+        val config = project.configurations.findByName("kritCustomRules")
+        assertNotNull(config, "kritCustomRules configuration should be registered")
+        assertFalse(config!!.isCanBeConsumed,
+            "kritCustomRules should not be consumable — it's a resolver, not a publisher")
+        assertTrue(config.isCanBeResolved,
+            "kritCustomRules should be resolvable so it can read variant artifacts")
+        val category = config.attributes.getAttribute(Category.CATEGORY_ATTRIBUTE)
+        assertNotNull(category, "kritCustomRules must declare a Category attribute")
+        assertEquals(KritPlugin.KRIT_RULE_BUNDLE_CATEGORY, category!!.name)
+    }
+
+    @Test
+    fun `files added to kritCustomRules flow into extension customRuleJars`() {
+        val project = newProject()
+        val fakeJar = File(projectDir, "fake.jar").apply { writeText("not a real jar") }
+
+        project.dependencies.add("kritCustomRules", project.files(fakeJar))
+
+        val extension = project.extensions.getByType(KritExtension::class.java)
+        assertTrue(extension.customRuleJars.files.contains(fakeJar),
+            "files declared on the kritCustomRules dep config must appear in customRuleJars")
+
+        val task = project.tasks.getByName("kritCheck") as KritCheckTask
+        assertTrue(task.customRuleJars.files.contains(fakeJar),
+            "kritCheck task must inherit the resolved jars too")
+    }
+
+    // --- customRules(Project) prefers kritRuleJar over default jar ---
+
+    @Test
+    fun `customRules(Project) prefers kritRuleJar when present`() {
+        val project = newProject()
+        val producer = ProjectBuilder.builder()
+            .withParent(project)
+            .withName("producer")
+            .build()
+        producer.pluginManager.apply("java")
+        val stampedJar = producer.tasks.register("kritRuleJar", Jar::class.java) {
+            archiveClassifier.set("krit-rules")
+        }
+
+        val extension = project.extensions.getByType(KritExtension::class.java)
+        extension.customRules(producer)
+
+        val expected = stampedJar.flatMap { it.archiveFile }.get().asFile
+        assertTrue(extension.customRuleJars.files.contains(expected),
+            "customRules(project) must pick up kritRuleJar's archive, was: ${extension.customRuleJars.files}")
+        val plainJar = producer.tasks.named("jar", Jar::class.java)
+            .flatMap { it.archiveFile }.get().asFile
+        assertFalse(extension.customRuleJars.files.contains(plainJar),
+            "must not also include the default unstamped jar")
+    }
+
+    @Test
+    fun `customRules(Project) falls back to jar when kritRuleJar absent`() {
+        val project = newProject()
+        val producer = ProjectBuilder.builder()
+            .withParent(project)
+            .withName("producer")
+            .build()
+        producer.pluginManager.apply("java")
+        // No kritRuleJar registered — the default jar should win.
+
+        val extension = project.extensions.getByType(KritExtension::class.java)
+        extension.customRules(producer)
+
+        val plainJar = producer.tasks.named("jar", Jar::class.java)
+            .flatMap { it.archiveFile }.get().asFile
+        assertTrue(extension.customRuleJars.files.contains(plainJar),
+            "without kritRuleJar, customRules(project) must fall back to the default jar")
     }
 }

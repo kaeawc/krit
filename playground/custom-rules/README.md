@@ -37,28 +37,33 @@ avoid common lexical false positives.
    `Krit-SDK-Version`, `Krit-Plugin-Version`, `Krit-Vendor-Id`
    (`playground`), and `Krit-Default-Severity` (`warning`).
 
+5. Publishes the stamped jar as an outgoing variant
+   (`kritRuleBundleElements`, with a Krit-specific `Category` attribute) so
+   host projects can consume it through Gradle's dependency graph.
+
 The host (`kotlin-webservice`) then wires the produced jar into
-`kritCheck` via:
+`kritCheck` via the `kritCustomRules` resolvable configuration that
+`dev.jasonpearson.krit` registers:
 
 ```kotlin
-val customRulesJar = project(":custom-rules").tasks.named("kritRuleJar", Jar::class.java)
-
-krit {
-    customRules(customRulesJar.flatMap { it.archiveFile })
+dependencies {
+    kritCustomRules(project(":custom-rules"))
 }
 ```
 
 This automatically builds `:custom-rules:kritRuleJar` before each
 `kritCheck` and passes the jar to the krit CLI through
 `--custom-rule-jars` (forcing `--daemon` on, as the JVM-loaded rule path
-requires the daemon).
+requires the daemon). The matching `Category` attribute on both sides
+means the consumer cannot accidentally pick up a project's normal
+`runtimeElements` jar — the daemon-stamped variant is the only thing the
+host configuration will resolve.
 
-> **Note**: the default `jar` task that ships with `kotlin("jvm")` is **not**
-> the one we want — only `kritRuleJar` bakes in the generated
-> `META-INF/services/dev.jasonpearson.krit.api.KritRule` file and the
-> `Krit-SDK-Version` / `Krit-Vendor-Id` / `Krit-Default-Severity` manifest
-> attributes that the krit daemon expects. Reference the stamped task
-> directly rather than calling `customRules(project(":custom-rules"))`.
+> **Alternatives** for one-off setups: `krit { customRules(file(...)) }`
+> accepts raw jars or task outputs, and `krit { customRules(project(":foo")) }`
+> resolves the project's `kritRuleJar` when present (falling back to its `jar`
+> task). Both bypass the dependency graph, so prefer `kritCustomRules` for
+> project deps.
 
 ## Running it
 

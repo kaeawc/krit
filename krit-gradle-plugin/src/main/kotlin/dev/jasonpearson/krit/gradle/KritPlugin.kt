@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.gradle
 
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.attributes.Category
 import org.gradle.api.plugins.ReportingBasePlugin
 import java.io.File
 
@@ -36,7 +37,28 @@ class KritPlugin : Plugin<Project> {
     override fun apply(project: Project) {
         project.pluginManager
 
-        val extension = project.extensions.create("krit", KritExtension::class.java)
+        val extension = project.extensions.create("krit", KritExtension::class.java, project)
+
+        // Resolvable configuration for declaring custom-rule producers as
+        // project dependencies, e.g. `dependencies { kritCustomRules(project(":rules")) }`.
+        // Matches the outgoing variant published by `dev.jasonpearson.krit.custom`,
+        // so the stamped `kritRuleJar` archive flows through Gradle's dependency
+        // graph (proper task wiring, no cross-project `evaluationDependsOn`).
+        val kritRuleBundleCategory = project.objects.named(
+            Category::class.java,
+            KRIT_RULE_BUNDLE_CATEGORY,
+        )
+        val customRulesConfiguration = project.configurations.create("kritCustomRules") {
+            isCanBeConsumed = false
+            isCanBeResolved = true
+            description = "Krit custom-rule bundles to load into the kritCheck analysis."
+            attributes.attribute(Category.CATEGORY_ATTRIBUTE, kritRuleBundleCategory)
+        }
+
+        // Fold resolved bundles from `kritCustomRules` into the extension's
+        // jar collection so they flow into kritCheck/kritBaseline like any
+        // explicit `customRules(file(...))` entry.
+        extension.customRuleJars.from(customRulesConfiguration)
 
         // Set conventions (defaults)
         extension.toolVersion.convention(KRIT_DEFAULT_VERSION)
@@ -304,5 +326,12 @@ class KritPlugin : Plugin<Project> {
 
     companion object {
         const val KRIT_DEFAULT_VERSION = "0.2.0"
+
+        /**
+         * Category attribute value identifying a Krit custom-rule bundle
+         * variant. Must stay in sync with the matching string in
+         * `dev.jasonpearson.krit.custom`'s `KritCustomRulePlugin`.
+         */
+        const val KRIT_RULE_BUNDLE_CATEGORY = "krit-rule-bundle"
     }
 }

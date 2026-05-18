@@ -6,9 +6,9 @@
       "rule": "DependenciesInRootProject",
       "ruleSet": "supply-chain",
       "file": "build.gradle.kts",
-      "line": 20,
+      "line": 18,
       "col": 0,
-      "message": "Root project dependencies block declares implementation. Move project dependencies into an owning module or add legitimate root tooling configurations to allowedConfigurations."
+      "message": "Root project dependencies block declares implementation, kritCustomRules. Move project dependencies into an owning module or add legitimate root tooling configurations to allowedConfigurations."
     },
     {
       "rule": "WildcardImport",

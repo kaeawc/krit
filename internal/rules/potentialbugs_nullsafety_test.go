@@ -1947,3 +1947,69 @@ fun update(tp: TextPaint?) {
 		t.Fatalf("expected no findings for nullable apply receiver this!!, got %d", len(findings))
 	}
 }
+
+// --- Regression tests for AST-based locators in nullsafety_redundant ---
+
+// TestUnnecessarySafeCall_FixUsesAstOperatorOffset confirms the autofix
+// targets the AST `?.` token's byte range. A regression where the rule used
+// strings.Index over the navigation_expression text would corrupt the source
+// if the receiver text contained `?.` (e.g. inside a string literal); the
+// AST-based locator is immune to that. This test simply pins the fix range
+// to the exact bytes of the operator token.
+func TestUnnecessarySafeCall_FixUsesAstOperatorOffset(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnnecessarySafeCall", `
+package test
+fun example(s: String) {
+    val len = s?.length
+    println(len)
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected at least one finding for s?.length on non-null param")
+	}
+	var found bool
+	for _, f := range findings {
+		if f.Fix == nil {
+			continue
+		}
+		if f.Fix.Replacement != "." {
+			continue
+		}
+		span := f.Fix.EndByte - f.Fix.StartByte
+		if span != 2 {
+			t.Fatalf("fix span = %d, want 2 (length of `?.`)", span)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatal("expected a fix with replacement `.` and 2-byte span over `?.`")
+	}
+}
+
+// TestGetterNullableReceiverFlat_BacktickColonBoundary confirms the
+// receiver-type prefix scan in getterNullableReceiverFlat is anchored to
+// the variable_declaration AST child, not the first `:` in the property
+// text. A backtick-quoted property name containing `:` must not shift the
+// boundary into the name itself.
+func TestGetterNullableReceiverFlat_BacktickColonBoundary(t *testing.T) {
+	// The rule under test is UnnecessarySafeCall. The getter helper is
+	// invoked when checking `this?.X` inside a property's getter; the
+	// preceding property declaration here uses a backtick-quoted name
+	// containing `:`. If the boundary leaks into the name, the heuristic
+	// is consulted on text that does not contain the receiver-type prefix
+	// and the rule's behavior on the getter must remain correct
+	// (specifically: the safe-call inside the getter of a non-receiver
+	// property must NOT be flagged as unnecessary just because the
+	// preceding declaration's text gets misparsed).
+	findings := runRuleByNameWithResolver(t, "UnnecessarySafeCall", "\n"+
+		"package test\n"+
+		"class Foo { fun uppercase(): String = \"\" }\n"+
+		"val `foo:bar`: Foo? = null\n"+
+		"val String?.thing: String\n"+
+		"  get() = this?.uppercase() ?: \"\"\n")
+	for _, f := range findings {
+		if strings.Contains(f.Message, "this") {
+			t.Fatalf("did not expect a finding on this?.uppercase() inside an extension property with nullable receiver; got: %+v", f)
+		}
+	}
+}

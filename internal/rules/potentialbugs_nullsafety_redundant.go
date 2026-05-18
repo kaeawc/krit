@@ -408,6 +408,34 @@ func flatNavigationHasSafeCall(file *scanner.File, nav uint32) bool {
 	return found
 }
 
+// flatNavigationSafeCallOperator returns the AST node index of the top-level
+// `?.` token for a navigation_expression — i.e. the operator that joins this
+// expression's receiver to its suffix. Returns 0 if no `?.` token is present
+// directly on the expression (chained `?.` inside the receiver is ignored).
+//
+// Kotlin tree-sitter shapes the operator as either a direct `?.` child of
+// `navigation_expression` or as a `?.` child inside its `navigation_suffix`.
+// Using the AST node's byte range avoids the text-scan footgun of locating
+// `?.` inside a receiver-side string literal (e.g. `x.contains("?.")?.bar`).
+func flatNavigationSafeCallOperator(file *scanner.File, nav uint32) uint32 {
+	if file == nil || nav == 0 {
+		return 0
+	}
+	for child := file.FlatFirstChild(nav); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "?.":
+			return child
+		case "navigation_suffix":
+			for gc := file.FlatFirstChild(child); gc != 0; gc = file.FlatNextSib(gc) {
+				if file.FlatType(gc) == "?." {
+					return gc
+				}
+			}
+		}
+	}
+	return 0
+}
+
 func flatNullCheckNavigationReceiver(file *scanner.File, idx uint32) uint32 {
 	if file == nil || idx == 0 {
 		return 0
@@ -940,7 +968,6 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 	if !flatNavigationHasSafeCall(file, idx) {
 		return
 	}
-	text := file.FlatNodeText(idx)
 
 	// The navigation_expression has children: receiver, navigation_suffix
 	// The ?. operator is in the navigation_suffix
@@ -975,16 +1002,30 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 		return
 	}
 
+	// Locate the ?. operator via the AST so the fix range is correct even when
+	// the receiver text itself contains the literal `?.` substring (e.g. inside
+	// a string argument to a chained call).
+	safeOp := flatNavigationSafeCallOperator(file, idx)
+	makeFix := func() *scanner.Fix {
+		if safeOp == 0 {
+			return nil
+		}
+		return &scanner.Fix{
+			ByteMode:    true,
+			StartByte:   int(file.FlatStartByte(safeOp)),
+			EndByte:     int(file.FlatEndByte(safeOp)),
+			Replacement: ".",
+		}
+	}
+
 	// If the receiver is a function parameter with an explicit non-null type,
 	// the safe call is always unnecessary — emit directly without waiting for
 	// the resolver or the val-only heuristic (which won't find params).
 	if unnecessarySafeCallNonNullFunctionParamFlat(file, idx, name) {
 		f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 			fmt.Sprintf("Unnecessary safe call (?.) on non-nullable parameter '%s'.", name))
-		qIdx := strings.Index(text, "?.")
-		if qIdx >= 0 {
-			start := int(file.FlatStartByte(idx))
-			f.Fix = &scanner.Fix{ByteMode: true, StartByte: start + qIdx, EndByte: start + qIdx + 2, Replacement: "."}
+		if fix := makeFix(); fix != nil {
+			f.Fix = fix
 		}
 		ctx.Emit(f)
 		return
@@ -1000,11 +1041,8 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 			// Known non-null (possibly via smart cast) — flag
 			f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 				fmt.Sprintf("Unnecessary safe call (?.) on non-nullable '%s'.", name))
-			// Find the ?. in the text and replace with .
-			qIdx := strings.Index(text, "?.")
-			if qIdx >= 0 {
-				start := int(file.FlatStartByte(idx))
-				f.Fix = &scanner.Fix{ByteMode: true, StartByte: start + qIdx, EndByte: start + qIdx + 2, Replacement: "."}
+			if fix := makeFix(); fix != nil {
+				f.Fix = fix
 			}
 			ctx.Emit(f)
 			return
@@ -1014,10 +1052,8 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 	if sameFileExplicitNonNullValueDeclaration(file, idx, name) {
 		f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 			fmt.Sprintf("Unnecessary safe call (?.) on non-nullable val '%s'.", name))
-		qIdx := strings.Index(text, "?.")
-		if qIdx >= 0 {
-			start := int(file.FlatStartByte(idx))
-			f.Fix = &scanner.Fix{ByteMode: true, StartByte: start + qIdx, EndByte: start + qIdx + 2, Replacement: "."}
+		if fix := makeFix(); fix != nil {
+			f.Fix = fix
 		}
 		ctx.Emit(f)
 	}
@@ -1188,20 +1224,24 @@ func unnecessarySafeCallLambdaHasRepeatedThisSafeCalls(file *scanner.File, lambd
 	if file == nil || lambda == 0 {
 		return false
 	}
-	text := file.FlatNodeText(lambda)
+	// Count navigation_expressions whose receiver is a `this_expression` and
+	// whose operator is `?.`. Walking the AST avoids the text-scan footgun of
+	// matching `this?.` inside a string literal argument.
 	count := 0
-	for start := 0; start < len(text); {
-		idx := strings.Index(text[start:], "this?.")
-		if idx < 0 {
-			return false
+	file.FlatWalkAllNodes(lambda, func(candidate uint32) {
+		if count >= 2 || file.FlatType(candidate) != "navigation_expression" {
+			return
+		}
+		receiver := file.FlatChild(candidate, 0)
+		if receiver == 0 || file.FlatType(receiver) != "this_expression" {
+			return
+		}
+		if flatNavigationSafeCallOperator(file, candidate) == 0 {
+			return
 		}
 		count++
-		if count >= 2 {
-			return true
-		}
-		start += idx + len("this?.")
-	}
-	return false
+	})
+	return count >= 2
 }
 
 func unnecessarySafeCallLambdaHasNullableImplicitItReceiver(file *scanner.File, lambda uint32) bool {
@@ -1281,11 +1321,26 @@ func getterNullableReceiverFlat(file *scanner.File, getter uint32, structural bo
 				}
 			}
 		}
-		text := file.FlatNodeText(candidate)
-		if colonIdx := strings.Index(text, ":"); colonIdx > 0 && strings.Contains(text[:colonIdx], "?.") {
-			return true
+		// Fallback: scan the receiver-type prefix for `?.`. Anchor the prefix
+		// to the start of the `variable_declaration` AST child rather than the
+		// first `:` in the property text, so a backtick-quoted property name
+		// containing `:` (`val `foo:bar`: Foo = ...`) does not shift the
+		// boundary into the name itself.
+		varDecl, _ := file.FlatFindChild(candidate, "variable_declaration")
+		if varDecl == 0 {
+			return false
 		}
-		return false
+		propStart := file.FlatStartByte(candidate)
+		varStart := file.FlatStartByte(varDecl)
+		if varStart <= propStart {
+			return false
+		}
+		prefix := file.FlatNodeText(candidate)
+		offset := int(varStart - propStart)
+		if offset > len(prefix) {
+			offset = len(prefix)
+		}
+		return strings.Contains(prefix[:offset], "?.")
 	}
 	return false
 }

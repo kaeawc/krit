@@ -19,4 +19,19 @@ class UnnecessarySafeCall {
     fun withNullableDefault(s: String? = null) {
         val len = s?.length
     }
+
+    // String literals containing "this?." inside a lambda body must NOT
+    // trip the repeated-`this?.` heuristic that suppresses findings on
+    // `this?.X` in scope-function lambdas. The rule already does not flag
+    // `this?.X` directly, but downstream callers consult the helper to
+    // decide whether the receiver-this is nullable; an AST-based count
+    // ensures only real navigation_expressions contribute.
+    fun lambdaWithStringLiteralLookingLikeThisSafeCalls(obj: String?) {
+        obj?.let {
+            // Two textual occurrences of "this?." inside a single literal —
+            // must not count as repeated AST navigations.
+            val msg = "doc: this?.foo and this?.bar are not real calls"
+            println(msg)
+        }
+    }
 }

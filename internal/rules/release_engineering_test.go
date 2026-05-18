@@ -1503,6 +1503,126 @@ fun logIt() {
 	}
 }
 
+// TestPrintlnInProduction_SkipsShadowedBareCalls verifies that the rule
+// no longer reports bare `println(...)` calls when a same-file
+// declaration or import could resolve them to a user-defined symbol
+// instead of kotlin.io.println. Each case constructs the minimum source
+// that the pre-fix code would have flagged.
+func TestPrintlnInProduction_SkipsShadowedBareCalls(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		code string
+	}{
+		{
+			name: "top-level fun println shadows builtin",
+			code: `
+package test
+
+fun println(label: String): String = label
+
+fun usesShadowed() {
+    val recorded = println("ignored")
+    require(recorded.isNotEmpty())
+}
+`,
+		},
+		{
+			name: "member fun println shadows for bare call inside class",
+			code: `
+package test
+
+class Reporter {
+    fun println(label: String): String = label
+    fun emit() {
+        val recorded = println("ignored")
+        require(recorded.isNotEmpty())
+    }
+}
+`,
+		},
+		{
+			name: "local fun println shadows in enclosing scope",
+			code: `
+package test
+
+fun emit() {
+    fun println(label: String): String = label
+    val recorded = println("ignored")
+    require(recorded.isNotEmpty())
+}
+`,
+		},
+		{
+			name: "non-kotlin.io import of println shadows builtin",
+			code: `
+package test
+
+import com.example.io.println
+
+fun emit() {
+    val recorded = println("ignored")
+    require(recorded.isNotEmpty())
+}
+
+fun com.example.io.println(label: String): String = label
+`,
+		},
+		{
+			name: "import alias mapped to println shadows builtin",
+			code: `
+package test
+
+import com.example.io.write as println
+
+fun emit() {
+    val recorded = println("ignored")
+    require(recorded.isNotEmpty())
+}
+
+fun com.example.io.write(label: String): String = label
+`,
+		},
+		{
+			name: "top-level fun print shadows builtin print",
+			code: `
+package test
+
+fun print(label: String): String = label
+
+fun emit() {
+    val recorded = print("ignored")
+    require(recorded.isNotEmpty())
+}
+`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "PrintlnInProduction", tc.code)
+			if len(findings) != 0 {
+				t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+			}
+		})
+	}
+}
+
+// TestPrintlnInProduction_ExplicitKotlinIoImportStillFlags ensures that
+// the shadow check does NOT swallow a legitimate finding when the file
+// only re-imports the kotlin.io built-in.
+func TestPrintlnInProduction_ExplicitKotlinIoImportStillFlags(t *testing.T) {
+	findings := runRuleByName(t, "PrintlnInProduction", `
+package test
+
+import kotlin.io.println
+
+fun emit() {
+    println("debug")
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding (re-import of builtin should not shadow), got %d: %v", len(findings), findings)
+	}
+}
+
 func TestPrintStackTraceInProduction(t *testing.T) {
 	rule := buildRuleIndex()["PrintStackTraceInProduction"]
 	if rule == nil {

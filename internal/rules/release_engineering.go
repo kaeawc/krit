@@ -613,7 +613,133 @@ func isProductionPrintCallFlat(file *scanner.File, idx uint32, name, receiver st
 			(segs[1] == "out" || segs[1] == "err") &&
 			segs[2] == name
 	}
-	return receiver == ""
+	if receiver != "" {
+		return false
+	}
+	// Bare `println(...)` resolves to kotlin.io.println only when nothing
+	// in the file shadows the built-in name: no top-level/member/local
+	// function_declaration named `println`, and no non-kotlin.io import
+	// (or alias) that brings a same-named symbol into scope.
+	return !kotlinFileShadowsBuiltinPrint(file, name)
+}
+
+// printBuiltinShadowFacts records, per file, whether the kotlin.io
+// built-in `println` and/or `print` are shadowed by a same-file
+// declaration or non-kotlin.io import. PrintlnInProduction calls into
+// this once per check; the dispatcher invokes the check per matching
+// call_expression, so without memoization a file with N bare
+// println/print calls would re-walk the entire AST and import header N
+// times.
+type printBuiltinShadowFacts struct {
+	println bool
+	print   bool
+}
+
+func (f printBuiltinShadowFacts) shadows(name string) bool {
+	switch name {
+	case "println":
+		return f.println
+	case "print":
+		return f.print
+	}
+	return false
+}
+
+// kotlinFileShadowsBuiltinPrint returns true when the file declares a
+// function named `name` at any scope, or imports a non-kotlin.io symbol
+// that would resolve before kotlin.io.<name> for a bare call. Result is
+// cached per-file via filefacts; only one AST walk and one import scan
+// run per file regardless of how many bare-call sites the rule visits.
+func kotlinFileShadowsBuiltinPrint(file *scanner.File, name string) bool {
+	if file == nil || name == "" {
+		return false
+	}
+	return printBuiltinShadowFactsFor(file).shadows(name)
+}
+
+func printBuiltinShadowFactsFor(file *scanner.File) printBuiltinShadowFacts {
+	return filefacts.FileFact(fileFactsCache(), file, slotPrintBuiltinShadows, func() printBuiltinShadowFacts {
+		return computePrintBuiltinShadowFacts(file)
+	})
+}
+
+func computePrintBuiltinShadowFacts(file *scanner.File) printBuiltinShadowFacts {
+	var facts printBuiltinShadowFacts
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if facts.println && facts.print {
+			return
+		}
+		if file.FlatType(idx) != "function_declaration" {
+			return
+		}
+		switch flatFunctionName(file, idx) {
+		case "println":
+			facts.println = true
+		case "print":
+			facts.print = true
+		}
+	})
+	if facts.println && facts.print {
+		return facts
+	}
+	// One import-header pass detects shadowing for both names.
+	kotlinScanImportsForPrintShadow(file, &facts)
+	return facts
+}
+
+// kotlinScanImportsForPrintShadow walks the file's import header and
+// sets facts.println / facts.print whenever an import statement (or
+// `as` alias) brings a same-named symbol into scope, other than an
+// explicit `import kotlin.io.<name>` re-import of the built-in.
+// Comments are stripped so a commented-out import does not register.
+func kotlinScanImportsForPrintShadow(file *scanner.File, facts *printBuiltinShadowFacts) {
+	inBlockComment := false
+	for _, line := range file.Lines {
+		if facts.println && facts.print {
+			return
+		}
+		stripped, stillInBlock := stripBlockComments(line, inBlockComment)
+		inBlockComment = stillInBlock
+		if i := strings.Index(stripped, "//"); i >= 0 {
+			stripped = stripped[:i]
+		}
+		trimmed := strings.TrimSpace(stripped)
+		if trimmed == "" {
+			continue
+		}
+		if !strings.HasPrefix(trimmed, "import ") {
+			if strings.HasPrefix(trimmed, "package ") {
+				continue
+			}
+			// Imports must precede the first declaration; stop scanning.
+			return
+		}
+		spec := strings.TrimSpace(strings.TrimPrefix(trimmed, "import "))
+		// Alias takes precedence: `import a.b.X as <name>` shadows.
+		if _, after, ok := strings.Cut(spec, " as "); ok {
+			alias := strings.TrimSpace(strings.TrimSuffix(after, ";"))
+			markPrintShadow(facts, alias)
+			continue
+		}
+		spec = strings.TrimSpace(strings.TrimSuffix(spec, ";"))
+		switch spec {
+		case "kotlin.io.println", "kotlin.io.print":
+			// Re-import of the built-in does not shadow.
+			continue
+		}
+		if i := strings.LastIndex(spec, "."); i >= 0 {
+			markPrintShadow(facts, spec[i+1:])
+		}
+	}
+}
+
+func markPrintShadow(facts *printBuiltinShadowFacts, name string) {
+	switch name {
+	case "println":
+		facts.println = true
+	case "print":
+		facts.print = true
+	}
 }
 
 func printlnNonProductionPath(path string) bool {

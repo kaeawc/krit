@@ -1,9 +1,12 @@
 package oracle
 
 import (
+	"container/list"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -116,4 +119,110 @@ func TestLazyLookupPreload_NilSafe(t *testing.T) {
 		t.Fatalf("empty path should not load; Loaded() = %v", got)
 	}
 	(&LazyLookup{}).Preload() // path == "" — must not panic or load
+}
+
+// resetPreloadCache drops every entry from the package-level preload LRU
+// so cap assertions are not perturbed by earlier tests in the same
+// process. Mirrors the locking discipline of preloadStateFor.
+func resetPreloadCache() {
+	preloadMu.Lock()
+	defer preloadMu.Unlock()
+	preloadByPath = map[string]*list.Element{}
+	preloadLRU.Init()
+}
+
+// TestPreloadCache_EvictsOldestPastCap is the regression test for the
+// unbounded preloadByPath map leak: writing more than preloadCacheCap
+// distinct paths used to grow the map without bound. The cap must hold
+// and the oldest entry must be evicted.
+func TestPreloadCache_EvictsOldestPastCap(t *testing.T) {
+	resetPreloadCache()
+
+	// Insert cap+overflow distinct paths. They never need to exist on
+	// disk — preloadStateFor only reserves the cache slot.
+	overflow := 10
+	total := preloadCacheCap + overflow
+	for i := 0; i < total; i++ {
+		_ = preloadStateFor(fmt.Sprintf("/fake/oracle/path-%d.json", i))
+	}
+
+	if got := preloadCacheLen(); got != preloadCacheCap {
+		t.Fatalf("preload cache len = %d after %d inserts; want cap %d",
+			got, total, preloadCacheCap)
+	}
+
+	// The first `overflow` paths must have been evicted; the most
+	// recent `preloadCacheCap` must remain.
+	preloadMu.Lock()
+	for i := 0; i < overflow; i++ {
+		path := fmt.Sprintf("/fake/oracle/path-%d.json", i)
+		if _, ok := preloadByPath[path]; ok {
+			preloadMu.Unlock()
+			t.Fatalf("expected evicted path %q to be absent", path)
+		}
+	}
+	for i := overflow; i < total; i++ {
+		path := fmt.Sprintf("/fake/oracle/path-%d.json", i)
+		if _, ok := preloadByPath[path]; !ok {
+			preloadMu.Unlock()
+			t.Fatalf("expected retained path %q to remain", path)
+		}
+	}
+	preloadMu.Unlock()
+}
+
+// TestPreloadCache_TouchPromotesToFront confirms LRU recency: re-asking
+// for an existing path must protect it from eviction even as new paths
+// stream in.
+func TestPreloadCache_TouchPromotesToFront(t *testing.T) {
+	resetPreloadCache()
+
+	// Fill to cap.
+	for i := 0; i < preloadCacheCap; i++ {
+		_ = preloadStateFor(fmt.Sprintf("/fake/oracle/old-%d.json", i))
+	}
+	// Touch the oldest entry so it becomes most-recent.
+	hotPath := "/fake/oracle/old-0.json"
+	_ = preloadStateFor(hotPath)
+
+	// Push a fresh path; the now-LRU entry (old-1) should be evicted,
+	// not the touched hot entry.
+	_ = preloadStateFor("/fake/oracle/fresh.json")
+
+	preloadMu.Lock()
+	defer preloadMu.Unlock()
+	if _, ok := preloadByPath[hotPath]; !ok {
+		t.Fatalf("touched path %q was evicted; LRU recency broken", hotPath)
+	}
+	if _, ok := preloadByPath["/fake/oracle/old-1.json"]; ok {
+		t.Fatalf("expected LRU entry old-1.json to be evicted")
+	}
+}
+
+// TestPreloadCache_ConcurrentInsertsRespectCap is the -race friendly
+// stress test: many goroutines racing through preloadStateFor must
+// neither corrupt the map nor blow past the cap.
+func TestPreloadCache_ConcurrentInsertsRespectCap(t *testing.T) {
+	resetPreloadCache()
+
+	const workers = 16
+	const perWorker = 64
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for w := 0; w < workers; w++ {
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < perWorker; i++ {
+				path := fmt.Sprintf("/fake/oracle/w%d-p%d.json", id, i)
+				_ = preloadStateFor(path)
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	if got := preloadCacheLen(); got > preloadCacheCap {
+		t.Fatalf("preload cache len = %d after concurrent inserts; want <= %d",
+			got, preloadCacheCap)
+	}
 }

@@ -304,6 +304,37 @@ fun process() {
 	}
 }
 
+// Local-lookalike: `foo.TODO()` is a member call, not kotlin.TODO. The rule
+// must require receiver/owner proof that the call resolves to the kotlin
+// stdlib TODO — bare `TODO(...)` or fully-qualified `kotlin.TODO(...)`.
+func TestExc_NotImplementedDeclaration_Negative_MemberReceiver(t *testing.T) {
+	findings := runRuleByName(t, "NotImplementedDeclaration", `
+class Tracker {
+    fun TODO(label: String) { println(label) }
+}
+
+fun useTracker() {
+    val tracker = Tracker()
+    tracker.TODO("future")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for member call foo.TODO(), got %d", len(findings))
+	}
+}
+
+// Fully-qualified `kotlin.TODO(...)` IS kotlin.TODO and must be flagged.
+func TestExc_NotImplementedDeclaration_Positive_FullyQualified(t *testing.T) {
+	findings := runRuleByName(t, "NotImplementedDeclaration", `
+fun process() {
+    kotlin.TODO("not yet")
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for kotlin.TODO() call")
+	}
+}
+
 // --- RethrowCaughtException ---
 
 func TestExc_RethrowCaughtException_Positive(t *testing.T) {

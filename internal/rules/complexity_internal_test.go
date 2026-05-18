@@ -2,6 +2,7 @@ package rules
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -116,8 +117,9 @@ func TestStripCommentsAndRawStrings_PreservesCodeAndMasksNonCode(t *testing.T) {
 }
 
 // TestScanLineStateMatchesStrip ensures the original scanLineState advance
-// path used by complexity rules stays in sync with the new shared lexer
-// body. Drift would silently corrupt LongMethod and friends.
+// path used by complexity rules stays in sync with the shared lexer
+// body across both strip variants. Drift would silently corrupt
+// LongMethod and friends.
 func TestScanLineStateMatchesStrip(t *testing.T) {
 	lines := []string{
 		`fun f() {`,
@@ -129,13 +131,107 @@ func TestScanLineStateMatchesStrip(t *testing.T) {
 		`    val r = "regular \"quoted\" string"`,
 		`}`,
 	}
-	var stripState lineScanState
+	var rawStripState lineScanState
+	var keepStripState lineScanState
 	var scanState lineScanState
 	for i, line := range lines {
-		_ = stripCommentsAndRawStrings(line, &stripState)
+		_ = stripCommentsAndRawStrings(line, &rawStripState)
+		_ = stripCommentsKeepStrings(line, &keepStripState)
 		scanLineState(line, &scanState)
-		if stripState != scanState {
-			t.Fatalf("line %d (%q): state drift: strip=%+v scan=%+v", i, line, stripState, scanState)
+		if rawStripState != scanState {
+			t.Fatalf("line %d (%q): state drift between stripCommentsAndRawStrings and scanLineState: strip=%+v scan=%+v", i, line, rawStripState, scanState)
 		}
+		if keepStripState != scanState {
+			t.Fatalf("line %d (%q): state drift between stripCommentsKeepStrings and scanLineState: strip=%+v scan=%+v", i, line, keepStripState, scanState)
+		}
+	}
+}
+
+// TestStripCommentsKeepStrings_MasksOnlyComments locks in that the
+// keep-strings variant scrubs line- and block-comment bytes while
+// leaving regular and raw string bytes verbatim, which is what
+// PackagedPrivateKey and similar rules require to detect markers
+// pasted into PEM-style string literals.
+func TestStripCommentsKeepStrings_MasksOnlyComments(t *testing.T) {
+	cases := []struct {
+		name      string
+		lines     []string
+		marker    string // must appear in scrubbed output where expected
+		expectOn  []int  // 0-based lines that must still contain marker
+		expectOff []int  // 0-based lines that must NOT contain marker
+	}{
+		{
+			name: "marker in line comment is masked",
+			lines: []string{
+				`// header: -----BEGIN RSA PRIVATE KEY-----`,
+				`val key = "-----BEGIN RSA PRIVATE KEY-----..."`,
+			},
+			marker:    "BEGIN RSA PRIVATE KEY",
+			expectOn:  []int{1},
+			expectOff: []int{0},
+		},
+		{
+			name: "marker in block comment is masked",
+			lines: []string{
+				`/* -----BEGIN PRIVATE KEY----- example */`,
+				`val key = "-----BEGIN PRIVATE KEY-----..."`,
+			},
+			marker:    "BEGIN PRIVATE KEY",
+			expectOn:  []int{1},
+			expectOff: []int{0},
+		},
+		{
+			name: "marker in multi-line block comment is masked across lines",
+			lines: []string{
+				`/*`,
+				` * -----BEGIN EC PRIVATE KEY-----`,
+				` */`,
+				`val key = "-----BEGIN EC PRIVATE KEY-----..."`,
+			},
+			marker:    "BEGIN EC PRIVATE KEY",
+			expectOn:  []int{3},
+			expectOff: []int{1},
+		},
+		{
+			name: "marker in raw string is preserved",
+			lines: []string{
+				`val key = """`,
+				`-----BEGIN RSA PRIVATE KEY-----`,
+				`"""`,
+			},
+			marker:   "BEGIN RSA PRIVATE KEY",
+			expectOn: []int{1},
+		},
+		{
+			name: "marker in regular string is preserved",
+			lines: []string{
+				`val key = "-----BEGIN RSA PRIVATE KEY-----..."`,
+			},
+			marker:   "BEGIN RSA PRIVATE KEY",
+			expectOn: []int{0},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var st lineScanState
+			scrubbed := make([]string, len(tc.lines))
+			for i, line := range tc.lines {
+				out := stripCommentsKeepStrings(line, &st)
+				if len(out) != len(line) {
+					t.Fatalf("line %d: scrubbed length %d != input length %d", i, len(out), len(line))
+				}
+				scrubbed[i] = out
+			}
+			for _, idx := range tc.expectOn {
+				if !strings.Contains(scrubbed[idx], tc.marker) {
+					t.Fatalf("line %d: expected marker %q to remain in scrubbed %q", idx, tc.marker, scrubbed[idx])
+				}
+			}
+			for _, idx := range tc.expectOff {
+				if strings.Contains(scrubbed[idx], tc.marker) {
+					t.Fatalf("line %d: expected marker %q to be masked, but it survived in %q", idx, tc.marker, scrubbed[idx])
+				}
+			}
+		})
 	}
 }

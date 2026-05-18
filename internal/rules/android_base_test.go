@@ -500,6 +500,94 @@ val key = KeyStore.getInstance("AndroidKeyStore")
 	}
 }
 
+// TestPackagedPrivateKey_IgnoresKeyMarkerInComments confirms that the
+// rule no longer reports private-key markers that appear only inside
+// line comments, block comments, or KDoc — those are documentation, not
+// embedded secrets. Each case fails on the pre-fix `strings.Contains`
+// implementation.
+func TestPackagedPrivateKey_IgnoresKeyMarkerInComments(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		code string
+	}{
+		{
+			name: "line comment mentions key marker",
+			code: `
+package test
+
+// Example header format: -----BEGIN RSA PRIVATE KEY-----
+val keystoreAlias = "AndroidKeyStore"
+`,
+		},
+		{
+			name: "single-line block comment mentions key marker",
+			code: `
+package test
+
+/* The PEM payload starts with -----BEGIN PRIVATE KEY----- */
+val keystoreAlias = "AndroidKeyStore"
+`,
+		},
+		{
+			name: "multi-line block comment mentions key marker",
+			code: `
+package test
+
+/*
+ * Documentation:
+ *   -----BEGIN EC PRIVATE KEY-----
+ *   <base64 here>
+ *   -----END EC PRIVATE KEY-----
+ */
+val keystoreAlias = "AndroidKeyStore"
+`,
+		},
+		{
+			name: "kdoc mentions key marker",
+			code: `
+package test
+
+/**
+ * Loads a key whose PEM header is -----BEGIN RSA PRIVATE KEY-----.
+ */
+fun load(): String = "AndroidKeyStore"
+`,
+		},
+		{
+			name: "trailing line comment after code mentions key marker",
+			code: `
+package test
+
+val keystoreAlias = "AndroidKeyStore" // headers like -----BEGIN PRIVATE KEY----- are PEM
+`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "PackagedPrivateKey", tc.code)
+			if len(findings) != 0 {
+				t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+			}
+		})
+	}
+}
+
+// TestPackagedPrivateKey_FlagsKeyInRawString locks in that triple-quoted
+// raw strings — a natural place to paste a real PEM block — still
+// trigger the rule on every line that contains a header marker.
+func TestPackagedPrivateKey_FlagsKeyInRawString(t *testing.T) {
+	findings := runRuleByName(t, "PackagedPrivateKey", "\n"+`package test
+
+val key = """
+    -----BEGIN RSA PRIVATE KEY-----
+    MIIEowIBAAKCAQEA...
+    -----END RSA PRIVATE KEY-----
+""".trimIndent()
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected at least 1 finding for raw-string PEM block")
+	}
+}
+
 // --- ObsoleteLayoutParamsRule (ObsoleteLayoutParam) ---
 
 func TestObsoleteLayoutParam_Positive(t *testing.T) {

@@ -352,7 +352,7 @@ type lineScanState struct {
 // raw-string state — occurrences inside comments or regular strings are
 // ignored.
 func scanLineState(line string, st *lineScanState) {
-	scanLineLexical(line, st, nil)
+	scanLineLexical(line, st, nil, true)
 }
 
 // stripCommentsAndRawStrings returns a copy of `line` where every byte
@@ -387,102 +387,145 @@ func stripCommentsAndRawStrings(line string, st *lineScanState) string {
 		return line
 	}
 	out := []byte(line)
-	scanLineLexical(line, st, out)
+	scanLineLexical(line, st, out, true)
 	return string(out)
 }
 
-// scanLineLexical is the shared body of scanLineState and
-// stripCommentsAndRawStrings. It advances `st` across `line` and, when
-// `mask` is non-nil, overwrites every byte that falls inside a line
-// comment, block comment, or raw string with a space. Regular `"..."`
-// strings advance the lexer's state (so `\"` and inner `"` are handled
-// correctly) but their bytes are never masked.
-func scanLineLexical(line string, st *lineScanState, mask []byte) {
-	i := 0
+// stripCommentsKeepStrings is the sibling of stripCommentsAndRawStrings
+// for rules whose patterns may legitimately appear inside both regular
+// and raw string literals (e.g. a private-key marker pasted into a
+// triple-quoted string). It masks only line-comment and block-comment
+// bytes; regular and raw string bytes are preserved verbatim. Length
+// preservation and state semantics match the other helper.
+func stripCommentsKeepStrings(line string, st *lineScanState) string {
+	if line == "" {
+		return ""
+	}
+	if !st.inBlockComment &&
+		!strings.Contains(line, "//") &&
+		!strings.Contains(line, "/*") {
+		// Lex still has to advance for the in-line content (raw and
+		// regular string toggles), so any raw string that opens on this
+		// line is recorded for the next call. No bytes are masked.
+		scanLineLexical(line, st, nil, false)
+		return line
+	}
+	out := []byte(line)
+	scanLineLexical(line, st, out, false)
+	return string(out)
+}
+
+// scanLineLexical is the shared body of scanLineState and the
+// stripComments* helpers. It advances `st` across `line` and, when
+// `mask` is non-nil, overwrites every byte that falls inside a line or
+// block comment with a space. Raw `"""..."""` strings are also masked
+// when `maskRaw` is true; otherwise their bytes are preserved (the lex
+// still advances `st.inRawString`). Regular `"..."` strings advance
+// the lexer's state (so `\"` and inner `"` are handled correctly) but
+// their bytes are never masked.
+func scanLineLexical(line string, st *lineScanState, mask []byte, maskRaw bool) {
 	n := len(line)
 	inLineComment := false
 	inRegString := false
-	scrub := func(j int) {
-		if mask != nil {
-			mask[j] = ' '
-		}
-	}
-	for i < n {
-		if inLineComment {
+	for i := 0; i < n; {
+		switch {
+		case inLineComment:
 			if mask == nil {
 				return
 			}
-			scrub(i)
+			mask[i] = ' '
 			i++
-			continue
+		case st.inBlockComment:
+			i = lexAdvanceBlockComment(line, i, n, st, mask)
+		case st.inRawString:
+			i = lexAdvanceRawString(line, i, n, st, mask, maskRaw)
+		case inRegString:
+			i, inRegString = lexAdvanceRegString(line, i, n)
+		default:
+			i, inLineComment, inRegString = lexAdvanceCodePos(
+				line, i, n, st, mask, maskRaw, inRegString)
 		}
-		if st.inBlockComment {
-			if i+1 < n && line[i] == '*' && line[i+1] == '/' {
-				scrub(i)
-				scrub(i + 1)
-				st.inBlockComment = false
-				i += 2
-				continue
-			}
-			scrub(i)
-			i++
-			continue
+	}
+}
+
+// lexAdvanceBlockComment masks the current byte (and the closing `*/`
+// when present) and returns the next index. Caller ensures we are
+// inside a block comment.
+func lexAdvanceBlockComment(line string, i, n int, st *lineScanState, mask []byte) int {
+	if i+1 < n && line[i] == '*' && line[i+1] == '/' {
+		maskByte(mask, i)
+		maskByte(mask, i+1)
+		st.inBlockComment = false
+		return i + 2
+	}
+	maskByte(mask, i)
+	return i + 1
+}
+
+// lexAdvanceRawString masks (when maskRaw is true) the current raw-
+// string byte and the closing `"""` when present. Caller ensures we
+// are inside a raw string.
+func lexAdvanceRawString(line string, i, n int, st *lineScanState, mask []byte, maskRaw bool) int {
+	if i+2 < n && line[i] == '"' && line[i+1] == '"' && line[i+2] == '"' {
+		if maskRaw {
+			maskByte(mask, i)
+			maskByte(mask, i+1)
+			maskByte(mask, i+2)
 		}
-		if st.inRawString {
-			if i+2 < n && line[i] == '"' && line[i+1] == '"' && line[i+2] == '"' {
-				scrub(i)
-				scrub(i + 1)
-				scrub(i + 2)
-				st.inRawString = false
-				i += 3
-				continue
-			}
-			scrub(i)
-			i++
-			continue
+		st.inRawString = false
+		return i + 3
+	}
+	if maskRaw {
+		maskByte(mask, i)
+	}
+	return i + 1
+}
+
+// lexAdvanceRegString advances past one byte inside a regular `"..."`
+// string, honouring `\"` escapes and the closing `"`.
+func lexAdvanceRegString(line string, i, n int) (int, bool) {
+	if line[i] == '\\' && i+1 < n {
+		return i + 2, true
+	}
+	if line[i] == '"' {
+		return i + 1, false
+	}
+	return i + 1, true
+}
+
+// lexAdvanceCodePos consumes one code-position byte and returns the
+// new index plus the updated `inLineComment` and `inRegString` flags.
+// State transitions (`//`, `/*`, `"""`, `"`) are recognized here.
+func lexAdvanceCodePos(line string, i, n int, st *lineScanState, mask []byte, maskRaw, inRegString bool) (int, bool, bool) {
+	if i+1 < n && line[i] == '/' && line[i+1] == '/' {
+		maskByte(mask, i)
+		maskByte(mask, i+1)
+		return i + 2, true, inRegString
+	}
+	if i+1 < n && line[i] == '/' && line[i+1] == '*' {
+		st.inBlockComment = true
+		maskByte(mask, i)
+		maskByte(mask, i+1)
+		return i + 2, false, inRegString
+	}
+	if i+2 < n && line[i] == '"' && line[i+1] == '"' && line[i+2] == '"' {
+		st.inRawString = true
+		if maskRaw {
+			maskByte(mask, i)
+			maskByte(mask, i+1)
+			maskByte(mask, i+2)
 		}
-		if inRegString {
-			if line[i] == '\\' && i+1 < n {
-				i += 2
-				continue
-			}
-			if line[i] == '"' {
-				inRegString = false
-				i++
-				continue
-			}
-			i++
-			continue
-		}
-		// Code position.
-		if i+1 < n && line[i] == '/' && line[i+1] == '/' {
-			inLineComment = true
-			scrub(i)
-			scrub(i + 1)
-			i += 2
-			continue
-		}
-		if i+1 < n && line[i] == '/' && line[i+1] == '*' {
-			st.inBlockComment = true
-			scrub(i)
-			scrub(i + 1)
-			i += 2
-			continue
-		}
-		if i+2 < n && line[i] == '"' && line[i+1] == '"' && line[i+2] == '"' {
-			st.inRawString = true
-			scrub(i)
-			scrub(i + 1)
-			scrub(i + 2)
-			i += 3
-			continue
-		}
-		if line[i] == '"' {
-			inRegString = true
-			i++
-			continue
-		}
-		i++
+		return i + 3, false, inRegString
+	}
+	if line[i] == '"' {
+		return i + 1, false, true
+	}
+	return i + 1, false, inRegString
+}
+
+func maskByte(mask []byte, i int) {
+	if mask != nil {
+		mask[i] = ' '
 	}
 }
 

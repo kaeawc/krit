@@ -384,9 +384,12 @@ func (r *PrivateKeyRule) Confidence() float64 { return 0.75 }
 
 func (r *PrivateKeyRule) check(ctx *api.Context) {
 	file := ctx.File
+	var st lineScanState
 	for i, line := range file.Lines {
-		if strings.Contains(line, "BEGIN RSA PRIVATE KEY") || strings.Contains(line, "BEGIN PRIVATE KEY") ||
-			strings.Contains(line, "BEGIN EC PRIVATE KEY") {
+		scrubbed := stripCommentsKeepStrings(line, &st)
+		if strings.Contains(scrubbed, "BEGIN RSA PRIVATE KEY") ||
+			strings.Contains(scrubbed, "BEGIN PRIVATE KEY") ||
+			strings.Contains(scrubbed, "BEGIN EC PRIVATE KEY") {
 			ctx.Emit(r.Finding(file, i+1, 1,
 				"Private key detected in source code. Remove and use secure key storage."))
 		}

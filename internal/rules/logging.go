@@ -773,8 +773,58 @@ func (r *NullableStructuredFieldRule) shouldFlag(file *scanner.File, idx uint32)
 	if expr == 0 {
 		return false
 	}
-	text := file.FlatNodeText(expr)
-	return strings.Contains(text, "?.") && !strings.Contains(text, "?:")
+	return nullableSafeCallWithoutElvis(file, expr)
+}
+
+// nullableSafeCallWithoutElvis reports whether the expression rooted at idx
+// contains an actual `?.` safe-navigation token outside any string literal
+// and is not the receiver of an `?:` Elvis expression that supplies a
+// fallback. Detection runs over the flat AST rather than raw text so that
+// string-literal contents such as `"use ?. operator"` cannot trigger a
+// false positive.
+func nullableSafeCallWithoutElvis(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	// An Elvis expression at the top supplies the fallback; any safe call
+	// inside is paired with `?:` so the rule should not fire.
+	if file.FlatType(idx) == "elvis_expression" {
+		return false
+	}
+	return flatExpressionHasSafeCallOutsideStrings(file, idx)
+}
+
+// flatExpressionHasSafeCallOutsideStrings walks the flat AST rooted at idx
+// and returns true when it finds a `?.` token node that is not nested inside
+// a string literal. It also returns false if any enclosing/descendant Elvis
+// expression provides a fallback for the safe call.
+func flatExpressionHasSafeCallOutsideStrings(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	hasSafe := false
+	hasElvis := false
+	var walk func(uint32)
+	walk = func(node uint32) {
+		if node == 0 || hasSafe && hasElvis {
+			return
+		}
+		switch file.FlatType(node) {
+		case "string_literal", "line_string_literal", "multi_line_string_literal",
+			"raw_string_literal", "character_literal",
+			"line_comment", "multiline_comment":
+			return
+		case "?.":
+			hasSafe = true
+		case "elvis_expression":
+			hasElvis = true
+		}
+		for i := 0; i < file.FlatChildCount(node); i++ {
+			walk(file.FlatChild(node, i))
+		}
+	}
+	walk(idx)
+	return hasSafe && !hasElvis
 }
 
 func firstCorrelationSensitiveLogCallFlat(file *scanner.File, idx uint32) uint32 {

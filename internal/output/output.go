@@ -258,13 +258,7 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 		}
 
 		severity := cols.SeverityAt(row)
-		level := "note"
-		switch severity {
-		case "error":
-			level = "error"
-		case "warning":
-			level = "warning"
-		}
+		level := sarifLevelForSeverity(severity)
 		r := sarifResult{
 			RuleID:  ruleID,
 			Level:   level,
@@ -306,6 +300,28 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 
 // buildResultProperties returns the per-finding sarifProperties payload,
 // or nil when the finding has no metadata worth emitting.
+// sarifLevelForSeverity returns the SARIF 2.1.0 `level` value (one of
+// "error", "warning", "note", "none") that corresponds to a krit
+// severity string. SARIF rejects out-of-domain level values, so every
+// krit-emitted severity must map to one of the four spec values.
+//
+// The mapping is explicit (no silent fallthrough): unknown severity
+// strings default to "warning" instead of being collapsed to "note",
+// so an upstream typo or a newly-introduced severity surfaces as a
+// loud finding rather than being silently downgraded.
+func sarifLevelForSeverity(severity string) string {
+	switch severity {
+	case "error":
+		return "error"
+	case "warning":
+		return "warning"
+	case "info", "informational":
+		return "note"
+	default:
+		return "warning"
+	}
+}
+
 func buildResultProperties(confidence float64, precision, effort string, caps []string, sec *api.SecurityTaxonomy) *sarifProperties {
 	if confidence <= 0 && precision == "" && effort == "" && len(caps) == 0 && sec == nil {
 		return nil

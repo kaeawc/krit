@@ -1169,3 +1169,101 @@ func TestIsTerminal_ReturnsFalseForBuffer(t *testing.T) {
 		t.Error("isTerminal should return false for bytes.Buffer")
 	}
 }
+
+// TestSarifLevelForSeverity locks in the SARIF level mapping for every
+// severity string krit currently emits, plus an unknown value to
+// guard against silent collapse. Adding a new severity string should
+// either land here explicitly or fall through to the "warning"
+// default so SARIF consumers see it instead of having it quietly
+// downgraded to "note".
+func TestSarifLevelForSeverity(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{in: "error", want: "error"},
+		{in: "warning", want: "warning"},
+		{in: "info", want: "note"},
+		{in: "informational", want: "note"},
+		{in: "", want: "warning"},
+		{in: "hint", want: "warning"},
+		{in: "ERROR", want: "warning"}, // case-sensitive: capitalised must not silently match.
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			if got := sarifLevelForSeverity(tc.in); got != tc.want {
+				t.Fatalf("sarifLevelForSeverity(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFormatSARIFColumns_LevelForInfoSeverity verifies that an info
+// finding renders as SARIF level "note" via the FormatSARIFColumns
+// pipeline (not just the helper in isolation), so any future
+// refactor that bypasses sarifLevelForSeverity is caught.
+func TestFormatSARIFColumns_LevelForInfoSeverity(t *testing.T) {
+	cols := buildSarifSeverityFixture("info")
+	var buf bytes.Buffer
+	if err := FormatSARIFColumns(&buf, &cols, "test"); err != nil {
+		t.Fatalf("FormatSARIFColumns: %v", err)
+	}
+	if level := firstSarifResultLevel(t, buf.Bytes()); level != "note" {
+		t.Fatalf("info severity rendered as level %q, want %q", level, "note")
+	}
+}
+
+// TestFormatSARIFColumns_LevelForUnknownSeverityNormalisesToInfo
+// documents the current end-to-end behaviour: the scanner's
+// `severityIDFromString` collapses any severity that is not exactly
+// "error" or "warning" to the internal `info` ID before it reaches
+// SARIF, so an out-of-domain severity ("hint") renders as level
+// "note" — the SARIF equivalent of "info". If a future change
+// preserves the original severity string instead of collapsing to
+// "info", `sarifLevelForSeverity`'s defensive default surfaces it
+// as "warning" instead of silently being downgraded; the unit test
+// on the helper itself covers that contract.
+func TestFormatSARIFColumns_LevelForUnknownSeverityNormalisesToInfo(t *testing.T) {
+	cols := buildSarifSeverityFixture("hint")
+	var buf bytes.Buffer
+	if err := FormatSARIFColumns(&buf, &cols, "test"); err != nil {
+		t.Fatalf("FormatSARIFColumns: %v", err)
+	}
+	if level := firstSarifResultLevel(t, buf.Bytes()); level != "note" {
+		t.Fatalf("unknown severity rendered as level %q, want %q (scanner collapses to info)", level, "note")
+	}
+}
+
+func buildSarifSeverityFixture(severity string) scanner.FindingColumns {
+	c := scanner.NewFindingCollector(1)
+	c.Append(scanner.Finding{
+		File:     "Sample.kt",
+		Rule:     "SeverityFixtureRule",
+		RuleSet:  "test",
+		Severity: severity,
+		Message:  "fixture",
+		Line:     1,
+		Col:      1,
+	})
+	return *c.Columns()
+}
+
+func firstSarifResultLevel(t *testing.T, raw []byte) string {
+	t.Helper()
+	var doc map[string]interface{}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("unmarshal SARIF: %v\n%s", err, raw)
+	}
+	runs, _ := doc["runs"].([]interface{})
+	if len(runs) == 0 {
+		t.Fatalf("no runs in SARIF output:\n%s", raw)
+	}
+	run, _ := runs[0].(map[string]interface{})
+	results, _ := run["results"].([]interface{})
+	if len(results) == 0 {
+		t.Fatalf("no results in SARIF output:\n%s", raw)
+	}
+	first, _ := results[0].(map[string]interface{})
+	level, _ := first["level"].(string)
+	return level
+}

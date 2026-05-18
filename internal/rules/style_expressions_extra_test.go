@@ -40,6 +40,28 @@ fun main() {
 	}
 }
 
+func TestMultilineLambdaItParameter_DoesNotMisparseEmbeddedQuotesInRawString(t *testing.T) {
+	// The raw-string body contains an embedded `"hi"` and a `//keep` that
+	// previously confused the comment-stripper's state machine, leaking
+	// raw-string content out and risking spurious `it.` matches once a
+	// future maintainer adds substring checks. This locks the parser
+	// behavior so the rule's downstream substring scan sees a coherent
+	// view of the lambda body even when raw strings hide special chars.
+	src := `
+package test
+fun main(items: List<String>) {
+    items.forEach { item ->
+        val s = """he said "hi"//keep me
+trailing"""
+        println(s + item)
+    }
+}
+`
+	if findings := runRuleByName(t, "MultilineLambdaItParameter", src); len(findings) != 0 {
+		t.Fatalf("expected no findings for explicit-parameter lambda with embedded-quote raw string, got %d", len(findings))
+	}
+}
+
 func TestMultilineLambdaItParameter_IgnoresCommentsAndNonProductionSources(t *testing.T) {
 	commentOnly := `
 package test

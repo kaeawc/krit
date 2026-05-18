@@ -7,64 +7,105 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
+// stripKotlinComments removes Kotlin line and block comments from text
+// while preserving string-literal content. Triple-quoted raw strings
+// are recognized as a single delimiter pair so that embedded `"`, `//`,
+// and `/* */` inside the raw body are not misinterpreted as code or
+// comments.
 func stripKotlinComments(text string) string {
 	var b strings.Builder
 	b.Grow(len(text))
-	inLineComment := false
-	inBlockComment := false
-	inString := false
-	escaped := false
-	for i := 0; i < len(text); i++ {
+	n := len(text)
+	for i := 0; i < n; {
 		ch := text[i]
-		if inLineComment {
-			if ch == '\n' {
-				inLineComment = false
-				b.WriteByte(ch)
-			}
+		if ch == '/' && i+1 < n && text[i+1] == '/' {
+			i = skipLineComment(text, i)
 			continue
 		}
-		if inBlockComment {
-			if ch == '*' && i+1 < len(text) && text[i+1] == '/' {
-				inBlockComment = false
-				i++
-			}
+		if ch == '/' && i+1 < n && text[i+1] == '*' {
+			i = skipBlockComment(text, i, &b)
 			continue
 		}
-		if inString {
-			b.WriteByte(ch)
-			if escaped {
-				escaped = false
-				continue
-			}
-			if ch == '\\' {
-				escaped = true
-				continue
-			}
-			if ch == '"' {
-				inString = false
-			}
+		if ch == '"' && i+2 < n && text[i+1] == '"' && text[i+2] == '"' {
+			i = copyRawString(text, i, &b)
 			continue
 		}
 		if ch == '"' {
-			inString = true
-			b.WriteByte(ch)
+			i = copyLineString(text, i, &b)
 			continue
 		}
-		if ch == '/' && i+1 < len(text) {
-			switch text[i+1] {
-			case '/':
-				inLineComment = true
-				i++
-				continue
-			case '*':
-				inBlockComment = true
-				i++
-				continue
-			}
-		}
 		b.WriteByte(ch)
+		i++
 	}
 	return b.String()
+}
+
+func skipLineComment(text string, i int) int {
+	for i < len(text) && text[i] != '\n' {
+		i++
+	}
+	return i
+}
+
+func skipBlockComment(text string, i int, b *strings.Builder) int {
+	n := len(text)
+	i += 2
+	for i+1 < n && (text[i] != '*' || text[i+1] != '/') {
+		if text[i] == '\n' {
+			b.WriteByte('\n')
+		}
+		i++
+	}
+	if i+1 < n {
+		return i + 2
+	}
+	// Unterminated block comment: still preserve a trailing newline so
+	// downstream line counts stay stable.
+	for ; i < n; i++ {
+		if text[i] == '\n' {
+			b.WriteByte('\n')
+		}
+	}
+	return n
+}
+
+func copyRawString(text string, i int, b *strings.Builder) int {
+	n := len(text)
+	b.WriteString(`"""`)
+	i += 3
+	for i+2 < n && (text[i] != '"' || text[i+1] != '"' || text[i+2] != '"') {
+		b.WriteByte(text[i])
+		i++
+	}
+	if i+2 < n {
+		b.WriteString(`"""`)
+		return i + 3
+	}
+	for ; i < n; i++ {
+		b.WriteByte(text[i])
+	}
+	return n
+}
+
+func copyLineString(text string, i int, b *strings.Builder) int {
+	n := len(text)
+	b.WriteByte('"')
+	i++
+	for i < n {
+		c := text[i]
+		if c == '\\' && i+1 < n {
+			b.WriteByte(c)
+			b.WriteByte(text[i+1])
+			i += 2
+			continue
+		}
+		b.WriteByte(c)
+		i++
+		if c == '"' || c == '\n' {
+			break
+		}
+	}
+	return i
 }
 
 func flatContainsStringInterpolation(file *scanner.File, idx uint32) bool {

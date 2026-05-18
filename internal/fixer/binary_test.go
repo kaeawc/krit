@@ -697,6 +697,89 @@ func TestApplyBinaryFixes_MoveFile_MissingSource(t *testing.T) {
 	}
 }
 
+// TestOptimizePNG_PngcrushTempPathIsUnique drops a fake `pngcrush`
+// shim onto PATH that records its output-path argument and writes a
+// canned PNG there. Two concurrent invocations on the same source PNG
+// must receive distinct temp-file arguments — otherwise the pre-fix
+// hard-coded `<src>.crush` path would have both invocations racing
+// on the same temp file. The shim makes the race deterministic by
+// waiting briefly before writing, ensuring both invocations are
+// in-flight simultaneously.
+func TestOptimizePNG_PngcrushTempPathIsUnique(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+	sleepPath, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("sleep not available")
+	}
+	cpPath, err := exec.LookPath("cp")
+	if err != nil {
+		t.Skip("cp not available")
+	}
+	binDir := t.TempDir()
+	recordDir := t.TempDir()
+	shim := filepath.Join(binDir, "pngcrush")
+	script := "#!/bin/sh\n" +
+		"# args: -q <src> <tmp>\n" +
+		"out=\"$3\"\n" +
+		"printf '%s\\n' \"$out\" >> \"" + filepath.Join(recordDir, "tmp-paths") + "\"\n" +
+		"# pause so both concurrent invocations overlap on the recorder.\n" +
+		sleepPath + " 0.1\n" +
+		cpPath + " \"$2\" \"$out\"\n"
+	if err := os.WriteFile(shim, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake pngcrush: %v", err)
+	}
+	// Override PATH so only our pngcrush shim is found (and no optipng,
+	// so optimizePNG falls through to the pngcrush branch).
+	t.Setenv("PATH", binDir)
+
+	workDir := t.TempDir()
+	src1 := filepath.Join(workDir, "a.png")
+	src2 := filepath.Join(workDir, "b.png")
+	writeStaticPNG(t, src1)
+	writeStaticPNG(t, src2)
+
+	errs := make(chan error, 2)
+	go func() { errs <- optimizePNG(context.Background(), src1, false) }()
+	go func() { errs <- optimizePNG(context.Background(), src2, false) }()
+	for i := 0; i < 2; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("optimizePNG: %v", err)
+		}
+	}
+
+	paths, err := os.ReadFile(filepath.Join(recordDir, "tmp-paths"))
+	if err != nil {
+		t.Fatalf("read recorder: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(paths)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 invocations recorded, got %d: %q", len(lines), lines)
+	}
+	if lines[0] == lines[1] {
+		t.Fatalf("both invocations used the same temp path %q — temp path is not unique", lines[0])
+	}
+	for _, line := range lines {
+		// Sanity: the temp path must live next to its source PNG and
+		// not be the literal <src>.crush legacy form.
+		if filepath.Dir(line) != workDir {
+			t.Errorf("temp path %q is not next to the source file (dir %q)", line, workDir)
+		}
+		if line == src1+".crush" || line == src2+".crush" {
+			t.Errorf("temp path %q still uses the pre-fix hard-coded suffix", line)
+		}
+	}
+	// And the source PNGs must be replaced (renamed from temp), so the
+	// originals still exist.
+	if _, err := os.Stat(src1); err != nil {
+		t.Errorf("src1 missing after optimize: %v", err)
+	}
+	if _, err := os.Stat(src2); err != nil {
+		t.Errorf("src2 missing after optimize: %v", err)
+	}
+}
+
 func TestApplyBinaryFixes_OptimizePNG_NoTool(t *testing.T) {
 	// Override PATH to ensure neither optipng nor pngcrush is found.
 	t.Setenv("PATH", t.TempDir())

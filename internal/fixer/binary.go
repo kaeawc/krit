@@ -305,7 +305,19 @@ func optimizePNG(ctx context.Context, src string, dryRun bool) error {
 		if dryRun {
 			return nil
 		}
-		tmp := src + ".crush"
+		// Use a unique temp path next to `src` so concurrent fixer
+		// invocations on the same PNG (e.g. overlapping LSP / MCP /
+		// CLI runs in one workspace) cannot collide on a shared
+		// `<src>.crush` filename. CreateTemp atomically reserves the
+		// name and creates a 0-byte file with O_EXCL; pngcrush writes
+		// to it via its `-o`-equivalent positional output argument
+		// (it truncates the empty file on open).
+		f, err := os.CreateTemp(filepath.Dir(src), filepath.Base(src)+".crush.*")
+		if err != nil {
+			return fmt.Errorf("pngcrush temp file for %s: %w", src, err)
+		}
+		tmp := f.Name()
+		_ = f.Close()
 		cmd := exec.CommandContext(ctx, pngcrush, "-q", src, tmp)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			os.Remove(tmp) // clean up on failure

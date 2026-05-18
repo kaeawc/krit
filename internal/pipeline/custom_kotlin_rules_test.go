@@ -11,6 +11,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -469,5 +470,72 @@ fun example() {
 	filtered = applySuppressionColumns(&keptCols, parse.KotlinFiles)
 	if filtered.Len() != 1 {
 		t.Fatalf("unsuppressed plugin finding Len = %d, want 1", filtered.Len())
+	}
+}
+
+func TestAnyRuleNeedsGradleHonorsSelection(t *testing.T) {
+	loaded := []oracle.PluginRuleDescriptor{
+		{RuleID: "acme.Resolver", Needs: []string{"NEEDS_RESOLVER"}},
+		{RuleID: "acme.Gradle", Needs: []string{"NEEDS_GRADLE"}},
+		{RuleID: "acme.GradleButInactive", Needs: []string{"NEEDS_GRADLE"}},
+	}
+
+	// acme.GradleButInactive is loaded but the user disabled it via
+	// krit.yml; the gradle payload should not be built just because a
+	// loaded-but-unselected rule declares NEEDS_GRADLE.
+	if anyRuleNeedsGradle(loaded, []string{"acme.Resolver"}) {
+		t.Errorf("unselected NEEDS_GRADLE rule must not trigger plumb")
+	}
+	// acme.Gradle is selected → true.
+	if !anyRuleNeedsGradle(loaded, []string{"acme.Resolver", "acme.Gradle"}) {
+		t.Errorf("acme.Gradle declares NEEDS_GRADLE; gradle plumb required")
+	}
+	// Empty selection → false.
+	if anyRuleNeedsGradle(loaded, nil) {
+		t.Errorf("empty selection should not trigger gradle plumb")
+	}
+	// Rules with no needs → false.
+	plain := []oracle.PluginRuleDescriptor{{RuleID: "x", Needs: nil}}
+	if anyRuleNeedsGradle(plain, []string{"x"}) {
+		t.Errorf("rule without NEEDS_GRADLE should not trigger plumb")
+	}
+}
+
+func TestBuildGradlePayloadProjectsSubsetOfProfile(t *testing.T) {
+	profile := &librarymodel.ProjectProfile{
+		MinSdkVersion:     24,
+		TargetSdkVersion:  34,
+		CompileSdkVersion: 34,
+		Dependencies: []librarymodel.Dependency{
+			{Group: "androidx.compose.ui", Name: "ui", Version: "1.6.0", Configuration: "implementation"},
+			// Same coord/version pair re-listed under a second config — must be deduped on the wire.
+			{Group: "androidx.compose.ui", Name: "ui", Version: "1.6.0", Configuration: "androidTestImplementation"},
+			{Group: "androidx.lifecycle", Name: "lifecycle-viewmodel-ktx", Version: "2.7.0", Configuration: "implementation"},
+			// Empty fields must be dropped — partial deps would corrupt the
+			// "group:name:version" parser on the Kotlin side.
+			{Group: "androidx.foo", Name: "", Version: "1.0.0"},
+			{Group: "", Name: "bar", Version: "1.0.0"},
+			{Group: "androidx.baz", Name: "baz", Version: ""},
+		},
+	}
+	got := buildGradlePayload(profile)
+	if got == nil {
+		t.Fatal("buildGradlePayload returned nil on a populated profile")
+	}
+	if got.MinSdk != 24 || got.TargetSdk != 34 || got.CompileSdk != 34 {
+		t.Errorf("SDK versions wrong: %+v", got)
+	}
+	wantDeps := []string{
+		"androidx.compose.ui:ui:1.6.0",
+		"androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0",
+	}
+	if !reflect.DeepEqual(got.Deps, wantDeps) {
+		t.Errorf("deps = %v, want %v", got.Deps, wantDeps)
+	}
+}
+
+func TestBuildGradlePayloadNilProfileReturnsNil(t *testing.T) {
+	if got := buildGradlePayload(nil); got != nil {
+		t.Errorf("nil profile must yield nil payload, got %+v", got)
 	}
 }

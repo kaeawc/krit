@@ -8,10 +8,16 @@ import (
 
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
 )
+
+// capabilityNeedsGradle mirrors `Capability.NEEDS_GRADLE.name` from
+// tools/krit-rule-api. Kept as a const so a typo can't silently turn
+// the gradle plumb into a no-op.
+const capabilityNeedsGradle = "NEEDS_GRADLE"
 
 func runKotlinPluginRulesAndMerge(ctx context.Context, args ProjectArgs, host ProjectHostState, indexResult IndexResult, crossFileResult *CrossFileResult, bundleHit bool) error {
 	if len(args.CustomRuleJars) == 0 || bundleHit {
@@ -37,6 +43,11 @@ func runKotlinPluginRulesAndMerge(ctx context.Context, args ProjectArgs, host Pr
 		return nil
 	}
 
+	var gradlePayload *oracle.PluginGradleProfile
+	if anyRuleNeedsGradle(list.Rules, ruleIDs) && indexResult.LibraryFacts != nil {
+		gradlePayload = buildGradlePayload(&indexResult.LibraryFacts.Profile)
+	}
+
 	collector := scanner.NewFindingCollector(crossFileResult.Findings.Len())
 	collector.AppendColumns(&crossFileResult.Findings)
 	for _, file := range indexResult.KotlinFiles {
@@ -48,7 +59,7 @@ func runKotlinPluginRulesAndMerge(ctx context.Context, args ProjectArgs, host Pr
 			return ctx.Err()
 		default:
 		}
-		result, err := daemon.AnalyzePluginFile(args.CustomRuleJars, file.Path, file.Content, ruleIDs, ruleOptions)
+		result, err := daemon.AnalyzePluginFile(args.CustomRuleJars, file.Path, file.Content, ruleIDs, ruleOptions, gradlePayload)
 		if err != nil {
 			return fmt.Errorf("run Kotlin custom rules on %s: %w", file.Path, err)
 		}
@@ -61,6 +72,79 @@ func runKotlinPluginRulesAndMerge(ctx context.Context, args ProjectArgs, host Pr
 	}
 	crossFileResult.Findings = *collector.Columns()
 	return nil
+}
+
+// anyRuleNeedsGradle reports whether any of the selected rules declared
+// NEEDS_GRADLE. Callers use this to skip building the Gradle wire
+// payload when no rule will read it — keeps the wire size minimal for
+// the common case where rules only need source.
+func anyRuleNeedsGradle(loaded []oracle.PluginRuleDescriptor, selected []string) bool {
+	if len(selected) == 0 {
+		return false
+	}
+	wanted := make(map[string]struct{}, len(selected))
+	for _, id := range selected {
+		wanted[id] = struct{}{}
+	}
+	for _, rule := range loaded {
+		if _, ok := wanted[rule.RuleID]; !ok {
+			continue
+		}
+		for _, need := range rule.Needs {
+			if need == capabilityNeedsGradle {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// buildGradlePayload projects a librarymodel.ProjectProfile into the
+// narrow wire schema the krit-types daemon expects on the analyzeFile
+// request. SDK ints use 0 as the "absent" sentinel (the krit-types
+// parser converts to null), and deps are flat "group:name:version"
+// strings — see PluginGradleProfile in internal/oracle/daemon.go.
+func buildGradlePayload(profile *librarymodel.ProjectProfile) *oracle.PluginGradleProfile {
+	if profile == nil {
+		return nil
+	}
+	deps := make([]string, 0, len(profile.Dependencies))
+	for _, dep := range profile.Dependencies {
+		if dep.Group == "" || dep.Name == "" || dep.Version == "" {
+			continue
+		}
+		deps = append(deps, dep.Group+":"+dep.Name+":"+dep.Version)
+	}
+	sort.Strings(deps)
+	// Different configurations can re-list the same coord/version pair —
+	// strip duplicates so the wire payload (and the Kotlin-side
+	// `versionByCoord` map build) does the minimum work.
+	deps = uniqueStrings(deps)
+	return &oracle.PluginGradleProfile{
+		MinSdk:            profile.MinSdkVersion,
+		TargetSdk:         profile.TargetSdkVersion,
+		CompileSdk:        profile.CompileSdkVersion,
+		KotlinVersion:     profile.Kotlin.EffectiveCompilerVersion(),
+		JavaTargetVersion: profile.JVM.EffectiveTargetBytecode(),
+		AGPVersion:        profile.Android.EffectiveAGPVersion(),
+		Deps:              deps,
+	}
+}
+
+// uniqueStrings collapses consecutive duplicates in a sorted slice in
+// place. Callers must sort first.
+func uniqueStrings(in []string) []string {
+	if len(in) < 2 {
+		return in
+	}
+	w := 1
+	for r := 1; r < len(in); r++ {
+		if in[r] != in[r-1] {
+			in[w] = in[r]
+			w++
+		}
+	}
+	return in[:w]
 }
 
 // selectPluginRules picks which jar-loaded rules to dispatch and collects

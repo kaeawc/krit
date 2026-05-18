@@ -323,11 +323,30 @@ func (d *Daemon) ListPlugins(jars []string) (ListPluginsResult, error) {
 	return out, nil
 }
 
+// PluginGradleProfile is the wire payload that backs `RuleContext.gradle`
+// on the Kotlin side. The shape is intentionally narrow — see
+// `GradleContext` in tools/krit-rule-api for the rule-facing surface and
+// `GradleProfilePayload` in tools/krit-types for the daemon-side mirror.
+// SDK ints rely on `omitempty` to drop the "absent" case from the wire;
+// the krit-types parser reads any non-negative int and rejects negatives
+// defensively. `Deps` carries "group:name:version" strings.
+type PluginGradleProfile struct {
+	MinSdk            int      `json:"minSdk,omitempty"`
+	TargetSdk         int      `json:"targetSdk,omitempty"`
+	CompileSdk        int      `json:"compileSdk,omitempty"`
+	KotlinVersion     string   `json:"kotlinVersion,omitempty"`
+	JavaTargetVersion string   `json:"javaTargetVersion,omitempty"`
+	AGPVersion        string   `json:"agpVersion,omitempty"`
+	Deps              []string `json:"deps,omitempty"`
+}
+
 // AnalyzePluginFile runs selected Kotlin custom rules against one source file.
 // ruleConfigs maps each rule ID to its configured `options` map; an empty
 // or nil map is omitted from the request so the daemon's RuleContext.config
-// stays empty for those rules.
-func (d *Daemon) AnalyzePluginFile(jars []string, path string, source []byte, ruleIDs []string, ruleConfigs map[string]map[string]interface{}) (AnalyzePluginFileResult, error) {
+// stays empty for those rules. gradle is forwarded only when at least one
+// selected rule declared NEEDS_GRADLE — keeps wire size minimal for the
+// common case.
+func (d *Daemon) AnalyzePluginFile(jars []string, path string, source []byte, ruleIDs []string, ruleConfigs map[string]map[string]interface{}, gradle *PluginGradleProfile) (AnalyzePluginFileResult, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -339,6 +358,9 @@ func (d *Daemon) AnalyzePluginFile(jars []string, path string, source []byte, ru
 	}
 	if len(ruleConfigs) > 0 {
 		params["ruleConfigs"] = ruleConfigs
+	}
+	if gradle != nil {
+		params["gradle"] = gradle
 	}
 	result, err := d.sendResult("analyzeFile", params)
 	if err != nil {

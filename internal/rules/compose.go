@@ -736,6 +736,133 @@ func composeFileHasRuntimeComposableEvidence(file *scanner.File) bool {
 		bytes.Contains(file.Content, []byte("@androidx.compose.runtime.Composable"))
 }
 
+// composeCodeOnlyContent returns a copy of file.Content with the bytes
+// inside line comments, block comments, raw string bodies, and regular
+// string bodies replaced with spaces. Byte offsets are preserved so
+// callers may slice the result with the same indexes they use against
+// file.Content. The evidence helpers in compose.go run text-level
+// substring scans for patterns like `receiver: MutableState` and
+// `val foo = remember {`; masking non-code bytes prevents comments or
+// string literals from satisfying those scans.
+func composeCodeOnlyContent(file *scanner.File) string {
+	if file == nil || len(file.Content) == 0 {
+		return ""
+	}
+	src := file.Content
+	n := len(src)
+	out := make([]byte, n)
+	copy(out, src)
+	for i := 0; i < n; {
+		c := src[i]
+		switch {
+		case c == '/' && i+1 < n && src[i+1] == '/':
+			i = composeMaskLineComment(src, out, i)
+		case c == '/' && i+1 < n && src[i+1] == '*':
+			i = composeMaskBlockComment(src, out, i)
+		case c == '"' && i+2 < n && src[i+1] == '"' && src[i+2] == '"':
+			i = composeMaskRawString(src, out, i)
+		case c == '"':
+			i = composeMaskLineString(src, out, i)
+		default:
+			i++
+		}
+	}
+	return string(out)
+}
+
+// composeCodeOnlySlice returns the code-only view of the bytes between
+// the start of fn and the start of assignment. The second return value
+// is false when the range is invalid (assignment precedes fn or runs
+// past file.Content).
+func composeCodeOnlySlice(file *scanner.File, fn, assignment uint32) (string, bool) {
+	if file == nil {
+		return "", false
+	}
+	start := file.FlatStartByte(fn)
+	end := file.FlatStartByte(assignment)
+	if end <= start || int(end) > len(file.Content) {
+		return "", false
+	}
+	masked := composeCodeOnlyContent(file)
+	return masked[int(start):int(end)], true
+}
+
+func composeMaskLineComment(src, out []byte, i int) int {
+	n := len(src)
+	for i < n && src[i] != '\n' {
+		out[i] = ' '
+		i++
+	}
+	return i
+}
+
+func composeMaskBlockComment(src, out []byte, i int) int {
+	n := len(src)
+	out[i] = ' '
+	out[i+1] = ' '
+	i += 2
+	for i+1 < n && (src[i] != '*' || src[i+1] != '/') {
+		if src[i] != '\n' {
+			out[i] = ' '
+		}
+		i++
+	}
+	if i+1 < n {
+		out[i] = ' '
+		out[i+1] = ' '
+		return i + 2
+	}
+	for ; i < n; i++ {
+		if src[i] != '\n' {
+			out[i] = ' '
+		}
+	}
+	return n
+}
+
+func composeMaskRawString(src, out []byte, i int) int {
+	n := len(src)
+	i += 3
+	for i+2 < n && (src[i] != '"' || src[i+1] != '"' || src[i+2] != '"') {
+		if src[i] != '\n' {
+			out[i] = ' '
+		}
+		i++
+	}
+	if i+2 < n {
+		return i + 3
+	}
+	for ; i < n; i++ {
+		if src[i] != '\n' {
+			out[i] = ' '
+		}
+	}
+	return n
+}
+
+func composeMaskLineString(src, out []byte, i int) int {
+	n := len(src)
+	i++
+	for i < n {
+		c := src[i]
+		if c == '\\' && i+1 < n {
+			out[i] = ' '
+			out[i+1] = ' '
+			i += 2
+			continue
+		}
+		if c == '"' {
+			return i + 1
+		}
+		if c == '\n' {
+			return i
+		}
+		out[i] = ' '
+		i++
+	}
+	return n
+}
+
 func composeFunctionHasPreviewAnnotationWithConfig(file *scanner.File, fn uint32, cfg customPreviewConfig) bool {
 	if flatHasCustomPreviewAnnotation(file, fn, cfg) {
 		return true
@@ -766,12 +893,10 @@ func composeAssignmentIsMutableTransitionTargetState(file *scanner.File, assignm
 	if receiver == "" || strings.ContainsAny(receiver, " \t\n(){}") {
 		return false
 	}
-	start := file.FlatStartByte(fn)
-	end := file.FlatStartByte(assignment)
-	if end <= start || int(end) > len(file.Content) {
+	prefix, ok := composeCodeOnlySlice(file, fn, assignment)
+	if !ok {
 		return false
 	}
-	prefix := string(file.Content[start:end])
 	return strings.Contains(prefix, "val "+receiver+" = remember { MutableTransitionState(") ||
 		strings.Contains(prefix, "var "+receiver+" = remember { MutableTransitionState(")
 }
@@ -791,12 +916,10 @@ func composeAssignmentSynchronizesRememberedObject(file *scanner.File, assignmen
 	if receiver == "" || strings.ContainsAny(receiver, " \t\n(){}[]") {
 		return false
 	}
-	start := file.FlatStartByte(fn)
-	end := file.FlatStartByte(assignment)
-	if end <= start || int(end) > len(file.Content) {
+	prefix, ok := composeCodeOnlySlice(file, fn, assignment)
+	if !ok {
 		return false
 	}
-	prefix := string(file.Content[start:end])
 	return strings.Contains(prefix, "val "+receiver+" = remember {") ||
 		strings.Contains(prefix, "var "+receiver+" = remember {") ||
 		strings.Contains(prefix, "val "+receiver+" = remember(") ||
@@ -856,7 +979,7 @@ func composeReceiverHasMutableStateEvidence(file *scanner.File, receiver string)
 	if file == nil || receiver == "" {
 		return false
 	}
-	text := string(file.Content)
+	text := composeCodeOnlyContent(file)
 	for _, typ := range []string{
 		"MutableState", "MutableFloatState", "MutableIntState", "MutableLongState", "MutableDoubleState",
 	} {

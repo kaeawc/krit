@@ -1164,6 +1164,67 @@ fun Screen(vm: VM) {
 	}
 }
 
+func TestComposeSideEffectInComposition_PositiveMutableStateEvidenceFromComment(t *testing.T) {
+	// A comment that mentions `counter: MutableState<Int>` must NOT
+	// satisfy the receiver-evidence check. Before this fix the whole-file
+	// substring scan accepted the comment text as evidence and the rule
+	// silently dropped a real side-effect.
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Screen(holder: StateHolder) {
+    // counter: MutableState<Int> is referenced in this comment only
+    val counter = holder.counter
+    counter.value = 1
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected side-effect finding even when only a comment fakes MutableState evidence, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_PositiveMutableStateEvidenceFromString(t *testing.T) {
+	// A string literal that contains `counter: MutableState<Int>` must
+	// not satisfy the receiver-evidence check either.
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Screen(holder: StateHolder) {
+    val description = "counter: MutableState<Int>"
+    val counter = holder.counter
+    counter.value = 1
+    println(description)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected side-effect finding even when only a string fakes MutableState evidence, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_PositiveSynchronizesEvidenceFromComment(t *testing.T) {
+	// Same shape for composeAssignmentSynchronizesRememberedObject:
+	// a comment mentioning `val obj = remember {` should not pass as
+	// evidence that obj was actually remembered.
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Screen(holder: StateHolder) {
+    // historical: val obj = remember { Holder() }
+    val obj = holder.obj
+    obj.field = 1
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected side-effect finding when only a comment fakes remember-evidence, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestComposeSideEffectInComposition_Negative_InSideEffect(t *testing.T) {
 	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
 package test

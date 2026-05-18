@@ -1245,3 +1245,75 @@ class NotARoomDb : Base()
 		t.Fatalf("expected no findings for non-@Database annotation, got %v", findings)
 	}
 }
+
+// Regression: jdbcPreparedStatementHasCleanupFlat used to call
+// strings.Contains on the source text, so `vs.close()` falsely "closed"
+// a sibling statement named `s`. The fix requires an identifier-boundary
+// match by walking the AST.
+func TestJdbcPreparedStatementNotClosed_LookalikeReceiverDoesNotSuppress(t *testing.T) {
+	findings := runRuleByName(t, "JdbcPreparedStatementNotClosed", `
+package test
+
+interface Connection {
+    fun prepareStatement(sql: String): PreparedStatement
+}
+
+interface PreparedStatement {
+    fun executeQuery(): ResultSet
+    fun close()
+}
+
+interface ResultSet
+
+fun query(connection: Connection) {
+    val s = connection.prepareStatement("SELECT 1")
+    val vs = connection.prepareStatement("SELECT 2")
+    s.executeQuery()
+    vs.executeQuery()
+    vs.close()
+    // s is never closed
+}
+`)
+	leaked := false
+	for _, f := range findings {
+		if strings.Contains(f.Message, "'s'") {
+			leaked = true
+		}
+	}
+	if !leaked {
+		t.Fatalf("expected leaked statement 's' to be reported even though sibling 'vs' was closed; got %v", findings)
+	}
+}
+
+// Regression: the negative side — a short-named statement that *is*
+// closed must continue to be recognised as cleaned-up.
+func TestJdbcPreparedStatementNotClosed_ShortNameClosedIsRecognised(t *testing.T) {
+	findings := runRuleByName(t, "JdbcPreparedStatementNotClosed", `
+package test
+
+interface Connection {
+    fun prepareStatement(sql: String): PreparedStatement
+}
+
+interface PreparedStatement {
+    fun executeQuery(): ResultSet
+    fun close()
+}
+
+interface ResultSet
+
+fun query(connection: Connection) {
+    val s = connection.prepareStatement("SELECT 1")
+    try {
+        s.executeQuery()
+    } finally {
+        s.close()
+    }
+}
+`)
+	for _, f := range findings {
+		if strings.Contains(f.Message, "'s'") {
+			t.Fatalf("expected no finding for statement 's' that is explicitly closed; got %v", f)
+		}
+	}
+}

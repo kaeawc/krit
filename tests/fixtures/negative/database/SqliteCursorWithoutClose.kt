@@ -27,3 +27,18 @@ fun loadUsersExplicitClose(db: SQLiteDatabase) {
     }
     cursor.close()
 }
+
+// Regression: a short-named cursor `c` is properly closed; the
+// receiver-bound identifier-boundary check must recognise `c.close()`
+// (and must not be confused into thinking some longer-named sibling
+// closed it).
+fun loadUsersShortName(db: SQLiteDatabase) {
+    val c = db.rawQuery("SELECT * FROM users", null)
+    try {
+        while (c.moveToNext()) {
+            // ...
+        }
+    } finally {
+        c.close()
+    }
+}

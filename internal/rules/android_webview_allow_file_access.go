@@ -32,14 +32,19 @@ func (r *WebViewAllowFileAccessRule) check(ctx *api.Context) {
 	})
 }
 
-// callBoolArgIsTrue reports whether the first argument of a call (Kotlin
-// call_expression or Java method_invocation) is the literal `true` after
-// unwrapping parentheses.
+// callBoolArgIsTrue reports whether `call` is a single-argument call
+// (Kotlin call_expression or Java method_invocation) whose only
+// argument is the literal `true` after unwrapping parentheses. Every
+// WebSettings rule that consumes this helper targets a Setter with
+// exactly one boolean parameter (`setAllowFileAccess(boolean)` and
+// friends), so insisting on arity-1 here avoids fooling the rules
+// with a same-named multi-arg overload like
+// `setAllowFileAccess(domain, true)`.
 func callBoolArgIsTrue(file *scanner.File, call uint32) bool {
 	switch file.FlatType(call) {
 	case "call_expression":
 		_, args := flatCallExpressionParts(file, call)
-		if args == 0 {
+		if args == 0 || file.FlatNamedChildCount(args) != 1 {
 			return false
 		}
 		first := file.FlatNamedChild(args, 0)
@@ -59,7 +64,7 @@ func callBoolArgIsTrue(file *scanner.File, call uint32) bool {
 		if !ok {
 			return false
 		}
-		if file.FlatNamedChildCount(args) == 0 {
+		if file.FlatNamedChildCount(args) != 1 {
 			return false
 		}
 		first := file.FlatNamedChild(args, 0)

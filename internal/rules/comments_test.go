@@ -833,3 +833,39 @@ fun oldMethod() {}
 		t.Fatalf("expected no findings when using @Deprecated annotation, got %d", len(findings))
 	}
 }
+
+func TestDeprecatedBlockTag_NegativeLongerTagName(t *testing.T) {
+	// `@deprecatedSince` is not the `@deprecated` block tag — it is a
+	// different (hypothetical) tag whose name begins with the same
+	// letters. The substring scan previously matched it anyway.
+	findings := runRuleByName(t, "DeprecatedBlockTag", `
+package test
+
+/**
+ * Description.
+ * @deprecatedSince 1.4 used by custom tooling.
+ */
+fun helper() {}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for @deprecatedSince custom tag, got %d", len(findings))
+	}
+}
+
+func TestDeprecatedBlockTag_NegativeInlineCodeSpan(t *testing.T) {
+	// `@deprecated` mentioned inside a Markdown code span in a KDoc
+	// description is documentation about the tag, not the tag itself.
+	findings := runRuleByName(t, "DeprecatedBlockTag", `
+package test
+
+/**
+ * Returns the legacy result. To mark a function as removed in a future
+ * release, prefer the [`+"`@Deprecated`"+`] annotation over a free-form
+ * `+"`@deprecated`"+` block tag in KDoc.
+ */
+fun legacy() {}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when @deprecated appears only inside a code span, got %d", len(findings))
+	}
+}

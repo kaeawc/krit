@@ -8,6 +8,15 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
+// deprecatedKDocTagRe matches the literal `@deprecated` KDoc block tag.
+// The tag must begin at a non-identifier boundary (start of text,
+// whitespace, or the `*` line marker) and end at a non-identifier
+// boundary (whitespace, end of text, or punctuation like `.` or `:`).
+// This rejects substring matches inside other tag names like
+// `@deprecatedSince` and inside Markdown code spans where the `@` is
+// preceded by a backtick.
+var deprecatedKDocTagRe = regexp.MustCompile(`(?:^|[\s*])@deprecated(?:$|[\s.:])`)
+
 func registerCommentsRules() {
 
 	// --- from comments.go ---
@@ -33,7 +42,7 @@ func registerCommentsRules() {
 					return
 				}
 				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "@deprecated") {
+				if !deprecatedKDocTagRe.MatchString(text) {
 					return
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, 1,

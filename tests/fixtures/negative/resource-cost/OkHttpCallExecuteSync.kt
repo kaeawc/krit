@@ -5,4 +5,14 @@ class OkHttpCallExecuteSync {
         val response = call.execute()
         return response.body?.string() ?: ""
     }
+
+    class NewCallTracker {
+        fun execute() {}
+    }
+
+    private val newCallTracker = NewCallTracker()
+
+    suspend fun trackerExecute() {
+        newCallTracker.execute()
+    }
 }

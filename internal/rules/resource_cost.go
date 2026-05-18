@@ -76,13 +76,6 @@ type OkHTTPCallExecuteSyncRule struct {
 func (r *OkHTTPCallExecuteSyncRule) Confidence() float64 { return 0.75 }
 
 func okHTTPExecuteCallLooksBlocking(file *scanner.File, idx, fn uint32) bool {
-	navText := file.FlatNodeText(idx)
-	if navExpr, _ := flatCallExpressionParts(file, idx); navExpr != 0 {
-		navText = file.FlatNodeText(navExpr)
-	}
-	if strings.Contains(navText, "newCall") || strings.Contains(navText, "okhttp3.Call") {
-		return true
-	}
 	receiver := databaseCallReceiverName(file, idx)
 	if receiver == "" {
 		return false

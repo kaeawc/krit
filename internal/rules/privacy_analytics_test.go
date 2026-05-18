@@ -302,6 +302,81 @@ class ScreenTracker(
 		}
 	})
 
+	t.Run("flags analytics call when consent-if has no real return statement", func(t *testing.T) {
+		// The if-condition mentions consent but the body never actually
+		// returns — `return` appears only inside a string literal. The
+		// rule must still flag the unconditional analytics call below.
+		findings := runRuleByName(t, "AnalyticsCallWithoutConsentGate", `
+package test
+
+object Bundle {
+    val EMPTY = Any()
+}
+
+class FirebaseAnalytics {
+    fun logEvent(name: String, payload: Any) {}
+}
+
+class Logger {
+    fun info(message: String) {}
+}
+
+class ConsentState(val analyticsAllowed: Boolean)
+
+class Tracker(
+    private val analytics: FirebaseAnalytics,
+    private val logger: Logger,
+    private val consent: ConsentState,
+) {
+    fun track() {
+        if (consent.analyticsAllowed) {
+            logger.info("return value will be ignored")
+        }
+        analytics.logEvent("screen_view", Bundle.EMPTY)
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding when consent-if body has no real return, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("flags analytics call when consent-if body uses return as identifier", func(t *testing.T) {
+		// Same case but the false-positive substring is an identifier
+		// `returnedValue` rather than a string literal.
+		findings := runRuleByName(t, "AnalyticsCallWithoutConsentGate", `
+package test
+
+object Bundle {
+    val EMPTY = Any()
+}
+
+class FirebaseAnalytics {
+    fun logEvent(name: String, payload: Any) {}
+}
+
+class ConsentState(val analyticsAllowed: Boolean)
+
+class Tracker(
+    private val analytics: FirebaseAnalytics,
+    private val consent: ConsentState,
+) {
+    private fun computeReturnedValue(): Int = 1
+
+    fun track() {
+        if (consent.analyticsAllowed) {
+            val returnedValue = computeReturnedValue()
+            println(returnedValue)
+        }
+        analytics.logEvent("screen_view", Bundle.EMPTY)
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding when consent-if body has identifier containing 'return', got %d: %v", len(findings), findings)
+		}
+	})
+
 	t.Run("allows analytics call when function has consent check elsewhere", func(t *testing.T) {
 		findings := runRuleByName(t, "AnalyticsCallWithoutConsentGate", `
 package test

@@ -221,8 +221,29 @@ func privacyHasConsentEarlyReturn(file *scanner.File, fn, target uint32) bool {
 		if !consentTokenPattern.MatchString(condText) {
 			return
 		}
-		ifText := file.FlatNodeText(ifNode)
-		if strings.Contains(ifText, "return") {
+		if privacyContainsReturnStatement(file, ifNode) {
+			found = true
+		}
+	})
+	return found
+}
+
+// privacyContainsReturnStatement reports whether the AST subtree rooted
+// at node holds a real `return` jump_expression. Substring matches
+// against identifiers like `returnedValue` or text inside string
+// literals must not count.
+func privacyContainsReturnStatement(file *scanner.File, node uint32) bool {
+	found := false
+	file.FlatWalkNodes(node, "jump_expression", func(jump uint32) {
+		if found {
+			return
+		}
+		first := file.FlatChild(jump, 0)
+		if first == 0 {
+			return
+		}
+		switch file.FlatType(first) {
+		case "return", "return@":
 			found = true
 		}
 	})

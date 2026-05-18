@@ -1325,10 +1325,10 @@ func (r *StructuredLogKeyMixedCaseRule) decisionFor(ctx *api.Context) structured
 		snake, camel := 0, 0
 		tree := file.FlatTree
 		callTypeID, ok := scanner.LookupFlatNodeType("call_expression")
-		if !ok || tree == nil || int(callTypeID) >= len(tree.NodesByType) {
+		if !ok || tree == nil {
 			return structuredLogKeyDecision{}
 		}
-		for _, flatIdx := range tree.NodesByType[callTypeID] {
+		for _, flatIdx := range tree.NodesOfType(callTypeID) {
 			key, ok := structuredLogKeyAtCall(file, flatIdx)
 			if !ok {
 				continue

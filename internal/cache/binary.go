@@ -72,6 +72,7 @@ func hasBinaryMagic(data []byte) bool {
 }
 
 func encodeBinary(c *Cache) ([]byte, error) {
+	c.filesMu.RLock()
 	entries := make([]binaryEntry, 0, len(c.Files))
 	for path, entry := range c.Files {
 		entries = append(entries, binaryEntry{
@@ -82,6 +83,7 @@ func encodeBinary(c *Cache) ([]byte, error) {
 			Columns: entry.Columns,
 		})
 	}
+	c.filesMu.RUnlock()
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Path < entries[j].Path
 	})

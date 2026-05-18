@@ -1258,7 +1258,7 @@ func openForTestingTypeRefFromNode(file *scanner.File, root uint32) openForTesti
 }
 
 func openForTestingFirstUserType(file *scanner.File, root uint32) uint32 {
-	if file == nil || file.FlatTree == nil || int(root) >= len(file.FlatTree.Nodes) {
+	if file == nil || file.FlatTree == nil || int(root) >= file.FlatTree.Len() {
 		return 0
 	}
 	if file.FlatType(root) == "user_type" {

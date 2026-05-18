@@ -362,7 +362,7 @@ func BenchmarkNodeTextVsZeroCopy(b *testing.B) {
 	}
 
 	var allNodes []uint32
-	for i := range f.FlatTree.Nodes {
+	for i := range f.FlatTree.Types {
 		allNodes = append(allNodes, uint32(i))
 	}
 

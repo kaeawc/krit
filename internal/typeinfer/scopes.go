@@ -15,7 +15,7 @@ func (s flatScopeSpan) StartByte() uint32 { return s.start }
 func (s flatScopeSpan) EndByte() uint32   { return s.end }
 
 func (r *defaultResolver) buildScopesFlat(idx uint32, file *scanner.File, scope *ScopeTable, it *ImportTable) {
-	if file == nil || file.FlatTree == nil || int(idx) >= len(file.FlatTree.Nodes) || scope == nil {
+	if file == nil || file.FlatTree == nil || int(idx) >= file.FlatTree.Len() || scope == nil {
 		return
 	}
 	if idx == 0 && file.FlatType(0) == "source_file" {

@@ -1062,11 +1062,12 @@ func rangeResolveConstant(file *scanner.File, name string, use uint32, constants
 	}
 	useFn, _ := flatEnclosingFunction(file, use)
 	useOwner := androidEnclosingOwner(file, use)
-	useStart := file.FlatTree.Nodes[use].StartByte
+	t := file.FlatTree
+	useStart := t.StartBytes[use]
 	bestScore := 0
 	var best rangeConstantSpec
 	for _, candidate := range candidates {
-		if candidate.decl == 0 || file.FlatTree.Nodes[candidate.decl].StartByte >= useStart {
+		if candidate.decl == 0 || t.StartBytes[candidate.decl] >= useStart {
 			continue
 		}
 		score := 0
@@ -1085,7 +1086,7 @@ func rangeResolveConstant(file *scanner.File, name string, use uint32, constants
 		if score == 0 {
 			continue
 		}
-		if score > bestScore || (score == bestScore && file.FlatTree.Nodes[candidate.decl].StartByte > file.FlatTree.Nodes[best.decl].StartByte) {
+		if score > bestScore || (score == bestScore && t.StartBytes[candidate.decl] > t.StartBytes[best.decl]) {
 			best = candidate
 			bestScore = score
 		}

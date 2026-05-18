@@ -110,8 +110,8 @@ func FakeContextWithNode(file *scanner.File, idx uint32) *Context {
 		Idx:       idx,
 		Collector: scanner.NewFindingCollector(0),
 	}
-	if file.FlatTree != nil && int(idx) < len(file.FlatTree.Nodes) {
-		node := file.FlatTree.Nodes[idx]
+	if file.FlatTree != nil && int(idx) < file.FlatTree.Len() {
+		node := file.FlatTree.Node(idx)
 		ctx.Node = &node
 	}
 	return ctx

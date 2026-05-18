@@ -19,7 +19,7 @@ func scanFileHeadersFlat(rootIdx uint32, file *scanner.File) fileHeaders {
 			Aliases:  make(map[string]string),
 		},
 	}
-	if file == nil || file.FlatTree == nil || int(rootIdx) >= len(file.FlatTree.Nodes) {
+	if file == nil || file.FlatTree == nil || int(rootIdx) >= file.FlatTree.Len() {
 		return headers
 	}
 	visitChild := func(child uint32) {

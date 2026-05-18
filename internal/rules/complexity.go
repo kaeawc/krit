@@ -27,7 +27,7 @@ func FunctionComplexities(file *scanner.File) []FunctionComplexity {
 		return nil
 	}
 	out := make([]FunctionComplexity, 0)
-	for idx := uint32(1); idx < uint32(len(file.FlatTree.Nodes)); idx++ {
+	for idx := uint32(1); idx < uint32(file.FlatTree.Len()); idx++ {
 		if file.FlatType(idx) != "function_declaration" {
 			continue
 		}
@@ -95,8 +95,9 @@ func collectComplexityMetricsFlat(root uint32, file *scanner.File) complexityMet
 		// Iterate children directly via FirstChild/NextSib (O(N) total)
 		// instead of FlatNamedChild(idx, i) in a loop (O(N²) due to O(i)
 		// per FlatNamedChild call).
-		for child := file.FlatTree.Nodes[idx].FirstChild; child != 0; child = file.FlatTree.Nodes[child].NextSib {
-			if !file.FlatTree.Nodes[child].IsNamed() {
+		t := file.FlatTree
+		for child := t.FirstChildren[idx]; child != 0; child = t.NextSibs[child] {
+			if !t.NodeIsNamed(child) {
 				continue
 			}
 			walk(child, nextDepthNesting, nextCognitiveNesting)
@@ -124,7 +125,8 @@ func isElseIfChainNodeFlat(file *scanner.File, idx uint32) bool {
 	// comments, error nodes, or other extras between `else` and the inner
 	// `if` — byte offsets are not.
 	sawElse := false
-	for c := file.FlatTree.Nodes[p].FirstChild; c != 0; c = file.FlatTree.Nodes[c].NextSib {
+	t := file.FlatTree
+	for c := t.FirstChildren[p]; c != 0; c = t.NextSibs[c] {
 		if !sawElse {
 			if file.FlatType(c) == "else" {
 				sawElse = true
@@ -738,8 +740,9 @@ func countCyclomaticAcrossLambdasFlat(
 		if nodeType == "elvis_expression" {
 			cyclomatic++
 		}
-		for c := file.FlatTree.Nodes[idx].FirstChild; c != 0; c = file.FlatTree.Nodes[c].NextSib {
-			if !file.FlatTree.Nodes[c].IsNamed() {
+		t := file.FlatTree
+		for c := t.FirstChildren[idx]; c != 0; c = t.NextSibs[c] {
+			if !t.NodeIsNamed(c) {
 				continue
 			}
 			walk(c)

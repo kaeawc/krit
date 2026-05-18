@@ -7,7 +7,7 @@ import (
 )
 
 func (r *defaultResolver) indexDeclarationsFlat(idx uint32, file *scanner.File, scope *ScopeTable, it *ImportTable, pkg string) {
-	if file == nil || file.FlatTree == nil || int(idx) >= len(file.FlatTree.Nodes) || scope == nil || it == nil {
+	if file == nil || file.FlatTree == nil || int(idx) >= file.FlatTree.Len() || scope == nil || it == nil {
 		return
 	}
 

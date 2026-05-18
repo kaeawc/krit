@@ -30,7 +30,7 @@ type FileTypeInfo struct {
 // touching any shared state. Returns a FileTypeInfo that can be
 // merged later.
 func IndexFileParallel(file *scanner.File) *FileTypeInfo {
-	if file == nil || file.FlatTree == nil || len(file.FlatTree.Nodes) == 0 || file.FlatType(0) != "source_file" {
+	if file == nil || file.FlatTree == nil || file.FlatTree.Len() == 0 || file.FlatType(0) != "source_file" {
 		return nil
 	}
 

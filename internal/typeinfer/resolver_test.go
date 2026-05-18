@@ -455,7 +455,7 @@ fun main() {
 }
 `
 	file := parseTestFile(t, src)
-	if file.FlatTree == nil || len(file.FlatTree.Nodes) == 0 {
+	if file.FlatTree == nil || file.FlatTree.Len() == 0 {
 		t.Fatal("expected parsed tree")
 	}
 	// Match the original "any children" semantics: the pre-migration test

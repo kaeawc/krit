@@ -381,6 +381,8 @@ func (d *Dispatcher) RunWithStats(file *scanner.File) (scanner.FindingColumns, R
 // into a FindingCollector, bypassing the intermediate []scanner.Finding
 // accumulation. Rules emit via ctx.Emit which routes straight to the
 // collector; the result is returned as columnar data.
+//
+//nolint:gocyclo // Hot path: per-rule dispatch is inlined twice (posting-list vs full-walk path) to avoid closure allocations and preserve Go inlining; extracting into helpers measurably regresses small-file dispatch.
 func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingColumns, RunStats) {
 	stats := RunStats{
 		DispatchRuleNsByRule: make(map[string]int64),
@@ -414,13 +416,47 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 	javaFileFacts, javaSourceIndex := javaContextFactsForFile(file)
 
 	// Single-pass AST walk.
+	//
+	// Two paths share the same per-rule dispatch logic (inlined here, not
+	// a closure — closures would defeat the compiler's inlining and add
+	// allocation overhead per Run call):
+	//
+	//   1. Posting-list path: iterate tree.NodesByType[typeID] for each
+	//      typeID that has at least one subscribed rule. Visits ONLY
+	//      indices of subscribed types, skipping the bulk of the tree.
+	//
+	//   2. Full walk path: a single pass over every node. Used when
+	//      there is at least one rule registered with nil NodeTypes
+	//      (d.allNodeRules), since those need to see every node.
+	//
+	// In the common case (no allNodeRules) the posting-list path is
+	// strictly less work than the old walk-everything-and-dispatch-by-type
+	// approach: most nodes have no subscribed handlers, so we save the
+	// per-node loop body entirely.
 	start = time.Now()
-	if file.FlatTree != nil && len(file.FlatTree.Nodes) > 0 {
-		for idx := range file.FlatTree.Nodes {
-			flatIdx := uint32(idx)
-			flatNode := file.FlatTree.Nodes[idx]
-			if int(flatNode.Type) < len(flatTypeRules) {
-				if handlers := flatTypeRules[flatNode.Type]; handlers != nil {
+	if tree := file.FlatTree; tree != nil && tree.Len() > 0 {
+		if len(d.allNodeRules) == 0 {
+			// Posting-list path.
+			//
+			// The per-rule body below is duplicated in the full-walk path
+			// at line ~493 and in the allNodeRules block at line ~516.
+			// Keep all three in sync — extracting to a helper measurably
+			// regresses small-file dispatch (closures defeat inlining).
+			n := len(tree.NodesByType)
+			if n > len(flatTypeRules) {
+				n = len(flatTypeRules)
+			}
+			for typeID := 0; typeID < n; typeID++ {
+				handlers := flatTypeRules[typeID]
+				if len(handlers) == 0 {
+					continue
+				}
+				indices := tree.NodesByType[typeID]
+				if len(indices) == 0 {
+					continue
+				}
+				for _, flatIdx := range indices {
+					flatNode := tree.Node(flatIdx)
 					for _, r := range handlers {
 						if excludedRules[r.ID] {
 							continue
@@ -443,22 +479,54 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 					}
 				}
 			}
-			for _, r := range d.allNodeRules {
-				if excludedRules[r.ID] {
-					continue
+		} else {
+			// Full walk path: every node must be visited for allNodeRules.
+			// Per-rule body kept in sync with the posting-list path above.
+			n := tree.Len()
+			for i := 0; i < n; i++ {
+				flatIdx := uint32(i)
+				flatNode := tree.Node(flatIdx)
+				var handlers []*api.Rule
+				if int(flatNode.Type) < len(flatTypeRules) {
+					handlers = flatTypeRules[flatNode.Type]
 				}
-				resolver, ok := d.resolveForRule(r)
-				if !ok {
-					continue
+				for _, r := range handlers {
+					if excludedRules[r.ID] {
+						continue
+					}
+					if !ruleMatchesLexicalCalleeNames(r, file, flatIdx) {
+						continue
+					}
+					resolver, ok := d.resolveForRule(r)
+					if !ok {
+						continue
+					}
+					t := time.Now()
+					runWithRuleProfileLabel(r.ID, "dispatch", func() {
+						safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex, d.javaSemanticFacts, d.fileFacts)
+					})
+					elapsed := time.Since(t).Nanoseconds()
+					stats.DispatchRuleNs += elapsed
+					stats.DispatchRuleNsByRule[r.ID] += elapsed
+					stats.recordRule(r.ID, "dispatch", elapsed)
 				}
-				t := time.Now()
-				runWithRuleProfileLabel(r.ID, "dispatch", func() {
-					safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex, d.javaSemanticFacts, d.fileFacts)
-				})
-				elapsed := time.Since(t).Nanoseconds()
-				stats.DispatchRuleNs += elapsed
-				stats.DispatchRuleNsByRule[r.ID] += elapsed
-				stats.recordRule(r.ID, "dispatch", elapsed)
+				for _, r := range d.allNodeRules {
+					if excludedRules[r.ID] {
+						continue
+					}
+					resolver, ok := d.resolveForRule(r)
+					if !ok {
+						continue
+					}
+					t := time.Now()
+					runWithRuleProfileLabel(r.ID, "dispatch", func() {
+						safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex, d.javaSemanticFacts, d.fileFacts)
+					})
+					elapsed := time.Since(t).Nanoseconds()
+					stats.DispatchRuleNs += elapsed
+					stats.DispatchRuleNsByRule[r.ID] += elapsed
+					stats.recordRule(r.ID, "dispatch", elapsed)
+				}
 			}
 		}
 	}
@@ -864,23 +932,32 @@ func (d *Dispatcher) RunResourceSource(file *scanner.File, idx *android.Resource
 	stats := RunStats{RuleStatsByRule: make(map[string]RuleExecutionStat)}
 	collector := scanner.NewFindingCollector(0)
 	javaFileFacts, javaSourceIndex := javaContextFactsForFile(file)
-	if file.FlatTree != nil && len(file.FlatTree.Nodes) > 0 {
-		for i := range file.FlatTree.Nodes {
-			flatIdx := uint32(i)
-			flatNode := file.FlatTree.Nodes[i]
-			for _, r := range rulesByType[flatNode.Type] {
-				if !ruleMatchesLexicalCalleeNames(r, file, flatIdx) {
-					continue
+	if tree := file.FlatTree; tree != nil && tree.Len() > 0 {
+		// Resource-source rules are all node-typed (rulesByType only).
+		// Iterate per-type via the posting list so we visit only the
+		// indices for types with subscribers, skipping the bulk of the
+		// tree.
+		for typeID, handlers := range rulesByType {
+			var indices []uint32
+			if int(typeID) < len(tree.NodesByType) {
+				indices = tree.NodesByType[typeID]
+			}
+			for _, flatIdx := range indices {
+				flatNode := tree.Node(flatIdx)
+				for _, r := range handlers {
+					if !ruleMatchesLexicalCalleeNames(r, file, flatIdx) {
+						continue
+					}
+					resolver, ok := d.resolveForRule(r)
+					if !ok {
+						continue
+					}
+					t := time.Now()
+					runWithRuleProfileLabel(r.ID, "resource-source", func() {
+						safeCheckV2ResourceNodeColumnar(r, flatIdx, &flatNode, file, idx, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex, d.javaSemanticFacts, d.fileFacts)
+					})
+					stats.recordRule(r.ID, "resource-source", time.Since(t).Nanoseconds())
 				}
-				resolver, ok := d.resolveForRule(r)
-				if !ok {
-					continue
-				}
-				t := time.Now()
-				runWithRuleProfileLabel(r.ID, "resource-source", func() {
-					safeCheckV2ResourceNodeColumnar(r, flatIdx, &flatNode, file, idx, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex, d.javaSemanticFacts, d.fileFacts)
-				})
-				stats.recordRule(r.ID, "resource-source", time.Since(t).Nanoseconds())
 			}
 		}
 	}

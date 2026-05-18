@@ -301,34 +301,28 @@ func (r *LateinitUsageRule) Confidence() float64 { return 0.75 }
 // MissingPackageDeclarationRule detects Kotlin/Java source files without package statements.
 // ---------------------------------------------------------------------------
 type MissingPackageDeclarationRule struct {
-	LineBase
+	FlatDispatchBase
 	BaseRule
 }
 
-// Confidence bumps this line rule from the 0.75 line-rule default to
-// 0.95 — the check walks the first non-blank, non-comment line and
-// verifies it starts with "package ". Deterministic with no
-// heuristic path.
+// Confidence bumps this rule from the line-rule default to 0.95 — the
+// check asks tree-sitter whether the file's root has a package_header
+// (Kotlin) or package_declaration (Java) child. Deterministic with no
+// heuristic path and no dependence on line-level comment detection.
 func (r *MissingPackageDeclarationRule) Confidence() float64 { return 0.95 }
 
 func (r *MissingPackageDeclarationRule) check(ctx *api.Context) {
-	file := ctx.File
-	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".java") {
+	idx, file := ctx.Idx, ctx.File
+	var pkgType string
+	switch {
+	case strings.HasSuffix(file.Path, ".java"):
+		pkgType = "package_declaration"
+	case strings.HasSuffix(file.Path, ".kt"):
+		pkgType = "package_header"
+	default:
 		return
 	}
-	for _, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || scanner.IsCommentLine(line) {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "package ") {
-			return
-		}
-		// First non-comment, non-blank line is not a package declaration
-		f := r.Finding(file, 1, 1,
-			"Missing package declaration in source file.")
-		f.Fix = derivePackageFix(file)
-		ctx.Emit(f)
+	if _, ok := file.FlatFindChild(idx, pkgType); ok {
 		return
 	}
 	f := r.Finding(file, 1, 1,

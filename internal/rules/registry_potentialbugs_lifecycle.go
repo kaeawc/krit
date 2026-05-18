@@ -227,7 +227,7 @@ func registerPotentialbugsLifecycleRules() {
 		r := &MissingPackageDeclarationRule{BaseRule: BaseRule{RuleName: "MissingPackageDeclaration", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects Kotlin or Java source files that are missing a package declaration."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			Needs: api.NeedsLinePass, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Fix: api.FixCosmetic, Implementation: r,
+			NodeTypes: []string{"source_file", "program"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Fix: api.FixCosmetic, Implementation: r,
 			Check: r.check,
 		})
 	}

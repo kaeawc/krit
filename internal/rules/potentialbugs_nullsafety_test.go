@@ -945,6 +945,41 @@ class State(private val username: String?) {
 	}
 }
 
+// Regression: the require* exemption only covers the `!!` in a single-expression
+// body (`fun requireXxx(): T = field!!`). A `!!` that appears in a parameter
+// default value or anywhere else in a require*-named function must still be
+// flagged — the previous text-based `=` heuristic confused the parameter's
+// `=` with an expression-body `=` and silently exempted it.
+func TestUnsafeCallOnNullableType_PositiveRequireFunctionDefaultArgBang(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+class State(private val username: String?) {
+    fun requireUser(name: String = username!!): String {
+        return name
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for !! in default argument of require* function, got none")
+	}
+}
+
+// Regression: a require*-named function with a block body and a default
+// argument containing `=` must not be exempted via the parameter `=`.
+func TestUnsafeCallOnNullableType_PositiveRequireBlockBodyWithDefaultArg(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+class State(private val username: String?) {
+    fun requireUser(retries: Int = 3): String {
+        return username!!
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for !! in block body of require* function with default arg, got none")
+	}
+}
+
 func TestUnsafeCallOnNullableType_NegativeSameBlockConstructorAssignment(t *testing.T) {
 	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
 package test

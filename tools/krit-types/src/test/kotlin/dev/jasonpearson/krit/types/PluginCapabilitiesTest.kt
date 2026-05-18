@@ -35,7 +35,6 @@ class PluginCapabilitiesTest {
                 Capability.NEEDS_MODULE_INDEX.name,
                 Capability.NEEDS_MANIFEST.name,
                 Capability.NEEDS_RESOURCES.name,
-                Capability.NEEDS_GRADLE.name,
             ),
             unsupported,
         )

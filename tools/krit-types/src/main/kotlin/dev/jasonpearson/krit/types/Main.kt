@@ -714,7 +714,30 @@ data class DaemonRequest(
     // configured `options` map from krit.yml's pluginRules section.
     // Null when the request omitted the field; an absent key inside
     // means no options were configured for that rule.
-    val ruleConfigs: Map<String, Map<String, Any?>>? = null
+    val ruleConfigs: Map<String, Map<String, Any?>>? = null,
+    // Project-wide Gradle facts forwarded by the Go-side caller when
+    // any selected rule declares NEEDS_GRADLE. Null when no rule asked
+    // for it (the common case — keeps wire size minimal).
+    val gradleProfile: GradleProfilePayload? = null,
+)
+
+/**
+ * Wire-format mirror of the subset of `librarymodel.ProjectProfile` that
+ * the daemon hands to plugin rules via `GradleContext`. Stays close to
+ * the Go-side schema in `internal/oracle/daemon.go` (PluginGradleProfile)
+ * — the Go encoder uses `omitempty` to drop SDK ints when absent, and
+ * the parser here treats any missing or negative SDK as `null` on the
+ * Kotlin side. Deps are flat `"group:name:version"` strings so the
+ * parser can lean on `extractJsonStringArray`.
+ */
+data class GradleProfilePayload(
+    val minSdk: Int?,
+    val targetSdk: Int?,
+    val compileSdk: Int?,
+    val kotlinVersion: String?,
+    val javaTargetVersion: String?,
+    val agpVersion: String?,
+    val deps: List<String>,
 )
 
 /** 1-based line/col tuple used in resolveExpressionTypes requests. */
@@ -749,7 +772,21 @@ fun parseRequest(json: String): DaemonRequest {
     val path = extractJsonString(json, "path")
     val source = extractJsonString(json, "source")
     val ruleConfigs = extractJsonNestedObjectMap(json, "ruleConfigs")
-    return DaemonRequest(id, method, files, timings, callFilter, declarationProfile, expressionPositions, jarPath, fqn, pluginJars, ruleIds, path, source, ruleConfigs)
+    val gradleProfile = extractGradleProfilePayload(json)
+    return DaemonRequest(id, method, files, timings, callFilter, declarationProfile, expressionPositions, jarPath, fqn, pluginJars, ruleIds, path, source, ruleConfigs, gradleProfile)
+}
+
+private fun extractGradleProfilePayload(json: String): GradleProfilePayload? {
+    val outer = extractJsonObjectBlock(json, "gradle") ?: return null
+    return GradleProfilePayload(
+        minSdk = extractJsonLong(outer, "minSdk")?.toInt()?.takeIf { it >= 0 },
+        targetSdk = extractJsonLong(outer, "targetSdk")?.toInt()?.takeIf { it >= 0 },
+        compileSdk = extractJsonLong(outer, "compileSdk")?.toInt()?.takeIf { it >= 0 },
+        kotlinVersion = extractJsonString(outer, "kotlinVersion"),
+        javaTargetVersion = extractJsonString(outer, "javaTargetVersion"),
+        agpVersion = extractJsonString(outer, "agpVersion"),
+        deps = extractJsonStringArray(outer, "deps").orEmpty(),
+    )
 }
 
 /**
@@ -1393,6 +1430,23 @@ fun extractRuleTargetProfiles(json: String, key: String = "ruleProfiles"): List<
     }
 }
 
+/**
+ * Returns the JSON substring for the object value at `[key]`
+ * (everything between the matching `{` and `}` inclusive), or null
+ * when the key is absent or not an object. Useful for nested payloads
+ * where the existing key-based extractors would also match keys
+ * deeper in the document.
+ */
+fun extractJsonObjectBlock(json: String, key: String): String? {
+    val keyPattern = """"$key""""
+    val keyIdx = json.indexOf(keyPattern)
+    if (keyIdx < 0) return null
+    val objStart = json.indexOf('{', keyIdx)
+    if (objStart < 0) return null
+    val end = scanJsonObjectEnd(json, objStart)
+    return if (end < 0) null else json.substring(objStart, end + 1)
+}
+
 fun extractJsonObjectArray(json: String, key: String): List<String>? {
     val keyPattern = """"$key""""
     val keyIdx = json.indexOf(keyPattern)
@@ -1400,11 +1454,43 @@ fun extractJsonObjectArray(json: String, key: String): List<String>? {
     val arrayStart = json.indexOf('[', keyIdx)
     if (arrayStart < 0) return null
     val out = mutableListOf<String>()
+    var i = arrayStart + 1
+    while (i < json.length) {
+        val c = json[i]
+        when (c) {
+            '{' -> {
+                val end = scanJsonObjectEnd(json, i)
+                if (end < 0) return out
+                out.add(json.substring(i, end + 1))
+                i = end + 1
+                continue
+            }
+            ']' -> return out
+            '"' -> {
+                // Bare strings inside a top-level array aren't expected
+                // for the object-array shape this extractor targets,
+                // but skip them defensively so a stray comment-like
+                // string doesn't trip the `{`-detector.
+                i = skipJsonString(json, i) + 1
+                continue
+            }
+        }
+        i++
+    }
+    return out
+}
+
+/**
+ * Returns the index of the matching `}` for the object starting at
+ * `[openIdx]` (which must point at the opening `{`), or `-1` if the
+ * object is unterminated. Handles `"`-quoted string values with `\`
+ * escapes so braces inside strings don't fool the depth counter.
+ */
+private fun scanJsonObjectEnd(json: String, openIdx: Int): Int {
     var depth = 0
-    var objStart = -1
     var inString = false
     var escaped = false
-    var i = arrayStart + 1
+    var i = openIdx
     while (i < json.length) {
         val c = json[i]
         if (inString) {
@@ -1420,22 +1506,37 @@ fun extractJsonObjectArray(json: String, key: String): List<String>? {
         }
         when (c) {
             '"' -> inString = true
-            '{' -> {
-                if (depth == 0) objStart = i
-                depth++
-            }
+            '{' -> depth++
             '}' -> {
                 depth--
-                if (depth == 0 && objStart >= 0) {
-                    out.add(json.substring(objStart, i + 1))
-                    objStart = -1
-                }
+                if (depth == 0) return i
             }
-            ']' -> if (depth == 0) return out
         }
         i++
     }
-    return out
+    return -1
+}
+
+/**
+ * Returns the index of the closing `"` for the string starting at
+ * `[openIdx]` (which must point at the opening `"`), or `json.length`
+ * if the string is unterminated.
+ */
+private fun skipJsonString(json: String, openIdx: Int): Int {
+    var escaped = false
+    var i = openIdx + 1
+    while (i < json.length) {
+        val c = json[i]
+        if (escaped) {
+            escaped = false
+        } else if (c == '\\') {
+            escaped = true
+        } else if (c == '"') {
+            return i
+        }
+        i++
+    }
+    return json.length
 }
 
 fun KotlinPerf.recordCallFilterSummary(filter: CallFilter?) {

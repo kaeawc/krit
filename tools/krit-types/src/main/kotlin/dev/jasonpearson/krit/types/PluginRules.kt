@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.types
 import dev.jasonpearson.krit.api.Capability
 import dev.jasonpearson.krit.api.Finding
 import dev.jasonpearson.krit.api.FixSafety
+import dev.jasonpearson.krit.api.GradleContext
 import dev.jasonpearson.krit.api.KritFile
 import dev.jasonpearson.krit.api.KritRule
 import dev.jasonpearson.krit.api.KritRuleInfo
@@ -164,6 +165,11 @@ internal object PluginCapabilities {
         // rather than rejected, so existing rules that opt in stay
         // forward-compatible.
         Capability.NEEDS_PARSED_FILES.name,
+        // NEEDS_GRADLE delivers RuleContext.gradle when the Go-side
+        // caller forwards a GradleProfilePayload — see
+        // `runKotlinPluginRulesAndMerge` in
+        // internal/pipeline/custom_kotlin_rules.go.
+        Capability.NEEDS_GRADLE.name,
     )
 
     fun unsupported(needs: List<String>): List<String> =
@@ -385,6 +391,7 @@ fun DaemonSession.handleAnalyzeFileWithPlugins(request: DaemonRequest): String {
         val file = KritFile(path = ktFile?.virtualFilePath ?: path, text = text, ktFile = ktFile)
         val findings = mutableListOf<PluginFinding>()
         val errors = linkedMapOf<String, String>()
+        val gradleContext = request.gradleProfile?.let(::PayloadGradleContext)
         for (loaded in PluginRuleRegistry.selected(request.ruleIds)) {
             try {
                 val options = request.ruleConfigs?.get(loaded.descriptor.ruleId).orEmpty()
@@ -393,7 +400,12 @@ fun DaemonSession.handleAnalyzeFileWithPlugins(request: DaemonRequest): String {
                 } else {
                     null
                 }
-                val ctx = RuleContext(loaded.descriptor.ruleId, options, resolver)
+                val gradle = if (loaded.descriptor.needs.contains(Capability.NEEDS_GRADLE.name)) {
+                    gradleContext
+                } else {
+                    null
+                }
+                val ctx = RuleContext(loaded.descriptor.ruleId, options, resolver, gradle)
                 for (finding in loaded.rule.check(file, ctx)) {
                     findings.add(toPluginFinding(file.path, loaded.descriptor, finding))
                 }
@@ -532,6 +544,47 @@ private class AnalysisApiResolver(private val ktFile: KtFile) : Resolver {
 
     private fun org.jetbrains.kotlin.psi.KtElement.isInModule(): Boolean =
         containingKtFile === ktFile
+}
+
+/**
+ * [GradleContext] view backed by the [GradleProfilePayload] forwarded
+ * over the wire. The dependency lookup is built lazily on first call —
+ * most rules query SDK/tool versions and never touch deps, so paying
+ * the map-construction cost only when needed keeps the common path
+ * cheap.
+ */
+internal class PayloadGradleContext(payload: GradleProfilePayload) : GradleContext {
+    override val minSdk: Int? = payload.minSdk
+    override val targetSdk: Int? = payload.targetSdk
+    override val compileSdk: Int? = payload.compileSdk
+    override val kotlinVersion: String? = payload.kotlinVersion
+    override val javaTargetVersion: String? = payload.javaTargetVersion
+    override val agpVersion: String? = payload.agpVersion
+
+    // group:name -> version (last-write-wins on duplicate coords; the
+    // Go-side caller already de-dupes, but Kotlin's map semantics
+    // protect against a malformed payload).
+    private val versionByCoord: Map<String, String> by lazy {
+        val out = HashMap<String, String>(payload.deps.size)
+        for (entry in payload.deps) {
+            val firstColon = entry.indexOf(':')
+            if (firstColon <= 0) continue
+            val secondColon = entry.indexOf(':', firstColon + 1)
+            if (secondColon <= firstColon + 1) continue
+            val coord = entry.substring(0, secondColon)
+            val version = entry.substring(secondColon + 1)
+            if (version.isNotEmpty()) {
+                out[coord] = version
+            }
+        }
+        out
+    }
+
+    override fun hasDependency(group: String, name: String): Boolean =
+        versionByCoord.containsKey("$group:$name")
+
+    override fun dependencyVersion(group: String, name: String): String? =
+        versionByCoord["$group:$name"]
 }
 
 @OptIn(KaExperimentalApi::class)

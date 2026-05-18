@@ -125,6 +125,13 @@ class NoTodoRule : KritRule {
   session for the current file. Methods (see `Resolver` Kdoc):
   `isSuspendCall(KtCallExpression)`, `resolvedCallFqName(...)`,
   `isLambdaSuspend(KtLambdaExpression)`, `expressionType(...)`.
+- `gradle: GradleContext?` — project-wide Gradle facts (SDK versions,
+  tool versions, declared dependencies). Non-null when the rule
+  declared `Capability.NEEDS_GRADLE` and the daemon could derive
+  Gradle facts (null on bare Kotlin directories with no build files).
+  Properties: `minSdk`, `targetSdk`, `compileSdk`, `kotlinVersion`,
+  `javaTargetVersion`, `agpVersion`. Methods:
+  `hasDependency(group, name)`, `dependencyVersion(group, name)`.
 
 The PSI surface is the Kotlin compiler's. To compile against it, add
 the JetBrains intellij-dependencies redirector to your consumer
@@ -317,7 +324,7 @@ at jar load with a clear, copy-pasteable diagnostic. Tracked on
 | `NEEDS_MODULE_INDEX` | `@Deprecated` — fails load | Gradle module identity + per-module dependency graph. Not yet plumbed. |
 | `NEEDS_MANIFEST` | `@Deprecated` — fails load | Android `AndroidManifest.xml` view. Not yet plumbed. |
 | `NEEDS_RESOURCES` | `@Deprecated` — fails load | Parsed `res/` tree (strings, drawables, layouts). Not yet plumbed. |
-| `NEEDS_GRADLE` | `@Deprecated` — fails load | Version catalog + applied plugins / dependencies. Not yet plumbed. |
+| `NEEDS_GRADLE` | **supported** | Populates `RuleContext.gradle` with a `GradleContext`. Properties: `minSdk`, `targetSdk`, `compileSdk`, `kotlinVersion`, `javaTargetVersion`, `agpVersion`. Methods: `hasDependency(group, name)`, `dependencyVersion(group, name)`. Null when the project has no Gradle build files. |
 
 ### What a load failure looks like
 

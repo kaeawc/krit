@@ -90,6 +90,61 @@ interface Resolver {
 }
 
 /**
+ * Project-wide Gradle facts derived from build files and the version
+ * catalog. Available on [RuleContext.gradle] when the rule declares
+ * [Capability.NEEDS_GRADLE] and the daemon has Gradle facts for the
+ * project (e.g. running on a bare Kotlin directory still leaves this
+ * null).
+ *
+ * The surface is deliberately small — the underlying daemon-side
+ * profile is much larger, but additive growth here is the way to keep
+ * rule jars binary-compatible across Krit releases. See
+ * `docs/external-rules.md#capability-semantics` for the rationale and
+ * the long-form contract.
+ */
+interface GradleContext {
+    /** Android `minSdkVersion`, or null if unknown / not an Android project. */
+    val minSdk: Int?
+
+    /** Android `targetSdkVersion`, or null if unknown / not an Android project. */
+    val targetSdk: Int?
+
+    /** Android `compileSdkVersion`, or null if unknown / not an Android project. */
+    val compileSdk: Int?
+
+    /**
+     * Effective Kotlin compiler version (e.g. `"2.0.0"`), or null when
+     * the project has no Kotlin tooling configured.
+     */
+    val kotlinVersion: String?
+
+    /**
+     * Effective JVM bytecode target the project compiles for (e.g.
+     * `"17"`), or null when undeclared.
+     */
+    val javaTargetVersion: String?
+
+    /** Android Gradle Plugin version (e.g. `"8.5.0"`), or null when AGP is not applied. */
+    val agpVersion: String?
+
+    /**
+     * Returns true when the project declares a dependency on
+     * `[group]:[name]` (any version, any configuration). The current
+     * implementation matches the canonical Maven coordinate exactly;
+     * normalization (case folding, alias resolution) may be added in
+     * a future minor release without changing this contract.
+     */
+    fun hasDependency(group: String, name: String): Boolean
+
+    /**
+     * Returns the declared version for `[group]:[name]`, or null when
+     * the dependency is absent or its version was not resolved (e.g.
+     * inherited from a BOM the lightweight parser cannot follow).
+     */
+    fun dependencyVersion(group: String, name: String): String?
+}
+
+/**
  * Per-invocation context passed to custom rules.
  *
  * `config` is the per-rule options map from the consumer's `krit.yml`:
@@ -112,6 +167,12 @@ class RuleContext(
      * daemon successfully prepared a session for the current file.
      */
     val resolver: Resolver? = null,
+    /**
+     * Project-wide Gradle facts. Non-null only when the rule declared
+     * [Capability.NEEDS_GRADLE] and the daemon could derive Gradle
+     * facts for the project.
+     */
+    val gradle: GradleContext? = null,
 ) {
     /** Returns the [key] option as a String, or [default] if absent / wrong type. */
     fun stringOption(key: String, default: String = ""): String =
@@ -244,12 +305,12 @@ enum class Capability {
     )
     NEEDS_RESOURCES,
 
-    @Deprecated(
-        message = "NEEDS_GRADLE is not yet delivered to plugin rules. " +
-            "Declaring it causes the rule jar to fail at load time. Tracked " +
-            "on https://github.com/kaeawc/krit/issues/357.",
-        level = DeprecationLevel.WARNING,
-    )
+    /**
+     * Populates [RuleContext.gradle] with a [GradleContext] view of
+     * the project's parsed Gradle facts (SDK versions, tool versions,
+     * declared dependencies). Honored when the daemon has Gradle facts
+     * for the project; null when running on a bare Kotlin directory.
+     */
     NEEDS_GRADLE,
 }
 

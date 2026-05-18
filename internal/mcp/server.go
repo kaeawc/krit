@@ -103,7 +103,18 @@ func (s *Server) buildDispatcher() {
 }
 
 // sendResponse sends a JSON-RPC 2.0 response via the shared transport.
+//
+// Notifications (JSON-RPC 2.0 messages with no `id` member) MUST NOT receive
+// a response. The dispatcher routes notifications through the same per-method
+// handlers as requests, and several of those handlers unconditionally call
+// sendResponse with req.ID — which is nil for notifications. Gating the
+// emission here keeps every handler honest without each one needing to repeat
+// the nil-id check, and avoids emitting a response with `"id":null` that
+// strict clients reject. Mirrors the LSP-side gate in internal/lsp/server.go.
 func (s *Server) sendResponse(id interface{}, result interface{}, rpcErr *RPCError) {
+	if id == nil {
+		return
+	}
 	jsonrpc.SendResponseNDJSON(s.writer, &s.mu, id, result, rpcErr)
 }
 

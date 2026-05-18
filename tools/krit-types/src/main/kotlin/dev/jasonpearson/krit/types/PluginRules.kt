@@ -155,7 +155,7 @@ internal data class CapabilityViolation(
  * for the user-facing matrix and the policy.
  */
 internal object PluginCapabilities {
-    const val TRACKING_ISSUE_URL: String = "https://github.com/kaeawc/krit/issues/308"
+    const val TRACKING_ISSUE_URL: String = "https://github.com/kaeawc/krit/issues/357"
 
     val SUPPORTED: Set<String> = setOf(
         Capability.NEEDS_RESOLVER.name,

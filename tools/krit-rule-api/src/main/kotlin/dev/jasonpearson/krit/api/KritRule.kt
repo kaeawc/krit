@@ -188,7 +188,7 @@ enum class Maturity { STABLE, EXPERIMENTAL, DEPRECATED }
  * load time with a clear message (see `PluginRules.kt`). The
  * load-time gate exists so a typo or a too-optimistic declaration
  * cannot silently degrade to "rule runs without the facts it asked
- * for". Tracked on https://github.com/kaeawc/krit/issues/308.
+ * for". Tracked on https://github.com/kaeawc/krit/issues/357.
  *
  * Adding a new capability is a minor-version change (additive, default
  * not-required). Promoting a deprecated entry to "supported" is also a
@@ -206,7 +206,7 @@ enum class Capability {
     @Deprecated(
         message = "NEEDS_CROSS_FILE is not yet delivered to plugin rules. " +
             "Declaring it causes the rule jar to fail at load time. Tracked " +
-            "on https://github.com/kaeawc/krit/issues/308.",
+            "on https://github.com/kaeawc/krit/issues/357.",
         level = DeprecationLevel.WARNING,
     )
     NEEDS_CROSS_FILE,
@@ -214,7 +214,7 @@ enum class Capability {
     @Deprecated(
         message = "NEEDS_MODULE_INDEX is not yet delivered to plugin rules. " +
             "Declaring it causes the rule jar to fail at load time. Tracked " +
-            "on https://github.com/kaeawc/krit/issues/308.",
+            "on https://github.com/kaeawc/krit/issues/357.",
         level = DeprecationLevel.WARNING,
     )
     NEEDS_MODULE_INDEX,
@@ -231,7 +231,7 @@ enum class Capability {
     @Deprecated(
         message = "NEEDS_MANIFEST is not yet delivered to plugin rules. " +
             "Declaring it causes the rule jar to fail at load time. Tracked " +
-            "on https://github.com/kaeawc/krit/issues/308.",
+            "on https://github.com/kaeawc/krit/issues/357.",
         level = DeprecationLevel.WARNING,
     )
     NEEDS_MANIFEST,
@@ -239,7 +239,7 @@ enum class Capability {
     @Deprecated(
         message = "NEEDS_RESOURCES is not yet delivered to plugin rules. " +
             "Declaring it causes the rule jar to fail at load time. Tracked " +
-            "on https://github.com/kaeawc/krit/issues/308.",
+            "on https://github.com/kaeawc/krit/issues/357.",
         level = DeprecationLevel.WARNING,
     )
     NEEDS_RESOURCES,
@@ -247,7 +247,7 @@ enum class Capability {
     @Deprecated(
         message = "NEEDS_GRADLE is not yet delivered to plugin rules. " +
             "Declaring it causes the rule jar to fail at load time. Tracked " +
-            "on https://github.com/kaeawc/krit/issues/308.",
+            "on https://github.com/kaeawc/krit/issues/357.",
         level = DeprecationLevel.WARNING,
     )
     NEEDS_GRADLE,

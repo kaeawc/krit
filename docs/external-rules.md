@@ -307,7 +307,7 @@ state. The list below is the supported surface today; the unsupported
 entries stay in the enum so existing source continues to compile, but
 the values are `@Deprecated` (warn) and a rule that declares one fails
 at jar load with a clear, copy-pasteable diagnostic. Tracked on
-[#308](https://github.com/kaeawc/krit/issues/308).
+[#357](https://github.com/kaeawc/krit/issues/357).
 
 | Capability | Status | What it gives you |
 | --- | --- | --- |
@@ -328,7 +328,7 @@ A jar that declares an unsupported capability is rejected at
 error: krit-rule-api: /tmp/acme-rules.jar: rule jar declares capabilities
 the daemon does not yet provide to plugin rules; the rule would run
 without the facts it asked for. Remove the declaration(s) or wait for
-support (tracked on https://github.com/kaeawc/krit/issues/308).
+support (tracked on https://github.com/kaeawc/krit/issues/357).
 Unsupported: [acme.NoTodo: NEEDS_GRADLE]
 ```
 

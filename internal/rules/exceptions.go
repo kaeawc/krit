@@ -1355,6 +1355,91 @@ func walkThrowExpressionsFlat(file *scanner.File, idx uint32, fn func(throwNode 
 	file.FlatWalkNodes(idx, "throw_statement", fn)
 }
 
+// throwExpressionTargetFlat returns the call_expression (Kotlin) or
+// object_creation_expression (Java) used as the thrown instance, or 0
+// if the throw is bare (`throw` with no operand) or rethrows a simple
+// identifier (`throw e`).
+func throwExpressionTargetFlat(file *scanner.File, throwNode uint32) uint32 {
+	for child := file.FlatFirstChild(throwNode); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		switch file.FlatType(child) {
+		case "call_expression", "object_creation_expression":
+			return child
+		}
+	}
+	return 0
+}
+
+// throwTargetTypeNameFlat returns the last identifier of the type
+// constructed by a throw target — `IOException` for both
+// `IOException(msg)` and `java.io.IOException(msg)`.
+func throwTargetTypeNameFlat(file *scanner.File, target uint32) string {
+	switch file.FlatType(target) {
+	case "call_expression":
+		return flatCallExpressionName(file, target)
+	case "object_creation_expression":
+		for child := file.FlatFirstChild(target); child != 0; child = file.FlatNextSib(child) {
+			switch file.FlatType(child) {
+			case "type_identifier":
+				return file.FlatNodeText(child)
+			case "scoped_type_identifier", "scoped_identifier":
+				if name := flatTypeLastIdentifier(file, child); name != "" {
+					return name
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// throwTargetArgUsageFlat reports the number of positional arguments
+// in the throw target and whether any of them references varName as
+// an identifier. String literals and comments are skipped because
+// they are not identifier AST nodes.
+func throwTargetArgUsageFlat(file *scanner.File, target uint32, varName string) (argCount int, hasVar bool) {
+	args := throwTargetArgsFlat(file, target)
+	if args == 0 {
+		return 0, false
+	}
+	for child := file.FlatFirstChild(args); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		argCount++
+		if hasVar {
+			continue
+		}
+		file.FlatWalkAllNodes(child, func(id uint32) {
+			if hasVar {
+				return
+			}
+			switch file.FlatType(id) {
+			case "simple_identifier", "identifier":
+				if file.FlatNodeTextEquals(id, varName) {
+					hasVar = true
+				}
+			}
+		})
+	}
+	return argCount, hasVar
+}
+
+func throwTargetArgsFlat(file *scanner.File, target uint32) uint32 {
+	switch file.FlatType(target) {
+	case "call_expression":
+		return flatCallKeyArguments(file, target)
+	case "object_creation_expression":
+		for child := file.FlatFirstChild(target); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "argument_list" {
+				return child
+			}
+		}
+	}
+	return 0
+}
+
 func javaCatchOnlyRethrowsVar(file *scanner.File, catchNode uint32, varName string) bool {
 	block, ok := file.FlatFindChild(catchNode, "block")
 	if !ok || block == 0 {

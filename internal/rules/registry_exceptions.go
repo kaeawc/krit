@@ -2,7 +2,6 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/experiment"
@@ -274,29 +273,17 @@ func registerExceptionsRules() {
 				}
 				caughtVar := extractCaughtVarNameFlat(file, idx)
 				walkThrowExpressionsFlat(file, idx, func(throwNode uint32) {
-					throwText := file.FlatNodeText(throwNode)
-					pattern := fmt.Sprintf(`throw\s+(?:new\s+)?%s\s*\(`, regexp.QuoteMeta(caughtType))
-					matched, err := regexp.MatchString(pattern, throwText)
-					if err != nil {
-						matched = strings.Contains(throwText, "throw "+caughtType+"(")
+					target := throwExpressionTargetFlat(file, throwNode)
+					if target == 0 {
+						return
 					}
-					if !matched {
+					if throwTargetTypeNameFlat(file, target) != caughtType {
 						return
 					}
 					if caughtVar != "" {
-						parenIdx := strings.Index(throwText, "(")
-						if parenIdx >= 0 {
-							argsText := strings.TrimSpace(throwText[parenIdx+1:])
-							closeIdx := strings.LastIndex(argsText, ")")
-							if closeIdx >= 0 {
-								argsText = strings.TrimSpace(argsText[:closeIdx])
-								if strings.Contains(argsText, ",") {
-									argPattern := fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(caughtVar))
-									if m, _ := regexp.MatchString(argPattern, argsText); m {
-										return
-									}
-								}
-							}
+						argCount, hasVar := throwTargetArgUsageFlat(file, target, caughtVar)
+						if argCount > 1 && hasVar {
+							return
 						}
 					}
 					ctx.EmitAt(file.FlatRow(throwNode)+1, file.FlatCol(throwNode)+1,

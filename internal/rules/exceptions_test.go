@@ -1199,6 +1199,40 @@ class Example {
 	}
 }
 
+func TestExc_ThrowingNewInstanceOfSameException_NegativeStringMentionsCaughtType(t *testing.T) {
+	findings := runRuleByName(t, "ThrowingNewInstanceOfSameException", `
+fun test() {
+    try {
+        doWork()
+    } catch (e: Exception) {
+        throw RuntimeException("about to throw Exception(extra)")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings — the new exception is RuntimeException, the string literal merely mentions Exception(...); got %d:\n%v", len(findings), findings)
+	}
+}
+
+func TestExc_ThrowingNewInstanceOfSameException_NegativeJavaStringMentionsCaughtType(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ThrowingNewInstanceOfSameException", `
+package test;
+class Example {
+  void run() {
+    try {
+      work();
+    } catch (Exception e) {
+      throw new RuntimeException("about to throw Exception(extra)");
+    }
+  }
+  void work() throws Exception {}
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings — the new exception is RuntimeException, the string literal merely mentions Exception(...); got %d:\n%v", len(findings), findings)
+	}
+}
+
 // --- ThrowingExceptionInMain ---
 
 func TestExc_ThrowingExceptionInMain_Positive(t *testing.T) {

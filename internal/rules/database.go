@@ -133,23 +133,27 @@ type SqliteCursorWithoutCloseRule struct {
 // method name without confirming the receiver is SQLiteDatabase.
 func (r *SqliteCursorWithoutCloseRule) Confidence() float64 { return 0.75 }
 
-func sqliteCursorCallFlat(file *scanner.File, idx uint32) bool {
+// sqliteCursorCallFlat reports whether the property initializer at idx has a
+// top-level call_expression named rawQuery or query, and if so returns the
+// matching call node's flat index. Only call_expression nodes that sit on the
+// property initializer's top-level call/navigation chain qualify — calls
+// nested inside lambdas, anonymous functions, or local declarations belong to
+// a different scope and do not determine the property's static type, so they
+// must not count.
+func sqliteCursorCallFlat(file *scanner.File, idx uint32) (uint32, bool) {
+	var match uint32
 	found := false
-	// Only consider call_expression nodes that sit on the property
-	// initializer's top-level call/navigation chain — i.e. nodes whose value
-	// becomes the property's value. Calls nested inside lambdas, anonymous
-	// functions, or local declarations belong to a different scope and do
-	// not determine the property's static type, so they must not count.
 	flatWalkLocalScope(file, idx, func(node uint32) {
 		if found || file.FlatType(node) != "call_expression" {
 			return
 		}
 		name := flatCallExpressionName(file, node)
 		if name == "rawQuery" || name == "query" {
+			match = node
 			found = true
 		}
 	})
-	return found
+	return match, found
 }
 
 func sqliteCursorRHSWrappedInUseFlat(file *scanner.File, idx uint32) bool {

@@ -641,17 +641,10 @@ data class DraftUser(
 }
 
 func TestSqliteCursorWithoutClose_Positive(t *testing.T) {
-	findings := runRuleByName(t, "SqliteCursorWithoutClose", `
+	findings := runRuleByNameWithResolver(t, "SqliteCursorWithoutClose", `
 package test
 
-interface Cursor {
-    fun moveToNext(): Boolean
-    fun close()
-}
-
-interface SQLiteDatabase {
-    fun rawQuery(sql: String, args: Array<String>?): Cursor
-}
+import android.database.sqlite.SQLiteDatabase
 
 fun loadUsers(db: SQLiteDatabase) {
     val cursor = db.rawQuery("SELECT * FROM users", null)
@@ -665,16 +658,14 @@ fun loadUsers(db: SQLiteDatabase) {
 }
 
 func TestSqliteCursorWithoutClose_NegativeUse(t *testing.T) {
-	findings := runRuleByName(t, "SqliteCursorWithoutClose", `
+	findings := runRuleByNameWithResolver(t, "SqliteCursorWithoutClose", `
 package test
+
+import android.database.sqlite.SQLiteDatabase
 
 interface Cursor {
     fun moveToNext(): Boolean
     fun close()
-}
-
-interface SQLiteDatabase {
-    fun rawQuery(sql: String, args: Array<String>?): Cursor
 }
 
 inline fun <T : Cursor, R> T.use(block: (T) -> R): R = block(this)
@@ -692,17 +683,10 @@ fun loadUsers(db: SQLiteDatabase) {
 }
 
 func TestSqliteCursorWithoutClose_NegativeExplicitClose(t *testing.T) {
-	findings := runRuleByName(t, "SqliteCursorWithoutClose", `
+	findings := runRuleByNameWithResolver(t, "SqliteCursorWithoutClose", `
 package test
 
-interface Cursor {
-    fun moveToNext(): Boolean
-    fun close()
-}
-
-interface SQLiteDatabase {
-    fun rawQuery(sql: String, args: Array<String>?): Cursor
-}
+import android.database.sqlite.SQLiteDatabase
 
 fun loadUsers(db: SQLiteDatabase) {
     val cursor = db.rawQuery("SELECT * FROM users", null)
@@ -726,8 +710,9 @@ func TestSqliteCursorWithoutClose_NegativeNestedScopes(t *testing.T) {
 			src: `
 package test
 
+import android.database.sqlite.SQLiteDatabase
+
 interface Cursor { fun close() }
-interface SQLiteDatabase { fun rawQuery(sql: String, args: Array<String>?): Cursor }
 fun interface Runnable { fun run() }
 
 fun loadUsers(db: SQLiteDatabase) {
@@ -741,8 +726,9 @@ fun loadUsers(db: SQLiteDatabase) {
 			src: `
 package test
 
+import android.database.sqlite.SQLiteDatabase
+
 interface Cursor { fun close() }
-interface SQLiteDatabase { fun rawQuery(sql: String, args: Array<String>?): Cursor }
 
 fun loadUsers(db: SQLiteDatabase) {
     val factory: () -> Cursor = { db.rawQuery("SELECT * FROM users", null) }
@@ -755,8 +741,9 @@ fun loadUsers(db: SQLiteDatabase) {
 			src: `
 package test
 
+import android.database.sqlite.SQLiteDatabase
+
 interface Cursor { fun close() }
-interface SQLiteDatabase { fun rawQuery(sql: String, args: Array<String>?): Cursor }
 
 fun <T> lazyOf(init: () -> T): T = init()
 
@@ -771,11 +758,12 @@ fun loadUsers(db: SQLiteDatabase) {
 			src: `
 package test
 
+import android.database.sqlite.SQLiteDatabase
+
 interface Cursor {
     fun getString(idx: Int): String
     fun close()
 }
-interface SQLiteDatabase { fun rawQuery(sql: String, args: Array<String>?): Cursor }
 
 inline fun <T : Cursor, R> T.use(block: (T) -> R): R = try { block(this) } finally { this.close() }
 
@@ -789,7 +777,7 @@ fun loadUsers(db: SQLiteDatabase): List<String> {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			findings := runRuleByName(t, "SqliteCursorWithoutClose", tc.src)
+			findings := runRuleByNameWithResolver(t, "SqliteCursorWithoutClose", tc.src)
 			if len(findings) != 0 {
 				t.Fatalf("expected no findings for %s, got %v", tc.name, findings)
 			}
@@ -1396,5 +1384,79 @@ fun query(connection: Connection) {
 		if strings.Contains(f.Message, "'s'") {
 			t.Fatalf("expected no finding for statement 's' that is explicitly closed; got %v", f)
 		}
+	}
+}
+
+// Regression: SqliteCursorWithoutClose used to fire on any property
+// initializer that contained a call named query/rawQuery, without
+// confirming the receiver was SQLiteDatabase. Local types whose methods
+// happen to share those names must not trigger the rule.
+func TestSqliteCursorWithoutClose_LocalLookalikeDoesNotFire(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "SqliteCursorWithoutClose", `
+package test
+
+class MyCache {
+    fun query(sql: String): String = ""
+}
+
+class MyDb {
+    fun rawQuery(sql: String): String = ""
+}
+
+fun lookup(cache: MyCache, db: MyDb) {
+    val r1 = cache.query("SELECT...")
+    val r2 = db.rawQuery("SELECT...")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for local lookalike query/rawQuery; got %v", findings)
+	}
+}
+
+// Regression: the receiver-type proof must continue to recognise a
+// real android.database.sqlite.SQLiteDatabase as a cursor source.
+func TestSqliteCursorWithoutClose_RealSQLiteDatabaseStillFires(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "SqliteCursorWithoutClose", `
+package test
+
+import android.database.sqlite.SQLiteDatabase
+
+fun load(db: SQLiteDatabase) {
+    val cursor = db.rawQuery("SELECT * FROM users", null)
+    cursor.moveToNext()
+}
+`)
+	leaked := false
+	for _, f := range findings {
+		if strings.Contains(f.Message, "'cursor'") {
+			leaked = true
+		}
+	}
+	if !leaked {
+		t.Fatalf("expected leaked cursor on real SQLiteDatabase to be reported; got %v", findings)
+	}
+}
+
+// Regression: androidx.sqlite.db.SupportSQLiteDatabase variant must
+// also be recognised by the receiver-type gate.
+func TestSqliteCursorWithoutClose_SupportSQLiteDatabaseStillFires(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "SqliteCursorWithoutClose", `
+package test
+
+import androidx.sqlite.db.SupportSQLiteDatabase
+
+fun load(db: SupportSQLiteDatabase) {
+    val cursor = db.query("SELECT * FROM users")
+    cursor.moveToNext()
+}
+`)
+	leaked := false
+	for _, f := range findings {
+		if strings.Contains(f.Message, "'cursor'") {
+			leaked = true
+		}
+	}
+	if !leaked {
+		t.Fatalf("expected leaked cursor on SupportSQLiteDatabase to be reported; got %v", findings)
 	}
 }

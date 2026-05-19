@@ -1,14 +1,11 @@
 package test
 
+import android.database.sqlite.SQLiteDatabase
+
 interface Cursor {
     fun moveToNext(): Boolean
     fun getString(idx: Int): String
     fun close()
-}
-
-interface SQLiteDatabase {
-    fun rawQuery(sql: String, args: Array<String>?): Cursor
-    fun query(table: String, columns: Array<String>?): Cursor
 }
 
 inline fun <T : Cursor, R> T.use(block: (T) -> R): R = block(this)
@@ -77,3 +74,21 @@ fun loadUserTags(db: SQLiteDatabase): List<String> {
     return tags
 }
 
+// Regression for receiver-type proof: an unrelated local class with a
+// method named `query` or `rawQuery` must NOT trigger the rule. Receiver
+// proof requires the FQN to resolve to android.database.sqlite.SQLiteDatabase
+// or androidx.sqlite.db.SupportSQLiteDatabase.
+class MyCache {
+    fun query(sql: String): String = ""
+}
+
+class MyDb {
+    fun rawQuery(sql: String): String = ""
+}
+
+fun lookup(cache: MyCache, db: MyDb) {
+    val r1 = cache.query("SELECT...")
+    val r2 = db.rawQuery("SELECT...")
+    println(r1)
+    println(r2)
+}

@@ -411,6 +411,9 @@ rules:
     status: supported
     fixtures:
       - internal/rules/security_test.go
+  SqliteCursorWithoutClose:
+    status: not-applicable
+    reason: Rule dispatches on Kotlin property_declaration and matches the val/var initializer chain; Java local variables are syntactically and structurally different.
   ThrowingExceptionInMain:
     status: supported
     fixtures:

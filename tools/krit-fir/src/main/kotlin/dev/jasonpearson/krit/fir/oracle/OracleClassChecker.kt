@@ -8,13 +8,25 @@ import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirClassChecker
+import org.jetbrains.kotlin.fir.declarations.DirectDeclarationsAccess
 import org.jetbrains.kotlin.fir.declarations.FirClass
+import org.jetbrains.kotlin.fir.declarations.FirConstructor
+import org.jetbrains.kotlin.fir.declarations.FirDeclaration
+import org.jetbrains.kotlin.fir.declarations.FirEnumEntry
+import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
+import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
+import org.jetbrains.kotlin.fir.declarations.FirValueParameter
 import org.jetbrains.kotlin.fir.declarations.utils.isData
 import org.jetbrains.kotlin.fir.declarations.utils.modality
 import org.jetbrains.kotlin.fir.declarations.utils.visibility
 import org.jetbrains.kotlin.fir.symbols.SymbolInternals
+import org.jetbrains.kotlin.fir.types.ConeClassLikeType
+import org.jetbrains.kotlin.fir.types.ConeKotlinType
+import org.jetbrains.kotlin.fir.types.ConeKotlinTypeProjection
 import org.jetbrains.kotlin.fir.types.FirResolvedTypeRef
+import org.jetbrains.kotlin.fir.types.FirTypeRef
+import org.jetbrains.kotlin.fir.types.isMarkedNullable
 import org.jetbrains.kotlin.fir.types.renderReadable
 
 /**
@@ -25,11 +37,12 @@ import org.jetbrains.kotlin.fir.types.renderReadable
  * (e.g. the diagnostic-only `check()` command) pay only a thread-local
  * lookup per visited class.
  *
- * The covered surface is intentionally narrow: `fqn`, `kind`,
- * `supertypes`, `visibility`, four modality flags (`isSealed`,
- * `isOpen`, `isAbstract`, `isData`), and `typeParameters`. Members,
- * annotations, and `jarPath` ride on later projection passes; the
- * `ClassPayload` defaults for those fields stay empty for now.
+ * Covered surface: `fqn`, `kind`, `supertypes`, `visibility`, four
+ * modality flags, `typeParameters`, and class members
+ * (functions / properties / constructors / enum entries with name,
+ * kind, returnType, nullable, visibility, override / abstract flags,
+ * and parameters). Annotations and `jarPath` stay empty until their
+ * respective projection passes land.
  */
 internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
 
@@ -51,6 +64,7 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
         collector.addClass(filePath, regular.toClassPayload())
     }
 
+    @OptIn(DirectDeclarationsAccess::class)
     private fun FirRegularClass.toClassPayload(): ClassPayload = ClassPayload(
         fqn = symbol.classId.asFqNameString(),
         kind = classKind.toWireString(),
@@ -65,7 +79,92 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
         isAbstract = modality == Modality.ABSTRACT,
         visibility = visibility.toWireString(),
         typeParameters = typeParameters.map { it.symbol.name.asString() },
+        members = declarations.mapNotNull { it.toMemberPayload() },
     )
+
+    /**
+     * Project one of a class's [declarations][FirRegularClass.declarations]
+     * into a [MemberPayload]. Returns null for declaration kinds the
+     * oracle does not surface today — nested classes are walked
+     * separately by the per-file class pass, and synthetic / generated
+     * declarations without a stable wire shape (e.g. compiler-synthesized
+     * companion object fields) are skipped.
+     */
+    private fun FirDeclaration.toMemberPayload(): MemberPayload? = when (this) {
+        is FirNamedFunction -> MemberPayload(
+            name = name.asString(),
+            kind = "function",
+            returnType = returnTypeRef.renderType(),
+            nullable = returnTypeRef.isNullable(),
+            visibility = status.visibility.toWireString(),
+            isOverride = status.isOverride,
+            isAbstract = status.modality == Modality.ABSTRACT,
+            params = valueParameters.map { it.toParamPayload() },
+        )
+        is FirProperty -> MemberPayload(
+            name = name.asString(),
+            kind = "property",
+            returnType = returnTypeRef.renderType(),
+            nullable = returnTypeRef.isNullable(),
+            visibility = status.visibility.toWireString(),
+            isOverride = status.isOverride,
+            isAbstract = status.modality == Modality.ABSTRACT,
+        )
+        is FirConstructor -> MemberPayload(
+            // `<init>` matches krit-types' canonical constructor name
+            // and is also the JVM-level signature, so Go-side consumers
+            // can pivot on the literal string.
+            name = "<init>",
+            kind = "constructor",
+            returnType = returnTypeRef.renderType(),
+            nullable = false,
+            visibility = status.visibility.toWireString(),
+            isOverride = false,
+            isAbstract = false,
+            params = valueParameters.map { it.toParamPayload() },
+        )
+        is FirEnumEntry -> MemberPayload(
+            name = name.asString(),
+            kind = "enum_entry",
+            returnType = "",
+            nullable = false,
+            visibility = "public",
+        )
+        else -> null
+    }
+
+    private fun FirValueParameter.toParamPayload(): ParamPayload = ParamPayload(
+        name = name.asString(),
+        type = returnTypeRef.renderType(),
+        nullable = returnTypeRef.isNullable(),
+    )
+
+    private fun FirTypeRef.renderType(): String =
+        (this as? FirResolvedTypeRef)?.coneType?.renderFqn() ?: ""
+
+    private fun FirTypeRef.isNullable(): Boolean =
+        (this as? FirResolvedTypeRef)?.coneType?.isMarkedNullable == true
+
+    /**
+     * Render a [ConeKotlinType] as an FQN-qualified type string, matching
+     * the krit-types wire format (e.g. `kotlin.String`, `kotlin.Int?`,
+     * `kotlin.collections.List<kotlin.String>`). Non-class-like types
+     * (type parameters, intersection types, flexible types) fall back to
+     * the readable rendering since they don't carry a stable FQN.
+     */
+    private fun ConeKotlinType.renderFqn(): String {
+        val classLike = this as? ConeClassLikeType ?: return renderReadable()
+        val fqn = classLike.lookupTag.classId.asFqNameString()
+        val args = typeArguments
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(", ", "<", ">") { projection ->
+                (projection as? ConeKotlinTypeProjection)?.type?.renderFqn()
+                    ?: projection.toString()
+            }
+            .orEmpty()
+        val nullable = if (isMarkedNullable) "?" else ""
+        return "$fqn$args$nullable"
+    }
 
     private fun ClassKind.toWireString(): String = when (this) {
         ClassKind.CLASS -> "class"

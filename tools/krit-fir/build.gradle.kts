@@ -16,6 +16,10 @@ kotlin {
 dependencies {
     // Kotlin compiler bundled into the fat JAR — provides FIR checker API, K2JVMCompiler, and plugin infra
     implementation("org.jetbrains.kotlin:kotlin-compiler:$kotlinVersion")
+    // krit-rule-api: KritRule + KritRuleInfo + Capability + RuleApiVersion.
+    // The plugin loader inspects ServiceLoader-discovered impls of these
+    // types against the daemon's compatible SDK version.
+    implementation(project(":krit-rule-api"))
 
     testImplementation("org.junit.jupiter:junit-jupiter:6.0.3")
     testImplementation(kotlin("test"))

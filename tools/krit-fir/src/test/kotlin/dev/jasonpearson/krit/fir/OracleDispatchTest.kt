@@ -64,6 +64,19 @@ class OracleDispatchTest {
     }
 
     @Test
+    fun listPluginsCommandReturnsEmptyRulesWhenNoJarsProvided() {
+        // Zero pluginJars → the registry has nothing to load, and the
+        // response carries an empty `rules` array. The shape mirrors
+        // krit-types' buildListPluginsResponse so a single Go-side
+        // client parses either backend's payload with one struct.
+        val request = """{"id":20,"command":"listPlugins"}"""
+        val result = handleRequestLine(request, session, startTime = 0L)
+        val response = (result as RequestResult.Response).json
+        assertTrue(response.startsWith("""{"id":20,"result":{"rules":["""), response)
+        assertFalse(""""error":""" in response, response)
+    }
+
+    @Test
     fun analyzeResponseIsNotAnErrorEnvelope() {
         // Belt-and-suspenders: an `else` clause that returns
         // `{"id":...,"error":"Unknown command:..."}` is one accidental

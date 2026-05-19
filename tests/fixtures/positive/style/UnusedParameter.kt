@@ -24,3 +24,9 @@ fun shadowedByNestedFunction(id: String) {
     }
     nested("local")
 }
+
+fun shadowedByForLoopVariable(item: String) {
+    for (item in listOf("a")) {
+        println(item)
+    }
+}

@@ -329,6 +329,88 @@ fun onEvent(event: String) {
 			wantHits: 0,
 		},
 		{
+			name: "for-loop iterable references function parameter",
+			code: `
+package test
+fun process(params: List<String>) {
+    for (param in params) {
+        println(param)
+    }
+}
+`,
+			wantHits: 0,
+		},
+		{
+			name: "for-loop iterable inside parenthesized expression",
+			code: `
+package test
+fun process(params: List<String>) {
+    for (param in (params)) {
+        println(param)
+    }
+}
+`,
+			wantHits: 0,
+		},
+		{
+			name: "for-loop iterable via member call on parameter",
+			code: `
+package test
+fun process(items: List<String>) {
+    for (item in items.asReversed()) {
+        println(item)
+    }
+}
+`,
+			wantHits: 0,
+		},
+		{
+			name: "for-loop with destructuring iterates over parameter",
+			code: `
+package test
+fun process(entries: Map<String, String>) {
+    for ((k, v) in entries) {
+        println("$k=$v")
+    }
+}
+`,
+			wantHits: 0,
+		},
+		{
+			name: "soft-keyword param used as receiver (annotation)",
+			code: `
+package test
+class KSAnnotation { fun process() {} }
+fun foo(annotation: KSAnnotation) {
+    annotation.process()
+}
+`,
+			wantHits: 0,
+		},
+		{
+			name: "soft-keyword param used as receiver (field)",
+			code: `
+package test
+class Field { fun read() {} }
+fun foo(field: Field) {
+    field.read()
+}
+`,
+			wantHits: 0,
+		},
+		{
+			name: "for-loop variable named same as parameter is flagged",
+			code: `
+package test
+fun process(item: String) {
+    for (item in listOf("a")) {
+        println(item)
+    }
+}
+`,
+			wantHits: 1,
+		},
+		{
 			name: "allowed name is excluded",
 			code: `
 package test

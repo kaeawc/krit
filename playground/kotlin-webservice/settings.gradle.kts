@@ -5,6 +5,11 @@ pluginManagement {
     }
     includeBuild("../../krit-gradle-plugin")
     includeBuild("../../krit-custom-rule-plugin")
+    includeBuild("../../krit-settings-plugin")
+}
+
+plugins {
+    id("dev.jasonpearson.krit.settings")
 }
 
 dependencyResolutionManagement {
@@ -23,3 +28,9 @@ rootProject.name = "kotlin-webservice"
 
 include(":custom-rules")
 project(":custom-rules").projectDir = file("../custom-rules")
+
+krit {
+    ignoreFailures = true
+    // :custom-rules is a rule producer, not a target for analysis.
+    skip(":custom-rules")
+}

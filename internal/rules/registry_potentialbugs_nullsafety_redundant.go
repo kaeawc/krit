@@ -12,8 +12,9 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
-			Needs: api.NeedsResolver,
-			Check: r.check,
+			Needs:         api.NeedsResolver,
+			Check:         r.check,
+			ExprPositions: r.ExpressionPositions,
 		})
 	}
 	{
@@ -33,7 +34,8 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic,
 			Needs: api.NeedsResolver, Implementation: r,
-			Check: r.check,
+			Check:         r.check,
+			ExprPositions: r.ExpressionPositions,
 		})
 	}
 	{
@@ -70,6 +72,7 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 			// Resolves the receiver type to check nullability via expressions map.
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check:                  r.check,
+			ExprPositions:          r.ExpressionPositions,
 		})
 	}
 }

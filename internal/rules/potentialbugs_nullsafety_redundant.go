@@ -113,6 +113,34 @@ func (r *UnnecessaryNotNullCheckRule) check(ctx *api.Context) {
 	ctx.Emit(f)
 }
 
+// ExpressionPositions mirrors flatResolvedNullCheckOperandType's gates
+// (including flatReferenceHasSameFileTarget) so lambda-param operands
+// are not seeded — the rule's check short-circuits on those before
+// consulting the resolver.
+func (r *UnnecessaryNotNullCheckRule) ExpressionPositions(file *scanner.File) []uint32 {
+	if file == nil {
+		return nil
+	}
+	var out []uint32
+	file.FlatWalkNodes(0, "equality_expression", func(idx uint32) {
+		operand, _, ok := flatNullComparisonOperand(file, idx)
+		if !ok {
+			return
+		}
+		operand = flatUnwrapParenExpr(file, operand)
+		switch file.FlatType(operand) {
+		case "simple_identifier", "this_expression":
+			if !flatReferenceHasSameFileTarget(file, operand) {
+				return
+			}
+			out = append(out, operand)
+		case "call_expression", "navigation_expression":
+			out = append(out, operand)
+		}
+	})
+	return out
+}
+
 func flatNullComparisonOperand(file *scanner.File, idx uint32) (operand uint32, op string, ok bool) {
 	if file == nil || idx == 0 || file.FlatType(idx) != "equality_expression" || file.FlatChildCount(idx) < 3 {
 		return 0, "", false
@@ -1059,6 +1087,41 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 	}
 }
 
+// ExpressionPositions mirrors check()'s receiver gates: safe-call
+// (`?.`) navigations with a bare identifier receiver. Dotted and
+// chained safe-calls are skipped because the rule's bare-name lookup
+// cannot consume them.
+func (r *UnnecessarySafeCallRule) ExpressionPositions(file *scanner.File) []uint32 {
+	if file == nil {
+		return nil
+	}
+	var out []uint32
+	file.FlatWalkNodes(0, "navigation_expression", func(idx uint32) {
+		if !flatNavigationHasSafeCall(file, idx) {
+			return
+		}
+		if file.FlatChildCount(idx) < 2 {
+			return
+		}
+		receiver := file.FlatChild(idx, 0)
+		if receiver == 0 {
+			return
+		}
+		if flatNavigationHasSafeCall(file, receiver) {
+			return
+		}
+		receiverText := file.FlatNodeText(receiver)
+		if strings.Contains(receiverText, ".") {
+			return
+		}
+		if strings.TrimSpace(receiverText) == "" {
+			return
+		}
+		out = append(out, idx)
+	})
+	return out
+}
+
 func unnecessarySafeCallShouldSkipReceiver(file *scanner.File, idx uint32, name string, structural bool) bool {
 	if name == "this" {
 		return unnecessarySafeCallNullableReceiverFlat(file, idx, structural) ||
@@ -1665,6 +1728,52 @@ func (r *NullableToStringCallRule) checkNullableStringTemplate(ctx *api.Context)
 		ctx.Emit(r.Finding(file, file.FlatRow(child)+1, file.FlatCol(child)+1,
 			"Interpolating a nullable expression may produce the string \"null\". Use an explicit fallback instead."))
 	}
+}
+
+// ExpressionPositions collects resolver query positions for both rule
+// paths in a single FlatWalkAllNodes pass: zero-arg `.toString()` call
+// receivers (not safe-call) and string-template interpolation
+// expressions. Single walk avoids three sequential AST scans at
+// --depth=thorough.
+func (r *NullableToStringCallRule) ExpressionPositions(file *scanner.File) []uint32 {
+	if file == nil {
+		return nil
+	}
+	var out []uint32
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		switch file.FlatType(idx) {
+		case "call_expression":
+			if flatCallExpressionName(file, idx) != "toString" {
+				return
+			}
+			nav, args := flatCallExpressionParts(file, idx)
+			if nav == 0 || flatCallHasArguments(file, args) {
+				return
+			}
+			if flatNavigationLastSuffixOperator(file, nav) == "?." {
+				return
+			}
+			receiver := flatUnwrapParenExpr(file, flatNullCheckNavigationReceiver(file, nav))
+			if receiver == 0 {
+				return
+			}
+			switch file.FlatType(receiver) {
+			case "simple_identifier", "this_expression", "call_expression", "navigation_expression":
+				out = append(out, receiver)
+			}
+		case "interpolated_identifier":
+			out = append(out, idx)
+		case "interpolated_expression":
+			if file.FlatNamedChildCount(idx) == 0 {
+				return
+			}
+			expr := flatUnwrapParenExpr(file, file.FlatNamedChild(idx, 0))
+			if expr != 0 {
+				out = append(out, expr)
+			}
+		}
+	})
+	return out
 }
 
 func flatCallHasArguments(file *scanner.File, args uint32) bool {

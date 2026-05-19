@@ -25,9 +25,16 @@ const (
 	// type oracle.
 	DepthBalanced DepthPreset = "balanced"
 
-	// DepthThorough is a forward-looking preset reserved for richer
-	// oracle facts (narrow expression types, expanded class-table
-	// coverage). Today it behaves identically to balanced.
+	// DepthThorough runs the same source-level inference and JVM type
+	// oracle as balanced, plus a targeted-resolution pre-pass: rules
+	// that declare ExprPositions selectors get their queried expression
+	// positions batched into a single resolveExpressionTypes RPC, so
+	// KAA seeds the oracle's expression map before dispatch begins.
+	// Today the precision win lights up nullsafety rules on lambda-param
+	// `!!` / `?.` / `?:` / `.toString()` patterns and equality null
+	// checks on properties whose initializers source can't type.
+	// Reserved for further oracle expansion (richer expression facts,
+	// expanded class-table coverage) as additional rules opt in.
 	DepthThorough DepthPreset = "thorough"
 )
 

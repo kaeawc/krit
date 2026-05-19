@@ -110,7 +110,7 @@ analysis:
 |-----------|-------------------------------------------------------------------------------------------------------|
 | `fast`    | Skips the JVM type oracle. Source-level inference still runs. Best for low-latency local checks.      |
 | `balanced`| (Default) Source inference + JVM type oracle.                                                         |
-| `thorough`| Reserved for richer oracle facts such as narrow expression types and expanded class tables.            |
+| `thorough`| Balanced plus a targeted-resolution pre-pass: opt-in rules batch expression-position queries to KAA so the oracle has precise type facts before dispatch. Improves precision on lambda-param nullsafety and properties with externally-typed initializers. |
 
 Precedence, highest first: explicit individual flag (e.g.
 `--no-type-oracle`) → `--depth=<preset>` → `analysis.depth` → `balanced`.

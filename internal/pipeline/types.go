@@ -226,6 +226,10 @@ type IndexResult struct {
 	// CodeIndex is the cross-file symbol/reference index. Nil when
 	// no active rule declares NeedsCrossFile.
 	CodeIndex *scanner.CodeIndex
+	// Thorough mirrors ProjectArgs.TargetedResolution and is forwarded
+	// onto api.Context.AtThoroughDepth so rules can opt into stricter
+	// helpers at --depth=thorough without consulting the runner.
+	Thorough bool
 	// Graph lists discovered Gradle modules. Always populated
 	// (possibly empty).
 	Graph *module.Graph

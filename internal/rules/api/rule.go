@@ -1177,6 +1177,12 @@ type Context struct {
 	// mini-contexts may leave it nil — filefacts accessors are nil-safe
 	// and recompute without caching in that case.
 	Facts *filefacts.Cache
+
+	// AtThoroughDepth is true when the scan ran with --depth=thorough.
+	// Rules read it to branch on stricter cross-file or oracle-confirmed
+	// query paths that trade extra cost for precision. False at
+	// fast/balanced — rules must keep working without this signal.
+	AtThoroughDepth bool
 }
 
 // Emit reports a finding. The finding is stamped with rule metadata and

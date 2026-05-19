@@ -417,15 +417,22 @@ func (idx *CodeIndex) IsReferencedOutsideFile(name, file string) bool {
 // IsSymbolReferencedOutsideFile checks whether sym is referenced from another
 // file by either simple name or fully-qualified name.
 func (idx *CodeIndex) IsSymbolReferencedOutsideFile(sym Symbol, ignoreCommentRefs bool) bool {
+	return idx.anyReferenceOutsideFile(symbolReferenceNames(sym), sym.File, ignoreCommentRefs)
+}
+
+// anyReferenceOutsideFile is shared between the loose and strict
+// IsSymbolReferenced* variants: returns true on the first name that has
+// an outside-file reference (honouring the comment-exclusion flag).
+func (idx *CodeIndex) anyReferenceOutsideFile(names []string, file string, ignoreCommentRefs bool) bool {
 	if idx == nil {
 		return false
 	}
-	for _, name := range symbolReferenceNames(sym) {
+	for _, name := range names {
 		if ignoreCommentRefs {
-			if idx.IsReferencedOutsideFileExcludingComments(name, sym.File) {
+			if idx.IsReferencedOutsideFileExcludingComments(name, file) {
 				return true
 			}
-		} else if idx.IsReferencedOutsideFile(name, sym.File) {
+		} else if idx.IsReferencedOutsideFile(name, file) {
 			return true
 		}
 	}
@@ -525,6 +532,31 @@ func symbolReferenceNames(sym Symbol) []string {
 		return []string{sym.Name}
 	}
 	return []string{sym.Name, sym.FQN}
+}
+
+// symbolReferenceNamesStrict drops the simple-name path when an FQN is
+// available, so references that only matched by collision with a
+// like-named symbol in another package are not counted. When the
+// symbol has no FQN the strict view falls back to the simple name —
+// the rule has no other handle to disambiguate.
+func symbolReferenceNamesStrict(sym Symbol) []string {
+	if sym.Name == "" {
+		return nil
+	}
+	if sym.FQN != "" && sym.FQN != sym.Name {
+		return []string{sym.FQN}
+	}
+	return []string{sym.Name}
+}
+
+// IsSymbolReferencedOutsideFileFQN is the strict variant of
+// IsSymbolReferencedOutsideFile: it requires an FQN match (when the
+// symbol has one), so a reference to a like-named declaration in a
+// different package does not count as usage. Use at --depth=thorough
+// when reducing false-negative dead-code is worth the loss of the
+// simple-name fallback for symbols without an FQN.
+func (idx *CodeIndex) IsSymbolReferencedOutsideFileFQN(sym Symbol, ignoreCommentRefs bool) bool {
+	return idx.anyReferenceOutsideFile(symbolReferenceNamesStrict(sym), sym.File, ignoreCommentRefs)
 }
 
 // BloomStats returns the bloom filter memory usage in bytes.

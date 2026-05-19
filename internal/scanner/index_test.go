@@ -1221,3 +1221,58 @@ func TestIsXMLReferenceCandidate(t *testing.T) {
 		}
 	}
 }
+
+// When two packages declare a same-named symbol, the loose
+// IsSymbolReferencedOutsideFile reports either declaration as
+// referenced (simple-name collision); the strict FQN-only variant
+// disambiguates and lets dead-code detection at --depth=thorough drop
+// the false positive.
+func TestIsSymbolReferencedOutsideFileFQN_DropsSimpleNameCollisions(t *testing.T) {
+	dir := t.TempDir()
+	declA := writeTempKt(t, dir, "a_Foo.kt", `package a
+class Foo {}
+`)
+	declB := writeTempKt(t, dir, "b_Foo.kt", `package b
+class Foo {}
+`)
+	consumer := writeTempKt(t, dir, "b_Use.kt", `package b
+fun use(f: Foo) {}
+`)
+
+	fA, err := ParseFile(context.Background(), declA)
+	if err != nil {
+		t.Fatalf("parse declA: %v", err)
+	}
+	fB, err := ParseFile(context.Background(), declB)
+	if err != nil {
+		t.Fatalf("parse declB: %v", err)
+	}
+	fC, err := ParseFile(context.Background(), consumer)
+	if err != nil {
+		t.Fatalf("parse consumer: %v", err)
+	}
+	idx := BuildIndex([]*File{fA, fB, fC}, 1)
+
+	var symA Symbol
+	for _, s := range idx.Symbols {
+		if s.Name == "Foo" && s.File == declA {
+			symA = s
+		}
+	}
+	if symA.Name == "" {
+		t.Fatal("expected to find a.Foo symbol in index")
+	}
+	if symA.FQN == "" {
+		t.Skipf("test fixture did not produce an FQN for a.Foo (got %+v); skipping precision assertion", symA)
+	}
+
+	// Loose helper sees the reference to b.Foo in use.kt and reports
+	// a.Foo as referenced — false positive from the simple-name match.
+	if !idx.IsSymbolReferencedOutsideFile(symA, false) {
+		t.Fatal("loose helper should report a.Foo referenced (simple-name collision with b.Foo)")
+	}
+	// Strict helper requires FQN match; a.Foo is not referenced.
+	if idx.IsSymbolReferencedOutsideFileFQN(symA, false) {
+		t.Errorf("strict helper should NOT report a.Foo referenced; only b.Foo is")
+	}
+}

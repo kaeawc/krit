@@ -639,6 +639,7 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 		CrossFileCacheDir:     in.CrossFileCacheDir,
 		CodeIndexCache:        in.CodeIndexCache,
 		JavaSourceIndexCache:  in.JavaSourceIndexCache,
+		Thorough:              in.Thorough,
 	}
 
 	caps := unionNeeds(in.ActiveRules)

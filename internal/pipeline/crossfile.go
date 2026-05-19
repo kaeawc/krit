@@ -126,7 +126,7 @@ func (p CrossFilePhase) runCrossRuleSet(ctx context.Context, in DispatchResult, 
 		}
 		ruleID := r.ID
 		call := func() {
-			rctx := buildCrossRuleContext(r, codeIndex, parsedFiles, in.Resolver, in.LibraryFacts, javaSourceIndex, crossCollector)
+			rctx := buildCrossRuleContext(r, codeIndex, parsedFiles, in.Resolver, in.LibraryFacts, javaSourceIndex, crossCollector, in.Thorough)
 			r.Check(rctx)
 		}
 		if ruleTracker != nil {
@@ -136,7 +136,7 @@ func (p CrossFilePhase) runCrossRuleSet(ctx context.Context, in DispatchResult, 
 		}
 	}
 	if len(concurrentRules) > 0 && ctx.Err() == nil {
-		runConcurrentCrossRules(ctx, concurrentRules, codeIndex, parsedFiles, in.Resolver, in.LibraryFacts, javaSourceIndex, crossCollector, p.Workers, ruleTracker, &result.Stats.Errors)
+		runConcurrentCrossRules(ctx, concurrentRules, codeIndex, parsedFiles, in.Resolver, in.LibraryFacts, javaSourceIndex, crossCollector, p.Workers, ruleTracker, &result.Stats.Errors, in.Thorough)
 	}
 	if ruleTracker != nil {
 		ruleTracker.End()
@@ -508,8 +508,8 @@ func javaSourceIndexForParsedFiles(parsedFiles []*scanner.File) *javafacts.Sourc
 	return nil
 }
 
-func buildCrossRuleContext(r *api.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, resolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaSourceIndex *javafacts.SourceIndex, collector *scanner.FindingCollector) *api.Context {
-	rctx := &api.Context{Collector: collector, Rule: r, DefaultConfidence: 0.95, LibraryFacts: libraryFacts, JavaSourceIndex: javaSourceIndex}
+func buildCrossRuleContext(r *api.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, resolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaSourceIndex *javafacts.SourceIndex, collector *scanner.FindingCollector, thorough bool) *api.Context {
+	rctx := &api.Context{Collector: collector, Rule: r, DefaultConfidence: 0.95, LibraryFacts: libraryFacts, JavaSourceIndex: javaSourceIndex, AtThoroughDepth: thorough}
 	if r.Needs.Has(api.NeedsResolver) {
 		rctx.Resolver = resolver
 	}
@@ -534,7 +534,7 @@ const concurrentCrossRuleThreshold = 2
 // owner re-sorts the full columnar result by file/line before output
 // (see applySuppressionColumns + result.Findings path). Rule panics are
 // recovered per-rule so one broken rule does not take down the phase.
-func runConcurrentCrossRules(ctx context.Context, ruleSet []*api.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, resolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaSourceIndex *javafacts.SourceIndex, dst *scanner.FindingCollector, workers int, tracker perf.Tracker, errs *[]rules.DispatchError) {
+func runConcurrentCrossRules(ctx context.Context, ruleSet []*api.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, resolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaSourceIndex *javafacts.SourceIndex, dst *scanner.FindingCollector, workers int, tracker perf.Tracker, errs *[]rules.DispatchError, thorough bool) {
 	if len(ruleSet) == 0 {
 		return
 	}
@@ -556,7 +556,7 @@ func runConcurrentCrossRules(ctx context.Context, ruleSet []*api.Rule, codeIndex
 			}
 			ruleID := r.ID
 			call := func() {
-				runConcurrentCrossRule(r, codeIndex, parsedFiles, resolver, libraryFacts, javaSourceIndex, dst, errs)
+				runConcurrentCrossRule(r, codeIndex, parsedFiles, resolver, libraryFacts, javaSourceIndex, dst, errs, thorough)
 			}
 			if tracker != nil {
 				tracker.TrackVoid(ruleID, call)
@@ -598,7 +598,7 @@ func runConcurrentCrossRules(ctx context.Context, ruleSet []*api.Rule, codeIndex
 					return
 				}
 				r := ruleSet[idx]
-				runConcurrentCrossRule(r, codeIndex, parsedFiles, resolver, libraryFacts, javaSourceIndex, local, &localErrs[workerID])
+				runConcurrentCrossRule(r, codeIndex, parsedFiles, resolver, libraryFacts, javaSourceIndex, local, &localErrs[workerID], thorough)
 			}
 		}(w)
 	}
@@ -641,7 +641,7 @@ func mergeSortedLocalErrs(localErrs [][]rules.DispatchError) []rules.DispatchErr
 // runConcurrentCrossRule invokes a single rule's Check against a given
 // collector, recovering from panics the same way the serial path does.
 // Each caller hands its own collector so the goroutines never contend.
-func runConcurrentCrossRule(r *api.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, resolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaSourceIndex *javafacts.SourceIndex, local *scanner.FindingCollector, errs *[]rules.DispatchError) {
+func runConcurrentCrossRule(r *api.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, resolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaSourceIndex *javafacts.SourceIndex, local *scanner.FindingCollector, errs *[]rules.DispatchError, thorough bool) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			if errs != nil {
@@ -653,7 +653,7 @@ func runConcurrentCrossRule(r *api.Rule, codeIndex *scanner.CodeIndex, parsedFil
 			}
 		}
 	}()
-	rctx := buildCrossRuleContext(r, codeIndex, parsedFiles, resolver, libraryFacts, javaSourceIndex, local)
+	rctx := buildCrossRuleContext(r, codeIndex, parsedFiles, resolver, libraryFacts, javaSourceIndex, local, thorough)
 	r.Check(rctx)
 }
 

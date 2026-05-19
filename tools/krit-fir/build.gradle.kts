@@ -16,6 +16,10 @@ kotlin {
 dependencies {
     // Kotlin compiler bundled into the fat JAR — provides FIR checker API, K2JVMCompiler, and plugin infra
     implementation("org.jetbrains.kotlin:kotlin-compiler:$kotlinVersion")
+
+    testImplementation("org.junit.jupiter:junit-jupiter:6.0.3")
+    testImplementation(kotlin("test"))
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.shadowJar {

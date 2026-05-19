@@ -1,5 +1,6 @@
 package dev.jasonpearson.krit.fir
 
+import dev.jasonpearson.krit.fir.oracle.OracleResponse
 import dev.jasonpearson.krit.fir.runner.AnalysisSession
 import dev.jasonpearson.krit.fir.runner.BatchResult
 import dev.jasonpearson.krit.fir.runner.FileRef
@@ -171,6 +172,10 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 RequestResult.Response("""{"id":${request.id},"result":{"ok":true,"uptime":$uptime}}""")
             }
             "shutdown" -> RequestResult.Shutdown("""{"id":${request.id},"result":{"ok":true}}""")
+            // Per-file FIR projection lives in [OracleResponse]; see its KDoc.
+            "analyze", "analyzeAll" -> RequestResult.Response(
+                OracleResponse.buildEmptyAnalyze(request.id),
+            )
             else -> RequestResult.Response("""{"id":${request.id},"error":"Unknown command: ${escJson(request.command)}"}""")
         }
     } catch (e: Exception) {

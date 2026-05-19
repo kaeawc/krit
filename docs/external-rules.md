@@ -333,6 +333,7 @@ copy-pasteable diagnostic.
 | `NEEDS_RESOURCES` | **supported** | Populates `RuleContext.resources` with a `ResourcesContext`. Methods: `stringValue(name)`, `hasString(name)`, `colorValue(name)`, `dimensionValue(name)`, `hasDrawable(name)`, `hasLayout(name)`, `hasId(name)`. Null when the project has no Android `res/` directory. |
 | `NEEDS_MODULE_INDEX` | **supported** | Populates `RuleContext.moduleIndex` with a `ModuleIndexContext`. Properties: `modulePaths`. Methods: `directoryOf(modulePath)`, `dependenciesOf(modulePath)`, `sourceRootsOf(modulePath)`. Null when the project has no Gradle modules. |
 | `NEEDS_CROSS_FILE` | **supported** | Populates `RuleContext.crossFile` with a `CrossFileContext`. Methods: `declarationByFqn(fqn)`, `referenceFiles(name)`, `isReferenced(name)` (non-comment references only). Null when the daemon's cross-file pass did not run. The wire payload can be sizable on large projects — declare this capability only when the rule genuinely needs whole-project visibility. |
+| `NEEDS_FIR` | **FIR-backend only** | Opts the rule into the K2 frontend IR. Methods on `Resolver` that have no KAA implementation throw `NotImplementedError("FIR backend required …")` when called against the krit-types (KAA) backend; declaring this capability moves the failure from runtime mid-analysis to deterministic load-time refusal. Rules declaring `NEEDS_FIR` fail to load on `--oracle-backend=kaa` (default today) with a diagnostic naming the flag they need to flip. Use this when a rule depends on FIR-only surface — most rules should leave it off and stick to the always-implementable `Resolver` methods. |
 
 ### What a load failure looks like
 
@@ -345,6 +346,17 @@ error: krit-rule-api: /tmp/acme-rules.jar: rule jar declares capabilities
 the daemon does not yet provide to plugin rules; the rule would run
 without the facts it asked for. Remove the declaration(s) or wait for
 support. Unsupported: [acme.NoTodo: NEEDS_TIME_TRAVEL]
+```
+
+A jar declaring `NEEDS_FIR` against the KAA backend gets a different,
+backend-specific message:
+
+```
+error: krit-rule-api: /tmp/acme-rules.jar: rule jar declares FIR-only
+capabilities the krit-types (KAA) backend cannot provide. Run with
+`--oracle-backend=fir` so the krit-fir backend hosts the rule, or
+remove the FIR-only declaration if the rule does not actually need it.
+Unsupported: [acme.NeedsFirRule: NEEDS_FIR]
 ```
 
 The diagnostic surfaces on the same channels as the SDK-compat verdict:

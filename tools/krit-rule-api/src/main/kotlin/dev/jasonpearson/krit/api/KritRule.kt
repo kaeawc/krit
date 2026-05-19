@@ -494,6 +494,17 @@ enum class Capability {
      * for the project; null when running on a bare Kotlin directory.
      */
     NEEDS_GRADLE,
+
+    /**
+     * Declares the rule requires FIR-backend facilities — methods on
+     * [Resolver] that are only implementable against the K2 compiler's
+     * frontend IR. Without this declaration, calling a FIR-only
+     * `Resolver` method throws `NotImplementedError` at runtime against
+     * a non-FIR backend; declaring it moves the failure to deterministic
+     * load-time refusal with a diagnostic pointing at
+     * `--oracle-backend=fir`.
+     */
+    NEEDS_FIR,
 }
 
 /** Safety tier for a custom rule autofix. */

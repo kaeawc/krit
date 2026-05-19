@@ -183,6 +183,18 @@ internal object PluginCapabilities {
         Capability.NEEDS_CROSS_FILE.name,
     )
 
+    /**
+     * Capabilities that exist on the rule SPI but are intentionally not
+     * supported on the krit-types (KAA) backend — declaring them is a
+     * load-time opt-in that the rule needs a different backend. The
+     * `everyCapabilityIsClassified` test invariant treats a value here
+     * as deliberately-not-in-[SUPPORTED] rather than an accidental
+     * omission.
+     */
+    val FIR_ONLY: Set<String> = setOf(
+        Capability.NEEDS_FIR.name,
+    )
+
     fun unsupported(needs: List<String>): List<String> =
         needs.filter { it !in SUPPORTED }
 
@@ -196,15 +208,22 @@ internal object PluginCapabilities {
         // ServiceLoader iteration order — otherwise the same offending
         // jar would produce different diagnostic strings on different
         // runs, breaking exact-match assertions in downstream tests.
-        val rendered = violations
-            .sortedBy { it.ruleId }
-            .joinToString(separator = "; ") { (id, caps) ->
-                "$id: ${caps.joinToString(separator = ", ")}"
-            }
-        val message = "rule jar declares capabilities the daemon does not yet provide " +
-            "to plugin rules; the rule would run without the facts it asked for. " +
-            "Remove the declaration(s) or wait for support (tracked on " +
-            "$TRACKING_ISSUE_URL). Unsupported: [$rendered]"
+        val sorted = violations.sortedBy { it.ruleId }
+        val rendered = sorted.joinToString(separator = "; ") { (id, caps) ->
+            "$id: ${caps.joinToString(separator = ", ")}"
+        }
+        val firRestricted = sorted.any { v -> v.unsupported.any { it in FIR_ONLY } }
+        val message = if (firRestricted) {
+            "rule jar declares FIR-only capabilities the krit-types (KAA) backend " +
+                "cannot provide. Run with `--oracle-backend=fir` so the krit-fir " +
+                "backend hosts the rule, or remove the FIR-only declaration if the " +
+                "rule does not actually need it. Unsupported: [$rendered]"
+        } else {
+            "rule jar declares capabilities the daemon does not yet provide " +
+                "to plugin rules; the rule would run without the facts it asked for. " +
+                "Remove the declaration(s) or wait for support (tracked on " +
+                "$TRACKING_ISSUE_URL). Unsupported: [$rendered]"
+        }
         return PluginLoadDiagnostic(
             jar = jar,
             level = PluginLoadDiagnostic.Level.ERROR,

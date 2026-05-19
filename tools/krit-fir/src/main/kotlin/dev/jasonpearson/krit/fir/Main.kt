@@ -172,10 +172,28 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 RequestResult.Response("""{"id":${request.id},"result":{"ok":true,"uptime":$uptime}}""")
             }
             "shutdown" -> RequestResult.Shutdown("""{"id":${request.id},"result":{"ok":true}}""")
-            // Per-file FIR projection lives in [OracleResponse]; see its KDoc.
-            "analyze", "analyzeAll" -> RequestResult.Response(
-                OracleResponse.buildAnalyze(request.id),
-            )
+            "analyze", "analyzeAll" -> {
+                val needsRebuild =
+                    request.sourceDirs != session.sourceDirs || request.classpath != session.classpath
+                val activeSession = if (needsRebuild) {
+                    session.dispose()
+                    AnalysisSession(request.sourceDirs, request.classpath)
+                } else {
+                    session
+                }
+                val analyzeFiles = if (request.command == "analyzeAll") {
+                    emptyList()
+                } else {
+                    request.files.map { it.path }
+                }
+                val result = activeSession.analyze(analyzeFiles)
+                val response = OracleResponse.buildAnalyze(request.id, result)
+                if (needsRebuild) {
+                    RequestResult.SessionRebuilt(response, activeSession)
+                } else {
+                    RequestResult.Response(response)
+                }
+            }
             else -> RequestResult.Response("""{"id":${request.id},"error":"Unknown command: ${escJson(request.command)}"}""")
         }
     } catch (e: Exception) {

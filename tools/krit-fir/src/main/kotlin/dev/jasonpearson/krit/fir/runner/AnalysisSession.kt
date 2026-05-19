@@ -1,6 +1,10 @@
 package dev.jasonpearson.krit.fir.runner
 
+import dev.jasonpearson.krit.fir.oracle.AnalyzeResult
+import dev.jasonpearson.krit.fir.oracle.OracleCollector
+import dev.jasonpearson.krit.fir.oracle.OracleCollectorRegistry
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
+import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 import org.jetbrains.kotlin.config.Services
 import java.io.File
@@ -75,6 +79,43 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         )
     }
 
+    /**
+     * Run a K2 frontend compilation to collect oracle-style per-class
+     * projections for `files` (or every source in `sourceDirs` when
+     * `files` is empty). The result mirrors krit-types' analyze /
+     * analyzeAll JSON shape — classes captured during compilation feed
+     * through the dispatched [OracleClassChecker] into an
+     * [OracleCollector], which the orchestrator drains here.
+     *
+     * Diagnostic checkers run on the same K2 invocation but produce no
+     * findings on this path; compiler messages are discarded via
+     * `MessageCollector.NONE` because the oracle path cares about
+     * structured class data, not lint diagnostics.
+     */
+    fun analyze(files: List<String>): AnalyzeResult {
+        val collector = OracleCollector()
+        OracleCollectorRegistry.begin(collector)
+        val outDir = Files.createTempDirectory("krit-fir-oracle-out-").toFile()
+        try {
+            val args = K2JVMCompilerArguments().apply {
+                freeArgs = (allSourceFiles + files).distinct().ifEmpty { files }
+                this.classpath = this@AnalysisSession.classpath.joinToString(File.pathSeparator)
+                destination = outDir.absolutePath
+                noStdlib = true
+                noReflect = true
+                suppressWarnings = true
+                if (selfJar != null) {
+                    pluginClasspaths = arrayOf(selfJar)
+                }
+            }
+            K2JVMCompiler().exec(MessageCollector.NONE, Services.EMPTY, args)
+        } finally {
+            outDir.deleteRecursively()
+            OracleCollectorRegistry.end()
+        }
+        return collector.toResult()
+    }
+
     fun dispose() {} // No long-lived JVM resources beyond the lazy source file list.
 
     companion object {
@@ -87,11 +128,22 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
             "SmokeChecker" to "SMOKE_CLASS",
         )
 
-        private fun resolveSelfJar(): String? = try {
-            val location = AnalysisSession::class.java.protectionDomain?.codeSource?.location
-            location?.toURI()?.let { File(it) }?.absolutePath?.takeIf { it.endsWith(".jar") }
-        } catch (_: Exception) {
-            null
+        private fun resolveSelfJar(): String? {
+            // Test harnesses override the plugin classpath via this
+            // system property — the plain `:jar` task output is enough
+            // (the test JVM already has the Kotlin compiler), and
+            // pointing here means tests don't need the slower
+            // shadow-jar build to register the plugin.
+            System.getProperty("krit.fir.plugin.jar")?.let { override ->
+                val file = File(override)
+                if (file.isFile) return file.absolutePath
+            }
+            return try {
+                val location = AnalysisSession::class.java.protectionDomain?.codeSource?.location
+                location?.toURI()?.let { File(it) }?.absolutePath?.takeIf { it.endsWith(".jar") }
+            } catch (_: Exception) {
+                null
+            }
         }
     }
 }

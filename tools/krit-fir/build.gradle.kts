@@ -38,4 +38,16 @@ tasks.shadowJar {
 
 tasks.test {
     useJUnitPlatform()
+    // AnalysisSessionAnalyzeTest drives the embedded K2 compiler and
+    // needs the krit-fir plugin classes on the plugin classpath. Point
+    // it at the plain `:jar` output (the compiler runtime is already
+    // on the test classpath via the `kotlin-compiler` dep), so tests
+    // don't need to wait for the slower shadow-jar build.
+    dependsOn("jar")
+    val pluginJar = tasks.named("jar", Jar::class.java).flatMap { it.archiveFile }
+    inputs.file(pluginJar)
+    systemProperty(
+        "krit.fir.plugin.jar",
+        pluginJar.get().asFile.absolutePath,
+    )
 }

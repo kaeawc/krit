@@ -1,5 +1,7 @@
 package dev.jasonpearson.krit.fir.oracle
 
+import java.io.File
+
 /**
  * Mutable buffer that collects per-class projections during a single
  * K2 compilation. The orchestrator ([`AnalysisSession.analyze`]) creates
@@ -15,6 +17,8 @@ internal class OracleCollector {
     private val perFile = LinkedHashMap<String, MutableList<ClassPayload>>()
     private val dependencies = LinkedHashMap<String, ClassPayload>()
     private val packageByFile = LinkedHashMap<String, String>()
+    private val expressionsByFile = LinkedHashMap<String, LinkedHashMap<String, ExpressionPayload>>()
+    private val offsetsByFile = HashMap<String, FileOffsetTable?>()
 
     fun addClass(filePath: String, payload: ClassPayload) {
         perFile.getOrPut(filePath) { mutableListOf() }.add(payload)
@@ -30,18 +34,45 @@ internal class OracleCollector {
     }
 
     /**
+     * Add an expression payload for [filePath] under [key]
+     * ("line:col"). First-wins on duplicate keys — matches krit-types'
+     * dedup behavior where overlapping call expressions at the same
+     * source position are reported once.
+     */
+    fun addExpression(filePath: String, key: String, payload: ExpressionPayload) {
+        val map = expressionsByFile.getOrPut(filePath) { LinkedHashMap() }
+        map.putIfAbsent(key, payload)
+    }
+
+    /** True iff an expression has already been recorded at this key in this file. */
+    fun hasExpression(filePath: String, key: String): Boolean =
+        expressionsByFile[filePath]?.containsKey(key) == true
+
+    /**
+     * Lazily-built offset table for [filePath]. Returns null if the
+     * file cannot be read (e.g. it was deleted between the K2 walk
+     * scheduling and the checker firing). Callers should skip the
+     * expression in that case rather than crashing.
+     */
+    fun offsetsFor(filePath: String): FileOffsetTable? =
+        offsetsByFile.getOrPut(filePath) {
+            runCatching { FileOffsetTable(File(filePath).readText()) }.getOrNull()
+        }
+
+    /**
      * Build the final [AnalyzeResult] from buffered data. Files that
      * had no class declarations but did have a package directive still
      * appear with an empty `declarations` list — matches krit-types'
      * behavior of emitting one `FileResult` per visited Kotlin file.
      */
     fun toResult(): AnalyzeResult {
-        val allFilePaths = (perFile.keys + packageByFile.keys).toSet()
+        val allFilePaths = (perFile.keys + packageByFile.keys + expressionsByFile.keys).toSet()
         val files = LinkedHashMap<String, FilePayload>(allFilePaths.size)
         for (path in allFilePaths) {
             files[path] = FilePayload(
                 packageName = packageByFile[path] ?: "",
                 declarations = perFile[path]?.toList() ?: emptyList(),
+                expressions = expressionsByFile[path]?.toMap() ?: emptyMap(),
             )
         }
         return AnalyzeResult(files = files, dependencies = dependencies.toMap())

@@ -83,6 +83,44 @@ class OracleCollectorTest {
     }
 
     @Test
+    fun addExpressionAccumulatesUnderFilePathAndKey() {
+        val c = OracleCollector()
+        val payload = ExpressionPayload(type = "", callTarget = "com.acme.foo")
+        c.addExpression("/src/Foo.kt", "10:5", payload)
+
+        val expressions = c.toResult().files["/src/Foo.kt"]?.expressions
+        assertEquals(mapOf("10:5" to payload), expressions)
+    }
+
+    @Test
+    fun duplicateExpressionKeysKeepFirstSeen() {
+        // K2 can revisit the same call site during phased checking;
+        // first-wins matches krit-types' "skip if key already present"
+        // dedup pattern so the wire shape is deterministic.
+        val c = OracleCollector()
+        val first = ExpressionPayload(type = "", callTarget = "first")
+        val second = ExpressionPayload(type = "", callTarget = "second")
+        c.addExpression("/src/Foo.kt", "1:1", first)
+        c.addExpression("/src/Foo.kt", "1:1", second)
+
+        assertEquals(first, c.toResult().files["/src/Foo.kt"]?.expressions?.get("1:1"))
+        assertTrue(c.hasExpression("/src/Foo.kt", "1:1"))
+    }
+
+    @Test
+    fun expressionsForFileWithoutClassesStillEmitsFileEntry() {
+        // A file that has only top-level function calls (no class
+        // declarations and no package directive in the test) should
+        // still appear in `files` with its expressions populated.
+        val c = OracleCollector()
+        c.addExpression("/src/Only.kt", "1:1", ExpressionPayload(type = "", callTarget = "x"))
+
+        val payload = c.toResult().files["/src/Only.kt"]
+        assertEquals(1, payload?.expressions?.size)
+        assertEquals(emptyList(), payload?.declarations)
+    }
+
+    @Test
     fun registryScopesActiveCollectorPerThread() {
         // Sanity check on the thread-local guard. The orchestrator
         // assumes K2 runs single-threaded per compilation; the test

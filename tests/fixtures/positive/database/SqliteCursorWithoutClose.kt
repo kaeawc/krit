@@ -1,14 +1,6 @@
 package test
 
-interface Cursor {
-    fun moveToNext(): Boolean
-    fun close()
-}
-
-interface SQLiteDatabase {
-    fun rawQuery(sql: String, args: Array<String>?): Cursor
-    fun query(table: String, columns: Array<String>?): Cursor
-}
+import android.database.sqlite.SQLiteDatabase
 
 fun loadUsers(db: SQLiteDatabase) {
     val cursor = db.rawQuery("SELECT * FROM users", null)
@@ -18,7 +10,7 @@ fun loadUsers(db: SQLiteDatabase) {
 }
 
 fun loadAccounts(db: SQLiteDatabase) {
-    val cursor = db.query("accounts", null)
+    val cursor = db.query("accounts", null, null, null, null, null, null)
     while (cursor.moveToNext()) {
         // ...
     }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/rules/api/evidence"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -282,14 +283,25 @@ func registerDatabaseRules() {
 		r := &SqliteCursorWithoutCloseRule{BaseRule: BaseRule{RuleName: "SqliteCursorWithoutClose", RuleSetName: "database", Sev: "warning", Desc: "Detects SQLiteDatabase rawQuery/query cursors assigned to local properties without .use {} or .close() in the same scope."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"property_declaration"}, Needs: api.NeedsResolver,
+			Confidence: 0.75, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				cursorName := extractIdentifierFlat(file, idx)
 				if cursorName == "" {
 					return
 				}
-				if !sqliteCursorCallFlat(file, idx) {
+				callIdx, ok := sqliteCursorCallFlat(file, idx)
+				if !ok {
+					return
+				}
+				ev := evidence.From(ctx)
+				call := ev.Call(callIdx)
+				if call == nil {
+					return
+				}
+				fqn, source := ev.ResolveOwner(call)
+				if source == evidence.OwnerUnknown || !isSQLiteDatabaseFQN(fqn) {
 					return
 				}
 				if sqliteCursorRHSWrappedInUseFlat(file, idx) {

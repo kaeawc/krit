@@ -132,6 +132,7 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"StaticIv":                             {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_security_test.go"}},
 		"StartActivityWithUntrustedIntent":     {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_security_test.go"}},
 		"SqlInjectionRawQuery":                 {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/security_test.go"}},
+		"SqliteCursorWithoutClose":             {Status: api.LanguageSupportNotApplicable, Reason: "Rule dispatches on Kotlin property_declaration and matches the val/var initializer chain; Java local variables are syntactically and structurally different."},
 		"ThrowingExceptionFromFinally":         {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/exceptions_test.go"}},
 		"ThrowingExceptionInMain":              {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/exceptions_test.go"}},
 		"ThrowingNewInstanceOfSameException":   {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/exceptions_test.go"}},

@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/kaeawc/krit/internal/fsutil"
 )
 
 // Decompiler turns a {jar, fqn} pair into Kotlin-shaped source text. The
@@ -102,7 +104,7 @@ func (c *DecompileCache) Get(jarPath, fqn string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := writeFileAtomic(cachePath, []byte(src)); err != nil {
+	if err := writeDecompiledSourceAtomic(cachePath, []byte(src)); err != nil {
 		// Cache failures are non-fatal — the caller still gets a result.
 		return src, nil //nolint:nilerr // see comment: cache write failure surfaces nothing to caller, source is already decompiled
 	}
@@ -158,25 +160,17 @@ func fqnToFilename(fqn string) string {
 	return strings.ReplaceAll(fqn, ".", "/") + ".kt"
 }
 
-func writeFileAtomic(path string, data []byte) error {
+// writeDecompiledSourceAtomic creates any missing parent directories
+// and then delegates to fsutil.WriteFileAtomic so the cached
+// decompiled source survives a hard crash. The previous local helper
+// renamed without fsync of the tempfile or the parent directory,
+// which on power loss could leave the cache showing a clean write
+// while the file vanished or reverted on remount.
+func writeDecompiledSourceAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".decompile-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	return os.Rename(tmpName, path)
+	return fsutil.WriteFileAtomic(path, data, 0o644)
 }
 
 // SignatureStubDecompiler renders Kotlin-shaped source from the oracle's

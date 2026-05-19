@@ -117,6 +117,51 @@ func TestSignatureStubDecompiler(t *testing.T) {
 	}
 }
 
+func TestWriteDecompiledSourceAtomicCreatesParentDirAndWrites(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "p", "Q.kt")
+	if err := writeDecompiledSourceAtomic(path, []byte("class Q\n")); err != nil {
+		t.Fatalf("writeDecompiledSourceAtomic: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(data) != "class Q\n" {
+		t.Errorf("content = %q, want %q", string(data), "class Q\n")
+	}
+	// fsutil.WriteFileAtomic renames the tempfile into place atomically;
+	// after a successful return no dot-prefixed temp entries should
+	// remain alongside the target.
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".") && e.Name() != filepath.Base(path) {
+			t.Errorf("leftover temp entry after atomic write: %s", e.Name())
+		}
+	}
+}
+
+func TestWriteDecompiledSourceAtomicOverwritesExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Q.kt")
+	if err := os.WriteFile(path, []byte("stale\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeDecompiledSourceAtomic(path, []byte("fresh\n")); err != nil {
+		t.Fatalf("writeDecompiledSourceAtomic: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "fresh\n" {
+		t.Errorf("overwrite content = %q, want %q", string(data), "fresh\n")
+	}
+}
+
 func TestFallbackDecompilerFallsBackOnPrimaryError(t *testing.T) {
 	primary := &countingDecompiler{err: os.ErrNotExist}
 	fallback := &countingDecompiler{out: "fallback"}

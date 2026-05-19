@@ -2,6 +2,7 @@ package serve
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"runtime/pprof"
@@ -65,10 +66,23 @@ func writeDaemonMemProfile(path string) []string {
 	if err != nil {
 		return []string{fmt.Sprintf("daemon mem profile create %s: %v", path, err)}
 	}
-	defer f.Close()
+	return writeDaemonMemProfileTo(f, path)
+}
+
+// writeDaemonMemProfileTo writes a heap profile to w, then closes it,
+// returning warnings for both write and close failures. Close is
+// reported explicitly because pprof flushes its buffered tail there
+// — a silently dropped Close error leaves the profile truncated on
+// disk and the pprof tool later refuses to parse it. Split out so
+// tests can pass a fake io.WriteCloser whose Close fails.
+func writeDaemonMemProfileTo(w io.WriteCloser, path string) []string {
 	runtime.GC()
-	if err := pprof.WriteHeapProfile(f); err != nil {
-		return []string{fmt.Sprintf("daemon mem profile write %s: %v", path, err)}
+	var warnings []string
+	if err := pprof.WriteHeapProfile(w); err != nil {
+		warnings = append(warnings, fmt.Sprintf("daemon mem profile write %s: %v", path, err))
 	}
-	return nil
+	if err := w.Close(); err != nil {
+		warnings = append(warnings, fmt.Sprintf("daemon mem profile close %s: %v", path, err))
+	}
+	return warnings
 }

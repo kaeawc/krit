@@ -2,7 +2,9 @@ package rename
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -91,18 +93,45 @@ func apply(plan Plan, dry bool) (ApplyResult, error) {
 			result.Moves = append(result.Moves, mv)
 			continue
 		}
-		if _, err := os.Stat(mv.To); err == nil {
-			return result, fmt.Errorf("rename apply: destination %s already exists", mv.To)
-		}
 		if err := os.MkdirAll(filepath.Dir(mv.To), 0o755); err != nil {
 			return result, fmt.Errorf("rename apply: mkdir %s: %w", filepath.Dir(mv.To), err)
 		}
-		if err := os.Rename(mv.From, mv.To); err != nil {
-			return result, fmt.Errorf("rename apply: rename %s -> %s: %w", mv.From, mv.To, err)
+		if err := moveFileNoReplace(mv.From, mv.To); err != nil {
+			return result, fmt.Errorf("rename apply: %w", err)
 		}
 		result.Moves = append(result.Moves, mv)
 	}
 	return result, nil
+}
+
+// moveFileNoReplace renames src to dst, failing if dst already exists.
+// Uses os.Link + os.Remove so the "destination exists" check and the
+// rename happen atomically on the same filesystem (the typical case
+// for a within-repo rename) — closes the Stat-then-Rename TOCTOU
+// where a concurrent process could create dst between the existence
+// check and os.Rename and silently get overwritten.
+//
+// Cross-filesystem (EXDEV) or unsupported (e.g. Windows hard-link
+// restrictions) Link failures fall back to a Stat+Rename: a narrower
+// race window than the previous implementation, accepted for the
+// rare cross-FS case.
+func moveFileNoReplace(src, dst string) error {
+	if err := os.Link(src, dst); err == nil {
+		if rmErr := os.Remove(src); rmErr != nil {
+			_ = os.Remove(dst)
+			return fmt.Errorf("remove source %s after link: %w", src, rmErr)
+		}
+		return nil
+	} else if errors.Is(err, fs.ErrExist) {
+		return fmt.Errorf("destination %s already exists", dst)
+	}
+	if _, err := os.Stat(dst); err == nil {
+		return fmt.Errorf("destination %s already exists", dst)
+	}
+	if err := os.Rename(src, dst); err != nil {
+		return fmt.Errorf("rename %s -> %s: %w", src, dst, err)
+	}
+	return nil
 }
 
 // planFileMoves identifies declaration files that need to be renamed,

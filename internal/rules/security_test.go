@@ -1103,6 +1103,34 @@ class Decoder {
 	}
 }
 
+func TestJavaObjectInputStream_KotlinStringLiteralMention(t *testing.T) {
+	findings := runRuleByName(t, "JavaObjectInputStream", `
+package test
+
+fun warn() {
+    println("warning: never use java.io.ObjectInputStream(input) directly")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestJavaObjectInputStream_JavaStringLiteralMention(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "JavaObjectInputStream", `
+package test;
+
+class Warn {
+    void warn() {
+        System.out.println("never use java.io.ObjectInputStream(input) directly");
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 Java findings, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestJacksonDefaultTyping_KotlinPositive(t *testing.T) {
 	findings := runRuleByName(t, "JacksonDefaultTyping", `
 package test

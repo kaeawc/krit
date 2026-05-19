@@ -1037,14 +1037,39 @@ func javaObjectInputStreamConstructor(file *scanner.File, idx uint32) bool {
 }
 
 func javaObjectInputStreamCallShape(file *scanner.File, idx uint32) bool {
-	compact := strings.Join(strings.Fields(file.FlatNodeText(idx)), "")
 	switch file.FlatType(idx) {
 	case "call_expression":
-		return flatCallExpressionName(file, idx) == "ObjectInputStream" ||
-			strings.Contains(compact, "java.io.ObjectInputStream(")
+		// Kotlin: the callee is the first named child of the call_expression —
+		// either a bare simple_identifier or a navigation_expression. Inspect
+		// it directly so string-literal arguments that mention the class
+		// cannot satisfy the shape check.
+		navExpr, _ := flatCallExpressionParts(file, idx)
+		if navExpr != 0 {
+			chain := flatNavigationChainIdentifiers(file, navExpr)
+			if len(chain) == 3 && chain[0] == "java" && chain[1] == "io" && chain[2] == "ObjectInputStream" {
+				return true
+			}
+			return false
+		}
+		return flatCallExpressionName(file, idx) == "ObjectInputStream"
 	case "object_creation_expression":
-		return strings.Contains(compact, "newObjectInputStream(") ||
-			strings.Contains(compact, "newjava.io.ObjectInputStream(")
+		// Java: `new X(args)` parses with the type as a named child —
+		// type_identifier for `ObjectInputStream`, scoped_type_identifier
+		// whose tail identifier is `ObjectInputStream` for the FQN form.
+		for c := file.FlatFirstChild(idx); c != 0; c = file.FlatNextSib(c) {
+			if !file.FlatIsNamed(c) {
+				continue
+			}
+			switch file.FlatType(c) {
+			case "type_identifier":
+				return file.FlatNodeTextEquals(c, "ObjectInputStream")
+			case "scoped_type_identifier":
+				return file.FlatNodeTextEquals(c, "java.io.ObjectInputStream")
+			default:
+				return false
+			}
+		}
+		return false
 	default:
 		return false
 	}

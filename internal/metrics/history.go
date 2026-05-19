@@ -46,9 +46,22 @@ func AppendRecord(path string, record Record) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	enc := json.NewEncoder(f)
-	return enc.Encode(record)
+	return appendRecordTo(f, record)
+}
+
+// appendRecordTo encodes one JSONL record to w and closes it,
+// returning whichever of encode/close fired first. Close is where
+// buffered writes flush on many filesystems, so dropping the Close
+// error (the original implementation used `defer f.Close()`) silently
+// loses the just-appended record on disk-full or NFS write-back
+// failures.
+func appendRecordTo(w io.WriteCloser, record Record) error {
+	encErr := json.NewEncoder(w).Encode(record)
+	closeErr := w.Close()
+	if encErr != nil {
+		return encErr
+	}
+	return closeErr
 }
 
 func Query(opts QueryOptions) ([]QueryRow, error) {

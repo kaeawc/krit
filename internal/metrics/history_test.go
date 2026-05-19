@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +11,60 @@ import (
 
 	"github.com/kaeawc/krit/internal/output"
 )
+
+type failingCloseBuffer struct {
+	bytes.Buffer
+	closeErr error
+}
+
+func (f *failingCloseBuffer) Close() error { return f.closeErr }
+
+type failingWriter struct {
+	writeErr error
+	closeErr error
+	closed   bool
+}
+
+func (f *failingWriter) Write(p []byte) (int, error) {
+	if f.writeErr != nil {
+		return 0, f.writeErr
+	}
+	return len(p), nil
+}
+
+func (f *failingWriter) Close() error {
+	f.closed = true
+	return f.closeErr
+}
+
+func TestAppendRecordToSurfacesCloseError(t *testing.T) {
+	buf := &failingCloseBuffer{closeErr: errors.New("disk full")}
+	err := appendRecordTo(buf, Record{Version: "v"})
+	if err == nil || !strings.Contains(err.Error(), "disk full") {
+		t.Fatalf("want close error, got %v", err)
+	}
+	if buf.Len() == 0 {
+		t.Fatalf("expected encoder to write before close fails")
+	}
+}
+
+func TestAppendRecordToReturnsEncodeErrorEvenIfCloseAlsoFails(t *testing.T) {
+	w := &failingWriter{writeErr: errors.New("encode boom"), closeErr: errors.New("close boom")}
+	err := appendRecordTo(w, Record{Version: "v"})
+	if err == nil || !strings.Contains(err.Error(), "encode boom") {
+		t.Fatalf("want encode error to win, got %v", err)
+	}
+	if !w.closed {
+		t.Fatalf("Close must still run even when Encode fails")
+	}
+}
+
+func TestAppendRecordToReturnsNilOnCleanCloseAndEncode(t *testing.T) {
+	buf := &failingCloseBuffer{}
+	if err := appendRecordTo(buf, Record{Version: "v"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
 
 func TestAppendRecordAndQuery(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".krit", "metrics.jsonl")

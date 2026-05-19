@@ -305,12 +305,20 @@ func testOwnsModuleSignals(in Input, blob *snapshot.Blob) []Signal {
 
 func inferModuleFromTestPath(blob *snapshot.Blob, path string) string {
 	for _, marker := range []string{"/src/test/", "/src/androidTest/", "/src/integrationTest/"} {
-		if i := strings.Index(path, marker); i > 0 {
-			prefix := path[:i]
-			for _, m := range blob.Modules {
-				if m.Dir == prefix || strings.HasSuffix(m.Dir, prefix) || strings.HasSuffix(prefix, strings.TrimPrefix(m.Dir, "./")) {
-					return m.Path
-				}
+		i := strings.Index(path, marker)
+		if i <= 0 {
+			continue
+		}
+		prefix := path[:i]
+		for _, m := range blob.Modules {
+			// The test file's prefix (the absolute path up to the
+			// /src/test/ marker) must equal the module dir or have it
+			// as a path suffix. The previous middle clause
+			// `HasSuffix(m.Dir, prefix)` was backwards and would
+			// attribute the test to any sibling module whose dir
+			// happened to end with the test-prefix string.
+			if m.Dir == prefix || strings.HasSuffix(prefix, strings.TrimPrefix(m.Dir, "./")) {
+				return m.Path
 			}
 		}
 	}

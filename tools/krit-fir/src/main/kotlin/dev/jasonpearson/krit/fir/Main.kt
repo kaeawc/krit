@@ -1,6 +1,8 @@
 package dev.jasonpearson.krit.fir
 
 import dev.jasonpearson.krit.fir.oracle.OracleResponse
+import dev.jasonpearson.krit.fir.plugins.PluginResponse
+import dev.jasonpearson.krit.fir.plugins.PluginRuleRegistry
 import dev.jasonpearson.krit.fir.runner.AnalysisSession
 import dev.jasonpearson.krit.fir.runner.BatchResult
 import dev.jasonpearson.krit.fir.runner.FileRef
@@ -199,6 +201,19 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                     RequestResult.Response(response)
                 }
             }
+            "listPlugins" -> {
+                val response = try {
+                    PluginRuleRegistry.load(request.pluginJars)
+                    PluginResponse.buildListPlugins(
+                        id = request.id,
+                        descriptors = PluginRuleRegistry.descriptorsForJars(request.pluginJars),
+                        diagnostics = PluginRuleRegistry.diagnosticsForJars(request.pluginJars),
+                    )
+                } catch (t: Throwable) {
+                    """{"id":${request.id},"error":"${escJson(t.message ?: "listPlugins failed")}"}"""
+                }
+                RequestResult.Response(response)
+            }
             else -> RequestResult.Response("""{"id":${request.id},"error":"Unknown command: ${escJson(request.command)}"}""")
         }
     } catch (e: Exception) {
@@ -216,6 +231,9 @@ data class CheckRequest(
     val sourceDirs: List<String> = emptyList(),
     val classpath: List<String> = emptyList(),
     val rules: List<String> = emptyList(),
+    // Plugin-rule jar paths, matching krit-types' `"jars"` array in
+    // `listPlugins` / `analyzeFileWithPlugins` requests.
+    val pluginJars: List<String> = emptyList(),
 )
 
 fun parseRequest(json: String): CheckRequest {
@@ -224,8 +242,9 @@ fun parseRequest(json: String): CheckRequest {
     val sourceDirs = extractStringArray(json, "sourceDirs") ?: emptyList()
     val classpath = extractStringArray(json, "classpath") ?: emptyList()
     val rules = extractStringArray(json, "rules") ?: emptyList()
+    val pluginJars = extractStringArray(json, "jars") ?: emptyList()
     val files = extractFileRefs(json)
-    return CheckRequest(id, command, files, sourceDirs, classpath, rules)
+    return CheckRequest(id, command, files, sourceDirs, classpath, rules, pluginJars)
 }
 
 // ── Response building ─────────────────────────────────────────────────────────

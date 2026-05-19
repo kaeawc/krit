@@ -11,9 +11,10 @@ class OracleResponseTest {
         // The JSON shape mirrors krit-types' `buildDaemonResponse`:
         // `{"id":N,"result":{"version":1,"kotlinVersion":"...","files":{},"dependencies":{}}}`.
         // A single Go-side oracle client must parse responses from
-        // either backend without branching on the source — verified by
-        // pinning the exact field set and ordering.
-        val response = OracleResponse.buildEmptyAnalyze(id = 42)
+        // either backend without branching on the source — pin the
+        // exact field set so future projection work cannot accidentally
+        // change the envelope contract.
+        val response = OracleResponse.buildAnalyze(id = 42)
 
         assertTrue(response.startsWith("""{"id":42,"result":{"""), response)
         assertTrue(response.endsWith("}}"), response)
@@ -28,7 +29,7 @@ class OracleResponseTest {
         // The `errors` map is suppressed entirely when empty — matches
         // krit-types' behavior of nesting `errors` inside `result` only
         // when at least one entry exists.
-        val response = OracleResponse.buildEmptyAnalyze(id = 1)
+        val response = OracleResponse.buildAnalyze(id = 1)
         assertTrue("errors" !in response, response)
     }
 
@@ -39,9 +40,9 @@ class OracleResponseTest {
         // `result`, not as a sibling. The flat sibling shape used by
         // `analyzeWithDeps` is separate and lands with the cacheDeps
         // projection.
-        val response = OracleResponse.buildEmptyAnalyze(
+        val response = OracleResponse.buildAnalyze(
             id = 7,
-            errors = mapOf("/path/to/Foo.kt" to "parse error"),
+            result = AnalyzeResult(errors = mapOf("/path/to/Foo.kt" to "parse error")),
         )
         val resultStart = response.indexOf(""""result":{""")
         val resultEnd = response.lastIndexOf("}}")
@@ -58,10 +59,10 @@ class OracleResponseTest {
         // escaping (quotes, backslashes, newlines). The builder must
         // emit valid JSON without introducing a control char in the
         // output (only escaped sequences).
-        val response = OracleResponse.buildEmptyAnalyze(
+        val response = OracleResponse.buildAnalyze(
             id = 1,
-            errors = mapOf(
-                "/path with \"quote\"" to "newline\nbackslash\\",
+            result = AnalyzeResult(
+                errors = mapOf("/path with \"quote\"" to "newline\nbackslash\\"),
             ),
         )
         assertTrue(response.contains("\\\"quote\\\""), response)
@@ -74,10 +75,8 @@ class OracleResponseTest {
         // krit-types stamps `kotlinVersion` from `KotlinVersion.CURRENT`
         // (the compiler's own runtime version). krit-fir should do the
         // same so a parity-diff test can pin the field as a known
-        // constant per-run rather than a moving target. This pins the
-        // contract: whatever `KotlinVersion.CURRENT` returns at compile
-        // time, the envelope must report it verbatim.
-        val response = OracleResponse.buildEmptyAnalyze(id = 1)
+        // constant per-run rather than a moving target.
+        val response = OracleResponse.buildAnalyze(id = 1)
         val expectedFragment = """"kotlinVersion":"${KotlinVersion.CURRENT}""""
         assertTrue(expectedFragment in response, "$expectedFragment not in $response")
     }
@@ -87,7 +86,7 @@ class OracleResponseTest {
         // JSON-RPC ids on the wire are unquoted integers; the Go client
         // unmarshals into int64. Emit the id raw (not as a quoted
         // string) so the response parses on the consumer side.
-        val response = OracleResponse.buildEmptyAnalyze(id = 9001)
+        val response = OracleResponse.buildAnalyze(id = 9001)
         assertTrue(response.startsWith("""{"id":9001,"""), response)
     }
 
@@ -97,10 +96,94 @@ class OracleResponseTest {
         // response that contains a raw newline (not escaped) would
         // break the protocol mid-message. Belt-and-suspenders given
         // the per-character escape in jsonString.
-        val response = OracleResponse.buildEmptyAnalyze(
+        val response = OracleResponse.buildAnalyze(
             id = 1,
-            errors = mapOf("a" to "line1\nline2"),
+            result = AnalyzeResult(errors = mapOf("a" to "line1\nline2")),
         )
         assertEquals(-1, response.indexOf('\n'), "envelope contains a raw newline: $response")
+    }
+
+    @Test
+    fun populatedFilePayloadSerializesPackageAndDeclarations() {
+        // Seeded data pins the JSON shape produced when a non-empty
+        // `FilePayload` rides on the wire — the projection layer hands
+        // an `AnalyzeResult` to `buildAnalyze` and the envelope must
+        // surface each populated field in the documented place.
+        val response = OracleResponse.buildAnalyze(
+            id = 1,
+            result = AnalyzeResult(
+                files = mapOf(
+                    "/src/Foo.kt" to FilePayload(
+                        packageName = "com.acme.foo",
+                        declarations = listOf(
+                            ClassPayload(
+                                fqn = "com.acme.foo.Bar",
+                                kind = "class",
+                                supertypes = listOf("kotlin.Any"),
+                                visibility = "public",
+                                isOpen = true,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        assertTrue(""""/src/Foo.kt":{""" in response, response)
+        assertTrue(""""package":"com.acme.foo"""" in response, response)
+        assertTrue(""""fqn":"com.acme.foo.Bar"""" in response, response)
+        assertTrue(""""kind":"class"""" in response, response)
+        assertTrue(""""supertypes":["kotlin.Any"]""" in response, response)
+        assertTrue(""""isOpen":true""" in response, response)
+        // Modifier flags are emitted only when true — false flags must
+        // not bloat the wire payload.
+        assertTrue("isSealed" !in response, response)
+        assertTrue("isData" !in response, response)
+    }
+
+    @Test
+    fun dependenciesMapKeyedByFqn() {
+        // `dependencies` is the cross-file class index — keyed by FQN
+        // rather than by source path. krit-types uses this for Go-side
+        // symbol resolution; the shape must round-trip identically.
+        val response = OracleResponse.buildAnalyze(
+            id = 1,
+            result = AnalyzeResult(
+                dependencies = mapOf(
+                    "com.acme.foo.Bar" to ClassPayload(
+                        fqn = "com.acme.foo.Bar",
+                        kind = "class",
+                    ),
+                ),
+            ),
+        )
+        assertTrue(""""dependencies":{"com.acme.foo.Bar":""" in response, response)
+    }
+
+    @Test
+    fun expressionPayloadOmitsZeroByteRangeAndFalseFlags() {
+        // Expressions ride on every analyze response and can be dense
+        // on real codebases. Emit only fields that carry information:
+        // suppress the byte range when start == end, suppress flag
+        // fields when false. Matches krit-types' `buildJson` shape so
+        // a Go-side parity diff stays comparable.
+        val response = OracleResponse.buildAnalyze(
+            id = 1,
+            result = AnalyzeResult(
+                files = mapOf(
+                    "/src/Foo.kt" to FilePayload(
+                        packageName = "com.acme",
+                        expressions = mapOf(
+                            "12:5" to ExpressionPayload(
+                                type = "kotlin.String",
+                                nullable = false,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        assertTrue(""""12:5":{"type":"kotlin.String","nullable":false}""" in response, response)
+        assertTrue("startByte" !in response, response)
+        assertTrue("callTargetSuspend" !in response, response)
     }
 }

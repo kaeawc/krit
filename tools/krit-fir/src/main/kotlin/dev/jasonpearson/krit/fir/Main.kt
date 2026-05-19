@@ -174,7 +174,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
             "shutdown" -> RequestResult.Shutdown("""{"id":${request.id},"result":{"ok":true}}""")
             // Per-file FIR projection lives in [OracleResponse]; see its KDoc.
             "analyze", "analyzeAll" -> RequestResult.Response(
-                OracleResponse.buildEmptyAnalyze(request.id),
+                OracleResponse.buildAnalyze(request.id),
             )
             else -> RequestResult.Response("""{"id":${request.id},"error":"Unknown command: ${escJson(request.command)}"}""")
         }

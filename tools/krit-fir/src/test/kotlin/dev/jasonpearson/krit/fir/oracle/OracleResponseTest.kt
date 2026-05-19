@@ -160,6 +160,111 @@ class OracleResponseTest {
     }
 
     @Test
+    fun analyzeWithDepsEmitsFlatEnvelopeWithCacheDeps() {
+        // The `analyzeWithDeps` shape moves errors out of `result` into a
+        // sibling key and always emits `cacheDeps` (even empty) so the
+        // Go-side client can detect new-protocol daemons.
+        val response = OracleResponse.buildAnalyzeWithDeps(
+            id = 4,
+            result = AnalyzeResult(
+                errors = mapOf("/src/Bad.kt" to "parse error"),
+            ),
+        )
+        assertTrue(response.startsWith("""{"id":4,"result":{"""), response)
+        assertTrue(""""cacheDeps":{"files":{},"crashed":{}}""" in response, response)
+        // errors is a sibling of result, not nested inside it.
+        val resultEnd = response.indexOf("}", response.indexOf(""""result":{"""))
+        val errorsAt = response.indexOf(""""errors":""")
+        assertTrue(
+            errorsAt > resultEnd,
+            "errors should be a sibling of result, not nested: $response",
+        )
+    }
+
+    @Test
+    fun analyzeWithDepsOmitsErrorsKeyWhenEmpty() {
+        val response = OracleResponse.buildAnalyzeWithDeps(id = 5)
+        assertTrue("errors" !in response, response)
+        assertTrue(""""cacheDeps":{"files":{},"crashed":{}}""" in response, response)
+    }
+
+    @Test
+    fun classAndMemberAnnotationsRideOnTheWire() {
+        val response = OracleResponse.buildAnalyze(
+            id = 1,
+            result = AnalyzeResult(
+                files = mapOf(
+                    "/src/Foo.kt" to FilePayload(
+                        declarations = listOf(
+                            ClassPayload(
+                                fqn = "com.acme.Foo",
+                                kind = "class",
+                                annotations = listOf("kotlin.Deprecated"),
+                                members = listOf(
+                                    MemberPayload(
+                                        name = "doStuff",
+                                        kind = "function",
+                                        returnType = "kotlin.Unit",
+                                        annotations = listOf("kotlin.jvm.JvmStatic"),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        assertTrue(""""annotations":["kotlin.Deprecated"]""" in response, response)
+        assertTrue(""""annotations":["kotlin.jvm.JvmStatic"]""" in response, response)
+    }
+
+    @Test
+    fun diagnosticWireShapeMatchesKritTypes() {
+        // krit-types emits `{factoryName, severity, message, line, col,
+        // startByte?, endByte?}` for each diagnostic. Pinning the field
+        // names + omit-when-empty byte range guards against accidentally
+        // diverging from the consumer's parser shape.
+        val response = OracleResponse.buildAnalyze(
+            id = 1,
+            result = AnalyzeResult(
+                files = mapOf(
+                    "/src/Foo.kt" to FilePayload(
+                        diagnostics = listOf(
+                            DiagnosticPayload(
+                                factoryName = "USELESS_ELVIS",
+                                severity = "WARNING",
+                                message = "Elvis operator (?:) always returns the left operand of non-nullable type",
+                                line = 3,
+                                col = 7,
+                                startByte = 10,
+                                endByte = 22,
+                            ),
+                            DiagnosticPayload(
+                                factoryName = "CAST_NEVER_SUCCEEDS",
+                                severity = "WARNING",
+                                message = "cast can never succeed",
+                                line = 5,
+                                col = 1,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        assertTrue(""""factoryName":"USELESS_ELVIS"""" in response, response)
+        assertTrue(""""col":7""" in response, response)
+        assertTrue(""""startByte":10,"endByte":22""" in response, response)
+        // The zero-range diagnostic must omit startByte/endByte to keep
+        // the wire payload minimal (krit-types' rule).
+        assertTrue(""""factoryName":"CAST_NEVER_SUCCEEDS","severity":"WARNING"""" in response, response)
+        val secondDiagFragment = response.substringAfter("CAST_NEVER_SUCCEEDS")
+        assertTrue(
+            "startByte" !in secondDiagFragment,
+            "zero-range diagnostic must omit startByte: $response",
+        )
+    }
+
+    @Test
     fun expressionPayloadOmitsZeroByteRangeAndFalseFlags() {
         // Expressions ride on every analyze response and can be dense
         // on real codebases. Emit only fields that carry information:

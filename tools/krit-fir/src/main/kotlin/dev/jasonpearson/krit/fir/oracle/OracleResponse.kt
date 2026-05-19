@@ -16,17 +16,52 @@ package dev.jasonpearson.krit.fir.oracle
 object OracleResponse {
 
     /**
-     * Build the krit-types-compatible envelope for an analyze response.
-     * Errors carried on [result] are nested inside the `result` object
-     * to match krit-types' legacy `buildDaemonResponse` shape; the flat
-     * `cacheDeps`-sibling envelope used by `analyzeWithDeps` is
-     * separate and lands with the cacheDeps projection in a later PR.
+     * Build the krit-types-compatible envelope for the legacy
+     * `analyze` / `analyzeAll` / `analyzeFiles` RPC. Errors carried on
+     * [result] are nested inside the `result` object to match
+     * krit-types' `buildDaemonResponse` shape.
      */
     fun buildAnalyze(id: Long, result: AnalyzeResult = AnalyzeResult.EMPTY): String {
         val sb = StringBuilder()
         sb.append("""{"id":""")
         sb.append(id)
         sb.append(""","result":{""")
+        appendResultBody(sb, result)
+        if (result.errors.isNotEmpty()) {
+            sb.append(""","errors":""")
+            appendErrors(sb, result.errors)
+        }
+        sb.append("}}")
+        return sb.toString()
+    }
+
+    /**
+     * Build the flat-envelope response shape used by `analyzeWithDeps`.
+     * Mirrors krit-types' `buildDaemonResponseWithDeps`: `result`,
+     * `errors`, and `cacheDeps` are siblings rather than nested inside
+     * `result`. `cacheDeps` is always emitted (currently with empty
+     * `files` and `crashed` maps) so the Go-side client can detect that
+     * the daemon speaks the new protocol revision; population of the
+     * per-file dependency closure lands with the cacheDeps projection
+     * in a follow-up PR.
+     */
+    fun buildAnalyzeWithDeps(id: Long, result: AnalyzeResult = AnalyzeResult.EMPTY): String {
+        val sb = StringBuilder()
+        sb.append("""{"id":""")
+        sb.append(id)
+        sb.append(""","result":{""")
+        appendResultBody(sb, result)
+        sb.append("}")
+        if (result.errors.isNotEmpty()) {
+            sb.append(""","errors":""")
+            appendErrors(sb, result.errors)
+        }
+        sb.append(""","cacheDeps":{"files":{},"crashed":{}}""")
+        sb.append("}")
+        return sb.toString()
+    }
+
+    private fun appendResultBody(sb: StringBuilder, result: AnalyzeResult) {
         sb.append(""""version":1,""")
         sb.append(""""kotlinVersion":""")
         sb.append(jsonString(KotlinVersion.CURRENT.toString()))
@@ -34,12 +69,6 @@ object OracleResponse {
         appendFiles(sb, result.files)
         sb.append(""","dependencies":""")
         appendDependencies(sb, result.dependencies)
-        if (result.errors.isNotEmpty()) {
-            sb.append(""","errors":""")
-            appendErrors(sb, result.errors)
-        }
-        sb.append("}}")
-        return sb.toString()
     }
 
     private fun appendFiles(sb: StringBuilder, files: Map<String, FilePayload>) {
@@ -210,14 +239,22 @@ object OracleResponse {
         sb.append("[")
         diags.forEachIndexed { i, d ->
             if (i > 0) sb.append(",")
-            sb.append("""{"severity":""")
+            sb.append("""{"factoryName":""")
+            sb.append(jsonString(d.factoryName))
+            sb.append(""","severity":""")
             sb.append(jsonString(d.severity))
             sb.append(""","message":""")
             sb.append(jsonString(d.message))
             sb.append(""","line":""")
             sb.append(d.line)
-            sb.append(""","column":""")
-            sb.append(d.column)
+            sb.append(""","col":""")
+            sb.append(d.col)
+            if (d.endByte > d.startByte) {
+                sb.append(""","startByte":""")
+                sb.append(d.startByte)
+                sb.append(""","endByte":""")
+                sb.append(d.endByte)
+            }
             sb.append("}")
         }
         sb.append("]")

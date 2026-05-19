@@ -39,13 +39,36 @@ class OracleDispatchTest {
     }
 
     @Test
+    fun analyzeFilesCommandRoutesToOracleResponseBuilder() {
+        val request = """{"id":13,"command":"analyzeFiles"}"""
+        val result = handleRequestLine(request, session, startTime = 0L)
+        val response = (result as RequestResult.Response).json
+        assertTrue(response.startsWith("""{"id":13,"result":{"""), response)
+        assertTrue(""""files":{}""" in response, response)
+        assertTrue(""""dependencies":{}""" in response, response)
+    }
+
+    @Test
+    fun analyzeWithDepsCommandUsesFlatEnvelopeWithCacheDeps() {
+        // analyzeWithDeps uses krit-types' flat envelope shape:
+        // `result` / `errors` / `cacheDeps` as siblings, and cacheDeps
+        // is always present (currently empty) so the Go-side client
+        // can detect that the daemon speaks the new protocol revision.
+        val request = """{"id":14,"command":"analyzeWithDeps"}"""
+        val result = handleRequestLine(request, session, startTime = 0L)
+        val response = (result as RequestResult.Response).json
+        assertTrue(response.startsWith("""{"id":14,"result":{"""), response)
+        assertTrue(""""cacheDeps":{"files":{},"crashed":{}}""" in response, response)
+    }
+
+    @Test
     fun analyzeResponseIsNotAnErrorEnvelope() {
         // Belt-and-suspenders: an `else` clause that returns
         // `{"id":...,"error":"Unknown command:..."}` is one accidental
         // dispatch ordering bug away from regressing this. Confirm the
-        // response has no `error` field at the top level for either
-        // command.
-        for (cmd in listOf("analyze", "analyzeAll")) {
+        // response has no `error` field at the top level for any
+        // oracle command.
+        for (cmd in listOf("analyze", "analyzeAll", "analyzeFiles", "analyzeWithDeps")) {
             val response =
                 (handleRequestLine("""{"id":1,"command":"$cmd"}""", session, 0L)
                     as RequestResult.Response).json

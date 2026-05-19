@@ -22,6 +22,14 @@ can opt into JVM-backed Kotlin Analysis API/FIR helper facts (`tools/krit-types/
   CI enforces. Skipping it just causes a CI round-trip. It's especially
   easy to forget after a refactor or deletion that leaves orphan helpers;
   make it part of every validation pass.
+- **After editing `.github/workflows/*.yml`, run `scripts/lint-actions.sh`.**
+  `actionlint` catches GitHub Actions semantic errors that plain YAML
+  parsers (including `yamllint`) accept — most importantly, function-call
+  context violations like `${{ hashFiles(...) }}` at workflow-`env`
+  scope, where it is valid YAML but illegal in GitHub Actions and causes
+  the workflow to fail to load with **zero checks scheduled** on the PR.
+  The `actionlint` CI job runs the same check, so a missed local run
+  just costs a round-trip.
 - Run `go test ./... -count=1` for full test validation; use focused
   package tests while iterating.
 - Use tree-sitter AST/flat nodes for structural analysis and regex only for

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -307,18 +308,31 @@ func ComputeConfigHash(ruleNames []string, cfg *config.Config, editorConfigEnabl
 		h.Write([]byte("|editorconfig=true"))
 	}
 
-	// Include the full resolved config data so threshold changes invalidate the cache
+	// Include the full resolved config data so threshold changes invalidate the cache.
 	if cfg != nil {
-		if data := cfg.Data(); data != nil {
-			serialized, err := json.Marshal(data)
-			if err == nil {
-				h.Write([]byte("|config="))
-				h.Write(serialized)
-			}
-		}
+		mixConfigData(h, cfg.Data())
 	}
 
 	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// mixConfigData mixes the resolved config map into h. On marshal
+// failure a sentinel that includes the error string is mixed in
+// instead — silently dropping the config bytes would make a marshal
+// failure indistinguishable from "no config" and a stale hash would
+// let the cache report fresh findings against a changed config.
+func mixConfigData(h hash.Hash, data map[string]interface{}) {
+	if data == nil {
+		return
+	}
+	serialized, err := json.Marshal(data)
+	if err == nil {
+		_, _ = h.Write([]byte("|config="))
+		_, _ = h.Write(serialized)
+		return
+	}
+	_, _ = h.Write([]byte("|config-marshal-error="))
+	_, _ = h.Write([]byte(err.Error()))
 }
 
 // NeedsReanalysis checks whether a file needs to be re-analyzed.

@@ -102,5 +102,21 @@ func TestCacheRace(t *testing.T) {
 		}
 	}()
 
+	// Concurrent header writes: dispatch.writeCacheBack assigns Version,
+	// RuleHash, and ScanPaths after each run. Without filesMu coverage of
+	// the header fields, this races against Save/CheckFiles in the
+	// daemon.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			c.SetHeader(
+				fmt.Sprintf("v%d", i),
+				"samehash",
+				[]string{fmt.Sprintf("/scan/%d", i)},
+			)
+		}
+	}()
+
 	wg.Wait()
 }

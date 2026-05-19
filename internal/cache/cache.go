@@ -95,19 +95,23 @@ func (e *FileEntry) UnmarshalJSON(data []byte) error {
 
 // Cache holds the entire incremental analysis cache.
 //
-// Files is guarded by filesMu: the daemon shares a single *Cache across
-// concurrent analyze RPCs (see internal/cli/serve/serve.go), and a
-// background periodic-flush goroutine may iterate the map while a
-// pipeline run mutates it. All access to Files must go through the
-// exported methods, which take filesMu read/write as appropriate.
+// Files, Version, RuleHash, and ScanPaths are guarded by filesMu: the
+// daemon shares a single *Cache across concurrent analyze RPCs (see
+// internal/cli/serve/serve.go), and a background periodic-flush
+// goroutine may iterate the map and serialise the header while a
+// pipeline run mutates them. All access to those fields must go
+// through the exported methods, which take filesMu read/write as
+// appropriate.
 type Cache struct {
 	Version   string               `json:"version"`
 	RuleHash  string               `json:"ruleHash"`
 	ScanPaths []string             `json:"scanPaths,omitempty"`
 	Files     map[string]FileEntry `json:"files"`
 
-	// filesMu guards Files. Heavy I/O (file hashing, os.Stat) is performed
-	// outside the lock; only the map access is serialised.
+	// filesMu guards Files plus the Version, RuleHash, and ScanPaths
+	// header fields. Heavy I/O (file hashing, os.Stat) is performed
+	// outside the lock; only the map and header reads/writes are
+	// serialised.
 	filesMu sync.RWMutex
 
 	// store, when non-nil, backs all reads and writes instead of the
@@ -371,6 +375,38 @@ func (c *Cache) AttachStore(s *store.FileStore, ruleSetHash [16]byte) {
 	c.storeRuleSetHash = ruleSetHash
 }
 
+// SetHeader updates the cache header fields (Version, RuleHash, and
+// optionally ScanPaths) atomically with respect to concurrent Save and
+// CheckFiles readers. If scanPaths is empty, ScanPaths is left
+// unchanged; non-empty slices are defensively copied.
+func (c *Cache) SetHeader(version, ruleHash string, scanPaths []string) {
+	c.filesMu.Lock()
+	defer c.filesMu.Unlock()
+	c.Version = version
+	c.RuleHash = ruleHash
+	if len(scanPaths) > 0 {
+		c.ScanPaths = append([]string(nil), scanPaths...)
+	}
+}
+
+// headerMatches reports whether the cached header is compatible with
+// the requested ruleHash and scanPaths, under filesMu.RLock. Returns
+// false if the rule hash differs, or (when both sides are non-empty)
+// if the scan paths diverge.
+func (c *Cache) headerMatches(ruleHash string, scanPaths []string) bool {
+	c.filesMu.RLock()
+	defer c.filesMu.RUnlock()
+	if c.RuleHash != ruleHash {
+		return false
+	}
+	if len(scanPaths) > 0 && len(c.ScanPaths) > 0 {
+		if !scanPathsMatch(c.ScanPaths, scanPaths) {
+			return false
+		}
+	}
+	return true
+}
+
 // CheckFiles checks which files can use cached results and which need reanalysis.
 // Returns cached findings and a set of paths that are cache hits.
 // When scanPaths is non-empty, the cache is invalidated if the scan paths differ.
@@ -386,16 +422,8 @@ func (c *Cache) CheckFiles(filePaths []string, ruleHash string, scanPaths ...str
 		return c.checkFilesFromStore(filePaths, result, collector)
 	}
 
-	// If rule hash changed, everything needs reanalysis
-	if c.RuleHash != ruleHash {
+	if !c.headerMatches(ruleHash, scanPaths) {
 		return result
-	}
-
-	// If scan paths are provided and cached scan paths differ, invalidate
-	if len(scanPaths) > 0 && len(c.ScanPaths) > 0 {
-		if !scanPathsMatch(c.ScanPaths, scanPaths) {
-			return result
-		}
 	}
 	dirtyPaths, dirtyOK := gitDirtyPathSet(scanPaths)
 	result.GitDirtyPathsKnown = dirtyOK
@@ -456,13 +484,8 @@ func (c *Cache) CheckFilesIncremental(
 		return c.checkFilesFromStore(filePaths, result, collector)
 	}
 
-	if c.RuleHash != ruleHash {
+	if !c.headerMatches(ruleHash, scanPaths) {
 		return result
-	}
-	if len(scanPaths) > 0 && len(c.ScanPaths) > 0 {
-		if !scanPathsMatch(c.ScanPaths, scanPaths) {
-			return result
-		}
 	}
 
 	dirtySet := make(map[string]struct{}, len(dirty))

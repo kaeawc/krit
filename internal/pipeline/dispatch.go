@@ -116,11 +116,7 @@ func (DispatchPhase) writeCacheBack(in IndexResult, findingsByFile map[string]sc
 			in.Cache.UpdateEntryColumns(pf.Path, &fileColumns)
 		}
 	}
-	in.Cache.Version = in.Version
-	in.Cache.RuleHash = in.RuleHash
-	if len(in.CacheScanPaths) > 0 {
-		in.Cache.ScanPaths = in.CacheScanPaths
-	}
+	in.Cache.SetHeader(in.Version, in.RuleHash, in.CacheScanPaths)
 	in.Cache.Prune()
 	if in.Cache.ShouldSkipFullSaveForSmallDelta(in.CacheResult, 4) {
 		if in.Tracker != nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/kaeawc/krit/internal/filefacts"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/strutil"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
@@ -1885,8 +1886,7 @@ func insecureTrustManagerDecl(file *scanner.File, idx uint32) bool {
 }
 
 func insecureTrustManagerTextHasTypeToken(text, token string) bool {
-	re := regexp.MustCompile(`(^|[^A-Za-z0-9_])` + regexp.QuoteMeta(token) + `([^A-Za-z0-9_]|$)`)
-	return re.MatchString(text)
+	return strutil.ContainsTokenWordBoundary(text, token)
 }
 
 func insecureTrustManagerTrivialChecks(file *scanner.File, owner uint32) []uint32 {

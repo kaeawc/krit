@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/kaeawc/krit/internal/strutil"
 )
 
 type Report struct {
@@ -199,8 +201,7 @@ func mockDirectlyInteracted(text, name string) bool {
 }
 
 func tokenInText(text, token string) bool {
-	re := regexp.MustCompile(`(^|[^A-Za-z0-9_])` + regexp.QuoteMeta(token) + `([^A-Za-z0-9_]|$)`)
-	return re.MatchString(text)
+	return strutil.ContainsTokenWordBoundary(text, token)
 }
 
 func dedupeMocks(in []Mock) []Mock {

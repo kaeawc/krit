@@ -11,3 +11,9 @@ class Worker {
         println("ready")
     }
 }
+
+fun walkPairs(pairs: List<Pair<Int, Int>>) {
+    for ((a, b) in pairs) {
+        println("body")
+    }
+}

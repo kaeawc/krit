@@ -441,12 +441,25 @@ func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDe
 		if !ok || file.FlatType(parent) != "multi_variable_declaration" {
 			return target, false
 		}
-		prop, ok := flatEnclosingAncestor(file, idx, "property_declaration")
+		grand, ok := file.FlatParent(parent)
 		if !ok {
 			return target, false
 		}
-		stmt = prop
-		nameNode, _ = file.FlatFindChild(idx, "simple_identifier")
+		switch file.FlatType(grand) {
+		case "property_declaration":
+			stmt = grand
+			nameNode, _ = file.FlatFindChild(idx, "simple_identifier")
+		case "for_statement":
+			// `for ((a, b) in xs) { ... }`: bindings live only inside the
+			// loop body. The pattern (multi_variable_declaration) sits in
+			// the for header, so the scope is the for's control body,
+			// and the "statement end" for filtering pre-decl refs is the
+			// end of the pattern itself.
+			stmt = parent
+			nameNode, _ = file.FlatFindChild(idx, "simple_identifier")
+		default:
+			return target, false
+		}
 	default:
 		return target, false
 	}
@@ -469,7 +482,7 @@ func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDe
 	if !unusedVariableIsLocalProperty(file, stmt) {
 		return target, false
 	}
-	scope, ok := unusedVariableLexicalScope(file, stmt)
+	scope, ok := unusedVariableDeclScope(file, stmt)
 	if !ok {
 		return target, false
 	}
@@ -480,6 +493,22 @@ func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDe
 		emitNode: idx,
 		scope:    scope,
 	}, true
+}
+
+// unusedVariableDeclScope returns the lexical scope a declaration's
+// references must fall inside. For a for-loop destructuring pattern the
+// scope is the loop's control body; for plain locals it is the nearest
+// statements / function_body / lambda block.
+func unusedVariableDeclScope(file *scanner.File, stmt uint32) (uint32, bool) {
+	if file.FlatType(stmt) == "multi_variable_declaration" {
+		if forStmt, ok := file.FlatParent(stmt); ok && file.FlatType(forStmt) == "for_statement" {
+			if body, ok := file.FlatFindChild(forStmt, "control_structure_body"); ok {
+				return body, true
+			}
+			return 0, false
+		}
+	}
+	return unusedVariableLexicalScope(file, stmt)
 }
 
 func unusedVariablePropertyHasVisibilityModifier(file *scanner.File, idx uint32) bool {
@@ -573,9 +602,22 @@ func unusedVariableIsLocalProperty(file *scanner.File, idx uint32) bool {
 			return false
 		}
 		if t == "function_body" || t == "function_declaration" ||
-			t == "anonymous_function" || t == "lambda_literal" ||
+			t == "anonymous_function" ||
 			t == "control_structure_body" || t == "anonymous_initializer" ||
 			t == "secondary_constructor" {
+			return true
+		}
+		if t == "lambda_literal" {
+			// A lambda_literal is only a real local scope when it is a
+			// lambda *expression* — i.e., its parent is a call/argument-like
+			// context. Tree-sitter sometimes emits a lambda_literal node when
+			// recovering from a malformed class header (e.g. `class Foo\n
+			// private constructor(...)` parses the class body as a lambda
+			// inside an expression). In that case the "properties" inside
+			// are real class members, not locals.
+			if !unusedVariableLambdaIsExpression(file, a) {
+				return false
+			}
 			return true
 		}
 		if t == "class_body" || t == "enum_class_body" ||
@@ -584,6 +626,94 @@ func unusedVariableIsLocalProperty(file *scanner.File, idx uint32) bool {
 			t == "class_declaration" || t == "source_file" {
 			return false
 		}
+	}
+	return false
+}
+
+// unusedVariableUnaryContinuationUsesName reports whether the target's
+// initializer ends with `... + name` or `... - name` where the operator
+// starts on a new line *after* the preceding operand ends — the syntactic
+// shape of a user-intended unary-prefix expression statement that the
+// parser bound into the previous declaration's initializer.
+func unusedVariableUnaryContinuationUsesName(file *scanner.File, target unusedVariableDecl) bool {
+	if file == nil || target.stmt == 0 || target.name == "" {
+		return false
+	}
+	if file.FlatType(target.stmt) != "property_declaration" {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(target.stmt, "additive_expression", func(node uint32) {
+		if found || file.FlatChildCount(node) != 3 {
+			return
+		}
+		lhs, op, rhs := file.FlatChild(node, 0), file.FlatChild(node, 1), file.FlatChild(node, 2)
+		opType := file.FlatType(op)
+		if opType != "+" && opType != "-" {
+			return
+		}
+		lhsEndRow := file.FlatRow(lhs) + strings.Count(file.FlatNodeText(lhs), "\n")
+		if file.FlatRow(op) <= lhsEndRow {
+			return
+		}
+		if file.FlatType(rhs) != "simple_identifier" {
+			return
+		}
+		if unusedVariableIdentifierName(file, rhs) != target.name {
+			return
+		}
+		found = true
+	})
+	return found
+}
+
+// unusedVariableScopeHasParseError reports whether `scope` (or any of its
+// descendants) is a tree-sitter ERROR node. Rules that need full visibility
+// into a scope (so that references can attach to declarations) must abstain
+// when the parse is incomplete, since references can land in orphan subtrees.
+//
+// Backed by a per-file fact: the set of ERROR start bytes. The common case
+// (no parse errors in the file) short-circuits to O(1).
+func unusedVariableScopeHasParseError(file *scanner.File, scope uint32) bool {
+	if file == nil || scope == 0 {
+		return false
+	}
+	errorStarts := filefacts.FileFact(fileFactsCache(), file, slotUnusedVariableHasParseError, func() []uint32 {
+		var starts []uint32
+		file.FlatWalkAllNodes(0, func(candidate uint32) {
+			if file.FlatType(candidate) == "ERROR" {
+				starts = append(starts, file.FlatStartByte(candidate))
+			}
+		})
+		return starts
+	})
+	if len(errorStarts) == 0 {
+		return false
+	}
+	scopeStart := file.FlatStartByte(scope)
+	scopeEnd := file.FlatEndByte(scope)
+	for _, start := range errorStarts {
+		if start >= scopeStart && start < scopeEnd {
+			return true
+		}
+	}
+	return false
+}
+
+// unusedVariableLambdaIsExpression reports whether a lambda_literal node is
+// in a position where Kotlin actually treats it as a lambda expression
+// (function argument, property delegate, function body, etc.) rather than
+// being a parse-error artifact from a malformed declaration.
+func unusedVariableLambdaIsExpression(file *scanner.File, lambda uint32) bool {
+	parent, ok := file.FlatParent(lambda)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(parent) {
+	case "annotated_lambda", "call_suffix", "value_arguments", "value_argument",
+		"function_value_parameters", "function_body", "property_delegate",
+		"control_structure_body", "when_entry", "statements":
+		return true
 	}
 	return false
 }
@@ -607,6 +737,23 @@ func unusedVariableLexicalScope(file *scanner.File, stmt uint32) (uint32, bool) 
 }
 
 func unusedVariableUsage(file *scanner.File, target unusedVariableDecl) (used bool, unknown bool) {
+	// If the target's lookup scope contains parse errors (e.g. unsupported
+	// Kotlin syntax such as `when` entries with `is X if (cond)` guards), the
+	// tree-sitter tree can drop legit references into ERROR/orphan subtrees.
+	// Abstain rather than risk a false positive.
+	if unusedVariableScopeHasParseError(file, target.scope) {
+		return false, true
+	}
+	// Kotlin allows a unary-prefixed expression statement (e.g. a DSL builder
+	// `+factory`) to follow another expression on the next line. tree-sitter
+	// (and Kotlin's own grammar) bind that into a binary additive_expression
+	// inside the previous statement, so a reference like `+factoryCall` after
+	// `val factoryCall = when { ... }` looks textually as if `factoryCall` is
+	// referenced inside its own initializer. Recognize that pattern as a use
+	// to avoid a false positive.
+	if unusedVariableUnaryContinuationUsesName(file, target) {
+		return true, false
+	}
 	stmtEnd := file.FlatEndByte(target.stmt)
 	for _, nodeType := range []string{"simple_identifier", "interpolated_identifier", "line_str_ref", "multi_line_str_ref"} {
 		file.FlatWalkNodes(target.scope, nodeType, func(candidate uint32) {
@@ -710,6 +857,14 @@ func unusedVariableNearestDeclaration(file *scanner.File, target unusedVariableD
 	refStart := file.FlatStartByte(ref)
 	best := uint32(0)
 	bestStart := uint32(0)
+	// Seed with the target binding so it can match references in `target.scope`
+	// even when the declaration itself sits outside the scope (e.g. a for-loop
+	// destructuring pattern in the loop header). A later in-scope shadow with
+	// a larger start byte still wins via the `start < bestStart` check below.
+	if target.nameNode != 0 && file.FlatStartByte(target.nameNode) <= refStart {
+		best = target.nameNode
+		bestStart = file.FlatStartByte(target.nameNode)
+	}
 	file.FlatWalkAllNodes(target.scope, func(candidate uint32) {
 		if file.FlatStartByte(candidate) > refStart {
 			return

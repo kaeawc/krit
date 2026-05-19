@@ -671,6 +671,198 @@ fun main() {
 	}
 }
 
+func TestUnusedVariable_ForLoopDestructuring(t *testing.T) {
+	cases := []struct {
+		name     string
+		body     string
+		wantMsgs []string
+	}{
+		{
+			name: "both used",
+			body: "println(a); println(b)",
+		},
+		{
+			name:     "none used",
+			body:     `println("body")`,
+			wantMsgs: []string{"Local variable 'a' is never used.", "Local variable 'b' is never used."},
+		},
+		{
+			name:     "only first used",
+			body:     "println(a)",
+			wantMsgs: []string{"Local variable 'b' is never used."},
+		},
+		{
+			name: "string interpolation counts as use",
+			body: `println("a=$a b=${b}")`,
+		},
+		{
+			name:     "shadowed by inner val before any use",
+			body:     "val a = 99; println(a); println(b)",
+			wantMsgs: []string{"Local variable 'a' is never used."},
+		},
+		{
+			name: "use before shadow",
+			body: "println(a); val a = 99; println(a); println(b)",
+		},
+		{
+			name:     "nested function parameter shadows",
+			body:     "fun nested(a: Int) { println(a) }; nested(0); println(b)",
+			wantMsgs: []string{"Local variable 'a' is never used."},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			code := "package test\nfun main() {\n    val pairs = listOf(1 to 2)\n    for ((a, b) in pairs) {\n        " + c.body + "\n    }\n}\n"
+			findings := runRuleByName(t, "UnusedVariable", code)
+			if len(findings) != len(c.wantMsgs) {
+				t.Fatalf("expected %d findings, got %d: %v", len(c.wantMsgs), len(findings), findings)
+			}
+			for i, want := range c.wantMsgs {
+				if findings[i].Message != want {
+					t.Fatalf("finding %d: expected %q, got %q", i, want, findings[i].Message)
+				}
+			}
+		})
+	}
+}
+
+func TestUnusedVariable_ForLoopDestructuringReferenceOutsideBodyDoesNotCount(t *testing.T) {
+	// Destructured bindings are out of scope outside the loop body. The two
+	// findings are the destructured 'a' and 'b'; the trailing `val a`/`val b`
+	// are used.
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val pairs = listOf(1 to 2)
+    for ((a, b) in pairs) {
+        println("body")
+    }
+    val a = 1
+    val b = 2
+    println(a)
+    println(b)
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected two findings for destructured bindings (refs outside loop don't count), got %d: %v", len(findings), findings)
+	}
+}
+
+func TestUnusedVariable_ForLoopDestructuringUnderscorePlaceholderAllowed(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val pairs = listOf(1 to 2)
+    for ((_, b) in pairs) {
+        println(b)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected underscore placeholder to be ignored, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestUnusedVariable_LambdaDestructuringNotFlagged(t *testing.T) {
+	// Lambda destructuring `{ (a, b) -> ... }` should not be touched by the
+	// UnusedVariable rule — those bindings are lambda parameters handled by
+	// UnusedParameter. The bug fix for for-loop destructuring must not extend
+	// to lambdas.
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val pairs = listOf(1 to 2)
+    pairs.forEach { (a, b) ->
+        println("ignore both")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected lambda destructuring bindings to be ignored by UnusedVariable, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestUnusedVariable_ClassWithSeparateLinePrivateConstructorBodyIsNotLocal(t *testing.T) {
+	// tree-sitter mis-parses `class Foo\nprivate constructor(...) ... { ... }`
+	// as a class header followed by an expression containing a lambda; class
+	// members end up under a lambda_literal that is not actually a lambda
+	// expression. They must not be flagged as "local variable".
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+internal class Parameter
+private constructor(
+  val kind: Int,
+  val name: String,
+) : Comparable<Parameter> {
+  val typeKey: Int = kind
+  val type: Int = kind
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected zero findings (class body mis-parsed as lambda), got %d: %v", len(findings), findings)
+	}
+}
+
+func TestUnusedVariable_ScopeWithParseErrorsAbstains(t *testing.T) {
+	// tree-sitter Kotlin does not support `when` entries with `is X if (cond)`
+	// guards yet. References that land in ERROR/orphan subtrees would
+	// otherwise be invisible, producing false positives. The rule must
+	// abstain when its lookup scope contains parse errors.
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun fn(x: Any): Boolean {
+    val isGraph = true
+    val isContributedGraph = true
+    when (x) {
+        is String -> println("s")
+        is IntArray if (isGraph && x.size > 0) -> println("a")
+        else -> {}
+    }
+    return isContributedGraph
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected zero findings when scope has parse errors, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestUnusedVariable_UnaryPlusContinuationAfterWhenBlockCountsAsUse(t *testing.T) {
+	// A user-intended unary-plus statement after a multi-line expression is
+	// bound by tree-sitter (and Kotlin's grammar) into an additive_expression
+	// inside the previous initializer. The rule must recognize that pattern
+	// and treat the trailing identifier as a use.
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+operator fun String.unaryPlus(): Unit = Unit
+fun foo(x: Int) {
+    val factoryCall = when (x) {
+        1 -> "a"
+        else -> "b"
+    }
+    +factoryCall
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected unary-plus continuation to be treated as a use, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestUnusedVariable_UnaryPlusContinuationOnSameLineDoesNotAffectOtherCases(t *testing.T) {
+	// A genuine self-reference on the same line (no leading newline before
+	// the `+`) should still be treated as unused — only newline-prefixed
+	// unary continuations should be rescued.
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun foo(outer: Int) {
+    val self = outer + outer
+    println("done")
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected `self` to remain flagged as unused, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestUnusedVariable_AnnotatedConstructorClassBodyPropertiesAreNotLocalVariables(t *testing.T) {
 	findings := runRuleByName(t, "UnusedVariable", `
 package test

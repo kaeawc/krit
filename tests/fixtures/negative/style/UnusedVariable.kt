@@ -32,3 +32,15 @@ enum class Direction(val degrees: Int) {
 
     val radians: Double get() = degrees * 3.14159 / 180.0
 }
+
+fun walkPairs(pairs: List<Pair<Int, Int>>) {
+    for ((a, b) in pairs) {
+        println("a=$a b=${b}")
+    }
+}
+
+fun walkPairsIgnoringFirst(pairs: List<Pair<Int, Int>>) {
+    for ((_, b) in pairs) {
+        println(b)
+    }
+}

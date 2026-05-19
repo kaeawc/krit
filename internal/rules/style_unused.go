@@ -91,7 +91,45 @@ func unusedParameterUsageFlat(file *scanner.File, scope uint32, paramIdx uint32,
 			break
 		}
 	}
+	if !used && !unknown && unusedParameterErrorSubtreeMentionsNameFlat(file, scope, paramName) {
+		unknown = true
+	}
 	return used, unknown
+}
+
+// unusedParameterErrorSubtreeMentionsNameFlat reports whether any ERROR node
+// inside scope contains a descendant whose text equals name. Tree-sitter-kotlin
+// mis-parses identifiers that collide with Kotlin soft keywords
+// (`annotation`, `field`, `value`, `dynamic`, etc.) when they appear in
+// receiver position before `.`, classifying the name under an ERROR subtree
+// instead of a simple_identifier — so the body walk over simple_identifier
+// nodes never sees the use. Treat any such mention as unknown to suppress the
+// false positive.
+func unusedParameterErrorSubtreeMentionsNameFlat(file *scanner.File, scope uint32, name string) bool {
+	if file == nil || scope == 0 || name == "" {
+		return false
+	}
+	// Posting-list-backed fast path: most Kotlin files have no ERROR nodes,
+	// so the per-parameter recursive scope walk below can be skipped entirely.
+	errorTypeID, ok := scanner.LookupFlatNodeType("ERROR")
+	if !ok || file.FlatTree == nil || len(file.FlatTree.NodesOfType(errorTypeID)) == 0 {
+		return false
+	}
+	mentioned := false
+	file.FlatWalkNodes(scope, "ERROR", func(errNode uint32) {
+		if mentioned {
+			return
+		}
+		file.FlatWalkAllNodes(errNode, func(child uint32) {
+			if mentioned || child == errNode {
+				return
+			}
+			if file.FlatNodeTextEquals(child, name) {
+				mentioned = true
+			}
+		})
+	})
+	return mentioned
 }
 
 func unusedParameterResolveReferenceFlat(file *scanner.File, scope uint32, paramIdx uint32, ref uint32, paramName string, paramIsFunctionType bool) unusedParameterReferenceMatch {
@@ -244,8 +282,15 @@ func unusedParameterLambdaDeclaresNameFlat(file *scanner.File, lambda uint32, na
 	return false
 }
 
+// unusedParameterForDeclaresNameFlat reports whether the for-statement's loop
+// variable binds name. Only children positioned before the `in` keyword
+// count — the iterable expression that follows `in` is also a direct child
+// and must not be treated as a declaration.
 func unusedParameterForDeclaresNameFlat(file *scanner.File, forStmt uint32, name string) bool {
 	for child := file.FlatFirstChild(forStmt); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) && file.FlatType(child) == "in" {
+			return false
+		}
 		switch file.FlatType(child) {
 		case "simple_identifier":
 			if file.FlatNodeTextEquals(child, name) {

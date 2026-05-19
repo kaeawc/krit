@@ -74,3 +74,25 @@ fun subscribed(event: String) {
 fun placeholders(ignored: String, expected: Int, _: Boolean) {
     println("allowed names")
 }
+
+fun forLoopIterableReference(params: List<String>) {
+    for (param in params) {
+        println(param)
+    }
+}
+
+fun forLoopDestructuredOverParameter(entries: Map<String, String>) {
+    for ((k, v) in entries) {
+        println("$k=$v")
+    }
+}
+
+class KSAnnotation {
+    fun process() {}
+}
+
+// Soft-keyword param name (`annotation`) used as receiver — tree-sitter
+// mis-parse handled via ERROR-mention fallback.
+fun receivesSoftKeywordParam(annotation: KSAnnotation) {
+    annotation.process()
+}

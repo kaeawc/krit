@@ -279,3 +279,19 @@ jobs:
         with:
           sarif_file: results.sarif
           category: krit-self-lint
+
+  # actionlint validates the workflow files themselves — catches semantic
+  # mistakes (e.g. `hashFiles()` at workflow-`env` scope) that plain YAML
+  # parsers accept but GitHub Actions silently rejects, causing the
+  # workflow to fail to load with zero checks scheduled.
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+      - name: Install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
+      - name: Run actionlint
+        run: bash scripts/lint-actions.sh

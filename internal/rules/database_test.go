@@ -716,6 +716,87 @@ fun loadUsers(db: SQLiteDatabase) {
 	}
 }
 
+func TestSqliteCursorWithoutClose_NegativeNestedScopes(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{
+			name: "Runnable lambda containing rawQuery",
+			src: `
+package test
+
+interface Cursor { fun close() }
+interface SQLiteDatabase { fun rawQuery(sql: String, args: Array<String>?): Cursor }
+fun interface Runnable { fun run() }
+
+fun loadUsers(db: SQLiteDatabase) {
+    val handler = Runnable { db.rawQuery("SELECT * FROM users", null).close() }
+    handler.run()
+}
+`,
+		},
+		{
+			name: "factory lambda returning Cursor",
+			src: `
+package test
+
+interface Cursor { fun close() }
+interface SQLiteDatabase { fun rawQuery(sql: String, args: Array<String>?): Cursor }
+
+fun loadUsers(db: SQLiteDatabase) {
+    val factory: () -> Cursor = { db.rawQuery("SELECT * FROM users", null) }
+    factory().close()
+}
+`,
+		},
+		{
+			name: "lazy delegate wrapping rawQuery",
+			src: `
+package test
+
+interface Cursor { fun close() }
+interface SQLiteDatabase { fun rawQuery(sql: String, args: Array<String>?): Cursor }
+
+fun <T> lazyOf(init: () -> T): T = init()
+
+fun loadUsers(db: SQLiteDatabase) {
+    val lazyCursor = lazyOf { db.rawQuery("SELECT * FROM users", null) }
+    lazyCursor.close()
+}
+`,
+		},
+		{
+			name: "list map producing strings via rawQuery use",
+			src: `
+package test
+
+interface Cursor {
+    fun getString(idx: Int): String
+    fun close()
+}
+interface SQLiteDatabase { fun rawQuery(sql: String, args: Array<String>?): Cursor }
+
+inline fun <T : Cursor, R> T.use(block: (T) -> R): R = try { block(this) } finally { this.close() }
+
+fun loadUsers(db: SQLiteDatabase): List<String> {
+    val tags = listOf("a", "b").map { db.rawQuery(it, null).use { c -> c.getString(0) } }
+    return tags
+}
+`,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "SqliteCursorWithoutClose", tc.src)
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings for %s, got %v", tc.name, findings)
+			}
+		})
+	}
+}
+
 func TestRoomMigrationUsesExecSqlWithInterpolation_Positive(t *testing.T) {
 	findings := runRuleByName(t, "RoomMigrationUsesExecSqlWithInterpolation", `
 package test

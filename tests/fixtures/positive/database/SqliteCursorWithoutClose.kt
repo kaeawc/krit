@@ -37,3 +37,15 @@ fun loadUsersWithLookalike(db: SQLiteDatabase) {
     vc.close()
     // c is never closed
 }
+
+// Regression for scope-bounded walk: the rawQuery call sits on the
+// property initializer's outer call/navigation chain (top-level value),
+// so it must still FIRE even though the chain crosses a navigation
+// expression. Locks in coverage that the scope-aware walk did not
+// over-prune the legitimate case.
+fun loadUsersChain(db: SQLiteDatabase) {
+    val cursor = db.rawQuery("SELECT * FROM users WHERE active = 1", null)
+    while (cursor.moveToNext()) {
+        // never closed
+    }
+}

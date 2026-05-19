@@ -2,6 +2,7 @@ package test
 
 interface Cursor {
     fun moveToNext(): Boolean
+    fun getString(idx: Int): String
     fun close()
 }
 
@@ -42,3 +43,37 @@ fun loadUsersShortName(db: SQLiteDatabase) {
         c.close()
     }
 }
+
+fun interface Runnable { fun run() }
+
+fun <T> lazyOf(init: () -> T): T = init()
+
+// Regression: the property's static type is Runnable, not Cursor. The
+// rawQuery call lives inside a nested lambda scope and does not become
+// the property's value, so the rule must not fire.
+fun loadUsersRunnable(db: SQLiteDatabase) {
+    val handler = Runnable { db.rawQuery("SELECT * FROM users", null).close() }
+    handler.run()
+}
+
+// Regression: the property's static type is `() -> Cursor`, not Cursor.
+// The cursor only materialises when the caller invokes the factory.
+fun loadUsersFactory(db: SQLiteDatabase) {
+    val factory: () -> Cursor = { db.rawQuery("SELECT * FROM users", null) }
+    factory().close()
+}
+
+// Regression: the rawQuery call sits inside a lazyOf {} lambda. The
+// scope-bounded walk must not descend into the lambda body.
+fun loadUsersLazy(db: SQLiteDatabase) {
+    val lazyCursor = lazyOf { db.rawQuery("SELECT * FROM users", null) }
+    lazyCursor.close()
+}
+
+// Regression: rawQuery lives inside a map { ... } lambda whose result is
+// a List<String>, not a Cursor. The rule must not flag the property.
+fun loadUserTags(db: SQLiteDatabase): List<String> {
+    val tags = listOf("a", "b").map { db.rawQuery(it, null).use { c -> c.getString(0) } }
+    return tags
+}
+

@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -353,15 +354,34 @@ func (r *runner) run(ctx context.Context) (int, error) {
 	if code, err := r.openOutputWriter(); err != nil {
 		return code, err
 	}
-	if r.w != nil && r.w != os.Stdout {
-		defer r.w.Close()
-	}
 
 	// Flush again after openOutputWriter. flushCaches is idempotent.
 	r.flushCaches()
 
 	r.recordTotalTimingAndStopProfiles()
-	return r.outputPhase(), nil
+	exitCode := r.outputPhase()
+	if r.w != nil && r.w != os.Stdout {
+		exitCode = finalizeOutputClose(r.w, os.Stderr, exitCode)
+	}
+	return exitCode, nil
+}
+
+// finalizeOutputClose closes the scan output writer and surfaces any
+// Close error as a non-zero exit. Close is where buffered writes flush
+// on many filesystems, so a deferred Close that drops its error lets
+// scans report success while writing truncated JSON/SARIF to disk.
+// A non-zero exitCode already in flight is preserved.
+func finalizeOutputClose(w io.Closer, stderr io.Writer, exitCode int) int {
+	if w == nil {
+		return exitCode
+	}
+	if err := w.Close(); err != nil {
+		fmt.Fprintf(stderr, "error: close output: %v\n", err)
+		if exitCode == 0 {
+			exitCode = 2
+		}
+	}
+	return exitCode
 }
 
 // runLegacy remains as a no-op compile-time reference.

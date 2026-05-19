@@ -151,6 +151,9 @@ jobs:
       # krit-types is the largest jar in the repo (shadow jar bundles
       # the Kotlin compiler + Analysis API). Cache the output so the
       # job doesn't pay the 2-3 minute build on every PR.
+      # NOTE: cache-key glob must stay in sync with the `playground-rules`
+      # job below — `hashFiles()` is only available in step contexts so a
+      # workflow-level dedup is not possible.
       - name: Cache krit-types shadow jar
         id: cache-krit-types
         uses: actions/cache@v5
@@ -170,6 +173,42 @@ jobs:
         env:
           KRIT_TYPES_JAR: ${{ github.workspace }}/tools/krit-types/build/libs/krit-types.jar
         run: go test ./tests/externalrule/ -count=1 -timeout 600s -v
+
+  playground-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        with:
+          distribution: zulu
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+        with:
+          cache-cleanup: on-success
+          validate-wrappers: true
+      # Cache-key glob must stay in sync with the `external-rule-example`
+      # job above — see the note there for why a workflow-level dedup is
+      # not possible.
+      - name: Cache krit-types shadow jar
+        id: cache-krit-types
+        uses: actions/cache@v5
+        with:
+          path: tools/krit-types/build/libs
+          key: krit-types-jar-${{ hashFiles('tools/krit-types/**/*.kt', 'tools/krit-types/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
+      - name: Build krit-types shadow jar
+        if: steps.cache-krit-types.outputs.cache-hit != 'true'
+        working-directory: tools/krit-types
+        run: ./gradlew --no-daemon shadowJar
+      # The playground composite-builds krit-gradle-plugin,
+      # krit-custom-rule-plugin, krit-rule-api, and krit-settings-plugin
+      # from the local source tree, so no mavenLocal staging needed.
+      - name: Run playground custom-rule integration test
+        env:
+          KRIT_TYPES_JAR: ${{ github.workspace }}/tools/krit-types/build/libs/krit-types.jar
+        run: go test ./tests/playgroundrules/ -count=1 -timeout 600s -v
 
   krit-custom-rule-plugin:
     runs-on: ubuntu-latest

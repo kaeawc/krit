@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
@@ -293,8 +294,7 @@ func purgeJVMCachesForJar(jarPath string, verbose bool) {
 
 // openDaemonLogFile opens (or creates) the daemon log file and wires it to cmd.Stderr.
 func openDaemonLogFile(cmd *exec.Cmd, verbose bool) *os.File {
-	logPath := filepath.Join(os.TempDir(), "krit-types-daemon.log")
-	logFile, err := os.Create(logPath)
+	logFile, logPath, err := fsutil.CreateUserKritFile("krit-types-daemon.log")
 	if err != nil {
 		cmd.Stderr = os.Stderr
 		return nil

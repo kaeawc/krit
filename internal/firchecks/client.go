@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
@@ -103,8 +104,7 @@ func StartFirDaemonWithPort(jarPath string, verbose bool) (*FirDaemon, error) {
 	}
 
 	cmd := exec.CommandContext(context.Background(), javaPath, args...)
-	logPath := filepath.Join(os.TempDir(), "krit-fir-daemon.log")
-	logFile, err := os.Create(logPath)
+	logFile, logPath, err := fsutil.CreateUserKritFile("krit-fir-daemon.log")
 	if err != nil {
 		cmd.Stderr = os.Stderr
 	} else {

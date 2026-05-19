@@ -14,6 +14,7 @@ import (
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
@@ -989,7 +990,11 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		cacheDest = oracle.CachePath(scanPaths)
 	})
 	if cacheDest == "" {
-		cacheDest = filepath.Join(os.TempDir(), "krit-types.json")
+		if dir, err := fsutil.UserKritDir(); err == nil {
+			cacheDest = filepath.Join(dir, "krit-types.json")
+		} else {
+			cacheDest = filepath.Join(os.TempDir(), "krit-types.json")
+		}
 	}
 	if in.Verbose {
 		in.logf("verbose: Running krit-types (%d source dirs)...\n", len(sourceDirs))

@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/strutil"
 )
 
 type Finding struct {
@@ -247,11 +247,7 @@ func symbolText(file *scanner.File, sym scanner.Symbol) string {
 }
 
 func tokenInText(text, token string) bool {
-	if token == "" {
-		return false
-	}
-	re := regexp.MustCompile(`(^|[^A-Za-z0-9_])` + regexp.QuoteMeta(token) + `([^A-Za-z0-9_]|$)`)
-	return re.MatchString(text)
+	return strutil.ContainsTokenWordBoundary(text, token)
 }
 
 func isTestPath(path string) bool {

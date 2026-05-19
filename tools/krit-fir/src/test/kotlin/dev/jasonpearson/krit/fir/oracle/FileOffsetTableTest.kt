@@ -48,4 +48,27 @@ class FileOffsetTableTest {
         assertEquals(1 to 1, table.lineColAt(-1))
         assertEquals(1 to 4, table.lineColAt(10))
     }
+
+    @Test
+    fun charOffsetForRoundTripsThroughLineColAt() {
+        val table = FileOffsetTable("abc\nde\nfg")
+
+        val dOffset = table.charOffsetFor(line = 2, column = 1)
+        assertEquals(4, dOffset)
+        assertEquals(2 to 1, table.lineColAt(dOffset))
+
+        val gOffset = table.charOffsetFor(line = 3, column = 2)
+        assertEquals(8, gOffset)
+        assertEquals(3 to 2, table.lineColAt(gOffset))
+    }
+
+    @Test
+    fun charOffsetForClampsOutOfRangeLines() {
+        val table = FileOffsetTable("a\nb")
+
+        assertEquals(0, table.charOffsetFor(line = -2, column = 1))
+        // Past the last line falls back to the file end so callers can
+        // compute a degenerate byte range without crashing.
+        assertEquals(3, table.charOffsetFor(line = 999, column = 1))
+    }
 }

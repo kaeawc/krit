@@ -40,6 +40,18 @@ internal class FileOffsetTable(private val content: String) {
         return charToByte[clamped]
     }
 
+    /**
+     * Char offset of the first character on [lineIndex] (0-based).
+     * Returns the file's end offset when [lineIndex] is past the last
+     * line so [`charOffsetFor`] can clamp gracefully on malformed
+     * source locations.
+     */
+    fun lineStartOffset(lineIndex: Int): Int {
+        if (lineIndex < 0) return 0
+        if (lineIndex >= lineStarts.size) return content.length
+        return lineStarts[lineIndex]
+    }
+
     private fun lineIndexFor(charOffset: Int): Int {
         var lo = 0
         var hi = lineStarts.size - 1

@@ -689,51 +689,63 @@ func applyCatalogPlugin(profile *ProjectProfile, plugin CatalogPlugin) {
 	}
 }
 
+// catalogVersionAccessorSuffix / catalogKotlinVersionAccessorSuffix
+// are the two trailing regex shapes used by applyCatalogVersionAccessors.
+// Per-Gradle-file regex compilation was a measurable hot path on
+// multi-module projects — the eight final patterns are now compiled
+// once at package init.
+const (
+	catalogVersionAccessorSuffix       = `[^\n]*libs\.versions\.([A-Za-z0-9_.]+)\.get\s*\(`
+	catalogKotlinVersionAccessorSuffix = `(?s:.{0,300}?)KotlinVersion(?s:.{0,200}?)libs\.versions\.([A-Za-z0-9_.]+)\.get\s*\(`
+)
+
+var (
+	catalogAssignCompileSdkRe   = regexp.MustCompile(`compileSdk(?:Version)?\s*(?:=|\()` + catalogVersionAccessorSuffix)
+	catalogAssignTargetSdkRe    = regexp.MustCompile(`targetSdk(?:Version)?\s*(?:=|\()` + catalogVersionAccessorSuffix)
+	catalogAssignMinSdkRe       = regexp.MustCompile(`minSdk(?:Version)?\s*(?:=|\()` + catalogVersionAccessorSuffix)
+	catalogAssignJvmTargetRe    = regexp.MustCompile(`jvmTarget(?:\.set)?\s*(?:=|\()` + catalogVersionAccessorSuffix)
+	catalogAssignSourceCompatRe = regexp.MustCompile(`sourceCompatibility\s*(?:=|\()` + catalogVersionAccessorSuffix)
+	catalogAssignTargetCompatRe = regexp.MustCompile(`targetCompatibility\s*(?:=|\()` + catalogVersionAccessorSuffix)
+	catalogNearbyLanguageVerRe  = regexp.MustCompile(`languageVersion(?:\.set)?\s*(?:=|\()` + catalogKotlinVersionAccessorSuffix)
+	catalogNearbyAPIVerRe       = regexp.MustCompile(`apiVersion(?:\.set)?\s*(?:=|\()` + catalogKotlinVersionAccessorSuffix)
+)
+
 func applyCatalogVersionAccessors(profile *ProjectProfile, content string, catalog VersionCatalog) {
-	applyAssignmentVersion := func(pattern string, apply func(string)) {
-		re := regexp.MustCompile(pattern + `[^\n]*libs\.versions\.([A-Za-z0-9_.]+)\.get\s*\(`)
+	apply := func(re *regexp.Regexp, fn func(string)) {
 		for _, match := range re.FindAllStringSubmatch(content, -1) {
 			if version := catalog.Versions[catalogAccessorToAlias(match[1])]; version != "" {
-				apply(normalizeVersion(version))
+				fn(normalizeVersion(version))
 			}
 		}
 	}
-	applyNearbyKotlinVersion := func(pattern string, apply func(string)) {
-		re := regexp.MustCompile(pattern + `(?s:.{0,300}?)KotlinVersion(?s:.{0,200}?)libs\.versions\.([A-Za-z0-9_.]+)\.get\s*\(`)
-		for _, match := range re.FindAllStringSubmatch(content, -1) {
-			if version := catalog.Versions[catalogAccessorToAlias(match[1])]; version != "" {
-				apply(normalizeVersion(version))
-			}
-		}
-	}
-	applyAssignmentVersion(`compileSdk(?:Version)?\s*(?:=|\()`, func(version string) {
+	apply(catalogAssignCompileSdkRe, func(version string) {
 		profile.Android.CompileSDK = KnownVersion(version)
 		profile.CompileSdkVersion = parsePositiveInt(version, profile.CompileSdkVersion)
 	})
-	applyAssignmentVersion(`targetSdk(?:Version)?\s*(?:=|\()`, func(version string) {
+	apply(catalogAssignTargetSdkRe, func(version string) {
 		profile.Android.TargetSDK = KnownVersion(version)
 		profile.TargetSdkVersion = parsePositiveInt(version, profile.TargetSdkVersion)
 	})
-	applyAssignmentVersion(`minSdk(?:Version)?\s*(?:=|\()`, func(version string) {
+	apply(catalogAssignMinSdkRe, func(version string) {
 		profile.Android.MinSDK = KnownVersion(version)
 		profile.MinSdkVersion = parsePositiveInt(version, profile.MinSdkVersion)
 	})
-	applyAssignmentVersion(`jvmTarget(?:\.set)?\s*(?:=|\()`, func(version string) {
+	apply(catalogAssignJvmTargetRe, func(version string) {
 		profile.JVM.KotlinJvmTarget = KnownVersion(version)
 	})
-	applyAssignmentVersion(`sourceCompatibility\s*(?:=|\()`, func(version string) {
+	apply(catalogAssignSourceCompatRe, func(version string) {
 		profile.JVM.SourceCompatibility = KnownVersion(version)
 	})
-	applyAssignmentVersion(`targetCompatibility\s*(?:=|\()`, func(version string) {
+	apply(catalogAssignTargetCompatRe, func(version string) {
 		profile.JVM.TargetCompatibility = KnownVersion(version)
 	})
-	applyNearbyKotlinVersion(`languageVersion(?:\.set)?\s*(?:=|\()`, func(version string) {
+	apply(catalogNearbyLanguageVerRe, func(version string) {
 		profile.Kotlin.LanguageVersion = KnownVersion(version)
 		if strings.HasPrefix(version, "2.") {
 			profile.Kotlin.K2 = PresencePresent
 		}
 	})
-	applyNearbyKotlinVersion(`apiVersion(?:\.set)?\s*(?:=|\()`, func(version string) {
+	apply(catalogNearbyAPIVerRe, func(version string) {
 		profile.Kotlin.APIVersion = KnownVersion(version)
 	})
 }

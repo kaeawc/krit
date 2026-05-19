@@ -769,10 +769,57 @@ func findGradleRepositoryCallLines(content, callName string) []int {
 	return lines
 }
 
+// gradleBlockOpenerRegexes / gradleDirectCallRegexes precompile the
+// per-name regexes used by per-line Gradle scans. Each known name
+// (repositories, maven, ivy, dependencyLocking, jcenter) is compiled
+// once at init; helpers below look it up on every line. The previous
+// inline regexp.MustCompile was a measurable hot path on multi-module
+// projects.
+//
+// New names must be registered here; the helpers panic on lookup
+// miss to fail loudly during tests rather than silently re-introducing
+// the per-line compile.
+var (
+	gradleBlockOpenerRegexes = compileGradleNameRegexes(
+		[]string{"repositories", "maven", "ivy", "dependencyLocking"},
+		func(name string) string {
+			return `\b` + regexp.QuoteMeta(name) + `\s*(?:\([^)]*\)\s*)?\{`
+		},
+	)
+	gradleDirectCallFunDefRegexes = compileGradleNameRegexes(
+		[]string{"jcenter"},
+		func(name string) string {
+			return `\bfun\s+` + regexp.QuoteMeta(name) + `\s*\(`
+		},
+	)
+	gradleDirectCallInvocationRegexes = compileGradleNameRegexes(
+		[]string{"jcenter"},
+		func(name string) string {
+			return `(^|[;{\s])` + regexp.QuoteMeta(name) + `\s*(?:\(\s*\)|\{)`
+		},
+	)
+	gradleURLSetterRe = regexp.MustCompile(`\b(?:url|setUrl)\b`)
+)
+
+func compileGradleNameRegexes(names []string, pattern func(string) string) map[string]*regexp.Regexp {
+	out := make(map[string]*regexp.Regexp, len(names))
+	for _, name := range names {
+		out[name] = regexp.MustCompile(pattern(name))
+	}
+	return out
+}
+
+func gradleNameRegex(registry map[string]*regexp.Regexp, name, kind string) *regexp.Regexp {
+	re, ok := registry[name]
+	if !ok {
+		panic(fmt.Sprintf("krit internal: gradle %s regex not registered for %q — register it in supply_dependencies.go", kind, name))
+	}
+	return re
+}
+
 func gradleLineOpensNamedBlock(codeOnly string, names ...string) bool {
 	for _, name := range names {
-		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\s*(?:\([^)]*\)\s*)?\{`)
-		if re.MatchString(codeOnly) {
+		if gradleNameRegex(gradleBlockOpenerRegexes, name, "block-opener").MatchString(codeOnly) {
 			return true
 		}
 	}
@@ -780,15 +827,14 @@ func gradleLineOpensNamedBlock(codeOnly string, names ...string) bool {
 }
 
 func gradleLineHasDirectRepositoryCall(codeOnly, callName string) bool {
-	escapedName := regexp.QuoteMeta(callName)
-	if regexp.MustCompile(`\bfun\s+` + escapedName + `\s*\(`).MatchString(codeOnly) {
+	if gradleNameRegex(gradleDirectCallFunDefRegexes, callName, "direct-call fun-def").MatchString(codeOnly) {
 		return false
 	}
-	return regexp.MustCompile(`(^|[;{\s])` + escapedName + `\s*(?:\(\s*\)|\{)`).MatchString(codeOnly)
+	return gradleNameRegex(gradleDirectCallInvocationRegexes, callName, "direct-call invocation").MatchString(codeOnly)
 }
 
 func gradleLineMentionsURLSetter(codeOnly string) bool {
-	return regexp.MustCompile(`\b(?:url|setUrl)\b`).MatchString(codeOnly)
+	return gradleURLSetterRe.MatchString(codeOnly)
 }
 
 func isHTTPGradleRepositoryURL(raw string) bool {

@@ -46,8 +46,10 @@ func (crossFileShardsRegistered) Clear(_ cacheutil.ClearContext) error {
 	// Shards live under the cross-file cache dir, which the cross-file
 	// cache's Clear already removes wholesale. Reset counters so a
 	// subsequent Stats() call in the same process reflects the empty
-	// state.
-	shardsObserved = sync.Map{}
+	// state. Clear() is safe for concurrent observeShard callers;
+	// reassigning the sync.Map value would race with their in-flight
+	// LoadOrStore.
+	shardsObserved.Clear()
 	shardsEntries.Store(0)
 	shardsBytes.Store(0)
 	return nil

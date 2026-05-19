@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/bits-and-blooms/bloom/v3"
+
+	"github.com/kaeawc/krit/internal/cacheutil"
 )
 
 func TestFileShardRoundTrip(t *testing.T) {
@@ -570,6 +572,45 @@ func TestShardBloomUnionFPRSmallScale(t *testing.T) {
 	if fpr > 0.05 {
 		t.Errorf("union FPR = %.4f exceeds 5%% budget", fpr)
 	}
+}
+
+// TestCrossFileShardsRegisteredClearRace hammers the Clear handler
+// while observeShard runs in parallel. Reassigning shardsObserved to
+// a fresh sync.Map value (the prior implementation) races against
+// in-flight LoadOrStore calls. Run with -race to catch a regression.
+func TestCrossFileShardsRegisteredClearRace(t *testing.T) {
+	const (
+		observers  = 8
+		iterations = 500
+	)
+	reg := crossFileShardsRegistered{}
+
+	var wg sync.WaitGroup
+	for w := 0; w < observers; w++ {
+		wg.Add(1)
+		go func(seed int) {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				observeShard(fmt.Sprintf("k-%d-%d", seed, i), int64(i))
+			}
+		}(w)
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations/4; i++ {
+			if err := reg.Clear(cacheutil.ClearContext{}); err != nil {
+				t.Errorf("Clear: %v", err)
+			}
+		}
+	}()
+
+	wg.Wait()
+
+	// Final Clear so this test does not leak observed shard counters
+	// into other tests that read Stats() in the same process.
+	_ = reg.Clear(cacheutil.ClearContext{})
 }
 
 // TestSaveFileShardConcurrent exercises the parallel write path; the

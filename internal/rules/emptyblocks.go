@@ -38,14 +38,19 @@ func detectIndent(content []byte, byteOffset int) string {
 	return string(indent)
 }
 
+// stripCommentsBlockRe and stripCommentsLineRe are compiled once at
+// package init so stripComments — called for every block_body /
+// catch_block / class_body the dispatcher visits across every Kotlin
+// and Java file — does not recompile the same patterns on each call.
+var (
+	stripCommentsBlockRe = regexp.MustCompile(`(?s)/\*.*?\*/`)
+	stripCommentsLineRe  = regexp.MustCompile(`//[^\n]*`)
+)
+
 // stripComments removes line comments and block comments from a string.
 func stripComments(s string) string {
-	// Remove block comments
-	blockRe := regexp.MustCompile(`(?s)/\*.*?\*/`)
-	s = blockRe.ReplaceAllString(s, "")
-	// Remove line comments
-	lineRe := regexp.MustCompile(`//[^\n]*`)
-	s = lineRe.ReplaceAllString(s, "")
+	s = stripCommentsBlockRe.ReplaceAllString(s, "")
+	s = stripCommentsLineRe.ReplaceAllString(s, "")
 	return s
 }
 

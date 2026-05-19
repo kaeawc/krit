@@ -172,7 +172,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 RequestResult.Response("""{"id":${request.id},"result":{"ok":true,"uptime":$uptime}}""")
             }
             "shutdown" -> RequestResult.Shutdown("""{"id":${request.id},"result":{"ok":true}}""")
-            "analyze", "analyzeAll" -> {
+            "analyze", "analyzeAll", "analyzeFiles", "analyzeWithDeps" -> {
                 val needsRebuild =
                     request.sourceDirs != session.sourceDirs || request.classpath != session.classpath
                 val activeSession = if (needsRebuild) {
@@ -187,7 +187,11 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                     request.files.map { it.path }
                 }
                 val result = activeSession.analyze(analyzeFiles)
-                val response = OracleResponse.buildAnalyze(request.id, result)
+                val response = if (request.command == "analyzeWithDeps") {
+                    OracleResponse.buildAnalyzeWithDeps(request.id, result)
+                } else {
+                    OracleResponse.buildAnalyze(request.id, result)
+                }
                 if (needsRebuild) {
                     RequestResult.SessionRebuilt(response, activeSession)
                 } else {

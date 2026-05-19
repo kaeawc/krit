@@ -91,12 +91,23 @@ data class ExpressionPayload(
     val annotations: List<String> = emptyList(),
 )
 
-/** Compiler diagnostic surfaced through the analyze envelope. */
+/**
+ * Compiler diagnostic surfaced through the analyze envelope. Mirrors
+ * krit-types' `DiagnosticResult` — same field names so the Go-side
+ * client parses either backend's response with one struct.
+ *
+ * `startByte` / `endByte` are 0-based UTF-8 byte offsets and are
+ * emitted only when they describe a real range (`endByte > startByte`);
+ * matches the omit-when-empty rule the krit-types serializer uses.
+ */
 data class DiagnosticPayload(
+    val factoryName: String,
     val severity: String,
     val message: String,
     val line: Int,
-    val column: Int = 1,
+    val col: Int = 1,
+    val startByte: Int = 0,
+    val endByte: Int = 0,
 )
 
 /**

@@ -8,6 +8,8 @@ import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirClassChecker
+import org.jetbrains.kotlin.fir.FirAnnotationContainer
+import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.declarations.DirectDeclarationsAccess
 import org.jetbrains.kotlin.fir.declarations.FirClass
 import org.jetbrains.kotlin.fir.declarations.FirConstructor
@@ -17,6 +19,7 @@ import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.declarations.FirValueParameter
+import org.jetbrains.kotlin.fir.declarations.toAnnotationClassId
 import org.jetbrains.kotlin.fir.declarations.utils.isData
 import org.jetbrains.kotlin.fir.declarations.utils.modality
 import org.jetbrains.kotlin.fir.declarations.utils.visibility
@@ -38,11 +41,11 @@ import org.jetbrains.kotlin.fir.types.renderReadable
  * lookup per visited class.
  *
  * Covered surface: `fqn`, `kind`, `supertypes`, `visibility`, four
- * modality flags, `typeParameters`, and class members
+ * modality flags, `typeParameters`, `annotations`, and class members
  * (functions / properties / constructors / enum entries with name,
  * kind, returnType, nullable, visibility, override / abstract flags,
- * and parameters). Annotations and `jarPath` stay empty until their
- * respective projection passes land.
+ * parameters, and annotations). `jarPath` stays empty until library
+ * projection lands.
  */
 internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
 
@@ -61,11 +64,11 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
         val filePath = context.containingFileSymbol?.fir?.sourceFile?.path ?: return
 
         collector.setPackage(filePath, regular.symbol.classId.packageFqName.asString())
-        collector.addClass(filePath, regular.toClassPayload())
+        collector.addClass(filePath, regular.toClassPayload(context.session))
     }
 
     @OptIn(DirectDeclarationsAccess::class)
-    private fun FirRegularClass.toClassPayload(): ClassPayload = ClassPayload(
+    private fun FirRegularClass.toClassPayload(session: FirSession): ClassPayload = ClassPayload(
         fqn = symbol.classId.asFqNameString(),
         kind = classKind.toWireString(),
         supertypes = superTypeRefs.mapNotNull { ref ->
@@ -79,7 +82,8 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
         isAbstract = modality == Modality.ABSTRACT,
         visibility = visibility.toWireString(),
         typeParameters = typeParameters.map { it.symbol.name.asString() },
-        members = declarations.mapNotNull { it.toMemberPayload() },
+        members = declarations.mapNotNull { it.toMemberPayload(session) },
+        annotations = annotationFqns(session),
     )
 
     /**
@@ -90,7 +94,7 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
      * declarations without a stable wire shape (e.g. compiler-synthesized
      * companion object fields) are skipped.
      */
-    private fun FirDeclaration.toMemberPayload(): MemberPayload? = when (this) {
+    private fun FirDeclaration.toMemberPayload(session: FirSession): MemberPayload? = when (this) {
         is FirNamedFunction -> MemberPayload(
             name = name.asString(),
             kind = "function",
@@ -100,6 +104,7 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
             isOverride = status.isOverride,
             isAbstract = status.modality == Modality.ABSTRACT,
             params = valueParameters.map { it.toParamPayload() },
+            annotations = annotationFqns(session),
         )
         is FirProperty -> MemberPayload(
             name = name.asString(),
@@ -109,6 +114,7 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
             visibility = status.visibility.toWireString(),
             isOverride = status.isOverride,
             isAbstract = status.modality == Modality.ABSTRACT,
+            annotations = annotationFqns(session),
         )
         is FirConstructor -> MemberPayload(
             // `<init>` matches krit-types' canonical constructor name
@@ -122,6 +128,7 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
             isOverride = false,
             isAbstract = false,
             params = valueParameters.map { it.toParamPayload() },
+            annotations = annotationFqns(session),
         )
         is FirEnumEntry -> MemberPayload(
             name = name.asString(),
@@ -129,9 +136,13 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
             returnType = "",
             nullable = false,
             visibility = "public",
+            annotations = annotationFqns(session),
         )
         else -> null
     }
+
+    private fun FirAnnotationContainer.annotationFqns(session: FirSession): List<String> =
+        annotations.mapNotNull { it.toAnnotationClassId(session)?.asSingleFqName()?.asString() }
 
     private fun FirValueParameter.toParamPayload(): ParamPayload = ParamPayload(
         name = name.asString(),

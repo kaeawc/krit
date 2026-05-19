@@ -28,6 +28,20 @@ class UselessElvisOnNonNull {
     fun findOrFallback(items: List<String>) {
         val y = items.find { it.isEmpty() } ?: "fallback"
     }
+
+    // Call-expression whose callee is a safe-call chain. The call's
+    // declared return type is non-nullable Int, but the chain short-
+    // circuits to null when `s` is null, so the elvis fallback is real.
+    fun safeCallTerminatingInCall(s: String?) {
+        val y = s?.length?.toInt() ?: 0
+    }
+
+    // Navigation chain that ends in `.bar` whose receiver is a safe-call
+    // call_expression. The outer step is `.`, but the receiver propagates
+    // null upstream — the elvis must be preserved.
+    fun navigationAfterSafeCall(harness: TestHarness?) {
+        val y = harness?.group?.length.toString() ?: "fallback"
+    }
 }
 
 class TestHarness {

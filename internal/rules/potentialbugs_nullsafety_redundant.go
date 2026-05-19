@@ -1888,9 +1888,9 @@ func uselessElvisOperandResolvable(file *scanner.File, operand uint32) bool {
 	case "this_expression":
 		return true
 	case "navigation_expression":
-		return !flatNavigationHasSafeCall(file, operand)
+		return !flatExpressionChainShortCircuits(file, operand)
 	case "call_expression":
-		return true
+		return !flatExpressionChainShortCircuits(file, operand)
 	case "postfix_expression":
 		return flatPostfixHasNotNullAssertion(file, operand)
 	case "as_expression":
@@ -1898,6 +1898,56 @@ func uselessElvisOperandResolvable(file *scanner.File, operand uint32) bool {
 	default:
 		return false
 	}
+}
+
+// flatExpressionChainShortCircuits reports whether the static result of the
+// expression at idx may be null because some `?.` in its receiver/callee
+// spine can short-circuit the chain. Walking only the leftmost spine —
+// rather than every descendant — avoids treating `?.` inside call argument
+// lists (which do not propagate null to the call's return type) as a
+// short-circuit. Used by UselessElvisOnNonNull to refuse operands like
+// `obj?.foo()` and `obj?.foo().bar()` whose final return-type lookup hides
+// an upstream null-propagating step.
+//
+// Each iteration strictly descends to a child node, so the loop terminates
+// naturally at any leaf (default case). Self-loop guards on the descent
+// step keep a malformed AST from spinning indefinitely.
+func flatExpressionChainShortCircuits(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	for idx != 0 {
+		switch file.FlatType(idx) {
+		case "parenthesized_expression":
+			inner := file.FlatNamedChild(idx, 0)
+			if inner == 0 || inner == idx {
+				return false
+			}
+			idx = inner
+		case "navigation_expression":
+			if flatNavigationSafeCallOperator(file, idx) != 0 {
+				return true
+			}
+			recv := file.FlatNamedChild(idx, 0)
+			if recv == 0 || recv == idx {
+				return false
+			}
+			idx = recv
+		case "call_expression":
+			callee := file.FlatNamedChild(idx, 0)
+			if callee == 0 || callee == idx {
+				return false
+			}
+			idx = callee
+		case "postfix_expression":
+			// `!!` asserts non-null at this level and seals the chain.
+			// Other postfix forms (++/--) do not appear in elvis operands.
+			return false
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 // uselessElvisOperandShouldSkip guards against false positives the

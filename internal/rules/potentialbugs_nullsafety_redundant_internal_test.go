@@ -203,3 +203,114 @@ func TestGetterNullableReceiverFlat_BacktickColonInPropertyName_Internal(t *test
 		t.Fatal("getterNullableReceiverFlat (structural) must not return true when `?.` appears only inside a backtick-quoted property name")
 	}
 }
+
+// TestFlatExpressionChainShortCircuits_SafeCallInCallee pins the
+// UselessElvisOnNonNull regression: a call_expression whose callee contains
+// `?.` (e.g. `obj?.foo()`) must be reported as short-circuiting, because
+// the call evaluates to null whenever the safe-call receiver is null —
+// even when the resolver hands back a non-null return type for the
+// underlying function. Before the fix, the rule accepted every
+// call_expression as resolvable and trusted the return type, producing a
+// false positive on `obj?.foo() ?: fallback`.
+func TestFlatExpressionChainShortCircuits_SafeCallInCallee(t *testing.T) {
+	file := parseInlineForInternalTest(t, "fun f(s: String?): Int { return s?.length?.toInt() ?: 0 }\n")
+	var call uint32
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if call == 0 {
+			call = idx
+		}
+	})
+	if call == 0 {
+		t.Fatal("expected to find a call_expression")
+	}
+	if !flatExpressionChainShortCircuits(file, call) {
+		t.Fatal("call_expression whose callee chain contains a `?.` must be reported as short-circuiting")
+	}
+}
+
+// TestFlatExpressionChainShortCircuits_NavigationAfterSafeCall covers
+// `obj?.foo().bar` — the outer navigation_expression's own operator is `.`
+// but its receiver call_expression carries the `?.` propagation. Walking
+// the leftmost spine must descend through the call and find the safe call.
+func TestFlatExpressionChainShortCircuits_NavigationAfterSafeCall(t *testing.T) {
+	file := parseInlineForInternalTest(t, "class Box { val len: Int = 0 }; fun box(): Box? = null; fun f(): Int { return box()?.len.toString().length ?: 0 }\n")
+	var nav uint32
+	file.FlatWalkNodes(0, "navigation_expression", func(idx uint32) {
+		if nav == 0 {
+			nav = idx
+		}
+	})
+	if nav == 0 {
+		t.Fatal("expected to find a navigation_expression")
+	}
+	if !flatExpressionChainShortCircuits(file, nav) {
+		t.Fatal("navigation chain whose receiver contains a `?.` must be reported as short-circuiting")
+	}
+}
+
+// TestFlatExpressionChainShortCircuits_SafeCallOnlyInArgsNotTriggered keeps
+// the helper precise: a `?.` that only appears inside a call's value
+// argument list does not propagate null to the call's return type, so the
+// helper must NOT report short-circuiting. A descendant-only walk would
+// over-trigger here and silently suppress real UselessElvisOnNonNull hits.
+func TestFlatExpressionChainShortCircuits_SafeCallOnlyInArgsNotTriggered(t *testing.T) {
+	file := parseInlineForInternalTest(t, "fun pick(s: String?): Int = (s?.length ?: 0); fun f(s: String?): Int { return pick(s) ?: 0 }\n")
+	var call uint32
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if call != 0 {
+			return
+		}
+		// Take the outermost `pick(...)` call, not the inner `s?.length`
+		// navigation's call container.
+		text := file.FlatNodeText(idx)
+		if len(text) > 0 && text[0] == 'p' {
+			call = idx
+		}
+	})
+	if call == 0 {
+		t.Fatal("expected to find the outer `pick(...)` call_expression")
+	}
+	if flatExpressionChainShortCircuits(file, call) {
+		t.Fatal("a `?.` confined to a value argument must not be treated as a chain short-circuit")
+	}
+}
+
+// TestFlatExpressionChainShortCircuits_NotNullAssertionSealsChain ensures
+// `obj?.foo()!!` is reported as non-short-circuiting at the postfix level:
+// the `!!` raises on null, so the expression's static type is non-null and
+// the elvis fallback is genuinely dead.
+func TestFlatExpressionChainShortCircuits_NotNullAssertionSealsChain(t *testing.T) {
+	file := parseInlineForInternalTest(t, "fun f(s: String?): Int { return (s?.length!!) ?: 0 }\n")
+	var postfix uint32
+	file.FlatWalkNodes(0, "postfix_expression", func(idx uint32) {
+		if postfix == 0 {
+			postfix = idx
+		}
+	})
+	if postfix == 0 {
+		t.Fatal("expected to find a postfix_expression")
+	}
+	if flatExpressionChainShortCircuits(file, postfix) {
+		t.Fatal("`!!` seals the chain — postfix_expression with !! must not be treated as short-circuiting")
+	}
+}
+
+// TestFlatExpressionChainShortCircuits_PlainCallNoSafeCall is the baseline
+// negative: a call_expression with no `?.` anywhere in its spine must not
+// be flagged. This guards against an over-broad walker that would suppress
+// every call-expression-based UselessElvisOnNonNull hit.
+func TestFlatExpressionChainShortCircuits_PlainCallNoSafeCall(t *testing.T) {
+	file := parseInlineForInternalTest(t, "fun answer(): Int = 42; fun f(): Int { return answer() ?: 0 }\n")
+	var call uint32
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if call == 0 {
+			call = idx
+		}
+	})
+	if call == 0 {
+		t.Fatal("expected to find a call_expression")
+	}
+	if flatExpressionChainShortCircuits(file, call) {
+		t.Fatal("plain call_expression without `?.` must not be reported as short-circuiting")
+	}
+}

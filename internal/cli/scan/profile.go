@@ -61,9 +61,21 @@ func writeMemProfile(path string, errOut io.Writer) {
 		fmt.Fprintf(errOut, "error: could not create memory profile: %v\n", err)
 		return
 	}
-	defer f.Close()
+	writeMemProfileTo(f, path, errOut)
+}
+
+// writeMemProfileTo writes a heap profile to w, then closes it,
+// reporting both errors via errOut. Close is reported explicitly
+// because pprof flushes its buffered tail on Close — a silently
+// dropped Close error leaves the profile truncated on disk and the
+// pprof tool later refuses to parse it. Split out so tests can pass
+// a fake io.WriteCloser whose Close fails.
+func writeMemProfileTo(w io.WriteCloser, path string, errOut io.Writer) {
 	runtime.GC()
-	if err := pprof.WriteHeapProfile(f); err != nil {
+	if err := pprof.WriteHeapProfile(w); err != nil {
 		fmt.Fprintf(errOut, "error: could not write memory profile: %v\n", err)
+	}
+	if err := w.Close(); err != nil {
+		fmt.Fprintf(errOut, "error: could not close memory profile %s: %v\n", path, err)
 	}
 }

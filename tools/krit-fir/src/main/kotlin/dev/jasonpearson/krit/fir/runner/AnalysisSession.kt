@@ -4,6 +4,7 @@ import dev.jasonpearson.krit.fir.oracle.AnalyzeResult
 import dev.jasonpearson.krit.fir.oracle.OracleCollector
 import dev.jasonpearson.krit.fir.oracle.OracleCollectorRegistry
 import dev.jasonpearson.krit.fir.oracle.OracleDiagnosticMessageCollector
+import dev.jasonpearson.krit.fir.oracle.OracleResponse
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
 import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 import org.jetbrains.kotlin.config.Services
@@ -11,6 +12,18 @@ import java.io.File
 import java.nio.file.Files
 
 data class FileRef(val path: String, val contentHash: String = "")
+
+/**
+ * Bundle of an analyze run's structured result and per-file
+ * dependency-closure view. Returned by [AnalysisSession.analyze] so
+ * callers can ride both onto either response shape — the legacy
+ * `buildAnalyze` envelope discards [cacheDeps], the
+ * `buildAnalyzeWithDeps` envelope rides it onto the wire.
+ */
+data class AnalyzeOutcome(
+    val result: AnalyzeResult,
+    val cacheDeps: OracleResponse.CacheDepsView,
+)
 
 data class BatchResult(
     val id: Long,
@@ -93,7 +106,15 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
      * [`FilePayload.diagnostics`] via [`OracleDiagnosticMessageCollector`].
      * Non-matching compiler messages are dropped.
      */
-    fun analyze(files: List<String>): AnalyzeResult {
+    fun analyze(files: List<String>): AnalyzeResult = analyzeFull(files).result
+
+    /**
+     * Same K2 compilation as [analyze] but also drains the
+     * collector's [DepTracker] into a [CacheDepsView] so the
+     * `analyzeWithDeps` RPC envelope can populate the per-file
+     * dependency closure.
+     */
+    fun analyzeFull(files: List<String>): AnalyzeOutcome {
         val collector = OracleCollector()
         OracleCollectorRegistry.begin(collector)
         val outDir = Files.createTempDirectory("krit-fir-oracle-out-").toFile()
@@ -121,7 +142,15 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
             outDir.deleteRecursively()
             OracleCollectorRegistry.end()
         }
-        return collector.toResult()
+        val tracker = collector.depTracker
+        return AnalyzeOutcome(
+            result = collector.toResult(),
+            cacheDeps = OracleResponse.CacheDepsView(
+                depPathsByFile = tracker.depPathsByFile,
+                perFileDeps = tracker.perFileDeps,
+                crashedFiles = tracker.crashedFiles,
+            ),
+        )
     }
 
     fun dispose() {} // No long-lived JVM resources beyond the lazy source file list.

@@ -21,6 +21,15 @@ internal class OracleCollector {
     private val diagnosticsByFile = LinkedHashMap<String, MutableList<DiagnosticPayload>>()
     private val offsetsByFile = HashMap<String, FileOffsetTable?>()
 
+    /**
+     * Per-file dependency-closure tracker. Populated by
+     * [OracleClassChecker] when it walks supertypes resolvable to
+     * other source files in the same compilation; drained by
+     * [OracleResponse.buildAnalyzeWithDeps] to populate the
+     * `cacheDeps` field on the wire.
+     */
+    val depTracker: DepTracker = DepTracker()
+
     fun addClass(filePath: String, payload: ClassPayload) {
         perFile.getOrPut(filePath) { mutableListOf() }.add(payload)
         // The `dependencies` map mirrors krit-types' cross-file class

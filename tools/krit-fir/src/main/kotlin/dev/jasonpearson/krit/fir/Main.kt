@@ -186,10 +186,11 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 } else {
                     request.files.map { it.path }
                 }
-                val result = activeSession.analyze(analyzeFiles)
                 val response = if (request.command == "analyzeWithDeps") {
-                    OracleResponse.buildAnalyzeWithDeps(request.id, result)
+                    val outcome = activeSession.analyzeFull(analyzeFiles)
+                    OracleResponse.buildAnalyzeWithDeps(request.id, outcome.result, outcome.cacheDeps)
                 } else {
+                    val result = activeSession.analyze(analyzeFiles)
                     OracleResponse.buildAnalyze(request.id, result)
                 }
                 if (needsRebuild) {

@@ -39,13 +39,17 @@ object OracleResponse {
      * Build the flat-envelope response shape used by `analyzeWithDeps`.
      * Mirrors krit-types' `buildDaemonResponseWithDeps`: `result`,
      * `errors`, and `cacheDeps` are siblings rather than nested inside
-     * `result`. `cacheDeps` is always emitted (currently with empty
-     * `files` and `crashed` maps) so the Go-side client can detect that
-     * the daemon speaks the new protocol revision; population of the
-     * per-file dependency closure lands with the cacheDeps projection
-     * in a follow-up PR.
+     * `result`. The `cacheDeps` field carries the per-file dependency
+     * closure ([cacheDeps]) so the Go-side cache layer can invalidate
+     * entries when one of a file's source dependencies changes; if no
+     * tracker data is provided, an empty cacheDeps shell still ships
+     * so the Go-side client can detect the new protocol revision.
      */
-    fun buildAnalyzeWithDeps(id: Long, result: AnalyzeResult = AnalyzeResult.EMPTY): String {
+    fun buildAnalyzeWithDeps(
+        id: Long,
+        result: AnalyzeResult = AnalyzeResult.EMPTY,
+        cacheDeps: CacheDepsView = CacheDepsView.EMPTY,
+    ): String {
         val sb = StringBuilder()
         sb.append("""{"id":""")
         sb.append(id)
@@ -56,9 +60,55 @@ object OracleResponse {
             sb.append(""","errors":""")
             appendErrors(sb, result.errors)
         }
-        sb.append(""","cacheDeps":{"files":{},"crashed":{}}""")
+        sb.append(""","cacheDeps":""")
+        appendCacheDeps(sb, cacheDeps)
         sb.append("}")
         return sb.toString()
+    }
+
+    /**
+     * Read-only view over the dependency-closure state needed by the
+     * `analyzeWithDeps` response. Decouples the serializer from
+     * [`OracleCollector`] / [`DepTracker`] so the response builder
+     * stays a pure JSON producer.
+     */
+    data class CacheDepsView(
+        val depPathsByFile: Map<String, Set<String>>,
+        val perFileDeps: Map<String, Map<String, ClassPayload>>,
+        val crashedFiles: Map<String, String>,
+    ) {
+        companion object {
+            val EMPTY: CacheDepsView = CacheDepsView(emptyMap(), emptyMap(), emptyMap())
+        }
+    }
+
+    private fun appendCacheDeps(sb: StringBuilder, view: CacheDepsView) {
+        sb.append("""{"version":1,"approximation":"symbol-resolved-sources","files":{""")
+        val fileKeys = (view.depPathsByFile.keys + view.perFileDeps.keys).toSet()
+        var firstFile = true
+        for (filePath in fileKeys) {
+            if (!firstFile) sb.append(",") else firstFile = false
+            sb.append(jsonString(filePath)).append(""":{"depPaths":[""")
+            val depPaths = view.depPathsByFile[filePath].orEmpty()
+            depPaths.forEachIndexed { i, p ->
+                if (i > 0) sb.append(",")
+                sb.append(jsonString(p))
+            }
+            sb.append("""],"perFileDeps":{""")
+            val perFile = view.perFileDeps[filePath].orEmpty()
+            perFile.entries.forEachIndexed { i, (fqn, cls) ->
+                if (i > 0) sb.append(",")
+                sb.append(jsonString(fqn)).append(":")
+                appendClass(sb, cls)
+            }
+            sb.append("}}")
+        }
+        sb.append("""},"crashed":{""")
+        view.crashedFiles.entries.forEachIndexed { i, (path, msg) ->
+            if (i > 0) sb.append(",")
+            sb.append(jsonString(path)).append(":").append(jsonString(msg))
+        }
+        sb.append("}}")
     }
 
     private fun appendResultBody(sb: StringBuilder, result: AnalyzeResult) {

@@ -19,10 +19,14 @@ import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.declarations.FirValueParameter
+import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
 import org.jetbrains.kotlin.fir.declarations.toAnnotationClassId
 import org.jetbrains.kotlin.fir.declarations.utils.isData
 import org.jetbrains.kotlin.fir.declarations.utils.modality
 import org.jetbrains.kotlin.fir.declarations.utils.visibility
+import org.jetbrains.kotlin.fir.resolve.providers.firProvider
+import org.jetbrains.kotlin.fir.resolve.providers.getContainingFile
+import org.jetbrains.kotlin.fir.resolve.toRegularClassSymbol
 import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
@@ -64,7 +68,51 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
         val filePath = context.containingFileSymbol?.fir?.sourceFile?.path ?: return
 
         collector.setPackage(filePath, regular.symbol.classId.packageFqName.asString())
-        collector.addClass(filePath, regular.toClassPayload(context.session))
+        val payload = regular.toClassPayload(context.session)
+        collector.addClass(filePath, payload)
+        recordSupertypeDeps(collector, filePath, regular, context.session)
+    }
+
+    /**
+     * Record per-file supertype dependencies for the analyzed class.
+     * For each resolved supertype whose declaring symbol is a
+     * source-origin class in another file of the same compilation,
+     * append both:
+     *
+     * - the supertype's source-file path to `depPathsByFile` so the
+     *   Go-side cache layer invalidates this file when that supertype
+     *   changes;
+     * - the supertype's [ClassPayload] projection to `perFileDeps` so
+     *   the cache entry is self-contained.
+     *
+     * Library supertypes (FirDeclarationOrigin != Source, e.g.
+     * `kotlin.Any`, classes loaded from JARs) are intentionally
+     * skipped — the Go-side cache doesn't track them by source-file
+     * path, and including them would make the wire payload churn on
+     * every library upgrade.
+     */
+    @OptIn(SymbolInternals::class)
+    private fun recordSupertypeDeps(
+        collector: OracleCollector,
+        forFile: String,
+        regular: FirRegularClass,
+        session: FirSession,
+    ) {
+        val provider = session.firProvider
+        for (ref in regular.superTypeRefs) {
+            val cone = (ref as? FirResolvedTypeRef)?.coneType as? ConeClassLikeType ?: continue
+            val symbol = cone.lookupTag.toRegularClassSymbol(session) ?: continue
+            if (symbol.origin != FirDeclarationOrigin.Source) continue
+            val containingFile = provider.getContainingFile(symbol) ?: continue
+            val depFile = containingFile.sourceFile?.path ?: continue
+            if (depFile == forFile) continue
+            collector.depTracker.recordDepPath(forFile, depFile)
+            collector.depTracker.recordPerFileDep(
+                forFile,
+                symbol.classId.asFqNameString(),
+                symbol.fir.toClassPayload(session),
+            )
+        }
     }
 
     @OptIn(DirectDeclarationsAccess::class)

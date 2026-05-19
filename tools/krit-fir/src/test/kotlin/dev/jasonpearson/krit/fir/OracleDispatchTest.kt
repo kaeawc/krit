@@ -51,14 +51,16 @@ class OracleDispatchTest {
     @Test
     fun analyzeWithDepsCommandUsesFlatEnvelopeWithCacheDeps() {
         // analyzeWithDeps uses krit-types' flat envelope shape:
-        // `result` / `errors` / `cacheDeps` as siblings, and cacheDeps
-        // is always present (currently empty) so the Go-side client
-        // can detect that the daemon speaks the new protocol revision.
+        // `result` / `errors` / `cacheDeps` as siblings. The
+        // `cacheDeps` field always carries the krit-types preamble
+        // (`version`, `approximation`) so the Go-side client can
+        // detect the new-protocol daemon even when no per-file deps
+        // have been recorded.
         val request = """{"id":14,"command":"analyzeWithDeps"}"""
         val result = handleRequestLine(request, session, startTime = 0L)
         val response = (result as RequestResult.Response).json
         assertTrue(response.startsWith("""{"id":14,"result":{"""), response)
-        assertTrue(""""cacheDeps":{"files":{},"crashed":{}}""" in response, response)
+        assertTrue(""""cacheDeps":{"version":1,"approximation":"symbol-resolved-sources","files":{},"crashed":{}}""" in response, response)
     }
 
     @Test

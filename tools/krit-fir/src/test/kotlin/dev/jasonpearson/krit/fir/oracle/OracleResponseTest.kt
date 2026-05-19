@@ -171,7 +171,7 @@ class OracleResponseTest {
             ),
         )
         assertTrue(response.startsWith("""{"id":4,"result":{"""), response)
-        assertTrue(""""cacheDeps":{"files":{},"crashed":{}}""" in response, response)
+        assertTrue(""""cacheDeps":{"version":1,"approximation":"symbol-resolved-sources","files":{},"crashed":{}}""" in response, response)
         // errors is a sibling of result, not nested inside it.
         val resultEnd = response.indexOf("}", response.indexOf(""""result":{"""))
         val errorsAt = response.indexOf(""""errors":""")
@@ -185,7 +185,31 @@ class OracleResponseTest {
     fun analyzeWithDepsOmitsErrorsKeyWhenEmpty() {
         val response = OracleResponse.buildAnalyzeWithDeps(id = 5)
         assertTrue("errors" !in response, response)
-        assertTrue(""""cacheDeps":{"files":{},"crashed":{}}""" in response, response)
+        assertTrue(""""cacheDeps":{"version":1,"approximation":"symbol-resolved-sources","files":{},"crashed":{}}""" in response, response)
+    }
+
+    @Test
+    fun analyzeWithDepsSerializesCacheDepsView() {
+        // Populated dep tracker → cacheDeps carries per-file
+        // depPaths + perFileDeps + crashed maps. Pins the wire shape
+        // krit-types' `buildCacheDepsJson` produces so the Go-side
+        // cache layer parses either backend's payload with one struct.
+        val response = OracleResponse.buildAnalyzeWithDeps(
+            id = 6,
+            result = AnalyzeResult.EMPTY,
+            cacheDeps = OracleResponse.CacheDepsView(
+                depPathsByFile = mapOf("/src/Leaf.kt" to setOf("/src/Base.kt")),
+                perFileDeps = mapOf(
+                    "/src/Leaf.kt" to mapOf(
+                        "com.acme.Base" to ClassPayload(fqn = "com.acme.Base", kind = "class"),
+                    ),
+                ),
+                crashedFiles = mapOf("/src/Broken.kt" to "boom"),
+            ),
+        )
+        assertTrue(""""cacheDeps":{"version":1,"approximation":"symbol-resolved-sources"""" in response, response)
+        assertTrue(""""/src/Leaf.kt":{"depPaths":["/src/Base.kt"],"perFileDeps":{"com.acme.Base":""" in response, response)
+        assertTrue(""""crashed":{"/src/Broken.kt":"boom"}""" in response, response)
     }
 
     @Test

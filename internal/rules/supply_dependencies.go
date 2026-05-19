@@ -617,9 +617,16 @@ func parseGradleCoordinate(raw string) (group, name, version string, ok bool) {
 	if len(parts) < 3 {
 		return "", "", "", false
 	}
+	// Gradle coordinates can be 3- or 4-part:
+	//   group:name:version
+	//   group:name:version:classifier   (or  group:name:version@ext after split)
+	// The previous version picked parts[len-1] and would return the
+	// classifier ("sources") as the version on a 4-part coord, then
+	// supply-chain rules would compare the wrong string against advisory
+	// data.
 	group = strings.TrimSpace(parts[0])
 	name = strings.TrimSpace(parts[1])
-	version = strings.TrimSpace(parts[len(parts)-1])
+	version = strings.TrimSpace(parts[2])
 	return group, name, version, group != "" && name != "" && version != ""
 }
 

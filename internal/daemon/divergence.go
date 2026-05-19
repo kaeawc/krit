@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -143,17 +144,38 @@ func (d Diff) WriteLog(path string) error {
 	if err != nil {
 		return fmt.Errorf("divergence: create log: %w", err)
 	}
-	defer f.Close()
-	enc := json.NewEncoder(f)
+	return writeDivergenceLog(f, d)
+}
+
+// writeDivergenceLog encodes one JSON row per diff entry and then
+// closes w, returning the encode error if any, otherwise the close
+// error. Close is where buffered writes flush, so the original
+// `defer f.Close()` could leave the log truncated while WriteLog
+// reported success — breaking the CI presence-or-absence check the
+// type comment promises.
+func writeDivergenceLog(w io.WriteCloser, d Diff) error {
+	enc := json.NewEncoder(w)
+	var encErr error
 	for _, row := range d.AddedByDaemon {
 		if err := enc.Encode(divergenceRow(sideDaemon, row)); err != nil {
-			return fmt.Errorf("divergence: write row: %w", err)
+			encErr = fmt.Errorf("divergence: write row: %w", err)
+			break
 		}
 	}
-	for _, row := range d.DroppedByDaemon {
-		if err := enc.Encode(divergenceRow(sideBaseline, row)); err != nil {
-			return fmt.Errorf("divergence: write row: %w", err)
+	if encErr == nil {
+		for _, row := range d.DroppedByDaemon {
+			if err := enc.Encode(divergenceRow(sideBaseline, row)); err != nil {
+				encErr = fmt.Errorf("divergence: write row: %w", err)
+				break
+			}
 		}
+	}
+	closeErr := w.Close()
+	if encErr != nil {
+		return encErr
+	}
+	if closeErr != nil {
+		return fmt.Errorf("divergence: close log: %w", closeErr)
 	}
 	return nil
 }

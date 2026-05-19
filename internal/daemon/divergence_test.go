@@ -2,11 +2,14 @@ package daemon
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/scanner"
@@ -182,6 +185,56 @@ func TestDiffWriteLogCleanProducesEmptyFile(t *testing.T) {
 	}
 	if info.Size() != 0 {
 		t.Fatalf("expected empty log for clean diff, got %d bytes", info.Size())
+	}
+}
+
+type closeFailingWriter struct {
+	written  bytes.Buffer
+	closeErr error
+	writeErr error
+	closed   bool
+}
+
+func (c *closeFailingWriter) Write(p []byte) (int, error) {
+	if c.writeErr != nil {
+		return 0, c.writeErr
+	}
+	return c.written.Write(p)
+}
+
+func (c *closeFailingWriter) Close() error {
+	c.closed = true
+	return c.closeErr
+}
+
+func TestWriteDivergenceLogSurfacesCloseError(t *testing.T) {
+	w := &closeFailingWriter{closeErr: errors.New("nfs writeback")}
+	d := Diff{AddedByDaemon: []scanner.Finding{{File: "x.kt", Line: 1, Rule: "R"}}}
+	err := writeDivergenceLog(w, d)
+	if err == nil || !strings.Contains(err.Error(), "nfs writeback") {
+		t.Fatalf("want close error wrapped, got %v", err)
+	}
+	if !w.closed {
+		t.Fatalf("Close must run")
+	}
+}
+
+func TestWriteDivergenceLogEncodeErrorMasksCloseError(t *testing.T) {
+	w := &closeFailingWriter{writeErr: errors.New("encode boom"), closeErr: errors.New("close boom")}
+	d := Diff{AddedByDaemon: []scanner.Finding{{File: "x.kt", Line: 1, Rule: "R"}}}
+	err := writeDivergenceLog(w, d)
+	if err == nil || !strings.Contains(err.Error(), "encode boom") {
+		t.Fatalf("want encode error to win, got %v", err)
+	}
+	if !w.closed {
+		t.Fatalf("Close must still run after encode failure")
+	}
+}
+
+func TestWriteDivergenceLogReturnsNilOnCleanRun(t *testing.T) {
+	w := &closeFailingWriter{}
+	if err := writeDivergenceLog(w, Diff{}); err != nil {
+		t.Fatalf("clean run must return nil, got %v", err)
 	}
 }
 

@@ -167,6 +167,29 @@ func computeCurrentBinaryHash() string {
 
 var binaryHashCache atomic.Pointer[string]
 
+// attachSpawnLog opens path append-only and assigns it to cmd.Stdout
+// and cmd.Stderr. The caller is responsible for closing the returned
+// *os.File after cmd.Start (or on Start failure) — exec.Cmd dup's the
+// fd into the child at Start, so the parent's handle would otherwise
+// leak one fd per spawn.
+//
+// Returns (nil, nil) when path is empty: the daemon's stdout/stderr
+// are nil'd out and there is no parent fd to manage.
+func attachSpawnLog(cmd *exec.Cmd, path string) (*os.File, error) {
+	if path == "" {
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+		return nil, nil
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	cmd.Stdout = f
+	cmd.Stderr = f
+	return f, nil
+}
+
 // SpawnOptions controls EnsureRunning's behaviour.
 type SpawnOptions struct {
 	// Binary is the krit binary to exec. Empty defaults to os.Executable
@@ -227,19 +250,21 @@ func EnsureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
 		cmd.Env = opts.Env
 	}
 	cmd.Stdin = nil
-	if opts.LogPath != "" {
-		log, err := os.OpenFile(opts.LogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-		if err != nil {
-			return nil, fmt.Errorf("daemonclient: open log %s: %w", opts.LogPath, err)
-		}
-		cmd.Stdout = log
-		cmd.Stderr = log
-	} else {
-		cmd.Stdout = nil
-		cmd.Stderr = nil
+	logFile, err := attachSpawnLog(cmd, opts.LogPath)
+	if err != nil {
+		return nil, fmt.Errorf("daemonclient: open log %s: %w", opts.LogPath, err)
 	}
 	if err := cmd.Start(); err != nil {
+		if logFile != nil {
+			_ = logFile.Close()
+		}
 		return nil, fmt.Errorf("daemonclient: spawn %s serve: %w", binary, err)
+	}
+	// exec.Cmd dup'd the fd into the child at Start; the parent's
+	// handle is no longer needed and would otherwise leak one fd per
+	// daemon respawn in a long-lived LSP/MCP session.
+	if logFile != nil {
+		_ = logFile.Close()
 	}
 	// Detach so the daemon outlives the parent. Wait must be reaped
 	// somewhere — do it in a goroutine to avoid a zombie.

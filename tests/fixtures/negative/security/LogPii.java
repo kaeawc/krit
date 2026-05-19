@@ -8,3 +8,14 @@ class LogPiiJavaSafeFixture {
         Log.d("Auth", "token=<redacted>");
     }
 }
+
+class LogPiiJavaCustomSink {
+    void println(String message) {
+        // no-op
+    }
+
+    void emit(String password) {
+        LogPiiJavaCustomSink sink = new LogPiiJavaCustomSink();
+        sink.println("password=" + password);
+    }
+}

@@ -570,6 +570,90 @@ class Log {
 	}
 }
 
+func TestLogPii_PrintlnRequiresStdoutResolution(t *testing.T) {
+	// Bare println in a file that shadows kotlin.io.println with a local
+	// function must not be treated as a PII sink.
+	shadowed := runRuleByName(t, "LogPii", `
+package test
+
+fun println(message: String) {}
+
+class AuthLogger {
+    fun emit(password: String) {
+        println("password=$password")
+    }
+}`)
+	if len(shadowed) != 0 {
+		t.Fatalf("shadowed println: expected 0 findings, got %d", len(shadowed))
+	}
+
+	// Receiver-qualified println on an unrelated object is not stdout.
+	receiverShadowed := runRuleByName(t, "LogPii", `
+package test
+
+class Sink {
+    fun println(message: String) {}
+}
+
+class AuthLogger {
+    fun emit(password: String) {
+        val sink = Sink()
+        sink.println("password=$password")
+    }
+}`)
+	if len(receiverShadowed) != 0 {
+		t.Fatalf("receiver println: expected 0 findings, got %d", len(receiverShadowed))
+	}
+
+	// System.out.println / System.err.println both count.
+	systemOut := runRuleByName(t, "LogPii", `
+package test
+
+class AuthLogger {
+    fun emit(password: String) {
+        System.out.println("password=$password")
+        System.err.println("password=$password")
+    }
+}`)
+	if len(systemOut) != 2 {
+		t.Fatalf("System.out/err println: expected 2 findings, got %d", len(systemOut))
+	}
+}
+
+func TestLogPii_JavaPrintlnRequiresStdoutReceiver(t *testing.T) {
+	// A Java method named println on an unrelated class must not be treated
+	// as a stdout sink.
+	receiver := runRuleByNameOnJava(t, "LogPii", `
+package test;
+
+class Sink {
+    void println(String message) {}
+}
+
+class AuthLogger {
+    void emit(String password) {
+        Sink sink = new Sink();
+        sink.println("password=" + password);
+    }
+}`)
+	if len(receiver) != 0 {
+		t.Fatalf("receiver println: expected 0 findings, got %d", len(receiver))
+	}
+
+	systemOut := runRuleByNameOnJava(t, "LogPii", `
+package test;
+
+class AuthLogger {
+    void emit(String password) {
+        System.out.println("password=" + password);
+        System.err.println("password=" + password);
+    }
+}`)
+	if len(systemOut) != 2 {
+		t.Fatalf("System.out/err println: expected 2 findings, got %d", len(systemOut))
+	}
+}
+
 func TestJdbcStatementExecute_KotlinInterpolated(t *testing.T) {
 	findings := runRuleByNameWithResolver(t, "JdbcStatementExecute", `
 package test

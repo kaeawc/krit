@@ -479,7 +479,7 @@ var androidLogMethods = map[string]bool{"v": true, "d": true, "i": true, "w": tr
 
 func logPiiIsLoggerCall(file *scanner.File, call uint32) bool {
 	name := javaAwareCallName(file, call)
-	if name == "println" {
+	if name == "println" && logPiiIsStdoutPrintln(file, call) {
 		return true
 	}
 	text := file.FlatNodeText(call)
@@ -500,6 +500,76 @@ func logPiiIsLoggerCall(file *scanner.File, call uint32) bool {
 			strings.Contains(strings.ToLower(receiver), "logger")
 	}
 	return false
+}
+
+// logPiiIsStdoutPrintln returns true only when the call resolves to a
+// stdout/stderr-style println: a bare `println(...)` that is not shadowed
+// by a same-file declaration or non-kotlin.io import, or an explicit
+// `System.out.println` / `System.err.println` invocation (Kotlin or Java).
+// Returning true for any method named `println` would false-positive on
+// arbitrary `obj.println(...)` calls and on files that shadow the kotlin.io
+// built-in with a local function.
+func logPiiIsStdoutPrintln(file *scanner.File, call uint32) bool {
+	if file == nil || call == 0 {
+		return false
+	}
+	switch file.FlatType(call) {
+	case "call_expression":
+		callee, _ := flatCallExpressionParts(file, call)
+		if callee != 0 && file.FlatType(callee) == "navigation_expression" {
+			segs := flatNavigationChainIdentifiers(file, callee)
+			return len(segs) == 3 && segs[0] == "System" &&
+				(segs[1] == "out" || segs[1] == "err") &&
+				segs[2] == "println"
+		}
+		// Bare `println(...)` resolves to kotlin.io.println only when nothing
+		// in the file shadows the built-in name.
+		return !kotlinFileShadowsBuiltinPrint(file, "println")
+	case "method_invocation":
+		// Java has no bare top-level println; require System.out / System.err
+		// as the receiver. The Java parser represents `System.out` as a
+		// single field_access child, so wrongViewCastCallReceiverName (which
+		// joins bare identifier siblings) does not capture it. Trim trailing
+		// whitespace from the receiver text and compare directly.
+		receiverText := logPiiMethodInvocationReceiverText(file, call)
+		return receiverText == "System.out" || receiverText == "System.err"
+	}
+	return false
+}
+
+// logPiiMethodInvocationReceiverText returns the textual form of a Java
+// method_invocation's receiver — the named child that appears before the
+// `.identifier(args)` suffix — or "" when the call has no qualifier.
+// Tracks "saw a `.` separator" so a bare `foo(args)` returns "" instead of
+// "foo". Used to distinguish `System.out.println(...)` from `obj.println(...)`.
+func logPiiMethodInvocationReceiverText(file *scanner.File, call uint32) string {
+	if file == nil || call == 0 || file.FlatType(call) != "method_invocation" {
+		return ""
+	}
+	var receiver uint32
+	sawDot := false
+	for child := file.FlatFirstChild(call); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "argument_list" {
+			break
+		}
+		if file.FlatType(child) == "." {
+			sawDot = true
+			continue
+		}
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		if sawDot {
+			// We've already captured the receiver in `receiver`; remaining
+			// named children are the method name (or type arguments).
+			break
+		}
+		receiver = child
+	}
+	if !sawDot || receiver == 0 {
+		return ""
+	}
+	return strings.TrimSpace(file.FlatNodeText(receiver))
 }
 
 func logPiiHasLocalType(file *scanner.File, name string) bool {

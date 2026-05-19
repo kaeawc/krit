@@ -3,8 +3,8 @@ package dev.jasonpearson.krit.fir.runner
 import dev.jasonpearson.krit.fir.oracle.AnalyzeResult
 import dev.jasonpearson.krit.fir.oracle.OracleCollector
 import dev.jasonpearson.krit.fir.oracle.OracleCollectorRegistry
+import dev.jasonpearson.krit.fir.oracle.OracleDiagnosticMessageCollector
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
-import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 import org.jetbrains.kotlin.config.Services
 import java.io.File
@@ -87,10 +87,11 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
      * through the dispatched [OracleClassChecker] into an
      * [OracleCollector], which the orchestrator drains here.
      *
-     * Diagnostic checkers run on the same K2 invocation but produce no
-     * findings on this path; compiler messages are discarded via
-     * `MessageCollector.NONE` because the oracle path cares about
-     * structured class data, not lint diagnostics.
+     * Diagnostic checkers run on the same K2 invocation; warnings from
+     * the retained factory subset (`UNREACHABLE_CODE`, `USELESS_ELVIS`,
+     * `CAST_NEVER_SUCCEEDS`) are projected into each
+     * [`FilePayload.diagnostics`] via [`OracleDiagnosticMessageCollector`].
+     * Non-matching compiler messages are dropped.
      */
     fun analyze(files: List<String>): AnalyzeResult {
         val collector = OracleCollector()
@@ -103,12 +104,19 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
                 destination = outDir.absolutePath
                 noStdlib = true
                 noReflect = true
-                suppressWarnings = true
+                // `suppressWarnings = false` + `reportAllWarnings = true`
+                // so K2 emits warning-level diagnostics through the
+                // message collector — including the
+                // optional/extra-checker subset
+                // (`UNREACHABLE_CODE`, `USELESS_ELVIS`,
+                // `CAST_NEVER_SUCCEEDS`) the oracle projects.
+                suppressWarnings = false
+                reportAllWarnings = true
                 if (selfJar != null) {
                     pluginClasspaths = arrayOf(selfJar)
                 }
             }
-            K2JVMCompiler().exec(MessageCollector.NONE, Services.EMPTY, args)
+            K2JVMCompiler().exec(OracleDiagnosticMessageCollector(collector), Services.EMPTY, args)
         } finally {
             outDir.deleteRecursively()
             OracleCollectorRegistry.end()

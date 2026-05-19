@@ -18,6 +18,7 @@ internal class OracleCollector {
     private val dependencies = LinkedHashMap<String, ClassPayload>()
     private val packageByFile = LinkedHashMap<String, String>()
     private val expressionsByFile = LinkedHashMap<String, LinkedHashMap<String, ExpressionPayload>>()
+    private val diagnosticsByFile = LinkedHashMap<String, MutableList<DiagnosticPayload>>()
     private val offsetsByFile = HashMap<String, FileOffsetTable?>()
 
     fun addClass(filePath: String, payload: ClassPayload) {
@@ -49,6 +50,16 @@ internal class OracleCollector {
         expressionsByFile[filePath]?.containsKey(key) == true
 
     /**
+     * Append a diagnostic payload for [filePath]. Insertion order is
+     * preserved so the wire payload is deterministic; krit-types' JSON
+     * shape doesn't dedup diagnostics either (a file can legitimately
+     * carry multiple instances of the same factory at different sites).
+     */
+    fun addDiagnostic(filePath: String, payload: DiagnosticPayload) {
+        diagnosticsByFile.getOrPut(filePath) { mutableListOf() }.add(payload)
+    }
+
+    /**
      * Lazily-built offset table for [filePath]. Returns null if the
      * file cannot be read (e.g. it was deleted between the K2 walk
      * scheduling and the checker firing). Callers should skip the
@@ -66,13 +77,15 @@ internal class OracleCollector {
      * behavior of emitting one `FileResult` per visited Kotlin file.
      */
     fun toResult(): AnalyzeResult {
-        val allFilePaths = (perFile.keys + packageByFile.keys + expressionsByFile.keys).toSet()
+        val allFilePaths =
+            (perFile.keys + packageByFile.keys + expressionsByFile.keys + diagnosticsByFile.keys).toSet()
         val files = LinkedHashMap<String, FilePayload>(allFilePaths.size)
         for (path in allFilePaths) {
             files[path] = FilePayload(
                 packageName = packageByFile[path] ?: "",
                 declarations = perFile[path]?.toList() ?: emptyList(),
                 expressions = expressionsByFile[path]?.toMap() ?: emptyMap(),
+                diagnostics = diagnosticsByFile[path]?.toList() ?: emptyList(),
             )
         }
         return AnalyzeResult(files = files, dependencies = dependencies.toMap())

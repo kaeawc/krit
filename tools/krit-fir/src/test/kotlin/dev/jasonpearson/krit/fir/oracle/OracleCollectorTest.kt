@@ -108,6 +108,31 @@ class OracleCollectorTest {
     }
 
     @Test
+    fun addDiagnosticAccumulatesPerFileInInsertionOrder() {
+        val c = OracleCollector()
+        val first = DiagnosticPayload(factoryName = "USELESS_ELVIS", severity = "WARNING", message = "a", line = 1)
+        val second = DiagnosticPayload(factoryName = "CAST_NEVER_SUCCEEDS", severity = "WARNING", message = "b", line = 3)
+        c.addDiagnostic("/src/Foo.kt", first)
+        c.addDiagnostic("/src/Foo.kt", second)
+
+        val diagnostics = c.toResult().files["/src/Foo.kt"]?.diagnostics
+        assertEquals(listOf(first, second), diagnostics)
+    }
+
+    @Test
+    fun diagnosticsForFileWithoutClassesStillEmitsFileEntry() {
+        val c = OracleCollector()
+        c.addDiagnostic(
+            "/src/Only.kt",
+            DiagnosticPayload(factoryName = "USELESS_ELVIS", severity = "WARNING", message = "x", line = 1),
+        )
+        val payload = c.toResult().files["/src/Only.kt"]
+        assertEquals(1, payload?.diagnostics?.size)
+        assertEquals(emptyList(), payload?.declarations)
+        assertEquals(emptyMap(), payload?.expressions)
+    }
+
+    @Test
     fun expressionsForFileWithoutClassesStillEmitsFileEntry() {
         // A file that has only top-level function calls (no class
         // declarations and no package directive in the test) should

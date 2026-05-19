@@ -824,6 +824,12 @@ type Rule struct {
 	NodeTypes []string     // nil + no NeedsLinePass means every AST node; nil + NeedsLinePass means line rule
 	Needs     Capabilities // zero → no extra deps
 
+	// ThoroughOnlyNeeds layers extra capability bits onto Needs only
+	// when running at --depth=thorough. Projection happens once at
+	// pipeline entry via ResolveActiveRulesAtDepth; the global Registry
+	// is not mutated.
+	ThoroughOnlyNeeds Capabilities
+
 	// LexicalCalleeNames narrows call_expression dispatch to calls whose
 	// syntactic callee name matches one of these names. It is intentionally
 	// lexical and AST-only; semantic call-target filtering for the Kotlin

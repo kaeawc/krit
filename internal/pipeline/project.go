@@ -585,6 +585,7 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	if err != nil {
 		return ProjectResult{}, err
 	}
+	in.Args.ActiveRules = api.ResolveActiveRulesAtDepth(in.Args.ActiveRules, in.Args.TargetedResolution)
 	args := in.Args
 	host := in.Host
 
@@ -666,6 +667,7 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	if _, _, err := validateAndDefaultStreaming(ctx, in, io.Discard); err != nil {
 		return ProjectAnalysisResult{}, err
 	}
+	in.Args.ActiveRules = api.ResolveActiveRulesAtDepth(in.Args.ActiveRules, in.Args.TargetedResolution)
 	args := in.Args
 	host := awaitAnalysisCacheFuture(in.Host)
 	hits0, misses0 := parseCacheCounters(host.ParseCache)

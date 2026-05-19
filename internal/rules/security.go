@@ -841,26 +841,183 @@ func xmlExternalEntityFactoryCall(file *scanner.File, call uint32) bool {
 	return sourceImportsOrMentions(file, receiver)
 }
 
+// xxeFeatureHardening maps each XXE-related feature URL to the boolean
+// value that disables the unsafe behavior when passed to
+// `factory.setFeature(URL, BOOL)`.
+var xxeFeatureHardening = map[string]bool{
+	"http://apache.org/xml/features/disallow-doctype-decl":    true,
+	"http://xml.org/sax/features/external-general-entities":   false,
+	"http://xml.org/sax/features/external-parameter-entities": false,
+}
+
 func xmlExternalEntityHasHardeningAfter(file *scanner.File, call uint32) bool {
 	scope, ok := flatEnclosingCallable(file, call)
 	if !ok {
 		return false
 	}
-	text := file.FlatNodeText(scope)
-	callText := file.FlatNodeText(call)
-	pos := strings.Index(text, callText)
-	if pos >= 0 {
-		text = text[pos+len(callText):]
+	callStart := file.FlatStartByte(call)
+	found := false
+	sawXInclude := false
+	sawExpandEntities := false
+
+	file.FlatWalkAllNodes(scope, func(n uint32) {
+		if found || file.FlatStartByte(n) <= callStart {
+			return
+		}
+		switch file.FlatType(n) {
+		case "call_expression", "method_invocation":
+			if xxeCallIsHardening(file, n) {
+				found = true
+			}
+		case "assignment":
+			switch xxePropertyAssignmentName(file, n) {
+			case "isXIncludeAware":
+				sawXInclude = true
+			case "isExpandEntityReferences":
+				sawExpandEntities = true
+			}
+			if sawXInclude && sawExpandEntities {
+				found = true
+			}
+		}
+	})
+	return found
+}
+
+// xxeCallIsHardening reports whether the call_expression / method_invocation
+// is one of the XXE-disabling setFeature / setProperty invocations with the
+// expected literal arguments. Match is AST-based so formatting, whitespace,
+// or interleaved comments do not break detection.
+func xxeCallIsHardening(file *scanner.File, call uint32) bool {
+	name := javaAwareCallName(file, call)
+	switch name {
+	case "setFeature":
+		urlExpr, valExpr := xxeCallTwoArgExprs(file, call)
+		if urlExpr == 0 || valExpr == 0 {
+			return false
+		}
+		url, ok := xxeLiteralStringContent(file, urlExpr)
+		if !ok {
+			return false
+		}
+		expected, known := xxeFeatureHardening[url]
+		if !known {
+			return false
+		}
+		got, ok := xxeLiteralBool(file, valExpr)
+		return ok && got == expected
+	case "setProperty":
+		urlExpr, valExpr := xxeCallTwoArgExprs(file, call)
+		if urlExpr == 0 || valExpr == 0 {
+			return false
+		}
+		if !xxeExprIsSupportDTD(file, urlExpr) {
+			return false
+		}
+		got, ok := xxeLiteralBool(file, valExpr)
+		return ok && !got
 	}
-	if strings.Contains(text, `setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)`) ||
-		strings.Contains(text, `setFeature("http://xml.org/sax/features/external-general-entities", false)`) ||
-		strings.Contains(text, `setFeature("http://xml.org/sax/features/external-parameter-entities", false)`) ||
-		strings.Contains(text, `setProperty(XMLInputFactory.SUPPORT_DTD, false)`) ||
-		strings.Contains(text, `setProperty(javax.xml.stream.XMLInputFactory.SUPPORT_DTD, false)`) {
-		return true
+	return false
+}
+
+// xxeCallTwoArgExprs returns the first two positional argument expressions
+// of a two-arg call, regardless of whether it parsed as a Kotlin
+// call_expression (value_arguments) or Java method_invocation
+// (argument_list).
+func xxeCallTwoArgExprs(file *scanner.File, call uint32) (uint32, uint32) {
+	switch file.FlatType(call) {
+	case "call_expression":
+		_, args := flatCallExpressionParts(file, call)
+		if args == 0 {
+			return 0, 0
+		}
+		a0 := flatValueArgumentExpression(file, flatPositionalValueArgument(file, args, 0))
+		a1 := flatValueArgumentExpression(file, flatPositionalValueArgument(file, args, 1))
+		return a0, a1
+	case "method_invocation":
+		args, ok := file.FlatFindChild(call, "argument_list")
+		if !ok || file.FlatNamedChildCount(args) < 2 {
+			return 0, 0
+		}
+		return file.FlatNamedChild(args, 0), file.FlatNamedChild(args, 1)
 	}
-	return strings.Contains(text, "isXIncludeAware = false") &&
-		strings.Contains(text, "isExpandEntityReferences = false")
+	return 0, 0
+}
+
+// xxeLiteralStringContent returns the unquoted content of a string literal
+// expression with no interpolation, or "", false.
+func xxeLiteralStringContent(file *scanner.File, expr uint32) (string, bool) {
+	expr = flatUnwrapParenExpr(file, expr)
+	switch file.FlatType(expr) {
+	case "string_literal", "line_string_literal", "multi_line_string_literal":
+		if flatContainsStringInterpolation(file, expr) {
+			return "", false
+		}
+		if value := stringLiteralContent(file, expr); value != "" {
+			return value, true
+		}
+		text := strings.TrimSpace(file.FlatNodeText(expr))
+		if unq, err := strconv.Unquote(text); err == nil {
+			return unq, true
+		}
+	}
+	return "", false
+}
+
+// xxeLiteralBool returns the boolean value of a `true` / `false` literal,
+// or false, false for anything else.
+func xxeLiteralBool(file *scanner.File, expr uint32) (bool, bool) {
+	expr = flatUnwrapParenExpr(file, expr)
+	switch strings.TrimSpace(file.FlatNodeText(expr)) {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	}
+	return false, false
+}
+
+// xxeExprIsSupportDTD reports whether the expression resolves to a
+// reference whose trailing identifier is `SUPPORT_DTD` (matching both
+// `XMLInputFactory.SUPPORT_DTD` and the fully-qualified variant), or the
+// bare `SUPPORT_DTD` constant.
+func xxeExprIsSupportDTD(file *scanner.File, expr uint32) bool {
+	expr = flatUnwrapParenExpr(file, expr)
+	switch file.FlatType(expr) {
+	case "simple_identifier", "identifier":
+		return file.FlatNodeTextEquals(expr, "SUPPORT_DTD")
+	case "navigation_expression":
+		return flatNavigationExpressionLastIdentifierEquals(file, expr, "SUPPORT_DTD")
+	case "field_access":
+		// Java: XMLInputFactory.SUPPORT_DTD parses as field_access whose last
+		// named child is the identifier.
+		count := file.FlatNamedChildCount(expr)
+		if count == 0 {
+			return false
+		}
+		last := file.FlatNamedChild(expr, count-1)
+		return file.FlatNodeTextEquals(last, "SUPPORT_DTD")
+	}
+	return false
+}
+
+// xxePropertyAssignmentName returns the trailing property name of a Kotlin
+// property assignment whose right-hand side is the literal `false`, or "".
+// Used to detect the `factory.isXIncludeAware = false` /
+// `factory.isExpandEntityReferences = false` hardening pair.
+func xxePropertyAssignmentName(file *scanner.File, assignment uint32) string {
+	_, tail := chainSplitTrailing(kotlinAssignmentTargetChain(file, assignment))
+	if tail == "" {
+		return ""
+	}
+	value := findKotlinAssignmentValue(file, assignment)
+	if value == 0 {
+		return ""
+	}
+	if got, ok := xxeLiteralBool(file, value); !ok || got {
+		return ""
+	}
+	return tail
 }
 
 func javaObjectInputStreamConstructor(file *scanner.File, idx uint32) bool {

@@ -825,6 +825,167 @@ class XmlLoader {
 	}
 }
 
+func TestXmlExternalEntity_HardeningFormattingVariants(t *testing.T) {
+	t.Run("multi-line setFeature kotlin", func(t *testing.T) {
+		findings := runRuleByName(t, "XmlExternalEntity", `
+package test
+
+import javax.xml.parsers.DocumentBuilderFactory
+
+class XmlLoader {
+    fun load(input: java.io.InputStream) {
+        val factory = DocumentBuilderFactory.newInstance()
+        factory.setFeature(
+            "http://apache.org/xml/features/disallow-doctype-decl",
+            true,
+        )
+        factory.newDocumentBuilder().parse(input)
+    }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for multi-line setFeature, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("extra whitespace around args kotlin", func(t *testing.T) {
+		findings := runRuleByName(t, "XmlExternalEntity", `
+package test
+
+import javax.xml.parsers.DocumentBuilderFactory
+
+class XmlLoader {
+    fun load(input: java.io.InputStream) {
+        val factory = DocumentBuilderFactory.newInstance()
+        factory.setFeature( "http://apache.org/xml/features/disallow-doctype-decl" , true )
+        factory.newDocumentBuilder().parse(input)
+    }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for whitespaced setFeature, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("comment inside setFeature kotlin", func(t *testing.T) {
+		findings := runRuleByName(t, "XmlExternalEntity", `
+package test
+
+import javax.xml.parsers.DocumentBuilderFactory
+
+class XmlLoader {
+    fun load(input: java.io.InputStream) {
+        val factory = DocumentBuilderFactory.newInstance()
+        factory.setFeature(
+            // disable DOCTYPE
+            "http://apache.org/xml/features/disallow-doctype-decl",
+            true,
+        )
+        factory.newDocumentBuilder().parse(input)
+    }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for commented setFeature, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("wrong boolean value still fires", func(t *testing.T) {
+		findings := runRuleByName(t, "XmlExternalEntity", `
+package test
+
+import javax.xml.parsers.DocumentBuilderFactory
+
+class XmlLoader {
+    fun load(input: java.io.InputStream) {
+        val factory = DocumentBuilderFactory.newInstance()
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", false)
+        factory.newDocumentBuilder().parse(input)
+    }
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding when hardening boolean is wrong, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("multi-line setProperty kotlin", func(t *testing.T) {
+		findings := runRuleByName(t, "XmlExternalEntity", `
+package test
+
+import javax.xml.stream.XMLInputFactory
+
+class XmlLoader {
+    fun load(input: java.io.InputStream) {
+        val factory = XMLInputFactory.newInstance()
+        factory.setProperty(
+            XMLInputFactory.SUPPORT_DTD,
+            false,
+        )
+    }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for multi-line setProperty, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("multi-line property assignment kotlin", func(t *testing.T) {
+		findings := runRuleByName(t, "XmlExternalEntity", `
+package test
+
+import javax.xml.parsers.DocumentBuilderFactory
+
+class XmlLoader {
+    fun load(input: java.io.InputStream) {
+        val factory = DocumentBuilderFactory.newInstance()
+        factory.isXIncludeAware =
+            false
+        factory.isExpandEntityReferences =
+            false
+        factory.newDocumentBuilder().parse(input)
+    }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for split property assignments, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("missing one property assignment still fires", func(t *testing.T) {
+		findings := runRuleByName(t, "XmlExternalEntity", `
+package test
+
+import javax.xml.parsers.DocumentBuilderFactory
+
+class XmlLoader {
+    fun load(input: java.io.InputStream) {
+        val factory = DocumentBuilderFactory.newInstance()
+        factory.isXIncludeAware = false
+        factory.newDocumentBuilder().parse(input)
+    }
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding when only isXIncludeAware is set, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("multi-line setFeature java", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "XmlExternalEntity", `
+package test;
+
+import javax.xml.parsers.DocumentBuilderFactory;
+
+class XmlLoader {
+    void load(java.io.InputStream input) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setFeature(
+            "http://apache.org/xml/features/disallow-doctype-decl",
+            true
+        );
+        factory.newDocumentBuilder().parse(input);
+    }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 Java findings for multi-line setFeature, got %d: %v", len(findings), findings)
+		}
+	})
+}
+
 func TestJavaObjectInputStream_KotlinPositive(t *testing.T) {
 	findings := runRuleByName(t, "JavaObjectInputStream", `
 package test

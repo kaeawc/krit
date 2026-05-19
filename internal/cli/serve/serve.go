@@ -39,14 +39,13 @@ var Version = "dev"
 
 // BinaryHashOverride, when non-empty, is returned by daemonBinaryHash()
 // in place of the hash of the running executable. cmd/krit-daemon sets
-// this to the hash of the sibling krit binary so the CLI-vs-daemon
-// handshake compares apples to apples (the CLI hashes its own
+// this to the CLI's hash advertised via --client-binary-hash (which
+// internal/cli/daemoncmd/start.go passes from computeCurrentBinaryHash),
+// falling back to a sibling krit-binary scan when the flag is empty
+// (e.g. third-party respawn). Both branches keep the CLI-vs-daemon
+// handshake comparing apples to apples — the CLI hashes its own
 // executable; daemonbinary != CLI binary in the krit-daemon-as-shim
-// topology). Empty disables the override.
-//
-// TODO(#247-followup): wire this from a --client-binary-hash flag on
-// krit-daemon so the daemon advertises the exact CLI hash it was
-// started against, not just a sibling lookup that races CLI rebuilds.
+// topology. Empty disables the override.
 var BinaryHashOverride string
 
 // daemonBinaryHash returns the SHA-256 hex digest of the krit binary

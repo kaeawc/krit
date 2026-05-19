@@ -672,6 +672,19 @@ func (r OptInReason) String() string {
 type OracleFilter struct {
 	Identifiers []string
 	AllFiles    bool
+
+	// ThoroughOnlyIdentifiers are extra substring matches the rule
+	// wants added to its identifier set only at --depth=thorough.
+	// Bridge projects them into Identifiers when constructing the
+	// oracle filter at thorough; ignored at fast/balanced. Naming
+	// mirrors Rule.ThoroughOnlyNeeds.
+	ThoroughOnlyIdentifiers []string
+
+	// ThoroughOnlyAllFiles, when true, makes the bridge treat this
+	// rule as AllFiles only at --depth=thorough. Use sparingly — one
+	// AllFiles rule short-circuits filter inversion for the whole
+	// oracle pass.
+	ThoroughOnlyAllFiles bool
 }
 
 // OracleDeclarationProfile narrows which KAA symbol fields the JVM extracts
@@ -731,12 +744,16 @@ type OracleCallTargetFilter struct {
 }
 
 // NeverNeedsOracle returns true when the filter declares the rule is
-// purely tree-sitter and will never consult the oracle.
+// purely tree-sitter and will never consult the oracle. Conservatively
+// considers the ThoroughOnly* fields — at thorough the rule may still
+// consult the oracle, so a depth-agnostic caller must not classify the
+// rule as "never needs oracle".
 func (f *OracleFilter) NeverNeedsOracle() bool {
 	if f == nil {
 		return false
 	}
-	return !f.AllFiles && len(f.Identifiers) == 0
+	return !f.AllFiles && len(f.Identifiers) == 0 &&
+		!f.ThoroughOnlyAllFiles && len(f.ThoroughOnlyIdentifiers) == 0
 }
 
 // Rule is the unified rule descriptor. Every analysis rule in krit is

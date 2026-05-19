@@ -1,6 +1,8 @@
 package rules
 
 import (
+	"slices"
+
 	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -79,9 +81,14 @@ func KotlinOracleRulesV2(enabled []*api.Rule) []*api.Rule {
 // rules that do NOT need the oracle are excluded from oracle selection
 // entirely — the oracle is only invoked on files an oracle-needing rule
 // asked for. A rule that needs the oracle with no Oracle filter set (or
-// an AllFiles: true filter) is treated as
-// wanting every file.
-func BuildOracleFilterRulesV2(enabled []*api.Rule) []oracle.FilterRule {
+// an AllFiles: true filter) is treated as wanting every file.
+//
+// thorough projects api.OracleFilter.ThoroughOnlyIdentifiers /
+// ThoroughOnlyAllFiles into the produced FilterSpec when true; at false
+// the thorough-only fields are dropped so balanced/fast pay no extra
+// JVM cost. The bridge is the single projection point so oracle.FilterSpec
+// stays depth-agnostic.
+func BuildOracleFilterRulesV2(enabled []*api.Rule, thorough bool) []oracle.FilterRule {
 	out := make([]oracle.FilterRule, 0, len(enabled))
 	for _, r := range enabled {
 		if !RuleNeedsKotlinOracle(r) {
@@ -89,10 +96,17 @@ func BuildOracleFilterRulesV2(enabled []*api.Rule) []oracle.FilterRule {
 		}
 		var spec *oracle.FilterSpec
 		if r.Oracle != nil {
-			spec = &oracle.FilterSpec{
-				Identifiers: r.Oracle.Identifiers,
-				AllFiles:    r.Oracle.AllFiles,
+			ids := r.Oracle.Identifiers
+			all := r.Oracle.AllFiles
+			if thorough {
+				if r.Oracle.ThoroughOnlyAllFiles {
+					all = true
+				}
+				if len(r.Oracle.ThoroughOnlyIdentifiers) > 0 {
+					ids = slices.Concat(ids, r.Oracle.ThoroughOnlyIdentifiers)
+				}
 			}
+			spec = &oracle.FilterSpec{Identifiers: ids, AllFiles: all}
 		} else {
 			// The rule needs the oracle but did not narrow by
 			// content — it wants every file.

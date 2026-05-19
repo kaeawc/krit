@@ -53,7 +53,10 @@ func WriteOracleFilterFingerprint(stdoutW, stderrW io.Writer, paths []string, fi
 		return 2
 	}
 
-	filterRules := rules.BuildOracleFilterRulesV2(activeRules)
+	// Fingerprint command runs outside the scan pipeline; the depth flag
+	// is not in scope here. Project filters at the default (non-thorough)
+	// view so baselines stay stable across depths.
+	filterRules := rules.BuildOracleFilterRulesV2(activeRules, false)
 	oracleRuleNames := make([]string, 0, len(filterRules))
 	for _, r := range filterRules {
 		oracleRuleNames = append(oracleRuleNames, r.Name)

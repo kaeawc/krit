@@ -485,6 +485,7 @@ func (r *runner) runOracleIndex() (int, error) {
 			InputTypesPath:    *r.f.InputTypes,
 			NoCacheOracle:     *r.f.NoCacheOracle,
 			NoOracleFilter:    *r.f.NoOracleFilter,
+			Thorough:          r.depthPreset == DepthThorough,
 			OracleDiagnostics: *r.f.OracleDiagnostics,
 			UseDaemon:         *r.f.Daemon,
 			Store:             r.oracleStore,
@@ -620,6 +621,7 @@ func (r *runner) firCheckAndCollect() {
 			ParsedFiles: r.parsedFiles,
 			Tracker:     r.tracker,
 			VerboseOut:  os.Stderr,
+			Thorough:    r.depthPreset == DepthThorough,
 		}, r.allFindings)
 
 		r.applySLOs()

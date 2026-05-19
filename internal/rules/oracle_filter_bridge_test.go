@@ -21,7 +21,7 @@ func TestBuildOracleFilterRulesV2_SkipsRulesWithoutOracleNeed(t *testing.T) {
 		{ID: "NarrowOracleFiltered", Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Oracle: &api.OracleFilter{Identifiers: []string{"!!"}}},
 	}
-	got := BuildOracleFilterRulesV2(rules)
+	got := BuildOracleFilterRulesV2(rules, false)
 	if len(got) != 3 {
 		t.Fatalf("got %d rules, want 3 (only explicit oracle consumers pass through)", len(got))
 	}
@@ -57,13 +57,90 @@ func TestBuildOracleFilterRulesV2_SkipsRulesWithoutOracleNeed(t *testing.T) {
 	}
 }
 
+func TestBuildOracleFilterRulesV2_NotThoroughDropsThoroughFields(t *testing.T) {
+	rules := []*api.Rule{
+		{ID: "OracleThorough", Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Oracle: &api.OracleFilter{
+				Identifiers:             []string{"base"},
+				ThoroughOnlyIdentifiers: []string{"extra"},
+				ThoroughOnlyAllFiles:    true,
+			}},
+	}
+	got := BuildOracleFilterRulesV2(rules, false)
+	if len(got) != 1 {
+		t.Fatalf("got %d rules, want 1", len(got))
+	}
+	spec := got[0].Filter
+	if spec.AllFiles {
+		t.Errorf("ThoroughOnlyAllFiles should not promote AllFiles at balanced; got AllFiles=true")
+	}
+	if len(spec.Identifiers) != 1 || spec.Identifiers[0] != "base" {
+		t.Errorf("ThoroughOnlyIdentifiers should not appear at balanced; got %v", spec.Identifiers)
+	}
+}
+
+func TestBuildOracleFilterRulesV2_ThoroughMergesIdentifiers(t *testing.T) {
+	rules := []*api.Rule{
+		{ID: "OracleThorough", Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Oracle: &api.OracleFilter{
+				Identifiers:             []string{"base"},
+				ThoroughOnlyIdentifiers: []string{"extra1", "extra2"},
+			}},
+	}
+	got := BuildOracleFilterRulesV2(rules, true)
+	if len(got) != 1 {
+		t.Fatalf("got %d rules, want 1", len(got))
+	}
+	spec := got[0].Filter
+	want := []string{"base", "extra1", "extra2"}
+	if len(spec.Identifiers) != len(want) {
+		t.Fatalf("identifiers = %v; want %v", spec.Identifiers, want)
+	}
+	for i := range want {
+		if spec.Identifiers[i] != want[i] {
+			t.Errorf("identifiers[%d] = %q; want %q", i, spec.Identifiers[i], want[i])
+		}
+	}
+}
+
+func TestBuildOracleFilterRulesV2_ThoroughAllFilesPromotes(t *testing.T) {
+	rules := []*api.Rule{
+		{ID: "OracleThorough", Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Oracle: &api.OracleFilter{
+				Identifiers:          []string{"base"},
+				ThoroughOnlyAllFiles: true,
+			}},
+	}
+	got := BuildOracleFilterRulesV2(rules, true)
+	if len(got) != 1 || !got[0].Filter.AllFiles {
+		t.Fatalf("ThoroughOnlyAllFiles must promote AllFiles=true at thorough; got %+v", got[0].Filter)
+	}
+}
+
+// Source rule pointer must not gain identifiers across calls — Registry
+// pointers are shared with the global rule set.
+func TestBuildOracleFilterRulesV2_ThoroughDoesNotMutateInput(t *testing.T) {
+	in := &api.OracleFilter{
+		Identifiers:             []string{"base"},
+		ThoroughOnlyIdentifiers: []string{"extra"},
+	}
+	rules := []*api.Rule{
+		{ID: "OracleThorough", Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets, Oracle: in},
+	}
+	_ = BuildOracleFilterRulesV2(rules, true)
+	_ = BuildOracleFilterRulesV2(rules, true)
+	if len(in.Identifiers) != 1 || in.Identifiers[0] != "base" {
+		t.Fatalf("input rule's Identifiers grew across calls: %v", in.Identifiers)
+	}
+}
+
 func TestBuildOracleFilterRulesV2_NoOracleRulesReturnsEmpty(t *testing.T) {
 	rules := []*api.Rule{
 		{ID: "A"},
 		{ID: "B", Needs: api.NeedsResolver},
 		{ID: "C", Needs: api.NeedsLinePass},
 	}
-	got := BuildOracleFilterRulesV2(rules)
+	got := BuildOracleFilterRulesV2(rules, false)
 	if len(got) != 0 {
 		t.Errorf("got %d rules, want 0 — no rule declared NeedsOracle", len(got))
 	}

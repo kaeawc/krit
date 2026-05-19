@@ -10,6 +10,7 @@ package firchecks
 import (
 	"bytes"
 	"path/filepath"
+	"slices"
 	"sort"
 
 	"github.com/kaeawc/krit/internal/scanner"
@@ -24,6 +25,13 @@ type FirFilterSpec struct {
 	Identifiers []string
 	// AllFiles: true means the checker needs every file (no reduction).
 	AllFiles bool
+	// ThoroughOnlyIdentifiers extend Identifiers only at --depth=thorough.
+	// ActiveFirRules projects them when its thorough argument is true;
+	// ignored at fast/balanced. Naming mirrors api.OracleFilter.
+	ThoroughOnlyIdentifiers []string
+	// ThoroughOnlyAllFiles, when true, promotes the rule to AllFiles only
+	// at --depth=thorough.
+	ThoroughOnlyAllFiles bool
 }
 
 // FirFilterRule is the minimal rule view used by CollectFirCheckFiles.
@@ -61,8 +69,12 @@ var firRuleFilters = map[string]FirFilterRule{
 }
 
 // ActiveFirRules returns the FIR check names and coarse file filters that
-// correspond to enabled Krit catalog rule IDs.
-func ActiveFirRules(enabledRuleIDs []string) FirActiveRules {
+// correspond to enabled Krit catalog rule IDs. When thorough is true,
+// each rule's ThoroughOnlyIdentifiers / ThoroughOnlyAllFiles are
+// projected into the returned filter via a shallow clone — the global
+// firRuleFilters map is never mutated, so balanced and thorough
+// requests can share the same daemon process safely.
+func ActiveFirRules(enabledRuleIDs []string, thorough bool) FirActiveRules {
 	out := FirActiveRules{}
 	seen := make(map[string]struct{}, len(enabledRuleIDs))
 	for _, id := range enabledRuleIDs {
@@ -73,6 +85,17 @@ func ActiveFirRules(enabledRuleIDs []string) FirActiveRules {
 		rule, ok := firRuleFilters[id]
 		if !ok {
 			continue
+		}
+		if thorough && rule.Filter != nil &&
+			(rule.Filter.ThoroughOnlyAllFiles || len(rule.Filter.ThoroughOnlyIdentifiers) > 0) {
+			projected := *rule.Filter
+			if rule.Filter.ThoroughOnlyAllFiles {
+				projected.AllFiles = true
+			}
+			if len(rule.Filter.ThoroughOnlyIdentifiers) > 0 {
+				projected.Identifiers = slices.Concat(rule.Filter.Identifiers, rule.Filter.ThoroughOnlyIdentifiers)
+			}
+			rule = FirFilterRule{Name: rule.Name, Filter: &projected}
 		}
 		out.Filters = append(out.Filters, rule)
 		out.Names = append(out.Names, rule.Name)

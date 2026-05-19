@@ -170,6 +170,11 @@ type IndexInput struct {
 	// NoOracleFilter mirrors --no-oracle-filter: disables the
 	// rule-classification oracle filter pre-scan.
 	NoOracleFilter bool
+	// Thorough mirrors ProjectArgs.TargetedResolution and tells the
+	// oracle-filter bridge to project per-rule ThoroughIdentifiers /
+	// ThoroughAllFiles into the active filter spec. At fast/balanced the
+	// thorough-only fields are dropped so JVM cost stays unchanged.
+	Thorough bool
 	// OracleDiagnostics enables expensive Kotlin compiler diagnostic
 	// collection in krit-types. The default oracle path leaves this off;
 	// FlatNode/rule fallbacks cover the common cases without forcing every
@@ -912,7 +917,7 @@ func (p IndexPhase) buildOracleFilterListPath(in IndexInput, oracleRules []*api.
 	}
 	var filterRules []oracle.FilterRule
 	jvmTracker.TrackVoid("oracleFilterBuildRules", func() {
-		filterRules = rules.BuildOracleFilterRulesV2(oracleRules)
+		filterRules = rules.BuildOracleFilterRulesV2(oracleRules, in.Thorough)
 	})
 	var lightFiles []*scanner.File
 	jvmTracker.TrackVoid("oracleFilterLoadFiles", func() {

@@ -837,6 +837,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		ModuleJobsFlag:           args.Workers,
 		ModuleHasAwareRule:       hasModuleAwareRule,
 		InputTypesPath:           args.InputTypesPath,
+		Thorough:                 args.TargetedResolution,
 	}
 	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)
 	if warm.result == nil {

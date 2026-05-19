@@ -27,6 +27,10 @@ type firCheckerOpts struct {
 	ParsedFiles []*scanner.File
 	Tracker     perf.Tracker
 	VerboseOut  io.Writer
+	// Thorough mirrors --depth=thorough and tells ActiveFirRules to
+	// project per-rule ThoroughIdentifiers / ThoroughAllFiles. False
+	// keeps the existing balanced/fast filter shape.
+	Thorough bool
 }
 
 // resolveFIRTargetFiles picks the Kotlin file list the FIR checker should
@@ -82,7 +86,7 @@ func runFIRCheckerPass(opts firCheckerOpts, base []scanner.Finding) []scanner.Fi
 	if !opts.Enabled || opts.Checker == nil {
 		return base
 	}
-	active := firchecks.ActiveFirRules(activeRuleIDs(opts.ActiveRules))
+	active := firchecks.ActiveFirRules(activeRuleIDs(opts.ActiveRules), opts.Thorough)
 	if len(active.Names) == 0 {
 		// No FIR-eligible rules in the active set; skip the JVM
 		// subprocess entirely. Matters once `--depth=thorough` defaults

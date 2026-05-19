@@ -174,3 +174,81 @@ func TestApplyDepthPresetNilFlagSetAppliesUnconditionally(t *testing.T) {
 		t.Errorf("nil FlagSet should apply unconditionally; got NoTypeOracle=false")
 	}
 }
+
+func TestApplyDepthPresetThoroughEnablesFir(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	f := registerScanFlags(fs)
+	if err := fs.Parse(nil); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	applyDepthPreset(DepthThorough, f, fs)
+	if !*f.Fir {
+		t.Errorf("DepthThorough should default Fir=true; got false")
+	}
+	if *f.NoFir {
+		t.Errorf("DepthThorough should leave NoFir=false; got true")
+	}
+}
+
+func TestApplyDepthPresetBalancedLeavesFirAlone(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	f := registerScanFlags(fs)
+	if err := fs.Parse(nil); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	applyDepthPreset(DepthBalanced, f, fs)
+	if *f.Fir {
+		t.Errorf("DepthBalanced should leave Fir=false; got true")
+	}
+}
+
+func TestApplyDepthPresetFastLeavesFirAlone(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	f := registerScanFlags(fs)
+	if err := fs.Parse(nil); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	applyDepthPreset(DepthFast, f, fs)
+	if *f.Fir {
+		t.Errorf("DepthFast should leave Fir=false; got true")
+	}
+}
+
+func TestApplyDepthPresetThoroughExplicitNoFirWins(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	f := registerScanFlags(fs)
+	if err := fs.Parse([]string{"--no-fir"}); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	applyDepthPreset(DepthThorough, f, fs)
+	if *f.Fir {
+		t.Errorf("explicit --no-fir should suppress thorough's Fir default; got Fir=true")
+	}
+	if !*f.NoFir {
+		t.Errorf("explicit --no-fir should remain set; got false")
+	}
+}
+
+func TestApplyDepthPresetThoroughExplicitFirFalseWins(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	f := registerScanFlags(fs)
+	if err := fs.Parse([]string{"--fir=false"}); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	applyDepthPreset(DepthThorough, f, fs)
+	if *f.Fir {
+		t.Errorf("explicit --fir=false should win over DepthThorough; got Fir=true")
+	}
+}
+
+func TestApplyDepthPresetThoroughExplicitFirTrueRespected(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	f := registerScanFlags(fs)
+	if err := fs.Parse([]string{"--fir"}); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	applyDepthPreset(DepthThorough, f, fs)
+	if !*f.Fir {
+		t.Errorf("explicit --fir should remain true under DepthThorough; got false")
+	}
+}

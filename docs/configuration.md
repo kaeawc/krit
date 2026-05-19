@@ -110,10 +110,10 @@ analysis:
 |-----------|-------------------------------------------------------------------------------------------------------|
 | `fast`    | Skips the JVM type oracle. Source-level inference still runs. Best for low-latency local checks.      |
 | `balanced`| (Default) Source inference + JVM type oracle.                                                         |
-| `thorough`| Balanced plus a targeted-resolution pre-pass: opt-in rules batch expression-position queries to KAA so the oracle has precise type facts before dispatch. Improves precision on lambda-param nullsafety and properties with externally-typed initializers. |
+| `thorough`| Balanced plus a targeted-resolution pre-pass (opt-in rules batch expression-position queries to KAA) and the FIR checker pass (krit-fir JVM subprocess). Improves precision on lambda-param nullsafety, properties with externally-typed initializers, and FIR-only diagnostics. Pass `--no-fir` to keep the JVM dependency off. |
 
 Precedence, highest first: explicit individual flag (e.g.
-`--no-type-oracle`) → `--depth=<preset>` → `analysis.depth` → `balanced`.
+`--no-type-oracle`, `--no-fir`) → `--depth=<preset>` → `analysis.depth` → `balanced`.
 
 Compare `fast` and `balanced` on a representative target before changing CI
 defaults. `fast` is appropriate for projects that do not enable rules requiring

@@ -82,9 +82,15 @@ func runFIRCheckerPass(opts firCheckerOpts, base []scanner.Finding) []scanner.Fi
 	if !opts.Enabled || opts.Checker == nil {
 		return base
 	}
+	active := firchecks.ActiveFirRules(activeRuleIDs(opts.ActiveRules))
+	if len(active.Names) == 0 {
+		// No FIR-eligible rules in the active set; skip the JVM
+		// subprocess entirely. Matters once `--depth=thorough` defaults
+		// FIR on for rule sets that may not include any FIR checks.
+		return base
+	}
 	start := time.Now()
 	subTracker := opts.Tracker.Serial("firCheck")
-	active := firchecks.ActiveFirRules(activeRuleIDs(opts.ActiveRules))
 	summary := firchecks.CollectFirCheckFiles(active.Filters, opts.ParsedFiles)
 	ktFiles := resolveFIRTargetFiles(summary, opts.ParsedFiles)
 	result, err := opts.Checker.Check(ktFiles, nil, nil, active.Names)

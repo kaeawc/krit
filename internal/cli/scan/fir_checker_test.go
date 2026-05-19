@@ -74,6 +74,25 @@ func TestRunFIRCheckerPassDisabledIsNoOp(t *testing.T) {
 	}
 }
 
+// Guard against paying for JVM startup when the active rule set contains
+// no FIR-eligible rules. Important now that --depth=thorough defaults
+// FIR on regardless of which rules the project actually has enabled.
+func TestRunFIRCheckerPassNoActiveRulesSkipsChecker(t *testing.T) {
+	checker := firchecks.NewFakeFirChecker()
+	base := []scanner.Finding{{Rule: "X"}}
+	got := runFIRCheckerPass(firCheckerOpts{
+		Enabled:     true,
+		Checker:     checker,
+		ActiveRules: []*api.Rule{{ID: "NotAFirRule"}},
+	}, base)
+	if !reflect.DeepEqual(got, base) {
+		t.Fatalf("got %v; want %v (base unchanged when no FIR rules active)", got, base)
+	}
+	if len(checker.Called) != 0 {
+		t.Fatalf("checker.Check should not be invoked with zero FIR rules; got %d invocations", len(checker.Called))
+	}
+}
+
 // filepathIsAbs lets the test assert absolute-path-ness without importing
 // path/filepath at the top (and without colliding if other tests in the
 // package shadow it).

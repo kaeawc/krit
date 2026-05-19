@@ -25,16 +25,8 @@ const (
 	// type oracle.
 	DepthBalanced DepthPreset = "balanced"
 
-	// DepthThorough runs the same source-level inference and JVM type
-	// oracle as balanced, plus a targeted-resolution pre-pass: rules
-	// that declare ExprPositions selectors get their queried expression
-	// positions batched into a single resolveExpressionTypes RPC, so
-	// KAA seeds the oracle's expression map before dispatch begins.
-	// Today the precision win lights up nullsafety rules on lambda-param
-	// `!!` / `?.` / `?:` / `.toString()` patterns and equality null
-	// checks on properties whose initializers source can't type.
-	// Reserved for further oracle expansion (richer expression facts,
-	// expanded class-table coverage) as additional rules opt in.
+	// DepthThorough enables every compiler-backed precision feature.
+	// Explicit `--fir` / `--no-fir` flags still win.
 	DepthThorough DepthPreset = "thorough"
 )
 
@@ -100,9 +92,13 @@ func applyDepthPreset(depth DepthPreset, f *scanFlags, fs *flag.FlagSet) {
 		// Skip the JVM oracle. Source-level inference stays on so rules
 		// that only need lexical/AST signals continue to fire.
 		setBoolIfNotExplicit(f.NoTypeOracle, true, "no-type-oracle", explicit)
-	case DepthBalanced, DepthThorough:
-		// Both keep the oracle eligible; RunProject receives the
-		// additional thorough-only analysis knob after setup.
+	case DepthBalanced:
+		// Default — keep the oracle eligible, no FIR.
+	case DepthThorough:
+		// Oracle stays eligible; RunProject receives the targeted-
+		// resolution knob after setup. FIR defaults on unless the user
+		// passed either `--fir` or `--no-fir` explicitly.
+		setBoolIfNeitherExplicit(f.Fir, true, "fir", "no-fir", explicit)
 	}
 }
 
@@ -125,6 +121,20 @@ func setBoolIfNotExplicit(ptr *bool, value bool, name string, explicit map[strin
 		return
 	}
 	if explicit != nil && explicit[name] {
+		return
+	}
+	*ptr = value
+}
+
+// setBoolIfNeitherExplicit is the dual-flag variant: skip the assignment
+// if either flag name was passed on the command line. Used when a preset
+// wants to default one half of an opposed flag pair (e.g. --fir /
+// --no-fir) but must yield to user steering in either direction.
+func setBoolIfNeitherExplicit(ptr *bool, value bool, name1, name2 string, explicit map[string]bool) {
+	if ptr == nil {
+		return
+	}
+	if explicit != nil && (explicit[name1] || explicit[name2]) {
 		return
 	}
 	*ptr = value

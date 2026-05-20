@@ -13,7 +13,7 @@ Useful targets, in rough order of cost/coverage trade-off:
 
 - **playground** (`playground/` in this repo) — fastest, regression-locked via `make regression`. Use first for any pipeline/rule change.
 - **kotlin-corpus** — broader Kotlin coverage, used by `scripts/benchmark-oracle.sh` and `test(serve): report per-phase timings in kotlin-corpus benches`.
-- **`~/github/metro`** or similar large Android app — real Android/Gradle/Compose surface, real catalog, real DI.
+- **large Android app** (metro or similar) — real Android/Gradle/Compose surface, real catalog, real DI.
 - **user-supplied path** — when investigating a reported FP on the reporter's codebase.
 
 Record both the Krit revision and the target revision in any output you share.

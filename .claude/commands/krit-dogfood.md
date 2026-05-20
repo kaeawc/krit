@@ -2,7 +2,7 @@
 
 Run Krit against an external Kotlin/Android repo and triage findings.
 
-ARGUMENTS: `$ARGUMENTS` — target repo path (e.g. `~/github/metro`, `playground`, `kotlin-corpus`). Required.
+ARGUMENTS: `$ARGUMENTS` — target repo path to dogfood against. Required.
 
 ## Instructions
 

@@ -15,7 +15,7 @@ import (
 
 // TestAnalyzeProject_RepeatedABIEditFindingsStable_KotlinCorpus is the
 // regression repro for issue #254. With AndroidCacheWriter wired on
-// the daemon path, post-edit analyze runs on ~/github/kotlin collapse
+// the daemon path, post-edit analyze runs on $KRIT_KOTLIN_CORPUS collapse
 // from ~87k findings to ~62 starting on the second run.
 //
 // Flow:

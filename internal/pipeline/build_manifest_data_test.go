@@ -15,7 +15,7 @@ import (
 // analyze re-read that manifest through prepopulatedSourcePaths and
 // collapsed the source set to one path — driving the entire daemon
 // pipeline into single-file dispatch and dropping ~87 k findings to
-// ~62 on ~/github/kotlin.
+// ~62 on $KOTLIN_CORPUS.
 //
 // The fix: any path present in host.PriorContentHashes that wasn't
 // parsed this run (and isn't dirty) gets carried into the new

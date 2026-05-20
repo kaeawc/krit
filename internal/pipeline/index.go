@@ -192,6 +192,13 @@ type IndexInput struct {
 	// when the flag isn't set. Parsing happens in the caller; the
 	// pipeline just routes on the value.
 	OracleBackend oracle.Backend
+	// OracleClasspath is the resolved user-override classpath the FIR
+	// daemon receives on `analyze` requests. Built from
+	// `oracle.classpath` in krit.yml and the `CLASSPATH` env var. The
+	// daemon falls back to source-tree dependency discovery when this
+	// is empty. The KAA backend ignores this field today; classpath
+	// threading for krit-types is a separate effort.
+	OracleClasspath []string
 	// PrebuiltOracleDaemon, when non-nil, is reused by runDaemonOracle
 	// instead of calling oracle.InvokeDaemon. The serve daemon's
 	// ensureOracleDaemon supplies a *oracle.Daemon kept alive across
@@ -956,13 +963,12 @@ func (p IndexPhase) runDaemonOracleFir(in IndexInput, scanPaths []string, oracle
 
 	var oracleData *oracle.Data
 	oracleTracker.TrackVoid("firDaemonAnalyzeAll", func() {
-		// Classpath stays nil: the krit-fir daemon auto-discovers
-		// dependencies through the source tree, and threading a
-		// Go-side resolved classpath is its own multi-step refactor.
-		// Users that need an explicit classpath today fall back to
-		// the one-shot path (which also doesn't take one) or to the
-		// KAA backend.
-		od, err := d.AnalyzeAll(sourceDirs, nil)
+		// Pass the user-configured classpath (oracle.classpath in
+		// krit.yml + the CLASSPATH env var) to the FIR daemon. Empty
+		// classpath means the daemon falls back to source-tree
+		// discovery — same as krit-types' behavior — so projects
+		// that don't set anything still work.
+		od, err := d.AnalyzeAll(sourceDirs, in.OracleClasspath)
 		if err != nil {
 			in.warnf("warning: fir daemon analyzeAll: %v\n", err)
 			return

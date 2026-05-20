@@ -480,6 +480,7 @@ func (r *runner) runOracleIndex() (int, error) {
 			err = oracleBackendErr
 			return
 		}
+		oracleClasspath := resolveOracleClasspath(r.cfg)
 		in := pipeline.IndexInput{
 			ParseResult:       pipeline.ParseResult{ActiveRules: r.activeRules},
 			Reporter:          r.reporter,
@@ -495,6 +496,7 @@ func (r *runner) runOracleIndex() (int, error) {
 			OracleDiagnostics: *r.f.OracleDiagnostics,
 			UseDaemon:         *r.f.Daemon,
 			OracleBackend:     oracleBackend,
+			OracleClasspath:   oracleClasspath,
 			Store:             r.oracleStore,
 			OracleCacheWriter: r.oracleCacheWriter,
 			StaleOraclePaths:  staleOraclePaths,

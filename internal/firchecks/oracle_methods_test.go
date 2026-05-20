@@ -151,6 +151,29 @@ func TestFirDaemonAnalyzeFilesShipsExplicitCommand(t *testing.T) {
 	}
 }
 
+func TestFirDaemonAnalyzeForwardsClasspathToDaemon(t *testing.T) {
+	// The classpath argument arrives at the krit-fir daemon as the
+	// request body's `classpath` array — without forwarding, K2
+	// resolves against an empty dependency set and rules that opt
+	// into types from project libs see "unresolved" everywhere.
+	server := newFakeFirOracleServer(t)
+	server.responses["analyzeAll"] = `{"id":{{ID}},"result":{"version":1,"kotlinVersion":"","files":{},"dependencies":{}}}`
+	d := server.connect(t)
+	cp := []string{"/lib/a.jar", "/lib/b.jar"}
+	if _, err := d.AnalyzeAll([]string{"/src"}, cp); err != nil {
+		t.Fatalf("AnalyzeAll: %v", err)
+	}
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	if len(server.requests) != 1 {
+		t.Fatalf("expected one request, got %d", len(server.requests))
+	}
+	gotCP := server.requests[0].Classpath
+	if len(gotCP) != len(cp) || gotCP[0] != cp[0] || gotCP[1] != cp[1] {
+		t.Fatalf("classpath not forwarded verbatim: got %v want %v", gotCP, cp)
+	}
+}
+
 func TestFirDaemonAnalyzeWithDepsParsesFlatEnvelope(t *testing.T) {
 	server := newFakeFirOracleServer(t)
 	server.responses["analyzeWithDeps"] = `{"id":{{ID}},"result":{"version":1,"kotlinVersion":"2.3.21","files":{},"dependencies":{}},"cacheDeps":{"version":1,"approximation":"symbol-resolved-sources","files":{"/leaf.kt":{"depPaths":["/base.kt"],"perFileDeps":{}}},"crashed":{}}}`

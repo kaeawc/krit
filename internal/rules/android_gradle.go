@@ -523,8 +523,8 @@ func gradleHasDependenciesKeyword(s string) bool {
 	idx := strings.Index(s, "dependencies")
 	for idx >= 0 {
 		end := idx + len("dependencies")
-		startOK := idx == 0 || !isGradleIdentPart(rune(s[idx-1]))
-		endOK := end == len(s) || !isGradleIdentPart(rune(s[end]))
+		startOK := idx == 0 || !isGradleIdentPartAt(s, idx, decodeBefore)
+		endOK := end == len(s) || !isGradleIdentPartAt(s, end, decodeAfter)
 		if startOK && endOK {
 			return true
 		}
@@ -533,6 +533,33 @@ func gradleHasDependenciesKeyword(s string) bool {
 			return false
 		}
 		idx = end + next
+	}
+	return false
+}
+
+type decodeDir int
+
+const (
+	decodeBefore decodeDir = iota
+	decodeAfter
+)
+
+// isGradleIdentPartAt decodes the rune that bounds the candidate
+// "dependencies" match and applies the identifier-part predicate to
+// it. The previous implementation used rune(s[idx-1]) / rune(s[idx]),
+// which is a byte-to-rune cast: when the surrounding byte was a UTF-8
+// continuation byte (0x80-0xBF) the cast produced a value that
+// IsLetter/IsDigit reject, so isGradleIdentPart returned false and
+// the boundary check passed even when the real surrounding rune was a
+// non-ASCII identifier character.
+func isGradleIdentPartAt(s string, pos int, dir decodeDir) bool {
+	switch dir {
+	case decodeBefore:
+		r, _ := utf8.DecodeLastRuneInString(s[:pos])
+		return isGradleIdentPart(r)
+	case decodeAfter:
+		r, _ := utf8.DecodeRuneInString(s[pos:])
+		return isGradleIdentPart(r)
 	}
 	return false
 }

@@ -1,51 +1,52 @@
 package dev.jasonpearson.krit.fir.plugins
 
+import dev.jasonpearson.krit.api.Capability
 import dev.jasonpearson.krit.api.Finding
 import dev.jasonpearson.krit.api.FixSafety
 import dev.jasonpearson.krit.api.KritFile
+import dev.jasonpearson.krit.api.Resolver
 import dev.jasonpearson.krit.api.RuleContext
 
 /**
- * Driver for the `analyzeFileWithPlugins` RPC. Wires loaded plugin
- * rules ([PluginRuleRegistry]) through the [RuleContext] / [Finding]
+ * Driver for the `analyzeFile` RPC. Wires loaded plugin rules
+ * ([PluginRuleRegistry]) through the [RuleContext] / [Finding]
  * surface that lives in `krit-rule-api`, then produces a wire-shape
  * response matching krit-types' `buildAnalyzeFileResponse`.
  *
- * Current scope (PR 3.2):
+ * A FIR-backed [Resolver] is supplied to rules that declared
+ * [Capability.NEEDS_RESOLVER]; rules that didn't opt in see
+ * `RuleContext.resolver` as null even when a resolver is available,
+ * matching krit-types' opt-in semantics.
  *
- * - Rules run with `ktFile = null` and `resolver = null`. Tree-sitter-
- *   style line-scanner rules work today; rules that opt into
- *   `NEEDS_RESOLVER` or expect PSI get the corresponding fields as
- *   null and either degrade gracefully or no-op.
- * - PSI parsing and a real FIR-backed [Resolver] land in PR 3.3.
- * - Project-scope payload contexts (`gradle`, `manifest`, `resources`,
- *   `moduleIndex`, `crossFile`) also land in PR 3.3 alongside the
- *   request parsers for them.
+ * The project-scope payload contexts (`gradle`, `manifest`,
+ * `resources`, `moduleIndex`, `crossFile`) still ride as null —
+ * request parsers for them land in a follow-up.
  */
 internal object PluginRuleRunner {
 
     /**
      * Execute the selected plugin rules against [file] and return both
      * the emitted findings and any per-rule execution failures
-     * (caught Throwables) keyed by rule ID.
+     * (caught Throwables) keyed by rule ID. Pass [resolver] = null
+     * (the default) for callers that don't want to provide one —
+     * rules declaring [Capability.NEEDS_RESOLVER] then see
+     * `RuleContext.resolver` as null.
      */
     fun run(
         file: KritFile,
         ruleIds: List<String>?,
         ruleConfigs: Map<String, Map<String, Any?>>?,
+        resolver: Resolver? = null,
     ): RunResult {
         val findings = mutableListOf<PluginFinding>()
         val errors = linkedMapOf<String, String>()
         for (loaded in PluginRuleRegistry.selected(ruleIds)) {
             val options = ruleConfigs?.get(loaded.descriptor.ruleId).orEmpty()
-            // resolver and the project-scope context fields stay null
-            // on the krit-fir backend today. A rule that declared the
-            // matching `NEEDS_*` capability passed the load-time gate;
-            // we just don't provide the fact yet. PSI parsing and the
-            // FIR-backed Resolver land in PR 3.3.
+            val needsResolver = loaded.descriptor.needs.contains(Capability.NEEDS_RESOLVER.name)
             val ctx = RuleContext(
                 ruleId = loaded.descriptor.ruleId,
                 config = options,
+                resolver = resolver.takeIf { needsResolver },
             )
             try {
                 for (finding in loaded.rule.check(file, ctx)) {

@@ -1,13 +1,16 @@
 package dev.jasonpearson.krit.fir
 
 import dev.jasonpearson.krit.api.KritFile
+import dev.jasonpearson.krit.fir.oracle.FileOffsetTable
 import dev.jasonpearson.krit.fir.oracle.OracleResponse
+import dev.jasonpearson.krit.fir.plugins.FirOracleResolver
+import dev.jasonpearson.krit.fir.plugins.KtFileParser
 import dev.jasonpearson.krit.fir.plugins.PluginResponse
 import dev.jasonpearson.krit.fir.plugins.PluginRuleRegistry
 import dev.jasonpearson.krit.fir.plugins.PluginRuleRunner
-import java.io.File as JavaFile
 import dev.jasonpearson.krit.fir.runner.AnalysisSession
 import dev.jasonpearson.krit.fir.runner.BatchResult
+import java.io.File as JavaFile
 import dev.jasonpearson.krit.fir.runner.FileRef
 import dev.jasonpearson.krit.fir.runner.Finding
 import java.io.BufferedReader
@@ -218,8 +221,20 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 RequestResult.Response(response)
             }
             "analyzeFile" -> {
-                val response = handleAnalyzeFile(request)
-                RequestResult.Response(response)
+                val needsRebuild =
+                    request.sourceDirs != session.sourceDirs || request.classpath != session.classpath
+                val activeSession = if (needsRebuild) {
+                    session.dispose()
+                    AnalysisSession(request.sourceDirs, request.classpath)
+                } else {
+                    session
+                }
+                val response = handleAnalyzeFile(request, activeSession)
+                if (needsRebuild) {
+                    RequestResult.SessionRebuilt(response, activeSession)
+                } else {
+                    RequestResult.Response(response)
+                }
             }
             else -> RequestResult.Response("""{"id":${request.id},"error":"Unknown command: ${escJson(request.command)}"}""")
         }
@@ -261,7 +276,7 @@ fun parseRequest(json: String): CheckRequest {
     return CheckRequest(id, command, files, sourceDirs, classpath, rules, pluginJars, path, source, ruleIds)
 }
 
-internal fun handleAnalyzeFile(request: CheckRequest): String {
+internal fun handleAnalyzeFile(request: CheckRequest, session: AnalysisSession): String {
     val path = request.path
     if (path.isNullOrBlank()) {
         return """{"id":${request.id},"error":"analyzeFile requires path"}"""
@@ -276,13 +291,39 @@ internal fun handleAnalyzeFile(request: CheckRequest): String {
         if (text.isBlank()) {
             return """{"id":${request.id},"error":"analyzeFile could not resolve source for ${escJson(path)}"}"""
         }
-        // PSI parsing and the FIR-backed Resolver land in PR 3.3. For
-        // now line-scanner-style rules work end-to-end; rules that
-        // expect a non-null `KritFile.ktFile` or `RuleContext.resolver`
-        // see them as null and either degrade gracefully or no-op.
-        val file = KritFile(path = path, text = text, ktFile = null)
-        val outcome = PluginRuleRunner.run(file, request.ruleIds, ruleConfigs = null)
-        PluginResponse.buildAnalyzeFile(request.id, outcome.findings, outcome.errors)
+
+        // Run the K2 oracle pass against this file so the resolver
+        // has FIR call-resolution data to answer queries from. The
+        // pass populates `expressions` keyed by `"line:col"` for every
+        // resolved function call — exactly what the resolver looks up
+        // in [FirOracleResolver.lookupCall]. If the K2 pass crashes
+        // we still want plugin rules to run; fall back to an empty
+        // expression map and a resolver that returns null/false.
+        val expressions = try {
+            val canonical = JavaFile(path).canonicalPath
+            val result = session.analyze(listOf(path))
+            result.files[canonical]?.expressions
+                ?: result.files[path]?.expressions
+                ?: emptyMap()
+        } catch (t: Throwable) {
+            System.err.println("analyzeFile oracle pass failed: ${t.message}")
+            emptyMap()
+        }
+        val offsets = FileOffsetTable(text)
+        val resolver = FirOracleResolver(expressions, offsets)
+
+        // Parse PSI off the request payload (not off disk) so an
+        // in-flight edit shipped via `request.source` is reflected
+        // in the KtFile the rule sees. The parser's Disposable holds
+        // the IntelliJ infrastructure for the request lifetime.
+        val parsed = KtFileParser.parse(text, pathHint = path)
+        try {
+            val file = KritFile(path = path, text = text, ktFile = parsed.ktFile)
+            val outcome = PluginRuleRunner.run(file, request.ruleIds, ruleConfigs = null, resolver = resolver)
+            PluginResponse.buildAnalyzeFile(request.id, outcome.findings, outcome.errors)
+        } finally {
+            parsed.close()
+        }
     } catch (t: Throwable) {
         """{"id":${request.id},"error":"${escJson(t.message ?: "analyzeFile failed")}"}"""
     }

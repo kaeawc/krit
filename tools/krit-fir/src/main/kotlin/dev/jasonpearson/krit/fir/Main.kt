@@ -1,8 +1,11 @@
 package dev.jasonpearson.krit.fir
 
+import dev.jasonpearson.krit.api.KritFile
 import dev.jasonpearson.krit.fir.oracle.OracleResponse
 import dev.jasonpearson.krit.fir.plugins.PluginResponse
 import dev.jasonpearson.krit.fir.plugins.PluginRuleRegistry
+import dev.jasonpearson.krit.fir.plugins.PluginRuleRunner
+import java.io.File as JavaFile
 import dev.jasonpearson.krit.fir.runner.AnalysisSession
 import dev.jasonpearson.krit.fir.runner.BatchResult
 import dev.jasonpearson.krit.fir.runner.FileRef
@@ -214,6 +217,10 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 }
                 RequestResult.Response(response)
             }
+            "analyzeFile" -> {
+                val response = handleAnalyzeFile(request)
+                RequestResult.Response(response)
+            }
             else -> RequestResult.Response("""{"id":${request.id},"error":"Unknown command: ${escJson(request.command)}"}""")
         }
     } catch (e: Exception) {
@@ -232,8 +239,12 @@ data class CheckRequest(
     val classpath: List<String> = emptyList(),
     val rules: List<String> = emptyList(),
     // Plugin-rule jar paths, matching krit-types' `"jars"` array in
-    // `listPlugins` / `analyzeFileWithPlugins` requests.
+    // `listPlugins` / `analyzeFile` requests.
     val pluginJars: List<String> = emptyList(),
+    // analyzeFile (plugin-rule execution) payload.
+    val path: String? = null,
+    val source: String? = null,
+    val ruleIds: List<String>? = null,
 )
 
 fun parseRequest(json: String): CheckRequest {
@@ -243,8 +254,38 @@ fun parseRequest(json: String): CheckRequest {
     val classpath = extractStringArray(json, "classpath") ?: emptyList()
     val rules = extractStringArray(json, "rules") ?: emptyList()
     val pluginJars = extractStringArray(json, "jars") ?: emptyList()
+    val ruleIds = extractStringArray(json, "ruleIds")
+    val path = extractString(json, "path")
+    val source = extractString(json, "source")
     val files = extractFileRefs(json)
-    return CheckRequest(id, command, files, sourceDirs, classpath, rules, pluginJars)
+    return CheckRequest(id, command, files, sourceDirs, classpath, rules, pluginJars, path, source, ruleIds)
+}
+
+internal fun handleAnalyzeFile(request: CheckRequest): String {
+    val path = request.path
+    if (path.isNullOrBlank()) {
+        return """{"id":${request.id},"error":"analyzeFile requires path"}"""
+    }
+    return try {
+        PluginRuleRegistry.load(request.pluginJars)
+        val text = request.source ?: try {
+            JavaFile(path).readText()
+        } catch (t: Throwable) {
+            return """{"id":${request.id},"error":"analyzeFile could not read source for ${escJson(path)}: ${escJson(t.message ?: "io error")}"}"""
+        }
+        if (text.isBlank()) {
+            return """{"id":${request.id},"error":"analyzeFile could not resolve source for ${escJson(path)}"}"""
+        }
+        // PSI parsing and the FIR-backed Resolver land in PR 3.3. For
+        // now line-scanner-style rules work end-to-end; rules that
+        // expect a non-null `KritFile.ktFile` or `RuleContext.resolver`
+        // see them as null and either degrade gracefully or no-op.
+        val file = KritFile(path = path, text = text, ktFile = null)
+        val outcome = PluginRuleRunner.run(file, request.ruleIds, ruleConfigs = null)
+        PluginResponse.buildAnalyzeFile(request.id, outcome.findings, outcome.errors)
+    } catch (t: Throwable) {
+        """{"id":${request.id},"error":"${escJson(t.message ?: "analyzeFile failed")}"}"""
+    }
 }
 
 // ── Response building ─────────────────────────────────────────────────────────

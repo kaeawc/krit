@@ -7,6 +7,55 @@ package dev.jasonpearson.krit.fir.plugins
  */
 internal object PluginResponse {
 
+    /**
+     * Build the `analyzeFileWithPlugins` response. Mirrors krit-types'
+     * `buildAnalyzeFileResponse`: a `findings` array (with optional
+     * per-finding `fix` metadata) plus an optional `errors` map keyed
+     * by rule ID for rules that threw mid-`check`.
+     */
+    fun buildAnalyzeFile(
+        id: Long,
+        findings: List<PluginRuleRunner.PluginFinding>,
+        errors: Map<String, String>,
+    ): String {
+        val sb = StringBuilder()
+        sb.append("""{"id":""").append(id).append(""","result":{"findings":[""")
+        findings.forEachIndexed { i, f ->
+            if (i > 0) sb.append(',')
+            sb.append('{')
+            sb.append("\"file\":").append(jsonString(f.file)).append(',')
+            sb.append("\"line\":").append(f.line).append(',')
+            sb.append("\"column\":").append(f.column).append(',')
+            sb.append("\"startByte\":").append(f.startByte).append(',')
+            sb.append("\"endByte\":").append(f.endByte).append(',')
+            sb.append("\"ruleSet\":").append(jsonString(f.ruleSet)).append(',')
+            sb.append("\"ruleId\":").append(jsonString(f.ruleId)).append(',')
+            sb.append("\"severity\":").append(jsonString(f.severity)).append(',')
+            sb.append("\"message\":").append(jsonString(f.message)).append(',')
+            sb.append("\"confidence\":").append(f.confidence)
+            f.fix?.let { fix ->
+                sb.append(",\"fix\":{")
+                sb.append("\"startLine\":").append(fix.startLine).append(',')
+                sb.append("\"endLine\":").append(fix.endLine).append(',')
+                sb.append("\"replacement\":").append(jsonString(fix.replacement)).append(',')
+                sb.append("\"safety\":").append(jsonString(fix.safety))
+                sb.append('}')
+            }
+            sb.append('}')
+        }
+        sb.append(']')
+        if (errors.isNotEmpty()) {
+            sb.append(",\"errors\":{")
+            errors.entries.forEachIndexed { i, (ruleId, msg) ->
+                if (i > 0) sb.append(',')
+                sb.append(jsonString(ruleId)).append(':').append(jsonString(msg))
+            }
+            sb.append('}')
+        }
+        sb.append("}}")
+        return sb.toString()
+    }
+
     fun buildListPlugins(
         id: Long,
         descriptors: List<PluginRuleDescriptor>,

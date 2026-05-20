@@ -64,6 +64,26 @@ class OracleDispatchTest {
     }
 
     @Test
+    fun analyzeFileWithMissingPathReturnsError() {
+        val request = """{"id":21,"command":"analyzeFile"}"""
+        val result = handleRequestLine(request, session, startTime = 0L)
+        val response = (result as RequestResult.Response).json
+        assertTrue(""""error":"analyzeFile requires path"""" in response, response)
+    }
+
+    @Test
+    fun analyzeFileWithNoPluginsReturnsEmptyFindings() {
+        // No plugin jars loaded → no rules to run → response carries
+        // an empty findings array. The handler short-circuits before
+        // touching K2 / PSI.
+        val request = """{"id":22,"command":"analyzeFile","path":"/tmp/x.kt","source":"fun x() {}"}"""
+        val result = handleRequestLine(request, session, startTime = 0L)
+        val response = (result as RequestResult.Response).json
+        assertTrue(response.startsWith("""{"id":22,"result":{"findings":["""), response)
+        assertFalse(""""error":""" in response, response)
+    }
+
+    @Test
     fun listPluginsCommandReturnsEmptyRulesWhenNoJarsProvided() {
         // Zero pluginJars → the registry has nothing to load, and the
         // response carries an empty `rules` array. The shape mirrors

@@ -30,7 +30,10 @@ class KritFirCheckers(session: FirSession) : FirAdditionalCheckersExtension(sess
     }
 
     // Same self-gating story for OracleClassChecker on the declaration
-    // side: non-oracle paths pay only the thread-local probe.
+    // side: non-oracle paths pay only the thread-local probe per
+    // declaration. Per-lambda suspend status is captured at the call
+    // site inside `OracleExpressionChecker` — see its
+    // `recordLambdaSuspendArguments` for the rationale.
     override val declarationCheckers = object : DeclarationCheckers() {
         override val classCheckers = setOf(SmokeChecker, OracleClassChecker)
     }

@@ -19,6 +19,7 @@ internal class OracleCollector {
     private val packageByFile = LinkedHashMap<String, String>()
     private val expressionsByFile = LinkedHashMap<String, LinkedHashMap<String, ExpressionPayload>>()
     private val diagnosticsByFile = LinkedHashMap<String, MutableList<DiagnosticPayload>>()
+    private val lambdaSuspendByFile = LinkedHashMap<String, LinkedHashMap<String, Boolean>>()
     private val offsetsByFile = HashMap<String, FileOffsetTable?>()
 
     /**
@@ -69,6 +70,18 @@ internal class OracleCollector {
     }
 
     /**
+     * Record a lambda's suspend status for [filePath] at the source
+     * position keyed by [key] ("line:col"). First-wins on duplicate
+     * keys — a single source position can only refer to one lambda,
+     * and revisits during phased FIR resolution would otherwise let
+     * an intermediate (pre-conversion) status overwrite the final one.
+     */
+    fun addLambdaSuspend(filePath: String, key: String, isSuspend: Boolean) {
+        val map = lambdaSuspendByFile.getOrPut(filePath) { LinkedHashMap() }
+        map.putIfAbsent(key, isSuspend)
+    }
+
+    /**
      * Lazily-built offset table for [filePath]. Returns null if the
      * file cannot be read (e.g. it was deleted between the K2 walk
      * scheduling and the checker firing). Callers should skip the
@@ -87,7 +100,8 @@ internal class OracleCollector {
      */
     fun toResult(): AnalyzeResult {
         val allFilePaths =
-            (perFile.keys + packageByFile.keys + expressionsByFile.keys + diagnosticsByFile.keys).toSet()
+            (perFile.keys + packageByFile.keys + expressionsByFile.keys +
+                diagnosticsByFile.keys + lambdaSuspendByFile.keys).toSet()
         val files = LinkedHashMap<String, FilePayload>(allFilePaths.size)
         for (path in allFilePaths) {
             files[path] = FilePayload(
@@ -95,6 +109,7 @@ internal class OracleCollector {
                 declarations = perFile[path]?.toList() ?: emptyList(),
                 expressions = expressionsByFile[path]?.toMap() ?: emptyMap(),
                 diagnostics = diagnosticsByFile[path]?.toList() ?: emptyList(),
+                lambdaSuspendByLineCol = lambdaSuspendByFile[path]?.toMap() ?: emptyMap(),
             )
         }
         return AnalyzeResult(files = files, dependencies = dependencies.toMap())

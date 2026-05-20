@@ -33,6 +33,12 @@ data class FilePayload(
     val declarations: List<ClassPayload> = emptyList(),
     val expressions: Map<String, ExpressionPayload> = emptyMap(),
     val diagnostics: List<DiagnosticPayload> = emptyList(),
+    // Lambda functional-type facts keyed by `"line:col"` of the
+    // lambda's source position. True iff the lambda's resolved
+    // declaration status carries the suspend modifier — either
+    // because it was passed to a `suspend (...) -> R` parameter or
+    // because its own inferred type is `kotlin.coroutines.SuspendFunctionN`.
+    val lambdaSuspendByLineCol: Map<String, Boolean> = emptyMap(),
 )
 
 /**

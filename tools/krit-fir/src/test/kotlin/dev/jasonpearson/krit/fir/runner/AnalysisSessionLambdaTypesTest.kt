@@ -91,6 +91,35 @@ class AnalysisSessionLambdaTypesTest {
     }
 
     @Test
+    fun propertyAccessTypeFqnLandsOnNonCallPayload() {
+        // OracleQualifiedAccessChecker captures property reads. The
+        // payload it writes has a populated `type` and
+        // `callTargetResolved=false` so the resolver's call-specific
+        // lookups still ignore it; `expressionType(propertyRef)`
+        // returns the real FQN.
+        val path = writeKt(
+            "PropAccess.kt",
+            """
+            package com.acme.propaccess
+
+            class Box(val label: String)
+
+            fun caller(box: Box): String = box.label
+            """.trimIndent(),
+        )
+
+        val expressions = analyze(path).expressions
+        val nonCallStringEntries = expressions.values.filter {
+            it.type == "kotlin.String" && !it.callTargetResolved
+        }
+        assertTrue(
+            nonCallStringEntries.isNotEmpty(),
+            "expected at least one non-call property-access payload with type=kotlin.String, got " +
+                "${expressions.values.map { it.type to it.callTargetResolved }}",
+        )
+    }
+
+    @Test
     fun callExpressionTypeFqnLandsOnExpressionPayload() {
         val path = writeKt(
             "CallType.kt",

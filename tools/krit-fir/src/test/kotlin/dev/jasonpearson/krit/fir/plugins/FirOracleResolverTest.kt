@@ -136,6 +136,45 @@ class FirOracleResolverTest {
     }
 
     @Test
+    fun expressionTypeServesNonCallEntriesFromTheSameMap() {
+        // After the qualified-access broadening, property reads and
+        // variable references also land in `expressionsByKey` —
+        // with `callTargetResolved=false` so they don't interfere
+        // with call-resolution lookups. The resolver looks up by
+        // PSI offset → line:col regardless of expression subtype.
+        val source = "package x\n\nval name: String = \"hi\"\nfun caller() {\n    val s = name\n}\n"
+        val table = FileOffsetTable(source)
+        val parsed = KtFileParser.parse(source, pathHint = "/tmp/Source.kt")
+        parsed.use {
+            var ref: org.jetbrains.kotlin.psi.KtNameReferenceExpression? = null
+            parsed.ktFile.accept(object : org.jetbrains.kotlin.psi.KtTreeVisitorVoid() {
+                override fun visitReferenceExpression(expression: org.jetbrains.kotlin.psi.KtReferenceExpression) {
+                    super.visitReferenceExpression(expression)
+                    if (
+                        ref == null &&
+                        expression is org.jetbrains.kotlin.psi.KtNameReferenceExpression &&
+                        expression.getReferencedName() == "name"
+                    ) {
+                        ref = expression
+                    }
+                }
+            })
+            val nameRef = ref ?: error("source has no `name` reference: $source")
+            val (line, col) = table.lineColAt(nameRef.textRange.startOffset)
+            val expressions = mapOf(
+                "$line:$col" to ExpressionPayload(
+                    type = "kotlin.String",
+                    nullable = false,
+                    callTarget = null,
+                    callTargetResolved = false,
+                ),
+            )
+            val resolver = FirOracleResolver(expressions, table)
+            assertEquals("kotlin.String", resolver.expressionType(nameRef))
+        }
+    }
+
+    @Test
     fun isLambdaSuspendLooksUpByPsiOffset() {
         // The PSI offset of a KtLambdaExpression sits on its opening
         // brace; K2 records the FirAnonymousFunction's source at the

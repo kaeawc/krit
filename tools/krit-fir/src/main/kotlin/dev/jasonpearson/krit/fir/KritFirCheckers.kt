@@ -6,6 +6,7 @@ import dev.jasonpearson.krit.fir.checkers.InjectDispatcher
 import dev.jasonpearson.krit.fir.checkers.UnsafeCastWhenNullable
 import dev.jasonpearson.krit.fir.oracle.OracleClassChecker
 import dev.jasonpearson.krit.fir.oracle.OracleExpressionChecker
+import dev.jasonpearson.krit.fir.oracle.OracleQualifiedAccessChecker
 import dev.jasonpearson.krit.fir.rules.SmokeChecker
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
@@ -27,6 +28,15 @@ class KritFirCheckers(session: FirSession) : FirAdditionalCheckersExtension(sess
         )
         override val typeOperatorCallCheckers = setOf(
             UnsafeCastWhenNullable,
+        )
+        // OracleQualifiedAccessChecker fills in the expression-type
+        // gap that OracleExpressionChecker leaves: property reads,
+        // variable references, receiver expressions in non-call
+        // chains. The checker bypasses FirFunctionCall (which is also
+        // a FirQualifiedAccessExpression) so call-site entries from
+        // OracleExpressionChecker remain authoritative on collisions.
+        override val qualifiedAccessExpressionCheckers = setOf(
+            OracleQualifiedAccessChecker,
         )
     }
 

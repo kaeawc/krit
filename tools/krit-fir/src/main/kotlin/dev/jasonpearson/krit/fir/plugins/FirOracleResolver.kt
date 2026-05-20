@@ -56,15 +56,19 @@ internal class FirOracleResolver(
     }
 
     override fun expressionType(expression: KtExpression): String? {
-        // Today we surface only call-expression types — the oracle
-        // pass captures `FirFunctionCall.resolvedType` per call site
-        // and stashes the rendered FQN on the matching
-        // [`ExpressionPayload.type`]. Non-call expressions don't have
-        // a payload, so the lookup returns null and the rule sees the
-        // "unresolved" contract krit-types' resolver also uses.
-        if (expression !is KtCallExpression) return null
-        val payload = lookupCall(expression) ?: return null
-        return payload.type.takeIf { it.isNotBlank() }
+        // The oracle pass populates [`ExpressionPayload.type`] for
+        // function calls (via OracleExpressionChecker) and qualified
+        // accesses — property reads, variable refs, receivers in
+        // call chains (via OracleQualifiedAccessChecker). Both write
+        // entries into `expressionsByKey` keyed by `"line:col"`, so a
+        // single PSI offset → line:col lookup serves either source.
+        // Expressions outside that set (literals, when expressions,
+        // tries, etc.) still return null — broadening coverage is
+        // purely additive on the writer side and doesn't change the
+        // resolver contract.
+        val range = expression.textRange ?: return null
+        val (line, col) = offsets.lineColAt(range.startOffset)
+        return expressionsByKey["$line:$col"]?.type?.takeIf { it.isNotBlank() }
     }
 
     private fun lookupCall(call: KtCallExpression): ExpressionPayload? {

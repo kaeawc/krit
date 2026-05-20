@@ -8,6 +8,7 @@ import dev.jasonpearson.krit.fir.plugins.KtFileParser
 import dev.jasonpearson.krit.fir.plugins.PluginResponse
 import dev.jasonpearson.krit.fir.plugins.PluginRuleRegistry
 import dev.jasonpearson.krit.fir.plugins.PluginRuleRunner
+import dev.jasonpearson.krit.fir.plugins.ProjectPayloads
 import dev.jasonpearson.krit.fir.runner.AnalysisSession
 import dev.jasonpearson.krit.fir.runner.BatchResult
 import java.io.File as JavaFile
@@ -299,6 +300,13 @@ data class CheckRequest(
     val path: String? = null,
     val source: String? = null,
     val ruleIds: List<String>? = null,
+    // Project-scope facts shipped on analyzeFile. Each field is null
+    // when the corresponding top-level JSON key is absent; the Go
+    // side only sends a key when it has facts to ship, so rules that
+    // declared the matching `NEEDS_*` capability see the data when
+    // it's available and null when the project doesn't have any
+    // (e.g. NEEDS_MANIFEST on a pure-Kotlin library).
+    val projectPayloads: ProjectPayloads = ProjectPayloads.EMPTY,
 )
 
 fun parseRequest(json: String): CheckRequest {
@@ -312,7 +320,8 @@ fun parseRequest(json: String): CheckRequest {
     val path = extractString(json, "path")
     val source = extractString(json, "source")
     val files = extractFileRefs(json)
-    return CheckRequest(id, command, files, sourceDirs, classpath, rules, pluginJars, path, source, ruleIds)
+    val payloads = if (command == "analyzeFile") ProjectPayloads.parse(json) else ProjectPayloads.EMPTY
+    return CheckRequest(id, command, files, sourceDirs, classpath, rules, pluginJars, path, source, ruleIds, payloads)
 }
 
 internal fun handleAnalyzeFile(request: CheckRequest, session: AnalysisSession): String {
@@ -358,7 +367,13 @@ internal fun handleAnalyzeFile(request: CheckRequest, session: AnalysisSession):
         val parsed = KtFileParser.parse(text, pathHint = path)
         try {
             val file = KritFile(path = path, text = text, ktFile = parsed.ktFile)
-            val outcome = PluginRuleRunner.run(file, request.ruleIds, ruleConfigs = null, resolver = resolver)
+            val outcome = PluginRuleRunner.run(
+                file = file,
+                ruleIds = request.ruleIds,
+                ruleConfigs = null,
+                resolver = resolver,
+                projectPayloads = request.projectPayloads,
+            )
             PluginResponse.buildAnalyzeFile(request.id, outcome.findings, outcome.errors)
         } finally {
             parsed.close()

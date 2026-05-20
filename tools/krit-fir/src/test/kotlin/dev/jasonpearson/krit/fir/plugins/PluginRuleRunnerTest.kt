@@ -109,6 +109,40 @@ class PluginRuleRunnerTest {
     }
 
     @Test
+    fun gradleContextOnlyVisibleToRulesThatDeclareNeedsGradle() {
+        // A rule that declared NEEDS_GRADLE sees a non-null context.
+        val needsJar = buildGradleAwareRuleJar("GradleAwareRule", declareNeed = true)
+        PluginRuleRegistry.load(listOf(needsJar.absolutePath))
+        val payloads = ProjectPayloads(
+            gradle = GradleProfilePayload(
+                minSdk = 24, targetSdk = 34, compileSdk = 34,
+                kotlinVersion = "2.3.21", javaTargetVersion = "21", agpVersion = "8.5.0",
+                deps = listOf("org.x:y:1.0"),
+            ),
+            manifest = null, resources = null, moduleIndex = null, crossFile = null,
+        )
+        val file = KritFile(path = "/tmp/G.kt", text = "fun x() {}", ktFile = null)
+        val withGate = PluginRuleRunner.run(
+            file = file, ruleIds = null, ruleConfigs = null,
+            projectPayloads = payloads,
+        )
+        assertEquals(1, withGate.findings.size, "expected gradle-aware rule to fire: ${withGate.findings}")
+        assertEquals("gradle:24", withGate.findings.single().message)
+
+        // Same rule but without the capability declaration — even
+        // though we pass the payload, the rule shouldn't see it
+        // (otherwise the capability gate is meaningless).
+        PluginRuleRegistry.resetForTesting()
+        val noNeedsJar = buildGradleAwareRuleJar("UndeclaredGradleRule", declareNeed = false)
+        PluginRuleRegistry.load(listOf(noNeedsJar.absolutePath))
+        val withoutGate = PluginRuleRunner.run(
+            file = file, ruleIds = null, ruleConfigs = null,
+            projectPayloads = payloads,
+        )
+        assertEquals(emptyList(), withoutGate.findings, "rule without NEEDS_GRADLE must see gradle=null")
+    }
+
+    @Test
     fun analyzeFileResponseShapeMatchesKritTypes() {
         val findings = listOf(
             PluginRuleRunner.PluginFinding(
@@ -219,6 +253,39 @@ class PluginRuleRunnerTest {
             class $ruleId : KritRule {
                 override fun check(file: KritFile, ctx: RuleContext): List<Finding> {
                     throw IllegalStateException("boom")
+                }
+            }
+        """.trimIndent()
+        return buildJar(ruleId, source)
+    }
+
+    private fun buildGradleAwareRuleJar(ruleId: String, declareNeed: Boolean): File {
+        val needsExpr = if (declareNeed) "dev.jasonpearson.krit.api.Capability.NEEDS_GRADLE" else ""
+        val source = """
+            package dev.jasonpearson.krit.fir.plugins.testrules
+
+            import dev.jasonpearson.krit.api.Capability
+            import dev.jasonpearson.krit.api.Finding
+            import dev.jasonpearson.krit.api.KritFile
+            import dev.jasonpearson.krit.api.KritRule
+            import dev.jasonpearson.krit.api.KritRuleInfo
+            import dev.jasonpearson.krit.api.Language
+            import dev.jasonpearson.krit.api.Maturity
+            import dev.jasonpearson.krit.api.RuleContext
+            import dev.jasonpearson.krit.api.Severity
+
+            @KritRuleInfo(
+                id = "$ruleId",
+                category = "custom",
+                severity = Severity.WARNING,
+                maturity = Maturity.EXPERIMENTAL,
+                languages = [Language.KOTLIN],
+                needs = [$needsExpr],
+            )
+            class $ruleId : KritRule {
+                override fun check(file: KritFile, ctx: RuleContext): List<Finding> {
+                    val sdk = ctx.gradle?.minSdk ?: return emptyList()
+                    return listOf(Finding(message = "gradle:" + sdk, line = 1))
                 }
             }
         """.trimIndent()

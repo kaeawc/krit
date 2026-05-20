@@ -37,16 +37,31 @@ internal object PluginRuleRunner {
         ruleIds: List<String>?,
         ruleConfigs: Map<String, Map<String, Any?>>?,
         resolver: Resolver? = null,
+        projectPayloads: ProjectPayloads = ProjectPayloads.EMPTY,
     ): RunResult {
         val findings = mutableListOf<PluginFinding>()
         val errors = linkedMapOf<String, String>()
+        // Build each project-scope context once per request and reuse
+        // across every rule's RuleContext. Lazy maps in the wrappers
+        // mean an unconsulted context costs nothing beyond construction.
+        val gradle = projectPayloads.gradle?.let(::PayloadGradleContext)
+        val manifest = projectPayloads.manifest?.let(::PayloadManifestContext)
+        val resources = projectPayloads.resources?.let(::PayloadResourcesContext)
+        val moduleIndex = projectPayloads.moduleIndex?.let(::PayloadModuleIndexContext)
+        val crossFile = projectPayloads.crossFile?.let(::PayloadCrossFileContext)
+
         for (loaded in PluginRuleRegistry.selected(ruleIds)) {
             val options = ruleConfigs?.get(loaded.descriptor.ruleId).orEmpty()
-            val needsResolver = loaded.descriptor.needs.contains(Capability.NEEDS_RESOLVER.name)
+            val needs = loaded.descriptor.needs
             val ctx = RuleContext(
                 ruleId = loaded.descriptor.ruleId,
                 config = options,
-                resolver = resolver.takeIf { needsResolver },
+                resolver = resolver.takeIf { needs.contains(Capability.NEEDS_RESOLVER.name) },
+                gradle = gradle.takeIf { needs.contains(Capability.NEEDS_GRADLE.name) },
+                manifest = manifest.takeIf { needs.contains(Capability.NEEDS_MANIFEST.name) },
+                resources = resources.takeIf { needs.contains(Capability.NEEDS_RESOURCES.name) },
+                moduleIndex = moduleIndex.takeIf { needs.contains(Capability.NEEDS_MODULE_INDEX.name) },
+                crossFile = crossFile.takeIf { needs.contains(Capability.NEEDS_CROSS_FILE.name) },
             )
             try {
                 for (finding in loaded.rule.check(file, ctx)) {

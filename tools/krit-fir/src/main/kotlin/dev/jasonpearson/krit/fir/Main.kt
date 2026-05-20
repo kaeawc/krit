@@ -40,7 +40,9 @@ fun main(args: Array<String>) {
         exitProcess(0)
     }
 
-    // One-shot CLI: krit-fir --sources DIR[,DIR...] --output FILE [--files LIST_FILE]
+    // One-shot CLI:
+    //   krit-fir --sources DIR[,DIR...] --output FILE
+    //            [--files LIST_FILE] [--classpath JAR[:JAR...]]
     // Mirrors krit-types' one-shot surface so `oracle.InvokeWithFiles`
     // can drive either backend with the same arg vector.
     val sources = extractCliValue(args, "--sources")?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
@@ -49,11 +51,23 @@ fun main(args: Array<String>) {
         printOneShotUsage()
         exitProcess(2)
     }
-    runOneShot(sources, output, filesListPath = extractCliValue(args, "--files"))
+    val classpath = extractCliValue(args, "--classpath", "-cp")
+        ?.split(java.io.File.pathSeparator)
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        .orEmpty()
+    runOneShot(
+        sources = sources,
+        outputPath = output,
+        filesListPath = extractCliValue(args, "--files"),
+        classpath = classpath,
+    )
     exitProcess(0)
 }
 
-private fun extractCliValue(args: Array<String>, vararg flags: String): String? {
+// `internal` so unit tests in the same module can verify the
+// arg-vector parser without driving a JVM subprocess.
+internal fun extractCliValue(args: Array<String>, vararg flags: String): String? {
     for ((i, arg) in args.withIndex()) {
         if (arg in flags && i + 1 < args.size) return args[i + 1]
     }
@@ -65,13 +79,19 @@ private fun printOneShotUsage() {
         """
         |Usage:
         |  krit-fir --daemon [--port N]
-        |  krit-fir --sources DIR[,DIR...] --output FILE [--files LIST_FILE]
+        |  krit-fir --sources DIR[,DIR...] --output FILE
+        |           [--files LIST_FILE] [--classpath JAR[${java.io.File.pathSeparatorChar}JAR...]]
         """.trimMargin(),
     )
 }
 
-private fun runOneShot(sources: List<String>, outputPath: String, filesListPath: String?) {
-    val session = AnalysisSession(sources, emptyList())
+private fun runOneShot(
+    sources: List<String>,
+    outputPath: String,
+    filesListPath: String?,
+    classpath: List<String>,
+) {
+    val session = AnalysisSession(sources, classpath)
     val files = if (filesListPath.isNullOrBlank()) {
         emptyList()
     } else {

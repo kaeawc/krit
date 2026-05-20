@@ -34,6 +34,14 @@ type InvocationOptions struct {
 	// through a partial JVM reanalyze instead of letting it ride on a
 	// stale cached entry. Empty preserves the pre-#NNN behavior.
 	ForcedMisses []string
+	// Classpath is the user-configured JVM classpath (krit.yml
+	// `oracle.classpath` + the `CLASSPATH` env var). Forwarded to
+	// the daemon as `--classpath <joined>`. Both backends accept
+	// this flag today — the krit-types daemon resolved it before
+	// the FIR migration; the krit-fir one-shot CLI gains a
+	// `--classpath` parser alongside this field landing. Empty
+	// preserves the existing source-tree-discovery fallback.
+	Classpath []string
 }
 
 func (o InvocationOptions) tracker() perf.Tracker {

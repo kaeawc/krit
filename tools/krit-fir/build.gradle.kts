@@ -37,6 +37,12 @@ tasks.shadowJar {
     }
     minimize {
         exclude(dependency("org.jetbrains.kotlin:kotlin-compiler:.*"))
+        // kotlin-stdlib carries runtime support classes (e.g.
+        // `NoWhenBranchMatchedException`) that Kotlin codegen emits
+        // references to without the minimizer seeing a direct call
+        // site. Excluding stdlib from minimization keeps those
+        // classes in the shadow jar so the launcher can initialize.
+        exclude(dependency("org.jetbrains.kotlin:kotlin-stdlib:.*"))
     }
 }
 

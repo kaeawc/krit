@@ -78,6 +78,69 @@ func runOneShot(t *testing.T, jar, srcDir, outputPath string) *oracle.Data {
 	return &data
 }
 
+// TestOracleBackendAcceptsClasspathFlag asserts that both backends'
+// one-shot CLIs accept `--classpath` and analyze succeeds with the
+// supplied JAR(s) on the classpath. Without this gate a typo on
+// either side would break `oracle.InvokeWithFilesWithOptions` for
+// every project that ships an explicit classpath.
+//
+// The classpath supplied is kotlin-stdlib (the dependency every
+// Kotlin source set needs anyway). KAA's Analysis API ignores the
+// flag in favor of its own classpath wiring; FIR uses it directly to
+// configure K2's compilation environment. Both must finish without
+// error.
+func TestOracleBackendAcceptsClasspathFlag(t *testing.T) {
+	root := repoRoot(t)
+	kaaJar := oracle.FindJar([]string{root})
+	if kaaJar == "" {
+		t.Skip("krit-types jar not found")
+	}
+	firJar := firchecks.FindFirJar([]string{root})
+	if firJar == "" || !isExecutableJar(firJar) {
+		t.Skip("krit-fir jar not found")
+	}
+	stdlib := findKotlinStdlib()
+	if stdlib == "" {
+		t.Skip("kotlin-stdlib jar not found in Gradle cache")
+	}
+
+	tmp := t.TempDir()
+	srcDir := filepath.Join(tmp, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "Sample.kt"), []byte("package x\nclass Sample\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		jar  string
+	}{
+		{name: "kaa", jar: kaaJar},
+		{name: "fir", jar: firJar},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := filepath.Join(tmp, tc.name+".json")
+			opts := oracle.InvocationOptions{Classpath: []string{stdlib}}
+			if _, err := oracle.InvokeWithFilesWithOptions(tc.jar, []string{srcDir}, out, "", false, opts); err != nil {
+				t.Fatalf("%s with --classpath: %v", tc.name, err)
+			}
+			raw, err := os.ReadFile(out)
+			if err != nil {
+				t.Fatalf("read %s output: %v", tc.name, err)
+			}
+			var data oracle.Data
+			if err := json.Unmarshal(raw, &data); err != nil {
+				t.Fatalf("parse %s: %v\n%s", tc.name, err, string(raw))
+			}
+			if data.Version != 1 {
+				t.Errorf("%s version = %d, want 1", tc.name, data.Version)
+			}
+		})
+	}
+}
+
 func assertOracleParity(t *testing.T, kaa, fir *oracle.Data) {
 	t.Helper()
 	// Version + kotlinVersion are baked into both backends at

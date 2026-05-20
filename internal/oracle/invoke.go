@@ -288,6 +288,13 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	if filesListPath != "" {
 		args = append(args, "--files", filesListPath)
 	}
+	if len(opts.Classpath) > 0 {
+		// Both backends parse `--classpath <joined>` as the user-
+		// configured classpath. Joined with the OS path separator so
+		// the daemon-side parser (which splits on `:` / `;`) stays
+		// consistent with the env var convention.
+		args = append(args, "--classpath", strings.Join(opts.Classpath, string(os.PathListSeparator)))
+	}
 	callFilterPath, cleanupCallFilter, err := writeCallFilterArg(opts, tracker)
 	if err != nil {
 		return "", fmt.Errorf("call filter: %w", err)

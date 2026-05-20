@@ -918,6 +918,80 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 	return oracle.NewCompositeResolver(oracleLoaded, base)
 }
 
+// runDaemonOracleFir spawns (or reuses) the krit-fir persistent
+// daemon and asks it for the full project's oracle data. Skinnier
+// than [runDaemonOracle]: the krit-fir backend has no call-filter
+// optimization, no partial-reanalyze merge (its session.analyze is
+// already per-call rather than long-lived), and no in-flight crash
+// markers — the warm-JVM win is the only thing carrying over.
+//
+// Daemon resolution mirrors runJvmAnalyze's backend split: the FIR
+// jar comes from `firchecks.FindFirJar(scanPaths)` and the spawn
+// goes through `firchecks.ConnectOrStartFirDaemon`, which reuses an
+// existing daemon when one already serves the same sourceDirs hash.
+func (p IndexPhase) runDaemonOracleFir(in IndexInput, scanPaths []string, oracleTracker perf.Tracker, base typeinfer.TypeResolver, result *IndexResult) typeinfer.TypeResolver {
+	jarPath := firchecks.FindFirJar(scanPaths)
+	if jarPath == "" {
+		in.warnf("warning: --daemon: krit-fir.jar not found; falling back to base resolver\n")
+		return base
+	}
+	var sourceDirs []string
+	oracleTracker.TrackVoid("findSourceDirs", func() {
+		sourceDirs = oracle.FindSourceDirs(scanPaths)
+	})
+	if len(sourceDirs) == 0 {
+		return base
+	}
+
+	var d *firchecks.FirDaemon
+	var daemonErr error
+	oracleTracker.TrackVoid("firDaemonStart", func() {
+		d, daemonErr = firchecks.ConnectOrStartFirDaemon(jarPath, sourceDirs, in.Verbose)
+	})
+	if daemonErr != nil {
+		in.warnf("warning: --daemon: %v\n", daemonErr)
+		return base
+	}
+	result.FirDaemon = d
+
+	var oracleData *oracle.Data
+	oracleTracker.TrackVoid("firDaemonAnalyzeAll", func() {
+		// Classpath stays nil: the krit-fir daemon auto-discovers
+		// dependencies through the source tree, and threading a
+		// Go-side resolved classpath is its own multi-step refactor.
+		// Users that need an explicit classpath today fall back to
+		// the one-shot path (which also doesn't take one) or to the
+		// KAA backend.
+		od, err := d.AnalyzeAll(sourceDirs, nil)
+		if err != nil {
+			in.warnf("warning: fir daemon analyzeAll: %v\n", err)
+			return
+		}
+		oracleData = od
+	})
+	if oracleData == nil {
+		return base
+	}
+
+	var oracleLoaded *oracle.Oracle
+	oracleTracker.TrackVoid("indexBuild", func() {
+		ol, err := oracle.LoadFromData(oracleData)
+		if err != nil {
+			in.warnf("warning: fir daemon oracle: %v\n", err)
+			return
+		}
+		oracleLoaded = ol
+	})
+	if oracleLoaded == nil {
+		return base
+	}
+	result.Oracle = oracleLoaded
+	if in.Verbose {
+		in.logf("verbose: Type oracle loaded from fir daemon (%d dependency types)\n", len(oracleLoaded.Dependencies()))
+	}
+	return oracle.NewCompositeResolver(oracleLoaded, base)
+}
+
 // buildOracleFilterListPath computes and writes the oracle filter list file
 // when the filter reduces the file set. Returns the temp file path (empty
 // when no filter file is written) and a cleanup function.
@@ -1170,22 +1244,12 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 	}
 
 	var resolver typeinfer.TypeResolver
-	if in.UseDaemon {
-		if in.OracleBackend == oracle.BackendFIR {
-			// runDaemonOracle's long-lived oracle.InvokeDaemon path
-			// is wired specifically to krit-types' daemon-protocol
-			// surface. The krit-fir daemon ships the same RPCs but
-			// the Go-side persistent-daemon wrapper hasn't been
-			// ported yet — surface that as a verbose-warn fallback
-			// to the one-shot path so users get a working analysis
-			// even when they combine `--daemon` with
-			// `--oracle-backend=fir` by mistake.
-			in.warnf("warning: --daemon is not yet supported with --oracle-backend=fir; falling back to one-shot mode\n")
-			resolver = p.runAutoDetectOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base)
-		} else {
-			resolver = p.runDaemonOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, result)
-		}
-	} else {
+	switch {
+	case in.UseDaemon && in.OracleBackend == oracle.BackendFIR:
+		resolver = p.runDaemonOracleFir(in, scanPaths, oracleTracker, base, result)
+	case in.UseDaemon:
+		resolver = p.runDaemonOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, result)
+	default:
 		resolver = p.runAutoDetectOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base)
 	}
 

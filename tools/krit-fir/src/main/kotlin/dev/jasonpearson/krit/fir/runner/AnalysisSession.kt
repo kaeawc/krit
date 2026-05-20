@@ -127,10 +127,12 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
                 noReflect = true
                 // `suppressWarnings = false` + `reportAllWarnings = true`
                 // so K2 emits warning-level diagnostics through the
-                // message collector — including the
-                // optional/extra-checker subset
-                // (`UNREACHABLE_CODE`, `USELESS_ELVIS`,
-                // `CAST_NEVER_SUCCEEDS`) the oracle projects.
+                // message collector. The plugin's `KritFirCheckers`
+                // adds K2's `UnreachableCodeChecker` to its own
+                // control-flow checker set so the third retained
+                // factory (UNREACHABLE_CODE) lands here too — the
+                // checker lives in the experimental package by
+                // default and is not on the standard pipeline.
                 suppressWarnings = false
                 reportAllWarnings = true
                 if (selfJar != null) {

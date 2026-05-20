@@ -156,6 +156,57 @@ func TestFromSlogPassesThrough(t *testing.T) {
 	}
 }
 
+// TestCaptureWithSharesRecordBufferWithParent locks in the documented
+// contract: a child Capture created via With must record into the
+// same buffer the parent exposes via Records / HasMessage, and into
+// the same mutex so concurrent writes interleave safely. The prior
+// implementation forked a fresh records slice on every With call,
+// silently dropping child entries from any assertion that read the
+// parent.
+func TestCaptureWithSharesRecordBufferWithParent(t *testing.T) {
+	parent := NewCapture(slog.LevelDebug)
+	child := parent.With("svc", "auth")
+	parent.Info("parent-msg", "k", 1)
+	child.Warn("child-msg", "n", 2)
+
+	recs := parent.Records()
+	if len(recs) != 2 {
+		t.Fatalf("parent.Records() len = %d, want 2 (parent + child share buffer)", len(recs))
+	}
+	if !parent.HasMessage("parent-msg") || !parent.HasMessage("child-msg") {
+		t.Errorf("parent must observe both messages: %+v", recs)
+	}
+
+	// The child's prepended args are merged into its records only.
+	var childRec Record
+	for _, r := range recs {
+		if r.Msg == "child-msg" {
+			childRec = r
+			break
+		}
+	}
+	if got := childRec.Attrs["svc"]; got != "auth" {
+		t.Errorf("child must prepend its With-args; got svc=%v", got)
+	}
+	if got := childRec.Attrs["n"]; got != 2 {
+		t.Errorf("child must preserve its call-site args; got n=%v", got)
+	}
+
+	// Reset on the parent (or any sibling) must clear the shared
+	// buffer for every view.
+	parent.Reset()
+	if len(parent.Records()) != 0 {
+		t.Error("parent.Reset must clear the shared buffer")
+	}
+	if asCapture, ok := child.(*Capture); ok {
+		if len(asCapture.Records()) != 0 {
+			t.Error("child must see the reset because the buffer is shared")
+		}
+	} else {
+		t.Fatalf("With(...) must return *Capture for this assertion (got %T)", child)
+	}
+}
+
 func TestLoggerEnabledOnSlogImpl(t *testing.T) {
 	var buf bytes.Buffer
 	l := New(Config{Writer: &buf, Format: FormatJSON, Level: slog.LevelWarn})

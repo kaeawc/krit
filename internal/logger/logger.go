@@ -103,17 +103,29 @@ type Record struct {
 }
 
 // Capture is a Logger that buffers records in memory for assertion. Safe for
-// concurrent use.
+// concurrent use. Children produced by With share the parent's record
+// buffer (and mutex) — all records, including those emitted through any
+// derived child, land in the same place where tests read them.
 type Capture struct {
 	level slog.Level
 	with  []any
+	*captureState
+}
 
+// captureState holds the shared mutable state for a Capture and every
+// child created via With. Holding the buffer behind a pointer is what
+// gives a child the documented "all entries land in one place"
+// semantics; an inline mu+slice in Capture would silently fork on
+// every With call.
+type captureState struct {
 	mu      sync.Mutex
 	records []Record
 }
 
 // NewCapture returns a Capture that records every entry at level or above.
-func NewCapture(level slog.Level) *Capture { return &Capture{level: level} }
+func NewCapture(level slog.Level) *Capture {
+	return &Capture{level: level, captureState: &captureState{}}
+}
 
 // Records returns a snapshot of every captured record.
 func (c *Capture) Records() []Record {
@@ -161,16 +173,15 @@ func (c *Capture) Info(msg string, args ...any)  { c.record(slog.LevelInfo, msg,
 func (c *Capture) Warn(msg string, args ...any)  { c.record(slog.LevelWarn, msg, args) }
 func (c *Capture) Error(msg string, args ...any) { c.record(slog.LevelError, msg, args) }
 
-// With returns a child Capture that prepends args to every record. The child
-// shares the parent's record buffer so all entries land in one place.
+// With returns a child Capture that prepends args to every record.
+// The child shares the parent's record buffer so all entries — across
+// parent and every descendant — land in one place where Records,
+// HasMessage, FilterLevel, and Reset see them together.
 func (c *Capture) With(args ...any) Logger {
 	return &Capture{
-		level:   c.level,
-		with:    slices.Concat(c.with, args),
-		mu:      sync.Mutex{},
-		records: nil,
-		// Note: child writes its own records; merge across parents via
-		// the same Capture by passing it directly instead of branching.
+		level:        c.level,
+		with:         slices.Concat(c.with, args),
+		captureState: c.captureState,
 	}
 }
 

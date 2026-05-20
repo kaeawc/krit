@@ -14,6 +14,7 @@ import (
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
+	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/javafacts"
@@ -184,6 +185,13 @@ type IndexInput struct {
 	// UseDaemon mirrors --daemon: use the long-lived krit-types daemon
 	// instead of one-shot invocation.
 	UseDaemon bool
+	// OracleBackend selects which JVM daemon to spawn for the type
+	// oracle role. Empty means defer to oracle.DefaultBackend
+	// (currently krit-types / "kaa"). The value is the resolved
+	// `--oracle-backend` flag, or `oracle.backend` from krit.yml
+	// when the flag isn't set. Parsing happens in the caller; the
+	// pipeline just routes on the value.
+	OracleBackend oracle.Backend
 	// PrebuiltOracleDaemon, when non-nil, is reused by runDaemonOracle
 	// instead of calling oracle.InvokeDaemon. The serve daemon's
 	// ensureOracleDaemon supplies a *oracle.Daemon kept alive across
@@ -970,9 +978,22 @@ func (p IndexPhase) buildOracleFilterListPath(in IndexInput, oracleRules []*api.
 // runJvmAnalyze attempts to invoke krit-types to produce an oracle JSON path.
 // Returns the path to the produced oracle JSON (empty on failure).
 func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPaths []string, loadOracleFilterFiles func() []*scanner.File, jvmTracker perf.Tracker) string {
+	backend := in.OracleBackend
+	if backend == "" {
+		backend = oracle.DefaultBackend
+	}
 	var jarPath string
 	jvmTracker.TrackVoid("findJar", func() {
-		jarPath = oracle.FindJar(scanPaths)
+		switch backend {
+		case oracle.BackendFIR:
+			// krit-fir ships the same analyze / analyzeAll /
+			// analyzeWithDeps RPCs as krit-types (see PR 2.x
+			// parity work), so we can swap the jar without
+			// touching the InvokeCached pipeline below.
+			jarPath = firchecks.FindFirJar(scanPaths)
+		default:
+			jarPath = oracle.FindJar(scanPaths)
+		}
 	})
 	if jarPath == "" {
 		return ""
@@ -997,7 +1018,11 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		}
 	}
 	if in.Verbose {
-		in.logf("verbose: Running krit-types (%d source dirs)...\n", len(sourceDirs))
+		daemonName := "krit-types"
+		if backend == oracle.BackendFIR {
+			daemonName = "krit-fir"
+		}
+		in.logf("verbose: Running %s (%d source dirs)...\n", daemonName, len(sourceDirs))
 	}
 
 	filterListPath, cleanup := p.buildOracleFilterListPath(in, oracleRules, loadOracleFilterFiles, jvmTracker)
@@ -1146,7 +1171,20 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 
 	var resolver typeinfer.TypeResolver
 	if in.UseDaemon {
-		resolver = p.runDaemonOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, result)
+		if in.OracleBackend == oracle.BackendFIR {
+			// runDaemonOracle's long-lived oracle.InvokeDaemon path
+			// is wired specifically to krit-types' daemon-protocol
+			// surface. The krit-fir daemon ships the same RPCs but
+			// the Go-side persistent-daemon wrapper hasn't been
+			// ported yet — surface that as a verbose-warn fallback
+			// to the one-shot path so users get a working analysis
+			// even when they combine `--daemon` with
+			// `--oracle-backend=fir` by mistake.
+			in.warnf("warning: --daemon is not yet supported with --oracle-backend=fir; falling back to one-shot mode\n")
+			resolver = p.runAutoDetectOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base)
+		} else {
+			resolver = p.runDaemonOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, result)
+		}
 	} else {
 		resolver = p.runAutoDetectOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base)
 	}

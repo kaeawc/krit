@@ -49,9 +49,15 @@ type LSPConfig struct {
 }
 
 // OracleConfig is the typed shape of the top-level `oracle:` block.
-// Used by the JVM-backed Kotlin Analysis API daemon. Nil/empty
-// Classpath means "no user override".
+// Used by the JVM-backed daemon. Nil/empty Classpath means "no user
+// override".
 type OracleConfig struct {
+	// Backend selects which JVM daemon krit spawns for the type
+	// oracle role: "kaa" (krit-types, the default) or "fir"
+	// (krit-fir). Empty means default. Validation happens in
+	// internal/oracle.ParseBackend; values not handled there are
+	// surfaced as a CLI error rather than silently falling back.
+	Backend   string
 	Classpath []string
 }
 
@@ -542,6 +548,7 @@ func (c *Config) LSP() LSPConfig {
 // Oracle returns the typed `oracle:` block.
 func (c *Config) Oracle() OracleConfig {
 	return OracleConfig{
+		Backend:   c.GetTopLevelString("oracle", "backend", ""),
 		Classpath: c.GetTopLevelStringList("oracle", "classpath"),
 	}
 }

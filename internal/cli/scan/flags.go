@@ -57,6 +57,7 @@ type scanFlags struct {
 	InputTypes               *string
 	OutputTypes              *string
 	NoTypeOracle             *bool
+	OracleBackend            *string
 	NoCacheOracle            *bool
 	NoCrossFileCache         *bool
 	CustomRuleJars           *string
@@ -164,6 +165,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.InputTypes = fs.String("input-types", "", "Load pre-built type oracle JSON (skip JVM invocation)")
 	f.OutputTypes = fs.String("output-types", "", "Run krit-types and write oracle JSON to this path, then exit")
 	f.NoTypeOracle = fs.Bool("no-type-oracle", false, "Skip the JVM type oracle entirely (faster, less precise)")
+	f.OracleBackend = fs.String("oracle-backend", "", "Pick the JVM daemon for the type oracle: 'kaa' (krit-types, default) or 'fir' (krit-fir). Overrides the oracle.backend value in krit.yml.")
 	f.NoCacheOracle = fs.Bool("no-cache-oracle", false, "Disable the on-disk incremental oracle cache (forces a full JVM run)")
 	f.NoCrossFileCache = fs.Bool("no-cross-file-cache", false, "Disable the on-disk cross-file index cache (forces a full crossFileAnalysis rebuild)")
 	f.CustomRuleJars = fs.String("custom-rule-jars", "", "Comma-separated Kotlin custom-rule jars to load through the krit-types daemon (experimental)")

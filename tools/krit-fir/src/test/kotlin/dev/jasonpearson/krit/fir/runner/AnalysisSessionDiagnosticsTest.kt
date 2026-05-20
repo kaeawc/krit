@@ -80,12 +80,12 @@ class AnalysisSessionDiagnosticsTest {
 
     @Test
     fun unreachableCodeIsRecorded() {
-        // K2 only flags unreachable code when extra checkers are
-        // enabled (`-Werror -Wextra` or the `extraCheckers` compiler
-        // flag). The bare default analysis pipeline that ships with
-        // krit-fir doesn't run the unreachable-code checker, so this
-        // test pins the projection layer's behavior end-to-end while
-        // remaining skipped when K2 doesn't emit the diagnostic.
+        // K2's UNREACHABLE_CODE checker lives in the experimental
+        // checker set. AnalysisSession.analyzeFull turns it on via
+        // `useFirExperimentalCheckers = true` so the projection
+        // collects all three retained factories on the default
+        // analyze path — no `-Wextra` opt-in needed at the request
+        // boundary.
         val path = writeKt(
             "Unreachable.kt",
             """
@@ -99,18 +99,13 @@ class AnalysisSessionDiagnosticsTest {
         )
 
         val diagnostics = diagnosticsFor(path)
-        // The projection layer must NEVER conflate factories: even if
-        // K2 doesn't emit UNREACHABLE_CODE, anything emitted must NOT
-        // be mislabeled here. Run the test only if K2 produced the
-        // expected factory; otherwise skip.
-        assumeTrue(
+        assertTrue(
             diagnostics.any { it.factoryName == "UNREACHABLE_CODE" },
-            "UNREACHABLE_CODE not emitted by this K2 build — projection wiring covered by " +
-                "the message-prefix matcher in OracleDiagnosticMessageCollector; full E2E " +
-                "coverage requires the -Wextra checker set.",
+            "expected UNREACHABLE_CODE, got ${diagnostics.map { it.factoryName }}",
         )
-        // If we did get the diagnostic, sanity-check that we didn't
-        // mislabel something else as UNREACHABLE_CODE.
+        // Belt-and-suspenders: ensure factoryName ↔ message pairing
+        // isn't crossed (a prefix-match miss would otherwise label
+        // an unrelated warning with the wrong factory).
         diagnostics.filter { it.factoryName == "UNREACHABLE_CODE" }.forEach {
             assertTrue("Unreachable" in it.message, "factoryName/message mismatch: $it")
         }

@@ -1211,10 +1211,14 @@ func TestTypedSections(t *testing.T) {
 			"classpath": []interface{}{"/a.jar", "/b.jar"},
 		},
 		"oracle": map[string]interface{}{
+			"backend":   "fir",
 			"classpath": []interface{}{"/c.jar"},
 		},
 	})
 
+	if got := cfg.Oracle().Backend; got != "fir" {
+		t.Errorf("Oracle().Backend = %q, want %q", got, "fir")
+	}
 	if got := cfg.Analysis().Depth; got != "deep" {
 		t.Errorf("Analysis().Depth = %q, want %q", got, "deep")
 	}
@@ -1245,6 +1249,9 @@ func TestTypedSectionsEmpty(t *testing.T) {
 	if got := cfg.Oracle().Classpath; got != nil {
 		t.Errorf("expected nil Oracle classpath on empty config, got %v", got)
 	}
+	if got := cfg.Oracle().Backend; got != "" {
+		t.Errorf("expected empty Oracle backend on empty config, got %q", got)
+	}
 }
 
 func TestTypedSectionsNilConfig(t *testing.T) {
@@ -1263,6 +1270,9 @@ func TestTypedSectionsNilConfig(t *testing.T) {
 	}
 	if got := cfg.Oracle().Classpath; got != nil {
 		t.Errorf("nil cfg Oracle().Classpath = %v, want nil", got)
+	}
+	if got := cfg.Oracle().Backend; got != "" {
+		t.Errorf("nil cfg Oracle().Backend = %q, want empty", got)
 	}
 }
 

@@ -131,6 +131,14 @@ func resetPreloadCache() {
 	preloadLRU.Init()
 }
 
+// markPreloadDone signals that the state's load completed without
+// actually running it. The eviction policy treats only "done" entries
+// as evictable; tests that need eviction to fire must mark their
+// reserved states done before pushing more.
+func markPreloadDone(s *preloadState) {
+	s.once.Do(func() { close(s.done) })
+}
+
 // TestPreloadCache_EvictsOldestPastCap is the regression test for the
 // unbounded preloadByPath map leak: writing more than preloadCacheCap
 // distinct paths used to grow the map without bound. The cap must hold
@@ -143,7 +151,10 @@ func TestPreloadCache_EvictsOldestPastCap(t *testing.T) {
 	overflow := 10
 	total := preloadCacheCap + overflow
 	for i := 0; i < total; i++ {
-		_ = preloadStateFor(fmt.Sprintf("/fake/oracle/path-%d.json", i))
+		state := preloadStateFor(fmt.Sprintf("/fake/oracle/path-%d.json", i))
+		// Eviction only reclaims completed entries; tests that
+		// assert the cap holds must mark their states done.
+		markPreloadDone(state)
 	}
 
 	if got := preloadCacheLen(); got != preloadCacheCap {
@@ -179,7 +190,7 @@ func TestPreloadCache_TouchPromotesToFront(t *testing.T) {
 
 	// Fill to cap.
 	for i := 0; i < preloadCacheCap; i++ {
-		_ = preloadStateFor(fmt.Sprintf("/fake/oracle/old-%d.json", i))
+		markPreloadDone(preloadStateFor(fmt.Sprintf("/fake/oracle/old-%d.json", i)))
 	}
 	// Touch the oldest entry so it becomes most-recent.
 	hotPath := "/fake/oracle/old-0.json"
@@ -187,7 +198,7 @@ func TestPreloadCache_TouchPromotesToFront(t *testing.T) {
 
 	// Push a fresh path; the now-LRU entry (old-1) should be evicted,
 	// not the touched hot entry.
-	_ = preloadStateFor("/fake/oracle/fresh.json")
+	markPreloadDone(preloadStateFor("/fake/oracle/fresh.json"))
 
 	preloadMu.Lock()
 	defer preloadMu.Unlock()
@@ -215,7 +226,7 @@ func TestPreloadCache_ConcurrentInsertsRespectCap(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < perWorker; i++ {
 				path := fmt.Sprintf("/fake/oracle/w%d-p%d.json", id, i)
-				_ = preloadStateFor(path)
+				markPreloadDone(preloadStateFor(path))
 			}
 		}(w)
 	}
@@ -224,5 +235,53 @@ func TestPreloadCache_ConcurrentInsertsRespectCap(t *testing.T) {
 	if got := preloadCacheLen(); got > preloadCacheCap {
 		t.Fatalf("preload cache len = %d after concurrent inserts; want <= %d",
 			got, preloadCacheCap)
+	}
+}
+
+// TestPreloadCache_KeepsInFlightEntries is the regression for Bug 19:
+// the LRU previously evicted entries whose load goroutine was still
+// running, so a later LazyLookup for the same path created a fresh
+// state and re-Loaded the (~tens-of-MB) oracle. The fix soft-caps
+// past in-flight entries; once their loads finish a future insertion
+// reclaims their slots.
+func TestPreloadCache_KeepsInFlightEntries(t *testing.T) {
+	resetPreloadCache()
+
+	// Reserve preloadCacheCap slots without marking them done.
+	inFlight := make([]*preloadState, 0, preloadCacheCap)
+	for i := 0; i < preloadCacheCap; i++ {
+		inFlight = append(inFlight, preloadStateFor(fmt.Sprintf("/fake/oracle/in-flight-%d.json", i)))
+	}
+
+	// Push 10 more distinct paths. None of the existing entries are
+	// done, so eviction must skip them and accept the soft overflow.
+	for i := 0; i < 10; i++ {
+		_ = preloadStateFor(fmt.Sprintf("/fake/oracle/extra-%d.json", i))
+	}
+
+	if got := preloadCacheLen(); got != preloadCacheCap+10 {
+		t.Fatalf("len after pushing 10 onto a full in-flight cache = %d, want %d (in-flight entries must not be evicted)",
+			got, preloadCacheCap+10)
+	}
+
+	preloadMu.Lock()
+	for i := 0; i < preloadCacheCap; i++ {
+		path := fmt.Sprintf("/fake/oracle/in-flight-%d.json", i)
+		if _, ok := preloadByPath[path]; !ok {
+			preloadMu.Unlock()
+			t.Fatalf("in-flight path %q was evicted; later LazyLookup would re-Load", path)
+		}
+	}
+	preloadMu.Unlock()
+
+	// Mark all in-flight entries done. The next insertion can now
+	// evict them down to cap.
+	for _, s := range inFlight {
+		markPreloadDone(s)
+	}
+	markPreloadDone(preloadStateFor("/fake/oracle/drain-trigger.json"))
+
+	if got := preloadCacheLen(); got > preloadCacheCap {
+		t.Fatalf("after draining in-flight loads, cache len = %d, want <= %d", got, preloadCacheCap)
 	}
 }

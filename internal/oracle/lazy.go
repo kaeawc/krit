@@ -58,15 +58,49 @@ func preloadStateFor(path string) *preloadState {
 	entry := &preloadEntry{path: path, state: state}
 	elem := preloadLRU.PushFront(entry)
 	preloadByPath[path] = elem
-	for preloadLRU.Len() > preloadCacheCap {
-		oldest := preloadLRU.Back()
-		if oldest == nil {
-			break
-		}
-		preloadLRU.Remove(oldest)
-		delete(preloadByPath, oldest.Value.(*preloadEntry).path)
-	}
+	evictOldestCompletedLocked()
 	return state
+}
+
+// evictOldestCompletedLocked trims the LRU until either the cap is met
+// or no entries are evictable. Evicting an entry whose load goroutine
+// is still running would let a later LazyLookup for the same path
+// create a fresh state and re-Load the (~tens-of-MB) oracle, defeating
+// the documented cap; under LSP burst traffic the doubled loads
+// stacked into noticeable goroutine and heap pressure. The cap is
+// therefore soft against in-flight loads — once they complete the
+// next eviction pass reclaims their slots.
+//
+// Caller must hold preloadMu.
+func evictOldestCompletedLocked() {
+	for preloadLRU.Len() > preloadCacheCap {
+		victim := oldestCompletedLocked()
+		if victim == nil {
+			return
+		}
+		preloadLRU.Remove(victim)
+		delete(preloadByPath, victim.Value.(*preloadEntry).path)
+	}
+}
+
+// oldestCompletedLocked returns the oldest LRU element whose load has
+// finished, or nil if every entry is still in flight.
+func oldestCompletedLocked() *list.Element {
+	for e := preloadLRU.Back(); e != nil; e = e.Prev() {
+		if preloadStateDone(e.Value.(*preloadEntry).state) {
+			return e
+		}
+	}
+	return nil
+}
+
+func preloadStateDone(s *preloadState) bool {
+	select {
+	case <-s.done:
+		return true
+	default:
+		return false
+	}
 }
 
 // preloadCacheLen returns the current number of cached entries. Test-only

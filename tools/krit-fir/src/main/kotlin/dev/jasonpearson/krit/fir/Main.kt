@@ -25,23 +25,62 @@ fun main(args: Array<String>) {
     val portIdx = args.indexOf("--port")
     val port = if (portIdx >= 0 && portIdx + 1 < args.size) args[portIdx + 1].toIntOrNull() ?: -1 else -1
 
-    if (!daemon) {
-        System.err.println("Usage: krit-fir --daemon [--port N]")
+    if (daemon) {
+        System.err.println("krit-fir daemon starting...")
+        val session = AnalysisSession(emptyList(), emptyList())
+        val startTime = System.currentTimeMillis()
+        if (port >= 0) {
+            runDaemonTcp(port, session, startTime)
+        } else {
+            runDaemonStdio(session, startTime)
+        }
+        // Analysis API and kotlinc start non-daemon threads; force
+        // exit after clean shutdown.
+        exitProcess(0)
+    }
+
+    // One-shot CLI: krit-fir --sources DIR[,DIR...] --output FILE [--files LIST_FILE]
+    // Mirrors krit-types' one-shot surface so `oracle.InvokeWithFiles`
+    // can drive either backend with the same arg vector.
+    val sources = extractCliValue(args, "--sources")?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+    val output = extractCliValue(args, "--output", "-o")
+    if (sources.isNullOrEmpty() || output.isNullOrBlank()) {
+        printOneShotUsage()
         exitProcess(2)
     }
-
-    System.err.println("krit-fir daemon starting...")
-    var session = AnalysisSession(emptyList(), emptyList())
-    val startTime = System.currentTimeMillis()
-
-    if (port >= 0) {
-        runDaemonTcp(port, session, startTime)
-    } else {
-        runDaemonStdio(session, startTime)
-    }
-
-    // Analysis API and kotlinc start non-daemon threads; force exit after clean shutdown.
+    runOneShot(sources, output, filesListPath = extractCliValue(args, "--files"))
     exitProcess(0)
+}
+
+private fun extractCliValue(args: Array<String>, vararg flags: String): String? {
+    for ((i, arg) in args.withIndex()) {
+        if (arg in flags && i + 1 < args.size) return args[i + 1]
+    }
+    return null
+}
+
+private fun printOneShotUsage() {
+    System.err.println(
+        """
+        |Usage:
+        |  krit-fir --daemon [--port N]
+        |  krit-fir --sources DIR[,DIR...] --output FILE [--files LIST_FILE]
+        """.trimMargin(),
+    )
+}
+
+private fun runOneShot(sources: List<String>, outputPath: String, filesListPath: String?) {
+    val session = AnalysisSession(sources, emptyList())
+    val files = if (filesListPath.isNullOrBlank()) {
+        emptyList()
+    } else {
+        // `--files` is a newline-delimited list of absolute paths to
+        // restrict analysis to. Same shape krit-types accepts.
+        java.io.File(filesListPath).readLines().map { it.trim() }.filter { it.isNotEmpty() }
+    }
+    val result = session.analyze(files)
+    java.io.File(outputPath).writeText(dev.jasonpearson.krit.fir.oracle.OracleResponse.buildOneShot(result))
+    System.err.println("Wrote $outputPath")
 }
 
 // ── Daemon modes ──────────────────────────────────────────────────────────────

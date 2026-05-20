@@ -7,6 +7,32 @@ import kotlin.test.assertTrue
 class OracleResponseTest {
 
     @Test
+    fun oneShotEnvelopeOmitsRpcWrapper() {
+        // The one-shot `--output` path emits just the body — krit-types'
+        // `buildJsonCompact` shape — so a Go-side oracle reader can
+        // parse it into `oracle.Data` without seeing `{"id":N,"result":…}`
+        // around it. Pin the shape so adding RPC machinery to the
+        // one-shot path doesn't go unnoticed.
+        val response = OracleResponse.buildOneShot()
+        assertTrue(response.startsWith("""{"version":1"""), response)
+        assertTrue(""""files":{}""" in response, response)
+        assertTrue(""""dependencies":{}""" in response, response)
+        assertTrue(""""id":""" !in response, "one-shot must not carry an RPC envelope: $response")
+        assertTrue(""""result":""" !in response, "one-shot must not carry an RPC envelope: $response")
+    }
+
+    @Test
+    fun oneShotEnvelopeCarriesErrorsAsSiblingOfResultBody() {
+        val response = OracleResponse.buildOneShot(
+            result = AnalyzeResult(errors = mapOf("/src/Bad.kt" to "parse error")),
+        )
+        // The errors object is a sibling of the version/files/deps
+        // body. Mirrors krit-types' one-shot behaviour where errors
+        // ride alongside the analyze data, not inside it.
+        assertTrue(""""errors":{"/src/Bad.kt":"parse error"}""" in response, response)
+    }
+
+    @Test
     fun emptyAnalyzeEnvelopeMatchesKritTypesShape() {
         // The JSON shape mirrors krit-types' `buildDaemonResponse`:
         // `{"id":N,"result":{"version":1,"kotlinVersion":"...","files":{},"dependencies":{}}}`.

@@ -29,8 +29,6 @@ import org.jetbrains.kotlin.fir.resolve.providers.getContainingFile
 import org.jetbrains.kotlin.fir.resolve.toRegularClassSymbol
 import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
-import org.jetbrains.kotlin.fir.types.ConeKotlinType
-import org.jetbrains.kotlin.fir.types.ConeKotlinTypeProjection
 import org.jetbrains.kotlin.fir.types.FirResolvedTypeRef
 import org.jetbrains.kotlin.fir.types.FirTypeRef
 import org.jetbrains.kotlin.fir.types.isMarkedNullable
@@ -203,27 +201,6 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
 
     private fun FirTypeRef.isNullable(): Boolean =
         (this as? FirResolvedTypeRef)?.coneType?.isMarkedNullable == true
-
-    /**
-     * Render a [ConeKotlinType] as an FQN-qualified type string, matching
-     * the krit-types wire format (e.g. `kotlin.String`, `kotlin.Int?`,
-     * `kotlin.collections.List<kotlin.String>`). Non-class-like types
-     * (type parameters, intersection types, flexible types) fall back to
-     * the readable rendering since they don't carry a stable FQN.
-     */
-    private fun ConeKotlinType.renderFqn(): String {
-        val classLike = this as? ConeClassLikeType ?: return renderReadable()
-        val fqn = classLike.lookupTag.classId.asFqNameString()
-        val args = typeArguments
-            .takeIf { it.isNotEmpty() }
-            ?.joinToString(", ", "<", ">") { projection ->
-                (projection as? ConeKotlinTypeProjection)?.type?.renderFqn()
-                    ?: projection.toString()
-            }
-            .orEmpty()
-        val nullable = if (isMarkedNullable) "?" else ""
-        return "$fqn$args$nullable"
-    }
 
     private fun ClassKind.toWireString(): String = when (this) {
         ClassKind.CLASS -> "class"

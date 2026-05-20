@@ -95,11 +95,84 @@ class FirOracleResolverTest {
         }
     }
 
-    // PR 3.3 deliberately ships isLambdaSuspend / expressionType as
-    // conservative null/false stubs because the oracle pass doesn't
-    // capture lambda-functional or expression-type data yet. Those
-    // methods have no behavior to test until the data lands — they
-    // pass the `Resolver` contract trivially.
+    @Test
+    fun expressionTypeReturnsCallResolvedTypeFqn() {
+        val source = "package x\n\nfun caller() {\n    target()\n}\n"
+        val table = FileOffsetTable(source)
+        val expressions = mapOf(
+            "4:5" to ExpressionPayload(
+                type = "kotlin.String",
+                callTarget = "com.acme.target",
+                callTargetResolved = true,
+            ),
+        )
+        val (parsed, call) = parseSourceAndFirstCall(source)
+        parsed.use {
+            val resolver = FirOracleResolver(expressions, table)
+            assertEquals("kotlin.String", resolver.expressionType(call))
+        }
+    }
+
+    @Test
+    fun expressionTypeReturnsNullWhenPayloadHasEmptyTypeString() {
+        // Pre-oracle versions left `type=""` because no Go-side
+        // consumer read it. The resolver must surface that as
+        // "unresolved" → null rather than as the empty string so a
+        // rule's null check still works.
+        val source = "package x\n\nfun caller() {\n    target()\n}\n"
+        val table = FileOffsetTable(source)
+        val expressions = mapOf(
+            "4:5" to ExpressionPayload(
+                type = "",
+                callTarget = "com.acme.target",
+                callTargetResolved = true,
+            ),
+        )
+        val (parsed, call) = parseSourceAndFirstCall(source)
+        parsed.use {
+            val resolver = FirOracleResolver(expressions, table)
+            assertNull(resolver.expressionType(call))
+        }
+    }
+
+    @Test
+    fun isLambdaSuspendLooksUpByPsiOffset() {
+        // The PSI offset of a KtLambdaExpression sits on its opening
+        // brace; K2 records the FirAnonymousFunction's source at the
+        // same position, so `"line:col"` round-trips.
+        val source = "package x\n\nfun caller() {\n    run {\n        target()\n    }\n}\n"
+        val table = FileOffsetTable(source)
+        val parsed = KtFileParser.parse(source, pathHint = "/tmp/Source.kt")
+        parsed.use {
+            val foundLambda = firstLambdaExpression(parsed.ktFile)
+                ?: error("source has no lambda")
+            val (line, col) = table.lineColAt(foundLambda.textRange.startOffset)
+
+            val suspendResolver = FirOracleResolver(
+                expressionsByKey = emptyMap(),
+                offsets = table,
+                lambdaSuspendByKey = mapOf("$line:$col" to true),
+            )
+            assertTrue(suspendResolver.isLambdaSuspend(foundLambda))
+
+            val nonSuspendResolver = FirOracleResolver(
+                expressionsByKey = emptyMap(),
+                offsets = table,
+                lambdaSuspendByKey = mapOf("$line:$col" to false),
+            )
+            assertFalse(nonSuspendResolver.isLambdaSuspend(foundLambda))
+
+            // Empty map → conservative false. Matches krit-types'
+            // "unresolved → false" contract so rules don't see a
+            // spurious "suspend" for lambdas the oracle didn't visit.
+            val noDataResolver = FirOracleResolver(
+                expressionsByKey = emptyMap(),
+                offsets = table,
+                lambdaSuspendByKey = emptyMap(),
+            )
+            assertFalse(noDataResolver.isLambdaSuspend(foundLambda))
+        }
+    }
 
     // ── Test plumbing ────────────────────────────────────────────────
 
@@ -116,6 +189,16 @@ class FirOracleResolverTest {
         var found: KtCallExpression? = null
         ktFile.accept(object : org.jetbrains.kotlin.psi.KtTreeVisitorVoid() {
             override fun visitCallExpression(expression: KtCallExpression) {
+                if (found == null) found = expression
+            }
+        })
+        return found
+    }
+
+    private fun firstLambdaExpression(ktFile: KtFile): org.jetbrains.kotlin.psi.KtLambdaExpression? {
+        var found: org.jetbrains.kotlin.psi.KtLambdaExpression? = null
+        ktFile.accept(object : org.jetbrains.kotlin.psi.KtTreeVisitorVoid() {
+            override fun visitLambdaExpression(expression: org.jetbrains.kotlin.psi.KtLambdaExpression) {
                 if (found == null) found = expression
             }
         })

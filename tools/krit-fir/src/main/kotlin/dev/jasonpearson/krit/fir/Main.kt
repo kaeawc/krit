@@ -341,24 +341,25 @@ internal fun handleAnalyzeFile(request: CheckRequest, session: AnalysisSession):
         }
 
         // Run the K2 oracle pass against this file so the resolver
-        // has FIR call-resolution data to answer queries from. The
-        // pass populates `expressions` keyed by `"line:col"` for every
-        // resolved function call — exactly what the resolver looks up
-        // in [FirOracleResolver.lookupCall]. If the K2 pass crashes
-        // we still want plugin rules to run; fall back to an empty
-        // expression map and a resolver that returns null/false.
-        val expressions = try {
+        // has FIR data to answer queries from. The pass populates
+        // `expressions` keyed by `"line:col"` for every resolved
+        // function call AND `lambdaSuspendByLineCol` for every
+        // visited lambda — the two maps the FirOracleResolver looks
+        // up. If the K2 pass crashes we still want plugin rules to
+        // run; fall back to empty maps and a resolver that returns
+        // null/false.
+        val (expressions, lambdaSuspendByKey) = try {
             val canonical = JavaFile(path).canonicalPath
             val result = session.analyze(listOf(path))
-            result.files[canonical]?.expressions
-                ?: result.files[path]?.expressions
-                ?: emptyMap()
+            val filePayload = result.files[canonical] ?: result.files[path]
+            (filePayload?.expressions ?: emptyMap<String, dev.jasonpearson.krit.fir.oracle.ExpressionPayload>()) to
+                (filePayload?.lambdaSuspendByLineCol ?: emptyMap<String, Boolean>())
         } catch (t: Throwable) {
             System.err.println("analyzeFile oracle pass failed: ${t.message}")
-            emptyMap()
+            emptyMap<String, dev.jasonpearson.krit.fir.oracle.ExpressionPayload>() to emptyMap<String, Boolean>()
         }
         val offsets = FileOffsetTable(text)
-        val resolver = FirOracleResolver(expressions, offsets)
+        val resolver = FirOracleResolver(expressions, offsets, lambdaSuspendByKey)
 
         // Parse PSI off the request payload (not off disk) so an
         // in-flight edit shipped via `request.source` is reflected

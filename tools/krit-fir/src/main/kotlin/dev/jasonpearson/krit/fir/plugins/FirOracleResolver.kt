@@ -10,27 +10,26 @@ import org.jetbrains.kotlin.psi.KtLambdaExpression
 /**
  * FIR-backed [`Resolver`] for plugin-rule hosting on the krit-fir
  * backend. Answers PSI-keyed questions about a single analyzed file by
- * looking up data the K2 oracle pass already collected (see
- * `OracleExpressionChecker`).
+ * looking up data the K2 oracle pass already collected.
  *
  * Resolution flow per query:
  *
  * 1. The PSI element's `textRange.startOffset` is mapped to 1-based
  *    `(line, col)` via the file's [FileOffsetTable].
- * 2. The resulting `"line:col"` key is looked up in [expressionsByKey],
- *    which is the slice of an [`AnalyzeResult.files`] payload for the
- *    file under analysis.
+ * 2. The resulting `"line:col"` key is looked up in the corresponding
+ *    pre-computed map ([expressionsByKey] for call resolution and
+ *    expression types, [lambdaSuspendByKey] for lambda functional
+ *    suspend status).
  *
- * The [Resolver] surface still exposes `isLambdaSuspend` and
- * `expressionType`; the FIR oracle pass doesn't capture lambda type
- * or expression type today, so those methods return the conservative
- * "unknown" value (`false` / `null`). Rules that strictly depend on
- * either can opt out via the `NEEDS_FIR` capability — when those
- * facts land the resolver picks them up here without an SPI churn.
+ * `expressionType` for non-call expressions still returns null — the
+ * oracle pass only captures resolved types for [FirFunctionCall] node
+ * positions today. Most rules query call-expression types; broadening
+ * to all FirExpression subtypes is a follow-up.
  */
 internal class FirOracleResolver(
     private val expressionsByKey: Map<String, ExpressionPayload>,
     private val offsets: FileOffsetTable,
+    private val lambdaSuspendByKey: Map<String, Boolean> = emptyMap(),
 ) : Resolver {
 
     override fun isSuspendCall(call: KtCallExpression): Boolean =
@@ -47,17 +46,25 @@ internal class FirOracleResolver(
     }
 
     override fun isLambdaSuspend(lambda: KtLambdaExpression): Boolean {
-        // The oracle pass doesn't capture lambda-functional-type
-        // information today. Returning false matches krit-types'
-        // "unresolved → conservative false" contract.
-        return false
+        // The PSI offset for a lambda expression sits on the opening
+        // brace. K2 records the FirAnonymousFunction's source against
+        // the same offset, so a `"line:col"` round-trip lookup matches
+        // the visited declaration.
+        val range = lambda.textRange ?: return false
+        val (line, col) = offsets.lineColAt(range.startOffset)
+        return lambdaSuspendByKey["$line:$col"] == true
     }
 
     override fun expressionType(expression: KtExpression): String? {
-        // Same gap as isLambdaSuspend: expression-type data isn't part
-        // of the current ExpressionPayload surface. krit-types'
-        // resolver also returns null for unresolved types.
-        return null
+        // Today we surface only call-expression types — the oracle
+        // pass captures `FirFunctionCall.resolvedType` per call site
+        // and stashes the rendered FQN on the matching
+        // [`ExpressionPayload.type`]. Non-call expressions don't have
+        // a payload, so the lookup returns null and the rule sees the
+        // "unresolved" contract krit-types' resolver also uses.
+        if (expression !is KtCallExpression) return null
+        val payload = lookupCall(expression) ?: return null
+        return payload.type.takeIf { it.isNotBlank() }
     }
 
     private fun lookupCall(call: KtCallExpression): ExpressionPayload? {

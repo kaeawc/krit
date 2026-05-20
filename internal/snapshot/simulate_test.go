@@ -132,6 +132,18 @@ func initSimulateRepo(t *testing.T) string {
 	}
 	run("init", "-q", "-b", "main")
 	run("config", "commit.gpgsign", "false")
+	// Disable git's background maintenance. Modern git auto-spawns
+	// commit-graph / pack-refs writers from `git commit` (via
+	// `gc.autoDetach` and `maintenance.auto`); those background writes
+	// can land in `.git/objects/info/` *after* the parent command
+	// returns, racing `t.TempDir()`'s `os.RemoveAll` cleanup and
+	// producing flaky "unlinkat .git/objects: directory not empty"
+	// failures on CI. Pinning these knobs off keeps cleanup
+	// deterministic.
+	run("config", "gc.auto", "0")
+	run("config", "gc.autoDetach", "false")
+	run("config", "maintenance.auto", "false")
+	run("config", "core.fsmonitor", "false")
 
 	srcDir := filepath.Join(repo, "src", "main", "kotlin")
 	if err := os.MkdirAll(srcDir, 0o755); err != nil {

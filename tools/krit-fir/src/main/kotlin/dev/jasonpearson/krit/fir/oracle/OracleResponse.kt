@@ -21,6 +21,24 @@ object OracleResponse {
      * [result] are nested inside the `result` object to match
      * krit-types' `buildDaemonResponse` shape.
      */
+    /**
+     * Build the one-shot CLI output shape — just the result body, no
+     * RPC `{"id":N,"result":...}` envelope. Mirrors krit-types'
+     * `buildJsonCompact(files, deps)` so the Go-side oracle reader
+     * parses either backend's `--output` file with the same struct.
+     */
+    fun buildOneShot(result: AnalyzeResult = AnalyzeResult.EMPTY): String {
+        val sb = StringBuilder()
+        sb.append("{")
+        appendResultBody(sb, result)
+        if (result.errors.isNotEmpty()) {
+            sb.append(""","errors":""")
+            appendErrors(sb, result.errors)
+        }
+        sb.append("}")
+        return sb.toString()
+    }
+
     fun buildAnalyze(id: Long, result: AnalyzeResult = AnalyzeResult.EMPTY): String {
         val sb = StringBuilder()
         sb.append("""{"id":""")

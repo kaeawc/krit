@@ -169,8 +169,13 @@ func registerAndroidCorrectnessCommitTransaction() {
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression", "method_invocation"},
 		Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, Implementation: r,
-		JavaFacts:         &api.JavaFactProfile{ReceiverTypesForCallees: []string{"beginTransaction"}},
-		NeedsLibraryFacts: true,
+		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+		OracleCallTargets: &api.OracleCallTargetFilter{
+			CalleeNames: []string{"beginTransaction"},
+		},
+		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
+		JavaFacts:              &api.JavaFactProfile{ReceiverTypesForCallees: []string{"beginTransaction"}},
+		NeedsLibraryFacts:      true,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if file.FlatType(idx) == "method_invocation" {
@@ -191,9 +196,35 @@ func registerAndroidCorrectnessCommitTransaction() {
 				functionHasReceiverCallAfter(file, fn, idx, txVar, commitTransactionNames, nil) {
 				return
 			}
+			// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+			var oracleLookup oracle.Lookup
+			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+				oracleLookup = cr.Oracle()
+			}
+			if !commitTransactionOracleConfirmed(oracleLookup, file, idx) {
+				return
+			}
 			ctx.EmitAt(file.FlatRow(idx)+1, 1, "FragmentTransaction without commit(). Call commit() or commitAllowingStateLoss().")
 		},
 	})
+}
+
+// commitTransactionOracleConfirmed accepts when the oracle is silent
+// or it resolves `.beginTransaction()` to one of the FragmentManager
+// implementations. A project-local `beginTransaction()` (e.g. on a
+// database wrapper or domain transactional API) resolves to a
+// different FQN and is filtered out.
+func commitTransactionOracleConfirmed(lookup oracle.Lookup, file *scanner.File, idx uint32) bool {
+	if lookup == nil {
+		return true
+	}
+	target := oracleLookupCallTargetFlat(lookup, file, idx)
+	if target == "" {
+		return true
+	}
+	return target == "androidx.fragment.app.FragmentManager.beginTransaction" ||
+		target == "android.app.FragmentManager.beginTransaction" ||
+		target == "android.support.v4.app.FragmentManager.beginTransaction"
 }
 
 func registerAndroidCorrectnessAssert() {

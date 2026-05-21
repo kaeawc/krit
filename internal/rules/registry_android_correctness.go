@@ -248,8 +248,13 @@ func registerAndroidCorrectnessCheckResult() {
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression", "method_invocation"},
 		Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, Implementation: r,
-		JavaFacts:         &api.JavaFactProfile{ReturnTypesForCallees: []string{"animate", "buildUpon", "edit", "format", "trim", "replace"}},
-		NeedsLibraryFacts: true,
+		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+		OracleCallTargets: &api.OracleCallTargetFilter{
+			CalleeNames: []string{"animate", "buildUpon", "edit", "format", "trim", "replace"},
+		},
+		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
+		JavaFacts:              &api.JavaFactProfile{ReturnTypesForCallees: []string{"animate", "buildUpon", "edit", "format", "trim", "replace"}},
+		NeedsLibraryFacts:      true,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if strings.HasSuffix(file.Path, ".gradle.kts") {
@@ -271,10 +276,76 @@ func registerAndroidCorrectnessCheckResult() {
 			if name == "format" && !isReceiverNamed(file, idx, "String") {
 				return
 			}
+			// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+			var oracleLookup oracle.Lookup
+			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+				oracleLookup = cr.Oracle()
+			}
+			if !checkResultOracleConfirmed(oracleLookup, file, idx, name) {
+				return
+			}
 			ctx.EmitAt(file.FlatRow(idx)+1, 1,
 				"The result of this call is not used. Check if the return value should be consumed.")
 		},
 	})
+}
+
+// checkResultOracleConfirmed accepts when the oracle is silent or
+// the resolved call-target FQN matches a known API whose return
+// value should not be discarded. Project-local methods with the
+// same simple names (e.g. a builder DSL's `replace()` that mutates
+// in place) resolve to a different FQN and are filtered out.
+func checkResultOracleConfirmed(lookup oracle.Lookup, file *scanner.File, idx uint32, name string) bool {
+	if lookup == nil {
+		return true
+	}
+	target := oracleLookupCallTargetFlat(lookup, file, idx)
+	if target == "" {
+		return true
+	}
+	expected, ok := checkResultExpectedFQNs[name]
+	if !ok {
+		return true
+	}
+	for _, fqn := range expected {
+		if target == fqn {
+			return true
+		}
+	}
+	return false
+}
+
+// checkResultExpectedFQNs maps each watched callee name to the
+// concrete library FQN(s) whose ignored return values are bugs.
+// Order is the most likely real call first; the list short-circuits
+// on first match.
+var checkResultExpectedFQNs = map[string][]string{
+	"format": {
+		"kotlin.text.StringsKt.format",
+		"java.lang.String.format",
+	},
+	"trim": {
+		"kotlin.text.StringsKt.trim",
+		"kotlin.CharSequence.trim",
+		"kotlin.String.trim",
+		"java.lang.String.trim",
+	},
+	"replace": {
+		"kotlin.text.StringsKt.replace",
+		"kotlin.text.replace",
+		"java.lang.String.replace",
+	},
+	"animate": {
+		"android.view.View.animate",
+	},
+	"buildUpon": {
+		"android.net.Uri.buildUpon",
+	},
+	"edit": {
+		"android.content.SharedPreferences.edit",
+		"androidx.core.content.SharedPreferencesKt.edit",
+		"androidx.core.content.ContextKt.edit",
+	},
 }
 
 func registerAndroidCorrectnessShiftFlags() {

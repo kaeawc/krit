@@ -750,6 +750,76 @@ class Strings {
 	})
 }
 
+// Oracle resolves `.replace(...)` to a non-String callable → suppressed.
+func TestCheckResult_OracleSuppressesNonStringReplace(t *testing.T) {
+	findings := runCheckResultWithCallTarget(t, `
+package test
+fun example(value: MutableValue) {
+    value.replace("a", "b")
+}
+`, "value.replace", "com.acme.MutableValue.replace")
+	if len(findings) != 0 {
+		t.Fatalf("expected oracle to suppress non-String replace, got %d: %v", len(findings), findings)
+	}
+}
+
+// Oracle confirms kotlin.text.StringsKt.format → fires.
+func TestCheckResult_OracleConfirmsStringFormat(t *testing.T) {
+	findings := runCheckResultWithCallTarget(t, `
+package test
+fun example() {
+    String.format("hello %s", "world")
+}
+`, "String.format", "kotlin.text.StringsKt.format")
+	if len(findings) != 1 {
+		t.Fatalf("expected oracle-confirmed StringsKt.format to fire, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestCheckResult_DeclaresOracleCallTargets(t *testing.T) {
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "CheckResult" {
+			rule = r
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("CheckResult rule not registered")
+	}
+	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
+		t.Errorf("missing NeedsOracleCallTargets: Needs=%b", rule.Needs)
+	}
+	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
+		t.Errorf("OracleCallTargets must list the watched callees, got %+v", rule.OracleCallTargets)
+	}
+}
+
+func runCheckResultWithCallTarget(t *testing.T, code string, callText string, target string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = target
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range api.Registry {
+		if r.ID == "CheckResult" {
+			d := rules.NewDispatcher([]*api.Rule{r}, composite)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule not found in registry")
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // ShiftFlags (CheckLines)
 // ---------------------------------------------------------------------------

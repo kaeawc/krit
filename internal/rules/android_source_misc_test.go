@@ -1,8 +1,11 @@
 package rules_test
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -201,6 +204,121 @@ class PaymentFragment {
 			t.Fatal("expected finding for mismatched ::class.java.simpleName")
 		}
 	})
+}
+
+// Oracle resolves the Log call to a non-Android callable → suppressed.
+func TestLongLogTag_OracleSuppressesNonAndroidLog(t *testing.T) {
+	findings := runLogTagWithCallTarget(t, "LongLogTag", `
+package test
+fun foo() {
+    Log.d("ThisIsAVeryLongTagNameThatExceeds", "msg")
+}
+`, "Log.d", "com.acme.local.Log.d")
+	if len(findings) != 0 {
+		t.Fatalf("expected oracle to suppress non-Android Log.d, got %d: %v", len(findings), findings)
+	}
+}
+
+// Oracle confirms android.util.Log.d → fires.
+func TestLongLogTag_OracleConfirmsAndroidLog(t *testing.T) {
+	findings := runLogTagWithCallTarget(t, "LongLogTag", `
+package test
+fun foo() {
+    Log.d("ThisIsAVeryLongTagNameThatExceeds", "msg")
+}
+`, "Log.d", "android.util.Log.d")
+	if len(findings) != 1 {
+		t.Fatalf("expected oracle-confirmed Log.d to fire, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestLongLogTag_DeclaresOracleCallTargets(t *testing.T) {
+	assertLogTagOracleCapability(t, "LongLogTag")
+}
+
+// Oracle resolves the Log.d(TAG, …) call to a non-Android callable → suppressed.
+func TestLogTagMismatch_OracleSuppressesNonAndroidLog(t *testing.T) {
+	findings := runLogTagWithCallTarget(t, "LogTagMismatch", `
+package test
+class MyActivity {
+    companion object {
+        const val TAG = "WrongName"
+    }
+    fun foo() {
+        Log.d(TAG, "message")
+    }
+}
+`, "Log.d", "com.acme.local.Log.d")
+	if len(findings) != 0 {
+		t.Fatalf("expected oracle to suppress non-Android Log.d, got %d: %v", len(findings), findings)
+	}
+}
+
+// Oracle confirms android.util.Log.d → fires.
+func TestLogTagMismatch_OracleConfirmsAndroidLog(t *testing.T) {
+	findings := runLogTagWithCallTarget(t, "LogTagMismatch", `
+package test
+class MyActivity {
+    companion object {
+        const val TAG = "WrongName"
+    }
+    fun foo() {
+        Log.d(TAG, "message")
+    }
+}
+`, "Log.d", "android.util.Log.d")
+	if len(findings) != 1 {
+		t.Fatalf("expected oracle-confirmed Log.d to fire, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestLogTagMismatch_DeclaresOracleCallTargets(t *testing.T) {
+	assertLogTagOracleCapability(t, "LogTagMismatch")
+}
+
+func assertLogTagOracleCapability(t *testing.T, ruleID string) {
+	t.Helper()
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == ruleID {
+			rule = r
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatalf("%s rule not registered", ruleID)
+	}
+	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
+		t.Errorf("%s missing NeedsOracleCallTargets: Needs=%b", ruleID, rule.Needs)
+	}
+	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
+		t.Errorf("%s OracleCallTargets must list Log level names, got %+v", ruleID, rule.OracleCallTargets)
+	}
+}
+
+func runLogTagWithCallTarget(t *testing.T, ruleID, code, callText, target string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = target
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range api.Registry {
+		if r.ID == ruleID {
+			d := rules.NewDispatcher([]*api.Rule{r}, composite)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule %s not found in registry", ruleID)
+	return nil
 }
 
 // =====================================================================

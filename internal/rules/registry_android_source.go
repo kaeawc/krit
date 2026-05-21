@@ -40,6 +40,21 @@ func showToastOracleConfirmed(lookup oracle.Lookup, file *scanner.File, idx uint
 	return target == "android.widget.Toast.makeText"
 }
 
+// logCallOracleConfirmed accepts when the oracle is silent or resolves
+// the `.v/.d/.i/.w/.e/.wtf(...)` call to `android.util.Log.<level>`.
+// A project-local `Log` class with the same level-named methods
+// resolves to a different FQN and is filtered out.
+func logCallOracleConfirmed(lookup oracle.Lookup, file *scanner.File, call uint32) bool {
+	if lookup == nil {
+		return true
+	}
+	target := oracleLookupCallTargetFlat(lookup, file, call)
+	if target == "" {
+		return true
+	}
+	return strings.HasPrefix(target, "android.util.Log.")
+}
+
 func registerAndroidSourceRules() {
 
 	// --- from android_source.go ---
@@ -322,6 +337,11 @@ func registerAndroidSourceRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			OracleCallTargets: &api.OracleCallTargetFilter{
+				CalleeNames: []string{"v", "d", "i", "w", "e", "wtf"},
+			},
+			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isReceiverNamed(file, idx, "Log") || !logMethodNames[flatCallExpressionName(file, idx)] {
@@ -334,10 +354,19 @@ func registerAndroidSourceRules() {
 				if !ok {
 					return
 				}
-				if len(tag) > 23 {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"Log tag \""+tag+"\" exceeds the 23 character limit.")
+				if len(tag) <= 23 {
+					return
 				}
+				// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+				var oracleLookup oracle.Lookup
+				if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+					oracleLookup = cr.Oracle()
+				}
+				if !logCallOracleConfirmed(oracleLookup, file, idx) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"Log tag \""+tag+"\" exceeds the 23 character limit.")
 			},
 		})
 	}
@@ -351,6 +380,11 @@ func registerAndroidSourceRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
+			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			OracleCallTargets: &api.OracleCallTargetFilter{
+				CalleeNames: []string{"v", "d", "i", "w", "e", "wtf"},
+			},
+			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if scanner.IsTestFile(file.Path) {
@@ -375,6 +409,10 @@ func registerAndroidSourceRules() {
 				// nodes in the class body instead of regex-scanning the whole
 				// class text — the regex version matched `Log.d(TAG, x)`
 				// inside string literals or comments in unrelated methods.
+				var oracleLookup oracle.Lookup
+				if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+					oracleLookup = cr.Oracle()
+				}
 				classUsesTagInLog := false
 				file.FlatWalkNodes(idx, "call_expression", func(call uint32) {
 					if classUsesTagInLog {
@@ -389,9 +427,13 @@ func registerAndroidSourceRules() {
 					args := flatCallKeyArguments(file, call)
 					firstArg := flatPositionalValueArgument(file, args, 0)
 					expr := flatValueArgumentExpression(file, firstArg)
-					if expr != 0 && file.FlatType(expr) == "simple_identifier" && file.FlatNodeText(expr) == "TAG" {
-						classUsesTagInLog = true
+					if expr == 0 || file.FlatType(expr) != "simple_identifier" || file.FlatNodeText(expr) != "TAG" {
+						return
 					}
+					if !logCallOracleConfirmed(oracleLookup, file, call) {
+						return
+					}
+					classUsesTagInLog = true
 				})
 				if !classUsesTagInLog {
 					return

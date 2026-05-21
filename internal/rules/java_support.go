@@ -110,6 +110,8 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"JacksonDefaultTyping":                 {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/security_test.go"}},
 		"JdbcStatementExecute":                 {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/security_test.go"}},
 		"LogPii":                               {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/security_test.go"}},
+		"LogTagMismatch":                       {Status: api.LanguageSupportPending, Reason: "Kotlin class_declaration coverage only; Java parity for class-bodied TAG/Log.x callers still needs implementation."},
+		"LongLogTag":                           {Status: api.LanguageSupportPending, Reason: "Kotlin call_expression coverage only; Java method_invocation parity for android.util.Log receivers still needs implementation."},
 		"MaxChainedCallsOnSameLine":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/style_format_test.go"}},
 		"MaxLineLength":                        {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/style_format_test.go"}},
 		"MissingPackageDeclaration":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/potentialbugs_lifecycle_test.go"}},

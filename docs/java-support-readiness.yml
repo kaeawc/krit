@@ -322,6 +322,12 @@ rules:
     status: supported
     fixtures:
       - internal/rules/security_test.go
+  LogTagMismatch:
+    status: pending
+    reason: Kotlin class_declaration coverage only; Java parity for class-bodied TAG/Log.x callers still needs implementation.
+  LongLogTag:
+    status: pending
+    reason: Kotlin call_expression coverage only; Java method_invocation parity for android.util.Log receivers still needs implementation.
   MaxChainedCallsOnSameLine:
     status: supported
     fixtures:

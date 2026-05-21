@@ -19,6 +19,10 @@ import (
 var testSourceDirs = []string{"/test/fixture/repo"}
 var testSourcesHash = hashSources(testSourceDirs)
 
+const testJarPath = "/test/fixture/krit-types.jar"
+
+var testDaemonKey = daemonRegistryKey(testJarPath, testSourceDirs)
+
 func TestWritePIDFile_CreatesFile(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
@@ -914,7 +918,7 @@ func TestConnectOrStartDaemon_NoPIDFile_StartsNew(t *testing.T) {
 	defer os.Setenv("HOME", origHome)
 
 	// No PID files — connectExistingDaemon should fail
-	_, err := connectExistingDaemon(testSourceDirs, false)
+	_, err := connectExistingDaemon(testJarPath, testSourceDirs, false)
 	if err == nil {
 		t.Fatal("expected error when no PID file exists")
 	}
@@ -932,12 +936,11 @@ func TestConnectOrStartDaemon_StalePIDFile_StartsNew(t *testing.T) {
 	daemonsDir := filepath.Join(tmpHome, ".krit", "cache", "daemons")
 	os.MkdirAll(daemonsDir, 0755)
 
-	// Write a PID file with a dead process under the test repo's hash
-	os.WriteFile(filepath.Join(daemonsDir, testSourcesHash+".pid"), []byte("99999999\n"), 0644)
-	os.WriteFile(filepath.Join(daemonsDir, testSourcesHash+".port"), []byte("12345\n"), 0644)
+	os.WriteFile(filepath.Join(daemonsDir, testDaemonKey+".pid"), []byte("99999999\n"), 0644)
+	os.WriteFile(filepath.Join(daemonsDir, testDaemonKey+".port"), []byte("12345\n"), 0644)
 
 	// connectExistingDaemon should fail because the PID is dead
-	_, err := connectExistingDaemon(testSourceDirs, false)
+	_, err := connectExistingDaemon(testJarPath, testSourceDirs, false)
 	if err == nil {
 		t.Fatal("expected error for dead PID")
 	}
@@ -946,9 +949,9 @@ func TestConnectOrStartDaemon_StalePIDFile_StartsNew(t *testing.T) {
 	}
 
 	// cleanStaleDaemon should remove the stale PID files
-	cleanStaleDaemon(testSourceDirs, false)
+	cleanStaleDaemon(testJarPath, testSourceDirs, false)
 
-	pidFile := filepath.Join(daemonsDir, testSourcesHash+".pid")
+	pidFile := filepath.Join(daemonsDir, testDaemonKey+".pid")
 	if _, err := os.Stat(pidFile); !os.IsNotExist(err) {
 		t.Error("expected stale PID file to be cleaned up")
 	}
@@ -964,22 +967,21 @@ func TestConnectOrStartDaemon_LiveDaemon_Reuses(t *testing.T) {
 	fake := NewFakeDaemon(t)
 	defer fake.Close()
 
-	// Write PID file pointing to our fake daemon under the test repo's hash
 	daemonsDir := filepath.Join(tmpHome, ".krit", "cache", "daemons")
 	os.MkdirAll(daemonsDir, 0755)
 	os.WriteFile(
-		filepath.Join(daemonsDir, testSourcesHash+".pid"),
+		filepath.Join(daemonsDir, testDaemonKey+".pid"),
 		[]byte(fmt.Sprintf("%d\n", os.Getpid())), // alive PID
 		0644,
 	)
 	os.WriteFile(
-		filepath.Join(daemonsDir, testSourcesHash+".port"),
+		filepath.Join(daemonsDir, testDaemonKey+".port"),
 		[]byte(fmt.Sprintf("%d\n", fake.Port)),
 		0644,
 	)
 
 	// connectExistingDaemon should successfully connect
-	d, err := connectExistingDaemon(testSourceDirs, false)
+	d, err := connectExistingDaemon(testJarPath, testSourceDirs, false)
 	if err != nil {
 		t.Fatalf("connectExistingDaemon: %v", err)
 	}
@@ -1008,24 +1010,24 @@ func TestConnectOrStartDaemon_LiveDaemon_MultipleClients(t *testing.T) {
 	daemonsDir := filepath.Join(tmpHome, ".krit", "cache", "daemons")
 	os.MkdirAll(daemonsDir, 0755)
 	os.WriteFile(
-		filepath.Join(daemonsDir, testSourcesHash+".pid"),
+		filepath.Join(daemonsDir, testDaemonKey+".pid"),
 		[]byte(fmt.Sprintf("%d\n", os.Getpid())),
 		0644,
 	)
 	os.WriteFile(
-		filepath.Join(daemonsDir, testSourcesHash+".port"),
+		filepath.Join(daemonsDir, testDaemonKey+".port"),
 		[]byte(fmt.Sprintf("%d\n", fake.Port)),
 		0644,
 	)
 
 	// Connect two clients to the same fake daemon
-	d1, err := connectExistingDaemon(testSourceDirs, false)
+	d1, err := connectExistingDaemon(testJarPath, testSourceDirs, false)
 	if err != nil {
 		t.Fatalf("first connect: %v", err)
 	}
 	defer d1.Close()
 
-	d2, err := connectExistingDaemon(testSourceDirs, false)
+	d2, err := connectExistingDaemon(testJarPath, testSourceDirs, false)
 	if err != nil {
 		t.Fatalf("second connect: %v", err)
 	}
@@ -1073,18 +1075,18 @@ func TestCleanStaleDaemon_WithLivePIDButBrokenPort(t *testing.T) {
 
 	// Write our own PID but a port where nothing is listening
 	os.WriteFile(
-		filepath.Join(daemonsDir, testSourcesHash+".pid"),
+		filepath.Join(daemonsDir, testDaemonKey+".pid"),
 		[]byte(fmt.Sprintf("%d\n", os.Getpid())),
 		0644,
 	)
 	os.WriteFile(
-		filepath.Join(daemonsDir, testSourcesHash+".port"),
+		filepath.Join(daemonsDir, testDaemonKey+".port"),
 		[]byte("1\n"), // port 1 — nothing listening
 		0644,
 	)
 
 	// connectExistingDaemon should fail because the port connection fails
-	_, err := connectExistingDaemon(testSourceDirs, false)
+	_, err := connectExistingDaemon(testJarPath, testSourceDirs, false)
 	if err == nil {
 		t.Fatal("expected error for unreachable port")
 	}

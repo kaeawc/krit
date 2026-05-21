@@ -80,19 +80,19 @@ func TestCleanStaleDaemonSlotRemovesOnlyDeadSlot(t *testing.T) {
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
 
-	srcHash := hashSources(testSourceDirs)
-	if err := writePIDFileSlot(os.Getpid(), 1, srcHash, 0); err != nil {
+	key := daemonRegistryKey(testJarPath, testSourceDirs)
+	if err := writePIDFileSlot(os.Getpid(), 1, key, 0); err != nil {
 		t.Fatalf("write slot 0: %v", err)
 	}
-	if err := writePIDFileSlot(99999999, 2, srcHash, 1); err != nil {
+	if err := writePIDFileSlot(99999999, 2, key, 1); err != nil {
 		t.Fatalf("write slot 1: %v", err)
 	}
 
-	cleanStaleDaemonSlot(testSourceDirs, false, 1)
-	if _, err := readPIDFileSlot(srcHash, 1); err == nil {
+	cleanStaleDaemonSlot(testJarPath, testSourceDirs, false, 1)
+	if _, err := readPIDFileSlot(key, 1); err == nil {
 		t.Fatal("dead slot 1 should be removed")
 	}
-	if info, err := readPIDFileSlot(srcHash, 0); err != nil || info.PID != os.Getpid() {
+	if info, err := readPIDFileSlot(key, 0); err != nil || info.PID != os.Getpid() {
 		t.Fatalf("live slot 0 should remain, info=%+v err=%v", info, err)
 	}
 }
@@ -106,15 +106,16 @@ func TestConnectOrStartDaemonPoolReusesLiveMembers(t *testing.T) {
 	fake1 := NewFakeDaemon(t)
 	defer fake1.Close()
 
-	srcHash := hashSources(testSourceDirs)
-	if err := writePIDFileSlot(os.Getpid(), fake0.Port, srcHash, 0); err != nil {
+	const poolJar = "unused.jar"
+	key := daemonRegistryKey(poolJar, testSourceDirs)
+	if err := writePIDFileSlot(os.Getpid(), fake0.Port, key, 0); err != nil {
 		t.Fatalf("write slot 0: %v", err)
 	}
-	if err := writePIDFileSlot(os.Getpid(), fake1.Port, srcHash, 1); err != nil {
+	if err := writePIDFileSlot(os.Getpid(), fake1.Port, key, 1); err != nil {
 		t.Fatalf("write slot 1: %v", err)
 	}
 
-	pool, err := ConnectOrStartDaemonPool("unused.jar", testSourceDirs, nil, 2, false)
+	pool, err := ConnectOrStartDaemonPool(poolJar, testSourceDirs, nil, 2, false)
 	if err != nil {
 		t.Fatalf("ConnectOrStartDaemonPool: %v", err)
 	}
@@ -129,8 +130,8 @@ func TestConnectOrStartDaemonPoolReusesLiveMembers(t *testing.T) {
 	if pool.Members[0].slot != 0 || pool.Members[1].slot != 1 {
 		t.Fatalf("unexpected member slots: %d, %d", pool.Members[0].slot, pool.Members[1].slot)
 	}
-	if !pool.MatchesRepo(testSourceDirs) {
-		t.Fatal("pool should match repo")
+	if !pool.MatchesRepo(poolJar, testSourceDirs) {
+		t.Fatal("pool should match (jar, repo)")
 	}
 }
 

@@ -1,7 +1,15 @@
 package rules_test
 
 import (
+	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/rules"
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // ---------------------------------------------------------------------------
@@ -434,6 +442,79 @@ class Screen {
 			t.Fatalf("expected 0 findings for javac-confirmed local lookalike, got %d", len(findings))
 		}
 	})
+}
+
+// Oracle resolves `.beginTransaction()` to a non-FragmentManager callable → suppressed.
+func TestCommitTransaction_OracleSuppressesNonFragmentManager(t *testing.T) {
+	findings := runCommitTransactionWithCallTarget(t, `
+package test
+fun show() {
+    val tx = db.beginTransaction()
+    tx.run()
+}
+`, "db.beginTransaction", "com.acme.local.Database.beginTransaction")
+	if len(findings) != 0 {
+		t.Fatalf("expected oracle to suppress non-FragmentManager beginTransaction, got %d: %v", len(findings), findings)
+	}
+}
+
+// Oracle confirms androidx FragmentManager.beginTransaction → fires.
+func TestCommitTransaction_OracleConfirmsFragmentManager(t *testing.T) {
+	findings := runCommitTransactionWithCallTarget(t, `
+package test
+fun show() {
+    val tx = supportFragmentManager.beginTransaction()
+    tx.replace(R.id.container, fragment)
+}
+`, "supportFragmentManager.beginTransaction", "androidx.fragment.app.FragmentManager.beginTransaction")
+	if len(findings) != 1 {
+		t.Fatalf("expected oracle-confirmed FragmentManager.beginTransaction to fire, got %d: %v", len(findings), findings)
+	}
+}
+
+// Pins NeedsOracleCallTargets + OracleCallTargets filter on the rule.
+func TestCommitTransaction_DeclaresOracleCallTargets(t *testing.T) {
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "CommitTransaction" {
+			rule = r
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("CommitTransaction rule not registered")
+	}
+	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
+		t.Errorf("missing NeedsOracleCallTargets: Needs=%b", rule.Needs)
+	}
+	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
+		t.Errorf("OracleCallTargets must list `beginTransaction`, got %+v", rule.OracleCallTargets)
+	}
+}
+
+func runCommitTransactionWithCallTarget(t *testing.T, code string, callText string, target string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = target
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range api.Registry {
+		if r.ID == "CommitTransaction" {
+			d := rules.NewDispatcher([]*api.Rule{r}, composite)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule not found in registry")
+	return nil
 }
 
 // ---------------------------------------------------------------------------

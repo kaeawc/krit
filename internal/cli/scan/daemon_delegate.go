@@ -579,6 +579,15 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 			return false
 		}
 	}
+	// `--oracle-backend` selects the JVM jar the oracle pass uses
+	// (krit-types vs krit-fir). The serve daemon's resident oracle
+	// always ties itself to krit-types via oracle.FindJar, and the
+	// daemon wire doesn't carry the backend flag — delegating would
+	// silently ignore the user's choice. Bypass delegation so the
+	// in-process path picks the right jar.
+	if *f.OracleBackend != "" {
+		return false
+	}
 	return true
 }
 

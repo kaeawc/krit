@@ -39,6 +39,29 @@ func TestDaemonCompatibleFlags_OracleArgsAllowed(t *testing.T) {
 	}
 }
 
+// TestDaemonCompatibleFlags_OracleBackendBypassesDaemon pins the
+// short-circuit added when an explicit `--oracle-backend` arrives:
+// the serve daemon's resident oracle is tied to krit-types via
+// oracle.FindJar, and the wire doesn't carry the backend flag.
+// Delegating would silently ignore the user's choice — so the
+// gate refuses delegation and the in-process path handles it.
+func TestDaemonCompatibleFlags_OracleBackendBypassesDaemon(t *testing.T) {
+	for _, backend := range []string{"kaa", "fir"} {
+		t.Run(backend, func(t *testing.T) {
+			f := freshScanFlags(t)
+			*f.OracleBackend = backend
+			if got := daemonCompatibleFlags(f); got {
+				t.Errorf("daemonCompatibleFlags(--oracle-backend=%s) = true, want false", backend)
+			}
+		})
+	}
+	// Empty (default) value keeps delegation enabled.
+	f := freshScanFlags(t)
+	if got := daemonCompatibleFlags(f); !got {
+		t.Errorf("daemonCompatibleFlags(default) = false, want true")
+	}
+}
+
 // TestBuildDaemonAnalyzeArgs_InputTypesAbsolutised confirms the CLI
 // resolves --input-types against the caller's CWD before forwarding so
 // the daemon (which runs from the project root) can open the file. A

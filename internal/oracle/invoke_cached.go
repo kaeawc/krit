@@ -612,7 +612,8 @@ func runKritTypesCached(
 		args = append(args, "--timings-out", timingsPath)
 	}
 	if verbose {
-		reporter().Verbosef("verbose: Running krit-types (cached): %s %s\n", javaPath, strings.Join(args, " "))
+		// Whatever jar the caller passed in — krit-types or krit-fir.
+		reporter().Verbosef("verbose: Running oracle JVM (cached) jar=%s: %s %s\n", filepath.Base(jarPath), javaPath, strings.Join(args, " "))
 	}
 
 	timeout := invokeTimeout()

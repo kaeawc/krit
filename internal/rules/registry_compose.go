@@ -3,7 +3,9 @@ package rules
 import (
 	"strings"
 
+	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func registerComposeRules() {
@@ -292,6 +294,11 @@ func registerComposeRememberWithoutKey() {
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+		OracleCallTargets: &api.OracleCallTargetFilter{
+			CalleeNames: []string{"remember"},
+		},
+		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallNameAny(file, idx) != "remember" {
@@ -308,10 +315,35 @@ func registerComposeRememberWithoutKey() {
 			if !ok {
 				return
 			}
+			// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+			var oracleLookup oracle.Lookup
+			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+				oracleLookup = cr.Oracle()
+			}
+			if !composeRememberOracleConfirmed(oracleLookup, file, idx) {
+				return
+			}
 			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 				"remember { } reads enclosing parameter "+paramName+" but has no keys; the cached value won't update when "+paramName+" changes. Pass remember("+paramName+") { ... }.")
 		},
 	})
+}
+
+// composeRememberOracleConfirmed accepts the call when the oracle
+// is silent or it resolves the `remember` callee to the
+// `androidx.compose.runtime.remember` family. A project-local
+// `remember` function resolves to a different FQN and is filtered
+// out — the AST token match alone would have flagged it.
+func composeRememberOracleConfirmed(lookup oracle.Lookup, file *scanner.File, idx uint32) bool {
+	if lookup == nil {
+		return true
+	}
+	target := oracleLookupCallTargetFlat(lookup, file, idx)
+	if target == "" {
+		return true
+	}
+	return strings.HasPrefix(target, "androidx.compose.runtime.remember") ||
+		strings.HasPrefix(target, "androidx.compose.runtime.RememberKt.remember")
 }
 
 func registerComposeLaunchedEffectWithoutKeys() {

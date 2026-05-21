@@ -170,6 +170,9 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_correctness_test.go
+  ComposeRememberWithoutKey:
+    status: not-applicable
+    reason: "Targets Kotlin Compose `remember { … }` blocks; Compose is Kotlin-only."
   CursorLoopWithColumnIndexInLoop:
     status: supported
     fixtures:

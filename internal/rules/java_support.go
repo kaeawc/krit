@@ -72,6 +72,7 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"CollectInOnCreateWithoutLifecycle":    {Status: api.LanguageSupportNotApplicable, Reason: "Targets Kotlin coroutines `Flow.collect` calls in Android lifecycle callbacks; Java lifecycle code doesn't use the Kotlin Flow API."},
 		"CommitPrefEdits":                      {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_correctness_test.go"}},
 		"CommitTransaction":                    {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_correctness_test.go"}},
+		"ComposeRememberWithoutKey":            {Status: api.LanguageSupportNotApplicable, Reason: "Targets Kotlin Compose `remember { … }` blocks; Compose is Kotlin-only."},
 		"CursorLoopWithColumnIndexInLoop":      {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/resource_cost_test.go"}},
 		"DatabaseInstanceRecreated":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/resource_cost_test.go"}},
 		"DatabaseQueryOnMainThread":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/database_test.go"}},

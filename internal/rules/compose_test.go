@@ -1,6 +1,16 @@
 package rules_test
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/kaeawc/krit/internal/oracle"
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/rules"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
+)
 
 func TestComposeColumnRowInScrollable_Positive(t *testing.T) {
 	findings := runRuleByName(t, "ComposeColumnRowInScrollable", `
@@ -661,6 +671,81 @@ fun Example() {
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
 	}
+}
+
+// Oracle resolves `remember` to a non-Compose callable → suppressed.
+func TestComposeRememberWithoutKey_OracleSuppressesNonComposeRemember(t *testing.T) {
+	findings := runComposeRememberWithCallTarget(t, `
+package test
+fun Example(userName: String) {
+    val cached = remember { "hello " + userName }
+}
+`, "remember", "com.acme.local.Caching.remember")
+	if len(findings) != 0 {
+		t.Fatalf("expected oracle to suppress non-Compose remember, got %d: %v", len(findings), findings)
+	}
+}
+
+// Oracle confirms androidx.compose.runtime.remember → fires.
+func TestComposeRememberWithoutKey_OracleConfirmsComposeRemember(t *testing.T) {
+	findings := runComposeRememberWithCallTarget(t, `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+@Composable
+fun Example(userName: String) {
+    val cached = remember { "hello " + userName }
+}
+`, "remember", "androidx.compose.runtime.remember")
+	if len(findings) != 1 {
+		t.Fatalf("expected oracle-confirmed Compose remember to fire, got %d: %v", len(findings), findings)
+	}
+}
+
+// Pins NeedsOracleCallTargets + OracleCallTargets filter on the rule.
+func TestComposeRememberWithoutKey_DeclaresOracleCallTargets(t *testing.T) {
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "ComposeRememberWithoutKey" {
+			rule = r
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("rule not registered")
+	}
+	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
+		t.Errorf("missing NeedsOracleCallTargets: Needs=%b", rule.Needs)
+	}
+	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
+		t.Errorf("OracleCallTargets must list `remember`, got %+v", rule.OracleCallTargets)
+	}
+}
+
+func runComposeRememberWithCallTarget(t *testing.T, code string, callText string, target string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		txt := strings.TrimSpace(file.FlatNodeText(idx))
+		if strings.HasPrefix(txt, callText+" ") || strings.HasPrefix(txt, callText+"(") || strings.HasPrefix(txt, callText+"{") {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = target
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range api.Registry {
+		if r.ID == "ComposeRememberWithoutKey" {
+			d := rules.NewDispatcher([]*api.Rule{r}, composite)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule not found in registry")
+	return nil
 }
 
 func TestComposeLaunchedEffectWithoutKeys_Positive_Unit(t *testing.T) {

@@ -912,6 +912,49 @@ func TestAnalyzeProjectInvalidPaths(t *testing.T) {
 	}
 }
 
+// TestAnalyzeProjectSurfacesParseErrors guards against the regression where
+// scanner.ScanFiles' per-file error slice was silently discarded, causing
+// the MCP analyze tool to report success with empty findings when no file
+// could be parsed.
+func TestAnalyzeProjectSurfacesParseErrors(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses file permission checks")
+	}
+
+	tmp := t.TempDir()
+	unreadable := tmp + "/locked.kt"
+	if err := os.WriteFile(unreadable, []byte("fun main() {}\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if err := os.Chmod(unreadable, 0o000); err != nil {
+		t.Fatalf("chmod 000: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o644) })
+
+	args, _ := json.Marshal(analyzeArgs{Mode: "project", Paths: []string{tmp}})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "analyze", Arguments: args}),
+	})
+
+	if len(responses) != 1 {
+		t.Fatalf("expected 1 response, got %d", len(responses))
+	}
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected error result for unparseable file; got success: %+v", result)
+	}
+	if len(result.Content) == 0 || !strings.Contains(result.Content[0].Text, "scanning files") {
+		t.Fatalf("expected error to mention scanning files, got %+v", result.Content)
+	}
+}
+
 func TestAnalyzeProjectMissingPaths(t *testing.T) {
 	args, _ := json.Marshal(analyzeArgs{Mode: "project",
 		Paths: []string{},

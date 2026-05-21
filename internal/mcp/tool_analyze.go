@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/librarymodel"
@@ -114,7 +115,10 @@ func (s *Server) analyzeProject(args analyzeArgs) ToolResult {
 		return errorResult("no Kotlin files found in the specified paths")
 	}
 
-	files, _ := scanner.ScanFiles(context.Background(), ktFiles, 4)
+	files, parseErrs := scanner.ScanFiles(context.Background(), ktFiles, 4)
+	if len(files) == 0 && len(parseErrs) > 0 {
+		return errorResult("scanning files: " + joinErrors(parseErrs))
+	}
 
 	type fileResult struct {
 		File     string `json:"file"`
@@ -164,12 +168,14 @@ func (s *Server) analyzeProject(args analyzeArgs) ToolResult {
 		TotalFindings int          `json:"totalFindings"`
 		TopRules      []ruleCount  `json:"topRules"`
 		PerFile       []fileResult `json:"perFile,omitempty"`
+		ParseErrors   []string     `json:"parseErrors,omitempty"`
 	}
 
 	summary := summaryJSON{
 		TotalFiles:    len(files),
 		TotalFindings: allColumns.Len(),
 		TopRules:      topRules,
+		ParseErrors:   errorStrings(parseErrs),
 	}
 
 	if format == "detailed" {
@@ -338,7 +344,10 @@ func (s *Server) analyzeAndroid(args analyzeArgs) ToolResult {
 // analyzeImpact counts findings per rule for either a buffer or a path set.
 // Useful for "how loud would enabling rule X be?" before flipping config.
 func (s *Server) analyzeImpact(args analyzeArgs) ToolResult {
-	var allColumns scanner.FindingColumns
+	var (
+		allColumns scanner.FindingColumns
+		parseErrs  []error
+	)
 
 	switch {
 	case args.Code != "":
@@ -356,7 +365,11 @@ func (s *Server) analyzeImpact(args analyzeArgs) ToolResult {
 		if len(ktFiles) == 0 {
 			return errorResult("no Kotlin files found in the specified paths")
 		}
-		files, _ := scanner.ScanFiles(context.Background(), ktFiles, 4)
+		var files []*scanner.File
+		files, parseErrs = scanner.ScanFiles(context.Background(), ktFiles, 4)
+		if len(files) == 0 && len(parseErrs) > 0 {
+			return errorResult("scanning files: " + joinErrors(parseErrs))
+		}
 		collector := scanner.NewFindingCollector(len(files) * 8)
 		for _, f := range files {
 			cols, _ := s.analyzer.Dispatcher.RunColumnsWithStats(f)
@@ -414,10 +427,44 @@ func (s *Server) analyzeImpact(args analyzeArgs) ToolResult {
 	type impactResult struct {
 		TotalFindings int         `json:"totalFindings"`
 		Rules         []impactRow `json:"rules"`
+		ParseErrors   []string    `json:"parseErrors,omitempty"`
 	}
 
 	return jsonResult(impactResult{
 		TotalFindings: allColumns.Len(),
 		Rules:         rows,
+		ParseErrors:   errorStrings(parseErrs),
 	})
+}
+
+// joinErrors renders parse errors as a single bounded-length message for
+// inclusion in errorResult, keeping the first few errors and noting any
+// overflow so callers see representative failures without runaway text.
+func joinErrors(errs []error) string {
+	const limit = 3
+	if len(errs) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, limit+1)
+	for i, e := range errs {
+		if i >= limit {
+			parts = append(parts, "... and more")
+			break
+		}
+		parts = append(parts, e.Error())
+	}
+	return strings.Join(parts, "; ")
+}
+
+// errorStrings converts a slice of errors to their string forms, returning
+// nil for an empty input so the JSON `omitempty` tag elides the field.
+func errorStrings(errs []error) []string {
+	if len(errs) == 0 {
+		return nil
+	}
+	out := make([]string, len(errs))
+	for i, e := range errs {
+		out[i] = e.Error()
+	}
+	return out
 }

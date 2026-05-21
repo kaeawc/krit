@@ -102,18 +102,27 @@ func (s *FileStore) Invalidate(ruleIDs ...string) error {
 			return nil
 		}
 		if len(ruleIDs) == 0 {
-			os.Remove(path)
-			return nil
+			return removeIfExists(path)
 		}
 		// Conservative: any ruleID match clears the entry.
 		for _, id := range ruleIDs {
 			if strings.Contains(info.Name(), id) {
-				os.Remove(path)
-				return nil
+				return removeIfExists(path)
 			}
 		}
 		return nil
 	})
+}
+
+// removeIfExists deletes path and returns nil if removal succeeded or the
+// file was already gone. Any other error (permission denied, locked file,
+// transient FS failure) is returned so Invalidate surfaces partial failure
+// instead of silently leaving stale cache entries on disk.
+func removeIfExists(path string) error {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // Stats returns entry count and total byte size by walking the store root,

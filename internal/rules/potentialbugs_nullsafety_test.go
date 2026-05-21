@@ -1382,6 +1382,97 @@ fun convert() {
 	}
 }
 
+// Oracle reports nullable LHS → rule fires.
+func TestCastNullableToNonNullableType_OracleExpressionTypeMarksSourceNullable(t *testing.T) {
+	findings := runCastNullableWithOracleExprType(t, `
+package test
+fun convert(unknownReceiver: String?): String {
+    return unknownReceiver.something() as String
+}
+`, "unknownReceiver.something()", &typeinfer.ResolvedType{
+		Name:     "String",
+		FQN:      "kotlin.String",
+		Kind:     typeinfer.TypeClass,
+		Nullable: true,
+	})
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding when oracle reports nullable source, got %d: %v", len(findings), findings)
+	}
+}
+
+// Oracle reports non-nullable LHS → no finding.
+func TestCastNullableToNonNullableType_OracleExpressionTypeSuppressesNonNullableSource(t *testing.T) {
+	findings := runCastNullableWithOracleExprType(t, `
+package test
+fun convert(unknownReceiver: String?): String {
+    return unknownReceiver.something() as String
+}
+`, "unknownReceiver.something()", &typeinfer.ResolvedType{
+		Name:     "String",
+		FQN:      "kotlin.String",
+		Kind:     typeinfer.TypeClass,
+		Nullable: false,
+	})
+	if len(findings) != 0 {
+		t.Fatalf("expected oracle non-nullable source to suppress finding, got %d: %v", len(findings), findings)
+	}
+}
+
+// Pins NeedsOracleExprType + ExprPositions on the rule.
+func TestCastNullableToNonNullableType_DeclaresOracleExprType(t *testing.T) {
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "CastNullableToNonNullableType" {
+			rule = r
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("CastNullableToNonNullableType rule not registered")
+	}
+	if !rule.Needs.Has(api.NeedsOracleExprType) {
+		t.Errorf("missing NeedsOracleExprType: Needs=%b", rule.Needs)
+	}
+	if rule.ExprPositions == nil {
+		t.Error("ExprPositions selector must be set so the oracle pre-resolves cast LHS positions")
+	}
+}
+
+// runCastNullableWithOracleExprType plants `typ` at the cast LHS
+// matching `lhsText` and runs CastNullableToNonNullableType.
+func runCastNullableWithOracleExprType(t *testing.T, code string, lhsText string, typ *typeinfer.ResolvedType) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.Expressions[file.Path] = map[string]*typeinfer.ResolvedType{}
+	file.FlatWalkNodes(0, "as_expression", func(idx uint32) {
+		var source uint32
+		for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatIsNamed(child) {
+				source = child
+				break
+			}
+		}
+		if source == 0 || strings.TrimSpace(file.FlatNodeText(source)) != lhsText {
+			return
+		}
+		key := fmt.Sprintf("%d:%d", file.FlatRow(source)+1, file.FlatCol(source)+1)
+		fake.Expressions[file.Path][key] = typ
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range api.Registry {
+		if r.ID == "CastNullableToNonNullableType" {
+			d := rules.NewDispatcher([]*api.Rule{r}, composite)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule %q not found in registry", "CastNullableToNonNullableType")
+	return nil
+}
+
 // --- CastToNullableType ---
 
 func TestCastToNullableType_Positive(t *testing.T) {

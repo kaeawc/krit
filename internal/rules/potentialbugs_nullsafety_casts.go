@@ -1236,8 +1236,7 @@ func (r *CastNullableToNonNullableTypeRule) check(ctx *api.Context) {
 	if targetType.IsNullable() {
 		return
 	}
-	sourceNullable := ctx.Resolver.IsNullableFlat(cast.source, file)
-	if sourceNullable == nil || !*sourceNullable {
+	if !castNullableToNonNullableSourceIsNullable(ctx, cast.source) {
 		return
 	}
 
@@ -1250,6 +1249,36 @@ func (r *CastNullableToNonNullableTypeRule) check(ctx *api.Context) {
 		Replacement: "as?",
 	}
 	ctx.Emit(f)
+}
+
+// castNullableToNonNullableSourceIsNullable consults the oracle's
+// expression-type fact at source, falling back to the resolver.
+func castNullableToNonNullableSourceIsNullable(ctx *api.Context, source uint32) bool {
+	if composite, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+		line := ctx.File.FlatRow(source) + 1
+		col := ctx.File.FlatCol(source) + 1
+		if exprType := composite.Oracle().LookupExpression(ctx.File.Path, line, col); exprType != nil {
+			return exprType.IsNullable()
+		}
+	}
+	nullable := ctx.Resolver.IsNullableFlat(source, ctx.File)
+	return nullable != nil && *nullable
+}
+
+// ExpressionPositions selects cast LHS positions for oracle pre-resolution.
+func (r *CastNullableToNonNullableTypeRule) ExpressionPositions(file *scanner.File) []uint32 {
+	if file == nil {
+		return nil
+	}
+	var out []uint32
+	file.FlatWalkNodes(0, "as_expression", func(idx uint32) {
+		cast, ok := unsafeCastExpressionPartsFlat(file, idx)
+		if !ok || cast.safe || cast.source == 0 {
+			return
+		}
+		out = append(out, cast.source)
+	})
+	return out
 }
 
 // ---------------------------------------------------------------------------

@@ -122,7 +122,6 @@ func TestOracleCallTargetFilterDefaultRulesEnabled(t *testing.T) {
 
 func TestResolverOnlyRulesDoNotContributeToOracle(t *testing.T) {
 	for _, id := range []string{
-		"CastNullableToNonNullableType",
 		"ComposeClickableWithoutMinTouchTarget",
 		"LogOfSharedPreferenceRead",
 		"PlainFileWriteOfSensitive",

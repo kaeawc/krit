@@ -46,10 +46,12 @@ func registerPotentialbugsNullsafetyCastsRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic,
-			Needs:          api.NeedsResolver,
-			TypeInfo:       api.TypeInfoHint{PreferBackend: api.PreferResolver, Required: true},
-			Implementation: r,
-			Check:          r.check,
+			Needs:                  api.NeedsTypeInfo | api.NeedsOracleExprType,
+			TypeInfo:               api.TypeInfoHint{PreferBackend: api.PreferAny, Required: true},
+			ExprPositions:          r.ExpressionPositions,
+			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
+			Implementation:         r,
+			Check:                  r.check,
 		})
 	}
 	{

@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -101,8 +102,13 @@ func registerAndroidCorrectnessCommitPrefEdits() {
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression", "method_invocation"},
 		Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, Implementation: r,
-		JavaFacts:         &api.JavaFactProfile{ReceiverTypesForCallees: []string{"edit"}},
-		NeedsLibraryFacts: true,
+		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+		OracleCallTargets: &api.OracleCallTargetFilter{
+			CalleeNames: []string{"edit"},
+		},
+		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
+		JavaFacts:              &api.JavaFactProfile{ReceiverTypesForCallees: []string{"edit"}},
+		NeedsLibraryFacts:      true,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if file.FlatType(idx) == "method_invocation" {
@@ -126,9 +132,35 @@ func registerAndroidCorrectnessCommitPrefEdits() {
 				functionHasReceiverCallAfter(file, fn, idx, editorVar, commitOrApplyNames, editorFinalizeCallShape) {
 				return
 			}
+			// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+			var oracleLookup oracle.Lookup
+			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+				oracleLookup = cr.Oracle()
+			}
+			if !commitPrefEditsOracleConfirmed(oracleLookup, file, idx) {
+				return
+			}
 			ctx.EmitAt(file.FlatRow(idx)+1, 1, "SharedPreferences.edit() without commit() or apply().")
 		},
 	})
+}
+
+// commitPrefEditsOracleConfirmed accepts when the oracle is silent
+// or it resolves the `.edit()` call to `SharedPreferences.edit` or
+// one of the androidx.core KTX extensions. A `.edit(n)` on a
+// Collection or a project-local `edit` extension resolves to a
+// different FQN and is filtered out.
+func commitPrefEditsOracleConfirmed(lookup oracle.Lookup, file *scanner.File, idx uint32) bool {
+	if lookup == nil {
+		return true
+	}
+	target := oracleLookupCallTargetFlat(lookup, file, idx)
+	if target == "" {
+		return true
+	}
+	return target == "android.content.SharedPreferences.edit" ||
+		strings.HasPrefix(target, "androidx.core.content.SharedPreferencesKt.edit") ||
+		strings.HasPrefix(target, "androidx.core.content.ContextKt.edit")
 }
 
 func registerAndroidCorrectnessCommitTransaction() {

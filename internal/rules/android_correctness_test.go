@@ -1,7 +1,15 @@
 package rules_test
 
 import (
+	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/rules"
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // ---------------------------------------------------------------------------
@@ -325,6 +333,79 @@ class Store {
 			t.Fatalf("expected 0 findings for same simple-name javac-confirmed lookalike, got %d", len(findings))
 		}
 	})
+}
+
+// Oracle resolves `.edit()` to a non-SharedPreferences callable → suppressed.
+func TestCommitPrefEdits_OracleSuppressesNonSharedPreferencesEdit(t *testing.T) {
+	findings := runCommitPrefEditsWithCallTarget(t, `
+package test
+fun save() {
+    val editor = collection.edit()
+    editor.add("item")
+}
+`, "collection.edit", "com.acme.local.Collection.edit")
+	if len(findings) != 0 {
+		t.Fatalf("expected oracle to suppress non-SharedPreferences edit, got %d: %v", len(findings), findings)
+	}
+}
+
+// Oracle confirms android.content.SharedPreferences.edit → fires.
+func TestCommitPrefEdits_OracleConfirmsSharedPreferencesEdit(t *testing.T) {
+	findings := runCommitPrefEditsWithCallTarget(t, `
+package test
+fun save() {
+    val editor = prefs.edit()
+    editor.putString("key", "value")
+}
+`, "prefs.edit", "android.content.SharedPreferences.edit")
+	if len(findings) != 1 {
+		t.Fatalf("expected oracle-confirmed SharedPreferences.edit to fire, got %d: %v", len(findings), findings)
+	}
+}
+
+// Pins NeedsOracleCallTargets + OracleCallTargets filter on the rule.
+func TestCommitPrefEdits_DeclaresOracleCallTargets(t *testing.T) {
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "CommitPrefEdits" {
+			rule = r
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("CommitPrefEdits rule not registered")
+	}
+	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
+		t.Errorf("missing NeedsOracleCallTargets: Needs=%b", rule.Needs)
+	}
+	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
+		t.Errorf("OracleCallTargets must list `edit`, got %+v", rule.OracleCallTargets)
+	}
+}
+
+func runCommitPrefEditsWithCallTarget(t *testing.T, code string, callText string, target string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = target
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range api.Registry {
+		if r.ID == "CommitPrefEdits" {
+			d := rules.NewDispatcher([]*api.Rule{r}, composite)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule not found in registry")
+	return nil
 }
 
 // ---------------------------------------------------------------------------

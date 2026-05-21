@@ -128,6 +128,7 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"RuntimeExecUnsafeShape":               {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/security_test.go"}},
 		"RsaNoPadding":                         {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_security_test.go"}},
 		"SecureRandom":                         {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_source_test.go"}},
+		"ServiceCast":                          {Status: api.LanguageSupportPending, Reason: "Kotlin as_expression coverage only; Java cast-expression parity for getSystemService receivers still needs implementation."},
 		"SetJavaScriptEnabled":                 {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_base_test.go"}},
 		"SetTextI18n":                          {Status: api.LanguageSupportPending, Reason: "Kotlin call_expression coverage only; Java method_invocation parity for TextView/Button receivers still needs implementation."},
 		"SimpleDateFormat":                     {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_correctness_test.go"}},

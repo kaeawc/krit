@@ -500,17 +500,24 @@ suspend fun loadData() {
 	}
 }
 
-func TestInjectDispatcher_DoesNotRequireTypeContext(t *testing.T) {
+// Pins the post-migration capability shape: TypeInfo + OracleCallTargets, single-file only.
+func TestInjectDispatcher_DeclaresOracleCallTargets(t *testing.T) {
 	rule := buildRuleIndex()["InjectDispatcher"]
 	if rule == nil {
 		t.Fatal("InjectDispatcher rule not found")
 	}
-	if rule.Needs.Has(api.NeedsResolver) || rule.Needs.Has(api.NeedsOracle) ||
-		rule.Needs.Has(api.NeedsParsedFiles) || rule.Needs.Has(api.NeedsCrossFile) {
-		t.Fatalf("InjectDispatcher should stay AST/import-only; got Needs=%b", rule.Needs)
+	if !rule.Needs.Has(api.NeedsTypeInfo) {
+		t.Errorf("InjectDispatcher missing NeedsTypeInfo: Needs=%b", rule.Needs)
 	}
-	if rule.TypeInfo != (api.TypeInfoHint{}) {
-		t.Fatalf("InjectDispatcher TypeInfo=%+v, want zero value", rule.TypeInfo)
+	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
+		t.Errorf("InjectDispatcher missing NeedsOracleCallTargets: Needs=%b", rule.Needs)
+	}
+	if rule.Needs.Has(api.NeedsParsedFiles) || rule.Needs.Has(api.NeedsCrossFile) ||
+		rule.Needs.Has(api.NeedsModuleIndex) {
+		t.Errorf("InjectDispatcher should be single-file only; got Needs=%b", rule.Needs)
+	}
+	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
+		t.Fatalf("InjectDispatcher OracleCallTargets must declare callee names; got %+v", rule.OracleCallTargets)
 	}
 }
 
@@ -554,6 +561,67 @@ suspend fun foo() {
 	}
 	if len(lines) != 2 {
 		t.Errorf("expected findings on 2 distinct lines, got %d distinct lines", len(lines))
+	}
+}
+
+// runInjectDispatcherWithCallTarget sets a synthetic oracle
+// `callTarget` for every navigation_expression matching exprText
+// and runs the InjectDispatcher rule against the resulting
+// composite resolver. Pairs with the post-migration logic that
+// keys on the resolved call-target FQN.
+func runInjectDispatcherWithCallTarget(t *testing.T, code string, exprText string, target string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "navigation_expression", func(idx uint32) {
+		if strings.TrimSpace(file.FlatNodeText(idx)) == exprText {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = target
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range api.Registry {
+		if r.ID == "InjectDispatcher" {
+			d := rules.NewDispatcher([]*api.Rule{r}, composite)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule %q not found in registry", "InjectDispatcher")
+	return nil
+}
+
+func TestInjectDispatcher_OracleCallTargetSuppressesLookalike(t *testing.T) {
+	// A project-local `Dispatchers` lookalike whose oracle-resolved
+	// callable FQN is NOT `kotlinx.coroutines.Dispatchers.IO`. The
+	// AST token match alone would have produced a false positive
+	// here; the oracle gate suppresses it.
+	findings := runInjectDispatcherWithCallTarget(t, `
+package test
+suspend fun loadData() {
+    withContext(Dispatchers.IO) { fetchFromNetwork() }
+}
+`, "Dispatchers.IO", "com.acme.local.Dispatchers.IO")
+	if len(findings) != 0 {
+		t.Fatalf("expected oracle to suppress lookalike, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestInjectDispatcher_OracleCallTargetConfirmsRealDispatchers(t *testing.T) {
+	// Oracle resolves the same syntactic shape to the real
+	// kotlinx.coroutines FQN — the rule fires.
+	findings := runInjectDispatcherWithCallTarget(t, `
+package test
+import kotlinx.coroutines.Dispatchers
+suspend fun loadData() {
+    withContext(Dispatchers.IO) { fetchFromNetwork() }
+}
+`, "Dispatchers.IO", "kotlinx.coroutines.Dispatchers.IO")
+	if len(findings) != 1 {
+		t.Fatalf("expected oracle-confirmed dispatcher to fire, got %d: %v", len(findings), findings)
 	}
 }
 

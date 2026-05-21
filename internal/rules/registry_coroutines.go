@@ -146,6 +146,12 @@ func registerCoroutinesInjectDispatcher() {
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+		OracleCallTargets: &api.OracleCallTargetFilter{
+			CalleeNames: injectDispatcherOracleCalleeNames(r.DispatcherNames),
+		},
+		// No declaration export needed.
+		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if scanner.IsTestFile(file.Path) {
@@ -163,6 +169,14 @@ func registerCoroutinesInjectDispatcher() {
 				return
 			}
 			if !injectDispatcherReferenceConfirmed(file, dispatcherNode) {
+				return
+			}
+			// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+			var oracleLookup oracle.Lookup
+			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+				oracleLookup = cr.Oracle()
+			}
+			if !injectDispatcherOracleConfirmed(oracleLookup, file, dispatcherNode, dispatcherName) {
 				return
 			}
 			// Idiomatic-host filter mirroring the FIR checker. Some
@@ -185,6 +199,35 @@ func registerCoroutinesInjectDispatcher() {
 				fmt.Sprintf("Hardcoded Dispatchers.%s. Inject dispatchers for better testability.", dispatcherName))
 		},
 	})
+}
+
+// injectDispatcherOracleCalleeNames returns the dispatcher names
+// plus their getter-shape JVM equivalents.
+func injectDispatcherOracleCalleeNames(names []string) []string {
+	out := make([]string, 0, 2*len(names))
+	for _, name := range names {
+		out = append(out, name, "get"+name)
+	}
+	return out
+}
+
+// injectDispatcherOracleConfirmed returns true when either (a) the
+// oracle has no opinion (no resolved call-target) — in which case
+// the prior AST evidence is the floor — or (b) the oracle resolved
+// the dispatcher reference to a callable on `kotlinx.coroutines.Dispatchers`.
+// Returns false when the oracle resolves to something else (e.g., a
+// project-local class named `Dispatchers`), which is the false-positive
+// the AST token match couldn't catch.
+func injectDispatcherOracleConfirmed(lookup oracle.Lookup, file *scanner.File, dispatcherNode uint32, dispatcherName string) bool {
+	if lookup == nil {
+		return true
+	}
+	target := oracleLookupCallTargetFlat(lookup, file, dispatcherNode)
+	if target == "" {
+		return true
+	}
+	expected := "kotlinx.coroutines.Dispatchers." + dispatcherName
+	return target == expected || target == "kotlinx.coroutines.Dispatchers.get"+dispatcherName
 }
 
 func registerCoroutinesRedundantSuspendModifier() {

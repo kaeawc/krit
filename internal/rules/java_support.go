@@ -101,6 +101,7 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"HardcodedSecretKey":                   {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_security_test.go"}},
 		"HttpClientNotReused":                  {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/resource_cost_test.go"}},
 		"ImplicitPendingIntent":                {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_security_test.go"}},
+		"InjectDispatcher":                     {Status: api.LanguageSupportNotApplicable, Reason: "Targets Kotlin coroutines `Dispatchers.IO/Default/Unconfined` references; Java callers of the coroutines runtime are out of scope for the heuristic."},
 		"InsecureTrustManager":                 {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_security_test.go"}},
 		"InstanceOfCheckForException":          {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/exceptions_test.go"}},
 		"JavaObjectInputStream":                {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/security_test.go"}},

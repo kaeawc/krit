@@ -58,7 +58,6 @@ func TestComposeSideEffectInCompositionStaysASTOnly(t *testing.T) {
 func TestVettedRulesStayLocalASTOnly(t *testing.T) {
 	for _, id := range []string{
 		"ComposeSemanticsMissingRole",
-		"InjectDispatcher",
 		"MissingSuperCall",
 		"RunTestWithDelay",
 		"ForbiddenComment",

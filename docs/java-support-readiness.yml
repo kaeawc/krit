@@ -289,6 +289,9 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_security_test.go
+  InjectDispatcher:
+    status: not-applicable
+    reason: "Targets Kotlin coroutines `Dispatchers.IO/Default/Unconfined` references; Java callers of the coroutines runtime are out of scope for the heuristic."
   InsecureTrustManager:
     status: supported
     fixtures:

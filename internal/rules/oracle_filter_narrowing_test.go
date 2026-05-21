@@ -124,7 +124,6 @@ func TestResolverOnlyRulesDoNotContributeToOracle(t *testing.T) {
 	for _, id := range []string{
 		"CastNullableToNonNullableType",
 		"ComposeClickableWithoutMinTouchTarget",
-		"InjectDispatcher",
 		"LogOfSharedPreferenceRead",
 		"PlainFileWriteOfSensitive",
 		"SharedPreferencesForSensitiveKey",

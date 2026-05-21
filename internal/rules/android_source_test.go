@@ -1,8 +1,15 @@
 package rules_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/rules"
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 func TestFragmentConstructor(t *testing.T) {
@@ -114,6 +121,81 @@ class Foo {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+}
+
+// Oracle resolves `getSystemService(...)` to a non-Context callable → suppressed.
+func TestServiceCast_OracleSuppressesNonContext(t *testing.T) {
+	findings := runServiceCastWithCallTarget(t, `
+package test
+class Foo {
+    fun setup() {
+        val mgr = getSystemService(ALARM_SERVICE) as PowerManager
+    }
+}
+`, "getSystemService", "com.acme.local.Registry.getSystemService")
+	if len(findings) != 0 {
+		t.Fatalf("expected oracle to suppress non-Context getSystemService, got %d: %v", len(findings), findings)
+	}
+}
+
+// Oracle confirms android.content.Context.getSystemService → fires.
+func TestServiceCast_OracleConfirmsContext(t *testing.T) {
+	findings := runServiceCastWithCallTarget(t, `
+package test
+class Foo {
+    fun setup() {
+        val mgr = getSystemService(ALARM_SERVICE) as PowerManager
+    }
+}
+`, "getSystemService", "android.content.Context.getSystemService")
+	if len(findings) != 1 {
+		t.Fatalf("expected oracle-confirmed Context.getSystemService to fire, got %d: %v", len(findings), findings)
+	}
+}
+
+// Pins NeedsOracleCallTargets + filter on the rule.
+func TestServiceCast_DeclaresOracleCallTargets(t *testing.T) {
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "ServiceCast" {
+			rule = r
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("ServiceCast rule not registered")
+	}
+	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
+		t.Errorf("missing NeedsOracleCallTargets: Needs=%b", rule.Needs)
+	}
+	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
+		t.Errorf("OracleCallTargets must list `getSystemService`, got %+v", rule.OracleCallTargets)
+	}
+}
+
+func runServiceCastWithCallTarget(t *testing.T, code string, callText string, target string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = target
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range api.Registry {
+		if r.ID == "ServiceCast" {
+			d := rules.NewDispatcher([]*api.Rule{r}, composite)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule not found in registry")
+	return nil
 }
 
 func TestShowToast(t *testing.T) {

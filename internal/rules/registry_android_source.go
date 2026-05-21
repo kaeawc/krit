@@ -3,9 +3,27 @@ package rules
 import (
 	"strings"
 
+	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
+
+// serviceCastOracleConfirmed accepts when the oracle is silent or
+// resolves the `.getSystemService(...)` call to `Context.getSystemService`
+// (or `ContextCompat.getSystemService` from androidx.core). A
+// project-local `getSystemService` resolves to a different FQN and
+// is filtered out.
+func serviceCastOracleConfirmed(lookup oracle.Lookup, file *scanner.File, call uint32) bool {
+	if lookup == nil {
+		return true
+	}
+	target := oracleLookupCallTargetFlat(lookup, file, call)
+	if target == "" {
+		return true
+	}
+	return target == "android.content.Context.getSystemService" ||
+		target == "androidx.core.content.ContextCompat.getSystemService"
+}
 
 func registerAndroidSourceRules() {
 
@@ -67,6 +85,11 @@ func registerAndroidSourceRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"as_expression"}, Confidence: 0.9, Implementation: r,
+			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			OracleCallTargets: &api.OracleCallTargetFilter{
+				CalleeNames: []string{"getSystemService"},
+			},
+			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// First named child is the source expression; we want
@@ -106,6 +129,14 @@ func registerAndroidSourceRules() {
 					}
 				}
 				if castType == "" || castType == expectedType {
+					return
+				}
+				// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+				var oracleLookup oracle.Lookup
+				if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+					oracleLookup = cr.Oracle()
+				}
+				if !serviceCastOracleConfirmed(oracleLookup, file, call) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,

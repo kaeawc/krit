@@ -393,6 +393,9 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_source_test.go
+  ServiceCast:
+    status: pending
+    reason: "Kotlin as_expression coverage only; Java cast-expression parity for getSystemService receivers still needs implementation."
   SetJavaScriptEnabled:
     status: supported
     fixtures:

@@ -2,6 +2,9 @@ package store
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -95,6 +98,37 @@ func TestInvalidateOnEmptyStore(t *testing.T) {
 	s := New(t.TempDir())
 	if err := s.Invalidate(); err != nil {
 		t.Fatalf("Invalidate on empty store: %v", err)
+	}
+}
+
+// TestInvalidateSurfacesRemoveErrors guards against the regression where
+// os.Remove failures inside the walk callback were swallowed, causing
+// Invalidate to report success while leaving stale entries on disk.
+func TestInvalidateSurfacesRemoveErrors(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permission semantics differ on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permission checks")
+	}
+
+	root := t.TempDir()
+	s := New(root)
+	key := makeKey(KindIncremental, 0xAB, 0x01)
+	if err := s.Put(key, []byte("payload")); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	// Strip write permission on the entry's parent so os.Remove fails with
+	// EACCES. We restore permissions in cleanup so TempDir can be removed.
+	entryDir := filepath.Dir(s.entryPath(key))
+	if err := os.Chmod(entryDir, 0o555); err != nil {
+		t.Fatalf("chmod readonly: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(entryDir, 0o755) })
+
+	if err := s.Invalidate(); err == nil {
+		t.Fatal("expected Invalidate to surface os.Remove error, got nil")
 	}
 }
 

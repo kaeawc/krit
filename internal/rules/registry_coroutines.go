@@ -46,6 +46,11 @@ func registerCoroutinesCollectInOnCreateWithoutLifecycle() {
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+		OracleCallTargets: &api.OracleCallTargetFilter{
+			CalleeNames: []string{"collect"},
+		},
+		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			navExpr, _ := flatCallExpressionParts(file, idx)
@@ -59,10 +64,52 @@ func registerCoroutinesCollectInOnCreateWithoutLifecycle() {
 			if hasAncestorCallNamedFlat(file, idx, "repeatOnLifecycle") {
 				return
 			}
+			// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+			var oracleLookup oracle.Lookup
+			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+				oracleLookup = cr.Oracle()
+			}
+			if !collectInOnCreateOracleConfirmed(oracleLookup, file, idx) {
+				return
+			}
 			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 				"Flow.collect inside onCreate/onStart/onViewCreated should be wrapped in repeatOnLifecycle to stop collecting when the lifecycle is stopped.")
 		},
 	})
+}
+
+// collectInOnCreateOracleConfirmed accepts the call only when the
+// oracle has no opinion or it resolves the `collect` callee to a
+// real Flow-ish callable. The token match alone fires on any
+// `something.collect { ... }` (e.g. project-local collect on a
+// List), which the oracle gate filters out.
+func collectInOnCreateOracleConfirmed(lookup oracle.Lookup, file *scanner.File, idx uint32) bool {
+	if lookup == nil {
+		return true
+	}
+	target := oracleLookupCallTargetFlat(lookup, file, idx)
+	if target == "" {
+		return true
+	}
+	for _, prefix := range collectInOnCreateFlowReceivers {
+		if strings.HasPrefix(target, prefix+".") || target == prefix+".collect" {
+			return true
+		}
+	}
+	return false
+}
+
+// collectInOnCreateFlowReceivers are the Flow-family receivers whose
+// `collect` extension the rule cares about. Project-local `collect`
+// methods on unrelated types resolve to a different FQN and are
+// filtered out.
+var collectInOnCreateFlowReceivers = []string{
+	"kotlinx.coroutines.flow.Flow",
+	"kotlinx.coroutines.flow.FlowKt",
+	"kotlinx.coroutines.flow.SharedFlow",
+	"kotlinx.coroutines.flow.StateFlow",
+	"kotlinx.coroutines.flow.MutableSharedFlow",
+	"kotlinx.coroutines.flow.MutableStateFlow",
 }
 
 func registerCoroutinesGlobalCoroutineUsage() {

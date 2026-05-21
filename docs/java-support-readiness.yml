@@ -159,6 +159,9 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_correctness_test.go
+  CollectInOnCreateWithoutLifecycle:
+    status: not-applicable
+    reason: "Targets Kotlin coroutines `Flow.collect` calls in Android lifecycle callbacks; Java lifecycle code doesn't use the Kotlin Flow API."
   CommitPrefEdits:
     status: supported
     fixtures:

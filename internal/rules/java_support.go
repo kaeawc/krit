@@ -69,6 +69,7 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"BroadcastReceiverExportedFlagMissing": {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_security_test.go"}},
 		"BufferedReadWithoutBuffer":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/resource_cost_test.go"}},
 		"CheckResult":                          {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_correctness_test.go"}},
+		"CollectInOnCreateWithoutLifecycle":    {Status: api.LanguageSupportNotApplicable, Reason: "Targets Kotlin coroutines `Flow.collect` calls in Android lifecycle callbacks; Java lifecycle code doesn't use the Kotlin Flow API."},
 		"CommitPrefEdits":                      {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_correctness_test.go"}},
 		"CommitTransaction":                    {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_correctness_test.go"}},
 		"CursorLoopWithColumnIndexInLoop":      {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/resource_cost_test.go"}},

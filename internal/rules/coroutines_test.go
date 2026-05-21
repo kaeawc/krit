@@ -100,6 +100,81 @@ class ExampleActivity {
 	}
 }
 
+// Oracle resolves `collect` to a non-Flow callable → suppressed.
+func TestCollectInOnCreateWithoutLifecycle_OracleSuppressesNonFlowCollect(t *testing.T) {
+	findings := runCollectInOnCreateWithCallTarget(t, `
+package test
+class ExampleActivity {
+    fun onCreate() {
+        items.collect { render(it) }
+    }
+}
+`, "items.collect", "com.acme.local.Collector.collect")
+	if len(findings) != 0 {
+		t.Fatalf("expected oracle to suppress non-Flow collect, got %d: %v", len(findings), findings)
+	}
+}
+
+// Oracle confirms Flow.collect → fires.
+func TestCollectInOnCreateWithoutLifecycle_OracleConfirmsFlowCollect(t *testing.T) {
+	findings := runCollectInOnCreateWithCallTarget(t, `
+package test
+class ExampleActivity {
+    fun onCreate() {
+        vm.state.collect { render(it) }
+    }
+}
+`, "vm.state.collect", "kotlinx.coroutines.flow.FlowKt.collect")
+	if len(findings) != 1 {
+		t.Fatalf("expected oracle-confirmed Flow.collect to fire, got %d: %v", len(findings), findings)
+	}
+}
+
+// Pins NeedsOracleCallTargets + OracleCallTargets filter on the rule.
+func TestCollectInOnCreateWithoutLifecycle_DeclaresOracleCallTargets(t *testing.T) {
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "CollectInOnCreateWithoutLifecycle" {
+			rule = r
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("rule not registered")
+	}
+	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
+		t.Errorf("missing NeedsOracleCallTargets: Needs=%b", rule.Needs)
+	}
+	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
+		t.Errorf("OracleCallTargets must list `collect`, got %+v", rule.OracleCallTargets)
+	}
+}
+
+func runCollectInOnCreateWithCallTarget(t *testing.T, code string, callText string, target string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = target
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range api.Registry {
+		if r.ID == "CollectInOnCreateWithoutLifecycle" {
+			d := rules.NewDispatcher([]*api.Rule{r}, composite)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule not found in registry")
+	return nil
+}
+
 // --- GlobalCoroutineUsage ---
 
 func TestGlobalCoroutineUsage_Positive(t *testing.T) {

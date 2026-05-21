@@ -268,20 +268,21 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 		return "", fmt.Errorf("create output dir: %w", err)
 	}
 
-	args := []string{
-		// G1 is the default GC on JDK 21; explicit here so downstream tuning
-		// is visible. String deduplication is a consistent 10-15% win on the
-		// FQN-heavy FIR state that krit-types builds. Large-project sweeps
-		// consistently show lower wall time and peak RSS with dedup enabled.
-		// Skipping -Xmx lets very large repos size the heap as needed; -Xms1g
-		// avoids early heap-grow pauses without over-committing.
-		"-XX:+UseG1GC",
-		"-XX:+UseStringDeduplication",
-		"-Xms1g",
+	// Match the daemon launch's arg shape so the one-shot JVM gets
+	// the same Leyden AOT / AppCDS startup-cache acceleration. On
+	// the first call this writes the per-jar `.aotconf` / `.jsa`
+	// under ~/.krit/cache/; subsequent one-shot calls reuse them.
+	// G1 + StringDeduplication + Xms1g come from buildJVMBaseArgs:
+	// G1 is the default GC on JDK 21+, dedup is a consistent
+	// 10-15% win on FQN-heavy FIR state, and -Xms1g avoids early
+	// heap-grow pauses without capping with -Xmx.
+	args := buildJVMBaseArgs()
+	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
+	args = append(args,
 		"-jar", jarPath,
 		"--sources", strings.Join(sourceDirs, ","),
 		"--output", outputPath,
-	}
+	)
 	extraJVMArgs := configuredExtraJVMArgs(opts)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgs)
 	recordKritTypesJVMArgs(tracker, extraJVMArgs)

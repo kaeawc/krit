@@ -74,3 +74,41 @@ func TestAppendLeydenAOTArgs_ReportsAddition(t *testing.T) {
 			addedAOT, added, args)
 	}
 }
+
+// TestLeydenAOTSkipSentinel pins the skip-on-failure contract:
+// once `buildLeydenAOTCache` has failed for a given (JDK version,
+// jar) pair, the sentinel short-circuits subsequent invocations so
+// we don't pay the ~30s failing-create cycle on every cold call.
+// JDK upgrades invalidate the sentinel by writing a new version
+// stamp.
+func TestLeydenAOTSkipSentinel(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	jar := writeTempJar(t)
+	skipPath, err := leydenAOTSkipPath(jar)
+	if err != nil {
+		t.Fatalf("leydenAOTSkipPath: %v", err)
+	}
+
+	if leydenAOTCreateSkipped(skipPath, 26) {
+		t.Fatal("skip reported true with no sentinel written")
+	}
+
+	markLeydenAOTCreateFailed(skipPath, 26, false)
+	if !leydenAOTCreateSkipped(skipPath, 26) {
+		t.Fatal("skip reported false after markLeydenAOTCreateFailed(26)")
+	}
+
+	// JDK version change invalidates the sentinel — retry on upgrade.
+	if leydenAOTCreateSkipped(skipPath, 27) {
+		t.Fatal("skip reported true for a different JDK version; sentinel must invalidate")
+	}
+
+	// Corrupt sentinel content is treated as "no skip" so a
+	// malformed file doesn't lock the user out of retrying.
+	if err := os.WriteFile(skipPath, []byte("not-a-number"), 0o644); err != nil {
+		t.Fatalf("write corrupt sentinel: %v", err)
+	}
+	if leydenAOTCreateSkipped(skipPath, 26) {
+		t.Fatal("skip reported true for corrupt sentinel; should be permissive")
+	}
+}

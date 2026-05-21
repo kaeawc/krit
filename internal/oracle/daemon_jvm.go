@@ -116,13 +116,19 @@ func jdkMajorVersion(javaPath string) int {
 
 // buildLeydenAOTCache runs the Leyden AOT create step: it compiles the AOT
 // cache from an existing configuration file and exits immediately without
-// running the application. Fast (seconds), must complete before daemon launch.
+// running the application. Fast (seconds) when it works; ~30s when it
+// hits the JDK 26 + Kotlin shadow JAR crash path described below.
 //
 // On JVM crashes during create (seen on some JDK 26 builds with Kotlin
 // shadow JARs that exercise IntelliJ verification paths) the JVM leaves
 // behind a zero-byte or partial cache file. Removing it here keeps the
 // next daemon launch from picking it up and aborting VM init with
 // "Unable to read generic CDS file map header from AOT cache".
+//
+// Repeated failures are absorbed by a sibling `.aot.skip` sentinel
+// — see leydenAOTSkipPath and the call site in appendLeydenAOTArgs.
+// Without that gate every cold krit run would pay the full ~30s
+// failing-create cost.
 func buildLeydenAOTCache(javaPath, jarPath, configPath, cachePath string, verbose bool) error {
 	args := []string{
 		"-XX:AOTMode=create",
@@ -147,6 +153,43 @@ func buildLeydenAOTCache(javaPath, jarPath, configPath, cachePath string, verbos
 		return fmt.Errorf("leyden AOT create: produced empty cache %s", cachePath)
 	}
 	return nil
+}
+
+// leydenAOTSkipPath returns the sentinel-file path that records a
+// past `buildLeydenAOTCache` failure for `jarPath`. Lives alongside
+// the `.aotconf` / `.aot` files keyed on the jar's content hash.
+// The sentinel is auto-invalidated when the JDK version changes
+// (encoded in the file body) so a JDK upgrade reattempts the build.
+func leydenAOTSkipPath(jarPath string) (string, error) {
+	return jarCachePath(jarPath, ".aot.skip")
+}
+
+// leydenAOTCreateSkipped reports whether a prior buildLeydenAOTCache
+// attempt failed against the current JDK + jar pair and we should
+// short-circuit straight to the AppCDS fallback instead of paying
+// the ~30s failing-create cost again. Returns false on any I/O
+// or parse error so a corrupt sentinel doesn't lock us out of
+// retrying.
+func leydenAOTCreateSkipped(skipPath string, jdkVersion int) bool {
+	data, err := os.ReadFile(skipPath)
+	if err != nil {
+		return false
+	}
+	recordedVersion, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return false
+	}
+	return recordedVersion == jdkVersion
+}
+
+// markLeydenAOTCreateFailed writes the sentinel so subsequent
+// invocations short-circuit. Failures are intentionally swallowed
+// — the worst case is we pay one more failing-create cycle next
+// run, which is the pre-sentinel behavior anyway.
+func markLeydenAOTCreateFailed(skipPath string, jdkVersion int, verbose bool) {
+	if err := os.WriteFile(skipPath, []byte(strconv.Itoa(jdkVersion)), 0o644); err != nil && verbose {
+		reporter().Verbosef("verbose: Leyden AOT: failed to write skip sentinel %s: %v\n", skipPath, err)
+	}
 }
 
 // buildJVMBaseArgs returns the common JVM flags shared by all daemon launch paths.
@@ -231,6 +274,17 @@ func appendLeydenAOTArgs(args []string, javaPath, jarPath string, verbose bool) 
 		}
 	}
 	if _, statErr := os.Stat(leydenConfig); statErr == nil {
+		// Don't re-pay the ~30s failing-create cycle on every cold
+		// run — `.aot.skip` records "Leyden create failed against
+		// this JDK version on this jar; route straight to AppCDS".
+		skipPath, skipPathErr := leydenAOTSkipPath(jarPath)
+		jdkVersion := cachedJDKMajorVersion()
+		if skipPathErr == nil && leydenAOTCreateSkipped(skipPath, jdkVersion) {
+			if verbose {
+				reporter().Verbosef("verbose: Leyden AOT: skip sentinel set (JDK %d); falling back to AppCDS\n", jdkVersion)
+			}
+			return args, false
+		}
 		if err := buildLeydenAOTCache(javaPath, jarPath, leydenConfig, leydenCache, verbose); err == nil {
 			args = append(args, "-XX:AOTCache="+leydenCache)
 			if verbose {
@@ -239,6 +293,9 @@ func appendLeydenAOTArgs(args []string, javaPath, jarPath string, verbose bool) 
 			return args, true
 		} else if verbose {
 			reporter().Verbosef("verbose: Leyden AOT: cache build failed (%v), starting without AOT\n", err)
+		}
+		if skipPathErr == nil {
+			markLeydenAOTCreateFailed(skipPath, jdkVersion, verbose)
 		}
 		return args, false
 	}
@@ -266,7 +323,7 @@ func appendStartupCacheArgs(args []string, javaPath, jarPath string, verbose boo
 // removes. Keep in sync with the suffix arguments passed to jarCachePath
 // elsewhere in this file (cdsArchivePath, cracCheckpointPath,
 // aotConfigPath, aotCachePath).
-var jvmCacheSuffixes = []string{".jsa", ".crac", ".aotconf", ".aot"}
+var jvmCacheSuffixes = []string{".jsa", ".crac", ".aotconf", ".aot", ".aot.skip"}
 
 // purgeJVMCachesForJar deletes the AppCDS/CRaC/Leyden cache files keyed by
 // `jarPath`'s content hash. Used as a self-heal after the daemon hands us

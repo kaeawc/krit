@@ -571,16 +571,20 @@ func runKritTypesCached(
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	args := []string{
-		"-XX:+UseG1GC",
-		"-XX:+UseStringDeduplication",
-		"-Xms1g",
+	// Match the daemon launch's arg shape so the one-shot JVM gets
+	// the same Leyden AOT / AppCDS startup-cache acceleration. On
+	// the first call this writes the per-jar `.aotconf` / `.jsa`
+	// under ~/.krit/cache/; subsequent one-shot calls reuse them
+	// and cut JVM startup cost roughly in half.
+	args := buildJVMBaseArgs()
+	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
+	args = append(args,
 		"-jar", jarPath,
 		"--sources", strings.Join(sourceDirs, ","),
 		"--output", freshOutPath,
 		"--files", missListPath,
 		"--cache-deps-out", depsOutPath,
-	}
+	)
 	extraJVMArgs := configuredExtraJVMArgs(opts)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgs)
 	recordKritTypesJVMArgs(tracker, extraJVMArgs)

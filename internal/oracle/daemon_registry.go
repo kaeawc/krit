@@ -96,6 +96,20 @@ func hashSources(sourceDirs []string) string {
 	return hashutil.HashHex([]byte(strings.Join(sorted, "\n")))[:16]
 }
 
+// daemonRegistryKey identifies a daemon slot by jar identity AND
+// source-dir set, so a running krit-types daemon isn't reused
+// when a caller asks for krit-fir.
+func daemonRegistryKey(jarPath string, sourceDirs []string) string {
+	return jarTag(jarPath) + "-" + hashSources(sourceDirs)
+}
+
+func jarTag(jarPath string) string {
+	if jarPath == "" {
+		return "unknown"
+	}
+	return strings.TrimSuffix(strings.ToLower(filepath.Base(jarPath)), ".jar")
+}
+
 // pidFileInfo holds the contents of the PID file pair for one daemon.
 type pidFileInfo struct {
 	PID  int
@@ -323,12 +337,12 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 // for the given sourceDirs. Each repo has its own PID file under
 // ~/.krit/cache/daemons/{hash}.{pid,port}, so multiple daemons (one
 // per repo) can coexist under the same user cache hierarchy.
-func connectExistingDaemon(sourceDirs []string, verbose bool) (*Daemon, error) {
-	return connectExistingDaemonSlot(sourceDirs, verbose, 0)
+func connectExistingDaemon(jarPath string, sourceDirs []string, verbose bool) (*Daemon, error) {
+	return connectExistingDaemonSlot(jarPath, sourceDirs, verbose, 0)
 }
 
-func connectExistingDaemonSlot(sourceDirs []string, verbose bool, slot int) (*Daemon, error) {
-	hash := hashSources(sourceDirs)
+func connectExistingDaemonSlot(jarPath string, sourceDirs []string, verbose bool, slot int) (*Daemon, error) {
+	hash := daemonRegistryKey(jarPath, sourceDirs)
 	info, err := readPIDFileSlot(hash, slot)
 	if err != nil {
 		return nil, fmt.Errorf("no existing daemon: %w", err)
@@ -375,14 +389,15 @@ func connectExistingDaemonSlot(sourceDirs []string, verbose bool, slot int) (*Da
 }
 
 // cleanStaleDaemon detects and cleans up a stale daemon process for
-// the given sourceDirs. Only touches the PID file entries belonging
-// to this repo's hash — other repos' daemons are left alone.
-func cleanStaleDaemon(sourceDirs []string, verbose bool) {
-	cleanStaleDaemonSlot(sourceDirs, verbose, 0)
+// the given (jarPath, sourceDirs). Only touches the PID file entries
+// belonging to this (jar, repo) pair — other registry entries are
+// left alone.
+func cleanStaleDaemon(jarPath string, sourceDirs []string, verbose bool) {
+	cleanStaleDaemonSlot(jarPath, sourceDirs, verbose, 0)
 }
 
-func cleanStaleDaemonSlot(sourceDirs []string, verbose bool, slot int) {
-	hash := hashSources(sourceDirs)
+func cleanStaleDaemonSlot(jarPath string, sourceDirs []string, verbose bool, slot int) {
+	hash := daemonRegistryKey(jarPath, sourceDirs)
 	info, err := readPIDFileSlot(hash, slot)
 	if err != nil {
 		// No PID file or unreadable — nothing to clean
@@ -508,7 +523,7 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 		reporter().Verbosef("verbose: Daemon started on port %d (PID %d)\n", ready.Port, cmd.Process.Pid)
 	}
 
-	srcHash := hashSources(sourceDirs)
+	srcHash := daemonRegistryKey(jarPath, sourceDirs)
 
 	if err := writePIDFileSlot(cmd.Process.Pid, ready.Port, srcHash, slot); err != nil {
 		cmd.Process.Kill()
@@ -551,16 +566,19 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 // existing one is unresponsive), cleanStaleDaemon wipes just this
 // repo's entry and StartDaemonWithPort starts a fresh one.
 func ConnectOrStartDaemon(jarPath string, sourceDirs []string, classpath []string, verbose bool) (*Daemon, error) {
-	// Try connecting to an existing daemon for this source tree.
-	if d, err := connectExistingDaemon(sourceDirs, verbose); err == nil {
+	// Try connecting to an existing daemon for this (jar, source tree)
+	// pair. The jar is part of the registry key so a running
+	// krit-types daemon isn't reused when the caller asks for
+	// krit-fir (or vice versa).
+	if d, err := connectExistingDaemon(jarPath, sourceDirs, verbose); err == nil {
 		return d, nil
 	}
 
-	// Clean up this repo's stale daemon entry (if any). Leaves other
-	// repos' entries under daemons/ untouched.
-	cleanStaleDaemon(sourceDirs, verbose)
+	// Clean up this (jar, repo)'s stale daemon entry (if any). Other
+	// registry entries are left alone.
+	cleanStaleDaemon(jarPath, sourceDirs, verbose)
 
-	// Start a new persistent daemon for this source tree.
+	// Start a new persistent daemon.
 	d, err := StartDaemonWithPort(jarPath, sourceDirs, classpath, verbose)
 	if err != nil {
 		return nil, fmt.Errorf("start persistent daemon: %w", err)

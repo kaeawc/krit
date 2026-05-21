@@ -494,19 +494,29 @@ func TestHashSources_LengthIs16(t *testing.T) {
 }
 
 func TestDaemon_MatchesRepo_SameHash(t *testing.T) {
-	d := &Daemon{sourcesHash: hashSources([]string{"/repo/a", "/repo/b"})}
-	if !d.MatchesRepo([]string{"/repo/a", "/repo/b"}) {
-		t.Error("MatchesRepo should return true for identical sources")
+	d := &Daemon{sourcesHash: daemonRegistryKey(testJarPath, []string{"/repo/a", "/repo/b"})}
+	if !d.MatchesRepo(testJarPath, []string{"/repo/a", "/repo/b"}) {
+		t.Error("MatchesRepo should return true for identical (jar, sources)")
 	}
-	if !d.MatchesRepo([]string{"/repo/b", "/repo/a"}) {
+	if !d.MatchesRepo(testJarPath, []string{"/repo/b", "/repo/a"}) {
 		t.Error("MatchesRepo should return true for reordered sources")
 	}
 }
 
 func TestDaemon_MatchesRepo_DifferentHash(t *testing.T) {
-	d := &Daemon{sourcesHash: hashSources([]string{"/repo/a"})}
-	if d.MatchesRepo([]string{"/repo/b"}) {
+	d := &Daemon{sourcesHash: daemonRegistryKey(testJarPath, []string{"/repo/a"})}
+	if d.MatchesRepo(testJarPath, []string{"/repo/b"}) {
 		t.Error("MatchesRepo should return false for different sources")
+	}
+}
+
+func TestDaemon_MatchesRepo_DifferentJar(t *testing.T) {
+	// A daemon registered for krit-types.jar should not match a
+	// caller asking for krit-fir.jar even if the sourceDirs are
+	// identical — this is the bug the daemon-jar-key change fixes.
+	d := &Daemon{sourcesHash: daemonRegistryKey("/path/krit-types.jar", testSourceDirs)}
+	if d.MatchesRepo("/path/krit-fir.jar", testSourceDirs) {
+		t.Error("MatchesRepo should return false when jar identity differs")
 	}
 }
 
@@ -514,7 +524,7 @@ func TestDaemon_MatchesRepo_EmptyHash(t *testing.T) {
 	// An older daemon that didn't write daemon.sources has an empty
 	// sourcesHash. MatchesRepo returns false so callers fall back.
 	d := &Daemon{sourcesHash: ""}
-	if d.MatchesRepo([]string{"/repo/a"}) {
+	if d.MatchesRepo(testJarPath, []string{"/repo/a"}) {
 		t.Error("MatchesRepo should return false when sourcesHash is empty")
 	}
 }
@@ -1352,7 +1362,7 @@ func TestConnectExistingDaemon_NoFiles(t *testing.T) {
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
-	_, err := connectExistingDaemon(testSourceDirs, false)
+	_, err := connectExistingDaemon(testJarPath, testSourceDirs, false)
 	if err == nil {
 		t.Fatal("expected error when no PID file exists")
 	}
@@ -1368,10 +1378,10 @@ func TestConnectExistingDaemon_DeadPID(t *testing.T) {
 	// test repo's sources hash
 	daemonsDir := filepath.Join(tmpHome, ".krit", "cache", "daemons")
 	os.MkdirAll(daemonsDir, 0755)
-	os.WriteFile(filepath.Join(daemonsDir, testSourcesHash+".pid"), []byte("99999999\n"), 0644)
-	os.WriteFile(filepath.Join(daemonsDir, testSourcesHash+".port"), []byte("12345\n"), 0644)
+	os.WriteFile(filepath.Join(daemonsDir, testDaemonKey+".pid"), []byte("99999999\n"), 0644)
+	os.WriteFile(filepath.Join(daemonsDir, testDaemonKey+".port"), []byte("12345\n"), 0644)
 
-	_, err := connectExistingDaemon(testSourceDirs, false)
+	_, err := connectExistingDaemon(testJarPath, testSourceDirs, false)
 	if err == nil {
 		t.Fatal("expected error for dead PID")
 	}
@@ -1387,7 +1397,7 @@ func TestCleanStaleDaemon_NoFiles(t *testing.T) {
 	defer os.Setenv("HOME", origHome)
 
 	// Should not panic with no PID file
-	cleanStaleDaemon(testSourceDirs, false)
+	cleanStaleDaemon(testJarPath, testSourceDirs, false)
 }
 
 func TestCleanStaleDaemon_DeadPID(t *testing.T) {
@@ -1398,12 +1408,12 @@ func TestCleanStaleDaemon_DeadPID(t *testing.T) {
 
 	daemonsDir := filepath.Join(tmpHome, ".krit", "cache", "daemons")
 	os.MkdirAll(daemonsDir, 0755)
-	pidFile := filepath.Join(daemonsDir, testSourcesHash+".pid")
-	portFile := filepath.Join(daemonsDir, testSourcesHash+".port")
+	pidFile := filepath.Join(daemonsDir, testDaemonKey+".pid")
+	portFile := filepath.Join(daemonsDir, testDaemonKey+".port")
 	os.WriteFile(pidFile, []byte("99999999\n"), 0644)
 	os.WriteFile(portFile, []byte("12345\n"), 0644)
 
-	cleanStaleDaemon(testSourceDirs, false)
+	cleanStaleDaemon(testJarPath, testSourceDirs, false)
 
 	// PID files should be removed
 	if _, err := os.Stat(pidFile); !os.IsNotExist(err) {

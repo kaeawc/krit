@@ -51,21 +51,22 @@ type Daemon struct {
 var daemonNow = time.Now
 
 // MatchesRepo returns true if this Daemon was started for (or is
-// currently connected to) a daemon whose sourceDirs fingerprint
-// matches the given set. Used by runMissAnalysis to reject daemon
-// reuse across krit invocations that target different repos — when
-// the fingerprints disagree the caller falls back to one-shot for
-// the current invocation rather than trusting a daemon whose
-// sourceModule walks a different file set.
+// currently connected to) a daemon whose (jar, sourceDirs)
+// fingerprint matches the given pair. Used by runMissAnalysis to
+// reject daemon reuse across krit invocations that target different
+// repos OR different backend jars — when the fingerprints disagree
+// the caller falls back to one-shot rather than trusting a daemon
+// whose source-module walks a different file set or whose jar
+// produces different analyze semantics.
 //
 // An empty sourcesHash (older daemon that predates Phase 3 sources
 // tagging) always returns false so callers conservatively fall back.
 // The old daemon keeps running for its original consumer.
-func (d *Daemon) MatchesRepo(sourceDirs []string) bool {
+func (d *Daemon) MatchesRepo(jarPath string, sourceDirs []string) bool {
 	if d.sourcesHash == "" {
 		return false
 	}
-	return d.sourcesHash == hashSources(sourceDirs)
+	return d.sourcesHash == daemonRegistryKey(jarPath, sourceDirs)
 }
 
 // daemonRequest is the JSON request sent to the daemon process.

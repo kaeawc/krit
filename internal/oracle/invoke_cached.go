@@ -77,12 +77,10 @@ func excludedByDefault(path string) bool {
 	return false
 }
 
-// CollectKtFiles walks the given source directories and returns absolute
-// paths of all .kt files. Mirrors the directory pruning FindSourceDirs
-// does (build/.gradle/.git/node_modules) so the Go-side enumeration
-// matches what the JVM side will actually see. Also applies the krit-types
-// default exclude patterns so excluded files don't leak into the cache
-// miss list.
+// CollectKtFiles walks the given source directories and returns
+// absolute paths of all .kt files, matching what the JVM-side
+// enumeration sees (DefaultPrunedDir + gitignore + krit-types
+// default exclude patterns, plus testData/test-resources).
 func CollectKtFiles(sourceDirs []string) ([]string, error) {
 	seen := map[string]bool{}
 	var out []string
@@ -99,7 +97,7 @@ func CollectKtFiles(sourceDirs []string) ([]string, error) {
 			}
 			if info.IsDir() {
 				base := filepath.Base(p)
-				if base == ".gradle" || base == ".git" || base == "node_modules" || matcher.Ignored(p, true) {
+				if fileignore.DefaultPrunedDir(base) || matcher.Ignored(p, true) {
 					return filepath.SkipDir
 				}
 				if base == "testData" || base == "test-resources" {

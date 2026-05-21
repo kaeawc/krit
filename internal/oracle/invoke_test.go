@@ -135,9 +135,17 @@ func TestFindSourceDirs_EmptyDir(t *testing.T) {
 	}
 }
 
-func TestFindSourceDirs_SkipsBuildDir(t *testing.T) {
+func TestFindSourceDirs_SkipsBuildDirViaGitignore(t *testing.T) {
 	tmp := t.TempDir()
-	// Put kotlin dir under build/ -- should be skipped
+	// `build/` is no longer in DefaultPrunedDir — it's pruned via
+	// the project's .gitignore, which conventional Kotlin/Gradle
+	// projects always include. Mirror that here.
+	if err := os.Mkdir(filepath.Join(tmp, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, ".gitignore"), []byte("build/\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	kotlinDir := filepath.Join(tmp, "build", "src", "main", "kotlin")
 	if err := os.MkdirAll(kotlinDir, 0755); err != nil {
 		t.Fatal(err)
@@ -145,7 +153,7 @@ func TestFindSourceDirs_SkipsBuildDir(t *testing.T) {
 
 	dirs := FindSourceDirs([]string{tmp})
 	if len(dirs) != 0 {
-		t.Errorf("expected 0 source dirs (build should be skipped), got %d: %v", len(dirs), dirs)
+		t.Errorf("expected 0 source dirs (gitignored build should be skipped), got %d: %v", len(dirs), dirs)
 	}
 }
 

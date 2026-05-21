@@ -289,15 +289,19 @@ func TestFilewalkCache_NoCacheDir(t *testing.T) {
 	}
 }
 
-// TestFilewalkCache_PrunedDirs verifies that build/, .git/, and other
-// DefaultPrunedDir entries are never collected.
+// TestFilewalkCache_PrunedDirs verifies that DefaultPrunedDir entries
+// are never collected. `build/` and similar project-output dirs are
+// expected to be pruned via the project's .gitignore matcher rather
+// than the hard-coded list — separate coverage lives in the
+// fileignore matcher tests.
 func TestFilewalkCache_PrunedDirs(t *testing.T) {
 	root := t.TempDir()
 	cache := t.TempDir()
 
 	writeFile(t, filepath.Join(root, "src", "Main.kt"), "")
-	writeFile(t, filepath.Join(root, "build", "Main.kt"), "")   // pruned
 	writeFile(t, filepath.Join(root, ".gradle", "Main.kt"), "") // pruned
+	writeFile(t, filepath.Join(root, ".claude", "Main.kt"), "") // pruned
+	writeFile(t, filepath.Join(root, ".grit", "Main.kt"), "")   // pruned
 
 	files, err := CollectFilesCached([]string{root}, ktFilters, cache)
 	if err != nil {

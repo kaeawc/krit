@@ -8,11 +8,18 @@ import (
 	ignore "github.com/sabhiram/go-gitignore"
 )
 
-// DefaultPrunedDir reports Krit's built-in source-discovery skips.
+// DefaultPrunedDir reports Krit's built-in source-discovery skips:
+// caches and metadata that `.gitignore` can't be relied on to
+// cover (and `.git` itself, which can't be in its own gitignore).
+// Project-output dirs like `build`, `node_modules`, `target`, and
+// `vendor` are pruned by the gitignore matcher instead, since
+// conventional projects already exclude them there.
 func DefaultPrunedDir(base string) bool {
 	switch base {
-	case ".git", ".krit", ".krit-cache", ".krit-types", "build", "node_modules", ".idea", ".gradle", "out", ".kotlin",
-		"target", "third-party", "third_party", "vendor", "external":
+	case ".git",
+		".krit", ".krit-cache", ".krit-types",
+		".gradle", ".idea", ".kotlin",
+		".claude", ".codex", ".grit":
 		return true
 	}
 	return false

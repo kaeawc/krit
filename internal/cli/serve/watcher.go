@@ -441,11 +441,16 @@ func isLibraryConfigPath(p string) bool {
 	return strings.HasSuffix(base, ".versions.toml")
 }
 
-// isPrunedDir lists directory basenames the watcher refuses to
-// recurse into. Keep aligned with internal/fileignore.DefaultPrunedDir.
+// isPrunedDir is a superset of fileignore.DefaultPrunedDir plus
+// `build`/`node_modules` — those project-output dirs would
+// otherwise flood the watcher with fsnotify events even when
+// gitignore covers them.
 func isPrunedDir(name string) bool {
 	switch name {
-	case ".git", "build", ".gradle", "node_modules", ".idea", ".krit":
+	case ".git", "build", "node_modules",
+		".krit", ".krit-cache", ".krit-types",
+		".gradle", ".idea", ".kotlin",
+		".claude", ".codex", ".grit":
 		return true
 	}
 	return false

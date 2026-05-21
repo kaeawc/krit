@@ -7,13 +7,28 @@ import (
 )
 
 func TestDefaultPrunedDir(t *testing.T) {
-	for _, name := range []string{".git", "build", "node_modules", ".gradle", "target", "vendor"} {
+	// Hard-coded prune list: caches/metadata that .gitignore can't
+	// be relied on to cover.
+	pruned := []string{
+		".git",
+		".krit", ".krit-cache", ".krit-types",
+		".gradle", ".idea", ".kotlin",
+		".claude", ".codex", ".grit",
+	}
+	for _, name := range pruned {
 		if !DefaultPrunedDir(name) {
 			t.Fatalf("DefaultPrunedDir(%q) = false, want true", name)
 		}
 	}
-	if DefaultPrunedDir("src") {
-		t.Fatal("DefaultPrunedDir(\"src\") = true, want false")
+	// Project-output / dep dirs are deliberately NOT in the hard-
+	// coded list — projects that ignore them in `.gitignore` (the
+	// overwhelming convention) get them pruned via the matcher.
+	// Hard-coding them here would over-prune projects that
+	// intentionally check those names in.
+	for _, name := range []string{"src", "build", "node_modules", "target", "vendor", "out", "external"} {
+		if DefaultPrunedDir(name) {
+			t.Fatalf("DefaultPrunedDir(%q) = true, want false", name)
+		}
 	}
 }
 

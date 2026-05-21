@@ -54,13 +54,17 @@ func discoverGradleClasspath(root string) []string {
 	return out
 }
 
+// VCS/IDE/build caches plus agent caches whose nested checkouts
+// carry their own build.gradle files that would double-count
+// dependencies.
 func shouldSkipClasspathDir(name string) bool {
 	switch name {
-	case ".git", ".gradle", "build", ".idea", "node_modules":
+	case ".git", ".gradle", "build", ".idea", "node_modules",
+		".krit", ".krit-cache", ".krit-types", ".kotlin",
+		".claude", ".codex", ".grit":
 		return true
-	default:
-		return false
 	}
+	return false
 }
 
 func gradleCacheJARs(dep android.Dependency) []string {

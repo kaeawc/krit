@@ -70,7 +70,17 @@ func RulesNeedParsedSource(activeRules []*api.Rule, allowCrossFileWithoutParsed 
 	}
 	if (!allowCrossFileWithoutParsed && caps.Has(api.NeedsParsedFiles)) ||
 		(!allowCrossFileWithoutParsed && caps.Has(api.NeedsCrossFile)) ||
-		caps.Has(api.NeedsAggregate) {
+		caps.Has(api.NeedsAggregate) ||
+		caps.Has(api.NeedsModuleIndex) {
+		// NeedsModuleIndex rules (ModuleDeadCode, PackageDependencyCycle,
+		// VersionCatalogUnused, ...) build their per-module index from
+		// parseResult.SourceFiles(). On a warm rerun with no source
+		// changes the cache-miss-only parse path leaves SourceFiles
+		// empty, the per-module ModuleFiles map ends up empty, and the
+		// module-aware phase silently emits zero findings even though
+		// the cached global code index still holds every symbol. Treat
+		// module-aware rules as needing parsed source so the warm path
+		// re-parses on rerun.
 		return true
 	}
 	return api.NeedsJavaFacts(activeRules)

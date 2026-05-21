@@ -131,6 +131,7 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"ServiceCast":                          {Status: api.LanguageSupportPending, Reason: "Kotlin as_expression coverage only; Java cast-expression parity for getSystemService receivers still needs implementation."},
 		"SetJavaScriptEnabled":                 {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_base_test.go"}},
 		"SetTextI18n":                          {Status: api.LanguageSupportPending, Reason: "Kotlin call_expression coverage only; Java method_invocation parity for TextView/Button receivers still needs implementation."},
+		"ShowToast":                            {Status: api.LanguageSupportPending, Reason: "Kotlin call_expression coverage only; Java method_invocation parity for Toast.makeText receivers still needs implementation."},
 		"SimpleDateFormat":                     {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_correctness_test.go"}},
 		"SpacingAfterPackageAndImports":        {Status: api.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/fixable/per-rule/SpacingAfterPackageAndImports.java"}},
 		"StaticIv":                             {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_security_test.go"}},

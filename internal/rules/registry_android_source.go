@@ -25,6 +25,21 @@ func serviceCastOracleConfirmed(lookup oracle.Lookup, file *scanner.File, call u
 		target == "androidx.core.content.ContextCompat.getSystemService"
 }
 
+// showToastOracleConfirmed accepts when the oracle is silent or
+// resolves `Toast.makeText(...)` to `android.widget.Toast.makeText`.
+// A project-local `Toast` class with a `makeText` factory resolves
+// to a different FQN and is filtered out.
+func showToastOracleConfirmed(lookup oracle.Lookup, file *scanner.File, idx uint32) bool {
+	if lookup == nil {
+		return true
+	}
+	target := oracleLookupCallTargetFlat(lookup, file, idx)
+	if target == "" {
+		return true
+	}
+	return target == "android.widget.Toast.makeText"
+}
+
 func registerAndroidSourceRules() {
 
 	// --- from android_source.go ---
@@ -154,6 +169,11 @@ func registerAndroidSourceRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.85, Implementation: r,
+			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			OracleCallTargets: &api.OracleCallTargetFilter{
+				CalleeNames: []string{"makeText"},
+			},
+			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "makeText" {
@@ -163,6 +183,14 @@ func registerAndroidSourceRules() {
 					return
 				}
 				if toastMakeTextIsShown(file, idx) {
+					return
+				}
+				// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+				var oracleLookup oracle.Lookup
+				if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+					oracleLookup = cr.Oracle()
+				}
+				if !showToastOracleConfirmed(oracleLookup, file, idx) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,

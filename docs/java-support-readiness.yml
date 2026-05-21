@@ -403,6 +403,9 @@ rules:
   SetTextI18n:
     status: pending
     reason: Kotlin call_expression coverage only; Java method_invocation parity for TextView/Button receivers still needs implementation.
+  ShowToast:
+    status: pending
+    reason: Kotlin call_expression coverage only; Java method_invocation parity for Toast.makeText receivers still needs implementation.
   SimpleDateFormat:
     status: supported
     fixtures:

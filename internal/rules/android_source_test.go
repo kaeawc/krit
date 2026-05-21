@@ -239,6 +239,80 @@ class Foo {
 	})
 }
 
+// Oracle resolves `Toast.makeText` to a non-Android callable → suppressed.
+func TestShowToast_OracleSuppressesNonAndroidToast(t *testing.T) {
+	findings := runShowToastWithCallTarget(t, `
+package test
+class Foo {
+    fun notify() {
+        Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)
+    }
+}
+`, "Toast.makeText", "com.acme.local.Toast.makeText")
+	if len(findings) != 0 {
+		t.Fatalf("expected oracle to suppress non-Android Toast.makeText, got %d: %v", len(findings), findings)
+	}
+}
+
+// Oracle confirms android.widget.Toast.makeText → fires.
+func TestShowToast_OracleConfirmsAndroidToast(t *testing.T) {
+	findings := runShowToastWithCallTarget(t, `
+package test
+class Foo {
+    fun notify() {
+        Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)
+    }
+}
+`, "Toast.makeText", "android.widget.Toast.makeText")
+	if len(findings) != 1 {
+		t.Fatalf("expected oracle-confirmed Toast.makeText to fire, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestShowToast_DeclaresOracleCallTargets(t *testing.T) {
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "ShowToast" {
+			rule = r
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("ShowToast rule not registered")
+	}
+	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
+		t.Errorf("missing NeedsOracleCallTargets: Needs=%b", rule.Needs)
+	}
+	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
+		t.Errorf("OracleCallTargets must list `makeText`, got %+v", rule.OracleCallTargets)
+	}
+}
+
+func runShowToastWithCallTarget(t *testing.T, code string, callText string, target string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = target
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range api.Registry {
+		if r.ID == "ShowToast" {
+			d := rules.NewDispatcher([]*api.Rule{r}, composite)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule not found in registry")
+	return nil
+}
+
 func TestSparseArray(t *testing.T) {
 	t.Run("flags HashMap with Int key", func(t *testing.T) {
 		findings := runRuleByName(t, "UseSparseArrays", `

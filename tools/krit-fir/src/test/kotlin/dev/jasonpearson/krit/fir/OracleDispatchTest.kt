@@ -160,4 +160,57 @@ class OracleDispatchTest {
         val result = handleRequestLine(request, session, startTime = 0L)
         assertTrue(result is RequestResult.ParseError, "expected ParseError, got $result")
     }
+
+    @Test
+    fun emptyRequestSourceDirsReusesExistingSession() {
+        // Regression for the warm-rerun session-rebuild storm: the
+        // oracle.Daemon path sends analyzeWithDeps with `files` only;
+        // it never re-ships `sourceDirs` (set once at daemon launch
+        // via `--sources …`). Before this fix, comparing an empty
+        // request.sourceDirs to the session's real source roots
+        // mismatched on every call, triggering a full K2 FIR session
+        // rebuild per request (10-40 s on a 16 k-file repo).
+        val sessionWithSources = AnalysisSession(listOf("/repo/src/main"), listOf("/lib.jar"))
+        val request = CheckRequest(
+            id = 1,
+            command = "analyzeWithDeps",
+            sourceDirs = emptyList(),
+            classpath = emptyList(),
+        )
+        assertFalse(
+            sessionNeedsRebuild(request, sessionWithSources),
+            "empty request.sourceDirs must reuse the existing session — otherwise every persistent-daemon call rebuilds",
+        )
+    }
+
+    @Test
+    fun nonEmptyDifferentSourceDirsStillForcesRebuild() {
+        // Symmetric guard: an explicit sourceDirs that differs from
+        // the session is still a real retarget, must still rebuild.
+        val sessionWithSources = AnalysisSession(listOf("/repo/src/main"), emptyList())
+        val request = CheckRequest(
+            id = 1,
+            command = "analyzeWithDeps",
+            sourceDirs = listOf("/different/src"),
+            classpath = emptyList(),
+        )
+        assertTrue(
+            sessionNeedsRebuild(request, sessionWithSources),
+            "explicit sourceDirs mismatch must rebuild — otherwise retargeting silently no-ops",
+        )
+    }
+
+    @Test
+    fun matchingExplicitSourceDirsReusesSession() {
+        // Same-sourceDirs request must NOT rebuild — that case predates
+        // the empty-fallback change and should still hold.
+        val sessionWithSources = AnalysisSession(listOf("/repo/src/main"), emptyList())
+        val request = CheckRequest(
+            id = 1,
+            command = "analyzeWithDeps",
+            sourceDirs = listOf("/repo/src/main"),
+            classpath = emptyList(),
+        )
+        assertFalse(sessionNeedsRebuild(request, sessionWithSources))
+    }
 }

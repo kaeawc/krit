@@ -209,8 +209,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
     return try {
         when (request.command) {
             "check" -> {
-                val needsRebuild =
-                    request.sourceDirs != session.sourceDirs || request.classpath != session.classpath
+                val needsRebuild = sessionNeedsRebuild(request, session)
                 val activeSession = if (needsRebuild) {
                     session.dispose()
                     AnalysisSession(request.sourceDirs, request.classpath)
@@ -241,8 +240,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
             }
             "shutdown" -> RequestResult.Shutdown("""{"id":${request.id},"result":{"ok":true}}""")
             "analyze", "analyzeAll", "analyzeFiles", "analyzeWithDeps" -> {
-                val needsRebuild =
-                    request.sourceDirs != session.sourceDirs || request.classpath != session.classpath
+                val needsRebuild = sessionNeedsRebuild(request, session)
                 val activeSession = if (needsRebuild) {
                     session.dispose()
                     AnalysisSession(request.sourceDirs, request.classpath)
@@ -281,8 +279,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 RequestResult.Response(response)
             }
             "analyzeFile" -> {
-                val needsRebuild =
-                    request.sourceDirs != session.sourceDirs || request.classpath != session.classpath
+                val needsRebuild = sessionNeedsRebuild(request, session)
                 val activeSession = if (needsRebuild) {
                     session.dispose()
                     AnalysisSession(request.sourceDirs, request.classpath)
@@ -302,6 +299,28 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
         System.err.println("Error handling ${request.command}: ${e.message}")
         RequestResult.Response("""{"id":${request.id},"error":"${escJson(e.message ?: "unknown")}"}""")
     }
+}
+
+/**
+ * Decide whether the current request needs a full session rebuild.
+ *
+ * A request explicitly carrying `sourceDirs` / `classpath` means the
+ * caller wants to retarget the analysis surface, so we honor it via
+ * rebuild. But the persistent daemon path used by `internal/oracle/
+ * daemon.go` ships `analyzeWithDeps` requests with neither field
+ * populated — `sourceDirs` was set once when the daemon launched
+ * (`--sources …`), and subsequent miss requests only carry the file
+ * list. Comparing an empty `request.sourceDirs` to the session's
+ * real source roots would mismatch every time, triggering a full
+ * K2 FIR session rebuild per request (10-40 s on a 16 k-file repo).
+ *
+ * Empty fields therefore mean "reuse the current session". A
+ * non-empty difference is still a rebuild.
+ */
+internal fun sessionNeedsRebuild(request: CheckRequest, session: AnalysisSession): Boolean {
+    val sourceDirsMismatch = request.sourceDirs.isNotEmpty() && request.sourceDirs != session.sourceDirs
+    val classpathMismatch = request.classpath.isNotEmpty() && request.classpath != session.classpath
+    return sourceDirsMismatch || classpathMismatch
 }
 
 // ── Request model ─────────────────────────────────────────────────────────────

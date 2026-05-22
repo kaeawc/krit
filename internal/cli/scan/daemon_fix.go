@@ -43,12 +43,13 @@ func runDaemonFix(f *scanFlags, paths []string, res daemon.AnalyzeProjectResult)
 				Findings: *cols,
 			},
 		},
-		Apply:        *f.Fix && !*f.DryRun,
-		ApplyBinary:  *f.FixBinary,
-		Suffix:       *f.FixSuffix,
-		MaxFixLevel:  maxFixLevel,
-		DryRunBinary: *f.DryRun,
-		CountOnly:    *f.DryRun,
+		Apply:         *f.Fix && !*f.DryRun,
+		ApplyBinary:   *f.FixBinary,
+		Suffix:        *f.FixSuffix,
+		MaxFixLevel:   maxFixLevel,
+		DryRunBinary:  *f.DryRun,
+		CountOnly:     *f.DryRun,
+		OnlyFindingID: *f.FixFindingID,
 	})
 
 	printFixupResult(f, fixRes, start)

@@ -173,7 +173,7 @@ class KritJsonParserTest {
         assertEquals(2, actions.size)
         assertTrue(actions[0] is KritApplyFixesIntention)
         assertTrue(actions[1] is KritSuppressIntention)
-        assertEquals("Apply Krit cosmetic auto-fixes", actions[0].text)
+        assertEquals("Apply Krit cosmetic fix", actions[0].text)
     }
 
     @Test

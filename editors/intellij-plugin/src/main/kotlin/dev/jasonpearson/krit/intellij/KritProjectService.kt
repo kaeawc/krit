@@ -61,18 +61,18 @@ class KritProjectService(private val project: Project) : Disposable {
         return findingsByFile[canonicalPath(path)].orEmpty()
     }
 
-    fun applyFixes(fixLevel: String?) {
+    fun applyFix(fixLevel: String?, findingId: String) {
         executor.execute {
             if (project.isDisposed || !running.compareAndSet(false, true)) {
                 rerunAfterCurrent.set(true)
                 return@execute
             }
             try {
-                if (KritRunner.fixProject(project, fixLevel)) {
+                if (KritRunner.fixFinding(project, fixLevel, findingId)) {
                     refreshFindings()
                 }
             } catch (t: Throwable) {
-                log.warn("krit fix runner failed", t)
+                log.warn("krit per-finding fix runner failed", t)
             } finally {
                 running.set(false)
                 scheduleRequestedRerun()

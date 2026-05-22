@@ -29,6 +29,7 @@ type scanFlags struct {
 	Fix                      *bool
 	FixSuffix                *string
 	FixLevel                 *string
+	FixFindingID             *string
 	DryRun                   *bool
 	AllRules                 *bool
 	Experimental             *bool
@@ -136,6 +137,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.Fix = fs.Bool("fix", false, "Apply auto-fixes to files")
 	f.FixSuffix = fs.String("fix-suffix", "", "Write fixed files with this suffix instead of editing in place (e.g., '.new')")
 	f.FixLevel = fs.String("fix-level", "idiomatic", "Maximum fix level: cosmetic, idiomatic, semantic")
+	f.FixFindingID = fs.String("finding-id", "", "With --fix: restrict fix application to a single finding id (<rule>:<file>:<line>:<col>)")
 	f.DryRun = fs.Bool("dry-run", false, "Show what --fix would change without modifying files")
 	f.AllRules = fs.Bool("all-rules", false, "Enable all rules including opt-in")
 	f.Experimental = fs.Bool("experimental", false, "Enable rules whose Maturity is experimental (does not enable deprecated rules)")

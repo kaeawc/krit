@@ -77,21 +77,24 @@ object KritIntentions {
             return applicable.map { KritApplySuggestionIntention(finding.findingId, it) } + suppress
         }
         if (finding.fixable) {
-            return listOf(KritApplyFixesIntention(finding.fixLevel), suppress)
+            return listOf(KritApplyFixesIntention(finding.fixLevel, finding.findingId), suppress)
         }
         return listOf(suppress)
     }
 }
 
-class KritApplyFixesIntention(private val fixLevel: String?) : IntentionAction {
-    override fun getText(): String = KritFixLabels.applyFixesTitle(fixLevel)
+class KritApplyFixesIntention(
+    private val fixLevel: String?,
+    private val findingId: String,
+) : IntentionAction {
+    override fun getText(): String = KritFixLabels.applyFixTitle(fixLevel)
 
     override fun getFamilyName(): String = text
 
     override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?): Boolean = true
 
     override fun invoke(project: Project, editor: Editor?, file: PsiFile?) {
-        project.service<KritProjectService>().applyFixes(KritFixLabels.normalizeFixLevel(fixLevel))
+        project.service<KritProjectService>().applyFix(KritFixLabels.normalizeFixLevel(fixLevel), findingId)
     }
 
     override fun startInWriteAction(): Boolean = false

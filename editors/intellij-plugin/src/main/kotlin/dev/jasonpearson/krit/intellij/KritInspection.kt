@@ -56,15 +56,18 @@ class KritInspection : LocalInspectionTool() {
         if (!finding.fixable) {
             return arrayOf(suppress)
         }
-        return arrayOf(KritApplyFixesQuickFix(finding.fixLevel), suppress)
+        return arrayOf(KritApplyFixesQuickFix(finding.fixLevel, finding.findingId), suppress)
     }
 }
 
-class KritApplyFixesQuickFix(private val fixLevel: String?) : LocalQuickFix {
-    override fun getFamilyName(): String = KritFixLabels.applyFixesTitle(fixLevel)
+class KritApplyFixesQuickFix(
+    private val fixLevel: String?,
+    private val findingId: String,
+) : LocalQuickFix {
+    override fun getFamilyName(): String = KritFixLabels.applyFixTitle(fixLevel)
 
     override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-        project.service<KritProjectService>().applyFixes(KritFixLabels.normalizeFixLevel(fixLevel))
+        project.service<KritProjectService>().applyFix(KritFixLabels.normalizeFixLevel(fixLevel), findingId)
     }
 }
 

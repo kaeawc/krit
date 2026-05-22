@@ -3,12 +3,23 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 
 	"github.com/kaeawc/krit/internal/fixer"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
+
+// FindingID computes the canonical id used to address a single finding
+// when --finding-id is set (e.g. from the IDE plugin's per-finding fix
+// intention). Format is "<rule>:<file>:<line>:<col>" — stable across
+// daemon/in-process paths so external callers can construct it from
+// the JSON `rule`/`file`/`line`/`column` fields without reading any
+// other state.
+func FindingID(file, rule string, line, col int) string {
+	return fmt.Sprintf("%s:%s:%d:%d", rule, file, line, col)
+}
 
 // FixupInput configures the Fixup phase. It wraps CrossFileResult rather
 // than stuffing options onto the shared result type so non-fix callers
@@ -36,6 +47,12 @@ type FixupInput struct {
 	// text fixes. Useful for --dry-run callers that want the counts but
 	// not the side effects. Has no effect on ApplyBinary.
 	CountOnly bool
+	// OnlyFindingID, when non-empty, restricts fix application to the
+	// single finding whose FindingID(file, rule, line, col) matches.
+	// All other text fixes are stripped before application. Lets per-
+	// finding IDE intentions invoke `krit --fix --finding-id ID` without
+	// rewriting unrelated files.
+	OnlyFindingID string
 }
 
 // FixupPhase applies auto-fixes (text and/or binary) that were attached
@@ -82,6 +99,12 @@ func (FixupPhase) Run(ctx context.Context, in FixupInput) (FixupResult, error) {
 				lvl = rules.FixSemantic
 			}
 			return lvl > in.MaxFixLevel
+		})
+	}
+	if in.OnlyFindingID != "" {
+		columns.StripTextFixes(func(row int) bool {
+			id := FindingID(columns.FileAt(row), columns.RuleAt(row), columns.LineAt(row), columns.ColumnAt(row))
+			return id != in.OnlyFindingID
 		})
 	}
 	fixableCount := columns.CountTextFixes()

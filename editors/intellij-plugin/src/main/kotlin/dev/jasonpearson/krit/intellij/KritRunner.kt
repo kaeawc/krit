@@ -48,7 +48,8 @@ object KritRunner {
         }
     }
 
-    fun fixProject(project: Project, fixLevel: String?): Boolean {
+    fun fixFinding(project: Project, fixLevel: String?, findingId: String): Boolean {
+        if (findingId.isBlank()) return false
         val projectDir = project.baseDir() ?: return false
         val binary = KritBinaryResolver.find() ?: return false
         val level = KritFixLabels.normalizeFixLevel(fixLevel)
@@ -57,6 +58,8 @@ object KritRunner {
             "--fix",
             "--fix-level",
             level,
+            "--finding-id",
+            findingId,
             "-q",
             projectDir.absolutePath,
         )

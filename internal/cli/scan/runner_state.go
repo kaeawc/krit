@@ -784,12 +784,13 @@ func (r *runner) runFixup() (handled bool, code int) {
 					Findings: *r.allColumns,
 				},
 			},
-			Apply:        *r.f.Fix && !*r.f.DryRun,
-			ApplyBinary:  *r.f.FixBinary,
-			Suffix:       *r.f.FixSuffix,
-			MaxFixLevel:  r.maxFixLevel,
-			DryRunBinary: *r.f.DryRun,
-			CountOnly:    *r.f.DryRun,
+			Apply:         *r.f.Fix && !*r.f.DryRun,
+			ApplyBinary:   *r.f.FixBinary,
+			Suffix:        *r.f.FixSuffix,
+			MaxFixLevel:   r.maxFixLevel,
+			DryRunBinary:  *r.f.DryRun,
+			CountOnly:     *r.f.DryRun,
+			OnlyFindingID: *r.f.FixFindingID,
 		})
 		postColumns := fixRes.Findings
 		r.allColumns = &postColumns

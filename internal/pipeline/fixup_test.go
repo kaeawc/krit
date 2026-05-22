@@ -68,6 +68,138 @@ func TestFixupPhase_NoOp_WhenApplyFalse(t *testing.T) {
 	}
 }
 
+func TestFindingID_FormatIsStable(t *testing.T) {
+	// The IDE plugin constructs the same id from the JSON fields without
+	// reading any other state. If this format changes, the plugin's
+	// per-finding fix intention breaks silently. Pin it explicitly.
+	got := FindingID("/repo/src/A.kt", "TrailingWhitespace", 7, 12)
+	want := "TrailingWhitespace:/repo/src/A.kt:7:12"
+	if got != want {
+		t.Errorf("FindingID = %q, want %q", got, want)
+	}
+}
+
+func TestFixupPhase_OnlyFindingID_AppliesMatchingFix(t *testing.T) {
+	dir := t.TempDir()
+	targetPath := filepath.Join(dir, "Target.kt")
+	otherPath := filepath.Join(dir, "Other.kt")
+	original := "val x  =  1\n"
+	for _, p := range []string{targetPath, otherPath} {
+		if err := os.WriteFile(p, []byte(original), 0644); err != nil {
+			t.Fatalf("WriteFile %s: %v", p, err)
+		}
+	}
+
+	columns := scanner.CollectFindings([]scanner.Finding{
+		{
+			File:     targetPath,
+			Line:     1,
+			Col:      1,
+			RuleSet:  "style",
+			Rule:     "TrailingWhitespace",
+			Severity: "warning",
+			Message:  "target",
+			Fix: &scanner.Fix{
+				StartLine:   1,
+				EndLine:     1,
+				Replacement: "val x = 1",
+			},
+		},
+		{
+			File:     otherPath,
+			Line:     1,
+			Col:      1,
+			RuleSet:  "style",
+			Rule:     "TrailingWhitespace",
+			Severity: "warning",
+			Message:  "other",
+			Fix: &scanner.Fix{
+				StartLine:   1,
+				EndLine:     1,
+				Replacement: "val x = 1",
+			},
+		},
+	})
+
+	in := FixupInput{
+		CrossFileResult: CrossFileResult{
+			DispatchResult: DispatchResult{
+				Findings: columns,
+			},
+		},
+		Apply:         true,
+		OnlyFindingID: FindingID(targetPath, "TrailingWhitespace", 1, 1),
+	}
+
+	out, err := (FixupPhase{}).Run(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Run: unexpected error: %v", err)
+	}
+	if out.AppliedFixes != 1 {
+		t.Errorf("AppliedFixes = %d, want 1 (target only)", out.AppliedFixes)
+	}
+	if !reflect.DeepEqual(out.ModifiedFiles, []string{targetPath}) {
+		t.Errorf("ModifiedFiles = %v, want [%s]", out.ModifiedFiles, targetPath)
+	}
+
+	got, _ := os.ReadFile(targetPath)
+	if string(got) != "val x = 1\n" {
+		t.Errorf("target file = %q, want %q", string(got), "val x = 1\n")
+	}
+	gotOther, _ := os.ReadFile(otherPath)
+	if string(gotOther) != original {
+		t.Errorf("other file should be unchanged, got %q", string(gotOther))
+	}
+}
+
+func TestFixupPhase_OnlyFindingID_NoMatchAppliesNothing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Sample.kt")
+	original := "val x  =  1\n"
+	if err := os.WriteFile(path, []byte(original), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	columns := scanner.CollectFindings([]scanner.Finding{
+		{
+			File:     path,
+			Line:     1,
+			Col:      1,
+			RuleSet:  "style",
+			Rule:     "TrailingWhitespace",
+			Severity: "warning",
+			Message:  "m",
+			Fix: &scanner.Fix{
+				StartLine:   1,
+				EndLine:     1,
+				Replacement: "val x = 1",
+			},
+		},
+	})
+
+	in := FixupInput{
+		CrossFileResult: CrossFileResult{
+			DispatchResult: DispatchResult{
+				Findings: columns,
+			},
+		},
+		Apply:         true,
+		OnlyFindingID: "TrailingWhitespace:/nope.kt:99:99",
+	}
+
+	out, err := (FixupPhase{}).Run(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out.AppliedFixes != 0 {
+		t.Errorf("AppliedFixes = %d, want 0", out.AppliedFixes)
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != original {
+		t.Errorf("file should be unchanged, got %q", string(got))
+	}
+}
+
 func TestFixupPhase_AppliesCosmeticFix(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "Sample.kt")

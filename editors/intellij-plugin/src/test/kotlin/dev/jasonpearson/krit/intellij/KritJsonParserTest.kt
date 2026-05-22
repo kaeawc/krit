@@ -147,8 +147,10 @@ class KritJsonParserTest {
         )
 
         val actions = KritIntentions.forFinding(finding)
-        assertEquals(2, actions.size)
-        actions.forEach { assertTrue(it is KritApplySuggestionIntention) }
+        assertEquals(3, actions.size)
+        assertTrue(actions[0] is KritApplySuggestionIntention)
+        assertTrue(actions[1] is KritApplySuggestionIntention)
+        assertTrue(actions[2] is KritSuppressIntention)
         assertEquals("Krit suggestion: Apply A", actions[0].text)
         assertEquals("Krit suggestion: Apply B", actions[1].text)
     }
@@ -168,9 +170,10 @@ class KritJsonParserTest {
         )
 
         val actions = KritIntentions.forFinding(finding)
-        assertEquals(1, actions.size)
-        assertTrue(actions.single() is KritApplyFixesIntention)
-        assertEquals("Apply Krit cosmetic auto-fixes", actions.single().text)
+        assertEquals(2, actions.size)
+        assertTrue(actions[0] is KritApplyFixesIntention)
+        assertTrue(actions[1] is KritSuppressIntention)
+        assertEquals("Apply Krit cosmetic auto-fixes", actions[0].text)
     }
 
     @Test
@@ -194,8 +197,10 @@ class KritJsonParserTest {
         )
 
         val actions = KritIntentions.forFinding(finding)
-        assertEquals(1, actions.size)
-        assertEquals("Krit suggestion: Convert to val", actions.single().text)
+        assertEquals(2, actions.size)
+        assertTrue(actions[0] is KritApplySuggestionIntention)
+        assertTrue(actions[1] is KritSuppressIntention)
+        assertEquals("Krit suggestion: Convert to val", actions[0].text)
     }
 
     @Test
@@ -216,8 +221,9 @@ class KritJsonParserTest {
         )
 
         val actions = KritIntentions.forFinding(finding)
-        assertEquals(1, actions.size)
-        assertTrue(actions.single() is KritApplyFixesIntention)
+        assertEquals(2, actions.size)
+        assertTrue(actions[0] is KritApplyFixesIntention)
+        assertTrue(actions[1] is KritSuppressIntention)
     }
 
     @Test
@@ -232,7 +238,9 @@ class KritJsonParserTest {
             message = "m",
         )
 
-        assertTrue(KritIntentions.forFinding(finding).isEmpty())
+        val actions = KritIntentions.forFinding(finding)
+        assertEquals(1, actions.size)
+        assertTrue(actions.single() is KritSuppressIntention)
     }
 
     @Test

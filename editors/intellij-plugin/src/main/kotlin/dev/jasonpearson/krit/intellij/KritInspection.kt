@@ -42,25 +42,21 @@ class KritInspection : LocalInspectionTool() {
 
     override fun isEnabledByDefault(): Boolean = true
 
-    private fun problemHighlightType(finding: KritFinding): ProblemHighlightType {
-        return when (finding.severity.lowercase()) {
-            "error" -> ProblemHighlightType.ERROR
-            "info" -> ProblemHighlightType.INFORMATION
-            else -> ProblemHighlightType.WARNING
-        }
-    }
+    private fun problemHighlightType(finding: KritFinding): ProblemHighlightType =
+        KritSeverity.problemHighlightType(finding)
 
     private fun quickFixes(finding: KritFinding): Array<LocalQuickFix> {
+        val suppress = KritSuppressQuickFix(finding.rule)
         val applicable = finding.suggestedFixes.filter { it.edits.isNotEmpty() }
         if (applicable.isNotEmpty()) {
-            return applicable
-                .map { KritApplySuggestionQuickFix(finding.findingId, it) }
-                .toTypedArray()
+            return (
+                applicable.map { KritApplySuggestionQuickFix(finding.findingId, it) } + suppress
+            ).toTypedArray()
         }
         if (!finding.fixable) {
-            return emptyArray()
+            return arrayOf(suppress)
         }
-        return arrayOf(KritApplyFixesQuickFix(finding.fixLevel))
+        return arrayOf(KritApplyFixesQuickFix(finding.fixLevel), suppress)
     }
 }
 

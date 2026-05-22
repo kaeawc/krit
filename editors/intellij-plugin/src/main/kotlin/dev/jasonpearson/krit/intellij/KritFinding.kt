@@ -10,6 +10,7 @@ data class KritFinding(
     val message: String,
     val fixable: Boolean = false,
     val fixLevel: String? = null,
+    val confidence: Double = 0.0,
     val suggestedFixes: List<KritSuggestedFix> = emptyList(),
 ) {
     val displayMessage: String

@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.intellij
 
 import com.intellij.codeInsight.intention.IntentionAction
+import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.lang.annotation.AnnotationHolder
 import com.intellij.lang.annotation.ExternalAnnotator
 import com.intellij.lang.annotation.HighlightSeverity
@@ -36,28 +37,49 @@ class KritExternalAnnotator : ExternalAnnotator<PsiFile, List<KritFinding>>() {
         }
     }
 
-    private fun highlightSeverity(finding: KritFinding): HighlightSeverity {
-        return when (finding.severity.lowercase()) {
-            "error" -> HighlightSeverity.ERROR
-            "info" -> HighlightSeverity.INFORMATION
-            else -> HighlightSeverity.WARNING
-        }
+    private fun highlightSeverity(finding: KritFinding): HighlightSeverity =
+        KritSeverity.highlightSeverity(finding)
+}
+
+internal object KritSeverity {
+    // Confidence in (0, 0.5) is a "soft" finding — render at weak warning so
+    // it doesn't compete with high-confidence diagnostics. Confidence == 0
+    // means the rule didn't set it; treat as a normal warning.
+    private const val WEAK_THRESHOLD = 0.5
+
+    fun highlightSeverity(finding: KritFinding): HighlightSeverity = when {
+        finding.severity.equals("error", ignoreCase = true) -> HighlightSeverity.ERROR
+        finding.severity.equals("info", ignoreCase = true) -> HighlightSeverity.INFORMATION
+        finding.confidence > 0.0 && finding.confidence < WEAK_THRESHOLD -> HighlightSeverity.WEAK_WARNING
+        else -> HighlightSeverity.WARNING
+    }
+
+    fun problemHighlightType(finding: KritFinding): ProblemHighlightType = when {
+        finding.severity.equals("error", ignoreCase = true) ->
+            ProblemHighlightType.ERROR
+        finding.severity.equals("info", ignoreCase = true) ->
+            ProblemHighlightType.INFORMATION
+        finding.confidence > 0.0 && finding.confidence < WEAK_THRESHOLD ->
+            ProblemHighlightType.WEAK_WARNING
+        else -> ProblemHighlightType.WARNING
     }
 }
 
 object KritIntentions {
     // Suggestions and the autofix slot are mutually exclusive per finding:
     // when a rule emits suggestions the user picks one explicitly, so the
-    // catch-all "apply auto-fixes" entry would conflict.
+    // catch-all "apply auto-fixes" entry would conflict. Suppress is
+    // orthogonal and always offered.
     fun forFinding(finding: KritFinding): List<IntentionAction> {
+        val suppress = KritSuppressIntention(finding.rule)
         val applicable = finding.suggestedFixes.filter { it.edits.isNotEmpty() }
         if (applicable.isNotEmpty()) {
-            return applicable.map { KritApplySuggestionIntention(finding.findingId, it) }
+            return applicable.map { KritApplySuggestionIntention(finding.findingId, it) } + suppress
         }
         if (finding.fixable) {
-            return listOf(KritApplyFixesIntention(finding.fixLevel))
+            return listOf(KritApplyFixesIntention(finding.fixLevel), suppress)
         }
-        return emptyList()
+        return listOf(suppress)
     }
 }
 

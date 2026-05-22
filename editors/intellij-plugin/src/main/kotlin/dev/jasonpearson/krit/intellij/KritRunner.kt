@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.intellij
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import java.io.File
+import java.nio.file.Files
 import java.util.concurrent.TimeUnit
 
 object KritRunner {
@@ -17,14 +18,50 @@ object KritRunner {
     fun analyzeProject(project: Project): AnalyzeOutcome =
         runAnalyze(project, target = null, label = "project analysis")
 
-    // Single-file scan. krit accepts a positional path argument and, when
-    // a daemon is running for this repo, the CLI delegates to it instead
-    // of redoing the parse/index work — so per-document-change calls reuse
-    // resident state. This is the cheap incremental path; whole-project
-    // scans stay reserved for initial load, manual refresh, and config
-    // changes.
-    fun analyzeFile(project: Project, filePath: String): AnalyzeOutcome =
-        runAnalyze(project, target = filePath, label = "file analysis")
+    // Single-file scan. When a daemon socket is reachable at
+    // <repo>/.krit/daemon.sock, sends an analyze-buffer request directly
+    // over the Unix socket — no ProcessBuilder.start() on the hot path.
+    // Falls back to the CLI invocation if the socket is absent or the
+    // RPC fails for any reason, so the plugin behaves identically when
+    // no daemon is running.
+    //
+    // liveContent, when non-null, is the in-editor buffer text — the
+    // daemon analyses exactly what the user sees rather than the
+    // on-disk snapshot. CLI fallback reads from disk because krit's
+    // positional-path argument expects a real file.
+    fun analyzeFile(project: Project, filePath: String, liveContent: String? = null): AnalyzeOutcome {
+        val projectDir = project.baseDir() ?: return AnalyzeOutcome.Failure("project has no base path")
+        val daemonOutcome = tryDaemonAnalyzeBuffer(projectDir, filePath, liveContent)
+        if (daemonOutcome != null) {
+            return daemonOutcome
+        }
+        return runAnalyze(project, target = filePath, label = "file analysis")
+    }
+
+    private fun tryDaemonAnalyzeBuffer(
+        projectDir: File,
+        filePath: String,
+        liveContent: String?,
+    ): AnalyzeOutcome? {
+        val socketPath = KritDaemonClient.socketPathFor(projectDir)
+        if (!Files.exists(socketPath)) return null
+        val content = liveContent ?: try {
+            File(filePath).readText()
+        } catch (_: java.io.IOException) {
+            return null
+        }
+        val findings = try {
+            KritDaemonClient(socketPath).analyzeBuffer(filePath, content)
+        } catch (t: Throwable) {
+            log.debug("krit daemon analyze-buffer threw, falling back to CLI", t)
+            return null
+        } ?: return null
+        // rawJson is intentionally empty: the daemon path doesn't carry
+        // suggested-fix metadata for apply-suggestion. Per-file scans
+        // refresh after each apply-fix anyway, so lastReportJson is
+        // never consumed for daemon-served updates.
+        return AnalyzeOutcome.Success(KritReport(findings), "")
+    }
 
     private fun runAnalyze(project: Project, target: String?, label: String): AnalyzeOutcome {
         val projectDir = project.baseDir() ?: return AnalyzeOutcome.Failure("project has no base path")

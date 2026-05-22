@@ -9,9 +9,11 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.event.BulkAwareDocumentListener
 import com.intellij.openapi.editor.event.DocumentEvent
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.WindowManager
 import java.io.File
@@ -163,7 +165,8 @@ class KritProjectService(private val project: Project) : Disposable {
         val updated = findingsByFile.toMutableMap()
         for (path in paths) {
             val canonical = canonicalPath(path, project.basePath)
-            when (val outcome = KritRunner.analyzeFile(project, path)) {
+            val liveContent = readLiveDocument(path)
+            when (val outcome = KritRunner.analyzeFile(project, path, liveContent)) {
                 is KritRunner.AnalyzeOutcome.Success -> {
                     val grouped = outcome.report.findings.groupBy {
                         canonicalPath(it.file, project.basePath)
@@ -186,6 +189,18 @@ class KritProjectService(private val project: Project) : Disposable {
         findingsByFile = updated
         transition(KritState.Idle(updated.values.sumOf { it.size }))
         restartHighlighting()
+    }
+
+    // Returns the in-editor buffer text for path when one is open in the
+    // IDE, or null when no document is loaded for this file. The daemon
+    // analyse-buffer path consumes this so the user sees diagnostics for
+    // what's on screen rather than the on-disk snapshot; the CLI
+    // fallback ignores it and reads from disk via krit's path arg.
+    private fun readLiveDocument(path: String): String? {
+        return ReadAction.compute<String?, RuntimeException> {
+            val file = LocalFileSystem.getInstance().findFileByPath(path) ?: return@compute null
+            FileDocumentManager.getInstance().getDocument(file)?.text
+        }
     }
 
     private fun transition(next: KritState) {

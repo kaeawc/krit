@@ -12,6 +12,7 @@ import (
 	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -154,12 +155,23 @@ func (r *strictVerifyAnalyzeResponse) WriteRawResponse(ctx context.Context, w io
 // finding sets via daemon.Compare, and persists a structured log under
 // `${repoDir}/.krit/daemon-divergence-NNNN.log` on divergence.
 //
-// The baseline runs with an empty ProjectHostState so no resident cache
-// contaminates the comparison: a fresh parse cache, no resident
-// CodeIndex / Resolver / OracleFilter / AnalysisCache, no resident
-// oracle daemon. The intent is to reproduce what `krit --no-daemon`
-// would emit and surface any drift the daemon's resident state
-// introduced.
+// The baseline runs with a fresh ProjectHostState so resident CodeIndex
+// / Resolver / OracleFilter / AnalysisCache state can't contaminate the
+// comparison. Two exceptions are intentional:
+//
+//   - The parse cache is freshly constructed for the baseline only, so
+//     stale memoised parses can't mask a daemon-side bug.
+//   - The oracle daemon (krit-types or krit-fir, picked from
+//     args.OracleBackend) is shared with the daemon call. The
+//     out-of-process JVM is itself a daemon-resident piece whose
+//     correctness is independent of krit's resident state, and
+//     spawning a second JVM per strict-verify would balloon the
+//     cost without exercising any new code path. Sharing it keeps
+//     the comparison apples-to-apples for oracle-dependent rules.
+//
+// The intent is to reproduce what `krit --no-daemon` would emit (with
+// the same backend) and surface any drift the daemon's resident
+// non-oracle state introduced.
 //
 // On divergence the returned log path is non-empty and the error
 // describes the diff shape; callers should fail the analyze response
@@ -190,6 +202,27 @@ func (s *daemonState) runStrictVerify(ctx context.Context, args daemon.AnalyzePr
 		paths = []string{s.root}
 	}
 
+	// Honor the daemon call's oracle backend so the baseline is a
+	// true apples-to-apples comparison. Without this the baseline
+	// would always disable oracle and any oracle-dependent rule
+	// (CommitPrefEdits, ShowToast, the FIR-only rules, …) would
+	// diverge regardless of daemon correctness. Validation already
+	// happened upstream in handleAnalyzeProject; here we just need
+	// to spawn (or reuse) the matching jar.
+	backend, parseErr := oracle.ParseBackend(args.OracleBackend)
+	if parseErr != nil {
+		return "", fmt.Errorf("baseline oracle backend: %w", parseErr)
+	}
+	oracleDaemon, oracleErr := s.ensureOracleDaemon(paths, backend)
+	if oracleErr != nil {
+		// Mirror buildProjectInput's "best-effort degrade": a failed
+		// oracle daemon start shouldn't fail strict-verify. The
+		// resulting comparison may surface oracle-driven divergence,
+		// which is the same shape we'd get on a fresh CLI run with
+		// no oracle available — still useful as a diff signal.
+		oracleDaemon = nil
+	}
+
 	pc, err := scanner.NewParseCacheWithCap(s.repoDir, cacheutil.DefaultParseCacheCapBytes)
 	if err != nil {
 		return "", fmt.Errorf("baseline parse cache: %w", err)
@@ -208,8 +241,15 @@ func (s *daemonState) runStrictVerify(ctx context.Context, args daemon.AnalyzePr
 			WarningsAsErrors: args.WarningsAsErrors,
 			IncludeGenerated: args.IncludeGenerated,
 			Version:          kritVersion(),
+			// Enabling oracle keys the baseline to the same backend the
+			// daemon call used; wireOracleHandles consumes host.OracleDaemon
+			// from the matching ensureOracleDaemon slot.
+			OracleEnabled: oracleDaemon != nil,
 		},
-		Host: pipeline.ProjectHostState{ParseCache: pc},
+		Host: pipeline.ProjectHostState{
+			ParseCache:   pc,
+			OracleDaemon: oracleDaemon,
+		},
 	})
 	if err != nil {
 		return "", fmt.Errorf("baseline analyze: %w", err)

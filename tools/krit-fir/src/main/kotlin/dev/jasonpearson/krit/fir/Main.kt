@@ -331,7 +331,17 @@ data class CheckRequest(
 
 fun parseRequest(json: String): CheckRequest {
     val id = extractLong(json, "id") ?: throw IllegalArgumentException("Missing 'id' field")
-    val command = extractString(json, "command") ?: throw IllegalArgumentException("Missing 'command' field")
+    // Accept either `command` (krit-fir's native shape) or `method` (the
+    // oracle.Daemon shape used by internal/oracle/daemon.go when it routes
+    // small miss requests through the persistent daemon). The two
+    // protocols are otherwise wire-compatible: regex-based field
+    // extraction is nest-blind, so fields like `files` / `sourceDirs`
+    // get picked up whether they live at the top level (krit-fir) or
+    // inside a `params` object (oracle.Daemon), and the response shape
+    // (id + result + optional errors/cacheDeps) is already shared.
+    val command = extractString(json, "command")
+        ?: extractString(json, "method")
+        ?: throw IllegalArgumentException("Missing 'command' / 'method' field")
     val sourceDirs = extractStringArray(json, "sourceDirs") ?: emptyList()
     val classpath = extractStringArray(json, "classpath") ?: emptyList()
     val rules = extractStringArray(json, "rules") ?: emptyList()

@@ -123,4 +123,41 @@ class OracleDispatchTest {
         assertTrue(""""error":"Unknown command:""" in response, response)
         assertEquals(true, response.contains("analyzz"), response)
     }
+
+    @Test
+    fun methodFieldIsAcceptedAsCommandAlias() {
+        // Regression: internal/oracle/daemon.go sends requests as
+        // {"id":N,"method":"analyzeWithDeps","params":{...}} when it
+        // routes small miss requests through the persistent daemon.
+        // Before this fix, parseRequest threw on the missing "command"
+        // field, the daemon error-replied with id=null, and the Go side
+        // saw a response ID mismatch and fell back to a fresh one-shot
+        // JVM — defeating the daemon optimization entirely.
+        val request = """{"id":21,"method":"analyzeAll","params":{}}"""
+        val result = handleRequestLine(request, session, startTime = 0L)
+        val response = (result as RequestResult.Response).json
+        assertTrue(response.startsWith("""{"id":21,"result":{"""), response)
+        assertFalse(""""error":""" in response, response)
+    }
+
+    @Test
+    fun methodFieldRoutesAnalyzeWithDepsCorrectly() {
+        // Pin the exact path the oracle.Daemon takes most often: the
+        // analyzeWithDeps round-trip used by small-miss warm reruns.
+        val request = """{"id":22,"method":"analyzeWithDeps","params":{"files":[]}}"""
+        val result = handleRequestLine(request, session, startTime = 0L)
+        val response = (result as RequestResult.Response).json
+        assertTrue(response.startsWith("""{"id":22,"result":{"""), response)
+        assertTrue(""""cacheDeps":""" in response, response)
+    }
+
+    @Test
+    fun missingBothCommandAndMethodStillErrors() {
+        // Negative guard: if neither field is present, parseRequest
+        // must still raise so the daemon never silently processes a
+        // request with no routing.
+        val request = """{"id":23}"""
+        val result = handleRequestLine(request, session, startTime = 0L)
+        assertTrue(result is RequestResult.ParseError, "expected ParseError, got $result")
+    }
 }

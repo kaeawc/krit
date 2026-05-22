@@ -67,6 +67,7 @@ object KritRunner {
         val projectDir = project.baseDir() ?: return AnalyzeOutcome.Failure("project has no base path")
         val binary = KritBinaryResolver.find() ?: return AnalyzeOutcome.MissingBinary
         val scanPath = target ?: projectDir.absolutePath
+        val classpath = KritClasspathResolver.resolve(project)
         val output = File.createTempFile("krit-intellij-", ".json")
         return try {
             val command = listOf(
@@ -79,7 +80,7 @@ object KritRunner {
             )
             // krit exits non-zero when it reports findings; trust the output
             // file as long as it exists rather than the exit code.
-            val result = runKrit(projectDir, command, ANALYZE_TIMEOUT_SECONDS, label) { exit, _ ->
+            val result = runKrit(projectDir, command, classpath, ANALYZE_TIMEOUT_SECONDS, label) { exit, _ ->
                 exit == 0 || output.isFile
             }
             when (result) {
@@ -102,6 +103,7 @@ object KritRunner {
         if (findingId.isBlank()) return false
         val projectDir = project.baseDir() ?: return false
         val binary = KritBinaryResolver.find() ?: return false
+        val classpath = KritClasspathResolver.resolve(project)
         val level = KritFixLabels.normalizeFixLevel(fixLevel)
         val command = listOf(
             binary.absolutePath,
@@ -113,7 +115,7 @@ object KritRunner {
             "-q",
             projectDir.absolutePath,
         )
-        return runKrit(projectDir, command, FIX_TIMEOUT_SECONDS, "fix") { exit, _ -> exit == 0 } is RunOutcome.Ok
+        return runKrit(projectDir, command, classpath, FIX_TIMEOUT_SECONDS, "fix") { exit, _ -> exit == 0 } is RunOutcome.Ok
     }
 
     fun applySuggestion(
@@ -124,6 +126,7 @@ object KritRunner {
     ): Boolean {
         val projectDir = project.baseDir() ?: return false
         val binary = KritBinaryResolver.find() ?: return false
+        val classpath = KritClasspathResolver.resolve(project)
         if (reportJson.isBlank()) {
             log.warn("krit apply-suggestion skipped: no cached report for ${projectDir.path}")
             return false
@@ -142,7 +145,7 @@ object KritRunner {
                 projectDir.absolutePath,
                 reportFile.absolutePath,
             )
-            runKrit(projectDir, command, APPLY_SUGGESTION_TIMEOUT_SECONDS, "apply-suggestion") { exit, _ ->
+            runKrit(projectDir, command, classpath, APPLY_SUGGESTION_TIMEOUT_SECONDS, "apply-suggestion") { exit, _ ->
                 exit == 0
             } is RunOutcome.Ok
         } finally {
@@ -159,16 +162,25 @@ object KritRunner {
     private fun runKrit(
         projectDir: File,
         command: List<String>,
+        classpath: List<File>,
         timeoutSeconds: Long,
         label: String,
         isSuccess: (exit: Int, stderr: String) -> Boolean,
     ): RunOutcome {
         return try {
-            val process = ProcessBuilder(command)
+            val builder = ProcessBuilder(command)
                 .directory(projectDir)
                 .redirectError(ProcessBuilder.Redirect.PIPE)
                 .redirectOutput(ProcessBuilder.Redirect.PIPE)
-                .start()
+            if (classpath.isNotEmpty()) {
+                // Krit's Go side reads CLASSPATH via splitEnvClasspath in
+                // internal/cli/scan/oracle_classpath.go and threads it into
+                // the FIR/KAA oracle. Setting it here is what makes
+                // type-aware rules in the IDE behave the same as
+                // krit-gradle-plugin runs.
+                builder.environment()["CLASSPATH"] = KritClasspathResolver.toClasspathString(classpath)
+            }
+            val process = builder.start()
 
             if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
                 process.destroyForcibly()

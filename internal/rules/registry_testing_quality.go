@@ -599,33 +599,7 @@ func registerTestingQualityTestInheritanceDepth() {
 	})
 }
 
-func registerTestingQualityRelaxedMockUsedForValueClass() {
-	r := &RelaxedMockUsedForValueClassRule{
-		BaseRule: BaseRule{RuleName: "RelaxedMockUsedForValueClass", RuleSetName: testingQualityRuleSet, Sev: "info", Desc: "Detects relaxed mocks of primitive or value types where literal values should be used instead."},
-	}
-	api.Register(&api.Rule{
-		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
-		Check: func(ctx *api.Context) {
-			idx, file := ctx.Idx, ctx.File
-			if flatCallNameAny(file, idx) != "mockk" {
-				return
-			}
-			relaxedArg := flatNamedValueArgument(file, flatCallKeyArguments(file, idx), "relaxed")
-			if relaxedArg == 0 || !callArgHasBoolean(file, relaxedArg, true) {
-				return
-			}
-			typeArg := testingQualityTypeArgument(file, idx)
-			if typeArg == "" {
-				return
-			}
-			if !primitiveTypes[typeArg] {
-				return
-			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Don't mock primitives/value types; use literal values.")
-		},
-	})
-}
+// registerTestingQualityRelaxedMockUsedForValueClass lives in testing_quality_relaxed_mock.go.
 
 func registerTestingQualitySpyOnDataClass() {
 	r := &SpyOnDataClassRule{

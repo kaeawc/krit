@@ -233,21 +233,7 @@ type TestInheritanceDepthRule struct {
 
 func (r *TestInheritanceDepthRule) Confidence() float64 { return api.ConfidenceMediumLow }
 
-// ---------------------------------------------------------------------------
-// RelaxedMockUsedForValueClassRule
-// ---------------------------------------------------------------------------
-
-type RelaxedMockUsedForValueClassRule struct {
-	FlatDispatchBase
-	BaseRule
-}
-
-func (r *RelaxedMockUsedForValueClassRule) Confidence() float64 { return api.ConfidenceMedium }
-
-var primitiveTypes = map[string]bool{
-	"Int": true, "Long": true, "Float": true, "Double": true,
-	"Boolean": true, "String": true, "Byte": true, "Short": true, "Char": true,
-}
+// RelaxedMockUsedForValueClassRule lives in testing_quality_relaxed_mock.go.
 
 // ---------------------------------------------------------------------------
 // SpyOnDataClassRule
@@ -1910,27 +1896,6 @@ func testingQualityReturnType(file *scanner.File, idx uint32) string {
 		}
 	}
 	return ""
-}
-
-func testingQualityTypeArgument(file *scanner.File, idx uint32) string {
-	if file == nil || idx == 0 {
-		return ""
-	}
-	result := ""
-	file.FlatWalkAllNodes(idx, func(n uint32) {
-		if result != "" {
-			return
-		}
-		if file.FlatType(n) == "type_arguments" {
-			for gc := file.FlatFirstChild(n); gc != 0; gc = file.FlatNextSib(gc) {
-				if file.FlatType(gc) == "type_projection" || file.FlatType(gc) == "user_type" || file.FlatType(gc) == "type_identifier" {
-					result = strings.TrimSpace(file.FlatNodeText(gc))
-					return
-				}
-			}
-		}
-	})
-	return result
 }
 
 func testingQualitySupertypes(file *scanner.File, classDecl uint32) []string {

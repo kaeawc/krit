@@ -52,20 +52,15 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		return nil, fmt.Errorf("%s (daemon=%s client=%s)", daemon.ErrBinaryHashMismatchPrefix, daemonHash, args.ClientBinaryHash)
 	}
 
-	// Validate the requested oracle backend. The daemon's resident
-	// OracleDaemon is currently spawned via oracle.FindJar (krit-types
-	// only); a later PR will plumb krit-fir into the same lifecycle.
-	// Until that lands, accept the empty / kaa values and return a
-	// typed error for anything else so the CLI falls back to
-	// in-process via runDaemonAnalyze's existing error-fallback path
-	// — preserving the historical `--oracle-backend fir` behavior
-	// from before the wire was carrying this field.
+	// Validate the requested oracle backend up front so the
+	// daemon-resident OracleDaemon spawn picks the right jar.
+	// ensureOracleDaemon routes BackendKAA to krit-types and
+	// BackendFIR to krit-fir; unrecognised spellings surface as a
+	// typed ErrUnsupportedOracleBackendPrefix so the CLI falls back
+	// to in-process via runDaemonAnalyze.
 	backend, err := oracle.ParseBackend(args.OracleBackend)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", daemon.ErrUnsupportedOracleBackendPrefix, err)
-	}
-	if backend != oracle.BackendKAA {
-		return nil, fmt.Errorf("%s: %s not yet supported by serve daemon (pass --no-daemon for in-process %s)", daemon.ErrUnsupportedOracleBackendPrefix, backend, backend)
 	}
 
 	state.analyzeMu.Lock()
@@ -82,7 +77,7 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 	start := time.Now()
 	dirty := state.workspace.DrainDirty()
 
-	in, err := state.buildProjectInput(args)
+	in, err := state.buildProjectInput(args, backend)
 	if err != nil {
 		state.analyzeMu.Unlock()
 		return nil, err
@@ -386,8 +381,10 @@ func (w *analyzeRespWriter) Write(p []byte) (int, error) {
 // buildProjectInput translates wire args into a pipeline.ProjectInput
 // against daemon-resident state. The function is the single seam
 // where CLI-flag-style knobs (rule lists, format) are wired into the
-// pipeline's typed value inputs.
-func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipeline.ProjectInput, error) {
+// pipeline's typed value inputs. backend selects which JVM jar the
+// resident OracleDaemon spawns (krit-types vs krit-fir); the value
+// is parsed/validated upstream in handleAnalyzeProject.
+func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend oracle.Backend) (pipeline.ProjectInput, error) {
 	cfg, err := s.ensureConfig()
 	if err != nil {
 		return pipeline.ProjectInput{}, fmt.Errorf("load config: %w", err)
@@ -446,10 +443,11 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 	}
 
 	// OracleDaemon is daemon-resident: lazy-started on first request
-	// when krit-types.jar is found. nil daemon means oracle stays
-	// disabled (no JVM, no behavior change vs. pre-#125). Per-verb
-	// ping happens at the call boundary in handleAnalyzeProject.
-	oracleDaemon, err := s.ensureOracleDaemon(paths)
+	// when the matching jar (krit-types for BackendKAA, krit-fir for
+	// BackendFIR) is found. nil daemon means oracle stays disabled
+	// (no JVM, no behavior change). Per-verb ping happens at the
+	// call boundary in handleAnalyzeProject.
+	oracleDaemon, err := s.ensureOracleDaemon(paths, backend)
 	if err != nil {
 		// Best-effort degrade: a failed daemon start shouldn't fail
 		// the whole verb. Log via stderr; the verb continues with

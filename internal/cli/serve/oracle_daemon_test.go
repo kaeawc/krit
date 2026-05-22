@@ -45,7 +45,7 @@ func TestEnsureOracleDaemon_GracefulDisableWhenJarMissing(t *testing.T) {
 	fake := &fakeOracleDaemonStarter{}
 	state.oracleDaemonStarter = fake
 
-	d, err := state.ensureOracleDaemon([]string{state.root})
+	d, err := state.ensureOracleDaemon([]string{state.root}, oracle.BackendKAA)
 	if err != nil {
 		t.Fatalf("ensureOracleDaemon: %v", err)
 	}

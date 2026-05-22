@@ -25,6 +25,7 @@ import (
 	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/pipeline"
@@ -477,19 +478,40 @@ func (e *oracleDaemonEntry) close() error {
 	return e.daemon.Close()
 }
 
-// ensureOracleDaemon lazy-starts (or reuses) a krit-types JVM daemon
-// for the given scan paths. Returns (nil, nil) when the krit-types JAR
-// cannot be located — callers treat that as "oracle disabled" and the
-// verb proceeds without type resolution. Subsequent calls with the
-// same scan-path key reuse the cached *oracle.Daemon.
+// oracleJarForBackend picks the JVM jar the resident oracle daemon
+// runs. Empty / unknown backends route to KAA (the historical
+// default) so the caller can treat "" as "use the default" without
+// reproducing the routing logic. Returns "" when neither jar is
+// installed; callers degrade to "oracle disabled".
+func oracleJarForBackend(scanPaths []string, backend oracle.Backend) string {
+	switch backend {
+	case oracle.BackendFIR:
+		return firchecks.FindFirJar(scanPaths)
+	default:
+		return oracle.FindJar(scanPaths)
+	}
+}
+
+// ensureOracleDaemon lazy-starts (or reuses) the JVM daemon backing
+// the requested backend for the given scan paths. BackendKAA spawns
+// krit-types via oracle.FindJar; BackendFIR spawns krit-fir via
+// firchecks.FindFirJar. Returns (nil, nil) when the matching JAR
+// cannot be located — callers treat that as "oracle disabled" and
+// the verb proceeds without type resolution.
+//
+// Each (jarPath, sourceDirs) pair gets its own cache entry, so a
+// project that flips between FIR and KAA reaches each backend
+// without trampling the other's resident state. The on-the-wire
+// protocol is the same for both jars (see #559), so the
+// defaultOracleDaemonStarter implementation is reused verbatim.
 //
 // Wired into the analyze-project verb path: buildProjectInput threads
 // the returned handle into ProjectHostState.OracleDaemon and flips
 // ProjectArgs.OracleEnabled when the daemon is non-nil, so type-aware
 // rules in the daemon get oracle precision without paying JVM startup
 // on every call.
-func (s *daemonState) ensureOracleDaemon(scanPaths []string) (*oracle.Daemon, error) {
-	jarPath := oracle.FindJar(scanPaths)
+func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Backend) (*oracle.Daemon, error) {
+	jarPath := oracleJarForBackend(scanPaths, backend)
 	if jarPath == "" {
 		// Graceful disable: no jar means oracle isn't installed in
 		// this environment. Cache the negative result so we don't

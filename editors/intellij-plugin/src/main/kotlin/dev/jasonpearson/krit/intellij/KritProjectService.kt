@@ -1,6 +1,8 @@
 package dev.jasonpearson.krit.intellij
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
@@ -11,6 +13,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.wm.WindowManager
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
@@ -42,6 +45,12 @@ class KritProjectService(private val project: Project) : Disposable {
 
     @Volatile
     private var lastReportJson: String = ""
+
+    @Volatile
+    var state: KritState = KritState.Initializing
+        private set
+
+    private val missingBinaryNotified = AtomicBoolean(false)
 
     init {
         EditorFactory.getInstance().eventMulticaster.addDocumentListener(documentListener, this)
@@ -107,10 +116,49 @@ class KritProjectService(private val project: Project) : Disposable {
     }
 
     private fun refreshFindings() {
-        val result = KritRunner.analyzeProject(project)
-        findingsByFile = result.report.findings.groupBy { canonicalPath(it.file, project.basePath) }
-        lastReportJson = result.rawJson
+        transition(KritState.Scanning)
+        when (val outcome = KritRunner.analyzeProject(project)) {
+            is KritRunner.AnalyzeOutcome.Success -> {
+                findingsByFile = outcome.report.findings.groupBy {
+                    canonicalPath(it.file, project.basePath)
+                }
+                lastReportJson = outcome.rawJson
+                transition(KritState.Idle(outcome.report.findings.size))
+            }
+            is KritRunner.AnalyzeOutcome.MissingBinary -> {
+                findingsByFile = emptyMap()
+                lastReportJson = ""
+                transition(KritState.MissingBinary)
+                notifyMissingBinaryOnce()
+            }
+            is KritRunner.AnalyzeOutcome.Failure -> {
+                transition(KritState.Error(outcome.message))
+            }
+        }
         restartHighlighting()
+    }
+
+    private fun transition(next: KritState) {
+        state = next
+        ApplicationManager.getApplication().invokeLater {
+            if (project.isDisposed) return@invokeLater
+            WindowManager.getInstance().getStatusBar(project)?.updateWidget(KritStatusBarWidget.ID)
+        }
+    }
+
+    private fun notifyMissingBinaryOnce() {
+        if (!missingBinaryNotified.compareAndSet(false, true)) return
+        ApplicationManager.getApplication().invokeLater {
+            if (project.isDisposed) return@invokeLater
+            NotificationGroupManager.getInstance()
+                .getNotificationGroup("Krit")
+                .createNotification(
+                    "Krit binary not found",
+                    "Set -Dkrit.binary or KRIT_BINARY, or install krit on PATH.",
+                    NotificationType.WARNING,
+                )
+                .notify(project)
+        }
     }
 
     private fun scheduleScan(delayMs: Long) {

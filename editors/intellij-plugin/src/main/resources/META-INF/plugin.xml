@@ -23,6 +23,11 @@
       level="WARNING"
       shortName="Krit"
       implementationClass="dev.jasonpearson.krit.intellij.KritInspection"/>
+    <statusBarWidgetFactory
+      id="Krit"
+      order="last"
+      implementation="dev.jasonpearson.krit.intellij.KritStatusBarWidgetFactory"/>
+    <notificationGroup id="Krit" displayType="BALLOON"/>
   </extensions>
 
   <extensions defaultExtensionNs="org.jetbrains.kotlin">

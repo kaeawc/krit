@@ -94,7 +94,7 @@ type ContentDescriptionRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ContentDescriptionRule) Confidence() float64 { return 0.75 }
+func (r *ContentDescriptionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // HardcodedTextRule detects hardcoded strings that should use resources.
 type HardcodedTextRule struct {
@@ -108,7 +108,7 @@ type HardcodedTextRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *HardcodedTextRule) Confidence() float64 { return 0.75 }
+func (r *HardcodedTextRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // hardcodedTextAndroidImportPrefixes are the import package prefixes
 // that signal a file participates in Android UI / Compose code. The
@@ -298,7 +298,7 @@ type LogDetectorRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *LogDetectorRule) Confidence() float64 { return 0.75 }
+func (r *LogDetectorRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // SdCardPathRule detects hardcoded /sdcard paths.
 type SdCardPathRule struct {
@@ -312,7 +312,7 @@ type SdCardPathRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *SdCardPathRule) Confidence() float64 { return 0.75 }
+func (r *SdCardPathRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // WakelockRule detects WakeLock usage without proper release.
 type WakelockRule struct {
@@ -326,7 +326,7 @@ type WakelockRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *WakelockRule) Confidence() float64 { return 0.75 }
+func (r *WakelockRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // SetJavaScriptEnabledRule detects setJavaScriptEnabled(true) calls.
 type SetJavaScriptEnabledRule struct {
@@ -340,7 +340,7 @@ type SetJavaScriptEnabledRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *SetJavaScriptEnabledRule) Confidence() float64 { return 0.75 }
+func (r *SetJavaScriptEnabledRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ExportedServiceRule detects exported services without permission.
 type ExportedServiceRule struct {
@@ -354,7 +354,7 @@ type ExportedServiceRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ExportedServiceRule) Confidence() float64 { return 0.75 }
+func (r *ExportedServiceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ExportedServiceRule) check(ctx *api.Context) {
 	file, idx := ctx.File, ctx.Idx
@@ -380,7 +380,7 @@ type PrivateKeyRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *PrivateKeyRule) Confidence() float64 { return 0.75 }
+func (r *PrivateKeyRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *PrivateKeyRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -409,7 +409,7 @@ type ObsoleteLayoutParamsRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ObsoleteLayoutParamsRule) Confidence() float64 { return 0.75 }
+func (r *ObsoleteLayoutParamsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ViewHolderRule detects RecyclerView.Adapter subclasses that do not
 // implement the ViewHolder pattern (missing ViewHolder or onCreateViewHolder).
@@ -424,4 +424,4 @@ type ViewHolderRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ViewHolderRule) Confidence() float64 { return 0.75 }
+func (r *ViewHolderRule) Confidence() float64 { return api.ConfidenceMedium }

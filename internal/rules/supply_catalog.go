@@ -23,7 +23,7 @@ type VersionCatalogUnusedRule struct {
 // uses substring match against the dotted accessor form, which is high-recall
 // but can miss exotic reflective uses. The default-inactive policy plus the
 // ignoredAliases escape hatch handle that.
-func (r *VersionCatalogUnusedRule) Confidence() float64 { return 0.75 }
+func (r *VersionCatalogUnusedRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *VersionCatalogUnusedRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{}
@@ -72,7 +72,7 @@ func (r *VersionCatalogUnusedRule) emitUnused(ctx *api.Context, file string, ent
 			Rule:       r.RuleName,
 			Severity:   r.Sev,
 			Message:    fmt.Sprintf("Version catalog alias '%s' (accessor '%s') is unused; remove it from libs.versions.toml or list it under ignoredAliases.", entry.Alias, accessor),
-			Confidence: 0.85,
+			Confidence: api.ConfidenceHigh,
 		})
 	}
 }

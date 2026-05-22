@@ -17,7 +17,7 @@ type AnvilMergeComponentEmptyScopeRule struct {
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule. Detection uses annotation and import patterns for
 // Dagger/Hilt/Anvil; project-specific DI aliases are not followed.
 // Classified per roadmap/17.
-func (r *AnvilMergeComponentEmptyScopeRule) Confidence() float64 { return 0.75 }
+func (r *AnvilMergeComponentEmptyScopeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *AnvilMergeComponentEmptyScopeRule) check(ctx *api.Context) {
 	index := ctx.CodeIndex
@@ -91,4 +91,4 @@ type AnvilContributesBindingWithoutScopeRule struct {
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule. Detection uses annotation and import patterns for
 // Dagger/Hilt/Anvil; project-specific DI aliases are not followed.
 // Classified per roadmap/17.
-func (r *AnvilContributesBindingWithoutScopeRule) Confidence() float64 { return 0.75 }
+func (r *AnvilContributesBindingWithoutScopeRule) Confidence() float64 { return api.ConfidenceMedium }

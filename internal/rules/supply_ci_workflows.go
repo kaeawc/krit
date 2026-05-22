@@ -18,7 +18,7 @@ type GradleWrapperValidationActionRule struct {
 	BaseRule
 }
 
-func (r *GradleWrapperValidationActionRule) Confidence() float64 { return 0.85 }
+func (r *GradleWrapperValidationActionRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *GradleWrapperValidationActionRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{}

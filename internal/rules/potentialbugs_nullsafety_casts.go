@@ -27,7 +27,7 @@ type UnsafeCastRule struct {
 // Confidence reports a tier-1 base confidence. The oracle-backed path mirrors
 // the Kotlin compiler's CAST_NEVER_SUCCEEDS diagnostic; the non-oracle fallback
 // is intentionally limited to final, disjoint types.
-func (r *UnsafeCastRule) Confidence() float64 { return 0.95 }
+func (r *UnsafeCastRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 type unsafeCastExpressionParts struct {
 	source uint32
@@ -1211,7 +1211,7 @@ type CastNullableToNonNullableTypeRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. The rule is
 // resolver-backed so it only reports when source nullability is known.
-func (r *CastNullableToNonNullableTypeRule) Confidence() float64 { return 0.75 }
+func (r *CastNullableToNonNullableTypeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *CastNullableToNonNullableTypeRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -1292,7 +1292,7 @@ type CastToNullableTypeRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs null safety rule. Detection leans on structural patterns
 // around nullable expressions and has a heuristic fallback when the
 // resolver is absent. Classified per roadmap/17.
-func (r *CastToNullableTypeRule) Confidence() float64 { return 0.75 }
+func (r *CastToNullableTypeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *CastToNullableTypeRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File

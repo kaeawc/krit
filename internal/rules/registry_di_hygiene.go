@@ -30,7 +30,7 @@ func registerDiHygieneRules() {
 		r := &AnvilContributesBindingWithoutScopeRule{BaseRule: BaseRule{RuleName: "AnvilContributesBindingWithoutScope", RuleSetName: diHygieneRuleSet, Sev: "warning", Desc: "Detects @ContributesBinding scope mismatches with the @ContributesTo scope on the bound interface."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration", "object_declaration"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"class_declaration", "object_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				bindingScope := anvilAnnotationScopeFlat(file, idx, "ContributesBinding")
@@ -63,7 +63,7 @@ func registerDiHygieneRules() {
 		r := &BindsMismatchedArityRule{BaseRule: BaseRule{RuleName: "BindsMismatchedArity", RuleSetName: diHygieneRuleSet, Sev: "warning", Desc: "Detects @Binds functions that do not declare exactly one parameter as required by Dagger."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !hasAnnotationFlat(file, idx, "Binds") {
@@ -567,7 +567,7 @@ func registerDiHygieneRules() {
 		r := &HiltEntryPointOnNonInterfaceRule{BaseRule: BaseRule{RuleName: "HiltEntryPointOnNonInterface", RuleSetName: diHygieneRuleSet, Sev: "warning", Desc: "Detects Hilt @EntryPoint annotations on classes or objects instead of interfaces."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration", "object_declaration", "prefix_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"class_declaration", "object_declaration", "prefix_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				kind, name, line, ok := hiltEntryPointDeclarationFlat(file, idx)

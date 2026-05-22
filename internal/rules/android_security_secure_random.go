@@ -15,7 +15,7 @@ type SecureRandomRule struct {
 	AndroidRule
 }
 
-func (r *SecureRandomRule) Confidence() float64 { return 0.85 }
+func (r *SecureRandomRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *SecureRandomRule) check(ctx *api.Context) {
 	file := ctx.File

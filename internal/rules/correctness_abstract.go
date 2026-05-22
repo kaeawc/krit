@@ -37,7 +37,7 @@ type AbstractMemberNotImplementedRule struct {
 	BaseRule
 }
 
-func (r *AbstractMemberNotImplementedRule) Confidence() float64 { return 0.8 }
+func (r *AbstractMemberNotImplementedRule) Confidence() float64 { return api.ConfidenceMediumHigh }
 
 func (r *AbstractMemberNotImplementedRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File

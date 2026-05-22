@@ -34,7 +34,7 @@ var compileSDKValueRe = regexp.MustCompile(`^\s*compileSdk(?:Version)?\s*[=(]?\s
 // Confidence reports a tier-2 (medium) base confidence. Supply-chain rule. Detection scans module metadata and dependency
 // catalogs for drift and security issues; matches are
 // project-structure-sensitive. Classified per roadmap/17.
-func (r *CompileSdkMismatchAcrossModulesRule) Confidence() float64 { return 0.75 }
+func (r *CompileSdkMismatchAcrossModulesRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *CompileSdkMismatchAcrossModulesRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{}
@@ -76,7 +76,7 @@ func (r *CompileSdkMismatchAcrossModulesRule) check(ctx *api.Context) {
 			Rule:       r.RuleName,
 			Severity:   r.Sev,
 			Message:    fmt.Sprintf("Module %s declares compileSdk %d, but another Android module declares %d; align compileSdk across modules to avoid merged builds silently picking the max. Project values: %s.", mod.modulePath, mod.compileSDK, maxCompileSDK, summary),
-			Confidence: 0.95,
+			Confidence: api.ConfidenceVeryHigh,
 		})
 	}
 }

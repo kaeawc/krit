@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode"
 
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -20,7 +21,7 @@ type AdMobInitializedBeforeConsentRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Privacy/permissions rule. Detection pattern-matches sensitive API call
 // shapes and annotation names without cross-checking project permission
 // contracts. Classified per roadmap/17.
-func (r *AdMobInitializedBeforeConsentRule) Confidence() float64 { return 0.75 }
+func (r *AdMobInitializedBeforeConsentRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func privacyClassDirectlyExtendsFlat(file *scanner.File, idx uint32, typeName string) bool {
 	if file == nil || idx == 0 {
@@ -92,7 +93,9 @@ type BiometricAuthNotFallingBackToDeviceCredentialRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Privacy/permissions rule. Detection pattern-matches sensitive API call
 // shapes and annotation names without cross-checking project permission
 // contracts. Classified per roadmap/17.
-func (r *BiometricAuthNotFallingBackToDeviceCredentialRule) Confidence() float64 { return 0.75 }
+func (r *BiometricAuthNotFallingBackToDeviceCredentialRule) Confidence() float64 {
+	return api.ConfidenceMedium
+}
 
 func biometricPromptAllowsDeviceCredentialFlat(file *scanner.File, idx uint32) bool {
 	allowsFallback := false
@@ -182,7 +185,7 @@ type ContactsAccessWithoutPermissionUIRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Privacy/permissions rule. Detection pattern-matches sensitive API call
 // shapes and annotation names without cross-checking project permission
 // contracts. Classified per roadmap/17.
-func (r *ContactsAccessWithoutPermissionUIRule) Confidence() float64 { return 0.75 }
+func (r *ContactsAccessWithoutPermissionUIRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func isContactsPhoneContentURIFlat(file *scanner.File, idx uint32) bool {
 	return contactsQualifiedReferenceMatchesFlat(file, idx, []string{"ContactsContract", "CommonDataKinds", "Phone", "CONTENT_URI"})
@@ -506,7 +509,7 @@ type LocationBackgroundWithoutRationaleRule struct {
 	BaseRule
 }
 
-func (r *LocationBackgroundWithoutRationaleRule) Confidence() float64 { return 0.75 }
+func (r *LocationBackgroundWithoutRationaleRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func privacyExpressionIsBackgroundLocationPermissionFlat(file *scanner.File, idx uint32) bool {
 	idx = flatUnwrapParenExpr(file, idx)
@@ -684,7 +687,7 @@ type ScreenshotNotBlockedOnLoginScreenRule struct {
 	BaseRule
 }
 
-func (r *ScreenshotNotBlockedOnLoginScreenRule) Confidence() float64 { return 0.75 }
+func (r *ScreenshotNotBlockedOnLoginScreenRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func privacyClassExtendsActivity(file *scanner.File, idx uint32) bool {
 	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
@@ -790,4 +793,4 @@ type ClipboardOnSensitiveInputTypeRule struct {
 	BaseRule
 }
 
-func (r *ClipboardOnSensitiveInputTypeRule) Confidence() float64 { return 0.75 }
+func (r *ClipboardOnSensitiveInputTypeRule) Confidence() float64 { return api.ConfidenceMedium }

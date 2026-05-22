@@ -26,7 +26,7 @@ type OverrideAbstractRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *OverrideAbstractRule) Confidence() float64 { return 0.75 }
+func (r *OverrideAbstractRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var abstractClassRequirements = map[string][]string{"Service": {"onBind"}, "BroadcastReceiver": {"onReceive"}, "ContentProvider": {"onCreate", "query", "insert", "update", "delete", "getType"}}
 
@@ -41,7 +41,7 @@ type ParcelCreatorRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ParcelCreatorRule) Confidence() float64 { return 0.75 }
+func (r *ParcelCreatorRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type SwitchIntDefRule struct {
 	FlatDispatchBase
@@ -54,7 +54,7 @@ type SwitchIntDefRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *SwitchIntDefRule) Confidence() float64 { return 0.75 }
+func (r *SwitchIntDefRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type TextViewEditsRule struct {
 	FlatDispatchBase
@@ -67,7 +67,7 @@ type TextViewEditsRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *TextViewEditsRule) Confidence() float64 { return 0.75 }
+func (r *TextViewEditsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type WrongViewCastRule struct {
 	FlatDispatchBase
@@ -105,7 +105,7 @@ var wrongViewCastSupertypes = map[string][]string{
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *WrongViewCastRule) Confidence() float64 { return 0.75 }
+func (r *WrongViewCastRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *WrongViewCastRule) NodeTypes() []string {
 	return []string{"call_expression", "as_expression", "cast_expression", "local_variable_declaration"}
@@ -508,7 +508,7 @@ var deprecatedApis = []deprecatedAPIEntry{{"AsyncTask", "AsyncTask is deprecated
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *DeprecatedRule) Confidence() float64 { return 0.75 }
+func (r *DeprecatedRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type RangeRule struct {
 	FlatDispatchBase
@@ -521,7 +521,7 @@ func (r *RangeRule) NodeTypes() []string { return []string{"call_expression"} }
 // structural and requires an explicit API/range anchor, but framework
 // calls still depend on type-oracle call-target availability.
 // Classified per roadmap/17.
-func (r *RangeRule) Confidence() float64 { return 0.75 }
+func (r *RangeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *RangeRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -1219,7 +1219,7 @@ var resourceMethodExpected = map[string]string{"getString": "string", "getText":
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ResourceTypeRule) Confidence() float64 { return 0.75 }
+func (r *ResourceTypeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type ResourceAsColorRule struct {
 	FlatDispatchBase
@@ -1232,7 +1232,7 @@ type ResourceAsColorRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ResourceAsColorRule) Confidence() float64 { return 0.75 }
+func (r *ResourceAsColorRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ioCallNames is the set of known IO/network type and method names whose
 // presence in a @MainThread function indicates a likely thread violation.
@@ -1257,7 +1257,7 @@ type SupportAnnotationUsageRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *SupportAnnotationUsageRule) Confidence() float64 { return 0.75 }
+func (r *SupportAnnotationUsageRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type AccidentalOctalRule struct {
 	FlatDispatchBase
@@ -1270,7 +1270,7 @@ type AccidentalOctalRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *AccidentalOctalRule) Confidence() float64 { return 0.75 }
+func (r *AccidentalOctalRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type AppCompatMethodRule struct {
 	FlatDispatchBase
@@ -1283,7 +1283,7 @@ type AppCompatMethodRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *AppCompatMethodRule) Confidence() float64 { return 0.75 }
+func (r *AppCompatMethodRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type CustomViewStyleableRule struct {
 	FlatDispatchBase
@@ -1296,7 +1296,7 @@ type CustomViewStyleableRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *CustomViewStyleableRule) Confidence() float64 { return 0.9 }
+func (r *CustomViewStyleableRule) Confidence() float64 { return api.ConfidenceHigher }
 
 type InnerclassSeparatorRule struct {
 	FlatDispatchBase
@@ -1309,7 +1309,7 @@ type InnerclassSeparatorRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *InnerclassSeparatorRule) Confidence() float64 { return 0.75 }
+func (r *InnerclassSeparatorRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type ObjectAnimatorBindingRule struct {
 	FlatDispatchBase
@@ -1323,7 +1323,7 @@ var knownAnimatorProperties = map[string]bool{
 	"elevation": true, "pivotX": true, "pivotY": true,
 }
 
-func (r *ObjectAnimatorBindingRule) Confidence() float64 { return 0.75 }
+func (r *ObjectAnimatorBindingRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ObjectAnimatorBindingRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -1600,7 +1600,7 @@ type OnClickRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *OnClickRule) Confidence() float64 { return 0.75 }
+func (r *OnClickRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type PropertyEscapeRule struct {
 	FlatDispatchBase
@@ -1613,7 +1613,7 @@ type PropertyEscapeRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *PropertyEscapeRule) Confidence() float64 { return 0.75 }
+func (r *PropertyEscapeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type ShortAlarmRule struct {
 	FlatDispatchBase
@@ -1626,7 +1626,7 @@ type ShortAlarmRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ShortAlarmRule) Confidence() float64 { return 0.75 }
+func (r *ShortAlarmRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type LocalSuppressRule struct {
 	FlatDispatchBase
@@ -1641,7 +1641,7 @@ var knownLintIssueIDs = map[string]bool{"NewApi": true, "InlinedApi": true, "Ove
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *LocalSuppressRule) Confidence() float64 { return 0.75 }
+func (r *LocalSuppressRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // pluralsCountNames is the set of identifiers whose presence as a when-subject
 // suggests manual pluralization.
@@ -1667,4 +1667,4 @@ type PluralsCandidateRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *PluralsCandidateRule) Confidence() float64 { return 0.75 }
+func (r *PluralsCandidateRule) Confidence() float64 { return api.ConfidenceMedium }

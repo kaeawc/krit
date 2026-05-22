@@ -19,7 +19,7 @@ type MultilineLambdaItParameterRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection uses structural pattern matching on
 // expressions; the suggested rewrite's readability is a style call.
 // Classified per roadmap/17.
-func (r *MultilineLambdaItParameterRule) Confidence() float64 { return 0.75 }
+func (r *MultilineLambdaItParameterRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // MultilineRawStringIndentationRule checks raw string indentation.
 type MultilineRawStringIndentationRule struct {
@@ -32,7 +32,7 @@ type MultilineRawStringIndentationRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection uses structural pattern matching on
 // expressions; the suggested rewrite's readability is a style call.
 // Classified per roadmap/17.
-func (r *MultilineRawStringIndentationRule) Confidence() float64 { return 0.75 }
+func (r *MultilineRawStringIndentationRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MultilineRawStringIndentationRule) check(ctx *api.Context) {
 	if !isUntrimmedMultilineRawString(ctx, r.TrimmingMethods) {
@@ -52,7 +52,7 @@ type TrimMultilineRawStringRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection uses structural pattern matching on
 // expressions; the suggested rewrite's readability is a style call.
 // Classified per roadmap/17.
-func (r *TrimMultilineRawStringRule) Confidence() float64 { return 0.75 }
+func (r *TrimMultilineRawStringRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *TrimMultilineRawStringRule) check(ctx *api.Context) {
 	if !isUntrimmedMultilineRawString(ctx, r.TrimmingMethods) {
@@ -120,7 +120,7 @@ var escapeCountRe = regexp.MustCompile(`\\[nrt"\\]`)
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection uses structural pattern matching on
 // expressions; the suggested rewrite's readability is a style call.
 // Classified per roadmap/17.
-func (r *StringShouldBeRawStringRule) Confidence() float64 { return 0.75 }
+func (r *StringShouldBeRawStringRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // CanBeNonNullableRule detects nullable types that are never assigned null.
 // Handles two cases:
@@ -142,7 +142,7 @@ func (r *CanBeNonNullableRule) SetResolver(_ typeinfer.TypeResolver) {}
 // Confidence reports a tier-2 (medium) base confidence — detecting which
 // nullable properties are never assigned null requires flow analysis; the
 // fallback is a conservative heuristic. Classified per roadmap/17.
-func (r *CanBeNonNullableRule) Confidence() float64 { return 0.75 }
+func (r *CanBeNonNullableRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *CanBeNonNullableRule) checkPropertyFlat(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -449,7 +449,7 @@ type DoubleNegativeExpressionRule struct {
 // Confidence: tier-1 — the detection is purely syntactic. prefix_expression
 // with a `!` operator applied to a no-arg call whose callee starts with
 // `isNot`/`isNon` is unambiguously a double negative.
-func (r *DoubleNegativeExpressionRule) Confidence() float64 { return 0.9 }
+func (r *DoubleNegativeExpressionRule) Confidence() float64 { return api.ConfidenceHigher }
 
 // checkDoubleNegativeExpressionFlat runs on a prefix_expression. It fires
 // when the shape is `!<expr>.isNot<Suffix>()` or `!isNon<Suffix>()` — a
@@ -563,7 +563,7 @@ func doubleNegativeLambdaCalleeConfigured(callee string, configured []string) bo
 // expression is an unambiguous double negative. We deliberately do NOT
 // flag multi-statement lambdas or compound expressions where `!` appears
 // inside a larger boolean expression.
-func (r *DoubleNegativeLambdaRule) Confidence() float64 { return 0.9 }
+func (r *DoubleNegativeLambdaRule) Confidence() float64 { return api.ConfidenceHigher }
 
 // checkDoubleNegativeLambdaFlat runs on a call_expression. Fires when the
 // callee is `filterNot` or `none` (qualified or unqualified) and the
@@ -665,7 +665,7 @@ type NullableBooleanCheckRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection uses structural pattern matching on
 // expressions; the suggested rewrite's readability is a style call.
 // Classified per roadmap/17.
-func (r *NullableBooleanCheckRule) Confidence() float64 { return 0.75 }
+func (r *NullableBooleanCheckRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // RangeUntilInsteadOfRangeToRule detects `until` usage that could use `..<`.
 type RangeUntilInsteadOfRangeToRule struct {
@@ -676,7 +676,7 @@ type RangeUntilInsteadOfRangeToRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection uses structural pattern matching on
 // expressions; the suggested rewrite's readability is a style call.
 // Classified per roadmap/17.
-func (r *RangeUntilInsteadOfRangeToRule) Confidence() float64 { return 0.75 }
+func (r *RangeUntilInsteadOfRangeToRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // DestructuringDeclarationWithTooManyEntriesRule limits destructuring entries.
 type DestructuringDeclarationWithTooManyEntriesRule struct {
@@ -688,4 +688,6 @@ type DestructuringDeclarationWithTooManyEntriesRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection uses structural pattern matching on
 // expressions; the suggested rewrite's readability is a style call.
 // Classified per roadmap/17.
-func (r *DestructuringDeclarationWithTooManyEntriesRule) Confidence() float64 { return 0.75 }
+func (r *DestructuringDeclarationWithTooManyEntriesRule) Confidence() float64 {
+	return api.ConfidenceMedium
+}

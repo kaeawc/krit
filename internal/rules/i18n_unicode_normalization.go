@@ -20,7 +20,7 @@ type UnicodeNormalizationMissingRule struct {
 // Confidence reports a tier-3 (low) base confidence. The rule cannot
 // resolve the receiver type, so a `List<T>.contains` inside a search
 // function may match. The default-inactive setting compensates.
-func (r *UnicodeNormalizationMissingRule) Confidence() float64 { return 0.5 }
+func (r *UnicodeNormalizationMissingRule) Confidence() float64 { return api.ConfidenceLow }
 
 func (r *UnicodeNormalizationMissingRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File

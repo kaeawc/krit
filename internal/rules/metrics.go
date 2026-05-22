@@ -3,6 +3,7 @@ package rules
 import (
 	"strings"
 
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -13,7 +14,7 @@ type MetricTimerOutsideBlockRule struct {
 	BaseRule
 }
 
-func (r *MetricTimerOutsideBlockRule) Confidence() float64 { return 0.75 }
+func (r *MetricTimerOutsideBlockRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MetricTimerOutsideBlockRule) shouldFlag(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 || file.FlatType(idx) != "call_expression" {
@@ -44,7 +45,7 @@ type MetricTagHighCardinalityRule struct {
 	Keys []string
 }
 
-func (r *MetricTagHighCardinalityRule) Confidence() float64 { return 0.75 }
+func (r *MetricTagHighCardinalityRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MetricTagHighCardinalityRule) shouldFlag(file *scanner.File, idx uint32) (string, bool) {
 	if file == nil || idx == 0 || file.FlatType(idx) != "call_expression" {
@@ -87,7 +88,7 @@ type MetricNameMissingUnitRule struct {
 	Suffixes []string
 }
 
-func (r *MetricNameMissingUnitRule) Confidence() float64 { return 0.75 }
+func (r *MetricNameMissingUnitRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MetricNameMissingUnitRule) shouldFlag(file *scanner.File, idx uint32) (string, bool) {
 	if file == nil || idx == 0 || file.FlatType(idx) != "call_expression" {
@@ -115,7 +116,7 @@ type MetricCounterNotMonotonicRule struct {
 	BaseRule
 }
 
-func (r *MetricCounterNotMonotonicRule) Confidence() float64 { return 0.75 }
+func (r *MetricCounterNotMonotonicRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MetricCounterNotMonotonicRule) shouldFlag(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 || file.FlatType(idx) != "call_expression" {

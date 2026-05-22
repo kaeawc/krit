@@ -90,7 +90,7 @@ type EmptyCatchBlockRule struct {
 // Confidence holds the 0.95 dispatch default. Empty-block rule. Detection checks AST child count for
 // statements/expressions inside a block — purely structural. No heuristic
 // path. Classified per roadmap/17.
-func (r *EmptyCatchBlockRule) Confidence() float64 { return 0.95 }
+func (r *EmptyCatchBlockRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // EmptyClassBlockRule detects classes with empty body.
 type EmptyClassBlockRule struct {
@@ -101,7 +101,7 @@ type EmptyClassBlockRule struct {
 // Confidence holds the 0.95 dispatch default. Empty-block rule. Detection checks AST child count for
 // statements/expressions inside a block — purely structural. No heuristic
 // path. Classified per roadmap/17.
-func (r *EmptyClassBlockRule) Confidence() float64 { return 0.95 }
+func (r *EmptyClassBlockRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // EmptyDefaultConstructorRule detects explicit empty default constructors.
 type EmptyDefaultConstructorRule struct {
@@ -112,7 +112,7 @@ type EmptyDefaultConstructorRule struct {
 // Confidence holds the 0.95 dispatch default. Empty-block rule. Detection checks AST child count for
 // statements/expressions inside a block — purely structural. No heuristic
 // path. Classified per roadmap/17.
-func (r *EmptyDefaultConstructorRule) Confidence() float64 { return 0.95 }
+func (r *EmptyDefaultConstructorRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // EmptyDoWhileBlockRule detects do-while loops with empty body.
 type EmptyDoWhileBlockRule struct {
@@ -123,7 +123,7 @@ type EmptyDoWhileBlockRule struct {
 // Confidence holds the 0.95 dispatch default. Empty-block rule. Detection checks AST child count for
 // statements/expressions inside a block — purely structural. No heuristic
 // path. Classified per roadmap/17.
-func (r *EmptyDoWhileBlockRule) Confidence() float64 { return 0.95 }
+func (r *EmptyDoWhileBlockRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // EmptyElseBlockRule detects else blocks with empty body.
 type EmptyElseBlockRule struct {
@@ -134,7 +134,7 @@ type EmptyElseBlockRule struct {
 // Confidence holds the 0.95 dispatch default. Empty-block rule. Detection checks AST child count for
 // statements/expressions inside a block — purely structural. No heuristic
 // path. Classified per roadmap/17.
-func (r *EmptyElseBlockRule) Confidence() float64 { return 0.95 }
+func (r *EmptyElseBlockRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // EmptyFinallyBlockRule detects finally blocks with empty body.
 type EmptyFinallyBlockRule struct {
@@ -145,7 +145,7 @@ type EmptyFinallyBlockRule struct {
 // Confidence holds the 0.95 dispatch default. Empty-block rule. Detection checks AST child count for
 // statements/expressions inside a block — purely structural. No heuristic
 // path. Classified per roadmap/17.
-func (r *EmptyFinallyBlockRule) Confidence() float64 { return 0.95 }
+func (r *EmptyFinallyBlockRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // EmptyForBlockRule detects for loops with empty body.
 type EmptyForBlockRule struct {
@@ -156,7 +156,7 @@ type EmptyForBlockRule struct {
 // Confidence holds the 0.95 dispatch default. Empty-block rule. Detection checks AST child count for
 // statements/expressions inside a block — purely structural. No heuristic
 // path. Classified per roadmap/17.
-func (r *EmptyForBlockRule) Confidence() float64 { return 0.95 }
+func (r *EmptyForBlockRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // EmptyFunctionBlockRule detects functions with empty body.
 type EmptyFunctionBlockRule struct {
@@ -168,7 +168,7 @@ type EmptyFunctionBlockRule struct {
 // Confidence holds the 0.95 dispatch default. Empty-block rule. Detection checks AST child count for
 // statements/expressions inside a block — purely structural. No heuristic
 // path. Classified per roadmap/17.
-func (r *EmptyFunctionBlockRule) Confidence() float64 { return 0.95 }
+func (r *EmptyFunctionBlockRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // EmptyIfBlockRule detects if blocks with empty body.
 type EmptyIfBlockRule struct {
@@ -179,7 +179,7 @@ type EmptyIfBlockRule struct {
 // Confidence holds the 0.95 dispatch default. Empty-block rule. Detection checks AST child count for
 // statements/expressions inside a block — purely structural. No heuristic
 // path. Classified per roadmap/17.
-func (r *EmptyIfBlockRule) Confidence() float64 { return 0.95 }
+func (r *EmptyIfBlockRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // EmptyInitBlockRule detects init blocks with empty body.
 type EmptyInitBlockRule struct {
@@ -190,7 +190,7 @@ type EmptyInitBlockRule struct {
 // Confidence holds the 0.95 dispatch default. Empty-block rule. Detection checks AST child count for
 // statements/expressions inside a block — purely structural. No heuristic
 // path. Classified per roadmap/17.
-func (r *EmptyInitBlockRule) Confidence() float64 { return 0.95 }
+func (r *EmptyInitBlockRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // EmptyKotlinFileRule detects files with no meaningful code.
 type EmptyKotlinFileRule struct {
@@ -201,7 +201,7 @@ type EmptyKotlinFileRule struct {
 // Confidence bumps this line rule from the 0.75 line-rule default to
 // 0.95 — the check walks the AST root for any non-package/import/
 // comment child, which is a precise structural determination.
-func (r *EmptyKotlinFileRule) Confidence() float64 { return 0.95 }
+func (r *EmptyKotlinFileRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *EmptyKotlinFileRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -263,7 +263,7 @@ type EmptySecondaryConstructorRule struct {
 // Confidence holds the 0.95 dispatch default. Empty-block rule. Detection checks AST child count for
 // statements/expressions inside a block — purely structural. No heuristic
 // path. Classified per roadmap/17.
-func (r *EmptySecondaryConstructorRule) Confidence() float64 { return 0.95 }
+func (r *EmptySecondaryConstructorRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // EmptyTryBlockRule detects try blocks with empty body.
 type EmptyTryBlockRule struct {
@@ -274,7 +274,7 @@ type EmptyTryBlockRule struct {
 // Confidence holds the 0.95 dispatch default. Empty-block rule. Detection checks AST child count for
 // statements/expressions inside a block — purely structural. No heuristic
 // path. Classified per roadmap/17.
-func (r *EmptyTryBlockRule) Confidence() float64 { return 0.95 }
+func (r *EmptyTryBlockRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // EmptyWhenBlockRule detects when expressions with empty body.
 type EmptyWhenBlockRule struct {
@@ -285,7 +285,7 @@ type EmptyWhenBlockRule struct {
 // Confidence holds the 0.95 dispatch default. Empty-block rule. Detection checks AST child count for
 // statements/expressions inside a block — purely structural. No heuristic
 // path. Classified per roadmap/17.
-func (r *EmptyWhenBlockRule) Confidence() float64 { return 0.95 }
+func (r *EmptyWhenBlockRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // EmptyWhileBlockRule detects while loops with empty body.
 type EmptyWhileBlockRule struct {
@@ -296,4 +296,4 @@ type EmptyWhileBlockRule struct {
 // Confidence holds the 0.95 dispatch default. Empty-block rule. Detection checks AST child count for
 // statements/expressions inside a block — purely structural. No heuristic
 // path. Classified per roadmap/17.
-func (r *EmptyWhileBlockRule) Confidence() float64 { return 0.95 }
+func (r *EmptyWhileBlockRule) Confidence() float64 { return api.ConfidenceVeryHigh }

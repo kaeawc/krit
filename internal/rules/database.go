@@ -25,7 +25,7 @@ type DatabaseInstanceRecreatedRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Database/Room rule. Detection matches on annotation names and function
 // calls without confirming the declared type is a Room DAO or entity.
 // Classified per roadmap/17.
-func (r *DatabaseInstanceRecreatedRule) Confidence() float64 { return 0.75 }
+func (r *DatabaseInstanceRecreatedRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // DaoNotInterfaceRule detects Room DAOs declared as abstract classes.
 type DaoNotInterfaceRule struct {
@@ -36,7 +36,7 @@ type DaoNotInterfaceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Database/Room rule. Detection matches on annotation names and function
 // calls without confirming the declared type is a Room DAO or entity.
 // Classified per roadmap/17.
-func (r *DaoNotInterfaceRule) Confidence() float64 { return 0.75 }
+func (r *DaoNotInterfaceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // DaoWithoutAnnotationsRule detects Room DAO member functions that are missing
 // any Room operation annotation.
@@ -48,7 +48,7 @@ type DaoWithoutAnnotationsRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Database/Room rule. Detection matches on annotation names and function
 // calls without confirming the declared type is a Room DAO or entity.
 // Classified per roadmap/17.
-func (r *DaoWithoutAnnotationsRule) Confidence() float64 { return 0.75 }
+func (r *DaoWithoutAnnotationsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func daoFunctionHasAllowedAnnotationFlat(file *scanner.File, idx uint32) bool {
 	return hasAnnotationFlat(file, idx, "Query") ||
@@ -67,7 +67,7 @@ type ForeignKeyWithoutOnDeleteRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Detection is
 // name-based and may match unrelated ForeignKey constructors.
-func (r *ForeignKeyWithoutOnDeleteRule) Confidence() float64 { return 0.75 }
+func (r *ForeignKeyWithoutOnDeleteRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func foreignKeyHasOnDeleteArg(file *scanner.File, args uint32) bool {
 	if args == 0 {
@@ -95,7 +95,7 @@ type JdbcResultSetLeakedFromFunctionRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Database/Room rule. Detection matches on annotation names and function
 // calls without confirming the declared type is a Room DAO or entity.
 // Classified per roadmap/17.
-func (r *JdbcResultSetLeakedFromFunctionRule) Confidence() float64 { return 0.75 }
+func (r *JdbcResultSetLeakedFromFunctionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func functionReturnsResultSetFlat(file *scanner.File, idx uint32) bool {
 	typeText := strings.TrimSpace(directExplicitTypeTextFlat(file, idx))
@@ -131,7 +131,7 @@ type SqliteCursorWithoutCloseRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Detection matches on
 // method name without confirming the receiver is SQLiteDatabase.
-func (r *SqliteCursorWithoutCloseRule) Confidence() float64 { return 0.75 }
+func (r *SqliteCursorWithoutCloseRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // sqliteCursorCallFlat reports whether the property initializer at idx has a
 // top-level call_expression named rawQuery or query, and if so returns the
@@ -164,7 +164,7 @@ func sqliteCursorRHSWrappedInUseFlat(file *scanner.File, idx uint32) bool {
 // Confidence reports a tier-2 (medium) base confidence. Database/Room rule. Detection matches on annotation names and function
 // calls without confirming the declared type is a Room DAO or entity.
 // Classified per roadmap/17.
-func (r *JdbcPreparedStatementNotClosedRule) Confidence() float64 { return 0.75 }
+func (r *JdbcPreparedStatementNotClosedRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func jdbcPreparedStatementCallFlat(file *scanner.File, idx uint32) bool {
 	found := false
@@ -273,12 +273,12 @@ type EntityMutableColumnRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Database/Room rule.
 // Detection matches on annotation names without confirming the parameter
 // resolves to a Room @Entity class.
-func (r *RoomConflictStrategyReplaceOnFkRule) Confidence() float64 { return 0.75 }
+func (r *RoomConflictStrategyReplaceOnFkRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // Confidence reports a tier-2 (medium) base confidence. Database/Room rule. Detection matches on annotation names and function
 // calls without confirming the declared type is a Room DAO or entity.
 // Classified per roadmap/17.
-func (r *EntityMutableColumnRule) Confidence() float64 { return 0.75 }
+func (r *EntityMutableColumnRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func classParameterIsVarFlat(file *scanner.File, param uint32) bool {
 	bpk, _ := file.FlatFindChild(param, "binding_pattern_kind")
@@ -389,7 +389,7 @@ type RoomMultipleWritesMissingTransactionRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Database/Room rule.
 // Detection is name-based against sibling DAO methods and does not resolve
 // types across files.
-func (r *RoomMultipleWritesMissingTransactionRule) Confidence() float64 { return 0.75 }
+func (r *RoomMultipleWritesMissingTransactionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // daoWriteAnnotatedSiblings returns a set of sibling function names in the
 // enclosing DAO class body that are annotated @Insert/@Update/@Delete.
@@ -428,7 +428,7 @@ type RoomSuspendQueryInTransactionRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Database/Room rule.
 // Detection is name-based against sibling DAO suspend @Query methods and does
 // not resolve types across files.
-func (r *RoomSuspendQueryInTransactionRule) Confidence() float64 { return 0.75 }
+func (r *RoomSuspendQueryInTransactionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // daoSuspendQueryAnnotatedSiblings returns sibling function names in the
 // enclosing DAO class body that are `suspend` and annotated `@Query`.
@@ -469,7 +469,7 @@ type EntityPrimaryKeyNotStableRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Database/Room rule.
 // Detection matches on annotation names without confirming the declared type
 // is a Room entity. Classified per roadmap/17.
-func (r *EntityPrimaryKeyNotStableRule) Confidence() float64 { return 0.75 }
+func (r *EntityPrimaryKeyNotStableRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func entityPrimaryKeyAutoGeneratedFlat(file *scanner.File, idx uint32) bool {
 	text := findAnnotationTextFlat(file, idx, "PrimaryKey")
@@ -516,7 +516,7 @@ type RoomFallbackToDestructiveMigrationRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Database/Room rule.
 // Detection matches on annotation names without confirming the annotated
 // class is androidx.room.Database.
-func (r *RoomExportSchemaDisabledRule) Confidence() float64 { return 0.75 }
+func (r *RoomExportSchemaDisabledRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func roomDatabaseExportSchemaDisabledFlat(file *scanner.File, idx uint32) bool {
 	text := findAnnotationTextFlat(file, idx, "Database")
@@ -539,7 +539,7 @@ type RoomEntityChangedMigrationMissingRule struct {
 // Confidence reports a tier-3 (low) base confidence. Detection cannot tell
 // when a column was introduced; pre-existing columns left out of migration
 // SQL also match. Inactive by default.
-func (r *RoomEntityChangedMigrationMissingRule) Confidence() float64 { return 0.6 }
+func (r *RoomEntityChangedMigrationMissingRule) Confidence() float64 { return api.ConfidenceMediumLow }
 
 func (r *RoomEntityChangedMigrationMissingRule) check(ctx *api.Context) {
 	index := ctx.CodeIndex
@@ -745,7 +745,7 @@ type RoomRelationWithoutIndexRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Detection matches on
 // annotation names without confirming the resolved type is a Room entity.
-func (r *RoomRelationWithoutIndexRule) Confidence() float64 { return 0.75 }
+func (r *RoomRelationWithoutIndexRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type roomEntityFacts struct {
 	indexed map[string]struct{}
@@ -1187,7 +1187,9 @@ type RoomMigrationUsesExecSQLWithInterpolationRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Detection matches
 // on the call name and an enclosing supertype named `Migration`, without
 // confirming androidx.room.migration.Migration resolves the type.
-func (r *RoomMigrationUsesExecSQLWithInterpolationRule) Confidence() float64 { return 0.85 }
+func (r *RoomMigrationUsesExecSQLWithInterpolationRule) Confidence() float64 {
+	return api.ConfidenceHigh
+}
 
 func enclosingMigrationOwnerFlat(file *scanner.File, idx uint32) bool {
 	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
@@ -1217,7 +1219,7 @@ func enclosingMigrationOwnerFlat(file *scanner.File, idx uint32) bool {
 	return false
 }
 
-func (r *RoomFallbackToDestructiveMigrationRule) Confidence() float64 { return 0.85 }
+func (r *RoomFallbackToDestructiveMigrationRule) Confidence() float64 { return api.ConfidenceHigh }
 
 // RoomQueryMissingWhereForUpdateRule detects @Query("UPDATE ...") or
 // @Query("DELETE ...") whose SQL text omits a WHERE clause, unless the DAO
@@ -1230,7 +1232,7 @@ type RoomQueryMissingWhereForUpdateRule struct {
 // Confidence reports a tier-2 (medium) base confidence. The check matches on
 // annotation name and SQL keywords without confirming the annotated function
 // is a Room DAO member.
-func (r *RoomQueryMissingWhereForUpdateRule) Confidence() float64 { return 0.85 }
+func (r *RoomQueryMissingWhereForUpdateRule) Confidence() float64 { return api.ConfidenceHigh }
 
 var (
 	roomQueryMissingWhereSQLPattern = regexp.MustCompile(`(?is)^\s*(UPDATE|DELETE)\b`)
@@ -1294,7 +1296,7 @@ type RoomSelectStarWithoutLimitRule struct {
 // Confidence reports a tier-2 (medium) base confidence. The check matches on
 // annotation name and SQL text, plus a textual return-type check, without
 // confirming the annotated function is a Room DAO member.
-func (r *RoomSelectStarWithoutLimitRule) Confidence() float64 { return 0.85 }
+func (r *RoomSelectStarWithoutLimitRule) Confidence() float64 { return api.ConfidenceHigh }
 
 var (
 	roomSelectStarPattern   = regexp.MustCompile(`(?is)^\s*SELECT\s+\*`)
@@ -1377,7 +1379,7 @@ type RoomQueryWithLikeMissingEscapeRule struct {
 // Confidence reports a tier-3 (low) base confidence. The check operates on
 // annotation text without confirming the function is a Room DAO member, and
 // rule semantics depend on the developer's intent for the LIKE pattern.
-func (r *RoomQueryWithLikeMissingEscapeRule) Confidence() float64 { return 0.7 }
+func (r *RoomQueryWithLikeMissingEscapeRule) Confidence() float64 { return api.ConfidenceMediumLowPlus }
 
 var (
 	roomLikeBareBindPattern = regexp.MustCompile(`(?i)\bLIKE\s+:([A-Za-z_][A-Za-z0-9_]*)`)
@@ -1427,7 +1429,7 @@ func (r *RoomFlowQueryWithoutDistinctRule) IsFixable() bool { return false }
 // matched by identifier and may collide with same-named methods on non-DAO
 // receivers; callers that hold the Flow in an intermediate variable are
 // not flagged.
-func (r *RoomFlowQueryWithoutDistinctRule) Confidence() float64 { return 0.6 }
+func (r *RoomFlowQueryWithoutDistinctRule) Confidence() float64 { return api.ConfidenceMediumLow }
 
 func roomFlowReturnTypeFlat(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 {

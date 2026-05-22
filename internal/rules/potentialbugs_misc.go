@@ -6,6 +6,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/oracle"
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -37,7 +38,7 @@ type DeprecationRule struct {
 // Confidence reports a tier-2 (medium) base confidence — matches on
 // deprecation markers and annotations via pattern, with resolver-backed
 // type checks used only when available. Classified per roadmap/17.
-func (r *DeprecationRule) Confidence() float64 { return 0.75 }
+func (r *DeprecationRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // deprecatedDeclIndex returns the per-file index of deprecated
 // declarations, computed once per file per run via the shared
@@ -272,7 +273,7 @@ type HasPlatformTypeRule struct {
 // when the resolver cannot determine the return type. Findings from that
 // fallback path carry known false-positive risk on identifiers that
 // happen to start with those prefixes but are not Java interop.
-func (r *HasPlatformTypeRule) Confidence() float64 { return 0.75 }
+func (r *HasPlatformTypeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // IgnoredReturnValueRule detects call expressions whose non-Unit return value
@@ -295,7 +296,7 @@ type IgnoredReturnValueRule struct {
 // target. When the resolver is unavailable it falls back to name-based
 // heuristics against ReturnValueTypes/IgnoreFunctionCall lists, which
 // can miss custom wrapper APIs or fire on look-alike names.
-func (r *IgnoredReturnValueRule) Confidence() float64 { return 0.75 }
+func (r *IgnoredReturnValueRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // returnValueTypes that should always be flagged when discarded.
 var returnValueFQNs = map[string]bool{
@@ -1425,7 +1426,7 @@ type ImplicitDefaultLocaleRule struct {
 // defined non-String method with one of those names will produce a
 // false positive. Accuracy improves when a type resolver is wired in
 // but the current implementation is structural-only.
-func (r *ImplicitDefaultLocaleRule) Confidence() float64 { return 0.75 }
+func (r *ImplicitDefaultLocaleRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // implicitLocaleMethods are case-conversion methods that use the default
 // locale when called without arguments and therefore warrant a warning.
@@ -1491,7 +1492,7 @@ type LocaleDefaultForCurrencyRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs rule. Detection uses structural AST patterns and optional
 // resolver-backed type checks; fallback path is heuristic. Classified per
 // roadmap/17.
-func (r *LocaleDefaultForCurrencyRule) Confidence() float64 { return 0.75 }
+func (r *LocaleDefaultForCurrencyRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func enclosingClassNameFlat(file *scanner.File, idx uint32) string {
 	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
@@ -1527,7 +1528,7 @@ type HardcodedDateFormatRule struct {
 	BaseRule
 }
 
-func (r *HardcodedDateFormatRule) Confidence() float64 { return 0.85 }
+func (r *HardcodedDateFormatRule) Confidence() float64 { return api.ConfidenceHigh }
 
 // HardcodedNumberFormatRule detects DecimalFormat(pattern) constructors and
 // NumberFormat.getInstance() calls without an explicit Locale. Without one,
@@ -1538,4 +1539,4 @@ type HardcodedNumberFormatRule struct {
 	BaseRule
 }
 
-func (r *HardcodedNumberFormatRule) Confidence() float64 { return 0.85 }
+func (r *HardcodedNumberFormatRule) Confidence() float64 { return api.ConfidenceHigh }

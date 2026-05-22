@@ -28,7 +28,7 @@ var lifecycleCollectCallbacks = map[string]bool{
 // Confidence reports a tier-2 (medium) base confidence. Coroutines rule. Detection matches kotlinx.coroutines call shapes via
 // name lists and structural patterns; project wrappers can escape or
 // collide. Classified per roadmap/17.
-func (r *CollectInOnCreateWithoutLifecycleRule) Confidence() float64 { return 0.75 }
+func (r *CollectInOnCreateWithoutLifecycleRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func hasAncestorCallNamedFlat(file *scanner.File, idx uint32, name string) bool {
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
@@ -59,7 +59,7 @@ func (*GlobalCoroutineUsageRule) Description() string {
 // Confidence reports a tier-2 (medium) base confidence. Coroutines rule. Detection matches kotlinx.coroutines call shapes via
 // name lists and structural patterns; project wrappers can escape or
 // collide. Classified per roadmap/17.
-func (r *GlobalCoroutineUsageRule) Confidence() float64 { return 0.75 }
+func (r *GlobalCoroutineUsageRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // InjectDispatcherRule detects hardcoded Dispatchers.IO/Default/Unconfined in call expressions.
 type InjectDispatcherRule struct {
@@ -77,7 +77,7 @@ type InjectDispatcherRule struct {
 // trip the rule if the test-injected default happens to be a
 // Dispatchers constant. Medium confidence reflects the DI-awareness
 // gap noted in roadmap/17.
-func (r *InjectDispatcherRule) Confidence() float64 { return 0.75 }
+func (r *InjectDispatcherRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func directCallArgumentsFlat(file *scanner.File, idx uint32) uint32 {
 	for i := 0; i < file.FlatNamedChildCount(idx); i++ {
@@ -289,7 +289,7 @@ type RedundantSuspendModifierRule struct {
 // and the rule suppresses the finding, so the remaining positives are
 // reliable but the rule may miss cases where the suspend modifier is
 // genuinely redundant.
-func (r *RedundantSuspendModifierRule) Confidence() float64 { return 0.75 }
+func (r *RedundantSuspendModifierRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // Known suspend functions from the standard library / coroutines.
 var knownSuspendFunctions = map[string]bool{
@@ -463,7 +463,7 @@ var coroutineBuilders = map[string]bool{
 // Confidence reports a tier-2 (medium) base confidence. Coroutines rule. Detection matches kotlinx.coroutines call shapes via
 // name lists and structural patterns; project wrappers can escape or
 // collide. Classified per roadmap/17.
-func (r *SleepInsteadOfDelayRule) Confidence() float64 { return 0.75 }
+func (r *SleepInsteadOfDelayRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func isInsideSuspendContextFlat(file *scanner.File, idx uint32) bool {
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
@@ -523,7 +523,7 @@ type CoroutineLaunchedInTestWithoutRunTestRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Coroutines rule. Detection matches kotlinx.coroutines call shapes via
 // name lists and structural patterns; project wrappers can escape or
 // collide. Classified per roadmap/17.
-func (r *CoroutineLaunchedInTestWithoutRunTestRule) Confidence() float64 { return 0.75 }
+func (r *CoroutineLaunchedInTestWithoutRunTestRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // SuspendFunInFinallySectionRule detects suspend calls in finally blocks.
 type SuspendFunInFinallySectionRule struct {
@@ -534,7 +534,7 @@ type SuspendFunInFinallySectionRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Coroutines rule. Detection matches kotlinx.coroutines call shapes via
 // name lists and structural patterns; project wrappers can escape or
 // collide. Classified per roadmap/17.
-func (r *SuspendFunInFinallySectionRule) Confidence() float64 { return 0.75 }
+func (r *SuspendFunInFinallySectionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // SuspendFunSwallowedCancellationRule detects catching CancellationException without rethrow.
 type SuspendFunSwallowedCancellationRule struct {
@@ -546,7 +546,7 @@ type SuspendFunSwallowedCancellationRule struct {
 // catch blocks swallow CancellationException without rethrow is structural
 // but depends on the resolver to recognize aliases of
 // CancellationException. Classified per roadmap/17.
-func (r *SuspendFunSwallowedCancellationRule) Confidence() float64 { return 0.75 }
+func (r *SuspendFunSwallowedCancellationRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func enclosingTryExpressionFlat(file *scanner.File, idx uint32) uint32 {
 	if file == nil || idx == 0 {
@@ -627,7 +627,7 @@ type SuspendFunWithCoroutineScopeReceiverRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Coroutines rule. Detection matches kotlinx.coroutines call shapes via
 // name lists and structural patterns; project wrappers can escape or
 // collide. Classified per roadmap/17.
-func (r *SuspendFunWithCoroutineScopeReceiverRule) Confidence() float64 { return 0.75 }
+func (r *SuspendFunWithCoroutineScopeReceiverRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func hasSuspendModifierFlat(file *scanner.File, idx uint32) bool {
 	return file.FlatHasModifier(idx, "suspend")
@@ -645,7 +645,7 @@ type ChannelReceiveWithoutCloseRule struct {
 	BaseRule
 }
 
-func (r *ChannelReceiveWithoutCloseRule) Confidence() float64 { return 0.75 }
+func (r *ChannelReceiveWithoutCloseRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // CollectionsSynchronizedListIterationRule detects iteration over synchronized wrappers without external sync.
 type CollectionsSynchronizedListIterationRule struct {
@@ -653,7 +653,7 @@ type CollectionsSynchronizedListIterationRule struct {
 	BaseRule
 }
 
-func (r *CollectionsSynchronizedListIterationRule) Confidence() float64 { return 0.75 }
+func (r *CollectionsSynchronizedListIterationRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var synchronizedCollectionFactories = map[string]bool{
 	"synchronizedList": true, "synchronizedSet": true, "synchronizedMap": true,
@@ -665,7 +665,7 @@ type ConcurrentModificationIterationRule struct {
 	BaseRule
 }
 
-func (r *ConcurrentModificationIterationRule) Confidence() float64 { return 0.75 }
+func (r *ConcurrentModificationIterationRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var mutatingMethods = map[string]bool{
 	"remove": true, "add": true, "addAll": true, "removeAll": true, "clear": true,
@@ -677,7 +677,9 @@ type CoroutineScopeCreatedButNeverCancelledRule struct {
 	BaseRule
 }
 
-func (r *CoroutineScopeCreatedButNeverCancelledRule) Confidence() float64 { return 0.75 }
+func (r *CoroutineScopeCreatedButNeverCancelledRule) Confidence() float64 {
+	return api.ConfidenceMedium
+}
 
 // DeferredAwaitInFinallyRule detects .await() calls inside finally blocks.
 type DeferredAwaitInFinallyRule struct {
@@ -685,7 +687,7 @@ type DeferredAwaitInFinallyRule struct {
 	BaseRule
 }
 
-func (r *DeferredAwaitInFinallyRule) Confidence() float64 { return 0.75 }
+func (r *DeferredAwaitInFinallyRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // FlowWithoutFlowOnRule detects flow chains with collect but no flowOn.
 type FlowWithoutFlowOnRule struct {
@@ -693,7 +695,7 @@ type FlowWithoutFlowOnRule struct {
 	BaseRule
 }
 
-func (r *FlowWithoutFlowOnRule) Confidence() float64 { return 0.75 }
+func (r *FlowWithoutFlowOnRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var flowTerminalOps = map[string]bool{
 	"collect": true, "first": true, "toList": true, "toSet": true, "single": true,
@@ -710,7 +712,7 @@ type SynchronizedOnStringRule struct {
 	BaseRule
 }
 
-func (r *SynchronizedOnStringRule) Confidence() float64 { return 0.75 }
+func (r *SynchronizedOnStringRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // SynchronizedOnBoxedPrimitiveRule detects synchronized() on boxed primitives.
 type SynchronizedOnBoxedPrimitiveRule struct {
@@ -718,7 +720,7 @@ type SynchronizedOnBoxedPrimitiveRule struct {
 	BaseRule
 }
 
-func (r *SynchronizedOnBoxedPrimitiveRule) Confidence() float64 { return 0.75 }
+func (r *SynchronizedOnBoxedPrimitiveRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var boxedPrimitiveTypes = map[string]bool{
 	"Int": true, "Long": true, "Short": true, "Byte": true,
@@ -760,7 +762,7 @@ type SynchronizedOnNonFinalRule struct {
 	BaseRule
 }
 
-func (r *SynchronizedOnNonFinalRule) Confidence() float64 { return 0.75 }
+func (r *SynchronizedOnNonFinalRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func isVarPropertyInScope(file *scanner.File, fromIdx uint32, varName string) bool {
 	classDecl, ok := flatEnclosingAncestor(file, fromIdx, "class_declaration", "object_declaration")
@@ -791,7 +793,7 @@ type VolatileMissingOnDclRule struct {
 	BaseRule
 }
 
-func (r *VolatileMissingOnDclRule) Confidence() float64 { return 0.75 }
+func (r *VolatileMissingOnDclRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // countDclNullChecks counts `propName == null` (or `null == propName`)
 // equality expressions inside the class where the identifier resolves to the
@@ -882,7 +884,7 @@ type MutableStateInObjectRule struct {
 	BaseRule
 }
 
-func (r *MutableStateInObjectRule) Confidence() float64 { return 0.75 }
+func (r *MutableStateInObjectRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var threadSafeTypes = map[string]bool{
 	"AtomicInteger": true, "AtomicLong": true, "AtomicBoolean": true,
@@ -1066,7 +1068,7 @@ type StateFlowMutableLeakRule struct {
 	BaseRule
 }
 
-func (r *StateFlowMutableLeakRule) Confidence() float64 { return 0.75 }
+func (r *StateFlowMutableLeakRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func stateFlowMutableLeakHasKotlinxEvidence(file *scanner.File, propText string) bool {
 	content := string(file.Content)
@@ -1081,7 +1083,7 @@ type SharedFlowWithoutReplayRule struct {
 	BaseRule
 }
 
-func (r *SharedFlowWithoutReplayRule) Confidence() float64 { return 0.75 }
+func (r *SharedFlowWithoutReplayRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // StateFlowCompareByReferenceRule detects .map{}.distinctUntilChanged() on StateFlow.
 type StateFlowCompareByReferenceRule struct {
@@ -1089,7 +1091,7 @@ type StateFlowCompareByReferenceRule struct {
 	BaseRule
 }
 
-func (r *StateFlowCompareByReferenceRule) Confidence() float64 { return 0.75 }
+func (r *StateFlowCompareByReferenceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // Batch 4: coroutine scope / context rules
@@ -1101,7 +1103,7 @@ type GlobalScopeLaunchInViewModelRule struct {
 	BaseRule
 }
 
-func (r *GlobalScopeLaunchInViewModelRule) Confidence() float64 { return 0.75 }
+func (r *GlobalScopeLaunchInViewModelRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // SupervisorScopeInEventHandlerRule detects supervisorScope with a single child operation.
 type SupervisorScopeInEventHandlerRule struct {
@@ -1109,7 +1111,7 @@ type SupervisorScopeInEventHandlerRule struct {
 	BaseRule
 }
 
-func (r *SupervisorScopeInEventHandlerRule) Confidence() float64 { return 0.75 }
+func (r *SupervisorScopeInEventHandlerRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // WithContextInSuspendFunctionNoopRule detects nested withContext with the same dispatcher.
 type WithContextInSuspendFunctionNoopRule struct {
@@ -1117,7 +1119,7 @@ type WithContextInSuspendFunctionNoopRule struct {
 	BaseRule
 }
 
-func (r *WithContextInSuspendFunctionNoopRule) Confidence() float64 { return 0.75 }
+func (r *WithContextInSuspendFunctionNoopRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func extractWithContextDispatcher(ctx *api.Context, callIdx uint32) string {
 	if ctx.File == nil {
@@ -1317,7 +1319,9 @@ type LaunchWithoutCoroutineExceptionHandlerRule struct {
 	BaseRule
 }
 
-func (r *LaunchWithoutCoroutineExceptionHandlerRule) Confidence() float64 { return 0.75 }
+func (r *LaunchWithoutCoroutineExceptionHandlerRule) Confidence() float64 {
+	return api.ConfidenceMedium
+}
 
 // ---------------------------------------------------------------------------
 // Batch 5: cross-module rule
@@ -1330,7 +1334,7 @@ type MainDispatcherInLibraryCodeRule struct {
 }
 
 func (r *MainDispatcherInLibraryCodeRule) IsFixable() bool     { return false }
-func (r *MainDispatcherInLibraryCodeRule) Confidence() float64 { return 0.75 }
+func (r *MainDispatcherInLibraryCodeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MainDispatcherInLibraryCodeRule) check(ctx *api.Context) {
 	pmi := ctx.ModuleIndex

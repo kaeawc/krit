@@ -67,7 +67,7 @@ func registerAndroidSourceRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatHasModifier(idx, "abstract") ||
@@ -114,7 +114,7 @@ func registerAndroidSourceRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"as_expression"}, Confidence: 0.9, Implementation: r,
+			NodeTypes: []string{"as_expression"}, Confidence: api.ConfidenceHigher, Implementation: r,
 			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			OracleCallTargets: &api.OracleCallTargetFilter{
 				CalleeNames: []string{"getSystemService"},
@@ -183,7 +183,7 @@ func registerAndroidSourceRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.85, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigh, Implementation: r,
 			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			OracleCallTargets: &api.OracleCallTargetFilter{
 				CalleeNames: []string{"makeText"},
@@ -242,7 +242,7 @@ func registerAndroidSourceRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.9, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigher, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "HashMap" {
@@ -315,7 +315,7 @@ func registerAndroidSourceRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes:  []string{"call_expression", "object_creation_expression"},
 			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
-			Confidence: 0.9, Fix: api.FixIdiomatic, Implementation: r,
+			Confidence: api.ConfidenceHigher, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				switch file.FlatType(idx) {
@@ -336,7 +336,7 @@ func registerAndroidSourceRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			OracleCallTargets: &api.OracleCallTargetFilter{
 				CalleeNames: []string{"v", "d", "i", "w", "e", "wtf"},
@@ -379,7 +379,7 @@ func registerAndroidSourceRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			OracleCallTargets: &api.OracleCallTargetFilter{
 				CalleeNames: []string{"v", "d", "i", "w", "e", "wtf"},

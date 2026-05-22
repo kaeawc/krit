@@ -30,7 +30,7 @@ type WebViewInScrollViewResourceRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *WebViewInScrollViewResourceRule) Confidence() float64 { return 0.75 }
+func (r *WebViewInScrollViewResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *WebViewInScrollViewResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -67,7 +67,7 @@ type OnClickResourceRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *OnClickResourceRule) Confidence() float64 { return 0.75 }
+func (r *OnClickResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *OnClickResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -94,7 +94,7 @@ type TextFieldsResourceRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *TextFieldsResourceRule) Confidence() float64 { return 0.75 }
+func (r *TextFieldsResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *TextFieldsResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -133,7 +133,7 @@ var apiLevelAttrs = map[string]int{
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *UnusedAttributeResourceRule) Confidence() float64 { return 0.75 }
+func (r *UnusedAttributeResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *UnusedAttributeResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -199,7 +199,7 @@ var languageExpectedRegions = map[string][]string{
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *WrongRegionResourceRule) Confidence() float64 { return 0.75 }
+func (r *WrongRegionResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *WrongRegionResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -272,7 +272,7 @@ type LocaleConfigStaleResourceRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *LocaleConfigStaleResourceRule) Confidence() float64 { return 0.75 }
+func (r *LocaleConfigStaleResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *LocaleConfigStaleResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -517,7 +517,7 @@ type MissingQuantityResourceRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *MissingQuantityResourceRule) Confidence() float64 { return 0.75 }
+func (r *MissingQuantityResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MissingQuantityResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -550,7 +550,7 @@ var unusedEnglishQuantities = map[string]bool{
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *UnusedQuantityResourceRule) Confidence() float64 { return 0.75 }
+func (r *UnusedQuantityResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *UnusedQuantityResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -579,7 +579,7 @@ type ImpliedQuantityResourceRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *ImpliedQuantityResourceRule) Confidence() float64 { return 0.75 }
+func (r *ImpliedQuantityResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ImpliedQuantityResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -617,7 +617,7 @@ var validConversions = map[byte]bool{
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *StringFormatInvalidResourceRule) Confidence() float64 { return 0.75 }
+func (r *StringFormatInvalidResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *StringFormatInvalidResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -716,7 +716,7 @@ type StringFormatCountResourceRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *StringFormatCountResourceRule) Confidence() float64 { return 0.75 }
+func (r *StringFormatCountResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *StringFormatCountResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -795,7 +795,7 @@ type StringFormatMatchesResourceRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *StringFormatMatchesResourceRule) Confidence() float64 { return 0.75 }
+func (r *StringFormatMatchesResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *StringFormatMatchesResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -901,7 +901,7 @@ type StringFormatTrivialResourceRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *StringFormatTrivialResourceRule) Confidence() float64 { return 0.75 }
+func (r *StringFormatTrivialResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *StringFormatTrivialResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -1020,7 +1020,7 @@ type StringNotLocalizableResourceRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *StringNotLocalizableResourceRule) Confidence() float64 { return 0.75 }
+func (r *StringNotLocalizableResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *StringNotLocalizableResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -1110,7 +1110,7 @@ type GoogleAPIKeyInResourcesRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *GoogleAPIKeyInResourcesRule) Confidence() float64 { return 0.75 }
+func (r *GoogleAPIKeyInResourcesRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *GoogleAPIKeyInResourcesRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -1177,7 +1177,7 @@ type InconsistentArraysResourceRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *InconsistentArraysResourceRule) Confidence() float64 { return 0.75 }
+func (r *InconsistentArraysResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *InconsistentArraysResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -1204,7 +1204,7 @@ type StringTrailingWhitespaceResourceRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *StringTrailingWhitespaceResourceRule) Confidence() float64 { return 0.85 }
+func (r *StringTrailingWhitespaceResourceRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *StringTrailingWhitespaceResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -1241,7 +1241,7 @@ type StringResourceMissingPositionalRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *StringResourceMissingPositionalRule) Confidence() float64 { return 0.85 }
+func (r *StringResourceMissingPositionalRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *StringResourceMissingPositionalRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -1341,7 +1341,7 @@ type ExtraTextResourceRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *ExtraTextResourceRule) Confidence() float64 { return 0.75 }
+func (r *ExtraTextResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ExtraTextResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -1370,7 +1370,7 @@ var localeFolderBadRe = regexp.MustCompile(`^values-(?:[a-z0-9]+-)*([a-z]{2})_([
 // Confidence reports a tier-3 (high) base confidence: the rule matches against
 // actual `res/values-*/` directory names from `os.ReadDir`, not source text,
 // so the only error path is a filesystem read failure.
-func (r *LocaleFolderRule) Confidence() float64 { return 0.95 }
+func (r *LocaleFolderRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *LocaleFolderRule) check(ctx *api.Context) {
 	forEachValuesQualifierDir(ctx, func(resRoot, name string) {
@@ -1397,7 +1397,7 @@ var alpha3FolderRe = regexp.MustCompile(`^values-([a-z]{3})(?:-|$)`)
 // Confidence reports a tier-3 (high) base confidence: the 3→2 letter mapping
 // is a closed allow-list, so an unknown 3-letter token (`mcc`, `xyz`, ...)
 // cannot trigger a false positive.
-func (r *UseAlpha2Rule) Confidence() float64 { return 0.95 }
+func (r *UseAlpha2Rule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *UseAlpha2Rule) check(ctx *api.Context) {
 	forEachValuesQualifierDir(ctx, func(resRoot, name string) {

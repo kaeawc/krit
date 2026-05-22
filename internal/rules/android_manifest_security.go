@@ -93,7 +93,7 @@ type DeepLinkMissingAutoVerifyRule struct {
 	AndroidRule
 }
 
-func (r *DeepLinkMissingAutoVerifyRule) Confidence() float64 { return 0.85 }
+func (r *DeepLinkMissingAutoVerifyRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *DeepLinkMissingAutoVerifyRule) check(ctx *api.Context) {
 	m := ctx.Manifest
@@ -550,7 +550,7 @@ type NetworkSecurityConfigDebugOverridesRule struct {
 	AndroidRule
 }
 
-func (r *NetworkSecurityConfigDebugOverridesRule) Confidence() float64 { return 0.85 }
+func (r *NetworkSecurityConfigDebugOverridesRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *InsecureBaseConfigurationManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest

@@ -24,7 +24,7 @@ type DuplicateIDsResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
 // and naming conventions via structural checks on resources. Classified
 // per roadmap/17.
-func (r *DuplicateIDsResourceRule) Confidence() float64 { return 0.75 }
+func (r *DuplicateIDsResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *DuplicateIDsResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -90,7 +90,7 @@ func isValidAndroidID(id string) bool {
 // Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
 // and naming conventions via structural checks on resources. Classified
 // per roadmap/17.
-func (r *InvalidIDResourceRule) Confidence() float64 { return 0.75 }
+func (r *InvalidIDResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *InvalidIDResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -124,7 +124,7 @@ type MissingIDResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
 // and naming conventions via structural checks on resources. Classified
 // per roadmap/17.
-func (r *MissingIDResourceRule) Confidence() float64 { return 0.75 }
+func (r *MissingIDResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MissingIDResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -214,7 +214,7 @@ var idPrefixToType = map[string][]string{
 // Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
 // and naming conventions via structural checks on resources. Classified
 // per roadmap/17.
-func (r *CutPasteIDResourceRule) Confidence() float64 { return 0.75 }
+func (r *CutPasteIDResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *CutPasteIDResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -283,7 +283,7 @@ type DuplicateIncludedIDsResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
 // and naming conventions via structural checks on resources. Classified
 // per roadmap/17.
-func (r *DuplicateIncludedIDsResourceRule) Confidence() float64 { return 0.75 }
+func (r *DuplicateIncludedIDsResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *DuplicateIncludedIDsResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -420,7 +420,7 @@ var knownAndroidAttrs = map[string]bool{
 // Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
 // and naming conventions via structural checks on resources. Classified
 // per roadmap/17.
-func (r *MissingPrefixResourceRule) Confidence() float64 { return 0.75 }
+func (r *MissingPrefixResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MissingPrefixResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -490,7 +490,7 @@ func levenshtein(a, b string) int {
 // Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
 // and naming conventions via structural checks on resources. Classified
 // per roadmap/17.
-func (r *NamespaceTypoResourceRule) Confidence() float64 { return 0.75 }
+func (r *NamespaceTypoResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *NamespaceTypoResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -537,7 +537,7 @@ const resPackagePrefix = "http://schemas.android.com/apk/res/"
 // Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
 // and naming conventions via structural checks on resources. Classified
 // per roadmap/17.
-func (r *ResAutoResourceRule) Confidence() float64 { return 0.75 }
+func (r *ResAutoResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ResAutoResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -573,7 +573,7 @@ type UnusedNamespaceResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
 // and naming conventions via structural checks on resources. Classified
 // per roadmap/17.
-func (r *UnusedNamespaceResourceRule) Confidence() float64 { return 0.75 }
+func (r *UnusedNamespaceResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *UnusedNamespaceResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -638,7 +638,7 @@ type IllegalResourceRefResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
 // and naming conventions via structural checks on resources. Classified
 // per roadmap/17.
-func (r *IllegalResourceRefResourceRule) Confidence() float64 { return 0.75 }
+func (r *IllegalResourceRefResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *IllegalResourceRefResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -744,7 +744,7 @@ var wrongCaseFixes = map[string]string{
 // Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
 // and naming conventions via structural checks on resources. Classified
 // per roadmap/17.
-func (r *WrongCaseResourceRule) Confidence() float64 { return 0.75 }
+func (r *WrongCaseResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *WrongCaseResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -782,7 +782,7 @@ type WrongFolderResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
 // and naming conventions via structural checks on resources. Classified
 // per roadmap/17.
-func (r *WrongFolderResourceRule) Confidence() float64 { return 0.75 }
+func (r *WrongFolderResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *WrongFolderResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -843,7 +843,7 @@ func isValidResFolderName(folder string) bool {
 // Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
 // and naming conventions via structural checks on resources. Classified
 // per roadmap/17.
-func (r *InvalidResourceFolderResourceRule) Confidence() float64 { return 0.75 }
+func (r *InvalidResourceFolderResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *InvalidResourceFolderResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -886,7 +886,7 @@ type AppCompatResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
 // and naming conventions via structural checks on resources. Classified
 // per roadmap/17.
-func (r *AppCompatResourceRule) Confidence() float64 { return 0.75 }
+func (r *AppCompatResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *AppCompatResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex

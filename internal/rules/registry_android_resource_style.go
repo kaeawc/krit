@@ -99,7 +99,7 @@ func registerAndroidResourceStyleRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: 0.75, Implementation: r,
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: r.check,
 		})
 	}

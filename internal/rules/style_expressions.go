@@ -19,7 +19,7 @@ type ExpressionBodySyntaxRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection is pattern-based and the preferred form
 // is a style preference. Classified per roadmap/17.
-func (r *ExpressionBodySyntaxRule) Confidence() float64 { return 0.75 }
+func (r *ExpressionBodySyntaxRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ReturnCountRule limits the number of return statements in a function.
 type ReturnCountRule struct {
@@ -39,7 +39,7 @@ type ReturnCountRule struct {
 // ExcludeReturnFromLambda knobs mitigate but don't eliminate the
 // subjectivity. Medium keeps it out of strict default-confidence
 // gates without removing it from the rule set.
-func (r *ReturnCountRule) Confidence() float64 { return 0.75 }
+func (r *ReturnCountRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type jumpMetrics struct {
 	returns int
@@ -477,7 +477,7 @@ type ThrowsCountRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection is pattern-based and the preferred form
 // is a style preference. Classified per roadmap/17.
-func (r *ThrowsCountRule) Confidence() float64 { return 0.75 }
+func (r *ThrowsCountRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func countJumpExpressionsFlat(root uint32, file *scanner.File, prefix string, limit int, accept func(uint32, string) bool) int {
 	count := 0
@@ -533,7 +533,7 @@ type CollapsibleIfStatementsRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection is pattern-based and the preferred form
 // is a style preference. Classified per roadmap/17.
-func (r *CollapsibleIfStatementsRule) Confidence() float64 { return 0.75 }
+func (r *CollapsibleIfStatementsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // SafeCastRule detects `if (x is Type) { x as Type }` patterns that should use `x as? Type`.
 // This is distinct from UnsafeCast, which is reserved for casts that can never succeed.
@@ -551,7 +551,7 @@ type SafeCastRule struct {
 // rule and UnsafeCast fire on overlapping locations; medium
 // confidence is appropriate for the redundant-cast half of that
 // pair.
-func (r *SafeCastRule) Confidence() float64 { return 0.75 }
+func (r *SafeCastRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // frameworkAnnotationNames identifies annotations indicating external
 // initialization by a framework — these vars can't be analyzed for mutability.
@@ -628,7 +628,7 @@ type VarCouldBeValRule struct {
 // nuances that flow analysis would catch — e.g. vars reassigned only
 // on one branch of a when, or through a captured lambda. Medium
 // confidence reflects the known analysis gap.
-func (r *VarCouldBeValRule) Confidence() float64 { return 0.75 }
+func (r *VarCouldBeValRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func flatSubtreeHasNodeType(file *scanner.File, idx uint32, nodeType string) bool {
 	if file == nil || idx == 0 || nodeType == "" {
@@ -770,7 +770,7 @@ type MayBeConstantRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Initializers are
 // checked structurally and same-file constant references are resolved when
 // they share the same owner, but the finding remains a style preference.
-func (r *MayBeConstantRule) Confidence() float64 { return 0.75 }
+func (r *MayBeConstantRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func mayBeConstantExpressionFlat(ctx *api.Context, expr uint32) bool {
 	if ctx.File == nil || expr == 0 {
@@ -864,7 +864,7 @@ var modifierOrder = []string{
 
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection is pattern-based and the preferred form
 // is a style preference. Classified per roadmap/17.
-func (r *ModifierOrderRule) Confidence() float64 { return 0.75 }
+func (r *ModifierOrderRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func modifierIndex(mod string) int {
 	for i, m := range modifierOrder {
@@ -907,7 +907,7 @@ type FunctionOnlyReturningConstantRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection is pattern-based and the preferred form
 // is a style preference. Classified per roadmap/17.
-func (r *FunctionOnlyReturningConstantRule) Confidence() float64 { return 0.75 }
+func (r *FunctionOnlyReturningConstantRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func isConstant(s string) bool {
 	s = strings.TrimSpace(s)
@@ -987,7 +987,7 @@ type LoopWithTooManyJumpStatementsRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection is pattern-based and the preferred form
 // is a style preference. Classified per roadmap/17.
-func (r *LoopWithTooManyJumpStatementsRule) Confidence() float64 { return 0.75 }
+func (r *LoopWithTooManyJumpStatementsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ExplicitItLambdaParameterRule detects `{ it -> ... }` using AST-based analysis.
 // It finds lambda_literal nodes with exactly one parameter named "it" and flags them.
@@ -1000,7 +1000,7 @@ type ExplicitItLambdaParameterRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection is pattern-based and the preferred form
 // is a style preference. Classified per roadmap/17.
-func (r *ExplicitItLambdaParameterRule) Confidence() float64 { return 0.75 }
+func (r *ExplicitItLambdaParameterRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func findArrowInLambdaFlat(file *scanner.File, lambda uint32) uint32 {
 	for i := 0; i < file.FlatChildCount(lambda); i++ {
@@ -1023,7 +1023,7 @@ type ExplicitItLambdaMultipleParametersRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection is pattern-based and the preferred form
 // is a style preference. Classified per roadmap/17.
-func (r *ExplicitItLambdaMultipleParametersRule) Confidence() float64 { return 0.75 }
+func (r *ExplicitItLambdaMultipleParametersRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func isInsideLambdaUnderFlat(child, stopAt uint32, file *scanner.File) bool {
 	for p, ok := file.FlatParent(child); ok && p != stopAt; p, ok = file.FlatParent(p) {

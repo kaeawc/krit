@@ -14,7 +14,7 @@ type DiCycleDetectionRule struct {
 	BaseRule
 }
 
-func (r *DiCycleDetectionRule) Confidence() float64 { return 0.75 }
+func (r *DiCycleDetectionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *DiCycleDetectionRule) check(ctx *api.Context) {
 	if len(ctx.ParsedFiles) == 0 {

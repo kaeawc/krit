@@ -178,7 +178,7 @@ type GradlePluginCompatibilityRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *GradlePluginCompatibilityRule) Confidence() float64 { return 0.75 }
+func (r *GradlePluginCompatibilityRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *GradlePluginCompatibilityRule) check(ctx *api.Context) {
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -217,7 +217,7 @@ var sdkPropertyNames = []string{
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *StringIntegerRule) Confidence() float64 { return 0.75 }
+func (r *StringIntegerRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *StringIntegerRule) check(ctx *api.Context) {
 	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -363,7 +363,7 @@ type RemoteVersionRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *RemoteVersionRule) Confidence() float64 { return 0.75 }
+func (r *RemoteVersionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *RemoteVersionRule) check(ctx *api.Context) {
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -395,7 +395,7 @@ type DynamicVersionRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *DynamicVersionRule) Confidence() float64 { return 0.75 }
+func (r *DynamicVersionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *DynamicVersionRule) check(ctx *api.Context) {
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -610,7 +610,7 @@ const defaultOldTargetAPIThreshold = 33
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *GradleOldTargetAPIRule) Confidence() float64 { return 0.75 }
+func (r *GradleOldTargetAPIRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *GradleOldTargetAPIRule) check(ctx *api.Context) {
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -645,7 +645,7 @@ type DeprecatedDependencyRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *DeprecatedDependencyRule) Confidence() float64 { return 0.75 }
+func (r *DeprecatedDependencyRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *DeprecatedDependencyRule) check(ctx *api.Context) {
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -676,7 +676,7 @@ type MavenLocalRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *MavenLocalRule) Confidence() float64 { return 0.75 }
+func (r *MavenLocalRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MavenLocalRule) check(ctx *api.Context) {
 	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -705,7 +705,7 @@ const defaultMinSdkTooLowThreshold = 21
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *MinSdkTooLowRule) Confidence() float64 { return 0.75 }
+func (r *MinSdkTooLowRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MinSdkTooLowRule) check(ctx *api.Context) {
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -747,7 +747,7 @@ var deprecatedConfigs = map[string]string{
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *GradleDeprecatedRule) Confidence() float64 { return 0.75 }
+func (r *GradleDeprecatedRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *GradleDeprecatedRule) check(ctx *api.Context) {
 	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -805,7 +805,7 @@ var groovyStyleDSL = map[string]string{
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *GradleGetterRule) Confidence() float64 { return 0.75 }
+func (r *GradleGetterRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *GradleGetterRule) check(ctx *api.Context) {
 	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -854,7 +854,7 @@ type GradlePathRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *GradlePathRule) Confidence() float64 { return 0.75 }
+func (r *GradlePathRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // gradlePathCallContains reports whether a line contains a files() or
 // fileTree() call whose string argument contains needle. We locate the
@@ -918,7 +918,7 @@ type GradleOverridesRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *GradleOverridesRule) Confidence() float64 { return 0.75 }
+func (r *GradleOverridesRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *GradleOverridesRule) check(ctx *api.Context) {
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -948,7 +948,7 @@ type GradleIdeErrorRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *GradleIdeErrorRule) Confidence() float64 { return 0.75 }
+func (r *GradleIdeErrorRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *GradleIdeErrorRule) check(ctx *api.Context) {
 	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -986,7 +986,7 @@ var agpVersionRe = regexp.MustCompile(`com\.android\.tools\.build:gradle:(\d+)\.
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *AndroidGradlePluginVersionRule) Confidence() float64 { return 0.75 }
+func (r *AndroidGradlePluginVersionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *AndroidGradlePluginVersionRule) check(ctx *api.Context) {
 	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -1133,7 +1133,7 @@ func versionLessThan(major, minor, patch, minMajor, minMinor, minPatch int) bool
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *NewerVersionAvailableRule) Confidence() float64 { return 0.75 }
+func (r *NewerVersionAvailableRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *NewerVersionAvailableRule) check(ctx *api.Context) {
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig

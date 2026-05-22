@@ -3,6 +3,7 @@ package rules
 import (
 	"strings"
 
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -19,7 +20,7 @@ type AbstractClassCanBeConcreteClassRule struct {
 // abstractness requires knowing all concrete method bodies;
 // resolver-assisted but falls back to structural heuristic. Classified per
 // roadmap/17.
-func (r *AbstractClassCanBeConcreteClassRule) Confidence() float64 { return 0.75 }
+func (r *AbstractClassCanBeConcreteClassRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // AbstractClassCanBeInterfaceRule detects abstract classes with no state.
 type AbstractClassCanBeInterfaceRule struct {
@@ -30,7 +31,7 @@ type AbstractClassCanBeInterfaceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/classes rule. Detection relies on modifier and declaration
 // structure plus (optional) resolver-backed inheritance checks; the
 // fallback path is heuristic. Classified per roadmap/17.
-func (r *AbstractClassCanBeInterfaceRule) Confidence() float64 { return 0.75 }
+func (r *AbstractClassCanBeInterfaceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func abstractClassCanBeInterfaceClassDeclaresState(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 || file.FlatType(idx) != "class_declaration" {
@@ -218,7 +219,7 @@ type DataClassShouldBeImmutableRule struct {
 // Confidence reports a tier-2 (medium) base confidence — detecting
 // mutable properties in data classes needs type-aware var detection;
 // fallback uses keyword matching. Classified per roadmap/17.
-func (r *DataClassShouldBeImmutableRule) Confidence() float64 { return 0.75 }
+func (r *DataClassShouldBeImmutableRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // mutableCollectionTypes lists types that are mutable collections.
 var mutableCollectionTypes = map[string]bool{
@@ -265,7 +266,7 @@ type DataClassContainsFunctionsRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/classes rule. Detection relies on modifier and declaration
 // structure plus (optional) resolver-backed inheritance checks; the
 // fallback path is heuristic. Classified per roadmap/17.
-func (r *DataClassContainsFunctionsRule) Confidence() float64 { return 0.75 }
+func (r *DataClassContainsFunctionsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // dataClassHasNonConversionFunctionFlat reports whether the class body
 // contains any function whose name does NOT start with one of the
@@ -308,7 +309,7 @@ type ProtectedMemberInFinalClassRule struct {
 // members on non-open classes; class-openness detection depends on declared
 // modifiers plus resolver for inherited finality. Classified per
 // roadmap/17.
-func (r *ProtectedMemberInFinalClassRule) Confidence() float64 { return 0.75 }
+func (r *ProtectedMemberInFinalClassRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func forEachDirectClassMemberFlat(file *scanner.File, body uint32, fn func(uint32)) {
 	if file == nil || body == 0 {
@@ -343,7 +344,7 @@ type NestedClassesVisibilityRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/classes rule. Detection relies on modifier and declaration
 // structure plus (optional) resolver-backed inheritance checks; the
 // fallback path is heuristic. Classified per roadmap/17.
-func (r *NestedClassesVisibilityRule) Confidence() float64 { return 0.75 }
+func (r *NestedClassesVisibilityRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // UtilityClassWithPublicConstructorRule detects utility classes with public constructors.
 type UtilityClassWithPublicConstructorRule struct {
@@ -354,7 +355,7 @@ type UtilityClassWithPublicConstructorRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/classes rule. Detection relies on modifier and declaration
 // structure plus (optional) resolver-backed inheritance checks; the
 // fallback path is heuristic. Classified per roadmap/17.
-func (r *UtilityClassWithPublicConstructorRule) Confidence() float64 { return 0.75 }
+func (r *UtilityClassWithPublicConstructorRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // OptionalAbstractKeywordRule detects abstract keyword on interface members.
 type OptionalAbstractKeywordRule struct {
@@ -365,7 +366,7 @@ type OptionalAbstractKeywordRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/classes rule. Detection relies on modifier and declaration
 // structure plus (optional) resolver-backed inheritance checks; the
 // fallback path is heuristic. Classified per roadmap/17.
-func (r *OptionalAbstractKeywordRule) Confidence() float64 { return 0.75 }
+func (r *OptionalAbstractKeywordRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ClassOrderingRule checks that class members are in the conventional order.
 type ClassOrderingRule struct {
@@ -376,7 +377,7 @@ type ClassOrderingRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/classes rule. Detection relies on modifier and declaration
 // structure plus (optional) resolver-backed inheritance checks; the
 // fallback path is heuristic. Classified per roadmap/17.
-func (r *ClassOrderingRule) Confidence() float64 { return 0.75 }
+func (r *ClassOrderingRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ObjectLiteralToLambdaRule detects object literals that could be lambdas.
 // With type inference: uses ClassHierarchy to detect SAM interfaces from
@@ -393,7 +394,7 @@ type ObjectLiteralToLambdaRule struct {
 // paths miss project-defined SAM interfaces. The rule also can't
 // easily detect when the object literal captures state or has
 // side-effect init blocks that prevent conversion.
-func (r *ObjectLiteralToLambdaRule) Confidence() float64 { return 0.75 }
+func (r *ObjectLiteralToLambdaRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // extractSupertypeName gets the simple type name from a delegation_specifier node,
 // handling dotted names (e.g., "Foo.Bar") and generics (e.g., "Callable<Int>").
@@ -532,7 +533,7 @@ type SerialVersionUIDInSerializableClassRule struct {
 // Confidence reports a tier-2 (medium) base confidence — Serializable
 // detection uses supertype names; without resolver, falls back to matching
 // `Serializable` in the delegation list. Classified per roadmap/17.
-func (r *SerialVersionUIDInSerializableClassRule) Confidence() float64 { return 0.75 }
+func (r *SerialVersionUIDInSerializableClassRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func flatDirectChildrenOfType(file *scanner.File, idx uint32, nodeType string) []uint32 {
 	var out []uint32

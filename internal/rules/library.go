@@ -3,6 +3,7 @@ package rules
 import (
 	"strings"
 
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -16,7 +17,7 @@ type ForbiddenPublicDataClassRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Library-hygiene rule. Detection matches on known library package names
 // and API shapes without confirming the actual import target. Classified
 // per roadmap/17.
-func (r *ForbiddenPublicDataClassRule) Confidence() float64 { return 0.75 }
+func (r *ForbiddenPublicDataClassRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // LibraryEntitiesShouldNotBePublicRule detects public top-level classes, functions,
 // and properties that could be internal in library code.
@@ -28,7 +29,7 @@ type LibraryEntitiesShouldNotBePublicRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Library-hygiene rule. Detection matches on known library package names
 // and API shapes without confirming the actual import target. Classified
 // per roadmap/17.
-func (r *LibraryEntitiesShouldNotBePublicRule) Confidence() float64 { return 0.75 }
+func (r *LibraryEntitiesShouldNotBePublicRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // LibraryCodeMustSpecifyReturnTypeRule detects public functions and properties
 // without explicit return types. In libraries, implicit return types are part of
@@ -41,7 +42,7 @@ type LibraryCodeMustSpecifyReturnTypeRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Library-hygiene rule. Detection matches on known library package names
 // and API shapes without confirming the actual import target. Classified
 // per roadmap/17.
-func (r *LibraryCodeMustSpecifyReturnTypeRule) Confidence() float64 { return 0.75 }
+func (r *LibraryCodeMustSpecifyReturnTypeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // hasExplicitType checks whether a function_declaration or property_declaration
 // has an explicit type annotation by looking for a ":" token followed by a type node.

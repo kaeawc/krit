@@ -21,7 +21,7 @@ type UpperLowerInvariantMisuseRule struct {
 // Confidence reports a tier-2 (medium) base confidence because the rule
 // matches on method name without type resolution; same-named local
 // helpers will produce false positives.
-func (r *UpperLowerInvariantMisuseRule) Confidence() float64 { return 0.75 }
+func (r *UpperLowerInvariantMisuseRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *UpperLowerInvariantMisuseRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File

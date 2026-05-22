@@ -23,7 +23,7 @@ type AnimatorDurationIgnoresScaleRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Accessibility rule. Detection matches on Compose/View API call shapes
 // and argument labels by name rather than by resolved type. Classified per
 // roadmap/17.
-func (r *AnimatorDurationIgnoresScaleRule) Confidence() float64 { return 0.75 }
+func (r *AnimatorDurationIgnoresScaleRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func animatorDurationScaleReferenced(ctx *api.Context, anchor uint32) bool {
 	if ctx.File == nil {
@@ -237,7 +237,7 @@ type ComposeClickableWithoutMinTouchTargetRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Accessibility rule. Detection matches on Compose/View API call shapes
 // and argument labels by name rather than by resolved type. Classified per
 // roadmap/17.
-func (r *ComposeClickableWithoutMinTouchTargetRule) Confidence() float64 { return 0.75 }
+func (r *ComposeClickableWithoutMinTouchTargetRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type composeModifierCall struct {
 	name string
@@ -415,7 +415,9 @@ type ComposeDecorativeImageContentDescriptionRule struct {
 	BaseRule
 }
 
-func (r *ComposeDecorativeImageContentDescriptionRule) Confidence() float64 { return 0.75 }
+func (r *ComposeDecorativeImageContentDescriptionRule) Confidence() float64 {
+	return api.ConfidenceMedium
+}
 
 var composeImageCallNames = map[string]bool{
 	"Image":      true,
@@ -431,7 +433,9 @@ type ComposeIconButtonMissingContentDescriptionRule struct {
 	BaseRule
 }
 
-func (r *ComposeIconButtonMissingContentDescriptionRule) Confidence() float64 { return 0.75 }
+func (r *ComposeIconButtonMissingContentDescriptionRule) Confidence() float64 {
+	return api.ConfidenceMedium
+}
 
 var composeContentDescriptionCalls = map[string]bool{
 	"Icon":       true,
@@ -600,7 +604,7 @@ type ComposeRawTextLiteralRule struct {
 	CustomPreviewPrefixes []string
 }
 
-func (r *ComposeRawTextLiteralRule) Confidence() float64 { return 0.75 }
+func (r *ComposeRawTextLiteralRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func composeRawTextLiteralNonProductionFile(path string) bool {
 	if scanner.IsTestFile(path) {
@@ -628,7 +632,7 @@ type ComposeSemanticsMissingRoleRule struct {
 	CustomPreviewPrefixes []string
 }
 
-func (r *ComposeSemanticsMissingRoleRule) Confidence() float64 { return 0.75 }
+func (r *ComposeSemanticsMissingRoleRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var composeInteractionModifiers = map[string]bool{
 	"clickable":  true,
@@ -654,7 +658,7 @@ type ComposeTextFieldMissingLabelRule struct {
 	BaseRule
 }
 
-func (r *ComposeTextFieldMissingLabelRule) Confidence() float64 { return 0.75 }
+func (r *ComposeTextFieldMissingLabelRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var composeTextFieldCalls = map[string]bool{
 	"TextField":         true,
@@ -690,7 +694,7 @@ type ToastForAccessibilityAnnouncementRule struct {
 	BaseRule
 }
 
-func (r *ToastForAccessibilityAnnouncementRule) Confidence() float64 { return 0.75 }
+func (r *ToastForAccessibilityAnnouncementRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var a11yFunctionPatterns = []string{
 	"accessibility", "announce", "a11y",

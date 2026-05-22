@@ -21,7 +21,7 @@ type VersionCatalogDuplicateVersionRule struct {
 
 // Confidence is high — duplicate literal version strings are a
 // straightforward textual fact derived from the parsed catalog.
-func (r *VersionCatalogDuplicateVersionRule) Confidence() float64 { return 0.85 }
+func (r *VersionCatalogDuplicateVersionRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *VersionCatalogDuplicateVersionRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{}

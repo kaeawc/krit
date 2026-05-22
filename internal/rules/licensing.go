@@ -46,7 +46,7 @@ type OssLicensesNotIncludedInAndroidRule struct {
 // Detection combines Gradle plugin-list parsing with attribution-file
 // presence; vendored licenses under non-standard names produce false
 // positives. Classified per roadmap/17.
-func (r *OssLicensesNotIncludedInAndroidRule) Confidence() float64 { return 0.75 }
+func (r *OssLicensesNotIncludedInAndroidRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *OssLicensesNotIncludedInAndroidRule) check(ctx *api.Context) {
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -127,7 +127,7 @@ type CopyrightYearOutdatedRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Licensing rule. Detection scans file headers and manifests for license
 // markers via regex; custom or non-English headers can produce false
 // negatives. Classified per roadmap/17.
-func (r *CopyrightYearOutdatedRule) Confidence() float64 { return 0.75 }
+func (r *CopyrightYearOutdatedRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *CopyrightYearOutdatedRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -219,7 +219,7 @@ type MissingSpdxIdentifierRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Licensing rule. Detection scans file headers and manifests for license
 // markers via regex; custom or non-English headers can produce false
 // negatives. Classified per roadmap/17.
-func (r *MissingSpdxIdentifierRule) Confidence() float64 { return 0.75 }
+func (r *MissingSpdxIdentifierRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MissingSpdxIdentifierRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -253,7 +253,7 @@ type SpdxIdentifierMismatchWithProjectRule struct {
 // Confidence reports a tier-1 (high) base confidence. Detection compares the
 // SPDX id parsed from the file header to the configured project license; both
 // values are explicit, leaving little room for false positives.
-func (r *SpdxIdentifierMismatchWithProjectRule) Confidence() float64 { return 0.9 }
+func (r *SpdxIdentifierMismatchWithProjectRule) Confidence() float64 { return api.ConfidenceHigher }
 
 func (r *SpdxIdentifierMismatchWithProjectRule) check(ctx *api.Context) {
 	if r.ProjectLicense == "" {
@@ -478,7 +478,7 @@ type SpdxIdentifierInvalidRule struct {
 // Confidence reports a tier-1 (high) base confidence. False positives are
 // limited to licenses trimmed from the embedded set; users can add them via
 // additionalIdentifiers.
-func (r *SpdxIdentifierInvalidRule) Confidence() float64 { return 0.9 }
+func (r *SpdxIdentifierInvalidRule) Confidence() float64 { return api.ConfidenceHigher }
 
 func (r *SpdxIdentifierInvalidRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -686,7 +686,7 @@ type OptInMarkerNotRecognisedRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Licensing rule. The
 // embedded marker list cannot enumerate every project-local OptIn marker, so
 // callers can extend it via configuration. Classified per roadmap/17.
-func (r *OptInMarkerNotRecognisedRule) Confidence() float64 { return 0.7 }
+func (r *OptInMarkerNotRecognisedRule) Confidence() float64 { return api.ConfidenceMediumLowPlus }
 
 func (r *OptInMarkerNotRecognisedRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -747,7 +747,7 @@ type OptInMarkerExposedPubliclyRule struct {
 // Confidence reports a tier-1 (high) base confidence. The detection is fully
 // AST-driven: we match `@OptIn` annotations whose target declaration has no
 // non-public visibility modifier.
-func (r *OptInMarkerExposedPubliclyRule) Confidence() float64 { return 0.9 }
+func (r *OptInMarkerExposedPubliclyRule) Confidence() float64 { return api.ConfidenceHigher }
 
 // optInAnnotationTarget walks up from an `@OptIn` annotation node to the
 // declaration it is attached to. Returns the declaration index and true when
@@ -781,7 +781,7 @@ type OptInWithoutJustificationRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Licensing rule.
-func (r *OptInWithoutJustificationRule) Confidence() float64 { return 0.75 }
+func (r *OptInWithoutJustificationRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *OptInWithoutJustificationRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -807,7 +807,7 @@ type SuppressedWarningWithoutJustificationRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Licensing rule.
-func (r *SuppressedWarningWithoutJustificationRule) Confidence() float64 { return 0.75 }
+func (r *SuppressedWarningWithoutJustificationRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *SuppressedWarningWithoutJustificationRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -835,7 +835,7 @@ type RequiresOptInWithoutMessageRule struct {
 
 // Confidence reports a tier-1 (high) base confidence. The check is a pure AST
 // match on `@RequiresOptIn(...)` argument labels.
-func (r *RequiresOptInWithoutMessageRule) Confidence() float64 { return 0.9 }
+func (r *RequiresOptInWithoutMessageRule) Confidence() float64 { return api.ConfidenceHigher }
 
 func (r *RequiresOptInWithoutMessageRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -870,7 +870,7 @@ type RequiresOptInWithoutLevelRule struct {
 // Confidence reports a tier-1 (high) base confidence. The detection is
 // AST-driven: we match `annotation class` declarations carrying a
 // `@RequiresOptIn` annotation and inspect its `level = ...` argument.
-func (r *RequiresOptInWithoutLevelRule) Confidence() float64 { return 0.9 }
+func (r *RequiresOptInWithoutLevelRule) Confidence() float64 { return api.ConfidenceHigher }
 
 func (r *RequiresOptInWithoutLevelRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -1002,7 +1002,7 @@ func licenseIsIncompatible(projectLicense, depLicense string) bool {
 // Confidence reports a tier-2 (medium) base confidence. Licensing rule. Detection scans file headers and manifests for license
 // markers via regex; custom or non-English headers can produce false
 // negatives. Classified per roadmap/17.
-func (r *DependencyLicenseUnknownRule) Confidence() float64 { return 0.75 }
+func (r *DependencyLicenseUnknownRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *DependencyLicenseUnknownRule) check(ctx *api.Context) {
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -1046,7 +1046,7 @@ type LgplStaticLinkingInApkRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Licensing rule keyed on
 // an embedded LGPL artifact registry; coverage depends on registry breadth.
-func (r *LgplStaticLinkingInApkRule) Confidence() float64 { return 0.75 }
+func (r *LgplStaticLinkingInApkRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *LgplStaticLinkingInApkRule) check(ctx *api.Context) {
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -1104,7 +1104,7 @@ type DependencyLicenseIncompatibleRule struct {
 // Detection relies on the embedded license registry and the configured
 // project license; missing or stale registry entries can produce false
 // negatives. Classified per roadmap/17.
-func (r *DependencyLicenseIncompatibleRule) Confidence() float64 { return 0.75 }
+func (r *DependencyLicenseIncompatibleRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *DependencyLicenseIncompatibleRule) check(ctx *api.Context) {
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -1159,7 +1159,7 @@ type NoticeFileOutOfDateRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Licensing rule.
 // Detection scans a NOTICE file for artifact identifiers; custom phrasing
 // can produce false negatives.
-func (r *NoticeFileOutOfDateRule) Confidence() float64 { return 0.75 }
+func (r *NoticeFileOutOfDateRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *NoticeFileOutOfDateRule) check(ctx *api.Context) {
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig

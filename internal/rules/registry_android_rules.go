@@ -19,7 +19,7 @@ func registerAndroidRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -46,7 +46,7 @@ func registerAndroidRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes:  []string{"call_expression"},
 			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-			Confidence: 0.75, Implementation: r,
+			Confidence: api.ConfidenceMedium, Implementation: r,
 			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"preferredWidth", "preferredHeight", "preferredSize"}},
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
@@ -69,7 +69,7 @@ func registerAndroidRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Needs: api.NeedsResolver, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"class_declaration"}, Needs: api.NeedsResolver, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isRecyclerAdapterClassFlat(ctx, idx) {
@@ -92,7 +92,7 @@ func registerAndroidRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -107,7 +107,7 @@ func registerAndroidRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes:  []string{"call_expression"},
 			Needs:      api.NeedsTypeInfo,
-			Confidence: 0.75, Implementation: r,
+			Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Test sources frequently log without guards on purpose
@@ -136,7 +136,7 @@ func registerAndroidRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"string_literal"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatContainsStringInterpolation(file, idx) {
@@ -165,7 +165,7 @@ func registerAndroidRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes:  []string{"call_expression"},
 			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-			Confidence: 0.75, Implementation: r,
+			Confidence: api.ConfidenceMedium, Implementation: r,
 			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"acquire", "release"}},
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
@@ -208,7 +208,7 @@ func registerAndroidRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "method_invocation", "assignment"},
 			Needs:     api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.9, Implementation: r,
+			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceHigher, Implementation: r,
 			JavaFacts:              &api.JavaFactProfile{ReceiverTypesForCallees: []string{"setJavaScriptEnabled"}},
 			NeedsLibraryFacts:      true,
 			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"setJavaScriptEnabled"}},

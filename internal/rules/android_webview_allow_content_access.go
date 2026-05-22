@@ -14,7 +14,7 @@ type WebViewAllowContentAccessRule struct {
 	AndroidRule
 }
 
-func (r *WebViewAllowContentAccessRule) Confidence() float64 { return 0.85 }
+func (r *WebViewAllowContentAccessRule) Confidence() float64 { return api.ConfidenceHigh }
 
 const webViewAllowContentAccessMessage = "Avoid enabling WebSettings.allowContentAccess; the content:// URI scheme grants the WebView access to content providers and is rarely required on modern Android."
 

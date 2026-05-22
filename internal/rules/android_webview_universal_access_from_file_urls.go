@@ -15,7 +15,7 @@ type WebViewUniversalAccessFromFileUrlsRule struct {
 	AndroidRule
 }
 
-func (r *WebViewUniversalAccessFromFileUrlsRule) Confidence() float64 { return 0.9 }
+func (r *WebViewUniversalAccessFromFileUrlsRule) Confidence() float64 { return api.ConfidenceHigher }
 
 const webViewUniversalAccessFromFileUrlsMessage = "Avoid enabling WebSettings.allowUniversalAccessFromFileURLs; pages loaded from file:// URLs can read arbitrary cross-origin URLs, exposing local data."
 

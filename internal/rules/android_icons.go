@@ -15,6 +15,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/librarymodel"
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -32,7 +33,7 @@ type IconNoDpiRule struct {
 	AndroidRule
 }
 
-func (r *IconNoDpiRule) Confidence() float64 { return 0.75 }
+func (r *IconNoDpiRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // IconDuplicatesConfigRule detects identical icons across different configuration folders.
 type IconDuplicatesConfigRule struct {
@@ -40,7 +41,7 @@ type IconDuplicatesConfigRule struct {
 	AndroidRule
 }
 
-func (r *IconDuplicatesConfigRule) Confidence() float64 { return 0.75 }
+func (r *IconDuplicatesConfigRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // IconDensitiesRule checks for missing density variants.
 type IconDensitiesRule struct {
@@ -48,7 +49,7 @@ type IconDensitiesRule struct {
 	AndroidRule
 }
 
-func (r *IconDensitiesRule) Confidence() float64 { return 0.75 }
+func (r *IconDensitiesRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // IconDipSizeRule checks that icon dimensions match expected DPI ratios.
 type IconDipSizeRule struct {
@@ -56,7 +57,7 @@ type IconDipSizeRule struct {
 	AndroidRule
 }
 
-func (r *IconDipSizeRule) Confidence() float64 { return 0.75 }
+func (r *IconDipSizeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // IconDuplicatesRule detects identical images across densities.
 type IconDuplicatesRule struct {
@@ -64,7 +65,7 @@ type IconDuplicatesRule struct {
 	AndroidRule
 }
 
-func (r *IconDuplicatesRule) Confidence() float64 { return 0.75 }
+func (r *IconDuplicatesRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // GifUsageRule detects GIF files in resources.
 type GifUsageRule struct {
@@ -72,7 +73,7 @@ type GifUsageRule struct {
 	AndroidRule
 }
 
-func (r *GifUsageRule) Confidence() float64 { return 0.75 }
+func (r *GifUsageRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ConvertToWebpRule detects large PNGs that could be smaller as WebP.
 type ConvertToWebpRule struct {
@@ -80,7 +81,7 @@ type ConvertToWebpRule struct {
 	AndroidRule
 }
 
-func (r *ConvertToWebpRule) Confidence() float64 { return 0.75 }
+func (r *ConvertToWebpRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // IconMissingDensityFolderRule detects missing density folders.
 type IconMissingDensityFolderRule struct {
@@ -88,7 +89,7 @@ type IconMissingDensityFolderRule struct {
 	AndroidRule
 }
 
-func (r *IconMissingDensityFolderRule) Confidence() float64 { return 0.75 }
+func (r *IconMissingDensityFolderRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // IconExpectedSizeRule checks that launcher icons have expected sizes.
 type IconExpectedSizeRule struct {
@@ -96,7 +97,7 @@ type IconExpectedSizeRule struct {
 	AndroidRule
 }
 
-func (r *IconExpectedSizeRule) Confidence() float64 { return 0.75 }
+func (r *IconExpectedSizeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // IconExtensionRule detects icon files whose extension does not match the contents.
 type IconExtensionRule struct {
@@ -104,7 +105,7 @@ type IconExtensionRule struct {
 	AndroidRule
 }
 
-func (r *IconExtensionRule) Confidence() float64 { return 0.75 }
+func (r *IconExtensionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // IconLocationRule detects bitmap icons placed in density-independent drawable folders.
 type IconLocationRule struct {
@@ -112,7 +113,7 @@ type IconLocationRule struct {
 	AndroidRule
 }
 
-func (r *IconLocationRule) Confidence() float64 { return 0.75 }
+func (r *IconLocationRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // IconMixedNinePatchRule detects PNG and 9-patch files with the same resource name.
 type IconMixedNinePatchRule struct {
@@ -120,7 +121,7 @@ type IconMixedNinePatchRule struct {
 	AndroidRule
 }
 
-func (r *IconMixedNinePatchRule) Confidence() float64 { return 0.75 }
+func (r *IconMixedNinePatchRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // IconXMLAndPngRule detects drawable XML and bitmap files with the same resource name.
 type IconXMLAndPngRule struct {
@@ -128,7 +129,7 @@ type IconXMLAndPngRule struct {
 	AndroidRule
 }
 
-func (r *IconXMLAndPngRule) Confidence() float64 { return 0.75 }
+func (r *IconXMLAndPngRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // IconColorsRule checks notification and action bar icon color constraints.
 type IconColorsRule struct {
@@ -136,7 +137,7 @@ type IconColorsRule struct {
 	AndroidRule
 }
 
-func (r *IconColorsRule) Confidence() float64 { return 0.75 }
+func (r *IconColorsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // IconLauncherShapeRule checks launcher icon shape transparency.
 type IconLauncherShapeRule struct {
@@ -144,7 +145,7 @@ type IconLauncherShapeRule struct {
 	AndroidRule
 }
 
-func (r *IconLauncherShapeRule) Confidence() float64 { return 0.75 }
+func (r *IconLauncherShapeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // --- IconIndex-backed check functions ---
 

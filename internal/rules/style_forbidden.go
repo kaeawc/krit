@@ -22,7 +22,7 @@ type WildcardImportRule struct {
 // imports/methods/annotations via literal string/regex match; false
 // positives arise when project-local names collide with forbidden list
 // entries. Classified per roadmap/17.
-func (r *WildcardImportRule) Confidence() float64 { return 0.75 }
+func (r *WildcardImportRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func wildcardImportExcluded(imp, excl string) bool {
 	imp = strings.TrimSpace(imp)
@@ -67,7 +67,7 @@ var trackedBugTodoCommentPattern = regexp.MustCompile(`\bTODO(?:\s*\(\s*b/\d+\s*
 // imports/methods/annotations via literal string/regex match; false
 // positives arise when project-local names collide with forbidden list
 // entries. Classified per roadmap/17.
-func (r *ForbiddenCommentRule) Confidence() float64 { return 0.75 }
+func (r *ForbiddenCommentRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func forbiddenCommentAllowedByDefault(text, marker string) bool {
 	if marker != "TODO:" {
@@ -88,7 +88,7 @@ type ForbiddenVoidRule struct {
 // imports/methods/annotations via literal string/regex match; false
 // positives arise when project-local names collide with forbidden list
 // entries. Classified per roadmap/17.
-func (r *ForbiddenVoidRule) Confidence() float64 { return 0.75 }
+func (r *ForbiddenVoidRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // javaInteropGenericTypes are Java generic types where Void is the canonical
 // way to say "no result" and Unit is not substitutable.
@@ -126,7 +126,7 @@ var defaultForbiddenImports = []string{
 // imports/methods/annotations via literal string/regex match; false
 // positives arise when project-local names collide with forbidden list
 // entries. Classified per roadmap/17.
-func (r *ForbiddenImportRule) Confidence() float64 { return 0.75 }
+func (r *ForbiddenImportRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ForbiddenEntry pairs a forbidden value with an optional reason.
 type ForbiddenEntry struct {
@@ -147,7 +147,7 @@ var defaultForbiddenMethods = []string{"print(", "println("}
 // imports/methods/annotations via literal string/regex match; false
 // positives arise when project-local names collide with forbidden list
 // entries. Classified per roadmap/17.
-func (r *ForbiddenMethodCallRule) Confidence() float64 { return 0.75 }
+func (r *ForbiddenMethodCallRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func forbiddenMethodCallMatch(ctx *api.Context, call uint32, methods []string) (string, bool) {
 	if ctx.File == nil || len(methods) == 0 {
@@ -274,7 +274,7 @@ var defaultForbiddenAnnotations = []string{"SuppressWarnings"}
 // imports/methods/annotations via literal string/regex match; false
 // positives arise when project-local names collide with forbidden list
 // entries. Classified per roadmap/17.
-func (r *ForbiddenAnnotationRule) Confidence() float64 { return 0.75 }
+func (r *ForbiddenAnnotationRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ForbiddenNamedParamRule detects named parameters in certain function calls.
 type ForbiddenNamedParamRule struct {
@@ -287,7 +287,7 @@ type ForbiddenNamedParamRule struct {
 // imports/methods/annotations via literal string/regex match; false
 // positives arise when project-local names collide with forbidden list
 // entries. Classified per roadmap/17.
-func (r *ForbiddenNamedParamRule) Confidence() float64 { return 0.75 }
+func (r *ForbiddenNamedParamRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ForbiddenOptInRule detects @OptIn annotations.
 type ForbiddenOptInRule struct {
@@ -300,7 +300,7 @@ type ForbiddenOptInRule struct {
 // imports/methods/annotations via literal string/regex match; false
 // positives arise when project-local names collide with forbidden list
 // entries. Classified per roadmap/17.
-func (r *ForbiddenOptInRule) Confidence() float64 { return 0.75 }
+func (r *ForbiddenOptInRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ForbiddenSuppressRule detects @Suppress annotations.
 type ForbiddenSuppressRule struct {
@@ -313,7 +313,7 @@ type ForbiddenSuppressRule struct {
 // imports/methods/annotations via literal string/regex match; false
 // positives arise when project-local names collide with forbidden list
 // entries. Classified per roadmap/17.
-func (r *ForbiddenSuppressRule) Confidence() float64 { return 0.75 }
+func (r *ForbiddenSuppressRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // MagicNumberRule detects literal numbers in code.
 type MagicNumberRule struct {
@@ -462,7 +462,7 @@ func magicNumberIsHTTPStatusLiteral(file *scanner.File, idx uint32) bool {
 // IgnoreCompanionObjectPropertyDeclaration) are best-effort. Medium
 // confidence lets strict pipelines filter it out while keeping it
 // available for default-severity scans.
-func (r *MagicNumberRule) Confidence() float64 { return 0.75 }
+func (r *MagicNumberRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // magicNumberLiteralTypes is the set of node types dispatched by MagicNumberRule.
 // Used to deduplicate when tree-sitter nests e.g. integer_literal inside long_literal.

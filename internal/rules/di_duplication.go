@@ -18,7 +18,7 @@ type IntoMapDuplicateKeyRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
-func (r *IntoMapDuplicateKeyRule) Confidence() float64 { return 0.7 }
+func (r *IntoMapDuplicateKeyRule) Confidence() float64 { return api.ConfidenceMediumLowPlus }
 
 // IntoSetDuplicateTypeRule detects two or more @IntoSet @Provides functions in
 // the same enclosing module/component that return the same concrete impl
@@ -31,7 +31,7 @@ type IntoSetDuplicateTypeRule struct {
 // Confidence reports a tier-3 (lower) base confidence. Detection compares the
 // final returned-expression callee text; aliases and indirection are not
 // followed.
-func (r *IntoSetDuplicateTypeRule) Confidence() float64 { return 0.5 }
+func (r *IntoSetDuplicateTypeRule) Confidence() float64 { return api.ConfidenceLow }
 
 func (r *IntoMapDuplicateKeyRule) check(ctx *api.Context) {
 	index := ctx.CodeIndex

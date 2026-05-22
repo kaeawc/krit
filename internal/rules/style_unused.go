@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/rules/semantics"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -18,7 +19,7 @@ type UnusedImportRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/unused rule.
 // Detection uses a structural per-file reference-name index, but it does not
 // fully resolve ambiguous imports.
-func (r *UnusedImportRule) Confidence() float64 { return 0.75 }
+func (r *UnusedImportRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *UnusedImportRule) hasReferenceName(file *scanner.File, name string) bool {
 	if file == nil || name == "" {
@@ -60,7 +61,7 @@ type UnusedParameterRule struct {
 // detected from reference-shaped AST identifiers with local shadowing handled
 // structurally, so comments, strings, and substring collisions do not count as
 // usage.
-func (r *UnusedParameterRule) Confidence() float64 { return 0.95 }
+func (r *UnusedParameterRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 type unusedParameterReferenceMatch uint8
 
@@ -430,7 +431,7 @@ type UnusedVariableRule struct {
 // Confidence reports a tier-2 (medium) base confidence. The rule uses
 // scope-aware AST reference matching without type inference, so it skips
 // unresolved local cases instead of emitting high-confidence findings.
-func (r *UnusedVariableRule) Confidence() float64 { return 0.75 }
+func (r *UnusedVariableRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type unusedVariableReferenceMatch uint8
 
@@ -1033,7 +1034,7 @@ type UnusedPrivateClassRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/unused rule. Detection uses substring presence in the enclosing
 // scope body to decide whether a declaration is referenced, which
 // false-positives on substring collisions. Classified per roadmap/17.
-func (r *UnusedPrivateClassRule) Confidence() float64 { return 0.75 }
+func (r *UnusedPrivateClassRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // entryPointAnnotationNames lists annotation names that mark a declaration as
 // a framework entry point (called via reflection, preview tooling, test
@@ -1284,7 +1285,7 @@ type UnusedPrivateFunctionRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/unused rule. Detection uses substring presence in the enclosing
 // scope body to decide whether a declaration is referenced, which
 // false-positives on substring collisions. Classified per roadmap/17.
-func (r *UnusedPrivateFunctionRule) Confidence() float64 { return 0.75 }
+func (r *UnusedPrivateFunctionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // UnusedPrivatePropertyRule detects private properties that are never referenced.
 type UnusedPrivatePropertyRule struct {
@@ -1296,7 +1297,7 @@ type UnusedPrivatePropertyRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/unused rule. Detection uses substring presence in the enclosing
 // scope body to decide whether a declaration is referenced, which
 // false-positives on substring collisions. Classified per roadmap/17.
-func (r *UnusedPrivatePropertyRule) Confidence() float64 { return 0.75 }
+func (r *UnusedPrivatePropertyRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // UnusedPrivateMemberRule is a combined check for unused private members.
 type UnusedPrivateMemberRule struct {
@@ -1309,4 +1310,4 @@ type UnusedPrivateMemberRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/unused rule. Detection uses substring presence in the enclosing
 // scope body to decide whether a declaration is referenced, which
 // false-positives on substring collisions. Classified per roadmap/17.
-func (r *UnusedPrivateMemberRule) Confidence() float64 { return 0.75 }
+func (r *UnusedPrivateMemberRule) Confidence() float64 { return api.ConfidenceMedium }

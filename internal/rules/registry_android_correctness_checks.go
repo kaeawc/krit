@@ -35,7 +35,7 @@ func registerAndroidCorrectnessChecksOverrideAbstract() {
 	r := &OverrideAbstractRule{AndroidRule: alcRule("OverrideAbstract", "Missing abstract method overrides", ALSError, 6)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.9, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceHigher, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			// The class must itself be concrete. `abstract class Foo : Service`
@@ -76,7 +76,7 @@ func registerAndroidCorrectnessChecksParcelCreator() {
 	r := &ParcelCreatorRule{AndroidRule: alcRule("ParcelCreator", "Missing Parcelable CREATOR field", ALSError, 3)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.9, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceHigher, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !classHasSupertypeNamed(file, idx, "Parcelable") {
@@ -386,7 +386,7 @@ func registerAndroidCorrectnessChecksCustomViewStyleable() {
 	r := &CustomViewStyleableRule{AndroidRule: alcRule("CustomViewStyleable", "Mismatched Styleable/Custom View Name", ALSWarning, 6)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.9, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigher, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallExpressionName(file, idx) != "obtainStyledAttributes" {

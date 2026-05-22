@@ -21,7 +21,7 @@ type PrecompileDeprecatedSymbolUsedErrorRule struct {
 	BaseRule
 }
 
-func (r *PrecompileDeprecatedSymbolUsedErrorRule) Confidence() float64 { return 0.95 }
+func (r *PrecompileDeprecatedSymbolUsedErrorRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *PrecompileDeprecatedSymbolUsedErrorRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File

@@ -68,7 +68,7 @@ func (r *ModuleDeadCodeRule) IsFixable() bool { return false }
 // Confidence reports a tier-2 (medium) base confidence for the same
 // reason as DeadCode: the module-aware analyzer relies on index evidence
 // and local generated-use filters rather than a full compiler model.
-func (r *ModuleDeadCodeRule) Confidence() float64 { return 0.75 }
+func (r *ModuleDeadCodeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ModuleDeadCodeRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{

@@ -49,7 +49,7 @@ var drawAllocationAllocTypes = map[string]bool{
 // literals, comments, and multi-line signatures. Unqualified type-name
 // matching against the fixed allow-list keeps this pattern-based
 // without KAA type resolution. Classified per roadmap/17.
-func (r *DrawAllocationRule) Confidence() float64 { return 0.85 }
+func (r *DrawAllocationRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *DrawAllocationRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -124,7 +124,7 @@ func (r *FieldGetterRule) NodeTypes() []string {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *FieldGetterRule) Confidence() float64 { return 0.75 }
+func (r *FieldGetterRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *FieldGetterRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -221,7 +221,7 @@ type FloatMathRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence for structural match.
 // With type resolver verifying FQN: 1.0. Classified per roadmap/17.
-func (r *FloatMathRule) Confidence() float64 { return 0.75 }
+func (r *FloatMathRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *FloatMathRule) NodeTypes() []string { return []string{"navigation_expression"} }
 
@@ -241,7 +241,7 @@ type HandlerLeakRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence for structural match.
 // With type resolver verifying Handler inheritance: 0.90+. Classified per roadmap/17.
-func (r *HandlerLeakRule) Confidence() float64 { return 0.75 }
+func (r *HandlerLeakRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *HandlerLeakRule) NodeTypes() []string {
 	return []string{"class_declaration", "object_literal", "object_creation_expression"}
@@ -607,7 +607,7 @@ var recycleTypeSet = map[string]struct{}{
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *RecycleRule) Confidence() float64 { return 0.75 }
+func (r *RecycleRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *RecycleRule) check(ctx *api.Context) {
 	file := ctx.File

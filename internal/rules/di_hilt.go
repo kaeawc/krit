@@ -1,6 +1,7 @@
 package rules
 
 import (
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -14,7 +15,7 @@ type HiltEntryPointOnNonInterfaceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule. Detection uses annotation and import patterns for
 // Dagger/Hilt/Anvil; project-specific DI aliases are not followed.
 // Classified per roadmap/17.
-func (r *HiltEntryPointOnNonInterfaceRule) Confidence() float64 { return 0.75 }
+func (r *HiltEntryPointOnNonInterfaceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func hiltEntryPointDeclarationFlat(file *scanner.File, idx uint32) (kind, name string, line int, ok bool) {
 	if file == nil || !hasAnnotationFlat(file, idx, "EntryPoint") {
@@ -88,7 +89,7 @@ type HiltInstallInMismatchRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
-func (r *HiltInstallInMismatchRule) Confidence() float64 { return 0.75 }
+func (r *HiltInstallInMismatchRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // hiltComponentScopes maps Hilt component class names to the scope annotations
 // they own. The scopes are stored as a set for fast membership checks.
@@ -124,7 +125,7 @@ type HiltSingletonWithActivityDepRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
-func (r *HiltSingletonWithActivityDepRule) Confidence() float64 { return 0.75 }
+func (r *HiltSingletonWithActivityDepRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var hiltSingletonActivityScopedTypes = map[string]struct{}{
 	"Activity":                  {},

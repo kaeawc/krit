@@ -16,7 +16,7 @@ func registerStyleUnusedRules() {
 		r := &UnusedImportRule{BaseRule: BaseRule{RuleName: "UnusedImport", RuleSetName: "style", Sev: "warning", Desc: "Detects import statements where the imported name is not referenced in the file."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"import_header"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"import_header"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 			Tags: []string{"precompile"},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
@@ -52,7 +52,7 @@ func registerStyleUnusedRules() {
 		r := &UnusedParameterRule{BaseRule: BaseRule{RuleName: "UnusedParameter", RuleSetName: "style", Sev: "warning", Desc: "Detects function parameters that are never used in the function body."}, AllowedNames: regexp.MustCompile(`^(ignored|expected|_)$`)}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Fix: api.FixNone, Implementation: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixNone, Implementation: r,
 			Tags: []string{"precompile"},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
@@ -147,7 +147,7 @@ func registerStyleUnusedRules() {
 		r := &UnusedVariableRule{BaseRule: BaseRule{RuleName: "UnusedVariable", RuleSetName: "style", Sev: "warning", Desc: "Detects local variables that are declared but never used."}, AllowedNames: regexp.MustCompile(`^(ignored|_)$`)}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration", "variable_declaration"}, Confidence: 0.75, Fix: api.FixNone, Implementation: r,
+			NodeTypes: []string{"property_declaration", "variable_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixNone, Implementation: r,
 			Tags: []string{"precompile"},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
@@ -173,7 +173,7 @@ func registerStyleUnusedRules() {
 		r := &UnusedPrivateClassRule{BaseRule: BaseRule{RuleName: "UnusedPrivateClass", RuleSetName: "style", Sev: "warning", Desc: "Detects private classes that are never referenced in the file."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixNone, Implementation: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixNone, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !file.FlatHasModifier(idx, "private") {
@@ -194,7 +194,7 @@ func registerStyleUnusedRules() {
 		r := &UnusedPrivateFunctionRule{BaseRule: BaseRule{RuleName: "UnusedPrivateFunction", RuleSetName: "style", Sev: "warning", Desc: "Detects private functions that are never called in the file."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: api.FixNone, Implementation: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixNone, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if scanner.IsTestFile(file.Path) {
@@ -227,7 +227,7 @@ func registerStyleUnusedRules() {
 		r := &UnusedPrivatePropertyRule{BaseRule: BaseRule{RuleName: "UnusedPrivateProperty", RuleSetName: "style", Sev: "warning", Desc: "Detects private properties that are never referenced in the file."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Fix: api.FixNone, Implementation: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixNone, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !file.FlatHasModifier(idx, "private") {
@@ -259,7 +259,7 @@ func registerStyleUnusedRules() {
 		r := &UnusedPrivateMemberRule{BaseRule: BaseRule{RuleName: "UnusedPrivateMember", RuleSetName: "style", Sev: "warning", Desc: "Detects private members (classes, functions, properties) that are never used."}, IgnoreAnnotated: DefaultUnusedMemberIgnoreAnnotated}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration", "function_declaration", "property_declaration"}, Confidence: 0.75, Fix: api.FixNone, Implementation: r,
+			NodeTypes: []string{"class_declaration", "function_declaration", "property_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixNone, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !file.FlatHasModifier(idx, "private") {

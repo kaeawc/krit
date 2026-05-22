@@ -36,7 +36,7 @@ type SmartCastInvalidatedRule struct {
 	BaseRule
 }
 
-func (r *SmartCastInvalidatedRule) Confidence() float64 { return 0.85 }
+func (r *SmartCastInvalidatedRule) Confidence() float64 { return api.ConfidenceHigh }
 
 // smartCastIfNullCheckedVar returns the simple identifier name being
 // non-null-checked by the if's condition, or "" when the shape doesn't

@@ -19,7 +19,7 @@ type StringConcatForTranslationRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Detection
 // matches the call name `stringResource` without resolving the import
 // site, so a same-named project symbol may produce a false match.
-func (r *StringConcatForTranslationRule) Confidence() float64 { return 0.75 }
+func (r *StringConcatForTranslationRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *StringConcatForTranslationRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File

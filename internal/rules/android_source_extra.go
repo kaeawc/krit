@@ -196,7 +196,7 @@ type ViewConstructorRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ViewConstructorRule) Confidence() float64 { return 0.75 }
+func (r *ViewConstructorRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var viewSuperclasses = []string{"View", "ViewGroup", "TextView", "ImageView", "LinearLayout", "RelativeLayout", "FrameLayout", "ConstraintLayout", "RecyclerView", "SurfaceView", "EditText", "Button", "ScrollView", "HorizontalScrollView", "AppBarLayout", "CoordinatorLayout", "CardView", "Toolbar"}
 
@@ -307,7 +307,7 @@ func (r *ViewTagRule) NodeTypes() []string { return []string{"call_expression"} 
 // Confidence reports a high-confidence semantic check. The rule now anchors
 // on setTag call expressions, verifies the receiver is a View, and classifies
 // the tagged value by resolved type instead of variable names.
-func (r *ViewTagRule) Confidence() float64 { return 0.85 }
+func (r *ViewTagRule) Confidence() float64 { return api.ConfidenceHigh }
 
 var viewTagReceiverTypes = []string{
 	"android.view.View",
@@ -576,7 +576,7 @@ type WrongImportRule struct {
 // syntactic — an import_header's `identifier` child carries the exact
 // dotted FQN. No symbol resolution is needed and no source-text
 // heuristics are involved.
-func (r *WrongImportRule) Confidence() float64 { return 0.95 }
+func (r *WrongImportRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // check runs per import_header node. It flags `import android.R` and
 // any `import android.R.<anything>` (e.g. `android.R.layout`) because
@@ -635,7 +635,7 @@ func (r *LayoutInflationRule) NodeTypes() []string { return []string{"call_expre
 // Confidence reports a high-confidence AST/resource-backed check. The
 // remaining uncertainty is limited to intentional no-parent contexts that do
 // not have a precise type signal in tree-sitter-only analysis.
-func (r *LayoutInflationRule) Confidence() float64 { return 0.85 }
+func (r *LayoutInflationRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *LayoutInflationRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -857,7 +857,7 @@ func (r *MissingPermissionRule) NodeTypes() []string { return []string{"call_exp
 // structural or resolved Android API anchor and a same-permission guard proof,
 // but can still run with source-level type evidence when KAA call targets are
 // unavailable.
-func (r *MissingPermissionRule) Confidence() float64 { return 0.75 }
+func (r *MissingPermissionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MissingPermissionRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -1592,7 +1592,7 @@ func (r *WrongConstantRule) NodeTypes() []string { return []string{"call_express
 
 // Confidence is medium-high: findings require a structural call plus either a
 // resolved Android framework target or same-file constant-set annotation.
-func (r *WrongConstantRule) Confidence() float64 { return 0.85 }
+func (r *WrongConstantRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *WrongConstantRule) check(ctx *api.Context) {
 	if ctx.File.FlatType(ctx.Idx) != "call_expression" {
@@ -2077,7 +2077,7 @@ type InstantiatableRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *InstantiatableRule) Confidence() float64 { return 0.75 }
+func (r *InstantiatableRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var componentSuperclasses = []string{"Activity", "AppCompatActivity", "ComponentActivity", "FragmentActivity", "Service", "IntentService", "BroadcastReceiver", "ContentProvider", "Application"}
 
@@ -2092,7 +2092,7 @@ type RtlAwareRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *RtlAwareRule) Confidence() float64 { return 0.75 }
+func (r *RtlAwareRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // rtlAwareMethods maps View member names to their RTL-aware replacements.
 // Keys are bare callee identifiers; the rule uses flatCallExpressionName
@@ -2115,7 +2115,7 @@ type RtlFieldAccessRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *RtlFieldAccessRule) Confidence() float64 { return 0.75 }
+func (r *RtlFieldAccessRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var rtlFieldNames = []string{"mLeft", "mRight", "mPaddingLeft", "mPaddingRight"}
 
@@ -2130,7 +2130,7 @@ type GridLayoutRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *GridLayoutRule) Confidence() float64 { return 0.85 }
+func (r *GridLayoutRule) Confidence() float64 { return api.ConfidenceHigh }
 
 type MangledCRLFRule struct {
 	LineBase
@@ -2140,7 +2140,7 @@ type MangledCRLFRule struct {
 // Confidence bumps this line rule from the 0.75 line-rule default to
 // 0.95 -- mixed line endings is a literal substring check on the
 // file bytes. Deterministic with no heuristic path.
-func (r *MangledCRLFRule) Confidence() float64 { return 0.95 }
+func (r *MangledCRLFRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *MangledCRLFRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -2163,7 +2163,7 @@ type ResourceNameRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ResourceNameRule) Confidence() float64 { return 0.9 }
+func (r *ResourceNameRule) Confidence() float64 { return api.ConfidenceHigher }
 
 var snakeCaseRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
@@ -2178,7 +2178,7 @@ type ProguardRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ProguardRule) Confidence() float64 { return 0.75 }
+func (r *ProguardRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type ProguardSplitRule struct {
 	LineBase
@@ -2196,7 +2196,7 @@ var (
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ProguardSplitRule) Confidence() float64 { return 0.75 }
+func (r *ProguardSplitRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ProguardSplitRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -2221,7 +2221,7 @@ type NfcTechWhitespaceRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *NfcTechWhitespaceRule) Confidence() float64 { return 0.75 }
+func (r *NfcTechWhitespaceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var nfcTechRe = regexp.MustCompile(`<tech>\s+\S+|<tech>\S+\s+</tech>`)
 
@@ -2236,7 +2236,7 @@ type LibraryCustomViewRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *LibraryCustomViewRule) Confidence() float64 { return 0.75 }
+func (r *LibraryCustomViewRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var hardcodedNsRe = regexp.MustCompile(`http://schemas\.android\.com/apk/res/[a-z][a-z0-9_.]+`)
 
@@ -2251,4 +2251,4 @@ type UnknownIDInLayoutRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *UnknownIDInLayoutRule) Confidence() float64 { return 0.9 }
+func (r *UnknownIDInLayoutRule) Confidence() float64 { return api.ConfidenceHigher }

@@ -25,7 +25,7 @@ type UnnecessaryNotNullCheckRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs null safety rule. Detection leans on structural patterns
 // around nullable expressions and has a heuristic fallback when the
 // resolver is absent. Classified per roadmap/17.
-func (r *UnnecessaryNotNullCheckRule) Confidence() float64 { return 0.75 }
+func (r *UnnecessaryNotNullCheckRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // isMutableVarProperty returns true if the given name is declared as `var`
 // in the file's AST. Kotlin cannot smart-cast mutable properties because their
@@ -540,7 +540,7 @@ type UnnecessaryNotNullOperatorRule struct {
 // Confidence reports a tier-2 (medium) base confidence — flags !! on a
 // non-null type; relies on resolver for nullability. Heuristic fallback is
 // conservative but noisy. Classified per roadmap/17.
-func (r *UnnecessaryNotNullOperatorRule) Confidence() float64 { return 0.75 }
+func (r *UnnecessaryNotNullOperatorRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *UnnecessaryNotNullOperatorRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -989,7 +989,7 @@ type UnnecessarySafeCallRule struct {
 // Confidence reports a tier-2 (medium) base confidence — flags ?. on a
 // non-null receiver; needs resolver for nullability, falls back to
 // name-based heuristic. Classified per roadmap/17.
-func (r *UnnecessarySafeCallRule) Confidence() float64 { return 0.75 }
+func (r *UnnecessarySafeCallRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -1610,7 +1610,7 @@ type NullCheckOnMutablePropertyRule struct {
 // Confidence reports a tier-2 (medium) base confidence — distinguishing
 // val vs var requires type resolution of the receiver. Heuristic fallback
 // uses declaration patterns. Classified per roadmap/17.
-func (r *NullCheckOnMutablePropertyRule) Confidence() float64 { return 0.75 }
+func (r *NullCheckOnMutablePropertyRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *NullCheckOnMutablePropertyRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -1666,7 +1666,7 @@ type NullableToStringCallRule struct {
 // Confidence reports a tier-2 (medium) base confidence — needs resolver
 // to know whether the receiver is nullable; heuristic fallback matches
 // common null-returning APIs. Classified per roadmap/17.
-func (r *NullableToStringCallRule) Confidence() float64 { return 0.75 }
+func (r *NullableToStringCallRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *NullableToStringCallRule) NodeTypes() []string {
 	return []string{"call_expression", "string_literal"}
@@ -1911,7 +1911,7 @@ type UselessElvisOnNonNullRule struct {
 	BaseRule
 }
 
-func (r *UselessElvisOnNonNullRule) Confidence() float64 { return 0.85 }
+func (r *UselessElvisOnNonNullRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *UselessElvisOnNonNullRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File

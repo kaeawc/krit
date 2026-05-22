@@ -45,7 +45,7 @@ func registerCoroutinesCollectInOnCreateWithoutLifecycle() {
 	r := &CollectInOnCreateWithoutLifecycleRule{BaseRule: BaseRule{RuleName: "CollectInOnCreateWithoutLifecycle", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects Flow.collect calls in lifecycle callbacks that are not wrapped by repeatOnLifecycle."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 		OracleCallTargets: &api.OracleCallTargetFilter{
 			CalleeNames: []string{"collect"},
@@ -116,7 +116,7 @@ func registerCoroutinesGlobalCoroutineUsage() {
 	r := &GlobalCoroutineUsageRule{BaseRule: BaseRule{RuleName: "GlobalCoroutineUsage", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects GlobalScope.launch/async usage instead of structured concurrency with a proper CoroutineScope."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression", "navigation_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"call_expression", "navigation_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			switch file.FlatType(idx) {
@@ -192,7 +192,7 @@ func registerCoroutinesInjectDispatcher() {
 	r := &InjectDispatcherRule{BaseRule: BaseRule{RuleName: "InjectDispatcher", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects hardcoded Dispatchers.IO/Default/Unconfined passed as arguments instead of injected dispatchers."}, DispatcherNames: []string{"IO", "Default", "Unconfined", "Main"}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 		OracleCallTargets: &api.OracleCallTargetFilter{
 			CalleeNames: injectDispatcherOracleCalleeNames(r.DispatcherNames),
@@ -281,7 +281,7 @@ func registerCoroutinesRedundantSuspendModifier() {
 	r := &RedundantSuspendModifierRule{BaseRule: BaseRule{RuleName: "RedundantSuspendModifier", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects suspend functions that contain no suspend calls in their body."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 		Needs:  api.NeedsTypeInfo | api.NeedsOracleCallTargets | api.NeedsOracleSuspendMarkers,
 		Oracle: &api.OracleFilter{Identifiers: []string{"suspend"}},
 		OracleCallTargets: &api.OracleCallTargetFilter{
@@ -428,7 +428,7 @@ func registerCoroutinesSleepInsteadOfDelay() {
 	r := &SleepInsteadOfDelayRule{BaseRule: BaseRule{RuleName: "SleepInsteadOfDelay", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects Thread.sleep() usage inside suspend functions or coroutine builder lambdas instead of delay()."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if file.FlatChildCount(idx) == 0 {
@@ -475,7 +475,7 @@ func registerCoroutinesCoroutineLaunchedInTestWithoutRunTest() {
 	r := &CoroutineLaunchedInTestWithoutRunTestRule{BaseRule: BaseRule{RuleName: "CoroutineLaunchedInTestWithoutRunTest", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects launch/async calls in @Test functions that are not wrapped in runTest."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !hasAnnotationFlat(file, idx, "Test") {
@@ -500,7 +500,7 @@ func registerCoroutinesSuspendFunInFinallySection() {
 	r := &SuspendFunInFinallySectionRule{BaseRule: BaseRule{RuleName: "SuspendFunInFinallySection", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects suspend function calls inside finally blocks that may not execute if the coroutine is cancelled."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"finally_block"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"finally_block"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			file.FlatWalkNodes(idx, "call_expression", func(callNode uint32) {
@@ -522,7 +522,7 @@ func registerCoroutinesSuspendFunSwallowedCancellation() {
 	r := &SuspendFunSwallowedCancellationRule{BaseRule: BaseRule{RuleName: "SuspendFunSwallowedCancellation", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects catch blocks that catch CancellationException without rethrowing, breaking structured concurrency."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"catch_block"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"catch_block"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 		Needs: api.NeedsTypeInfo |
 			api.NeedsOracleCallTargets |
 			api.NeedsOracleSuspendMarkers,
@@ -588,7 +588,7 @@ func registerCoroutinesSuspendFunWithCoroutineScopeReceiver() {
 	r := &SuspendFunWithCoroutineScopeReceiverRule{BaseRule: BaseRule{RuleName: "SuspendFunWithCoroutineScopeReceiver", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects functions that are both suspend and extension on CoroutineScope, which should be one or the other."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !hasSuspendModifierFlat(file, idx) {
@@ -631,7 +631,7 @@ func registerCoroutinesChannelReceiveWithoutClose() {
 	r := &ChannelReceiveWithoutCloseRule{BaseRule: BaseRule{RuleName: "ChannelReceiveWithoutClose", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects Channel properties in a class that are never closed, leaking the receiver coroutine."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"property_declaration"}, Confidence: 0.85, Implementation: r,
+		NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			// The property's initializer must be a direct call to
@@ -662,7 +662,7 @@ func registerCoroutinesCollectionsSynchronizedListIteration() {
 	r := &CollectionsSynchronizedListIterationRule{BaseRule: BaseRule{RuleName: "CollectionsSynchronizedListIteration", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects iteration over Collections.synchronized* wrappers without external synchronization."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"for_statement"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"for_statement"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			forText := file.FlatNodeText(idx)
@@ -689,7 +689,7 @@ func registerCoroutinesConcurrentModificationIteration() {
 	r := &ConcurrentModificationIterationRule{BaseRule: BaseRule{RuleName: "ConcurrentModificationIteration", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects collection mutation inside for loops that causes ConcurrentModificationException."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"for_statement"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"for_statement"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			iterableNode := uint32(0)
@@ -728,7 +728,7 @@ func registerCoroutinesCoroutineScopeCreatedButNeverCancelled() {
 	r := &CoroutineScopeCreatedButNeverCancelledRule{BaseRule: BaseRule{RuleName: "CoroutineScopeCreatedButNeverCancelled", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects CoroutineScope properties in a class that are never cancelled, leaking coroutines."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"property_declaration"}, Confidence: 0.85, Implementation: r,
+		NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			// Initializer must be a direct `CoroutineScope(...)` call.
@@ -758,7 +758,7 @@ func registerCoroutinesDeferredAwaitInFinally() {
 	r := &DeferredAwaitInFinallyRule{BaseRule: BaseRule{RuleName: "DeferredAwaitInFinally", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects Deferred.await() calls inside finally blocks that can throw and mask the original exception."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			navExpr, _ := flatCallExpressionParts(file, idx)
@@ -782,7 +782,7 @@ func registerCoroutinesFlowWithoutFlowOn() {
 	r := &FlowWithoutFlowOnRule{BaseRule: BaseRule{RuleName: "FlowWithoutFlowOn", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects flow chains with a terminal operator but no flowOn, risking execution on the wrong dispatcher."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			navExpr, _ := flatCallExpressionParts(file, idx)
@@ -810,7 +810,7 @@ func registerCoroutinesSynchronizedOnString() {
 	r := &SynchronizedOnStringRule{BaseRule: BaseRule{RuleName: "SynchronizedOnString", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects synchronized() blocks using a string literal as the lock monitor."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallExpressionName(file, idx) != "synchronized" {
@@ -840,7 +840,7 @@ func registerCoroutinesSynchronizedOnBoxedPrimitive() {
 	r := &SynchronizedOnBoxedPrimitiveRule{BaseRule: BaseRule{RuleName: "SynchronizedOnBoxedPrimitive", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects synchronized() blocks using a boxed primitive value as the lock monitor."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallExpressionName(file, idx) != "synchronized" {
@@ -881,7 +881,7 @@ func registerCoroutinesSynchronizedOnNonFinal() {
 	r := &SynchronizedOnNonFinalRule{BaseRule: BaseRule{RuleName: "SynchronizedOnNonFinal", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects synchronized() blocks using a var property as the lock, which can change the monitor object."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallExpressionName(file, idx) != "synchronized" {
@@ -912,7 +912,7 @@ func registerCoroutinesVolatileMissingOnDcl() {
 	r := &VolatileMissingOnDclRule{BaseRule: BaseRule{RuleName: "VolatileMissingOnDcl", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects double-checked locking patterns on a var property without @Volatile annotation."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			isVar := false
@@ -958,7 +958,7 @@ func registerCoroutinesMutableStateInObject() {
 	r := &MutableStateInObjectRule{BaseRule: BaseRule{RuleName: "MutableStateInObject", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects mutable var properties inside object declarations that are shared mutable state without synchronization."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"object_declaration"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"object_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if file.FlatType(idx) == "companion_object" {
@@ -1005,7 +1005,7 @@ func registerCoroutinesStateFlowMutableLeak() {
 	r := &StateFlowMutableLeakRule{BaseRule: BaseRule{RuleName: "StateFlowMutableLeak", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects publicly exposed MutableStateFlow properties that should be private with a read-only StateFlow accessor."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			propText := file.FlatNodeText(idx)
@@ -1036,7 +1036,7 @@ func registerCoroutinesSharedFlowWithoutReplay() {
 	r := &SharedFlowWithoutReplayRule{BaseRule: BaseRule{RuleName: "SharedFlowWithoutReplay", RuleSetName: "coroutines", Sev: "info", Desc: "Detects MutableSharedFlow() created with default configuration that has no replay or buffer capacity."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			propText := file.FlatNodeText(idx)
@@ -1062,7 +1062,7 @@ func registerCoroutinesStateFlowCompareByReference() {
 	r := &StateFlowCompareByReferenceRule{BaseRule: BaseRule{RuleName: "StateFlowCompareByReference", RuleSetName: "coroutines", Sev: "info", Desc: "Detects redundant .distinctUntilChanged() after .map{} on StateFlow, which already deduplicates by equality."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			navExpr, _ := flatCallExpressionParts(file, idx)
@@ -1087,7 +1087,7 @@ func registerCoroutinesGlobalScopeLaunchInViewModel() {
 	r := &GlobalScopeLaunchInViewModelRule{BaseRule: BaseRule{RuleName: "GlobalScopeLaunchInViewModel", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects GlobalScope.launch/async inside ViewModel or Presenter classes instead of viewModelScope."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			receiver := flatReceiverNameFromCall(file, idx)
@@ -1116,7 +1116,7 @@ func registerCoroutinesSupervisorScopeInEventHandler() {
 	r := &SupervisorScopeInEventHandlerRule{BaseRule: BaseRule{RuleName: "SupervisorScopeInEventHandler", RuleSetName: "coroutines", Sev: "info", Desc: "Detects supervisorScope with a single child operation where supervisor semantics provide no benefit."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallNameAny(file, idx) != "supervisorScope" {
@@ -1158,7 +1158,7 @@ func registerCoroutinesWithContextInSuspendFunctionNoop() {
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes:  []string{"call_expression"},
 		Languages:  []scanner.Language{scanner.LangKotlin},
-		Confidence: 0.75, Implementation: r,
+		Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallExpressionName(file, idx) != "withContext" {
@@ -1186,7 +1186,7 @@ func registerCoroutinesLaunchWithoutCoroutineExceptionHandler() {
 	r := &LaunchWithoutCoroutineExceptionHandlerRule{BaseRule: BaseRule{RuleName: "LaunchWithoutCoroutineExceptionHandler", RuleSetName: "coroutines", Sev: "info", Desc: "Detects launch blocks containing throw statements but no CoroutineExceptionHandler to catch uncaught exceptions."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			callee := flatCallNameAny(file, idx)

@@ -17,7 +17,7 @@ type MissingGradleChecksumsRule struct {
 	BaseRule
 }
 
-func (r *MissingGradleChecksumsRule) Confidence() float64 { return 0.9 }
+func (r *MissingGradleChecksumsRule) Confidence() float64 { return api.ConfidenceHigher }
 
 func (r *MissingGradleChecksumsRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{}
@@ -60,7 +60,7 @@ type DependencyVerificationDisabledRule struct {
 	AllowLenient bool
 }
 
-func (r *DependencyVerificationDisabledRule) Confidence() float64 { return 0.95 }
+func (r *DependencyVerificationDisabledRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *DependencyVerificationDisabledRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{}

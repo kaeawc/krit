@@ -634,7 +634,7 @@ type MapGetWithNotNullAssertionRule struct {
 // Confidence reports a tier-2 (medium) base confidence — tree-sitter
 // structural check backed by resolver/source type confirmation that the
 // receiver is Map-like. Classified per roadmap/17.
-func (r *MapGetWithNotNullAssertionRule) Confidence() float64 { return 0.75 }
+func (r *MapGetWithNotNullAssertionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type mapGetBangAccess struct {
 	access   uint32

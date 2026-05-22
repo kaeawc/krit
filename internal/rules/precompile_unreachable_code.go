@@ -20,7 +20,7 @@ type PrecompileUnreachableCodeRule struct {
 	BaseRule
 }
 
-func (r *PrecompileUnreachableCodeRule) Confidence() float64 { return 0.95 }
+func (r *PrecompileUnreachableCodeRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *PrecompileUnreachableCodeRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File

@@ -31,7 +31,7 @@ type PrecompileDuplicateDeclarationRule struct {
 	BaseRule
 }
 
-func (r *PrecompileDuplicateDeclarationRule) Confidence() float64 { return 0.9 }
+func (r *PrecompileDuplicateDeclarationRule) Confidence() float64 { return api.ConfidenceHigher }
 
 func (r *PrecompileDuplicateDeclarationRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File

@@ -18,7 +18,7 @@ type TrailingWhitespaceRule struct {
 // Confidence bumps this line rule from the 0.75 line-rule default to
 // 0.95 — trailing whitespace is a pure lexical condition with no
 // known false positives.
-func (r *TrailingWhitespaceRule) Confidence() float64 { return 0.95 }
+func (r *TrailingWhitespaceRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 var trailingWhitespaceRe = regexp.MustCompile(`[ \t]+$`)
 
@@ -53,7 +53,7 @@ type NoTabsRule struct {
 // Confidence bumps this line rule from the 0.75 line-rule default to
 // 0.95 — presence of a tab character is a pure byte check with no
 // room for interpretation.
-func (r *NoTabsRule) Confidence() float64 { return 0.95 }
+func (r *NoTabsRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *NoTabsRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -94,7 +94,7 @@ type MaxLineLengthRule struct {
 // 0.95 — line length is a deterministic measurement, and the rule
 // already skips test files and gradle scripts where long lines are
 // conventional.
-func (r *MaxLineLengthRule) Confidence() float64 { return 0.95 }
+func (r *MaxLineLengthRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *MaxLineLengthRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -408,7 +408,7 @@ type NewLineAtEndOfFileRule struct {
 // Confidence bumps this line rule from the 0.75 line-rule default to
 // 0.95 — presence/absence of a trailing newline is a single byte check
 // with no room for interpretation.
-func (r *NewLineAtEndOfFileRule) Confidence() float64 { return 0.95 }
+func (r *NewLineAtEndOfFileRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *NewLineAtEndOfFileRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -509,7 +509,7 @@ type MaxChainedCallsOnSameLineRule struct {
 // Confidence is 0.95 — chain depth is computed structurally from the
 // flat AST, so string-literal, decimal, import, and trailing-comment
 // dots no longer count.
-func (r *MaxChainedCallsOnSameLineRule) Confidence() float64 { return 0.95 }
+func (r *MaxChainedCallsOnSameLineRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *MaxChainedCallsOnSameLineRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -688,7 +688,7 @@ type CascadingCallWrappingRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/formatting rule. Detection is pattern or regex based on line text;
 // deterministic byte checks have been promoted to tier-1 separately.
 // Classified per roadmap/17.
-func (r *CascadingCallWrappingRule) Confidence() float64 { return 0.75 }
+func (r *CascadingCallWrappingRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *CascadingCallWrappingRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -743,7 +743,7 @@ type UnderscoresInNumericLiteralsRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/formatting rule. Detection is pattern or regex based on line text;
 // deterministic byte checks have been promoted to tier-1 separately.
 // Classified per roadmap/17.
-func (r *UnderscoresInNumericLiteralsRule) Confidence() float64 { return 0.75 }
+func (r *UnderscoresInNumericLiteralsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // formatWithUnderscores inserts underscores every 3 digits from the right for readability.
 func formatWithUnderscores(digits string) string {
@@ -816,7 +816,7 @@ type EqualsOnSignatureLineRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/formatting rule. Detection is pattern or regex based on line text;
 // deterministic byte checks have been promoted to tier-1 separately.
 // Classified per roadmap/17.
-func (r *EqualsOnSignatureLineRule) Confidence() float64 { return 0.75 }
+func (r *EqualsOnSignatureLineRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *EqualsOnSignatureLineRule) check(ctx *api.Context) {
 	file := ctx.File

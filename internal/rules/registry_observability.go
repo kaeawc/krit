@@ -11,7 +11,7 @@ func registerObservabilityRules() {
 		r := &LogLevelGuardMissingRule{BaseRule: BaseRule{RuleName: "LogLevelGuardMissing", RuleSetName: "observability", Sev: "info", Desc: "Detects debug/trace log messages with interpolated calls not guarded by a log-level check."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				level := compactLoggerLevel(flatCallExpressionName(file, idx))
@@ -44,7 +44,7 @@ func registerObservabilityRules() {
 		r := &LogWithoutCorrelationIDRule{BaseRule: BaseRule{RuleName: "LogWithoutCorrelationId", RuleSetName: "observability", Sev: "info", Desc: "Detects logger calls inside coroutine builders whose context does not include MDCContext."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				builderName, args, lambda := coroutineBuilderPartsFlat(file, idx)
@@ -192,7 +192,7 @@ func registerObservabilityRules() {
 		r := &MdcAcrossCoroutineBoundaryRule{BaseRule: BaseRule{RuleName: "MdcAcrossCoroutineBoundary", RuleSetName: "observability", Sev: "warning", Desc: "Detects MDC.put(...) followed by a coroutine builder without MDCContext(); MDC values do not propagate across dispatchers."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "put" {
@@ -214,7 +214,7 @@ func registerObservabilityRules() {
 		r := &LoggerInterpolatedMessageRule{BaseRule: BaseRule{RuleName: "LoggerInterpolatedMessage", RuleSetName: "observability", Sev: "warning", Desc: "Detects SLF4J/Logback/log4j logger calls whose message uses Kotlin string interpolation instead of parameterized placeholders."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				method := flatCallExpressionName(file, idx)
@@ -301,7 +301,7 @@ func registerObservabilityRules() {
 		r := &LoggerStringConcatRule{BaseRule: BaseRule{RuleName: "LoggerStringConcat", RuleSetName: "observability", Sev: "warning", Desc: "Detects SLF4J/Logback/log4j logger calls whose message uses `+` string concatenation instead of parameterized placeholders."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				method := flatCallExpressionName(file, idx)
@@ -325,7 +325,7 @@ func registerObservabilityRules() {
 		r := &LoggerWithoutLoggerFieldRule{BaseRule: BaseRule{RuleName: "LoggerWithoutLoggerField", RuleSetName: "observability", Sev: "warning", Desc: "Detects LoggerFactory.getLogger() calls inside function bodies instead of a class-level logger field."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "getLogger" {
@@ -345,7 +345,7 @@ func registerObservabilityRules() {
 		r := &MdcPutNoRemoveRule{BaseRule: BaseRule{RuleName: "MdcPutNoRemove", RuleSetName: "observability", Sev: "warning", Desc: "Detects MDC.put(...) inside a function with no matching MDC.remove(...), MDC.clear(), or MDCCloseable, which leaks values across reused threads."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "put" {

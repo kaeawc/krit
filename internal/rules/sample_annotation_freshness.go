@@ -15,7 +15,7 @@ type SampleAnnotationFreshnessRule struct {
 }
 
 // Confidence reflects exact FQN lookup through the cross-file symbol index.
-func (r *SampleAnnotationFreshnessRule) Confidence() float64 { return 0.90 }
+func (r *SampleAnnotationFreshnessRule) Confidence() float64 { return api.ConfidenceHigher }
 
 var kdocSampleTagRe = regexp.MustCompile(`@sample\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)`)
 

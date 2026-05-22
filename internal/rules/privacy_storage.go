@@ -18,7 +18,7 @@ type SharedPreferencesForSensitiveKeyRule struct {
 	BaseRule
 }
 
-func (r *SharedPreferencesForSensitiveKeyRule) Confidence() float64 { return 0.75 }
+func (r *SharedPreferencesForSensitiveKeyRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *SharedPreferencesForSensitiveKeyRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -68,7 +68,7 @@ type PlainFileWriteOfSensitiveRule struct {
 	BaseRule
 }
 
-func (r *PlainFileWriteOfSensitiveRule) Confidence() float64 { return 0.75 }
+func (r *PlainFileWriteOfSensitiveRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *PlainFileWriteOfSensitiveRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -100,7 +100,7 @@ type LogOfSharedPreferenceReadRule struct {
 	BaseRule
 }
 
-func (r *LogOfSharedPreferenceReadRule) Confidence() float64 { return 0.75 }
+func (r *LogOfSharedPreferenceReadRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *LogOfSharedPreferenceReadRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File

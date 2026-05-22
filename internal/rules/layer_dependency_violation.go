@@ -20,7 +20,7 @@ type LayerDependencyViolationRule struct {
 // Confidence is 0.95 — given a well-defined layer matrix, the check is
 // a deterministic graph walk. False positives only occur from misconfigured
 // layer definitions, not from algorithm imprecision.
-func (r *LayerDependencyViolationRule) Confidence() float64 { return 0.95 }
+func (r *LayerDependencyViolationRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *LayerDependencyViolationRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{NeedsDependencies: true}

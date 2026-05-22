@@ -32,7 +32,7 @@ var rtlReplacements = map[string]string{
 // Confidence reports a tier-2 (medium) base confidence. Android RTL resource rule. Detection flags start/end vs left/right
 // attribute usage and bidi markers via attribute presence checks.
 // Classified per roadmap/17.
-func (r *RtlHardcodedResourceRule) Confidence() float64 { return 0.75 }
+func (r *RtlHardcodedResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *RtlHardcodedResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -154,7 +154,7 @@ func hasSingleEdgeConstraint(v *android.View) bool {
 // Confidence reports a tier-2 (medium) base confidence. Android RTL resource rule. Detection flags start/end vs left/right
 // attribute usage and bidi markers via attribute presence checks.
 // Classified per roadmap/17.
-func (r *RtlSymmetryResourceRule) Confidence() float64 { return 0.75 }
+func (r *RtlSymmetryResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *RtlSymmetryResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -195,7 +195,7 @@ type RtlSuperscriptResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android RTL resource rule. Detection flags start/end vs left/right
 // attribute usage and bidi markers via attribute presence checks.
 // Classified per roadmap/17.
-func (r *RtlSuperscriptResourceRule) Confidence() float64 { return 0.75 }
+func (r *RtlSuperscriptResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *RtlSuperscriptResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -245,7 +245,7 @@ func verticalConstraintKey(v *android.View) string {
 // Confidence reports a tier-2 (medium) base confidence. Android RTL resource rule. Detection flags start/end vs left/right
 // attribute usage and bidi markers via attribute presence checks.
 // Classified per roadmap/17.
-func (r *RelativeOverlapResourceRule) Confidence() float64 { return 0.75 }
+func (r *RelativeOverlapResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *RelativeOverlapResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -317,7 +317,7 @@ var relativeConstraintAttrs = []string{
 // Confidence reports a tier-2 (medium) base confidence. Android RTL resource rule. Detection flags start/end vs left/right
 // attribute usage and bidi markers via attribute presence checks.
 // Classified per roadmap/17.
-func (r *NotSiblingResourceRule) Confidence() float64 { return 0.75 }
+func (r *NotSiblingResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *NotSiblingResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex

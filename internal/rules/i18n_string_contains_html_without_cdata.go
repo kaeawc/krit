@@ -34,7 +34,7 @@ type StringContainsHTMLWithoutCDATARule struct {
 	AndroidRule
 }
 
-func (r *StringContainsHTMLWithoutCDATARule) Confidence() float64 { return 0.9 }
+func (r *StringContainsHTMLWithoutCDATARule) Confidence() float64 { return api.ConfidenceHigher }
 
 // htmlMarkupChildTags is the set of child element tags that, when present
 // inside a <string> resource without being wrapped in <![CDATA[...]]>,

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/sourceheader"
 )
@@ -21,7 +22,7 @@ type PackageNamingConventionDriftRule struct {
 // Confidence holds the 0.95 dispatch default — package-header drift
 // is a purely structural comparison against the expected prefix
 // derived from the source root path. No heuristic path.
-func (r *PackageNamingConventionDriftRule) Confidence() float64 { return 0.95 }
+func (r *PackageNamingConventionDriftRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func packageHeaderNameFlat(file *scanner.File, idx uint32) string {
 	if idNode, ok := file.FlatFindChild(idx, "identifier"); ok {

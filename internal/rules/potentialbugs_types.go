@@ -508,7 +508,7 @@ func ifExpressionIsFirstStatementInFunction(file *scanner.File, ifExpr uint32, f
 // Confidence reports a tier-2 (medium) base confidence — flags === / !==
 // on value types; needs resolver to confirm operand types, falls back to a
 // name-based heuristic. Classified per roadmap/17.
-func (r *AvoidReferentialEqualityRule) Confidence() float64 { return 0.75 }
+func (r *AvoidReferentialEqualityRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // DoubleMutabilityForCollectionRule detects var with mutable collection type.
@@ -525,7 +525,7 @@ type DoubleMutabilityForCollectionRule struct {
 // AST/import evidence, but won't detect the pattern when the collection is
 // returned from a wrapper function. Medium confidence matches the known
 // scope-analysis gap.
-func (r *DoubleMutabilityForCollectionRule) Confidence() float64 { return 0.75 }
+func (r *DoubleMutabilityForCollectionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var defaultDoubleMutableTypes = []string{
 	"MutableList", "MutableSet", "MutableMap", "MutableCollection",
@@ -726,7 +726,7 @@ type EqualsAlwaysReturnsTrueOrFalseRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs types rule. Detection pattern-matches type-related
 // constructs; resolver usage when available improves precision but
 // fallback is heuristic. Classified per roadmap/17.
-func (r *EqualsAlwaysReturnsTrueOrFalseRule) Confidence() float64 { return 0.75 }
+func (r *EqualsAlwaysReturnsTrueOrFalseRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // EqualsWithHashCodeExistRule detects equals without hashCode or vice versa.
@@ -739,7 +739,7 @@ type EqualsWithHashCodeExistRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs types rule. Detection pattern-matches type-related
 // constructs; resolver usage when available improves precision but
 // fallback is heuristic. Classified per roadmap/17.
-func (r *EqualsWithHashCodeExistRule) Confidence() float64 { return 0.75 }
+func (r *EqualsWithHashCodeExistRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // WrongEqualsTypeParameterRule detects equals(other: String) instead of Any?.
@@ -1125,7 +1125,7 @@ type ImplicitUnitReturnTypeRule struct {
 // omit ': Unit' — a convention mismatch rather than a bug, but one that
 // produces noise on Compose codebases. Medium confidence keeps it off
 // default-strict gates without taking it out of the rule set.
-func (r *ImplicitUnitReturnTypeRule) Confidence() float64 { return 0.75 }
+func (r *ImplicitUnitReturnTypeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // ElseCaseInsteadOfExhaustiveWhenRule detects when with else on enum/sealed.
@@ -1142,7 +1142,7 @@ type ElseCaseInsteadOfExhaustiveWhenRule struct {
 // resolver it checks if sealed/enum variants are fully covered; fallback
 // flags any when-with-else-using-is, which is noisier. Classified per
 // roadmap/17.
-func (r *ElseCaseInsteadOfExhaustiveWhenRule) Confidence() float64 { return 0.75 }
+func (r *ElseCaseInsteadOfExhaustiveWhenRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // whenElseBranchDeletionFix returns a byte-mode Fix that removes the
 // `else -> ...` when_entry from a when_expression along with surrounding
@@ -1408,7 +1408,7 @@ type NoElseInWhenSealedRule struct {
 	BaseRule
 }
 
-func (r *NoElseInWhenSealedRule) Confidence() float64 { return 0.9 }
+func (r *NoElseInWhenSealedRule) Confidence() float64 { return api.ConfidenceHigher }
 
 // whenConditionEnumEntryName extracts the entry name from a value-style
 // when_condition like `Color.RED` (navigation_expression) or a bare
@@ -1511,7 +1511,7 @@ type NonExhaustiveWhenRule struct {
 	BaseRule
 }
 
-func (r *NonExhaustiveWhenRule) Confidence() float64 { return 0.9 }
+func (r *NonExhaustiveWhenRule) Confidence() float64 { return api.ConfidenceHigher }
 
 // whenIsUsedAsExpression walks parents through transparent wrappers
 // (parenthesized_expression, annotated_expression) and inspects the

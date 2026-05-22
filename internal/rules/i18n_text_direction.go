@@ -22,7 +22,7 @@ type TextDirectionLiteralInStringRule struct {
 // Confidence reports a tier-3 (high) base confidence. The BIDI control
 // codepoints have no other meaning in a string literal, so a literal
 // match is unambiguous.
-func (r *TextDirectionLiteralInStringRule) Confidence() float64 { return 0.9 }
+func (r *TextDirectionLiteralInStringRule) Confidence() float64 { return api.ConfidenceHigher }
 
 func (r *TextDirectionLiteralInStringRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File

@@ -14,7 +14,7 @@ type WebViewFileAccessFromFileUrlsRule struct {
 	AndroidRule
 }
 
-func (r *WebViewFileAccessFromFileUrlsRule) Confidence() float64 { return 0.85 }
+func (r *WebViewFileAccessFromFileUrlsRule) Confidence() float64 { return api.ConfidenceHigh }
 
 const webViewFileAccessFromFileUrlsMessage = "Avoid enabling WebSettings.allowFileAccessFromFileURLs; pages loaded from file:// URLs can read other file:// documents, enabling local-file exfiltration via XSS."
 

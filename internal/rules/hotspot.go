@@ -21,7 +21,7 @@ type GodClassOrModuleRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Hotspot rule. Detection uses cross-file fan-in/fan-out metrics whose
 // threshold is a project-sensitive heuristic. Classified per roadmap/17.
-func (r *GodClassOrModuleRule) Confidence() float64 { return 0.75 }
+func (r *GodClassOrModuleRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // Walks `import_header` AST nodes instead of `file.Lines` so the count
 // excludes `import ` text inside block comments, KDoc, and raw-string
@@ -74,7 +74,7 @@ type FanInFanOutHotspotRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Hotspot rule. Detection uses cross-file fan-in/fan-out metrics whose
 // threshold is a project-sensitive heuristic. Classified per roadmap/17.
-func (r *FanInFanOutHotspotRule) Confidence() float64 { return 0.75 }
+func (r *FanInFanOutHotspotRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *FanInFanOutHotspotRule) check(ctx *api.Context) {
 	index := ctx.CodeIndex

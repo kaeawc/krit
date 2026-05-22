@@ -27,7 +27,7 @@ type TranslatableMarkupMismatchRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Markup
 // detection is regex-based; literal `**` or `<b ` lookalikes in
 // translator text can occasionally produce false positives.
-func (r *TranslatableMarkupMismatchRule) Confidence() float64 { return 0.8 }
+func (r *TranslatableMarkupMismatchRule) Confidence() float64 { return api.ConfidenceMediumHigh }
 
 type markupStyle struct {
 	html bool

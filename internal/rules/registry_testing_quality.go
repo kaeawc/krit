@@ -49,7 +49,7 @@ func registerTestingQualityAssertEqualsArgumentOrder() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallExpressionName(file, idx) != "assertEquals" {
@@ -79,7 +79,7 @@ func registerTestingQualityAssertTrueOnComparison() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallExpressionName(file, idx) != "assertTrue" {
@@ -129,7 +129,7 @@ func registerTestingQualityAssertNullableWithNotNullAssertion() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !testingQualityRuleShouldRunInFile(file) {
@@ -171,7 +171,7 @@ func registerTestingQualityMockWithoutVerify() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !testingQualityIsTestFunction(file, idx) {
@@ -253,7 +253,7 @@ func registerTestingQualityRunTestWithDelay() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallExpressionName(file, idx) != "delay" {
@@ -289,7 +289,7 @@ func registerTestingQualityRunTestWithThreadSleep() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			name := flatCallExpressionName(file, idx)
@@ -318,7 +318,7 @@ func registerTestingQualityRunBlockingInTest() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallExpressionName(file, idx) != "runBlocking" {
@@ -360,7 +360,7 @@ func registerTestingQualityTestDispatcherNotInjected() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"navigation_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			segments := flatNavigationChainIdentifiers(file, idx)
@@ -386,7 +386,7 @@ func registerTestingQualityTestWithoutAssertion() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if testingQualityIsEditorTemplatePath(file.Path) {
@@ -434,7 +434,7 @@ func registerTestingQualityTestWithOnlyTodo() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !testingQualityIsTestFunction(file, idx) {
@@ -472,7 +472,7 @@ func registerTestingQualityTestFunctionReturnValue() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !testingQualityIsTestFunction(file, idx) {
@@ -493,7 +493,7 @@ func registerTestingQualityTestNameContainsUnderscore() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: 0.6, Fix: api.FixCosmetic, Implementation: r,
+		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMediumLow, Fix: api.FixCosmetic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !testingQualityIsTestFunction(file, idx) {
@@ -542,7 +542,7 @@ func registerTestingQualitySharedMutableStateInObject() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"companion_object", "object_declaration"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"companion_object", "object_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !testingQualityIsTestFile(file) {
@@ -570,7 +570,7 @@ func registerTestingQualityTestInheritanceDepth() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.6, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMediumLow, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !testingQualityIsTestFile(file) {
@@ -605,7 +605,7 @@ func registerTestingQualityRelaxedMockUsedForValueClass() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallNameAny(file, idx) != "mockk" {
@@ -633,7 +633,7 @@ func registerTestingQualitySpyOnDataClass() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.6, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMediumLow, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			name := flatCallNameAny(file, idx)
@@ -666,7 +666,7 @@ func registerTestingQualityVerifyWithoutMock() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.6, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMediumLow, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !testingQualityRuleShouldRunInFile(file) {

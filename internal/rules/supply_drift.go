@@ -19,7 +19,9 @@ type KotlinVersionMismatchAcrossModulesRule struct {
 	BaseRule
 }
 
-func (r *KotlinVersionMismatchAcrossModulesRule) Confidence() float64 { return 0.8 }
+func (r *KotlinVersionMismatchAcrossModulesRule) Confidence() float64 {
+	return api.ConfidenceMediumHigh
+}
 
 func (r *KotlinVersionMismatchAcrossModulesRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{}
@@ -61,7 +63,7 @@ type JvmTargetMismatchRule struct {
 	BaseRule
 }
 
-func (r *JvmTargetMismatchRule) Confidence() float64 { return 0.85 }
+func (r *JvmTargetMismatchRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *JvmTargetMismatchRule) check(ctx *api.Context) {
 	path, content := ctx.GradlePath, ctx.GradleContent
@@ -285,7 +287,9 @@ type ConventionPluginAppliedToWrongTargetRule struct {
 	PluginTargetMap []string
 }
 
-func (r *ConventionPluginAppliedToWrongTargetRule) Confidence() float64 { return 0.7 }
+func (r *ConventionPluginAppliedToWrongTargetRule) Confidence() float64 {
+	return api.ConfidenceMediumLowPlus
+}
 
 func (r *ConventionPluginAppliedToWrongTargetRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{}
@@ -445,7 +449,7 @@ type ApplyPluginTwiceRule struct {
 	BaseRule
 }
 
-func (r *ApplyPluginTwiceRule) Confidence() float64 { return 0.85 }
+func (r *ApplyPluginTwiceRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *ApplyPluginTwiceRule) check(ctx *api.Context) {
 	path, content := ctx.GradlePath, ctx.GradleContent
@@ -624,7 +628,7 @@ type ConfigurationsAllSideEffectRule struct {
 	AllowInConventionPlugins bool
 }
 
-func (r *ConfigurationsAllSideEffectRule) Confidence() float64 { return 0.7 }
+func (r *ConfigurationsAllSideEffectRule) Confidence() float64 { return api.ConfidenceMediumLowPlus }
 
 func (r *ConfigurationsAllSideEffectRule) check(ctx *api.Context) {
 	path, content := ctx.GradlePath, ctx.GradleContent

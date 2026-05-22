@@ -205,7 +205,7 @@ type AbsentOrWrongFileLicenseRule struct {
 // Confidence holds the 0.95 dispatch default. Documentation/comment rule. Detection checks presence and
 // well-formedness of doc comments on declarations — purely structural. No
 // heuristic path. Classified per roadmap/17.
-func (r *AbsentOrWrongFileLicenseRule) Confidence() float64 { return 0.95 }
+func (r *AbsentOrWrongFileLicenseRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *AbsentOrWrongFileLicenseRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -397,7 +397,7 @@ func buildDeprecatedAnnotation(message string) string {
 // Confidence holds the 0.95 dispatch default. Documentation/comment rule. Detection checks presence and
 // well-formedness of doc comments on declarations — purely structural. No
 // heuristic path. Classified per roadmap/17.
-func (r *DeprecatedBlockTagRule) Confidence() float64 { return 0.95 }
+func (r *DeprecatedBlockTagRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // DocumentationOverPrivateFunctionRule detects KDoc on private functions.
 type DocumentationOverPrivateFunctionRule struct {
@@ -408,7 +408,7 @@ type DocumentationOverPrivateFunctionRule struct {
 // Confidence holds the 0.95 dispatch default. Documentation/comment rule. Detection checks presence and
 // well-formedness of doc comments on declarations — purely structural. No
 // heuristic path. Classified per roadmap/17.
-func (r *DocumentationOverPrivateFunctionRule) Confidence() float64 { return 0.95 }
+func (r *DocumentationOverPrivateFunctionRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // DocumentationOverPrivatePropertyRule detects KDoc on private properties.
 type DocumentationOverPrivatePropertyRule struct {
@@ -419,7 +419,7 @@ type DocumentationOverPrivatePropertyRule struct {
 // Confidence holds the 0.95 dispatch default. Documentation/comment rule. Detection checks presence and
 // well-formedness of doc comments on declarations — purely structural. No
 // heuristic path. Classified per roadmap/17.
-func (r *DocumentationOverPrivatePropertyRule) Confidence() float64 { return 0.95 }
+func (r *DocumentationOverPrivatePropertyRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // EndOfSentenceFormatRule checks KDoc first sentence ends with proper punctuation.
 type EndOfSentenceFormatRule struct {
@@ -434,7 +434,7 @@ type EndOfSentenceFormatRule struct {
 // Confidence holds the 0.95 dispatch default. Documentation/comment rule. Detection checks presence and
 // well-formedness of doc comments on declarations — purely structural. No
 // heuristic path. Classified per roadmap/17.
-func (r *EndOfSentenceFormatRule) Confidence() float64 { return 0.95 }
+func (r *EndOfSentenceFormatRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // KDocReferencesNonPublicPropertyRule finds KDoc [ref] to non-public properties.
 type KDocReferencesNonPublicPropertyRule struct {
@@ -445,7 +445,7 @@ type KDocReferencesNonPublicPropertyRule struct {
 // Confidence holds the 0.95 dispatch default. Documentation/comment rule. Detection checks presence and
 // well-formedness of doc comments on declarations — purely structural. No
 // heuristic path. Classified per roadmap/17.
-func (r *KDocReferencesNonPublicPropertyRule) Confidence() float64 { return 0.95 }
+func (r *KDocReferencesNonPublicPropertyRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 var kdocRefRe = regexp.MustCompile(`\[([A-Za-z_][A-Za-z0-9_]*)\]`)
 
@@ -462,7 +462,7 @@ var paramTagRe = regexp.MustCompile(`@param\s+([A-Za-z_][A-Za-z0-9_]*)`)
 // Confidence holds the 0.95 dispatch default. Documentation/comment rule. Detection checks presence and
 // well-formedness of doc comments on declarations — purely structural. No
 // heuristic path. Classified per roadmap/17.
-func (r *OutdatedDocumentationRule) Confidence() float64 { return 0.95 }
+func (r *OutdatedDocumentationRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // outdatedDocCollectTypeParameterNamesFlat returns the type-parameter
 // identifiers declared on a function (e.g. `T`, `R` in `fun <T, R> map`).
@@ -507,7 +507,7 @@ type UndocumentedPublicClassRule struct {
 // Confidence holds the 0.95 dispatch default. Documentation/comment rule. Detection checks presence and
 // well-formedness of doc comments on declarations — purely structural. No
 // heuristic path. Classified per roadmap/17.
-func (r *UndocumentedPublicClassRule) Confidence() float64 { return 0.95 }
+func (r *UndocumentedPublicClassRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // UndocumentedPublicFunctionRule detects public functions without KDoc.
 type UndocumentedPublicFunctionRule struct {
@@ -518,7 +518,7 @@ type UndocumentedPublicFunctionRule struct {
 // Confidence holds the 0.95 dispatch default. Documentation/comment rule. Detection checks presence and
 // well-formedness of doc comments on declarations — purely structural. No
 // heuristic path. Classified per roadmap/17.
-func (r *UndocumentedPublicFunctionRule) Confidence() float64 { return 0.95 }
+func (r *UndocumentedPublicFunctionRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // UndocumentedPublicPropertyRule detects public properties without KDoc.
 type UndocumentedPublicPropertyRule struct {
@@ -529,4 +529,4 @@ type UndocumentedPublicPropertyRule struct {
 // Confidence holds the 0.95 dispatch default. Documentation/comment rule. Detection checks presence and
 // well-formedness of doc comments on declarations — purely structural. No
 // heuristic path. Classified per roadmap/17.
-func (r *UndocumentedPublicPropertyRule) Confidence() float64 { return 0.95 }
+func (r *UndocumentedPublicPropertyRule) Confidence() float64 { return api.ConfidenceVeryHigh }

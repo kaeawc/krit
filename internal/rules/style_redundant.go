@@ -3,6 +3,7 @@ package rules
 import (
 	"strings"
 
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -15,7 +16,7 @@ type RedundantVisibilityModifierRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/redundant rule. Detection flags visible but arguably-redundant
 // modifiers, types, or keywords. Whether removal improves readability is
 // context-dependent. Classified per roadmap/17.
-func (r *RedundantVisibilityModifierRule) Confidence() float64 { return 0.75 }
+func (r *RedundantVisibilityModifierRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // RedundantConstructorKeywordRule detects unnecessary `constructor` keyword.
 // Flags primary constructors that use the explicit `constructor` keyword when
@@ -28,7 +29,7 @@ type RedundantConstructorKeywordRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/redundant rule. Detection flags visible but arguably-redundant
 // modifiers, types, or keywords. Whether removal improves readability is
 // context-dependent. Classified per roadmap/17.
-func (r *RedundantConstructorKeywordRule) Confidence() float64 { return 0.75 }
+func (r *RedundantConstructorKeywordRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // RedundantExplicitTypeRule detects type annotations where the type is obvious.
 // With type inference: uses ResolveNode on both the declared type and the initializer
@@ -41,7 +42,7 @@ type RedundantExplicitTypeRule struct {
 // Confidence reports a tier-2 (medium) base confidence — inferring
 // whether the type annotation is necessary requires the resolver; fallback
 // is conservative. Classified per roadmap/17.
-func (r *RedundantExplicitTypeRule) Confidence() float64 { return 0.75 }
+func (r *RedundantExplicitTypeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *RedundantExplicitTypeRule) buildFixFlat(typeNode uint32, file *scanner.File) *scanner.Fix {
 	typeStart := int(file.FlatStartByte(typeNode))
@@ -77,7 +78,7 @@ type UnnecessaryParenthesesRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/redundant rule. Detection flags visible but arguably-redundant
 // modifiers, types, or keywords. Whether removal improves readability is
 // context-dependent. Classified per roadmap/17.
-func (r *UnnecessaryParenthesesRule) Confidence() float64 { return 0.75 }
+func (r *UnnecessaryParenthesesRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func unnParensIsIfConditionFlat(file *scanner.File, node, parent uint32) bool {
 	for i := 0; i < file.FlatChildCount(parent); i++ {
@@ -184,7 +185,7 @@ type UnnecessaryInheritanceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/redundant rule. Detection flags visible but arguably-redundant
 // modifiers, types, or keywords. Whether removal improves readability is
 // context-dependent. Classified per roadmap/17.
-func (r *UnnecessaryInheritanceRule) Confidence() float64 { return 0.75 }
+func (r *UnnecessaryInheritanceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // UnnecessaryInnerClassRule detects inner classes that don't use the outer reference.
 type UnnecessaryInnerClassRule struct {
@@ -195,7 +196,7 @@ type UnnecessaryInnerClassRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/redundant rule. Detection flags visible but arguably-redundant
 // modifiers, types, or keywords. Whether removal improves readability is
 // context-dependent. Classified per roadmap/17.
-func (r *UnnecessaryInnerClassRule) Confidence() float64 { return 0.75 }
+func (r *UnnecessaryInnerClassRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // OptionalUnitRule detects explicit `: Unit` return types on functions
 // and redundant `return Unit` statements inside function bodies.
@@ -207,7 +208,7 @@ type OptionalUnitRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/redundant rule. Detection flags visible but arguably-redundant
 // modifiers, types, or keywords. Whether removal improves readability is
 // context-dependent. Classified per roadmap/17.
-func (r *OptionalUnitRule) Confidence() float64 { return 0.75 }
+func (r *OptionalUnitRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // UnnecessaryBackticksRule detects unnecessary backtick-quoted identifiers.
 type UnnecessaryBackticksRule struct {
@@ -218,7 +219,7 @@ type UnnecessaryBackticksRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/redundant rule. Detection flags visible but arguably-redundant
 // modifiers, types, or keywords. Whether removal improves readability is
 // context-dependent. Classified per roadmap/17.
-func (r *UnnecessaryBackticksRule) Confidence() float64 { return 0.75 }
+func (r *UnnecessaryBackticksRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func isAllUnderscores(s string) bool {
 	for _, ch := range s {
@@ -283,7 +284,7 @@ type UselessCallOnNotNullRule struct {
 // Confidence reports a tier-2 (medium) base confidence — flags ?-safe
 // calls on provably non-null receivers; resolver-dependent. Classified per
 // roadmap/17.
-func (r *UselessCallOnNotNullRule) Confidence() float64 { return 0.75 }
+func (r *UselessCallOnNotNullRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // uselessNullCalls maps method names that are useless on non-null receivers to
 // their replacement. Empty string means "remove the call entirely".

@@ -27,7 +27,7 @@ type TooManyViewsResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android layout resource rule. Detection flags layout-file anti-patterns
 // (nesting depth, unnecessary containers, missing constraints) via
 // structural checks on layout XML. Classified per roadmap/17.
-func (r *TooManyViewsResourceRule) Confidence() float64 { return 0.75 }
+func (r *TooManyViewsResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *TooManyViewsResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -61,7 +61,7 @@ type TooDeepLayoutResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android layout resource rule. Detection flags layout-file anti-patterns
 // (nesting depth, unnecessary containers, missing constraints) via
 // structural checks on layout XML. Classified per roadmap/17.
-func (r *TooDeepLayoutResourceRule) Confidence() float64 { return 0.75 }
+func (r *TooDeepLayoutResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *TooDeepLayoutResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -95,7 +95,7 @@ type UselessParentResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android layout resource rule. Detection flags layout-file anti-patterns
 // (nesting depth, unnecessary containers, missing constraints) via
 // structural checks on layout XML. Classified per roadmap/17.
-func (r *UselessParentResourceRule) Confidence() float64 { return 0.75 }
+func (r *UselessParentResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *UselessParentResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -156,7 +156,7 @@ type UselessLeafResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android layout resource rule. Detection flags layout-file anti-patterns
 // (nesting depth, unnecessary containers, missing constraints) via
 // structural checks on layout XML. Classified per roadmap/17.
-func (r *UselessLeafResourceRule) Confidence() float64 { return 0.75 }
+func (r *UselessLeafResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *UselessLeafResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -195,7 +195,7 @@ type NestedScrollingResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android layout resource rule. Detection flags layout-file anti-patterns
 // (nesting depth, unnecessary containers, missing constraints) via
 // structural checks on layout XML. Classified per roadmap/17.
-func (r *NestedScrollingResourceRule) Confidence() float64 { return 0.75 }
+func (r *NestedScrollingResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *NestedScrollingResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -233,7 +233,7 @@ type ScrollViewCountResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android layout resource rule. Detection flags layout-file anti-patterns
 // (nesting depth, unnecessary containers, missing constraints) via
 // structural checks on layout XML. Classified per roadmap/17.
-func (r *ScrollViewCountResourceRule) Confidence() float64 { return 0.75 }
+func (r *ScrollViewCountResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ScrollViewCountResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -267,7 +267,7 @@ type ScrollViewSizeResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android layout resource rule. Detection flags layout-file anti-patterns
 // (nesting depth, unnecessary containers, missing constraints) via
 // structural checks on layout XML. Classified per roadmap/17.
-func (r *ScrollViewSizeResourceRule) Confidence() float64 { return 0.75 }
+func (r *ScrollViewSizeResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ScrollViewSizeResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -312,7 +312,7 @@ type RequiredSizeResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android layout resource rule. Detection flags layout-file anti-patterns
 // (nesting depth, unnecessary containers, missing constraints) via
 // structural checks on layout XML. Classified per roadmap/17.
-func (r *RequiredSizeResourceRule) Confidence() float64 { return 0.75 }
+func (r *RequiredSizeResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *RequiredSizeResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -379,7 +379,7 @@ type OrientationResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android layout resource rule. Detection flags layout-file anti-patterns
 // (nesting depth, unnecessary containers, missing constraints) via
 // structural checks on layout XML. Classified per roadmap/17.
-func (r *OrientationResourceRule) Confidence() float64 { return 0.75 }
+func (r *OrientationResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *OrientationResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -470,7 +470,7 @@ var adapterViewTypes = map[string]bool{
 // Confidence reports a tier-2 (medium) base confidence. Android layout resource rule. Detection flags layout-file anti-patterns
 // (nesting depth, unnecessary containers, missing constraints) via
 // structural checks on layout XML. Classified per roadmap/17.
-func (r *AdapterViewChildrenResourceRule) Confidence() float64 { return 0.75 }
+func (r *AdapterViewChildrenResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *AdapterViewChildrenResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -503,7 +503,7 @@ type IncludeLayoutParamResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android layout resource rule. Detection flags layout-file anti-patterns
 // (nesting depth, unnecessary containers, missing constraints) via
 // structural checks on layout XML. Classified per roadmap/17.
-func (r *IncludeLayoutParamResourceRule) Confidence() float64 { return 0.75 }
+func (r *IncludeLayoutParamResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *IncludeLayoutParamResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -541,7 +541,7 @@ type UseCompoundDrawablesResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android layout resource rule. Detection flags layout-file anti-patterns
 // (nesting depth, unnecessary containers, missing constraints) via
 // structural checks on layout XML. Classified per roadmap/17.
-func (r *UseCompoundDrawablesResourceRule) Confidence() float64 { return 0.75 }
+func (r *UseCompoundDrawablesResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *UseCompoundDrawablesResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -593,7 +593,7 @@ type InconsistentLayoutResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android layout resource rule. Detection flags layout-file anti-patterns
 // (nesting depth, unnecessary containers, missing constraints) via
 // structural checks on layout XML. Classified per roadmap/17.
-func (r *InconsistentLayoutResourceRule) Confidence() float64 { return 0.75 }
+func (r *InconsistentLayoutResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *InconsistentLayoutResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex

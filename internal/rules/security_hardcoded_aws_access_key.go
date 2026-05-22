@@ -2,6 +2,8 @@ package rules
 
 import (
 	"strings"
+
+	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
 // HardcodedAwsAccessKeyRule detects string literals that look like an AWS
@@ -13,7 +15,7 @@ type HardcodedAwsAccessKeyRule struct {
 	BaseRule
 }
 
-func (r *HardcodedAwsAccessKeyRule) Confidence() float64 { return 0.9 }
+func (r *HardcodedAwsAccessKeyRule) Confidence() float64 { return api.ConfidenceHigher }
 
 // awsAccessKeyPrefixes is the canonical list of AWS access-key ID prefixes.
 // See https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_identifiers.html

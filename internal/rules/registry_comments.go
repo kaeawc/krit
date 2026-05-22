@@ -32,7 +32,7 @@ func registerCommentsRules() {
 		r := &DeprecatedBlockTagRule{BaseRule: BaseRule{RuleName: "DeprecatedBlockTag", RuleSetName: "comments", Sev: "warning", Desc: "Detects @deprecated KDoc tags that should use the @Deprecated annotation instead."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"multiline_comment"}, Confidence: 0.95, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"multiline_comment"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if scanner.IsTestFile(file.Path) || isGradleBuildScript(file.Path) {
@@ -58,7 +58,7 @@ func registerCommentsRules() {
 		r := &DocumentationOverPrivateFunctionRule{BaseRule: BaseRule{RuleName: "DocumentationOverPrivateFunction", RuleSetName: "comments", Sev: "warning", Desc: "Detects KDoc documentation on private functions where it is unnecessary."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isPrivateDeclarationFlat(file, idx) {
@@ -86,7 +86,7 @@ func registerCommentsRules() {
 		r := &DocumentationOverPrivatePropertyRule{BaseRule: BaseRule{RuleName: "DocumentationOverPrivateProperty", RuleSetName: "comments", Sev: "warning", Desc: "Detects KDoc documentation on private properties where it is unnecessary."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isPrivateDeclarationFlat(file, idx) {
@@ -114,7 +114,7 @@ func registerCommentsRules() {
 		r := &EndOfSentenceFormatRule{BaseRule: BaseRule{RuleName: "EndOfSentenceFormat", RuleSetName: "comments", Sev: "warning", Desc: "Detects KDoc first sentences that do not end with proper punctuation."}, Pattern: regexp.MustCompile(`([.?!][ \t\n\r])|([.?!]$)`)}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"multiline_comment"}, Confidence: 0.95, Fix: api.FixCosmetic, Implementation: r,
+			NodeTypes: []string{"multiline_comment"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixCosmetic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if scanner.IsTestFile(file.Path) || isGradleBuildScript(file.Path) {
@@ -152,7 +152,7 @@ func registerCommentsRules() {
 		r := &KDocReferencesNonPublicPropertyRule{BaseRule: BaseRule{RuleName: "KDocReferencesNonPublicProperty", RuleSetName: "comments", Sev: "warning", Desc: "Detects KDoc bracket references that point to non-public properties."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"multiline_comment"}, Confidence: 0.95, Implementation: r,
+			NodeTypes: []string{"multiline_comment"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !flatIsKDoc(file, idx) {
@@ -207,7 +207,7 @@ func registerCommentsRules() {
 		r := &OutdatedDocumentationRule{BaseRule: BaseRule{RuleName: "OutdatedDocumentation", RuleSetName: "comments", Sev: "warning", Desc: "Detects @param tags in KDoc that do not match the actual function parameters."}, MatchDeclarationsOrder: true, MatchTypeParameters: true}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Fix: api.FixCosmetic, Implementation: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixCosmetic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				prev, ok := flatPrecedingKDoc(file, idx)
@@ -303,7 +303,7 @@ func registerCommentsRules() {
 		r := &UndocumentedPublicClassRule{BaseRule: BaseRule{RuleName: "UndocumentedPublicClass", RuleSetName: "comments", Sev: "warning", Desc: "Detects public classes that are missing KDoc documentation."}, SearchInNestedClass: true, SearchInInnerClass: true, SearchInInnerObject: true, SearchInInnerInterface: true}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.95, Implementation: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isPublicDeclarationFlat(file, idx) {
@@ -330,7 +330,7 @@ func registerCommentsRules() {
 		r := &UndocumentedPublicFunctionRule{BaseRule: BaseRule{RuleName: "UndocumentedPublicFunction", RuleSetName: "comments", Sev: "warning", Desc: "Detects public functions that are missing KDoc documentation."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Implementation: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isPublicDeclarationFlat(file, idx) {
@@ -352,7 +352,7 @@ func registerCommentsRules() {
 		r := &UndocumentedPublicPropertyRule{BaseRule: BaseRule{RuleName: "UndocumentedPublicProperty", RuleSetName: "comments", Sev: "warning", Desc: "Detects public properties that are missing KDoc documentation."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, Implementation: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isPublicDeclarationFlat(file, idx) {

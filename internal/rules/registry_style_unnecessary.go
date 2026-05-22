@@ -15,7 +15,7 @@ func registerStyleUnnecessaryRules() {
 		r := &RedundantHigherOrderMapUsageRule{BaseRule: BaseRule{RuleName: "RedundantHigherOrderMapUsage", RuleSetName: "style", Sev: "warning", Desc: "Detects identity .map { it } calls that are no-ops and can be removed."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.95, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "map" {
@@ -60,7 +60,7 @@ func registerStyleUnnecessaryRules() {
 		r := &UnnecessaryApplyRule{BaseRule: BaseRule{RuleName: "UnnecessaryApply", RuleSetName: "style", Sev: "warning", Desc: "Detects .apply {} blocks that are empty or do not reference the receiver."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.95, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "apply" {
@@ -106,7 +106,7 @@ func registerStyleUnnecessaryRules() {
 		r := &UnnecessaryLetRule{BaseRule: BaseRule{RuleName: "UnnecessaryLet", RuleSetName: "style", Sev: "warning", Desc: "Detects .let {} calls that are identity transforms or single-call chains replaceable by direct invocation."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.95, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				navNode, _ := flatCallExpressionParts(file, idx)
@@ -182,7 +182,7 @@ func registerStyleUnnecessaryRules() {
 		r := &UnnecessaryFilterRule{BaseRule: BaseRule{RuleName: "UnnecessaryFilter", RuleSetName: "style", Sev: "warning", Desc: "Detects .filter {}.first() chains that can be simplified to .first {} with the predicate."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.95, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixIdiomatic, Implementation: r,
 			Needs: api.NeedsResolver,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
@@ -245,7 +245,7 @@ func registerStyleUnnecessaryRules() {
 		r := &UnnecessaryAnyRule{BaseRule: BaseRule{RuleName: "UnnecessaryAny", RuleSetName: "style", Sev: "warning", Desc: "Detects .any { true } and .filter {}.any() patterns that can be simplified."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.95, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				methodName := flatCallExpressionName(file, idx)
@@ -336,7 +336,7 @@ func registerStyleUnnecessaryRules() {
 		r := &UnnecessaryBracesAroundTrailingLambdaRule{BaseRule: BaseRule{RuleName: "UnnecessaryBracesAroundTrailingLambda", RuleSetName: "style", Sev: "warning", Desc: "Detects empty parentheses before trailing lambdas that can be removed."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.95, Fix: api.FixCosmetic, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixCosmetic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatChildCount(idx) < 2 {
@@ -382,7 +382,7 @@ func registerStyleUnnecessaryRules() {
 		r := &UnnecessaryFullyQualifiedNameRule{BaseRule: BaseRule{RuleName: "UnnecessaryFullyQualifiedName", RuleSetName: "style", Sev: "warning", Desc: "Detects fully qualified names that are unnecessary because the type is already imported."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"navigation_expression"}, Confidence: 0.95, Fix: api.FixNone, Implementation: r,
+			NodeTypes: []string{"navigation_expression"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixNone, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -417,7 +417,7 @@ func registerStyleUnnecessaryRules() {
 		r := &UnnecessaryReversedRule{BaseRule: BaseRule{RuleName: "UnnecessaryReversed", RuleSetName: "style", Sev: "warning", Desc: "Detects chained sort and reverse calls that can be replaced with a single sort operation."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.95, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				outerMethod := flatCallExpressionName(file, idx)

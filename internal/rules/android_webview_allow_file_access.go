@@ -16,7 +16,7 @@ type WebViewAllowFileAccessRule struct {
 	AndroidRule
 }
 
-func (r *WebViewAllowFileAccessRule) Confidence() float64 { return 0.85 }
+func (r *WebViewAllowFileAccessRule) Confidence() float64 { return api.ConfidenceHigh }
 
 const webViewAllowFileAccessMessage = "Avoid enabling WebSettings.allowFileAccess; file URL access is disabled by default since API 30 and enabling it allows javascript-served file:// URLs to read other local files."
 

@@ -21,7 +21,7 @@ type PrintStackTraceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs exceptions rule. Detection matches exception type names
 // and throw/catch shapes; name-only fallback fires on project types
 // sharing the same simple name. Classified per roadmap/17.
-func (r *PrintStackTraceRule) Confidence() float64 { return 0.75 }
+func (r *PrintStackTraceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func printStackTraceReceiverIsThrowable(ctx *api.Context, call uint32) bool {
 	if ctx.File == nil {
@@ -433,7 +433,7 @@ type TooGenericExceptionThrownRule struct {
 // Confidence reports a tier-2 (medium) base confidence — matches on
 // thrown-exception names; name-only fallback false-positives on
 // project-defined exceptions with the same name. Classified per roadmap/17.
-func (r *TooGenericExceptionThrownRule) Confidence() float64 { return 0.75 }
+func (r *TooGenericExceptionThrownRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var defaultGenericThrownNames = []string{"Exception", "Throwable", "Error", "RuntimeException"}
 
@@ -560,7 +560,7 @@ type UnreachableCatchBlockRule struct {
 // Confidence reports a tier-2 (medium) base confidence — catch-block
 // reachability depends on the thrown-type hierarchy from the resolver;
 // heuristic fallback uses name containment. Classified per roadmap/17.
-func (r *UnreachableCatchBlockRule) Confidence() float64 { return 0.75 }
+func (r *UnreachableCatchBlockRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *UnreachableCatchBlockRule) checkFlatNode(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -926,7 +926,7 @@ type MissingReturnRule struct {
 	BaseRule
 }
 
-func (r *MissingReturnRule) Confidence() float64 { return 0.85 }
+func (r *MissingReturnRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func missingReturnDeclaredType(file *scanner.File, fn uint32) (typeIdx uint32, body uint32) {
 	foundParams := false

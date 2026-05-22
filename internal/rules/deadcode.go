@@ -37,7 +37,7 @@ func (r *DeadCodeRule) IsFixable() bool { return false }
 // relies on the cross-file code index to detect unreferenced symbols
 // and then filters framework entry points, overrides, tests, lifecycle
 // methods, and DI declarations that are consumed by generated code.
-func (r *DeadCodeRule) Confidence() float64 { return 0.75 }
+func (r *DeadCodeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // check runs against the full code index.
 func (r *DeadCodeRule) check(ctx *api.Context) {

@@ -785,7 +785,7 @@ type UseCheckNotNullRule struct {
 // Confidence reports a tier-2 (medium) base confidence — suggests
 // checkNotNull over `if (x == null) throw`; pattern-based with resolver
 // used to confirm nullability when available. Classified per roadmap/17.
-func (r *UseCheckNotNullRule) Confidence() float64 { return 0.75 }
+func (r *UseCheckNotNullRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // UseRequireNotNullRule detects require(x != null) and suggests requireNotNull(x).
 // Uses AST dispatch on call_expression for precise detection, handling both
@@ -799,7 +799,7 @@ type UseRequireNotNullRule struct {
 // Confidence reports a tier-2 (medium) base confidence — suggests
 // requireNotNull over `if (x == null) throw IAE`; pattern-based with
 // resolver confirmation when available. Classified per roadmap/17.
-func (r *UseRequireNotNullRule) Confidence() float64 { return 0.75 }
+func (r *UseRequireNotNullRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // UseCheckOrErrorRule detects `if (!x) throw IllegalStateException`.
 type UseCheckOrErrorRule struct {
@@ -811,7 +811,7 @@ type UseCheckOrErrorRule struct {
 // blocks, null checks, explicit loops) but whether the suggested
 // replacement is actually clearer is context-dependent. Classified per
 // roadmap/17.
-func (r *UseCheckOrErrorRule) Confidence() float64 { return 0.75 }
+func (r *UseCheckOrErrorRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // UseRequireRule detects `if (!x) throw IllegalArgumentException`.
 type UseRequireRule struct {
@@ -823,7 +823,7 @@ type UseRequireRule struct {
 // blocks, null checks, explicit loops) but whether the suggested
 // replacement is actually clearer is context-dependent. Classified per
 // roadmap/17.
-func (r *UseRequireRule) Confidence() float64 { return 0.75 }
+func (r *UseRequireRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // UseIsNullOrEmptyRule detects `x == null || x.isEmpty()` and related patterns
 // such as `x == null || x.count() == 0`, `x == null || x.size == 0`,
@@ -838,7 +838,7 @@ type UseIsNullOrEmptyRule struct {
 // isNullOrEmpty() for `x == null || x.isEmpty()` after semantic receiver
 // checks, with lower-confidence same-file declaration fallback. Classified per
 // roadmap/17.
-func (r *UseIsNullOrEmptyRule) Confidence() float64 { return 0.75 }
+func (r *UseIsNullOrEmptyRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // UseOrEmptyRule detects `x ?: emptyList()` and similar patterns that can use .orEmpty().
 // Handles: emptyList/Set/Map/Array/Sequence(), listOf/setOf/mapOf/sequenceOf/arrayOf() with
@@ -853,7 +853,7 @@ type UseOrEmptyRule struct {
 // blocks, null checks, explicit loops) but whether the suggested
 // replacement is actually clearer is context-dependent. Classified per
 // roadmap/17.
-func (r *UseOrEmptyRule) Confidence() float64 { return 0.75 }
+func (r *UseOrEmptyRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // useOrEmptyFunctions maps callee names that represent empty collections/sequences.
 var useOrEmptyFunctions = map[string]bool{
@@ -902,7 +902,7 @@ var anyOrNoneFindFuncs = map[string]bool{
 // blocks, null checks, explicit loops) but whether the suggested
 // replacement is actually clearer is context-dependent. Classified per
 // roadmap/17.
-func (r *UseAnyOrNoneInsteadOfFindRule) Confidence() float64 { return 0.75 }
+func (r *UseAnyOrNoneInsteadOfFindRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // UseEmptyCounterpartRule detects `listOf()` etc. with no arguments.
 // Uses AST dispatch on call_expression for precise detection, matching
@@ -926,4 +926,4 @@ var emptyCounterparts = map[string]string{
 // blocks, null checks, explicit loops) but whether the suggested
 // replacement is actually clearer is context-dependent. Classified per
 // roadmap/17.
-func (r *UseEmptyCounterpartRule) Confidence() float64 { return 0.75 }
+func (r *UseEmptyCounterpartRule) Confidence() float64 { return api.ConfidenceMedium }

@@ -27,7 +27,7 @@ type HardcodedValuesResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android accessibility resource rule. Detection flags missing
 // contentDescription, importantForAccessibility, and focusable attributes
 // via structural checks. Classified per roadmap/17.
-func (r *HardcodedValuesResourceRule) Confidence() float64 { return 0.75 }
+func (r *HardcodedValuesResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *HardcodedValuesResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -70,7 +70,7 @@ var imageViewTypes = map[string]bool{
 // Confidence reports a tier-2 (medium) base confidence. Android accessibility resource rule. Detection flags missing
 // contentDescription, importantForAccessibility, and focusable attributes
 // via structural checks. Classified per roadmap/17.
-func (r *MissingContentDescriptionResourceRule) Confidence() float64 { return 0.75 }
+func (r *MissingContentDescriptionResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MissingContentDescriptionResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -109,7 +109,7 @@ type LabelForResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android accessibility resource rule. Detection flags missing
 // contentDescription, importantForAccessibility, and focusable attributes
 // via structural checks. Classified per roadmap/17.
-func (r *LabelForResourceRule) Confidence() float64 { return 0.75 }
+func (r *LabelForResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *LabelForResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -215,7 +215,7 @@ func isContainerView(viewType string) bool {
 // Confidence reports a tier-2 (medium) base confidence. Android accessibility resource rule. Detection flags missing
 // contentDescription, importantForAccessibility, and focusable attributes
 // via structural checks. Classified per roadmap/17.
-func (r *ClickableViewAccessibilityResourceRule) Confidence() float64 { return 0.75 }
+func (r *ClickableViewAccessibilityResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ClickableViewAccessibilityResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -258,7 +258,7 @@ type BackButtonResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android accessibility resource rule. Detection flags missing
 // contentDescription, importantForAccessibility, and focusable attributes
 // via structural checks. Classified per roadmap/17.
-func (r *BackButtonResourceRule) Confidence() float64 { return 0.75 }
+func (r *BackButtonResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *BackButtonResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -293,7 +293,7 @@ type ButtonCaseResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android accessibility resource rule. Detection flags missing
 // contentDescription, importantForAccessibility, and focusable attributes
 // via structural checks. Classified per roadmap/17.
-func (r *ButtonCaseResourceRule) Confidence() float64 { return 0.75 }
+func (r *ButtonCaseResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ButtonCaseResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -344,7 +344,7 @@ func isCancelButton(v *android.View) bool {
 // Confidence reports a tier-2 (medium) base confidence. Android accessibility resource rule. Detection flags missing
 // contentDescription, importantForAccessibility, and focusable attributes
 // via structural checks. Classified per roadmap/17.
-func (r *ButtonOrderResourceRule) Confidence() float64 { return 0.75 }
+func (r *ButtonOrderResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ButtonOrderResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -387,7 +387,7 @@ type ButtonStyleResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android accessibility resource rule. Detection flags missing
 // contentDescription, importantForAccessibility, and focusable attributes
 // via structural checks. Classified per roadmap/17.
-func (r *ButtonStyleResourceRule) Confidence() float64 { return 0.75 }
+func (r *ButtonStyleResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ButtonStyleResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -418,7 +418,7 @@ type LayoutClickableWithoutMinSizeRule struct {
 	AndroidRule
 }
 
-func (r *LayoutClickableWithoutMinSizeRule) Confidence() float64 { return 0.75 }
+func (r *LayoutClickableWithoutMinSizeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *LayoutClickableWithoutMinSizeRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -461,7 +461,7 @@ type LayoutEditTextMissingImportanceRule struct {
 	AndroidRule
 }
 
-func (r *LayoutEditTextMissingImportanceRule) Confidence() float64 { return 0.75 }
+func (r *LayoutEditTextMissingImportanceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *LayoutEditTextMissingImportanceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -490,7 +490,7 @@ type LayoutImportantForAccessibilityNoRule struct {
 	AndroidRule
 }
 
-func (r *LayoutImportantForAccessibilityNoRule) Confidence() float64 { return 0.75 }
+func (r *LayoutImportantForAccessibilityNoRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *LayoutImportantForAccessibilityNoRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -518,7 +518,7 @@ type LayoutAutofillHintMismatchRule struct {
 	AndroidRule
 }
 
-func (r *LayoutAutofillHintMismatchRule) Confidence() float64 { return 0.75 }
+func (r *LayoutAutofillHintMismatchRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var inputTypeToAutofillHint = map[string]string{
 	"textEmailAddress":  "emailAddress",
@@ -560,7 +560,7 @@ type LayoutMinTouchTargetInButtonRowRule struct {
 	AndroidRule
 }
 
-func (r *LayoutMinTouchTargetInButtonRowRule) Confidence() float64 { return 0.75 }
+func (r *LayoutMinTouchTargetInButtonRowRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *LayoutMinTouchTargetInButtonRowRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -631,7 +631,7 @@ type StringNotSelectableRule struct {
 	AndroidRule
 }
 
-func (r *StringNotSelectableRule) Confidence() float64 { return 0.75 }
+func (r *StringNotSelectableRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *StringNotSelectableRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -678,7 +678,7 @@ type StringRepeatedInContentDescriptionRule struct {
 	AndroidRule
 }
 
-func (r *StringRepeatedInContentDescriptionRule) Confidence() float64 { return 0.75 }
+func (r *StringRepeatedInContentDescriptionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *StringRepeatedInContentDescriptionRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -736,7 +736,7 @@ type StringSpanInContentDescriptionRule struct {
 	AndroidRule
 }
 
-func (r *StringSpanInContentDescriptionRule) Confidence() float64 { return 0.75 }
+func (r *StringSpanInContentDescriptionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var htmlTagInStringRe = regexp.MustCompile(`<(b|i|u|em|strong|br|a|span|font|big|small|sup|sub|strike|tt)\b`)
 

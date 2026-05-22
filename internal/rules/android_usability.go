@@ -3,6 +3,7 @@ package rules
 import (
 	"strings"
 
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -32,7 +33,7 @@ type NewAPIRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *NewAPIRule) Confidence() float64 { return 0.75 }
+func (r *NewAPIRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // newAPITable maps method/class names to their introduction API level.
 var newAPITable = map[string]int{
@@ -69,7 +70,7 @@ type InlinedAPIRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *InlinedAPIRule) Confidence() float64 { return 0.75 }
+func (r *InlinedAPIRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // inlinedAPIEntry pairs a constant pattern with its introduction API level.
 type inlinedAPIEntry struct {
@@ -120,7 +121,7 @@ var overrideMethodNames = map[string]bool{
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *OverrideRule) Confidence() float64 { return 0.75 }
+func (r *OverrideRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func overrideEnclosingAndroidComponentFlat(file *scanner.File, fn uint32) bool {
 	classDecl, ok := flatEnclosingAncestor(file, fn, "class_declaration")
@@ -156,7 +157,7 @@ type UnusedResourcesRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *UnusedResourcesRule) Confidence() float64 { return 0.75 }
+func (r *UnusedResourcesRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func unusedResourceReferenceFlat(file *scanner.File, idx uint32) (resType string, resName string, ok bool) {
 	path := contactsIdentifierPathFlat(file, idx)

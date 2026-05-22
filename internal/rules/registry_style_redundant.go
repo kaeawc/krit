@@ -25,7 +25,7 @@ func registerStyleRedundantVisibilityModifier() {
 	r := &RedundantVisibilityModifierRule{BaseRule: BaseRule{RuleName: "RedundantVisibilityModifier", RuleSetName: "style", Sev: "warning", Desc: "Detects explicit public modifier which is redundant since public is the default visibility in Kotlin."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"modifiers"}, Confidence: 0.75, Fix: api.FixCosmetic, Implementation: r,
+		NodeTypes: []string{"modifiers"}, Confidence: api.ConfidenceMedium, Fix: api.FixCosmetic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			// Check for "public" and absence of "override" using AST child walking.
@@ -84,7 +84,7 @@ func registerStyleRedundantConstructorKeyword() {
 	r := &RedundantConstructorKeywordRule{BaseRule: BaseRule{RuleName: "RedundantConstructorKeyword", RuleSetName: "style", Sev: "warning", Desc: "Detects unnecessary constructor keyword on primary constructors without annotations or visibility modifiers."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixCosmetic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixCosmetic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			ctor, _ := file.FlatFindChild(idx, "primary_constructor")
@@ -136,7 +136,7 @@ func registerStyleRedundantExplicitType() {
 	r := &RedundantExplicitTypeRule{BaseRule: BaseRule{RuleName: "RedundantExplicitType", RuleSetName: "style", Sev: "warning", Desc: "Detects explicit type annotations that can be inferred from the initializer."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Needs: api.NeedsResolver, Fix: api.FixCosmetic, Implementation: r,
+		NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceMedium, Needs: api.NeedsResolver, Fix: api.FixCosmetic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			// Must have both an explicit type annotation and an initializer
@@ -239,7 +239,7 @@ func registerStyleUnnecessaryParentheses() {
 	r := &UnnecessaryParenthesesRule{BaseRule: BaseRule{RuleName: "UnnecessaryParentheses", RuleSetName: "style", Sev: "warning", Desc: "Detects unnecessary parentheses around expressions that add no value."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"parenthesized_expression"}, Confidence: 0.75, Fix: api.FixCosmetic, Implementation: r,
+		NodeTypes: []string{"parenthesized_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixCosmetic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			parent, ok := file.FlatParent(idx)
@@ -363,7 +363,7 @@ func registerStyleUnnecessaryInheritance() {
 	r := &UnnecessaryInheritanceRule{BaseRule: BaseRule{RuleName: "UnnecessaryInheritance", RuleSetName: "style", Sev: "warning", Desc: "Detects unnecessary explicit inheritance from Any which is implicit in Kotlin."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			// Look for delegation_specifier children that are `: Any()`
@@ -409,7 +409,7 @@ func registerStyleUnnecessaryInnerClass() {
 	r := &UnnecessaryInnerClassRule{BaseRule: BaseRule{RuleName: "UnnecessaryInnerClass", RuleSetName: "style", Sev: "warning", Desc: "Detects inner classes that do not reference the outer class and could remove the inner modifier."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			mods, _ := file.FlatFindChild(idx, "modifiers")
@@ -448,7 +448,7 @@ func registerStyleOptionalUnit() {
 	r := &OptionalUnitRule{BaseRule: BaseRule{RuleName: "OptionalUnit", RuleSetName: "style", Sev: "warning", Desc: "Detects explicit Unit return types and return Unit statements that are redundant."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: api.FixCosmetic, Implementation: r,
+		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixCosmetic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			// 1. Check for explicit `: Unit` return type annotation.
@@ -513,7 +513,7 @@ func registerStyleUnnecessaryBackticks() {
 	r := &UnnecessaryBackticksRule{BaseRule: BaseRule{RuleName: "UnnecessaryBackticks", RuleSetName: "style", Sev: "warning", Desc: "Detects backtick-quoted identifiers that do not require backticks."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"simple_identifier"}, Confidence: 0.75, Fix: api.FixCosmetic, Implementation: r,
+		NodeTypes: []string{"simple_identifier"}, Confidence: api.ConfidenceMedium, Fix: api.FixCosmetic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			text := file.FlatNodeText(idx)
@@ -555,7 +555,7 @@ func registerStyleUselessCallOnNotNull() {
 	r := &UselessCallOnNotNullRule{BaseRule: BaseRule{RuleName: "UselessCallOnNotNull", RuleSetName: "style", Sev: "warning", Desc: "Detects calls like .orEmpty() or .isNullOrEmpty() on receivers that are already non-null."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: 0.75, Needs: api.NeedsResolver, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Needs: api.NeedsResolver, Fix: api.FixIdiomatic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if file.FlatType(idx) != "call_expression" {

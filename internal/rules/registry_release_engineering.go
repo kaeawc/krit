@@ -17,7 +17,7 @@ func registerReleaseEngineeringRules() {
 		r := &BuildConfigDebugInLibraryRule{BaseRule: BaseRule{RuleName: "BuildConfigDebugInLibrary", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects BuildConfig.DEBUG references inside Android library modules where the value is always false in release."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"navigation_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isBuildConfigDebugReferenceFlat(file, idx) {
@@ -34,7 +34,7 @@ func registerReleaseEngineeringRules() {
 		r := &BuildConfigDebugInvertedRule{BaseRule: BaseRule{RuleName: "BuildConfigDebugInverted", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects negated BuildConfig.DEBUG guards wrapping logging calls that likely invert a debug-only check."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"if_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"if_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				condition, body := ifConditionAndThenBodyFlat(file, idx)
@@ -52,7 +52,7 @@ func registerReleaseEngineeringRules() {
 		r := &AllProjectsBlockRule{BaseRule: BaseRule{RuleName: "AllProjectsBlock", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects deprecated allprojects {} blocks in Gradle build scripts."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isGradleBuildScript(file.Path) {
@@ -69,7 +69,7 @@ func registerReleaseEngineeringRules() {
 		r := &HardcodedEnvironmentNameRule{BaseRule: BaseRule{RuleName: "HardcodedEnvironmentName", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects hardcoded environment names like 'dev', 'staging', or 'prod' passed to config APIs."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				funcName := flatCallExpressionName(file, idx)
@@ -100,7 +100,7 @@ func registerReleaseEngineeringRules() {
 		r := &DebugToastInProductionRule{BaseRule: BaseRule{RuleName: "DebugToastInProduction", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects Toast.makeText calls whose message starts with debug-related prefixes in production code."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.85, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if scanner.IsTestFile(file.Path) {
@@ -141,7 +141,7 @@ func registerReleaseEngineeringRules() {
 		r := &PrintlnInProductionRule{BaseRule: BaseRule{RuleName: "PrintlnInProduction", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects println or print calls in production code that should use a logging framework."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.85, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if printlnNonProductionPath(file.Path) {
@@ -174,7 +174,7 @@ func registerReleaseEngineeringRules() {
 		r := &PrintStackTraceInProductionRule{BaseRule: BaseRule{RuleName: "PrintStackTraceInProduction", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects printStackTrace() calls in code that has a logging framework available."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.85, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if scanner.IsTestFile(file.Path) {
@@ -195,7 +195,7 @@ func registerReleaseEngineeringRules() {
 		r := &NonASCIIIdentifierRule{BaseRule: BaseRule{RuleName: "NonAsciiIdentifier", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects class, function, or property names containing non-ASCII characters."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration", "function_declaration", "property_declaration"}, Confidence: 0.95, Implementation: r,
+			NodeTypes: []string{"class_declaration", "function_declaration", "property_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if scanner.IsTestFile(file.Path) {
@@ -226,7 +226,7 @@ func registerReleaseEngineeringRules() {
 		r := &HardcodedLogTagRule{BaseRule: BaseRule{RuleName: "HardcodedLogTag", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects Log tag string literals matching the enclosing class name instead of using a companion TAG constant."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.80, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMediumHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)

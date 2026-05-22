@@ -25,7 +25,7 @@ type PrecompileDuplicateLabelRule struct {
 	BaseRule
 }
 
-func (r *PrecompileDuplicateLabelRule) Confidence() float64 { return 0.95 }
+func (r *PrecompileDuplicateLabelRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *PrecompileDuplicateLabelRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File

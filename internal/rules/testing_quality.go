@@ -23,7 +23,7 @@ type AssertEqualsArgumentOrderRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Testing-quality rule. Detection matches on assertion framework call
 // shapes (JUnit, Truth, Kotest, MockK) by name — cross-library identifier
 // collisions can produce false positives. Classified per roadmap/17.
-func (r *AssertEqualsArgumentOrderRule) Confidence() float64 { return 0.75 }
+func (r *AssertEqualsArgumentOrderRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func testingQualityValueArgumentsFlat(file *scanner.File, args uint32) []uint32 {
 	var valueArgs []uint32
@@ -192,7 +192,7 @@ func untestedPublicAPIDeclarationContext(sym scanner.Symbol, file *scanner.File)
 
 // Confidence reports a tier-2 (medium) base confidence. Testing-quality rule. Detection matches
 // receiverless assertTrue calls and known JUnit receiver qualifiers by AST shape. Classified per roadmap/17.
-func (r *AssertTrueOnComparisonRule) Confidence() float64 { return 0.75 }
+func (r *AssertTrueOnComparisonRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // MixedAssertionLibrariesRule detects files that import both JUnit Assert and
 // Truth APIs in the import header.
@@ -204,7 +204,7 @@ type MixedAssertionLibrariesRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Testing-quality rule. Detection matches on assertion framework call
 // shapes (JUnit, Truth, Kotest, MockK) by name — cross-library identifier
 // collisions can produce false positives. Classified per roadmap/17.
-func (r *MixedAssertionLibrariesRule) Confidence() float64 { return 0.75 }
+func (r *MixedAssertionLibrariesRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MixedAssertionLibrariesRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -225,7 +225,7 @@ type AssertNullableWithNotNullAssertionRule struct {
 	BaseRule
 }
 
-func (r *AssertNullableWithNotNullAssertionRule) Confidence() float64 { return 0.75 }
+func (r *AssertNullableWithNotNullAssertionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // MockWithoutVerifyRule
@@ -236,7 +236,7 @@ type MockWithoutVerifyRule struct {
 	BaseRule
 }
 
-func (r *MockWithoutVerifyRule) Confidence() float64 { return 0.75 }
+func (r *MockWithoutVerifyRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // RunTestWithDelayRule
@@ -247,7 +247,7 @@ type RunTestWithDelayRule struct {
 	BaseRule
 }
 
-func (r *RunTestWithDelayRule) Confidence() float64 { return 0.75 }
+func (r *RunTestWithDelayRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // RunTestWithThreadSleepRule
@@ -258,7 +258,7 @@ type RunTestWithThreadSleepRule struct {
 	BaseRule
 }
 
-func (r *RunTestWithThreadSleepRule) Confidence() float64 { return 0.75 }
+func (r *RunTestWithThreadSleepRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // RunBlockingInTestRule
@@ -269,7 +269,7 @@ type RunBlockingInTestRule struct {
 	BaseRule
 }
 
-func (r *RunBlockingInTestRule) Confidence() float64 { return 0.75 }
+func (r *RunBlockingInTestRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // TestDispatcherNotInjectedRule
@@ -280,7 +280,7 @@ type TestDispatcherNotInjectedRule struct {
 	BaseRule
 }
 
-func (r *TestDispatcherNotInjectedRule) Confidence() float64 { return 0.75 }
+func (r *TestDispatcherNotInjectedRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // TestWithoutAssertionRule
@@ -294,7 +294,7 @@ type TestWithoutAssertionRule struct {
 	AssertionMethodPatterns []string
 }
 
-func (r *TestWithoutAssertionRule) Confidence() float64 { return 0.75 }
+func (r *TestWithoutAssertionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func testingQualityIsEditorTemplatePath(filePath string) bool {
 	filePath = strings.ReplaceAll(filePath, "\\", "/")
@@ -313,7 +313,7 @@ type TestWithOnlyTodoRule struct {
 	BaseRule
 }
 
-func (r *TestWithOnlyTodoRule) Confidence() float64 { return 0.75 }
+func (r *TestWithOnlyTodoRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // TestFunctionReturnValueRule
@@ -324,7 +324,7 @@ type TestFunctionReturnValueRule struct {
 	BaseRule
 }
 
-func (r *TestFunctionReturnValueRule) Confidence() float64 { return 0.75 }
+func (r *TestFunctionReturnValueRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // TestNameContainsUnderscoreRule
@@ -335,7 +335,7 @@ type TestNameContainsUnderscoreRule struct {
 	BaseRule
 }
 
-func (r *TestNameContainsUnderscoreRule) Confidence() float64 { return 0.6 }
+func (r *TestNameContainsUnderscoreRule) Confidence() float64 { return api.ConfidenceMediumLow }
 
 // ---------------------------------------------------------------------------
 // SharedMutableStateInObjectRule
@@ -346,7 +346,7 @@ type SharedMutableStateInObjectRule struct {
 	BaseRule
 }
 
-func (r *SharedMutableStateInObjectRule) Confidence() float64 { return 0.75 }
+func (r *SharedMutableStateInObjectRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // TestInheritanceDepthRule
@@ -357,7 +357,7 @@ type TestInheritanceDepthRule struct {
 	BaseRule
 }
 
-func (r *TestInheritanceDepthRule) Confidence() float64 { return 0.6 }
+func (r *TestInheritanceDepthRule) Confidence() float64 { return api.ConfidenceMediumLow }
 
 // ---------------------------------------------------------------------------
 // RelaxedMockUsedForValueClassRule
@@ -368,7 +368,7 @@ type RelaxedMockUsedForValueClassRule struct {
 	BaseRule
 }
 
-func (r *RelaxedMockUsedForValueClassRule) Confidence() float64 { return 0.75 }
+func (r *RelaxedMockUsedForValueClassRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var primitiveTypes = map[string]bool{
 	"Int": true, "Long": true, "Float": true, "Double": true,
@@ -384,7 +384,7 @@ type SpyOnDataClassRule struct {
 	BaseRule
 }
 
-func (r *SpyOnDataClassRule) Confidence() float64 { return 0.6 }
+func (r *SpyOnDataClassRule) Confidence() float64 { return api.ConfidenceMediumLow }
 
 // ---------------------------------------------------------------------------
 // VerifyWithoutMockRule
@@ -395,7 +395,7 @@ type VerifyWithoutMockRule struct {
 	BaseRule
 }
 
-func (r *VerifyWithoutMockRule) Confidence() float64 { return 0.6 }
+func (r *VerifyWithoutMockRule) Confidence() float64 { return api.ConfidenceMediumLow }
 
 var testingQualityMockCreationCalls = map[string]bool{
 	"mockk":        true,

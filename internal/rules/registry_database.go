@@ -15,7 +15,7 @@ func registerDatabaseRules() {
 		r := &DatabaseInstanceRecreatedRule{BaseRule: BaseRule{RuleName: "DatabaseInstanceRecreated", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects Room.databaseBuilder calls inside regular functions that recreate the database on each invocation."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isRoomDatabaseBuilderCallFlat(file, idx) {
@@ -39,7 +39,7 @@ func registerDatabaseRules() {
 		r := &DaoNotInterfaceRule{BaseRule: BaseRule{RuleName: "DaoNotInterface", RuleSetName: "database", Sev: "info", Desc: "Detects Room DAOs declared as abstract classes instead of interfaces."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !hasAnnotationFlat(file, idx, "Dao") {
@@ -60,7 +60,7 @@ func registerDatabaseRules() {
 		r := &DaoWithoutAnnotationsRule{BaseRule: BaseRule{RuleName: "DaoWithoutAnnotations", RuleSetName: "database", Sev: "warning", Desc: "Detects Room DAO member functions missing required annotations like @Query, @Insert, @Update, or @Delete."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !hasAnnotationFlat(file, idx, "Dao") {
@@ -95,7 +95,7 @@ func registerDatabaseRules() {
 		r := &ForeignKeyWithoutOnDeleteRule{BaseRule: BaseRule{RuleName: "ForeignKeyWithoutOnDelete", RuleSetName: "database", Sev: "warning", Desc: "Detects Room @ForeignKey(...) without an onDelete argument; the default NO_ACTION usually leaves stale rows."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "constructor_invocation"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression", "constructor_invocation"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var args uint32
@@ -135,7 +135,7 @@ func registerDatabaseRules() {
 		r := &JdbcResultSetLeakedFromFunctionRule{BaseRule: BaseRule{RuleName: "JdbcResultSetLeakedFromFunction", RuleSetName: "database", Sev: "warning", Desc: "Detects functions whose declared return type is java.sql.ResultSet; callers almost always forget to close the ResultSet."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !functionHasBodyFlat(file, idx) {
@@ -156,7 +156,7 @@ func registerDatabaseRules() {
 		r := &EntityPrimaryKeyNotStableRule{BaseRule: BaseRule{RuleName: "EntityPrimaryKeyNotStable", RuleSetName: "database", Sev: "warning", Desc: "Detects @Entity @PrimaryKey declared as var without autoGenerate = true; mutable primary keys break equals/hashCode."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_parameter", "property_declaration"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"class_parameter", "property_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !hasAnnotationFlat(file, idx, "PrimaryKey") {
@@ -184,7 +184,7 @@ func registerDatabaseRules() {
 		r := &EntityMutableColumnRule{BaseRule: BaseRule{RuleName: "EntityMutableColumn", RuleSetName: "database", Sev: "info", Desc: "Detects Room @Entity class primary-constructor parameters declared as var, which prevents straightforward copy-on-write."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !hasAnnotationFlat(file, idx, "Entity") {
@@ -284,7 +284,7 @@ func registerDatabaseRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"property_declaration"}, Needs: api.NeedsResolver,
-			Confidence: 0.75, Implementation: r,
+			Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				cursorName := extractIdentifierFlat(file, idx)
@@ -552,7 +552,7 @@ func registerDatabaseRules() {
 		r := &JdbcPreparedStatementNotClosedRule{BaseRule: BaseRule{RuleName: "JdbcPreparedStatementNotClosed", RuleSetName: "database", Sev: "warning", Desc: "Detects JDBC prepared statements assigned to local properties without .use {} or .close() in the same scope."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				stmtName := extractIdentifierFlat(file, idx)

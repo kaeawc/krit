@@ -26,7 +26,7 @@ type AnalyticsEventWithPiiParamNameRule struct {
 	BaseRule
 }
 
-func (r *AnalyticsEventWithPiiParamNameRule) Confidence() float64 { return 0.75 }
+func (r *AnalyticsEventWithPiiParamNameRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // AnalyticsUserIDFromPiiRule flags calls to user-ID setters whose argument
 // is a property named email, phoneNumber, username, etc.
@@ -35,7 +35,7 @@ type AnalyticsUserIDFromPiiRule struct {
 	BaseRule
 }
 
-func (r *AnalyticsUserIDFromPiiRule) Confidence() float64 { return 0.75 }
+func (r *AnalyticsUserIDFromPiiRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // CrashlyticsCustomKeyWithPiiRule flags setCustomKey calls where the key
 // name matches PII patterns.
@@ -44,7 +44,7 @@ type CrashlyticsCustomKeyWithPiiRule struct {
 	BaseRule
 }
 
-func (r *CrashlyticsCustomKeyWithPiiRule) Confidence() float64 { return 0.75 }
+func (r *CrashlyticsCustomKeyWithPiiRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // FirebaseRemoteConfigDefaultsWithPiiRule flags setDefaults/setDefaultsAsync
 // calls whose map keys match PII patterns.
@@ -53,7 +53,7 @@ type FirebaseRemoteConfigDefaultsWithPiiRule struct {
 	BaseRule
 }
 
-func (r *FirebaseRemoteConfigDefaultsWithPiiRule) Confidence() float64 { return 0.75 }
+func (r *FirebaseRemoteConfigDefaultsWithPiiRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // AnalyticsCallWithoutConsentGateRule flags analytics event calls that are not
 // guarded by a consent/privacy/GDPR check.
@@ -62,7 +62,7 @@ type AnalyticsCallWithoutConsentGateRule struct {
 	BaseRule
 }
 
-func (r *AnalyticsCallWithoutConsentGateRule) Confidence() float64 { return 0.75 }
+func (r *AnalyticsCallWithoutConsentGateRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func isAnalyticsEventMethod(name string) bool {
 	switch name {

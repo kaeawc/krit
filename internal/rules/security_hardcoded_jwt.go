@@ -2,6 +2,8 @@ package rules
 
 import (
 	"strings"
+
+	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
 // HardcodedJwtRule detects string literals that look like a structurally
@@ -14,7 +16,7 @@ type HardcodedJwtRule struct {
 	BaseRule
 }
 
-func (r *HardcodedJwtRule) Confidence() float64 { return 0.85 }
+func (r *HardcodedJwtRule) Confidence() float64 { return api.ConfidenceHigh }
 
 // looksLikeHardcodedJwt reports whether `body` (an unwrapped string-literal
 // body, possibly a Kotlin string template) is a JWT-shaped token that is

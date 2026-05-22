@@ -17,7 +17,7 @@ func registerAccessibilityRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes:  []string{"call_expression", "assignment"},
 			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-			Confidence: 0.75, Implementation: r,
+			Confidence: api.ConfidenceMedium, Implementation: r,
 			OracleCallTargets: &api.OracleCallTargetFilter{CalleeNames: []string{
 				"ofArgb", "ofFloat", "ofInt", "ofObject", "setDuration",
 			}},
@@ -50,7 +50,7 @@ func registerAccessibilityRules() {
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, LexicalCalleeNames: []string{"clickable"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, LexicalCalleeNames: []string{"clickable"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallNameAny(file, idx) != "clickable" {
@@ -80,7 +80,7 @@ func registerAccessibilityRules() {
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallName(file, idx)
@@ -118,7 +118,7 @@ func registerAccessibilityRules() {
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.9, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigher, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !composeContentDescriptionFileMayUse(file) {
@@ -188,7 +188,7 @@ func registerAccessibilityRules() {
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.9, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigher, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallName(file, idx)
@@ -232,7 +232,7 @@ func registerAccessibilityRules() {
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				navExpr, args := flatCallExpressionParts(file, idx)
@@ -274,7 +274,7 @@ func registerAccessibilityRules() {
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallName(file, idx)
@@ -306,7 +306,7 @@ func registerAccessibilityRules() {
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				navExpr, _ := flatCallExpressionParts(file, idx)

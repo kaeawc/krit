@@ -3,6 +3,7 @@ package rules
 import (
 	"strings"
 
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -16,7 +17,7 @@ type WithContextWithoutTracingContextRule struct {
 	AllowedDispatchers []string
 }
 
-func (r *WithContextWithoutTracingContextRule) Confidence() float64 { return 0.75 }
+func (r *WithContextWithoutTracingContextRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *WithContextWithoutTracingContextRule) shouldFlag(file *scanner.File, idx uint32) (string, bool) {
 	name, args, lambda := coroutineBuilderPartsFlat(file, idx)
@@ -127,7 +128,7 @@ type SpanStartWithoutFinishRule struct {
 	BaseRule
 }
 
-func (r *SpanStartWithoutFinishRule) Confidence() float64 { return 0.75 }
+func (r *SpanStartWithoutFinishRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *SpanStartWithoutFinishRule) shouldFlag(file *scanner.File, idx uint32) (string, bool) {
 	if file == nil || idx == 0 || file.FlatType(idx) != "property_declaration" {
@@ -216,7 +217,7 @@ type SpanAttributeWithHighCardinalityRule struct {
 	Keys []string
 }
 
-func (r *SpanAttributeWithHighCardinalityRule) Confidence() float64 { return 0.75 }
+func (r *SpanAttributeWithHighCardinalityRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *SpanAttributeWithHighCardinalityRule) shouldFlag(file *scanner.File, idx uint32) (string, bool) {
 	if file == nil || idx == 0 || file.FlatType(idx) != "call_expression" {

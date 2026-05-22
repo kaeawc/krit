@@ -22,7 +22,7 @@ type ModuleTemplateConformanceRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. The rule relies on
 // Gradle settings/build-script text parsing rather than a full Gradle model.
-func (r *ModuleTemplateConformanceRule) Confidence() float64 { return 0.75 }
+func (r *ModuleTemplateConformanceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ModuleTemplateConformanceRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{NeedsDependencies: true}

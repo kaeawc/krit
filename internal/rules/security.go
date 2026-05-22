@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/rules/api/evidence"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -89,27 +90,29 @@ type GsonPolymorphicFromJSONRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Security rule. Detection pattern-matches known-insecure API shapes and
 // argument literals without confirming the receiver type. Classified per
 // roadmap/17.
-func (r *ContentProviderQueryWithSelectionInterpolationRule) Confidence() float64 { return 0.75 }
+func (r *ContentProviderQueryWithSelectionInterpolationRule) Confidence() float64 {
+	return api.ConfidenceMedium
+}
 
-func (r *SQLInjectionRawQueryRule) Confidence() float64 { return 0.75 }
+func (r *SQLInjectionRawQueryRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *RuntimeExecUnsafeShapeRule) Confidence() float64 { return 0.75 }
+func (r *RuntimeExecUnsafeShapeRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *RoomRawQueryStringConcatRule) Confidence() float64 { return 0.75 }
+func (r *RoomRawQueryStringConcatRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *ProcessBuilderShellArgRule) Confidence() float64 { return 0.75 }
+func (r *ProcessBuilderShellArgRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *LogPiiRule) Confidence() float64 { return 0.75 }
+func (r *LogPiiRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *JdbcStatementExecuteRule) Confidence() float64 { return 0.75 }
+func (r *JdbcStatementExecuteRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *XMLExternalEntityRule) Confidence() float64 { return 0.75 }
+func (r *XMLExternalEntityRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *JavaObjectInputStreamRule) Confidence() float64 { return 0.8 }
+func (r *JavaObjectInputStreamRule) Confidence() float64 { return api.ConfidenceMediumHigh }
 
-func (r *JacksonDefaultTypingRule) Confidence() float64 { return 0.8 }
+func (r *JacksonDefaultTypingRule) Confidence() float64 { return api.ConfidenceMediumHigh }
 
-func (r *GsonPolymorphicFromJSONRule) Confidence() float64 { return 0.8 }
+func (r *GsonPolymorphicFromJSONRule) Confidence() float64 { return api.ConfidenceMediumHigh }
 
 var defaultLogPiiNamePattern = regexp.MustCompile(`(?i)(password|passwd|token|secret|apiKey|api_key|authHeader|authorization|ssn|pan|cvv|jwt|sessionId|cookie)`)
 
@@ -1305,12 +1308,12 @@ type HardcodedGcpServiceAccountRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Security rule. Detection pattern-matches known-insecure API shapes and
 // argument literals without confirming the receiver type. Classified per
 // roadmap/17.
-func (r *HardcodedGcpServiceAccountRule) Confidence() float64 { return 0.75 }
+func (r *HardcodedGcpServiceAccountRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // Confidence reports a tier-2 (medium) base confidence. Security rule. Detection pattern-matches known-insecure API shapes and
 // argument literals without confirming the receiver type. Classified per
 // roadmap/17.
-func (r *HardcodedBearerTokenRule) Confidence() float64 { return 0.75 }
+func (r *HardcodedBearerTokenRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func extractHardcodedBearerToken(text string) (string, bool) {
 	body, ok := kotlinStringLiteralBody(text)
@@ -1394,7 +1397,7 @@ type TempFileWorldReadableRule struct {
 	BaseRule
 }
 
-func (r *TempFileWorldReadableRule) Confidence() float64 { return 0.75 }
+func (r *TempFileWorldReadableRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var tempFilePermissionSetterNames = map[string]bool{
 	"setReadable":   true,
@@ -1554,7 +1557,7 @@ func isCreateTempFileCall(file *scanner.File, call uint32) bool {
 // Confidence reports a tier-2 (medium) base confidence. Security rule. Detection pattern-matches known-insecure API shapes and
 // argument literals without confirming the receiver type. Classified per
 // roadmap/17.
-func (r *FileFromUntrustedPathRule) Confidence() float64 { return 0.75 }
+func (r *FileFromUntrustedPathRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ZipSlipUncheckedRule detects classic Zip-slip vulnerabilities where a zip
 // extraction loop builds a destination File from a zip entry name without a
@@ -1567,7 +1570,7 @@ type ZipSlipUncheckedRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Security rule. Detection pattern-matches known-insecure API shapes and
 // argument literals without confirming the receiver type. Classified per
 // roadmap/17.
-func (r *ZipSlipUncheckedRule) Confidence() float64 { return 0.75 }
+func (r *ZipSlipUncheckedRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var zipSlipAPIMarkers = []string{
 	"ZipInputStream",

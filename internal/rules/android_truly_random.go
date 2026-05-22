@@ -21,7 +21,7 @@ type TrulyRandomRule struct {
 // to an imported or fully-qualified java.security.SecureRandom reference, so
 // local lookalikes no longer fire; project-specific wrapper APIs named
 // SecureRandom can still produce false negatives when not imported.
-func (r *TrulyRandomRule) Confidence() float64 { return 0.85 }
+func (r *TrulyRandomRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *TrulyRandomRule) check(ctx *api.Context) {
 	file := ctx.File

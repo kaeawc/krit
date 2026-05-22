@@ -14,7 +14,7 @@ func registerPotentialbugsExceptionsRules() {
 		r := &PrintStackTraceRule{BaseRule: BaseRule{RuleName: "PrintStackTrace", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects printStackTrace() calls that should use a logger instead."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if strings.HasSuffix(file.Path, ".gradle.kts") {
@@ -66,7 +66,7 @@ func registerPotentialbugsExceptionsRules() {
 		r := &UnreachableCatchBlockRule{BaseRule: BaseRule{RuleName: "UnreachableCatchBlock", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects catch blocks that are unreachable because a more general exception type is caught above."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"try_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"try_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Needs: api.NeedsResolver,
 			Tags:  []string{"precompile"},
 			Check: r.checkFlatNode,
@@ -76,7 +76,7 @@ func registerPotentialbugsExceptionsRules() {
 		r := &MissingReturnRule{BaseRule: BaseRule{RuleName: "MissingReturn", RuleSetName: "potential-bugs", Sev: "error", Desc: "Detects block-bodied functions with a non-Unit return type whose body does not terminate on every path."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.85, Implementation: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceHigh, Implementation: r,
 			Needs: api.NeedsResolver,
 			Tags:  []string{"precompile"},
 			Check: r.check,

@@ -22,7 +22,7 @@ var easterEggRe = regexp.MustCompile(`(?i)\b(easter\s*egg|cheat\s*code|secret\s*
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *EasterEggRule) Confidence() float64 { return 0.75 }
+func (r *EasterEggRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *EasterEggRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -45,7 +45,7 @@ type TrustedServerRule struct{ AndroidRule }
 // override bodies, and matches a short allow-list of known trust-all
 // hostname-verifier identifiers. Both paths avoid the comment/string
 // false positives that the previous line scan was prone to.
-func (r *TrustedServerRule) Confidence() float64 { return 0.95 }
+func (r *TrustedServerRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 var trustedServerInsecureIdentifiers = map[string]bool{
 	"TrustAllCertificates":        true,
@@ -174,7 +174,7 @@ type WorldReadableFilesRule struct{ AndroidRule }
 // simple_identifier nodes means matches inside comments or string
 // literals can no longer occur — those live under line_comment /
 // string_content, which tree-sitter does not treat as identifiers.
-func (r *WorldReadableFilesRule) Confidence() float64 { return 0.95 }
+func (r *WorldReadableFilesRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *WorldReadableFilesRule) check(ctx *api.Context) {
 	if worldReadableIdentifierMatch(ctx, "MODE_WORLD_READABLE") {
@@ -191,7 +191,7 @@ type WorldWriteableFilesRule struct{ AndroidRule }
 // simple_identifier nodes means matches inside comments or string
 // literals can no longer occur — those live under line_comment /
 // string_content, which tree-sitter does not treat as identifiers.
-func (r *WorldWriteableFilesRule) Confidence() float64 { return 0.95 }
+func (r *WorldWriteableFilesRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *WorldWriteableFilesRule) check(ctx *api.Context) {
 	if worldReadableIdentifierMatch(ctx, "MODE_WORLD_WRITEABLE") ||

@@ -15,7 +15,7 @@ type LocaleGetDefaultForFormattingRule struct {
 	BaseRule
 }
 
-func (r *LocaleGetDefaultForFormattingRule) Confidence() float64 { return 0.8 }
+func (r *LocaleGetDefaultForFormattingRule) Confidence() float64 { return api.ConfidenceMediumHigh }
 
 // isPersistenceOrNetworkFormatterReceiver returns true if the receiver of a
 // `.withLocale(...)` call is a known machine-readable formatter constant. The

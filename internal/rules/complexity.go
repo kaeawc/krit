@@ -260,7 +260,7 @@ func (*LongMethodRule) Description() string {
 // preference that varies by codebase — a given value may be
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
-func (r *LongMethodRule) Confidence() float64 { return 0.75 }
+func (r *LongMethodRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // longMethodDeclarationLineFlat returns the 1-based line number of the `fun`
 // keyword within a function_declaration node. It walks the node's direct
@@ -549,7 +549,7 @@ type LargeClassRule struct {
 // preference that varies by codebase — a given value may be
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
-func (r *LargeClassRule) Confidence() float64 { return 0.75 }
+func (r *LargeClassRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // NestedBlockDepthRule detects excessive nesting.
 type NestedBlockDepthRule struct {
@@ -565,7 +565,7 @@ type NestedBlockDepthRule struct {
 // preference that varies by codebase — a given value may be
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
-func (r *NestedBlockDepthRule) Confidence() float64 { return 0.75 }
+func (r *NestedBlockDepthRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // nestedBlockDepthExceedsFlat returns the function's max nesting depth
 // (read from the shared complexityMetricsCache populated once per
@@ -693,7 +693,7 @@ var decisionTypes = map[string]bool{
 // preference that varies by codebase — a given value may be
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
-func (r *CyclomaticComplexMethodRule) Confidence() float64 { return 0.75 }
+func (r *CyclomaticComplexMethodRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func isPureBooleanPredicateFlat(file *scanner.File, fn uint32) bool {
 	body, _ := file.FlatFindChild(fn, "function_body")
@@ -923,7 +923,7 @@ var cognitiveTypes = map[string]bool{
 // preference that varies by codebase — a given value may be
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
-func (r *CognitiveComplexMethodRule) Confidence() float64 { return 0.75 }
+func (r *CognitiveComplexMethodRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ComplexConditionRule detects conditions with too many logical operators.
 type ComplexConditionRule struct {
@@ -965,7 +965,7 @@ func countLogicalOperatorsOutsideBodiesFlat(file *scanner.File, root uint32) int
 // preference that varies by codebase — a given value may be
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
-func (r *ComplexConditionRule) Confidence() float64 { return 0.75 }
+func (r *ComplexConditionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func isPureDisjunctionOrConjunctionFlat(file *scanner.File, root uint32) bool {
 	hasConj := false
@@ -1014,7 +1014,7 @@ type ComplexInterfaceRule struct {
 // preference that varies by codebase — a given value may be
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
-func (r *ComplexInterfaceRule) Confidence() float64 { return 0.75 }
+func (r *ComplexInterfaceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // LabeledExpressionRule detects return@label, break@label, continue@label.
 type LabeledExpressionRule struct {
@@ -1030,7 +1030,7 @@ type LabeledExpressionRule struct {
 // preference that varies by codebase — a given value may be
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
-func (r *LabeledExpressionRule) Confidence() float64 { return 0.75 }
+func (r *LabeledExpressionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // labeledExpressionLabelIgnored reports whether the label-node text matches
 // any name in the ignored list. Tree-sitter Kotlin emits a `label` node for
@@ -1071,7 +1071,7 @@ type LongParameterListRule struct {
 // preference that varies by codebase — a given value may be
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
-func (r *LongParameterListRule) Confidence() float64 { return 0.75 }
+func (r *LongParameterListRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // paramHasIgnoredAnnotationFlat reports whether the parameter at idx
 // carries any annotation whose simple name matches one of the names in
@@ -1145,7 +1145,7 @@ type MethodOverloadingRule struct {
 // preference that varies by codebase — a given value may be
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
-func (r *MethodOverloadingRule) Confidence() float64 { return 0.75 }
+func (r *MethodOverloadingRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MethodOverloadingRule) checkScopeFlat(ctx *api.Context, node uint32) {
 	file := ctx.File
@@ -1211,7 +1211,7 @@ type NamedArgumentsRule struct {
 // preference that varies by codebase — a given value may be
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
-func (r *NamedArgumentsRule) Confidence() float64 { return 0.75 }
+func (r *NamedArgumentsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // NestedScopeFunctionsRule detects nested scope functions (apply, also, let, run, with).
 type NestedScopeFunctionsRule struct {
@@ -1252,7 +1252,7 @@ func nestedScopeFunctionsActiveSet(configured []string) map[string]bool {
 // preference that varies by codebase — a given value may be
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
-func (r *NestedScopeFunctionsRule) Confidence() float64 { return 0.75 }
+func (r *NestedScopeFunctionsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func extractCallNameFlat(file *scanner.File, idx uint32) string {
 	for i := 0; i < file.FlatChildCount(idx); i++ {
@@ -1294,7 +1294,7 @@ type ReplaceSafeCallChainWithRunRule struct {
 // preference that varies by codebase — a given value may be
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
-func (r *ReplaceSafeCallChainWithRunRule) Confidence() float64 { return 0.75 }
+func (r *ReplaceSafeCallChainWithRunRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func countSafeCallsInChainFlat(file *scanner.File, idx uint32) int {
 	if file.FlatType(idx) != "navigation_expression" {
@@ -1342,7 +1342,7 @@ type StringLiteralDuplicationRule struct {
 // preference that varies by codebase — a given value may be
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
-func (r *StringLiteralDuplicationRule) Confidence() float64 { return 0.75 }
+func (r *StringLiteralDuplicationRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // stringLiteralUnquote strips the surrounding quote delimiters from a
 // Kotlin string literal's raw text so that user-supplied
@@ -1410,7 +1410,7 @@ type TooManyFunctionsRule struct {
 // preference that varies by codebase — a given value may be
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
-func (r *TooManyFunctionsRule) Confidence() float64 { return 0.75 }
+func (r *TooManyFunctionsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *TooManyFunctionsRule) shouldCountFunctionFlat(fnNode uint32, file *scanner.File) bool {
 	if r.IgnorePrivate && file.FlatHasModifier(fnNode, "private") {

@@ -14,7 +14,7 @@ type WebViewDebuggingEnabledRule struct {
 	AndroidRule
 }
 
-func (r *WebViewDebuggingEnabledRule) Confidence() float64 { return 0.8 }
+func (r *WebViewDebuggingEnabledRule) Confidence() float64 { return api.ConfidenceMediumHigh }
 
 const webViewDebuggingEnabledMessage = "Guard WebView.setWebContentsDebuggingEnabled(true) behind BuildConfig.DEBUG or ApplicationInfo.FLAG_DEBUGGABLE."
 

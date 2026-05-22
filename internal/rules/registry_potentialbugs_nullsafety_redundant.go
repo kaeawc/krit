@@ -11,7 +11,7 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		r := &UnnecessaryNotNullCheckRule{BaseRule: BaseRule{RuleName: "UnnecessaryNotNullCheck", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects unnecessary null checks on expressions that are already non-nullable."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"equality_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 			Needs:         api.NeedsResolver,
 			Check:         r.check,
 			ExprPositions: r.ExpressionPositions,
@@ -21,7 +21,7 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		r := &UnnecessaryNotNullOperatorRule{BaseRule: BaseRule{RuleName: "UnnecessaryNotNullOperator", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects the !! operator applied to expressions that are already non-nullable."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic,
+			NodeTypes: []string{"postfix_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic,
 			Needs:          api.NeedsResolver,
 			Implementation: r,
 			Check:          r.check,
@@ -32,7 +32,7 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		r := &UnnecessarySafeCallRule{BaseRule: BaseRule{RuleName: "UnnecessarySafeCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects the ?. safe-call operator applied to expressions that are already non-nullable."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic,
+			NodeTypes: []string{"navigation_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic,
 			Needs: api.NeedsResolver, Implementation: r,
 			Check:         r.check,
 			ExprPositions: r.ExpressionPositions,
@@ -64,7 +64,7 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		r := &NullableToStringCallRule{BaseRule: BaseRule{RuleName: "NullableToStringCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects .toString() calls on nullable receivers that may produce the string \"null\"."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "string_literal"}, Confidence: 0.75,
+			NodeTypes: []string{"call_expression", "string_literal"}, Confidence: api.ConfidenceMedium,
 			Needs:             api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Oracle:            &api.OracleFilter{Identifiers: []string{"toString", "$"}},
 			Implementation:    r,

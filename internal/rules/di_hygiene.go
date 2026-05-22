@@ -64,7 +64,7 @@ type BindsMismatchedArityRule struct {
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule. Detection uses annotation and import patterns for
 // Dagger/Hilt/Anvil; project-specific DI aliases are not followed.
 // Classified per roadmap/17.
-func (r *BindsMismatchedArityRule) Confidence() float64 { return 0.75 }
+func (r *BindsMismatchedArityRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func anvilContributedInterfaceScopesFlat(file *scanner.File) map[string]string {
 	scopes := make(map[string]string)
@@ -161,7 +161,7 @@ type DeadBindingsRule struct {
 // Confidence reports a tier-3 (lower) base confidence. Reachability is approximated
 // from source-visible @Inject sites and component method exposures; project-specific
 // DI machinery (assisted factories, multibindings, generated code) is not modeled.
-func (r *DeadBindingsRule) Confidence() float64 { return 0.5 }
+func (r *DeadBindingsRule) Confidence() float64 { return api.ConfidenceLow }
 
 var deadBindingComponentAnnotations = []string{
 	"Component", "Subcomponent", "MergeComponent", "MergeSubcomponent",
@@ -392,7 +392,7 @@ type InjectOnAbstractClassRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
-func (r *InjectOnAbstractClassRule) Confidence() float64 { return 0.75 }
+func (r *InjectOnAbstractClassRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ProviderInsteadOfLazyRule detects constructor parameters typed Provider<T>
 // whose `.get()` is called exactly once across the class body. Lazy<T> matches
@@ -403,7 +403,7 @@ type ProviderInsteadOfLazyRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
-func (r *ProviderInsteadOfLazyRule) Confidence() float64 { return 0.6 }
+func (r *ProviderInsteadOfLazyRule) Confidence() float64 { return api.ConfidenceMediumLow }
 
 // LazyInsteadOfDirectRule detects constructor parameters typed Lazy<T> whose
 // `.get()` is called unconditionally at class-init time. Direct injection is
@@ -414,7 +414,7 @@ type LazyInsteadOfDirectRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
-func (r *LazyInsteadOfDirectRule) Confidence() float64 { return 0.6 }
+func (r *LazyInsteadOfDirectRule) Confidence() float64 { return api.ConfidenceMediumLow }
 
 // classParameterNameAndType returns the simple identifier name and the
 // last-segment unqualified type name of a primary-constructor `class_parameter`.
@@ -512,7 +512,7 @@ type SubcomponentNotInstalledRule struct {
 
 // Confidence reports a tier-3 (lower) base confidence. Detection follows
 // return-type text only; cross-module install graphs are not modeled.
-func (r *SubcomponentNotInstalledRule) Confidence() float64 { return 0.5 }
+func (r *SubcomponentNotInstalledRule) Confidence() float64 { return api.ConfidenceLow }
 
 func (r *SubcomponentNotInstalledRule) check(ctx *api.Context) {
 	index := ctx.CodeIndex
@@ -636,7 +636,7 @@ type BindsInsteadOfProvidesRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
-func (r *BindsInsteadOfProvidesRule) Confidence() float64 { return 0.7 }
+func (r *BindsInsteadOfProvidesRule) Confidence() float64 { return api.ConfidenceMediumLowPlus }
 
 // BindsReturnTypeMatchesParamRule detects `@Binds` functions whose parameter
 // type equals the return type — a no-op binding that Dagger rejects.
@@ -646,7 +646,7 @@ type BindsReturnTypeMatchesParamRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
-func (r *BindsReturnTypeMatchesParamRule) Confidence() float64 { return 0.75 }
+func (r *BindsReturnTypeMatchesParamRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // firstFunctionParameterNameAndType returns the (name, type) of the first
 // parameter of `fn` (a function_declaration). Returns ("", "") if absent.
@@ -713,7 +713,7 @@ type ComponentMissingModuleRule struct {
 // Confidence reports a tier-3 (lower) base confidence. Detection follows
 // @Provides/@Binds return types and @Inject constructor parameters in source;
 // generated code, multibindings, and assisted factories are not modeled.
-func (r *ComponentMissingModuleRule) Confidence() float64 { return 0.5 }
+func (r *ComponentMissingModuleRule) Confidence() float64 { return api.ConfidenceLow }
 
 type componentMissingModuleProvider struct {
 	moduleName string
@@ -1022,7 +1022,7 @@ type SingletonOnMutableClassRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
-func (r *SingletonOnMutableClassRule) Confidence() float64 { return 0.75 }
+func (r *SingletonOnMutableClassRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var singletonScopeAnnotationNames = []string{
 	"Singleton",
@@ -1093,7 +1093,7 @@ type MetroFactoryDeclarationShapeRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
-func (r *MetroFactoryDeclarationShapeRule) Confidence() float64 { return 0.75 }
+func (r *MetroFactoryDeclarationShapeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func hasMetroFactoryAnnotationFlat(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 {
@@ -1112,7 +1112,7 @@ type ScopeOnParameterizedClassRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
-func (r *ScopeOnParameterizedClassRule) Confidence() float64 { return 0.75 }
+func (r *ScopeOnParameterizedClassRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // scopeAnnotationNames lists annotations that mark a DI scope. The list mirrors
 // commonly used Hilt/Dagger scopes plus Anvil/Metro variants.
@@ -1150,7 +1150,7 @@ type MissingJvmSuppressWildcardsRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
-func (r *MissingJvmSuppressWildcardsRule) Confidence() float64 { return 0.75 }
+func (r *MissingJvmSuppressWildcardsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func multibindingReturnNeedsJvmSuppress(typeText string) (string, bool) {
 	s := strings.TrimSpace(typeText)
@@ -1192,7 +1192,7 @@ type ModuleWithNonStaticProvidesRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
-func (r *ModuleWithNonStaticProvidesRule) Confidence() float64 { return 0.75 }
+func (r *ModuleWithNonStaticProvidesRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // IntoMapMissingKeyRule detects @IntoMap @Provides/@Binds functions that lack
 // a `@*Key(...)` annotation. Without a key annotation, Dagger fails at code
@@ -1203,7 +1203,7 @@ type IntoMapMissingKeyRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
-func (r *IntoMapMissingKeyRule) Confidence() float64 { return 0.75 }
+func (r *IntoMapMissingKeyRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // hasMapKeyAnnotationFlat returns true when any annotation on idx is named
 // `@*Key` (e.g. @StringKey, @ClassKey, @IntKey, custom @FooKey). Built-in
@@ -1258,7 +1258,7 @@ type IntoSetOnNonSetReturnRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
-func (r *IntoSetOnNonSetReturnRule) Confidence() float64 { return 0.75 }
+func (r *IntoSetOnNonSetReturnRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var intoSetCollectionWrapperTypes = map[string]struct{}{
 	"List":              {},

@@ -557,7 +557,7 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 					stats.Errors = append(stats.Errors, DispatchError{RuleName: r.ID, FilePath: filePathOrEmpty(file), PanicValue: rec})
 				}
 			}()
-			ctx := &api.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector, LibraryFacts: d.libraryFacts, JavaFacts: javaFileFacts, JavaSourceIndex: javaSourceIndex, JavaSemanticFacts: d.javaSemanticFacts, Facts: d.fileFacts}
+			ctx := &api.Context{File: file, Rule: r, DefaultConfidence: api.ConfidenceMedium, Collector: collector, LibraryFacts: d.libraryFacts, JavaFacts: javaFileFacts, JavaSourceIndex: javaSourceIndex, JavaSemanticFacts: d.javaSemanticFacts, Facts: d.fileFacts}
 			if r.Needs.Has(api.NeedsResolver) {
 				ctx.Resolver = resolver
 			}
@@ -614,7 +614,7 @@ func safeCheckV2NodeColumnar(r *api.Rule, idx uint32, node *scanner.FlatNode, fi
 		Node:              node,
 		Idx:               idx,
 		Rule:              r,
-		DefaultConfidence: 0.95,
+		DefaultConfidence: api.ConfidenceVeryHigh,
 		Collector:         collector,
 		LibraryFacts:      libraryFacts,
 		JavaFacts:         javaFileFacts,
@@ -1013,7 +1013,7 @@ func (d *Dispatcher) runProjectRule(r *api.Rule, file *scanner.File, populate fu
 	}()
 	collector := scanner.NewFindingCollector(0)
 	javaFileFacts, javaSourceIndex := javaContextFactsForFile(file)
-	ctx := &api.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector, LibraryFacts: d.libraryFacts, JavaFacts: javaFileFacts, JavaSourceIndex: javaSourceIndex, JavaSemanticFacts: d.javaSemanticFacts, Facts: d.fileFacts}
+	ctx := &api.Context{File: file, Rule: r, DefaultConfidence: api.ConfidenceMedium, Collector: collector, LibraryFacts: d.libraryFacts, JavaFacts: javaFileFacts, JavaSourceIndex: javaSourceIndex, JavaSemanticFacts: d.javaSemanticFacts, Facts: d.fileFacts}
 	if r.Needs.Has(api.NeedsResolver) {
 		if resolver, ok := d.resolveForRule(r); ok {
 			ctx.Resolver = resolver
@@ -1048,7 +1048,7 @@ func safeCheckV2ResourceNodeColumnar(r *api.Rule, idx uint32, node *scanner.Flat
 		Node:              node,
 		Idx:               idx,
 		Rule:              r,
-		DefaultConfidence: 0.95,
+		DefaultConfidence: api.ConfidenceVeryHigh,
 		ResourceIndex:     resourceIndex,
 		Collector:         collector,
 		LibraryFacts:      libraryFacts,

@@ -21,7 +21,7 @@ type VersionCatalogBuildSrcMismatchRule struct {
 	BaseRule
 }
 
-func (r *VersionCatalogBuildSrcMismatchRule) Confidence() float64 { return 0.8 }
+func (r *VersionCatalogBuildSrcMismatchRule) Confidence() float64 { return api.ConfidenceMediumHigh }
 
 func (r *VersionCatalogBuildSrcMismatchRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{}

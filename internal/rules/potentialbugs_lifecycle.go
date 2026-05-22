@@ -24,7 +24,7 @@ type ExitOutsideMainRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs lifecycle rule. Detection matches framework lifecycle
 // hook shapes by name and annotation; project-specific wrappers can escape
 // detection. Classified per roadmap/17.
-func (r *ExitOutsideMainRule) Confidence() float64 { return 0.75 }
+func (r *ExitOutsideMainRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // ExplicitGarbageCollectionCallRule detects System.gc() calls.
@@ -37,7 +37,7 @@ type ExplicitGarbageCollectionCallRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs lifecycle rule. Detection matches framework lifecycle
 // hook shapes by name and annotation; project-specific wrappers can escape
 // detection. Classified per roadmap/17.
-func (r *ExplicitGarbageCollectionCallRule) Confidence() float64 { return 0.75 }
+func (r *ExplicitGarbageCollectionCallRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func javaSourceResolvesSimpleType(file *scanner.File, simpleName, fqn string) bool {
 	facts := javafacts.SourceFactsForFile(file)
@@ -99,7 +99,7 @@ type InvalidRangeRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs lifecycle rule. Detection matches framework lifecycle
 // hook shapes by name and annotation; project-specific wrappers can escape
 // detection. Classified per roadmap/17.
-func (r *InvalidRangeRule) Confidence() float64 { return 0.75 }
+func (r *InvalidRangeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // IteratorHasNextCallsNextMethodRule detects hasNext() calling next().
@@ -112,7 +112,7 @@ type IteratorHasNextCallsNextMethodRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs lifecycle rule. Detection matches framework lifecycle
 // hook shapes by name and annotation; project-specific wrappers can escape
 // detection. Classified per roadmap/17.
-func (r *IteratorHasNextCallsNextMethodRule) Confidence() float64 { return 0.75 }
+func (r *IteratorHasNextCallsNextMethodRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // IteratorNotThrowingNoSuchElementExceptionRule detects next() without throw.
@@ -125,7 +125,9 @@ type IteratorNotThrowingNoSuchElementExceptionRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs lifecycle rule. Detection matches framework lifecycle
 // hook shapes by name and annotation; project-specific wrappers can escape
 // detection. Classified per roadmap/17.
-func (r *IteratorNotThrowingNoSuchElementExceptionRule) Confidence() float64 { return 0.75 }
+func (r *IteratorNotThrowingNoSuchElementExceptionRule) Confidence() float64 {
+	return api.ConfidenceMedium
+}
 
 // enclosingImplementsIterator returns true if the node's enclosing class
 // has a delegation specifier naming Iterator / MutableIterator / ListIterator
@@ -295,7 +297,7 @@ type LateinitUsageRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs lifecycle rule. Detection matches framework lifecycle
 // hook shapes by name and annotation; project-specific wrappers can escape
 // detection. Classified per roadmap/17.
-func (r *LateinitUsageRule) Confidence() float64 { return 0.75 }
+func (r *LateinitUsageRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // MissingPackageDeclarationRule detects Kotlin/Java source files without package statements.
@@ -309,7 +311,7 @@ type MissingPackageDeclarationRule struct {
 // check asks tree-sitter whether the file's root has a package_header
 // (Kotlin) or package_declaration (Java) child. Deterministic with no
 // heuristic path and no dependence on line-level comment detection.
-func (r *MissingPackageDeclarationRule) Confidence() float64 { return 0.95 }
+func (r *MissingPackageDeclarationRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *MissingPackageDeclarationRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -392,7 +394,7 @@ type MissingSuperCallRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs lifecycle rule. Detection matches framework lifecycle
 // hook shapes by name and annotation; project-specific wrappers can escape
 // detection. Classified per roadmap/17.
-func (r *MissingSuperCallRule) Confidence() float64 { return 0.75 }
+func (r *MissingSuperCallRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var missingSuperCallLifecycleMethodsByOwner = map[string]map[string]bool{
 	"Activity":          missingSuperCallActivityLifecycleMethods,
@@ -622,7 +624,7 @@ type MissingUseCallRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs lifecycle rule. Detection matches framework lifecycle
 // hook shapes by name and annotation; project-specific wrappers can escape
 // detection. Classified per roadmap/17.
-func (r *MissingUseCallRule) Confidence() float64 { return 0.75 }
+func (r *MissingUseCallRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // Known Closeable/AutoCloseable types commonly constructed directly.
 var closeableTypes = map[string]bool{

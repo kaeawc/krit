@@ -137,7 +137,7 @@ type BracesOnIfStatementsRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/braces rule. Detection checks AST shape for if/when/else brace
 // presence; the preferred form is a style preference. Classified per
 // roadmap/17.
-func (r *BracesOnIfStatementsRule) Confidence() float64 { return 0.75 }
+func (r *BracesOnIfStatementsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *BracesOnIfStatementsRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -273,7 +273,7 @@ type BracesOnWhenStatementsRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/braces rule. Detection checks AST shape for if/when/else brace
 // presence; the preferred form is a style preference. Classified per
 // roadmap/17.
-func (r *BracesOnWhenStatementsRule) Confidence() float64 { return 0.75 }
+func (r *BracesOnWhenStatementsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *BracesOnWhenStatementsRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -395,7 +395,7 @@ type MandatoryBracesLoopsRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/braces rule. Detection checks AST shape for if/when/else brace
 // presence; the preferred form is a style preference. Classified per
 // roadmap/17.
-func (r *MandatoryBracesLoopsRule) Confidence() float64 { return 0.75 }
+func (r *MandatoryBracesLoopsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MandatoryBracesLoopsRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File

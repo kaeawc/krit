@@ -16,7 +16,7 @@ type SuspendFunWithFlowReturnTypeRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Coroutines rule.
-func (r *SuspendFunWithFlowReturnTypeRule) Confidence() float64 { return 0.85 }
+func (r *SuspendFunWithFlowReturnTypeRule) Confidence() float64 { return api.ConfidenceHigh }
 
 // IsFixable marks this rule as auto-fixable: stripping the suspend modifier.
 func (r *SuspendFunWithFlowReturnTypeRule) IsFixable() bool { return true }

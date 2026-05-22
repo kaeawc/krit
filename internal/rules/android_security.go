@@ -403,37 +403,37 @@ type ImplicitPendingIntentRule struct {
 // confirms the receiver is javax.crypto.Cipher via import presence or
 // the absence of a same-file user-defined Cipher class. Algorithm
 // inspection uses the literal's parsed content, not regex slicing.
-func (r *GetInstanceRule) Confidence() float64 { return 0.85 }
+func (r *GetInstanceRule) Confidence() float64 { return api.ConfidenceHigh }
 
-func (r *WeakMessageDigestRule) Confidence() float64 { return 0.85 }
+func (r *WeakMessageDigestRule) Confidence() float64 { return api.ConfidenceHigh }
 
-func (r *WeakMacAlgorithmRule) Confidence() float64 { return 0.85 }
+func (r *WeakMacAlgorithmRule) Confidence() float64 { return api.ConfidenceHigh }
 
-func (r *WeakKeySizeRule) Confidence() float64 { return 0.75 }
+func (r *WeakKeySizeRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *StaticIvRule) Confidence() float64 { return 0.8 }
+func (r *StaticIvRule) Confidence() float64 { return api.ConfidenceMediumHigh }
 
-func (r *HardcodedSecretKeyRule) Confidence() float64 { return 0.85 }
+func (r *HardcodedSecretKeyRule) Confidence() float64 { return api.ConfidenceHigh }
 
-func (r *HardcodedHTTPURLRule) Confidence() float64 { return 0.85 }
+func (r *HardcodedHTTPURLRule) Confidence() float64 { return api.ConfidenceHigh }
 
-func (r *StartActivityWithUntrustedIntentRule) Confidence() float64 { return 0.75 }
+func (r *StartActivityWithUntrustedIntentRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *RsaNoPaddingRule) Confidence() float64 { return 0.85 }
+func (r *RsaNoPaddingRule) Confidence() float64 { return api.ConfidenceHigh }
 
-func (r *PrngFromSystemTimeRule) Confidence() float64 { return 0.75 }
+func (r *PrngFromSystemTimeRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *OkHTTPDisableSslValidationRule) Confidence() float64 { return 0.75 }
+func (r *OkHTTPDisableSslValidationRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *DisableCertificatePinningRule) Confidence() float64 { return 0.85 }
+func (r *DisableCertificatePinningRule) Confidence() float64 { return api.ConfidenceHigh }
 
-func (r *AllowAllHostnameVerifierRule) Confidence() float64 { return 0.85 }
+func (r *AllowAllHostnameVerifierRule) Confidence() float64 { return api.ConfidenceHigh }
 
-func (r *BroadcastReceiverExportedFlagMissingRule) Confidence() float64 { return 0.85 }
+func (r *BroadcastReceiverExportedFlagMissingRule) Confidence() float64 { return api.ConfidenceHigh }
 
-func (r *InsecureTrustManagerRule) Confidence() float64 { return 0.85 }
+func (r *InsecureTrustManagerRule) Confidence() float64 { return api.ConfidenceHigh }
 
-func (r *ImplicitPendingIntentRule) Confidence() float64 { return 0.85 }
+func (r *ImplicitPendingIntentRule) Confidence() float64 { return api.ConfidenceHigh }
 
 var getInstanceInsecureAlgoTokens = []string{"ECB", "DES", "RC2", "RC4"}
 
@@ -2107,7 +2107,7 @@ type ExportedContentProviderRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ExportedContentProviderRule) Confidence() float64 { return 0.75 }
+func (r *ExportedContentProviderRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func exportedPermissionEnforcedInClass(file *scanner.File, classIdx uint32) bool {
 	body, _ := file.FlatFindChild(classIdx, "class_body")
@@ -2165,7 +2165,7 @@ type ExportedReceiverRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ExportedReceiverRule) Confidence() float64 { return 0.75 }
+func (r *ExportedReceiverRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ExportedReceiverRule) check(ctx *api.Context) {
 	file, idx := ctx.File, ctx.Idx
@@ -2191,7 +2191,7 @@ type GrantAllUrisRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *GrantAllUrisRule) Confidence() float64 { return 0.75 }
+func (r *GrantAllUrisRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *GrantAllUrisRule) check(ctx *api.Context) {
 	file, idx := ctx.File, ctx.Idx
@@ -2325,7 +2325,7 @@ type UnprotectedDynamicReceiverRule struct {
 	AndroidRule
 }
 
-func (r *UnprotectedDynamicReceiverRule) Confidence() float64 { return 0.75 }
+func (r *UnprotectedDynamicReceiverRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *UnprotectedDynamicReceiverRule) check(ctx *api.Context) {
 	file := ctx.File

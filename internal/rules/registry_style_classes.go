@@ -27,7 +27,7 @@ func registerStyleAbstractClassCanBeConcreteClass() {
 	r := &AbstractClassCanBeConcreteClassRule{BaseRule: BaseRule{RuleName: "AbstractClassCanBeConcreteClass", RuleSetName: "style", Sev: "warning", Desc: "Detects abstract classes that have no abstract members and could be made concrete."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixNone, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixNone, Implementation: r,
 		Needs: api.NeedsResolver,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
@@ -132,7 +132,7 @@ func registerStyleAbstractClassCanBeInterface() {
 	r := &AbstractClassCanBeInterfaceRule{BaseRule: BaseRule{RuleName: "AbstractClassCanBeInterface", RuleSetName: "style", Sev: "warning", Desc: "Detects abstract classes with no state that could be converted to interfaces."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixNone, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixNone, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !file.FlatHasModifier(idx, "abstract") {
@@ -181,7 +181,7 @@ func registerStyleDataClassShouldBeImmutable() {
 	r := &DataClassShouldBeImmutableRule{BaseRule: BaseRule{RuleName: "DataClassShouldBeImmutable", RuleSetName: "style", Sev: "warning", Desc: "Detects data class properties declared as var instead of val."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 		Needs: api.NeedsResolver,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
@@ -246,7 +246,7 @@ func registerStyleDataClassContainsFunctions() {
 	r := &DataClassContainsFunctionsRule{BaseRule: BaseRule{RuleName: "DataClassContainsFunctions", RuleSetName: "style", Sev: "warning", Desc: "Detects data classes that contain function members."}, ConversionFunctionPrefix: []string{"to"}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !file.FlatHasModifier(idx, "data") {
@@ -283,7 +283,7 @@ func registerStyleProtectedMemberInFinalClass() {
 	r := &ProtectedMemberInFinalClassRule{BaseRule: BaseRule{RuleName: "ProtectedMemberInFinalClass", RuleSetName: "style", Sev: "warning", Desc: "Detects protected members in final classes where they should be private."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 		Needs: api.NeedsResolver,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
@@ -337,7 +337,7 @@ func registerStyleNestedClassesVisibility() {
 	r := &NestedClassesVisibilityRule{BaseRule: BaseRule{RuleName: "NestedClassesVisibility", RuleSetName: "style", Sev: "warning", Desc: "Detects nested classes with explicit public modifier inside internal parent classes."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixCosmetic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixCosmetic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			parent, ok := file.FlatParent(idx)
@@ -403,7 +403,7 @@ func registerStyleUtilityClassWithPublicConstructor() {
 	r := &UtilityClassWithPublicConstructorRule{BaseRule: BaseRule{RuleName: "UtilityClassWithPublicConstructor", RuleSetName: "style", Sev: "warning", Desc: "Detects utility classes that have a public constructor instead of a private one."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			nodeText := file.FlatNodeText(idx)
@@ -491,7 +491,7 @@ func registerStyleOptionalAbstractKeyword() {
 	r := &OptionalAbstractKeywordRule{BaseRule: BaseRule{RuleName: "OptionalAbstractKeyword", RuleSetName: "style", Sev: "warning", Desc: "Detects redundant abstract modifier on interface members where it is implied."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixCosmetic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixCosmetic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !file.FlatHasChildOfType(idx, "interface") {
@@ -558,7 +558,7 @@ func registerStyleClassOrdering() {
 	r := &ClassOrderingRule{BaseRule: BaseRule{RuleName: "ClassOrdering", RuleSetName: "style", Sev: "warning", Desc: "Detects class members that are not in the conventional ordering of properties, init blocks, constructors, functions, and companion objects."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_body"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"class_body"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			const (
@@ -601,7 +601,7 @@ func registerStyleObjectLiteralToLambda() {
 	r := &ObjectLiteralToLambdaRule{BaseRule: BaseRule{RuleName: "ObjectLiteralToLambda", RuleSetName: "style", Sev: "warning", Desc: "Detects object literals implementing a single method that could be converted to a lambda."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"object_literal"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"object_literal"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Needs: api.NeedsResolver,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
@@ -657,7 +657,7 @@ func registerStyleSerialVersionUIDInSerializableClass() {
 	r := &SerialVersionUIDInSerializableClassRule{BaseRule: BaseRule{RuleName: "SerialVersionUIDInSerializableClass", RuleSetName: "style", Sev: "warning", Desc: "Detects Serializable classes that are missing a serialVersionUID field."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 		Needs: api.NeedsResolver,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File

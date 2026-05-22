@@ -18,7 +18,7 @@ type VersionCatalogRawVersionInBuildRule struct {
 	BaseRule
 }
 
-func (r *VersionCatalogRawVersionInBuildRule) Confidence() float64 { return 0.8 }
+func (r *VersionCatalogRawVersionInBuildRule) Confidence() float64 { return api.ConfidenceMediumHigh }
 
 func (r *VersionCatalogRawVersionInBuildRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{}

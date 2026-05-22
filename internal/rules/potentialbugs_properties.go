@@ -17,7 +17,7 @@ type PropertyUsedBeforeDeclarationRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs properties rule. Detection is structural with heuristic
 // fallbacks for flow-dependent cases. Classified per roadmap/17.
-func (r *PropertyUsedBeforeDeclarationRule) Confidence() float64 { return 0.75 }
+func (r *PropertyUsedBeforeDeclarationRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // UnconditionalJumpStatementInLoopRule detects loop with unconditional return/break.
@@ -29,7 +29,7 @@ type UnconditionalJumpStatementInLoopRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs properties rule. Detection is structural with heuristic
 // fallbacks for flow-dependent cases. Classified per roadmap/17.
-func (r *UnconditionalJumpStatementInLoopRule) Confidence() float64 { return 0.75 }
+func (r *UnconditionalJumpStatementInLoopRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // UnnamedParameterUseRule detects function calls with many unnamed params.
@@ -42,7 +42,7 @@ type UnnamedParameterUseRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs properties rule. Detection is structural with heuristic
 // fallbacks for flow-dependent cases. Classified per roadmap/17.
-func (r *UnnamedParameterUseRule) Confidence() float64 { return 0.75 }
+func (r *UnnamedParameterUseRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // UnusedUnaryOperatorRule detects standalone +x or -x as expression statements
@@ -57,7 +57,7 @@ type UnusedUnaryOperatorRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs properties rule. Detection is structural with heuristic
 // fallbacks for flow-dependent cases. Classified per roadmap/17.
-func (r *UnusedUnaryOperatorRule) Confidence() float64 { return 0.75 }
+func (r *UnusedUnaryOperatorRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // flatIsLastNamedChildOf checks if child is the last named child of parent.
 func flatIsLastNamedChildOf(file *scanner.File, child, parent uint32) bool {
@@ -121,7 +121,7 @@ type UselessPostfixExpressionRule struct {
 // after the value is produced, so the increment/decrement has no
 // observable effect. Tree-sitter gives us this shape directly; no text
 // heuristics are involved.
-func (r *UselessPostfixExpressionRule) Confidence() float64 { return 0.95 }
+func (r *UselessPostfixExpressionRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // checkUselessPostfixFlat runs on jump_expression. Fires when the shape is
 // `return <simple_identifier>++` or `return <simple_identifier>--`. The

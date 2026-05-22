@@ -47,7 +47,7 @@ func (r *ExceptionRaisedInUnexpectedLocationRule) includesMethod(name string) bo
 // Confidence reports a tier-2 (medium) base confidence. Exceptions rule. Detection matches exception type names and catch/ throw
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
-func (r *ExceptionRaisedInUnexpectedLocationRule) Confidence() float64 { return 0.75 }
+func (r *ExceptionRaisedInUnexpectedLocationRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // InstanceOfCheckForExceptionRule detects `is SomeException` inside catch blocks.
 type InstanceOfCheckForExceptionRule struct {
@@ -63,7 +63,7 @@ var (
 // Confidence reports a tier-2 (medium) base confidence. Exceptions rule. Detection matches exception type names and catch/ throw
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
-func (r *InstanceOfCheckForExceptionRule) Confidence() float64 { return 0.75 }
+func (r *InstanceOfCheckForExceptionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func isInsideWhenDispatchOnCatchVarFlat(file *scanner.File, isNode uint32, caughtVar string) bool {
 	for p, ok := file.FlatParent(isNode); ok; p, ok = file.FlatParent(p) {
@@ -101,7 +101,7 @@ type NotImplementedDeclarationRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Exceptions rule. Detection matches exception type names and catch/ throw
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
-func (r *NotImplementedDeclarationRule) Confidence() float64 { return 0.75 }
+func (r *NotImplementedDeclarationRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // isKotlinTODOCall reports whether the call_expression at idx is a call to
 // `kotlin.TODO()` — either the unqualified `TODO(...)` (kotlin's TODO is
@@ -137,7 +137,7 @@ type RethrowCaughtExceptionRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Exceptions rule. Detection matches exception type names and catch/ throw
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
-func (r *RethrowCaughtExceptionRule) Confidence() float64 { return 0.75 }
+func (r *RethrowCaughtExceptionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ReturnFromFinallyRule detects return statements inside finally blocks.
 type ReturnFromFinallyRule struct {
@@ -149,7 +149,7 @@ type ReturnFromFinallyRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Exceptions rule. Detection matches exception type names and catch/ throw
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
-func (r *ReturnFromFinallyRule) Confidence() float64 { return 0.75 }
+func (r *ReturnFromFinallyRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // SwallowedExceptionRule detects catch blocks that either never use the exception
 // variable or that throw a new exception without passing the original as the cause.
@@ -166,7 +166,7 @@ type SwallowedExceptionRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Exceptions rule. Detection matches exception type names and catch/ throw
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
-func (r *SwallowedExceptionRule) Confidence() float64 { return 0.75 }
+func (r *SwallowedExceptionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *SwallowedExceptionRule) makeUnusedFindingFlat(ctx *api.Context, caughtVar string) {
 	idx, file := ctx.Idx, ctx.File
@@ -1128,7 +1128,7 @@ type ThrowingExceptionFromFinallyRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Exceptions rule. Detection matches exception type names and catch/ throw
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
-func (r *ThrowingExceptionFromFinallyRule) Confidence() float64 { return 0.75 }
+func (r *ThrowingExceptionFromFinallyRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ThrowingExceptionsWithoutMessageOrCauseRule detects throw Exception() with no args.
 // Uses tree-sitter dispatch to find call_expression nodes, then checks if the parent
@@ -1157,7 +1157,9 @@ var defaultExceptionsRequiringMessage = map[string]bool{
 // Confidence reports a tier-2 (medium) base confidence. Exceptions rule. Detection matches exception type names and catch/ throw
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
-func (r *ThrowingExceptionsWithoutMessageOrCauseRule) Confidence() float64 { return 0.75 }
+func (r *ThrowingExceptionsWithoutMessageOrCauseRule) Confidence() float64 {
+	return api.ConfidenceMedium
+}
 
 func (r *ThrowingExceptionsWithoutMessageOrCauseRule) exceptionAllowlist() map[string]bool {
 	if !experiment.Enabled("exceptions-allowlist-cache") || len(r.Exceptions) == 0 {
@@ -1217,7 +1219,7 @@ type ThrowingNewInstanceOfSameExceptionRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Exceptions rule. Detection matches exception type names and catch/ throw
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
-func (r *ThrowingNewInstanceOfSameExceptionRule) Confidence() float64 { return 0.75 }
+func (r *ThrowingNewInstanceOfSameExceptionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ThrowingExceptionInMainRule detects throw in main function.
 type ThrowingExceptionInMainRule struct {
@@ -1228,7 +1230,7 @@ type ThrowingExceptionInMainRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Exceptions rule. Detection matches exception type names and catch/ throw
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
-func (r *ThrowingExceptionInMainRule) Confidence() float64 { return 0.75 }
+func (r *ThrowingExceptionInMainRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ErrorUsageWithThrowableRule detects error(throwable) calls.
 type ErrorUsageWithThrowableRule struct {
@@ -1239,7 +1241,7 @@ type ErrorUsageWithThrowableRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Exceptions rule. Detection matches exception type names and catch/ throw
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
-func (r *ErrorUsageWithThrowableRule) Confidence() float64 { return 0.75 }
+func (r *ErrorUsageWithThrowableRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func errorUsageWithThrowableArgument(ctx *api.Context, idx uint32) (string, bool) {
 	if ctx.File == nil || !errorUsageWithThrowableDirectErrorCall(ctx.File, idx) {
@@ -1339,7 +1341,7 @@ type ObjectExtendsThrowableRule struct {
 // Confidence reports a tier-2 (medium) base confidence — relies on
 // resolver to determine supertypes; falls back to name-based heuristics on
 // the `Throwable` identifier. Classified per roadmap/17.
-func (r *ObjectExtendsThrowableRule) Confidence() float64 { return 0.75 }
+func (r *ObjectExtendsThrowableRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var throwableBaseTypes = []string{"Throwable", "Exception", "Error", "RuntimeException",
 	"IllegalStateException", "IllegalArgumentException", "IOException",

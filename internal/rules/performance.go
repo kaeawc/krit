@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/oracle"
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -26,7 +27,7 @@ var bitmapDecodeMethods = map[string]bool{
 // Confidence reports a tier-2 (medium) base confidence. Performance rule. Detection pattern-matches anti-patterns (allocation in
 // loops, primitive boxing, collection chains) with optional resolver
 // support; fallback is heuristic. Classified per roadmap/17.
-func (r *BitmapDecodeWithoutOptionsRule) Confidence() float64 { return 0.75 }
+func (r *BitmapDecodeWithoutOptionsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ArrayPrimitiveRule detects Array<Int> etc. instead of IntArray.
 // With type inference: verifies the type argument resolves to a primitive type
@@ -40,7 +41,7 @@ type ArrayPrimitiveRule struct {
 // Array<Int>/Array<Long> that should be IntArray/LongArray; needs resolver
 // for generic receivers, falls back to text match. Classified per
 // roadmap/17.
-func (r *ArrayPrimitiveRule) Confidence() float64 { return 0.75 }
+func (r *ArrayPrimitiveRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var primitiveArrayTypes = map[string]string{
 	"Int":     "IntArray",
@@ -130,7 +131,7 @@ type CouldBeSequenceRule struct {
 // collection chains that should use asSequence(); chain-length heuristic is
 // conservative but the threshold is a style call. Classified per
 // roadmap/17.
-func (r *CouldBeSequenceRule) Confidence() float64 { return 0.75 }
+func (r *CouldBeSequenceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // collectionTypes that benefit from asSequence() conversion.
 var sequenceCandidateTypes = map[string]bool{
@@ -433,7 +434,7 @@ type ForEachOnRangeRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Performance rule. Detection pattern-matches anti-patterns (allocation in
 // loops, primitive boxing, collection chains) with optional resolver
 // support; fallback is heuristic. Classified per roadmap/17.
-func (r *ForEachOnRangeRule) Confidence() float64 { return 0.75 }
+func (r *ForEachOnRangeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // rangeInfixOps are the infix operators that create ranges in Kotlin.
 var rangeInfixOps = map[string]bool{
@@ -575,7 +576,7 @@ type SpreadOperatorRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Performance rule. Detection pattern-matches anti-patterns (allocation in
 // loops, primitive boxing, collection chains) with optional resolver
 // support; fallback is heuristic. Classified per roadmap/17.
-func (r *SpreadOperatorRule) Confidence() float64 { return 0.75 }
+func (r *SpreadOperatorRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func spreadOperatorShouldReportFlat(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 {
@@ -678,7 +679,7 @@ type UnnecessaryInitOnArrayRule struct {
 // inspects only array-constructor call expressions and single-expression
 // init lambdas; confidence remains medium because the constructor target may
 // be unresolved in parser-only runs.
-func (r *UnnecessaryInitOnArrayRule) Confidence() float64 { return 0.75 }
+func (r *UnnecessaryInitOnArrayRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var arrayDefaultKinds = map[string]string{
 	"IntArray":     "zero",
@@ -832,7 +833,7 @@ type UnnecessaryPartOfBinaryExpressionRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Performance rule. Detection pattern-matches anti-patterns (allocation in
 // loops, primitive boxing, collection chains) with optional resolver
 // support; fallback is heuristic. Classified per roadmap/17.
-func (r *UnnecessaryPartOfBinaryExpressionRule) Confidence() float64 { return 0.75 }
+func (r *UnnecessaryPartOfBinaryExpressionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // UnnecessaryTemporaryInstantiationRule detects Integer.valueOf(x).toString() etc.
 type UnnecessaryTemporaryInstantiationRule struct {
@@ -843,7 +844,7 @@ type UnnecessaryTemporaryInstantiationRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Performance rule. Detection pattern-matches anti-patterns (allocation in
 // loops, primitive boxing, collection chains) with optional resolver
 // support; fallback is heuristic. Classified per roadmap/17.
-func (r *UnnecessaryTemporaryInstantiationRule) Confidence() float64 { return 0.75 }
+func (r *UnnecessaryTemporaryInstantiationRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var tempInstantiationPrefixNeedles = [][]byte{
 	[]byte("Integer"), []byte("Long"), []byte("Short"), []byte("Byte"),
@@ -937,7 +938,7 @@ type UnnecessaryTypeCastingRule struct {
 // Confidence reports a tier-2 (medium) base confidence — flags casts
 // that are no-ops; needs the resolver to confirm the source type matches
 // the target, falls back to textual comparison. Classified per roadmap/17.
-func (r *UnnecessaryTypeCastingRule) Confidence() float64 { return 0.75 }
+func (r *UnnecessaryTypeCastingRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func safeCastExpressionParts(file *scanner.File, idx uint32) (source, target uint32, ok bool) {
 	if file == nil || idx == 0 || file.FlatType(idx) != "as_expression" {

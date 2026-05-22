@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/experiment"
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -20,7 +21,7 @@ type ClassNamingRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *ClassNamingRule) Confidence() float64 { return 0.95 }
+func (r *ClassNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // FunctionNamingRule checks function names match a pattern.
 type FunctionNamingRule struct {
@@ -37,7 +38,7 @@ type FunctionNamingRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *FunctionNamingRule) Confidence() float64 { return 0.95 }
+func (r *FunctionNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func functionDeclarationHasExplicitReturnTypeFlat(file *scanner.File, idx uint32) bool {
 	seenParams := false
@@ -107,7 +108,7 @@ type VariableNamingRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *VariableNamingRule) Confidence() float64 { return 0.95 }
+func (r *VariableNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func variableNamingIsFunctionLocalPropertyFlat(file *scanner.File, idx uint32) bool {
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
@@ -131,7 +132,7 @@ type PackageNamingRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *PackageNamingRule) Confidence() float64 { return 0.95 }
+func (r *PackageNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // EnumNamingRule checks enum entry names.
 type EnumNamingRule struct {
@@ -143,7 +144,7 @@ type EnumNamingRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *EnumNamingRule) Confidence() float64 { return 0.95 }
+func (r *EnumNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func isTestSupportFile(path string) bool {
 	if scanner.IsTestFile(path) {
@@ -168,7 +169,7 @@ type BooleanPropertyNamingRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *BooleanPropertyNamingRule) Confidence() float64 { return 0.95 }
+func (r *BooleanPropertyNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func isBooleanPropertyFlat(file *scanner.File, idx uint32) bool {
 	declaredType := extractPropertyTypeFlat(file, idx)
@@ -198,7 +199,7 @@ type ConstructorParameterNamingRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *ConstructorParameterNamingRule) Confidence() float64 { return 0.95 }
+func (r *ConstructorParameterNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // ForbiddenClassNameRule flags disallowed class names.
 type ForbiddenClassNameRule struct {
@@ -210,7 +211,7 @@ type ForbiddenClassNameRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *ForbiddenClassNameRule) Confidence() float64 { return 0.95 }
+func (r *ForbiddenClassNameRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // FunctionNameMaxLengthRule flags function names exceeding a max length.
 type FunctionNameMaxLengthRule struct {
@@ -222,7 +223,7 @@ type FunctionNameMaxLengthRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *FunctionNameMaxLengthRule) Confidence() float64 { return 0.95 }
+func (r *FunctionNameMaxLengthRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // FunctionNameMinLengthRule flags function names below a min length.
 type FunctionNameMinLengthRule struct {
@@ -234,7 +235,7 @@ type FunctionNameMinLengthRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *FunctionNameMinLengthRule) Confidence() float64 { return 0.95 }
+func (r *FunctionNameMinLengthRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // FunctionParameterNamingRule checks function parameter names.
 type FunctionParameterNamingRule struct {
@@ -247,7 +248,7 @@ type FunctionParameterNamingRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *FunctionParameterNamingRule) Confidence() float64 { return 0.95 }
+func (r *FunctionParameterNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // InvalidPackageDeclarationRule checks that the package declaration matches the directory structure.
 type InvalidPackageDeclarationRule struct {
@@ -260,7 +261,7 @@ type InvalidPackageDeclarationRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *InvalidPackageDeclarationRule) Confidence() float64 { return 0.95 }
+func (r *InvalidPackageDeclarationRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func invalidPackageDeclarationIgnoredPath(path string) bool {
 	normalized := filepath.ToSlash(path)
@@ -288,7 +289,7 @@ type LambdaParameterNamingRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *LambdaParameterNamingRule) Confidence() float64 { return 0.95 }
+func (r *LambdaParameterNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // MatchingDeclarationNameRule checks that a file with a single non-private
 // top-level class or object has a filename matching that declaration's name.
@@ -307,7 +308,7 @@ type MatchingDeclarationNameRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *MatchingDeclarationNameRule) Confidence() float64 { return 0.95 }
+func (r *MatchingDeclarationNameRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // fileNameWithoutSuffix strips multiplatform and .kt/.kts suffixes from a path.
 // For example "Foo.android.kt" with target "android" yields "Foo".
@@ -332,7 +333,7 @@ type MemberNameEqualsClassNameRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *MemberNameEqualsClassNameRule) Confidence() float64 { return 0.95 }
+func (r *MemberNameEqualsClassNameRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // NoNameShadowingRule flags inner declarations that shadow outer ones.
 // NoNameShadowing behavior:
@@ -353,7 +354,7 @@ type NoNameShadowingRule struct {
 // flow collectors, builder DSLs). Medium confidence keeps it in
 // --min-confidence=medium pipelines but lets strict pipelines filter
 // it out of their default gate.
-func (r *NoNameShadowingRule) Confidence() float64 { return 0.75 }
+func (r *NoNameShadowingRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type noNameShadowFindingKey struct {
 	line int
@@ -1277,7 +1278,7 @@ type NonBooleanPropertyPrefixedWithIsRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *NonBooleanPropertyPrefixedWithIsRule) Confidence() float64 { return 0.95 }
+func (r *NonBooleanPropertyPrefixedWithIsRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // ObjectPropertyNamingRule checks property names inside object declarations.
 type ObjectPropertyNamingRule struct {
@@ -1291,7 +1292,7 @@ type ObjectPropertyNamingRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *ObjectPropertyNamingRule) Confidence() float64 { return 0.95 }
+func (r *ObjectPropertyNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // TopLevelPropertyNamingRule checks top-level property names.
 type TopLevelPropertyNamingRule struct {
@@ -1305,7 +1306,7 @@ type TopLevelPropertyNamingRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *TopLevelPropertyNamingRule) Confidence() float64 { return 0.95 }
+func (r *TopLevelPropertyNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // VariableMaxLengthRule flags variable names that are too long.
 type VariableMaxLengthRule struct {
@@ -1317,7 +1318,7 @@ type VariableMaxLengthRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *VariableMaxLengthRule) Confidence() float64 { return 0.95 }
+func (r *VariableMaxLengthRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // VariableMinLengthRule flags variable names that are too short.
 type VariableMinLengthRule struct {
@@ -1329,7 +1330,7 @@ type VariableMinLengthRule struct {
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
-func (r *VariableMinLengthRule) Confidence() float64 { return 0.95 }
+func (r *VariableMinLengthRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func walkFunctionParametersFlat(file *scanner.File, idx uint32, visit func(uint32)) {
 	if file == nil || idx == 0 {

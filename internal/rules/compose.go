@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -25,7 +26,7 @@ type ComposeColumnRowInScrollableRule struct {
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeColumnRowInScrollableRule) Confidence() float64 { return 0.75 }
+func (r *ComposeColumnRowInScrollableRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ComposeDerivedStateMisuseRule detects derivedStateOf around direct boolean
 // comparisons of Compose state reads. Those reads already trigger
@@ -40,7 +41,7 @@ type ComposeDerivedStateMisuseRule struct {
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeDerivedStateMisuseRule) Confidence() float64 { return 0.75 }
+func (r *ComposeDerivedStateMisuseRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func composeDerivedStateBodyFlat(file *scanner.File, idx uint32) uint32 {
 	callSuffix, _ := file.FlatFindChild(idx, "call_suffix")
@@ -298,7 +299,7 @@ type ComposeLambdaCapturesUnstableStateRule struct {
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeLambdaCapturesUnstableStateRule) Confidence() float64 { return 0.75 }
+func (r *ComposeLambdaCapturesUnstableStateRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func composeIsNamedArgumentLambdaFlat(file *scanner.File, node uint32, argName string) bool {
 	if file == nil || node == 0 || file.FlatType(node) != "lambda_literal" {
@@ -424,7 +425,7 @@ var composeFillMaxAxisNames = map[string]struct{}{
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeModifierFillAfterSizeRule) Confidence() float64 { return 0.75 }
+func (r *ComposeModifierFillAfterSizeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ComposeModifierBackgroundAfterClipRule flags `Modifier.background(...).clip(...)`
 // where the background is drawn in the un-clipped rectangular region instead
@@ -438,7 +439,7 @@ type ComposeModifierBackgroundAfterClipRule struct {
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeModifierBackgroundAfterClipRule) Confidence() float64 { return 0.75 }
+func (r *ComposeModifierBackgroundAfterClipRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ComposeModifierClickableBeforePaddingRule flags
 // `Modifier.clickable { }.padding(...)` — the click area excludes the padding
@@ -452,7 +453,7 @@ type ComposeModifierClickableBeforePaddingRule struct {
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeModifierClickableBeforePaddingRule) Confidence() float64 { return 0.75 }
+func (r *ComposeModifierClickableBeforePaddingRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // composeEnclosingLambdaArgumentName walks up from idx looking for the
 // nearest lambda_literal ancestor that is itself a named value_argument, and
@@ -552,7 +553,7 @@ type ComposeRememberWithoutKeyRule struct {
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeRememberWithoutKeyRule) Confidence() float64 { return 0.75 }
+func (r *ComposeRememberWithoutKeyRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ComposeLaunchedEffectWithoutKeysRule flags `LaunchedEffect(Unit) { f(param) }`
 // where the effect body references an enclosing parameter but the keys are
@@ -567,7 +568,7 @@ type ComposeLaunchedEffectWithoutKeysRule struct {
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeLaunchedEffectWithoutKeysRule) Confidence() float64 { return 0.75 }
+func (r *ComposeLaunchedEffectWithoutKeysRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var composeConstantKeyTexts = map[string]struct{}{
 	"Unit":  {},
@@ -602,7 +603,7 @@ var composeUnstableCollectionTypes = map[string]struct{}{
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeUnstableParameterRule) Confidence() float64 { return 0.75 }
+func (r *ComposeUnstableParameterRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func composeUnstableParameterShouldSkipFunctionFlat(file *scanner.File, fn uint32) bool {
 	if file == nil || fn == 0 {
@@ -700,7 +701,7 @@ var composeSaverSafeBuiltins = map[string]struct{}{
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeRememberSaveableNonParcelableRule) Confidence() float64 { return 0.75 }
+func (r *ComposeRememberSaveableNonParcelableRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ComposeSideEffectInCompositionRule flags direct assignments inside a
 // @Composable function body that aren't wrapped in a recognized effect
@@ -718,7 +719,7 @@ type ComposeSideEffectInCompositionRule struct {
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeSideEffectInCompositionRule) Confidence() float64 { return 0.75 }
+func (r *ComposeSideEffectInCompositionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var composePreviewAnnotationNames = []string{
 	"Preview",
@@ -1096,7 +1097,7 @@ type ComposeModifierPassedThenChainedRule struct {
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeModifierPassedThenChainedRule) Confidence() float64 { return 0.75 }
+func (r *ComposeModifierPassedThenChainedRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // composeHasModifierParameter reports whether the given function_declaration
 // declares a parameter named exactly `modifier` of type `Modifier`.
@@ -1138,7 +1139,7 @@ type ComposeDisposableEffectMissingDisposeRule struct {
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeDisposableEffectMissingDisposeRule) Confidence() float64 { return 0.75 }
+func (r *ComposeDisposableEffectMissingDisposeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ComposePreviewWithBackingStateRule flags `@Preview @Composable fun
 // FooPreview()` whose body calls a runtime state holder like
@@ -1161,7 +1162,7 @@ var composeRuntimeStateHolderCalls = map[string]struct{}{
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposePreviewWithBackingStateRule) Confidence() float64 { return 0.75 }
+func (r *ComposePreviewWithBackingStateRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ComposeStatefulDefaultParameterRule flags `@Composable fun Foo(state:
 // MyState = MyState())` — the `MyState()` default allocates a fresh instance
@@ -1178,7 +1179,7 @@ type ComposeStatefulDefaultParameterRule struct {
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeStatefulDefaultParameterRule) Confidence() float64 { return 0.75 }
+func (r *ComposeStatefulDefaultParameterRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ComposeMutableStateInCompositionRule flags `val count = mutableStateOf(0)`
 // as a local property inside a @Composable function. Without a surrounding
@@ -1193,7 +1194,7 @@ type ComposeMutableStateInCompositionRule struct {
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeMutableStateInCompositionRule) Confidence() float64 { return 0.75 }
+func (r *ComposeMutableStateInCompositionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ComposeStringResourceInsideLambdaRule flags `stringResource(...)` calls
 // nested inside a callback-style named-argument lambda (e.g. `onClick = {
@@ -1209,7 +1210,7 @@ type ComposeStringResourceInsideLambdaRule struct {
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeStringResourceInsideLambdaRule) Confidence() float64 { return 0.75 }
+func (r *ComposeStringResourceInsideLambdaRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ComposeMutableDefaultArgumentRule flags `@Composable fun Foo(items:
 // MutableList<X> = mutableListOf())` — the mutable default evaluates on each
@@ -1235,7 +1236,7 @@ var composeMutableCollectionFactories = map[string]struct{}{
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposeMutableDefaultArgumentRule) Confidence() float64 { return 0.75 }
+func (r *ComposeMutableDefaultArgumentRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ComposePreviewAnnotationMissingRule flags `@Composable fun FooPreview()`
 // whose name ends in "Preview" but which is missing the `@Preview`
@@ -1250,4 +1251,4 @@ type ComposePreviewAnnotationMissingRule struct {
 // 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
-func (r *ComposePreviewAnnotationMissingRule) Confidence() float64 { return 0.75 }
+func (r *ComposePreviewAnnotationMissingRule) Confidence() float64 { return api.ConfidenceMedium }

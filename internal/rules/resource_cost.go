@@ -42,7 +42,7 @@ type BufferedReadWithoutBufferRule struct {
 	BaseRule
 }
 
-func (r *BufferedReadWithoutBufferRule) Confidence() float64 { return 0.75 }
+func (r *BufferedReadWithoutBufferRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // CursorLoopWithColumnIndexInLoopRule detects getColumnIndex() calls inside
 // cursor.moveToNext() while loops.
@@ -51,7 +51,7 @@ type CursorLoopWithColumnIndexInLoopRule struct {
 	BaseRule
 }
 
-func (r *CursorLoopWithColumnIndexInLoopRule) Confidence() float64 { return 0.75 }
+func (r *CursorLoopWithColumnIndexInLoopRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // Batch 2: Network/IO rules
@@ -64,7 +64,7 @@ type OkHTTPClientCreatedPerCallRule struct {
 	BaseRule
 }
 
-func (r *OkHTTPClientCreatedPerCallRule) Confidence() float64 { return 0.75 }
+func (r *OkHTTPClientCreatedPerCallRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // OkHTTPCallExecuteSyncRule detects Call.execute() inside suspend functions
 // where enqueue() with a callback should be used instead.
@@ -73,7 +73,7 @@ type OkHTTPCallExecuteSyncRule struct {
 	BaseRule
 }
 
-func (r *OkHTTPCallExecuteSyncRule) Confidence() float64 { return 0.75 }
+func (r *OkHTTPCallExecuteSyncRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func okHTTPExecuteCallLooksBlocking(file *scanner.File, idx, fn uint32) bool {
 	receiver := databaseCallReceiverName(file, idx)
@@ -232,7 +232,7 @@ type RetrofitCreateInHotPathRule struct {
 	BaseRule
 }
 
-func (r *RetrofitCreateInHotPathRule) Confidence() float64 { return 0.75 }
+func (r *RetrofitCreateInHotPathRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // HTTPClientNotReusedRule detects Java HttpClient.newHttpClient() in function
 // bodies without caching.
@@ -241,7 +241,7 @@ type HTTPClientNotReusedRule struct {
 	BaseRule
 }
 
-func (r *HTTPClientNotReusedRule) Confidence() float64 { return 0.75 }
+func (r *HTTPClientNotReusedRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // Batch 3: Database rules
@@ -254,7 +254,7 @@ type DatabaseQueryOnMainThreadRule struct {
 	BaseRule
 }
 
-func (r *DatabaseQueryOnMainThreadRule) Confidence() float64 { return 0.75 }
+func (r *DatabaseQueryOnMainThreadRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var databaseMainThreadFunctionNames = map[string]bool{
 	"afterTextChanged":           true,
@@ -1149,7 +1149,7 @@ type RoomLoadsAllWhereFirstUsedRule struct {
 	BaseRule
 }
 
-func (r *RoomLoadsAllWhereFirstUsedRule) Confidence() float64 { return 0.75 }
+func (r *RoomLoadsAllWhereFirstUsedRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *RoomLoadsAllWhereFirstUsedRule) checkParsedFiles(ctx *api.Context) {
 	if len(ctx.ParsedFiles) == 0 {
@@ -1269,7 +1269,7 @@ type RecyclerAdapterWithoutDiffUtilRule struct {
 	BaseRule
 }
 
-func (r *RecyclerAdapterWithoutDiffUtilRule) Confidence() float64 { return 0.75 }
+func (r *RecyclerAdapterWithoutDiffUtilRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // RecyclerAdapterStableIDsDefaultRule detects RecyclerView.Adapter subclasses
 // that don't call setHasStableIds(true) and don't extend ListAdapter.
@@ -1278,7 +1278,7 @@ type RecyclerAdapterStableIDsDefaultRule struct {
 	BaseRule
 }
 
-func (r *RecyclerAdapterStableIDsDefaultRule) Confidence() float64 { return 0.75 }
+func (r *RecyclerAdapterStableIDsDefaultRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // LazyColumnInsideColumnRule detects LazyColumn nested inside a Column with
 // verticalScroll modifier.
@@ -1287,7 +1287,7 @@ type LazyColumnInsideColumnRule struct {
 	BaseRule
 }
 
-func (r *LazyColumnInsideColumnRule) Confidence() float64 { return 0.75 }
+func (r *LazyColumnInsideColumnRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // RecyclerViewInLazyColumnRule detects AndroidView wrapping a RecyclerView
 // inside a LazyColumn/LazyRow.
@@ -1296,7 +1296,7 @@ type RecyclerViewInLazyColumnRule struct {
 	BaseRule
 }
 
-func (r *RecyclerViewInLazyColumnRule) Confidence() float64 { return 0.75 }
+func (r *RecyclerViewInLazyColumnRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // Batch 5: Image Loading rules
@@ -1309,7 +1309,7 @@ type ImageLoadedAtFullSizeInListRule struct {
 	BaseRule
 }
 
-func (r *ImageLoadedAtFullSizeInListRule) Confidence() float64 { return 0.75 }
+func (r *ImageLoadedAtFullSizeInListRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ImageLoaderNoMemoryCacheRule detects image loaders configured to skip
 // the memory cache.
@@ -1318,7 +1318,7 @@ type ImageLoaderNoMemoryCacheRule struct {
 	BaseRule
 }
 
-func (r *ImageLoaderNoMemoryCacheRule) Confidence() float64 { return 0.75 }
+func (r *ImageLoaderNoMemoryCacheRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // Batch 6: Compose rules
@@ -1331,7 +1331,7 @@ type ComposePainterResourceInLoopRule struct {
 	BaseRule
 }
 
-func (r *ComposePainterResourceInLoopRule) Confidence() float64 { return 0.75 }
+func (r *ComposePainterResourceInLoopRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ComposeRememberInListRule detects remember{} inside items{} lambda
 // without a key argument — causes recomputation on list reordering.
@@ -1340,7 +1340,7 @@ type ComposeRememberInListRule struct {
 	BaseRule
 }
 
-func (r *ComposeRememberInListRule) Confidence() float64 { return 0.75 }
+func (r *ComposeRememberInListRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
 // Batch 7: WorkManager rules
@@ -1353,7 +1353,7 @@ type PeriodicWorkRequestLessThan15MinRule struct {
 	BaseRule
 }
 
-func (r *PeriodicWorkRequestLessThan15MinRule) Confidence() float64 { return 0.75 }
+func (r *PeriodicWorkRequestLessThan15MinRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // WorkManagerNoBackoffRule detects OneTimeWorkRequestBuilder chains without
 // setBackoffCriteria.
@@ -1362,7 +1362,7 @@ type WorkManagerNoBackoffRule struct {
 	BaseRule
 }
 
-func (r *WorkManagerNoBackoffRule) Confidence() float64 { return 0.75 }
+func (r *WorkManagerNoBackoffRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // WorkManagerUniquePolicyKeepButReplaceIntendedRule detects enqueueUniqueWork
 // with ExistingWorkPolicy.KEEP where REPLACE may be intended.
@@ -1371,4 +1371,6 @@ type WorkManagerUniquePolicyKeepButReplaceIntendedRule struct {
 	BaseRule
 }
 
-func (r *WorkManagerUniquePolicyKeepButReplaceIntendedRule) Confidence() float64 { return 0.75 }
+func (r *WorkManagerUniquePolicyKeepButReplaceIntendedRule) Confidence() float64 {
+	return api.ConfidenceMedium
+}

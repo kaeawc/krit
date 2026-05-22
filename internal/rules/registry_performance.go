@@ -20,7 +20,7 @@ func registerPerformanceRules() {
 		r := &ArrayPrimitiveRule{BaseRule: BaseRule{RuleName: "ArrayPrimitive", RuleSetName: "performance", Sev: "warning", Desc: "Detects Array<Int> and similar boxed primitive arrays that should use IntArray, LongArray, etc."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"user_type", "call_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"user_type", "call_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 			Needs: api.NeedsResolver,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
@@ -89,7 +89,7 @@ func registerPerformanceRules() {
 		r := &BitmapDecodeWithoutOptionsRule{BaseRule: BaseRule{RuleName: "BitmapDecodeWithoutOptions", RuleSetName: "performance", Sev: "warning", Desc: "Detects BitmapFactory.decode* calls without BitmapFactory.Options, which may decode full-size bitmaps."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				navExpr, args := flatCallExpressionParts(file, idx)
@@ -129,7 +129,7 @@ func registerPerformanceRules() {
 		r := &CouldBeSequenceRule{BaseRule: BaseRule{RuleName: "CouldBeSequence", RuleSetName: "performance", Sev: "warning", Desc: "Detects collection operation chains that could use sequences to avoid intermediate allocations."}, AllowedOperations: 2}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Needs:                  api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Oracle:                 &api.OracleFilter{Identifiers: sequenceCollectionOperationNames()},
 			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: sequenceCollectionOperationNames()},
@@ -188,7 +188,7 @@ func registerPerformanceRules() {
 		r := &ForEachOnRangeRule{BaseRule: BaseRule{RuleName: "ForEachOnRange", RuleSetName: "performance", Sev: "warning", Desc: "Detects (range).forEach patterns that should use a simple for loop to avoid lambda overhead."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -217,7 +217,7 @@ func registerPerformanceRules() {
 		r := &SpreadOperatorRule{BaseRule: BaseRule{RuleName: "SpreadOperator", RuleSetName: "performance", Sev: "warning", Desc: "Detects the spread operator (*array) in function calls which creates an array copy."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"spread_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"spread_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !spreadOperatorShouldReportFlat(file, idx) {
@@ -232,7 +232,7 @@ func registerPerformanceRules() {
 		r := &UnnecessaryInitOnArrayRule{BaseRule: BaseRule{RuleName: "UnnecessaryInitOnArray", RuleSetName: "performance", Sev: "warning", Desc: "Detects IntArray(n) { 0 } and similar array initializations where the init value is already the default."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				_, lambda, ok := unnecessaryInitArrayDefaultLambdaFlat(file, idx)
@@ -250,7 +250,7 @@ func registerPerformanceRules() {
 		r := &UnnecessaryPartOfBinaryExpressionRule{BaseRule: BaseRule{RuleName: "UnnecessaryPartOfBinaryExpression", RuleSetName: "performance", Sev: "warning", Desc: "Detects redundant parts of binary expressions like x && true or x || false."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"conjunction_expression", "disjunction_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"conjunction_expression", "disjunction_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatNamedChildCount(idx) < 2 {
@@ -299,7 +299,7 @@ func registerPerformanceRules() {
 		r := &UnnecessaryTemporaryInstantiationRule{BaseRule: BaseRule{RuleName: "UnnecessaryTemporaryInstantiation", RuleSetName: "performance", Sev: "warning", Desc: "Detects temporary wrapper instantiations like Integer.valueOf(x).toString() that can be simplified."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				src := file.FlatNodeBytes(idx)
@@ -349,7 +349,7 @@ func registerPerformanceRules() {
 		r := &UnnecessaryTypeCastingRule{BaseRule: BaseRule{RuleName: "UnnecessaryTypeCasting", RuleSetName: "performance", Sev: "warning", Desc: "Detects safe casts immediately compared with null and redundant casts to an already-known type."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"equality_expression", "as_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"equality_expression", "as_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 			Needs: api.NeedsResolver,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File

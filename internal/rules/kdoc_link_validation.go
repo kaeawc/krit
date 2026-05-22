@@ -14,7 +14,7 @@ type KdocLinkValidationRule struct {
 }
 
 // Confidence reflects source-index lookup with conservative external-library skips.
-func (r *KdocLinkValidationRule) Confidence() float64 { return 0.90 }
+func (r *KdocLinkValidationRule) Confidence() float64 { return api.ConfidenceHigher }
 
 func (r *KdocLinkValidationRule) check(ctx *api.Context) {
 	if ctx.CodeIndex == nil || len(ctx.ParsedFiles) == 0 {

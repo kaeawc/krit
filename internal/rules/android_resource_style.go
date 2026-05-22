@@ -141,7 +141,7 @@ func isLayoutHeightAttr(name string) bool {
 // Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
 // anti-patterns and attribute mismatches via structural checks on style
 // XML. Classified per roadmap/17.
-func (r *PxUsageResourceRule) Confidence() float64 { return 0.75 }
+func (r *PxUsageResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *PxUsageResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -221,7 +221,7 @@ func isDpValue(val string) bool {
 // Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
 // anti-patterns and attribute mismatches via structural checks on style
 // XML. Classified per roadmap/17.
-func (r *SpUsageResourceRule) Confidence() float64 { return 0.75 }
+func (r *SpUsageResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *SpUsageResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -305,7 +305,7 @@ func parseSpValue(val string) (float64, bool) {
 // Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
 // anti-patterns and attribute mismatches via structural checks on style
 // XML. Classified per roadmap/17.
-func (r *SmallSpResourceRule) Confidence() float64 { return 0.75 }
+func (r *SmallSpResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *SmallSpResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -405,7 +405,7 @@ func isNumeric(s string) bool {
 // Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
 // anti-patterns and attribute mismatches via structural checks on style
 // XML. Classified per roadmap/17.
-func (r *InOrMmUsageResourceRule) Confidence() float64 { return 0.75 }
+func (r *InOrMmUsageResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *InOrMmUsageResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -478,7 +478,7 @@ func isNegativeMargin(val string) bool {
 // Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
 // anti-patterns and attribute mismatches via structural checks on style
 // XML. Classified per roadmap/17.
-func (r *NegativeMarginResourceRule) Confidence() float64 { return 0.75 }
+func (r *NegativeMarginResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *NegativeMarginResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -599,7 +599,7 @@ type DisableBaselineAlignmentResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
 // anti-patterns and attribute mismatches via structural checks on style
 // XML. Classified per roadmap/17.
-func (r *DisableBaselineAlignmentResourceRule) Confidence() float64 { return 0.75 }
+func (r *DisableBaselineAlignmentResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *DisableBaselineAlignmentResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -693,7 +693,7 @@ type InefficientWeightResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
 // anti-patterns and attribute mismatches via structural checks on style
 // XML. Classified per roadmap/17.
-func (r *InefficientWeightResourceRule) Confidence() float64 { return 0.75 }
+func (r *InefficientWeightResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *InefficientWeightResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -738,7 +738,7 @@ type NestedWeightsResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
 // anti-patterns and attribute mismatches via structural checks on style
 // XML. Classified per roadmap/17.
-func (r *NestedWeightsResourceRule) Confidence() float64 { return 0.75 }
+func (r *NestedWeightsResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *NestedWeightsResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -799,7 +799,7 @@ type ObsoleteLayoutParamsResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
 // anti-patterns and attribute mismatches via structural checks on style
 // XML. Classified per roadmap/17.
-func (r *ObsoleteLayoutParamsResourceRule) Confidence() float64 { return 0.75 }
+func (r *ObsoleteLayoutParamsResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ObsoleteLayoutParamsResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -844,7 +844,7 @@ type MergeRootFrameResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
 // anti-patterns and attribute mismatches via structural checks on style
 // XML. Classified per roadmap/17.
-func (r *MergeRootFrameResourceRule) Confidence() float64 { return 0.75 }
+func (r *MergeRootFrameResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *MergeRootFrameResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -906,7 +906,7 @@ func isTransparentBackground(bg string) bool {
 // Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
 // anti-patterns and attribute mismatches via structural checks on style
 // XML. Classified per roadmap/17.
-func (r *OverdrawResourceRule) Confidence() float64 { return 0.75 }
+func (r *OverdrawResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *OverdrawResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -944,7 +944,7 @@ type AlwaysShowActionResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
 // anti-patterns and attribute mismatches via structural checks on style
 // XML. Classified per roadmap/17.
-func (r *AlwaysShowActionResourceRule) Confidence() float64 { return 0.75 }
+func (r *AlwaysShowActionResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *AlwaysShowActionResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
@@ -977,7 +977,7 @@ type StateListReachableResourceRule struct {
 	AndroidRule
 }
 
-func (r *StateListReachableResourceRule) Confidence() float64 { return 0.75 }
+func (r *StateListReachableResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *StateListReachableResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex

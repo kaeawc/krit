@@ -26,7 +26,7 @@ type DependencySnapshotInReleaseRule struct {
 	SuppressUntil    string
 }
 
-func (r *DependencySnapshotInReleaseRule) Confidence() float64 { return 0.9 }
+func (r *DependencySnapshotInReleaseRule) Confidence() float64 { return api.ConfidenceHigher }
 
 func (r *DependencySnapshotInReleaseRule) check(ctx *api.Context) {
 	path, content := ctx.GradlePath, ctx.GradleContent
@@ -78,7 +78,7 @@ type DependencyWithoutGroupRule struct {
 	BaseRule
 }
 
-func (r *DependencyWithoutGroupRule) Confidence() float64 { return 0.9 }
+func (r *DependencyWithoutGroupRule) Confidence() float64 { return api.ConfidenceHigher }
 
 func (r *DependencyWithoutGroupRule) check(ctx *api.Context) {
 	path, content := ctx.GradlePath, ctx.GradleContent
@@ -109,7 +109,7 @@ type DependenciesInRootProjectRule struct {
 	AllowedConfigurations []string
 }
 
-func (r *DependenciesInRootProjectRule) Confidence() float64 { return 0.85 }
+func (r *DependenciesInRootProjectRule) Confidence() float64 { return api.ConfidenceHigh }
 
 // Suggested-fix identifiers and canonical titles for the
 // DependenciesInRootProject rule. The titles are shared between the rule's
@@ -422,7 +422,7 @@ type DependencyFromBintrayRule struct {
 	BaseRule
 }
 
-func (r *DependencyFromBintrayRule) Confidence() float64 { return 0.95 }
+func (r *DependencyFromBintrayRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *DependencyFromBintrayRule) check(ctx *api.Context) {
 	path, content := ctx.GradlePath, ctx.GradleContent
@@ -453,7 +453,7 @@ type DependencyFromJcenterRule struct {
 	BaseRule
 }
 
-func (r *DependencyFromJcenterRule) Confidence() float64 { return 0.95 }
+func (r *DependencyFromJcenterRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *DependencyFromJcenterRule) check(ctx *api.Context) {
 	path, content := ctx.GradlePath, ctx.GradleContent
@@ -493,7 +493,7 @@ var (
 	gradleNamedArgVersionColonRe = regexp.MustCompile(`\bversion\s*:\s*["']([^"']+)["']`)
 )
 
-func (r *DependencyFromHTTPRule) Confidence() float64 { return 0.95 }
+func (r *DependencyFromHTTPRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *DependencyFromHTTPRule) check(ctx *api.Context) {
 	path, content := ctx.GradlePath, ctx.GradleContent

@@ -35,7 +35,7 @@ type FragmentConstructorRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *FragmentConstructorRule) Confidence() float64 { return 0.75 }
+func (r *FragmentConstructorRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // fragmentSuperclasses covers common Fragment base classes.
 var fragmentSuperclasses = []string{
@@ -128,7 +128,7 @@ type GetSignaturesRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *GetSignaturesRule) Confidence() float64 { return 0.75 }
+func (r *GetSignaturesRule) Confidence() float64 { return api.ConfidenceMedium }
 
 const getSignaturesFlagValue int64 = 0x40
 
@@ -259,7 +259,7 @@ type SparseArrayRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *SparseArrayRule) Confidence() float64 { return 0.9 }
+func (r *SparseArrayRule) Confidence() float64 { return api.ConfidenceHigher }
 
 // =====================================================================
 // 4. UseValueOfRule
@@ -279,7 +279,7 @@ type UseValueOfRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *UseValueOfRule) Confidence() float64 { return 0.9 }
+func (r *UseValueOfRule) Confidence() float64 { return api.ConfidenceHigher }
 
 var boxedPrimitiveConstructors = map[string]bool{
 	"Integer":   true,
@@ -411,7 +411,7 @@ type LogTagLengthRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *LogTagLengthRule) Confidence() float64 { return 0.9 }
+func (r *LogTagLengthRule) Confidence() float64 { return api.ConfidenceHigher }
 
 // resolveLogTagStringValue resolves the string value of a Log tag
 // argument expression. It handles direct string literals as well as
@@ -482,7 +482,7 @@ type LogTagMismatchRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *LogTagMismatchRule) Confidence() float64 { return 0.75 }
+func (r *LogTagMismatchRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // findDirectCompanionTag searches the direct children of a class_declaration
 // for a companion_object containing a TAG constant, returning its string value.
@@ -594,7 +594,7 @@ type NonInternationalizedSmsRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *NonInternationalizedSmsRule) Confidence() float64 { return 0.75 }
+func (r *NonInternationalizedSmsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func nonInternationalizedSmsCallFlat(file *scanner.File, call uint32) bool {
 	name := flatCallExpressionName(file, call)
@@ -658,7 +658,7 @@ type ServiceCastRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ServiceCastRule) Confidence() float64 { return 0.75 }
+func (r *ServiceCastRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // serviceCastMap maps service constant names to their correct manager types.
 var serviceCastMap = map[string]string{
@@ -713,7 +713,7 @@ type ToastRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ToastRule) Confidence() float64 { return 0.85 }
+func (r *ToastRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func toastMakeTextIsShown(file *scanner.File, call uint32) bool {
 	if ancestorCallNameMatches(file, call, "show") {

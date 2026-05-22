@@ -64,7 +64,7 @@ type DefaultLocaleRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *DefaultLocaleRule) Confidence() float64 { return 0.75 }
+func (r *DefaultLocaleRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // CommitPrefEditsRule detects SharedPreferences.edit() without .commit() or .apply().
 type CommitPrefEditsRule struct {
@@ -78,7 +78,7 @@ type CommitPrefEditsRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *CommitPrefEditsRule) Confidence() float64 { return 0.75 }
+func (r *CommitPrefEditsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // CommitTransactionRule detects FragmentTransaction without .commit().
 type CommitTransactionRule struct {
@@ -92,7 +92,7 @@ type CommitTransactionRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *CommitTransactionRule) Confidence() float64 { return 0.75 }
+func (r *CommitTransactionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // AssertRule detects assert statements (disabled on Android).
 type AssertRule struct {
@@ -106,7 +106,7 @@ type AssertRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *AssertRule) Confidence() float64 { return 0.75 }
+func (r *AssertRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // CheckResultRule detects ignoring return values annotated with @CheckResult.
 type CheckResultRule struct {
@@ -120,7 +120,7 @@ type CheckResultRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *CheckResultRule) Confidence() float64 { return 0.75 }
+func (r *CheckResultRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ShiftFlagsRule detects flag constants not using shift operators.
 type ShiftFlagsRule struct {
@@ -134,7 +134,7 @@ type ShiftFlagsRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ShiftFlagsRule) Confidence() float64 { return 0.75 }
+func (r *ShiftFlagsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // UniqueConstantsRule detects duplicate annotation constant values.
 type UniqueConstantsRule struct {
@@ -148,7 +148,7 @@ type UniqueConstantsRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *UniqueConstantsRule) Confidence() float64 { return 0.75 }
+func (r *UniqueConstantsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // WrongThreadRule detects UI operations on wrong thread.
 type WrongThreadRule struct {
@@ -162,7 +162,7 @@ type WrongThreadRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *WrongThreadRule) Confidence() float64 { return 0.75 }
+func (r *WrongThreadRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // SQLiteStringRule detects SQL string issues (using string instead of TEXT).
 type SQLiteStringRule struct {
@@ -176,7 +176,7 @@ type SQLiteStringRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *SQLiteStringRule) Confidence() float64 { return 0.75 }
+func (r *SQLiteStringRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // RegisteredRule detects Activity/Service/BroadcastReceiver/ContentProvider subclasses
 // and flags them with a reminder to register in AndroidManifest.xml.
@@ -192,7 +192,7 @@ type RegisteredRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *RegisteredRule) Confidence() float64 { return 0.75 }
+func (r *RegisteredRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var androidComponentBases = map[string]string{
 	"Activity":             "Activity",
@@ -486,7 +486,7 @@ type NestedScrollingRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *NestedScrollingRule) Confidence() float64 { return 0.75 }
+func (r *NestedScrollingRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ScrollViewCountRule detects ScrollView with multiple children.
 // Primarily XML (see ScrollViewCountResourceRule); the Kotlin source
@@ -502,7 +502,7 @@ type ScrollViewCountRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ScrollViewCountRule) Confidence() float64 { return 0.75 }
+func (r *ScrollViewCountRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // SimpleDateFormatRule detects SimpleDateFormat without Locale.
 type SimpleDateFormatRule struct {
@@ -516,7 +516,7 @@ type SimpleDateFormatRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *SimpleDateFormatRule) Confidence() float64 { return 0.75 }
+func (r *SimpleDateFormatRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // SetTextI18nRule detects setText() with hardcoded text.
 type SetTextI18nRule struct {
@@ -536,7 +536,7 @@ type StopShipRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *StopShipRule) Confidence() float64 { return 0.75 }
+func (r *StopShipRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *StopShipRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -560,7 +560,7 @@ type WrongCallRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *WrongCallRule) Confidence() float64 { return 0.75 }
+func (r *WrongCallRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // Remaining rules are in android_correctness_checks.go
 

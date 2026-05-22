@@ -101,7 +101,7 @@ func registerAndroidCorrectnessCommitPrefEdits() {
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression", "method_invocation"},
-		Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, Implementation: r,
+		Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMediumHigh, Implementation: r,
 		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 		OracleCallTargets: &api.OracleCallTargetFilter{
 			CalleeNames: []string{"edit"},
@@ -168,7 +168,7 @@ func registerAndroidCorrectnessCommitTransaction() {
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression", "method_invocation"},
-		Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, Implementation: r,
+		Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMediumHigh, Implementation: r,
 		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 		OracleCallTargets: &api.OracleCallTargetFilter{
 			CalleeNames: []string{"beginTransaction"},
@@ -247,7 +247,7 @@ func registerAndroidCorrectnessCheckResult() {
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression", "method_invocation"},
-		Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, Implementation: r,
+		Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMediumHigh, Implementation: r,
 		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 		OracleCallTargets: &api.OracleCallTargetFilter{
 			CalleeNames: []string{"animate", "buildUpon", "edit", "format", "trim", "replace"},
@@ -412,7 +412,7 @@ func registerAndroidCorrectnessUniqueConstants() {
 	r := &UniqueConstantsRule{AndroidRule: alcRule("UniqueConstants", "Overlapping enumeration constants", ALSError, 6)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"annotation"}, Confidence: 0.9, Implementation: r,
+		NodeTypes: []string{"annotation"}, Confidence: api.ConfidenceHigher, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			ctor, _ := file.FlatFindChild(idx, "constructor_invocation")
@@ -456,7 +456,7 @@ func registerAndroidCorrectnessWrongThread() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			// Check if the function has a @WorkerThread annotation. The
@@ -653,7 +653,7 @@ func registerAndroidCorrectnessSetTextI18n() {
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 		NodeTypes:  []string{"call_expression"},
 		Needs:      api.NeedsTypeInfo,
-		Confidence: 0.75, Implementation: r,
+		Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallExpressionName(file, idx) != "setText" {

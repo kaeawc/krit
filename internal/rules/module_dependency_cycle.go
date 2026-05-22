@@ -19,7 +19,7 @@ type ModuleDependencyCycleRule struct {
 
 // Confidence is 0.95 — Tarjan SCC on the parsed module graph is
 // deterministic and precise. A reported cycle is a real cycle.
-func (r *ModuleDependencyCycleRule) Confidence() float64 { return 0.95 }
+func (r *ModuleDependencyCycleRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *ModuleDependencyCycleRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{NeedsDependencies: true}

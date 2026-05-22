@@ -18,7 +18,7 @@ type LogLevelGuardMissingRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Observability rule. Detection pattern-matches logging/metrics API call
 // shapes without confirming the receiver type. Classified per roadmap/17.
-func (r *LogLevelGuardMissingRule) Confidence() float64 { return 0.75 }
+func (r *LogLevelGuardMissingRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func logLevelGuardMessageNodeFlat(file *scanner.File, call uint32) uint32 {
 	if file == nil || call == 0 {
@@ -735,7 +735,7 @@ type LogWithoutCorrelationIDRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Observability rule. Detection pattern-matches logging/metrics API call
 // shapes without confirming the receiver type. Classified per roadmap/17.
-func (r *LogWithoutCorrelationIDRule) Confidence() float64 { return 0.75 }
+func (r *LogWithoutCorrelationIDRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // NullableStructuredFieldRule detects addKeyValue fields that pass nullable
 // safe-call expressions without an explicit fallback value.
@@ -744,7 +744,7 @@ type NullableStructuredFieldRule struct {
 	BaseRule
 }
 
-func (r *NullableStructuredFieldRule) Confidence() float64 { return 0.75 }
+func (r *NullableStructuredFieldRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *NullableStructuredFieldRule) shouldFlag(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 || file.FlatType(idx) != "call_expression" {
@@ -848,7 +848,7 @@ type LoggerWithoutLoggerFieldRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Observability rule. Detection pattern-matches logging/metrics API call
 // shapes without confirming the receiver type. Classified per roadmap/17.
-func (r *LoggerWithoutLoggerFieldRule) Confidence() float64 { return 0.75 }
+func (r *LoggerWithoutLoggerFieldRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // LoggerInterpolatedMessageRule detects SLF4J/Logback/log4j-style logger calls
 // whose message argument is a Kotlin string template with interpolations.
@@ -865,7 +865,7 @@ type LoggerInterpolatedMessageRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Observability rule. Detection pattern-matches logging/metrics API call
 // shapes without confirming the receiver type. Classified per roadmap/17.
-func (r *LoggerInterpolatedMessageRule) Confidence() float64 { return 0.75 }
+func (r *LoggerInterpolatedMessageRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // loggerLevelMethods are the SLF4J-style log level method names that take a
 // message template as the first argument.
@@ -1062,7 +1062,7 @@ type UnstructuredErrorLogRule struct {
 	Methods []string
 }
 
-func (r *UnstructuredErrorLogRule) Confidence() float64 { return 0.6 }
+func (r *UnstructuredErrorLogRule) Confidence() float64 { return api.ConfidenceMediumLow }
 
 func (r *UnstructuredErrorLogRule) methodEnabled(method string) bool {
 	if len(r.Methods) == 0 {
@@ -1186,7 +1186,7 @@ type TraceIDLoggedAsPlainMessageRule struct {
 	Identifiers []string
 }
 
-func (r *TraceIDLoggedAsPlainMessageRule) Confidence() float64 { return 0.75 }
+func (r *TraceIDLoggedAsPlainMessageRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *TraceIDLoggedAsPlainMessageRule) identifierSet() map[string]bool {
 	defaults := []string{"traceId", "trace_id", "spanId", "span_id", "requestId", "request_id", "correlationId", "correlation_id"}
@@ -1285,7 +1285,7 @@ type StructuredLogKeyMixedCaseRule struct {
 	ThresholdPercent int
 }
 
-func (r *StructuredLogKeyMixedCaseRule) Confidence() float64 { return 0.75 }
+func (r *StructuredLogKeyMixedCaseRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // structuredLogKeyDecision carries the per-file majority/minority verdict.
 // Empty strings mean "no finding for this file".
@@ -1387,7 +1387,7 @@ type LoggerStringConcatRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Detection
 // pattern-matches logger call shapes without confirming the receiver type.
-func (r *LoggerStringConcatRule) Confidence() float64 { return 0.75 }
+func (r *LoggerStringConcatRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // loggerStringConcatMessageArgFlat returns the message argument of `call` when
 // it is a positional or named `+` concatenation that includes a string literal
@@ -1453,7 +1453,7 @@ type MdcPutNoRemoveRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Observability rule. Detection pattern-matches logging/metrics API call
 // shapes without confirming the receiver type. Classified per roadmap/17.
-func (r *MdcPutNoRemoveRule) Confidence() float64 { return 0.75 }
+func (r *MdcPutNoRemoveRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // mdcStaticKeyFlat returns the literal value of `call`'s first positional
 // argument when that argument is a non-interpolated string literal. Used by
@@ -1532,7 +1532,7 @@ type MdcAcrossCoroutineBoundaryRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. Observability rule. Detection pattern-matches logging/metrics API call
 // shapes without confirming the receiver type. Classified per roadmap/17.
-func (r *MdcAcrossCoroutineBoundaryRule) Confidence() float64 { return 0.75 }
+func (r *MdcAcrossCoroutineBoundaryRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // firstUnpropagatedCoroutineBuilderAfterFlat walks subsequent siblings of a
 // statement-level call_expression and returns the first sibling call that

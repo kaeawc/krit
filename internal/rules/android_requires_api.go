@@ -16,7 +16,7 @@ type RequiresAPIViolationRule struct {
 	AndroidRule
 }
 
-func (r *RequiresAPIViolationRule) Confidence() float64 { return 0.90 }
+func (r *RequiresAPIViolationRule) Confidence() float64 { return api.ConfidenceHigher }
 
 type requiresAPIIndex struct {
 	levels map[string]int

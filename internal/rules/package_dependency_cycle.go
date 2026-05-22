@@ -34,7 +34,7 @@ func (r *PackageDependencyCycleRule) check(ctx *api.Context) {
 // Confidence holds the 0.95 dispatch default — cycle detection on
 // the package-level import graph is a precise Tarjan/DFS result; a
 // reported cycle is a real cycle. No heuristic path.
-func (r *PackageDependencyCycleRule) Confidence() float64 { return 0.95 }
+func (r *PackageDependencyCycleRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *PackageDependencyCycleRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{NeedsFiles: true}

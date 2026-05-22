@@ -32,7 +32,7 @@ type OverrideSignatureMismatchRule struct {
 	BaseRule
 }
 
-func (r *OverrideSignatureMismatchRule) Confidence() float64 { return 0.85 }
+func (r *OverrideSignatureMismatchRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *OverrideSignatureMismatchRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File

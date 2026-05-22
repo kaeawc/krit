@@ -16,7 +16,7 @@ type UseArrayLiteralsInAnnotationsRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/idiomatic rule for collection and data-flow idioms. The detection
 // is pattern-based and the suggested replacement's readability is a style
 // preference. Classified per roadmap/17.
-func (r *UseArrayLiteralsInAnnotationsRule) Confidence() float64 { return 0.75 }
+func (r *UseArrayLiteralsInAnnotationsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type UseSumOfInsteadOfFlatMapSizeRule struct {
 	FlatDispatchBase
@@ -26,7 +26,7 @@ type UseSumOfInsteadOfFlatMapSizeRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/idiomatic rule for collection and data-flow idioms. The detection
 // is pattern-based and the suggested replacement's readability is a style
 // preference. Classified per roadmap/17.
-func (r *UseSumOfInsteadOfFlatMapSizeRule) Confidence() float64 { return 0.75 }
+func (r *UseSumOfInsteadOfFlatMapSizeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var sumOfSourceCalls = map[string]bool{"flatMap": true, "flatten": true, "map": true}
 
@@ -56,7 +56,7 @@ type UseLetRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/idiomatic rule for collection and data-flow idioms. The detection
 // is pattern-based and the suggested replacement's readability is a style
 // preference. Classified per roadmap/17.
-func (r *UseLetRule) Confidence() float64 { return 0.75 }
+func (r *UseLetRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type UseDataClassRule struct {
 	FlatDispatchBase
@@ -67,7 +67,7 @@ type UseDataClassRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/idiomatic rule for collection and data-flow idioms. The detection
 // is pattern-based and the suggested replacement's readability is a style
 // preference. Classified per roadmap/17.
-func (r *UseDataClassRule) Confidence() float64 { return 0.75 }
+func (r *UseDataClassRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type UseIfInsteadOfWhenRule struct {
 	FlatDispatchBase
@@ -78,7 +78,7 @@ type UseIfInsteadOfWhenRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/idiomatic rule for collection and data-flow idioms. The detection
 // is pattern-based and the suggested replacement's readability is a style
 // preference. Classified per roadmap/17.
-func (r *UseIfInsteadOfWhenRule) Confidence() float64 { return 0.75 }
+func (r *UseIfInsteadOfWhenRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type UseIfEmptyOrIfBlankRule struct {
 	FlatDispatchBase
@@ -88,7 +88,7 @@ type UseIfEmptyOrIfBlankRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/idiomatic rule for collection and data-flow idioms. The detection
 // is pattern-based and the suggested replacement's readability is a style
 // preference. Classified per roadmap/17.
-func (r *UseIfEmptyOrIfBlankRule) Confidence() float64 { return 0.75 }
+func (r *UseIfEmptyOrIfBlankRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var ifEmptyOrBlankMethods = map[string]struct {
 	replacement string
@@ -103,7 +103,7 @@ type ExplicitCollectionElementAccessMethodRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/idiomatic rule for collection and data-flow idioms. The detection
 // is pattern-based and the suggested replacement's readability is a style
 // preference. Classified per roadmap/17.
-func (r *ExplicitCollectionElementAccessMethodRule) Confidence() float64 { return 0.75 }
+func (r *ExplicitCollectionElementAccessMethodRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func explicitCollectionAccessReceiverSupported(ctx *api.Context, receiver uint32, method string) bool {
 	if ctx.File == nil || receiver == 0 {
@@ -253,7 +253,7 @@ type AlsoCouldBeApplyRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/idiomatic rule for collection and data-flow idioms. The detection
 // is pattern-based and the suggested replacement's readability is a style
 // preference. Classified per roadmap/17.
-func (r *AlsoCouldBeApplyRule) Confidence() float64 { return 0.75 }
+func (r *AlsoCouldBeApplyRule) Confidence() float64 { return api.ConfidenceMedium }
 
 type EqualsNullCallRule struct {
 	FlatDispatchBase
@@ -263,4 +263,4 @@ type EqualsNullCallRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/idiomatic rule for collection and data-flow idioms. The detection
 // is pattern-based and the suggested replacement's readability is a style
 // preference. Classified per roadmap/17.
-func (r *EqualsNullCallRule) Confidence() float64 { return 0.75 }
+func (r *EqualsNullCallRule) Confidence() float64 { return api.ConfidenceMedium }

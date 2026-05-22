@@ -34,7 +34,7 @@ type PluralsBuiltWithIfElseRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Heuristic shape
 // match: identifier name + literal-1 comparison + string-producing
 // branches. Classified per roadmap/17.
-func (r *PluralsBuiltWithIfElseRule) Confidence() float64 { return 0.75 }
+func (r *PluralsBuiltWithIfElseRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *PluralsBuiltWithIfElseRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -134,7 +134,7 @@ type PluralsMissingZeroRule struct {
 
 // Confidence reports a tier-3 (high) base confidence — locale-folder gating
 // plus a literal child-tag check leaves little room for misidentification.
-func (r *PluralsMissingZeroRule) Confidence() float64 { return 0.9 }
+func (r *PluralsMissingZeroRule) Confidence() float64 { return api.ConfidenceHigher }
 
 // pluralsZeroFormLocales lists language tags where CLDR specifies a `zero`
 // plural category. Russian is included per the cluster spec even though

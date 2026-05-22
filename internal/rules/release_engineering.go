@@ -31,7 +31,7 @@ type BuildConfigDebugInLibraryRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Release-engineering rule. Detection scans module metadata and Gradle
 // files for configuration drift and plugin hygiene; matches are
 // project-structure-sensitive. Classified per roadmap/17.
-func (r *BuildConfigDebugInLibraryRule) Confidence() float64 { return 0.75 }
+func (r *BuildConfigDebugInLibraryRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // BuildConfigDebugInvertedRule flags `if (!BuildConfig.DEBUG) { ...logging... }`
 // patterns where debug-only logging appears to be guarded in the opposite
@@ -44,7 +44,7 @@ type BuildConfigDebugInvertedRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Release-engineering rule. Detection scans module metadata and Gradle
 // files for configuration drift and plugin hygiene; matches are
 // project-structure-sensitive. Classified per roadmap/17.
-func (r *BuildConfigDebugInvertedRule) Confidence() float64 { return 0.75 }
+func (r *BuildConfigDebugInvertedRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // AllProjectsBlockRule flags deprecated allprojects { } usage in Gradle build
 // scripts. Convention plugins or settings-level repositories are the
@@ -65,12 +65,12 @@ type HardcodedEnvironmentNameRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Release-engineering rule. Detection scans module metadata and Gradle
 // files for configuration drift and plugin hygiene; matches are
 // project-structure-sensitive. Classified per roadmap/17.
-func (r *AllProjectsBlockRule) Confidence() float64 { return 0.75 }
+func (r *AllProjectsBlockRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // Confidence reports a tier-2 (medium) base confidence. Release-engineering rule. Detection scans module metadata and Gradle
 // files for configuration drift and plugin hygiene; matches are
 // project-structure-sensitive. Classified per roadmap/17.
-func (r *HardcodedEnvironmentNameRule) Confidence() float64 { return 0.75 }
+func (r *HardcodedEnvironmentNameRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ConventionPluginDeadCodeRule flags precompiled convention plugins declared
 // under build-logic/ or buildSrc/ that are not applied by any module.
@@ -81,7 +81,7 @@ type ConventionPluginDeadCodeRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Release-engineering rule. Detection scans module metadata and Gradle
 // files for configuration drift and plugin hygiene; matches are
 // project-structure-sensitive. Classified per roadmap/17.
-func (r *ConventionPluginDeadCodeRule) Confidence() float64 { return 0.75 }
+func (r *ConventionPluginDeadCodeRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ConventionPluginDeadCodeRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{}
@@ -111,7 +111,7 @@ func (r *ConventionPluginDeadCodeRule) check(ctx *api.Context) {
 			Rule:       r.RuleName,
 			Severity:   r.Sev,
 			Message:    fmt.Sprintf("Convention plugin '%s' is defined but never applied by any module build script.", plugin.id),
-			Confidence: 0.9,
+			Confidence: api.ConfidenceHigher,
 		})
 	}
 }
@@ -141,7 +141,7 @@ type GradleBuildContainsTodoRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Release-engineering rule. Detection scans module metadata and Gradle
 // files for configuration drift and plugin hygiene; matches are
 // project-structure-sensitive. Classified per roadmap/17.
-func (r *GradleBuildContainsTodoRule) Confidence() float64 { return 0.75 }
+func (r *GradleBuildContainsTodoRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *GradleBuildContainsTodoRule) check(ctx *api.Context) {
 	for i, raw := range strings.Split(ctx.GradleContent, "\n") {
@@ -164,7 +164,7 @@ func (r *GradleBuildContainsTodoRule) check(ctx *api.Context) {
 // Confidence reports a tier-2 (medium) base confidence. Release-engineering rule. Detection scans module metadata and Gradle
 // files for configuration drift and plugin hygiene; matches are
 // project-structure-sensitive. Classified per roadmap/17.
-func (r *CommentedOutCodeBlockRule) Confidence() float64 { return 0.75 }
+func (r *CommentedOutCodeBlockRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *CommentedOutCodeBlockRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -471,7 +471,7 @@ type CommentedOutImportRule struct {
 	BaseRule
 }
 
-func (r *CommentedOutImportRule) Confidence() float64 { return 0.90 }
+func (r *CommentedOutImportRule) Confidence() float64 { return api.ConfidenceHigher }
 
 // commentedImportRe matches a commented-out Kotlin import body. Requires a
 // dotted-path that conforms to Kotlin import syntax — bare prose like
@@ -540,7 +540,7 @@ type DebugToastInProductionRule struct {
 	BaseRule
 }
 
-func (r *DebugToastInProductionRule) Confidence() float64 { return 0.85 }
+func (r *DebugToastInProductionRule) Confidence() float64 { return api.ConfidenceHigh }
 
 var debugToastPrefixRe = regexp.MustCompile(`(?i)^["'](debug|test|wip)(?:[^A-Za-z0-9]|$)`)
 
@@ -590,7 +590,7 @@ type PrintlnInProductionRule struct {
 	BaseRule
 }
 
-func (r *PrintlnInProductionRule) Confidence() float64 { return 0.85 }
+func (r *PrintlnInProductionRule) Confidence() float64 { return api.ConfidenceHigh }
 
 var printlnNames = map[string]bool{
 	"println": true,
@@ -765,7 +765,7 @@ type PrintStackTraceInProductionRule struct {
 	BaseRule
 }
 
-func (r *PrintStackTraceInProductionRule) Confidence() float64 { return 0.85 }
+func (r *PrintStackTraceInProductionRule) Confidence() float64 { return api.ConfidenceHigh }
 
 var loggingImports = []string{
 	"timber.log.Timber",
@@ -832,7 +832,7 @@ type HardcodedLocalhostURLRule struct {
 // the literal has such an expression child, we refuse to match (we cannot
 // prove the runtime URL is `localhost`). No line scanning, no quote
 // gymnastics.
-func (r *HardcodedLocalhostURLRule) Confidence() float64 { return 0.95 }
+func (r *HardcodedLocalhostURLRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 var localhostURLRe = regexp.MustCompile(`^https?://(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?(/.*)?$`)
 
@@ -870,7 +870,7 @@ type TestOnlyImportInProductionRule struct {
 	BaseRule
 }
 
-func (r *TestOnlyImportInProductionRule) Confidence() float64 { return 0.95 }
+func (r *TestOnlyImportInProductionRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 var testOnlyImportPrefixes = []string{
 	"org.mockito.",
@@ -927,7 +927,7 @@ type NonASCIIIdentifierRule struct {
 	BaseRule
 }
 
-func (r *NonASCIIIdentifierRule) Confidence() float64 { return 0.95 }
+func (r *NonASCIIIdentifierRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 // HardcodedLogTagRule flags Log.d("ClassName", ...) where the tag matches
 // the enclosing class name instead of using a companion TAG constant.
@@ -936,7 +936,7 @@ type HardcodedLogTagRule struct {
 	BaseRule
 }
 
-func (r *HardcodedLogTagRule) Confidence() float64 { return 0.80 }
+func (r *HardcodedLogTagRule) Confidence() float64 { return api.ConfidenceMediumHigh }
 
 var logLevelMethods = map[string]bool{
 	"v": true, "d": true, "i": true, "w": true, "e": true, "wtf": true,
@@ -997,7 +997,7 @@ type VisibleForTestingCallerInNonTestRule struct {
 	BaseRule
 }
 
-func (r *VisibleForTestingCallerInNonTestRule) Confidence() float64 { return 0.80 }
+func (r *VisibleForTestingCallerInNonTestRule) Confidence() float64 { return api.ConfidenceMediumHigh }
 func (r *VisibleForTestingCallerInNonTestRule) check(ctx *api.Context) {
 	index := ctx.CodeIndex
 	if index == nil {
@@ -1220,7 +1220,7 @@ type OpenForTestingCallerInNonTestRule struct {
 	BaseRule
 }
 
-func (r *OpenForTestingCallerInNonTestRule) Confidence() float64 { return 0.75 }
+func (r *OpenForTestingCallerInNonTestRule) Confidence() float64 { return api.ConfidenceMedium }
 func (r *OpenForTestingCallerInNonTestRule) check(ctx *api.Context) {
 	index := ctx.CodeIndex
 	if index == nil {
@@ -1569,7 +1569,7 @@ type TestFixtureAccessedFromProductionRule struct {
 	BaseRule
 }
 
-func (r *TestFixtureAccessedFromProductionRule) Confidence() float64 { return 0.80 }
+func (r *TestFixtureAccessedFromProductionRule) Confidence() float64 { return api.ConfidenceMediumHigh }
 
 type testFixtureDeclaration struct {
 	qualifiedName string
@@ -2031,7 +2031,7 @@ type TimberTreeNotPlantedRule struct {
 	BaseRule
 }
 
-func (r *TimberTreeNotPlantedRule) Confidence() float64 { return 0.75 }
+func (r *TimberTreeNotPlantedRule) Confidence() float64 { return api.ConfidenceMedium }
 func (r *TimberTreeNotPlantedRule) check(ctx *api.Context) {
 	files := timberProjectFiles(ctx)
 	if len(files) == 0 {

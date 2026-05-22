@@ -21,7 +21,9 @@ type PublicToInternalLeakyAbstractionRule struct {
 // Confidence is 0.70 — the heuristic still admits real false positives like
 // type-safe wrappers, adapters, and DI holders. Medium confidence keeps
 // reviewers honest.
-func (r *PublicToInternalLeakyAbstractionRule) Confidence() float64 { return 0.70 }
+func (r *PublicToInternalLeakyAbstractionRule) Confidence() float64 {
+	return api.ConfidenceMediumLowPlus
+}
 
 // leakyClassExcludedModifiers lists every class-declaration modifier that
 // disqualifies the rule. Visibility modifiers (private/internal/protected)

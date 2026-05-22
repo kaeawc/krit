@@ -21,7 +21,7 @@ type StringResourcePlaceholderOrderRule struct {
 	AndroidRule
 }
 
-func (r *StringResourcePlaceholderOrderRule) Confidence() float64 { return 0.9 }
+func (r *StringResourcePlaceholderOrderRule) Confidence() float64 { return api.ConfidenceHigher }
 
 func (r *StringResourcePlaceholderOrderRule) check(ctx *api.Context) {
 	if ctx.ResourceIndex == nil {

@@ -14,6 +14,8 @@
   <extensions defaultExtensionNs="com.intellij">
     <projectService serviceImplementation="dev.jasonpearson.krit.intellij.KritProjectService"/>
     <externalAnnotator language="kotlin" implementationClass="dev.jasonpearson.krit.intellij.KritExternalAnnotator"/>
+    <externalAnnotator language="JAVA" implementationClass="dev.jasonpearson.krit.intellij.KritExternalAnnotator"/>
+    <externalAnnotator language="XML" implementationClass="dev.jasonpearson.krit.intellij.KritExternalAnnotator"/>
     <localInspection
       language="kotlin"
       displayName="Krit"
@@ -22,6 +24,24 @@
       enabledByDefault="true"
       level="WARNING"
       shortName="Krit"
+      implementationClass="dev.jasonpearson.krit.intellij.KritInspection"/>
+    <localInspection
+      language="JAVA"
+      displayName="Krit"
+      groupPath="Krit"
+      groupName="Krit"
+      enabledByDefault="true"
+      level="WARNING"
+      shortName="KritJava"
+      implementationClass="dev.jasonpearson.krit.intellij.KritInspection"/>
+    <localInspection
+      language="XML"
+      displayName="Krit"
+      groupPath="Krit"
+      groupName="Krit"
+      enabledByDefault="true"
+      level="WARNING"
+      shortName="KritXml"
       implementationClass="dev.jasonpearson.krit.intellij.KritInspection"/>
     <statusBarWidgetFactory
       id="Krit"

@@ -204,12 +204,8 @@ class KritProjectService(private val project: Project) : Disposable {
         return true
     }
 
-    private fun isSupportedSourceFile(file: VirtualFile): Boolean {
-        return when (file.extension?.lowercase()) {
-            "kt", "kts", "java", "xml", "gradle" -> true
-            else -> file.name.endsWith(".gradle.kts")
-        }
-    }
+    private fun isSupportedSourceFile(file: VirtualFile): Boolean =
+        KritFileFilter.isSupported(file.name)
 
     private fun isGeneratedOrBuildPath(file: VirtualFile): Boolean {
         val path = file.path

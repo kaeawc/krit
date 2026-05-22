@@ -12,8 +12,8 @@ import com.intellij.psi.PsiFile
 
 class KritExternalAnnotator : ExternalAnnotator<PsiFile, List<KritFinding>>() {
     override fun collectInformation(file: PsiFile): PsiFile? {
-        val path = file.virtualFile?.path ?: return null
-        if (!path.endsWith(".kt") && !path.endsWith(".kts")) {
+        val name = file.virtualFile?.name ?: return null
+        if (!KritFileFilter.isSupported(name)) {
             return null
         }
         return file

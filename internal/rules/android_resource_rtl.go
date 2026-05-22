@@ -61,7 +61,7 @@ func (r *RtlHardcodedResourceRule) check(ctx *api.Context) {
 			// attribute at the same (file, line) collided on the finding
 			// key downstream.
 			if len(replacements) == 1 {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Use `%s` instead of `%s` for RTL support in `%s`.",
 						replacements[0].new, replacements[0].old, v.Type)))
 				return
@@ -70,7 +70,7 @@ func (r *RtlHardcodedResourceRule) check(ctx *api.Context) {
 			for _, rep := range replacements {
 				parts = append(parts, fmt.Sprintf("`%s` -> `%s`", rep.old, rep.new))
 			}
-			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("Use Start/End instead of Left/Right in `%s` for RTL support: %s.",
 					v.Type, strings.Join(parts, ", "))))
 		})
@@ -168,11 +168,11 @@ func (r *RtlSymmetryResourceRule) check(ctx *api.Context) {
 				hasLeft := v.Attributes[pair[0]] != ""
 				hasRight := v.Attributes[pair[1]] != ""
 				if hasLeft && !hasRight {
-					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("`%s` has `%s` but not `%s`. Add the missing attribute for symmetric spacing.",
 							v.Type, pair[0], pair[1])))
 				} else if hasRight && !hasLeft {
-					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("`%s` has `%s` but not `%s`. Add the missing attribute for symmetric spacing.",
 							v.Type, pair[1], pair[0])))
 				}
@@ -207,7 +207,7 @@ func (r *RtlSuperscriptResourceRule) check(ctx *api.Context) {
 			}
 			lower := strings.ToLower(textStyle)
 			if strings.Contains(lower, "superscript") || strings.Contains(lower, "subscript") {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` uses textStyle `%s` which may render incorrectly in RTL locales.", v.Type, textStyle)))
 			}
 		})
@@ -273,7 +273,7 @@ func (r *RelativeOverlapResourceRule) check(ctx *api.Context) {
 			for i := 0; i < len(leftAligned); i++ {
 				for j := i + 1; j < len(leftAligned); j++ {
 					if leftAligned[i].vertKey == leftAligned[j].vertKey {
-						ctx.Emit(resourceFinding(layout.FilePath, leftAligned[j].view.Line, r.BaseRule,
+						ctx.Emit(baseFinding(layout.FilePath, leftAligned[j].view.Line, r.BaseRule,
 							fmt.Sprintf("`%s` (line %d) and `%s` (line %d) in `RelativeLayout` both use left/start alignment "+
 								"without different vertical constraints and may overlap.",
 								leftAligned[i].view.Type, leftAligned[i].view.Line,
@@ -359,7 +359,7 @@ func checkNotSibling(v *android.View, filePath string, base BaseRule, findings *
 					continue
 				}
 				if !siblingIDs[refID] {
-					*findings = append(*findings, resourceFinding(filePath, child.Line, base,
+					*findings = append(*findings, baseFinding(filePath, child.Line, base,
 						fmt.Sprintf("`%s=\"%s\"` references `%s` which is not a sibling in this RelativeLayout.",
 							attr, ref, refID)))
 				}

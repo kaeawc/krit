@@ -33,7 +33,7 @@ func (r *DuplicateActivityManifestRule) check(ctx *api.Context) {
 			continue
 		}
 		if firstLine, ok := seen[act.Name]; ok {
-			ctx.Emit(manifestFinding(m.Path, act.Line, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, act.Line, r.BaseRule,
 				fmt.Sprintf("Activity `%s` is registered more than once (first at line %d). "+
 					"Duplicate activity declarations cause subtle bugs.",
 					act.Name, firstLine)))
@@ -79,7 +79,7 @@ func (r *WrongManifestParentManifestRule) check(ctx *api.Context) {
 			continue
 		}
 		if elem.ParentTag != expected {
-			ctx.Emit(manifestFinding(m.Path, elem.Line, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, elem.Line, r.BaseRule,
 				fmt.Sprintf("<%s> should be a child of <%s>, not <%s>.",
 					elem.Tag, expected, elem.ParentTag)))
 		}
@@ -92,7 +92,7 @@ func (r *WrongManifestParentManifestRule) check(ctx *api.Context) {
 				continue
 			}
 			if c.ParentTag != expected {
-				ctx.Emit(manifestFinding(m.Path, c.Line, r.BaseRule,
+				ctx.Emit(baseFinding(m.Path, c.Line, r.BaseRule,
 					fmt.Sprintf("<%s> should be a child of <%s>, not <%s>.",
 						c.Tag, expected, c.ParentTag)))
 			}
@@ -118,12 +118,12 @@ func (r *GradleOverridesManifestRule) check(ctx *api.Context) {
 		return
 	}
 	if m.MinSDK > 0 {
-		ctx.Emit(manifestFinding(m.Path, m.UsesSdk.Line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, m.UsesSdk.Line, r.BaseRule,
 			"This `minSdkVersion` value in the manifest is overridden by the value in "+
 				"build.gradle. Remove the value from AndroidManifest.xml."))
 	}
 	if m.TargetSDK > 0 {
-		ctx.Emit(manifestFinding(m.Path, m.UsesSdk.Line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, m.UsesSdk.Line, r.BaseRule,
 			"This `targetSdkVersion` value in the manifest is overridden by the value in "+
 				"build.gradle. Remove the value from AndroidManifest.xml."))
 	}
@@ -174,7 +174,7 @@ func (r *UsesSdkManifestRule) check(ctx *api.Context) {
 		}
 	}
 	if m.UsesSdk == nil {
-		ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
 			"Manifest is missing a `<uses-sdk>` element. Add `<uses-sdk>` with "+
 				"android:minSdkVersion and android:targetSdkVersion attributes."))
 		return
@@ -202,7 +202,7 @@ func (r *MipmapLauncherRule) check(ctx *api.Context) {
 		return // MissingApplicationIcon handles this case
 	}
 	if strings.HasPrefix(icon, "@drawable/") {
-		ctx.Emit(manifestFinding(m.Path, m.Application.Line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, m.Application.Line, r.BaseRule,
 			fmt.Sprintf("Launcher icon `%s` uses @drawable/ instead of @mipmap/. "+
 				"Use @mipmap/ resources for launcher icons to ensure proper density handling.",
 				icon)))
@@ -262,7 +262,7 @@ func (r *UniquePermissionRule) check(ctx *api.Context) {
 	m := ctx.Manifest
 	for _, perm := range m.Permissions {
 		if systemPermissions[perm] {
-			ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
 				fmt.Sprintf("Custom permission `%s` collides with a system permission. "+
 					"Use a unique name prefixed with your application package.",
 					perm)))
@@ -318,7 +318,7 @@ func (r *SystemPermissionRule) check(ctx *api.Context) {
 			if idx := strings.LastIndex(perm, "."); idx >= 0 {
 				short = perm[idx+1:]
 			}
-			ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
 				fmt.Sprintf("Requesting dangerous permission `%s`. "+
 					"Ensure this permission is necessary and that runtime permission handling is implemented.",
 					short)))
@@ -370,7 +370,7 @@ func (r *ManifestTypoRule) check(ctx *api.Context) {
 	m := ctx.Manifest
 	for _, elem := range m.Elements {
 		if correct, ok := manifestTypos[elem.Tag]; ok {
-			ctx.Emit(manifestFinding(m.Path, elem.Line, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, elem.Line, r.BaseRule,
 				fmt.Sprintf("Probable typo: `<%s>` should be `<%s>`.",
 					elem.Tag, correct)))
 		}
@@ -399,7 +399,7 @@ func (r *MissingApplicationIconRule) check(ctx *api.Context) {
 		return
 	}
 	if m.Application.Icon == "" {
-		ctx.Emit(manifestFinding(m.Path, m.Application.Line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, m.Application.Line, r.BaseRule,
 			"Missing `android:icon` attribute on <application>. "+
 				"Add an icon to ensure the app has a visible launcher icon."))
 		return
@@ -424,7 +424,7 @@ func (r *TargetNewerRule) check(ctx *api.Context) {
 		return // Not set in manifest; Gradle likely controls this
 	}
 	if m.TargetSDK < minRecommendedTargetSDK {
-		ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
 			fmt.Sprintf("targetSdkVersion %d is outdated. "+
 				"Target at least API %d for latest security and behavior changes.",
 				m.TargetSDK, minRecommendedTargetSDK)))
@@ -456,7 +456,7 @@ func (r *IntentFilterExportRequiredRule) check(ctx *api.Context) {
 	components := allComponents(m.Application)
 	for _, c := range components {
 		if c.HasIntentFilter && c.Exported == nil {
-			ctx.Emit(manifestFinding(m.Path, c.Line, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, c.Line, r.BaseRule,
 				fmt.Sprintf("%s `%s` declares an intent-filter but is missing android:exported. "+
 					"API 31+ requires android:exported on all components with intent-filters.",
 					cases.Title(language.Und).String(c.Tag), c.Name)))
@@ -486,7 +486,7 @@ func (r *DuplicateUsesFeatureManifestRule) check(ctx *api.Context) {
 			continue
 		}
 		if firstLine, ok := seen[f.Name]; ok {
-			ctx.Emit(manifestFinding(m.Path, f.Line, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, f.Line, r.BaseRule,
 				fmt.Sprintf("Duplicate `<uses-feature android:name=\"%s\">` (first at line %d). "+
 					"Remove the duplicate declaration.",
 					f.Name, firstLine)))
@@ -520,7 +520,7 @@ func (r *MultipleUsesSdkManifestRule) check(ctx *api.Context) {
 		}
 	}
 	if count > 1 {
-		ctx.Emit(manifestFinding(m.Path, secondLine, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, secondLine, r.BaseRule,
 			fmt.Sprintf("Found %d `<uses-sdk>` elements. Only one is allowed per manifest.", count)))
 		return
 	}
@@ -554,7 +554,7 @@ func (r *ManifestOrderManifestRule) check(ctx *api.Context) {
 
 	for _, elem := range m.Elements {
 		if (elem.Tag == "uses-permission" || elem.Tag == "uses-sdk") && elem.Line > appLine {
-			ctx.Emit(manifestFinding(m.Path, elem.Line, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, elem.Line, r.BaseRule,
 				fmt.Sprintf("`<%s>` appears after `<application>` (line %d). "+
 					"Move `<%s>` before `<application>` for conventional manifest ordering.",
 					elem.Tag, appLine, elem.Tag)))
@@ -625,15 +625,15 @@ func (r *MissingVersionManifestRule) check(ctx *api.Context) {
 	// keys in downstream reporting.
 	switch {
 	case missingCode && missingName:
-		ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
 			"Missing `android:versionCode` and `android:versionName` on <manifest>. "+
 				"Set a version code and name for release builds."))
 	case missingCode:
-		ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
 			"Missing `android:versionCode` on <manifest>. "+
 				"Set a version code for release builds."))
 	default: // missingName
-		ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
 			"Missing `android:versionName` on <manifest>. "+
 				"Set a version name for release builds."))
 	}
@@ -657,7 +657,7 @@ func (r *MockLocationManifestRule) check(ctx *api.Context) {
 	}
 	for _, perm := range m.UsesPermissions {
 		if perm == "android.permission.ACCESS_MOCK_LOCATION" {
-			ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
 				"`android.permission.ACCESS_MOCK_LOCATION` should only be declared in a debug-specific "+
 					"manifest, not in the main AndroidManifest.xml."))
 			return
@@ -687,7 +687,7 @@ func (r *UnpackedNativeCodeManifestRule) check(ctx *api.Context) {
 	}
 	app := m.Application
 	if app.ExtractNativeLibs == nil || *app.ExtractNativeLibs {
-		ctx.Emit(manifestFinding(m.Path, app.Line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, app.Line, r.BaseRule,
 			"Project uses native libraries but `android:extractNativeLibs` is not set to false. "+
 				"Set `android:extractNativeLibs=\"false\"` on <application> to reduce APK size."))
 		return
@@ -712,7 +712,7 @@ func (r *InvalidUsesTagAttributeManifestRule) check(ctx *api.Context) {
 			continue // not set is OK
 		}
 		if f.Required != "true" && f.Required != "false" {
-			ctx.Emit(manifestFinding(m.Path, f.Line, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, f.Line, r.BaseRule,
 				fmt.Sprintf("`<uses-feature android:name=\"%s\">` has android:required=\"%s\". "+
 					"Value must be \"true\" or \"false\".",
 					f.Name, f.Required)))

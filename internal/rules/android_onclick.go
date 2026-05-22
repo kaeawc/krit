@@ -189,13 +189,13 @@ func emitOnClickFindings(ctx *api.Context, rule BaseRule, summary *onClickClassS
 		for _, site := range handlersByLayout[layoutName] {
 			method, ok := summary.methods[site.method]
 			if !ok {
-				ctx.Emit(resourceFinding(site.layoutPath, site.line, rule,
+				ctx.Emit(baseFinding(site.layoutPath, site.line, rule,
 					fmt.Sprintf("`android:onClick=\"%s\"` on `%s` has no matching method on `%s`. Declare `fun %s(view: View)` or remove the attribute.",
 						site.method, site.viewType, classDisplayName(summary), site.method)))
 				continue
 			}
 			if method.isPrivate || method.paramCount != 1 || !method.hasViewParam {
-				ctx.Emit(resourceFinding(site.layoutPath, site.line, rule,
+				ctx.Emit(baseFinding(site.layoutPath, site.line, rule,
 					fmt.Sprintf("`android:onClick=\"%s\"` on `%s` requires a public method `fun %s(view: View)` on `%s`. The current signature does not match and will throw NoSuchMethodException at runtime.",
 						site.method, site.viewType, site.method, classDisplayName(summary))))
 			}

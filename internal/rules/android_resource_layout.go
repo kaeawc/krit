@@ -38,7 +38,7 @@ func (r *TooManyViewsResourceRule) check(ctx *api.Context) {
 	for _, layout := range idx.Layouts {
 		count := layout.ViewCount()
 		if count > maxViews {
-			ctx.Emit(resourceFinding(layout.FilePath, 1, r.BaseRule,
+			ctx.Emit(baseFinding(layout.FilePath, 1, r.BaseRule,
 				fmt.Sprintf("Layout `%s` has %d views (threshold: %d). "+
 					"Consider simplifying or using ViewStub/include.",
 					layout.Name, count, maxViews)))
@@ -72,7 +72,7 @@ func (r *TooDeepLayoutResourceRule) check(ctx *api.Context) {
 	for _, layout := range idx.Layouts {
 		depth := layout.MaxDepth()
 		if depth > maxDepth {
-			ctx.Emit(resourceFinding(layout.FilePath, 1, r.BaseRule,
+			ctx.Emit(baseFinding(layout.FilePath, 1, r.BaseRule,
 				fmt.Sprintf("Layout `%s` has nesting depth %d (threshold: %d). "+
 					"Flatten with ConstraintLayout or merge tags.",
 					layout.Name, depth, maxDepth)))
@@ -120,7 +120,7 @@ func (r *UselessParentResourceRule) check(ctx *api.Context) {
 			if hasAnyPadding(v) {
 				return
 			}
-			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("Useless parent `%s` with single child. Remove wrapper and promote the child.",
 					v.Type)))
 		})
@@ -174,7 +174,7 @@ func (r *UselessLeafResourceRule) check(ctx *api.Context) {
 			if v.ID != "" {
 				return
 			}
-			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("Useless leaf `%s` has no children, no background, and no id. Remove it.",
 					v.Type)))
 		})
@@ -210,7 +210,7 @@ func findNestedScrollViews(v *android.View, insideScroll bool, path string, rule
 	}
 	isScroll := android.IsScrollableView(v.Type)
 	if isScroll && insideScroll {
-		ctx.Emit(resourceFinding(path, v.Line, rule,
+		ctx.Emit(baseFinding(path, v.Line, rule,
 			fmt.Sprintf("Nested scrolling: `%s` inside another scrollable view. "+
 				"This causes broken or unpredictable scrolling behavior.", v.Type)))
 	}
@@ -243,7 +243,7 @@ func (r *ScrollViewCountResourceRule) check(ctx *api.Context) {
 				return
 			}
 			if len(v.Children) > 1 {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` should have exactly one direct child, but has %d.",
 						v.Type, len(v.Children))))
 			}
@@ -280,14 +280,14 @@ func (r *ScrollViewSizeResourceRule) check(ctx *api.Context) {
 			for _, child := range v.Children {
 				if isHorizontal {
 					if child.LayoutWidth == "match_parent" || child.LayoutWidth == "fill_parent" {
-						ctx.Emit(resourceFinding(layout.FilePath, child.Line, r.BaseRule,
+						ctx.Emit(baseFinding(layout.FilePath, child.Line, r.BaseRule,
 							fmt.Sprintf("`%s` child of `%s` should use `layout_width=\"wrap_content\"` instead of `%s`. "+
 								"The parent scrolls horizontally so the child does not need to fill it.",
 								child.Type, v.Type, child.LayoutWidth)))
 					}
 				} else {
 					if child.LayoutHeight == "match_parent" || child.LayoutHeight == "fill_parent" {
-						ctx.Emit(resourceFinding(layout.FilePath, child.Line, r.BaseRule,
+						ctx.Emit(baseFinding(layout.FilePath, child.Line, r.BaseRule,
 							fmt.Sprintf("`%s` child of `%s` should use `layout_height=\"wrap_content\"` instead of `%s`. "+
 								"The parent scrolls vertically so the child does not need to fill it.",
 								child.Type, v.Type, child.LayoutHeight)))
@@ -351,13 +351,13 @@ func (r *RequiredSizeResourceRule) check(ctx *api.Context) {
 			missingWidth := v.Attributes["android:layout_width"] == ""
 			missingHeight := v.Attributes["android:layout_height"] == ""
 			if missingWidth && missingHeight {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` is missing both `android:layout_width` and `android:layout_height`.", v.Type)))
 			} else if missingWidth {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` is missing `android:layout_width`.", v.Type)))
 			} else if missingHeight {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` is missing `android:layout_height`.", v.Type)))
 			}
 		})
@@ -428,7 +428,7 @@ func (r *OrientationResourceRule) check(ctx *api.Context) {
 					return
 				}
 			}
-			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 				"`LinearLayout` missing explicit `android:orientation`. The default is horizontal, which may not be intended."))
 		})
 	}
@@ -480,7 +480,7 @@ func (r *AdapterViewChildrenResourceRule) check(ctx *api.Context) {
 				return
 			}
 			if len(v.Children) > 0 {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` cannot have children in XML. Its content is populated from an adapter.",
 						v.Type)))
 			}
@@ -520,7 +520,7 @@ func (r *IncludeLayoutParamResourceRule) check(ctx *api.Context) {
 			if hasWidth == hasHeight {
 				return
 			}
-			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 				"`<include>` specifies only one of `layout_width`/`layout_height`. Partial overrides are silently ignored — specify both dimensions or neither."))
 		})
 	}
@@ -569,7 +569,7 @@ func (r *UseCompoundDrawablesResourceRule) check(ctx *api.Context) {
 				if imgView.Attributes["android:scaleType"] != "" {
 					return
 				}
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`LinearLayout` with `ImageView` + `TextView` can be replaced "+
 						"by a single `TextView` with a compound drawable (e.g., `drawableStart`).")))
 			}
@@ -639,7 +639,7 @@ func (r *InconsistentLayoutResourceRule) check(ctx *api.Context) {
 
 			// Check root type mismatch.
 			if first.rootType != other.rootType {
-				ctx.Emit(resourceFinding(
+				ctx.Emit(baseFinding(
 					other.filePath, other.rootLine, r.BaseRule,
 					fmt.Sprintf("Layout '%s' has inconsistent root view: '%s' in %s vs '%s' in %s",
 						name, first.rootType, first.qualifier, other.rootType, other.qualifier),
@@ -649,7 +649,7 @@ func (r *InconsistentLayoutResourceRule) check(ctx *api.Context) {
 
 			// Check root child count mismatch.
 			if first.childCount != other.childCount {
-				ctx.Emit(resourceFinding(
+				ctx.Emit(baseFinding(
 					other.filePath, other.rootLine, r.BaseRule,
 					fmt.Sprintf("Layout '%s' has inconsistent root child count: %d in %s vs %d in %s",
 						name, first.childCount, first.qualifier, other.childCount, other.qualifier),
@@ -667,7 +667,7 @@ func (r *InconsistentLayoutResourceRule) check(ctx *api.Context) {
 				diff := larger - smaller
 				avg := (larger + smaller) / 2
 				if avg > 0 && diff*100/avg > 50 {
-					ctx.Emit(resourceFinding(
+					ctx.Emit(baseFinding(
 						other.filePath, other.rootLine, r.BaseRule,
 						fmt.Sprintf("Layout '%s' has significantly different view counts: %d in %s vs %d in %s",
 							name, first.viewCount, first.qualifier, other.viewCount, other.qualifier),

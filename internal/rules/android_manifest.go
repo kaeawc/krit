@@ -9,7 +9,6 @@ package rules
 
 import (
 	"github.com/kaeawc/krit/internal/manifest"
-	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // ---------------------------------------------------------------------------
@@ -42,22 +41,6 @@ func (ManifestBase) Confidence() float64 { return ConfidenceMedium }
 
 func (ManifestBase) AndroidDependencies() AndroidDataDependency {
 	return AndroidDepManifest
-}
-
-// ---------------------------------------------------------------------------
-// Helper to create a manifest finding (no scanner.File needed)
-// ---------------------------------------------------------------------------
-
-func manifestFinding(path string, line int, rule BaseRule, msg string) scanner.Finding {
-	return scanner.Finding{
-		File:     path,
-		Line:     line,
-		Col:      1,
-		RuleSet:  rule.RuleSetName,
-		Rule:     rule.RuleName,
-		Severity: rule.Sev,
-		Message:  msg,
-	}
 }
 
 // ---------------------------------------------------------------------------

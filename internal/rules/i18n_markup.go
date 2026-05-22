@@ -131,7 +131,7 @@ func (r *TranslatableMarkupMismatchRule) checkResourceRoot(ctx *api.Context, res
 			if def.style.eq(vs.style) {
 				continue
 			}
-			ctx.Emit(resourceFinding(vs.path, vs.line, r.BaseRule,
+			ctx.Emit(baseFinding(vs.path, vs.line, r.BaseRule,
 				fmt.Sprintf("String `%s` markup style differs from default: `values/` uses %s; `values-%s/` uses %s.",
 					name, def.style.describe(), v.locale, vs.style.describe())))
 		}

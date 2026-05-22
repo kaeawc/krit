@@ -34,7 +34,7 @@ func (r *HardcodedValuesResourceRule) check(ctx *api.Context) {
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.HasHardcodedText() {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Hardcoded text `%s` in `%s`. Use a `@string/` resource reference instead for internationalization.",
 						truncate(v.Text, 40), v.Type)))
 			}
@@ -42,7 +42,7 @@ func (r *HardcodedValuesResourceRule) check(ctx *api.Context) {
 			if hint := v.Attributes["android:hint"]; hint != "" &&
 				!strings.HasPrefix(hint, "@string/") &&
 				!strings.HasPrefix(hint, "@android:string/") {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Hardcoded hint `%s` in `%s`. Use a `@string/` resource reference instead.",
 						truncate(hint, 40), v.Type)))
 			}
@@ -87,7 +87,7 @@ func (r *MissingContentDescriptionResourceRule) check(ctx *api.Context) {
 				strings.Contains(v.Attributes["tools:ignore"], "ContentDescription") {
 				return
 			}
-			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("`%s` missing `android:contentDescription` attribute. "+
 					"Set a description for accessibility or use `tools:ignore=\"ContentDescription\"`.",
 					v.Type)))
@@ -151,13 +151,13 @@ func checkLabelFor(v *android.View, path string, rule BaseRule, findings *[]scan
 				id := strings.TrimPrefix(child.ID, "@+id/")
 				id = strings.TrimPrefix(id, "@id/")
 				if !labelForTargets[id] {
-					*findings = append(*findings, resourceFinding(path, child.Line, rule,
+					*findings = append(*findings, baseFinding(path, child.Line, rule,
 						fmt.Sprintf("No sibling has `android:labelFor` pointing to `%s`. "+
 							"Add a label for accessibility.", child.ID)))
 				}
 			} else {
 				// EditText without an ID can't be referenced by labelFor
-				*findings = append(*findings, resourceFinding(path, child.Line, rule,
+				*findings = append(*findings, baseFinding(path, child.Line, rule,
 					fmt.Sprintf("`%s` has no `android:id`, so no label can reference it via `labelFor`. "+
 						"Add an id and a corresponding label for accessibility.", child.Type)))
 			}
@@ -236,7 +236,7 @@ func (r *ClickableViewAccessibilityResourceRule) check(ctx *api.Context) {
 				strings.Contains(v.Attributes["tools:ignore"], "ContentDescription") {
 				return
 			}
-			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("`%s` is clickable but missing `android:contentDescription`. "+
 					"Add a description for accessibility.", v.Type)))
 		})
@@ -270,7 +270,7 @@ func (r *BackButtonResourceRule) check(ctx *api.Context) {
 			}
 			text := v.Text
 			if strings.EqualFold(text, "back") || text == "@string/back" {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Button with text `%s` detected. Avoid explicit back buttons; use the system navigation bar instead.",
 						text)))
 			}
@@ -308,11 +308,11 @@ func (r *ButtonCaseResourceRule) check(ctx *api.Context) {
 			}
 			lower := strings.ToLower(text)
 			if lower == "ok" && text != "OK" {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Button text `%s` should be `OK` (all caps).", text)))
 			}
 			if lower == "cancel" && text != "CANCEL" {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Button text `%s` should be `CANCEL` (all caps on Android).", text)))
 			}
 		})
@@ -365,7 +365,7 @@ func (r *ButtonOrderResourceRule) check(ctx *api.Context) {
 				}
 			}
 			if okBtn != nil && cancelBtn != nil && cancelBtn.Line > okBtn.Line {
-				ctx.Emit(resourceFinding(layout.FilePath, cancelBtn.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, cancelBtn.Line, r.BaseRule,
 					fmt.Sprintf("Cancel button (line %d) appears after OK button (line %d). "+
 						"Android convention places Cancel before OK.", cancelBtn.Line, okBtn.Line)))
 			}
@@ -403,7 +403,7 @@ func (r *ButtonStyleResourceRule) check(ctx *api.Context) {
 			if style != "" && (strings.Contains(style, "Borderless") || strings.Contains(style, "borderless")) {
 				return
 			}
-			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("Button in dialog layout `%s` should use a borderless style (e.g., `?android:attr/borderlessButtonStyle`).", name)))
 		})
 	}
@@ -430,7 +430,7 @@ func (r *LayoutClickableWithoutMinSizeRule) check(ctx *api.Context) {
 			w := parseLayoutDp(v.LayoutWidth)
 			h := parseLayoutDp(v.LayoutHeight)
 			if (w > 0 && w < 48) || (h > 0 && h < 48) {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` is clickable with a dimension below 48dp. "+
 						"Use at least 48dp for touch targets.", v.Type)))
 			}
@@ -474,7 +474,7 @@ func (r *LayoutEditTextMissingImportanceRule) check(ctx *api.Context) {
 			if v.Attributes["android:importantForAutofill"] != "" {
 				return
 			}
-			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("`%s` missing `android:importantForAutofill`. "+
 					"Set `yes` or `no` explicitly for autofill accessibility (API 26+).", v.Type)))
 		})
@@ -501,7 +501,7 @@ func (r *LayoutImportantForAccessibilityNoRule) check(ctx *api.Context) {
 			}
 			if v.Attributes["android:clickable"] == "true" ||
 				v.Attributes["android:focusable"] == "true" {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` has `importantForAccessibility=\"no\"` but is clickable or focusable. "+
 						"This hides an interactive element from assistive technology.", v.Type)))
 			}
@@ -543,7 +543,7 @@ func (r *LayoutAutofillHintMismatchRule) check(ctx *api.Context) {
 			}
 			autofillHints := v.Attributes["android:autofillHints"]
 			if autofillHints == "" {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` has `inputType=\"%s\"` but no `android:autofillHints`. "+
 						"Add `autofillHints=\"%s\"` for autofill support.", v.Type, inputType, expectedHint)))
 			}
@@ -590,7 +590,7 @@ func (r *LayoutMinTouchTargetInButtonRowRule) check(ctx *api.Context) {
 				if h == "wrap_content" || h == "" {
 					minH := child.Attributes["android:minHeight"]
 					if minH == "" || parseLayoutDp(minH) < 48 {
-						ctx.Emit(resourceFinding(layout.FilePath, child.Line, r.BaseRule,
+						ctx.Emit(baseFinding(layout.FilePath, child.Line, r.BaseRule,
 							fmt.Sprintf("`%s` in `%s` with `wrap_content` height and no `minHeight >= 48dp`. "+
 								"Ensure a minimum 48dp touch target.", child.Type, v.Type)))
 					}
@@ -655,7 +655,7 @@ func (r *StringNotSelectableRule) check(ctx *api.Context) {
 				}
 			}
 			if containsURLOrPhone(stringValue) {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` with `textIsSelectable=\"false\"` contains URLs or phone numbers. "+
 						"Allow selection for assistive technology users to copy content.", v.Type)))
 			}
@@ -691,7 +691,7 @@ func (r *StringRepeatedInContentDescriptionRule) check(ctx *api.Context) {
 			for _, sibling := range v.Children {
 				sibText := resolveStringValue(idx, sibling.Text)
 				if sibText != "" && strings.EqualFold(cd, sibText) {
-					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("`contentDescription` on `%s` duplicates visible text of child `%s`. "+
 							"TalkBack reads both, causing stutter.", v.Type, sibling.Type)))
 				}
@@ -708,7 +708,7 @@ func (r *StringRepeatedInContentDescriptionRule) check(ctx *api.Context) {
 				}
 				sibText := resolveStringValue(idx, sibling.Text)
 				if sibText != "" && strings.EqualFold(cd, sibText) {
-					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("`contentDescription` on `%s` duplicates visible text of sibling `%s`. "+
 							"TalkBack reads both, causing stutter.", v.Type, sibling.Type)))
 				}
@@ -754,7 +754,7 @@ func (r *StringSpanInContentDescriptionRule) check(ctx *api.Context) {
 			if !locOk {
 				continue
 			}
-			ctx.Emit(resourceFinding(loc.FilePath, loc.Line, r.BaseRule,
+			ctx.Emit(baseFinding(loc.FilePath, loc.Line, r.BaseRule,
 				fmt.Sprintf("String `%s` used as `contentDescription` contains HTML markup. "+
 					"TalkBack reads raw tags aloud.", name)))
 		}

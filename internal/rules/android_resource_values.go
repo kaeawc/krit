@@ -45,7 +45,7 @@ func findWebViewInScroll(v *android.View, insideScroll bool, path string, rule B
 	}
 	isScroll := android.IsScrollableView(v.Type)
 	if insideScroll && v.Type == "WebView" {
-		ctx.Emit(resourceFinding(path, v.Line, rule,
+		ctx.Emit(baseFinding(path, v.Line, rule,
 			"WebView inside a ScrollView causes broken scrolling. "+
 				"Remove the ScrollView or use a different container."))
 	}
@@ -74,7 +74,7 @@ func (r *OnClickResourceRule) check(ctx *api.Context) {
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if handler := v.Attributes["android:onClick"]; handler != "" {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`android:onClick=\"%s\"` in `%s`. Use `View.setOnClickListener` in code instead of XML onClick handlers.",
 						handler, v.Type)))
 			}
@@ -106,7 +106,7 @@ func (r *TextFieldsResourceRule) check(ctx *api.Context) {
 			hasInputType := v.Attributes["android:inputType"] != ""
 			hasHint := v.Attributes["android:hint"] != ""
 			if !hasInputType && !hasHint {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` is missing both `android:inputType` and `android:hint`. "+
 						"Specify `inputType` so the correct keyboard is shown.", v.Type)))
 			}
@@ -141,7 +141,7 @@ func (r *UnusedAttributeResourceRule) check(ctx *api.Context) {
 		walkViews(layout.RootView, func(v *android.View) {
 			for attr, minAPI := range apiLevelAttrs {
 				if v.Attributes[attr] != "" {
-					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("Attribute `%s` is only used in API level %d and higher "+
 							"(current min is unspecified). It will be ignored on older platforms.",
 							attr, minAPI)))
@@ -252,7 +252,7 @@ func (r *WrongRegionResourceRule) check(ctx *api.Context) {
 			}
 		}
 		if !found {
-			ctx.Emit(resourceFinding(layout.FilePath, 1, r.BaseRule,
+			ctx.Emit(baseFinding(layout.FilePath, 1, r.BaseRule,
 				fmt.Sprintf("Suspicious language/region combination: language `%s` with region `%s` "+
 					"in folder `%s`. Expected regions for `%s`: %s.",
 					lang, region, folder, lang, strings.Join(expected, ", "))))
@@ -302,7 +302,7 @@ func (r *LocaleConfigStaleResourceRule) check(ctx *api.Context) {
 			parts = append(parts, fmt.Sprintf("config locales without matching values folders: %s", strings.Join(missing, ", ")))
 		}
 
-		ctx.Emit(resourceFinding(configPath, line, r.BaseRule,
+		ctx.Emit(baseFinding(configPath, line, r.BaseRule,
 			fmt.Sprintf("`locales_config.xml` does not match the explicit locale resource folders (%s).", strings.Join(parts, "; "))))
 	}
 }
@@ -523,7 +523,7 @@ func (r *MissingQuantityResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
 	for name, quantities := range idx.Plurals {
 		if _, ok := quantities["other"]; !ok {
-			ctx.Emit(resourceFinding("res/values/plurals.xml", 0, r.BaseRule,
+			ctx.Emit(baseFinding("res/values/plurals.xml", 0, r.BaseRule,
 				fmt.Sprintf("Plural `%s` is missing the required `other` quantity.", name)))
 		}
 	}
@@ -557,7 +557,7 @@ func (r *UnusedQuantityResourceRule) check(ctx *api.Context) {
 	for name, quantities := range idx.Plurals {
 		for qty := range quantities {
 			if unusedEnglishQuantities[qty] {
-				ctx.Emit(resourceFinding("res/values/plurals.xml", 0, r.BaseRule,
+				ctx.Emit(baseFinding("res/values/plurals.xml", 0, r.BaseRule,
 					fmt.Sprintf("Plural `%s` defines unused quantity `%s` for English. "+
 						"Only `one` and `other` are used.", name, qty)))
 			}
@@ -586,7 +586,7 @@ func (r *ImpliedQuantityResourceRule) check(ctx *api.Context) {
 	for name, quantities := range idx.Plurals {
 		if oneVal, ok := quantities["one"]; ok {
 			if !strings.Contains(oneVal, "%d") {
-				ctx.Emit(resourceFinding("res/values/plurals.xml", 0, r.BaseRule,
+				ctx.Emit(baseFinding("res/values/plurals.xml", 0, r.BaseRule,
 					fmt.Sprintf("Plural `%s` quantity `one` value `%s` does not contain `%%d`. "+
 						"The actual number may not be 1; use `%%d` to display it correctly.",
 						name, truncate(oneVal, 40))))
@@ -647,7 +647,7 @@ func (r *StringFormatInvalidResourceRule) check(ctx *api.Context) {
 				line = loc.Line
 			}
 		}
-		ctx.Emit(resourceFinding(filePath, line, r.BaseRule,
+		ctx.Emit(baseFinding(filePath, line, r.BaseRule,
 			fmt.Sprintf("String `%s` has invalid format specifier: %s", name, msg)))
 	}
 }
@@ -722,7 +722,7 @@ func (r *StringFormatCountResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
 	for name, val := range idx.Strings {
 		if msg := checkFormatArgCount(val); msg != "" {
-			ctx.Emit(resourceFinding("res/values/strings.xml", 0, r.BaseRule,
+			ctx.Emit(baseFinding("res/values/strings.xml", 0, r.BaseRule,
 				fmt.Sprintf("String `%s`: %s", name, msg)))
 		}
 	}
@@ -827,14 +827,14 @@ func (r *StringFormatMatchesResourceRule) check(ctx *api.Context) {
 				continue
 			}
 			if len(types) != len(refTypes) {
-				ctx.Emit(resourceFinding("res/values/strings.xml", 0, r.BaseRule,
+				ctx.Emit(baseFinding("res/values/strings.xml", 0, r.BaseRule,
 					fmt.Sprintf("Plural `%s`: quantity `%s` has %d format args but `%s` has %d",
 						name, qty, len(types), refQty, len(refTypes))))
 				continue
 			}
 			for i := range types {
 				if types[i] != refTypes[i] {
-					ctx.Emit(resourceFinding("res/values/strings.xml", 0, r.BaseRule,
+					ctx.Emit(baseFinding("res/values/strings.xml", 0, r.BaseRule,
 						fmt.Sprintf("Plural `%s`: format type mismatch at arg %d — `%s` uses `%%%c` but `%s` uses `%%%c`",
 							name, i+1, qty, types[i], refQty, refTypes[i])))
 					break
@@ -917,7 +917,7 @@ func (r *StringFormatTrivialResourceRule) check(ctx *api.Context) {
 					line = loc.Line
 				}
 			}
-			ctx.Emit(resourceFinding(filePath, line, r.BaseRule,
+			ctx.Emit(baseFinding(filePath, line, r.BaseRule,
 				fmt.Sprintf("String `%s` is only a string format placeholder. "+
 					"Use the source string directly instead of formatting this resource.", name)))
 		}
@@ -1049,21 +1049,21 @@ func (r *StringNotLocalizableResourceRule) check(ctx *api.Context) {
 		}
 		line := loc.Line
 		if isURL(val) {
-			ctx.Emit(resourceFinding(filePath, line, r.BaseRule,
+			ctx.Emit(baseFinding(filePath, line, r.BaseRule,
 				fmt.Sprintf("String `%s` contains a URL (`%s`). "+
 					"URLs should not be in localizable string resources; use a non-translatable resource.",
 					name, truncate(val, 60))))
 			continue
 		}
 		if isEmail(val) {
-			ctx.Emit(resourceFinding(filePath, line, r.BaseRule,
+			ctx.Emit(baseFinding(filePath, line, r.BaseRule,
 				fmt.Sprintf("String `%s` contains an email address (`%s`). "+
 					"Email addresses should not be in localizable string resources.",
 					name, truncate(val, 60))))
 			continue
 		}
 		if isTechnicalIdentifier(val) {
-			ctx.Emit(resourceFinding(filePath, line, r.BaseRule,
+			ctx.Emit(baseFinding(filePath, line, r.BaseRule,
 				fmt.Sprintf("String `%s` appears to be a technical identifier (`%s`). "+
 					"Consider marking as `translatable=\"false\"`.",
 					name, truncate(val, 60))))
@@ -1125,7 +1125,7 @@ func (r *GoogleAPIKeyInResourcesRule) check(ctx *api.Context) {
 		if strings.HasPrefix(strings.TrimSpace(val), "@string/") {
 			continue
 		}
-		ctx.Emit(resourceFinding(loc.FilePath, loc.Line, r.BaseRule,
+		ctx.Emit(baseFinding(loc.FilePath, loc.Line, r.BaseRule,
 			fmt.Sprintf("String resource `%s` appears to embed a Google API key directly. Reference a build-time injected `@string/...` value instead.", name)))
 	}
 }
@@ -1183,7 +1183,7 @@ func (r *InconsistentArraysResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
 	for name, items := range idx.StringArrays {
 		if len(items) == 0 {
-			ctx.Emit(resourceFinding("res/values/arrays.xml", 0, r.BaseRule,
+			ctx.Emit(baseFinding("res/values/arrays.xml", 0, r.BaseRule,
 				fmt.Sprintf("String-array `%s` has zero items. This may indicate an incomplete array definition.",
 					name)))
 		}
@@ -1222,7 +1222,7 @@ func (r *StringTrailingWhitespaceResourceRule) check(ctx *api.Context) {
 				line = loc.Line
 			}
 		}
-		ctx.Emit(resourceFinding(filePath, line, r.BaseRule,
+		ctx.Emit(baseFinding(filePath, line, r.BaseRule,
 			fmt.Sprintf("String `%s` has trailing whitespace. Trailing whitespace is significant in concatenated strings and some locales; trim it or mark the resource `translatable=\"false\"`.", name)))
 	}
 }
@@ -1266,7 +1266,7 @@ func (r *StringResourceMissingPositionalRule) check(ctx *api.Context) {
 				line = loc.Line
 			}
 		}
-		ctx.Emit(resourceFinding(filePath, line, r.BaseRule,
+		ctx.Emit(baseFinding(filePath, line, r.BaseRule,
 			fmt.Sprintf("String `%s` has multiple non-positional format specifiers. "+
 				"Use positional syntax like `%%1$s %%2$s` so translators can reorder arguments.", name)))
 	}
@@ -1346,7 +1346,7 @@ func (r *ExtraTextResourceRule) Confidence() float64 { return api.ConfidenceMedi
 func (r *ExtraTextResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
 	for _, et := range idx.ExtraTexts {
-		ctx.Emit(resourceFinding(et.FilePath, et.Line, r.BaseRule,
+		ctx.Emit(baseFinding(et.FilePath, et.Line, r.BaseRule,
 			fmt.Sprintf("Extraneous text `%s` found in resource file. "+
 				"Text outside elements is usually a mistake.",
 				truncate(et.Text, 40))))
@@ -1378,7 +1378,7 @@ func (r *LocaleFolderRule) check(ctx *api.Context) {
 		if m == nil {
 			return
 		}
-		ctx.Emit(resourceFinding(filepath.Join(resRoot, name), 1, r.BaseRule,
+		ctx.Emit(baseFinding(filepath.Join(resRoot, name), 1, r.BaseRule,
 			"Wrong locale folder naming `"+name+"`. Use `values-<lang>-r<REGION>` format (e.g., `values-"+m[1]+"-r"+m[2]+"`)."))
 	})
 }
@@ -1409,7 +1409,7 @@ func (r *UseAlpha2Rule) check(ctx *api.Context) {
 		if !ok {
 			return
 		}
-		ctx.Emit(resourceFinding(filepath.Join(resRoot, name), 1, r.BaseRule,
+		ctx.Emit(baseFinding(filepath.Join(resRoot, name), 1, r.BaseRule,
 			"Use 2-letter ISO 639-1 code `"+repl+"` instead of 3-letter code `"+m[1]+"` in locale folder."))
 	})
 }

@@ -41,7 +41,7 @@ func (r *LocaleConfigMissingRule) check(ctx *api.Context) {
 		return
 	}
 
-	f := manifestFinding(m.Path, m.Application.Line, r.BaseRule,
+	f := baseFinding(m.Path, m.Application.Line, r.BaseRule,
 		fmt.Sprintf("<application> declares `android:localeConfig=\"%s\"` but `res/xml/%s.xml` is missing.",
 			m.Application.LocaleConfig, resourceName))
 	ctx.Emit(f)

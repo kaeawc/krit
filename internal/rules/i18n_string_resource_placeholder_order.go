@@ -75,7 +75,7 @@ func (r *StringResourcePlaceholderOrderRule) check(ctx *api.Context) {
 				if info.total < 2 || info.hasPositional {
 					return
 				}
-				ctx.Emit(resourceFinding(path, s.Line, r.BaseRule,
+				ctx.Emit(baseFinding(path, s.Line, r.BaseRule,
 					fmt.Sprintf("String `%s` in `%s/` drops positional format syntax used by the default value. "+
 						"Use `%%1$s`, `%%2$s`, ... so translators can reorder arguments.",
 						name, variant)))

@@ -5,7 +5,23 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/rules/base"
+	"github.com/kaeawc/krit/internal/scanner"
 )
+
+// baseFinding constructs a scanner.Finding from a BaseRule, file path,
+// 1-based line, and message. Column defaults to 1 — rules that need a
+// precise column construct scanner.Finding directly.
+func baseFinding(path string, line int, rule BaseRule, msg string) scanner.Finding {
+	return scanner.Finding{
+		File:     path,
+		Line:     line,
+		Col:      1,
+		RuleSet:  rule.RuleSetName,
+		Rule:     rule.RuleName,
+		Severity: rule.Sev,
+		Message:  msg,
+	}
+}
 
 // Rules that do not declare NeedsOracle are never fed to the oracle's
 // file-selection pass.

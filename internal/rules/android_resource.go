@@ -16,7 +16,6 @@ package rules
 
 import (
 	"github.com/kaeawc/krit/internal/android"
-	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // Resource-rule marker types. These are empty structs embedded by
@@ -63,22 +62,6 @@ type ValuesExtraTextResourceBase struct{ ResourceBase }
 
 func (ValuesExtraTextResourceBase) AndroidDependencies() AndroidDataDependency {
 	return AndroidDepValuesExtraText
-}
-
-// ---------------------------------------------------------------------------
-// Helper to create a resource finding
-// ---------------------------------------------------------------------------
-
-func resourceFinding(path string, line int, rule BaseRule, msg string) scanner.Finding {
-	return scanner.Finding{
-		File:     path,
-		Line:     line,
-		Col:      1,
-		RuleSet:  rule.RuleSetName,
-		Rule:     rule.RuleName,
-		Severity: rule.Sev,
-		Message:  msg,
-	}
 }
 
 // ---------------------------------------------------------------------------

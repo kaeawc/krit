@@ -102,7 +102,7 @@ func (r *StringContainsHTMLWithoutCDATARule) checkResourceRoot(ctx *api.Context,
 			if !hasUnescapedHTMLChild(s) {
 				return
 			}
-			ctx.Emit(resourceFinding(path, s.Line, r.BaseRule,
+			ctx.Emit(baseFinding(path, s.Line, r.BaseRule,
 				fmt.Sprintf("String `%s` contains literal HTML markup. Wrap the value in `<![CDATA[...]]>` or entity-escape `<` and `>` (`&lt;`, `&gt;`).",
 					name)))
 		})

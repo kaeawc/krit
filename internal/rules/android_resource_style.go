@@ -150,7 +150,7 @@ func (r *PxUsageResourceRule) check(ctx *api.Context) {
 			for _, attr := range pxDimensionAttrs {
 				val := v.Attributes[attr]
 				if isPxValue(val) && !pxValueExempt(val) {
-					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("Avoid using `px` in `%s=\"%s\"`. Use `dp` or `sp` instead for density-independent sizing.",
 							attr, val)))
 				}
@@ -167,7 +167,7 @@ func (r *PxUsageResourceRule) check(ctx *api.Context) {
 		if path == "" {
 			path = "res/values/dimens.xml"
 		}
-		ctx.Emit(resourceFinding(path, loc.Line, r.BaseRule,
+		ctx.Emit(baseFinding(path, loc.Line, r.BaseRule,
 			fmt.Sprintf("Dimension `%s` uses `px` value `%s`. Use `dp` or `sp` instead.",
 				name, val)))
 	}
@@ -177,7 +177,7 @@ func (r *PxUsageResourceRule) check(ctx *api.Context) {
 			if !isPxValue(val) || pxValueExempt(val) {
 				continue
 			}
-			ctx.Emit(resourceFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule,
+			ctx.Emit(baseFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule,
 				fmt.Sprintf("Style `%s` item `%s` uses `px` value `%s`. Use `dp` or `sp` instead.",
 					style.Name, itemName, val)))
 		}
@@ -232,14 +232,14 @@ func (r *SpUsageResourceRule) check(ctx *api.Context) {
 				return
 			}
 			if isDpValue(val) {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`android:textSize=\"%s\"` uses `dp`. Use `sp` instead so text respects the user's font size preference.",
 						val)))
 				return
 			}
 			if resolved, loc, ok := resolveDimenReference(idx, val); ok && isDpValue(resolved) {
 				origin := dimenOriginSuffix(loc, resolved)
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`android:textSize=\"%s\"` resolves to a `dp` value%s. Use `sp` instead so text respects the user's font size preference.",
 						val, origin)))
 			}
@@ -252,14 +252,14 @@ func (r *SpUsageResourceRule) check(ctx *api.Context) {
 				continue
 			}
 			if isDpValue(val) {
-				ctx.Emit(resourceFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule,
+				ctx.Emit(baseFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule,
 					fmt.Sprintf("Style `%s` item `%s=\"%s\"` uses `dp`. Use `sp` instead so text respects the user's font size preference.",
 						style.Name, itemName, val)))
 				continue
 			}
 			if resolved, loc, ok := resolveDimenReference(idx, val); ok && isDpValue(resolved) {
 				origin := dimenOriginSuffix(loc, resolved)
-				ctx.Emit(resourceFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule,
+				ctx.Emit(baseFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule,
 					fmt.Sprintf("Style `%s` item `%s=\"%s\"` resolves to a `dp` value%s. Use `sp` instead so text respects the user's font size preference.",
 						style.Name, itemName, val, origin)))
 			}
@@ -353,7 +353,7 @@ func handleSpLiteral(ctx *api.Context, rule BaseRule, path string, line int, val
 		return false
 	}
 	if sp < 12 {
-		ctx.Emit(resourceFinding(path, line, rule,
+		ctx.Emit(baseFinding(path, line, rule,
 			fmt.Sprintf("Text size `%s`%s is too small (below 12sp) for `%s`. Consider using at least 12sp for readability.",
 				val, origin, label)))
 	}
@@ -417,7 +417,7 @@ func (r *InOrMmUsageResourceRule) check(ctx *api.Context) {
 				if !ok || inOrMmValueExempt(val, unit) {
 					continue
 				}
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Avoid using `%s` units in `%s=\"%s\"`. Use `dp` or `sp` for density-independent sizing.",
 						unit, attr, val)))
 			}
@@ -433,7 +433,7 @@ func (r *InOrMmUsageResourceRule) check(ctx *api.Context) {
 		if path == "" {
 			path = "res/values/dimens.xml"
 		}
-		ctx.Emit(resourceFinding(path, loc.Line, r.BaseRule,
+		ctx.Emit(baseFinding(path, loc.Line, r.BaseRule,
 			fmt.Sprintf("Dimension `%s` uses `%s` value `%s`. Use `dp` or `sp` instead.",
 				name, unit, val)))
 	}
@@ -443,7 +443,7 @@ func (r *InOrMmUsageResourceRule) check(ctx *api.Context) {
 			if !ok || inOrMmValueExempt(val, unit) {
 				continue
 			}
-			ctx.Emit(resourceFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule,
+			ctx.Emit(baseFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule,
 				fmt.Sprintf("Style `%s` item `%s` uses `%s` value `%s`. Use `dp` or `sp` instead.",
 					style.Name, itemName, unit, val)))
 		}
@@ -501,12 +501,12 @@ func (r *NegativeMarginResourceRule) check(ctx *api.Context) {
 				return
 			}
 			if len(offenders) == 1 {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Negative margin %s in `%s`. Negative margins can cause overlapping or clipping.",
 						offenders[0], v.Type)))
 				return
 			}
-			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("Negative margins in `%s`: %s. Negative margins can cause overlapping or clipping.",
 					v.Type, strings.Join(offenders, ", "))))
 		})
@@ -570,13 +570,13 @@ func (r *Suspicious0dpResourceRule) check(ctx *api.Context) {
 			case "horizontal":
 				// In horizontal, 0dp height is suspicious
 				if h == "0dp" && w != "0dp" {
-					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 						"Suspicious `0dp` on `layout_height` in horizontal `LinearLayout`. Did you mean `layout_width=\"0dp\"` (for weight)?"))
 				}
 			case "vertical":
 				// In vertical, 0dp width is suspicious
 				if w == "0dp" && h != "0dp" {
-					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 						"Suspicious `0dp` on `layout_width` in vertical `LinearLayout`. Did you mean `layout_height=\"0dp\"` (for weight)?"))
 				}
 			}
@@ -636,7 +636,7 @@ func (r *DisableBaselineAlignmentResourceRule) check(ctx *api.Context) {
 			if requireText && !hasDirectTextChild(v) {
 				return
 			}
-			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("`%s` with weighted children should set `android:baselineAligned=\"false\"` for better performance.", v.Type)))
 		})
 	}
@@ -715,7 +715,7 @@ func (r *InefficientWeightResourceRule) check(ctx *api.Context) {
 			}
 			// Check if orientation is missing
 			if v.Attributes["android:orientation"] == "" {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` uses `layout_weight` but is missing `android:orientation`. "+
 						"Declare orientation explicitly when using weights.", v.Type)))
 			}
@@ -775,7 +775,7 @@ func findNestedWeights(v *android.View, path string, rule BaseRule, findings *[]
 	if isLinearLayout(v.Type) &&
 		v.Attributes["android:layout_weight"] != "" &&
 		hasWeightedChildren(v) {
-		*findings = append(*findings, resourceFinding(path, v.Line, rule,
+		*findings = append(*findings, baseFinding(path, v.Line, rule,
 			fmt.Sprintf("Nested weights: `%s` has `layout_weight` set AND contains weighted children. "+
 				"This causes exponential measure passes — restructure to avoid nesting weights.", v.Type)))
 	}
@@ -820,7 +820,7 @@ func checkObsoleteParams(v *android.View, path string, rule BaseRule, findings *
 	for _, child := range v.Children {
 		if !isLinear {
 			if child.Attributes["android:layout_weight"] != "" {
-				*findings = append(*findings, resourceFinding(path, child.Line, rule,
+				*findings = append(*findings, baseFinding(path, child.Line, rule,
 					fmt.Sprintf("`android:layout_weight` on `%s` is only valid inside `LinearLayout`. "+
 						"Parent is `%s`.", child.Type, v.Type)))
 			}
@@ -864,7 +864,7 @@ func (r *MergeRootFrameResourceRule) check(ctx *api.Context) {
 		if hasAnyPadding(root) {
 			continue
 		}
-		ctx.Emit(resourceFinding(layout.FilePath, root.Line, r.BaseRule,
+		ctx.Emit(baseFinding(layout.FilePath, root.Line, r.BaseRule,
 			fmt.Sprintf("Root `FrameLayout` in `%s` can be replaced with `<merge>` tag to reduce nesting.",
 				layout.Name)))
 	}
@@ -920,7 +920,7 @@ func (r *OverdrawResourceRule) check(ctx *api.Context) {
 				continue
 			}
 			if android.IsLayoutView(child.Type) {
-				ctx.Emit(resourceFinding(layout.FilePath, child.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, child.Line, r.BaseRule,
 					fmt.Sprintf("Possible overdraw: child `%s` has background `%s` and root `%s` also has background `%s`. "+
 						"Remove one background to reduce overdraw.",
 						child.Type, child.Background, root.Type, root.Background)))
@@ -955,7 +955,7 @@ func (r *AlwaysShowActionResourceRule) check(ctx *api.Context) {
 				val = v.Attributes["android:showAsAction"]
 			}
 			if strings.Contains(val, "always") {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`showAsAction=\"%s\"` in `%s`. Use `ifRoom` instead of `always` to avoid crowding the action bar on small screens.",
 						val, v.Type)))
 			}

@@ -69,7 +69,7 @@ func (r *OssLicensesNotIncludedInAndroidRule) check(ctx *api.Context) {
 	if line == 0 {
 		line = 1
 	}
-	ctx.Emit(gradleFinding(path, line, r.BaseRule,
+	ctx.Emit(baseFinding(path, line, r.BaseRule,
 		"Android application module declares implementation dependencies but neither applies `com.google.android.gms.oss-licenses-plugin` nor ships a LICENSE file. Add an attribution surface for third-party libraries."))
 }
 
@@ -1030,7 +1030,7 @@ func (r *DependencyLicenseUnknownRule) check(ctx *api.Context) {
 			line = 1
 		}
 
-		ctx.Emit(gradleFinding(path, line, r.BaseRule,
+		ctx.Emit(baseFinding(path, line, r.BaseRule,
 			fmt.Sprintf("Dependency %s is not present in the embedded license registry; add a registry entry or disable license verification for this project.", coord)))
 	}
 }
@@ -1078,7 +1078,7 @@ func (r *LgplStaticLinkingInApkRule) check(ctx *api.Context) {
 			line = 1
 		}
 
-		ctx.Emit(gradleFinding(path, line, r.BaseRule,
+		ctx.Emit(baseFinding(path, line, r.BaseRule,
 			fmt.Sprintf("Dependency %s is %s and is statically linked into the application APK via `%s`. Move it to a `com.android.dynamic-feature` delivered separately or replace it with a permissively licensed alternative.", coord, spdx, dep.Configuration)))
 	}
 }
@@ -1137,7 +1137,7 @@ func (r *DependencyLicenseIncompatibleRule) check(ctx *api.Context) {
 			line = 1
 		}
 
-		ctx.Emit(gradleFinding(path, line, r.BaseRule,
+		ctx.Emit(baseFinding(path, line, r.BaseRule,
 			fmt.Sprintf("Dependency %s is %s, which is incompatible with the project's %s license.",
 				coord, depLicense, r.ProjectLicense)))
 	}
@@ -1196,7 +1196,7 @@ func (r *NoticeFileOutOfDateRule) check(ctx *api.Context) {
 			line = 1
 		}
 
-		ctx.Emit(gradleFinding(path, line, r.BaseRule,
+		ctx.Emit(baseFinding(path, line, r.BaseRule,
 			fmt.Sprintf("NOTICE file is missing required attribution for %s; add the attribution text to NOTICE.", coord)))
 	}
 }

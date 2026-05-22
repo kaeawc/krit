@@ -16,7 +16,6 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	api "github.com/kaeawc/krit/internal/rules/api"
-	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // GradleBase is an empty marker type embedded by Gradle rule
@@ -26,22 +25,6 @@ type GradleBase struct{}
 
 func (GradleBase) AndroidDependencies() AndroidDataDependency {
 	return AndroidDepGradle
-}
-
-// ---------------------------------------------------------------------------
-// Helper to create a Gradle finding
-// ---------------------------------------------------------------------------
-
-func gradleFinding(path string, line int, rule BaseRule, msg string) scanner.Finding {
-	return scanner.Finding{
-		File:     path,
-		Line:     line,
-		Col:      1,
-		RuleSet:  rule.RuleSetName,
-		Rule:     rule.RuleName,
-		Severity: rule.Sev,
-		Message:  msg,
-	}
 }
 
 // findGradleLine returns the 1-based line number of the first match of re in content, or 0.
@@ -189,7 +172,7 @@ func (r *GradlePluginCompatibilityRule) check(ctx *api.Context) {
 			if line == 0 {
 				line = 1
 			}
-			ctx.Emit(gradleFinding(path, line, r.BaseRule, l.Message))
+			ctx.Emit(baseFinding(path, line, r.BaseRule, l.Message))
 		}
 	}
 }
@@ -223,7 +206,7 @@ func (r *StringIntegerRule) check(ctx *api.Context) {
 	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	for i, line := range strings.Split(content, "\n") {
 		if gradleLineHasQuotedIntegerSDKProperty(line) {
-			ctx.Emit(gradleFinding(path, i+1, r.BaseRule,
+			ctx.Emit(baseFinding(path, i+1, r.BaseRule,
 				"SDK version should be an integer, not a string. Remove quotes."))
 		}
 	}
@@ -374,7 +357,7 @@ func (r *RemoteVersionRule) check(ctx *api.Context) {
 			if line == 0 {
 				line = 1
 			}
-			ctx.Emit(gradleFinding(path, line, r.BaseRule,
+			ctx.Emit(baseFinding(path, line, r.BaseRule,
 				fmt.Sprintf("Dependency %s:%s uses non-deterministic version `%s`. Pin to a specific version.",
 					dep.Group, dep.Name, dep.Version)))
 		}
@@ -407,7 +390,7 @@ func (r *DynamicVersionRule) check(ctx *api.Context) {
 			return
 		}
 		emitted[key] = true
-		ctx.Emit(gradleFinding(path, line, r.BaseRule,
+		ctx.Emit(baseFinding(path, line, r.BaseRule,
 			fmt.Sprintf("Dependency %s uses dynamic version `%s`. Pin to a specific version for reproducible builds.",
 				label, version)))
 	}
@@ -625,7 +608,7 @@ func (r *GradleOldTargetAPIRule) check(ctx *api.Context) {
 	if line == 0 {
 		line = 1
 	}
-	ctx.Emit(gradleFinding(path, line, r.BaseRule,
+	ctx.Emit(baseFinding(path, line, r.BaseRule,
 		fmt.Sprintf("targetSdkVersion %d is below the recommended minimum of %d. "+
 			"Update to comply with Google Play requirements.",
 			cfg.TargetSdkVersion, threshold)))
@@ -657,7 +640,7 @@ func (r *DeprecatedDependencyRule) check(ctx *api.Context) {
 				// Try to find the dependency in the content for a better line number
 				line = 1
 			}
-			ctx.Emit(gradleFinding(path, line, r.BaseRule, l.Message))
+			ctx.Emit(baseFinding(path, line, r.BaseRule, l.Message))
 		}
 	}
 }
@@ -684,7 +667,7 @@ func (r *MavenLocalRule) check(ctx *api.Context) {
 	if line == 0 {
 		return
 	}
-	ctx.Emit(gradleFinding(path, line, r.BaseRule,
+	ctx.Emit(baseFinding(path, line, r.BaseRule,
 		"mavenLocal() can cause unreproducible builds; prefer a remote repository or includeBuild."))
 }
 
@@ -720,7 +703,7 @@ func (r *MinSdkTooLowRule) check(ctx *api.Context) {
 	if line == 0 {
 		line = 1
 	}
-	ctx.Emit(gradleFinding(path, line, r.BaseRule,
+	ctx.Emit(baseFinding(path, line, r.BaseRule,
 		fmt.Sprintf("minSdk %d is below the recommended minimum of %d.",
 			cfg.MinSdkVersion, threshold)))
 }
@@ -775,7 +758,7 @@ func (r *GradleDeprecatedRule) check(ctx *api.Context) {
 					continue
 				}
 			}
-			ctx.Emit(gradleFinding(path, i+1, r.BaseRule,
+			ctx.Emit(baseFinding(path, i+1, r.BaseRule,
 				fmt.Sprintf("'%s' is deprecated; use '%s' instead.", name, replacement)))
 			break
 		}
@@ -833,7 +816,7 @@ func (r *GradleGetterRule) check(ctx *api.Context) {
 			if len(rest) == 0 || rest[0] == '=' {
 				continue
 			}
-			ctx.Emit(gradleFinding(path, i+1, r.BaseRule,
+			ctx.Emit(baseFinding(path, i+1, r.BaseRule,
 				fmt.Sprintf("Groovy-style '%s' should be replaced with '%s' in Kotlin DSL.", name, replacement)))
 			break
 		}
@@ -891,13 +874,13 @@ func (r *GradlePathRule) check(ctx *api.Context) {
 			}
 			rest := strings.TrimSpace(line[idx+len(fn):])
 			if len(rest) >= 2 && (rest[0] == '"' || rest[0] == '\'') && rest[1] == '/' {
-				ctx.Emit(gradleFinding(path, i+1, r.BaseRule,
+				ctx.Emit(baseFinding(path, i+1, r.BaseRule,
 					"Avoid absolute paths in files()/fileTree(); use project-relative paths."))
 				break
 			}
 		}
 		if gradlePathCallContains(line, `\`) {
-			ctx.Emit(gradleFinding(path, i+1, r.BaseRule,
+			ctx.Emit(baseFinding(path, i+1, r.BaseRule,
 				"Avoid backslashes in dependency paths; use forward slashes for cross-platform compatibility."))
 		}
 	}
@@ -928,7 +911,7 @@ func (r *GradleOverridesRule) check(ctx *api.Context) {
 		if line == 0 {
 			line = 1
 		}
-		ctx.Emit(gradleFinding(path, line, r.BaseRule,
+		ctx.Emit(baseFinding(path, line, r.BaseRule,
 			"Both minSdk and targetSdk are set in the Gradle build file, overriding any values in AndroidManifest.xml."))
 		return
 	}
@@ -964,7 +947,7 @@ func (r *GradleIdeErrorRule) check(ctx *api.Context) {
 		// Kotlin-legacy: `apply(plugin = "...")` — valid Kotlin but deprecated
 		if strings.HasPrefix(trimmed, "apply plugin:") ||
 			(strings.HasPrefix(trimmed, "apply(") && strings.Contains(trimmed, "plugin")) {
-			ctx.Emit(gradleFinding(path, i+1, r.BaseRule,
+			ctx.Emit(baseFinding(path, i+1, r.BaseRule,
 				"Use the plugins { } block instead of 'apply plugin:' in Kotlin DSL (.kts) files."))
 		}
 	}
@@ -1004,7 +987,7 @@ func (r *AndroidGradlePluginVersionRule) check(ctx *api.Context) {
 		line = 1
 	}
 	version := matches[1] + "." + matches[2] + "." + matches[3]
-	ctx.Emit(gradleFinding(path, line, r.BaseRule,
+	ctx.Emit(baseFinding(path, line, r.BaseRule,
 		fmt.Sprintf("Android Gradle Plugin version %s is too old. Upgrade to at least 7.0.0.", version)))
 }
 
@@ -1154,7 +1137,7 @@ func (r *NewerVersionAvailableRule) check(ctx *api.Context) {
 					if line == 0 {
 						line = 1
 					}
-					ctx.Emit(gradleFinding(path, line, r.BaseRule,
+					ctx.Emit(baseFinding(path, line, r.BaseRule,
 						fmt.Sprintf("A newer version of %s:%s is available. Update from %s to at least %s.",
 							dep.Group, dep.Name, dep.Version, rec.Display)))
 				}

@@ -32,7 +32,7 @@ func (r *RtlEnabledManifestRule) check(ctx *api.Context) {
 	}
 	app := m.Application
 	if app.SupportsRtl == nil || !*app.SupportsRtl {
-		ctx.Emit(manifestFinding(m.Path, app.Line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, app.Line, r.BaseRule,
 			"Missing `android:supportsRtl=\"true\"` on <application>. "+
 				"Add RTL support to ensure proper layout mirroring for RTL languages."))
 		return
@@ -64,7 +64,7 @@ func (r *RtlCompatManifestRule) check(ctx *api.Context) {
 		return
 	}
 	if m.Application.SupportsRtl == nil || !*m.Application.SupportsRtl {
-		ctx.Emit(manifestFinding(m.Path, m.Application.Line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, m.Application.Line, r.BaseRule,
 			fmt.Sprintf("targetSdkVersion is %d (>= 17) but `android:supportsRtl` is not set to true. "+
 				"Enable RTL support with `android:supportsRtl=\"true\"` for proper right-to-left layout mirroring.",
 				m.TargetSDK)))
@@ -125,7 +125,7 @@ func (r *AppIndexingErrorManifestRule) check(ctx *api.Context) {
 			if hasHTTPS {
 				missing = "http"
 			}
-			ctx.Emit(manifestFinding(m.Path, act.Line, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, act.Line, r.BaseRule,
 				fmt.Sprintf("Activity `%s` has a web deep link but is missing the `%s` scheme. "+
 					"Add `<data android:scheme=\"%s\" />` to handle both http and https URLs.",
 					act.Name, missing, missing)))
@@ -170,7 +170,7 @@ func (r *AppIndexingWarningManifestRule) check(ctx *api.Context) {
 			}
 		}
 		if !hasViewAction {
-			ctx.Emit(manifestFinding(m.Path, act.Line, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, act.Line, r.BaseRule,
 				fmt.Sprintf("Activity `%s` has a BROWSABLE intent filter but no VIEW action. "+
 					"Add `<action android:name=\"android.intent.action.VIEW\" />` to handle deep links properly.",
 					act.Name)))
@@ -220,7 +220,7 @@ func (r *GoogleAppIndexingDeepLinkErrorManifestRule) check(ctx *api.Context) {
 			}
 		}
 		if hasWebScheme && len(act.IntentFilterDataHosts) == 0 {
-			ctx.Emit(manifestFinding(m.Path, act.Line, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, act.Line, r.BaseRule,
 				fmt.Sprintf("Activity `%s` has an http/https deep link with no host. "+
 					"A web URI with a scheme but no host is malformed. "+
 					"Add `<data android:host=\"...\" />` to the intent filter.",
@@ -268,7 +268,7 @@ func (r *GoogleAppIndexingWarningManifestRule) check(ctx *api.Context) {
 			}
 		}
 	}
-	ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
+	ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
 		"No activity with a VIEW intent filter and http/https data scheme found. "+
 			"Add deep link support to enable Google App Indexing. "+
 			"https://developer.android.com/training/app-indexing"))
@@ -300,7 +300,7 @@ func (r *MissingLeanbackLauncherManifestRule) check(ctx *api.Context) {
 		return
 	}
 	if m.Application == nil {
-		ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
 			"App declares `android.software.leanback` feature but has no activity with "+
 				"LEANBACK_LAUNCHER category. Add an activity with "+
 				"`<category android:name=\"android.intent.category.LEANBACK_LAUNCHER\" />`."))
@@ -313,7 +313,7 @@ func (r *MissingLeanbackLauncherManifestRule) check(ctx *api.Context) {
 			}
 		}
 	}
-	ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
+	ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
 		"App declares `android.software.leanback` feature but has no activity with "+
 			"LEANBACK_LAUNCHER category. Add an activity with "+
 			"`<category android:name=\"android.intent.category.LEANBACK_LAUNCHER\" />`."))
@@ -350,7 +350,7 @@ func (r *MissingLeanbackSupportManifestRule) check(ctx *api.Context) {
 			return
 		}
 	}
-	ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
+	ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
 		"App declares `android.software.leanback` feature but does not opt out of touchscreen. "+
 			"TV apps must declare `<uses-feature android:name=\"android.hardware.touchscreen\" "+
 			"android:required=\"false\" />` because TV devices do not have touchscreens."))
@@ -420,7 +420,7 @@ func (r *PermissionImpliesUnsupportedHardwareManifestRule) check(ctx *api.Contex
 	}
 	if len(missing) == 1 {
 		only := missing[0]
-		ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
 			fmt.Sprintf("Permission `%s` implies hardware feature `%s`. "+
 				"Declare `<uses-feature android:name=\"%s\" android:required=\"false\" />` "+
 				"to allow installation on devices without this hardware.",
@@ -431,7 +431,7 @@ func (r *PermissionImpliesUnsupportedHardwareManifestRule) check(ctx *api.Contex
 	for _, mf := range missing {
 		parts = append(parts, fmt.Sprintf("`%s` -> `%s`", mf.perm, mf.feature))
 	}
-	ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
+	ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
 		fmt.Sprintf("Permissions imply hardware features that are not declared as optional: %s. "+
 			"Declare each with `<uses-feature android:name=\"…\" android:required=\"false\" />` "+
 			"to allow installation on devices without this hardware.",
@@ -473,7 +473,7 @@ func (r *UnsupportedChromeOsHardwareManifestRule) check(ctx *api.Context) {
 		if strings.EqualFold(f.Required, "false") {
 			continue
 		}
-		ctx.Emit(manifestFinding(m.Path, f.Line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, f.Line, r.BaseRule,
 			fmt.Sprintf("`<uses-feature android:name=\"%s\">` is not available on most Chrome OS devices. "+
 				"Set `android:required=\"false\"` to allow installation on Chromebooks.",
 				f.Name)))
@@ -517,7 +517,7 @@ func (r *DeviceAdminManifestRule) check(ctx *api.Context) {
 			}
 		}
 		if !hasDeviceAdminMeta {
-			ctx.Emit(manifestFinding(m.Path, recv.Line, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, recv.Line, r.BaseRule,
 				fmt.Sprintf("Receiver `%s` handles DEVICE_ADMIN_ENABLED but is missing "+
 					"`<meta-data android:name=\"android.app.device_admin\" android:resource=\"@xml/device_admin\"/>`.",
 					recv.Name)))
@@ -551,7 +551,7 @@ func (r *FullBackupContentManifestRule) check(ctx *api.Context) {
 
 	// When allowBackup is true (or default) and targetSdk >= 23, missing fullBackupContent is an issue
 	if m.TargetSDK >= 23 && app.FullBackupContent == "" {
-		ctx.Emit(manifestFinding(m.Path, app.Line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, app.Line, r.BaseRule,
 			"Missing `android:fullBackupContent` attribute on <application>. "+
 				"When allowBackup is true and targetSdkVersion >= 23, specify fullBackupContent "+
 				"to control which files are backed up. "+
@@ -603,7 +603,7 @@ func (r *MissingRegisteredManifestRule) check(ctx *api.Context) {
 	for _, c := range allComponents(m.Application) {
 		invalid, reason := isInvalidComponentName(c.Name)
 		if invalid {
-			ctx.Emit(manifestFinding(m.Path, c.Line, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, c.Line, r.BaseRule,
 				fmt.Sprintf("Invalid component name `%s` in <%s>: %s.",
 					c.Name, c.Tag, reason)))
 		}

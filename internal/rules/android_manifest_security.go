@@ -44,14 +44,14 @@ func (r *AllowBackupManifestRule) check(ctx *api.Context) {
 	app := m.Application
 	if app.AllowBackup == nil {
 		// Not set — defaults to true, which is the risky default
-		ctx.Emit(manifestFinding(m.Path, app.Line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, app.Line, r.BaseRule,
 			"Missing `android:allowBackup` attribute on <application>. "+
 				"Consider explicitly setting android:allowBackup=\"false\" to disable backup. "+
 				"http://developer.android.com/reference/android/R.attr.html#allowBackup"))
 		return
 	}
 	if *app.AllowBackup {
-		ctx.Emit(manifestFinding(m.Path, app.Line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, app.Line, r.BaseRule,
 			"`android:allowBackup=\"true\"` allows app data to be backed up via adb. "+
 				"Set to false if your app handles sensitive data. "+
 				"http://developer.android.com/reference/android/R.attr.html#allowBackup"))
@@ -78,7 +78,7 @@ func (r *DebuggableManifestRule) check(ctx *api.Context) {
 	}
 	app := m.Application
 	if app.Debuggable != nil && *app.Debuggable {
-		ctx.Emit(manifestFinding(m.Path, app.Line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, app.Line, r.BaseRule,
 			"`android:debuggable=\"true\"` is set in the manifest. "+
 				"This should be controlled by the build system (debug vs release build type). "+
 				"Remove the debuggable attribute from the manifest."))
@@ -102,7 +102,7 @@ func (r *DeepLinkMissingAutoVerifyRule) check(ctx *api.Context) {
 	}
 	filters := deepLinkMissingAutoVerifyFilters(m.Path)
 	for _, filter := range filters {
-		ctx.Emit(manifestFinding(m.Path, filter.line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, filter.line, r.BaseRule,
 			"HTTP(S) deep link intent-filter is missing android:autoVerify=\"true\". Add autoVerify for verified Android App Links."))
 	}
 }
@@ -248,7 +248,7 @@ func (r *ExportedWithoutPermissionRule) check(ctx *api.Context) {
 			// would break the contract with the calling system service.
 			continue
 		}
-		ctx.Emit(manifestFinding(m.Path, c.Line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, c.Line, r.BaseRule,
 			fmt.Sprintf("Exported %s `%s` does not require a permission. "+
 				"Add android:permission to restrict access.",
 				c.Tag, c.Name)))
@@ -406,7 +406,7 @@ func (r *MissingExportedFlagRule) check(ctx *api.Context) {
 	components := allComponents(m.Application)
 	for _, c := range components {
 		if c.HasIntentFilter && c.Exported == nil {
-			ctx.Emit(manifestFinding(m.Path, c.Line, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, c.Line, r.BaseRule,
 				fmt.Sprintf("%s `%s` has an intent-filter but does not set android:exported. "+
 					"Starting with Android 12 (API 31), android:exported must be explicitly set "+
 					"for components with intent-filters.",
@@ -433,7 +433,7 @@ func (r *ExportedServiceManifestRule) check(ctx *api.Context) {
 	}
 	for _, svc := range m.Application.Services {
 		if svc.Exported != nil && *svc.Exported && svc.Permission == "" {
-			ctx.Emit(manifestFinding(m.Path, svc.Line, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, svc.Line, r.BaseRule,
 				fmt.Sprintf("Exported service `%s` does not require a permission. "+
 					"Any app can bind to it. Add android:permission to restrict access.",
 					svc.Name)))
@@ -464,7 +464,7 @@ func (r *ExportedPreferenceActivityManifestRule) check(ctx *api.Context) {
 		}
 		exported := (act.Exported != nil && *act.Exported) || act.HasIntentFilter
 		if exported {
-			ctx.Emit(manifestFinding(m.Path, act.Line, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, act.Line, r.BaseRule,
 				fmt.Sprintf("Activity `%s` appears to extend PreferenceActivity and is exported. "+
 					"Exported PreferenceActivity subclasses are vulnerable to fragment injection attacks. "+
 					"Restrict access with android:permission or set android:exported=\"false\".",
@@ -494,7 +494,7 @@ func (r *CleartextTrafficRule) check(ctx *api.Context) {
 		return
 	}
 	if m.Application.UsesCleartextTraffic != nil && *m.Application.UsesCleartextTraffic {
-		ctx.Emit(manifestFinding(m.Path, m.Application.Line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, m.Application.Line, r.BaseRule,
 			"`android:usesCleartextTraffic=\"true\"` allows unencrypted HTTP traffic. "+
 				"This is a security risk. Use HTTPS and set usesCleartextTraffic to false, "+
 				"or use a Network Security Config to restrict cleartext to specific domains."))
@@ -524,7 +524,7 @@ func (r *BackupRulesRule) check(ctx *api.Context) {
 		return
 	}
 	if app.FullBackupContent == "" && app.DataExtractionRules == "" {
-		ctx.Emit(manifestFinding(m.Path, app.Line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, app.Line, r.BaseRule,
 			"Missing backup configuration. Add `android:fullBackupContent` (API < 31) "+
 				"or `android:dataExtractionRules` (API 31+) to control what data is backed up."))
 		return
@@ -568,7 +568,7 @@ func (r *InsecureBaseConfigurationManifestRule) check(ctx *api.Context) {
 		return
 	}
 	if m.Application.NetworkSecurityConfig == "" {
-		ctx.Emit(manifestFinding(m.Path, m.Application.Line, r.BaseRule,
+		ctx.Emit(baseFinding(m.Path, m.Application.Line, r.BaseRule,
 			"Missing `android:networkSecurityConfig` on <application> with targetSdkVersion >= 28. "+
 				"Add a Network Security Configuration to explicitly control network security behavior. "+
 				"https://developer.android.com/training/articles/security-config"))
@@ -604,7 +604,7 @@ func (r *NetworkSecurityConfigDebugOverridesRule) check(ctx *api.Context) {
 	if debugNode == nil {
 		return
 	}
-	ctx.Emit(manifestFinding(configPath, debugNode.Line, r.BaseRule,
+	ctx.Emit(baseFinding(configPath, debugNode.Line, r.BaseRule,
 		"`<debug-overrides>` is declared in a main/shared network security config. Move debug trust anchors to `src/debug/res/xml/` so they do not ship in release builds."))
 }
 
@@ -631,7 +631,7 @@ func (r *UnprotectedSMSBroadcastReceiverManifestRule) check(ctx *api.Context) {
 		}
 		for _, action := range recv.IntentFilterActions {
 			if action == "android.provider.Telephony.SMS_RECEIVED" {
-				ctx.Emit(manifestFinding(m.Path, recv.Line, r.BaseRule,
+				ctx.Emit(baseFinding(m.Path, recv.Line, r.BaseRule,
 					fmt.Sprintf("Receiver `%s` listens for SMS_RECEIVED but has no android:permission. "+
 						"Add `android:permission=\"android.permission.BROADCAST_SMS\"` to prevent spoofed broadcasts.",
 						recv.Name)))
@@ -690,7 +690,7 @@ func (r *UnsafeProtectedBroadcastReceiverManifestRule) check(ctx *api.Context) {
 		}
 		for _, action := range recv.IntentFilterActions {
 			if protectedBroadcastActions[action] {
-				ctx.Emit(manifestFinding(m.Path, recv.Line, r.BaseRule,
+				ctx.Emit(baseFinding(m.Path, recv.Line, r.BaseRule,
 					fmt.Sprintf("Receiver `%s` listens for protected broadcast `%s` and is exported without a permission. "+
 						"Add android:permission to prevent unauthorized broadcasts.",
 						recv.Name, action)))
@@ -744,7 +744,7 @@ func (r *UseCheckPermissionManifestRule) check(ctx *api.Context) {
 		}
 		for _, action := range svc.IntentFilterActions {
 			if sensitiveServiceActions[action] {
-				ctx.Emit(manifestFinding(m.Path, svc.Line, r.BaseRule,
+				ctx.Emit(baseFinding(m.Path, svc.Line, r.BaseRule,
 					fmt.Sprintf("Exported service `%s` handles sensitive action `%s` "+
 						"without declaring android:permission. "+
 						"Add a permission attribute to restrict access to this service.",
@@ -805,7 +805,7 @@ func (r *ProtectedPermissionsManifestRule) check(ctx *api.Context) {
 			if idx := strings.LastIndex(perm, "."); idx >= 0 {
 				short = perm[idx+1:]
 			}
-			ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
 				fmt.Sprintf("Permission `%s` is only granted to system apps. "+
 					"Third-party apps cannot acquire this permission.",
 					short)))
@@ -833,7 +833,7 @@ func (r *ServiceExportedManifestRule) check(ctx *api.Context) {
 	}
 	for _, svc := range m.Application.Services {
 		if svc.Exported != nil && *svc.Exported && svc.Permission == "" {
-			ctx.Emit(manifestFinding(m.Path, svc.Line, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, svc.Line, r.BaseRule,
 				fmt.Sprintf("Exported service `%s` does not require a permission. "+
 					"Any app can bind to it. Consider adding android:permission.",
 					svc.Name)))

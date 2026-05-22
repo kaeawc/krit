@@ -197,7 +197,7 @@ func (r *PluralsMissingZeroRule) scanValuesDir(ctx *api.Context, dir, lang strin
 				continue
 			}
 			pluralName := p.Attr("name")
-			ctx.Emit(resourceFinding(path, p.Line, r.BaseRule,
+			ctx.Emit(baseFinding(path, p.Line, r.BaseRule,
 				fmt.Sprintf("Plural `%s` in `values-%s/` is missing `<item quantity=\"zero\">`. CLDR specifies a zero form for `%s`.",
 					pluralName, lang, lang)))
 		}

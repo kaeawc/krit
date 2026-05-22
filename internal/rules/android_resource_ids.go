@@ -38,7 +38,7 @@ func (r *DuplicateIDsResourceRule) check(ctx *api.Context) {
 			id = strings.TrimPrefix(id, "@+id/")
 			id = strings.TrimPrefix(id, "@id/")
 			if firstLine, ok := seen[id]; ok {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Duplicate id `@+id/%s` in layout `%s` (first used at line %d).",
 						id, layout.Name, firstLine)))
 			} else {
@@ -101,7 +101,7 @@ func (r *InvalidIDResourceRule) check(ctx *api.Context) {
 				return
 			}
 			if !isValidAndroidID(id) {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Invalid `android:id` value `%s`. IDs must be `@+id/name` or `@id/name` with alphanumeric/underscore names.",
 						id)))
 			}
@@ -140,7 +140,7 @@ func (r *MissingIDResourceRule) check(ctx *api.Context) {
 			if v.Attributes["android:tag"] != "" {
 				return
 			}
-			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("<%s> should specify an `android:id` or `android:tag` to allow proper state saving.",
 					v.Type)))
 		})
@@ -257,7 +257,7 @@ func (r *CutPasteIDResourceRule) check(ctx *api.Context) {
 					}
 				}
 				if !matched {
-					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("ID `%s` suggests a `%s` but the view is `%s`. Possible copy-paste mistake.",
 							v.ID, expectedTypes[0], v.Type)))
 				}
@@ -359,7 +359,7 @@ func (r *DuplicateIncludedIDsResourceRule) check(ctx *api.Context) {
 		if !foundConflict {
 			continue
 		}
-		ctx.Emit(resourceFinding(conflictPair[0].path, conflictPair[0].line, r.BaseRule,
+		ctx.Emit(baseFinding(conflictPair[0].path, conflictPair[0].line, r.BaseRule,
 			fmt.Sprintf("ID `%s` collides: layout `%s` includes `%s` which also defines `%s`. Runtime findViewById will return the wrong view.",
 				id, conflictPair[0].name, conflictPair[1].name, id)))
 	}
@@ -438,7 +438,7 @@ func (r *MissingPrefixResourceRule) check(ctx *api.Context) {
 				}
 				// Check if this is a known android attribute missing its prefix
 				if knownAndroidAttrs[attrName] {
-					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("Attribute `%s` missing `android:` prefix. Use `android:%s` instead.",
 							attrName, attrName)))
 				}
@@ -511,7 +511,7 @@ func (r *NamespaceTypoResourceRule) check(ctx *api.Context) {
 				strings.Contains(attrVal, "shemas.android.com") {
 				dist := levenshtein(attrVal, correctAndroidNS)
 				if dist > 0 && dist <= 5 {
-					ctx.Emit(resourceFinding(layout.FilePath, layout.RootView.Line, r.BaseRule,
+					ctx.Emit(baseFinding(layout.FilePath, layout.RootView.Line, r.BaseRule,
 						fmt.Sprintf("Possible typo in namespace URI `%s`. Did you mean `%s`?",
 							attrVal, correctAndroidNS)))
 				}
@@ -548,7 +548,7 @@ func (r *ResAutoResourceRule) check(ctx *api.Context) {
 				if strings.HasPrefix(attr, "xmlns:") && strings.HasPrefix(val, resPackagePrefix) {
 					suffix := val[len(resPackagePrefix):]
 					if suffix != "" && suffix != "android" {
-						ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+						ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 							fmt.Sprintf("Namespace declaration `%s=\"%s\"` uses a hardcoded package name. "+
 								"Use `http://schemas.android.com/apk/res-auto` instead.",
 								attr, val)))
@@ -615,7 +615,7 @@ func (r *UnusedNamespaceResourceRule) check(ctx *api.Context) {
 			}
 			prefix := strings.TrimPrefix(attr, "xmlns:")
 			if !used[prefix] {
-				ctx.Emit(resourceFinding(layout.FilePath, root.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, root.Line, r.BaseRule,
 					fmt.Sprintf("Unused namespace declaration `xmlns:%s`. "+
 						"No attributes in the layout use the `%s:` prefix.",
 						prefix, prefix)))
@@ -661,7 +661,7 @@ func (r *IllegalResourceRefResourceRule) check(ctx *api.Context) {
 				ref = strings.TrimPrefix(ref, "+")
 				// Must contain a / separating type from name
 				if !strings.Contains(ref, "/") {
-					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("Malformed resource reference `%s` in attribute `%s`. "+
 							"Expected format `@[type]/name`.",
 							val, attr)))
@@ -673,14 +673,14 @@ func (r *IllegalResourceRefResourceRule) check(ctx *api.Context) {
 				// Type part (possibly prefixed with "android:")
 				resType = strings.TrimPrefix(resType, "android:")
 				if resType == "" {
-					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("Malformed resource reference `%s` in attribute `%s`. "+
 							"Missing resource type before `/`.",
 							val, attr)))
 					continue
 				}
 				if resName == "" {
-					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("Malformed resource reference `%s` in attribute `%s`. "+
 							"Missing resource name after `/`.",
 							val, attr)))
@@ -760,7 +760,7 @@ func (r *WrongCaseResourceRule) check(ctx *api.Context) {
 				return
 			}
 			if v.Type != correct {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("View tag `%s` has wrong capitalization. Use `%s` instead.",
 						v.Type, correct)))
 			}
@@ -804,7 +804,7 @@ func (r *WrongFolderResourceRule) check(ctx *api.Context) {
 					continue
 				}
 				if !drawableSet[name] {
-					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("Resource reference `%s` in attribute `%s` not found in any drawable or mipmap directory.",
 							val, attr)))
 				}
@@ -864,7 +864,7 @@ func (r *InvalidResourceFolderResourceRule) check(ctx *api.Context) {
 		}
 		folder := afterRes[:slashIdx]
 		if !isValidResFolderName(folder) {
-			ctx.Emit(resourceFinding(layout.FilePath, 1, r.BaseRule,
+			ctx.Emit(baseFinding(layout.FilePath, 1, r.BaseRule,
 				fmt.Sprintf("Invalid resource folder name `%s`. "+
 					"Expected one of: layout, drawable, mipmap, values, raw, xml, anim, animator, color, menu, font, navigation, transition.",
 					folder)))
@@ -893,7 +893,7 @@ func (r *AppCompatResourceRule) check(ctx *api.Context) {
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.Attributes["android:showAsAction"] != "" {
-				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` uses `android:showAsAction` instead of `app:showAsAction`. Use `app:showAsAction` for AppCompat compatibility.", v.Type)))
 			}
 		})

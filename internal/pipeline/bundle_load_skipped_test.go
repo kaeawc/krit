@@ -39,8 +39,10 @@ func TestBundleHit_SkipsLoadOnFormatCacheHit(t *testing.T) {
 	host := ProjectHostState{
 		FindingsBundleStore:     store,
 		FindingsBundleCacheRoot: t.TempDir(),
-		BundleOutput:            w.BundleOutput,
-		StoreBundleOutput:       w.StoreBundleOutput,
+		DaemonCaches: DaemonCaches{
+			BundleOutput:      w.BundleOutput,
+			StoreBundleOutput: w.StoreBundleOutput,
+		},
 	}
 
 	// Invoke serveBundleHitFromOutputCache directly with cached=nil

@@ -200,16 +200,7 @@ type TestFunctionReturnValueRule struct {
 
 func (r *TestFunctionReturnValueRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// ---------------------------------------------------------------------------
-// TestNameContainsUnderscoreRule
-// ---------------------------------------------------------------------------
-
-type TestNameContainsUnderscoreRule struct {
-	FlatDispatchBase
-	BaseRule
-}
-
-func (r *TestNameContainsUnderscoreRule) Confidence() float64 { return api.ConfidenceMediumLow }
+// TestNameContainsUnderscoreRule lives in testing_quality_test_name_underscore.go.
 
 // ---------------------------------------------------------------------------
 // SharedMutableStateInObjectRule

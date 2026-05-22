@@ -39,26 +39,38 @@ func TestDaemonCompatibleFlags_OracleArgsAllowed(t *testing.T) {
 	}
 }
 
-// TestDaemonCompatibleFlags_OracleBackendBypassesDaemon pins the
-// short-circuit added when an explicit `--oracle-backend` arrives:
-// the serve daemon's resident oracle is tied to krit-types via
-// oracle.FindJar, and the wire doesn't carry the backend flag.
-// Delegating would silently ignore the user's choice — so the
-// gate refuses delegation and the in-process path handles it.
-func TestDaemonCompatibleFlags_OracleBackendBypassesDaemon(t *testing.T) {
-	for _, backend := range []string{"kaa", "fir"} {
-		t.Run(backend, func(t *testing.T) {
+// TestDaemonCompatibleFlags_OracleBackendForwardedNotBypassed pins
+// the post-wire behavior: AnalyzeProjectArgs.OracleBackend now carries
+// the user's choice to the daemon, so daemonCompatibleFlags admits
+// every spelling. The serve handler validates and returns a typed
+// ErrUnsupportedOracleBackendPrefix when it can't honor the request —
+// runDaemonAnalyze catches that and falls back to in-process.
+// Bypassing here would prevent the daemon from ever serving a backend
+// that's wired but not-yet-implemented end-to-end.
+func TestDaemonCompatibleFlags_OracleBackendForwardedNotBypassed(t *testing.T) {
+	for _, backend := range []string{"", "kaa", "fir"} {
+		t.Run("backend="+backend, func(t *testing.T) {
 			f := freshScanFlags(t)
 			*f.OracleBackend = backend
-			if got := daemonCompatibleFlags(f); got {
-				t.Errorf("daemonCompatibleFlags(--oracle-backend=%s) = true, want false", backend)
+			if got := daemonCompatibleFlags(f); !got {
+				t.Errorf("daemonCompatibleFlags(--oracle-backend=%q) = false, want true (backend now travels over the wire)", backend)
 			}
 		})
 	}
-	// Empty (default) value keeps delegation enabled.
-	f := freshScanFlags(t)
-	if got := daemonCompatibleFlags(f); !got {
-		t.Errorf("daemonCompatibleFlags(default) = false, want true")
+}
+
+// TestBuildDaemonAnalyzeArgs_ForwardsOracleBackend confirms the
+// user's --oracle-backend value reaches the wire verbatim.
+func TestBuildDaemonAnalyzeArgs_ForwardsOracleBackend(t *testing.T) {
+	for _, backend := range []string{"", "kaa", "fir"} {
+		t.Run("backend="+backend, func(t *testing.T) {
+			f := freshScanFlags(t)
+			*f.OracleBackend = backend
+			args := buildDaemonAnalyzeArgs(f, []string{"/tmp"})
+			if args.OracleBackend != backend {
+				t.Errorf("OracleBackend = %q, want %q", args.OracleBackend, backend)
+			}
+		})
 	}
 }
 

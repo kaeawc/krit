@@ -16,6 +16,7 @@ import (
 	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
@@ -49,6 +50,22 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 
 	if daemonHash := daemonBinaryHash(); args.ClientBinaryHash != "" && daemonHash != "" && args.ClientBinaryHash != daemonHash {
 		return nil, fmt.Errorf("%s (daemon=%s client=%s)", daemon.ErrBinaryHashMismatchPrefix, daemonHash, args.ClientBinaryHash)
+	}
+
+	// Validate the requested oracle backend. The daemon's resident
+	// OracleDaemon is currently spawned via oracle.FindJar (krit-types
+	// only); a later PR will plumb krit-fir into the same lifecycle.
+	// Until that lands, accept the empty / kaa values and return a
+	// typed error for anything else so the CLI falls back to
+	// in-process via runDaemonAnalyze's existing error-fallback path
+	// — preserving the historical `--oracle-backend fir` behavior
+	// from before the wire was carrying this field.
+	backend, err := oracle.ParseBackend(args.OracleBackend)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", daemon.ErrUnsupportedOracleBackendPrefix, err)
+	}
+	if backend != oracle.BackendKAA {
+		return nil, fmt.Errorf("%s: %s not yet supported by serve daemon (pass --no-daemon for in-process %s)", daemon.ErrUnsupportedOracleBackendPrefix, backend, backend)
 	}
 
 	state.analyzeMu.Lock()

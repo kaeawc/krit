@@ -53,6 +53,15 @@ const (
 // `{ok:false,error:...}` envelope instead of a code field.
 const ErrBinaryHashMismatchPrefix = "binary hash mismatch"
 
+// ErrUnsupportedOracleBackendPrefix is emitted when the daemon
+// receives an AnalyzeProjectArgs.OracleBackend value it can't honor
+// (unknown spelling, or a backend the resident daemon doesn't spawn
+// yet). CLI callers detect this prefix and fall back to in-process
+// execution instead of failing the scan — preserving the historical
+// `--oracle-backend fir` behavior from before the wire field
+// existed.
+const ErrUnsupportedOracleBackendPrefix = "unsupported oracle backend"
+
 // ClearCacheArgs is the argument shape for the clear-cache verb.
 // ClientBinaryHash mirrors AnalyzeProjectArgs: empty disables the
 // handshake; non-empty values must match the daemon's hash or the
@@ -298,6 +307,16 @@ type AnalyzeProjectArgs struct {
 	// existing {findings,stats[,dispatch_profile]} shape so common
 	// scans stay byte-identical.
 	IncludeColumns bool `json:"include_columns,omitempty"`
+	// OracleBackend mirrors --oracle-backend: empty or "kaa" picks
+	// the krit-types JVM jar for the type oracle; "fir" picks
+	// krit-fir.jar instead. The daemon was historically pinned to
+	// krit-types via oracle.FindJar, and CLI invocations with
+	// --oracle-backend set bypassed daemon delegation entirely to
+	// avoid silently ignoring the user's choice. Forwarding the
+	// value lifts that bypass; an unrecognized value triggers a
+	// typed error response so silent-fallthrough cannot drop the
+	// caller's selection.
+	OracleBackend string `json:"oracle_backend,omitempty"`
 }
 
 // AnalyzeProjectResult is the response payload. Findings is the raw

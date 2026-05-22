@@ -96,6 +96,30 @@ func TestIsBinaryHashMismatch_MatchesDaemonError(t *testing.T) {
 	}
 }
 
+// TestIsUnsupportedOracleBackend_MatchesDaemonError mirrors
+// TestIsBinaryHashMismatch_MatchesDaemonError for the
+// ErrUnsupportedOracleBackendPrefix sentinel. The CLI uses this
+// classifier to fall back silently to in-process when the user picks
+// a backend the serve daemon doesn't spawn yet — preserving the
+// historical `--oracle-backend fir` behavior from before the wire
+// carried the field.
+func TestIsUnsupportedOracleBackend_MatchesDaemonError(t *testing.T) {
+	err := errors.New("unsupported oracle backend: fir not yet supported by serve daemon")
+	if !IsUnsupportedOracleBackend(err) {
+		t.Fatal("expected true")
+	}
+	if IsUnsupportedOracleBackend(nil) {
+		t.Fatal("nil should be false")
+	}
+	if IsUnsupportedOracleBackend(errors.New("unrelated")) {
+		t.Fatal("unrelated error should be false")
+	}
+	// The binary-hash sentinel must not collide with the new sentinel.
+	if IsUnsupportedOracleBackend(errors.New("binary hash mismatch (daemon=aaaa client=bbbb)")) {
+		t.Fatal("binary-hash error misclassified as unsupported-backend")
+	}
+}
+
 // TestAnalyzeProject_MismatchSurfacesError exercises the end-to-end
 // handshake: a daemon configured to enforce a different hash refuses
 // the AnalyzeProject call, and IsBinaryHashMismatch classifies the

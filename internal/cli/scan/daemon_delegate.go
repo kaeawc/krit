@@ -75,6 +75,16 @@ func runDaemonAnalyze(client *daemonclient.Client, f *scanFlags, paths []string)
 			fmt.Fprintf(os.Stderr, "warning: krit daemon rejected request (%v); falling back to in-process. Restart it with: krit daemon restart\n", err)
 			return false, 0
 		}
+		if daemonclient.IsUnsupportedOracleBackend(err) {
+			// Silent fallback: the daemon doesn't spawn the requested
+			// backend yet (e.g. --oracle-backend=fir before the FIR
+			// jar lifecycle landed). The in-process path handles the
+			// flag correctly via runOracleIndex, so we just let it
+			// run without a noisy warning — preserves the historical
+			// `--oracle-backend fir` behavior from before the wire
+			// carried this field.
+			return false, 0
+		}
 		fmt.Fprintf(os.Stderr, "warning: krit daemon call failed (%v); falling back to in-process\n", err)
 		return false, 0
 	}
@@ -579,15 +589,13 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 			return false
 		}
 	}
-	// `--oracle-backend` selects the JVM jar the oracle pass uses
-	// (krit-types vs krit-fir). The serve daemon's resident oracle
-	// always ties itself to krit-types via oracle.FindJar, and the
-	// daemon wire doesn't carry the backend flag — delegating would
-	// silently ignore the user's choice. Bypass delegation so the
-	// in-process path picks the right jar.
-	if *f.OracleBackend != "" {
-		return false
-	}
+	// `--oracle-backend` historically bypassed daemon delegation
+	// because the wire didn't carry the backend selection — the
+	// daemon always used krit-types via oracle.FindJar, so delegating
+	// would silently drop the user's choice. AnalyzeProjectArgs.OracleBackend
+	// now ships the value over the wire and the serve handler honors
+	// it, so the bypass is gone. buildDaemonAnalyzeArgs forwards
+	// *f.OracleBackend verbatim; the daemon picks the jar per call.
 	return true
 }
 
@@ -685,6 +693,7 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		DryRun:           *f.DryRun,
 		FixLevel:         *f.FixLevel,
 		IncludeColumns:   includeColumns,
+		OracleBackend:    *f.OracleBackend,
 		ClientBinaryHash: daemonclient.CurrentBinaryHash(),
 	}
 }

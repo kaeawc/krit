@@ -80,6 +80,18 @@ func IsBinaryHashMismatch(err error) bool {
 	return err != nil && strings.Contains(err.Error(), daemon.ErrBinaryHashMismatchPrefix)
 }
 
+// IsUnsupportedOracleBackend reports whether err is the daemon's
+// "unsupported oracle backend" rejection. Used by the CLI to fall
+// back to in-process execution when the user picked a backend the
+// daemon doesn't spawn yet (currently anything other than
+// AnalyzeProjectArgs.OracleBackend == "" / "kaa"). Mirrors
+// IsBinaryHashMismatch's contract so daemon_delegate's
+// runDaemonAnalyze can route both rejections through the same
+// "warn + fall through" branch.
+func IsUnsupportedOracleBackend(err error) bool {
+	return err != nil && strings.Contains(err.Error(), daemon.ErrUnsupportedOracleBackendPrefix)
+}
+
 // EnsureCompatible discovers a running daemon, compares its
 // reported binary hash against the running CLI's, and shuts the
 // daemon down + (when opts.AutoRestart is true) spawns a fresh one

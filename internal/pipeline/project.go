@@ -1543,6 +1543,14 @@ func runDispatchOrLoadBundle(
 	// dispatch flow, so a bundle hit halfway through leaves a "gap"
 	// with no children for the user to investigate).
 	tracker := host.Tracker
+	// recordDispatchPath emits a single "dispatchPath" perf entry with the
+	// outcome label so a one-glance read of the perf JSON answers
+	// "which layer fired" without cross-referencing the presence /
+	// absence of the per-layer scopes. Mirrors the per-layer hit/miss
+	// attribute pattern from tryBundleLayer.
+	recordDispatchPath := func(path string) {
+		perf.AddEntryDetails(tracker, "dispatchPath", 0, nil, map[string]string{"path": path})
+	}
 	if bundleEnabled {
 		// cacheHitFullBundle: RunFingerprint matches a prior run
 		// exactly; the prior bytes are guaranteed correct for this
@@ -1551,6 +1559,7 @@ func runDispatchOrLoadBundle(
 			cached, found := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, runFP)
 			return cached, found
 		}); ok {
+			recordDispatchPath("cacheHitFullBundle")
 			return d, c, true, dispatchTimings{}, nil
 		}
 		// cacheHitStructuralBundle: SourceSet hash drifted but every
@@ -1560,6 +1569,7 @@ func runDispatchOrLoadBundle(
 		if d, c, ok := tryBundleLayer(tracker, "dispatchStableBundleLoad", indexResult, func() (*scanner.FindingColumns, bool) {
 			return tryLoadStructurallyStableBundle(host, runFP, manifest)
 		}); ok {
+			recordDispatchPath("cacheHitStructuralBundle")
 			return d, c, true, dispatchTimings{}, nil
 		}
 		reportFindingsBundleMiss(host, manifest, runFP)
@@ -1570,33 +1580,36 @@ func runDispatchOrLoadBundle(
 		var deltaC CrossFileResult
 		var deltaOK bool
 		var deltaErr error
-		deltaFn := func() {
-			deltaD, deltaC, deltaOK, deltaErr = tryDeltaDispatch(ctx, args, host, indexResult, parseResult, runFP, manifest)
+		deltaStart := time.Now()
+		deltaD, deltaC, deltaOK, deltaErr = tryDeltaDispatch(ctx, args, host, indexResult, parseResult, runFP, manifest)
+		deltaOutcome := "miss"
+		if deltaOK {
+			deltaOutcome = "hit"
 		}
-		if tracker != nil && tracker.IsEnabled() {
-			tracker.TrackVoid("dispatchDeltaPath", deltaFn)
-		} else {
-			deltaFn()
-		}
+		perf.AddEntryDetails(tracker, "dispatchDeltaPath", time.Since(deltaStart), nil, map[string]string{"outcome": deltaOutcome})
 		if deltaErr != nil {
 			return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, deltaErr
 		}
 		if deltaOK {
+			recordDispatchPath("cacheHitDeltaBundle")
 			return deltaD, deltaC, false, dispatchTimings{}, nil
 		}
 	}
 	dispatchStart := time.Now()
 	d, err := DispatchPhase{}.Run(ctx, indexResult)
 	dispatchMs := time.Since(dispatchStart).Milliseconds()
+	perf.AddEntry(tracker, "dispatchPhaseRun", time.Since(dispatchStart))
 	if err != nil {
 		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, fmt.Errorf("dispatch: %w", err)
 	}
 	crossStart := time.Now()
 	c, err := CrossFilePhase{Workers: args.Workers}.Run(ctx, d)
 	crossMs := time.Since(crossStart).Milliseconds()
+	perf.AddEntry(tracker, "crossFilePhaseRun", time.Since(crossStart))
 	if err != nil {
 		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, fmt.Errorf("crossfile: %w", err)
 	}
+	recordDispatchPath("cacheMissFullDispatch")
 	return d, c, false, dispatchTimings{dispatchMs: dispatchMs, crossFileMs: crossMs}, nil
 }
 
@@ -1615,12 +1628,22 @@ func tryBundleLayer(
 ) (DispatchResult, CrossFileResult, bool) {
 	var cached *scanner.FindingColumns
 	var ok bool
-	fn := func() { cached, ok = load() }
-	if tracker != nil && tracker.IsEnabled() {
-		tracker.TrackVoid(scope, fn)
-	} else {
-		fn()
+	// Time the load manually so we can emit a perf entry tagged with
+	// hit/miss outcome. The historical tracker.TrackVoid path only
+	// timed the scope, leaving the hit/miss distinction implicit in
+	// "was the next layer's scope also emitted" — which is fragile
+	// for the daemon path where we genuinely want to know which
+	// bundle layer fired (cacheHitFullBundle / cacheHitStructuralBundle
+	// / cacheHitDeltaBundle / cacheMissFullDispatch). With explicit
+	// hit attrs the perf JSON answers that question on every call.
+	start := time.Now()
+	cached, ok = load()
+	dur := time.Since(start)
+	outcome := "miss"
+	if ok && cached != nil {
+		outcome = "hit"
 	}
+	perf.AddEntryDetails(tracker, scope, dur, nil, map[string]string{"outcome": outcome})
 	if !ok || cached == nil {
 		return DispatchResult{}, CrossFileResult{}, false
 	}

@@ -146,7 +146,7 @@ func findFixableFindings(sourcePath string, ruleSet []*api.Rule, ruleFilter stri
 	if err != nil {
 		return nil, err
 	}
-	dispatcher := rules.NewDispatcher(ruleSet)
+	dispatcher := rules.NewDispatcher(ruleSet, nil)
 	if rulesNeedResolver(ruleSet) {
 		resolver := typeinfer.NewResolver()
 		resolver.IndexFilesParallel([]*scanner.File{file}, 1)

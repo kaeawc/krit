@@ -57,7 +57,7 @@ func writeLayout(t *testing.T, resDir, name, body string) string {
 func runResourcePhase(t *testing.T, resDir, cacheDir string, writer *scanner.AndroidCacheWriter) AndroidResult {
 	t.Helper()
 	rule := findV2RuleForTest(t, "DuplicateIdsResource")
-	dispatcher := rules.NewDispatcher([]*api.Rule{rule})
+	dispatcher := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	res, err := (AndroidPhase{}).Run(context.Background(), AndroidInput{
 		Project:        &android.Project{ResDirs: []string{resDir}},
 		ActiveRules:    []*api.Rule{rule},

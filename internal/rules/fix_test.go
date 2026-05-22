@@ -81,7 +81,7 @@ func runBundledFixableFixtures(t *testing.T, dir string, activeRules []*api.Rule
 				t.Fatalf("failed to parse %s: %v", sourcePath, err)
 			}
 
-			dispatcher := rules.NewDispatcher(activeRules)
+			dispatcher := rules.NewDispatcher(activeRules, nil)
 			if rulesNeedResolver(activeRules) {
 				resolver := typeinfer.NewResolver()
 				resolver.IndexFilesParallel([]*scanner.File{file}, 1)
@@ -173,7 +173,7 @@ func runPerRuleFixableFixtures(t *testing.T, dir string) (int, error) {
 			// cross-file rule or module-aware rule; the
 			// dispatcher handles all of those when given a singleton
 			// registry.
-			soloDispatcher := rules.NewDispatcher([]*api.Rule{rule})
+			soloDispatcher := rules.NewDispatcher([]*api.Rule{rule}, nil)
 			if rule.Needs.Has(api.NeedsResolver) {
 				resolver := typeinfer.NewResolver()
 				resolver.IndexFilesParallel([]*scanner.File{file}, 1)

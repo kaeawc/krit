@@ -29,7 +29,7 @@ func parseFixtureB(b *testing.B, relPath string) *scanner.File {
 
 func BenchmarkDispatcherRun_SmallFile(b *testing.B) {
 	file := parseFixtureB(b, "../../tests/fixtures/positive/style/WildcardImport.kt")
-	d := rules.NewDispatcher(api.Registry)
+	d := rules.NewDispatcher(api.Registry, nil)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = d.Run(file)
@@ -38,7 +38,7 @@ func BenchmarkDispatcherRun_SmallFile(b *testing.B) {
 
 func BenchmarkDispatcherRun_LargeFile(b *testing.B) {
 	file := parseFixtureB(b, "../../tests/fixtures/positive/complexity/LargeClass.kt")
-	d := rules.NewDispatcher(api.Registry)
+	d := rules.NewDispatcher(api.Registry, nil)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = d.Run(file)
@@ -58,7 +58,7 @@ func BenchmarkDispatcherRun_SingleRule(b *testing.B) {
 	if len(single) == 0 {
 		b.Skip("MagicNumber rule not found in registry")
 	}
-	d := rules.NewDispatcher(single)
+	d := rules.NewDispatcher(single, nil)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = d.Run(file)
@@ -68,7 +68,7 @@ func BenchmarkDispatcherRun_SingleRule(b *testing.B) {
 func BenchmarkDispatcherRun_AllRules(b *testing.B) {
 	// Use ALL registered rules on the largest fixture
 	file := parseFixtureB(b, "../../tests/fixtures/positive/complexity/LargeClass.kt")
-	d := rules.NewDispatcher(api.Registry)
+	d := rules.NewDispatcher(api.Registry, nil)
 	dispatched, lineRules, crossFile, moduleAware := d.Stats()
 	b.Logf("rules: dispatched=%d line=%d cross-file=%d module-aware=%d",
 		dispatched, lineRules, crossFile, moduleAware)
@@ -81,13 +81,13 @@ func BenchmarkDispatcherRun_AllRules(b *testing.B) {
 func BenchmarkDispatcherConstruction(b *testing.B) {
 	// Measure the cost of building the dispatcher from all rules
 	for i := 0; i < b.N; i++ {
-		_ = rules.NewDispatcher(api.Registry)
+		_ = rules.NewDispatcher(api.Registry, nil)
 	}
 }
 
 func BenchmarkDispatcherRun_SampleFile(b *testing.B) {
 	file := parseFixtureB(b, "../../tests/fixtures/Sample.kt")
-	d := rules.NewDispatcher(api.Registry)
+	d := rules.NewDispatcher(api.Registry, nil)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = d.Run(file)

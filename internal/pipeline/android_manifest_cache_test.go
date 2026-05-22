@@ -39,7 +39,7 @@ func writeManifest(t *testing.T, dir, body string) string {
 func runManifestPhase(t *testing.T, manifestPath, cacheDir string, writer *scanner.AndroidCacheWriter) AndroidResult {
 	t.Helper()
 	rule := findV2RuleForTest(t, "AllowBackupManifest")
-	dispatcher := rules.NewDispatcher([]*api.Rule{rule})
+	dispatcher := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	res, err := (AndroidPhase{}).Run(context.Background(), AndroidInput{
 		Project:        &android.Project{ManifestPaths: []string{manifestPath}},
 		ActiveRules:    []*api.Rule{rule},
@@ -127,7 +127,7 @@ func TestAndroidManifestCache_RuleHashChangeInvalidates(t *testing.T) {
 	cacheDir := filepath.Join(root, ".krit", "android-findings-cache")
 
 	rule := findV2RuleForTest(t, "AllowBackupManifest")
-	dispatcher := rules.NewDispatcher([]*api.Rule{rule})
+	dispatcher := rules.NewDispatcher([]*api.Rule{rule}, nil)
 
 	// First run with rule-hash A.
 	writer := scanner.NewAndroidCacheWriter(2)

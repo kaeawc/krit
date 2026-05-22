@@ -282,7 +282,7 @@ func (s *Server) analyzeAndroid(args analyzeArgs) ToolResult {
 	collector := scanner.NewFindingCollector(len(proj.ManifestPaths)*4 + len(proj.ResDirs)*8 + len(proj.GradlePaths)*4)
 
 	libraryFacts := librarymodel.FactsForProfile(librarymodel.ProfileFromGradlePaths(proj.GradlePaths))
-	dispatcher := rules.NewDispatcher(api.Registry)
+	dispatcher := rules.NewDispatcher(api.Registry, nil)
 	dispatcher.SetLibraryFacts(libraryFacts)
 
 	if scope == "manifest" || scope == "all" {

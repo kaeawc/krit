@@ -99,7 +99,7 @@ func TestDispatcher_RoutesFamiliesIndependently(t *testing.T) {
 		},
 	}
 
-	d := NewDispatcher([]*api.Rule{nodeRule, lineRule, emptyNodeTypesRule})
+	d := NewDispatcher([]*api.Rule{nodeRule, lineRule, emptyNodeTypesRule}, nil)
 	columns := d.Run(file)
 
 	if nodeCalls == 0 {
@@ -164,7 +164,7 @@ fun main() {
 		}),
 	)
 
-	NewDispatcher([]*api.Rule{rule}).Run(file)
+	NewDispatcher([]*api.Rule{rule}, nil).Run(file)
 
 	if len(calls) != 2 {
 		t.Fatalf("filtered rule invoked %d times (%v), want 2 keep calls", len(calls), calls)
@@ -229,7 +229,7 @@ class Browser {
 	)
 	lineRule.Languages = []scanner.Language{scanner.LangJava}
 
-	dispatcher := NewDispatcher([]*api.Rule{nodeRule, lineRule})
+	dispatcher := NewDispatcher([]*api.Rule{nodeRule, lineRule}, nil)
 	dispatcher.Run(file)
 
 	if nodeCalls == 0 {
@@ -260,7 +260,7 @@ func TestDispatcher_PanicRecovery(t *testing.T) {
 		}),
 	)
 
-	d := NewDispatcher([]*api.Rule{goodRule, badRule})
+	d := NewDispatcher([]*api.Rule{goodRule, badRule}, nil)
 	columns, stats := d.RunWithStats(file)
 
 	if goodCalls == 0 {
@@ -303,7 +303,7 @@ func TestDispatcher_RespectsExclusions(t *testing.T) {
 	SetRuleExcludes("ExcludableRule", []string{"**/*Test.kt"})
 	t.Cleanup(func() { SetRuleExcludes("ExcludableRule", nil) })
 
-	d := NewDispatcher([]*api.Rule{rule})
+	d := NewDispatcher([]*api.Rule{rule}, nil)
 	_ = d.Run(file)
 
 	if nodeCalls != 0 {
@@ -356,7 +356,7 @@ func TestDispatcher_ResolverNilWithoutResolver(t *testing.T) {
 		}),
 	)
 
-	d := NewDispatcher([]*api.Rule{rule})
+	d := NewDispatcher([]*api.Rule{rule}, nil)
 	_ = d.Run(file)
 
 	if gotResolver != nil {
@@ -375,7 +375,7 @@ func TestDispatcher_CrossFileRulesAccessor(t *testing.T) {
 		api.WithCheck(func(ctx *api.Context) { invoked++ }),
 	)
 
-	d := NewDispatcher([]*api.Rule{cross})
+	d := NewDispatcher([]*api.Rule{cross}, nil)
 	_ = d.Run(file)
 
 	if invoked != 0 {
@@ -398,7 +398,7 @@ func TestDispatcher_ModuleAwareRulesAccessor(t *testing.T) {
 		api.WithCheck(func(ctx *api.Context) { invoked++ }),
 	)
 
-	d := NewDispatcher([]*api.Rule{mod})
+	d := NewDispatcher([]*api.Rule{mod}, nil)
 	_ = d.Run(file)
 
 	if invoked != 0 {
@@ -425,7 +425,7 @@ func TestDispatcher_ResourceSourceRulesRunWithResourceIndex(t *testing.T) {
 	)
 	rule.Languages = []scanner.Language{scanner.LangKotlin}
 
-	d := NewDispatcher([]*api.Rule{rule})
+	d := NewDispatcher([]*api.Rule{rule}, nil)
 	_ = d.Run(file)
 	if invoked != 0 {
 		t.Fatalf("resource-backed source rule ran during ordinary dispatch")
@@ -450,7 +450,7 @@ func TestDispatcher_Stats(t *testing.T) {
 		api.FakeRule("Cross1", api.WithNeeds(api.NeedsCrossFile)),
 		api.FakeRule("Mod1", api.WithNeeds(api.NeedsModuleIndex)),
 	}
-	d := NewDispatcher(rules)
+	d := NewDispatcher(rules, nil)
 
 	// Parse a file so the NodeTypeTable has known entries (node rules
 	// are only counted after buildFlatTypeIndex matches their types).
@@ -483,7 +483,7 @@ func TestDispatcher_Stats(t *testing.T) {
 func TestDispatcher_ReportMissingCapabilities_ResolverMissing(t *testing.T) {
 	needsResolver := api.FakeRule("V2MissingResolver", api.WithNeeds(api.NeedsResolver))
 	noNeeds := api.FakeRule("V2NoNeeds")
-	d := NewDispatcher([]*api.Rule{needsResolver, noNeeds})
+	d := NewDispatcher([]*api.Rule{needsResolver, noNeeds}, nil)
 
 	var buf strings.Builder
 	logger := func(format string, args ...any) {
@@ -548,7 +548,7 @@ func TestDispatcher_ReportMissingCapabilities_AllSatisfied(t *testing.T) {
 	}
 
 	// Nil logger is always a no-op.
-	d2 := NewDispatcher([]*api.Rule{needsBoth})
+	d2 := NewDispatcher([]*api.Rule{needsBoth}, nil)
 	d2.ReportMissingCapabilities(false, nil)
 }
 

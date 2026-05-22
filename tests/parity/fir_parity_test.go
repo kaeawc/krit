@@ -342,7 +342,7 @@ func runGoRule(t *testing.T, root, ruleName, fixture string) []scanner.Finding {
 			cols := rules.NewDispatcher([]*api.Rule{rule}, resolver).Run(file)
 			return cols.Findings()
 		}
-		cols := rules.NewDispatcher([]*api.Rule{rule}).Run(file)
+		cols := rules.NewDispatcher([]*api.Rule{rule}, nil).Run(file)
 		return cols.Findings()
 	}
 	t.Fatalf("rule %q not found", ruleName)

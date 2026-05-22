@@ -42,7 +42,7 @@ func runRequiresApi(t *testing.T, source string, minSdk int) []scanner.Finding {
 		t.Fatalf("parse failed: %v", err)
 	}
 	rule := findRequiresAPIViolationRule(t)
-	dispatcher := NewDispatcher([]*api.Rule{rule})
+	dispatcher := NewDispatcher([]*api.Rule{rule}, nil)
 	dispatcher.SetLibraryFacts(librarymodel.FactsForProfile(librarymodel.ProjectProfile{
 		MinSdkVersion: minSdk,
 	}))

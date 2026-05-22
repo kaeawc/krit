@@ -228,7 +228,7 @@ func TestRunIconsIncludesIconColors(t *testing.T) {
 		t.Fatal("IconColors not registered")
 	}
 
-	dispatcher := rules.NewDispatcher([]*api.Rule{iconColorsRule})
+	dispatcher := rules.NewDispatcher([]*api.Rule{iconColorsRule}, nil)
 	columns := dispatcher.RunIcons(&scanner.File{Path: resDir, Language: scanner.LangXML}, idx)
 	if got := columns.Findings(); len(got) != 1 || got[0].Rule != "IconColors" {
 		t.Fatalf("expected one IconColors finding, got %#v", got)
@@ -261,7 +261,7 @@ func TestAndroidPhaseRunsIconRulesThroughDispatcher(t *testing.T) {
 	}
 
 	iconColorsRule := findV2RuleForTest(t, "IconColors")
-	dispatcher := rules.NewDispatcher([]*api.Rule{iconColorsRule})
+	dispatcher := rules.NewDispatcher([]*api.Rule{iconColorsRule}, nil)
 	result, err := (AndroidPhase{}).Run(context.Background(), AndroidInput{
 		Project:     &android.Project{ResDirs: []string{resDir}},
 		ActiveRules: []*api.Rule{iconColorsRule},

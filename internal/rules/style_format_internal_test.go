@@ -34,7 +34,7 @@ func TestNoTabs_FixHonorsConfiguredIndentSize(t *testing.T) {
 				Needs: api.NeedsLinePass, Fix: api.FixCosmetic, Implementation: rule,
 				Check: rule.check,
 			}
-			d := NewDispatcher([]*api.Rule{v2rule})
+			d := NewDispatcher([]*api.Rule{v2rule}, nil)
 			cols := d.Run(file)
 			findings := cols.Findings()
 			if len(findings) == 0 {

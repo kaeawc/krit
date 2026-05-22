@@ -318,7 +318,7 @@ fun process(record: Any) {
 				if r.ID != "UnsafeCast" {
 					continue
 				}
-				findingCols := rules.NewDispatcher([]*api.Rule{r}).Run(file)
+				findingCols := rules.NewDispatcher([]*api.Rule{r}, nil).Run(file)
 				if findingCols.Len() != 0 {
 					t.Fatalf("expected no findings for %s source set, got %d", root, findingCols.Len())
 				}

@@ -31,7 +31,7 @@ func TestPackageNamingConventionDriftRule_FlagsPackageOutsideSourcePathPrefix(t 
 class PackageNamingConventionDrift
 `)
 
-	columns := NewDispatcher([]*api.Rule{packageNamingV2Rule(t)}).Run(file)
+	columns := NewDispatcher([]*api.Rule{packageNamingV2Rule(t)}, nil).Run(file)
 
 	if columns.Len() != 1 {
 		t.Fatalf("expected 1 finding, got %d", columns.Len())
@@ -51,7 +51,7 @@ func TestPackageNamingConventionDriftRule_AcceptsNestedPackageBelowSourcePathPre
 class PackageNamingConventionDrift
 `)
 
-	columns := NewDispatcher([]*api.Rule{packageNamingV2Rule(t)}).Run(file)
+	columns := NewDispatcher([]*api.Rule{packageNamingV2Rule(t)}, nil).Run(file)
 
 	if columns.Len() != 0 {
 		t.Fatalf("expected 0 findings, got %d", columns.Len())

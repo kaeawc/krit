@@ -1886,7 +1886,7 @@ func BenchmarkNoNameShadowing_LargeFile(b *testing.B) {
 		b.Fatal("NoNameShadowing rule not found")
 	}
 
-	dispatcher := rules.NewDispatcher([]*api.Rule{rule})
+	dispatcher := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

@@ -869,7 +869,7 @@ func TestRunIcons_IncludesNewChecks(t *testing.T) {
 		t.Fatalf("expected IconColors and IconLauncherShape to be registered, got %d", len(selected))
 	}
 
-	dispatcher := rules.NewDispatcher(selected)
+	dispatcher := rules.NewDispatcher(selected, nil)
 	cols := dispatcher.RunIcons(&scanner.File{Path: resDir, Language: scanner.LangXML}, idx)
 	findings := cols.Findings()
 	hasIconColors := false

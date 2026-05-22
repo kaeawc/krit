@@ -33,7 +33,7 @@ func TestAndroidDependencyMetadata(t *testing.T) {
 }
 
 func TestIconRulesAreClassifiedForV2Dispatch(t *testing.T) {
-	dispatcher := rules.NewDispatcher(api.Registry)
+	dispatcher := rules.NewDispatcher(api.Registry, nil)
 	got := make(map[string]bool)
 	for _, rule := range dispatcher.IconRules() {
 		if rule.Check == nil {

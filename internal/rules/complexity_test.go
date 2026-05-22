@@ -1512,7 +1512,7 @@ func complexityBenchmarkDispatcher() *rules.Dispatcher {
 			selected = append(selected, r)
 		}
 	}
-	return rules.NewDispatcher(selected)
+	return rules.NewDispatcher(selected, nil)
 }
 
 func BenchmarkComplexityRules_HeavyClassAndFunction(b *testing.B) {
@@ -1577,7 +1577,7 @@ func BenchmarkCyclomaticComplexMethod_EarlyExit(b *testing.B) {
 	if rule == nil {
 		b.Fatal("CyclomaticComplexMethod rule not found")
 	}
-	d := rules.NewDispatcher([]*api.Rule{rule})
+	d := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -1613,7 +1613,7 @@ func BenchmarkNestedBlockDepth_EarlyExit(b *testing.B) {
 	if rule == nil {
 		b.Fatal("NestedBlockDepth rule not found")
 	}
-	d := rules.NewDispatcher([]*api.Rule{rule})
+	d := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -1647,7 +1647,7 @@ func BenchmarkNestedBlockDepth_ElseIfChain(b *testing.B) {
 	if rule == nil {
 		b.Fatal("NestedBlockDepth rule not found")
 	}
-	d := rules.NewDispatcher([]*api.Rule{rule})
+	d := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -1688,7 +1688,7 @@ func BenchmarkTooManyFunctions_HeavyFile(b *testing.B) {
 	if rule == nil {
 		b.Fatal("TooManyFunctions rule not found")
 	}
-	d := rules.NewDispatcher([]*api.Rule{rule})
+	d := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

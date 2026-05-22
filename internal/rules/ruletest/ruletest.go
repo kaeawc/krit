@@ -229,7 +229,7 @@ func runDispatcher(t *testing.T, rule *api.Rule, file *scanner.File, resolver ty
 	if resolver != nil {
 		d = rules.NewDispatcher([]*api.Rule{rule}, resolver)
 	} else {
-		d = rules.NewDispatcher([]*api.Rule{rule})
+		d = rules.NewDispatcher([]*api.Rule{rule}, nil)
 	}
 	cols := d.Run(file)
 	return cols.Findings()

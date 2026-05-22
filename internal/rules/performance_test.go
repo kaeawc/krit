@@ -284,7 +284,7 @@ func BenchmarkUnnecessaryTemporaryInstantiation_NoMatch(b *testing.B) {
 		b.Fatal("rule not found")
 	}
 
-	dispatcher := rules.NewDispatcher([]*api.Rule{rule})
+	dispatcher := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = dispatcher.Run(file)

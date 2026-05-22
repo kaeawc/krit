@@ -66,7 +66,7 @@ func parseKotlinForTest(t *testing.T, path, content string) *scanner.File {
 func runResourceSourcePhase(t *testing.T, resDir, cacheDir string, sourceFiles []*scanner.File, writer *scanner.AndroidCacheWriter) AndroidResult {
 	t.Helper()
 	rule := findV2RuleForTest(t, "LayoutInflation")
-	dispatcher := rules.NewDispatcher([]*api.Rule{rule})
+	dispatcher := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	res, err := (AndroidPhase{}).Run(context.Background(), AndroidInput{
 		Project:        &android.Project{ResDirs: []string{resDir}},
 		ActiveRules:    []*api.Rule{rule},

@@ -99,7 +99,7 @@ func runRuleByNameOnJavaWithSemanticCalls(t *testing.T, ruleName string, code st
 	}
 	for _, r := range api.Registry {
 		if r.ID == ruleName {
-			d := rules.NewDispatcher([]*api.Rule{r})
+			d := rules.NewDispatcher([]*api.Rule{r}, nil)
 			d.SetJavaSemanticFacts(facts)
 			cols := d.Run(file)
 			return cols.Findings()
@@ -138,7 +138,7 @@ func runRuleByNameOnFile(t *testing.T, ruleName string, file *scanner.File) []sc
 	t.Helper()
 	for _, r := range api.Registry {
 		if r.ID == ruleName {
-			d := rules.NewDispatcher([]*api.Rule{r})
+			d := rules.NewDispatcher([]*api.Rule{r}, nil)
 			cols := d.Run(file)
 			return cols.Findings()
 		}
@@ -741,7 +741,7 @@ class Foo {
 			allRules = append(allRules, r)
 		}
 	}
-	d := rules.NewDispatcher(allRules)
+	d := rules.NewDispatcher(allRules, nil)
 	findingCols := d.Run(file)
 	findings := findingCols.Findings()
 
@@ -920,7 +920,7 @@ func runMatchingDeclarationName(t *testing.T, filename string, code string) []sc
 	file := parseInlineWithName(t, filename, code)
 	for _, r := range api.Registry {
 		if r.ID == "MatchingDeclarationName" {
-			d := rules.NewDispatcher([]*api.Rule{r})
+			d := rules.NewDispatcher([]*api.Rule{r}, nil)
 			cols := d.Run(file)
 			return cols.Findings()
 		}

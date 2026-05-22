@@ -94,7 +94,7 @@ func Build(paths []string, configPath string) ([]Row, error) {
 }
 
 func runRules(files []*scanner.File, active []*api.Rule) []scanner.Finding {
-	dispatcher := rules.NewDispatcher(active)
+	dispatcher := rules.NewDispatcher(active, nil)
 	collector := scanner.NewFindingCollector(len(files) * 8)
 	for _, file := range files {
 		cols, _ := dispatcher.RunColumnsWithStats(file)

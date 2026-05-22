@@ -36,7 +36,7 @@ func benchmarkRuleByName(b *testing.B, ruleName string, code string) {
 	if rule == nil {
 		b.Fatalf("rule %q not found", ruleName)
 	}
-	d := rules.NewDispatcher([]*api.Rule{rule})
+	d := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = d.Run(file)

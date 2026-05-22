@@ -64,7 +64,7 @@ func findRuleByID(t *testing.T, ruleID string) *api.Rule {
 // can't pollute the result.
 func findingsFor(t *testing.T, rule *api.Rule, file *scanner.File) []scanner.Finding {
 	t.Helper()
-	d := rules.NewDispatcher([]*api.Rule{rule})
+	d := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	if rule.Needs.Has(api.NeedsResolver) {
 		resolver := typeinfer.NewResolver()
 		resolver.IndexFilesParallel([]*scanner.File{file}, 1)

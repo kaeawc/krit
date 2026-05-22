@@ -42,7 +42,7 @@ func runStyleExpressionsRuleByName(t *testing.T, ruleName string, code string) [
 	file := parseStyleExpressionsInline(t, code)
 	for _, rule := range api.Registry {
 		if rule.ID == ruleName {
-			cols := NewDispatcher([]*api.Rule{rule}).Run(file)
+			cols := NewDispatcher([]*api.Rule{rule}, nil).Run(file)
 			return cols.Findings()
 		}
 	}

@@ -68,7 +68,7 @@ func ExtractFixture(target Target, ruleName string) (Result, error) {
 		return Result{}, err
 	}
 
-	columns, _ := rules.NewDispatcher([]*api.Rule{rule}).RunColumnsWithStats(file)
+	columns, _ := rules.NewDispatcher([]*api.Rule{rule}, nil).RunColumnsWithStats(file)
 	findings := columns.Findings()
 	match, err := selectFinding(findings, target.Line, ruleName)
 	if err != nil {

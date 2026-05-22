@@ -28,7 +28,7 @@ func runLeakyAbstractionRule(t *testing.T, src string) []scanner.Finding {
 		NodeTypes: []string{"class_declaration"},
 		Check:     rule.check,
 	}
-	cols := NewDispatcher([]*api.Rule{apiRule}).Run(file)
+	cols := NewDispatcher([]*api.Rule{apiRule}, nil).Run(file)
 	return cols.Findings()
 }
 

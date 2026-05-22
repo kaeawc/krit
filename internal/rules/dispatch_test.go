@@ -32,7 +32,7 @@ func TestDispatcher_DefersCrossFileAndModuleAwareRules(t *testing.T) {
 		api.WithNeeds(api.NeedsModuleIndex),
 		api.WithCheck(func(ctx *api.Context) { modInvoked++ }),
 	)
-	dispatcher := NewDispatcher([]*api.Rule{cross, mod})
+	dispatcher := NewDispatcher([]*api.Rule{cross, mod}, nil)
 
 	dispatcher.Run(file)
 
@@ -75,7 +75,7 @@ func TestDispatcher_RunWithStats_TracksRuleBuckets(t *testing.T) {
 		}),
 	)
 	rule.Category = "test"
-	dispatcher := NewDispatcher([]*api.Rule{rule})
+	dispatcher := NewDispatcher([]*api.Rule{rule}, nil)
 	columns, stats := dispatcher.RunWithStats(file)
 	if columns.Len() == 0 {
 		t.Fatal("expected findings from magic number rule")
@@ -112,7 +112,7 @@ func TestDispatcher_RunWithStats_TracksLineRuleInvocations(t *testing.T) {
 			ctx.EmitAt(1, 1, "line finding")
 		}),
 	)
-	dispatcher := NewDispatcher([]*api.Rule{rule})
+	dispatcher := NewDispatcher([]*api.Rule{rule}, nil)
 	columns, stats := dispatcher.RunWithStats(file)
 	if columns.Len() != 1 {
 		t.Fatalf("expected one line-rule finding, got %d", columns.Len())
@@ -161,7 +161,7 @@ func TestDispatcher_FlatDispatchRuleRunsOnFlatTree(t *testing.T) {
 		}),
 	)
 	rule.Category = "test"
-	dispatcher := NewDispatcher([]*api.Rule{rule})
+	dispatcher := NewDispatcher([]*api.Rule{rule}, nil)
 	columns, stats := dispatcher.RunWithStats(file)
 
 	if columns.Len() != 1 {
@@ -225,7 +225,7 @@ fun live() {
 		}),
 	)
 	rule.Category = "test"
-	dispatcher := NewDispatcher([]*api.Rule{rule})
+	dispatcher := NewDispatcher([]*api.Rule{rule}, nil)
 	columns, _ := dispatcher.RunWithStats(file)
 
 	if columns.Len() != 1 {
@@ -284,7 +284,7 @@ fun second() = 2
 		}),
 	)
 	rule.Category = "test"
-	dispatcher := NewDispatcher([]*api.Rule{rule})
+	dispatcher := NewDispatcher([]*api.Rule{rule}, nil)
 
 	columns, columnStats := dispatcher.RunColumnsWithStats(file)
 	columns2, sliceStats := dispatcher.RunWithStats(file)
@@ -330,7 +330,7 @@ func TestDispatcher_ConfidenceProviderOverridesDefault(t *testing.T) {
 		}),
 	)
 	rule.Category = "test"
-	dispatcher := NewDispatcher([]*api.Rule{rule})
+	dispatcher := NewDispatcher([]*api.Rule{rule}, nil)
 	columns, _ := dispatcher.RunWithStats(file)
 
 	if columns.Len() != 1 {
@@ -371,7 +371,7 @@ func TestDispatcher_ExplicitFindingConfidenceBeatsRuleDefault(t *testing.T) {
 		}),
 	)
 	rule.Category = "test"
-	dispatcher := NewDispatcher([]*api.Rule{rule})
+	dispatcher := NewDispatcher([]*api.Rule{rule}, nil)
 	columns, _ := dispatcher.RunWithStats(file)
 
 	if columns.Len() != 1 {

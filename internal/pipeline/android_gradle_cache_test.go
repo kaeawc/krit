@@ -35,7 +35,7 @@ func writeGradle(t *testing.T, dir, name, body string) string {
 func runGradlePhase(t *testing.T, gradlePath, cacheDir string, writer *scanner.AndroidCacheWriter) AndroidResult {
 	t.Helper()
 	rule := findV2RuleForTest(t, "GradleDynamicVersion")
-	dispatcher := rules.NewDispatcher([]*api.Rule{rule})
+	dispatcher := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	res, err := (AndroidPhase{}).Run(context.Background(), AndroidInput{
 		Project:        &android.Project{GradlePaths: []string{gradlePath}},
 		ActiveRules:    []*api.Rule{rule},

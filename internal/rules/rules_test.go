@@ -92,7 +92,7 @@ func runRule(t *testing.T, rule *api.Rule, file *scanner.File) []scanner.Finding
 		cols := dispatcher.Run(file)
 		return cols.Findings()
 	}
-	dispatcher := rules.NewDispatcher([]*api.Rule{rule})
+	dispatcher := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	cols := dispatcher.Run(file)
 	return cols.Findings()
 }

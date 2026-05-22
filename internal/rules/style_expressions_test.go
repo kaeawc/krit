@@ -587,7 +587,7 @@ func BenchmarkVarCouldBeValSharedScope(b *testing.B) {
 		b.Fatal("VarCouldBeVal rule not found")
 	}
 
-	dispatcher := rules.NewDispatcher([]*api.Rule{target})
+	dispatcher := rules.NewDispatcher([]*api.Rule{target}, nil)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = dispatcher.Run(file)

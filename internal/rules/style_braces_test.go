@@ -82,7 +82,7 @@ func runBracesIfRule(t *testing.T, singleLine, multiLine, code string) scanner.F
 	}
 
 	file := parseBracesInline(t, code)
-	d := NewDispatcher([]*api.Rule{makeBracesIfV2Rule(rule)})
+	d := NewDispatcher([]*api.Rule{makeBracesIfV2Rule(rule)}, nil)
 	return d.Run(file)
 }
 
@@ -96,7 +96,7 @@ func runBracesWhenRule(t *testing.T, singleLine, multiLine, code string) scanner
 	}
 
 	file := parseBracesInline(t, code)
-	d := NewDispatcher([]*api.Rule{makeBracesWhenV2Rule(rule)})
+	d := NewDispatcher([]*api.Rule{makeBracesWhenV2Rule(rule)}, nil)
 	return d.Run(file)
 }
 
@@ -286,7 +286,7 @@ fun example(x: Int) {
     }
 }
 `)
-	d := NewDispatcher([]*api.Rule{makeBracesWhenV2Rule(rule)})
+	d := NewDispatcher([]*api.Rule{makeBracesWhenV2Rule(rule)}, nil)
 	findings := d.Run(file)
 	if findings.Len() != 0 {
 		t.Fatalf("expected no findings for test sources, got %d", findings.Len())
@@ -382,7 +382,7 @@ fun example(x: Boolean) {
     if (x) println("yes")
 }
 `)
-	d := NewDispatcher([]*api.Rule{makeBracesIfV2Rule(rule)})
+	d := NewDispatcher([]*api.Rule{makeBracesIfV2Rule(rule)}, nil)
 	findings := d.Run(file)
 	if findings.Len() != 0 {
 		t.Fatalf("expected no findings for test sources, got %d", findings.Len())

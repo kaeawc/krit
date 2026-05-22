@@ -82,7 +82,7 @@ fun check(x: Boolean) {
 	rules.SetRuleExcludes("EmptyElseBlock", nil)
 
 	// Without excludes: should produce findings
-	d := rules.NewDispatcher([]*api.Rule{rule})
+	d := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	findings := d.Run(file)
 	if findings.Len() == 0 {
 		t.Fatal("expected EmptyElseBlock to fire without excludes")
@@ -93,7 +93,7 @@ fun check(x: Boolean) {
 	defer rules.SetRuleExcludes("EmptyElseBlock", nil) // cleanup
 
 	// With excludes: should skip the rule for this test file
-	d2 := rules.NewDispatcher([]*api.Rule{rule})
+	d2 := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	findings2 := d2.Run(file)
 	if findings2.Len() != 0 {
 		t.Errorf("expected EmptyElseBlock to be excluded for test file, got %d findings", findings2.Len())
@@ -139,7 +139,7 @@ fun check(x: Boolean) {
 	rules.SetRuleExcludes("EmptyElseBlock", []string{"**/test/**", "**/*Test.kt"})
 	defer rules.SetRuleExcludes("EmptyElseBlock", nil)
 
-	d := rules.NewDispatcher([]*api.Rule{rule})
+	d := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	findings := d.Run(file)
 	if findings.Len() == 0 {
 		t.Error("expected EmptyElseBlock to fire on non-excluded main file")
@@ -186,7 +186,7 @@ fun check(x: Boolean) {
 	rules.SetRuleExcludes("EmptyElseBlock", []string{"**/test/**", "**/*Spec.kt"})
 	defer rules.SetRuleExcludes("EmptyElseBlock", nil)
 
-	d := rules.NewDispatcher([]*api.Rule{rule})
+	d := rules.NewDispatcher([]*api.Rule{rule}, nil)
 	findings := d.Run(file)
 	if findings.Len() != 0 {
 		t.Errorf("expected EmptyElseBlock to be excluded for Spec file, got %d findings", findings.Len())

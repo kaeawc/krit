@@ -306,7 +306,7 @@ func runLayoutInflationRule(t *testing.T, code string, idx *android.ResourceInde
 	file := parseInline(t, code)
 	for _, r := range api.Registry {
 		if r.ID == "LayoutInflation" {
-			dispatcher := rules.NewDispatcher([]*api.Rule{r})
+			dispatcher := rules.NewDispatcher([]*api.Rule{r}, nil)
 			cols := dispatcher.RunResourceSource(file, idx)
 			return cols.Findings()
 		}

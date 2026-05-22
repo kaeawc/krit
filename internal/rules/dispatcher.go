@@ -116,13 +116,13 @@ type Dispatcher struct {
 }
 
 // NewDispatcher constructs a Dispatcher from the supplied v2 rules.
-// An optional TypeResolver is wired through to any rule declaring
-// NeedsResolver via that rule's SetResolverHook.
-func NewDispatcher(rules []*api.Rule, resolver ...typeinfer.TypeResolver) *Dispatcher {
+// resolver is wired through to any rule declaring NeedsResolver via
+// that rule's SetResolverHook. Callers that have no resolver pass nil.
+func NewDispatcher(rules []*api.Rule, resolver typeinfer.TypeResolver) *Dispatcher {
 	d := &Dispatcher{fileFacts: filefacts.NewCache()}
 	setSharedFileFacts(d.fileFacts)
-	if len(resolver) > 0 && resolver[0] != nil {
-		d.typeResolver = resolver[0]
+	if resolver != nil {
+		d.typeResolver = resolver
 	}
 
 	// Validate RelatedRules references against the full registry so

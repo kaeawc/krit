@@ -29,7 +29,7 @@ func runRuleByNameOnPath(t *testing.T, ruleName, filename, code string) []scanne
 
 	for _, r := range api.Registry {
 		if r.ID == ruleName {
-			d := rules.NewDispatcher([]*api.Rule{r})
+			d := rules.NewDispatcher([]*api.Rule{r}, nil)
 			cols := d.Run(file)
 			return cols.Findings()
 		}

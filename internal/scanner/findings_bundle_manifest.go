@@ -162,6 +162,14 @@ func LoadFindingsBundleManifestFromPath(path string) (FindingsBundleManifest, bo
 // stub for deterministic input.
 type FileStatProvider func(path string) (FileStat, bool)
 
+// ContentHashProvider returns the current content hash of a path. Used
+// by StaleOracleCandidates to disambiguate stat-drift caused by mtime
+// bumps (gradle regen, git checkout, IDE touch) from real content
+// changes. Returning (_, false) leaves the path on the stale list —
+// the caller already saw stat drift, so the hash fallback should be
+// strictly additive.
+type ContentHashProvider func(path string) (string, bool)
+
 // StaleOracleCandidates returns the subset of paths whose file stat
 // differs from the prior manifest entry. Used by the oracle
 // freshness gate to identify .kt files that need a partial KAA
@@ -175,7 +183,14 @@ type FileStatProvider func(path string) (FileStat, bool)
 //
 // stat is required and must be non-nil. Files whose stat is
 // unavailable (deleted, unreadable) are treated as stale.
-func StaleOracleCandidates(paths []string, prior FindingsBundleManifest, stat FileStatProvider) []string {
+//
+// hash is optional. When non-nil and a path's stat differs from prior
+// but its content hash matches prior.ContentHashes[path], the path
+// is treated as fresh — covering the common mtime-only drift case
+// (git checkout, gradle re-emit with identical bytes, IDE touch).
+// Hashing is only paid for paths that already failed the stat check,
+// so the cost is bounded by the size of the stat-drifted subset.
+func StaleOracleCandidates(paths []string, prior FindingsBundleManifest, stat FileStatProvider, hash ContentHashProvider) []string {
 	if stat == nil {
 		return paths
 	}
@@ -183,7 +198,22 @@ func StaleOracleCandidates(paths []string, prior FindingsBundleManifest, stat Fi
 		return paths
 	}
 	priorStats := prior.FileStats
+	priorHashes := prior.ContentHashes
 	stale := make([]string, 0)
+	contentMatches := func(path string) bool {
+		if hash == nil || len(priorHashes) == 0 {
+			return false
+		}
+		priorHash, hadHash := priorHashes[path]
+		if !hadHash || priorHash == "" {
+			return false
+		}
+		current, ok := hash(path)
+		if !ok || current == "" {
+			return false
+		}
+		return current == priorHash
+	}
 	for _, path := range paths {
 		current, ok := stat(path)
 		if !ok {
@@ -196,19 +226,25 @@ func StaleOracleCandidates(paths []string, prior FindingsBundleManifest, stat Fi
 			// keeps freshly-upgraded daemons from re-running every
 			// file when the on-disk manifest format is one version
 			// behind.
-			if _, hadHash := prior.ContentHashes[path]; !hadHash {
+			if _, hadHash := priorHashes[path]; !hadHash {
 				stale = append(stale, path)
 			}
 			continue
 		}
 		priorStat, hadStat := priorStats[path]
 		if !hadStat {
+			// New path not in prior manifest — content-hash fallback
+			// can't help (no prior hash to compare against).
 			stale = append(stale, path)
 			continue
 		}
-		if priorStat != current {
-			stale = append(stale, path)
+		if priorStat == current {
+			continue
 		}
+		if contentMatches(path) {
+			continue
+		}
+		stale = append(stale, path)
 	}
 	return stale
 }

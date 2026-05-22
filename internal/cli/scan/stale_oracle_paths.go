@@ -65,7 +65,7 @@ func computeStaleOraclePaths(scanPaths []string, kotlinFilePaths []string, inclu
 		perf.AddEntryDetails(tracker, "freshnessGateNoManifest", 0, nil, nil)
 		return nil
 	}
-	stale := scanner.StaleOracleCandidates(kotlinFilePaths, prior, scanner.StatFile)
+	stale := scanner.StaleOracleCandidates(kotlinFilePaths, prior, scanner.StatFile, oracleContentHashProvider)
 	if len(stale) == 0 {
 		if verbose {
 			fmt.Fprintln(os.Stderr, "verbose: oracle freshness gate: manifest is in sync with current file stats")
@@ -86,4 +86,18 @@ func computeStaleOraclePaths(scanPaths []string, kotlinFilePaths []string, inclu
 		"priorSize": int64(len(prior.FileStats)),
 	}, nil)
 	return stale
+}
+
+// oracleContentHashProvider adapts oracle.ContentHash to the
+// scanner.ContentHashProvider signature so the freshness gate can
+// fall back to content-hash comparison when a path's stat differs
+// from the prior manifest entry. Routed through hashutil's
+// process-scoped memo so the same file hashed elsewhere in the run
+// (parse phase, cache classifier) only pays the hash cost once.
+func oracleContentHashProvider(path string) (string, bool) {
+	hash, err := oracle.ContentHash(path)
+	if err != nil || hash == "" {
+		return "", false
+	}
+	return hash, true
 }

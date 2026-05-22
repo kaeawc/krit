@@ -14,9 +14,22 @@ object KritRunner {
         data class Failure(val message: String) : AnalyzeOutcome()
     }
 
-    fun analyzeProject(project: Project): AnalyzeOutcome {
+    fun analyzeProject(project: Project): AnalyzeOutcome =
+        runAnalyze(project, target = null, label = "project analysis")
+
+    // Single-file scan. krit accepts a positional path argument and, when
+    // a daemon is running for this repo, the CLI delegates to it instead
+    // of redoing the parse/index work — so per-document-change calls reuse
+    // resident state. This is the cheap incremental path; whole-project
+    // scans stay reserved for initial load, manual refresh, and config
+    // changes.
+    fun analyzeFile(project: Project, filePath: String): AnalyzeOutcome =
+        runAnalyze(project, target = filePath, label = "file analysis")
+
+    private fun runAnalyze(project: Project, target: String?, label: String): AnalyzeOutcome {
         val projectDir = project.baseDir() ?: return AnalyzeOutcome.Failure("project has no base path")
         val binary = KritBinaryResolver.find() ?: return AnalyzeOutcome.MissingBinary
+        val scanPath = target ?: projectDir.absolutePath
         val output = File.createTempFile("krit-intellij-", ".json")
         return try {
             val command = listOf(
@@ -25,11 +38,11 @@ object KritRunner {
                 "-o",
                 output.absolutePath,
                 "-q",
-                projectDir.absolutePath,
+                scanPath,
             )
             // krit exits non-zero when it reports findings; trust the output
             // file as long as it exists rather than the exit code.
-            val result = runKrit(projectDir, command, ANALYZE_TIMEOUT_SECONDS, "project analysis") { exit, _ ->
+            val result = runKrit(projectDir, command, ANALYZE_TIMEOUT_SECONDS, label) { exit, _ ->
                 exit == 0 || output.isFile
             }
             when (result) {
@@ -41,7 +54,7 @@ object KritRunner {
                 is RunOutcome.Failed -> AnalyzeOutcome.Failure(result.message)
             }
         } catch (t: Throwable) {
-            log.warn("krit project analysis failed for ${projectDir.path}", t)
+            log.warn("krit $label failed for ${projectDir.path}", t)
             AnalyzeOutcome.Failure(t.message ?: "unknown error")
         } finally {
             output.delete()

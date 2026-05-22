@@ -15,6 +15,7 @@ import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.WindowManager
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.ScheduledExecutorService
@@ -31,10 +32,12 @@ class KritProjectService(private val project: Project) : Disposable {
             Thread(runnable, "krit-project-runner").apply { isDaemon = true }
         }
     private var pendingScan: ScheduledFuture<*>? = null
+    private val pendingFiles = ConcurrentHashMap.newKeySet<String>()
     private val documentListener = object : BulkAwareDocumentListener {
         override fun documentChanged(event: DocumentEvent) {
             val file = FileDocumentManager.getInstance().getFile(event.document) ?: return
             if (shouldTriggerScan(file)) {
+                pendingFiles.add(file.path)
                 scheduleScan(CHANGE_DEBOUNCE_MS)
             }
         }
@@ -106,13 +109,25 @@ class KritProjectService(private val project: Project) : Disposable {
             return
         }
         try {
-            refreshFindings()
+            val targets = drainPendingFiles()
+            if (targets.isEmpty()) {
+                refreshFindings()
+            } else {
+                refreshChangedFiles(targets)
+            }
         } catch (t: Throwable) {
             log.warn("krit project runner failed", t)
         } finally {
             running.set(false)
             scheduleRequestedRerun()
         }
+    }
+
+    private fun drainPendingFiles(): Set<String> {
+        if (pendingFiles.isEmpty()) return emptySet()
+        val snapshot = HashSet(pendingFiles)
+        pendingFiles.removeAll(snapshot)
+        return snapshot
     }
 
     private fun refreshFindings() {
@@ -135,6 +150,41 @@ class KritProjectService(private val project: Project) : Disposable {
                 transition(KritState.Error(outcome.message))
             }
         }
+        restartHighlighting()
+    }
+
+    private fun refreshChangedFiles(paths: Set<String>) {
+        // Per-file rescans replace findings for each changed file in the
+        // running map; other files' findings are untouched. Errors and
+        // missing-binary on any one file bubble up to the state surface
+        // the same way a project scan would so the user still sees the
+        // failure mode in the status bar.
+        transition(KritState.Scanning)
+        val updated = findingsByFile.toMutableMap()
+        for (path in paths) {
+            val canonical = canonicalPath(path, project.basePath)
+            when (val outcome = KritRunner.analyzeFile(project, path)) {
+                is KritRunner.AnalyzeOutcome.Success -> {
+                    val grouped = outcome.report.findings.groupBy {
+                        canonicalPath(it.file, project.basePath)
+                    }
+                    updated[canonical] = grouped[canonical] ?: emptyList()
+                }
+                is KritRunner.AnalyzeOutcome.MissingBinary -> {
+                    transition(KritState.MissingBinary)
+                    notifyMissingBinaryOnce()
+                    restartHighlighting()
+                    return
+                }
+                is KritRunner.AnalyzeOutcome.Failure -> {
+                    transition(KritState.Error(outcome.message))
+                    restartHighlighting()
+                    return
+                }
+            }
+        }
+        findingsByFile = updated
+        transition(KritState.Idle(updated.values.sumOf { it.size }))
         restartHighlighting()
     }
 

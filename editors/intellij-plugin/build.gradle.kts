@@ -38,7 +38,20 @@ intellijPlatform {
         id.set("dev.jasonpearson.krit")
         name.set("Krit")
         version.set(project.version.toString())
-        description.set("Native IntelliJ integration for Krit diagnostics.")
+        description.set(
+            """
+            Live IntelliJ and Android Studio integration for the Krit static analyzer.
+
+            Krit is a Go-first analyzer for Kotlin, Java, and Android projects.
+            This plugin renders Krit findings as editor annotations and
+            inspections, offers a per-finding fix and a Suppress quick-fix,
+            tracks scan state in the status bar, and reads the IDE's resolved
+            classpath so type-aware (KAA / FIR) rules match CI behaviour.
+
+            Configure the Krit binary, default fix level, and config file
+            override under Settings → Tools → Krit.
+            """.trimIndent(),
+        )
 
         ideaVersion {
             sinceBuild.set("253")
@@ -49,6 +62,14 @@ intellijPlatform {
             name.set("Krit")
             url.set("https://github.com/kaeawc/krit")
         }
+    }
+
+    publishing {
+        token.set(providers.environmentVariable("JETBRAINS_MARKETPLACE_TOKEN"))
+        // "default" is the public stable channel; CI passes "beta" / "eap"
+        // via -PpluginChannel for pre-release builds.
+        val channel = (findProperty("pluginChannel") as String?) ?: "default"
+        channels.set(listOf(channel))
     }
 
     pluginVerification { ides { recommended() } }

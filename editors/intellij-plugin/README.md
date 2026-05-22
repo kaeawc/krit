@@ -40,9 +40,24 @@ reload.
 
 The plugin resolves the Krit binary in this order:
 
-1. `-Dkrit.binary=/absolute/path/to/krit`
-2. `KRIT_BINARY=/absolute/path/to/krit`
-3. `krit` on `PATH`
+1. `Settings → Tools → Krit → Krit binary` (when set and executable)
+2. `-Dkrit.binary=/absolute/path/to/krit`
+3. `KRIT_BINARY=/absolute/path/to/krit`
+4. `krit` on `PATH`
+
+## Publishing to JetBrains Marketplace
+
+A tag matching `intellij-plugin-vX.Y.Z` triggers
+`.github/workflows/publish-intellij-plugin.yml`, which builds the plugin
+zip and uploads it to the Marketplace under the `dev.jasonpearson.krit`
+id. The workflow needs a `JETBRAINS_MARKETPLACE_TOKEN` repository secret
+(generated from the publisher account at
+<https://plugins.jetbrains.com/author/me/tokens>).
+
+The same workflow has a `workflow_dispatch` entry that takes a
+`channel` argument (`default`, `beta`, or `eap`) and an optional
+`version` override, so a maintainer can ship an unscheduled build
+without cutting a tag.
 
 ## Intentional Limits
 

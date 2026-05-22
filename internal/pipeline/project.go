@@ -185,9 +185,6 @@ type ProjectHostState struct {
 	// JavaSemanticFacts, when non-nil, supplies javac-backed facts for
 	// Java rules that request them.
 	JavaSemanticFacts *javafacts.Facts
-	// JavaSemanticFactsLoader lazily builds JavaSemanticFacts after parse
-	// when active Java rules request compiler-backed facts.
-	JavaSemanticFactsLoader func(context.Context, []string, []*scanner.File, *librarymodel.Facts, perf.Tracker) (*javafacts.Facts, string, error)
 	// LibraryFactsCache, when non-nil, is consulted in IndexPhase to
 	// reuse a daemon-resident *librarymodel.Facts across calls. Cache
 	// invalidation is the host's responsibility (the daemon's file
@@ -199,32 +196,12 @@ type ProjectHostState struct {
 	// the disk-backed cross-file cache (CrossFileCacheDir) and finally
 	// to scanner.BuildIndex. *WorkspaceState satisfies this interface.
 	CodeIndexCache CodeIndexCache
-	// CodeIndexSnapshotLoader returns the daemon-resident prior
-	// CodeIndex along with the meta it was built from, surviving
-	// every watcher invalidation of CodeIndexCache. runCodeIndexBuild
-	// hands it to scanner.BuildIndexCachedWithPrior so an overlay
-	// rebuild reuses the in-memory prior instead of paying the
-	// ~2.6 s disk decode on every .kt edit.
-	// *WorkspaceState.LoadCodeIndexSnapshot satisfies the shape.
-	CodeIndexSnapshotLoader func() (*scanner.CodeIndex, scanner.CrossFileCacheMeta, bool)
-	// CodeIndexSnapshotSaver records the just-built CodeIndex and
-	// meta as the new daemon-resident snapshot. Called after every
-	// successful BuildIndexCachedWithPrior so the next analyze sees
-	// it via the loader.
-	// *WorkspaceState.StoreCodeIndexSnapshot satisfies the shape.
-	CodeIndexSnapshotSaver func(*scanner.CodeIndex, scanner.CrossFileCacheMeta)
 	// XMLFilesLoader, when non-nil, short-circuits the scanner's
 	// disk walk for layout/manifest/navigation XMLs. The daemon
 	// supplies its WorkspaceState.XMLFiles wrapped to match the
 	// scanner.XMLFilesLoader signature so .xml watcher events drive
 	// invalidation through WorkspaceState.BumpXMLFilesVersion.
 	XMLFilesLoader scanner.XMLFilesLoader
-	// JavaSourceIndexCache, when non-nil, lets CrossFilePhase short-
-	// circuit the ~100 ms content-hash key SourceIndexForFiles otherwise
-	// computes on every warm call. The watcher's .java events drive
-	// invalidation through WorkspaceState.BumpJavaSourceVersion.
-	// *WorkspaceState.JavaSourceIndex satisfies the callback shape.
-	JavaSourceIndexCache func(build func() *javafacts.SourceIndex) *javafacts.SourceIndex
 	// ResolverCache, when non-nil, memoizes the typeinfer.TypeResolver
 	// across calls. IndexPhase consults the slot before falling through
 	// to a fresh resolver + IndexFilesParallel*. The slot is keyed by
@@ -232,14 +209,6 @@ type ProjectHostState struct {
 	// files, so mismatches force a complete rebuild rather than a
 	// stale-entry leak. *WorkspaceState satisfies this interface.
 	ResolverCache ResolverCache
-	// ResolverFingerprintCache, when non-nil, lets the host return a
-	// cached resolverFingerprint instead of recomputing it. The
-	// fingerprint hashes every Kotlin file's content; on the kotlin
-	// corpus that's ~135 ms even when the resolver itself is cached.
-	// The cache returns the prior fingerprint when no source-path
-	// watcher event has fired since the last successful compute.
-	// *WorkspaceState.ResolverFingerprint satisfies the callback shape.
-	ResolverFingerprintCache func(build func() string) string
 	// OracleFilterCache, when non-nil and Args.OracleEnabled is true,
 	// memoizes the oracle CallTargetFilterSummary across calls.
 	// RunProject computes the filter once per file-set + rule-set
@@ -255,39 +224,15 @@ type ProjectHostState struct {
 	// (fired on build.gradle / version-catalog edits) also drops this
 	// slot. *WorkspaceState satisfies this interface.
 	AndroidProjectCache AndroidProjectCache
-	// GradleFindingsCache, when non-nil, memoizes per-gradle-file
-	// rule-dispatch findings across analyzes (~7ms each × hundreds of
-	// gradle files on a kotlin-style monorepo = ~1.4s saved per warm
-	// analyze). Daemon callers wire WorkspaceState.GradleFindings.
-	// CLI passes nil — the existing on-disk AndroidCacheWriter path
-	// covers that case.
-	GradleFindingsCache func(key string, build func() scanner.FindingColumns) scanner.FindingColumns
-	// BundleStatsClean / MarkBundleStatsClean are the daemon's
-	// watcher-gated cache for the manifest fileStatsMatch sweep. When
-	// BundleStatsClean(key) returns true, preparseBundleFingerprintTracked
-	// skips the 18k os.Stat syscalls — the watcher has guaranteed
-	// nothing changed since the last successful match, so the sweep
-	// result is necessarily true. Either both are nil (CLI path /
-	// first daemon call) or both are set together. *WorkspaceState
-	// satisfies the contract.
-	BundleStatsClean     func(bundleKey string) bool
-	MarkBundleStatsClean func(bundleKey string, version uint64)
-	// SourceMTimeVersion returns the watcher's current version
-	// counter. Callers snapshot it before the stat sweep so a
-	// concurrent watcher event correctly invalidates the resulting
-	// memo. nil is permitted and behaves like a constant 0 (no
-	// caching).
-	SourceMTimeVersion func() uint64
-	// BundleOutput / StoreBundleOutput are the daemon-side cache for
-	// pre-formatted bundle-hit JSON. When BundleOutput(key) returns
-	// non-nil, the bundle-hit OutputPhase reuses the cached findings
-	// bytes verbatim and rebuilds only the dynamic envelope fields
-	// (durationMs, perf stats). Saves ~24 ms of json.Marshal-equivalent
-	// byte concatenation on every warm analyze, and on a hit before
-	// the bundle Load it also avoids ~11 ms of zstd+gob decode.
-	// *WorkspaceState satisfies both signatures.
-	BundleOutput      func(bundleKey string) *CachedBundleOutput
-	StoreBundleOutput func(bundleKey string, output *CachedBundleOutput)
+	// DaemonCaches groups the function-typed daemon-callback hooks
+	// (CodeIndexSnapshotLoader/Saver, JavaSemanticFactsLoader,
+	// JavaSourceIndexCache, ResolverFingerprintCache, GradleFindingsCache,
+	// BundleStatsClean/MarkBundleStatsClean, SourceMTimeVersion,
+	// BundleOutput/StoreBundleOutput). Embedded anonymously so existing
+	// reads (host.CodeIndexSnapshotLoader, etc.) keep working via field
+	// promotion; struct-literal setters must wrap them in DaemonCaches{}.
+	// CLI callers leave the embedded value zero.
+	DaemonCaches
 	// CrossFileCacheDir, when non-empty, enables the on-disk cross-file
 	// CodeIndex cache (zstd-encoded shards under .krit/crossfile-cache).
 	// Independent of CodeIndexCache: the disk cache is shared across

@@ -473,7 +473,7 @@ func (r *runner) runOracleIndex() (int, error) {
 	var err error
 	var preloadedCache *cache.Cache
 	r.tracker.TrackVoid("oracleIndex", func() {
-		staleOraclePaths := computeStaleOraclePaths(r.paths, r.files, r.tracker, *r.f.Verbose)
+		staleOraclePaths := computeStaleOraclePaths(r.paths, r.files, *r.f.IncludeGenerated, r.tracker, *r.f.Verbose)
 		oracleBackend, oracleBackendErr := resolveOracleBackend(*r.f.OracleBackend, r.cfg)
 		if oracleBackendErr != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", oracleBackendErr)

@@ -6,17 +6,61 @@ import com.intellij.psi.PsiFile
 object KritRanges {
     fun rangeFor(file: PsiFile, finding: KritFinding): TextRange {
         val document = file.viewProvider.document ?: return TextRange(0, 0)
+        val text = document.charsSequence
         val lineIndex = (finding.line - 1).coerceAtLeast(0)
         if (lineIndex >= document.lineCount) {
-            return endOfFileRange(document.charsSequence)
+            return endOfFileRange(text)
         }
 
         val lineStart = document.getLineStartOffset(lineIndex)
         val lineEnd = document.getLineEndOffset(lineIndex)
-        val columnIndex = (finding.column - 1).coerceAtLeast(0)
-        val start = (lineStart + columnIndex).coerceIn(lineStart, lineEnd)
-        val end = findTokenEnd(document.charsSequence, start, lineEnd)
+        val byteCol = (finding.column - 1).coerceAtLeast(0)
+        val start = byteColumnToCharOffset(text, lineStart, lineEnd, byteCol)
+        val end = findTokenEnd(text, start, lineEnd)
         return TextRange(start, end.coerceAtLeast(start))
+    }
+
+    // Krit emits `column` from tree-sitter's start.Column, which is a UTF-8
+    // byte offset within the line. IntelliJ documents are UTF-16. This
+    // translation walks the line one char at a time, summing the UTF-8
+    // byte width of each code point until the byte budget is exhausted.
+    internal fun byteColumnToCharOffset(
+        text: CharSequence,
+        lineStartChar: Int,
+        lineEndChar: Int,
+        byteCol: Int,
+    ): Int {
+        if (byteCol <= 0) return lineStartChar
+        var bytes = 0
+        var i = lineStartChar
+        while (i < lineEndChar) {
+            if (bytes >= byteCol) return i
+            val c = text[i]
+            val code = c.code
+            val width: Int
+            val advance: Int
+            when {
+                code < 0x80 -> {
+                    width = 1
+                    advance = 1
+                }
+                code < 0x800 -> {
+                    width = 2
+                    advance = 1
+                }
+                c.isHighSurrogate() && i + 1 < lineEndChar && text[i + 1].isLowSurrogate() -> {
+                    width = 4
+                    advance = 2
+                }
+                else -> {
+                    width = 3
+                    advance = 1
+                }
+            }
+            bytes += width
+            i += advance
+        }
+        return lineEndChar
     }
 
     private fun endOfFileRange(text: CharSequence): TextRange {

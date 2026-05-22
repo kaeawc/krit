@@ -48,6 +48,12 @@
       order="last"
       implementation="dev.jasonpearson.krit.intellij.KritStatusBarWidgetFactory"/>
     <notificationGroup id="Krit" displayType="BALLOON"/>
+    <applicationService serviceImplementation="dev.jasonpearson.krit.intellij.KritSettingsState"/>
+    <applicationConfigurable
+      parentId="tools"
+      id="dev.jasonpearson.krit.settings"
+      displayName="Krit"
+      instance="dev.jasonpearson.krit.intellij.KritSettingsConfigurable"/>
   </extensions>
 
   <extensions defaultExtensionNs="org.jetbrains.kotlin">

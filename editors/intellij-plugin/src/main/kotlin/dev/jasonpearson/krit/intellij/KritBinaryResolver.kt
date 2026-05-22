@@ -4,11 +4,23 @@ import java.io.File
 
 object KritBinaryResolver {
     // Order of precedence:
-    //   1. -Dkrit.binary
-    //   2. KRIT_BINARY env var
-    //   3. `krit` on PATH
-    fun find(env: Map<String, String> = System.getenv(), props: () -> String? = { System.getProperty("krit.binary") }): File? {
-        val configured = props() ?: env["KRIT_BINARY"]
+    //   1. Settings → Tools → Krit "Krit binary" (when set and executable)
+    //   2. -Dkrit.binary
+    //   3. KRIT_BINARY env var
+    //   4. `krit` on PATH
+    //
+    // A configured override that doesn't resolve (path missing, not
+    // executable) returns null rather than falling through to PATH —
+    // honoring the explicit choice the user made. This keeps debugging
+    // legible: if you set a path, the resolver respects it exactly.
+    fun find(
+        env: Map<String, String> = System.getenv(),
+        props: () -> String? = { System.getProperty("krit.binary") },
+        settings: () -> String? = ::settingsBinaryPath,
+    ): File? {
+        val configured = settings()?.ifBlank { null }
+            ?: props()?.ifBlank { null }
+            ?: env["KRIT_BINARY"]?.ifBlank { null }
         if (configured != null) {
             val f = File(configured)
             return if (f.canExecute()) f else null
@@ -21,4 +33,7 @@ object KritBinaryResolver {
         }
         return null
     }
+
+    private fun settingsBinaryPath(): String? =
+        KritSettingsState.getSafely()?.state?.binaryPath?.takeIf { it.isNotBlank() }
 }

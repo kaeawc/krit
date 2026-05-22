@@ -26,7 +26,19 @@ import (
 // need correctness should pass --no-cache-oracle (forces a full
 // reanalyze) or use the daemon (which produces a manifest the
 // freshness gate can compare against).
-func computeStaleOraclePaths(scanPaths []string, kotlinFilePaths []string, tracker perf.Tracker, verbose bool) []string {
+//
+// includeGenerated mirrors --include-generated. When false (the
+// default), files under /generated/ are filtered out before the
+// stat comparison, matching the filter the parse phase applies to
+// its own input. Without this symmetry the gate flags /generated/
+// .kt files as stale on every warm rerun (they're never in the
+// manifest because the parse phase already dropped them), forcing
+// pointless krit-fir/krit-types one-shot JVM launches on files the
+// parse phase will discard anyway.
+func computeStaleOraclePaths(scanPaths []string, kotlinFilePaths []string, includeGenerated bool, tracker perf.Tracker, verbose bool) []string {
+	if !includeGenerated {
+		kotlinFilePaths = filterGeneratedPathStrings(kotlinFilePaths)
+	}
 	if len(kotlinFilePaths) == 0 {
 		return nil
 	}

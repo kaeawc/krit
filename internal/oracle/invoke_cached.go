@@ -687,7 +687,23 @@ func configuredDaemonCacheMode() string {
 	}
 }
 
-func shouldUseOneShotMissAnalysis(poolSize int) (bool, string) {
+// daemonPreferredMissThreshold is the upper bound on miss count below
+// which the persistent single-daemon path beats parallel one-shot by
+// a wide margin. Reasoning: parallel one-shot's win comes from running
+// `defaultKritTypesParallelFiles` analyses concurrently inside a fresh
+// JVM, paying JVM cold-start (~30-60s on first run, ~JIT-warm time
+// subsequently) once per invocation. For a small miss set the
+// parallelism can't accelerate the work — a 1-file or 2-file analysis
+// finishes in milliseconds — so the cold-start cost dominates.
+// A reused daemon serves those same misses without paying startup at
+// all on warm reruns. Threshold of 8 leaves enough headroom that the
+// occasional handful of ABI-driven changes still hit the fast path
+// while keeping large cache-miss waves on the parallel one-shot path.
+//
+// KRIT_DAEMON_CACHE=on / =off still wins.
+const daemonPreferredMissThreshold = 8
+
+func shouldUseOneShotMissAnalysis(poolSize, misses int) (bool, string) {
 	switch configuredDaemonCacheMode() {
 	case "off":
 		return true, "KRIT_DAEMON_CACHE=off"
@@ -695,6 +711,12 @@ func shouldUseOneShotMissAnalysis(poolSize int) (bool, string) {
 		return false, ""
 	}
 	if poolSize > 1 {
+		return false, ""
+	}
+	// Small miss sets: the persistent daemon amortizes JVM cold-start
+	// across reruns, which dominates the per-file analysis cost for
+	// ABI-sized changes (typically 1-few files).
+	if misses > 0 && misses <= daemonPreferredMissThreshold {
 		return false, ""
 	}
 	if workers := configuredKritTypesParallelFiles(); workers > 1 {
@@ -1047,7 +1069,7 @@ func runMissAnalysis(
 	}
 
 	poolSize := configuredDaemonPoolSize(len(misses))
-	if useOneShot, reason := shouldUseOneShotMissAnalysis(poolSize); useOneShot {
+	if useOneShot, reason := shouldUseOneShotMissAnalysis(poolSize, len(misses)); useOneShot {
 		return fallback(reason)
 	}
 

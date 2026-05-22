@@ -705,3 +705,52 @@ func TestFileWatcher_BumpsXMLFilesVersionOnXMLEdit(t *testing.T) {
 		}
 	})
 }
+
+// TestFileWatcher_BumpSourceMTimeIsEager pins the BundleStatsClean race
+// fix: BumpSourceMTimeVersion must fire on the FIRST fsnotify event, not
+// after the debounce window. The pre-parse bundle layer's
+// BundleStatsClean fast path returns true when sourceMTimeVersion hasn't
+// changed since the prior sweep. If the bump waited for the debounce
+// timer (50 ms by default), an analyze-project call within the debounce
+// window of a write would still see the stale "no events" state and
+// serve cached findings that don't reflect the change.
+//
+// Setup: install a watcher with a long debounce window (300 ms) so the
+// downstream Invalidate* calls demonstrably haven't fired yet, write a
+// .kt file, and assert that BumpSourceMTimeVersion was called before the
+// debounce body. invalidateCalls must still be 0 (debounced); bumpCalls
+// must already be >= 1 (eager).
+func TestFileWatcher_BumpSourceMTimeIsEager(t *testing.T) {
+	root := t.TempDir()
+	ktPath := filepath.Join(root, "Foo.kt")
+	if err := os.WriteFile(ktPath, []byte("fun a() {}\n"), 0o644); err != nil {
+		t.Fatalf("seed kt: %v", err)
+	}
+
+	state := &countingState{}
+	const debounce = 300 * time.Millisecond
+	w, err := startFileWatcherWithState(context.Background(), root, state, nil,
+		withDebounceWindow(debounce))
+	if err != nil {
+		t.Fatalf("startFileWatcher: %v", err)
+	}
+	defer w.Stop()
+	<-w.Ready()
+
+	// Trigger a write. The fsnotify event delivery is async but should
+	// complete well within 100 ms on every supported platform.
+	if err := os.WriteFile(ktPath, []byte("fun a() { 42 }\n"), 0o644); err != nil {
+		t.Fatalf("rewrite kt: %v", err)
+	}
+
+	// Wait long enough for the event to be delivered (~10-30 ms typical)
+	// but well under the 300 ms debounce window. The bump must already
+	// have fired; the Invalidate must not.
+	if !waitForCondition(func() bool { return state.bumpCalls.Load() >= 1 }) {
+		t.Fatalf("BumpSourceMTimeVersion did not fire within timeout; bump=%d", state.bumpCalls.Load())
+	}
+	if got := state.invalidateCalls.Load(); got != 0 {
+		t.Errorf("Invalidate fired before debounce window (bump=%d invalidate=%d); the eager bump must NOT also have eagerly invalidated downstream state",
+			state.bumpCalls.Load(), got)
+	}
+}

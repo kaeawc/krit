@@ -315,7 +315,27 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 // scheduleKotlinInvalidate coalesces rapid fsnotify events for path into a
 // single Invalidate+Touch call fired after fw.debounceWindow of silence.
 // Each new event within the window restarts the timer (sliding debounce).
+//
+// The source-mtime version bump is intentionally NOT part of the debounced
+// body: it fires eagerly on every event so the daemon's
+// BundleStatsClean memo invalidates within microseconds of the first
+// write rather than waiting for the 50 ms quiescence window. Without the
+// eager bump, an analyze-project call within the debounce window of a
+// file write would see BundleStatsClean=true (no event has fired yet —
+// the watcher's timer is still ticking) and serve STALE findings from
+// the pre-parse bundle. Demonstrated against ~/github/kotlin: a probe
+// appended to iterators.kt immediately before analyze-project produced
+// byte-identical findings to the no-probe call, both serving findings
+// for a `__kritItem3` function from a prior session's probe. Bumping
+// eagerly is safe because (a) the bump is just an atomic counter
+// increment, and (b) all downstream invalidations remain debounced —
+// resident workspace state stays consistent, and the next analyze
+// rebuilds from disk anyway via the post-parse path.
 func (fw *fileWatcher) scheduleKotlinInvalidate(path string) {
+	// Eager bump: invalidate BundleStatsClean on the very first event
+	// so the pre-parse bundle layer cannot serve stale findings within
+	// the debounce window.
+	fw.state.BumpSourceMTimeVersion()
 	fw.debounceMu.Lock()
 	if t, ok := fw.debounce[path]; ok {
 		t.Stop()
@@ -337,12 +357,6 @@ func (fw *fileWatcher) scheduleKotlinInvalidate(path string) {
 		fw.state.InvalidateResolver()
 		fw.state.InvalidateOracleFilter()
 		fw.state.Touch(path)
-		// Bumping the version invalidates every daemon-resident
-		// bundle-stats-clean memo, so the next analyze re-runs
-		// fileStatsMatch against the manifest. Without this the
-		// memo could survive a real edit that the watcher saw —
-		// correctness-critical, not just a perf hook.
-		fw.state.BumpSourceMTimeVersion()
 	})
 	fw.debounceMu.Unlock()
 }

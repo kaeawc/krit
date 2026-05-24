@@ -357,6 +357,17 @@ type ProjectHostState struct {
 	// persists a complete manifest. nil means "no hint" — buildManifestData
 	// computes fresh for every parsed Kotlin file.
 	PriorAbiHashes map[string]string
+	// PriorFileStats is the manifest's per-path (size, mtime) snapshot at
+	// the time PriorContentHashes / PriorStructuralFPs were computed.
+	// Used by augmentDirtyWithStatDrift to catch the across-session
+	// staleness case where files were edited while the daemon was down,
+	// so the watcher's dirty set is empty on the first analyze but the
+	// stored prior hashes no longer reflect on-disk content.
+	//
+	// Daemon callers wire this from the prior manifest's FileStats;
+	// CLI callers leave nil. nil means "trust the watcher's dirty set
+	// verbatim" — no drift check is performed.
+	PriorFileStats map[string]scanner.FileStat
 	// FindingsBundleManifestLoader, when non-nil, overrides the disk
 	// load of the prior-run manifest. Daemon callers wire this to an
 	// in-memory cache so the 10.9 MB JSON file (kotlin-corpus scale)
@@ -639,6 +650,18 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 		return ProjectAnalysisResult{}, err
 	}
 	runProjectTargetedResolution(args, host, parseResult.KotlinFiles, indexResult)
+
+	// Augment the watcher's dirty set with paths whose on-disk stat has
+	// drifted from the prior manifest's recorded FileStats. The
+	// watcher's dirty set is empty on the first analyze of a daemon
+	// session (no events observed yet), but the persisted prior content
+	// hashes can be stale if files were edited while the daemon was
+	// down. Without this augmentation, priorOrCompute would return the
+	// stale prior hashes, runFP would match the prior bundle key, and a
+	// stale bundle would be served. Cost: ~one os.Stat per parsed file
+	// (~80 ms on kotlin-corpus scale), and only when PriorFileStats is
+	// populated (daemon path only).
+	host.SourceSetDirty = augmentDirtyWithStatDrift(host, parseResult)
 
 	runFP, bundleEnabled := computeRunFingerprint(args, host, parseResult, indexResult)
 	manifestData := buildManifestData(args, host, parseResult, runFP, bundleEnabled)
@@ -2552,6 +2575,62 @@ func priorOrCompute(prior map[string]string, dirty map[string]bool, path string,
 		}
 	}
 	return compute()
+}
+
+// augmentDirtyWithStatDrift returns host.SourceSetDirty extended with
+// any parsed file whose current on-disk stat differs from the manifest's
+// recorded FileStats. Closes the across-session staleness gap where
+// files are edited while the daemon is down: the watcher's dirty set
+// is empty on the next analyze (no events observed), and
+// priorOrCompute would otherwise return the stored stale content
+// hashes, which makes runFP match a prior bundle key and serves stale
+// findings.
+//
+// Returns SourceSetDirty unchanged when host.PriorFileStats is nil
+// (CLI path, no prior session to compare against) or when no parsed
+// file's stat has drifted (steady-state warm path).
+//
+// The function preserves the host's nil-vs-empty-slice contract:
+//   - host.SourceSetDirty=nil + no drift → return nil (no opinion)
+//   - host.SourceSetDirty=[] + no drift → return [] (clean source set)
+//   - any drift → return a non-nil slice containing observed dirty +
+//     drifted paths so downstream priorOrCompute calls recompute.
+func augmentDirtyWithStatDrift(host ProjectHostState, parseResult ParseResult) []string {
+	if host.PriorFileStats == nil {
+		return host.SourceSetDirty
+	}
+	existing := make(map[string]bool, len(host.SourceSetDirty))
+	for _, p := range host.SourceSetDirty {
+		existing[p] = true
+	}
+	var drifted []string
+	check := func(f *scanner.File) {
+		if f == nil || existing[f.Path] {
+			return
+		}
+		prior, ok := host.PriorFileStats[f.Path]
+		if !ok {
+			return
+		}
+		current, statOK := statForPath(f.Path)
+		if !statOK || prior != current {
+			drifted = append(drifted, f.Path)
+			existing[f.Path] = true
+		}
+	}
+	for _, f := range parseResult.KotlinFiles {
+		check(f)
+	}
+	for _, f := range parseResult.JavaFiles {
+		check(f)
+	}
+	if len(drifted) == 0 {
+		return host.SourceSetDirty
+	}
+	out := make([]string, 0, len(host.SourceSetDirty)+len(drifted))
+	out = append(out, host.SourceSetDirty...)
+	out = append(out, drifted...)
+	return out
 }
 
 // dirtyPathSet materialises a host's SourceSetDirty slice into a

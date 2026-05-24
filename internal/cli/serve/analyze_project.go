@@ -555,6 +555,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 			PriorContentHashes:           priorManifest.ContentHashes,
 			PriorStructuralFPs:           priorManifest.StructuralFPs,
 			PriorAbiHashes:               priorManifest.AbiHashes,
+			PriorFileStats:               priorManifest.FileStats,
 		},
 	}, nil
 }

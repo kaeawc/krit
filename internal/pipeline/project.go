@@ -2155,7 +2155,7 @@ func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, t
 }
 
 func preparseSourcePaths(args ProjectArgs, host ProjectHostState, prior scanner.FindingsBundleManifest) ([]string, []string, bool) {
-	if host.SourceSetClean || dirtyPathsAllInManifest(host.SourceSetDirty, prior.ContentHashes) {
+	if host.SourceSetClean || dirtyPathsAllInManifest(host.SourceSetDirty, prior.ContentHashes, args.Paths) {
 		kotlinPaths, javaPaths := pathsFromManifest(prior.ContentHashes)
 		return kotlinPaths, javaPaths, true
 	}
@@ -2180,22 +2180,73 @@ func preparseSourcePaths(args ProjectArgs, host ProjectHostState, prior scanner.
 // filesystem walk, which costs 30-40s on kotlin-corpus scale when the
 // OS dentry cache is cold.
 //
+// scanRoots threads through the analyze call's args.Paths so the
+// comparison is robust to a path-convention mismatch between dirty and
+// manifest. The watcher always Touches with absolute paths (fsnotify
+// reports them as registered, and the daemon registers an absolute
+// root), but the manifest stores paths exactly as scanner.CollectKotlinFiles
+// emits them — relative when the CLI passes "." (the common case), or
+// absolute when the CLI passes an absolute path. Without a fallback,
+// a one-file ABI edit on kotlin-corpus drops the warm path into a
+// 30-40s CollectKotlinFiles walk every time.
+//
 // nil dirty means "host has no opinion" and we return false so the
 // caller falls back to walking. Empty dirty is a clean source set,
 // also acceptable.
-func dirtyPathsAllInManifest(dirty []string, manifest map[string]string) bool {
+func dirtyPathsAllInManifest(dirty []string, manifest map[string]string, scanRoots []string) bool {
 	if dirty == nil {
 		return false
 	}
 	if len(manifest) == 0 {
 		return len(dirty) == 0
 	}
-	for _, p := range dirty {
-		if _, ok := manifest[p]; !ok {
-			return false
+	absRoots := make([]string, 0, len(scanRoots))
+	for _, r := range scanRoots {
+		if r == "" {
+			continue
+		}
+		if abs, err := filepath.Abs(r); err == nil {
+			absRoots = append(absRoots, abs)
 		}
 	}
+	for _, p := range dirty {
+		if pathInManifest(p, manifest, absRoots) {
+			continue
+		}
+		return false
+	}
 	return true
+}
+
+// pathInManifest reports whether p resolves to a manifest key under any
+// reasonable path-convention reading of p:
+//
+//   - Direct hit on the raw path (covers manifest and dirty both using
+//     the same convention — relative-relative or absolute-absolute).
+//   - Relativized against each scan root (covers absolute dirty path
+//     against relative manifest).
+//   - Joined under each scan root (covers relative dirty against
+//     absolute manifest).
+//
+// The double-check is cheap (a couple of filepath.Rel calls per dirty
+// entry, dirty is typically O(1) per analyze) and lets the fast path
+// fire regardless of which side normalized.
+func pathInManifest(p string, manifest map[string]string, absRoots []string) bool {
+	if _, ok := manifest[p]; ok {
+		return true
+	}
+	for _, root := range absRoots {
+		if rel, err := filepath.Rel(root, p); err == nil && !strings.HasPrefix(rel, "..") {
+			if _, ok := manifest[rel]; ok {
+				return true
+			}
+		}
+		joined := filepath.Join(root, p)
+		if _, ok := manifest[joined]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func pathsFromManifest(hashes map[string]string) ([]string, []string) {

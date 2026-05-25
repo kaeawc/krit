@@ -639,6 +639,30 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	if err != nil {
 		return ProjectAnalysisResult{}, fmt.Errorf("parse: %w", err)
 	}
+
+	// Augment the watcher's dirty set with paths whose on-disk stat has
+	// drifted from the prior manifest's recorded FileStats. Moved ahead
+	// of IndexPhase so previewPostParseBundleHit (below) sees the same
+	// dirty set computeRunFingerprint will see later — both must hash
+	// the same parsed contents through priorOrCompute, otherwise the
+	// preview's runFP diverges from the canonical one.
+	host.SourceSetDirty = augmentDirtyWithStatDrift(host, parseResult)
+
+	// Early post-parse bundle check. When the canonical runFP we'd
+	// compute after IndexPhase already matches a stored bundle, the
+	// IndexPhase's codeIndexBuild + buildBaseResolver + module index
+	// work is pure overhead — the bundle's FindingColumns is the only
+	// output we need. Populate warmPlan.cross with the cached bundle
+	// so runProjectIndexPhase's `buildCodeIndex := hasIndexBackedCrossFileRule
+	// && warm.cross == nil` gate flips false and codeIndexBuild is
+	// skipped. The post-IndexPhase runDispatchOrLoadBundle still calls
+	// Load with the same key and short-circuits dispatch via the
+	// existing cacheHitFullBundle / cacheHitStructuralBundle paths.
+	earlyBundle := previewPostParseBundleHit(args, host, parseResult)
+	if earlyBundle != nil {
+		warmPlan.cross = earlyBundle
+	}
+
 	indexStart := time.Now()
 	indexResult, err := runProjectIndexPhase(ctx, args, host, warmPlan, parseResult)
 	phaseTimings.Index = time.Since(indexStart).Milliseconds()
@@ -650,18 +674,6 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 		return ProjectAnalysisResult{}, err
 	}
 	runProjectTargetedResolution(args, host, parseResult.KotlinFiles, indexResult)
-
-	// Augment the watcher's dirty set with paths whose on-disk stat has
-	// drifted from the prior manifest's recorded FileStats. The
-	// watcher's dirty set is empty on the first analyze of a daemon
-	// session (no events observed yet), but the persisted prior content
-	// hashes can be stale if files were edited while the daemon was
-	// down. Without this augmentation, priorOrCompute would return the
-	// stale prior hashes, runFP would match the prior bundle key, and a
-	// stale bundle would be served. Cost: ~one os.Stat per parsed file
-	// (~80 ms on kotlin-corpus scale), and only when PriorFileStats is
-	// populated (daemon path only).
-	host.SourceSetDirty = augmentDirtyWithStatDrift(host, parseResult)
 
 	runFP, bundleEnabled := computeRunFingerprint(args, host, parseResult, indexResult)
 	manifestData := buildManifestData(args, host, parseResult, runFP, bundleEnabled)
@@ -2519,6 +2531,64 @@ func scopeParseResult(p ParseResult, only *scanner.File) ParseResult {
 // identical input. Body-only Kotlin edits that move SourceSet but keep
 // CrossFile stable are handled by runDispatchOrLoadBundle's structural
 // reuse path.
+// previewPostParseBundleHit computes the canonical runFP from the parsed
+// files + a lightweight Android/LibraryFacts probe and tries to load a
+// stored bundle keyed by it. When a bundle hits, the caller assigns the
+// returned columns to warmPlan.cross so runProjectIndexPhase's
+// `buildCodeIndex := hasIndexBackedCrossFileRule && warm.cross == nil`
+// gate skips codeIndexBuild and module-index build — savings observed
+// on kotlin-corpus warm+ABI: ~409ms of codeIndexBuild plus the
+// indirect saving from buildBaseResolver no longer being demanded by
+// downstream consumers.
+//
+// Returns nil when:
+//   - the bundle cache is disabled (no store / no root)
+//   - the call passes custom rule jars (computeRunFingerprint refuses
+//     fingerprinting in that case, so we mirror)
+//   - the Load misses (genuinely fresh combination of inputs)
+//
+// The runFP computation must match computeRunFingerprint byte-for-byte
+// — otherwise the Load returns nil here but succeeds later, and we
+// silently skip the optimization on every call. The helper shares
+// every input (rulesHash, dirty set, file-list hashing) with the
+// canonical implementation and uses preparseProjectFingerprints for
+// the Android/LibraryFacts pair (the same helper preparseBundleFingerprint
+// already trusts on the warm pre-parse fast path).
+func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseResult ParseResult) *scanner.FindingColumns {
+	if host.FindingsBundleStore == nil || host.FindingsBundleCacheRoot == "" {
+		return nil
+	}
+	if len(args.CustomRuleJars) > 0 {
+		return nil
+	}
+	// Cold runs (no prior manifest residing in the host) cannot hit
+	// the bundle by construction — Load with a freshly-computed runFP
+	// has no stored predecessor to match. Skip the wasted Load: the
+	// regular post-IndexPhase path will populate the bundle for next
+	// time. This also preserves the existing test contract that
+	// counts Load calls — one Load per analyze, not two.
+	if len(host.PriorContentHashes) == 0 {
+		return nil
+	}
+	rulesHash := projectRuleHash(args.ActiveRules, args.Config)
+	dirty := dirtyPathSet(host.SourceSetDirty)
+	androidFP, libraryFactsFP := preparseProjectFingerprints(args, host)
+	fp := scanner.RunFingerprint{
+		Version:      args.Version,
+		Rules:        rulesHash,
+		Config:       rulesHash,
+		SourceSet:    sourceSetFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, dirty),
+		CrossFile:    crossFileStructuralFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorStructuralFPs, dirty),
+		Android:      androidFP,
+		LibraryFacts: libraryFactsFP,
+	}
+	cached, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, fp)
+	if !ok || cached == nil {
+		return nil
+	}
+	return cached
+}
+
 func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult ParseResult, indexResult IndexResult) (scanner.RunFingerprint, bool) {
 	if host.FindingsBundleStore == nil || host.FindingsBundleCacheRoot == "" {
 		return scanner.RunFingerprint{}, false

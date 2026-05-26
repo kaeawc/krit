@@ -827,12 +827,18 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		CrossFileJavaPaths:       args.JavaPaths,
 		ParseCache:               host.ParseCache,
 		BuildModuleIndex:         buildModuleIndex,
-		ModuleParentTracker:      moduleTracker,
-		ModuleScanRoot:           scanRoot,
-		ModuleJobsFlag:           args.Workers,
-		ModuleHasAwareRule:       hasModuleAwareRule,
-		InputTypesPath:           args.InputTypesPath,
-		Thorough:                 args.TargetedResolution,
+		// Skip buildBaseResolver on bundle-hit candidates: the early
+		// preview has already proved a stored bundle will hit, so
+		// result.Resolver is never read by the downstream dispatch /
+		// cross-file / Android / kotlin-plugin work (all gated on
+		// bundleHit). Saves ~128 ms on kotlin-corpus warm+ABI.
+		SkipBaseResolver:    warm.cross != nil,
+		ModuleParentTracker: moduleTracker,
+		ModuleScanRoot:      scanRoot,
+		ModuleJobsFlag:      args.Workers,
+		ModuleHasAwareRule:  hasModuleAwareRule,
+		InputTypesPath:      args.InputTypesPath,
+		Thorough:            args.TargetedResolution,
 	}
 	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)
 	if warm.result == nil {

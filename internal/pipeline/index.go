@@ -283,6 +283,16 @@ type IndexInput struct {
 	// SkipCache, when true, bypasses the cache load block regardless of
 	// CacheEnabled. Used by the post-parse IndexPhase call.
 	SkipCache bool
+	// SkipBaseResolver, when true, bypasses the buildBaseResolver call
+	// that feeds runOracle / buildTypeResolver. Set by
+	// runProjectIndexPhase when the early bundle preview has already
+	// populated warmPlan.cross — DispatchPhase, CrossFilePhase,
+	// AndroidPhase, and KotlinPluginRules all short-circuit on bundle
+	// hit, so result.Resolver is never read. Skipping the ~128 ms
+	// buildBaseResolver on kotlin-corpus warm+ABI is the lever; the
+	// resolver still gets built on the cacheMissFullDispatch path
+	// because warmPlan.cross stays nil there.
+	SkipBaseResolver bool
 
 	// --- CodeIndex construction knobs. These mirror the pre-refactor
 	// cross-file block in cmd/krit/main.go. IndexPhase builds the
@@ -674,7 +684,7 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 	}
 
 	resolverForOracle := in.BaseResolver
-	if resolverForOracle == nil && in.PrebuiltResolver == nil {
+	if resolverForOracle == nil && in.PrebuiltResolver == nil && !in.SkipBaseResolver {
 		// Build the base resolver up-front so runOracle has something
 		// to wrap. Returns nil when no rule needs a resolver — that's
 		// the early-out the oracle gate below also enforces.

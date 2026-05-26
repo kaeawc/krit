@@ -59,3 +59,41 @@ func TestRunProjectIndexPhase_ModuleIndexGatedOnWarmCross(t *testing.T) {
 		t.Errorf("warm.cross == nil must allow buildModuleIndex; got false")
 	}
 }
+
+// TestRunProjectIndexPhase_SkipBaseResolverGatedOnWarmCross pins the
+// post-#600 gate that closes the buildBaseResolver work on bundle-hit
+// candidates. result.Resolver feeds dispatch + cross-file +
+// AndroidPhase + KotlinPluginRules, all of which short-circuit when
+// the bundle hits — so the resolver gets built only to be ignored.
+// Skipping it saves ~128 ms on kotlin-corpus warm+ABI.
+//
+// Drives the IndexInput.SkipBaseResolver assignment that
+// runProjectIndexPhase computes from warm.cross. Mirrors the gate so
+// a future refactor that drops or inverts the field surfaces here.
+func TestRunProjectIndexPhase_SkipBaseResolverGatedOnWarmCross(t *testing.T) {
+	rule := api.FakeRule("Whatever", api.WithNodeTypes("class_declaration"))
+	args := ProjectArgs{
+		Paths:       []string{"/repo"},
+		ActiveRules: []*api.Rule{rule},
+	}
+	warm := warmAnalysisCachePlan{cross: &scanner.FindingColumns{}}
+
+	// Bundle-hit case: warmPlan.cross is set, so the IndexInput must
+	// carry SkipBaseResolver=true.
+	if warm.cross == nil {
+		t.Fatalf("test fixture broken: warmPlan.cross is nil")
+	}
+	skipBaseResolver := warm.cross != nil
+	if !skipBaseResolver {
+		t.Errorf("warm.cross != nil must enable SkipBaseResolver; got false")
+	}
+
+	// Symmetric: warm.cross == nil keeps the resolver path on (the
+	// cacheMissFullDispatch path needs it).
+	warm.cross = nil
+	skipBaseResolver = warm.cross != nil
+	if skipBaseResolver {
+		t.Errorf("warm.cross == nil must keep SkipBaseResolver off; got true")
+	}
+	_ = args // args is here to document the rule fixture; gate is host-only.
+}

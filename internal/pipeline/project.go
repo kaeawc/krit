@@ -1728,8 +1728,43 @@ func tryLoadStructurallyStableBundle(host ProjectHostState, runFP scanner.RunFin
 		host.Reporter.Verbosef("verbose: Findings bundle structural reuse skipped: save alias failed: %v\n", err)
 		return nil, false
 	}
+	// Alias the formatted-output cache too. The findings bytes that
+	// emitBundleHitOutput would produce are a pure function of
+	// (priorBundle, args.ActiveRules), which is byte-identical between
+	// prior.Fingerprint and runFP since the planner gate proves rules
+	// haven't changed. Without aliasing, the first warm+ABI cycle
+	// builds the formatted output from scratch (~100ms of column-
+	// serialisation work on kotlin-corpus scale) even though the bytes
+	// already exist under prior.Fingerprint's key. Skipped silently
+	// when the host hasn't wired the BundleOutput cache (CLI path).
+	aliasBundleOutputCache(host, prior.Fingerprint, runFP)
 	host.Reporter.Verbosef("verbose: Findings bundle cache: HIT (structural reuse: %s)\n", plan.ChangedPaths[0])
 	return priorBundle, true
+}
+
+// aliasBundleOutputCache copies host.BundleOutput[priorKey] to
+// host.BundleOutput[newKey] when both ends of the BundleOutput cache
+// API are wired and a stored entry exists for priorFP. A no-op
+// otherwise. Used by the structural-replay path so subsequent
+// analyzes against the same body-edit can take the pre-Load
+// BundleOutput fast path instead of rebuilding the formatted bytes.
+func aliasBundleOutputCache(host ProjectHostState, priorFP, newFP scanner.RunFingerprint) {
+	if host.BundleOutput == nil || host.StoreBundleOutput == nil {
+		return
+	}
+	priorKey := scanner.FindingsBundleKey(priorFP)
+	if priorKey == "" {
+		return
+	}
+	existing := host.BundleOutput(priorKey)
+	if existing == nil {
+		return
+	}
+	newKey := scanner.FindingsBundleKey(newFP)
+	if newKey == "" || newKey == priorKey {
+		return
+	}
+	host.StoreBundleOutput(newKey, existing)
 }
 
 func bodyOnlyKotlinChange(path string, prior, current map[string]string) bool {

@@ -772,8 +772,12 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 	if hasIndexBackedCrossFileRule || hasParsedFilesRule {
 		crossTracker = hostTracker.Serial("crossFileAnalysis")
 	}
+	// Mirror the bundle-hit gate for moduleAwareAnalysis: when
+	// warm.cross is non-nil the module phase is skipped, so opening
+	// the parent scope just produces a wall-clock measurement of
+	// "everything else after parse" with no useful children.
 	var moduleTracker perf.Tracker
-	if hasModuleAwareRule {
+	if hasModuleAwareRule && warm.cross == nil {
 		moduleTracker = hostTracker.Serial("moduleAwareAnalysis")
 	}
 	scanRoot := "."
@@ -781,8 +785,19 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		scanRoot = args.Paths[0]
 	}
 	moduleNeeds := rules.CollectModuleAwareNeeds(args.ActiveRules)
+	// When warm.cross is non-nil, the early bundle preview has
+	// confirmed (and aliased, on the structural-replay path) a stored
+	// bundle that runDispatchOrLoadBundle will Load with the same
+	// runFP. Both DispatchPhase and CrossFilePhase short-circuit on
+	// the bundle hit, and runAndroidPhaseAndMerge /
+	// runKotlinPluginRulesAndMerge skip when bundleHit=true. Module-
+	// aware rules run through the same dispatch+crossfile path, so
+	// they also won't fire. Skipping the module-index build here
+	// avoids ~300-400 ms of crossFileAnalysis time on kotlin-corpus
+	// warm+ABI.
+	buildModuleIndex := hasModuleAwareRule && warm.cross == nil
 	buildCodeIndex := hasIndexBackedCrossFileRule && warm.cross == nil
-	if moduleNeeds.NeedsIndex {
+	if moduleNeeds.NeedsIndex && warm.cross == nil {
 		buildCodeIndex = true
 	}
 	indexInput := IndexInput{
@@ -811,7 +826,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		CrossFileJobsFlag:        args.Workers,
 		CrossFileJavaPaths:       args.JavaPaths,
 		ParseCache:               host.ParseCache,
-		BuildModuleIndex:         hasModuleAwareRule,
+		BuildModuleIndex:         buildModuleIndex,
 		ModuleParentTracker:      moduleTracker,
 		ModuleScanRoot:           scanRoot,
 		ModuleJobsFlag:           args.Workers,

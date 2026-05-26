@@ -2582,11 +2582,75 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 		Android:      androidFP,
 		LibraryFacts: libraryFactsFP,
 	}
-	cached, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, fp)
-	if !ok || cached == nil {
-		return nil
+	// cacheHitFullBundle: exact runFP match — the bytes we just hashed
+	// already live in the store under this key.
+	if cached, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, fp); ok && cached != nil {
+		return cached
 	}
-	return cached
+	// cacheHitStructuralBundle: SourceSet drifted but the planner
+	// believes a single body-only edit is the only difference. The
+	// prior bundle is replayed and aliased under the new runFP so the
+	// post-IndexPhase runDispatchOrLoadBundle's cacheHitFullBundle hits
+	// the same alias on its own Load.
+	preview := buildPreviewManifestData(args, host, parseResult)
+	if cached, ok := tryLoadStructurallyStableBundle(host, fp, preview); ok {
+		return cached
+	}
+	return nil
+}
+
+// buildPreviewManifestData is the parse-only subset of buildManifestData
+// that the early bundle preview needs. It computes the current run's
+// per-file content hashes and structural fingerprints — the inputs
+// tryLoadStructurallyStableBundle reads to gate the body-only single-
+// file edit case — and skips the fileStats / abiHashes work that the
+// preview doesn't consume. Skipping the fileStats sweep avoids
+// ~18 k os.Stat calls on kotlin-corpus scale (~80-200 ms) every
+// preview invocation. The persisted manifest still gets the complete
+// data because buildManifestData runs again post-IndexPhase under the
+// existing flow.
+func buildPreviewManifestData(args ProjectArgs, host ProjectHostState, parseResult ParseResult) deltaManifestData {
+	parsedByPath := make(map[string]*scanner.File, len(parseResult.KotlinFiles)+len(parseResult.JavaFiles))
+	for _, f := range parseResult.KotlinFiles {
+		if f != nil {
+			parsedByPath[f.Path] = f
+		}
+	}
+	for _, f := range parseResult.JavaFiles {
+		if f != nil {
+			parsedByPath[f.Path] = f
+		}
+	}
+	total := len(parsedByPath) + len(host.PriorContentHashes)
+	contentHashes := make(map[string]string, total)
+	structuralFPs := make(map[string]string, total)
+	dirty := dirtyPathSet(host.SourceSetDirty)
+	for path, f := range parsedByPath {
+		contentHashes[path] = priorOrCompute(host.PriorContentHashes, dirty, path, func() string {
+			return hashutil.Default().HashContent(path, f.Content)
+		})
+		structuralFPs[path] = priorOrCompute(host.PriorStructuralFPs, dirty, path, func() string {
+			return scanner.FileStructuralFingerprint(f)
+		})
+	}
+	for path, hash := range host.PriorContentHashes {
+		if _, parsed := parsedByPath[path]; parsed {
+			continue
+		}
+		if dirty != nil && dirty[path] {
+			continue
+		}
+		contentHashes[path] = hash
+		if fp, ok := host.PriorStructuralFPs[path]; ok {
+			structuralFPs[path] = fp
+		}
+	}
+	return deltaManifestData{
+		enabled:       true,
+		manifestKey:   scanner.FindingsBundleManifestKey(host.FindingsBundleCacheRoot, args.Paths),
+		contentHashes: contentHashes,
+		structuralFPs: structuralFPs,
+	}
 }
 
 func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult ParseResult, indexResult IndexResult) (scanner.RunFingerprint, bool) {

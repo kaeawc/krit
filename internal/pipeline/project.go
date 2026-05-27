@@ -2742,21 +2742,68 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 		Android:      androidFP,
 		LibraryFacts: libraryFactsFP,
 	}
+	// Look up the prior manifest once — daemon callers wire
+	// FindingsBundleManifestLoader to an in-memory cache so this is
+	// effectively free (~0 ms). Reusing the result across both
+	// fingerprint branches saves a ~90 ms cacheHitFullBundle Load on
+	// warm+ABI: when fp != prior.Fingerprint the bundle CAN'T be
+	// stored under fp (no analyze ever produced it), so the Load
+	// would deterministically miss. Going straight to the
+	// structural-replay path saves the wasted decode attempt.
+	manifestKey := scanner.FindingsBundleManifestKey(host.FindingsBundleCacheRoot, args.Paths)
+	prior, priorOK := loadBundleManifest(host, manifestKey)
+
 	// cacheHitFullBundle: exact runFP match — the bytes we just hashed
-	// already live in the store under this key.
-	if cached, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, fp); ok && cached != nil {
-		return cached
+	// already live in the store under this key. Only try when the
+	// prior manifest's recorded fingerprint matches — otherwise no
+	// analyze has ever produced a bundle keyed on this fp, so the
+	// Load would miss.
+	if priorOK && fp == prior.Fingerprint {
+		if cached, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, fp); ok && cached != nil {
+			return cached
+		}
 	}
 	// cacheHitStructuralBundle: SourceSet drifted but the planner
 	// believes a single body-only edit is the only difference. The
 	// prior bundle is replayed and aliased under the new runFP so the
 	// post-IndexPhase runDispatchOrLoadBundle's cacheHitFullBundle hits
 	// the same alias on its own Load.
+	if !priorOK {
+		return nil
+	}
 	preview := buildPreviewManifestData(args, host, parseResult)
-	if cached, ok := tryLoadStructurallyStableBundle(host, fp, preview); ok {
+	if cached, ok := tryLoadStructurallyStableBundleWithPrior(host, fp, preview, prior); ok {
 		return cached
 	}
 	return nil
+}
+
+// tryLoadStructurallyStableBundleWithPrior is the prior-injected
+// variant of tryLoadStructurallyStableBundle: the caller has already
+// loaded the manifest (often from a daemon-resident cache) and passes
+// it in so we don't reload. Used by previewPostParseBundleHit where
+// the same prior drives the fp-vs-prior.Fingerprint short-circuit
+// AND the structural-replay gate.
+func tryLoadStructurallyStableBundleWithPrior(host ProjectHostState, runFP scanner.RunFingerprint, manifest deltaManifestData, prior scanner.FindingsBundleManifest) (*scanner.FindingColumns, bool) {
+	if !manifest.enabled || manifest.manifestKey == "" {
+		return nil, false
+	}
+	changedPaths := diffContentHashes(prior.ContentHashes, manifest.contentHashes)
+	plan := scanner.ConservativeDeltaPlanner{}.Plan(prior.Fingerprint, runFP, changedPaths)
+	if !plan.ReusePrevious || len(plan.ChangedPaths) != 1 || !bodyOnlyKotlinChange(plan.ChangedPaths[0], prior.StructuralFPs, manifest.structuralFPs) {
+		return nil, false
+	}
+	priorBundle, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, prior.Fingerprint)
+	if !ok || priorBundle == nil {
+		return nil, false
+	}
+	if err := host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, priorBundle); err != nil {
+		host.Reporter.Verbosef("verbose: Findings bundle structural reuse skipped: save alias failed: %v\n", err)
+		return nil, false
+	}
+	aliasBundleOutputCache(host, prior.Fingerprint, runFP)
+	host.Reporter.Verbosef("verbose: Findings bundle cache: HIT (structural reuse: %s)\n", plan.ChangedPaths[0])
+	return priorBundle, true
 }
 
 // buildPreviewManifestData is the parse-only subset of buildManifestData

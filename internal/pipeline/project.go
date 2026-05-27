@@ -477,15 +477,21 @@ type ProjectResult struct {
 // report formatting. CLI callers use this boundary to keep CLI-only FIR,
 // baseline verbs, profile handling, and exit-code policy outside pipeline.
 type ProjectAnalysisResult struct {
-	ParseResult       ParseResult
-	IndexResult       IndexResult
-	DispatchResult    DispatchResult
-	CrossFileResult   CrossFileResult
-	FilesScanned      int
-	ParseErrors       []error
-	Stats             rules.RunStats
-	ParseHits         int64
-	ParseMisses       int64
+	ParseResult     ParseResult
+	IndexResult     IndexResult
+	DispatchResult  DispatchResult
+	CrossFileResult CrossFileResult
+	FilesScanned    int
+	ParseErrors     []error
+	Stats           rules.RunStats
+	ParseHits       int64
+	ParseMisses     int64
+	// RunFP is the canonical RunFingerprint computeRunFingerprint
+	// produced for this analyze — exposed so RunProjectStreaming can
+	// key BundleOutput-cache lookups on it after a post-parse bundle
+	// hit. Zero-value when bundleEnabled was false (CLI path without
+	// a wired FindingsBundleStore, --custom-rule-jars, etc.).
+	RunFP             scanner.RunFingerprint
 	FindingsBundleHit bool
 	PhaseTimingsMs    PhaseTimingsMs
 }
@@ -554,6 +560,46 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		return ProjectResult{}, err
 	}
 	phaseTimings = analysis.PhaseTimingsMs
+
+	// Post-parse BundleOutput cache shortcut. When the dispatch path
+	// hit a bundle (cacheHitFullBundle, including the alias #599 and
+	// #602 produce on structural replay), the FindingColumns flowing
+	// out of RunProjectAnalysis is byte-identical to what the prior
+	// run produced. If the host's BundleOutput cache already holds
+	// the formatted bytes for analysis.RunFP, we can emit them
+	// directly and skip the ~100 ms FixupPhase + OutputPhase
+	// re-formatting on kotlin-corpus scale.
+	//
+	// Gates mirror tryLoadFindingsBundleBeforeParse so the same
+	// correctness envelope applies: Fix / FixBinary / DryRun /
+	// CustomRuleJars all force the full FixupPhase+OutputPhase route.
+	// canUseBundleOutputCache catches the remaining response-shape
+	// requirements (Format=json, JSONCompact, no baseline/diff
+	// filtering, etc.).
+	if analysis.FindingsBundleHit && canUsePostParseBundleOutputShortcut(args, host) {
+		perfTimings, caches, budget := capturePerfOutputs(args, host)
+		shortcutStart := time.Now()
+		res, ok, err := serveBundleHitFromOutputCache(
+			&analysis.CrossFileResult.Findings, analysis.RunFP,
+			analysis.ParseResult.KotlinFiles, analysis.ParseResult.JavaFiles,
+			args, host, out, startTime, perfTimings, caches, budget)
+		if err != nil {
+			return ProjectResult{}, err
+		}
+		if ok {
+			phaseTimings.Output = time.Since(shortcutStart).Milliseconds()
+			res.PhaseTimingsMs = phaseTimings
+			res.ParseErrors = analysis.ParseErrors
+			res.Stats = analysis.Stats
+			res.ParseHits = analysis.ParseHits
+			res.ParseMisses = analysis.ParseMisses
+			res.FileTimings = analysis.DispatchResult.FileTimings
+			return res, nil
+		}
+		// ok=false with nil error → cache build declined (degenerate
+		// FindingColumns). Fall through to FixupPhase+OutputPhase for
+		// correctness.
+	}
 
 	fixupStart := time.Now()
 	fixupView, err := runFixupPhase(ctx, args, analysis.CrossFileResult)
@@ -711,6 +757,7 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 		Stats:             dispatchResult.Stats,
 		ParseHits:         hits1 - hits0,
 		ParseMisses:       misses1 - misses0,
+		RunFP:             runFP,
 		FindingsBundleHit: bundleHit,
 		PhaseTimingsMs:    phaseTimings,
 	}, nil
@@ -1975,6 +2022,26 @@ func emitBundleHitOutput(
 // post-bundle column set (baseline filter, diff filter, severity
 // promotion, min-confidence threshold) makes them incorrect, so
 // those cases fall back to the regular OutputPhase route.
+// canUsePostParseBundleOutputShortcut reports whether the post-parse
+// BundleOutput shortcut is safe to take. Mirrors the Fix-related gate
+// in tryLoadFindingsBundleBeforeParse (the pre-parse path) so the
+// same correctness envelope applies to both bundle-hit routes — both
+// skip FixupPhase, so both must refuse when Fix / FixBinary / DryRun
+// / CustomRuleJars would change the post-pipeline column set.
+//
+// Layered on top of canUseBundleOutputCache (which handles the
+// response-shape requirements: Format=json, JSONCompact, no
+// baseline/diff filtering, no severity promotion).
+func canUsePostParseBundleOutputShortcut(args ProjectArgs, host ProjectHostState) bool {
+	if args.Fix || args.FixBinary || args.DryRun {
+		return false
+	}
+	if len(args.CustomRuleJars) > 0 {
+		return false
+	}
+	return canUseBundleOutputCache(args, host)
+}
+
 func canUseBundleOutputCache(args ProjectArgs, host ProjectHostState) bool {
 	if host.BundleOutput == nil || host.StoreBundleOutput == nil {
 		return false

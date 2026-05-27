@@ -927,12 +927,23 @@ func completeRunProjectIndexResult(args ProjectArgs, host ProjectHostState, warm
 	indexResult.EmitPerFileStats = args.EmitPerFileStats
 	indexResult.Reporter = host.Reporter
 	indexResult.Tracker = host.Tracker
+	// WarmCrossFindings carries the pre-loaded findings forward to
+	// runDispatchOrLoadBundle so it can short-circuit the disk Load
+	// when previewPostParseBundleHit already produced the bundle.
+	// Lifted out of the warm.result branch (which gates on the
+	// analysis-cache hit) because the early bundle preview runs
+	// independently and may populate warm.cross even when warm.result
+	// is nil. Without this lift, warm+ABI on a cold-analysis-cache
+	// daemon would Load the bundle twice — once in the preview, once
+	// in runDispatchOrLoadBundle's cacheHitFullBundle path.
+	if warm.cross != nil {
+		indexResult.WarmCrossFindings = warm.cross
+	}
 	if warm.result != nil {
 		indexResult.CacheResult = warm.result
 		indexResult.RuleHash = warm.ruleHash
 		indexResult.CacheFilePath = host.AnalysisCacheFilePath
 		indexResult.CacheStats = warm.stats
-		indexResult.WarmCrossFindings = warm.cross
 	}
 	if host.AnalysisCache == nil {
 		return
@@ -1668,6 +1679,19 @@ func runDispatchOrLoadBundle(
 		perf.AddEntryDetails(tracker, "dispatchPath", 0, nil, map[string]string{"path": path})
 	}
 	if bundleEnabled {
+		// Pre-loaded bundle from previewPostParseBundleHit: when the
+		// preview already Loaded (and possibly aliased) the bundle
+		// under runFP, indexResult.WarmCrossFindings carries the
+		// decoded FindingColumns. Skipping the redundant
+		// FindingsBundleStore.Load saves ~90 ms of zstd+gob decode on
+		// kotlin-corpus scale — one of three Loads warm+ABI used to
+		// pay (preview-full-miss + preview-prior-hit + this one).
+		if indexResult.WarmCrossFindings != nil {
+			perf.AddEntryDetails(tracker, "dispatchBundleLoad", 0, nil, map[string]string{"outcome": "preloaded"})
+			d := DispatchResult{IndexResult: indexResult, Findings: *indexResult.WarmCrossFindings}
+			recordDispatchPath("cacheHitFullBundle")
+			return d, CrossFileResult{DispatchResult: d}, true, dispatchTimings{}, nil
+		}
 		// cacheHitFullBundle: RunFingerprint matches a prior run
 		// exactly; the prior bytes are guaranteed correct for this
 		// request.

@@ -91,7 +91,7 @@ jobs:
         run: |
           python3 -m pip install --quiet pyyaml
           python3 scripts/release/filter-goreleaser-config.py "${{ matrix.ids }}" > "$RUNNER_TEMP/goreleaser-${{ matrix.goos }}.yml"
-      - uses: goreleaser/goreleaser-action@1a80836c5c9d9e5755a25cb59ec6f45a3b5f41a8 # v7.2.1
+      - uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
         with:
           version: '~> v2'
           args: release --config ${{ runner.temp }}/goreleaser-${{ matrix.goos }}.yml --clean --skip=publish --skip=announce
@@ -127,7 +127,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with: { fetch-depth: 0 }
-      - uses: actions/setup-java@3a4f6e1af504cf6a31855fa4c52c5c265c3b610f # v4.7.1
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v4.7.1
         with:
           distribution: temurin
           java-version: '21'

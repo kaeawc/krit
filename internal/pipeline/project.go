@@ -1461,7 +1461,20 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 		if fp, ok := host.PriorStructuralFPs[path]; ok {
 			structuralFPs[path] = fp
 		}
-		if stat, ok := statForPath(path); ok {
+		// Reuse host.PriorFileStats for carry-forward when populated
+		// (daemon path post-#590). By construction these files are
+		// NOT in the dirty set — neither the watcher saw an event
+		// nor augmentDirtyWithStatDrift detected a stat change — so
+		// the on-disk stat is unchanged from the prior manifest.
+		// Calling os.Stat here would re-confirm the same stat at
+		// ~one syscall per file × 18 k files = 80-200 ms of pure
+		// overhead on kotlin-corpus warm runs. Fall back to
+		// statForPath when PriorFileStats is nil (CLI path / cold
+		// daemon session — no prior manifest, so no carry-forward
+		// either).
+		if priorStat, ok := host.PriorFileStats[path]; ok {
+			fileStats[path] = priorStat
+		} else if stat, ok := statForPath(path); ok {
 			fileStats[path] = stat
 		}
 		if priorAbi != nil {

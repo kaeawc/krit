@@ -105,6 +105,91 @@ func TestBuildManifestData_DropsDirtyUnparsedPaths(t *testing.T) {
 	}
 }
 
+// TestBuildManifestData_CarryForwardReusesPriorFileStats pins the
+// perf win that closes 18k stat syscalls on kotlin-corpus warm runs:
+// when host.PriorFileStats has an entry for a carry-forward path
+// (non-parsed, non-dirty), the manifest builder must copy it
+// verbatim rather than call statForPath. The non-dirty + non-parsed
+// invariant means the on-disk stat hasn't changed since the prior
+// manifest was written, so the prior value is correct by
+// construction.
+//
+// Drives buildManifestData directly with a synthesized prior stat
+// that DIFFERS from any plausible current stat (size=0xDEAD,
+// mtime=0xBEEF) so we can tell whether the code took the
+// reuse-prior branch or fell through to statForPath. statForPath
+// would return the real (small, fresh) file stat, never the
+// synthesized one — so observing the synthesized values in the
+// output proves the carry-forward used the prior map.
+func TestBuildManifestData_CarryForwardReusesPriorFileStats(t *testing.T) {
+	tmp := t.TempDir()
+	carried := writeManifestTestFile(t, tmp, "Carried.kt", "package demo\nclass Carried\n")
+
+	args := ProjectArgs{
+		Paths:       []string{tmp},
+		KotlinPaths: []string{carried},
+	}
+	syntheticStat := scanner.FileStat{Size: 0xDEAD, ModTimeUnixNano: 0xBEEF}
+	host := ProjectHostState{
+		FindingsBundleCacheRoot: tmp,
+		PriorContentHashes: map[string]string{
+			carried: "prior-hash",
+		},
+		PriorStructuralFPs: map[string]string{
+			carried: "prior-fp",
+		},
+		PriorFileStats: map[string]scanner.FileStat{
+			carried: syntheticStat,
+		},
+		// SourceSetDirty intentionally nil so the carried file is
+		// non-dirty + non-parsed.
+	}
+	parseResult := ParseResult{} // nothing parsed; everything carries forward
+
+	m := buildManifestData(args, host, parseResult, scanner.RunFingerprint{}, true)
+	if !m.enabled {
+		t.Fatalf("manifest disabled: %+v", m)
+	}
+	got, ok := m.fileStats[carried]
+	if !ok {
+		t.Fatalf("carried path missing from fileStats")
+	}
+	if got != syntheticStat {
+		t.Errorf("carry-forward must reuse PriorFileStats verbatim; got %+v want %+v", got, syntheticStat)
+	}
+}
+
+// TestBuildManifestData_CarryForwardFallsBackToStatWhenPriorMissing
+// covers the CLI-path contract: when host.PriorFileStats is nil (no
+// prior manifest), the helper must fall back to statForPath rather
+// than dropping the carry-forward entry. Otherwise the persisted
+// manifest would be missing fileStats for every carried path, which
+// breaks fileStatsMatch on the next analyze.
+func TestBuildManifestData_CarryForwardFallsBackToStatWhenPriorMissing(t *testing.T) {
+	tmp := t.TempDir()
+	carried := writeManifestTestFile(t, tmp, "Carried.kt", "package demo\nclass Carried\n")
+
+	args := ProjectArgs{
+		Paths:       []string{tmp},
+		KotlinPaths: []string{carried},
+	}
+	host := ProjectHostState{
+		FindingsBundleCacheRoot: tmp,
+		PriorContentHashes:      map[string]string{carried: "prior-hash"},
+		// PriorFileStats intentionally nil — CLI path.
+	}
+	parseResult := ParseResult{}
+
+	m := buildManifestData(args, host, parseResult, scanner.RunFingerprint{}, true)
+	got, ok := m.fileStats[carried]
+	if !ok {
+		t.Fatalf("nil PriorFileStats must still populate fileStats via statForPath; got missing entry")
+	}
+	if got.Size == 0 || got.ModTimeUnixNano == 0 {
+		t.Errorf("statForPath fallback produced empty stat: %+v", got)
+	}
+}
+
 func writeManifestTestFile(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)

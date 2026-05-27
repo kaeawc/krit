@@ -75,7 +75,7 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.21")
 
     testImplementation(gradleTestKit())
-    testImplementation("org.junit.jupiter:junit-jupiter:6.0.3")
+    testImplementation("org.junit.jupiter:junit-jupiter:6.1.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

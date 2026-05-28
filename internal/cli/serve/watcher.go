@@ -288,7 +288,7 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 		// separate version counters so a Kotlin edit doesn't
 		// needlessly invalidate the Java source index (which is
 		// expensive to rebuild: ~100 ms of content hashing).
-		fw.state.Invalidate(ev.Path)
+		fw.invalidateBothForms(ev.Path)
 		fw.state.InvalidateCodeIndex()
 		fw.state.InvalidateDependents()
 		fw.state.InvalidateResolver()
@@ -303,7 +303,7 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 		// XML version counter. Kotlin/Java edits don't move XML
 		// hashes so the counter stays independent — same shape
 		// as the .java case above.
-		fw.state.Invalidate(ev.Path)
+		fw.invalidateBothForms(ev.Path)
 		fw.state.InvalidateCodeIndex()
 		fw.state.InvalidateDependents()
 		fw.state.Touch(ev.Path)
@@ -351,7 +351,7 @@ func (fw *fileWatcher) scheduleKotlinInvalidate(path string) {
 		delete(fw.debounce, path)
 		delete(fw.debounceGen, path)
 		fw.debounceMu.Unlock()
-		fw.state.Invalidate(path)
+		fw.invalidateBothForms(path)
 		fw.state.InvalidateCodeIndex()
 		fw.state.InvalidateDependents()
 		fw.state.InvalidateResolver()
@@ -359,6 +359,37 @@ func (fw *fileWatcher) scheduleKotlinInvalidate(path string) {
 		fw.state.Touch(path)
 	})
 	fw.debounceMu.Unlock()
+}
+
+// invalidateBothForms drops the WorkspaceState parse-cache entry for
+// path under BOTH the absolute and the relative-to-root forms.
+// fsnotify hands us absolute paths, but the parse-phase resident
+// cache (WorkspaceState.parsed, queried by scanWithResident via
+// LookupParsedByPath) is keyed under whatever form callers used at
+// StoreParsed time — relative when the CLI invokes `krit .` (the
+// common daemon-driven case), absolute when paths come in
+// absolutized.
+//
+// Without the dual call, a file edited while the daemon is running
+// retains its stale *scanner.File in the resident cache: the
+// absolute-keyed entry is invalidated, the relative-keyed entry
+// isn't, and the next warm analyze's scanWithResident.LookupParsedByPath
+// returns the pre-edit FlatTree + bytes. Downstream
+// FileStructuralFingerprint hashes the OLD symbols, the cross-file
+// structural FP appears unchanged, the structural-replay gate
+// accepts, and the prior bundle's findings get served for content
+// they no longer reflect. Demonstrated against ~/github/kotlin: a
+// probe that adds 3 top-level declarations to libraries/stdlib/
+// src/kotlin/Unit.kt produces 84623 findings (== cold baseline)
+// instead of 84630 (cold + 7 probe-triggered findings).
+func (fw *fileWatcher) invalidateBothForms(absPath string) {
+	fw.state.Invalidate(absPath)
+	if fw.root == "" {
+		return
+	}
+	if rel, err := filepath.Rel(fw.root, absPath); err == nil && !strings.HasPrefix(rel, "..") {
+		fw.state.Invalidate(rel)
+	}
 }
 
 // addRecursive walks dir and adds every directory to the watcher.

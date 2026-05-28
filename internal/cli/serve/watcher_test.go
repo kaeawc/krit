@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -416,8 +417,15 @@ func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
 	// window + margin to complete before asserting the final count.
 	time.Sleep(window * 2)
 
-	if got := state.invalidateCalls.Load(); got != 1 {
-		t.Errorf("Invalidate called %d times, want 1 (debounce should coalesce burst)", got)
+	// Post path-form-dual-invalidate (fix for warm+ABI parse-cache
+	// staleness): each debounced burst fires Invalidate twice — once
+	// under the absolute fsnotify path, once under the relative-to-
+	// root form — so the resident parse cache is dropped regardless
+	// of which form scanWithResident is keyed on. The debounce still
+	// coalesces the burst of 3 events into a single callback firing,
+	// just the callback now invokes Invalidate twice instead of once.
+	if got := state.invalidateCalls.Load(); got != 2 {
+		t.Errorf("Invalidate called %d times, want 2 (debounce should coalesce burst; the 2 calls are the absolute+relative forms)", got)
 	}
 }
 
@@ -753,4 +761,104 @@ func TestFileWatcher_BumpSourceMTimeIsEager(t *testing.T) {
 		t.Errorf("Invalidate fired before debounce window (bump=%d invalidate=%d); the eager bump must NOT also have eagerly invalidated downstream state",
 			state.bumpCalls.Load(), got)
 	}
+}
+
+// TestFileWatcher_InvalidatesBothPathForms is the regression guard
+// for the warm+ABI correctness bug: fsnotify delivers absolute paths
+// while the parse-phase resident cache (WorkspaceState.parsed,
+// queried by scanWithResident via LookupParsedByPath) is keyed under
+// whatever form scanWithResident sees in kotlinPaths — relative when
+// the CLI invokes `krit .` (the common daemon-driven case).
+//
+// Without the dual-form invalidate, a file edited while the daemon
+// is running retains its stale *scanner.File in the resident cache:
+// the absolute-keyed entry is invalidated, the relative-keyed entry
+// isn't, and the next warm analyze's scanWithResident.LookupParsedByPath
+// returns the pre-edit FlatTree + bytes. Empirically observed against
+// ~/github/kotlin: a probe adding 3 top-level declarations + 1 class
+// to libraries/stdlib/src/kotlin/Unit.kt produced 84623 findings
+// (== cold baseline) instead of 84630 (cold + 7 probe-triggered
+// findings).
+//
+// The fix wraps state.Invalidate with invalidateBothForms which
+// drops both the absolute and the relative-to-root form. This test
+// pins that both calls fire on every Kotlin write.
+func TestFileWatcher_InvalidatesBothPathForms(t *testing.T) {
+	root := t.TempDir()
+	subdir := filepath.Join(root, "src")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	ktPath := filepath.Join(subdir, "Foo.kt")
+	if err := os.WriteFile(ktPath, []byte("fun a() {}\n"), 0o644); err != nil {
+		t.Fatalf("seed kt: %v", err)
+	}
+
+	state := &pathRecordingState{}
+	w, err := startFileWatcherWithState(context.Background(), root, state, nil,
+		withDebounceWindow(20*time.Millisecond))
+	if err != nil {
+		t.Fatalf("startFileWatcher: %v", err)
+	}
+	defer w.Stop()
+	<-w.Ready()
+
+	if err := os.WriteFile(ktPath, []byte("fun a() { 42 }\n"), 0o644); err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+
+	if !waitForCondition(func() bool { return len(state.snapshot()) >= 2 }) {
+		t.Fatalf("expected Invalidate to fire for both abs + rel; got %v", state.snapshot())
+	}
+
+	calls := state.snapshot()
+	wantAbs := ktPath
+	wantRel := filepath.Join("src", "Foo.kt")
+	haveAbs := false
+	haveRel := false
+	for _, p := range calls {
+		if p == wantAbs {
+			haveAbs = true
+		}
+		if p == wantRel {
+			haveRel = true
+		}
+	}
+	if !haveAbs {
+		t.Errorf("Invalidate must include the absolute form %q; got %v", wantAbs, calls)
+	}
+	if !haveRel {
+		t.Errorf("Invalidate must include the relative-to-root form %q; got %v", wantRel, calls)
+	}
+}
+
+// pathRecordingState is a watcherState fake that records each
+// Invalidate path so dual-form tests can assert both the absolute
+// and the relative-to-root form fire on every event.
+type pathRecordingState struct {
+	mu    sync.Mutex
+	paths []string
+}
+
+func (s *pathRecordingState) Invalidate(path string) {
+	s.mu.Lock()
+	s.paths = append(s.paths, path)
+	s.mu.Unlock()
+}
+func (s *pathRecordingState) InvalidateCodeIndex()    {}
+func (s *pathRecordingState) InvalidateDependents()   {}
+func (s *pathRecordingState) InvalidateLibraryFacts() {}
+func (s *pathRecordingState) InvalidateResolver()     {}
+func (s *pathRecordingState) InvalidateOracleFilter() {}
+func (s *pathRecordingState) Touch(string)            {}
+func (s *pathRecordingState) BumpSourceMTimeVersion() {}
+func (s *pathRecordingState) BumpJavaSourceVersion()  {}
+func (s *pathRecordingState) BumpXMLFilesVersion()    {}
+
+func (s *pathRecordingState) snapshot() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, len(s.paths))
+	copy(out, s.paths)
+	return out
 }

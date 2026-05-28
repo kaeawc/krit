@@ -408,7 +408,25 @@ type warmAnalysisCachePlan struct {
 	filePaths   []string
 	kotlinPaths []string
 	javaPaths   []string
-	cross       *scanner.FindingColumns
+	// cross is the prior run's cross-file findings — either the full
+	// bundle (set by the preview when a bundle hit is confirmed) or
+	// just the cross-file subset (set by loadWarmCrossFindings when
+	// the analysis-cache path infers a body-only edit). The
+	// IndexPhase gates (codeIndexBuild, moduleIndex, buildBaseResolver)
+	// treat both the same — they short-circuit when cross is non-nil
+	// because rule execution is going to use the cached values.
+	cross *scanner.FindingColumns
+	// crossIsFullBundle distinguishes the two sources of cross. True
+	// when the preview confirmed a stored bundle exists for the
+	// current runFP — meaning warm.cross IS the complete findings the
+	// downstream OutputPhase / runDispatchOrLoadBundle short-circuit
+	// is allowed to serve verbatim. False (or zero-valued) when cross
+	// was loaded by canSkipRunProjectParse's lexically-irrelevant
+	// path: that path returns ONLY cross-file findings and needs the
+	// regular dispatch + cross-file pipeline to fill in per-file
+	// findings. Misreading this flag emits 0 findings on warm+ABI
+	// when the analysis-cache lexically-irrelevant fallback fires.
+	crossIsFullBundle bool
 }
 
 // ProjectInput is the value type that drives RunProject. The split
@@ -707,6 +725,13 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	earlyBundle := previewPostParseBundleHit(args, host, parseResult)
 	if earlyBundle != nil {
 		warmPlan.cross = earlyBundle
+		// Mark warm.cross as the FULL bundle so #605's
+		// runDispatchOrLoadBundle preloaded short-circuit fires
+		// (saving the redundant disk Load). The analysis-cache path
+		// in canSkipRunProjectParse leaves this false because it
+		// only populates cross with cross-file findings — the
+		// downstream still needs to run dispatch for per-file rules.
+		warmPlan.crossIsFullBundle = true
 	}
 
 	indexStart := time.Now()
@@ -938,6 +963,7 @@ func completeRunProjectIndexResult(args ProjectArgs, host ProjectHostState, warm
 	// in runDispatchOrLoadBundle's cacheHitFullBundle path.
 	if warm.cross != nil {
 		indexResult.WarmCrossFindings = warm.cross
+		indexResult.WarmCrossFindingsAreBundle = warm.crossIsFullBundle
 	}
 	if warm.result != nil {
 		indexResult.CacheResult = warm.result
@@ -1684,9 +1710,18 @@ func runDispatchOrLoadBundle(
 		// under runFP, indexResult.WarmCrossFindings carries the
 		// decoded FindingColumns. Skipping the redundant
 		// FindingsBundleStore.Load saves ~90 ms of zstd+gob decode on
-		// kotlin-corpus scale — one of three Loads warm+ABI used to
-		// pay (preview-full-miss + preview-prior-hit + this one).
-		if indexResult.WarmCrossFindings != nil {
+		// kotlin-corpus scale.
+		//
+		// CRITICAL: only short-circuit when WarmCrossFindingsAreBundle
+		// is true — i.e. the preview confirmed a stored bundle hit
+		// and these are the COMPLETE findings. When WarmCrossFindings
+		// came from canSkipRunProjectParse's lexically-irrelevant
+		// fallback (cold's cross-file findings only, not per-file),
+		// short-circuiting here drops every per-file finding and
+		// emits the cross-file subset alone — observed as 0 findings
+		// on warm+ABI on kotlin-corpus when the analysis-cache path
+		// fires for an irrelevant single-file edit.
+		if indexResult.WarmCrossFindings != nil && indexResult.WarmCrossFindingsAreBundle {
 			perf.AddEntryDetails(tracker, "dispatchBundleLoad", 0, nil, map[string]string{"outcome": "preloaded"})
 			d := DispatchResult{IndexResult: indexResult, Findings: *indexResult.WarmCrossFindings}
 			recordDispatchPath("cacheHitFullBundle")

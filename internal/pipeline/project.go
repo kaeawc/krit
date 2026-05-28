@@ -782,10 +782,26 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 
 	if bundleEnabled {
 		bundleSaveStart := time.Now()
+		bundleKey := scanner.FindingsBundleKey(runFP)
+		manifest := buildDeltaManifest(manifestData, runFP)
+		// Update the in-memory mirrors synchronously so the next analyze
+		// reuses them no matter when the disk write lands. The disk write
+		// itself is the slow part (~300 ms on kotlin-corpus), so defer it
+		// to the daemon's background-save worker; correctness holds because
+		// a not-yet-flushed disk write only costs a recompute on a daemon
+		// restart, never a stale read (the resident bundle is keyed by the
+		// content-addressed FindingsBundleKey).
 		if !bundleHit {
-			_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, &crossFileResult.Findings)
+			residentBundleStash(host, bundleKey, &crossFileResult.Findings)
 		}
-		_ = saveDeltaManifest(host, manifestData, runFP, &crossFileResult.Findings)
+		storeDeltaManifestResident(host, manifestData, manifest)
+		findings := &crossFileResult.Findings
+		runBackgroundSave(host, func() {
+			if !bundleHit {
+				_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, findings)
+			}
+			_ = saveDeltaManifestDisk(host, manifestData, manifest)
+		})
 		perf.AddEntry(host.Tracker, "bundleSave", time.Since(bundleSaveStart))
 	}
 
@@ -1548,17 +1564,12 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 	}
 }
 
-// saveDeltaManifest persists the current run's manifest entry so a
-// future run can detect single-file changes for the delta path.
-// Best-effort — manifest write failures don't fail the verb. When
-// the host wired FindingsBundleManifestSaver, the in-memory cache is
-// updated after a successful disk save so the next analyze-project
-// call doesn't pay the multi-MB JSON re-parse.
-func saveDeltaManifest(host ProjectHostState, m deltaManifestData, runFP scanner.RunFingerprint, _ *scanner.FindingColumns) error {
-	if !m.enabled || m.manifestKey == "" {
-		return nil
-	}
-	manifest := scanner.FindingsBundleManifest{
+// buildDeltaManifest assembles the manifest struct for the current run
+// from the per-request immutable delta data. The result is safe to hand
+// to a background save closure — none of its fields alias daemon-shared
+// mutable state.
+func buildDeltaManifest(m deltaManifestData, runFP scanner.RunFingerprint) scanner.FindingsBundleManifest {
+	return scanner.FindingsBundleManifest{
 		BundleKey:     scanner.FindingsBundleKey(runFP),
 		Fingerprint:   runFP,
 		ContentHashes: m.contentHashes,
@@ -1566,13 +1577,29 @@ func saveDeltaManifest(host ProjectHostState, m deltaManifestData, runFP scanner
 		FileStats:     m.fileStats,
 		AbiHashes:     m.abiHashes,
 	}
-	if err := scanner.SaveFindingsBundleManifest(host.FindingsBundleCacheRoot, m.manifestKey, manifest); err != nil {
-		return err
+}
+
+// storeDeltaManifestResident updates the daemon's in-memory manifest
+// cache synchronously so the next analyze-project call doesn't pay the
+// multi-MB JSON re-parse, regardless of when the disk write lands.
+// No-op when manifests are disabled or the host left the saver nil.
+func storeDeltaManifestResident(host ProjectHostState, m deltaManifestData, manifest scanner.FindingsBundleManifest) {
+	if !m.enabled || m.manifestKey == "" || host.FindingsBundleManifestSaver == nil {
+		return
 	}
-	if host.FindingsBundleManifestSaver != nil {
-		host.FindingsBundleManifestSaver(scanner.FindingsBundleManifestPath(host.FindingsBundleCacheRoot, m.manifestKey), manifest)
+	host.FindingsBundleManifestSaver(scanner.FindingsBundleManifestPath(host.FindingsBundleCacheRoot, m.manifestKey), manifest)
+}
+
+// saveDeltaManifestDisk persists the current run's manifest entry so a
+// future run (or a restarted daemon) can detect single-file changes for
+// the delta path. Best-effort — manifest write failures don't fail the
+// verb. The in-memory mirror is updated separately and synchronously by
+// storeDeltaManifestResident, so this disk write is safe to background.
+func saveDeltaManifestDisk(host ProjectHostState, m deltaManifestData, manifest scanner.FindingsBundleManifest) error {
+	if !m.enabled || m.manifestKey == "" {
+		return nil
 	}
-	return nil
+	return scanner.SaveFindingsBundleManifest(host.FindingsBundleCacheRoot, m.manifestKey, manifest)
 }
 
 // loadBundleManifest reads the prior-run manifest, preferring the
@@ -2905,6 +2932,18 @@ func residentBundleStash(host ProjectHostState, key string, cols *scanner.Findin
 		return
 	}
 	host.StoreResidentBundle(key, cols)
+}
+
+// runBackgroundSave hands fn to the daemon's background-save worker when
+// the host wired one (daemon mode), taking the disk write off the warm
+// analyze critical path. CLI callers leave BackgroundSave nil, so fn
+// runs inline and keeps the previous synchronous behavior.
+func runBackgroundSave(host ProjectHostState, fn func()) {
+	if host.BackgroundSave != nil {
+		host.BackgroundSave(fn)
+		return
+	}
+	fn()
 }
 
 // buildPreviewManifestData is the parse-only subset of buildManifestData

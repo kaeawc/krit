@@ -539,6 +539,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 				StoreBundleOutput:        s.workspace.StoreBundleOutput,
 				ResidentBundle:           s.workspace.ResidentBundle,
 				StoreResidentBundle:      s.workspace.StoreResidentBundle,
+				BackgroundSave:           s.workspace.EnqueueBackgroundSave,
 			},
 			AndroidCacheWriter:           diskCache.androidCacheWriter,
 			AndroidCacheDir:              diskCache.androidCacheDir,

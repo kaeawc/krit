@@ -150,6 +150,10 @@ func Run(args []string) int {
 	// cancellation — SIGKILL still orphans the children, but that's
 	// the expected ceiling for unrecoverable parent death.
 	defer state.closeOracleDaemons()
+	// Drain any pending background bundle/manifest disk writes before the
+	// process exits so a save deferred off the warm critical path still
+	// lands on disk. Runs (LIFO) before the oracle shutdown above.
+	defer state.workspace.FlushBackgroundSaves()
 	state.strictVerify = *strictVerifyFlag
 	state.workspace.SetMaxParsedBytes(*maxParseBytesFlag)
 	warmStart := time.Now()

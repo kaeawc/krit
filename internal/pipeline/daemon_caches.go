@@ -73,4 +73,13 @@ type DaemonCaches struct {
 	// both.
 	ResidentBundle      func(bundleKey string) *scanner.FindingColumns
 	StoreResidentBundle func(bundleKey string, cols *scanner.FindingColumns)
+
+	// BackgroundSave runs fn on the daemon's single background-save
+	// worker, taking the ~300 ms findings-bundle + delta-manifest disk
+	// writes off the warm analyze critical path. The resident/in-memory
+	// mirrors are updated synchronously before this is called, so a
+	// not-yet-flushed disk write only costs a recompute, never a stale
+	// read. nil in CLI mode (callers run fn inline instead). Flushed on
+	// daemon shutdown. *WorkspaceState.EnqueueBackgroundSave satisfies it.
+	BackgroundSave func(fn func())
 }

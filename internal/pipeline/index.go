@@ -652,11 +652,37 @@ func (IndexPhase) computeRuleHash(in IndexInput, result *IndexResult) {
 	result.RuleHash = cache.ComputeConfigHash(ruleNames, in.CacheConfig, in.CacheEditorConfigEnabled)
 }
 
+// beginIndexPhaseSpan buckets every IndexPhase-internal perf span under
+// a single "indexPhaseRun" parent and returns the (possibly re-parented)
+// input plus an end func the caller defers.
+//
+// Before this, spans like buildBaseResolver, typeIndex, typeOracle,
+// buildTypeResolver, and cacheCheck were recorded directly on
+// host.Tracker as siblings of the "crossFileAnalysis" scope, whose wall
+// clock already wraps IndexPhase. That made the two double-count and
+// left IndexPhase's untracked setup time (resolver indexing / oracle /
+// wiring) invisible — on a kotlin-corpus warm+ABI run ~300-400 ms of the
+// post-parse wall clock had no leaf to attribute it to. Reassigning the
+// value-copy's Tracker re-parents all downstream spans without touching
+// each call site; the gap between indexPhaseRun and the sum of its
+// children is now the (named) IndexPhase self time.
+func (IndexPhase) beginIndexPhaseSpan(in IndexInput) (IndexInput, func()) {
+	if in.Tracker == nil || !in.Tracker.IsEnabled() {
+		return in, func() {}
+	}
+	idx := in.Tracker.Serial("indexPhaseRun")
+	in.Tracker = idx
+	return in, func() { idx.End() }
+}
+
 // Run implements Phase.
 func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error) {
 	if err := ctx.Err(); err != nil {
 		return IndexResult{}, err
 	}
+
+	in, endIndexPhaseSpan := p.beginIndexPhaseSpan(in)
+	defer endIndexPhaseSpan()
 
 	result := IndexResult{
 		ParseResult:           in.ParseResult,
@@ -699,7 +725,9 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 		}
 		resolverForOracle = built
 	}
-	p.indexPrebuiltResolver(in, caps)
+	track("indexPrebuiltResolver", func() {
+		p.indexPrebuiltResolver(in, caps)
+	})
 	if !in.SkipOracle && in.OracleEnabled && resolverForOracle != nil && len(rules.KotlinOracleRulesV2(in.ActiveRules)) > 0 {
 		resolverForOracle = p.runOracle(in, resolverForOracle, &result)
 	}
@@ -730,7 +758,9 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 		p.runCacheLoad(in, &result)
 	}
 
-	p.computeRuleHash(in, &result)
+	track("computeRuleHash", func() {
+		p.computeRuleHash(in, &result)
+	})
 
 	return result, nil
 }

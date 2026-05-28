@@ -744,10 +744,24 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	if err := loadJavaSemanticFacts(ctx, args, host, parseResult.JavaFiles, &indexResult); err != nil {
 		return ProjectAnalysisResult{}, err
 	}
+	// The post-index glue below runs while the "crossFileAnalysis" scope
+	// is open but is not cross-file work, so without these leaves the
+	// time lands in crossFileAnalysis's untracked self-gap. Record each
+	// as a top-level sibling on host.Tracker so warm+ABI attribution is
+	// legible. (loadJavaSemanticFacts already emits "javaSemanticFacts"
+	// from the loader; dispatch/android emit their own spans.)
+	targetedStart := time.Now()
 	runProjectTargetedResolution(args, host, parseResult.KotlinFiles, indexResult)
+	perf.AddEntry(host.Tracker, "targetedResolution", time.Since(targetedStart))
 
+	fpStart := time.Now()
 	runFP, bundleEnabled := computeRunFingerprint(args, host, parseResult, indexResult)
+	perf.AddEntry(host.Tracker, "computeRunFingerprint", time.Since(fpStart))
+
+	manifestStart := time.Now()
 	manifestData := buildManifestData(args, host, parseResult, runFP, bundleEnabled)
+	perf.AddEntry(host.Tracker, "buildManifestData", time.Since(manifestStart))
+
 	dispatchResult, crossFileResult, bundleHit, dispatchTimes, err := runDispatchOrLoadBundle(ctx, args, host, indexResult, parseResult, runFP, bundleEnabled, manifestData)
 	if err != nil {
 		return ProjectAnalysisResult{}, err
@@ -759,16 +773,20 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	if err := runAndroidPhaseAndMerge(ctx, args, host, indexResult, &crossFileResult, bundleHit); err != nil {
 		return ProjectAnalysisResult{}, err
 	}
+	kotlinPluginStart := time.Now()
 	if err := runKotlinPluginRulesAndMerge(ctx, args, host, indexResult, &crossFileResult, bundleHit); err != nil {
 		return ProjectAnalysisResult{}, err
 	}
+	perf.AddEntry(host.Tracker, "kotlinPluginRules", time.Since(kotlinPluginStart))
 	phaseTimings.Android = time.Since(androidStart).Milliseconds()
 
 	if bundleEnabled {
+		bundleSaveStart := time.Now()
 		if !bundleHit {
 			_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, &crossFileResult.Findings)
 		}
 		_ = saveDeltaManifest(host, manifestData, runFP, &crossFileResult.Findings)
+		perf.AddEntry(host.Tracker, "bundleSave", time.Since(bundleSaveStart))
 	}
 
 	hits1, misses1 := parseCacheCounters(host.ParseCache)

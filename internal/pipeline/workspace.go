@@ -181,7 +181,28 @@ type WorkspaceState struct {
 	// hits into 18 k map lookups: ~185 ms → ~5 ms in
 	// typeIndex.perFileExtraction.
 	typeInfo map[string]*typeinfer.FileTypeInfo
+
+	// saveQueue is the single-worker background-save channel. Enqueued
+	// closures run the ~300 ms findings-bundle + delta-manifest disk
+	// writes off the warm analyze critical path. A single worker (not a
+	// pool) matches the serialized per-project analyze model and keeps
+	// disk-write concurrency bounded; the underlying writes are atomic
+	// (temp file + rename) and content-addressed, so even the rare
+	// inline-fallback overlap below is safe (distinct temp paths,
+	// last-writer-wins on identical content). Lazily started on the
+	// first enqueue (saveOnce). When the buffer is full the producer
+	// runs the closure inline, applying natural back-pressure without
+	// dropping a write. nil until the first enqueue.
+	saveQueue chan func()
+	saveOnce  sync.Once
+	saveWG    sync.WaitGroup
 }
+
+// backgroundSaveQueueDepth bounds the buffered save channel. The
+// serialized analyze model emits at most one bundle+manifest save per
+// analyze, so a small buffer absorbs bursts while keeping memory
+// bounded; a full buffer makes the producer run the save inline.
+const backgroundSaveQueueDepth = 8
 
 // CachedBundleOutput holds everything OutputPhase needs to assemble
 // the JSON envelope on a warm bundle hit without re-formatting 87 k
@@ -225,6 +246,69 @@ func NewWorkspaceState(repoRoot string) *WorkspaceState {
 		parsed:    make(map[string]parsedEntry),
 		parsedLRU: list.New(),
 	}
+}
+
+// EnqueueBackgroundSave runs fn on the daemon's single background-save
+// worker, taking disk writes off the warm analyze critical path. The
+// worker is started lazily on the first call. If the buffered queue is
+// full the closure runs inline (back-pressure), so a save is never
+// dropped. A nil receiver runs fn inline (CLI mode never constructs a
+// WorkspaceState via the daemon path, but the guard keeps callers
+// simple). Satisfies DaemonCaches.BackgroundSave.
+func (w *WorkspaceState) EnqueueBackgroundSave(fn func()) {
+	if w == nil || fn == nil {
+		if fn != nil {
+			fn()
+		}
+		return
+	}
+	w.saveOnce.Do(func() {
+		w.saveQueue = make(chan func(), backgroundSaveQueueDepth)
+		w.saveWG.Add(1)
+		go func() {
+			defer w.saveWG.Done()
+			for job := range w.saveQueue {
+				job()
+			}
+		}()
+	})
+	select {
+	case w.saveQueue <- fn:
+	default:
+		// Queue full: run inline so the write still happens and the
+		// producer is naturally throttled.
+		fn()
+	}
+}
+
+// DrainBackgroundSaves blocks until every currently-queued background
+// save has completed, leaving the worker running so later analyzes can
+// keep enqueueing. Callers that wipe the on-disk cache (clear-cache)
+// drain first so a still-in-flight save can't resurrect a file under
+// the directory being cleared. Relies on the FIFO worker: a barrier
+// closure enqueued with a blocking send runs only after all prior
+// queued jobs, so observing the barrier complete proves the queue
+// drained. Must be called with no concurrent EnqueueBackgroundSave
+// (clear-cache holds analyzeMu). No-op when no worker was started.
+func (w *WorkspaceState) DrainBackgroundSaves() {
+	if w == nil || w.saveQueue == nil {
+		return
+	}
+	done := make(chan struct{})
+	w.saveQueue <- func() { close(done) }
+	<-done
+}
+
+// FlushBackgroundSaves drains any pending background saves and stops the
+// worker. Call once on daemon shutdown so in-flight bundle/manifest
+// disk writes complete before the process exits. Safe to call when no
+// worker was ever started (no-op). Not safe to enqueue after Flush.
+func (w *WorkspaceState) FlushBackgroundSaves() {
+	if w == nil || w.saveQueue == nil {
+		return
+	}
+	close(w.saveQueue)
+	w.saveWG.Wait()
 }
 
 // SetMaxParsedBytes sets the resident byte cap for the parsed cache.

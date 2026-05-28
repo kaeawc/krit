@@ -33,6 +33,11 @@ func startServerWith(tb testing.TB, root string, readyTimeout time.Duration) (st
 	socket := filepath.Join(socketDir, "d.sock")
 
 	state := newDaemonState(root)
+	// Drain any background bundle/manifest disk writes before the test's
+	// TempDir cleanup removes the cache dir; otherwise an async save can
+	// race the cleanup and fail with "directory not empty". Registered
+	// after the t.TempDir() cleanup so it runs first (Cleanup is LIFO).
+	tb.Cleanup(state.workspace.FlushBackgroundSaves)
 	srv := daemon.NewServer(socket)
 	registerVerbs(srv, state)
 	if err := srv.Start(context.Background()); err != nil {

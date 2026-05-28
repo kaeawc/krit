@@ -45,6 +45,11 @@ func handleClearCache(_ context.Context, state *daemonState, raw json.RawMessage
 	state.analyzeMu.Lock()
 	defer state.analyzeMu.Unlock()
 
+	// Drain any background bundle/manifest save still in flight from a
+	// prior analyze before we wipe disk; otherwise a deferred save can
+	// re-create a file under the cache dir we're about to clear.
+	state.workspace.DrainBackgroundSaves()
+
 	var allErrs []error
 	if err := cacheutil.ClearAll(cacheutil.ClearContext{RepoDir: state.repoDir}); err != nil {
 		allErrs = append(allErrs, fmt.Errorf("cacheutil.ClearAll: %w", err))

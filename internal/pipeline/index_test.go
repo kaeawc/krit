@@ -185,9 +185,15 @@ func TestIndexPhase_Run_InputTypesUsesLazyOracle(t *testing.T) {
 	if lazy.Loaded() {
 		t.Fatal("lazy oracle loaded during IndexPhase")
 	}
-	typeOracle, ok := findTiming(tracker.GetTimings(), "typeOracle")
+	// IndexPhase now buckets its internal spans under "indexPhaseRun";
+	// typeOracle nests there rather than at the tracker root.
+	indexRun, ok := findTiming(tracker.GetTimings(), "indexPhaseRun")
 	if !ok {
-		t.Fatalf("missing typeOracle timing: %#v", tracker.GetTimings())
+		t.Fatalf("missing indexPhaseRun timing: %#v", tracker.GetTimings())
+	}
+	typeOracle, ok := findTiming(indexRun.Children, "typeOracle")
+	if !ok {
+		t.Fatalf("missing typeOracle timing: %#v", indexRun.Children)
 	}
 	if _, ok := findTiming(typeOracle.Children, "jsonLoadDeferred"); !ok {
 		t.Fatalf("missing jsonLoadDeferred timing: %#v", typeOracle.Children)

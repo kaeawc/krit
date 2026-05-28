@@ -41,7 +41,8 @@ func TestRunDispatchOrLoadBundle_PreloadedSkipsStoreLoad(t *testing.T) {
 		FindingsBundleCacheRoot: "/repo",
 	}
 	indexResult := IndexResult{
-		WarmCrossFindings: preloaded,
+		WarmCrossFindings:          preloaded,
+		WarmCrossFindingsAreBundle: true, // preview-bundle source
 	}
 
 	d, c, hit, _, err := runDispatchOrLoadBundle(
@@ -97,5 +98,51 @@ func TestRunDispatchOrLoadBundle_NoPreloadHitsStoreLoad(t *testing.T) {
 	)
 	if store.loadCalls < 1 {
 		t.Errorf("nil WarmCrossFindings must drive at least one Load; got loadCalls=%d", store.loadCalls)
+	}
+}
+
+// TestRunDispatchOrLoadBundle_AnalysisCacheCrossFindingsDoNotShortCircuit
+// is the regression guard for the warm+ABI = 0 findings bug
+// (#605's short-circuit treated WarmCrossFindings as the full
+// bundle, but the lexically-irrelevant analysis-cache fallback only
+// populates it with cross-file findings; short-circuiting there
+// drops every per-file finding).
+//
+// The fix gates the short-circuit on WarmCrossFindingsAreBundle.
+// Test wires a scenario where WarmCrossFindings is non-nil but the
+// flag is false (= analysis-cache source) and asserts the
+// short-circuit does NOT fire — the regular bundle layers run, and
+// since the store has no matching entry, the dispatch falls through
+// to the full-dispatch path that produces correct per-file findings.
+func TestRunDispatchOrLoadBundle_AnalysisCacheCrossFindingsDoNotShortCircuit(t *testing.T) {
+	crossOnly := &scanner.FindingColumns{}
+	store := &loadCountingBundleStore{}
+	host := ProjectHostState{
+		FindingsBundleStore:     store,
+		FindingsBundleCacheRoot: "/repo",
+	}
+	indexResult := IndexResult{
+		WarmCrossFindings: crossOnly,
+		// WarmCrossFindingsAreBundle intentionally false — this is
+		// the lexically-irrelevant analysis-cache fallback source,
+		// which holds only cross-file findings.
+		WarmCrossFindingsAreBundle: false,
+	}
+
+	_, _, hit, _, _ := runDispatchOrLoadBundle(
+		context.Background(),
+		ProjectArgs{},
+		host,
+		indexResult,
+		ParseResult{},
+		scanner.RunFingerprint{Version: "v1"},
+		true,
+		deltaManifestData{},
+	)
+	if hit {
+		t.Errorf("non-bundle WarmCrossFindings must NOT short-circuit; got hit=true (would emit cross-only findings and drop per-file)")
+	}
+	if store.loadCalls < 1 {
+		t.Errorf("non-bundle WarmCrossFindings must let the regular dispatchBundleLoad fire; got loadCalls=%d", store.loadCalls)
 	}
 }

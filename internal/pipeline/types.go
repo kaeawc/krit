@@ -331,8 +331,22 @@ type IndexResult struct {
 	// JavaSourceIndex method satisfies this signature.
 	JavaSourceIndexCache func(build func() *javafacts.SourceIndex) *javafacts.SourceIndex
 	// WarmCrossFindings carries cross-rule findings loaded before
-	// parsing on an all-files analysis-cache hit.
+	// parsing on an all-files analysis-cache hit, OR the full bundle
+	// findings when the early bundle preview confirmed a hit. The
+	// WarmCrossFindingsAreBundle flag distinguishes the two sources:
+	// only the preview-bundle case is safe for
+	// runDispatchOrLoadBundle to short-circuit on.
 	WarmCrossFindings *scanner.FindingColumns
+	// WarmCrossFindingsAreBundle is true when WarmCrossFindings holds
+	// the COMPLETE FindingColumns from a confirmed bundle hit (set by
+	// previewPostParseBundleHit). False when WarmCrossFindings only
+	// holds cross-file findings (set by canSkipRunProjectParse's
+	// lexically-irrelevant fallback) — that case still requires the
+	// dispatch + CrossFilePhase work to produce per-file findings.
+	// Misreading this flag emits 0 findings on warm+ABI when the
+	// lexically-irrelevant fallback fires for an analysis-cache-miss
+	// edit.
+	WarmCrossFindingsAreBundle bool
 }
 
 // XFileCache memoizes a single value of type T across RunProject

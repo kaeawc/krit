@@ -981,6 +981,7 @@ func completeRunProjectIndexResult(args ProjectArgs, host ProjectHostState, warm
 		indexResult.Daemon = host.OracleDaemon
 	}
 	indexResult.Cache = host.AnalysisCache
+	indexResult.CacheBackgroundSave = host.BackgroundSave
 	indexResult.Jobs = args.Workers
 	indexResult.ProfileDispatch = args.ProfileDispatch
 	indexResult.EmitPerFileStats = args.EmitPerFileStats

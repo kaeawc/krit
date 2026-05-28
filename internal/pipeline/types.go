@@ -270,6 +270,14 @@ type IndexResult struct {
 	// CacheStats holds hit-rate / load-duration counters populated by
 	// IndexPhase's cache load block. Nil when caching is disabled.
 	CacheStats *cache.Stats
+	// CacheBackgroundSave, when non-nil, runs the analysis-cache disk
+	// write on the daemon's background-save worker. writeCacheBack
+	// encodes an immutable snapshot synchronously (under the cache's
+	// read lock) and hands only the byte-write to this hook, taking the
+	// ~90 ms cacheSave disk I/O off the warm critical path. nil in CLI
+	// mode (the write runs inline). Wired from
+	// ProjectHostState.BackgroundSave.
+	CacheBackgroundSave func(fn func())
 
 	// Reporter routes verbose progress and warning lines from the
 	// Dispatch and CrossFile phases. Nil means silent.

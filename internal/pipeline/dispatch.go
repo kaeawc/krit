@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
@@ -128,20 +129,42 @@ func (DispatchPhase) writeCacheBack(in IndexResult, findingsByFile map[string]sc
 		return
 	}
 
-	var saveStart time.Time
-	saveFn := func() {
-		saveStart = time.Now()
-		if err := in.Cache.Save(in.CacheFilePath); err != nil {
+	// Encode an immutable snapshot synchronously (under the cache's read
+	// lock) so the next analyze's UpdateEntryColumns can't tear it. In
+	// daemon mode only the atomic disk write is handed to the
+	// background-save worker, taking the ~90 ms write I/O off the warm
+	// critical path; the "cacheSave" tracker then measures just the
+	// encode. CLI callers leave CacheBackgroundSave nil, so the write
+	// runs inline and SaveDurMs still reflects the full encode+write.
+	var (
+		data        []byte
+		shouldWrite bool
+		encErr      error
+	)
+	encodeStart := time.Now()
+	encodeFn := func() { data, shouldWrite, encErr = in.Cache.EncodeSnapshot() }
+	if in.Tracker != nil {
+		in.Tracker.TrackVoid("cacheSave", encodeFn)
+	} else {
+		encodeFn()
+	}
+	if encErr != nil {
+		in.Reporter.Warnf("warning: Failed to encode cache: %v\n", encErr)
+	} else if shouldWrite {
+		path := in.CacheFilePath
+		if in.CacheBackgroundSave != nil {
+			// Daemon mode: the write runs after the analyze response is
+			// sent, so the per-request Reporter is no longer a safe sink
+			// and errors are swallowed. A lost write only costs a recompute.
+			in.CacheBackgroundSave(func() { _ = cache.WriteSnapshot(path, data) })
+		} else if err := cache.WriteSnapshot(path, data); err != nil {
+			// CLI mode: the write runs inline while the Reporter is still
+			// a valid sink, so surface failures the way Save used to.
 			in.Reporter.Warnf("warning: Failed to save cache: %v\n", err)
 		}
 	}
-	if in.Tracker != nil {
-		in.Tracker.TrackVoid("cacheSave", saveFn)
-	} else {
-		saveFn()
-	}
 	if in.CacheStats != nil {
-		in.CacheStats.SaveDurMs = time.Since(saveStart).Milliseconds()
+		in.CacheStats.SaveDurMs = time.Since(encodeStart).Milliseconds()
 	}
 }
 

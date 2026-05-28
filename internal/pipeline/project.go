@@ -2759,7 +2759,12 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 	// analyze has ever produced a bundle keyed on this fp, so the
 	// Load would miss.
 	if priorOK && fp == prior.Fingerprint {
+		fpKey := scanner.FindingsBundleKey(fp)
+		if cached := residentBundleLookup(host, fpKey); cached != nil {
+			return cached
+		}
 		if cached, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, fp); ok && cached != nil {
+			residentBundleStash(host, fpKey, cached)
 			return cached
 		}
 	}
@@ -2793,17 +2798,60 @@ func tryLoadStructurallyStableBundleWithPrior(host ProjectHostState, runFP scann
 	if !plan.ReusePrevious || len(plan.ChangedPaths) != 1 || !bodyOnlyKotlinChange(plan.ChangedPaths[0], prior.StructuralFPs, manifest.structuralFPs) {
 		return nil, false
 	}
-	priorBundle, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, prior.Fingerprint)
-	if !ok || priorBundle == nil {
-		return nil, false
+	priorKey := scanner.FindingsBundleKey(prior.Fingerprint)
+	var priorBundle *scanner.FindingColumns
+	if cached := residentBundleLookup(host, priorKey); cached != nil {
+		priorBundle = cached
+	} else {
+		loaded, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, prior.Fingerprint)
+		if !ok || loaded == nil {
+			return nil, false
+		}
+		priorBundle = loaded
+		residentBundleStash(host, priorKey, priorBundle)
 	}
 	if err := host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, priorBundle); err != nil {
 		host.Reporter.Verbosef("verbose: Findings bundle structural reuse skipped: save alias failed: %v\n", err)
 		return nil, false
 	}
+	// Mirror the alias into the in-memory cache so the next analyze's
+	// cacheHitFullBundle attempt (which Loads by runFP) skips the
+	// disk decode of the bundle we just confirmed in memory.
+	residentBundleStash(host, scanner.FindingsBundleKey(runFP), priorBundle)
 	aliasBundleOutputCache(host, prior.Fingerprint, runFP)
 	host.Reporter.Verbosef("verbose: Findings bundle cache: HIT (structural reuse: %s)\n", plan.ChangedPaths[0])
 	return priorBundle, true
+}
+
+// residentBundleLookup consults host.ResidentBundle when wired, nil-
+// safe otherwise. The lookup is keyed on FindingsBundleKey(runFP);
+// content-addressed keys mean any input change rotates the key, so
+// stale entries naturally become unreachable rather than returning
+// the wrong findings. Emits a perf entry tagged with hit/miss
+// outcome so --perf surfaces the cache's effectiveness on every
+// analyze.
+func residentBundleLookup(host ProjectHostState, key string) *scanner.FindingColumns {
+	if host.ResidentBundle == nil || key == "" {
+		return nil
+	}
+	cached := host.ResidentBundle(key)
+	outcome := "miss"
+	if cached != nil {
+		outcome = "hit"
+	}
+	perf.AddEntryDetails(host.Tracker, "residentBundleLookup", 0, nil, map[string]string{"outcome": outcome})
+	return cached
+}
+
+// residentBundleStash mirrors a freshly loaded or saved bundle into
+// host.StoreResidentBundle when wired. No-op otherwise. The bounded-
+// capacity FIFO inside *WorkspaceState guards against unbounded
+// daemon memory growth.
+func residentBundleStash(host ProjectHostState, key string, cols *scanner.FindingColumns) {
+	if host.StoreResidentBundle == nil || key == "" || cols == nil {
+		return
+	}
+	host.StoreResidentBundle(key, cols)
 }
 
 // buildPreviewManifestData is the parse-only subset of buildManifestData

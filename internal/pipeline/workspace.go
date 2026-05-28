@@ -98,6 +98,26 @@ type WorkspaceState struct {
 	// reuse the same buffer.
 	bundleOutput map[string]*CachedBundleOutput
 
+	residentBundleMu sync.Mutex
+	// residentBundle is the in-memory mirror of the on-disk
+	// FindingsBundleStore: keyed by FindingsBundleKey, value is the
+	// decoded *scanner.FindingColumns. The structural-replay path in
+	// previewPostParseBundleHit otherwise re-decodes the prior bundle
+	// from zstd+gob on every warm+ABI analyze (~90 ms on
+	// kotlin-corpus); consulting this map first cuts that to a map
+	// lookup. The Save path also mirrors into here so the next
+	// analyze's cacheHitFullBundle attempt picks up the alias without
+	// a disk read.
+	//
+	// Bounded by residentBundleCapacity entries: each FindingColumns
+	// can be 10-20MB on kotlin-corpus scale, so the daemon caps
+	// memory growth at a few hundred MB worst case. Eviction uses a
+	// FIFO insertion-order list — simple and adequate for the
+	// observed access pattern (the latest 2-3 entries cover the
+	// warm/warm+ABI/revert loop).
+	residentBundle      map[string]*scanner.FindingColumns
+	residentBundleOrder []string
+
 	javaSourceMu sync.Mutex
 	// javaSourceVersion is bumped on every .java watcher event. The
 	// resident javaSourceIndex slot uses it to detect whether its
@@ -927,6 +947,62 @@ func (w *WorkspaceState) StoreBundleOutput(bundleKey string, output *CachedBundl
 	}
 	w.bundleOutput[bundleKey] = output
 	w.bundleOutputMu.Unlock()
+}
+
+// residentBundleCapacity caps the in-memory bundle mirror. 4 entries
+// is enough to cover the typical warm cycle (cold + warm-no-change +
+// warm+ABI + revert) without holding multiple GB of decoded
+// FindingColumns on kotlin-corpus-scale repos.
+const residentBundleCapacity = 4
+
+// ResidentBundle looks up the decoded FindingColumns mirrored by a
+// successful disk Load or Save. Returns nil on miss. Callers in
+// previewPostParseBundleHit consult it before
+// FindingsBundleStore.Load to skip the ~90 ms zstd+gob decode when
+// the same bundle was already loaded by an earlier analyze in this
+// daemon session.
+//
+// Bundle keys are content-addressed (FindingsBundleKey of a
+// RunFingerprint) so there's no stale-value risk: any input change
+// rotates the key, leaving the prior entry unreachable rather than
+// returning wrong findings.
+func (w *WorkspaceState) ResidentBundle(bundleKey string) *scanner.FindingColumns {
+	if w == nil || bundleKey == "" {
+		return nil
+	}
+	w.residentBundleMu.Lock()
+	defer w.residentBundleMu.Unlock()
+	return w.residentBundle[bundleKey]
+}
+
+// StoreResidentBundle mirrors a freshly loaded or freshly saved
+// bundle into the in-memory cache. Inserts at the head of the FIFO
+// order and evicts from the tail when capacity is exceeded — simple
+// and adequate for the observed access pattern where the latest 2-3
+// entries cover the warm-no-change / warm+ABI / revert loop.
+func (w *WorkspaceState) StoreResidentBundle(bundleKey string, cols *scanner.FindingColumns) {
+	if w == nil || bundleKey == "" || cols == nil {
+		return
+	}
+	w.residentBundleMu.Lock()
+	defer w.residentBundleMu.Unlock()
+	if w.residentBundle == nil {
+		w.residentBundle = make(map[string]*scanner.FindingColumns, residentBundleCapacity)
+	}
+	if _, exists := w.residentBundle[bundleKey]; exists {
+		// Refresh the slot but keep its position in the FIFO — the
+		// caller is re-storing the same key (e.g. structural-replay
+		// aliasing a bundle we already mirrored).
+		w.residentBundle[bundleKey] = cols
+		return
+	}
+	w.residentBundle[bundleKey] = cols
+	w.residentBundleOrder = append(w.residentBundleOrder, bundleKey)
+	for len(w.residentBundleOrder) > residentBundleCapacity {
+		evict := w.residentBundleOrder[0]
+		w.residentBundleOrder = w.residentBundleOrder[1:]
+		delete(w.residentBundle, evict)
+	}
 }
 
 // AndroidProject memoizes the detected Android project across calls.

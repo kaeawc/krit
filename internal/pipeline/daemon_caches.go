@@ -62,4 +62,15 @@ type DaemonCaches struct {
 	// pre-formatted bundle-hit JSON. *WorkspaceState satisfies both.
 	BundleOutput      func(bundleKey string) *CachedBundleOutput
 	StoreBundleOutput func(bundleKey string, output *CachedBundleOutput)
+
+	// ResidentBundle / StoreResidentBundle are the daemon-side
+	// in-memory mirror of the on-disk FindingsBundleStore. Hit by
+	// previewPostParseBundleHit before consulting the disk store to
+	// skip the ~90 ms zstd+gob decode when the same bundle was
+	// already loaded earlier in this daemon session. Bounded to a
+	// small number of entries (residentBundleCapacity) so daemon
+	// memory growth stays predictable. *WorkspaceState satisfies
+	// both.
+	ResidentBundle      func(bundleKey string) *scanner.FindingColumns
+	StoreResidentBundle func(bundleKey string, cols *scanner.FindingColumns)
 }

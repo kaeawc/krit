@@ -223,18 +223,44 @@ func LoadFromDir(dir string) *Cache {
 // writers cannot tear the map mid-iteration. The compressed byte buffer
 // is written to disk after the lock is released.
 func (c *Cache) Save(cacheFilePath string) error {
-	if c.backingStore != nil {
+	data, shouldWrite, err := c.EncodeSnapshot()
+	if err != nil {
+		return err
+	}
+	if !shouldWrite {
 		return nil
 	}
+	return WriteSnapshot(cacheFilePath, data)
+}
+
+// EncodeSnapshot serializes the cache to a compressed byte buffer under
+// Cache.filesMu read-locked, producing an immutable snapshot that is
+// safe to write to disk from another goroutine even while the cache
+// keeps being mutated by later analyzes. shouldWrite is false (with nil
+// data/err) when the cache is backed by an external store — entries are
+// persisted individually on UpdateEntry, so there is nothing to flush.
+// Pair with WriteSnapshot, which performs the actual atomic disk write.
+func (c *Cache) EncodeSnapshot() (data []byte, shouldWrite bool, err error) {
+	if c.backingStore != nil {
+		return nil, false, nil
+	}
+	c.filesMu.RLock()
+	data, err = encodeBinary(c)
+	c.filesMu.RUnlock()
+	if err != nil {
+		return nil, false, fmt.Errorf("encode cache: %w", err)
+	}
+	return data, true, nil
+}
+
+// WriteSnapshot atomically writes a buffer produced by EncodeSnapshot to
+// cacheFilePath (temp file + rename for crash safety). The buffer is
+// immutable, so this is safe to call from a background goroutine while
+// the originating Cache continues to be mutated.
+func WriteSnapshot(cacheFilePath string, data []byte) error {
 	dir := filepath.Dir(cacheFilePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("create cache dir: %w", err)
-	}
-	c.filesMu.RLock()
-	data, err := encodeBinary(c)
-	c.filesMu.RUnlock()
-	if err != nil {
-		return fmt.Errorf("encode cache: %w", err)
 	}
 	if err := fsutil.WriteFileAtomic(cacheFilePath, data, 0644); err != nil {
 		return fmt.Errorf("write cache: %w", err)

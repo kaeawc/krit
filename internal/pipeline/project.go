@@ -1659,7 +1659,11 @@ func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, host Project
 		CacheDir:            host.AndroidCacheDir,
 		CacheWriter:         host.AndroidCacheWriter,
 		GradleFindingsCache: host.GradleFindingsCache,
-		Tracker:             androidTracker,
+		BackgroundSave:      host.BackgroundSave,
+
+		ResidentResourceSourceManifest:      host.ResidentResourceSourceManifest,
+		StoreResidentResourceSourceManifest: host.StoreResidentResourceSourceManifest,
+		Tracker:                             androidTracker,
 	})
 	if androidTracker != nil {
 		androidTracker.End()

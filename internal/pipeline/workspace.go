@@ -118,6 +118,27 @@ type WorkspaceState struct {
 	residentBundle      map[string]*scanner.FindingColumns
 	residentBundleOrder []string
 
+	residentResourceManifestMu sync.Mutex
+	// residentResourceManifest mirrors the on-disk resource-source bundle
+	// manifest (internal/pipeline/android_bundle.go) in daemon memory,
+	// keyed by the path-set+resource-fingerprint manifestKey. The Android
+	// delta path otherwise re-reads + JSON-decodes the full manifest
+	// (~30 ms) on every warm+ABI analyze and re-writes it synchronously
+	// (~80-125 ms on kotlin-corpus scale). Mirroring the latest saved
+	// manifest here lets the next analyze diff against it with a map
+	// lookup while the disk write happens off the warm path via
+	// EnqueueBackgroundSave.
+	//
+	// Unlike residentBundle (content-addressed, never stale), the manifest
+	// key is path-set-addressed, so the value mutates across content edits.
+	// Holding the latest saved value matches the on-disk overwrite
+	// semantics exactly — the delta path always diffs the stored hashes
+	// against this run's hashes and re-sweeps the difference, so a stale
+	// (older) entry only widens the changed set, never serves wrong
+	// findings. Bounded by residentResourceManifestCapacity.
+	residentResourceManifest      map[string]resourceSourceBundleManifest
+	residentResourceManifestOrder []string
+
 	javaSourceMu sync.Mutex
 	// javaSourceVersion is bumped on every .java watcher event. The
 	// resident javaSourceIndex slot uses it to detect whether its
@@ -762,6 +783,10 @@ func (w *WorkspaceState) InvalidateAll() {
 	w.codeIndexSnapshot = nil
 	w.codeIndexSnapshotMeta = scanner.CrossFileCacheMeta{}
 	w.codeIndexSnapshotMu.Unlock()
+	w.residentResourceManifestMu.Lock()
+	w.residentResourceManifest = nil
+	w.residentResourceManifestOrder = nil
+	w.residentResourceManifestMu.Unlock()
 }
 
 // LibraryFacts returns the cached *librarymodel.Facts when its
@@ -1086,6 +1111,57 @@ func (w *WorkspaceState) StoreResidentBundle(bundleKey string, cols *scanner.Fin
 		evict := w.residentBundleOrder[0]
 		w.residentBundleOrder = w.residentBundleOrder[1:]
 		delete(w.residentBundle, evict)
+	}
+}
+
+// residentResourceManifestCapacity caps the in-memory resource-source
+// manifest mirror. A handful of entries covers the typical warm cycle
+// across a small number of Android source sets; each entry is a path→hash
+// map that is cheap relative to a decoded FindingColumns bundle.
+const residentResourceManifestCapacity = 4
+
+// ResidentResourceSourceManifest returns the daemon-resident mirror of the
+// resource-source bundle manifest for key, or ok=false on miss. Consulted
+// by the Android delta path before the on-disk JSON read.
+// Satisfies DaemonCaches.ResidentResourceSourceManifest.
+//
+// The return type is package-private by design — callers in other packages
+// only assign this method value to the DaemonCaches hook, never name the type.
+//
+//nolint:revive // unexported-return: the manifest type is intentionally internal; this accessor is exported solely to wire the daemon hook.
+func (w *WorkspaceState) ResidentResourceSourceManifest(key string) (resourceSourceBundleManifest, bool) {
+	if w == nil || key == "" {
+		return resourceSourceBundleManifest{}, false
+	}
+	w.residentResourceManifestMu.Lock()
+	defer w.residentResourceManifestMu.Unlock()
+	m, ok := w.residentResourceManifest[key]
+	return m, ok
+}
+
+// StoreResidentResourceSourceManifest mirrors a freshly loaded or saved
+// manifest into the in-memory cache, evicting the oldest entry past
+// capacity. Re-storing an existing key refreshes the value in place.
+// Satisfies DaemonCaches.StoreResidentResourceSourceManifest.
+func (w *WorkspaceState) StoreResidentResourceSourceManifest(key string, manifest resourceSourceBundleManifest) {
+	if w == nil || key == "" {
+		return
+	}
+	w.residentResourceManifestMu.Lock()
+	defer w.residentResourceManifestMu.Unlock()
+	if w.residentResourceManifest == nil {
+		w.residentResourceManifest = make(map[string]resourceSourceBundleManifest, residentResourceManifestCapacity)
+	}
+	if _, exists := w.residentResourceManifest[key]; exists {
+		w.residentResourceManifest[key] = manifest
+		return
+	}
+	w.residentResourceManifest[key] = manifest
+	w.residentResourceManifestOrder = append(w.residentResourceManifestOrder, key)
+	for len(w.residentResourceManifestOrder) > residentResourceManifestCapacity {
+		evict := w.residentResourceManifestOrder[0]
+		w.residentResourceManifestOrder = w.residentResourceManifestOrder[1:]
+		delete(w.residentResourceManifest, evict)
 	}
 }
 

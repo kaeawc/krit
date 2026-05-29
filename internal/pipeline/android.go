@@ -78,6 +78,22 @@ type AndroidInput struct {
 	// WorkspaceState-resident map; cache keys include the content
 	// hash + rule hash so config changes invalidate. CLI passes nil.
 	GradleFindingsCache func(key string, build func() scanner.FindingColumns) scanner.FindingColumns
+
+	// BackgroundSave, when non-nil, runs the resource-source bundle
+	// manifest disk write on the daemon's background-save worker instead
+	// of inline on the warm analyze critical path. The resident manifest
+	// mirror is updated synchronously first, so a not-yet-flushed write
+	// only costs a recompute on daemon restart, never a stale read. CLI
+	// callers leave it nil and the write runs inline.
+	// Wired from ProjectHostState.BackgroundSave.
+	BackgroundSave func(fn func())
+	// ResidentResourceSourceManifest / StoreResidentResourceSourceManifest
+	// mirror the on-disk resource-source bundle manifest in daemon memory,
+	// keyed by manifestKey. The delta path reads the mirror before the
+	// on-disk JSON load and writes it on every save. Both nil in CLI mode.
+	// Wired from ProjectHostState.{,Store}ResidentResourceSourceManifest.
+	ResidentResourceSourceManifest      func(key string) (resourceSourceBundleManifest, bool)
+	StoreResidentResourceSourceManifest func(key string, manifest resourceSourceBundleManifest)
 }
 
 // AndroidResult is the output of the Android phase.
@@ -594,7 +610,7 @@ func saveResourceSourceBundles(in AndroidInput, mergedFP string, bundleCollector
 		}
 		if paths := sourcePathsForManifest(in); len(manifestHashes) == len(paths) {
 			if manifestKey, ok := in.resourceSourceBundleManifestKey(paths, mergedFP); ok {
-				_ = saveResourceSourceBundleManifest(in.CacheDir, manifestKey, bundleKey, manifestHashes)
+				in.persistResourceSourceBundleManifest(manifestKey, bundleKey, manifestHashes)
 			}
 		}
 	}
@@ -653,7 +669,7 @@ func tryResourceSourceBundleDelta(in AndroidInput, mergedSourceIdx *android.Reso
 	if !ok {
 		return false, stats
 	}
-	manifest, ok := loadResourceSourceBundleManifest(in.CacheDir, manifestKey)
+	manifest, ok := in.lookupResourceSourceBundleManifest(manifestKey)
 	if !ok {
 		return false, stats
 	}
@@ -699,7 +715,7 @@ func tryResourceSourceBundleDelta(in AndroidInput, mergedSourceIdx *android.Reso
 	if sourceSetFP, ok := resourceSourceEntriesFingerprint(resourceSourceEntriesFromHashes(currentHashes)); ok {
 		bundleKey := in.resourceSourceBundleKey(sourceSetFP, mergedFP)
 		in.CacheWriter.Save(in.CacheDir, bundleKey, merged)
-		_ = saveResourceSourceBundleManifest(in.CacheDir, manifestKey, bundleKey, currentHashes)
+		in.persistResourceSourceBundleManifest(manifestKey, bundleKey, currentHashes)
 	}
 	stats.hits = len(paths) - len(changed)
 	stats.misses = len(changed)

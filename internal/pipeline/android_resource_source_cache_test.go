@@ -354,3 +354,104 @@ func TestResourceSourceCacheKey_PathInvalidates(t *testing.T) {
 		t.Fatal("identical-content files at different paths must not share a resource-source cache key")
 	}
 }
+
+// canon16 mirrors cache.ComputeFileHash: the 16-char truncation the analysis
+// cache's JSON backend records as a file's content hash and hands the Android
+// phase via AndroidInput.SourceHashes.
+func canon16(t *testing.T, path string) string {
+	t.Helper()
+	h, err := hashutil.Default().HashFile(path, nil)
+	if err != nil {
+		t.Fatalf("hash %s: %v", path, err)
+	}
+	return h[:resourceSourceHashWidth]
+}
+
+// TestResourceSourceSetFingerprintReusingHashes_MatchesFullRehash pins the
+// load-bearing safety property of the warm-probe optimization: reusing the
+// analysis cache's per-file hashes (AndroidInput.SourceHashes) must yield a
+// fingerprint byte-identical to hashing every source file from scratch.
+//
+// Critically, the SourceHashes seeded here are 16-char (cache.ComputeFileHash
+// form, what the JSON backend actually produces) while the from-scratch
+// baseline hashes at 64-char (memo.HashFile). Without the canonical-width
+// migration these diverge and the warm bundle key silently shifts; with it they
+// match. The partial-coverage case mirrors warm+ABI: the changed file is absent
+// from SourceHashes (the cache only carries hashes for unchanged hits) and must
+// fall back to a real hash without changing the result.
+func TestResourceSourceSetFingerprintReusingHashes_MatchesFullRehash(t *testing.T) {
+	root := t.TempDir()
+	ktA := parseKotlinForTest(t, filepath.Join(root, "A.kt"), inflateNullKotlin)
+	ktB := parseKotlinForTest(t, filepath.Join(root, "B.kt"), inflateCleanKotlin)
+	ktC := parseKotlinForTest(t, filepath.Join(root, "C.kt"), inflateNullKotlin)
+	files := []*scanner.File{ktA, ktB, ktC}
+
+	want, ok := resourceSourceSetFingerprint(files)
+	if !ok {
+		t.Fatal("baseline resourceSourceSetFingerprint failed")
+	}
+
+	cases := []struct {
+		name   string
+		hashes map[string]string
+	}{
+		{"full coverage (16-char cache hashes)", map[string]string{
+			ktA.Path: canon16(t, ktA.Path), ktB.Path: canon16(t, ktB.Path), ktC.Path: canon16(t, ktC.Path),
+		}},
+		{"changed file absent (warm+ABI)", map[string]string{
+			ktA.Path: canon16(t, ktA.Path), ktB.Path: canon16(t, ktB.Path),
+		}},
+		{"no coverage", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := AndroidInput{SourceFiles: files, SourceHashes: tc.hashes}
+			got, ok := in.resourceSourceSetFingerprintReusingHashes()
+			if !ok {
+				t.Fatal("resourceSourceSetFingerprintReusingHashes failed")
+			}
+			if got != want {
+				t.Fatalf("fingerprint diverged from full rehash:\n got %s\nwant %s", got, want)
+			}
+		})
+	}
+}
+
+// TestResourceSourceKey_CanonicalWidthStable verifies that a file's per-file
+// resource-source cache key is identical whether the content hash arrives as the
+// cold 64-char memo hash or the warm 16-char cache hash. This is what lets a
+// delta re-dispatch (which carries 16-char hashes) hit findings a cold run wrote
+// under the 64-char hash.
+func TestResourceSourceKey_CanonicalWidthStable(t *testing.T) {
+	in := AndroidInput{RuleHash: "rh", LibraryFactsFP: "lf"}
+	full := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	short := full[:resourceSourceHashWidth]
+	if in.resourceSourceKey("/src/A.kt", full, "merged-fp") != in.resourceSourceKey("/src/A.kt", short, "merged-fp") {
+		t.Fatal("64-char and 16-char hashes for the same file must yield the same resource-source key")
+	}
+}
+
+// TestResourceSourceHashes_CanonicalWidth verifies the manifest body / delta
+// compare hashes are normalized to the canonical width regardless of the width
+// the analysis cache supplied, so a cold (64-char) save and a warm (16-char)
+// delta compare against byte-identical values.
+func TestResourceSourceHashes_CanonicalWidth(t *testing.T) {
+	root := t.TempDir()
+	kt := parseKotlinForTest(t, filepath.Join(root, "A.kt"), inflateNullKotlin)
+	full, err := hashutil.Default().HashFile(kt.Path, nil)
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	in := AndroidInput{
+		SourceFiles:  []*scanner.File{kt},
+		SourcePaths:  []string{kt.Path},
+		SourceHashes: map[string]string{kt.Path: full}, // 64-char, as the unified store supplies
+	}
+	hashes, ok := resourceSourceHashes(in)
+	if !ok {
+		t.Fatal("resourceSourceHashes failed")
+	}
+	if got := hashes[kt.Path]; len(got) != resourceSourceHashWidth {
+		t.Fatalf("resourceSourceHashes returned width %d (%q), want %d", len(got), got, resourceSourceHashWidth)
+	}
+}

@@ -208,8 +208,79 @@ func resourceSourceEntriesFingerprint(entries []resourceSourceEntry) (string, bo
 	for _, e := range entries {
 		h.Write([]byte(e.path))
 		h.Write([]byte{0})
-		h.Write([]byte(e.hash))
+		h.Write([]byte(canonResourceSourceHash(e.hash)))
 		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), true
+}
+
+// resourceSourceHashWidth is the canonical width, in hex characters, of every
+// content hash that participates in a resource-source cache key, bundle
+// fingerprint, or bundle manifest. The analysis cache's JSON backend records
+// 16-char truncated hashes (cache.ComputeFileHash), while memo.HashFile and the
+// unified store produce full 64-char hashes. Canonicalizing every hash to a
+// single width before it enters a key lets a warm run reuse the per-file hashes
+// the analysis cache already validated this run — without re-stat'ing every
+// source file — and still land on the exact key a cold (full-hash) run wrote.
+// 16 hex chars (64 bits) matches the truncation cache.ComputeFileHash already
+// uses for the primary per-file analysis cache, so this adds no collision risk
+// beyond what the cache subsystem already accepts.
+const resourceSourceHashWidth = 16
+
+// canonResourceSourceHash truncates a content hash to resourceSourceHashWidth so
+// 16- and 64-char hashes for the same file produce identical resource-source
+// keys. Shorter inputs are returned unchanged.
+func canonResourceSourceHash(hash string) string {
+	if len(hash) > resourceSourceHashWidth {
+		return hash[:resourceSourceHashWidth]
+	}
+	return hash
+}
+
+// resourceSourceSetFingerprintReusingHashes computes the same fingerprint as
+// resourceSourceSetFingerprint(in.SourceFiles), but pulls each file's content
+// hash from in.SourceHashes when present, hashing only the files the analysis
+// cache didn't cover — on a warm+ABI run that's just the changed file.
+//
+// By design this reuses the analysis cache's per-file hashes, so it inherits
+// the cache's staleness model rather than the always-rehash-from-content
+// behavior of resourceSourceSetFingerprint: under the git-dirty / watcher
+// incremental shortcuts (see cache.CheckFiles / CheckFilesIncremental), a
+// SourceHashes entry can be a prior run's hash that wasn't re-validated this
+// run. That is intentional — it makes the resource-source bundle hit/miss share
+// the same freshness guarantee as the main analysis cache that produced those
+// hashes, instead of being spuriously fresher. Genuinely changed files are
+// absent from SourceHashes (the cache only carries hashes for hits) and fall
+// through to the rehash below, which is what preserves warm+ABI correctness.
+//
+// Because every fingerprint hash is canonicalized to resourceSourceHashWidth
+// (see resourceSourceEntriesFingerprint / canonResourceSourceHash), the cache's
+// 16-char hashes and a from-scratch 64-char rehash produce a byte-identical
+// fingerprint, so reuse never shifts the key; only the per-file os.Stat +
+// content-hash storm over thousands of unchanged files is avoided. Returns
+// false (matching resourceSourceSetFingerprint) if any file is nil/path-less or
+// an uncached file can't be hashed.
+func (in AndroidInput) resourceSourceSetFingerprintReusingHashes() (string, bool) {
+	memo := hashutil.Default()
+	entries := make([]resourceSourceEntry, 0, len(in.SourceFiles))
+	for _, file := range in.SourceFiles {
+		if file == nil || file.Path == "" {
+			return "", false
+		}
+		hash := in.SourceHashes[file.Path]
+		if hash == "" {
+			var provider func() ([]byte, error)
+			if len(file.Content) > 0 {
+				content := file.Content
+				provider = func() ([]byte, error) { return content, nil }
+			}
+			h, err := memo.HashFile(file.Path, provider)
+			if err != nil {
+				return "", false
+			}
+			hash = h
+		}
+		entries = append(entries, resourceSourceEntry{path: file.Path, hash: hash})
+	}
+	return resourceSourceEntriesFingerprint(entries)
 }

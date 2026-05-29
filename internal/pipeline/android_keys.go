@@ -86,8 +86,10 @@ func (in AndroidInput) resourceSourceKey(srcPath, srcContentHash, mergedIdxFP st
 		RuleHash:            in.RuleHash,
 		LibraryFactsFP:      in.LibraryFactsFP,
 		JavaSemanticFactsFP: in.JavaSemanticFactsFP,
-		InputFP:             srcContentHash,
-		Extra:               srcPath + "\x00" + mergedIdxFP,
+		// Canonicalize so a warm run's 16-char cache hash and a cold run's
+		// 64-char memo hash for the same file resolve to the same key.
+		InputFP: canonResourceSourceHash(srcContentHash),
+		Extra:   srcPath + "\x00" + mergedIdxFP,
 	})
 }
 
@@ -259,7 +261,7 @@ func writeResDirFingerprints(h interface {
 
 func (in AndroidInput) resourceSourceFingerprintForBundle() (string, bool) {
 	if len(in.SourceFiles) > 0 {
-		return resourceSourceSetFingerprint(in.SourceFiles)
+		return in.resourceSourceSetFingerprintReusingHashes()
 	}
 	if len(in.SourcePaths) > 0 && len(in.SourceHashes) > 0 {
 		entries := make([]resourceSourceEntry, 0, len(in.SourcePaths))

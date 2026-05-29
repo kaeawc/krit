@@ -758,7 +758,7 @@ func resourceSourceHashes(in AndroidInput) (map[string]string, bool) {
 			return nil, false
 		}
 		if hash := in.SourceHashes[path]; hash != "" {
-			hashes[path] = hash
+			hashes[path] = canonResourceSourceHash(hash)
 			continue
 		}
 		file := sourceByPath[path]
@@ -774,7 +774,7 @@ func resourceSourceHashes(in AndroidInput) (map[string]string, bool) {
 		if err != nil {
 			return nil, false
 		}
-		hashes[path] = hash
+		hashes[path] = canonResourceSourceHash(hash)
 	}
 	return hashes, true
 }
@@ -1085,7 +1085,7 @@ func (in AndroidInput) loadWarmResourceFindings(resourceDeps rules.AndroidDataDe
 
 func (in AndroidInput) warmResourceSourceBundleFingerprint() (string, int, bool) {
 	if len(in.SourceFiles) > 0 {
-		if sourceSetFP, ok := resourceSourceSetFingerprint(in.SourceFiles); ok {
+		if sourceSetFP, ok := in.resourceSourceSetFingerprintReusingHashes(); ok {
 			return sourceSetFP, len(in.SourceFiles), true
 		}
 	}

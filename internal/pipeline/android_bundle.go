@@ -22,7 +22,12 @@ type resourceSourceBundleManifest struct {
 	Hashes    map[string]string `json:"hashes"`
 }
 
-const resourceSourceBundleManifestVersion = 1
+// resourceSourceBundleManifestVersion is bumped to 2 alongside the canonical
+// 16-char hash-width migration: a v1 manifest stores full-width (64-char)
+// hashes, which would width-mismatch every path against the new 16-char
+// currentHashes and force a needless full re-sweep. Bumping invalidates stale
+// manifests cleanly so the first warm run after upgrade rebuilds once.
+const resourceSourceBundleManifestVersion = 2
 
 func resourceSourceBundleManifestPath(cacheDir, key string) string {
 	if cacheDir == "" || key == "" {
@@ -61,9 +66,11 @@ func saveResourceSourceBundleManifest(cacheDir, key, bundleKey string, hashes ma
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	// Store canonical-width hashes so a cold (64-char memo) save and a warm
+	// (16-char cache) delta compare against byte-identical values.
 	copyHashes := make(map[string]string, len(hashes))
 	for path, hash := range hashes {
-		copyHashes[path] = hash
+		copyHashes[path] = canonResourceSourceHash(hash)
 	}
 	raw, err := json.Marshal(resourceSourceBundleManifest{
 		Version:   resourceSourceBundleManifestVersion,

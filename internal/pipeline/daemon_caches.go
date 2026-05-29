@@ -74,6 +74,16 @@ type DaemonCaches struct {
 	ResidentBundle      func(bundleKey string) *scanner.FindingColumns
 	StoreResidentBundle func(bundleKey string, cols *scanner.FindingColumns)
 
+	// ResidentResourceSourceManifest / StoreResidentResourceSourceManifest
+	// are the daemon-side in-memory mirror of the on-disk resource-source
+	// bundle manifest (android_bundle.go). The Android delta path consults
+	// the loader before the ~30 ms JSON disk read and mirrors every saved
+	// manifest here so a deferred (BackgroundSave) disk write never costs
+	// the next analyze a full re-sweep. Both nil in CLI mode (the delta
+	// path reads/writes disk inline). *WorkspaceState satisfies both.
+	ResidentResourceSourceManifest      func(key string) (resourceSourceBundleManifest, bool)
+	StoreResidentResourceSourceManifest func(key string, manifest resourceSourceBundleManifest)
+
 	// BackgroundSave runs fn on the daemon's single background-save
 	// worker, taking the ~300 ms findings-bundle + delta-manifest disk
 	// writes off the warm analyze critical path. The resident/in-memory

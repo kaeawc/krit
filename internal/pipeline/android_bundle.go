@@ -84,6 +84,56 @@ func saveResourceSourceBundleManifest(cacheDir, key, bundleKey string, hashes ma
 	return fsutil.WriteFileAtomic(path, raw, 0o644)
 }
 
+// lookupResourceSourceBundleManifest returns the resource-source bundle
+// manifest for key, consulting the daemon-resident mirror first (a map
+// lookup) before falling back to the on-disk JSON read. A disk hit
+// populates the mirror so subsequent warm analyzes skip the read.
+func (in AndroidInput) lookupResourceSourceBundleManifest(key string) (resourceSourceBundleManifest, bool) {
+	if in.ResidentResourceSourceManifest != nil {
+		if manifest, ok := in.ResidentResourceSourceManifest(key); ok {
+			return manifest, true
+		}
+	}
+	manifest, ok := loadResourceSourceBundleManifest(in.CacheDir, key)
+	if ok && in.StoreResidentResourceSourceManifest != nil {
+		in.StoreResidentResourceSourceManifest(key, manifest)
+	}
+	return manifest, ok
+}
+
+// persistResourceSourceBundleManifest mirrors the manifest into the
+// daemon-resident cache synchronously, then writes it to disk — off the
+// warm critical path via BackgroundSave when wired, inline otherwise.
+// Because the resident mirror is updated before this returns, a deferred
+// (not-yet-flushed) disk write never costs the next analyze a re-sweep;
+// only a daemon restart before the flush falls back to a recompute.
+func (in AndroidInput) persistResourceSourceBundleManifest(key, bundleKey string, hashes map[string]string) {
+	if key == "" || bundleKey == "" || len(hashes) == 0 {
+		return
+	}
+	if in.StoreResidentResourceSourceManifest != nil {
+		// Store canonical-width hashes so the resident value is
+		// byte-identical to what loadResourceSourceBundleManifest would
+		// return after the disk write lands.
+		canon := make(map[string]string, len(hashes))
+		for path, hash := range hashes {
+			canon[path] = canonResourceSourceHash(hash)
+		}
+		in.StoreResidentResourceSourceManifest(key, resourceSourceBundleManifest{
+			Version:   resourceSourceBundleManifestVersion,
+			Key:       key,
+			BundleKey: bundleKey,
+			Hashes:    canon,
+		})
+	}
+	write := func() { _ = saveResourceSourceBundleManifest(in.CacheDir, key, bundleKey, hashes) }
+	if in.BackgroundSave != nil {
+		in.BackgroundSave(write)
+	} else {
+		write()
+	}
+}
+
 const mergedResourceIndexBundleVersion = 1
 
 type mergedResourceIndexBundlePayload struct {

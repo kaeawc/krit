@@ -75,6 +75,25 @@ type CodeIndex struct {
 	nonCommentRefFilesByName     map[string]map[string]bool // name -> set of files with non-comment references
 	nonCommentRefCountByNameFile map[string]map[string]int  // name -> file -> non-comment ref count
 
+	// declsByFile maps a file path to the multiset of symbol names and
+	// FQNs it declares (name -> declaration count). It is the forward
+	// declaration map that bridges a changed file to the reference-level
+	// reverse-dependency lookup (refFilesByName): changed file ->
+	// declsByFile -> referencing files. Where refFilesByName answers "who
+	// references name N", declsByFile answers "what does file F declare",
+	// and composing the two yields the set of files whose cross-file
+	// findings could change when F changes — a #608-safe affected-set for
+	// incremental cross-file replay.
+	//
+	// It is a count multiset (not a plain set) so overloads and repeated
+	// FQNs decrement exactly on removal: a name is only dropped from a
+	// file once its last declaration is removed. Maintained alongside
+	// symbolsByName in addSymbolToLookups / removeSymbolFromLookups and so
+	// shares their stability contract — mutated only under the daemon's
+	// per-project analyze mutex, read lock-free after publish (not under
+	// refMu).
+	declsByFile map[string]map[string]int
+
 	// Bloom filter for fast "is this name referenced?" checks.
 	// False positives are OK (we fall back to exact check), false negatives are not.
 	refBloom *bloom.BloomFilter
@@ -349,6 +368,7 @@ func buildCodeIndexWithBloom(symbols []Symbol, refs []Reference, prebuilt *bloom
 		References:    refs,
 		symbolsByName: make(map[string][]Symbol),
 		symbolsByFQN:  make(map[string]Symbol),
+		declsByFile:   make(map[string]map[string]int),
 	}
 
 	if prebuilt != nil {
@@ -382,6 +402,60 @@ func (idx *CodeIndex) addSymbolToLookups(sym Symbol) {
 			idx.symbolsByName[sym.FQN] = append(idx.symbolsByName[sym.FQN], sym)
 		}
 	}
+	idx.addDeclByFile(sym)
+}
+
+// addDeclByFile records that sym.File declares sym.Name (and sym.FQN, when
+// distinct) in the forward declaration multiset. Counts are incremented so
+// overloads and repeated FQNs decrement exactly on removal. A nil declsByFile
+// (older zero-value indexes that predate this field) is tolerated by skipping.
+func (idx *CodeIndex) addDeclByFile(sym Symbol) {
+	if idx.declsByFile == nil || sym.File == "" {
+		return
+	}
+	names := idx.declsByFile[sym.File]
+	if names == nil {
+		names = make(map[string]int)
+		idx.declsByFile[sym.File] = names
+	}
+	if sym.Name != "" {
+		names[sym.Name]++
+	}
+	if sym.FQN != "" && sym.FQN != sym.Name {
+		names[sym.FQN]++
+	}
+}
+
+// removeDeclByFile is the inverse of addDeclByFile: it decrements the counts
+// for sym.Name and sym.FQN, deleting a name at count 0 and the file entry once
+// it has no remaining names. Safe to call when the entry is absent.
+func (idx *CodeIndex) removeDeclByFile(sym Symbol) {
+	if idx.declsByFile == nil || sym.File == "" {
+		return
+	}
+	names := idx.declsByFile[sym.File]
+	if names == nil {
+		return
+	}
+	if sym.Name != "" {
+		decrementName(names, sym.Name)
+	}
+	if sym.FQN != "" && sym.FQN != sym.Name {
+		decrementName(names, sym.FQN)
+	}
+	if len(names) == 0 {
+		delete(idx.declsByFile, sym.File)
+	}
+}
+
+// decrementName drops one occurrence of name from the count multiset, removing
+// the key entirely when its count reaches zero.
+func decrementName(names map[string]int, name string) {
+	if names[name] <= 1 {
+		delete(names, name)
+		return
+	}
+	names[name]--
 }
 
 // removeSymbolFromLookups deletes sym's entries from symbolsByName +
@@ -398,6 +472,7 @@ func (idx *CodeIndex) removeSymbolFromLookups(sym Symbol) {
 			dropSymbolFromSlice(idx.symbolsByName, sym.FQN, sym)
 		}
 	}
+	idx.removeDeclByFile(sym)
 }
 
 // dropSymbolFromSlice removes target from m[key] (using struct
@@ -420,6 +495,38 @@ func dropSymbolFromSlice(m map[string][]Symbol, key string, target Symbol) {
 	} else {
 		m[key] = dst
 	}
+}
+
+// rebuildDeclsByFile reconstructs declsByFile from scratch over idx.Symbols.
+// It is used by cache-unpack paths (unpackFull) that populate the symbol
+// slice and lookup maps directly without routing each symbol through
+// addSymbolToLookups, so the forward declaration multiset would otherwise be
+// empty.
+func (idx *CodeIndex) rebuildDeclsByFile() {
+	idx.declsByFile = make(map[string]map[string]int, len(idx.declsByFile))
+	for _, sym := range idx.Symbols {
+		idx.addDeclByFile(sym)
+	}
+}
+
+// DeclaredNames returns the distinct symbol names and FQNs declared in file,
+// as a freshly allocated slice (safe for the caller to retain and mutate).
+// The forward direction of the reverse-dependency lookup: compose with
+// RefFilesByName to map a changed file to the files that reference what it
+// declares. Order is unspecified. Returns nil when the file declares nothing.
+func (idx *CodeIndex) DeclaredNames(file string) []string {
+	if idx == nil || idx.declsByFile == nil {
+		return nil
+	}
+	names := idx.declsByFile[file]
+	if len(names) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(names))
+	for name := range names {
+		out = append(out, name)
+	}
+	return out
 }
 
 func (idx *CodeIndex) removeFileContributions(paths map[string]bool) {

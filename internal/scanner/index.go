@@ -94,6 +94,16 @@ type CodeIndex struct {
 	// refMu).
 	declsByFile map[string]map[string]int
 
+	// lastRemoved captures the declared/referenced names that the most
+	// recent incremental rebuild dropped from this index (the prior
+	// contributions of the changed/deleted files). The prior index is
+	// mutated in place by BuildIndexIncremental, so these removed edges
+	// are otherwise unrecoverable at dispatch time — they are what keeps
+	// AffectedSetIncremental #608-safe for edits that delete a declaration
+	// or reference. nil after a full build (nothing was removed) and on
+	// indexes that never went through the incremental overlay path.
+	lastRemoved *PriorRemovedContributions
+
 	// Bloom filter for fast "is this name referenced?" checks.
 	// False positives are OK (we fall back to exact check), false negatives are not.
 	refBloom *bloom.BloomFilter

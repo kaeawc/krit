@@ -1819,6 +1819,26 @@ func runDispatchOrLoadBundle(
 			recordDispatchPath("cacheHitDeltaBundle")
 			return deltaD, deltaC, false, dispatchTimings{}, nil
 		}
+		// cacheHitAffectedSetBundle: the single-file delta planner declined
+		// (multi-file edit, or an ABI change that drifts the CrossFile
+		// fingerprint), but the reference-level reverse-dependency index can
+		// still bound the work. Re-dispatch only the #608-safe affected set
+		// and ApplyDelta against the prior bundle. Opt-in
+		// (KRIT_AFFECTED_SET_REPLAY) and #608 gated inside.
+		asStart := time.Now()
+		asD, asC, asOK, asErr := tryAffectedSetDispatch(ctx, args, host, indexResult, parseResult, manifest)
+		asOutcome := "miss"
+		if asOK {
+			asOutcome = "hit"
+		}
+		perf.AddEntryDetails(tracker, "dispatchAffectedSetPath", time.Since(asStart), nil, map[string]string{"outcome": asOutcome})
+		if asErr != nil {
+			return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, asErr
+		}
+		if asOK {
+			recordDispatchPath("cacheHitAffectedSetBundle")
+			return asD, asC, false, dispatchTimings{}, nil
+		}
 	}
 	dispatchStart := time.Now()
 	d, err := DispatchPhase{}.Run(ctx, indexResult)
@@ -2749,6 +2769,181 @@ func scopeParseResult(p ParseResult, only *scanner.File) ParseResult {
 		scoped.KotlinFiles = []*scanner.File{only}
 	}
 	return scoped
+}
+
+// scopeParseResultMulti returns a copy of p with KotlinFiles + JavaFiles
+// narrowed to those present in paths. It is the multi-file companion of
+// scopeParseResult, used by the affected-set replay path: per-file rules
+// re-run for every affected file (changed files plus their reverse-dependency
+// declarers/referrers) so the regenerated findings are complete for the set
+// ApplyDelta replaces. IndexResult.CodeIndex retains the full project index.
+func scopeParseResultMulti(p ParseResult, paths map[string]bool) ParseResult {
+	scoped := p
+	scoped.KotlinFiles = nil
+	scoped.JavaFiles = nil
+	if len(paths) == 0 {
+		return scoped
+	}
+	for _, f := range p.KotlinFiles {
+		if f != nil && paths[f.Path] {
+			scoped.KotlinFiles = append(scoped.KotlinFiles, f)
+		}
+	}
+	for _, f := range p.JavaFiles {
+		if f != nil && paths[f.Path] {
+			scoped.JavaFiles = append(scoped.JavaFiles, f)
+		}
+	}
+	return scoped
+}
+
+// allAffectedFilesParsed reports whether every path in affected is present in
+// p's Kotlin or Java files. It backs invariant 2 of tryAffectedSetDispatch: an
+// affected file that was not re-parsed cannot be re-dispatched, so its prior
+// findings would be dropped without replacement.
+func allAffectedFilesParsed(p ParseResult, affected []string) bool {
+	parsed := make(map[string]bool, len(p.KotlinFiles)+len(p.JavaFiles))
+	for _, f := range p.KotlinFiles {
+		if f != nil {
+			parsed[f.Path] = true
+		}
+	}
+	for _, f := range p.JavaFiles {
+		if f != nil {
+			parsed[f.Path] = true
+		}
+	}
+	for _, f := range affected {
+		if !parsed[f] {
+			return false
+		}
+	}
+	return true
+}
+
+// affectedSetReplayEnabled reports whether the opt-in affected-set replay
+// dispatch path is turned on. Default OFF: the path is conservative and #608
+// gated, but it is new, so it ships behind KRIT_AFFECTED_SET_REPLAY until it
+// has soaked. Any of 1/true/on/yes (case-insensitive) enables it.
+func affectedSetReplayEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("KRIT_AFFECTED_SET_REPLAY"))) {
+	case "1", "true", "on", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
+// tryAffectedSetDispatch generalizes tryDeltaDispatch from a single changed
+// file to the multi-file warm+ABI regime. The conservative delta planner only
+// fires for exactly one changed file with every fingerprint stable; an ABI
+// edit drifts the CrossFile fingerprint, so delta misses and we would
+// otherwise pay a full DispatchPhase. Instead we compute a #608-safe affected
+// set from the reference-level reverse-dependency index and re-dispatch only
+// those files, merging against the prior findings bundle with ApplyDelta.
+//
+// Correctness rests on two invariants:
+//
+//  1. AffectedSetIncremental returns a true superset of every file whose
+//     findings can change. That requires the prior edges the edit removed,
+//     captured on the current index by the incremental overlay build
+//     (LastRemovedContributions). When the index did not go through that path
+//     (full build) LastRemovedContributions is nil and we must not run — a
+//     removed reference would be invisible and we could drop a declaring
+//     file's flipped finding. The nil gate below enforces this.
+//
+//  2. Every affected file is re-dispatched, so its regenerated findings fully
+//     replace the prior rows ApplyDelta drops. On the warm daemon path
+//     parseResult holds only the dirty (cache-miss) files, so an affected
+//     reverse-dependency declarer/referrer (or an XML referrer) that was not
+//     re-parsed cannot be re-dispatched — yet ApplyDelta would still drop its
+//     prior rows, silently losing findings (#608). The parsed-availability
+//     gate below bails to full dispatch unless every affected file is present
+//     in parseResult. In practice this restricts the path to edits whose
+//     affected set is contained in the changed (dirty) set — still a win over
+//     full dispatch, and unconditionally safe.
+func tryAffectedSetDispatch(
+	ctx context.Context,
+	args ProjectArgs,
+	host ProjectHostState,
+	indexResult IndexResult,
+	parseResult ParseResult,
+	manifest deltaManifestData,
+) (DispatchResult, CrossFileResult, bool, error) {
+	if !affectedSetReplayEnabled() {
+		return DispatchResult{}, CrossFileResult{}, false, nil
+	}
+	if !manifest.enabled || manifest.manifestKey == "" {
+		return DispatchResult{}, CrossFileResult{}, false, nil
+	}
+	current := indexResult.CodeIndex
+	if current == nil {
+		return DispatchResult{}, CrossFileResult{}, false, nil
+	}
+	// #608 gate: only safe when the current index carries the edges the edit
+	// removed. A nil here means a full build (no overlay), where a removed
+	// reference is unrecoverable and the affected set could miss a flip.
+	removed := current.LastRemovedContributions()
+	if removed == nil {
+		return DispatchResult{}, CrossFileResult{}, false, nil
+	}
+	prior, ok := loadBundleManifest(host, manifest.manifestKey)
+	if !ok {
+		return DispatchResult{}, CrossFileResult{}, false, nil
+	}
+	changedPaths := diffContentHashes(prior.ContentHashes, manifest.contentHashes)
+	if len(changedPaths) == 0 {
+		return DispatchResult{}, CrossFileResult{}, false, nil
+	}
+	priorBundle, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, prior.Fingerprint)
+	if !ok || priorBundle == nil {
+		return DispatchResult{}, CrossFileResult{}, false, nil
+	}
+
+	affected := scanner.AffectedSetIncremental(current, changedPaths, removed)
+	if len(affected) == 0 {
+		return DispatchResult{}, CrossFileResult{}, false, nil
+	}
+	// Perf gate: if the affected set spans most of the project, full dispatch
+	// is about as cheap. Use the prior manifest's file set as the denominator
+	// (warm parseResult holds only dirty files).
+	total := len(prior.ContentHashes)
+	if total == 0 || len(affected)*2 > total {
+		return DispatchResult{}, CrossFileResult{}, false, nil
+	}
+
+	affectedSet := make(map[string]bool, len(affected))
+	for _, f := range affected {
+		affectedSet[f] = true
+	}
+
+	// Parsed-availability gate (invariant 2): every affected file must be in
+	// the warm parseResult so it is re-dispatched and its findings regenerated.
+	// If any affected file (a non-dirty dependent, or an XML referrer) was not
+	// re-parsed, bail — ApplyDelta would otherwise drop its prior rows with no
+	// replacement.
+	if !allAffectedFilesParsed(parseResult, affected) {
+		return DispatchResult{}, CrossFileResult{}, false, nil
+	}
+
+	scoped := indexResult
+	scoped.ParseResult = scopeParseResultMulti(parseResult, affectedSet)
+	d, err := DispatchPhase{}.Run(ctx, scoped)
+	if err != nil {
+		return DispatchResult{}, CrossFileResult{}, false, fmt.Errorf("dispatch (affected-set): %w", err)
+	}
+	c, err := CrossFilePhase{Workers: args.Workers}.Run(ctx, d)
+	if err != nil {
+		return DispatchResult{}, CrossFileResult{}, false, fmt.Errorf("crossfile (affected-set): %w", err)
+	}
+
+	replacement := scanner.FilterColumnsByFilePaths(&c.Findings, affectedSet)
+	merged := scanner.ApplyDelta(priorBundle, &replacement, affected)
+
+	d.Findings = merged
+	c.DispatchResult = d
+	c.Findings = merged
+	return d, c, true, nil
 }
 
 // computeRunFingerprint builds a scanner.RunFingerprint from the run's

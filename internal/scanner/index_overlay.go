@@ -127,7 +127,14 @@ func buildIndexFromPriorOverlay(cacheDir string, entries []fingerprintEntry, fil
 	changedJava := selectFilesByPath(javaFiles, addPaths)
 	changedXML := selectFilesByPath(xmlFiles, addPaths)
 	symbols, refs, _ := collectIndexDataSharded(cacheDir, changedKotlin, changedJava, changedXML, workers, tracker)
+	// Capture the changed files' prior declared/referenced names BEFORE
+	// BuildIndexIncremental removes those contributions in place. Dispatch
+	// reads these to compute a #608-safe affected set: an edit that deletes
+	// the last reference to a symbol must still re-analyze that symbol's
+	// declaring file, and that link is only discoverable from the prior edge.
+	removed := priorIdx.SnapshotRemovedContributions(removePaths)
 	idx := BuildIndexIncremental(priorIdx, removePaths, symbols, refs)
+	idx.setLastRemoved(removed)
 
 	meta := overlayMetaForEntries(priorMeta, entries)
 	meta.KotlinFiles = len(files)

@@ -70,11 +70,10 @@ func TestScopeParseResultMulti_EmptyPaths(t *testing.T) {
 }
 
 // TestAllAffectedFilesParsed is the #608 gate: the affected-set replay path
-// must bail unless every affected file is present in the (warm, dirty-only)
-// parse result. An affected reverse-dependency that was not re-parsed cannot
-// be re-dispatched, so ApplyDelta would drop its prior rows with no
-// replacement — losing findings.
-func TestAllAffectedFilesParsed(t *testing.T) {
+// collects the paths of a parse result's Kotlin and Java files, skipping nils.
+// It backs invariant 2 of tryAffectedSetDispatch (deciding which affected
+// files still need to be materialized for re-dispatch).
+func TestParsedPathSet(t *testing.T) {
 	p := ParseResult{
 		KotlinFiles: []*scanner.File{
 			{Path: "a.kt", Language: scanner.LangKotlin},
@@ -83,19 +82,15 @@ func TestAllAffectedFilesParsed(t *testing.T) {
 		JavaFiles: []*scanner.File{{Path: "C.java", Language: scanner.LangJava}},
 	}
 
-	if !allAffectedFilesParsed(p, []string{"a.kt", "C.java"}) {
-		t.Errorf("all affected files present must report true")
+	got := parsedPathSet(p)
+	if !got["a.kt"] || !got["C.java"] {
+		t.Errorf("parsed path set must contain a.kt and C.java; got %v", got)
 	}
-	if !allAffectedFilesParsed(p, nil) {
-		t.Errorf("empty affected set must report true (nothing to dispatch)")
+	if got["b.kt"] {
+		t.Errorf("parsed path set must not contain unparsed b.kt; got %v", got)
 	}
-	// A non-dirty dependent (b.kt) that was not re-parsed must fail the gate.
-	if allAffectedFilesParsed(p, []string{"a.kt", "b.kt"}) {
-		t.Errorf("affected file missing from parse result must report false")
-	}
-	// An XML referrer is never in Kotlin/Java parse files -> must fail.
-	if allAffectedFilesParsed(p, []string{"layout.xml"}) {
-		t.Errorf("XML referrer not in parse result must report false")
+	if len(got) != 2 {
+		t.Errorf("nil entries must be skipped; got %d paths %v", len(got), got)
 	}
 }
 

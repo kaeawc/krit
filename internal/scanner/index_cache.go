@@ -768,6 +768,11 @@ func (p cachePayload) unpackFull() (*CodeIndex, bool) {
 	}
 	idx.refBloom = bf
 
+	// unpackSymsByName populated symbolsByName/symbolsByFQN directly, bypassing
+	// addSymbolToLookups, so the forward declaration multiset is still empty.
+	// Rebuild it from the symbol slice now that idx.Symbols is set.
+	idx.rebuildDeclsByFile()
+
 	return idx, true
 }
 

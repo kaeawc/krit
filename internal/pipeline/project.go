@@ -2797,11 +2797,9 @@ func scopeParseResultMulti(p ParseResult, paths map[string]bool) ParseResult {
 	return scoped
 }
 
-// allAffectedFilesParsed reports whether every path in affected is present in
-// p's Kotlin or Java files. It backs invariant 2 of tryAffectedSetDispatch: an
-// affected file that was not re-parsed cannot be re-dispatched, so its prior
-// findings would be dropped without replacement.
-func allAffectedFilesParsed(p ParseResult, affected []string) bool {
+// parsedPathSet returns the set of file paths present in p's Kotlin or Java
+// files (skipping nils).
+func parsedPathSet(p ParseResult) map[string]bool {
 	parsed := make(map[string]bool, len(p.KotlinFiles)+len(p.JavaFiles))
 	for _, f := range p.KotlinFiles {
 		if f != nil {
@@ -2813,12 +2811,85 @@ func allAffectedFilesParsed(p ParseResult, affected []string) bool {
 			parsed[f.Path] = true
 		}
 	}
+	return parsed
+}
+
+// mergeParsedFiles returns a copy of p with the supplied Kotlin and Java files
+// appended. Callers pass files that were not already in p (the missing
+// affected dependents), so no de-duplication is needed.
+func mergeParsedFiles(p ParseResult, kotlin, java []*scanner.File) ParseResult {
+	merged := p
+	if len(kotlin) > 0 {
+		merged.KotlinFiles = make([]*scanner.File, 0, len(p.KotlinFiles)+len(kotlin))
+		merged.KotlinFiles = append(append(merged.KotlinFiles, p.KotlinFiles...), kotlin...)
+	}
+	if len(java) > 0 {
+		merged.JavaFiles = make([]*scanner.File, 0, len(p.JavaFiles)+len(java))
+		merged.JavaFiles = append(append(merged.JavaFiles, p.JavaFiles...), java...)
+	}
+	return merged
+}
+
+// materializeAffectedFiles ensures every affected file has a parsed
+// *scanner.File available for re-dispatch (invariant 2 of
+// tryAffectedSetDispatch). The warm parse holds only dirty files, so affected
+// reverse-dependency source files that were not edited are parsed on demand
+// and merged into a copy of parseResult.
+//
+// It returns ok=false (caller bails to full dispatch) when an affected file
+// cannot be re-dispatched: a non-source file (e.g. an XML referrer), a parse
+// failure, or a source file that is gone (e.g. deleted) and so never comes
+// back parsed. Full dispatch handles all of those correctly.
+func materializeAffectedFiles(ctx context.Context, args ProjectArgs, host ProjectHostState, parseResult ParseResult, affected []string) (ParseResult, bool) {
+	parsed := parsedPathSet(parseResult)
+	var missingKotlin, missingJava []string
 	for _, f := range affected {
-		if !parsed[f] {
-			return false
+		if parsed[f] {
+			continue
+		}
+		switch {
+		case strings.HasSuffix(f, ".kt") || strings.HasSuffix(f, ".kts"):
+			missingKotlin = append(missingKotlin, f)
+		case strings.HasSuffix(f, ".java"):
+			missingJava = append(missingJava, f)
+		default:
+			return ParseResult{}, false
 		}
 	}
-	return true
+	if len(missingKotlin) == 0 && len(missingJava) == 0 {
+		// Every affected file was already parsed (the classification loop
+		// proved it); nothing to materialize.
+		return parseResult, true
+	}
+	kt, jv, err := parseFilesByPath(ctx, args, host, missingKotlin, missingJava)
+	if err != nil {
+		return ParseResult{}, false
+	}
+	// parseFilesByPath silently drops paths it cannot read (e.g. a deleted
+	// source file). Confirm every requested dependent actually came back, or
+	// bail so full dispatch handles the gap.
+	got := make(map[string]bool, len(kt)+len(jv))
+	for _, f := range kt {
+		if f != nil {
+			got[f.Path] = true
+		}
+	}
+	for _, f := range jv {
+		if f != nil {
+			got[f.Path] = true
+		}
+	}
+	for _, f := range missingKotlin {
+		if !got[f] {
+			return ParseResult{}, false
+		}
+	}
+	for _, f := range missingJava {
+		if !got[f] {
+			return ParseResult{}, false
+		}
+	}
+	return mergeParsedFiles(parseResult, kt, jv), true
 }
 
 // affectedSetReplayEnabled reports whether the opt-in affected-set replay
@@ -2855,13 +2926,13 @@ func affectedSetReplayEnabled() bool {
 //  2. Every affected file is re-dispatched, so its regenerated findings fully
 //     replace the prior rows ApplyDelta drops. On the warm daemon path
 //     parseResult holds only the dirty (cache-miss) files, so an affected
-//     reverse-dependency declarer/referrer (or an XML referrer) that was not
-//     re-parsed cannot be re-dispatched — yet ApplyDelta would still drop its
-//     prior rows, silently losing findings (#608). The parsed-availability
-//     gate below bails to full dispatch unless every affected file is present
-//     in parseResult. In practice this restricts the path to edits whose
-//     affected set is contained in the changed (dirty) set — still a win over
-//     full dispatch, and unconditionally safe.
+//     reverse-dependency declarer/referrer that was not edited has no parsed
+//     file — yet ApplyDelta would still drop its prior rows, silently losing
+//     findings (#608). Those missing Kotlin/Java dependents are parsed on
+//     demand (parseFilesByPath) and merged into the dispatch input. Anything
+//     that still cannot be re-dispatched — a non-source affected file (XML
+//     referrer) or a source file that failed to parse (e.g. it was deleted) —
+//     forces a bail to full dispatch, which handles those cases correctly.
 func tryAffectedSetDispatch(
 	ctx context.Context,
 	args ProjectArgs,
@@ -2917,17 +2988,15 @@ func tryAffectedSetDispatch(
 		affectedSet[f] = true
 	}
 
-	// Parsed-availability gate (invariant 2): every affected file must be in
-	// the warm parseResult so it is re-dispatched and its findings regenerated.
-	// If any affected file (a non-dirty dependent, or an XML referrer) was not
-	// re-parsed, bail — ApplyDelta would otherwise drop its prior rows with no
-	// replacement.
-	if !allAffectedFilesParsed(parseResult, affected) {
+	// Invariant 2: materialize any affected files the warm parse skipped, or
+	// bail to full dispatch if the full affected set cannot be re-dispatched.
+	dispatchParse, ok := materializeAffectedFiles(ctx, args, host, parseResult, affected)
+	if !ok {
 		return DispatchResult{}, CrossFileResult{}, false, nil
 	}
 
 	scoped := indexResult
-	scoped.ParseResult = scopeParseResultMulti(parseResult, affectedSet)
+	scoped.ParseResult = scopeParseResultMulti(dispatchParse, affectedSet)
 	d, err := DispatchPhase{}.Run(ctx, scoped)
 	if err != nil {
 		return DispatchResult{}, CrossFileResult{}, false, fmt.Errorf("dispatch (affected-set): %w", err)

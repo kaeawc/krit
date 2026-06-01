@@ -25,6 +25,7 @@ func TestAndroidDependencyMetadata(t *testing.T) {
 	check("InconsistentArraysResource", rules.AndroidDepValuesArrays)
 	check("ExtraTextResource", rules.AndroidDepValuesExtraText)
 	check("PxUsageResource", rules.AndroidDepValuesDimensions|rules.AndroidDepLayout)
+	check("AaptCrash", rules.AndroidDepValues)
 	check("GradlePluginCompatibility", rules.AndroidDepGradle)
 	for _, name := range allIconRuleNames() {
 		check(name, rules.AndroidDepIcons)

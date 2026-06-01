@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:android="http://schemas.android.com/apk/res/android">
+    <item type="id" name="titlebar" />
+
+    <style name="TitleBar">
+        <item name="android:orientation">horizontal</item>
+        <item name="android:id">@id/titlebar</item>
+        <item name="android:background">@drawable/bg_titlebar</item>
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+    </style>
+</resources>

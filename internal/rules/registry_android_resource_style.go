@@ -8,6 +8,22 @@ func registerAndroidResourceStyleRules() {
 
 	// --- from android_resource_style.go ---
 	{
+		r := &AaptCrashRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "AaptCrash", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "AaptCrash",
+			Brief:      "Style sets android:id to a generated id (can crash resource packaging)",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSFatal,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &PxUsageResourceRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "PxUsageResource", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "PxUsage",

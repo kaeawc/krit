@@ -149,6 +149,101 @@ func TestPxUsageResourceStyleItem(t *testing.T) {
 	})
 }
 
+func TestAaptCrashStyleItem(t *testing.T) {
+	r := findResourceRule(t, "AaptCrash")
+
+	t.Run("generated android:id in style triggers on item line", func(t *testing.T) {
+		idx := styleIndex("res/values/styles.xml", &android.Style{
+			Name: "TitleBar",
+			Line: 3,
+			Items: map[string]string{
+				"android:id": "@+id/titlebar",
+			},
+			ItemLines: map[string]int{
+				"android:id": 5,
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Line != 5 {
+			t.Fatalf("expected finding on item line 5, got %d", findings[0].Line)
+		}
+		if !strings.Contains(findings[0].Message, "TitleBar") {
+			t.Fatalf("finding message missing style name: %q", findings[0].Message)
+		}
+	})
+
+	t.Run("namespace-qualified generated id triggers", func(t *testing.T) {
+		idx := styleIndex("res/values/styles.xml", &android.Style{
+			Name: "TitleBar",
+			Items: map[string]string{
+				"android:id": "@+android:id/titlebar",
+			},
+			ItemLines: map[string]int{
+				"android:id": 6,
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("plain @id reference is clean", func(t *testing.T) {
+		idx := styleIndex("res/values/styles.xml", &android.Style{
+			Name: "TitleBar",
+			Items: map[string]string{
+				"android:id": "@id/titlebar",
+			},
+			ItemLines: map[string]int{
+				"android:id": 5,
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for plain @id reference, got %d (%v)", len(findings), findings)
+		}
+	})
+
+	t.Run("style without android:id is clean", func(t *testing.T) {
+		idx := styleIndex("res/values/styles.xml", &android.Style{
+			Name: "TitleBar",
+			Items: map[string]string{
+				"android:orientation": "horizontal",
+				"android:background":  "@drawable/bg_titlebar",
+			},
+			ItemLines: map[string]int{
+				"android:orientation": 4,
+				"android:background":  5,
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d (%v)", len(findings), findings)
+		}
+	})
+
+	t.Run("non-id generated reference is clean", func(t *testing.T) {
+		// A generated id assigned to a non-id attribute is not the aapt
+		// crash trigger; only android:id matters.
+		idx := styleIndex("res/values/styles.xml", &android.Style{
+			Name: "TitleBar",
+			Items: map[string]string{
+				"android:layout_below": "@+id/header",
+			},
+			ItemLines: map[string]int{
+				"android:layout_below": 5,
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for non-id attribute, got %d (%v)", len(findings), findings)
+		}
+	})
+}
+
 func TestInOrMmUsageResourceStyleItem(t *testing.T) {
 	r := findResourceRule(t, "InOrMmUsageResource")
 

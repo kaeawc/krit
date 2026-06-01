@@ -9,7 +9,14 @@
 # the corresponding line.
 #
 # Adding a NEW rule? Ship its fixtures with it; do not add it here.
+#
+# Exception: resource-XML rules (NeedsResources) are exercised by
+# programmatic tests over android.ResourceIndex, and their .xml fixtures
+# under tests/fixtures/{positive,negative}/android-lint/ are not indexed by
+# the coverage walker (it only counts .kt/.java/.kts). They are listed here
+# alongside the other resource rules.
 
+negative AaptCrash
 negative AccidentalOctal
 negative AdapterViewChildrenResource
 negative AllProjectsBlock
@@ -238,6 +245,7 @@ negative WrongCaseResource
 negative WrongFolderResource
 negative WrongManifestParentManifest
 negative WrongRegionResource
+positive AaptCrash
 positive AccidentalOctal
 positive AdapterViewChildrenResource
 positive AllProjectsBlock

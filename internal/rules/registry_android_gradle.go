@@ -88,6 +88,22 @@ func registerAndroidGradleRules() {
 		})
 	}
 	{
+		r := &ExpiredTargetSdkVersionRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ExpiredTargetSdkVersion", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "ExpiredTargetSdkVersion",
+			Brief:      "targetSdkVersion below enforced compliance floor",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSFatal,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}, Floor: defaultExpiredTargetSdkFloor}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &DeprecatedDependencyRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "DeprecatedDependency", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "DeprecatedDependency",

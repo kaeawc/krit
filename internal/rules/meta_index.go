@@ -210,6 +210,7 @@ func AllMetaProviders() []api.MetaProvider {
 		(*ExportedServiceManifestRule)(nil),
 		(*ExportedServiceRule)(nil),
 		(*ExportedWithoutPermissionRule)(nil),
+		(*ExpiredTargetSdkVersionRule)(nil),
 		(*ExpressionBodySyntaxRule)(nil),
 		(*ExtraTextResourceRule)(nil),
 		(*FanInFanOutHotspotRule)(nil),

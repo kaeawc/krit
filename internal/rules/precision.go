@@ -21,9 +21,10 @@ const (
 // content. These rules report opinions independent of code shape, so
 // the precision derivation tags them as PrecisionPolicy.
 var policyRuleNames = map[string]bool{
-	"OldTargetApi":          true,
-	"MinSdkTooLow":          true,
-	"NewerVersionAvailable": true,
+	"OldTargetApi":            true,
+	"ExpiredTargetSdkVersion": true,
+	"MinSdkTooLow":            true,
+	"NewerVersionAvailable":   true,
 }
 
 // heuristicRuleNames lists rules whose dominant signal is lexical /

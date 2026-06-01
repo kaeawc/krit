@@ -615,6 +615,49 @@ func (r *GradleOldTargetAPIRule) check(ctx *api.Context) {
 }
 
 // ---------------------------------------------------------------------------
+// Rule: ExpiredTargetSdkVersion
+// ---------------------------------------------------------------------------
+
+// ExpiredTargetSdkVersionRule flags targetSdkVersion below the Play Store's
+// enforced floor. Unlike OldTargetApi (which is a soft "you should update"
+// warning against the current API level), this is a Fatal compliance rule
+// that fires when the configured value is below a value the Play Store no
+// longer accepts for new apps or updates. The floor is configurable via
+// `floor` so projects on tighter or looser policies can override the default.
+type ExpiredTargetSdkVersionRule struct {
+	GradleBase
+	AndroidRule
+	Floor int // minimum acceptable targetSdkVersion under enforced policy
+}
+
+const defaultExpiredTargetSdkFloor = 34
+
+// Confidence reports a tier-2 (medium) base confidence. Android Gradle rule:
+// the targetSdkVersion is read from the parsed Gradle DSL, which varies in
+// shape across plugin versions and Kotlin/Groovy syntax. Classified per
+// roadmap/17.
+func (r *ExpiredTargetSdkVersionRule) Confidence() float64 { return api.ConfidenceMedium }
+
+func (r *ExpiredTargetSdkVersionRule) check(ctx *api.Context) {
+	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
+	floor := r.Floor
+	if floor == 0 {
+		floor = defaultExpiredTargetSdkFloor
+	}
+	if cfg.TargetSdkVersion == 0 || cfg.TargetSdkVersion >= floor {
+		return
+	}
+	line := findGradleLineStr(content, "targetSdk")
+	if line == 0 {
+		line = 1
+	}
+	ctx.Emit(baseFinding(path, line, r.BaseRule,
+		fmt.Sprintf("targetSdkVersion %d is below the enforced minimum of %d. "+
+			"Update to a supported value before publishing.",
+			cfg.TargetSdkVersion, floor)))
+}
+
+// ---------------------------------------------------------------------------
 // Rule: DeprecatedDependency
 // ---------------------------------------------------------------------------
 

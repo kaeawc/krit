@@ -9,6 +9,33 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
+// TestTryAffectedSetDispatch_BailReasons pins the observable bail labels the
+// early gates report, so the dispatchAffectedSetPath perf "reason" stays
+// meaningful.
+func TestTryAffectedSetDispatch_BailReasons(t *testing.T) {
+	ctx := context.Background()
+	args := ProjectArgs{Config: config.NewConfig()}
+	host := ProjectHostState{}
+
+	t.Setenv("KRIT_AFFECTED_SET_REPLAY", "")
+	if _, _, reason, err := tryAffectedSetDispatch(ctx, args, host, IndexResult{}, ParseResult{}, deltaManifestData{}); err != nil || reason != replayBailDisabled {
+		t.Fatalf("flag off -> reason %q err %v, want %q", reason, err, replayBailDisabled)
+	}
+
+	t.Setenv("KRIT_AFFECTED_SET_REPLAY", "on")
+	if _, _, reason, _ := tryAffectedSetDispatch(ctx, args, host, IndexResult{}, ParseResult{}, deltaManifestData{}); reason != replayBailNoManifest {
+		t.Errorf("manifest disabled -> %q, want %q", reason, replayBailNoManifest)
+	}
+	m := deltaManifestData{enabled: true, manifestKey: "k"}
+	if _, _, reason, _ := tryAffectedSetDispatch(ctx, args, host, IndexResult{}, ParseResult{}, m); reason != replayBailNoIndex {
+		t.Errorf("nil index -> %q, want %q", reason, replayBailNoIndex)
+	}
+	idx := IndexResult{CodeIndex: scanner.BuildIndexFromData(nil, nil)}
+	if _, _, reason, _ := tryAffectedSetDispatch(ctx, args, host, idx, ParseResult{}, m); reason != replayBailFullBuild {
+		t.Errorf("full build (no removed edges) -> %q, want %q", reason, replayBailFullBuild)
+	}
+}
+
 // TestMergeParsedFiles appends without mutating the original and de-dups
 // nothing (callers guarantee disjoint inputs).
 func TestMergeParsedFiles(t *testing.T) {
@@ -38,9 +65,9 @@ func TestMergeParsedFiles(t *testing.T) {
 func TestMaterializeAffectedFiles_AlreadyParsed(t *testing.T) {
 	p := ParseResult{KotlinFiles: []*scanner.File{{Path: "a.kt", Language: scanner.LangKotlin}}}
 	args := ProjectArgs{Config: config.NewConfig()}
-	got, ok := materializeAffectedFiles(context.Background(), args, ProjectHostState{}, p, []string{"a.kt"})
-	if !ok {
-		t.Fatalf("all-present affected set must succeed")
+	got, bail := materializeAffectedFiles(context.Background(), args, ProjectHostState{}, p, []string{"a.kt"})
+	if bail != "" {
+		t.Fatalf("all-present affected set must succeed; got bail %q", bail)
 	}
 	if len(got.KotlinFiles) != 1 {
 		t.Errorf("expected the input passed through; got %v", pathsOf(got.KotlinFiles))
@@ -60,9 +87,9 @@ func TestMaterializeAffectedFiles_ParsesMissingDependent(t *testing.T) {
 	p := ParseResult{KotlinFiles: []*scanner.File{{Path: dirty, Language: scanner.LangKotlin}}}
 	args := ProjectArgs{Config: config.NewConfig(), Paths: []string{dir}}
 
-	got, ok := materializeAffectedFiles(context.Background(), args, ProjectHostState{}, p, []string{dirty, dep})
-	if !ok {
-		t.Fatalf("missing source dependent must be materialized, not bailed")
+	got, bail := materializeAffectedFiles(context.Background(), args, ProjectHostState{}, p, []string{dirty, dep})
+	if bail != "" {
+		t.Fatalf("missing source dependent must be materialized, not bailed; got %q", bail)
 	}
 	parsed := parsedPathSet(got)
 	if !parsed[dirty] || !parsed[dep] {
@@ -75,8 +102,8 @@ func TestMaterializeAffectedFiles_ParsesMissingDependent(t *testing.T) {
 func TestMaterializeAffectedFiles_BailsOnXML(t *testing.T) {
 	p := ParseResult{KotlinFiles: []*scanner.File{{Path: "a.kt", Language: scanner.LangKotlin}}}
 	args := ProjectArgs{Config: config.NewConfig(), Paths: []string{t.TempDir()}}
-	if _, ok := materializeAffectedFiles(context.Background(), args, ProjectHostState{}, p, []string{"a.kt", "res/layout/main.xml"}); ok {
-		t.Errorf("an XML affected file must force a bail")
+	if _, bail := materializeAffectedFiles(context.Background(), args, ProjectHostState{}, p, []string{"a.kt", "res/layout/main.xml"}); bail != replayBailNonSource {
+		t.Errorf("an XML affected file must bail with %q; got %q", replayBailNonSource, bail)
 	}
 }
 
@@ -87,7 +114,7 @@ func TestMaterializeAffectedFiles_BailsOnDeletedSource(t *testing.T) {
 	p := ParseResult{KotlinFiles: []*scanner.File{{Path: filepath.Join(dir, "a.kt"), Language: scanner.LangKotlin}}}
 	args := ProjectArgs{Config: config.NewConfig(), Paths: []string{dir}}
 	gone := filepath.Join(dir, "Gone.kt") // never created on disk
-	if _, ok := materializeAffectedFiles(context.Background(), args, ProjectHostState{}, p, []string{filepath.Join(dir, "a.kt"), gone}); ok {
-		t.Errorf("a deleted/unparseable affected source file must force a bail")
+	if _, bail := materializeAffectedFiles(context.Background(), args, ProjectHostState{}, p, []string{filepath.Join(dir, "a.kt"), gone}); bail != replayBailParseIncomplete {
+		t.Errorf("a deleted/unparseable affected source file must bail with %q; got %q", replayBailParseIncomplete, bail)
 	}
 }

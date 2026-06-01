@@ -2840,10 +2840,11 @@ func mergeParsedFiles(p ParseResult, kotlin, java []*scanner.File) ParseResult {
 // and merged into a copy of parseResult.
 //
 // It returns a non-empty bail reason (caller falls back to full dispatch) when
-// an affected file cannot be re-dispatched: a non-source file (e.g. an XML
-// referrer), a parse failure, or a source file that is gone (e.g. deleted) and
-// so never comes back parsed. Full dispatch handles all of those correctly. An
-// empty reason means success.
+// an affected file cannot be re-dispatched: a non-source, non-XML file, a
+// parse failure, or a source file that is gone (e.g. deleted) and so never
+// comes back parsed. Full dispatch handles all of those correctly. Affected
+// XML referrers are allowed through unparsed — the Android phase regenerates
+// their findings. An empty reason means success.
 func materializeAffectedFiles(ctx context.Context, args ProjectArgs, host ProjectHostState, parseResult ParseResult, affected []string) (ParseResult, string) {
 	parsed := parsedPathSet(parseResult)
 	var missingKotlin, missingJava []string
@@ -2856,6 +2857,15 @@ func materializeAffectedFiles(ctx context.Context, args ProjectArgs, host Projec
 			missingKotlin = append(missingKotlin, f)
 		case strings.HasSuffix(f, ".java"):
 			missingJava = append(missingJava, f)
+		case strings.HasSuffix(f, ".xml"):
+			// XML findings are produced solely by the Android phase, which
+			// re-runs and replaces its own rows on every bundleHit=false run
+			// (replace-not-append). So an affected XML referrer needs no parse
+			// or dispatch here: leave it in the affected set — ApplyDelta drops
+			// its prior rows and the Android phase re-adds the fresh ones. No
+			// dispatch/cross-file rule ever attributes a finding to an .xml
+			// path, so nothing is lost.
+			continue
 		default:
 			return ParseResult{}, replayBailNonSource
 		}
@@ -2910,7 +2920,7 @@ const (
 	replayBailNoBundle        = "no_bundle"        // prior findings bundle missing
 	replayBailEmptyAffected   = "empty_affected"   // affected set empty
 	replayBailTooLarge        = "too_large"        // affected set fails the ratio gate
-	replayBailNonSource       = "non_source"       // affected file is not Kotlin/Java (e.g. XML)
+	replayBailNonSource       = "non_source"       // affected file is not Kotlin/Java/XML
 	replayBailParseFailed     = "parse_failed"     // parseFilesByPath errored
 	replayBailParseIncomplete = "parse_incomplete" // a dependent never came back parsed
 )

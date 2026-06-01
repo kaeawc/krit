@@ -128,7 +128,13 @@ func (r *DependenciesInRootProjectRule) check(ctx *api.Context) {
 		return
 	}
 	allowed := rootDependencyAllowedConfigurations(r.AllowedConfigurations)
-	for _, block := range findRootProjectDependencyBlocks(content, allowed) {
+	var rootBlocks []rootProjectDependencyBlock
+	if astFile := ctx.GradleAST(); astFile != nil {
+		rootBlocks = findRootProjectDependencyBlocksAST(astFile, allowed)
+	} else {
+		rootBlocks = findRootProjectDependencyBlocks(content, allowed)
+	}
+	for _, block := range rootBlocks {
 		finding := scanner.Finding{
 			File:       path,
 			Line:       block.line,
@@ -366,6 +372,73 @@ func findRootProjectDependencyBlocks(content string, allowed map[string]bool) []
 		}
 	}
 	return blocks
+}
+
+// findRootProjectDependencyBlocksAST is the tree-sitter equivalent of
+// findRootProjectDependencyBlocks for Kotlin DSL (.kts) scripts. It flags a
+// top-level `dependencies { }` call — one with no enclosing block — so the
+// configuration set is collected by parser structure. A `dependencies { }`
+// nested inside buildscript { }, subprojects { }, allprojects { }, etc. has a
+// lambda_literal ancestor and is correctly ignored, and string/comment
+// lookalikes never parse as calls.
+func findRootProjectDependencyBlocksAST(file *scanner.File, allowed map[string]bool) []rootProjectDependencyBlock {
+	var blocks []rootProjectDependencyBlock
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if flatCallNameAny(file, idx) != "dependencies" || !isTopLevelCallAST(file, idx) {
+			return
+		}
+		lambda := flatCallTrailingLambda(file, idx)
+		if lambda == 0 {
+			return
+		}
+		if configs := collectRootDependencyConfigsAST(file, lambda, allowed); len(configs) > 0 {
+			blocks = append(blocks, rootProjectDependencyBlock{
+				line:           file.FlatRow(idx) + 1,
+				configurations: configs,
+			})
+		}
+	})
+	return blocks
+}
+
+// isTopLevelCallAST reports whether a call sits at file scope — reached from
+// source_file without crossing a lambda_literal (i.e. not inside any { } block).
+func isTopLevelCallAST(file *scanner.File, idx uint32) bool {
+	for node := idx; node != 0; {
+		parent, ok := file.FlatParent(node)
+		if !ok {
+			return true
+		}
+		switch file.FlatType(parent) {
+		case "lambda_literal":
+			return false
+		case "source_file":
+			return true
+		}
+		node = parent
+	}
+	return true
+}
+
+// collectRootDependencyConfigsAST returns the sorted set of configuration names
+// invoked as statements inside a dependencies lambda, excluding `dependencies`
+// itself and any allowed root-tooling configurations. Only statement-level
+// calls count, so a nested argument call such as platform(...) or project(...)
+// in implementation(platform(...)) is not mistaken for a configuration.
+func collectRootDependencyConfigsAST(file *scanner.File, lambda uint32, allowed map[string]bool) []string {
+	found := make(map[string]bool)
+	file.FlatWalkNodes(lambda, "call_expression", func(call uint32) {
+		parent, ok := file.FlatParent(call)
+		if !ok || file.FlatType(parent) != "statements" {
+			return
+		}
+		name := flatCallNameAny(file, call)
+		if name == "" || name == "dependencies" || allowed[name] {
+			return
+		}
+		found[name] = true
+	})
+	return sortedGradleConfigurations(found)
 }
 
 func gradleLineStartsBlockCall(line, name string) bool {

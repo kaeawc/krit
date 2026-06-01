@@ -148,9 +148,18 @@ func runHeadlessInit(opts onboarding.ScanOptions, reg *onboarding.Registry, prof
 	fmt.Printf("wrote %s (profile=%s, findings=%d, overrides=%d)\n",
 		configPath, profile, res.Total, len(overrides))
 
+	// Both krit invocations below run with daemon auto-start disabled
+	// (see onboarding.NoDaemonAutostartEnv): a daemon-routed verb such
+	// as --create-baseline would otherwise fork a detached daemon that
+	// outlives the command and keeps background writers alive in the
+	// target's .krit/ directory after init returns.
+	noDaemonEnv := onboarding.NoDaemonAutostartEnv()
+
 	// Autofix pass: run krit --fix for its side effect, no output.
 	// Non-zero exit from krit when unfixable findings remain is expected.
-	_ = exec.CommandContext(ctx, opts.KritBin, "--config", configPath, "--fix", opts.Target).Run()
+	fixCmd := exec.CommandContext(ctx, opts.KritBin, "--config", configPath, "--fix", opts.Target)
+	fixCmd.Env = noDaemonEnv
+	_ = fixCmd.Run()
 
 	// Baseline: suppress the remaining findings.
 	baselineDir := filepath.Join(opts.Target, ".krit")
@@ -159,8 +168,10 @@ func runHeadlessInit(opts onboarding.ScanOptions, reg *onboarding.Registry, prof
 		return 1
 	}
 	baselinePath := filepath.Join(baselineDir, "baseline.xml")
-	_ = exec.CommandContext(ctx, opts.KritBin,
-		"--config", configPath, "--create-baseline", baselinePath, opts.Target).Run()
+	baselineCmd := exec.CommandContext(ctx, opts.KritBin,
+		"--config", configPath, "--create-baseline", baselinePath, opts.Target)
+	baselineCmd.Env = noDaemonEnv
+	_ = baselineCmd.Run()
 	if _, err := os.Stat(baselinePath); err != nil {
 		fmt.Fprintf(os.Stderr, "error: baseline not written: %v\n", err)
 		return 1

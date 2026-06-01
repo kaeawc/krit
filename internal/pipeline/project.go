@@ -1671,11 +1671,15 @@ func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, host Project
 	if err != nil {
 		return fmt.Errorf("android: %w", err)
 	}
-	if res.Findings.Len() == 0 {
-		return nil
-	}
-	merged := scanner.NewFindingCollector(crossFileResult.Findings.Len() + res.Findings.Len())
-	merged.AppendColumns(&crossFileResult.Findings)
+	// Replace, don't append: on the delta / affected-set replay paths the prior
+	// findings bundle is carried forward (ApplyDelta) and already holds the last
+	// run's Android findings. Drop this phase's own rules' prior rows before
+	// adding the freshly regenerated set so the two copies don't double-count.
+	// A no-op on the cold path (no Android rows present yet) and when res is
+	// empty but a stale prior copy must still be cleared.
+	base := dropFindingsByRule(crossFileResult.Findings, androidPhaseRuleIDs(args.ActiveRules))
+	merged := scanner.NewFindingCollector(base.Len() + res.Findings.Len())
+	merged.AppendColumns(&base)
 	merged.AppendColumns(&res.Findings)
 	crossFileResult.Findings = *merged.Columns()
 	return nil
@@ -2911,17 +2915,51 @@ const (
 	replayBailParseIncomplete = "parse_incomplete" // a dependent never came back parsed
 )
 
-// affectedSetReplayEnabled reports whether the opt-in affected-set replay
-// dispatch path is turned on. Default OFF: the path is conservative and #608
-// gated, but it is new, so it ships behind KRIT_AFFECTED_SET_REPLAY until it
-// has soaked. Any of 1/true/on/yes (case-insensitive) enables it.
+// affectedSetReplayEnabled reports whether the affected-set replay dispatch
+// path is turned on. Default ON: the path is #608-gated and has soaked behind
+// the flag, so it now runs by default and KRIT_AFFECTED_SET_REPLAY is an
+// opt-out kill switch. Any of 0/false/off/no (case-insensitive) disables it.
 func affectedSetReplayEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("KRIT_AFFECTED_SET_REPLAY"))) {
-	case "1", "true", "on", "yes":
-		return true
-	default:
+	case "0", "false", "off", "no":
 		return false
+	default:
+		return true
 	}
+}
+
+// androidPhaseRuleIDs returns the IDs of rules whose findings are produced by
+// the Android phase (manifest / resources / icons / gradle), identified by an
+// Android capability or any AndroidDeps bit.
+func androidPhaseRuleIDs(activeRules []*api.Rule) map[string]bool {
+	ids := make(map[string]bool)
+	for _, r := range activeRules {
+		if r == nil {
+			continue
+		}
+		if r.Needs.Has(api.NeedsManifest) || r.Needs.Has(api.NeedsResources) ||
+			r.Needs.Has(api.NeedsGradle) || rules.AndroidDataDependency(r.AndroidDeps) != 0 {
+			ids[r.ID] = true
+		}
+	}
+	return ids
+}
+
+// dropFindingsByRule returns fc with every row whose rule is in ruleIDs
+// removed. It backs the replace-not-append behavior of the post-dispatch merge
+// phases (Android, Kotlin plugin): on the delta and affected-set replay paths a
+// prior findings bundle is carried forward via ApplyDelta, so it already
+// contains the previous run's copies of those rules' findings. Each merge phase
+// drops its own rules' prior rows before appending the freshly regenerated set,
+// so the carry-forward plus the re-run don't double-count. A no-op on the cold
+// full-dispatch path, where those rules' findings aren't present yet.
+func dropFindingsByRule(fc scanner.FindingColumns, ruleIDs map[string]bool) scanner.FindingColumns {
+	if len(ruleIDs) == 0 {
+		return fc
+	}
+	return fc.FilterRows(func(row int) bool {
+		return !ruleIDs[fc.RuleAt(row)]
+	})
 }
 
 // tryAffectedSetDispatch generalizes tryDeltaDispatch from a single changed

@@ -73,8 +73,18 @@ func runKotlinPluginRulesAndMerge(ctx context.Context, args ProjectArgs, host Pr
 		crossFilePayload = buildCrossFilePayload(indexResult.CodeIndex)
 	}
 
-	collector := scanner.NewFindingCollector(crossFileResult.Findings.Len())
-	collector.AppendColumns(&crossFileResult.Findings)
+	// Replace, don't append: on the delta / affected-set replay paths the prior
+	// findings bundle is carried forward (ApplyDelta) and already holds the last
+	// run's plugin findings. Drop these rules' prior rows before adding the
+	// freshly regenerated set so the two copies don't double-count. A no-op on
+	// the cold path, where no plugin findings are present yet.
+	pluginRuleSet := make(map[string]bool, len(ruleIDs))
+	for _, id := range ruleIDs {
+		pluginRuleSet[id] = true
+	}
+	base := dropFindingsByRule(crossFileResult.Findings, pluginRuleSet)
+	collector := scanner.NewFindingCollector(base.Len())
+	collector.AppendColumns(&base)
 	for _, file := range indexResult.KotlinFiles {
 		if file == nil {
 			continue

@@ -1396,6 +1396,9 @@ func androidValuesScanKinds(deps rules.AndroidDataDependency) android.ValuesScan
 	if deps&rules.AndroidDepValuesExtraText != 0 {
 		kinds |= android.ValuesScanExtraText
 	}
+	if deps&rules.AndroidDepValuesAliasItems != 0 {
+		kinds |= android.ValuesScanAliasItems
+	}
 	return kinds
 }
 

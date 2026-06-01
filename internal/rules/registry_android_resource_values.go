@@ -8,6 +8,22 @@ func registerAndroidResourceValuesRules() {
 
 	// --- from android_resource_values.go ---
 	{
+		r := &ReferenceTypeRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ReferenceType", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "ReferenceType",
+			Brief:      "Resource alias references a different resource type",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSFatal,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &WebViewInScrollViewResourceRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "WebViewInScrollViewResource", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "WebViewLayout",

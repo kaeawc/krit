@@ -501,6 +501,7 @@ func AllMetaProviders() []api.MetaProvider {
 		(*RedundantHigherOrderMapUsageRule)(nil),
 		(*RedundantSuspendModifierRule)(nil),
 		(*RedundantVisibilityModifierRule)(nil),
+		(*ReferenceTypeRule)(nil),
 		(*RegisteredRule)(nil),
 		(*RelativeOverlapResourceRule)(nil),
 		(*RelaxedMockUsedForValueClassRule)(nil),

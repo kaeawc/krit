@@ -1451,5 +1451,66 @@ func forEachValuesQualifierDir(ctx *api.Context, visit func(resRoot, dirName str
 }
 
 // ---------------------------------------------------------------------------
+// ReferenceType
+// ---------------------------------------------------------------------------
+
+// ReferenceTypeRule detects a resource alias whose value references a resource
+// of a different type than the alias declares. A `<item name="x" type="T">`
+// whose value is `@R/name` must have R == T (ignoring an optional `android:`
+// framework namespace); otherwise the alias is invalid.
+type ReferenceTypeRule struct {
+	ValuesResourceBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence: the alias type and
+// reference are read from the parsed resource index, but values resources can
+// carry project-specific shapes. Classified per roadmap/17.
+func (r *ReferenceTypeRule) Confidence() float64 { return api.ConfidenceMedium }
+
+// aliasReferenceType returns the resource type named by a reference value such
+// as "@string/foo" or "@android:drawable/bar" and reports whether the value is
+// a resource reference at all. The leading `@`, an optional `+` (id-creating
+// form), and an optional `android:` (or other) namespace are all handled.
+func aliasReferenceType(value string) (refType string, isReference bool) {
+	v := strings.TrimSpace(value)
+	if !strings.HasPrefix(v, "@") {
+		return "", false
+	}
+	v = strings.TrimPrefix(v[1:], "+")
+	slash := strings.IndexByte(v, '/')
+	if slash <= 0 {
+		return "", false
+	}
+	typePart := v[:slash]
+	// Strip an optional namespace prefix, e.g. "android:drawable" -> "drawable".
+	if colon := strings.IndexByte(typePart, ':'); colon >= 0 {
+		typePart = typePart[colon+1:]
+	}
+	if typePart == "" {
+		return "", false
+	}
+	return typePart, true
+}
+
+func (r *ReferenceTypeRule) check(ctx *api.Context) {
+	idx := ctx.ResourceIndex
+	for _, item := range idx.AliasItems {
+		refType, ok := aliasReferenceType(item.Value)
+		if !ok {
+			// Plain text value (not an alias to another resource): nothing to check.
+			continue
+		}
+		if refType == item.Type {
+			continue
+		}
+		ctx.Emit(baseFinding(item.FilePath, item.Line, r.BaseRule,
+			fmt.Sprintf("Resource alias `%s` is declared as type `%s` but references `%s` of type `%s`. "+
+				"An alias must reference a resource of the same type.",
+				item.Name, item.Type, strings.TrimSpace(item.Value), refType)))
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------

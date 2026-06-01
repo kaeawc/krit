@@ -268,6 +268,32 @@ func NewParsedFile(path string, content []byte, tree *sitter.Tree) *File {
 	}
 }
 
+// ParseGradleScript builds a File for a Gradle build script. For Kotlin DSL
+// scripts (.kts) the content is parsed with the Kotlin tree-sitter grammar so
+// Gradle rules can walk the flat AST; Groovy (.gradle) scripts return a File
+// with no FlatTree and rules fall back to line/regex scanning. The returned
+// File always carries Language == LangGradle and the given metadata (typically
+// the parsed *android.BuildConfig, kept as `any` to avoid an import cycle).
+// The ctx is forwarded to the tree-sitter parser so callers can cancel a
+// long-running parse.
+func ParseGradleScript(ctx context.Context, path string, content []byte, metadata any) *File {
+	file := &File{
+		Path:     internString(path),
+		Language: LangGradle,
+		Content:  content,
+		Lines:    strings.Split(string(content), "\n"),
+		Metadata: metadata,
+	}
+	if strings.HasSuffix(path, ".kts") {
+		parser := GetKotlinParser()
+		defer PutKotlinParser(parser)
+		if tree, err := parser.ParseCtx(ctx, nil, content); err == nil && tree != nil {
+			file.FlatTree = flattenTree(tree.RootNode())
+		}
+	}
+	return file
+}
+
 // CollectKotlinFiles finds all .kt and .kts files under the given paths.
 func CollectKotlinFiles(paths []string, excludes []string) ([]string, error) {
 	return collectSourceFiles(paths, excludes, isKotlinFile)

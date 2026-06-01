@@ -154,6 +154,17 @@ func stringLiteralContent(file *scanner.File, idx uint32) string {
 	return b.String()
 }
 
+// flatStringLiteralExprContent returns the literal content of a string_literal
+// expression node, or "" when expr is zero, not a string_literal, or contains
+// interpolation. Convenient for pulling a fixed string out of a call argument
+// without the caller repeating the type/interpolation guards.
+func flatStringLiteralExprContent(file *scanner.File, expr uint32) string {
+	if expr == 0 || file.FlatType(expr) != "string_literal" || flatContainsStringInterpolation(file, expr) {
+		return ""
+	}
+	return stringLiteralContent(file, expr)
+}
+
 // stringLiteralIsRaw returns true when the string_literal node is a
 // triple-quoted raw string (`"""..."""`). Raw strings don't process
 // backslash escapes, so rules that analyze escape sequences should

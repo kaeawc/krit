@@ -933,12 +933,7 @@ func (AndroidPhase) runGradleOne(in AndroidInput, path string) (scanner.FindingC
 		return scanner.FindingColumns{}, readParseDur, 0
 	}
 	ruleStart := time.Now()
-	file := &scanner.File{
-		Path:     path,
-		Language: scanner.LangGradle,
-		Content:  content,
-		Metadata: cfg,
-	}
+	file := scanner.ParseGradleScript(context.Background(), path, content, cfg)
 	cols := in.Dispatcher.RunGradle(file, cfg)
 	return cols, readParseDur, time.Since(ruleStart)
 }

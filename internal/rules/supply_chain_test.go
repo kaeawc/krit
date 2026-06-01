@@ -721,6 +721,55 @@ dependencies {
 			t.Fatalf("expected 0 findings for module build file, got %d", len(findings))
 		}
 	})
+
+	// Regression: the line scanner cannot track multi-line raw-string state, so
+	// a dependencies { } block written inside a """...""" literal looked like a
+	// real top-level block and produced a false positive. The .kts AST path
+	// sees the multi_line_string and emits nothing.
+	t.Run("dependencies inside multi-line raw string is clean", func(t *testing.T) {
+		root := t.TempDir()
+		writeFile(t, filepath.Join(root, "settings.gradle.kts"), ``)
+		buildPath := filepath.Join(root, "build.gradle.kts")
+		content := `val template = """
+dependencies {
+    implementation("com.example:lib:1.0")
+}
+"""
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, buildPath, content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	// A nested-argument call such as implementation(platform(...)) must report
+	// only the configuration (implementation), never the inner platform call —
+	// the AST path keys on statement-level calls, not substring leading ids.
+	t.Run("nested argument calls are not treated as configurations", func(t *testing.T) {
+		root := t.TempDir()
+		writeFile(t, filepath.Join(root, "settings.gradle.kts"), ``)
+		buildPath := filepath.Join(root, "build.gradle.kts")
+		content := `dependencies {
+    implementation(platform("com.example:bom:1.0"))
+    implementation(project(":core"))
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, buildPath, content, cfg)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		// The "declares <configs>." clause must list only the configuration,
+		// not the nested platform()/project() argument calls. ("project"
+		// appears elsewhere in the boilerplate, so assert on the clause.)
+		if !strings.Contains(findings[0].Message, "declares implementation.") {
+			t.Fatalf("declares clause should be exactly implementation, got %q", findings[0].Message)
+		}
+		if strings.Contains(findings[0].Message, "platform") {
+			t.Fatalf("message should not name nested argument call platform, got %q", findings[0].Message)
+		}
+	})
 }
 
 func TestDependencyWithoutGroup(t *testing.T) {

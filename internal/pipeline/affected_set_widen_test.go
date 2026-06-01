@@ -17,9 +17,9 @@ func TestTryAffectedSetDispatch_BailReasons(t *testing.T) {
 	args := ProjectArgs{Config: config.NewConfig()}
 	host := ProjectHostState{}
 
-	t.Setenv("KRIT_AFFECTED_SET_REPLAY", "")
+	t.Setenv("KRIT_AFFECTED_SET_REPLAY", "off")
 	if _, _, reason, err := tryAffectedSetDispatch(ctx, args, host, IndexResult{}, ParseResult{}, deltaManifestData{}); err != nil || reason != replayBailDisabled {
-		t.Fatalf("flag off -> reason %q err %v, want %q", reason, err, replayBailDisabled)
+		t.Fatalf("kill switch -> reason %q err %v, want %q", reason, err, replayBailDisabled)
 	}
 
 	t.Setenv("KRIT_AFFECTED_SET_REPLAY", "on")

@@ -7,26 +7,26 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// TestAffectedSetReplayEnabled_DefaultOff pins the opt-in contract: the
-// affected-set replay path is OFF unless KRIT_AFFECTED_SET_REPLAY is set to a
-// recognized truthy value.
-func TestAffectedSetReplayEnabled_DefaultOff(t *testing.T) {
+// TestAffectedSetReplayEnabled_DefaultOn pins the opt-out contract: the
+// affected-set replay path is ON by default; KRIT_AFFECTED_SET_REPLAY is a
+// kill switch that only disables on a recognized falsy value.
+func TestAffectedSetReplayEnabled_DefaultOn(t *testing.T) {
 	t.Setenv("KRIT_AFFECTED_SET_REPLAY", "")
-	if affectedSetReplayEnabled() {
-		t.Errorf("replay must be OFF when the env var is empty")
+	if !affectedSetReplayEnabled() {
+		t.Errorf("replay must be ON when the env var is empty (default on)")
 	}
 
-	for _, v := range []string{"0", "off", "false", "no", "nope", " "} {
+	for _, v := range []string{"0", "off", "false", "no", "OFF", "False", " off "} {
 		t.Setenv("KRIT_AFFECTED_SET_REPLAY", v)
 		if affectedSetReplayEnabled() {
-			t.Errorf("replay must be OFF for %q", v)
+			t.Errorf("replay must be OFF for kill-switch value %q", v)
 		}
 	}
 
-	for _, v := range []string{"1", "true", "on", "yes", "TRUE", "On", " yes "} {
+	for _, v := range []string{"1", "true", "on", "yes", "maybe", " "} {
 		t.Setenv("KRIT_AFFECTED_SET_REPLAY", v)
 		if !affectedSetReplayEnabled() {
-			t.Errorf("replay must be ON for %q", v)
+			t.Errorf("replay must be ON for %q (only explicit falsy disables)", v)
 		}
 	}
 }

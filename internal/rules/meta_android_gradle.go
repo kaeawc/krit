@@ -79,6 +79,23 @@ func (r *GradleOldTargetAPIRule) Meta() api.RuleDescriptor {
 	}
 }
 
+func (r *ExpiredTargetSdkVersionRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "ExpiredTargetSdkVersion",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
+		Options: []api.ConfigOption{
+			api.IntOption(api.IntOptionSpec[ExpiredTargetSdkVersionRule]{
+				Name:        "floor",
+				Default:     defaultExpiredTargetSdkFloor,
+				Description: "Minimum acceptable targetSdkVersion under the project's enforced compliance policy.",
+				Apply:       func(r *ExpiredTargetSdkVersionRule, v int) { r.Floor = v },
+			}),
+		},
+	}
+}
+
 func (r *GradleOverridesRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "GradleOverrides",

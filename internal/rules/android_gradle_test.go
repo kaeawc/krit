@@ -449,6 +449,124 @@ android-lint:
 }
 
 // ---------------------------------------------------------------------------
+// ExpiredTargetSdkVersion
+// ---------------------------------------------------------------------------
+
+func TestExpiredTargetSdkVersion(t *testing.T) {
+	r := findGradleRule(t, "ExpiredTargetSdkVersion")
+
+	t.Run("targetSdk below floor triggers", func(t *testing.T) {
+		content := `android {
+    defaultConfig {
+        targetSdk = 28
+    }
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("targetSdk at floor is clean", func(t *testing.T) {
+		content := `android {
+    defaultConfig {
+        targetSdk = 34
+    }
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("targetSdk above floor is clean", func(t *testing.T) {
+		content := `android {
+    defaultConfig {
+        targetSdk = 35
+    }
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("no targetSdk is clean", func(t *testing.T) {
+		content := `android {
+    defaultConfig {
+        minSdk = 24
+    }
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("floor is configurable", func(t *testing.T) {
+		rule, ok := r.Implementation.(*rules.ExpiredTargetSdkVersionRule)
+		if !ok {
+			t.Fatalf("expected *ExpiredTargetSdkVersionRule, got %T", r.Implementation)
+		}
+		original := rule.Floor
+		defer func() { rule.Floor = original }()
+
+		rules.ApplyConfig(loadTempConfig(t, `
+android-lint:
+  ExpiredTargetSdkVersion:
+    floor: 30
+`))
+
+		content := `android {
+    defaultConfig {
+        targetSdk = 31
+    }
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings with relaxed floor, got %d", len(findings))
+		}
+	})
+
+	t.Run("lower configured floor still fires when below", func(t *testing.T) {
+		rule, ok := r.Implementation.(*rules.ExpiredTargetSdkVersionRule)
+		if !ok {
+			t.Fatalf("expected *ExpiredTargetSdkVersionRule, got %T", r.Implementation)
+		}
+		original := rule.Floor
+		defer func() { rule.Floor = original }()
+
+		rules.ApplyConfig(loadTempConfig(t, `
+android-lint:
+  ExpiredTargetSdkVersion:
+    floor: 30
+`))
+
+		content := `android {
+    defaultConfig {
+        targetSdk = 28
+    }
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding when below the configured floor, got %d", len(findings))
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
 // DeprecatedDependency
 // ---------------------------------------------------------------------------
 
@@ -1168,6 +1286,7 @@ func TestGradleRulesRegistered(t *testing.T) {
 		"RemoteVersion",
 		"DynamicVersion",
 		"OldTargetApi",
+		"ExpiredTargetSdkVersion",
 		"DeprecatedDependency",
 		"MavenLocal",
 		"MinSdkTooLow",

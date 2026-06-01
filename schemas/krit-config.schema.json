@@ -523,7 +523,7 @@
           }
         },
         "CheckResult": {
-          "description": "Ignoring results [precision: ast-backed] [noisiness: normal]",
+          "description": "Ignoring results [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -580,7 +580,7 @@
           }
         },
         "CommitPrefEdits": {
-          "description": "Missing commit() on SharedPreferences editor [precision: ast-backed] [noisiness: normal]",
+          "description": "Missing commit() on SharedPreferences editor [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -599,7 +599,7 @@
           }
         },
         "CommitTransaction": {
-          "description": "Missing commit() on FragmentTransaction [precision: ast-backed] [noisiness: normal]",
+          "description": "Missing commit() on FragmentTransaction [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -937,6 +937,30 @@
               "items": {
                 "type": "string"
               }
+            }
+          }
+        },
+        "ExpiredTargetSdkVersion": {
+          "description": "targetSdkVersion below enforced compliance floor [precision: policy] [noisiness: normal] [capabilities: gradle]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ExpiredTargetSdkVersion (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "floor": {
+              "description": "Minimum acceptable targetSdkVersion under the project's enforced compliance policy.",
+              "type": "integer",
+              "default": 34
             }
           }
         },
@@ -2315,7 +2339,7 @@
           }
         },
         "LogTagMismatch": {
-          "description": "Mismatched Log tag [precision: ast-backed] [noisiness: normal]",
+          "description": "Mismatched Log tag [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2334,7 +2358,7 @@
           }
         },
         "LongLogTag": {
-          "description": "Log tag exceeds 23 characters [precision: ast-backed] [noisiness: normal]",
+          "description": "Log tag exceeds 23 characters [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3761,7 +3785,7 @@
           }
         },
         "ServiceCast": {
-          "description": "Wrong system service cast [precision: ast-backed] [noisiness: normal]",
+          "description": "Wrong system service cast [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3818,7 +3842,7 @@
           }
         },
         "SetTextI18n": {
-          "description": "TextView with internationalization issues [precision: ast-backed] [noisiness: normal]",
+          "description": "TextView with internationalization issues [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3875,7 +3899,7 @@
           }
         },
         "ShowToast": {
-          "description": "Toast created but not shown [precision: ast-backed] [noisiness: normal]",
+          "description": "Toast created but not shown [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4388,7 +4412,7 @@
           }
         },
         "TrulyRandom": {
-          "description": "Hardcoded seed defeats SecureRandom [precision: heuristic/text-backed] [noisiness: noisy] [capabilities: line-pass]",
+          "description": "Hardcoded seed defeats SecureRandom [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5034,7 +5058,7 @@
           }
         },
         "WrongCall": {
-          "description": "Using wrong draw/layout method [precision: ast-backed] [noisiness: normal]",
+          "description": "Using wrong draw/layout method [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5250,7 +5274,7 @@
           }
         },
         "GodClassOrModule": {
-          "description": "Detects source files that import from an unusually broad set of packages, suggesting too many responsibilities. [precision: heuristic/text-backed] [noisiness: noisy] [capabilities: line-pass]",
+          "description": "Detects source files that import from an unusually broad set of packages, suggesting too many responsibilities. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5345,7 +5369,7 @@
           }
         },
         "PublicToInternalLeakyAbstraction": {
-          "description": "Flags public classes that are thin wrappers delegating to a single private or internal field, which leak internal abstractions through a nominally public API. [precision: heuristic/text-backed] [noisiness: noisy] [capabilities: line-pass]",
+          "description": "Flags public classes that are thin wrappers delegating to a single private or internal field, which leak internal abstractions through a nominally public API. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -6474,7 +6498,7 @@
           }
         },
         "ComposeRememberWithoutKey": {
-          "description": "Detects remember blocks that reference enclosing parameters but have no keys, causing stale cached values. [precision: ast-backed] [noisiness: normal]",
+          "description": "Detects remember blocks that reference enclosing parameters but have no keys, causing stale cached values. [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -6627,7 +6651,7 @@
           }
         },
         "CollectInOnCreateWithoutLifecycle": {
-          "description": "Detects Flow.collect calls in lifecycle callbacks that are not wrapped by repeatOnLifecycle. [precision: ast-backed] [noisiness: normal]",
+          "description": "Detects Flow.collect calls in lifecycle callbacks that are not wrapped by repeatOnLifecycle. [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -6798,7 +6822,7 @@
           }
         },
         "InjectDispatcher": {
-          "description": "Detects hardcoded Dispatchers.IO/Default/Unconfined passed as arguments instead of injected dispatchers. [precision: ast-backed] [noisiness: normal]",
+          "description": "Detects hardcoded Dispatchers.IO/Default/Unconfined passed as arguments instead of injected dispatchers. [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7649,7 +7673,7 @@
           }
         },
         "SqliteCursorWithoutClose": {
-          "description": "Detects SQLiteDatabase rawQuery/query cursors assigned to local properties without .use {} or .close() in the same scope. [precision: ast-backed] [noisiness: normal]",
+          "description": "Detects SQLiteDatabase rawQuery/query cursors assigned to local properties without .use {} or .close() in the same scope. [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10476,7 +10500,7 @@
           }
         },
         "StructuredLogKeyMixedCase": {
-          "description": "Detects mixed snake_case and camelCase structured logging keys within one file. [precision: heuristic/text-backed] [noisiness: noisy] [capabilities: line-pass]",
+          "description": "Detects mixed snake_case and camelCase structured logging keys within one file. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10851,7 +10875,7 @@
           }
         },
         "CastNullableToNonNullableType": {
-          "description": "Detects casting a nullable expression to a non-nullable type using 'as Type'. [fixable: idiomatic] [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
+          "description": "Detects casting a nullable expression to a non-nullable type using 'as Type'. [fixable: idiomatic] [precision: type-aware] [noisiness: normal] [capabilities: oracle:expr-type, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11339,7 +11363,7 @@
           }
         },
         "MissingPackageDeclaration": {
-          "description": "Detects Kotlin or Java source files that are missing a package declaration. [fixable: cosmetic] [precision: heuristic/text-backed] [noisiness: noisy] [capabilities: line-pass]",
+          "description": "Detects Kotlin or Java source files that are missing a package declaration. [fixable: cosmetic] [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16599,7 +16623,7 @@
           }
         },
         "MixedAssertionLibraries": {
-          "description": "Detects files that import both JUnit Assert and Google Truth assertion APIs. [precision: heuristic/text-backed] [noisiness: noisy] [capabilities: line-pass]",
+          "description": "Detects files that import both JUnit Assert and Google Truth assertion APIs. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

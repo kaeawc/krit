@@ -861,6 +861,38 @@ func TestGradleGetter(t *testing.T) {
 			t.Fatalf("expected 0 findings for .gradle file, got %d", len(findings))
 		}
 	})
+
+	// Regression: the line scanner only skips whole-comment lines, so the
+	// deprecated name inside a string literal or an inline comment produced
+	// false positives. The .kts AST path matches only a bare identifier
+	// statement followed by the un-parseable positional argument, so neither
+	// lookalike fires.
+	t.Run("name inside string or inline comment is clean", func(t *testing.T) {
+		content := `val note = "compileSdkVersion 34 is the old way"
+android {
+    compileSdk = 34 // was compileSdkVersion 34
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	// The valid Kotlin call form compileSdkVersion(34) is not the Groovy
+	// positional setter and must stay clean.
+	t.Run("kotlin call form is clean", func(t *testing.T) {
+		content := `android {
+    compileSdkVersion(34)
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------

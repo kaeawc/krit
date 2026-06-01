@@ -16,6 +16,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // GradleBase is an empty marker type embedded by Gradle rule
@@ -839,6 +840,15 @@ func (r *GradleGetterRule) check(ctx *api.Context) {
 	if !strings.HasSuffix(path, ".kts") {
 		return
 	}
+	if astFile := ctx.GradleAST(); astFile != nil {
+		for _, setter := range findGradleGroovySettersAST(astFile) {
+			ctx.Emit(baseFinding(path, setter.line, r.BaseRule,
+				fmt.Sprintf("Groovy-style '%s' should be replaced with '%s' in Kotlin DSL.", setter.name, setter.replacement)))
+		}
+		return
+	}
+	// Fallback: line/regex scan for the rare case where the .kts file did not
+	// produce a flat AST.
 	for i, line := range strings.Split(content, "\n") {
 		if isGradleCommentLine(line) {
 			continue
@@ -864,6 +874,44 @@ func (r *GradleGetterRule) check(ctx *api.Context) {
 			break
 		}
 	}
+}
+
+type gradleGroovySetter struct {
+	line        int
+	name        string
+	replacement string
+}
+
+// findGradleGroovySettersAST finds Groovy-style positional DSL setters in a
+// Kotlin DSL script via the flat AST. `compileSdkVersion 34` is invalid Kotlin,
+// so tree-sitter parses the bare name as a simple_identifier statement whose
+// immediate next sibling is an ERROR node (the un-parseable positional
+// argument). The valid Kotlin forms `compileSdkVersion(34)` (a call) and
+// `compileSdk = 34` (an assignment) parse cleanly and are not matched, and a
+// name appearing inside a string or comment never parses as a bare identifier
+// statement — so this is strictly more precise than substring scanning.
+func findGradleGroovySettersAST(file *scanner.File) []gradleGroovySetter {
+	var setters []gradleGroovySetter
+	file.FlatWalkNodes(0, "simple_identifier", func(idx uint32) {
+		name := file.FlatNodeString(idx, nil)
+		replacement, ok := groovyStyleDSL[name]
+		if !ok {
+			return
+		}
+		parent, ok := file.FlatParent(idx)
+		if !ok || file.FlatType(parent) != "statements" {
+			return
+		}
+		if next := file.FlatNextSib(idx); next == 0 || file.FlatType(next) != "ERROR" {
+			return
+		}
+		setters = append(setters, gradleGroovySetter{
+			line:        file.FlatRow(idx) + 1,
+			name:        name,
+			replacement: replacement,
+		})
+	})
+	return setters
 }
 
 // ---------------------------------------------------------------------------

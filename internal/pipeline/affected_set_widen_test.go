@@ -97,13 +97,25 @@ func TestMaterializeAffectedFiles_ParsesMissingDependent(t *testing.T) {
 	}
 }
 
-// TestMaterializeAffectedFiles_BailsOnXML bails when an affected file is not
-// Kotlin/Java source (XML referrers cannot be re-dispatched this way).
-func TestMaterializeAffectedFiles_BailsOnXML(t *testing.T) {
+// TestMaterializeAffectedFiles_AllowsXML lets an affected XML referrer through
+// unparsed: the Android phase regenerates its findings, so it needs no parse or
+// dispatch and must not force a fallback to full dispatch.
+func TestMaterializeAffectedFiles_AllowsXML(t *testing.T) {
 	p := ParseResult{KotlinFiles: []*scanner.File{{Path: "a.kt", Language: scanner.LangKotlin}}}
 	args := ProjectArgs{Config: config.NewConfig(), Paths: []string{t.TempDir()}}
-	if _, bail := materializeAffectedFiles(context.Background(), args, ProjectHostState{}, p, []string{"a.kt", "res/layout/main.xml"}); bail != replayBailNonSource {
-		t.Errorf("an XML affected file must bail with %q; got %q", replayBailNonSource, bail)
+	if _, bail := materializeAffectedFiles(context.Background(), args, ProjectHostState{}, p, []string{"a.kt", "res/layout/main.xml"}); bail != "" {
+		t.Errorf("an affected XML file must pass through (no bail); got %q", bail)
+	}
+}
+
+// TestMaterializeAffectedFiles_BailsOnNonSource bails when an affected file is
+// neither Kotlin/Java source nor XML — its findings can't be guaranteed to
+// regenerate, so full dispatch must handle it.
+func TestMaterializeAffectedFiles_BailsOnNonSource(t *testing.T) {
+	p := ParseResult{KotlinFiles: []*scanner.File{{Path: "a.kt", Language: scanner.LangKotlin}}}
+	args := ProjectArgs{Config: config.NewConfig(), Paths: []string{t.TempDir()}}
+	if _, bail := materializeAffectedFiles(context.Background(), args, ProjectHostState{}, p, []string{"a.kt", "app/proguard-rules.pro"}); bail != replayBailNonSource {
+		t.Errorf("a non-source affected file must bail with %q; got %q", replayBailNonSource, bail)
 	}
 }
 

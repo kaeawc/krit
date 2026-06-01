@@ -8,6 +8,22 @@ func registerAndroidResourceIDsRules() {
 
 	// --- from android_resource_ids.go ---
 	{
+		r := &UnknownIDResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "UnknownId", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "UnknownId",
+			Brief:      "Layout references an id that is not defined anywhere",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSFatal,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &DuplicateIDsResourceRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "DuplicateIdsResource", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "DuplicateIds",

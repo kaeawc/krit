@@ -221,6 +221,7 @@ negative TooManyViewsResource
 negative TranslatableMarkupMismatch
 negative UniqueConstants
 negative UniquePermission
+negative UnknownId
 negative UnpackedNativeCodeManifest
 negative UnprotectedSMSBroadcastReceiverManifest
 negative UnsafeProtectedBroadcastReceiverManifest
@@ -451,6 +452,7 @@ positive TooManyViewsResource
 positive TranslatableMarkupMismatch
 positive UniqueConstants
 positive UniquePermission
+positive UnknownId
 positive UnpackedNativeCodeManifest
 positive UnprotectedSMSBroadcastReceiverManifest
 positive UnsafeProtectedBroadcastReceiverManifest

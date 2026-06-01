@@ -901,5 +901,101 @@ func (r *AppCompatResourceRule) check(ctx *api.Context) {
 }
 
 // ---------------------------------------------------------------------------
+// UnknownId
+// ---------------------------------------------------------------------------
+
+// UnknownIDResourceRule detects a layout constraint that references an id with
+// the pure `@id/name` form when that id is not declared anywhere in the
+// project. Such a reference is a dangling pointer — typically a typo or an id
+// that was renamed or deleted without updating its references.
+//
+// To stay false-positive free this rule is deliberately conservative:
+//   - It only flags the pure reference form `@id/name`. The `@+id/name` form
+//     creates the id on demand, so it is never a dangling reference and is
+//     left alone.
+//   - Framework ids (`@android:id/...`) are always defined by the platform and
+//     are skipped.
+//   - The "declared" set is the union of every id declaration source: every
+//     `android:id`, every `@+id/...` appearing in any attribute across all
+//     layouts, and every `<item type="id" name="..."/>` in values resources.
+type UnknownIDResourceRule struct {
+	ResourceBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence: ids are resolved from
+// the parsed, project-wide resource index rather than a text scan, but the
+// declared-id set depends on complete resource coverage. Classified per
+// roadmap/17.
+func (r *UnknownIDResourceRule) Confidence() float64 { return api.ConfidenceMedium }
+
+// unknownIDReference returns the bare id name for a pure `@id/name` reference
+// and reports whether value is such a reference. The id-creating form
+// `@+id/name` and framework references `@android:id/name` return false: the
+// former defines the id, the latter is always platform-provided.
+func unknownIDReference(value string) (name string, ok bool) {
+	v := strings.TrimSpace(value)
+	const prefix = "@id/"
+	if !strings.HasPrefix(v, prefix) {
+		return "", false
+	}
+	name = v[len(prefix):]
+	if name == "" {
+		return "", false
+	}
+	return name, true
+}
+
+// collectDeclaredIDs gathers every declared id name in the project: the rule
+// index's aggregated IDs, every `<item type="id">` value, and every `@+id/`
+// declaration appearing in any attribute of any layout view.
+func collectDeclaredIDs(idx *android.ResourceIndex) map[string]bool {
+	declared := make(map[string]bool, len(idx.IDs))
+	for id := range idx.IDs {
+		declared[id] = true
+	}
+	for _, item := range idx.AliasItems {
+		if item.Type == "id" && item.Name != "" {
+			declared[item.Name] = true
+		}
+	}
+	for _, layout := range idx.Layouts {
+		walkViews(layout.RootView, func(v *android.View) {
+			for _, val := range v.Attributes {
+				if name := strings.TrimSpace(val); strings.HasPrefix(name, "@+id/") {
+					if bare := name[len("@+id/"):]; bare != "" {
+						declared[bare] = true
+					}
+				}
+			}
+		})
+	}
+	return declared
+}
+
+func (r *UnknownIDResourceRule) check(ctx *api.Context) {
+	idx := ctx.ResourceIndex
+	declared := collectDeclaredIDs(idx)
+	for _, layout := range idx.Layouts {
+		walkViews(layout.RootView, func(v *android.View) {
+			for _, attr := range relativeConstraintAttrs {
+				ref := v.Attributes[attr]
+				if ref == "" {
+					continue
+				}
+				name, ok := unknownIDReference(ref)
+				if !ok || declared[name] {
+					continue
+				}
+				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
+					fmt.Sprintf("`%s=\"%s\"` references id `%s`, which is not defined in any layout or values resource. "+
+						"Check for a typo, or declare it with `@+id/%s`.",
+						attr, ref, name, name)))
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------

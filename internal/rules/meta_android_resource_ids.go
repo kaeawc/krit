@@ -30,6 +30,15 @@ func (r *DuplicateIDsResourceRule) Meta() api.RuleDescriptor {
 	}
 }
 
+func (r *UnknownIDResourceRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "UnknownId",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
+	}
+}
+
 func (r *DuplicateIncludedIDsResourceRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "DuplicateIncludedIdsResource",

@@ -120,6 +120,22 @@ func registerAndroidGradleRules() {
 		})
 	}
 	{
+		r := &DuplicatePlatformClassesRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "DuplicatePlatformClasses", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "DuplicatePlatformClasses",
+			Brief:      "Dependency duplicates classes provided by the Android platform",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSFatal,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &MavenLocalRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "MavenLocal", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "MavenLocal",

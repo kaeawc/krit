@@ -1826,16 +1826,15 @@ func runDispatchOrLoadBundle(
 		// and ApplyDelta against the prior bundle. Opt-in
 		// (KRIT_AFFECTED_SET_REPLAY) and #608 gated inside.
 		asStart := time.Now()
-		asD, asC, asOK, asErr := tryAffectedSetDispatch(ctx, args, host, indexResult, parseResult, manifest)
-		asOutcome := "miss"
-		if asOK {
-			asOutcome = "hit"
-		}
-		perf.AddEntryDetails(tracker, "dispatchAffectedSetPath", time.Since(asStart), nil, map[string]string{"outcome": asOutcome})
+		asD, asC, asReason, asErr := tryAffectedSetDispatch(ctx, args, host, indexResult, parseResult, manifest)
+		// reason is "hit" when the path fired, else the bail label explaining
+		// why it fell back to full dispatch — self-explaining in the perf JSON
+		// (hit vs miss is derivable from reason == replayHit).
+		perf.AddEntryDetails(tracker, "dispatchAffectedSetPath", time.Since(asStart), nil, map[string]string{"reason": asReason})
 		if asErr != nil {
 			return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, asErr
 		}
-		if asOK {
+		if asReason == replayHit {
 			recordDispatchPath("cacheHitAffectedSetBundle")
 			return asD, asC, false, dispatchTimings{}, nil
 		}
@@ -2836,11 +2835,12 @@ func mergeParsedFiles(p ParseResult, kotlin, java []*scanner.File) ParseResult {
 // reverse-dependency source files that were not edited are parsed on demand
 // and merged into a copy of parseResult.
 //
-// It returns ok=false (caller bails to full dispatch) when an affected file
-// cannot be re-dispatched: a non-source file (e.g. an XML referrer), a parse
-// failure, or a source file that is gone (e.g. deleted) and so never comes
-// back parsed. Full dispatch handles all of those correctly.
-func materializeAffectedFiles(ctx context.Context, args ProjectArgs, host ProjectHostState, parseResult ParseResult, affected []string) (ParseResult, bool) {
+// It returns a non-empty bail reason (caller falls back to full dispatch) when
+// an affected file cannot be re-dispatched: a non-source file (e.g. an XML
+// referrer), a parse failure, or a source file that is gone (e.g. deleted) and
+// so never comes back parsed. Full dispatch handles all of those correctly. An
+// empty reason means success.
+func materializeAffectedFiles(ctx context.Context, args ProjectArgs, host ProjectHostState, parseResult ParseResult, affected []string) (ParseResult, string) {
 	parsed := parsedPathSet(parseResult)
 	var missingKotlin, missingJava []string
 	for _, f := range affected {
@@ -2853,17 +2853,17 @@ func materializeAffectedFiles(ctx context.Context, args ProjectArgs, host Projec
 		case strings.HasSuffix(f, ".java"):
 			missingJava = append(missingJava, f)
 		default:
-			return ParseResult{}, false
+			return ParseResult{}, replayBailNonSource
 		}
 	}
 	if len(missingKotlin) == 0 && len(missingJava) == 0 {
 		// Every affected file was already parsed (the classification loop
 		// proved it); nothing to materialize.
-		return parseResult, true
+		return parseResult, ""
 	}
 	kt, jv, err := parseFilesByPath(ctx, args, host, missingKotlin, missingJava)
 	if err != nil {
-		return ParseResult{}, false
+		return ParseResult{}, replayBailParseFailed
 	}
 	// parseFilesByPath silently drops paths it cannot read (e.g. a deleted
 	// source file). Confirm every requested dependent actually came back, or
@@ -2881,16 +2881,35 @@ func materializeAffectedFiles(ctx context.Context, args ProjectArgs, host Projec
 	}
 	for _, f := range missingKotlin {
 		if !got[f] {
-			return ParseResult{}, false
+			return ParseResult{}, replayBailParseIncomplete
 		}
 	}
 	for _, f := range missingJava {
 		if !got[f] {
-			return ParseResult{}, false
+			return ParseResult{}, replayBailParseIncomplete
 		}
 	}
-	return mergeParsedFiles(parseResult, kt, jv), true
+	return mergeParsedFiles(parseResult, kt, jv), ""
 }
+
+// Affected-set replay outcome labels, emitted as the "reason" detail on the
+// dispatchAffectedSetPath perf entry. "hit" means the path fired; every other
+// value is a bail reason that explains why the run fell back to full dispatch,
+// so the perf JSON answers "why didn't replay fire?" without code-reading.
+const (
+	replayHit                 = "hit"
+	replayBailDisabled        = "disabled"         // flag off
+	replayBailNoManifest      = "no_manifest"      // manifest disabled / key empty / load miss
+	replayBailNoIndex         = "no_index"         // current CodeIndex nil
+	replayBailFullBuild       = "full_build"       // no removed-edge data (#608 nil gate)
+	replayBailNoChanges       = "no_changes"       // diffContentHashes empty
+	replayBailNoBundle        = "no_bundle"        // prior findings bundle missing
+	replayBailEmptyAffected   = "empty_affected"   // affected set empty
+	replayBailTooLarge        = "too_large"        // affected set fails the ratio gate
+	replayBailNonSource       = "non_source"       // affected file is not Kotlin/Java (e.g. XML)
+	replayBailParseFailed     = "parse_failed"     // parseFilesByPath errored
+	replayBailParseIncomplete = "parse_incomplete" // a dependent never came back parsed
+)
 
 // affectedSetReplayEnabled reports whether the opt-in affected-set replay
 // dispatch path is turned on. Default OFF: the path is conservative and #608
@@ -2940,47 +2959,47 @@ func tryAffectedSetDispatch(
 	indexResult IndexResult,
 	parseResult ParseResult,
 	manifest deltaManifestData,
-) (DispatchResult, CrossFileResult, bool, error) {
+) (DispatchResult, CrossFileResult, string, error) {
 	if !affectedSetReplayEnabled() {
-		return DispatchResult{}, CrossFileResult{}, false, nil
+		return DispatchResult{}, CrossFileResult{}, replayBailDisabled, nil
 	}
 	if !manifest.enabled || manifest.manifestKey == "" {
-		return DispatchResult{}, CrossFileResult{}, false, nil
+		return DispatchResult{}, CrossFileResult{}, replayBailNoManifest, nil
 	}
 	current := indexResult.CodeIndex
 	if current == nil {
-		return DispatchResult{}, CrossFileResult{}, false, nil
+		return DispatchResult{}, CrossFileResult{}, replayBailNoIndex, nil
 	}
 	// #608 gate: only safe when the current index carries the edges the edit
 	// removed. A nil here means a full build (no overlay), where a removed
 	// reference is unrecoverable and the affected set could miss a flip.
 	removed := current.LastRemovedContributions()
 	if removed == nil {
-		return DispatchResult{}, CrossFileResult{}, false, nil
+		return DispatchResult{}, CrossFileResult{}, replayBailFullBuild, nil
 	}
 	prior, ok := loadBundleManifest(host, manifest.manifestKey)
 	if !ok {
-		return DispatchResult{}, CrossFileResult{}, false, nil
+		return DispatchResult{}, CrossFileResult{}, replayBailNoManifest, nil
 	}
 	changedPaths := diffContentHashes(prior.ContentHashes, manifest.contentHashes)
 	if len(changedPaths) == 0 {
-		return DispatchResult{}, CrossFileResult{}, false, nil
+		return DispatchResult{}, CrossFileResult{}, replayBailNoChanges, nil
 	}
 	priorBundle, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, prior.Fingerprint)
 	if !ok || priorBundle == nil {
-		return DispatchResult{}, CrossFileResult{}, false, nil
+		return DispatchResult{}, CrossFileResult{}, replayBailNoBundle, nil
 	}
 
 	affected := scanner.AffectedSetIncremental(current, changedPaths, removed)
 	if len(affected) == 0 {
-		return DispatchResult{}, CrossFileResult{}, false, nil
+		return DispatchResult{}, CrossFileResult{}, replayBailEmptyAffected, nil
 	}
 	// Perf gate: if the affected set spans most of the project, full dispatch
 	// is about as cheap. Use the prior manifest's file set as the denominator
 	// (warm parseResult holds only dirty files).
 	total := len(prior.ContentHashes)
 	if total == 0 || len(affected)*2 > total {
-		return DispatchResult{}, CrossFileResult{}, false, nil
+		return DispatchResult{}, CrossFileResult{}, replayBailTooLarge, nil
 	}
 
 	affectedSet := make(map[string]bool, len(affected))
@@ -2990,20 +3009,20 @@ func tryAffectedSetDispatch(
 
 	// Invariant 2: materialize any affected files the warm parse skipped, or
 	// bail to full dispatch if the full affected set cannot be re-dispatched.
-	dispatchParse, ok := materializeAffectedFiles(ctx, args, host, parseResult, affected)
-	if !ok {
-		return DispatchResult{}, CrossFileResult{}, false, nil
+	dispatchParse, bail := materializeAffectedFiles(ctx, args, host, parseResult, affected)
+	if bail != "" {
+		return DispatchResult{}, CrossFileResult{}, bail, nil
 	}
 
 	scoped := indexResult
 	scoped.ParseResult = scopeParseResultMulti(dispatchParse, affectedSet)
 	d, err := DispatchPhase{}.Run(ctx, scoped)
 	if err != nil {
-		return DispatchResult{}, CrossFileResult{}, false, fmt.Errorf("dispatch (affected-set): %w", err)
+		return DispatchResult{}, CrossFileResult{}, "", fmt.Errorf("dispatch (affected-set): %w", err)
 	}
 	c, err := CrossFilePhase{Workers: args.Workers}.Run(ctx, d)
 	if err != nil {
-		return DispatchResult{}, CrossFileResult{}, false, fmt.Errorf("crossfile (affected-set): %w", err)
+		return DispatchResult{}, CrossFileResult{}, "", fmt.Errorf("crossfile (affected-set): %w", err)
 	}
 
 	replacement := scanner.FilterColumnsByFilePaths(&c.Findings, affectedSet)
@@ -3012,7 +3031,7 @@ func tryAffectedSetDispatch(
 	d.Findings = merged
 	c.DispatchResult = d
 	c.Findings = merged
-	return d, c, true, nil
+	return d, c, replayHit, nil
 }
 
 // computeRunFingerprint builds a scanner.RunFingerprint from the run's

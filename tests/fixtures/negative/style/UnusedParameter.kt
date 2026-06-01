@@ -96,3 +96,22 @@ class KSAnnotation {
 fun receivesSoftKeywordParam(annotation: KSAnnotation) {
     annotation.process()
 }
+
+// Parameter annotations parse as a `parameter_modifiers` sibling of the
+// `parameter` node, so a `@Suppress` on the parameter must still be honored
+// even though the annotation is not part of the parameter node's own text.
+fun explicitlySuppressedUpper(@Suppress("UNUSED_PARAMETER") targetInfo: KSAnnotation): Int {
+    return 0
+}
+
+fun explicitlySuppressedLower(@Suppress("unused") leftover: KSAnnotation): Int {
+    return 0
+}
+
+fun suppressedAmongUsedParams(
+    @Suppress("UNUSED_PARAMETER") unusedFirst: KSAnnotation,
+    second: KSAnnotation
+): Int {
+    second.process()
+    return 0
+}

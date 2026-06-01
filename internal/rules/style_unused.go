@@ -72,6 +72,36 @@ const (
 	unusedParameterUnknownMatch
 )
 
+// parameterHasUnusedSuppression reports whether the parameter at paramIdx
+// carries a `@Suppress("unused")` / `@Suppress("UNUSED_PARAMETER")` annotation.
+//
+// In the Kotlin grammar a parameter's annotations parse as a
+// `parameter_modifiers` node that precedes the `parameter` node inside
+// `function_value_parameters`, so the annotation is a *sibling* of the
+// parameter rather than part of its node text. Inspecting only the parameter
+// node text therefore misses the suppression and produces a false positive.
+// Check both the parameter node and its preceding `parameter_modifiers`
+// sibling.
+func parameterHasUnusedSuppression(file *scanner.File, paramIdx uint32) bool {
+	if file == nil || paramIdx == 0 {
+		return false
+	}
+	if parameterTextSuppressesUnused(file.FlatNodeText(paramIdx)) {
+		return true
+	}
+	if prev, ok := file.FlatPrevSibling(paramIdx); ok && file.FlatType(prev) == "parameter_modifiers" {
+		if parameterTextSuppressesUnused(file.FlatNodeText(prev)) {
+			return true
+		}
+	}
+	return false
+}
+
+func parameterTextSuppressesUnused(text string) bool {
+	return strings.Contains(text, "@Suppress") &&
+		(strings.Contains(text, `"unused"`) || strings.Contains(text, `"UNUSED_PARAMETER"`))
+}
+
 func unusedParameterUsageFlat(file *scanner.File, scope uint32, paramIdx uint32, paramName string, paramIsFunctionType bool) (used bool, unknown bool) {
 	if file == nil || scope == 0 || paramIdx == 0 || paramName == "" {
 		return false, false

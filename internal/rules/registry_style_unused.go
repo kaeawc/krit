@@ -118,10 +118,7 @@ func registerStyleUnusedRules() {
 					if r.AllowedNames != nil && r.AllowedNames.MatchString(paramName) {
 						continue
 					}
-					paramText := file.FlatNodeText(param.idx)
-					if strings.Contains(paramText, "@Suppress") &&
-						(strings.Contains(paramText, "\"unused\"") ||
-							strings.Contains(paramText, "\"UNUSED_PARAMETER\"")) {
+					if parameterHasUnusedSuppression(file, param.idx) {
 						continue
 					}
 					used := false

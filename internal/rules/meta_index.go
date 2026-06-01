@@ -15,6 +15,7 @@ import (
 // reachable via Unwrap).
 func AllMetaProviders() []api.MetaProvider {
 	return []api.MetaProvider{
+		(*AaptCrashRule)(nil),
 		(*AbsentOrWrongFileLicenseRule)(nil),
 		(*AbstractClassCanBeConcreteClassRule)(nil),
 		(*AbstractClassCanBeInterfaceRule)(nil),

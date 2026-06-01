@@ -6,6 +6,15 @@ import (
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
+func (r *AaptCrashRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "AaptCrash",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
+	}
+}
+
 func (r *AlwaysShowActionResourceRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "AlwaysShowActionResource",

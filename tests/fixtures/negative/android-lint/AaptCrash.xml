@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Negative fixture: the style references an already-declared id with the
+     non-generating @id/... form, and declares the id explicitly via
+     <item type="id" .../>. This is the recommended shape and does not crash
+     the resource packaging tool, so AaptCrash stays silent. -->
+<resources xmlns:android="http://schemas.android.com/apk/res/android">
+    <item type="id" name="titlebar" />
+
+    <style name="TitleBar">
+        <item name="android:orientation">horizontal</item>
+        <item name="android:id">@id/titlebar</item>
+        <item name="android:background">@drawable/bg_titlebar</item>
+    </style>
+</resources>

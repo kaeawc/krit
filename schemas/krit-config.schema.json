@@ -199,6 +199,25 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "AaptCrash": {
+          "description": "Style sets android:id to a generated id (can crash resource packaging) [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable AaptCrash (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "AccidentalOctal": {
           "description": "Accidental octal interpretation [precision: ast-backed] [noisiness: normal]",
           "type": "object",

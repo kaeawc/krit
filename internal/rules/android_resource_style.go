@@ -1018,5 +1018,52 @@ func stateAttrsSubsetOf(a, b map[string]string) bool {
 }
 
 // ---------------------------------------------------------------------------
+// AaptCrash
+// ---------------------------------------------------------------------------
+
+// AaptCrashRule detects a `<style>` that sets `android:id` to a freshly
+// generated id (`@+id/...`). Declaring a new id inside a style definition
+// crashes many versions of the resource packaging tool during the build, so
+// this is a Fatal correctness check. The fix is to declare the id explicitly
+// in a values file (`<item type="id" name="..."/>`) and reference it with the
+// non-generating `@id/...` form from the style.
+type AaptCrashRule struct {
+	ValuesResourceBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. The crash trigger is
+// read from the parsed style index (style name -> item name -> value), not a
+// text scan, but values resources can carry project-specific shapes, so this
+// is classified medium per roadmap/17.
+func (r *AaptCrashRule) Confidence() float64 { return api.ConfidenceMedium }
+
+// aaptCrashIsGeneratedID reports whether val is an id-generating reference.
+// Only the `@+id/` (and namespace-qualified `@+android:id/`) forms allocate a
+// new id; the plain `@id/...` reference does not and is safe inside a style.
+func aaptCrashIsGeneratedID(val string) bool {
+	v := strings.TrimSpace(val)
+	return strings.HasPrefix(v, "@+id/") || strings.HasPrefix(v, "@+android:id/")
+}
+
+func (r *AaptCrashRule) check(ctx *api.Context) {
+	idx := ctx.ResourceIndex
+	for _, style := range idx.Styles {
+		val, ok := style.Items["android:id"]
+		if !ok {
+			continue
+		}
+		if !aaptCrashIsGeneratedID(val) {
+			continue
+		}
+		ctx.Emit(baseFinding(style.FilePath, style.ItemLines["android:id"], r.BaseRule,
+			fmt.Sprintf("Style `%s` sets `android:id` to a dynamically generated id `%s`, "+
+				"which can crash the resource packaging tool at build time. Declare the id "+
+				"explicitly with `<item type=\"id\" name=\"...\"/>` and reference it with `@id/...`.",
+				style.Name, strings.TrimSpace(val))))
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Positive fixture: a style that sets android:id to a generated @+id/...
+     reference. Declaring a new id inside a style can crash the resource
+     packaging tool, so AaptCrash fires on the offending <item> line. -->
+<resources xmlns:android="http://schemas.android.com/apk/res/android">
+    <style name="TitleBar">
+        <item name="android:orientation">horizontal</item>
+        <item name="android:id">@+id/titlebar</item>
+        <item name="android:background">@drawable/bg_titlebar</item>
+    </style>
+</resources>

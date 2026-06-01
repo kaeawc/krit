@@ -3404,6 +3404,25 @@
             }
           }
         },
+        "ReferenceType": {
+          "description": "Resource alias references a different resource type [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ReferenceType (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "Registered": {
           "description": "Class is not registered in the manifest [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
           "type": "object",

@@ -4,9 +4,9 @@ AbsentOrWrongFileLicense                        comments             pending    
 AbstractClassCanBeConcreteClass                 style                partial         Java comment/import style rules, line-based formatting checks, and decimal numeric literal readability are supported; most remaining style rules encode Kotlin syntax and require explicit per-rule review.
 ...
 
-Total: 787 rule(s)
+Total: 788 rule(s)
   supported: 119
-  partial: 451
+  partial: 452
   pending: 146
   needs-design: 0
   not-applicable: 50

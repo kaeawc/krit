@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Positive fixture: the alias declares type="string" but points at a
+     @layout/ resource. An alias must reference a resource of the same type,
+     so ReferenceType fires Fatal on the offending item. -->
+<resources>
+    <item name="invalid_alias" type="string">@layout/other</item>
+</resources>

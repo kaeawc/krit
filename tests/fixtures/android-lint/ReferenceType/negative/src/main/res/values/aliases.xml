@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="indirect">Indirect value</string>
+    <item name="plain" type="string">Plain String</item>
+    <item name="aliased" type="string">@string/indirect</item>
+</resources>

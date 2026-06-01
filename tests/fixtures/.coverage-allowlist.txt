@@ -169,6 +169,7 @@ negative PluralsMissingZero
 negative ProtectedPermissionsManifest
 negative PxUsageResource
 negative Range
+negative ReferenceType
 negative RelativeOverlapResource
 negative RemoteVersion
 negative RequiredSizeResource
@@ -398,6 +399,7 @@ positive PluralsMissingZero
 positive ProtectedPermissionsManifest
 positive PxUsageResource
 positive Range
+positive ReferenceType
 positive RelativeOverlapResource
 positive RemoteVersion
 positive RequiredSizeResource

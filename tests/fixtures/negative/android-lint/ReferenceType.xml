@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Negative fixture: a plain-string alias and an alias that references a
+     string resource of the matching type. Neither is a type mismatch, so
+     ReferenceType stays silent. -->
+<resources>
+    <string name="indirect">Indirect value</string>
+    <item name="plain" type="string">Plain String</item>
+    <item name="aliased" type="string">@string/indirect</item>
+</resources>

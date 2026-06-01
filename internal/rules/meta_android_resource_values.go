@@ -172,6 +172,15 @@ func (r *WebViewInScrollViewResourceRule) Meta() api.RuleDescriptor {
 	}
 }
 
+func (r *ReferenceTypeRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "ReferenceType",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
+	}
+}
+
 func (r *WrongRegionResourceRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "WrongRegionResource",

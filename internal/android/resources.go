@@ -67,6 +67,19 @@ type ResourceIndex struct {
 	Booleans           map[string]string            // bool name -> value
 	IDs                map[string]bool              // declared @+id names
 	ExtraTexts         []ExtraTextEntry             // stray text nodes in values files
+	AliasItems         []AliasItem                  // top-level <item name= type=> resource aliases
+}
+
+// AliasItem records a top-level <item name="..." type="..."> resource alias
+// declaration. When the item's value is a resource reference (@type/name), the
+// referenced type must match the declared type; the ReferenceType check uses
+// these records to verify that.
+type AliasItem struct {
+	Name     string // the name attribute
+	Type     string // the declared type attribute (e.g. "string", "drawable")
+	Value    string // trimmed text content (e.g. "@layout/other" or "Plain String")
+	FilePath string
+	Line     int // 1-based line of the <item> element
 }
 
 // SelectorItem records a child <item> in a drawable selector XML file.
@@ -139,9 +152,10 @@ const (
 	ValuesScanPlurals
 	ValuesScanArrays
 	ValuesScanExtraText
+	ValuesScanAliasItems
 )
 
-const ValuesScanAll = ValuesScanStrings | ValuesScanDimensions | ValuesScanPlurals | ValuesScanArrays | ValuesScanExtraText
+const ValuesScanAll = ValuesScanStrings | ValuesScanDimensions | ValuesScanPlurals | ValuesScanArrays | ValuesScanExtraText | ValuesScanAliasItems
 
 // lineAtOffset returns the 1-based line number for the given byte offset in
 // the file's content. A nil file is treated as the first line.
@@ -263,6 +277,7 @@ func (idx *ResourceIndex) mergeFrom(other *ResourceIndex) {
 	idx.mergeDrawableEntries(other)
 	idx.mergeCollectionEntries(other)
 	idx.ExtraTexts = append(idx.ExtraTexts, other.ExtraTexts...)
+	idx.AliasItems = append(idx.AliasItems, other.AliasItems...)
 }
 
 func (idx *ResourceIndex) ensureMaps() {
@@ -940,7 +955,7 @@ func (idx *ResourceIndex) parseResourcesRootKinds(dec *xml.Decoder, path string,
 			elemLine := 0
 			if lines != nil {
 				switch t.Name.Local {
-				case "string", "dimen", "style":
+				case "string", "dimen", "style", "item":
 					elemLine = lineAtOffset(lines, dec.InputOffset())
 				}
 			}
@@ -982,9 +997,37 @@ func (idx *ResourceIndex) parseResourceElementKinds(dec *xml.Decoder, start xml.
 			return skipElement(dec, start)
 		}
 		return idx.parsePluralsElement(dec, start)
+	case "item":
+		if kinds&ValuesScanAliasItems == 0 {
+			return skipElement(dec, start)
+		}
+		return idx.parseAliasItemElement(dec, start, path, line)
 	default:
 		return skipElement(dec, start)
 	}
+}
+
+// parseAliasItemElement records a top-level <item name= type=> resource alias.
+// Only items that declare a type attribute are recorded; a top-level <item>
+// without a type is not a resource alias.
+func (idx *ResourceIndex) parseAliasItemElement(dec *xml.Decoder, start xml.StartElement, path string, line int) error {
+	name := xmlAttr(start.Attr, "name")
+	typ := xmlAttr(start.Attr, "type")
+	text, err := decodeSimpleElementText(dec, start)
+	if err != nil {
+		return err
+	}
+	if name == "" || typ == "" {
+		return nil
+	}
+	idx.AliasItems = append(idx.AliasItems, AliasItem{
+		Name:     name,
+		Type:     typ,
+		Value:    text,
+		FilePath: path,
+		Line:     line,
+	})
+	return nil
 }
 
 func (idx *ResourceIndex) parseStringElement(dec *xml.Decoder, start xml.StartElement, path string, line int, kinds ValuesScanKind) error {

@@ -610,6 +610,53 @@ func TestParseValuesFile_TracksDimenAndStyleItemLines(t *testing.T) {
 	}
 }
 
+func TestParseValuesFile_TracksAliasItems(t *testing.T) {
+	tmp := t.TempDir()
+	valuesDir := filepath.Join(tmp, "values")
+	if err := os.MkdirAll(valuesDir, 0o755); err != nil {
+		t.Fatalf("mkdir values dir: %v", err)
+	}
+
+	writeValuesFile(t, valuesDir, "aliases.xml", `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="mismatch" type="string">@layout/other</item>
+    <item name="plain" type="string">Plain String</item>
+    <item name="ok" type="string">@string/indirect</item>
+    <item type="id" name="generated" />
+</resources>
+`)
+
+	idx := newResourceIndex()
+	if _, err := idx.scanValuesDir(valuesDir); err != nil {
+		t.Fatalf("scanValuesDir: %v", err)
+	}
+
+	byName := make(map[string]AliasItem, len(idx.AliasItems))
+	for _, it := range idx.AliasItems {
+		byName[it.Name] = it
+	}
+
+	// Typed items with a name are all recorded (the rule decides which fire).
+	for _, want := range []string{"mismatch", "plain", "ok", "generated"} {
+		if _, ok := byName[want]; !ok {
+			t.Fatalf("expected alias item %q to be recorded; got %#v", want, idx.AliasItems)
+		}
+	}
+
+	if got := byName["mismatch"]; got.Type != "string" || got.Value != "@layout/other" {
+		t.Errorf("mismatch alias: got type=%q value=%q", got.Type, got.Value)
+	}
+	if got := byName["mismatch"].Line; got != 3 {
+		t.Errorf("expected mismatch alias on line 3, got %d", got)
+	}
+	if got := byName["plain"]; got.Value != "Plain String" {
+		t.Errorf("plain alias: got value=%q", got.Value)
+	}
+	if got := byName["generated"]; got.Type != "id" || got.Value != "" {
+		t.Errorf("generated alias: got type=%q value=%q", got.Type, got.Value)
+	}
+}
+
 func TestParseValuesFile_TracksExtraTextLine(t *testing.T) {
 	tmp := t.TempDir()
 	valuesDir := filepath.Join(tmp, "values")

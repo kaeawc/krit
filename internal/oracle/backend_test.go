@@ -4,6 +4,17 @@ import (
 	"testing"
 )
 
+// TestDefaultBackendIsFIR locks the default oracle backend to FIR.
+// The flip away from KAA was gated on the parity + FIR-fact-contract
+// CI checks; this guards against an accidental revert to KAA, which
+// would silently change which JVM daemon every project spawns.
+func TestDefaultBackendIsFIR(t *testing.T) {
+	t.Parallel()
+	if DefaultBackend != BackendFIR {
+		t.Errorf("DefaultBackend = %q, want %q (FIR is the default; KAA stays a selectable fallback)", DefaultBackend, BackendFIR)
+	}
+}
+
 func TestParseBackend(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -12,7 +23,7 @@ func TestParseBackend(t *testing.T) {
 		want    Backend
 		wantErr bool
 	}{
-		{name: "empty defaults to KAA", input: "", want: DefaultBackend},
+		{name: "empty resolves to default backend", input: "", want: DefaultBackend},
 		{name: "canonical kaa", input: "kaa", want: BackendKAA},
 		{name: "canonical fir", input: "fir", want: BackendFIR},
 		{name: "case-insensitive KAA", input: "KAA", want: BackendKAA},
@@ -57,7 +68,8 @@ func TestBackendString(t *testing.T) {
 		{in: BackendFIR, want: "fir"},
 		// Empty backend renders as the default so verbose log lines
 		// don't print a blank value when callers forget to set one.
-		{in: "", want: "kaa"},
+		// Tracks DefaultBackend symbolically so it survives flips.
+		{in: "", want: string(DefaultBackend)},
 	}
 	for _, tc := range cases {
 		if got := tc.in.String(); got != tc.want {

@@ -19,18 +19,24 @@ type Backend string
 const (
 	// BackendKAA is the krit-types daemon — Kotlin Analysis API
 	// backed. The historical default and the only backend before
-	// krit-fir landed.
+	// krit-fir landed; retained as a selectable fallback
+	// (`--oracle-backend=kaa`) now that FIR is the default.
 	BackendKAA Backend = "kaa"
 
-	// BackendFIR is the krit-fir daemon — K2/FIR backed. Required
-	// for rules that opt into Capability.NEEDS_FIR; usable as a
-	// drop-in replacement for KAA today thanks to oracle-protocol
-	// parity (see PR 2.x series).
+	// BackendFIR is the krit-fir daemon — K2/FIR backed. The default
+	// backend, and required for rules that opt into
+	// Capability.NEEDS_FIR. It is a drop-in replacement for KAA
+	// thanks to oracle-protocol parity: the declaration surface is
+	// guarded by TestOracleBackendParity and the expression surface
+	// (types, nullability, call targets, suspend markers,
+	// diagnostics) by TestFirOracleFactContract.
 	BackendFIR Backend = "fir"
 
-	// DefaultBackend stays KAA until the FIR backend has shipped a
-	// CI parity gate. Flipping the default is a separate change.
-	DefaultBackend Backend = BackendKAA
+	// DefaultBackend is FIR. The CI parity gates that previously
+	// blocked the flip have shipped, so krit spawns the K2/FIR daemon
+	// by default; KAA stays reachable via `--oracle-backend=kaa` or
+	// `oracle.backend: kaa` for fallback.
+	DefaultBackend Backend = BackendFIR
 )
 
 // ParseBackend accepts the canonical lower-case spellings plus

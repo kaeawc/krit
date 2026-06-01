@@ -366,10 +366,16 @@ jobs:
         if: steps.cache-krit-fir.outputs.cache-hit != 'true'
         working-directory: tools/krit-fir
         run: ./gradlew --no-daemon shadowJar
+      # TestOracleBackendParity guards the declaration surface across
+      # both backends; TestFirOracleFactContract guards the FIR
+      # expression surface (types, nullability, call targets, suspend
+      # markers, diagnostics) the type-aware rules read — the facts the
+      # cross-backend gate deliberately doesn't compare. Both must pass
+      # before the FIR backend can be made the default.
       - name: Run oracle backend parity
         env:
           KRIT_TYPES_JAR: ${{ github.workspace }}/tools/krit-types/build/libs/krit-types.jar
-        run: go test ./tests/parity/ -count=1 -run TestOracleBackendParity -v
+        run: go test ./tests/parity/ -count=1 -run 'TestOracleBackendParity|TestFirOracleFactContract' -v
 
   krit-lint-sarif:
     runs-on: ubuntu-latest

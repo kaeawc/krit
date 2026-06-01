@@ -171,6 +171,7 @@ func AllMetaProviders() []api.MetaProvider {
 		(*DuplicateActivityManifestRule)(nil),
 		(*DuplicateIDsResourceRule)(nil),
 		(*DuplicateIncludedIDsResourceRule)(nil),
+		(*DuplicatePlatformClassesRule)(nil),
 		(*DuplicateUsesFeatureManifestRule)(nil),
 		(*DynamicVersionRule)(nil),
 		(*EasterEggRule)(nil),

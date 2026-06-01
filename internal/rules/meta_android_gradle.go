@@ -16,6 +16,15 @@ func (r *AndroidGradlePluginVersionRule) Meta() api.RuleDescriptor {
 	}
 }
 
+func (r *DuplicatePlatformClassesRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "DuplicatePlatformClasses",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
+	}
+}
+
 func (r *DeprecatedDependencyRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "DeprecatedDependency",

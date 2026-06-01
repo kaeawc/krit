@@ -690,6 +690,83 @@ func (r *DeprecatedDependencyRule) check(ctx *api.Context) {
 }
 
 // ---------------------------------------------------------------------------
+// Rule: DuplicatePlatformClasses
+// ---------------------------------------------------------------------------
+
+// platformDuplicateDeps maps `group:name` coordinates of libraries that ship
+// classes already provided by the Android platform (android.jar) to a short
+// remediation hint. Bundling these duplicates platform classes under the same
+// fully-qualified names, which can lead to unexpected runtime crashes. The set
+// is stable and well known.
+var platformDuplicateDeps = map[string]string{
+	"xpp3:xpp3":                             "the XmlPull API is already part of the platform",
+	"commons-logging:commons-logging":       "android.util.Log is already part of the platform",
+	"xerces:xmlParserAPIs":                  "the XML parser APIs are already part of the platform",
+	"org.json:json":                         "org.json is already part of the platform",
+	"org.khronos:opengl-api":                "the OpenGL ES APIs are already part of the platform",
+	"com.google.android:android":            "this is the entire Android platform packaged as a dependency",
+	"org.apache.httpcomponents:httpclient":  "use HttpUrlConnection or a library such as okhttp instead",
+	"commons-httpclient:commons-httpclient": "use HttpUrlConnection or a library such as okhttp instead",
+}
+
+// DuplicatePlatformClassesRule flags dependencies that duplicate classes
+// already provided by the Android platform.
+type DuplicatePlatformClassesRule struct {
+	GradleBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Android Gradle rule:
+// dependency coordinates are read from the parsed Gradle config, but build
+// scripts vary in shape across plugin versions and Kotlin/Groovy syntax.
+// Classified per roadmap/17.
+func (r *DuplicatePlatformClassesRule) Confidence() float64 { return api.ConfidenceMedium }
+
+// findGradleDependencyLine locates the 1-based line where a dependency
+// coordinate appears. Unlike findGradleLineStr it does NOT strip string
+// literals, because dependency coordinates live inside them; it still skips
+// whole-line comments and any portion after a real `//` line comment.
+func findGradleDependencyLine(content, coord string) int {
+	for i, line := range strings.Split(content, "\n") {
+		if isGradleCommentLine(line) {
+			continue
+		}
+		scan := line
+		if c := gradleLineCommentStart(line); c >= 0 {
+			scan = line[:c]
+		}
+		if strings.Contains(scan, coord) {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+func (r *DuplicatePlatformClassesRule) check(ctx *api.Context) {
+	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
+	for _, dep := range cfg.Dependencies {
+		coord := dep.Group + ":" + dep.Name
+		hint, ok := platformDuplicateDeps[coord]
+		if !ok {
+			continue
+		}
+		// Require the coordinate to appear on a real (non-comment) line.
+		// The Gradle config parser also extracts coordinates from
+		// commented-out declarations, so a line of 0 here means the only
+		// occurrence is inside a comment — skip it to avoid a false positive.
+		line := findGradleDependencyLine(content, coord)
+		if line == 0 {
+			continue
+		}
+		ctx.Emit(baseFinding(path, line, r.BaseRule,
+			fmt.Sprintf("`%s` duplicates classes already provided by the Android platform "+
+				"and can cause unexpected crashes (%s). Remove it, find a version that no "+
+				"longer bundles these classes, or repackage it with a tool such as jarjar.",
+				coord, hint)))
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Rule: MavenLocal
 // ---------------------------------------------------------------------------
 

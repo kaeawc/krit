@@ -599,6 +599,107 @@ func TestDeprecatedDependency(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// DuplicatePlatformClasses
+// ---------------------------------------------------------------------------
+
+func TestDuplicatePlatformClasses(t *testing.T) {
+	r := findGradleRule(t, "DuplicatePlatformClasses")
+
+	t.Run("commons-logging triggers on its line", func(t *testing.T) {
+		content := `dependencies {
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("commons-logging:commons-logging:1.2")
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Line != 3 {
+			t.Fatalf("expected finding on line 3, got %d", findings[0].Line)
+		}
+	})
+
+	t.Run("single-quote coordinate triggers", func(t *testing.T) {
+		content := `dependencies {
+    implementation('org.json:json:20170516')
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle", content, cfg)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("apache httpclient triggers", func(t *testing.T) {
+		content := `dependencies {
+    implementation("org.apache.httpcomponents:httpclient:4.5.13")
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("multiple platform duplicates each report", func(t *testing.T) {
+		content := `dependencies {
+    implementation("xpp3:xpp3:1.1.4c")
+    implementation("org.khronos:opengl-api:gl1.1-android-2.1_r1")
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 2 {
+			t.Fatalf("expected 2 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("ordinary dependency is clean", func(t *testing.T) {
+		content := `dependencies {
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("androidx.appcompat:appcompat:1.6.1")
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("same name different group is clean", func(t *testing.T) {
+		// Only the exact platform coordinate matters; a same-named artifact
+		// from a different group must not fire.
+		content := `dependencies {
+    implementation("com.example.json:json:1.0.0")
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for non-platform group, got %d", len(findings))
+		}
+	})
+
+	t.Run("commented dependency is clean", func(t *testing.T) {
+		content := `dependencies {
+    // implementation("commons-logging:commons-logging:1.2")
+    implementation("androidx.core:core-ktx:1.12.0")
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for commented-out dependency, got %d", len(findings))
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
 // MavenLocal
 // ---------------------------------------------------------------------------
 
@@ -1320,6 +1421,7 @@ func TestGradleRulesRegistered(t *testing.T) {
 		"OldTargetApi",
 		"ExpiredTargetSdkVersion",
 		"DeprecatedDependency",
+		"DuplicatePlatformClasses",
 		"MavenLocal",
 		"MinSdkTooLow",
 		"GradleDeprecated",

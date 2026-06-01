@@ -117,6 +117,20 @@ func isBooleanLiteralTrue(file *scanner.File, idx uint32) bool {
 	return false
 }
 
+// isBooleanLiteralFalse returns true if the node is a boolean_literal whose
+// token is `false`. Accepts 0 and returns false (caller convenience).
+func isBooleanLiteralFalse(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "boolean_literal" {
+		return false
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "false" {
+			return true
+		}
+	}
+	return false
+}
+
 // ifExpressionHasElse returns true when an if_expression has an `else`
 // token child. An if_expression with only the then branch has children
 // (if, "(", condition, ")", control_structure_body); adding an else

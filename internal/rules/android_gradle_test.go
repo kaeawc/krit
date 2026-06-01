@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -29,7 +30,9 @@ func findGradleRule(t *testing.T, name string) *api.Rule {
 
 func runGradleRule(r *api.Rule, path, content string, cfg *android.BuildConfig) []scanner.Finding {
 	collector := scanner.NewFindingCollector(0)
+	file := scanner.ParseGradleScript(context.Background(), path, []byte(content), cfg)
 	ctx := &api.Context{
+		File:          file,
 		GradlePath:    path,
 		GradleContent: content,
 		GradleConfig:  cfg,

@@ -1185,6 +1185,20 @@ type Context struct {
 	AtThoroughDepth bool
 }
 
+// GradleAST returns the parsed Gradle build script when it carries a
+// tree-sitter flat AST — i.e. a Kotlin DSL (.kts) script parsed by
+// scanner.ParseGradleScript. It returns nil for Groovy (.gradle) scripts,
+// where rules must fall back to line/regex scanning over GradleContent.
+// Gradle rules migrating off regex should branch on this rather than reaching
+// into ctx.File.FlatTree directly, so the AST-vs-regex contract stays in one
+// place.
+func (c *Context) GradleAST() *scanner.File {
+	if c.File != nil && c.File.FlatTree != nil {
+		return c.File
+	}
+	return nil
+}
+
 // Emit reports a finding. The finding is stamped with rule metadata and
 // written to the Collector.
 func (c *Context) Emit(f scanner.Finding) {

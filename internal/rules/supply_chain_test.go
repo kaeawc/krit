@@ -899,6 +899,25 @@ apply(plugin = "com.android.application")
 			t.Fatalf("fix output mismatch:\n--- got ---\n%q\n--- want ---\n%q", got, want)
 		}
 	})
+
+	// Regression: the line-based scanner cannot track multi-line raw-string
+	// state, so an apply(plugin = ...) inside a """...""" literal looked like
+	// a real application and produced a false positive. The .kts AST path
+	// sees the multi_line_string and emits nothing.
+	t.Run("apply inside multi-line raw string is clean", func(t *testing.T) {
+		content := `plugins {
+    id("com.android.application")
+}
+val template = """
+apply(plugin = "com.android.application")
+"""
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
 }
 
 func TestConfigurationsAllSideEffect(t *testing.T) {

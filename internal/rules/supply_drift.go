@@ -456,7 +456,13 @@ func (r *ApplyPluginTwiceRule) check(ctx *api.Context) {
 	if !isGradleBuildScript(path) {
 		return
 	}
-	for _, duplicate := range findApplyPluginTwice(content) {
+	var duplicates []applyPluginTwiceFinding
+	if astFile := ctx.GradleAST(); astFile != nil {
+		duplicates = findApplyPluginTwiceAST(astFile)
+	} else {
+		duplicates = findApplyPluginTwice(content)
+	}
+	for _, duplicate := range duplicates {
 		finding := scanner.Finding{
 			File:       path,
 			Line:       duplicate.line,
@@ -564,6 +570,118 @@ func findApplyPluginTwice(content string) []applyPluginTwiceFinding {
 		}
 	}
 	return findings
+}
+
+// findApplyPluginTwiceAST is the tree-sitter equivalent of
+// findApplyPluginTwice for Kotlin DSL (.kts) scripts. It walks the flat AST
+// instead of brace-counting lines, so string-literal lookalikes, comments,
+// and chained `apply false` declarations are handled by parser structure
+// rather than lexical heuristics.
+func findApplyPluginTwiceAST(file *scanner.File) []applyPluginTwiceFinding {
+	declared := map[string]gradlePluginOccurrence{}
+	var applied []gradlePluginOccurrence
+
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		switch flatCallExpressionName(file, idx) {
+		case "plugins":
+			collectPluginsBlockIDsAST(file, idx, declared)
+		case "apply":
+			if id, ok := applyPluginIDAST(file, idx); ok {
+				applied = append(applied, gradlePluginOccurrence{id: id, line: file.FlatRow(idx) + 1})
+			}
+		}
+	})
+
+	seen := map[string]bool{}
+	var findings []applyPluginTwiceFinding
+	for _, occurrence := range applied {
+		if seen[occurrence.id] {
+			continue
+		}
+		if _, ok := declared[occurrence.id]; ok {
+			findings = append(findings, applyPluginTwiceFinding(occurrence))
+			seen[occurrence.id] = true
+		}
+	}
+	return findings
+}
+
+// collectPluginsBlockIDsAST records every plugin id declared inside the
+// trailing lambda of a `plugins { }` call. `id("x")` yields its literal id;
+// `kotlin("jvm")` is normalized through kotlinGradlePluginID. Declarations
+// marked `apply false` are skipped — they are not applied in this script.
+func collectPluginsBlockIDsAST(file *scanner.File, pluginsCall uint32, declared map[string]gradlePluginOccurrence) {
+	lambda := flatCallTrailingLambda(file, pluginsCall)
+	if lambda == 0 {
+		return
+	}
+	file.FlatWalkNodes(lambda, "call_expression", func(idx uint32) {
+		var id string
+		switch flatCallExpressionName(file, idx) {
+		case "id":
+			id = pluginCallStringArgAST(file, idx)
+		case "kotlin":
+			id = kotlinGradlePluginID(pluginCallStringArgAST(file, idx))
+		default:
+			return
+		}
+		if id == "" || pluginDeclarationIsApplyFalseAST(file, idx) {
+			return
+		}
+		if _, ok := declared[id]; !ok {
+			declared[id] = gradlePluginOccurrence{id: id, line: file.FlatRow(idx) + 1}
+		}
+	})
+}
+
+// pluginCallStringArgAST returns the first positional string-literal argument
+// of a plugin call (`id("x")`, `kotlin("jvm")`), or "" when the argument is
+// absent or interpolated.
+func pluginCallStringArgAST(file *scanner.File, call uint32) string {
+	arg := flatPositionalValueArgument(file, flatCallKeyArguments(file, call), 0)
+	return flatStringLiteralExprContent(file, flatValueArgumentExpression(file, arg))
+}
+
+// applyPluginIDAST returns the plugin id of an `apply(plugin = "x")` call, or
+// false when the call is not that form.
+func applyPluginIDAST(file *scanner.File, call uint32) (string, bool) {
+	arg := flatNamedValueArgument(file, flatCallKeyArguments(file, call), "plugin")
+	id := flatStringLiteralExprContent(file, flatValueArgumentExpression(file, arg))
+	return id, id != ""
+}
+
+// pluginDeclarationIsApplyFalseAST reports whether a plugin declaration call
+// is the left operand of an `... apply false` infix expression, which marks
+// the plugin as declared-but-not-applied in this script.
+func pluginDeclarationIsApplyFalseAST(file *scanner.File, call uint32) bool {
+	for node := call; node != 0; {
+		parent, ok := file.FlatParent(node)
+		if !ok {
+			return false
+		}
+		switch file.FlatType(parent) {
+		case "infix_expression":
+			if infixIsApplyFalse(file, parent) {
+				return true
+			}
+		case "statements", "lambda_literal":
+			return false
+		}
+		node = parent
+	}
+	return false
+}
+
+func infixIsApplyFalse(file *scanner.File, infix uint32) bool {
+	if !infixOperatorIs(file, infix, "apply") {
+		return false
+	}
+	for child := file.FlatFirstChild(infix); child != 0; child = file.FlatNextSib(child) {
+		if isBooleanLiteralFalse(file, child) {
+			return true
+		}
+	}
+	return false
 }
 
 func gradlePluginsBlockStarts(line string) bool {

@@ -642,6 +642,7 @@ func AllMetaProviders() []api.MetaProvider {
 		(*UniqueConstantsRule)(nil),
 		(*UniquePermissionRule)(nil),
 		(*UnknownIDInLayoutRule)(nil),
+		(*UnknownIDResourceRule)(nil),
 		(*UnnamedParameterUseRule)(nil),
 		(*UnnecessaryAnyRule)(nil),
 		(*UnnecessaryApplyRule)(nil),

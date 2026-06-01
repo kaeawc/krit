@@ -4544,6 +4544,25 @@
             }
           }
         },
+        "UnknownId": {
+          "description": "Layout references an id that is not defined anywhere [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnknownId (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "UnknownIdInLayout": {
           "description": "Reference to unknown @id in layout [precision: ast-backed] [noisiness: normal]",
           "type": "object",

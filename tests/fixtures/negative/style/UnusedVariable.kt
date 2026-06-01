@@ -44,3 +44,29 @@ fun walkPairsIgnoringFirst(pairs: List<Pair<Int, Int>>) {
         println(b)
     }
 }
+
+// A unary-prefixed continuation (`+expr`) on the line after a declaration is
+// folded by tree-sitter into the declaration's initializer. The variable is
+// genuinely used inside that continuation, so it must NOT be reported.
+fun unaryContinuationBareName(builder: Builder) {
+    val factoryCall = builder.create()
+    +factoryCall
+}
+
+fun unaryContinuationCallArgument(builder: Builder) {
+    val typeKey = builder.key()
+    +builder.add(typeKey)
+}
+
+fun unaryContinuationLambdaBody(builder: Builder) {
+    val instance = builder.create()
+    +builder.apply { instance.register() }
+}
+
+class Builder {
+    fun create(): Builder = this
+    fun key(): Int = 0
+    fun add(k: Int): Builder = this
+    fun register() {}
+    operator fun Builder.unaryPlus() {}
+}

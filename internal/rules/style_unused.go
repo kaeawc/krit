@@ -702,14 +702,53 @@ func unusedVariableUnaryContinuationUsesName(file *scanner.File, target unusedVa
 		if file.FlatRow(op) <= lhsEndRow {
 			return
 		}
-		if file.FlatType(rhs) != "simple_identifier" {
-			return
+		// The unary-prefixed continuation `+expr` was bound by tree-sitter into
+		// the declaration's initializer as `lhs <op> rhs`. The target name may be
+		// the entire operand (`+factoryCall`) or nested inside it as a call
+		// argument or a reference within a trailing lambda (`+render(typeKey)`,
+		// `+apply { instance.append(...) }`). Treat any genuine reference to the
+		// name anywhere in the operand subtree as a use.
+		if unusedVariableContinuationOperandUsesName(file, rhs, target.name) {
+			found = true
 		}
-		if unusedVariableIdentifierName(file, rhs) != target.name {
-			return
-		}
-		found = true
 	})
+	return found
+}
+
+// unusedVariableContinuationOperandUsesName reports whether `operand` — the
+// right-hand side of a unary-prefixed continuation that tree-sitter folded
+// into a preceding declaration's initializer — contains a genuine reference to
+// `name`. A bare-identifier operand is matched directly; otherwise the operand
+// subtree is walked for an identifier (or string-template reference) that names
+// the target in a real reference position (not a label, type, or declaration).
+func unusedVariableContinuationOperandUsesName(file *scanner.File, operand uint32, name string) bool {
+	if file == nil || operand == 0 || name == "" {
+		return false
+	}
+	if file.FlatType(operand) == "simple_identifier" {
+		return unusedVariableIdentifierName(file, operand) == name
+	}
+	found := false
+	for _, nodeType := range []string{"simple_identifier", "interpolated_identifier", "line_str_ref", "multi_line_str_ref"} {
+		file.FlatWalkNodes(operand, nodeType, func(candidate uint32) {
+			if found {
+				return
+			}
+			if unusedVariableReferenceName(file, candidate) != name {
+				return
+			}
+			if file.FlatType(candidate) == "simple_identifier" {
+				isReference, known := unusedVariableIsReferenceIdentifier(file, candidate)
+				if !known || !isReference {
+					return
+				}
+			}
+			found = true
+		})
+		if found {
+			break
+		}
+	}
 	return found
 }
 

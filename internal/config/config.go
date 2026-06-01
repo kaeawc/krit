@@ -53,8 +53,8 @@ type LSPConfig struct {
 // override".
 type OracleConfig struct {
 	// Backend selects which JVM daemon krit spawns for the type
-	// oracle role: "kaa" (krit-types, the default) or "fir"
-	// (krit-fir). Empty means default. Validation happens in
+	// oracle role: "fir" (krit-fir, the default) or "kaa"
+	// (krit-types). Empty means default. Validation happens in
 	// internal/oracle.ParseBackend; values not handled there are
 	// surfaced as a CLI error rather than silently falling back.
 	Backend   string

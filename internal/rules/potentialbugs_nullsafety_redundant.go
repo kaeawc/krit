@@ -1922,8 +1922,8 @@ func (r *UselessElvisOnNonNullRule) check(ctx *api.Context) {
 	if !ok {
 		return
 	}
-	resolved := ctx.Resolver.ResolveFlatNode(operand, file)
-	if resolved == nil {
+	resolved, ok := uselessElvisResolvedOperandType(file, ctx.Resolver, operand)
+	if !ok || resolved == nil {
 		return
 	}
 	if resolved.Kind == typeinfer.TypeUnknown || resolved.Kind == typeinfer.TypeGeneric {
@@ -1944,6 +1944,35 @@ func (r *UselessElvisOnNonNullRule) check(ctx *api.Context) {
 		Replacement: "",
 	}
 	ctx.Emit(f)
+}
+
+// uselessElvisResolvedOperandType resolves the elvis left operand's type, but
+// only when the result is genuinely proven non-null rather than defaulted to
+// non-null by source inference.
+//
+// For qualified calls and member-access navigations it requires a resolved
+// same-file / stdlib target (mirroring UnnecessaryNotNullCheckRule's operand
+// gate): source inference defaults an unresolved member call or property
+// access to a non-null type, which would wrongly flag the elvis fallback as
+// dead code (e.g. `external.create(x) ?: continue`, `decl.source ?: return`,
+// `obj.missingMember ?: fallback`). Intrinsically non-null operand shapes
+// (literals, bare identifiers with a same-file declaration, `this`, `x!!`,
+// `x as T`) keep the direct resolver path, where the resolver's nullability
+// verdict is trustworthy.
+func uselessElvisResolvedOperandType(file *scanner.File, resolver typeinfer.TypeResolver, operand uint32) (*typeinfer.ResolvedType, bool) {
+	if file == nil || resolver == nil || operand == 0 {
+		return nil, false
+	}
+	switch file.FlatType(operand) {
+	case "call_expression", "navigation_expression":
+		return flatResolvedNullCheckOperandType(file, resolver, operand)
+	default:
+		resolved := resolver.ResolveFlatNode(operand, file)
+		if resolved == nil {
+			return nil, false
+		}
+		return resolved, true
+	}
 }
 
 // ExpressionPositions enumerates left operands the rule wants resolved by

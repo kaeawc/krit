@@ -42,6 +42,32 @@ class UselessElvisOnNonNull {
     fun navigationAfterSafeCall(harness: TestHarness?) {
         val y = harness?.group?.length.toString() ?: "fallback"
     }
+
+    // Member access on a receiver whose type is not declared in this file.
+    // Source inference cannot see the member's declared nullability and must
+    // not default it to non-null: the member may well be nullable, so the
+    // elvis fallback is meaningful.
+    fun memberAccessOnUnknownReceiver(decl: ExternalDecl) {
+        val y = decl.source ?: return
+        use(y)
+    }
+
+    // Member access to a name that does not exist on a known in-file class.
+    // The receiver type resolves, but the member does not — its nullability
+    // is unproven, so the rule must not fire.
+    fun memberAccessUnknownMember(h: TestHarness) {
+        val y = h.missing ?: "fallback"
+        use(y)
+    }
+
+    // Qualified call whose target cannot be resolved in-file or in the stdlib.
+    // The return type's nullability is unproven; the elvis must be preserved.
+    fun qualifiedCallUnknownTarget(factory: ExternalFactory) {
+        val y = factory.create() ?: return
+        use(y)
+    }
+
+    fun use(x: Any?) {}
 }
 
 class TestHarness {

@@ -1003,6 +1003,38 @@ configurations.all {
 			t.Fatalf("expected 1 finding when convention plugin allowance is disabled, got %d", len(findings))
 		}
 	})
+
+	// Regression: the line scanner cannot track multi-line raw-string state, so
+	// a configurations.all { } block written inside a """...""" literal looked
+	// like real code and produced a false positive. The .kts AST path sees the
+	// multi_line_string and emits nothing.
+	t.Run("configurations.all inside multi-line raw string is clean", func(t *testing.T) {
+		content := `val template = """
+configurations.all {
+    resolutionStrategy.force("x:y:1")
+}
+"""
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	// The configurations.matching { }.all { } form mutates only a filtered view
+	// and must stay clean — the AST path distinguishes it by receiver shape.
+	t.Run("configurations.matching.all with mutator is clean", func(t *testing.T) {
+		content := `configurations.matching { it.name == "runtimeClasspath" }.all {
+    resolutionStrategy.force("com.squareup.okhttp3:okhttp:4.12.0")
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
 }
 
 func TestDependencyFromBintray(t *testing.T) {

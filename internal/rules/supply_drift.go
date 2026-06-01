@@ -756,7 +756,13 @@ func (r *ConfigurationsAllSideEffectRule) check(ctx *api.Context) {
 	if r.AllowInConventionPlugins && isConventionPluginBuildPath(path) {
 		return
 	}
-	for _, block := range findConfigurationsAllSideEffects(content) {
+	var blocks []configurationsAllSideEffect
+	if astFile := ctx.GradleAST(); astFile != nil {
+		blocks = findConfigurationsAllSideEffectsAST(astFile)
+	} else {
+		blocks = findConfigurationsAllSideEffects(content)
+	}
+	for _, block := range blocks {
 		ctx.Emit(scanner.Finding{
 			File:       path,
 			Line:       block.line,
@@ -839,6 +845,68 @@ func configurationsAllSideEffectMutator(line string) string {
 	case strings.Contains(compact, ".exclude(") || strings.HasPrefix(compact, "exclude("):
 		return "exclude"
 	case strings.Contains(compact, ".force(") || strings.HasPrefix(compact, "force("):
+		return "force"
+	default:
+		return ""
+	}
+}
+
+// findConfigurationsAllSideEffectsAST is the tree-sitter equivalent of
+// findConfigurationsAllSideEffects for Kotlin DSL (.kts) scripts. It matches a
+// `configurations.all { }` call by parser structure — the callee is `all`
+// invoked directly on the bare `configurations` receiver — so the
+// `configurations.matching { }.all { }` form (whose receiver is a call, not the
+// identifier) is correctly excluded, and string/comment lookalikes never parse
+// as calls.
+func findConfigurationsAllSideEffectsAST(file *scanner.File) []configurationsAllSideEffect {
+	var findings []configurationsAllSideEffect
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if flatCallExpressionName(file, idx) != "all" || flatReceiverNameFromCall(file, idx) != "configurations" {
+			return
+		}
+		lambda := flatCallTrailingLambda(file, idx)
+		if lambda == 0 {
+			return
+		}
+		if mutator := configurationsAllMutatorAST(file, lambda); mutator != "" {
+			findings = append(findings, configurationsAllSideEffect{
+				line:    file.FlatRow(idx) + 1,
+				mutator: mutator,
+			})
+		}
+	})
+	return findings
+}
+
+// configurationsAllMutatorAST reports the dependency-resolution mutator invoked
+// inside a configurations.all lambda, or "" when the block only reads state.
+// A bare reference such as `println(resolutionStrategy)` is not a call on the
+// mutator and is correctly ignored. Priority mirrors the line scanner:
+// resolutionStrategy > dependencies.add > exclude > force.
+func configurationsAllMutatorAST(file *scanner.File, lambda uint32) string {
+	var hasRS, hasDepAdd, hasExclude, hasForce bool
+	file.FlatWalkNodes(lambda, "call_expression", func(call uint32) {
+		name := flatCallExpressionName(file, call)
+		recv := flatReceiverNameFromCall(file, call)
+		switch {
+		case name == "resolutionStrategy" || recv == "resolutionStrategy":
+			hasRS = true
+		case name == "add" && recv == "dependencies":
+			hasDepAdd = true
+		case name == "exclude":
+			hasExclude = true
+		case name == "force":
+			hasForce = true
+		}
+	})
+	switch {
+	case hasRS:
+		return "resolutionStrategy"
+	case hasDepAdd:
+		return "dependencies.add"
+	case hasExclude:
+		return "exclude"
+	case hasForce:
 		return "force"
 	default:
 		return ""

@@ -215,7 +215,9 @@ func (m Model) autofixCmd() tea.Cmd {
 		prefixTotal := pre.Summary.Total
 		preByRule := pre.Summary.ByRule
 		// krit --fix returns non-zero when unfixed findings remain; expected.
-		_ = exec.CommandContext(ctx, kritBin, "--config", configPath, "--fix", target).Run()
+		fixCmd := exec.CommandContext(ctx, kritBin, "--config", configPath, "--fix", target)
+		fixCmd.Env = onboarding.NoDaemonAutostartEnv()
+		_ = fixCmd.Run()
 		post, err := runKritJSON(ctx, kritBin, "--config", configPath, "-f", "json", target)
 		if err != nil {
 			return autofixDoneMsg{err: fmt.Errorf("post-fix scan: %w", err)}
@@ -262,6 +264,7 @@ func (m Model) baselineCmd() tea.Cmd {
 		baselinePath := filepath.Join(baselineDir, "baseline.xml")
 		cmd := exec.CommandContext(context.Background(), kritBin,
 			"--config", configPath, "--create-baseline", baselinePath, target)
+		cmd.Env = onboarding.NoDaemonAutostartEnv()
 		if err := cmd.Run(); err != nil {
 			if _, statErr := os.Stat(baselinePath); statErr != nil {
 				return baselineDoneMsg{err: fmt.Errorf("baseline not written: %w (run err: %w)", statErr, err)}
@@ -283,6 +286,7 @@ type kritJSONOutput struct {
 
 func runKritJSON(ctx context.Context, bin string, args ...string) (*kritJSONOutput, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = onboarding.NoDaemonAutostartEnv()
 	out, runErr := cmd.Output()
 	if len(out) == 0 {
 		return nil, fmt.Errorf("krit produced no output: %w", runErr)

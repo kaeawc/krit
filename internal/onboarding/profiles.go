@@ -13,6 +13,19 @@ import (
 	"strings"
 )
 
+// NoDaemonAutostartEnv returns the current environment with daemon
+// auto-start disabled. Every krit subprocess the onboarding flow
+// spawns runs one-shot and in-process: a scan, an autofix pass, a
+// baseline write. Letting any of them fork a detached daemon would
+// leave a watcher and background bundle/manifest writers alive in the
+// target's .krit/ directory after `krit init` returns — an unexpected
+// lingering process for real users, and a cleanup race for callers
+// that init into a throwaway directory (tests). Pinning these to the
+// in-process path makes each subprocess fully drain before it exits.
+func NoDaemonAutostartEnv() []string {
+	return append(os.Environ(), "KRIT_NO_DAEMON_AUTOSTART=1")
+}
+
 // StrictStages lists the ordered sub-stages emitted by `krit -v` to
 // stderr during a scan. The TUI uses this to render a live progress
 // bar for the strict profile scan (the slowest, cold-cache one).
@@ -155,6 +168,7 @@ func ScanProfile(ctx context.Context, opts ScanOptions, profile string) (*ScanRe
 		"-f", "json",
 		opts.Target,
 	)
+	cmd.Env = NoDaemonAutostartEnv()
 	out, runErr := cmd.Output()
 	// A non-zero exit from krit on findings is expected; only fail if
 	// we got no stdout at all (indicates a harder failure like an
@@ -210,6 +224,7 @@ func ScanProfileWithProgress(
 		"-f", "json",
 		opts.Target,
 	)
+	cmd.Env = NoDaemonAutostartEnv()
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("stdout pipe: %w", err)

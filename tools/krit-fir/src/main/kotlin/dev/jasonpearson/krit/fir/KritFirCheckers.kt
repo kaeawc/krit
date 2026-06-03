@@ -7,6 +7,7 @@ import dev.jasonpearson.krit.fir.checkers.UnsafeCastWhenNullable
 import dev.jasonpearson.krit.fir.oracle.OracleClassChecker
 import dev.jasonpearson.krit.fir.oracle.OracleExpressionChecker
 import dev.jasonpearson.krit.fir.oracle.OracleQualifiedAccessChecker
+import dev.jasonpearson.krit.fir.oracle.OracleSmartCastChecker
 import dev.jasonpearson.krit.fir.rules.SmokeChecker
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
@@ -37,6 +38,15 @@ class KritFirCheckers(session: FirSession) : FirAdditionalCheckersExtension(sess
         // OracleExpressionChecker remain authoritative on collisions.
         override val qualifiedAccessExpressionCheckers = setOf(
             OracleQualifiedAccessChecker,
+        )
+        // OracleSmartCastChecker records the data-flow-refined (smart-cast)
+        // type of a stable reference, overriding the declared type that
+        // OracleQualifiedAccessChecker would otherwise record for the same
+        // position (pre-order traversal + first-wins dedup). Lets Go-side
+        // nullability rules see `Any` instead of `Any?` after `if (x==null)
+        // return`, eliminating equals()/guarded-cast false positives.
+        override val smartCastExpressionCheckers = setOf(
+            OracleSmartCastChecker,
         )
     }
 

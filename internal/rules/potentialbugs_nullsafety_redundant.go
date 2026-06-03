@@ -194,6 +194,17 @@ func flatKnownResolvedType(file *scanner.File, resolver typeinfer.TypeResolver, 
 	}
 	if nullable := resolver.IsNullableFlat(idx, file); nullable != nil {
 		copyVal := *resolved
+		// IsNullableFlat may DEMOTE a nullable type to non-null only through a
+		// smart cast, which the source resolver tracks for simple identifiers.
+		// For other shapes (call results, qualified accesses) source inference
+		// defaults unresolved nullability to non-null, so it must not override
+		// a nullable type the oracle already proved (e.g. a fun returning T?
+		// resolved across files / overloads). Honour a non-null verdict only
+		// when it can come from a real smart cast.
+		demotes := !*nullable && resolved.IsNullable()
+		if demotes && file.FlatType(idx) != "simple_identifier" {
+			return &copyVal, true
+		}
 		copyVal.Nullable = *nullable
 		if !copyVal.Nullable && copyVal.Kind == typeinfer.TypeNullable {
 			copyVal.Kind = typeinfer.TypeClass
@@ -546,6 +557,13 @@ func (r *UnnecessaryNotNullOperatorRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
 	text := file.FlatNodeText(idx)
 	if !flatPostfixHasNotNullAssertion(file, idx) {
+		return
+	}
+
+	// An indexed operand `m[k]!!` is nullable for a Map receiver; the name-based
+	// resolution path below cannot disambiguate it from a non-null List/Array
+	// get, so skip it structurally to avoid a false positive.
+	if flatExpressionIsIndexing(file, flatFirstNamedChild(file, idx)) {
 		return
 	}
 
@@ -1005,6 +1023,19 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 
 	receiver := file.FlatChild(idx, 0)
 	if receiver == 0 {
+		return
+	}
+
+	// A safe-cast receiver `(x as? T)?.foo` is unconditionally nullable, so the
+	// `?.` is required — never flag it, whatever the resolver reports for the
+	// cast target type.
+	if flatAsExpressionIsSafeCast(file, receiver) {
+		return
+	}
+
+	// An indexed receiver `m[k]?.foo` is nullable for a Map; skip it (see
+	// flatExpressionIsIndexing).
+	if flatExpressionIsIndexing(file, receiver) {
 		return
 	}
 
@@ -2032,10 +2063,50 @@ func uselessElvisOperandResolvable(file *scanner.File, operand uint32) bool {
 	case "postfix_expression":
 		return flatPostfixHasNotNullAssertion(file, operand)
 	case "as_expression":
-		return true
+		// `x as T` is non-null and resolver-trustworthy; `x as? T` (safe cast)
+		// is unconditionally nullable, so an elvis on it is never useless —
+		// refuse it structurally regardless of what the type resolver says.
+		return !flatAsExpressionIsSafeCast(file, operand)
 	default:
 		return false
 	}
+}
+
+// flatExpressionIsIndexing reports whether the (paren-unwrapped) node at idx is
+// an indexed access `receiver[key]`. For a `Map`/`MutableMap` receiver the
+// `get` operator returns a nullable value, so `m[k]!!` / `m[k]?.x` are required,
+// not redundant. Source/name-based resolution cannot tell a Map (nullable get)
+// from a List/Array/String (non-null get), and the oracle's byte-range lookup
+// can mis-attribute an inner sub-expression's type to the whole indexed access,
+// so the redundant-null-safety rules skip indexed receivers rather than risk a
+// false positive. The rare true positive (`list[i]!!`) is given up deliberately.
+func flatExpressionIsIndexing(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	idx = flatUnwrapParenExpr(file, idx)
+	return file.FlatType(idx) == "indexing_expression"
+}
+
+// flatAsExpressionIsSafeCast reports whether the as_expression at idx uses the
+// safe-cast operator `as?` (result type is always nullable) rather than the
+// plain `as` operator. The operator surfaces as a dedicated `as?` child node in
+// the tree-sitter grammar. Callers pass an already paren-unwrapped node; for
+// convenience a parenthesized_expression wrapping a safe cast is also detected.
+func flatAsExpressionIsSafeCast(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	idx = flatUnwrapParenExpr(file, idx)
+	if file.FlatType(idx) != "as_expression" {
+		return false
+	}
+	for i := 0; i < file.FlatChildCount(idx); i++ {
+		if file.FlatType(file.FlatChild(idx, i)) == "as?" {
+			return true
+		}
+	}
+	return false
 }
 
 // flatExpressionChainShortCircuits reports whether the static result of the

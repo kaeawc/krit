@@ -11,6 +11,8 @@ import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.name.FqName
 
 internal object InjectDispatcher : FirFunctionCallChecker(MppCheckerKind.Common) {
@@ -24,12 +26,34 @@ internal object InjectDispatcher : FirFunctionCallChecker(MppCheckerKind.Common)
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
         if (isIdiomaticDispatcherHost(expression)) return
+        if (!hasDispatchableOwner()) return
 
         for (argument in expression.argumentList.arguments) {
             val dispatcher = hardcodedDispatcherArgument(argument) ?: continue
             if (dispatcher.name == "Main") continue
             reporter.reportOn(dispatcher.source, KritDiagnostics.INJECT_DISPATCHER, dispatcher.name)
         }
+    }
+
+    // Only flag dispatchers used inside a class/object member, where a dispatcher
+    // could realistically be injected via the constructor. Top-level functions and
+    // extension functions with no class owner have nothing to inject into, so a
+    // hardcoded dispatcher there is not actionable and would be a false positive.
+    context(context: CheckerContext)
+    private fun hasDispatchableOwner(): Boolean {
+        // An enclosing class/object provides a constructor to inject into.
+        if (context.containingDeclarations.any { it is FirClassSymbol<*> }) return true
+
+        // Otherwise, the nearest enclosing function decides. A member function has a
+        // dispatch receiver; a top-level or extension-without-class function does not.
+        val enclosingFunction = context.containingDeclarations
+            .filterIsInstance<FirNamedFunctionSymbol>()
+            .firstOrNull() ?: return false
+
+        // Extension functions (receiverParameterSymbol != null) and top-level
+        // functions (no dispatch receiver, i.e. no owning class) are not injectable.
+        if (enclosingFunction.receiverParameterSymbol != null) return false
+        return enclosingFunction.dispatchReceiverType != null
     }
 
     private fun hardcodedDispatcherArgument(argument: FirExpression): DispatcherArgument? {

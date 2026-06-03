@@ -62,9 +62,17 @@ func recordOracleDir(cacheDir string) {
 }
 
 // CacheVersion is bumped whenever the on-disk entry layout changes in a
-// way that invalidates previously-written entries. A version mismatch on
-// read is treated as a miss and the offending entry is deleted.
-const CacheVersion = 2
+// way that invalidates previously-written entries — OR whenever the oracle
+// backend starts emitting different facts for the same source (the on-disk
+// oracle cache keys on file content + CacheVersion, not on the krit-fir /
+// krit-types jar identity, so a backend behavior change is invisible to it
+// without a bump). A version mismatch on read is treated as a miss and the
+// offending entry is deleted.
+//
+// v3: krit-fir now records smart-cast-refined nullability for stable
+// references (OracleSmartCastChecker), so previously-cached declared-type
+// facts (e.g. `x: Any?` where `x` is smart-cast non-null) are stale.
+const CacheVersion = 3
 
 // CacheEntry is one file's cached oracle analysis. The JSON field names
 // are intentionally short because there can be tens of thousands of these

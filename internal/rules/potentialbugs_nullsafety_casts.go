@@ -1253,13 +1253,17 @@ func (r *CastNullableToNonNullableTypeRule) check(ctx *api.Context) {
 
 // castNullableToNonNullableSourceIsNullable consults the oracle's
 // expression-type fact at source, falling back to the resolver.
+//
+// It resolves the operand by BYTE RANGE (ResolveFlatNode → oracle
+// lookupRangeFact), not line/column: the FIR backend reports columns that
+// don't line up with tree-sitter's, so a line/col probe usually misses and
+// silently falls back to source inference. The byte-range path also reads
+// the SMART-CAST-refined fact (emitted by krit-fir's OracleSmartCastChecker),
+// so `o as T` after `if (o == null) return` correctly sees `o` as non-null
+// and the cast is not flagged.
 func castNullableToNonNullableSourceIsNullable(ctx *api.Context, source uint32) bool {
-	if composite, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
-		line := ctx.File.FlatRow(source) + 1
-		col := ctx.File.FlatCol(source) + 1
-		if exprType := composite.Oracle().LookupExpression(ctx.File.Path, line, col); exprType != nil {
-			return exprType.IsNullable()
-		}
+	if resolved := ctx.Resolver.ResolveFlatNode(source, ctx.File); resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
+		return resolved.IsNullable()
 	}
 	nullable := ctx.Resolver.IsNullableFlat(source, ctx.File)
 	return nullable != nil && *nullable

@@ -6,7 +6,81 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
+
+func firstFlatNodeOfType(t *testing.T, file *scanner.File, kind, text string) uint32 {
+	t.Helper()
+	var found uint32
+	file.FlatWalkNodes(0, kind, func(idx uint32) {
+		if found == 0 && (text == "" || file.FlatNodeText(idx) == text) {
+			found = idx
+		}
+	})
+	if found == 0 {
+		t.Fatalf("no %s node with text %q", kind, text)
+	}
+	return found
+}
+
+// TestFlatAsExpressionIsSafeCast_DistinguishesSafeCast verifies that the helper
+// reports `x as? T` (always nullable) as a safe cast and `x as T` (non-null)
+// as not. Used by UselessElvisOnNonNull / UnnecessarySafeCall to refuse safe
+// casts structurally regardless of what the type oracle reports.
+func TestFlatAsExpressionIsSafeCast_DistinguishesSafeCast(t *testing.T) {
+	file := parseInlineForInternalTest(t, "fun f(x: Any) { val a = x as? Int; val b = x as Int }\n")
+	safe := firstFlatNodeOfType(t, file, "as_expression", "x as? Int")
+	plain := firstFlatNodeOfType(t, file, "as_expression", "x as Int")
+	if !flatAsExpressionIsSafeCast(file, safe) {
+		t.Error("`x as? Int` should be detected as a safe cast")
+	}
+	if flatAsExpressionIsSafeCast(file, plain) {
+		t.Error("`x as Int` must not be detected as a safe cast")
+	}
+}
+
+// TestFlatExpressionIsIndexing_DetectsIndexedAccess verifies the helper that
+// keeps the redundant-null-safety rules off `m[k]` receivers (nullable for a
+// Map) while leaving plain identifiers alone.
+func TestFlatExpressionIsIndexing_DetectsIndexedAccess(t *testing.T) {
+	file := parseInlineForInternalTest(t, "fun f(m: Map<String, Int>) { val a = m[\"k\"]; val b = a }\n")
+	idx := firstFlatNodeOfType(t, file, "indexing_expression", "m[\"k\"]")
+	id := firstFlatNodeOfType(t, file, "simple_identifier", "m")
+	if !flatExpressionIsIndexing(file, idx) {
+		t.Error("`m[\"k\"]` should be detected as an indexed access")
+	}
+	if flatExpressionIsIndexing(file, id) {
+		t.Error("a bare identifier must not be detected as an indexed access")
+	}
+}
+
+// TestFlatKnownResolvedType_OracleNullableNotDemotedForCall pins the fix that
+// stops source-level IsNullableFlat (which defaults unresolved call results to
+// non-null) from overriding a nullable type the oracle already proved. The
+// demotion remains valid for simple identifiers, where it models a smart cast.
+func TestFlatKnownResolvedType_OracleNullableNotDemotedForCall(t *testing.T) {
+	file := parseInlineForInternalTest(t, "fun f() { val r = getX(a) }\n")
+	call := firstFlatNodeOfType(t, file, "call_expression", "getX(a)")
+	id := firstFlatNodeOfType(t, file, "simple_identifier", "a")
+
+	fake := typeinfer.NewFakeResolver()
+	nullableT := &typeinfer.ResolvedType{Name: "X", FQN: "com.example.X", Kind: typeinfer.TypeNullable, Nullable: true}
+	nonNull := false
+	// Oracle says nullable; source IsNullableFlat says non-null (the bad guess).
+	fake.NodeTypes["getX(a)"] = nullableT
+	fake.Nullability["getX(a)"] = &nonNull
+	fake.NodeTypes["a"] = nullableT
+	fake.Nullability["a"] = &nonNull
+
+	// Call result: the oracle's nullable verdict must survive.
+	if resolved, ok := flatKnownResolvedType(file, fake, call); !ok || !resolved.IsNullable() {
+		t.Fatalf("call result: expected nullable to survive, got ok=%v resolved=%#v", ok, resolved)
+	}
+	// Simple identifier: a non-null verdict (smart cast) still demotes.
+	if resolved, ok := flatKnownResolvedType(file, fake, id); !ok || resolved.IsNullable() {
+		t.Fatalf("identifier smart cast: expected non-null demotion to hold, got ok=%v resolved=%#v", ok, resolved)
+	}
+}
 
 // parseInlineForInternalTest parses the given Kotlin source into a *scanner.File
 // using a temporary .kt file so internal tests can exercise helpers without

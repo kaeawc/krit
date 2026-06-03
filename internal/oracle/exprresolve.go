@@ -122,6 +122,10 @@ func parseExpressionPositionKey(key string) (ExpressionPosition, bool) {
 // Nothing / nullable / class) so callers see the same shape regardless
 // of how the fact arrived.
 func factToResolvedType(fact resolvedExpressionFact) *typeinfer.ResolvedType {
+	if isErrorType(fact.FQN) || isErrorType(fact.Name) {
+		// Unresolved compiler type: unknown nullability (see isErrorType).
+		return typeinfer.UnknownType()
+	}
 	kind := typeinfer.TypeClass
 	if _, ok := typeinfer.PrimitiveTypes[fact.Name]; ok {
 		kind = typeinfer.TypePrimitive

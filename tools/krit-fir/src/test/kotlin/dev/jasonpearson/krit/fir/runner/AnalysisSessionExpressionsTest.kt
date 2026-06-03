@@ -131,6 +131,34 @@ class AnalysisSessionExpressionsTest {
         )
     }
 
+    @Test
+    fun smartCastReferenceRecordsNonNullRefinedType() {
+        val path = writeKt(
+            "SmartCast.kt",
+            """
+            package com.acme.smartcast
+
+            fun use(x: Any?): String {
+                if (x == null) return ""
+                return x as String
+            }
+            """.trimIndent(),
+        )
+
+        val expressions = expressionsFor(path)
+        // The `x` reference on line 5 sits after the `if (x == null) return`
+        // guard, so FIR smart-casts it to a non-null type. Without
+        // OracleSmartCastChecker the oracle recorded the *declared* `Any?`
+        // (nullable=true), which made Go-side rules (CastNullableToNonNullableType)
+        // emit false positives. The recorded fact must now be non-null.
+        val line5 = expressions.entries.filter { it.key.startsWith("5:") }
+        assertTrue(line5.isNotEmpty(), "no expression facts on line 5: $expressions")
+        assertTrue(
+            line5.any { !it.value.nullable && it.value.type.isNotBlank() },
+            "expected a non-null smart-cast fact on line 5, got $line5",
+        )
+    }
+
     private fun expressionsFor(path: String): Map<String, ExpressionPayload> {
         val result = AnalysisSession(
             sourceDirs = listOf(tmp.toFile().absolutePath),

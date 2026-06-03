@@ -2,6 +2,7 @@ package oracle
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -433,6 +434,79 @@ func TestLookupExpression_FileWithoutExpressions(t *testing.T) {
 	rt := o.LookupExpression("any.kt", 1, 1)
 	if rt != nil {
 		t.Error("expected nil for oracle with no expressions")
+	}
+}
+
+// TestLookupExpressionFlat_PrefersLargestContainedFact pins the fix for the
+// "smallest contained fact" regression: when the queried node has no exact
+// byte-range fact, the lookup must return the fact closest to the whole node
+// (the call expression `g(a)`), not an inner token (the argument `a`). The old
+// smallest-span heuristic returned `a`'s non-null type for `g(a)!!`, discarding
+// the call's correctly-resolved nullable type and causing redundant-null-safety
+// false positives.
+func TestLookupExpressionFlat_PrefersLargestContainedFact(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "A.kt")
+	if err := os.WriteFile(path, []byte("fun f() { val x = g(a)!! }\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseKotlinFileCached(context.Background(), path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var postfix, call, arg uint32
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		switch file.FlatType(idx) {
+		case "postfix_expression":
+			if file.FlatNodeText(idx) == "g(a)!!" {
+				postfix = idx
+			}
+		case "call_expression":
+			if file.FlatNodeText(idx) == "g(a)" {
+				call = idx
+			}
+		case "simple_identifier":
+			if file.FlatNodeText(idx) == "a" {
+				arg = idx
+			}
+		}
+	})
+	if postfix == 0 || call == 0 || arg == 0 {
+		t.Fatalf("missing nodes: postfix=%d call=%d arg=%d", postfix, call, arg)
+	}
+
+	o, err := LoadFromData(&Data{
+		Version:       1,
+		KotlinVersion: "2.1.0",
+		Files: map[string]*File{
+			path: {
+				Expressions: map[string]*ExpressionType{
+					// Outer call: nullable, the type we want returned.
+					fmt.Sprintf("%d:%d", file.FlatRow(call)+1, file.FlatCol(call)+1): {
+						Type:      "com.example.G",
+						Nullable:  true,
+						StartByte: int(file.FlatStartByte(call)),
+						EndByte:   int(file.FlatEndByte(call)),
+					},
+					// Inner argument: non-null, smaller span — must NOT win.
+					fmt.Sprintf("%d:%d", file.FlatRow(arg)+1, file.FlatCol(arg)+1): {
+						Type:      "kotlin.Int",
+						StartByte: int(file.FlatStartByte(arg)),
+						EndByte:   int(file.FlatEndByte(arg)),
+					},
+				},
+			},
+		},
+		Dependencies: map[string]*Class{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := o.LookupExpressionFlat(file, postfix)
+	if rt == nil {
+		t.Fatal("expected a fact for the postfix node, got nil")
+	}
+	if !rt.IsNullable() || rt.FQN != "com.example.G" {
+		t.Fatalf("expected the larger nullable call fact (com.example.G?), got %#v", rt)
 	}
 }
 
@@ -1066,6 +1140,44 @@ func TestMakeResolvedType_Class(t *testing.T) {
 	}
 	if rt.FQN != "com.example.Foo" {
 		t.Errorf("expected FQN preserved, got %q", rt.FQN)
+	}
+}
+
+// TestMakeResolvedType_ErrorTypeIsUnknown verifies that the compiler error
+// sentinel "<error>" (emitted when the FIR/KAA backend resolves an expression
+// without the full classpath) is reported as unknown nullability rather than a
+// proven non-null class. Treating "<error>" + nullable=false as non-null caused
+// false positives in the redundant-null-safety rules (UselessElvisOnNonNull,
+// UnnecessaryNotNullOperator, UnnecessarySafeCall).
+//
+// Note: an explicitly nullable "<error>?" is ALSO mapped to TypeUnknown here on
+// purpose. The "?" is not independently trustworthy on these backend-emitted
+// error types: FIR resolves them without the full classpath, and the
+// byte-range expression lookup can surface an inner "<error>?" sub-expression
+// (a safe-call leg of an Elvis, an index key) as the type of a larger node
+// whose real type is non-null. Preserving that nullability re-introduced
+// CastNullableToNonNullableType / redundant-null-safety false positives on
+// real code, so error types stay fully unknown regardless of the nullable bit.
+func TestMakeResolvedType_ErrorTypeIsUnknown(t *testing.T) {
+	for _, fqn := range []string{"<error>", "<error>?", "<error><<error>>"} {
+		rt := makeResolvedType(fqn, false)
+		if rt.Kind != typeinfer.TypeUnknown {
+			t.Errorf("makeResolvedType(%q): expected TypeUnknown, got %d", fqn, rt.Kind)
+		}
+		if rt.IsNullable() {
+			t.Errorf("makeResolvedType(%q): unknown type must not report a definite nullability", fqn)
+		}
+	}
+}
+
+// TestMakeResolvedType_ResolvedOuterWithErrorArgKept verifies that a resolved
+// outer type carrying an unresolved type argument (e.g. List<<error>>) keeps
+// its own trustworthy non-null classification — only a top-level "<error>" is
+// downgraded.
+func TestMakeResolvedType_ResolvedOuterWithErrorArgKept(t *testing.T) {
+	rt := makeResolvedType("kotlin.collections.List<<error>>", false)
+	if rt.Kind == typeinfer.TypeUnknown {
+		t.Errorf("List<<error>> should stay a resolved non-null List, got TypeUnknown")
 	}
 }
 

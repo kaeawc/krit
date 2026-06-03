@@ -465,7 +465,25 @@ func convertClassInfo(fqn string, cls *Class) *typeinfer.ClassInfo {
 	}
 }
 
+// isErrorType reports whether an oracle type string is a compiler error /
+// unresolved type. krit-fir (and the KAA backend) render such types with a
+// leading "<error>" sentinel — e.g. "<error>", "<error>?", "<error><<error>>".
+// These carry no reliable nullability: the backend resolves them without the
+// full classpath (Android SDK, binary deps), so a "<error>" with nullable=false
+// must NOT be read as a proven non-null type. Only the top-level position
+// matters here; a resolved outer type with an unresolved argument (e.g.
+// "kotlin.collections.List<<error>>") is still a non-null List and is left
+// alone — its own nullability is trustworthy.
+func isErrorType(fqn string) bool {
+	return strings.HasPrefix(fqn, "<error>")
+}
+
 func makeResolvedType(fqn string, nullable bool) *typeinfer.ResolvedType {
+	if isErrorType(fqn) {
+		// Unresolved type: report unknown nullability so nullability-based
+		// rules fall through / skip instead of treating it as non-null.
+		return typeinfer.UnknownType()
+	}
 	name := simpleNameOf(fqn)
 	kind := typeinfer.TypeClass
 	if _, ok := typeinfer.PrimitiveTypes[name]; ok {
@@ -618,19 +636,26 @@ func (o *Oracle) lookupRangeFact(file *scanner.File, idx uint32) *expressionRang
 		return nil
 	}
 	var best *expressionRange
-	bestSpan := int(^uint(0) >> 1)
+	bestSpan := -1
 	for i := range ranges {
 		r := &ranges[i]
 		if r.start < start || r.end > end {
 			continue
 		}
-		span := r.end - r.start
-		if span < bestSpan {
-			best = r
-			bestSpan = span
-		}
 		if r.start == start && r.end == end {
 			return r
+		}
+		// Prefer the LARGEST contained fact — the sub-expression closest to
+		// the whole queried node. The smallest contained fact is an inner
+		// token (a call argument, an index key, a cast source) whose type is
+		// not the type of the outer expression; returning it made the
+		// redundant-null-safety rules read `getX(arg)!!` / `m[k]!!` /
+		// `x as? T` as non-null (the argument/key/source type) and emit false
+		// positives, discarding the correctly-resolved nullable outer type.
+		span := r.end - r.start
+		if span > bestSpan {
+			best = r
+			bestSpan = span
 		}
 	}
 	return best

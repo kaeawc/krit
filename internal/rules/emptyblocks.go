@@ -80,6 +80,30 @@ func blockHasCommentFlat(file *scanner.File, idx uint32) bool {
 	return hasComment
 }
 
+// javaMethodHasOverrideAnnotation reports whether a Java method_declaration
+// carries an `@Override` annotation. The annotation is a structural AST node —
+// `modifiers > (marker_annotation | annotation) > identifier "Override"` — so
+// this matches only a real annotation, not the token `Override` appearing in a
+// string literal, comment, or identifier elsewhere in the method text.
+func javaMethodHasOverrideAnnotation(file *scanner.File, idx uint32) bool {
+	mods, ok := file.FlatFindChild(idx, "modifiers")
+	if !ok {
+		return false
+	}
+	for child := file.FlatFirstChild(mods); child != 0; child = file.FlatNextSib(child) {
+		t := file.FlatType(child)
+		if t != "marker_annotation" && t != "annotation" {
+			continue
+		}
+		for gc := file.FlatFirstChild(child); gc != 0; gc = file.FlatNextSib(gc) {
+			if file.FlatType(gc) == "identifier" && file.FlatNodeTextEquals(gc, "Override") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // EmptyCatchBlockRule detects catch blocks with empty body.
 type EmptyCatchBlockRule struct {
 	FlatDispatchBase

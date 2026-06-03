@@ -240,6 +240,14 @@ func registerCoroutinesInjectDispatcher() {
 			if dispatcherName == "Main" {
 				return
 			}
+			// Only flag when there is an injectable host: a member
+			// function of a class/object/companion. Top-level and
+			// extension functions have nowhere to inject a dispatcher,
+			// so a hardcoded Dispatchers.* there is not actionable.
+			// Mirrors the FIR checker's top-level/extension exemption.
+			if !injectDispatcherHasInjectableHost(file, dispatcherNode) {
+				return
+			}
 			matchLine := file.FlatRow(dispatcherNode) + 1
 			matchCol := file.FlatCol(dispatcherNode) + 1
 			ctx.EmitAt(matchLine, matchCol,

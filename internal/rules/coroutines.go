@@ -214,6 +214,66 @@ func injectDispatcherReferenceConfirmed(file *scanner.File, idx uint32) bool {
 	return fileImportsFQN(file, "kotlinx.coroutines.Dispatchers")
 }
 
+// injectDispatcherHasInjectableHost reports whether the dispatcher
+// usage at idx sits inside a function where constructor injection of a
+// CoroutineDispatcher is actually possible: a member function of a
+// class, object, or companion object.
+//
+// It returns false for the shapes the rule must not flag because there
+// is no injectable host:
+//
+//   - top-level functions (no enclosing class/object/companion), and
+//   - top-level extension functions (receiver fixed by the call site,
+//     and likewise no enclosing type to inject into).
+//
+// A *member* extension function (e.g. `fun String.foo()` declared inside
+// a class) still has an injectable host — the enclosing class — and so
+// continues to flag. That falls out of the ancestor test below without
+// any extension-specific special-casing.
+//
+// Detection is purely structural via the flat AST: an injectable host
+// exists exactly when some ancestor of the usage is a class_declaration,
+// object_declaration, or companion_object. Top-level plain and top-level
+// extension functions both lack such an ancestor and are suppressed,
+// while members (plain or extension) keep flagging. This mirrors the
+// top-level/extension exemption added to the krit-fir InjectDispatcher
+// checker, which uses FIR symbol facts to reach the same decision.
+//
+// The receiver-type AST shape (a `.` token child of the
+// function_declaration, modelled by tree-sitter as
+// user_type/nullable_type, `.`, simple_identifier) is reported by
+// flatFunctionDeclarationIsExtension for callers that need to
+// distinguish extensions explicitly.
+func injectDispatcherHasInjectableHost(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	_, hasType := flatEnclosingAncestor(file, idx,
+		"class_declaration", "object_declaration", "companion_object")
+	return hasType
+}
+
+// flatFunctionDeclarationIsExtension reports whether a
+// function_declaration node declares an extension function. Extension
+// functions carry a receiver type before the name, which tree-sitter
+// models as a type node followed by a `.` token child of the
+// function_declaration (e.g. `fun String.foo()` →
+// user_type "String", `.`, simple_identifier "foo"; `fun <T> T.foo()`
+// inserts type_parameters first but still yields a `.` child).
+// Non-extension functions have no `.` direct child, so a single direct
+// `.` token is a reliable structural signal — no name/substring match.
+func flatFunctionDeclarationIsExtension(file *scanner.File, fn uint32) bool {
+	if file == nil || fn == 0 || file.FlatType(fn) != "function_declaration" {
+		return false
+	}
+	for child := file.FlatFirstChild(fn); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "." {
+			return true
+		}
+	}
+	return false
+}
+
 func fileDeclaresIdentifierNamed(file *scanner.File, except uint32, name string) bool {
 	if file == nil || name == "" {
 		return false

@@ -90,8 +90,8 @@ func (r *EmptyFunctionBlockRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.BoolOption(api.BoolOptionSpec[EmptyFunctionBlockRule]{
 				Name:        "ignoreOverridden",
-				Default:     false,
-				Description: "Ignore overridden functions with empty body.",
+				Default:     true,
+				Description: "Ignore overridden functions with an empty body (intentional framework/interface no-ops). Set to false to also flag empty overrides.",
 				Apply:       func(r *EmptyFunctionBlockRule, v bool) { r.IgnoreOverridden = v },
 			}),
 		},

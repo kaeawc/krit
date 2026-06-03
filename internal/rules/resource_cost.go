@@ -31,6 +31,36 @@ func resourceCostInsideLazyListLambda(file *scanner.File, idx uint32) bool {
 	return false
 }
 
+// resourceCostLoopCallNames is the set of lambda-receiving calls whose body
+// runs once per element. The singular LazyListScope.item { } is deliberately
+// excluded: it renders exactly once, so building a painter inside it is not a
+// per-iteration cost. The plural items/itemsIndexed, the for-each family, and
+// the common iteration combinators are all genuine loops.
+var resourceCostLoopCallNames = map[string]bool{
+	"items":          true,
+	"itemsIndexed":   true,
+	"forEach":        true,
+	"forEachIndexed": true,
+	"map":            true,
+	"mapIndexed":     true,
+	"repeat":         true,
+}
+
+// resourceCostInsideLoopLambda reports whether idx sits inside a lambda body
+// that is executed per iteration. Unlike resourceCostInsideLazyListLambda it
+// does not treat the singular LazyListScope.item { } as a loop.
+func resourceCostInsideLoopLambda(file *scanner.File, idx uint32) bool {
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		if file.FlatType(cur) == "call_expression" {
+			callName := flatCallNameAny(file, cur)
+			if resourceCostLoopCallNames[callName] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // ---------------------------------------------------------------------------
 // Batch 1: In-Progress rules
 // ---------------------------------------------------------------------------

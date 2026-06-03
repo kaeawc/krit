@@ -2,6 +2,7 @@ package fixtures.negative.compose
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.item
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.painterResource
@@ -24,5 +25,19 @@ fun ComposePainterResourceInLoopNegative(items: List<String>) {
             painter = marker,
             contentDescription = item,
         )
+    }
+}
+
+// A singular LazyListScope.item { } renders exactly once — it is not a loop,
+// so calling painterResource() directly inside it is fine.
+@Composable
+fun ComposePainterResourceInSingularItemNegative() {
+    LazyColumn {
+        item {
+            Image(
+                painter = painterResource(R.drawable.header),
+                contentDescription = null,
+            )
+        }
     }
 }

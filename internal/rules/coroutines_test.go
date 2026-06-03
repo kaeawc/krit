@@ -447,9 +447,11 @@ func TestInjectDispatcher_Positive(t *testing.T) {
 	findings := runRuleByName(t, "InjectDispatcher", `
 package test
 import kotlinx.coroutines.Dispatchers
-suspend fun loadData() {
-    withContext(Dispatchers.IO) {
-        fetchFromNetwork()
+class Repo {
+    suspend fun loadData() {
+        withContext(Dispatchers.IO) {
+            fetchFromNetwork()
+        }
     }
 }
 `)
@@ -463,9 +465,11 @@ func TestInjectDispatcher_PositiveBareLaunch(t *testing.T) {
 package test
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-suspend fun loadData() {
-    launch(Dispatchers.Default) {
-        fetchFromNetwork()
+class Repo {
+    suspend fun loadData() {
+        launch(Dispatchers.Default) {
+            fetchFromNetwork()
+        }
     }
 }
 `)
@@ -529,12 +533,92 @@ interface DispatcherProvider {
 	}
 }
 
+// A top-level function has no enclosing class/object to inject a
+// dispatcher into, so a hardcoded Dispatchers.* there is not actionable
+// and must not be flagged. Mirrors the FIR checker's top-level
+// exemption. Detection is structural: no class_declaration /
+// object_declaration / companion_object ancestor.
+func TestInjectDispatcher_NegativeTopLevelFunction(t *testing.T) {
+	findings := runRuleByName(t, "InjectDispatcher", `
+package test
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+fun loadTopLevel() {
+    withContext(Dispatchers.IO) { fetchFromNetwork() }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for top-level function, got %d: %v", len(findings), findings)
+	}
+}
+
+// An extension function's receiver is fixed by the call site and it has
+// no enclosing type to inject into, so a hardcoded Dispatchers.* must
+// not be flagged. Detection is structural: the function_declaration has
+// a `.` token direct child (receiver-type separator), not a name match.
+func TestInjectDispatcher_NegativeExtensionFunction(t *testing.T) {
+	findings := runRuleByName(t, "InjectDispatcher", `
+package test
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+fun String.loadExt() {
+    withContext(Dispatchers.Default) { fetchFromNetwork() }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for extension function, got %d: %v", len(findings), findings)
+	}
+}
+
+// A generic extension function (receiver type carries type parameters)
+// is still an extension and must not be flagged. Confirms the `.`-token
+// detection is robust to `fun <T> T.foo()` shapes.
+func TestInjectDispatcher_NegativeGenericExtensionFunction(t *testing.T) {
+	findings := runRuleByName(t, "InjectDispatcher", `
+package test
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+suspend fun <T> T.loadExt() {
+    withContext(Dispatchers.IO) { fetchFromNetwork() }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for generic extension function, got %d: %v", len(findings), findings)
+	}
+}
+
+// An extension function declared *inside* a class still has an
+// injectable host (the class), so it must continue to flag. Guards
+// against over-suppressing every extension regardless of enclosing
+// type.
+func TestInjectDispatcher_PositiveMemberExtensionFunction(t *testing.T) {
+	findings := runRuleByName(t, "InjectDispatcher", `
+package test
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+class Repo {
+    suspend fun String.loadExt() {
+        withContext(Dispatchers.IO) { fetchFromNetwork() }
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Error("expected member extension function to flag hardcoded Dispatchers.IO")
+	}
+}
+
 func TestInjectDispatcher_TypeInfoConfirmsCoroutineDispatcher(t *testing.T) {
 	findings := runInjectDispatcherWithExpressionType(t, `
 package test
 import kotlinx.coroutines.Dispatchers
-suspend fun loadData() {
-    withContext(Dispatchers.IO) { fetchFromNetwork() }
+class Repo {
+    suspend fun loadData() {
+        withContext(Dispatchers.IO) { fetchFromNetwork() }
+    }
 }
 `, "Dispatchers.IO", &typeinfer.ResolvedType{Name: "CoroutineDispatcher", FQN: "kotlinx.coroutines.CoroutineDispatcher", Kind: typeinfer.TypeClass})
 	if len(findings) != 1 {
@@ -619,9 +703,11 @@ package test
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-suspend fun foo() {
-    withContext(Dispatchers.IO) { }
-    withContext(Dispatchers.Default) { }
+class Repo {
+    suspend fun foo() {
+        withContext(Dispatchers.IO) { }
+        withContext(Dispatchers.Default) { }
+    }
 }
 `)
 	if len(findings) != 2 {
@@ -691,8 +777,10 @@ func TestInjectDispatcher_OracleCallTargetConfirmsRealDispatchers(t *testing.T) 
 	findings := runInjectDispatcherWithCallTarget(t, `
 package test
 import kotlinx.coroutines.Dispatchers
-suspend fun loadData() {
-    withContext(Dispatchers.IO) { fetchFromNetwork() }
+class Repo {
+    suspend fun loadData() {
+        withContext(Dispatchers.IO) { fetchFromNetwork() }
+    }
 }
 `, "Dispatchers.IO", "kotlinx.coroutines.Dispatchers.IO")
 	if len(findings) != 1 {
@@ -729,19 +817,21 @@ func TestInjectDispatcher_LinePointsToDispatcher(t *testing.T) {
 	findings := runRuleByName(t, "InjectDispatcher", `
 package test
 import kotlinx.coroutines.Dispatchers
-suspend fun loadData() {
-    withContext(Dispatchers.Default) {
-        fetchFromNetwork()
+class Repo {
+    suspend fun loadData() {
+        withContext(Dispatchers.Default) {
+            fetchFromNetwork()
+        }
     }
 }
 `)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
-	// Line 5 is "    withContext(Dispatchers.Default) {" — the Dispatchers.Default
+	// Line 6 is "        withContext(Dispatchers.Default) {" — the Dispatchers.Default
 	// should be reported on the line where it actually appears.
-	if findings[0].Line != 5 {
-		t.Errorf("expected finding on line 5, got line %d", findings[0].Line)
+	if findings[0].Line != 6 {
+		t.Errorf("expected finding on line 6, got line %d", findings[0].Line)
 	}
 }
 

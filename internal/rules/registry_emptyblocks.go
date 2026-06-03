@@ -293,7 +293,7 @@ func registerEmptyblocksEmptyForBlock() {
 }
 
 func registerEmptyblocksEmptyFunctionBlock() {
-	r := &EmptyFunctionBlockRule{BaseRule: BaseRule{RuleName: "EmptyFunctionBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects function declarations with an empty body."}, IgnoreOverridden: false}
+	r := &EmptyFunctionBlockRule{BaseRule: BaseRule{RuleName: "EmptyFunctionBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects function declarations with an empty body."}, IgnoreOverridden: true}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"function_declaration", "method_declaration"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixSemantic, Implementation: r,
@@ -302,6 +302,21 @@ func registerEmptyblocksEmptyFunctionBlock() {
 			if file.Language == scanner.LangJava {
 				nodeText := file.FlatNodeText(idx)
 				if !strings.Contains(nodeText, "{") || !isBlockEmptyFlat(file, idx) {
+					return
+				}
+				// `@Override public void foo() {}` is an intentional no-op
+				// required by a supertype contract, mirroring the Kotlin
+				// `override` skip. Detect the annotation via the AST
+				// (modifiers > marker_annotation > Override), not a text scan
+				// that would also match `@Override` inside strings/comments.
+				if r.IgnoreOverridden && javaMethodHasOverrideAnnotation(file, idx) {
+					return
+				}
+				// A Java body whose only content is a comment documents an
+				// intentional no-op. isBlockEmptyFlat strips comments, so it
+				// reports such a body as empty; the AST tells us a comment
+				// node lives inside the `block`, so treat it as non-empty.
+				if block, ok := file.FlatFindChild(idx, "block"); ok && blockHasCommentFlat(file, block) {
 					return
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, 1,
@@ -323,8 +338,18 @@ func registerEmptyblocksEmptyFunctionBlock() {
 			if file.FlatHasModifier(idx, "open") {
 				return
 			}
-			isOverride := file.FlatHasModifier(idx, "override")
-			if isOverride && r.IgnoreOverridden {
+			// An `override fun foo() {}` is almost always an intentional
+			// no-op required by a framework/interface contract (e.g.
+			// TextWatcher.afterTextChanged, AnimatorListener.onAnimationEnd),
+			// not a forgotten implementation, so skipping overrides by
+			// default removes the dominant false-positive source. The
+			// `override` soft-keyword is an AST node under
+			// `modifiers > member_modifier`, so this is a structural check
+			// rather than a text scan. Users who want the aggressive
+			// behavior (e.g. to catch an empty X509TrustManager override
+			// that disables certificate checks) can set
+			// `ignoreOverridden: false`.
+			if r.IgnoreOverridden && file.FlatHasModifier(idx, "override") {
 				return
 			}
 			if HasIgnoredAnnotation(file.FlatNodeText(idx),

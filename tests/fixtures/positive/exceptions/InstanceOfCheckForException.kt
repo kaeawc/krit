@@ -2,18 +2,20 @@ package com.example.exceptions
 
 import java.io.IOException
 
-class NetworkClient {
+class ErrorClassifier {
 
-    fun fetchData(): String {
+    // Type-checking an exception value that is NOT a caught variable to
+    // branch on its concrete type is the "instanceof instead of
+    // polymorphism" smell this rule targets.
+    fun classify(failure: Throwable): String {
         try {
-            return loadFromNetwork()
-        } catch (e: Exception) {
-            if (e is IOException) {
-                return "network error"
+            return "ok"
+        } catch (outer: Exception) {
+            // `failure` is a parameter, not the caught variable `outer`.
+            if (failure is IOException) {
+                return "io"
             }
-            return "unknown error"
+            return "other"
         }
     }
-
-    private fun loadFromNetwork(): String = "data"
 }

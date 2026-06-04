@@ -308,9 +308,69 @@ var recyclerAdapterSupertypeNames = []string{
 	"Adapter",
 }
 
+// lastTypeNameSegment returns the trailing simple-name segment of a (possibly
+// qualified or nested) type name, splitting on both '.' and '$'.
+func lastTypeNameSegment(name string) string {
+	name = strings.TrimSpace(name)
+	if i := strings.LastIndexAny(name, ".$"); i >= 0 {
+		name = name[i+1:]
+	}
+	if i := strings.IndexByte(name, '<'); i >= 0 {
+		name = name[:i]
+	}
+	return strings.TrimSpace(name)
+}
+
+// simpleTypeNameIsAdapter reports whether a supertype's *simple* name is an
+// actual RecyclerView/list adapter rather than a lookalike that merely
+// contains the substring "Adapter" (e.g. RecyclerView.AdapterDataObserver).
+// The bare "Adapter" entry in recyclerAdapterSupertypeNames is matched via a
+// substring contains in the Java supertype walker, which is what lets a
+// `...AdapterDataObserver` supertype slip through; this suffix-boundary check
+// is the corrective gate.
+func simpleTypeNameIsAdapter(simple string) bool {
+	if simple == "" {
+		return false
+	}
+	return strings.HasSuffix(simple, "Adapter")
+}
+
+// classDirectSupertypeIsAdapterFlat confirms at least one *direct* supertype of
+// the class has a simple name ending in "Adapter". It deliberately re-walks the
+// direct delegation/superclass nodes (instead of trusting the contains-based
+// gate) so observer/listener siblings that byte-contain "Adapter" are excluded.
+func classDirectSupertypeIsAdapterFlat(file *scanner.File, class uint32) bool {
+	if file == nil || class == 0 {
+		return false
+	}
+	found := false
+	for child := file.FlatFirstChild(class); child != 0 && !found; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "delegation_specifier":
+			if name := viewConstructorSupertypeNameFlat(file, child); simpleTypeNameIsAdapter(name) {
+				found = true
+			}
+		case "superclass", "super_interfaces":
+			file.FlatWalkAllNodes(child, func(n uint32) {
+				if found {
+					return
+				}
+				switch file.FlatType(n) {
+				case "type_identifier", "scoped_type_identifier", "scoped_identifier", "generic_type":
+					if simpleTypeNameIsAdapter(lastTypeNameSegment(file.FlatNodeText(n))) {
+						found = true
+					}
+				}
+			})
+		}
+	}
+	return found
+}
+
 func isRecyclerAdapterClassFlat(ctx *api.Context, class uint32) bool {
 	file := ctx.File
-	if classExtendsAnyFlat(file, class, recyclerAdapterSupertypeNames...) {
+	if classExtendsAnyFlat(file, class, recyclerAdapterSupertypeNames...) &&
+		classDirectSupertypeIsAdapterFlat(file, class) {
 		return true
 	}
 	if ctx.Resolver == nil || !classHasAdapterLikeSupertypeFlat(file, class) {
@@ -321,7 +381,8 @@ func isRecyclerAdapterClassFlat(ctx *api.Context, class uint32) bool {
 		return false
 	}
 	for _, st := range info.Supertypes {
-		if semanticTypeNameMatches(st, recyclerAdapterSupertypeNames...) {
+		if semanticTypeNameMatches(st, recyclerAdapterSupertypeNames...) &&
+			simpleTypeNameIsAdapter(lastTypeNameSegment(st)) {
 			return true
 		}
 	}

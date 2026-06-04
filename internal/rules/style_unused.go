@@ -365,6 +365,16 @@ func unusedParameterPriorLocalDeclarationShadowsFlat(file *scanner.File, body ui
 				shadowed = true
 			}
 		case "function_declaration":
+			// Only a genuine *local* function shadows an outer parameter. A
+			// member function inside a nested class/object literal (e.g. an
+			// `override fun onAnimationStart()` in an `object : Listener { ... }`)
+			// is a member declaration, not a local; a bare call to a captured
+			// parameter inside such a member body still refers to the parameter.
+			// Treating the member's name as a shadow produced a false positive
+			// whenever the parameter and the overridden member share a name.
+			if !unusedParameterFunctionIsLocalFlat(file, candidate) {
+				return
+			}
 			if extractIdentifierFlat(file, candidate) == name &&
 				unusedParameterDeclarationScopeContainsRefFlat(file, body, candidate, ref) {
 				shadowed = true
@@ -372,6 +382,23 @@ func unusedParameterPriorLocalDeclarationShadowsFlat(file *scanner.File, body ui
 		}
 	})
 	return shadowed
+}
+
+// unusedParameterFunctionIsLocalFlat reports whether a function_declaration is
+// a true local function (declared inside a statement block / function body)
+// rather than a member of a class, object, or interface body. Only local
+// functions introduce a name that can shadow an enclosing parameter.
+func unusedParameterFunctionIsLocalFlat(file *scanner.File, fn uint32) bool {
+	parent, ok := file.FlatParent(fn)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(parent) {
+	case "statements", "function_body", "control_structure_body":
+		return true
+	default:
+		return false
+	}
 }
 
 func unusedParameterDeclarationNodeHasNameFlat(file *scanner.File, node uint32, name string) bool {

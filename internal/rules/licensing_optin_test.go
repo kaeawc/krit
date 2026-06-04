@@ -74,7 +74,7 @@ func TestOptInMarkerExposedPublicly_SkipsTestSources(t *testing.T) {
 	file := parseInline(t, `
 package test
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@ExperimentalCoroutinesApi
 class CoroutineRobot
 `)
 	file.Path = "/repo/app/src/androidTest/kotlin/com/example/CoroutineRobot.kt"
@@ -87,10 +87,12 @@ class CoroutineRobot
 }
 
 func TestOptInMarkerExposedPublicly_FlagsProductionPublicApi(t *testing.T) {
+	// A public declaration carrying a propagating opt-in marker DIRECTLY
+	// exposes the opt-in requirement to callers.
 	findings := runRuleByName(t, "OptInMarkerExposedPublicly", `
 package test
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@ExperimentalCoroutinesApi
 class PublicApi
 `)
 	count := 0
@@ -101,5 +103,41 @@ class PublicApi
 	}
 	if count != 1 {
 		t.Fatalf("expected 1 OptInMarkerExposedPublicly finding, got %d", count)
+	}
+}
+
+func TestOptInMarkerExposedPublicly_DoesNotFlagOptInConsumer(t *testing.T) {
+	// Regression: @OptIn(Foo::class) CONSUMES the requirement locally and does
+	// NOT propagate to callers, so it must never be flagged.
+	findings := runRuleByName(t, "OptInMarkerExposedPublicly", `
+package test
+
+@OptIn(ExperimentalCoroutinesApi::class)
+fun publicApi() {
+}
+`)
+	for _, f := range findings {
+		if f.Rule == "OptInMarkerExposedPublicly" {
+			t.Fatalf("did not expect finding for @OptIn consumer: %s", f.Message)
+		}
+	}
+}
+
+func TestOptInMarkerExposedPublicly_SkipsNonPublicDirectMarker(t *testing.T) {
+	findings := runRuleByName(t, "OptInMarkerExposedPublicly", `
+package test
+
+@ExperimentalCoroutinesApi
+internal fun internalApi() {
+}
+
+@ExperimentalCoroutinesApi
+private fun privateApi() {
+}
+`)
+	for _, f := range findings {
+		if f.Rule == "OptInMarkerExposedPublicly" {
+			t.Fatalf("did not expect finding for non-public declaration: %s", f.Message)
+		}
 	}
 }

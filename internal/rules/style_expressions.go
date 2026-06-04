@@ -723,6 +723,129 @@ func reassignedThisQualifiedNameFlat(file *scanner.File, idx uint32) (string, bo
 	return name, suffixes == 1 && name != ""
 }
 
+// enclosingTypeQualifiersFlat returns the outermost enclosing class/object
+// declaration node for a property and the set of simple type names that can be
+// used to qualify a write to one of its members (the enclosing object name, the
+// enclosing class name, and — for a companion-object member — the enclosing
+// class name). The outermost node bounds the subtree that must be scanned for
+// qualified reassignments, because a sibling nested class can write
+// `EnclosingType.member = ...` outside the member's immediate class_body.
+func enclosingTypeQualifiersFlat(file *scanner.File, propertyIdx uint32) (uint32, map[string]bool) {
+	if file == nil || propertyIdx == 0 {
+		return 0, nil
+	}
+	names := make(map[string]bool)
+	outermost := uint32(0)
+	cur := propertyIdx
+	for {
+		parent, ok := file.FlatParent(cur)
+		if !ok || parent == 0 {
+			break
+		}
+		switch file.FlatType(parent) {
+		case "class_declaration", "object_declaration":
+			if name := file.FlatChildTextOrEmpty(parent, "type_identifier"); name != "" {
+				names[name] = true
+			} else if name := file.FlatChildTextOrEmpty(parent, "simple_identifier"); name != "" {
+				names[name] = true
+			}
+			outermost = parent
+		}
+		cur = parent
+	}
+	if len(names) == 0 {
+		return 0, nil
+	}
+	return outermost, names
+}
+
+// reassignedViaEnclosingTypeQualifierFlat reports whether varName is written
+// through a qualified assignment whose receiver is one of the enclosing type
+// names (e.g. `AppDependencies.provider = x` or `BackupProgressService.title =
+// x`). It scans the outermost enclosing type subtree and inspects assignment,
+// augmented-assignment, and prefix/postfix increment targets.
+func reassignedViaEnclosingTypeQualifierFlat(file *scanner.File, scope uint32, names map[string]bool, varName string) bool {
+	if file == nil || scope == 0 || varName == "" || len(names) == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(scope, func(child uint32) {
+		if found {
+			return
+		}
+		var target uint32
+		switch file.FlatType(child) {
+		case "assignment", "assignment_expression", "augmented_assignment":
+			if file.FlatChildCount(child) == 0 {
+				return
+			}
+			target = file.FlatChild(child, 0)
+		case "postfix_expression", "prefix_expression":
+			hasMutation := false
+			for gc := file.FlatFirstChild(child); gc != 0; gc = file.FlatNextSib(gc) {
+				if file.FlatNodeTextEquals(gc, "++") || file.FlatNodeTextEquals(gc, "--") {
+					hasMutation = true
+				} else if target == 0 && file.FlatIsNamed(gc) {
+					target = gc
+				}
+			}
+			if !hasMutation {
+				return
+			}
+		default:
+			return
+		}
+		if qualifiedAssignTargetMatchesFlat(file, target, names, varName) {
+			found = true
+		}
+	})
+	return found
+}
+
+// qualifiedAssignTargetMatchesFlat reports whether an assignment LHS is a
+// qualified access of the form `<EnclosingType>.<varName>` where
+// <EnclosingType> is in names. The LHS may be parsed either as a
+// directly_assignable_expression (receiver simple_identifier + navigation_suffix)
+// or as a navigation_expression, depending on context.
+func qualifiedAssignTargetMatchesFlat(file *scanner.File, target uint32, names map[string]bool, varName string) bool {
+	if file == nil || target == 0 {
+		return false
+	}
+	target = flatUnwrapParenExpr(file, target)
+	switch file.FlatType(target) {
+	case "directly_assignable_expression":
+		// A bare local LHS nests a single child (handled elsewhere); a
+		// qualified LHS holds the receiver plus its navigation_suffix.
+		if file.FlatNamedChildCount(target) == 1 {
+			return qualifiedAssignTargetMatchesFlat(file, file.FlatNamedChild(target, 0), names, varName)
+		}
+	case "navigation_expression":
+		if file.FlatNamedChildCount(target) == 0 {
+			return false
+		}
+	default:
+		return false
+	}
+	first := flatUnwrapParenExpr(file, file.FlatNamedChild(target, 0))
+	if file.FlatType(first) != "simple_identifier" || !names[file.FlatNodeText(first)] {
+		return false
+	}
+	selector := ""
+	suffixes := 0
+	for c := file.FlatFirstChild(target); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) != "navigation_suffix" {
+			continue
+		}
+		for gc := file.FlatFirstChild(c); gc != 0; gc = file.FlatNextSib(gc) {
+			if file.FlatIsNamed(gc) && file.FlatType(gc) == "simple_identifier" {
+				selector = file.FlatNodeText(gc)
+				suffixes++
+			}
+		}
+	}
+	return suffixes == 1 && selector == varName
+}
+
 func reassignedPostfixNameFlat(file *scanner.File, idx uint32) (string, bool) {
 	if file == nil || idx == 0 || file.FlatType(idx) != "postfix_expression" {
 		return "", false

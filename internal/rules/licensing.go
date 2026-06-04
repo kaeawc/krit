@@ -736,18 +736,37 @@ func (r *OptInMarkerNotRecognisedRule) markerInAdditional(name string) bool {
 	return false
 }
 
-// OptInMarkerExposedPubliclyRule flags `@OptIn` annotations on public API
-// declarations. Opt-in markers propagate to callers, so applying `@OptIn`
-// to a public declaration silently forces every caller to opt in too.
+// OptInMarkerExposedPubliclyRule flags public API declarations annotated
+// DIRECTLY with an opt-in marker (e.g. `@ExperimentalCoroutinesApi`). A
+// `@RequiresOptIn`-style marker propagates to callers, so carrying it on a
+// public declaration silently forces every caller to opt in too.
+//
+// Note: `@OptIn(Foo::class)` is NOT flagged. `@OptIn` CONSUMES the requirement
+// locally and is precisely the mechanism for NOT propagating it to callers;
+// flagging it would be a false positive.
 type OptInMarkerExposedPubliclyRule struct {
 	FlatDispatchBase
 	BaseRule
 }
 
 // Confidence reports a tier-1 (high) base confidence. The detection is fully
-// AST-driven: we match `@OptIn` annotations whose target declaration has no
-// non-public visibility modifier.
+// AST-driven: we match a propagating opt-in marker annotation whose target
+// declaration has no non-public visibility modifier.
 func (r *OptInMarkerExposedPubliclyRule) Confidence() float64 { return api.ConfidenceHigher }
+
+// isPropagatingOptInMarkerName reports whether an annotation simple name is a
+// `@RequiresOptIn`-style opt-in marker that propagates the opt-in requirement
+// to callers when applied directly to a declaration. The opt-in plumbing
+// annotations themselves — `@OptIn` (which consumes the requirement), the
+// `@RequiresOptIn` meta-annotation (which defines a marker, not a usage), and
+// `@Suppress` — never propagate and are excluded.
+func isPropagatingOptInMarkerName(name string) bool {
+	switch name {
+	case "", "OptIn", "RequiresOptIn", "Suppress", "SuppressWarnings":
+		return false
+	}
+	return wellKnownOptInMarkers[name]
+}
 
 // optInAnnotationTarget walks up from an `@OptIn` annotation node to the
 // declaration it is attached to. Returns the declaration index and true when

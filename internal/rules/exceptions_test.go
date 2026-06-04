@@ -116,19 +116,22 @@ func TestExc_ExceptionRaisedInUnexpectedLocation_JavaFixtures(t *testing.T) {
 // --- InstanceOfCheckForException ---
 
 func TestExc_InstanceOfCheckForException_Positive(t *testing.T) {
+	// Narrowing the caught variable itself (`e is IOException`) is legitimate
+	// and must NOT fire. A type-check on some *other*, non-caught value inside
+	// the catch is the "instanceof instead of polymorphism" smell that should.
 	findings := runRuleByName(t, "InstanceOfCheckForException", `
-fun test() {
+fun test(failure: Throwable) {
     try {
         doWork()
     } catch (e: Exception) {
-        if (e is IOException) {
+        if (failure is IOException) {
             println("io")
         }
     }
 }
 `)
 	if len(findings) == 0 {
-		t.Fatal("expected finding for is-check inside catch")
+		t.Fatal("expected finding for is-check on a non-caught value inside catch")
 	}
 }
 
@@ -200,11 +203,10 @@ fun test(other: Any) {
 	}
 }
 
-func TestExc_InstanceOfCheckForException_FiresOnSubjectlessWhen(t *testing.T) {
-	prev := experimentSnapshot()
-	defer experimentRestore(prev)
-	enableExperiment("instance-of-check-skip-when-dispatch")
-
+func TestExc_InstanceOfCheckForException_SubjectlessWhenOnCaughtVarNotFlagged(t *testing.T) {
+	// A subjectless `when { e is X -> ... }` whose condition tests the *caught*
+	// variable is still narrowing the already-caught exception — legitimate,
+	// so it must NOT fire.
 	findings := runRuleByName(t, "InstanceOfCheckForException", `
 fun test() {
     try {
@@ -216,8 +218,27 @@ fun test() {
     }
 }
 `)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for is-check narrowing the caught var, got %d", len(findings))
+	}
+}
+
+func TestExc_InstanceOfCheckForException_SubjectlessWhenOnOtherVarFlagged(t *testing.T) {
+	// A subjectless `when { other is X -> ... }` testing a non-caught value is
+	// the type-check smell and must fire.
+	findings := runRuleByName(t, "InstanceOfCheckForException", `
+fun test(other: Any) {
+    try {
+        doWork()
+    } catch (e: Exception) {
+        when {
+            other is IOException -> println("io")
+        }
+    }
+}
+`)
 	if len(findings) == 0 {
-		t.Fatal("expected finding: subjectless when is not a dispatch, so the is-check on caught var must fire")
+		t.Fatal("expected finding: subjectless when tests a non-caught value")
 	}
 }
 
@@ -260,14 +281,16 @@ fun test() {
 }
 
 func TestExc_InstanceOfCheckForException_Java(t *testing.T) {
+	// instanceof on the caught variable narrows the already-caught exception
+	// and must NOT fire; an instanceof on some other value still should.
 	findings := runRuleByNameOnJava(t, "InstanceOfCheckForException", `
 package test;
 class Example {
-  void run() {
+  void run(Throwable failure) {
     try {
       work();
     } catch (Exception e) {
-      if (e instanceof java.io.IOException) {
+      if (failure instanceof java.io.IOException) {
         work();
       }
     }
@@ -276,7 +299,29 @@ class Example {
 }
 `)
 	if len(findings) != 1 {
-		t.Fatalf("expected 1 Java instanceof finding, got %d", len(findings))
+		t.Fatalf("expected 1 Java instanceof finding on a non-caught value, got %d", len(findings))
+	}
+}
+
+func TestExc_InstanceOfCheckForException_JavaCaughtVarNotFlagged(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "InstanceOfCheckForException", `
+package test;
+class Example {
+  void run() throws java.io.IOException {
+    try {
+      work();
+    } catch (java.io.IOException e) {
+      if (e instanceof java.net.SocketException) {
+        return;
+      }
+      throw e;
+    }
+  }
+  void work() throws java.io.IOException {}
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for instanceof narrowing the caught var, got %d", len(findings))
 	}
 }
 
@@ -636,14 +681,9 @@ class FaultHidingSink(
 
 func TestExc_SwallowedException_ASTPositiveCases(t *testing.T) {
 	cases := map[string]string{
-		"empty catch": `
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-    }
-}
-`,
+		// NB: a truly empty catch is intentionally NOT here — EmptyCatchBlock
+		// (ConfidenceVeryHigh) owns that case, and SwallowedException defers to
+		// it to avoid double-reporting. See ASTNegativeCases/empty_catch_*.
 		"comment only": `
 fun test() {
     try {
@@ -718,16 +758,6 @@ fun test() {
     }
 }
 `,
-		"unknown assignment without exception is not handling": `
-fun test() {
-    var handled = false
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        handled = true
-    }
-}
-`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -741,6 +771,39 @@ fun test() {
 
 func TestExc_SwallowedException_ASTNegativeCases(t *testing.T) {
 	cases := map[string]string{
+		// A truly empty catch is owned by EmptyCatchBlock; SwallowedException
+		// must defer to avoid double-reporting.
+		"empty catch deferred to EmptyCatchBlock": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+    }
+}
+`,
+		// A fallback assignment that does not touch the exception is recovery,
+		// not a swallow.
+		"fallback assignment recovery": `
+fun test() {
+    var handled = false
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        handled = true
+    }
+}
+`,
+		// An early return as a fallback value is recovery.
+		"early return recovery": `
+fun test(): Boolean {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        return false
+    }
+    return true
+}
+`,
 		"direct rethrow": `
 fun test() {
     try {

@@ -41,39 +41,53 @@ func registerExceptionsRules() {
 				if catchVarName == "" {
 					return
 				}
-				skipWhenDispatch := experiment.Enabled("instance-of-check-skip-when-dispatch")
-				for _, nodeType := range []string{"is_expression", "type_check", "check_expression"} {
+				// Narrowing an *already-caught* exception (the catch
+				// parameter, or a local unwrapped from it such as
+				// `val cause = e.cause`) with `is`/`instanceof` to decide
+				// rethrow-vs-wrap or pick an error code is the idiomatic,
+				// legitimate use — not the "type-check instead of
+				// polymorphism" smell. Only flag a type-check on some *other*
+				// (non-caught) value. The operand and type are read
+				// structurally from the AST.
+				caughtOperands := caughtNarrowingOperands(file, idx, catchVarName)
+				for _, nodeType := range []string{"is_expression", "type_check", "type_test", "check_expression"} {
 					file.FlatWalkNodes(idx, nodeType, func(isNode uint32) {
-						text := file.FlatNodeText(isNode)
-						if !isExceptionRe.MatchString(text) {
+						if !nameLooksLikeExceptionType(instanceOfCheckTypeName(file, isNode)) {
 							return
 						}
-						if file.FlatChildCount(isNode) < 1 {
+						operand := instanceOfCheckOperandName(file, isNode)
+						if operand == "" {
+							// A `when (subject) { is X -> ... }` condition has no
+							// inline operand — it tests the when subject. Narrowing
+							// the caught subject is legitimate; a dispatch on some
+							// other value is still the smell.
+							subject := instanceOfWhenSubjectOperand(file, isNode)
+							if subject == "" || caughtOperands[subject] {
+								return
+							}
+							ctx.EmitAt(file.FlatRow(isNode)+1, file.FlatCol(isNode)+1,
+								"Instance-of check for exception type. Use specific catch clauses or polymorphism instead.")
 							return
 						}
-						lhs := file.FlatNodeText(file.FlatChild(isNode, 0))
-						if strings.TrimSpace(lhs) != catchVarName {
-							return
-						}
-						if skipWhenDispatch && isInsideWhenDispatchOnCatchVarFlat(file, isNode, catchVarName) {
+						// Operand narrows the caught exception: legitimate.
+						if caughtOperands[operand] {
 							return
 						}
 						ctx.EmitAt(file.FlatRow(isNode)+1, file.FlatCol(isNode)+1,
-							"Instance-of check for exception type inside catch block. Use specific catch clauses instead.")
+							"Instance-of check for exception type. Use specific catch clauses or polymorphism instead.")
 					})
 				}
 				if file.Language == scanner.LangJava {
 					file.FlatWalkNodes(idx, "instanceof_expression", func(instanceOfNode uint32) {
-						text := file.FlatNodeText(instanceOfNode)
-						if !javaInstanceOfExceptionRe.MatchString(text) {
+						if !nameLooksLikeExceptionType(instanceOfCheckTypeName(file, instanceOfNode)) {
 							return
 						}
-						lhs := strings.TrimSpace(strings.Split(text, "instanceof")[0])
-						if lhs != catchVarName {
+						operand := instanceOfCheckOperandName(file, instanceOfNode)
+						if operand == "" || caughtOperands[operand] {
 							return
 						}
 						ctx.EmitAt(file.FlatRow(instanceOfNode)+1, file.FlatCol(instanceOfNode)+1,
-							"Instance-of check for exception type inside catch block. Use specific catch clauses instead.")
+							"Instance-of check for exception type. Use specific catch clauses or polymorphism instead.")
 					})
 				}
 			},

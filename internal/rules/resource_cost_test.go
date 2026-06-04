@@ -295,6 +295,25 @@ class MyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 			t.Fatalf("expected 0 findings when stable IDs are enabled, got %d", len(findings))
 		}
 	})
+	t.Run("without DiffUtil negative AdapterDataObserver", func(t *testing.T) {
+		// Regression: a nested class extending RecyclerView.AdapterDataObserver
+		// must not be flagged. Its supertype byte-contains "Adapter" but it is
+		// an observer, not a RecyclerView.Adapter subclass.
+		findings := runRuleByNameOnJavaWithResolver(t, "RecyclerAdapterWithoutDiffUtil", `
+package test;
+import androidx.recyclerview.widget.RecyclerView;
+class Outer {
+  private static class MyObserver extends RecyclerView.AdapterDataObserver {
+    void refresh() {
+      notifyDataSetChanged();
+    }
+  }
+}
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for AdapterDataObserver subclass, got %d", len(findings))
+		}
+	})
 }
 
 func TestDatabaseLibraryFacts_DisableRoomWhenKnownAbsent(t *testing.T) {

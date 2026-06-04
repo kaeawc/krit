@@ -55,41 +55,191 @@ type InstanceOfCheckForExceptionRule struct {
 	BaseRule
 }
 
-var (
-	isExceptionRe             = regexp.MustCompile(`\bis\s+\w*Exception\b`)
-	javaInstanceOfExceptionRe = regexp.MustCompile(`\binstanceof\s+[\w.]*Exception\b`)
-)
-
 // Confidence reports a tier-2 (medium) base confidence. Exceptions rule. Detection matches exception type names and catch/ throw
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
 func (r *InstanceOfCheckForExceptionRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func isInsideWhenDispatchOnCatchVarFlat(file *scanner.File, isNode uint32, caughtVar string) bool {
-	for p, ok := file.FlatParent(isNode); ok; p, ok = file.FlatParent(p) {
-		t := file.FlatType(p)
-		if t == "when_expression" {
-			for i := 0; i < file.FlatChildCount(p); i++ {
-				c := file.FlatChild(p, i)
-				ctype := file.FlatType(c)
-				if ctype == "when_subject" || ctype == "parenthesized_expression" ||
-					ctype == "value_arguments" {
-					text := strings.TrimSpace(file.FlatNodeText(c))
-					text = strings.TrimPrefix(text, "(")
-					text = strings.TrimSuffix(text, ")")
-					text = strings.TrimSpace(text)
-					if text == caughtVar {
-						return true
-					}
-				}
+// instanceOfCheckTypeName returns the trailing simple name of the type the
+// `is`/`instanceof` check tests against (e.g. `IOException` for both
+// `e is java.io.IOException` and `e instanceof IOException`), reading the
+// `user_type` (Kotlin) or `type_identifier`/`scoped_type_identifier` (Java)
+// operand structurally rather than by splitting raw node text.
+func instanceOfCheckTypeName(file *scanner.File, checkNode uint32) string {
+	for child := file.FlatFirstChild(checkNode); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "user_type", "type_identifier", "scoped_type_identifier", "scoped_identifier", "nullable_type", "generic_type":
+			if name := flatTypeLastIdentifier(file, child); name != "" {
+				return name
 			}
-			return false
-		}
-		if t == "function_declaration" || t == "lambda_literal" || t == "source_file" {
-			return false
+			return lastDotSegment(file.FlatNodeText(child))
 		}
 	}
-	return false
+	return ""
+}
+
+// instanceOfCheckOperandName returns the identifier name of the value being
+// type-checked (the left operand of `x is Type` / `x instanceof Type`), or ""
+// when the operand is not a bare identifier (e.g. a `when (subject) { is X }`
+// condition, where the operand lives on the `when_subject`, or a more complex
+// receiver expression). The operand is read as the first named child that is a
+// plain identifier, before the type operand.
+func instanceOfCheckOperandName(file *scanner.File, checkNode uint32) string {
+	for child := file.FlatFirstChild(checkNode); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "simple_identifier", "identifier":
+			return file.FlatNodeString(child, nil)
+		case "user_type", "type_identifier", "scoped_type_identifier",
+			"scoped_identifier", "nullable_type", "generic_type":
+			// Reached the type operand without seeing a bare identifier
+			// operand (e.g. a when-condition `is X`).
+			return ""
+		}
+	}
+	return ""
+}
+
+// instanceOfWhenSubjectOperand returns the bare-identifier subject of the
+// `when` enclosing a subjectful when-condition `is X`, or "" when the nearest
+// enclosing when has no bare-identifier subject (a binding subject like
+// `when (val cause = e.cause)`, a complex expression, or a subjectless when).
+// It stops at function / lambda / class boundaries so it never escapes the
+// catch body's expression scope.
+func instanceOfWhenSubjectOperand(file *scanner.File, isNode uint32) string {
+	for p, ok := file.FlatParent(isNode); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "when_expression":
+			subj, found := file.FlatFindChild(p, "when_subject")
+			if !found || subj == 0 {
+				return ""
+			}
+			// A binding subject (`when (val x = ...)`) has a
+			// variable_declaration child — not a plain dispatch identifier.
+			if _, ok := file.FlatFindChild(subj, "variable_declaration"); ok {
+				return ""
+			}
+			ident, ok := file.FlatFindChild(subj, "simple_identifier")
+			if !ok || ident == 0 {
+				return ""
+			}
+			return file.FlatNodeString(ident, nil)
+		case "function_declaration", "lambda_literal", "class_declaration",
+			"object_declaration", "catch_block", "catch_clause", "source_file":
+			return ""
+		}
+	}
+	return ""
+}
+
+// lastDotSegment returns the trailing `.`-separated segment of a dotted name,
+// trimming a trailing `?` nullability marker.
+func lastDotSegment(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimSuffix(s, "?")
+	if i := strings.LastIndexByte(s, '.'); i >= 0 {
+		s = s[i+1:]
+	}
+	return strings.TrimSpace(s)
+}
+
+// nameLooksLikeExceptionType reports whether a simple type name denotes an
+// exception/throwable type by its `Exception` / `Error` / `Throwable` suffix.
+// This is the structural equivalent of the old `\w*Exception` text match but
+// operates on the resolved simple type name rather than raw node text.
+func nameLooksLikeExceptionType(name string) bool {
+	if name == "" {
+		return false
+	}
+	return strings.HasSuffix(name, "Exception") ||
+		strings.HasSuffix(name, "Error") ||
+		name == "Throwable"
+}
+
+// caughtNarrowingOperands returns the set of identifier names whose `is`/
+// `instanceof` checks inside a catch body are narrowing the *already-caught*
+// exception (and therefore legitimate, not the "type-check instead of
+// polymorphism" smell). That set is the catch parameter itself plus any local
+// variable declared in the catch body whose initializer reads the caught
+// variable — e.g. `val cause = e.cause` / `Throwable cause = e.getCause()`,
+// the idiomatic cause-chain unwrap. The initializer relationship is matched
+// structurally by walking the declaration's initializer subtree for an
+// identifier reference to a known caught-derived name.
+func caughtNarrowingOperands(file *scanner.File, catchNode uint32, caughtVar string) map[string]bool {
+	out := map[string]bool{caughtVar: true}
+	if caughtVar == "" {
+		return out
+	}
+	// Iterate to a fixpoint so chained derivations
+	// (`val a = e.cause; val b = a.cause`) are all captured.
+	changed := true
+	for changed {
+		changed = false
+		file.FlatWalkNodes(catchNode, "property_declaration", func(decl uint32) {
+			name := caughtNarrowingDeclName(file, decl)
+			if name == "" || out[name] {
+				return
+			}
+			if caughtNarrowingInitReferences(file, decl, out) {
+				out[name] = true
+				changed = true
+			}
+		})
+		file.FlatWalkNodes(catchNode, "variable_declarator", func(decl uint32) {
+			name := ""
+			if ident, ok := file.FlatFindChild(decl, "identifier"); ok {
+				name = file.FlatNodeString(ident, nil)
+			}
+			if name == "" || out[name] {
+				return
+			}
+			if caughtNarrowingInitReferences(file, decl, out) {
+				out[name] = true
+				changed = true
+			}
+		})
+	}
+	return out
+}
+
+// caughtNarrowingDeclName returns the declared name of a Kotlin
+// `property_declaration`.
+func caughtNarrowingDeclName(file *scanner.File, decl uint32) string {
+	if vd, ok := file.FlatFindChild(decl, "variable_declaration"); ok {
+		if ident, ok := file.FlatFindChild(vd, "simple_identifier"); ok {
+			return file.FlatNodeString(ident, nil)
+		}
+	}
+	return ""
+}
+
+// caughtNarrowingInitReferences reports whether the initializer side of a
+// variable declaration reads any name in `known` (the caught variable or a
+// caught-derived alias). It walks only the portion of the declaration after
+// the `=` so the declared name itself is not mistaken for a reference.
+func caughtNarrowingInitReferences(file *scanner.File, decl uint32, known map[string]bool) bool {
+	afterEquals := false
+	found := false
+	for child := file.FlatFirstChild(decl); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "=" {
+			afterEquals = true
+			continue
+		}
+		if !afterEquals || !file.FlatIsNamed(child) {
+			continue
+		}
+		file.FlatWalkAllNodes(child, func(n uint32) {
+			if found {
+				return
+			}
+			switch file.FlatType(n) {
+			case "simple_identifier", "identifier":
+				if known[file.FlatNodeString(n, nil)] {
+					found = true
+				}
+			}
+		})
+	}
+	return found
 }
 
 // NotImplementedDeclarationRule detects TODO() calls.
@@ -234,6 +384,15 @@ func (r *SwallowedExceptionRule) checkSwallowedException(ctx *api.Context) {
 			fmt.Sprintf("Exception '%s' is caught but not meaningfully handled. Pass it directly to logging, handling, or rethrowing code.", caughtVar)))
 		return
 	}
+	// The caught variable is unused. Distinguish a genuine swallow
+	// (empty-but-for-a-comment, or log-the-string-and-drop-the-cause) from a
+	// catch that performs real recovery work without touching the exception
+	// (a fallback assignment, an early return, a toast, …). Recovery is not a
+	// swallow, and a truly empty body is already owned by EmptyCatchBlock.
+	switch swallowedClassifyNeverUsed(file, idx) {
+	case swallowedNeverUsedRecovery, swallowedNeverUsedEmpty:
+		return
+	}
 	r.makeUnusedFindingFlat(ctx, caughtVar)
 }
 
@@ -266,14 +425,33 @@ func (r *SwallowedExceptionRule) analyzeSwallowedCatchBody(ctx *api.Context, cat
 	directAliases := map[string]bool{caughtVar: true}
 	derivedAliases := map[string]bool{}
 	swallowedWalkCatchBody(file, body, func(node uint32) bool {
-		if file.FlatType(node) != "property_declaration" {
+		// Both `val x = <init>` property declarations and `when (val x =
+		// <init>)` subject bindings introduce an alias of the caught
+		// exception when their initializer reads it.
+		var name string
+		var init uint32
+		switch file.FlatType(node) {
+		case "property_declaration":
+			name = swallowedPropertyDeclarationName(file, node)
+			init = swallowedPropertyInitializer(file, node)
+		case "when_subject":
+			name = swallowedPropertyDeclarationName(file, node)
+			init = swallowedPropertyInitializer(file, node)
+		default:
 			return true
 		}
-		name := swallowedPropertyDeclarationName(file, node)
-		if name == "" {
+		if name == "" || init == 0 {
 			return true
 		}
-		init := swallowedPropertyInitializer(file, node)
+		// `val cause = e.cause` (or `e.getCause()`) carries the original
+		// throwable forward — using `cause` afterwards is meaningful handling
+		// that preserves the chain, unlike a `.message`/`.toString()` String
+		// projection. Treat such a variable as a *direct* alias of the caught
+		// exception so later uses count as handling.
+		if swallowedExpressionIsCauseUnwrap(file, init, directAliases) {
+			directAliases[name] = true
+			return true
+		}
 		switch swallowedExpressionAliasKind(file, init, directAliases, derivedAliases) {
 		case swallowedAliasDirect:
 			directAliases[name] = true
@@ -342,6 +520,229 @@ func swallowedCatchStatements(file *scanner.File, catchNode uint32) uint32 {
 	return 0
 }
 
+// swallowedNeverUsedKind classifies a catch body whose caught variable is
+// *unused* (no reference, no proven handling) into one of three buckets used
+// to decide whether the "caught but never used" finding is warranted.
+type swallowedNeverUsedKind uint8
+
+const (
+	// swallowedNeverUsedEmpty: a truly empty body (no statements, no comment).
+	// EmptyCatchBlock already owns this, so SwallowedException must not also
+	// report it.
+	swallowedNeverUsedEmpty swallowedNeverUsedKind = iota
+	// swallowedNeverUsedLogDrop: the body only logs (and/or holds comments)
+	// and drops the cause — the genuine swallow this rule should flag.
+	swallowedNeverUsedLogDrop
+	// swallowedNeverUsedRecovery: the body performs real recovery work
+	// (control-flow jump, assignment, fallback call, …) without referencing
+	// the exception — not a swallow; suppressed.
+	swallowedNeverUsedRecovery
+)
+
+// swallowedClassifyNeverUsed inspects the direct statements of a catch body
+// (Kotlin `statements` or Java `block`) and returns whether the body is empty,
+// a pure log-and-drop swallow, or genuine recovery. It is only consulted when
+// the caught variable is unused.
+func swallowedClassifyNeverUsed(file *scanner.File, catchNode uint32) swallowedNeverUsedKind {
+	body := swallowedNeverUsedBody(file, catchNode)
+	if body == 0 {
+		// No statements/block node. The catch is empty save for any comments
+		// that hang directly off the catch node (a comment-only swallow that
+		// EmptyCatchBlock skips). Treat a comment-only catch as a log-drop
+		// swallow; a truly empty one is deferred to EmptyCatchBlock.
+		if swallowedCatchHasDirectComment(file, catchNode) {
+			return swallowedNeverUsedLogDrop
+		}
+		return swallowedNeverUsedEmpty
+	}
+	sawLog := false
+	sawComment := false
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "{", "}":
+			continue
+		case "line_comment", "multiline_comment", "block_comment", "comment", "shebang_line":
+			sawComment = true
+			continue
+		}
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		if swallowedStatementIsLoggingCall(file, child) {
+			sawLog = true
+			continue
+		}
+		// A bare scope-function call (`run { … }`, `let { … }`, …) is not real
+		// recovery — it is just a block wrapper. The analysis intentionally
+		// does not credit handling that happens inside the nested lambda, so a
+		// catch whose only statement wraps a logging/handling call in a scope
+		// function is still treated as a (lambda-buried) swallow.
+		if swallowedStatementIsScopeFunctionCall(file, child) {
+			sawLog = true
+			continue
+		}
+		// Any other substantive statement — assignment, return/break/continue,
+		// throw, non-logging fallback call, control flow, local declaration —
+		// is real recovery work, not a silent swallow.
+		return swallowedNeverUsedRecovery
+	}
+	if sawLog || sawComment {
+		return swallowedNeverUsedLogDrop
+	}
+	return swallowedNeverUsedEmpty
+}
+
+// swallowedStatementIsScopeFunctionCall reports whether a catch-body statement
+// is a bare call to a Kotlin scope function (`run`, `let`, `also`, `apply`,
+// `with`, `runCatching`). These wrap a lambda rather than performing recovery.
+func swallowedStatementIsScopeFunctionCall(file *scanner.File, stmt uint32) bool {
+	call := stmt
+	if file.FlatType(call) != "call_expression" {
+		inner := uint32(0)
+		count := 0
+		for c := file.FlatFirstChild(stmt); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatIsNamed(c) {
+				inner = c
+				count++
+			}
+		}
+		if count != 1 {
+			return false
+		}
+		call = inner
+	}
+	if file.FlatType(call) != "call_expression" {
+		return false
+	}
+	callee, _ := swallowedCallTarget(file, call)
+	switch callee {
+	case "run", "let", "also", "apply", "with", "runCatching":
+		return true
+	default:
+		return false
+	}
+}
+
+// swallowedNeverUsedBody returns the statement container of a catch body:
+// the Kotlin `statements` node or the Java `block` node.
+func swallowedNeverUsedBody(file *scanner.File, catchNode uint32) uint32 {
+	for child := file.FlatFirstChild(catchNode); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "statements":
+			return child
+		case "block":
+			return child
+		}
+	}
+	return 0
+}
+
+// swallowedCatchHasDirectComment reports whether a comment node hangs directly
+// off the catch node — the shape of a comment-only catch body that has no
+// `statements`/`block` node.
+func swallowedCatchHasDirectComment(file *scanner.File, catchNode uint32) bool {
+	for child := file.FlatFirstChild(catchNode); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "line_comment", "multiline_comment", "block_comment", "comment":
+			return true
+		}
+	}
+	return false
+}
+
+// swallowedStatementIsLoggingCall reports whether a catch-body statement is a
+// bare logging/println call (possibly the only thing in a "log-the-string-but-
+// drop-the-cause" catch). A statement may be the call_expression directly or
+// wrap one (e.g. Java's expression_statement).
+func swallowedStatementIsLoggingCall(file *scanner.File, stmt uint32) bool {
+	call := stmt
+	if file.FlatType(call) != "call_expression" && file.FlatType(call) != "method_invocation" {
+		// Unwrap a single named child (e.g. Java expression_statement → call).
+		inner := uint32(0)
+		count := 0
+		for c := file.FlatFirstChild(stmt); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatIsNamed(c) {
+				inner = c
+				count++
+			}
+		}
+		if count != 1 {
+			return false
+		}
+		call = inner
+	}
+	switch file.FlatType(call) {
+	case "call_expression", "method_invocation":
+		callee, _ := swallowedCallTarget(file, call)
+		return callee != "" && swallowedLoggingCallee(callee)
+	}
+	return false
+}
+
+// swallowedCallResultIsConsumed reports whether the result of the call at node
+// flows somewhere — it is an argument, a returned/thrown value, an assignment
+// or property initializer right-hand side, a receiver in a navigation chain,
+// etc. — rather than being a bare expression statement whose value is
+// discarded. A bare `ignored(e)` statement is *not* consumed.
+func swallowedCallResultIsConsumed(file *scanner.File, node uint32) bool {
+	parent, ok := file.FlatParent(node)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(parent) {
+	case "statements", "control_structure_body", "block":
+		// Direct child of a statement container. Such a value is discarded
+		// *unless* it is the tail expression of a catch body whose enclosing
+		// `try` is itself in a consumed (expression) position — then the
+		// wrapped exception flows out as the try's value (e.g. a `catch`
+		// branch whose body is `Result.Failure(e)` used as a `when`/return
+		// arm). Only the *last* named statement can be such a tail.
+		if file.FlatType(parent) == "statements" && swallowedIsLastNamedStatement(file, parent, node) {
+			return swallowedCatchTryIsConsumed(file, parent)
+		}
+		return false
+	}
+	return true
+}
+
+// swallowedIsLastNamedStatement reports whether node is the final named child
+// of the statements container.
+func swallowedIsLastNamedStatement(file *scanner.File, statements, node uint32) bool {
+	last := uint32(0)
+	for child := file.FlatFirstChild(statements); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatIsNamed(child) {
+			last = child
+		}
+	}
+	return last == node
+}
+
+// swallowedCatchTryIsConsumed reports whether the `statements` node is the body
+// of a catch whose enclosing `try_expression` is in a consumed position (its
+// value flows somewhere rather than being a discarded statement).
+func swallowedCatchTryIsConsumed(file *scanner.File, statements uint32) bool {
+	catchNode, ok := file.FlatParent(statements)
+	if !ok {
+		return false
+	}
+	if t := file.FlatType(catchNode); t != "catch_block" && t != "catch_clause" {
+		return false
+	}
+	tryNode, ok := file.FlatParent(catchNode)
+	if !ok || file.FlatType(tryNode) != "try_expression" {
+		return false
+	}
+	tryParent, ok := file.FlatParent(tryNode)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(tryParent) {
+	case "statements", "control_structure_body", "block":
+		return false
+	}
+	return true
+}
+
 func swallowedHasNamedStatement(file *scanner.File, statements uint32) bool {
 	for child := file.FlatFirstChild(statements); child != 0; child = file.FlatNextSib(child) {
 		if file.FlatIsNamed(child) {
@@ -356,7 +757,11 @@ func swallowedWalkCatchBody(file *scanner.File, root uint32, fn func(uint32) boo
 	walk = func(node uint32) bool {
 		if node != root {
 			switch file.FlatType(node) {
-			case "lambda_literal", "function_declaration", "class_declaration", "object_declaration":
+			case "lambda_literal", "function_declaration", "class_declaration", "object_declaration",
+				// A nested catch re-binds the exception name in its own scope;
+				// its body's references belong to that catch, not the outer
+				// one, so they must not count toward the outer catch's usage.
+				"catch_block", "catch_clause":
 				return true
 			}
 		}
@@ -414,6 +819,48 @@ func swallowedExpressionAliasKind(file *scanner.File, expr uint32, directAliases
 		return swallowedAliasDerived
 	}
 	return swallowedAliasNone
+}
+
+// swallowedExpressionIsCauseUnwrap reports whether expr is `<alias>.cause` or
+// `<alias>.getCause()` where <alias> is a known direct alias of the caught
+// exception. Such an expression yields the original throwable's cause (still a
+// Throwable), so a variable bound to it forwards the exception chain.
+func swallowedExpressionIsCauseUnwrap(file *scanner.File, expr uint32, directAliases map[string]bool) bool {
+	expr = swallowedUnwrapExpression(file, expr)
+	if expr == 0 {
+		return false
+	}
+	// `e.getCause()` — a call whose callee is a navigation ending in getCause.
+	if file.FlatType(expr) == "call_expression" {
+		for child := file.FlatFirstChild(expr); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "navigation_expression" {
+				expr = child
+				break
+			}
+		}
+	}
+	if file.FlatType(expr) != "navigation_expression" {
+		return false
+	}
+	receiver := file.FlatFirstChild(expr)
+	if receiver == 0 || file.FlatType(receiver) != "simple_identifier" {
+		return false
+	}
+	if !directAliases[file.FlatNodeString(receiver, nil)] {
+		return false
+	}
+	for child := file.FlatFirstChild(expr); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "navigation_suffix" {
+			continue
+		}
+		for gc := file.FlatFirstChild(child); gc != 0; gc = file.FlatNextSib(gc) {
+			if file.FlatType(gc) == "simple_identifier" {
+				name := file.FlatNodeString(gc, nil)
+				return name == "cause" || name == "getCause"
+			}
+		}
+	}
+	return false
 }
 
 func swallowedUnwrapExpression(file *scanner.File, expr uint32) uint32 {
@@ -481,6 +928,21 @@ func swallowedAnalyzeReturn(file *scanner.File, node uint32, directAliases, deri
 	return swallowedEvidence{}
 }
 
+// swallowedCalleeLooksLikeWrapper reports whether a callee's simple name has
+// the shape of a constructor or factory — an initial uppercase letter, as in
+// `ApplicationError`, `Failure`, `IOException`. Passing the caught exception to
+// such a call packages it into a value (a wrapper / error result), which is
+// meaningful handling even when that value is locally discarded. Lowercase
+// callees (`ignored`, `recover`, `warn`) are ordinary functions whose
+// fire-and-forget invocation does not by itself prove the exception is handled.
+func swallowedCalleeLooksLikeWrapper(callee string) bool {
+	if callee == "" {
+		return false
+	}
+	r := rune(callee[0])
+	return r >= 'A' && r <= 'Z'
+}
+
 func swallowedIsThrowExpression(file *scanner.File, node uint32) bool {
 	if file.FlatType(node) != "jump_expression" {
 		return false
@@ -496,16 +958,28 @@ func swallowedIsReturnExpression(file *scanner.File, node uint32) bool {
 		return false
 	}
 	for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
-		return file.FlatType(child) == "return"
+		return swallowedIsReturnKeyword(file.FlatType(child))
 	}
 	return false
+}
+
+// swallowedIsReturnKeyword matches both bare and labeled return tokens
+// (`return` and `return@label`, the latter parsed as a `return@` token).
+func swallowedIsReturnKeyword(t string) bool {
+	return t == "return" || t == "return@"
 }
 
 func swallowedJumpExpressionValue(file *scanner.File, node uint32) uint32 {
 	seenKeyword := false
 	for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
 		if !seenKeyword {
-			seenKeyword = file.FlatType(child) == "throw" || file.FlatType(child) == "return"
+			t := file.FlatType(child)
+			seenKeyword = t == "throw" || swallowedIsReturnKeyword(t)
+			continue
+		}
+		// Skip the `label` node that follows a `return@` token; the returned
+		// value is the first *other* named child.
+		if file.FlatType(child) == "label" {
 			continue
 		}
 		if file.FlatIsNamed(child) {
@@ -519,6 +993,31 @@ func (r *SwallowedExceptionRule) swallowedAnalyzeCall(ctx *api.Context, catchNod
 	file := ctx.File
 	kind := swallowedClassifyCall(ctx, catchNode, node)
 	if kind == swallowedCallUnknown {
+		// Converting the whole caught exception into a value — e.g.
+		// `out.append(convertThrowableToString(t))`, `return Result.Failure(e)`,
+		// `BackupResponse.ApplicationError(e)` — is meaningful handling: the
+		// exception is transformed into something rather than dropped. The
+		// exception is treated as handled when EITHER:
+		//   * the call's result is consumed (argument, return/throw value,
+		//     assignment RHS, navigation receiver, expression-position catch
+		//     tail), OR
+		//   * the callee is a constructor / factory shape (an uppercase final
+		//     name, e.g. `ApplicationError`, `Failure`) — a wrapper that
+		//     packages the exception into a value even when that value is
+		//     (locally) discarded.
+		// Two shapes are deliberately excluded so genuine swallows still fire:
+		//   * a logging-shaped callee on an unrecognized receiver
+		//     (`localLog.warn(e)`) — a logger lookalike that drops the cause;
+		//   * a bare lowercase call whose result is discarded (`ignored(e)`,
+		//     `recover(e)`) — a fire-and-forget callback that may still swallow.
+		callee, _ := swallowedCallTarget(file, node)
+		if callee != "" && !swallowedLoggingCallee(callee) &&
+			(swallowedCallResultIsConsumed(file, node) || swallowedCalleeLooksLikeWrapper(callee)) {
+			args := flatCallKeyArguments(file, node)
+			if swallowedAnalyzeArguments(file, args, directAliases, derivedAliases).handled {
+				return swallowedEvidence{handled: true}
+			}
+		}
 		return swallowedEvidence{}
 	}
 	args := flatCallKeyArguments(file, node)

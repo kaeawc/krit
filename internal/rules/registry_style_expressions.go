@@ -499,6 +499,17 @@ func registerStyleVarCouldBeVal() {
 				return
 			}
 			reassigned := r.reassignedNamesFlat(parent, file)[varName]
+			if !reassigned && !isLocal {
+				// A class/object/companion member may be reassigned through a
+				// qualified write (`EnclosingType.member = ...`) from a sibling
+				// nested scope outside the member's immediate class_body. Scan
+				// the outermost enclosing type subtree for such writes.
+				if outermost, names := enclosingTypeQualifiersFlat(file, idx); outermost != 0 {
+					if reassignedViaEnclosingTypeQualifierFlat(file, outermost, names, varName) {
+						reassigned = true
+					}
+				}
+			}
 			if !reassigned {
 				f := r.Finding(file, file.FlatRow(idx)+1, 1,
 					fmt.Sprintf("'var %s' is never reassigned. Use 'val' instead.", varName))

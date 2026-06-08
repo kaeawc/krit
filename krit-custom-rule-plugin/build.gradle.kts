@@ -72,7 +72,7 @@ dependencies {
     // Bringing the Kotlin Gradle Plugin onto our runtime classpath lets the
     // plugin auto-apply `kotlin("jvm")` without forcing the consumer to
     // declare it themselves.
-    implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.21")
+    implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.0")
 
     testImplementation(gradleTestKit())
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.0")

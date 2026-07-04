@@ -747,6 +747,26 @@ func (r *OptInMarkerNotRecognisedRule) markerInAdditional(name string) bool {
 type OptInMarkerExposedPubliclyRule struct {
 	FlatDispatchBase
 	BaseRule
+	// AdditionalMarkers lets a project register its own propagating opt-in
+	// markers (custom `@RequiresOptIn`-annotated classes) so exposing them on
+	// public API is flagged too — the embedded well-known set only covers
+	// markers shipped by widely used libraries.
+	AdditionalMarkers []string
+}
+
+// markerInAdditional reports whether the annotation simple name matches one of
+// the project-configured additional markers (matched on simple name, so a
+// fully-qualified entry still works).
+func (r *OptInMarkerExposedPubliclyRule) markerInAdditional(name string) bool {
+	for _, m := range r.AdditionalMarkers {
+		if i := strings.LastIndex(m, "."); i >= 0 {
+			m = m[i+1:]
+		}
+		if m == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Confidence reports a tier-1 (high) base confidence. The detection is fully

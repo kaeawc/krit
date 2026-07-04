@@ -9387,7 +9387,7 @@
           }
         },
         "OptInMarkerExposedPublicly": {
-          "description": "Detects @OptIn annotations on public API declarations that propagate the opt-in requirement to callers. [precision: ast-backed] [noisiness: normal]",
+          "description": "Detects public API declarations annotated directly with an opt-in marker, which propagates the opt-in requirement to callers. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -9395,6 +9395,13 @@
               "description": "Enable OptInMarkerExposedPublicly (default: true).",
               "type": "boolean",
               "default": true
+            },
+            "additionalMarkers": {
+              "description": "Additional propagating opt-in marker class names (simple or fully-qualified) — e.g. a project's own @RequiresOptIn markers — to flag when exposed on public API.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",

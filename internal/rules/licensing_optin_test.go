@@ -3,7 +3,52 @@ package rules_test
 import (
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/rules"
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
+
+// TestOptInMarkerExposedPublicly_AdditionalMarkers verifies a project can
+// register its own propagating opt-in markers (custom @RequiresOptIn classes)
+// via `additionalMarkers`, so exposing one on a public declaration is flagged.
+// The embedded well-known set only covers library markers, so an unconfigured
+// project marker must NOT flag.
+func TestOptInMarkerExposedPublicly_AdditionalMarkers(t *testing.T) {
+	var rule *rules.OptInMarkerExposedPubliclyRule
+	for _, c := range api.Registry {
+		if c.ID == "OptInMarkerExposedPublicly" {
+			rule, _ = c.Implementation.(*rules.OptInMarkerExposedPubliclyRule)
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("OptInMarkerExposedPublicly not registered")
+	}
+	original := rule.AdditionalMarkers
+	defer func() { rule.AdditionalMarkers = original }()
+
+	src := "package test\n@RequiresOptIn\nannotation class InternalMyApi\n@InternalMyApi\nfun exposed() {}\n"
+	countRule := func(fs []scanner.Finding) int {
+		n := 0
+		for _, f := range fs {
+			if f.Rule == "OptInMarkerExposedPublicly" {
+				n++
+			}
+		}
+		return n
+	}
+
+	rule.AdditionalMarkers = nil
+	if n := countRule(runRuleByName(t, "OptInMarkerExposedPublicly", src)); n != 0 {
+		t.Fatalf("baseline: an unconfigured project marker should not be flagged; got %d", n)
+	}
+
+	rules.ApplyConfig(loadTempConfig(t, "licensing:\n  OptInMarkerExposedPublicly:\n    additionalMarkers:\n      - InternalMyApi\n"))
+	if n := countRule(runRuleByName(t, "OptInMarkerExposedPublicly", src)); n == 0 {
+		t.Fatal("with additionalMarkers configured, exposing the project marker on a public declaration should be flagged; got 0")
+	}
+}
 
 func TestOptInMarkerNotRecognised_Positive(t *testing.T) {
 	findings := runRuleByName(t, "OptInMarkerNotRecognised", `

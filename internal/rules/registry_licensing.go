@@ -133,8 +133,10 @@ func registerLicensingRules() {
 				// @OptIn(...) CONSUMES the requirement locally and does NOT
 				// propagate; it is the mechanism for NOT exposing the marker.
 				// Only a propagating marker applied DIRECTLY to a public
-				// declaration exposes the requirement to callers.
-				if !isPropagatingOptInMarkerName(name) {
+				// declaration exposes the requirement to callers. The embedded
+				// well-known set covers library markers; `additionalMarkers`
+				// lets a project register its own @RequiresOptIn markers.
+				if !isPropagatingOptInMarkerName(name) && !r.markerInAdditional(name) {
 					return
 				}
 				if scanner.IsTestFile(file.Path) {
@@ -153,6 +155,14 @@ func registerLicensingRules() {
 					fmt.Sprintf("@%s on a public declaration propagates the opt-in requirement to callers. Restrict the declaration's visibility or wrap the experimental usage behind a non-experimental API.", name)))
 			},
 			DefaultActive: true,
+			Options: []api.ConfigOption{
+				api.StringListOption(api.StringListOptionSpec[OptInMarkerExposedPubliclyRule]{
+					Name:        "additionalMarkers",
+					Default:     []string{},
+					Description: "Additional propagating opt-in marker class names (simple or fully-qualified) — e.g. a project's own @RequiresOptIn markers — to flag when exposed on public API.",
+					Apply:       func(r *OptInMarkerExposedPubliclyRule, v []string) { r.AdditionalMarkers = v },
+				}),
+			},
 		})
 	}
 	{

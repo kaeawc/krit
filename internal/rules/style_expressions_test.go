@@ -411,6 +411,65 @@ class FragmentLike {
 	}
 }
 
+func TestVarCouldBeVal_TreatsObjectNameQualifiedAssignmentAsReassignment(t *testing.T) {
+	// An object member written through the object's own name
+	// (`Deps.configured = true`) is a reassignment. The directly-assignable
+	// LHS is `<ObjectName>.<member>`, not `this.<member>`, so it previously
+	// slipped past the reassignment walk.
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+object Deps {
+    private var configured = false
+    fun configure() {
+        Deps.configured = true
+    }
+    fun read() = configured
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for object member reassigned via object name, got %d", len(findings))
+	}
+}
+
+func TestVarCouldBeVal_TreatsEnclosingClassQualifiedAssignmentAsReassignment(t *testing.T) {
+	// A companion-object member written through the enclosing class name
+	// (`ProgressService.title = ...`) from a sibling nested class is a
+	// reassignment. The write lives outside the member's immediate
+	// class_body, so the scan must cover the outermost enclosing type.
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+class ProgressService {
+    companion object {
+        private var title: String = ""
+    }
+    class Controller {
+        fun update(newTitle: String) {
+            ProgressService.title = newTitle
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for companion member reassigned via enclosing class name, got %d", len(findings))
+	}
+}
+
+func TestVarCouldBeVal_QualifiedReadIsNotReassignment(t *testing.T) {
+	// A qualified READ of an object member (`Config.enabled`, no assignment)
+	// must not be mistaken for a reassignment — the never-reassigned member
+	// still flags.
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+object Config {
+    private var enabled = false
+    fun read() = Config.enabled
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for object member that is only read through a qualified access")
+	}
+}
+
 func TestVarCouldBeVal_TreatsLambdaPropertyAssignmentAsReassignment(t *testing.T) {
 	findings := runRuleByName(t, "VarCouldBeVal", `
 package test

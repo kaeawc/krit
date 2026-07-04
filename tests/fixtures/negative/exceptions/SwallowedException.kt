@@ -80,6 +80,61 @@ class Processor {
         sink.flush()
     }
 
+    // Passing the whole caught exception to an unrecognized function consumes
+    // it — not a swallow.
+    fun passedToConverter(): String {
+        val out = StringBuilder()
+        try {
+            doWork()
+        } catch (t: Throwable) {
+            out.append(convertThrowableToString(t))
+            return out.toString()
+        }
+        return "ok"
+    }
+
+    // Inspecting and dispatching on e.cause forwards the throwable chain.
+    fun dispatchOnCause(): String {
+        return run {
+            try {
+                doWork()
+            } catch (e: java.util.concurrent.ExecutionException) {
+                when (val cause = e.cause) {
+                    is IllegalStateException -> stateError(cause)
+                    else -> appError(cause)
+                }
+            }
+        }
+    }
+
+    // A fallback assignment that ignores the exception is recovery, not a
+    // swallow.
+    var cached: String? = "x"
+
+    fun fallbackAssignment() {
+        try {
+            doWork()
+        } catch (e: Exception) {
+            cached = null
+        }
+    }
+
+    // An early return as a fallback value is recovery.
+    fun earlyReturnRecovery(): Boolean {
+        try {
+            doWork()
+        } catch (e: java.io.IOException) {
+            return false
+        }
+        return true
+    }
+
+    private fun convertThrowableToString(t: Throwable): String = t.toString()
+
+    private fun stateError(c: Throwable?): String = ""
+
+    private fun appError(c: Throwable?): String = ""
+
     private fun transform(i: Int): String = i.toString()
 
     private fun doWork() {

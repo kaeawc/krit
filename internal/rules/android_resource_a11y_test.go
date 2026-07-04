@@ -1,10 +1,21 @@
 package rules_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/scanner"
 )
+
+// findingMessages extracts finding messages for readable test failures.
+func findingMessages(findings []scanner.Finding) []string {
+	msgs := make([]string, 0, len(findings))
+	for _, f := range findings {
+		msgs = append(msgs, f.Message)
+	}
+	return msgs
+}
 
 func TestMissingContentDescriptionResource(t *testing.T) {
 	r := findResourceRule(t, "MissingContentDescriptionResource")
@@ -508,6 +519,108 @@ func TestLayoutAutofillHintMismatch(t *testing.T) {
 		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	// Regression: a generic numeric field (e.g. a country-code input) must NOT
+	// be told to use creditCardNumber. The old broad "number ⇒ creditCardNumber"
+	// inference caused this false positive.
+	t.Run("numeric country-code field is clean (no creditCardNumber suggestion)", func(t *testing.T) {
+		idx := indexWithLayout("country", "res/layout/country_code_text.xml", &android.View{
+			Type: "EditText",
+			Line: 23,
+			Attributes: map[string]string{
+				"android:inputType": "number",
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for numeric field, got %d: %v", len(findings), findingMessages(findings))
+		}
+	})
+
+	// Regression: a numeric passphrase (numberPassword) must not be told to use
+	// creditCardNumber. numberPassword maps to a password hint, and since no
+	// autofillHints is present we still suggest password — but never a card hint.
+	t.Run("numberPassword field never suggests creditCardNumber", func(t *testing.T) {
+		idx := indexWithLayout("passphrase", "res/layout/enter_backup_passphrase_dialog.xml", &android.View{
+			Type: "EditText",
+			Line: 10,
+			Attributes: map[string]string{
+				"android:inputType": "numberPassword",
+			},
+		})
+		findings := runResourceRule(r, idx)
+		for _, f := range findings {
+			if strings.Contains(f.Message, "creditCardNumber") {
+				t.Fatalf("must not suggest creditCardNumber for numberPassword: %q", f.Message)
+			}
+		}
+	})
+
+	// Regression: generic textPersonName (often a search box) must not be told
+	// to use a personName hint.
+	t.Run("textPersonName field is clean (no personName suggestion)", func(t *testing.T) {
+		idx := indexWithLayout("search", "res/layout/search.xml", &android.View{
+			Type: "EditText",
+			Line: 7,
+			Attributes: map[string]string{
+				"android:inputType": "textPersonName",
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for textPersonName, got %d: %v", len(findings), findingMessages(findings))
+		}
+	})
+
+	// Regression: a field explicitly opted out of autofill must be exempt.
+	t.Run("importantForAutofill=no is exempt", func(t *testing.T) {
+		idx := indexWithLayout("form", "res/layout/form.xml", &android.View{
+			Type: "EditText",
+			Line: 5,
+			Attributes: map[string]string{
+				"android:inputType":            "textEmailAddress",
+				"android:importantForAutofill": "no",
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for importantForAutofill=no, got %d: %v", len(findings), findingMessages(findings))
+		}
+	})
+
+	// Positive: a genuine mismatch — autofillHints contradicts a specific
+	// inputType — still flags.
+	t.Run("password hint on phone inputType flags (genuine mismatch)", func(t *testing.T) {
+		idx := indexWithLayout("form", "res/layout/form.xml", &android.View{
+			Type: "EditText",
+			Line: 5,
+			Attributes: map[string]string{
+				"android:inputType":     "phone",
+				"android:autofillHints": "password",
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding for contradicting hint, got %d: %v", len(findings), findingMessages(findings))
+		}
+	})
+
+	// Negative: a consistent autofillHints value on a pipe-combined inputType is
+	// clean (email + flags).
+	t.Run("consistent hint on combined inputType is clean", func(t *testing.T) {
+		idx := indexWithLayout("form", "res/layout/form.xml", &android.View{
+			Type: "EditText",
+			Line: 5,
+			Attributes: map[string]string{
+				"android:inputType":     "textEmailAddress|textNoSuggestions",
+				"android:autofillHints": "emailAddress",
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for consistent combined inputType, got %d: %v", len(findings), findingMessages(findings))
 		}
 	})
 }

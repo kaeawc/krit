@@ -30,3 +30,8 @@ fun shadowedByForLoopVariable(item: String) {
         println(item)
     }
 }
+
+fun shadowedByLocalFunction(handler: () -> Unit) {
+    fun handler() {}
+    handler()
+}

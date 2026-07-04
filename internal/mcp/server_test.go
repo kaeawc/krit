@@ -1713,11 +1713,15 @@ func TestUnknownTool(t *testing.T) {
 }
 
 func TestSuggestFixesWithFixableIssues(t *testing.T) {
-	// Empty catch block triggers EmptyCatchBlock which populates Fix
+	// A log-the-string-but-drop-the-cause catch triggers SwallowedException,
+	// which populates a Fix (insert `throw e`). (A truly empty catch is owned
+	// by EmptyCatchBlock, whose fix is intentionally neutered, so it would not
+	// produce a fix suggestion here.)
 	code := `fun main() {
     try {
         riskyCall()
     } catch (e: Exception) {
+        println("failed")
     }
 }
 `
@@ -1903,11 +1907,14 @@ func TestSuggestFixesMissingCode(t *testing.T) {
 }
 
 func TestSuggestFixesFixLevelAll(t *testing.T) {
-	// fix_level "all" should not filter — return all fixable findings
+	// fix_level "all" should not filter — return all fixable findings. Use a
+	// log-and-drop catch so SwallowedException produces a fixable finding (an
+	// empty catch is owned by EmptyCatchBlock, whose fix is neutered).
 	code := `fun main() {
     try {
         riskyCall()
     } catch (e: Exception) {
+        println("failed")
     }
 }
 `

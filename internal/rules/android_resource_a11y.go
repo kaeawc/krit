@@ -520,13 +520,61 @@ type LayoutAutofillHintMismatchRule struct {
 
 func (r *LayoutAutofillHintMismatchRule) Confidence() float64 { return api.ConfidenceMedium }
 
-var inputTypeToAutofillHint = map[string]string{
+// specificAutofillInputType maps inputType flags that unambiguously identify an
+// autofillable field to the autofill hint Android expects for them.
+//
+// We deliberately exclude generic, ambiguous input types:
+//   - "number" (and numeric variants) is used for OTPs, quantities, country
+//     codes, PINs, passphrases, etc.; it does NOT imply a credit-card field.
+//   - "text" / "textPersonName" is routinely used for search boxes and free
+//     text, so requiring a personName hint produces noise.
+//
+// Only specific, single-purpose types remain here so we can confidently assert
+// both the expected hint (for the missing-hint case) and a contradiction (for
+// the genuine-mismatch case). Prefer false-negatives over false-positives.
+var specificAutofillInputType = map[string]string{
 	"textEmailAddress":  "emailAddress",
 	"textPassword":      "password",
-	"textPersonName":    "personName",
+	"textWebPassword":   "password",
+	"numberPassword":    "password",
 	"phone":             "phone",
 	"textPostalAddress": "postalAddress",
-	"number":            "creditCardNumber",
+}
+
+// autofillHintCompatibleInputTypes lists, for a given autofillHints value, the
+// inputType flags that are consistent with it. A field whose autofillHints is
+// set to one of these keys but whose inputType contains none of the compatible
+// flags (and is itself a specific, contradicting type) is a genuine mismatch.
+var autofillHintCompatibleInputTypes = map[string]map[string]bool{
+	"emailAddress":  {"textEmailAddress": true},
+	"password":      {"textPassword": true, "textWebPassword": true, "numberPassword": true, "textVisiblePassword": true},
+	"phone":         {"phone": true},
+	"postalAddress": {"textPostalAddress": true, "textMultiLine": true},
+	"creditCardNumber": {
+		"number": true, "numberPassword": true, "phone": true,
+	},
+}
+
+// isExemptFromAutofill reports whether the field opts out of autofill entirely.
+func isExemptFromAutofill(v *android.View) bool {
+	switch v.Attributes["android:importantForAutofill"] {
+	case "no", "noExcludeDescendants":
+		return true
+	}
+	return false
+}
+
+// inputTypeFlags splits an android:inputType value (which may be a
+// pipe-combined flag set like "number|textNoSuggestions") into its flags.
+func inputTypeFlags(inputType string) []string {
+	parts := strings.Split(inputType, "|")
+	flags := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if f := strings.TrimSpace(p); f != "" {
+			flags = append(flags, f)
+		}
+	}
+	return flags
 }
 
 func (r *LayoutAutofillHintMismatchRule) check(ctx *api.Context) {
@@ -537,15 +585,51 @@ func (r *LayoutAutofillHintMismatchRule) check(ctx *api.Context) {
 			if inputType == "" {
 				return
 			}
-			expectedHint, ok := inputTypeToAutofillHint[inputType]
-			if !ok {
+			// Fields explicitly opted out of autofill never mismatch.
+			if isExemptFromAutofill(v) {
 				return
 			}
-			autofillHints := v.Attributes["android:autofillHints"]
-			if autofillHints == "" {
-				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-					fmt.Sprintf("`%s` has `inputType=\"%s\"` but no `android:autofillHints`. "+
-						"Add `autofillHints=\"%s\"` for autofill support.", v.Type, inputType, expectedHint)))
+
+			flags := inputTypeFlags(inputType)
+			autofillHints := strings.TrimSpace(v.Attributes["android:autofillHints"])
+
+			// Case 1: genuine mismatch — an autofillHints value is set, but the
+			// inputType is a specific type that contradicts it (e.g.
+			// autofillHints="password" on inputType="phone"). Only assert this
+			// when every flag is a known specific type and none is compatible
+			// with the declared hint; otherwise stay silent.
+			if autofillHints != "" {
+				compatible, known := autofillHintCompatibleInputTypes[autofillHints]
+				if !known {
+					return
+				}
+				hasContradiction := false
+				for _, f := range flags {
+					if compatible[f] {
+						return // at least one flag is consistent — no mismatch
+					}
+					if _, specific := specificAutofillInputType[f]; specific {
+						hasContradiction = true
+					}
+				}
+				if hasContradiction {
+					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
+						fmt.Sprintf("`%s` has `autofillHints=\"%s\"` but `inputType=\"%s\"` is inconsistent with it. "+
+							"Align the autofill hint with the input type.", v.Type, autofillHints, inputType)))
+				}
+				return
+			}
+
+			// Case 2: missing hint — only suggest one when the inputType is a
+			// specific, unambiguously autofillable type. Generic types
+			// (number, text, textPersonName, ...) are intentionally ignored.
+			for _, f := range flags {
+				if expectedHint, ok := specificAutofillInputType[f]; ok {
+					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
+						fmt.Sprintf("`%s` has `inputType=\"%s\"` but no `android:autofillHints`. "+
+							"Add `autofillHints=\"%s\"` for autofill support.", v.Type, inputType, expectedHint)))
+					return
+				}
 			}
 		})
 	}

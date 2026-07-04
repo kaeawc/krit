@@ -115,3 +115,32 @@ fun suppressedAmongUsedParams(
     second.process()
     return 0
 }
+
+interface UnusedParameterAnimationListener {
+    fun onAnimationStart()
+    fun onAnimationEnd()
+}
+
+// A lambda-typed parameter forwarded inside an anonymous `object` whose
+// overridden member shares the parameter's name. The member is a declaration
+// in a nested object body, not a local function, so it must not be treated as
+// shadowing the captured parameter.
+fun makeAnimationListener(
+    onAnimationStart: () -> Unit,
+    onAnimationEnd: () -> Unit
+): UnusedParameterAnimationListener {
+    return object : UnusedParameterAnimationListener {
+        override fun onAnimationStart() {
+            onAnimationStart()
+        }
+
+        override fun onAnimationEnd() {
+            onAnimationEnd()
+        }
+    }
+}
+
+// A parameter referenced only inside a trailing lambda body counts as used.
+fun recordTiming(group: String, durationsByGroup: MutableMap<String, MutableList<Long>>) {
+    durationsByGroup.getOrPut(group) { mutableListOf(group.length.toLong()) }
+}

@@ -12,9 +12,58 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/rules"
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
+
+// TestRegression_CastNullable_ByteRangeFactBeatsColumnDrift locks the
+// CastNullableToNonNullableType byte-range fix: the rule must consult the
+// oracle's smart-cast nullability by BYTE RANGE, not line/col. FIR emits
+// columns that don't line up with tree-sitter, so a line/col probe misses the
+// fact and falls back to source inference (which sees `o: Any?` as nullable and
+// wrongly flags the guarded cast). This seeds a real oracle with a non-null
+// fact at the operand's byte range but a DRIFTED line:col key — only the
+// byte-range path finds it, so the cast must not be flagged.
+func TestRegression_CastNullable_ByteRangeFactBeatsColumnDrift(t *testing.T) {
+	file := parseInline(t, "fun f(o: Any?): String { return o as String }\n")
+	operand := castOperandNode(t, file)
+	o, err := oracle.LoadFromData(&oracle.Data{
+		Version:       1,
+		KotlinVersion: "2.1.0",
+		Files: map[string]*oracle.File{
+			file.Path: {Expressions: map[string]*oracle.ExpressionType{
+				// Deliberately-wrong line:col; correct byte range.
+				"999:999": {Type: "kotlin.Any", Nullable: false, StartByte: int(file.FlatStartByte(operand)), EndByte: int(file.FlatEndByte(operand))},
+			}},
+		},
+		Dependencies: map[string]*oracle.Class{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	composite := oracle.NewCompositeResolver(o, resolver)
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "CastNullableToNonNullableType" {
+			rule = r
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("CastNullableToNonNullableType not registered")
+	}
+	cols := rules.NewDispatcher([]*api.Rule{rule}, composite).Run(file)
+	findings := cols.Findings()
+	for _, f := range findings {
+		if f.Rule == "CastNullableToNonNullableType" {
+			t.Fatalf("byte-range non-null (smart-cast) fact should suppress the cast; got FP: %v", f)
+		}
+	}
+}
 
 func nonNullFact(name, fqn string) *typeinfer.ResolvedType {
 	return &typeinfer.ResolvedType{Name: name, FQN: fqn, Kind: typeinfer.TypeClass, Nullable: false}

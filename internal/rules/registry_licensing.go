@@ -1,6 +1,8 @@
 package rules
 
 import (
+	"fmt"
+
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -120,14 +122,21 @@ func registerLicensingRules() {
 	}
 	{
 		r := &OptInMarkerExposedPubliclyRule{
-			BaseRule: BaseRule{RuleName: "OptInMarkerExposedPublicly", RuleSetName: licensingRuleSet, Sev: "warning", Desc: "Detects @OptIn annotations on public API declarations that propagate the opt-in requirement to callers."},
+			BaseRule: BaseRule{RuleName: "OptInMarkerExposedPublicly", RuleSetName: licensingRuleSet, Sev: "warning", Desc: "Detects public API declarations annotated directly with an opt-in marker, which propagates the opt-in requirement to callers."},
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"annotation"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if annotationFinalName(file, idx) != "OptIn" {
+				name := annotationFinalName(file, idx)
+				// @OptIn(...) CONSUMES the requirement locally and does NOT
+				// propagate; it is the mechanism for NOT exposing the marker.
+				// Only a propagating marker applied DIRECTLY to a public
+				// declaration exposes the requirement to callers. The embedded
+				// well-known set covers library markers; `additionalMarkers`
+				// lets a project register its own @RequiresOptIn markers.
+				if !isPropagatingOptInMarkerName(name) && !r.markerInAdditional(name) {
 					return
 				}
 				if scanner.IsTestFile(file.Path) {
@@ -143,9 +152,17 @@ func registerLicensingRules() {
 					return
 				}
 				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"@OptIn on a public declaration propagates the opt-in requirement to callers. Restrict the declaration's visibility or annotate callers explicitly."))
+					fmt.Sprintf("@%s on a public declaration propagates the opt-in requirement to callers. Restrict the declaration's visibility or wrap the experimental usage behind a non-experimental API.", name)))
 			},
 			DefaultActive: true,
+			Options: []api.ConfigOption{
+				api.StringListOption(api.StringListOptionSpec[OptInMarkerExposedPubliclyRule]{
+					Name:        "additionalMarkers",
+					Default:     []string{},
+					Description: "Additional propagating opt-in marker class names (simple or fully-qualified) — e.g. a project's own @RequiresOptIn markers — to flag when exposed on public API.",
+					Apply:       func(r *OptInMarkerExposedPubliclyRule, v []string) { r.AdditionalMarkers = v },
+				}),
+			},
 		})
 	}
 	{

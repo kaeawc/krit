@@ -420,6 +420,71 @@ fun ok(ignored: String, expected: Int, _: Boolean) {
 `,
 			wantHits: 0,
 		},
+		{
+			// Regression: a lambda-typed parameter forwarded inside an anonymous
+			// object whose overridden member shares the parameter's name must not
+			// be treated as shadowed by that member. The member is a declaration
+			// in a nested object body, not a local function.
+			name: "anonymous object override with same name as parameter counts",
+			code: `
+package test
+interface AnimationListener {
+    fun onAnimationStart()
+    fun onAnimationEnd()
+}
+fun makeListener(
+    onAnimationStart: () -> Unit,
+    onAnimationEnd: () -> Unit
+): AnimationListener {
+    return object : AnimationListener {
+        override fun onAnimationStart() {
+            onAnimationStart()
+        }
+        override fun onAnimationEnd() {
+            onAnimationEnd()
+        }
+    }
+}
+`,
+			wantHits: 0,
+		},
+		{
+			// Regression: a parameter referenced only inside a trailing lambda
+			// body must count as used.
+			name: "trailing lambda body references parameter",
+			code: `
+package test
+fun timer(group: String, durationsByGroup: MutableMap<String, MutableList<Long>>) {
+    durationsByGroup.getOrPut(group) { mutableListOf(group.length.toLong()) }
+}
+`,
+			wantHits: 0,
+		},
+		{
+			// Guard: a genuine *local* function whose name shadows the parameter
+			// must still mask the parameter (so the parameter is flagged unused).
+			name: "local function shadowing parameter name still flags parameter",
+			code: `
+package test
+fun localShadow(handler: () -> Unit) {
+    fun handler() {}
+    handler()
+}
+`,
+			wantHits: 1,
+		},
+		{
+			// Guard: an inner lambda parameter that re-declares and uses the name
+			// must not mask a genuinely unused outer parameter.
+			name: "inner lambda parameter shadow does not mask unused outer parameter",
+			code: `
+package test
+fun outer(x: Int) {
+    listOf(1, 2).forEach { x -> println(x) }
+}
+`,
+			wantHits: 1,
+		},
 	}
 
 	for _, tt := range tests {

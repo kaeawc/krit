@@ -47,3 +47,39 @@ class Container {
 
     fun use() = publicProp + withSetter
 }
+
+// lateinit var cannot be val — must never be flagged.
+object LateinitHolder {
+    private lateinit var provider: String
+
+    fun init(value: String) {
+        provider = value
+    }
+
+    fun read() = provider
+}
+
+// Member reassigned through a qualified write `EnclosingType.member = ...`
+// from a sibling nested scope outside the member's immediate class_body.
+class ProgressService {
+    companion object {
+        private var title: String = ""
+    }
+
+    class Controller {
+        fun update(newTitle: String) {
+            ProgressService.title = newTitle
+        }
+    }
+}
+
+// Object member reassigned through its own object name.
+object Deps {
+    private var configured = false
+
+    fun configure() {
+        Deps.configured = true
+    }
+
+    fun read() = configured
+}

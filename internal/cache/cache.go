@@ -43,7 +43,11 @@ const CacheFileName = "incremental.cache"
 // v3: structural false-positive fixes to EmptyFunctionBlock,
 // ImplicitPendingIntent, ComposePainterResourceInLoop, and InjectDispatcher
 // change those rules' findings for unchanged source.
-const cachePayloadVersion = "v3"
+// v4: structural false-positive fixes to InstanceOfCheckForException
+// (caught-variable / cause-unwrap narrowing) and SwallowedException
+// (exception passed/wrapped/cause-inspected, recovery bodies, empty-body
+// deferral) change those rules' findings for unchanged source.
+const cachePayloadVersion = "v4"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

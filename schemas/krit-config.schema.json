@@ -8454,9 +8454,9 @@
               }
             },
             "ignoreOverridden": {
-              "description": "Ignore overridden functions with empty body.",
+              "description": "Ignore overridden functions with an empty body (intentional framework/interface no-ops). Set to false to also flag empty overrides.",
               "type": "boolean",
-              "default": false
+              "default": true
             }
           }
         },

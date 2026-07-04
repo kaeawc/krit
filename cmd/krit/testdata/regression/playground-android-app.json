@@ -1,6 +1,6 @@
 {
   "project": "../../playground/android-app/",
-  "findings_count": 72,
+  "findings_count": 70,
   "findings": [
     {
       "rule": "MagicNumber",
@@ -435,28 +435,12 @@
       "message": "Trust manager overrides checkClientTrusted/checkServerTrusted with an empty body. Perform real certificate validation."
     },
     {
-      "rule": "EmptyFunctionBlock",
-      "ruleSet": "empty-blocks",
-      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
-      "line": 26,
-      "col": 0,
-      "message": "Empty function body detected."
-    },
-    {
       "rule": "InsecureTrustManager",
       "ruleSet": "security",
       "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
       "line": 26,
       "col": 0,
       "message": "Trust manager check method accepts certificates without validation. Perform certificate validation or remove the trust-all manager."
-    },
-    {
-      "rule": "EmptyFunctionBlock",
-      "ruleSet": "empty-blocks",
-      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
-      "line": 27,
-      "col": 0,
-      "message": "Empty function body detected."
     },
     {
       "rule": "InsecureTrustManager",

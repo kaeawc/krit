@@ -30,17 +30,20 @@ const CacheFileName = "incremental.cache"
 // instead of silently failing to deserialize at read time.
 //
 // Bump when the cached payload schema changes in a non-backwards-compatible
-// way — OR when the oracle backend starts emitting different facts for the
-// same source, since cached findings were computed against the old facts and
-// the findings-cache key (rule IDs + config) is otherwise blind to a krit-fir
-// / krit-types backend change. Old entries become unreachable (different
-// RuleSetHash) and will be garbage-collected by the next `krit cache clean`
-// or LRU pass.
+// way — OR when the oracle backend or a built-in rule's logic starts producing
+// different findings for the same source, since cached findings were computed
+// against the old behavior and the findings-cache key (rule IDs + config) is
+// otherwise blind to a krit-fir / krit-types backend change or a rule-logic
+// change. Old entries become unreachable (different RuleSetHash) and will be
+// garbage-collected by the next `krit cache clean` or LRU pass.
 //
 // v2: paired with oracle.CacheVersion 3 — krit-fir now emits smart-cast
 // nullability (OracleSmartCastChecker), so previously-cached findings (and
 // the declared-type facts they were computed from) are stale.
-const cachePayloadVersion = "v2"
+// v3: structural false-positive fixes to EmptyFunctionBlock,
+// ImplicitPendingIntent, ComposePainterResourceInLoop, and InjectDispatcher
+// change those rules' findings for unchanged source.
+const cachePayloadVersion = "v3"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

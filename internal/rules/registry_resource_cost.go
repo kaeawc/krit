@@ -456,7 +456,7 @@ func registerResourceCostRules() {
 				if name != "painterResource" {
 					return
 				}
-				if resourceCostInsideLazyListLambda(file, idx) {
+				if resourceCostInsideLoopLambda(file, idx) {
 					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "painterResource() inside list/loop lambda creates a fresh painter per iteration; hoist it outside the lambda.")
 					return
 				}

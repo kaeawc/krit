@@ -90,30 +90,32 @@ class Example {
 	}
 }
 
-// TestEmptyFunctionBlock_FlagsOverrideEmptyBodyByDefault verifies that, with
-// ignoreOverridden=false, an override function with an empty body is a finding.
-// The previous krit behavior — silently
-// skipping all overrides — masked legitimate issues like an empty
-// X509TrustManager.checkClientTrusted that disables certificate checks.
-func TestEmptyFunctionBlock_FlagsOverrideEmptyBodyByDefault(t *testing.T) {
+// TestEmptyFunctionBlock_SkipsOverrideEmptyBodyByDefault verifies that empty
+// override bodies are NOT flagged by default. An `override fun foo() {}` is
+// almost always an intentional no-op required by a framework/interface
+// contract (TextWatcher.afterTextChanged, AnimatorListener.onAnimationEnd,
+// etc.), which made empty overrides the dominant false-positive source on
+// real apps. The skip is driven by the AST `override` modifier node, not a
+// text scan.
+func TestEmptyFunctionBlock_SkipsOverrideEmptyBodyByDefault(t *testing.T) {
 	findings := runRuleByName(t, "EmptyFunctionBlock", `
 package test
-class TrustNothing : X509TrustManager {
-    override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
-    override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
-    override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+class Listener : AnimatorListener {
+    override fun onAnimationEnd(a: Animator) {}
+    override fun onAnimationStart(a: Animator) {}
 }
 `)
-	if len(findings) != 2 {
-		t.Fatalf("expected 2 findings (one per empty override body), got %d", len(findings))
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings for empty override bodies by default, got %d", len(findings))
 	}
 }
 
-// TestEmptyFunctionBlock_HonorsIgnoreOverridden verifies the wired field:
-// when ignoreOverridden is true, override functions with empty bodies
-// are not flagged. This restores krit's pre-fix behavior for users who
-// opt into it via YAML.
-func TestEmptyFunctionBlock_HonorsIgnoreOverridden(t *testing.T) {
+// TestEmptyFunctionBlock_HonorsIgnoreOverriddenFalse verifies the wired field:
+// when ignoreOverridden is set to false, override functions with empty bodies
+// are flagged again. This is the aggressive opt-in mode that catches, e.g., an
+// empty X509TrustManager.checkClientTrusted override that disables certificate
+// checks.
+func TestEmptyFunctionBlock_HonorsIgnoreOverriddenFalse(t *testing.T) {
 	var rule *rules.EmptyFunctionBlockRule
 	for _, candidate := range api.Registry {
 		if candidate.ID == "EmptyFunctionBlock" {
@@ -131,16 +133,45 @@ func TestEmptyFunctionBlock_HonorsIgnoreOverridden(t *testing.T) {
 	original := rule.IgnoreOverridden
 	defer func() { rule.IgnoreOverridden = original }()
 
-	rule.IgnoreOverridden = true
+	rule.IgnoreOverridden = false
 
 	findings := runRuleByName(t, "EmptyFunctionBlock", `
 package test
-class Sub : Parent {
-    override fun handle() {}
+class TrustNothing : X509TrustManager {
+    override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+    override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
 }
 `)
-	if len(findings) != 0 {
-		t.Fatalf("expected 0 findings when ignoreOverridden=true, got %d", len(findings))
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings (one per empty override body) when ignoreOverridden=false, got %d", len(findings))
+	}
+}
+
+// TestEmptyFunctionBlock_JavaOverrideAndCommentOnly locks the Java parity for
+// the same two false positives: an `@Override` no-op and a body whose only
+// content is a comment must not be flagged, while a genuinely-empty
+// non-override method still is. The override is detected via the AST
+// `marker_annotation` node and the comment via the `block`'s `line_comment`
+// child — never a text scan.
+func TestEmptyFunctionBlock_JavaOverrideAndCommentOnly(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "EmptyFunctionBlock", `
+package test
+class Example {
+    @Override
+    public void onEvent() {}
+
+    public void documentedNoOp() {
+        // intentionally no-op
+    }
+
+    public void forgotten() {}
+}
+`)
+	if len(findings) != 1 {
+		for _, f := range findings {
+			t.Logf("  %s:%d %s", f.File, f.Line, f.Message)
+		}
+		t.Fatalf("expected 1 finding (only the non-override, non-commented empty method), got %d", len(findings))
 	}
 }
 

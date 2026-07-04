@@ -1388,29 +1388,29 @@ func implicitPendingIntentCall(file *scanner.File, idx uint32) bool {
 	if strings.Contains(text, "PendingIntentCompat") {
 		return false
 	}
-	flags, ok := implicitPendingIntentFlagsText(file, idx)
-	if !ok {
+	flagsExpr, ok := implicitPendingIntentFlagsExpr(file, idx)
+	if !ok || flagsExpr == 0 {
 		return false
 	}
-	return !strings.Contains(flags, "FLAG_IMMUTABLE") && !strings.Contains(flags, "FLAG_MUTABLE")
+	// Only flag when the flags argument is an explicit flag expression that we
+	// can see demonstrably lacks a mutability flag. Prefer false-negatives.
+	return implicitPendingIntentFlagsAreInsecure(file, flagsExpr)
 }
 
-func implicitPendingIntentFlagsText(file *scanner.File, call uint32) (string, bool) {
+// implicitPendingIntentFlagsExpr returns the AST node for the PendingIntent
+// flags argument (the 4th positional argument, or the named `flags` argument).
+func implicitPendingIntentFlagsExpr(file *scanner.File, call uint32) (uint32, bool) {
 	if file == nil || call == 0 {
-		return "", false
+		return 0, false
 	}
 	switch file.FlatType(call) {
 	case "call_expression":
 		args := flatCallKeyArguments(file, call)
 		if args == 0 {
-			return "", false
+			return 0, false
 		}
 		if named := flatNamedValueArgument(file, args, "flags"); named != 0 {
-			expr := flatValueArgumentExpression(file, named)
-			if expr == 0 {
-				return "", false
-			}
-			return file.FlatNodeText(expr), true
+			return flatValueArgumentExpression(file, named), true
 		}
 		var last uint32
 		for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
@@ -1420,22 +1420,64 @@ func implicitPendingIntentFlagsText(file *scanner.File, call uint32) (string, bo
 			last = arg
 		}
 		if last == 0 {
-			return "", false
+			return 0, false
 		}
-		expr := flatValueArgumentExpression(file, last)
-		if expr == 0 {
-			return "", false
-		}
-		return file.FlatNodeText(expr), true
+		return flatValueArgumentExpression(file, last), true
 	case "method_invocation":
 		args, ok := file.FlatFindChild(call, "argument_list")
 		if !ok || file.FlatNamedChildCount(args) == 0 {
-			return "", false
+			return 0, false
 		}
-		return file.FlatNodeText(file.FlatNamedChild(args, file.FlatNamedChildCount(args)-1)), true
+		return file.FlatNamedChild(args, file.FlatNamedChildCount(args)-1), true
 	default:
-		return "", false
+		return 0, false
 	}
+}
+
+// implicitPendingIntentFlagsAreInsecure decides, from the flags-argument AST
+// subtree, whether the call demonstrably omits a mutability flag. It is
+// deliberately conservative: it only reports a problem when it can see an
+// explicit flag expression (integer literal or qualified FLAG_* constants,
+// optionally combined with bitwise/`or` operators) that contains no
+// FLAG_IMMUTABLE / FLAG_MUTABLE reference. If the flags come from a helper
+// call, a bare parameter/val, or any expression it cannot fully resolve, it
+// returns false (no finding).
+func implicitPendingIntentFlagsAreInsecure(file *scanner.File, expr uint32) bool {
+	if file == nil || expr == 0 {
+		return false
+	}
+	// A bare identifier (parameter or local val) carries no visible flags.
+	switch file.FlatType(expr) {
+	case "simple_identifier", "identifier":
+		return false
+	}
+	sawFlagConstant := false
+	hasMutability := false
+	insecure := true
+	file.FlatWalkAllNodes(expr, func(node uint32) {
+		switch file.FlatType(node) {
+		case "call_expression", "call_suffix", "method_invocation":
+			// Flags produced by a helper call — cannot prove insecurity.
+			insecure = false
+		case "navigation_expression", "navigation_suffix",
+			"simple_identifier", "identifier":
+			text := file.FlatNodeText(node)
+			if strings.Contains(text, "FLAG_IMMUTABLE") || strings.Contains(text, "FLAG_MUTABLE") {
+				hasMutability = true
+			}
+			if strings.Contains(text, "FLAG_") {
+				sawFlagConstant = true
+			}
+		case "integer_literal", "hex_literal", "decimal_literal", "long_literal":
+			sawFlagConstant = true
+		}
+	})
+	if !insecure || hasMutability {
+		return false
+	}
+	// Require that we actually saw an explicit flag constant / literal; if the
+	// expression is something opaque we did not classify, stay conservative.
+	return sawFlagConstant
 }
 
 func getInstanceFirstStringArg(file *scanner.File, args uint32) (string, bool) {

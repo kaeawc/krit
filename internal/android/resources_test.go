@@ -1013,3 +1013,103 @@ func TestEmptyLayout(t *testing.T) {
 		t.Errorf("expected 0 children, got %d", len(layout.RootView.Children))
 	}
 }
+
+// TestParseDrawableSelectorBytes pins the structured-XML indexing of selector
+// drawables that feeds the StateListReachableResource rule. These cases are
+// regression guards against (a) misreading the idiomatic
+// constrained-states-first / unconstrained-default-last ordering and (b)
+// counting <item> elements nested inside non-selector containers
+// (layer-list, inset, animated containers, or a nested <layer-list> inside a
+// selector item) as if they were selector items.
+func TestParseDrawableSelectorBytes(t *testing.T) {
+	const ns = `xmlns:android="http://schemas.android.com/apk/res/android"`
+
+	type want struct {
+		count    int
+		stateLen []int // length of StateAttrs per indexed item, in order
+	}
+
+	cases := []struct {
+		name string
+		xml  string
+		want want
+	}{
+		{
+			// Idiomatic ordering: constrained state first, unconstrained
+			// default last. Both direct children must be indexed, and the
+			// default must carry an EMPTY state set (android:drawable is not a
+			// state qualifier).
+			name: "constrained_then_default_indexes_two_items",
+			xml: `<selector ` + ns + `>
+  <item android:state_pressed="true" android:drawable="@color/a"/>
+  <item android:drawable="@color/b"/>
+</selector>`,
+			want: want{count: 2, stateLen: []int{1, 0}},
+		},
+		{
+			// A layer-list root is not a selector: none of its <item> children
+			// are selector items.
+			name: "layer_list_root_indexes_nothing",
+			xml: `<layer-list ` + ns + `>
+  <item android:drawable="@color/a"/>
+  <item android:drawable="@color/b"/>
+</layer-list>`,
+			want: want{count: 0},
+		},
+		{
+			// An inset root (with a nested selector) is not itself a selector
+			// root, so nothing is indexed.
+			name: "inset_root_indexes_nothing",
+			xml: `<inset ` + ns + ` android:insetLeft="4dp">
+  <selector>
+    <item android:state_pressed="true" android:drawable="@color/a"/>
+    <item android:drawable="@color/b"/>
+  </selector>
+</inset>`,
+			want: want{count: 0},
+		},
+		{
+			// Only the DIRECT <item> children of <selector> count. The
+			// <layer-list> nested inside the first selector item contributes
+			// zero items, so the selector still indexes exactly two items.
+			name: "nested_layer_list_items_not_counted",
+			xml: `<selector ` + ns + `>
+  <item android:state_pressed="true">
+    <layer-list>
+      <item android:drawable="@color/x"/>
+      <item android:drawable="@color/y"/>
+    </layer-list>
+  </item>
+  <item android:drawable="@color/b"/>
+</selector>`,
+			want: want{count: 2, stateLen: []int{1, 0}},
+		},
+		{
+			// Genuine-bug shape: unconstrained default FIRST, constrained item
+			// after it. Both index; the second carries a non-empty state set.
+			name: "default_first_then_constrained",
+			xml: `<selector ` + ns + `>
+  <item android:drawable="@color/b"/>
+  <item android:state_pressed="true" android:drawable="@color/a"/>
+</selector>`,
+			want: want{count: 2, stateLen: []int{0, 1}},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			idx := newResourceIndex()
+			idx.parseDrawableSelectorBytes("res/drawable/"+c.name+".xml", c.name, []byte(c.xml))
+			items := idx.DrawableSelectors[c.name]
+			if len(items) != c.want.count {
+				t.Fatalf("indexed %d items, want %d: %#v", len(items), c.want.count, items)
+			}
+			for i, wantLen := range c.want.stateLen {
+				if got := len(items[i].StateAttrs); got != wantLen {
+					t.Errorf("item[%d] StateAttrs len = %d, want %d (%v)",
+						i, got, wantLen, items[i].StateAttrs)
+				}
+			}
+		})
+	}
+}

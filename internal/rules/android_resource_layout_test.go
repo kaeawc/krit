@@ -989,6 +989,25 @@ func TestStateListReachableResource(t *testing.T) {
 		}
 	})
 
+	t.Run("idiomatic disjoint states before default is clean", func(t *testing.T) {
+		// Constrained states first (pressed, focused), unconstrained default
+		// last. This is the correct, idiomatic ordering: no constrained item
+		// is a subset of an earlier item, and the catch-all is last, so
+		// nothing is unreachable.
+		idx := emptyIndex()
+		idx.DrawableSelectors = map[string][]android.SelectorItem{
+			"button": {
+				{FilePath: "res/drawable/button.xml", Line: 3, StateAttrs: map[string]string{"android:state_pressed": "true"}},
+				{FilePath: "res/drawable/button.xml", Line: 6, StateAttrs: map[string]string{"android:state_focused": "true"}},
+				{FilePath: "res/drawable/button.xml", Line: 9, StateAttrs: map[string]string{}},
+			},
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for idiomatic ordering, got %d", len(findings))
+		}
+	})
+
 	t.Run("only first masking pair reported per selector", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.DrawableSelectors = map[string][]android.SelectorItem{

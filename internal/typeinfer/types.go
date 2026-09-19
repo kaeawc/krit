@@ -38,8 +38,14 @@ type ResolvedType struct {
 	FQN        string         // Fully qualified: "kotlin.String", "kotlin.collections.MutableList"
 	Kind       TypeKind       // What category of type
 	Nullable   bool           // Is this T?
+	Resolved   bool           // Was this type established from real type evidence? Zero means unresolved.
 	TypeArgs   []ResolvedType // Generic type arguments
 	Supertypes []string       // Known supertypes from source (FQN)
+}
+
+// IsResolved returns whether this type was established from real type evidence.
+func (t *ResolvedType) IsResolved() bool {
+	return t.Resolved
 }
 
 // IsNullable returns whether this type allows null values.

@@ -144,5 +144,6 @@ func factToResolvedType(fact resolvedExpressionFact) *typeinfer.ResolvedType {
 		FQN:      fact.FQN,
 		Kind:     kind,
 		Nullable: fact.Nullable,
+		Resolved: true,
 	}
 }

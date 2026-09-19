@@ -90,6 +90,9 @@ func TestFactToResolvedType_PrimitiveDeducesKind(t *testing.T) {
 		if got.Kind != typeinfer.TypePrimitive {
 			t.Errorf("%s: expected TypePrimitive; got %v", name, got.Kind)
 		}
+		if !got.Resolved {
+			t.Errorf("%s: compiler fact must be marked resolved", name)
+		}
 	}
 }
 
@@ -131,6 +134,9 @@ func TestDaemon_ResolveExpressionTypes_SingleFact(t *testing.T) {
 	}
 	if rt.Name != "String" || rt.FQN != "kotlin.String" || rt.Nullable {
 		t.Errorf("unexpected fact: %+v", rt)
+	}
+	if !rt.Resolved {
+		t.Errorf("compiler fact must be marked resolved: %+v", rt)
 	}
 	// Kind classification mirrors makeResolvedType (oracle.go) — String is
 	// in typeinfer.PrimitiveTypes so it lands as TypePrimitive, not TypeClass.

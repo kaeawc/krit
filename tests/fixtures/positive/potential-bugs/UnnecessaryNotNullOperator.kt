@@ -5,4 +5,10 @@ class UnnecessaryNotNullOperator {
         val x: String = "hello"
         val y = x!!
     }
+
+    fun resolvedType(value: KnownThing) {
+        println(value!!)
+    }
 }
+
+class KnownThing

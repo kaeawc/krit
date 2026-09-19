@@ -71,7 +71,7 @@ func (c *CompositeResolver) ResolveFlatNode(idx uint32, file *scanner.File) *typ
 
 func (c *CompositeResolver) ResolveByNameFlat(name string, idx uint32, file *scanner.File) *typeinfer.ResolvedType {
 	src := c.fallback.ResolveByNameFlat(name, idx, file)
-	if src != nil && src.Kind != typeinfer.TypeUnknown {
+	if src != nil && src.Kind != typeinfer.TypeUnknown && src.Resolved {
 		return src
 	}
 	if flat, ok := c.oracle.(flatExpressionLookup); ok {
@@ -83,7 +83,7 @@ func (c *CompositeResolver) ResolveByNameFlat(name string, idx uint32, file *sca
 		return src
 	}
 	if info := c.oracle.LookupClass(name); info != nil {
-		return &typeinfer.ResolvedType{Name: info.Name, FQN: info.FQN, Kind: typeinfer.TypeClass}
+		return &typeinfer.ResolvedType{Name: info.Name, FQN: info.FQN, Kind: typeinfer.TypeClass, Resolved: true}
 	}
 	return nil
 }

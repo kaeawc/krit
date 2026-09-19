@@ -937,9 +937,10 @@ func (r *defaultResolver) inferImplicitItTypeFlat(lambdaIdx uint32, file *scanne
 	}
 	if receiverType != nil && len(receiverType.TypeArgs) > 0 {
 		scope.Declare("it", &ResolvedType{
-			Name: receiverType.TypeArgs[0].Name,
-			FQN:  receiverType.TypeArgs[0].FQN,
-			Kind: receiverType.TypeArgs[0].Kind,
+			Name:     receiverType.TypeArgs[0].Name,
+			FQN:      receiverType.TypeArgs[0].FQN,
+			Kind:     receiverType.TypeArgs[0].Kind,
+			Resolved: receiverType.TypeArgs[0].Resolved,
 		})
 	}
 }

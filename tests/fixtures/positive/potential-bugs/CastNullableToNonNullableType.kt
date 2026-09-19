@@ -20,8 +20,16 @@ class Example {
 
     fun multilineCast(input: String?) {
         val result =
-            (input) as // keep expression multiline
-                String
+            (input)
+                as // keep expression multiline
+             String
+        println(result)
+    }
+
+    fun resolvedTarget(input: String?) {
+        val result = input as KnownThing
         println(result)
     }
 }
+
+class KnownThing

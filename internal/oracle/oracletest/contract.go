@@ -177,7 +177,7 @@ func runTypeIndexContract(t *testing.T, name string, build Builder) {
 	})
 
 	t.Run(name+"/LookupFunction returns registered key", func(t *testing.T) {
-		want := &typeinfer.ResolvedType{Name: "String", FQN: "kotlin.String", Kind: typeinfer.TypeClass}
+		want := &typeinfer.ResolvedType{Name: "String", FQN: "kotlin.String", Kind: typeinfer.TypeClass, Resolved: true}
 		l := build(t, Spec{
 			Functions: map[string]*typeinfer.ResolvedType{
 				"com.acme.Foo.bar": want,
@@ -207,7 +207,7 @@ func runTypeIndexContract(t *testing.T, name string, build Builder) {
 func runPositionContract(t *testing.T, name string, build Builder) {
 	t.Helper()
 	t.Run(name+"/LookupExpression respects file scope", func(t *testing.T) {
-		typ := &typeinfer.ResolvedType{Name: "Int", FQN: "kotlin.Int", Kind: typeinfer.TypePrimitive}
+		typ := &typeinfer.ResolvedType{Name: "Int", FQN: "kotlin.Int", Kind: typeinfer.TypePrimitive, Resolved: true}
 		l := build(t, Spec{
 			Positions: []PositionFact{
 				{File: "a.kt", Line: 10, Col: 5, Type: typ},

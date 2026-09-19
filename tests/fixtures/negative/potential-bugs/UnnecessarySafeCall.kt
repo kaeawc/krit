@@ -20,6 +20,10 @@ class UnnecessarySafeCall {
         val len = s?.length
     }
 
+    fun unresolvedType(value: ExternalThing) {
+        println(value?.toString())
+    }
+
     // String literals containing "this?." inside a lambda body must NOT
     // trip the repeated-`this?.` heuristic that suppresses findings on
     // `this?.X` in scope-function lambdas. The rule already does not flag

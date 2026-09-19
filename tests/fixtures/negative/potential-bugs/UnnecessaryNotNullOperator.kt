@@ -9,4 +9,8 @@ class UnnecessaryNotNullOperator {
     fun dottedAccess(harness: TestHarness) {
         val group = harness.group!!
     }
+
+    fun unresolvedType(value: ExternalThing) {
+        println(value!!)
+    }
 }

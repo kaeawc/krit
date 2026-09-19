@@ -189,7 +189,7 @@ func flatResolvedNullCheckOperandType(file *scanner.File, resolver typeinfer.Typ
 
 func flatKnownResolvedType(file *scanner.File, resolver typeinfer.TypeResolver, idx uint32) (*typeinfer.ResolvedType, bool) {
 	resolved := resolver.ResolveFlatNode(idx, file)
-	if resolved == nil || resolved.Kind == typeinfer.TypeUnknown || resolved.Kind == typeinfer.TypeGeneric {
+	if resolved == nil || !resolved.Resolved || resolved.Kind == typeinfer.TypeUnknown || resolved.Kind == typeinfer.TypeGeneric {
 		return nil, false
 	}
 	if nullable := resolver.IsNullableFlat(idx, file); nullable != nil {
@@ -615,6 +615,9 @@ func (r *UnnecessaryNotNullOperatorRule) check(ctx *api.Context) {
 		if ctx.Resolver != nil {
 			resolved := ctx.Resolver.ResolveByNameFlat(name, idx, file)
 			if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
+				if !resolved.Resolved {
+					return
+				}
 				if resolved.Kind == typeinfer.TypeGeneric {
 					return
 				}
@@ -1078,9 +1081,16 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 	}
 
 	// If the receiver is a function parameter with an explicit non-null type,
-	// the safe call is always unnecessary — emit directly without waiting for
-	// the resolver or the val-only heuristic (which won't find params).
+	// emit directly only after the resolver confirms that its type is genuine;
+	// the val-only heuristic below cannot see function parameters.
 	if unnecessarySafeCallNonNullFunctionParamFlat(file, idx, name) {
+		if ctx.Resolver == nil {
+			return
+		}
+		resolved := ctx.Resolver.ResolveByNameFlat(name, idx, file)
+		if resolved == nil || !resolved.Resolved {
+			return
+		}
 		f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 			fmt.Sprintf("Unnecessary safe call (?.) on non-nullable parameter '%s'.", name))
 		if fix := makeFix(); fix != nil {
@@ -1094,6 +1104,9 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 	if ctx.Resolver != nil {
 		resolved := ctx.Resolver.ResolveByNameFlat(name, idx, file)
 		if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
+			if !resolved.Resolved {
+				return
+			}
 			if resolved.IsNullable() {
 				return // Actually nullable — safe call is needed
 			}
@@ -1531,8 +1544,8 @@ func unnecessarySafeCallNullableFunctionParamFlat(file *scanner.File, idx uint32
 // as a parameter of the enclosing function with an explicit non-null type
 // (i.e., the type annotation exists and does NOT end with "?"). This is the
 // positive complement of unnecessarySafeCallNullableFunctionParamFlat: it lets
-// check() emit a finding immediately rather than relying on the resolver or the
-// val-only heuristic, which cannot see function parameters.
+// check() consider the parameter-specific path before the val-only heuristic,
+// while the resolver still confirms that the annotation names a genuine type.
 func unnecessarySafeCallNonNullFunctionParamFlat(file *scanner.File, idx uint32, name string) bool {
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		if file.FlatType(p) != "function_declaration" {
@@ -1957,7 +1970,7 @@ func (r *UselessElvisOnNonNullRule) check(ctx *api.Context) {
 	if !ok || resolved == nil {
 		return
 	}
-	if resolved.Kind == typeinfer.TypeUnknown || resolved.Kind == typeinfer.TypeGeneric {
+	if !resolved.Resolved || resolved.Kind == typeinfer.TypeUnknown || resolved.Kind == typeinfer.TypeGeneric {
 		return
 	}
 	if resolved.IsNullable() {

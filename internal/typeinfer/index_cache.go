@@ -18,7 +18,9 @@ const (
 	// Bumped to 2 when MemberInfo gained Params []ParamInfo and
 	// TypeParameters []string. Older cache payloads decode the prior
 	// MemberInfo shape and are silently dropped on version mismatch.
-	typeIndexCacheVersion = 2
+	// Bumped to 3 when ResolvedType gained Resolved. Older payloads would
+	// decode genuine type evidence as unresolved via the bool zero value.
+	typeIndexCacheVersion = 3
 )
 
 var (

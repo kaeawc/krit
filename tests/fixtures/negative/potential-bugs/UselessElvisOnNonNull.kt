@@ -9,6 +9,7 @@ class UselessElvisOnNonNull {
     // Mutable var — Kotlin cannot smart-cast; the source resolver should not
     // claim non-null even when initialized with a non-null literal.
     var name: String = "hello"
+
     fun mutableVar() {
         val y = name ?: "fallback"
     }
@@ -65,6 +66,10 @@ class UselessElvisOnNonNull {
     fun qualifiedCallUnknownTarget(factory: ExternalFactory) {
         val y = factory.create() ?: return
         use(y)
+    }
+
+    fun unresolvedType(value: ExternalThing, fallback: ExternalThing): ExternalThing {
+        return value ?: fallback
     }
 
     fun use(x: Any?) {}

@@ -15,4 +15,10 @@ class UnnecessarySafeCall {
     fun withDefault(s: String = "default") {
         val len = s?.length
     }
+
+    fun resolvedType(value: KnownThing) {
+        println(value?.toString())
+    }
 }
+
+class KnownThing

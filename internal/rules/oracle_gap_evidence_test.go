@@ -127,7 +127,7 @@ class Probe {
 	}
 	fake := oracle.NewFakeOracle()
 	fake.Expressions[file.Path] = map[string]*typeinfer.ResolvedType{
-		positionKey(file, idx): {Name: "String", FQN: "kotlin.String", Kind: typeinfer.TypeClass, Nullable: false},
+		positionKey(file, idx): {Name: "String", FQN: "kotlin.String", Kind: typeinfer.TypeClass, Nullable: false, Resolved: true},
 	}
 	findings := runRuleOnFileWithFakeOracle(t, "UnnecessaryNotNullOperator", file, fake)
 	if len(findings) != 1 {

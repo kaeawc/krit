@@ -1104,6 +1104,9 @@ func TestMakeResolvedType_Primitive(t *testing.T) {
 	if rt.Kind != typeinfer.TypePrimitive {
 		t.Errorf("expected TypePrimitive, got %d", rt.Kind)
 	}
+	if !rt.Resolved {
+		t.Error("oracle type must be marked resolved")
+	}
 	if rt.Name != "Int" {
 		t.Errorf("expected simple name Int, got %q", rt.Name)
 	}

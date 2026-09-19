@@ -503,6 +503,7 @@ func makeResolvedType(fqn string, nullable bool) *typeinfer.ResolvedType {
 		FQN:      fqn,
 		Kind:     kind,
 		Nullable: nullable,
+		Resolved: true,
 	}
 }
 

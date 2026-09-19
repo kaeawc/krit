@@ -587,7 +587,7 @@ func registerStyleUselessCallOnNotNull() {
 						}
 						if !nonNull && ctx.Resolver != nil {
 							resolved := ctx.Resolver.ResolveFlatNode(receiverNode, file)
-							if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
+							if resolved != nil && resolved.Resolved && resolved.Kind != typeinfer.TypeUnknown {
 								validTypes := orEmptyValidTypes
 								if methodName == "isNullOrEmpty" || methodName == "isNullOrBlank" {
 									validTypes = isNullOrValidTypes
@@ -656,7 +656,7 @@ func registerStyleUselessCallOnNotNull() {
 						break
 					}
 					resolved := ctx.Resolver.ResolveFlatNode(expr, file)
-					if resolved == nil || resolved.Kind == typeinfer.TypeUnknown || resolved.IsNullable() {
+					if resolved == nil || !resolved.Resolved || resolved.Kind == typeinfer.TypeUnknown || resolved.IsNullable() {
 						allNonNull = false
 						break
 					}

@@ -8,3 +8,7 @@ fun safe(nullableStr: String?): String {
 fun safeNavigation(obj: String?): String {
     return obj?.orEmpty() ?: ""
 }
+
+fun unresolvedArgument(value: ExternalThing) {
+    println(listOfNotNull(value))
+}

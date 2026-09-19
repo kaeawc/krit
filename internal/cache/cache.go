@@ -53,7 +53,12 @@ const CacheFileName = "incremental.cache"
 // available-but-unresolved oracle call target as confirmation, and
 // ImplicitDefaultLocale now consults oracle call targets — these change
 // those rules' findings for unchanged source.
-const cachePayloadVersion = "v5"
+// v6: null-safety rules (UnnecessaryNotNullCheck/Operator/SafeCall,
+// UselessElvisOnNonNull, CastNullableToNonNullableType,
+// UselessCallOnNotNull) now require a genuinely resolved type before
+// claiming redundancy or non-null, changing their findings for unchanged
+// source.
+const cachePayloadVersion = "v6"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

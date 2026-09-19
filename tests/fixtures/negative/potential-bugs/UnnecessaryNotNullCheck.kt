@@ -12,4 +12,8 @@ class UnnecessaryNotNullCheck {
 
         return name(value) == null
     }
+
+    fun unresolvedType(value: ExternalThing): Boolean {
+        return value != null
+    }
 }

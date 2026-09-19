@@ -853,7 +853,7 @@ style:
     active: true
   VarCouldBeVal:
     active: true
-    ignoreLateinitVar: false
+    ignoreLateinitVar: true
   WildcardImport:
     active: true
     excludeImports:

@@ -11288,7 +11288,7 @@
           }
         },
         "ImplicitDefaultLocale": {
-          "description": "Detects locale-sensitive string methods called without an explicit Locale argument. [fixable: semantic] [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
+          "description": "Detects locale-sensitive string methods called without an explicit Locale argument. [fixable: semantic] [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16143,7 +16143,7 @@
             "ignoreLateinitVar": {
               "description": "Ignore lateinit var declarations.",
               "type": "boolean",
-              "default": false
+              "default": true
             }
           }
         },

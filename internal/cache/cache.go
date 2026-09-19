@@ -60,7 +60,11 @@ const CacheFileName = "incremental.cache"
 // source.
 // v7: DependenciesInRootProject now distinguishes nested and included builds
 // from the outermost root, changing its findings for unchanged source.
-const cachePayloadVersion = "v7"
+// v8: Test source-set convention detection changes findings for
+// unchanged source across rules that skip test files.
+// VarCouldBeVal default config now skips lateinit var declarations, changing
+// findings for unchanged source.
+const cachePayloadVersion = "v8"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

@@ -193,7 +193,7 @@ func (r *VarCouldBeValRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.BoolOption(api.BoolOptionSpec[VarCouldBeValRule]{
 				Name:        "ignoreLateinitVar",
-				Default:     false,
+				Default:     true,
 				Description: "Ignore lateinit var declarations.",
 				Apply:       func(r *VarCouldBeValRule, v bool) { r.IgnoreLateinitVar = v },
 			}),

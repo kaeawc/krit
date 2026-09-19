@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -589,6 +590,52 @@ class Foo {
 	// reassignment analysis reports that name is never reassigned.
 	if findings := runRuleByName(t, "VarCouldBeVal", code); len(findings) == 0 {
 		t.Fatal("expected finding under IgnoreLateinitVar=false for never-reassigned lateinit var")
+	}
+}
+
+func TestVarCouldBeVal_ShippedDefaultConfigSkipsLateinitVar(t *testing.T) {
+	cfg, err := config.LoadAndMerge("", filepath.Join("..", "..", "config", "default-krit.yml"))
+	if err != nil {
+		t.Fatalf("load default config: %v", err)
+	}
+
+	var rule *rules.VarCouldBeValRule
+	for _, candidate := range api.Registry {
+		if candidate.ID == "VarCouldBeVal" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.VarCouldBeValRule)
+			if !ok {
+				t.Fatalf("expected VarCouldBeValRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("VarCouldBeVal rule not registered")
+	}
+	original := rule.IgnoreLateinitVar
+	defer func() { rule.IgnoreLateinitVar = original }()
+
+	api.ApplyConfig(rule, rule.Meta(), rules.NewConfigAdapter(cfg))
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+class Foo
+class Holder {
+    internal companion object {
+        private lateinit var x: Foo
+    }
+}`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for lateinit var under shipped defaults, got %d", len(findings))
+	}
+
+	if findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+fun example() {
+    var y = 1
+    println(y)
+}`); len(findings) == 0 {
+		t.Fatal("expected finding for never-reassigned var under shipped defaults")
 	}
 }
 

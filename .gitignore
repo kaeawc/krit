@@ -58,6 +58,10 @@ benchmarks/
 !/.krit/
 /.krit/*
 !/.krit/oracle-fingerprints.json
+!/.krit/corpus-snapshots/
+!/.krit/corpus-snapshots/*.json
+!/.krit/corpus-labels/
+!/.krit/corpus-labels/*.json
 
 # Android lint catalog (fetched, not committed)
 android-lint-checks/

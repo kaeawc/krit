@@ -1,4 +1,4 @@
-.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression daemon-verify test-fanotify all install install-completions watch
+.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression daemon-verify corpus-snapshot corpus-precision test-fanotify all install install-completions watch
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
@@ -62,6 +62,14 @@ regression: build
 # fixture tree and any opt-in corpus pointed at by KRIT_CORPUS_DIR.
 daemon-verify:
 	go test ./internal/daemon/ -run 'TestCompare|TestDiff' -count=1
+
+# corpus-snapshot detects per-rule finding drift in the reference corpora.
+corpus-snapshot:
+	go run ./internal/devtools/corpusprecision
+
+# corpus-precision reports triaged precision and label coverage by rule.
+corpus-precision:
+	go run ./internal/devtools/corpusprecision --precision
 
 ci: build vet test integration regression daemon-verify
 

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -301,6 +302,100 @@ func TestOutputPhase_Run_MinConfidenceFilter(t *testing.T) {
 	}
 	if strings.Contains(out, "RuleB") {
 		t.Errorf("min-confidence should have dropped RuleB; got:\n%s", out)
+	}
+}
+
+func TestOutputPhase_Run_FiltersParseErrorRegions(t *testing.T) {
+	dir := t.TempDir()
+	brokenPath := filepath.Join(dir, "Broken.kt")
+	validPath := filepath.Join(dir, "Valid.kt")
+	brokenSource := []byte("fun broken() {\n    val value = #\n}\n\nfun clean() = 42\n")
+	validSource := []byte("fun valid() = 7\n")
+	if err := os.WriteFile(brokenPath, brokenSource, 0o644); err != nil {
+		t.Fatalf("write broken source: %v", err)
+	}
+	if err := os.WriteFile(validPath, validSource, 0o644); err != nil {
+		t.Fatalf("write valid source: %v", err)
+	}
+	broken, err := scanner.ParseFile(context.Background(), brokenPath)
+	if err != nil {
+		t.Fatalf("parse broken source: %v", err)
+	}
+	valid, err := scanner.ParseFile(context.Background(), validPath)
+	if err != nil {
+		t.Fatalf("parse valid source: %v", err)
+	}
+
+	var errorOffset int
+	for idx := uint32(0); idx < uint32(broken.FlatTree.Len()); idx++ {
+		node := broken.FlatTree.Node(idx)
+		if node.IsErrorNode() && node.EndByte > node.StartByte {
+			errorOffset = int(node.StartByte)
+			break
+		}
+	}
+	if errorOffset == 0 {
+		t.Fatal("broken source produced no non-empty ERROR/MISSING span")
+	}
+	cleanOffset := bytes.Index(brokenSource, []byte("clean"))
+	if cleanOffset < 0 {
+		t.Fatal("clean declaration not found")
+	}
+
+	columns := scanner.CollectFindings([]scanner.Finding{
+		{File: brokenPath, Line: 2, Col: 17, StartByte: errorOffset, Rule: "Inside", Severity: "warning", Message: "drop"},
+		{File: brokenPath, Line: 5, Col: 5, StartByte: cleanOffset, Rule: "Outside", Severity: "warning", Message: "keep broken file"},
+		{File: validPath, Line: 1, Col: 5, StartByte: 4, Rule: "Valid", Severity: "warning", Message: "keep valid file"},
+	})
+	var output bytes.Buffer
+	var verbose bytes.Buffer
+	in := OutputInput{
+		FixupResult: FixupResult{CrossFileResult: CrossFileResult{DispatchResult: DispatchResult{
+			IndexResult: IndexResult{ParseResult: ParseResult{
+				KotlinFiles: []*scanner.File{broken, valid},
+			}},
+			Findings: columns,
+		}}},
+		Reporter:  &diag.Reporter{Verbose: &verbose},
+		Writer:    &output,
+		Format:    "json",
+		StartTime: time.Now(),
+		Version:   "test-v0",
+	}
+
+	res, err := (OutputPhase{}).Run(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if res.FindingsInErrorRegions != 1 {
+		t.Fatalf("FindingsInErrorRegions = %d, want 1", res.FindingsInErrorRegions)
+	}
+	if res.FinalFindings.Len() != 2 {
+		t.Fatalf("FinalFindings.Len() = %d, want 2", res.FinalFindings.Len())
+	}
+	if strings.Contains(output.String(), "Inside") || !strings.Contains(output.String(), "Outside") || !strings.Contains(output.String(), "Valid") {
+		t.Fatalf("unexpected filtered output:\n%s", output.String())
+	}
+	if got := verbose.String(); got != "verbose: 1 finding(s) dropped: anchored inside a parse-error region\n" {
+		t.Fatalf("verbose output = %q", got)
+	}
+
+	validColumns := scanner.CollectFindings([]scanner.Finding{{
+		File: validPath, Line: 1, Col: 5, StartByte: 4, Rule: "Valid", Severity: "warning", Message: "keep",
+	}})
+	output.Reset()
+	verbose.Reset()
+	in.Findings = validColumns
+	in.KotlinFiles = []*scanner.File{valid}
+	res, err = (OutputPhase{}).Run(context.Background(), in)
+	if err != nil {
+		t.Fatalf("valid Run error: %v", err)
+	}
+	if res.FindingsInErrorRegions != 0 || res.FinalFindings.Len() != 1 {
+		t.Fatalf("valid result dropped=%d findings=%d, want 0 and 1", res.FindingsInErrorRegions, res.FinalFindings.Len())
+	}
+	if verbose.Len() != 0 {
+		t.Fatalf("valid run emitted verbose output %q", verbose.String())
 	}
 }
 

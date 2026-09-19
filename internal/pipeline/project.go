@@ -643,6 +643,7 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	outputStart := time.Now()
 	outResult, err := OutputPhase{}.Run(ctx, OutputInput{
 		FixupResult:      fixupView,
+		Reporter:         host.Reporter,
 		Writer:           out,
 		Format:           format,
 		BaselinePath:     args.BaselinePath,
@@ -665,13 +666,15 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("output: %w", err)
 	}
+	stats := analysis.Stats
+	stats.FindingsInErrorRegions = outResult.FindingsInErrorRegions
 
 	return ProjectResult{
 		FinalFindings:     outResult.FinalFindings,
 		FilesScanned:      analysis.FilesScanned,
 		FindingsCount:     outResult.FinalFindings.Len(),
 		ParseErrors:       analysis.ParseErrors,
-		Stats:             analysis.Stats,
+		Stats:             stats,
 		ParseHits:         analysis.ParseHits,
 		ParseMisses:       analysis.ParseMisses,
 		Fixup:             fixupView,
@@ -784,6 +787,11 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 		bundleSaveStart := time.Now()
 		bundleKey := scanner.FindingsBundleKey(runFP)
 		manifest := buildDeltaManifest(manifestData, runFP)
+		bundleFindings, _ := filterColumnsByParsedErrorRegions(
+			&crossFileResult.Findings,
+			parseResult.KotlinFiles,
+			parseResult.JavaFiles,
+		)
 		// Update the in-memory mirrors synchronously so the next analyze
 		// reuses them no matter when the disk write lands. The disk write
 		// itself is the slow part (~300 ms on kotlin-corpus), so defer it
@@ -792,13 +800,12 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 		// restart, never a stale read (the resident bundle is keyed by the
 		// content-addressed FindingsBundleKey).
 		if !bundleHit {
-			residentBundleStash(host, bundleKey, &crossFileResult.Findings)
+			residentBundleStash(host, bundleKey, &bundleFindings)
 		}
 		storeDeltaManifestResident(host, manifestData, manifest)
-		findings := &crossFileResult.Findings
 		runBackgroundSave(host, func() {
 			if !bundleHit {
-				_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, findings)
+				_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, &bundleFindings)
 			}
 			_ = saveDeltaManifestDisk(host, manifestData, manifest)
 		})
@@ -2129,6 +2136,7 @@ func emitBundleHitOutput(
 				},
 			},
 		},
+		Reporter:         host.Reporter,
 		Writer:           out,
 		Format:           format,
 		BaselinePath:     args.BaselinePath,
@@ -2152,9 +2160,12 @@ func emitBundleHitOutput(
 		return ProjectResult{}, true, fmt.Errorf("output: %w", err)
 	}
 	return ProjectResult{
-		FinalFindings:     outResult.FinalFindings,
-		FilesScanned:      len(kotlinFiles) + len(javaFiles),
-		FindingsCount:     outResult.FinalFindings.Len(),
+		FinalFindings: outResult.FinalFindings,
+		FilesScanned:  len(kotlinFiles) + len(javaFiles),
+		FindingsCount: outResult.FinalFindings.Len(),
+		Stats: rules.RunStats{
+			FindingsInErrorRegions: outResult.FindingsInErrorRegions,
+		},
 		FindingsBundleHit: true,
 		PhaseTimingsMs:    *phaseTimings,
 	}, true, nil

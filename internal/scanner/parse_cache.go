@@ -33,7 +33,9 @@ const (
 	// (parallel slices per field). Old entries are not loadable: the
 	// gob payload shape changed from {NodeTypeTable, Nodes} to
 	// {NodeTypeTable, Types, Parents, FirstChildren, ...}.
-	parseCacheVersion uint32 = 6
+	// Bumped to 7 when Flags gained the node-local ERROR/MISSING bit;
+	// version 6 entries cannot distinguish recovery nodes from ancestors.
+	parseCacheVersion uint32 = 7
 
 	// Files below this threshold parse in under a millisecond; the gob
 	// serialization + filesystem round-trip dominates the savings.

@@ -64,7 +64,7 @@ func registerCoroutinesCollectInOnCreateWithoutLifecycle() {
 			if hasAncestorCallNamedFlat(file, idx, "repeatOnLifecycle") {
 				return
 			}
-			// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+			// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.
 			var oracleLookup oracle.Lookup
 			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
 				oracleLookup = cr.Oracle()
@@ -78,18 +78,19 @@ func registerCoroutinesCollectInOnCreateWithoutLifecycle() {
 	})
 }
 
-// collectInOnCreateOracleConfirmed accepts the call only when the
-// oracle has no opinion or it resolves the `collect` callee to a
+// collectInOnCreateOracleConfirmed accepts the call only when no
+// oracle is available or it resolves the `collect` callee to a
 // real Flow-ish callable. The token match alone fires on any
 // `something.collect { ... }` (e.g. project-local collect on a
-// List), which the oracle gate filters out.
+// List), which the oracle gate filters out. When the oracle is
+// available but cannot resolve the call, stay silent (do not treat as confirmed).
 func collectInOnCreateOracleConfirmed(lookup oracle.Lookup, file *scanner.File, idx uint32) bool {
 	if lookup == nil {
 		return true
 	}
 	target := oracleLookupCallTargetFlat(lookup, file, idx)
 	if target == "" {
-		return true
+		return false
 	}
 	for _, prefix := range collectInOnCreateFlowReceivers {
 		if strings.HasPrefix(target, prefix+".") || target == prefix+".collect" {
@@ -266,13 +267,12 @@ func injectDispatcherOracleCalleeNames(names []string) []string {
 	return out
 }
 
-// injectDispatcherOracleConfirmed returns true when either (a) the
-// oracle has no opinion (no resolved call-target) — in which case
-// the prior AST evidence is the floor — or (b) the oracle resolved
-// the dispatcher reference to a callable on `kotlinx.coroutines.Dispatchers`.
-// Returns false when the oracle resolves to something else (e.g., a
-// project-local class named `Dispatchers`), which is the false-positive
-// the AST token match couldn't catch.
+// injectDispatcherOracleConfirmed returns true when either (a) no oracle is
+// available, or (b) the oracle cannot resolve the dispatcher reference (empty
+// target). The dispatcher is a navigation_expression the oracle does not key
+// call-target facts for, so AST evidence is the floor. Returns false only when
+// the oracle resolves the reference to a non-`kotlinx.coroutines.Dispatchers`
+// FQN (the project-local lookalike case).
 func injectDispatcherOracleConfirmed(lookup oracle.Lookup, file *scanner.File, dispatcherNode uint32, dispatcherName string) bool {
 	if lookup == nil {
 		return true

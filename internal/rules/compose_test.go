@@ -731,7 +731,7 @@ func runComposeRememberWithCallTarget(t *testing.T, code string, callText string
 	fake.CallTargets[file.Path] = map[string]string{}
 	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
 		txt := strings.TrimSpace(file.FlatNodeText(idx))
-		if strings.HasPrefix(txt, callText+" ") || strings.HasPrefix(txt, callText+"(") || strings.HasPrefix(txt, callText+"{") {
+		if target != "" && (strings.HasPrefix(txt, callText+" ") || strings.HasPrefix(txt, callText+"(") || strings.HasPrefix(txt, callText+"{")) {
 			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
 			fake.CallTargets[file.Path][key] = target
 		}
@@ -746,6 +746,21 @@ func runComposeRememberWithCallTarget(t *testing.T, code string, callText string
 	}
 	t.Fatalf("rule not found in registry")
 	return nil
+}
+
+func TestComposeRememberWithoutKey_OracleUnresolvedStaysSilent(t *testing.T) {
+	findings := runComposeRememberWithCallTarget(t, `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+@Composable
+fun Example(userName: String) {
+    val cached = remember { "hello " + userName }
+}
+`, "remember", "")
+	if len(findings) != 0 {
+		t.Fatalf("expected unresolved oracle to suppress Compose remember, got %d: %v", len(findings), findings)
+	}
 }
 
 func TestComposeLaunchedEffectWithoutKeys_Positive_Unit(t *testing.T) {

@@ -814,6 +814,40 @@ func TestFilterColumnsByFilePaths_UsesAbsoluteMatchesAndPreservesRows(t *testing
 	}
 }
 
+func TestFilterColumnsByErrorRegions_UsesByteAndLineColumnAnchors(t *testing.T) {
+	file := &File{
+		Path:    "Broken.kt",
+		Content: []byte("good\nbad\n"),
+		FlatTree: &FlatTree{
+			Types:      []uint16{0},
+			StartBytes: []uint32{5},
+			EndBytes:   []uint32{8},
+			Flags:      []uint8{flatNodeFlagIsError},
+		},
+	}
+	columns := CollectFindings([]Finding{
+		{File: file.Path, StartByte: 5, Rule: "AtStart", Message: "drop byte anchor"},
+		{File: file.Path, Line: 2, Col: 2, Rule: "LineColumn", Message: "drop line anchor"},
+		{File: file.Path, StartByte: 8, Rule: "AtEnd", Message: "keep half-open end"},
+		{File: file.Path, Line: 99, Col: 1, Rule: "BadLine", Message: "keep unresolved"},
+		{File: "layout.xml", StartByte: 6, Rule: "NoTree", Message: "keep unknown file"},
+	})
+
+	filtered, dropped := FilterColumnsByErrorRegions(&columns, map[string]*File{file.Path: file})
+	if dropped != 2 {
+		t.Fatalf("dropped = %d, want 2", dropped)
+	}
+	if filtered.Len() != 3 {
+		t.Fatalf("filtered.Len() = %d, want 3", filtered.Len())
+	}
+	wantRules := []string{"AtEnd", "BadLine", "NoTree"}
+	for row, want := range wantRules {
+		if got := filtered.RuleAt(row); got != want {
+			t.Fatalf("row %d rule = %q, want %q", row, got, want)
+		}
+	}
+}
+
 func TestFindingColumnsFilterRows_PreservesFixPoolsAndCloneFallback(t *testing.T) {
 	source := CollectFindings([]Finding{
 		{

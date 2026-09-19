@@ -315,7 +315,7 @@ func registerComposeRememberWithoutKey() {
 			if !ok {
 				return
 			}
-			// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+			// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.
 			var oracleLookup oracle.Lookup
 			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
 				oracleLookup = cr.Oracle()
@@ -329,18 +329,19 @@ func registerComposeRememberWithoutKey() {
 	})
 }
 
-// composeRememberOracleConfirmed accepts the call when the oracle
-// is silent or it resolves the `remember` callee to the
+// composeRememberOracleConfirmed accepts the call when no oracle is
+// available or it resolves the `remember` callee to the
 // `androidx.compose.runtime.remember` family. A project-local
 // `remember` function resolves to a different FQN and is filtered
-// out — the AST token match alone would have flagged it.
+// out — the AST token match alone would have flagged it. When the oracle
+// is available but cannot resolve the call, stay silent (do not treat as confirmed).
 func composeRememberOracleConfirmed(lookup oracle.Lookup, file *scanner.File, idx uint32) bool {
 	if lookup == nil {
 		return true
 	}
 	target := oracleLookupCallTargetFlat(lookup, file, idx)
 	if target == "" {
-		return true
+		return false
 	}
 	return strings.HasPrefix(target, "androidx.compose.runtime.remember") ||
 		strings.HasPrefix(target, "androidx.compose.runtime.RememberKt.remember")

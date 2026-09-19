@@ -374,6 +374,7 @@ func mergeStats(dst *rules.RunStats, src rules.RunStats) {
 	dst.AggregateFinalizeMs += src.AggregateFinalizeMs
 	dst.LineRuleMs += src.LineRuleMs
 	dst.SuppressionFilterMs += src.SuppressionFilterMs
+	dst.FindingsInErrorRegions += src.FindingsInErrorRegions
 	if src.DispatchRuleNsByRule != nil {
 		if dst.DispatchRuleNsByRule == nil {
 			dst.DispatchRuleNsByRule = make(map[string]int64, len(src.DispatchRuleNsByRule))

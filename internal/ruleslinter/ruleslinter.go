@@ -1,8 +1,9 @@
 // Package ruleslinter statically verifies that each rule which calls
 // ctx.Resolver or (*oracle.CompositeResolver).Oracle() declares a
 // matching capability in its api.Rule registration. The accepted
-// declarations are NeedsResolver, NeedsOracle, or the unified
-// NeedsTypeInfo (which subsumes both). The runtime dispatcher only
+// declarations are NeedsResolver (or its NeedsTypeInfo alias) for
+// ctx.Resolver, and NeedsOracle or a narrow NeedsOracle* bit for Oracle.
+// The runtime dispatcher only
 // wires the resolver / oracle when those bits are set, so a missing
 // declaration silently drops findings. This gate catches the mistake
 // at build time.
@@ -467,7 +468,7 @@ func fixLevelName(expr ast.Expr) string {
 
 func capabilityViolations(reg registration, usage bodyUsage, pos token.Position) []Violation {
 	satisfiesResolver := reg.NeedsNames["NeedsResolver"] || reg.NeedsNames["NeedsTypeInfo"]
-	satisfiesOracle := reg.NeedsNames["NeedsOracle"] || reg.NeedsNames["NeedsTypeInfo"]
+	satisfiesOracle := reg.NeedsNames["NeedsOracle"] || declaresNarrowOracleNeed(reg.NeedsNames)
 	declaresConcurrent := reg.NeedsNames["NeedsConcurrent"]
 
 	var out []Violation
@@ -482,7 +483,7 @@ func capabilityViolations(reg registration, usage bodyUsage, pos token.Position)
 		out = append(out, Violation{
 			RuleID:   reg.ID,
 			Position: pos,
-			Message:  "calls (*oracle.CompositeResolver).Oracle() but does not declare NeedsOracle or NeedsTypeInfo in Meta()",
+			Message:  "calls (*oracle.CompositeResolver).Oracle() but does not declare NeedsOracle or a NeedsOracle* capability in Meta()",
 		})
 	}
 	if usage.concurrent && !declaresConcurrent {
@@ -507,6 +508,31 @@ func capabilityViolations(reg registration, usage bodyUsage, pos token.Position)
 		})
 	}
 	return out
+}
+
+// declaresNarrowOracleNeed reports whether names includes one of the precise
+// oracle fact-category capabilities defined by api.NeedsOracle.
+func declaresNarrowOracleNeed(names map[string]bool) bool {
+	for name := range narrowOracleNeedNames {
+		if names[name] {
+			return true
+		}
+	}
+	return false
+}
+
+var narrowOracleNeedNames = map[string]bool{
+	"NeedsOracleCallTargets":       true,
+	"NeedsOracleSuspendMarkers":    true,
+	"NeedsOracleExprType":          true,
+	"NeedsOracleExprAnnotations":   true,
+	"NeedsOracleSupertypes":        true,
+	"NeedsOracleMembers":           true,
+	"NeedsOracleMemberSignatures":  true,
+	"NeedsOracleClassAnnotations":  true,
+	"NeedsOracleMemberAnnotations": true,
+	"NeedsOracleDiagnostics":       true,
+	"NeedsOracleLibraryClasses":    true,
 }
 
 func analyzeRegisterCall(fset *token.FileSet, funcs map[funcKey]funcInfo, file *ast.File, call *ast.CallExpr) []Violation {

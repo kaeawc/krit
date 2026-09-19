@@ -304,7 +304,7 @@ func runLogTagWithCallTarget(t *testing.T, ruleID, code, callText, target string
 	fake := oracle.NewFakeOracle()
 	fake.CallTargets[file.Path] = map[string]string{}
 	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
-		if strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
+		if target != "" && strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
 			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
 			fake.CallTargets[file.Path][key] = target
 		}
@@ -319,6 +319,18 @@ func runLogTagWithCallTarget(t *testing.T, ruleID, code, callText, target string
 	}
 	t.Fatalf("rule %s not found in registry", ruleID)
 	return nil
+}
+
+func TestLongLogTag_OracleUnresolvedStaysSilent(t *testing.T) {
+	findings := runLogTagWithCallTarget(t, "LongLogTag", `
+package test
+fun foo() {
+    Log.d("ThisIsAVeryLongTagNameThatExceeds", "msg")
+}
+`, "Log.d", "")
+	if len(findings) != 0 {
+		t.Fatalf("expected unresolved oracle to suppress LongLogTag, got %d: %v", len(findings), findings)
+	}
 }
 
 // =====================================================================

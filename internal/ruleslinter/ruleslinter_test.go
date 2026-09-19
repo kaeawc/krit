@@ -391,23 +391,21 @@ func init() {
 	}
 }
 
-func TestAnalyzeSource_AcceptsCorrectDeclaration(t *testing.T) {
+func TestAnalyzeSource_NeedsOracleSatisfiesOracle(t *testing.T) {
 	src := `package rules
 
 import (
-	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
 func init() {
 	api.Register(&api.Rule{
 		ID:          "Good",
-		Description: "declares what it uses",
-		Needs:       api.NeedsResolver | api.NeedsOracle,
+		Description: "declares the oracle umbrella",
+		Needs:       api.NeedsOracle,
 		Check: func(ctx *api.Context) {
-			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
-				_ = cr.Oracle()
-			}
+			var oracle interface{ Oracle() }
+			oracle.Oracle()
 		},
 	})
 }
@@ -418,7 +416,32 @@ func init() {
 	}
 }
 
-func TestAnalyzeSource_NeedsTypeInfoSatisfiesBoth(t *testing.T) {
+func TestAnalyzeSource_NeedsOracleCallTargetsSatisfiesOracle(t *testing.T) {
+	src := `package rules
+
+import (
+	api "github.com/kaeawc/krit/internal/rules/api"
+)
+
+func init() {
+	api.Register(&api.Rule{
+		ID:          "NarrowOracle",
+		Description: "declares a narrow oracle fact category",
+		Needs:       api.NeedsOracleCallTargets,
+		Check: func(ctx *api.Context) {
+			var oracle interface{ Oracle() }
+			oracle.Oracle()
+		},
+	})
+}
+`
+	violations := analyzeSource(t, "narroworacle.go", src)
+	if len(violations) != 0 {
+		t.Fatalf("want 0 violations, got %d: %v", len(violations), violations)
+	}
+}
+
+func TestAnalyzeSource_NeedsTypeInfoDoesNotSatisfyOracle(t *testing.T) {
 	src := `package rules
 
 import (
@@ -428,8 +451,8 @@ import (
 
 func init() {
 	api.Register(&api.Rule{
-		ID:          "Unified",
-		Description: "uses both resolver and oracle under NeedsTypeInfo",
+		ID:          "TypeInfoOracle",
+		Description: "uses oracle under NeedsTypeInfo",
 		Needs:       api.NeedsTypeInfo,
 		Check: func(ctx *api.Context) {
 			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
@@ -439,7 +462,32 @@ func init() {
 	})
 }
 `
-	violations := analyzeSource(t, "unified.go", src)
+	violations := analyzeSource(t, "typeinfooracle.go", src)
+	if len(violations) != 1 {
+		t.Fatalf("want 1 violation, got %d: %v", len(violations), violations)
+	}
+	if !strings.Contains(violations[0].Message, "NeedsOracle") {
+		t.Fatalf("want NeedsOracle in message, got %q", violations[0].Message)
+	}
+}
+
+func TestAnalyzeSource_NeedsTypeInfoSatisfiesResolver(t *testing.T) {
+	src := `package rules
+
+import api "github.com/kaeawc/krit/internal/rules/api"
+
+func init() {
+	api.Register(&api.Rule{
+		ID:          "TypeInfoResolver",
+		Description: "uses resolver under its NeedsTypeInfo alias",
+		Needs:       api.NeedsTypeInfo,
+		Check: func(ctx *api.Context) {
+			_ = ctx.Resolver
+		},
+	})
+}
+`
+	violations := analyzeSource(t, "typeinforesolver.go", src)
 	if len(violations) != 0 {
 		t.Fatalf("want 0 violations, got %d: %v", len(violations), violations)
 	}

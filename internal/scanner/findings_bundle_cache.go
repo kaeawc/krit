@@ -20,9 +20,11 @@ import (
 )
 
 const (
-	findingsBundleCacheDirName        = "findings-bundle-cache"
-	findingsBundleVersion             = 1
-	findingsBundleMagic        uint32 = 0x4b465542 // "KFUB"
+	findingsBundleCacheDirName = "findings-bundle-cache"
+	// Version 2 entries exclude findings anchored in parser recovery nodes.
+	// Version 1 bundles predate that output invariant and must not bypass it.
+	findingsBundleVersion        = 2
+	findingsBundleMagic   uint32 = 0x4b465542 // "KFUB"
 )
 
 var (

@@ -181,7 +181,7 @@ func runServiceCastWithCallTarget(t *testing.T, code string, callText string, ta
 	fake := oracle.NewFakeOracle()
 	fake.CallTargets[file.Path] = map[string]string{}
 	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
-		if strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
+		if target != "" && strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
 			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
 			fake.CallTargets[file.Path][key] = target
 		}
@@ -196,6 +196,20 @@ func runServiceCastWithCallTarget(t *testing.T, code string, callText string, ta
 	}
 	t.Fatalf("rule not found in registry")
 	return nil
+}
+
+func TestServiceCast_OracleUnresolvedStaysSilent(t *testing.T) {
+	findings := runServiceCastWithCallTarget(t, `
+package test
+class Foo {
+    fun setup() {
+        val mgr = getSystemService(ALARM_SERVICE) as PowerManager
+    }
+}
+`, "getSystemService", "")
+	if len(findings) != 0 {
+		t.Fatalf("expected unresolved oracle to suppress ServiceCast, got %d: %v", len(findings), findings)
+	}
 }
 
 func TestShowToast(t *testing.T) {
@@ -296,7 +310,7 @@ func runShowToastWithCallTarget(t *testing.T, code string, callText string, targ
 	fake := oracle.NewFakeOracle()
 	fake.CallTargets[file.Path] = map[string]string{}
 	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
-		if strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
+		if target != "" && strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
 			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
 			fake.CallTargets[file.Path][key] = target
 		}
@@ -311,6 +325,20 @@ func runShowToastWithCallTarget(t *testing.T, code string, callText string, targ
 	}
 	t.Fatalf("rule not found in registry")
 	return nil
+}
+
+func TestShowToast_OracleUnresolvedStaysSilent(t *testing.T) {
+	findings := runShowToastWithCallTarget(t, `
+package test
+class Foo {
+    fun notify() {
+        Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)
+    }
+}
+`, "Toast.makeText", "")
+	if len(findings) != 0 {
+		t.Fatalf("expected unresolved oracle to suppress ShowToast, got %d: %v", len(findings), findings)
+	}
 }
 
 func TestSparseArray(t *testing.T) {

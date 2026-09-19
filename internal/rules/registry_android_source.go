@@ -8,49 +8,52 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// serviceCastOracleConfirmed accepts when the oracle is silent or
+// serviceCastOracleConfirmed accepts when no oracle is available or it
 // resolves the `.getSystemService(...)` call to `Context.getSystemService`
 // (or `ContextCompat.getSystemService` from androidx.core). A
 // project-local `getSystemService` resolves to a different FQN and
-// is filtered out.
+// is filtered out. When the oracle is available but cannot resolve the
+// call, stay silent (do not treat as confirmed).
 func serviceCastOracleConfirmed(lookup oracle.Lookup, file *scanner.File, call uint32) bool {
 	if lookup == nil {
 		return true
 	}
 	target := oracleLookupCallTargetFlat(lookup, file, call)
 	if target == "" {
-		return true
+		return false
 	}
 	return target == "android.content.Context.getSystemService" ||
 		target == "androidx.core.content.ContextCompat.getSystemService"
 }
 
-// showToastOracleConfirmed accepts when the oracle is silent or
+// showToastOracleConfirmed accepts when no oracle is available or it
 // resolves `Toast.makeText(...)` to `android.widget.Toast.makeText`.
 // A project-local `Toast` class with a `makeText` factory resolves
-// to a different FQN and is filtered out.
+// to a different FQN and is filtered out. When the oracle is available
+// but cannot resolve the call, stay silent (do not treat as confirmed).
 func showToastOracleConfirmed(lookup oracle.Lookup, file *scanner.File, idx uint32) bool {
 	if lookup == nil {
 		return true
 	}
 	target := oracleLookupCallTargetFlat(lookup, file, idx)
 	if target == "" {
-		return true
+		return false
 	}
 	return target == "android.widget.Toast.makeText"
 }
 
-// logCallOracleConfirmed accepts when the oracle is silent or resolves
+// logCallOracleConfirmed accepts when no oracle is available or resolves
 // the `.v/.d/.i/.w/.e/.wtf(...)` call to `android.util.Log.<level>`.
 // A project-local `Log` class with the same level-named methods
-// resolves to a different FQN and is filtered out.
+// resolves to a different FQN and is filtered out. When the oracle is
+// available but cannot resolve the call, stay silent (do not treat as confirmed).
 func logCallOracleConfirmed(lookup oracle.Lookup, file *scanner.File, call uint32) bool {
 	if lookup == nil {
 		return true
 	}
 	target := oracleLookupCallTargetFlat(lookup, file, call)
 	if target == "" {
-		return true
+		return false
 	}
 	return strings.HasPrefix(target, "android.util.Log.")
 }
@@ -161,7 +164,7 @@ func registerAndroidSourceRules() {
 				if castType == "" || castType == expectedType {
 					return
 				}
-				// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+				// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.
 				var oracleLookup oracle.Lookup
 				if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
 					oracleLookup = cr.Oracle()
@@ -200,7 +203,7 @@ func registerAndroidSourceRules() {
 				if toastMakeTextIsShown(file, idx) {
 					return
 				}
-				// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+				// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.
 				var oracleLookup oracle.Lookup
 				if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
 					oracleLookup = cr.Oracle()
@@ -357,7 +360,7 @@ func registerAndroidSourceRules() {
 				if len(tag) <= 23 {
 					return
 				}
-				// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+				// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.
 				var oracleLookup oracle.Lookup
 				if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
 					oracleLookup = cr.Oracle()

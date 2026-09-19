@@ -47,7 +47,13 @@ const CacheFileName = "incremental.cache"
 // (caught-variable / cause-unwrap narrowing) and SwallowedException
 // (exception passed/wrapped/cause-inspected, recovery bodies, empty-body
 // deferral) change those rules' findings for unchanged source.
-const cachePayloadVersion = "v4"
+// v5: oracle-confirmation tightening — ServiceCast, ShowToast, LongLogTag,
+// CommitPrefEdits, CommitTransaction, CheckResult, FlowCollectInOnCreate, and
+// ComposeRememberWithoutKey no longer treat an
+// available-but-unresolved oracle call target as confirmation, and
+// ImplicitDefaultLocale now consults oracle call targets — these change
+// those rules' findings for unchanged source.
+const cachePayloadVersion = "v5"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

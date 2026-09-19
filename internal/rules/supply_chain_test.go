@@ -617,6 +617,36 @@ dependencies {
 		}
 	})
 
+	t.Run("nested included build dependencies are clean", func(t *testing.T) {
+		root := t.TempDir()
+		writeFile(t, filepath.Join(root, "settings.gradle.kts"), ``)
+		rootBuildPath := filepath.Join(root, "build.gradle.kts")
+		rootContent := `dependencies {
+    implementation("x:y:1")
+}
+`
+		writeFile(t, rootBuildPath, rootContent)
+		rootCfg, _ := android.ParseBuildGradleContent(rootContent)
+		rootFindings := runGradleRule(r, rootBuildPath, rootContent, rootCfg)
+		if len(rootFindings) != 1 {
+			t.Fatalf("expected 1 finding for root build, got %d", len(rootFindings))
+		}
+
+		includedBuildDir := filepath.Join(root, "build-logic")
+		writeFile(t, filepath.Join(includedBuildDir, "settings.gradle.kts"), ``)
+		includedBuildPath := filepath.Join(includedBuildDir, "build.gradle.kts")
+		includedContent := `dependencies {
+    implementation("x:y:1")
+}
+`
+		writeFile(t, includedBuildPath, includedContent)
+		includedCfg, _ := android.ParseBuildGradleContent(includedContent)
+		includedFindings := runGradleRule(r, includedBuildPath, includedContent, includedCfg)
+		if len(includedFindings) != 0 {
+			t.Fatalf("expected 0 findings for nested included build, got %d", len(includedFindings))
+		}
+	})
+
 	t.Run("applying allow suggestion writes root krit config allowlist", func(t *testing.T) {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "settings.gradle.kts"), ``)

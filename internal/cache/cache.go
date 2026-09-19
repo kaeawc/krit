@@ -58,7 +58,9 @@ const CacheFileName = "incremental.cache"
 // UselessCallOnNotNull) now require a genuinely resolved type before
 // claiming redundancy or non-null, changing their findings for unchanged
 // source.
-const cachePayloadVersion = "v6"
+// v7: DependenciesInRootProject now distinguishes nested and included builds
+// from the outermost root, changing its findings for unchanged source.
+const cachePayloadVersion = "v7"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

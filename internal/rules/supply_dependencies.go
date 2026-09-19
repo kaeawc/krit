@@ -320,10 +320,26 @@ func isRootGradleProjectScript(path string) bool {
 		return true
 	case "build.gradle", "build.gradle.kts":
 		dir := filepath.Dir(path)
-		for _, settings := range []string{"settings.gradle.kts", "settings.gradle"} {
-			if _, err := os.Stat(filepath.Join(dir, settings)); err == nil {
-				return true
+		if !dirHasSettingsScript(dir) {
+			return false
+		}
+		for ancestor := filepath.Dir(dir); ; ancestor = filepath.Dir(ancestor) {
+			if dirHasSettingsScript(ancestor) {
+				return false
 			}
+			if filepath.Dir(ancestor) == ancestor {
+				break
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func dirHasSettingsScript(dir string) bool {
+	for _, settings := range []string{"settings.gradle.kts", "settings.gradle"} {
+		if _, err := os.Stat(filepath.Join(dir, settings)); err == nil {
+			return true
 		}
 	}
 	return false

@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -124,8 +125,16 @@ func (p CrossFilePhase) runCrossRuleSet(ctx context.Context, in DispatchResult, 
 		if ctx.Err() != nil {
 			return
 		}
-		ruleID := r.ID
+		ruleID := ""
+		if r != nil {
+			ruleID = r.ID
+		}
 		call := func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					result.Stats.Errors = append(result.Stats.Errors, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
+				}
+			}()
 			rctx := buildCrossRuleContext(r, codeIndex, parsedFiles, in.Resolver, in.LibraryFacts, javaSourceIndex, crossCollector, in.Thorough)
 			r.Check(rctx)
 		}
@@ -234,11 +243,22 @@ func (p CrossFilePhase) runCrossPhase(ctx context.Context, in DispatchResult, co
 
 // runModuleAwareRules executes pre-built module-aware rules when the graph
 // and module index are available.
-func (CrossFilePhase) runModuleAwareRules(in DispatchResult, moduleAwareRules []*api.Rule, crossCollector *scanner.FindingCollector) {
+func (CrossFilePhase) runModuleAwareRules(in DispatchResult, moduleAwareRules []*api.Rule, crossCollector *scanner.FindingCollector, result *CrossFileResult) {
 	runModuleRules := func() {
 		for _, r := range moduleAwareRules {
-			rctx := &api.Context{ModuleIndex: in.ModuleIndex, Collector: crossCollector, Rule: r, DefaultConfidence: 0.95}
-			r.Check(rctx)
+			func() {
+				ruleID := ""
+				if r != nil {
+					ruleID = r.ID
+				}
+				defer func() {
+					if rec := recover(); rec != nil {
+						result.Stats.Errors = append(result.Stats.Errors, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
+					}
+				}()
+				rctx := &api.Context{ModuleIndex: in.ModuleIndex, Collector: crossCollector, Rule: r, DefaultConfidence: 0.95}
+				r.Check(rctx)
+			}()
 		}
 	}
 	if in.ModuleParentTracker != nil {
@@ -277,8 +297,19 @@ func (p CrossFilePhase) runOnDemandModuleIndex(ctx context.Context, in DispatchR
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		rctx := &api.Context{ModuleIndex: pmi, Collector: crossCollector, Rule: r, DefaultConfidence: 0.95}
-		r.Check(rctx)
+		func() {
+			ruleID := ""
+			if r != nil {
+				ruleID = r.ID
+			}
+			defer func() {
+				if rec := recover(); rec != nil {
+					result.Stats.Errors = append(result.Stats.Errors, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
+				}
+			}()
+			rctx := &api.Context{ModuleIndex: pmi, Collector: crossCollector, Rule: r, DefaultConfidence: 0.95}
+			r.Check(rctx)
+		}()
 	}
 	return nil
 }
@@ -290,6 +321,7 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 	}
 
 	result := CrossFileResult{DispatchResult: in}
+	result.Stats.Errors = slices.Clone(in.Stats.Errors)
 
 	hasIndexBackedCrossFileRule, hasParsedFilesRule := p.classifyCrossFileNeeds(in.ActiveRules)
 	moduleNeeds := rules.CollectModuleAwareNeeds(in.ActiveRules)
@@ -333,7 +365,7 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 	})
 	moduleCollector := scanner.NewFindingCollector(0)
 	track("collectModuleAwareFindings", func() {
-		p.collectModuleAwareFindings(in, moduleCollector)
+		p.collectModuleAwareFindings(in, moduleCollector, &result)
 	})
 	if err := trackErr("collectModuleIndexFindings", func() error {
 		return p.collectModuleIndexFindings(ctx, in, codeIndex, moduleCollector, &result)
@@ -343,6 +375,7 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 	track("mergeCrossFindings", func() {
 		p.mergeCrossFindings(in, crossCollector, crossFindingsSuppressed, moduleCollector, &result)
 	})
+	rules.SortDispatchErrors(result.Stats.Errors)
 	return result, nil
 }
 
@@ -378,13 +411,13 @@ func (p CrossFilePhase) saveCrossFindingsCache(in DispatchResult, crossFindingsK
 	}
 }
 
-func (p CrossFilePhase) collectModuleAwareFindings(in DispatchResult, crossCollector *scanner.FindingCollector) {
+func (p CrossFilePhase) collectModuleAwareFindings(in DispatchResult, crossCollector *scanner.FindingCollector, result *CrossFileResult) {
 	moduleAwareRules := pickModuleAwareV2Rules(in.ActiveRules)
 	if in.Graph == nil || len(in.Graph.Modules) == 0 || len(moduleAwareRules) == 0 {
 		return
 	}
 	moduleStart := time.Now()
-	p.runModuleAwareRules(in, moduleAwareRules, crossCollector)
+	p.runModuleAwareRules(in, moduleAwareRules, crossCollector, result)
 	if in.Reporter != nil {
 		in.Reporter.Verbosef("verbose: Module-aware analysis in %v\n", time.Since(moduleStart).Round(time.Millisecond))
 	}

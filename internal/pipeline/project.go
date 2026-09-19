@@ -776,6 +776,7 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	if err := runAndroidPhaseAndMerge(ctx, args, host, indexResult, &crossFileResult, bundleHit); err != nil {
 		return ProjectAnalysisResult{}, err
 	}
+	emitProjectAnalysisDiagnostics(host.Reporter, crossFileResult.Stats.Errors, dispatchResult.Stats.Errors, parseResult.ParseErrors)
 	kotlinPluginStart := time.Now()
 	if err := runKotlinPluginRulesAndMerge(ctx, args, host, indexResult, &crossFileResult, bundleHit); err != nil {
 		return ProjectAnalysisResult{}, err
@@ -820,7 +821,7 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 		CrossFileResult:   crossFileResult,
 		FilesScanned:      len(parseResult.KotlinFiles) + len(parseResult.JavaFiles),
 		ParseErrors:       parseResult.ParseErrors,
-		Stats:             dispatchResult.Stats,
+		Stats:             crossFileResult.Stats,
 		ParseHits:         hits1 - hits0,
 		ParseMisses:       misses1 - misses0,
 		RunFP:             runFP,
@@ -1678,6 +1679,8 @@ func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, host Project
 	if err != nil {
 		return fmt.Errorf("android: %w", err)
 	}
+	crossFileResult.Stats.Errors = append(crossFileResult.Stats.Errors, res.Stats.Errors...)
+	rules.SortDispatchErrors(crossFileResult.Stats.Errors)
 	// Replace, don't append: on the delta / affected-set replay paths the prior
 	// findings bundle is carried forward (ApplyDelta) and already holds the last
 	// run's Android findings. Drop this phase's own rules' prior rows before
@@ -1690,6 +1693,39 @@ func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, host Project
 	merged.AppendColumns(&res.Findings)
 	crossFileResult.Findings = *merged.Columns()
 	return nil
+}
+
+// emitProjectAnalysisDiagnostics reports failures that happen after the
+// DispatchPhase boundary, whose own panic diagnostic has already run.
+func emitProjectAnalysisDiagnostics(reporter *diag.Reporter, allErrors, dispatchErrors []rules.DispatchError, parseErrors []error) {
+	if reporter == nil {
+		return
+	}
+	if len(allErrors) > 0 {
+		seen := make(map[string]int, len(dispatchErrors))
+		for _, de := range dispatchErrors {
+			seen[de.Error()]++
+		}
+		phaseErrors := make([]rules.DispatchError, 0, len(allErrors))
+		for _, de := range allErrors {
+			key := de.Error()
+			if seen[key] > 0 {
+				seen[key]--
+				continue
+			}
+			phaseErrors = append(phaseErrors, de)
+		}
+		if len(phaseErrors) > 0 {
+			rules.SortDispatchErrors(phaseErrors)
+			for _, de := range phaseErrors {
+				reporter.Warnf("%s\n", de.Error())
+			}
+			reporter.Warnf("krit: %d rule panic(s) during project analysis\n", len(phaseErrors))
+		}
+	}
+	if len(parseErrors) > 0 {
+		reporter.Warnf("krit: %d file(s) failed to parse\n", len(parseErrors))
+	}
 }
 
 func androidSourcePaths(args ProjectArgs, indexResult IndexResult) []string {

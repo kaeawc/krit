@@ -178,18 +178,32 @@ func TestAppendFindingJSON_ControlCharactersMatchJSONMarshal(t *testing.T) {
 	}
 }
 
-func TestAppendFindingJSON_InvalidUTF8MatchesJSONMarshal(t *testing.T) {
+// json.Marshal's encoding of invalid UTF-8 is version-dependent (Go 1.25
+// escapes it as "�"; Go 1.26+ emits the raw 3-byte U+FFFD), so byte
+// identity with json.Marshal is not a stable contract for invalid input.
+// The encoder always emits the raw U+FFFD bytes, so assert the
+// version-independent property instead: the output is valid JSON whose
+// decoded message has each invalid UTF-8 byte replaced by U+FFFD.
+func TestAppendFindingJSON_InvalidUTF8ProducesValidJSON(t *testing.T) {
 	tests := []struct {
-		name    string
-		message string
+		name        string
+		message     string
+		wantDecoded string
 	}{
-		{name: "invalid-leading-byte", message: "bad\xffbyte"},
-		{name: "lone-continuation-byte", message: "lone\x80continuation"},
+		{name: "invalid-leading-byte", message: "bad\xffbyte", wantDecoded: "bad�byte"},
+		{name: "lone-continuation-byte", message: "lone\x80continuation", wantDecoded: "lone�continuation"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			finding := JSONFinding{File: "A.kt", Line: 1, Column: 1, RuleSet: "style", Rule: "X", Severity: "warning", Message: tt.message}
-			assertFindingJSONMatchesMarshalAndRoundTrips(t, finding)
+			got := appendFindingJSON(nil, finding)
+			var decoded JSONFinding
+			if err := json.Unmarshal(got, &decoded); err != nil {
+				t.Fatalf("json.Unmarshal output: %v\noutput: %q", err, got)
+			}
+			if decoded.Message != tt.wantDecoded {
+				t.Fatalf("decoded message = %q, want %q\noutput: %q", decoded.Message, tt.wantDecoded, got)
+			}
 		})
 	}
 }

@@ -132,7 +132,7 @@ func registerAndroidCorrectnessCommitPrefEdits() {
 				functionHasReceiverCallAfter(file, fn, idx, editorVar, commitOrApplyNames, editorFinalizeCallShape) {
 				return
 			}
-			// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+			// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.
 			var oracleLookup oracle.Lookup
 			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
 				oracleLookup = cr.Oracle()
@@ -145,18 +145,19 @@ func registerAndroidCorrectnessCommitPrefEdits() {
 	})
 }
 
-// commitPrefEditsOracleConfirmed accepts when the oracle is silent
+// commitPrefEditsOracleConfirmed accepts when no oracle is available
 // or it resolves the `.edit()` call to `SharedPreferences.edit` or
 // one of the androidx.core KTX extensions. A `.edit(n)` on a
 // Collection or a project-local `edit` extension resolves to a
-// different FQN and is filtered out.
+// different FQN and is filtered out. When the oracle is available but
+// cannot resolve the call, stay silent (do not treat as confirmed).
 func commitPrefEditsOracleConfirmed(lookup oracle.Lookup, file *scanner.File, idx uint32) bool {
 	if lookup == nil {
 		return true
 	}
 	target := oracleLookupCallTargetFlat(lookup, file, idx)
 	if target == "" {
-		return true
+		return false
 	}
 	return target == "android.content.SharedPreferences.edit" ||
 		strings.HasPrefix(target, "androidx.core.content.SharedPreferencesKt.edit") ||
@@ -196,7 +197,7 @@ func registerAndroidCorrectnessCommitTransaction() {
 				functionHasReceiverCallAfter(file, fn, idx, txVar, commitTransactionNames, nil) {
 				return
 			}
-			// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+			// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.
 			var oracleLookup oracle.Lookup
 			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
 				oracleLookup = cr.Oracle()
@@ -209,18 +210,19 @@ func registerAndroidCorrectnessCommitTransaction() {
 	})
 }
 
-// commitTransactionOracleConfirmed accepts when the oracle is silent
+// commitTransactionOracleConfirmed accepts when no oracle is available
 // or it resolves `.beginTransaction()` to one of the FragmentManager
 // implementations. A project-local `beginTransaction()` (e.g. on a
 // database wrapper or domain transactional API) resolves to a
-// different FQN and is filtered out.
+// different FQN and is filtered out. When the oracle is available but
+// cannot resolve the call, stay silent (do not treat as confirmed).
 func commitTransactionOracleConfirmed(lookup oracle.Lookup, file *scanner.File, idx uint32) bool {
 	if lookup == nil {
 		return true
 	}
 	target := oracleLookupCallTargetFlat(lookup, file, idx)
 	if target == "" {
-		return true
+		return false
 	}
 	return target == "androidx.fragment.app.FragmentManager.beginTransaction" ||
 		target == "android.app.FragmentManager.beginTransaction" ||
@@ -276,7 +278,7 @@ func registerAndroidCorrectnessCheckResult() {
 			if name == "format" && !isReceiverNamed(file, idx, "String") {
 				return
 			}
-			// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+			// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.
 			var oracleLookup oracle.Lookup
 			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
 				oracleLookup = cr.Oracle()
@@ -290,18 +292,20 @@ func registerAndroidCorrectnessCheckResult() {
 	})
 }
 
-// checkResultOracleConfirmed accepts when the oracle is silent or
+// checkResultOracleConfirmed accepts when no oracle is available or
 // the resolved call-target FQN matches a known API whose return
 // value should not be discarded. Project-local methods with the
 // same simple names (e.g. a builder DSL's `replace()` that mutates
-// in place) resolve to a different FQN and are filtered out.
+// in place) resolve to a different FQN and are filtered out. When the
+// oracle is available but cannot resolve the call, stay silent (do not
+// treat as confirmed).
 func checkResultOracleConfirmed(lookup oracle.Lookup, file *scanner.File, idx uint32, name string) bool {
 	if lookup == nil {
 		return true
 	}
 	target := oracleLookupCallTargetFlat(lookup, file, idx)
 	if target == "" {
-		return true
+		return false
 	}
 	expected, ok := checkResultExpectedFQNs[name]
 	if !ok {

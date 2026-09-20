@@ -591,6 +591,71 @@ func FilterColumnsByFilePaths(columns *FindingColumns, allowedPaths map[string]b
 	})
 }
 
+// FilterColumnsByErrorRegions drops findings whose anchor lies inside a
+// concrete tree-sitter ERROR or MISSING recovery node. Findings for files
+// absent from files are preserved because non-source inputs such as Android
+// XML do not necessarily have a Kotlin/Java FlatTree.
+func FilterColumnsByErrorRegions(columns *FindingColumns, files map[string]*File) (FindingColumns, int) {
+	if columns == nil || columns.Len() == 0 {
+		return FindingColumns{}, 0
+	}
+
+	inErrorRegion := func(row int) bool {
+		file := files[columns.FileAt(row)]
+		if file == nil {
+			return false
+		}
+
+		offset, ok := findingAnchorOffset(columns, row, file)
+		return ok && file.OffsetInErrorRegion(offset)
+	}
+
+	dropped := 0
+	for row := 0; row < columns.Len(); row++ {
+		if inErrorRegion(row) {
+			dropped++
+		}
+	}
+	if dropped == 0 {
+		return *columns, 0
+	}
+
+	filtered := columns.FilterRows(func(row int) bool {
+		return !inErrorRegion(row)
+	})
+	return filtered, dropped
+}
+
+// findingAnchorOffset resolves the byte anchor preferred by the error-region
+// filter. StartByte zero is also FindingColumns' unset sentinel, so a finding
+// with line data falls back to its 1-based line and column. Invalid lines are
+// left unresolved instead of turning into offset zero and spuriously matching
+// an error at the beginning of the file.
+func findingAnchorOffset(columns *FindingColumns, row int, file *File) (uint32, bool) {
+	if offset := columns.StartByteAt(row); offset > 0 {
+		return uint32(offset), true
+	}
+
+	line := columns.LineAt(row)
+	if line <= 0 {
+		return 0, false
+	}
+	lineOffsets := file.LineOffsets()
+	lineIdx := line - 1
+	if lineIdx < 0 || lineIdx >= len(lineOffsets) {
+		return 0, false
+	}
+
+	offset := lineOffsets[lineIdx]
+	if column := columns.ColumnAt(row); column > 0 {
+		offset += column - 1
+	}
+	if uint64(offset) > uint64(math.MaxUint32) {
+		return 0, false
+	}
+	return uint32(offset), true
+}
+
 // PromoteWarningsToErrors rewrites warning severities in-place without
 // materializing Finding structs.
 func (c *FindingColumns) PromoteWarningsToErrors() {

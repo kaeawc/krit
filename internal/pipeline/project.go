@@ -643,6 +643,7 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	outputStart := time.Now()
 	outResult, err := OutputPhase{}.Run(ctx, OutputInput{
 		FixupResult:      fixupView,
+		Reporter:         host.Reporter,
 		Writer:           out,
 		Format:           format,
 		BaselinePath:     args.BaselinePath,
@@ -665,13 +666,15 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("output: %w", err)
 	}
+	stats := analysis.Stats
+	stats.FindingsInErrorRegions += outResult.FindingsInErrorRegions
 
 	return ProjectResult{
 		FinalFindings:     outResult.FinalFindings,
 		FilesScanned:      analysis.FilesScanned,
 		FindingsCount:     outResult.FinalFindings.Len(),
 		ParseErrors:       analysis.ParseErrors,
-		Stats:             analysis.Stats,
+		Stats:             stats,
 		ParseHits:         analysis.ParseHits,
 		ParseMisses:       analysis.ParseMisses,
 		Fixup:             fixupView,
@@ -773,12 +776,26 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	if err := runAndroidPhaseAndMerge(ctx, args, host, indexResult, &crossFileResult, bundleHit); err != nil {
 		return ProjectAnalysisResult{}, err
 	}
+	emitProjectAnalysisDiagnostics(host.Reporter, crossFileResult.Stats.Errors, dispatchResult.Stats.Errors, parseResult.ParseErrors)
 	kotlinPluginStart := time.Now()
 	if err := runKotlinPluginRulesAndMerge(ctx, args, host, indexResult, &crossFileResult, bundleHit); err != nil {
 		return ProjectAnalysisResult{}, err
 	}
 	perf.AddEntry(host.Tracker, "kotlinPluginRules", time.Since(kotlinPluginStart))
 	phaseTimings.Android = time.Since(androidStart).Milliseconds()
+	filteredFindings, findingsInErrorRegions := filterColumnsByParsedErrorRegions(
+		&crossFileResult.Findings,
+		parseResult.KotlinFiles,
+		parseResult.JavaFiles,
+	)
+	crossFileResult.Findings = filteredFindings
+	crossFileResult.Stats.FindingsInErrorRegions += findingsInErrorRegions
+	if crossFileResult.Stats.FindingsInErrorRegions > 0 {
+		host.Reporter.Verbosef(
+			"verbose: %d finding(s) dropped: anchored inside a parse-error region\n",
+			crossFileResult.Stats.FindingsInErrorRegions,
+		)
+	}
 
 	if bundleEnabled {
 		bundleSaveStart := time.Now()
@@ -795,10 +812,9 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 			residentBundleStash(host, bundleKey, &crossFileResult.Findings)
 		}
 		storeDeltaManifestResident(host, manifestData, manifest)
-		findings := &crossFileResult.Findings
 		runBackgroundSave(host, func() {
 			if !bundleHit {
-				_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, findings)
+				_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, &crossFileResult.Findings)
 			}
 			_ = saveDeltaManifestDisk(host, manifestData, manifest)
 		})
@@ -813,7 +829,7 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 		CrossFileResult:   crossFileResult,
 		FilesScanned:      len(parseResult.KotlinFiles) + len(parseResult.JavaFiles),
 		ParseErrors:       parseResult.ParseErrors,
-		Stats:             dispatchResult.Stats,
+		Stats:             crossFileResult.Stats,
 		ParseHits:         hits1 - hits0,
 		ParseMisses:       misses1 - misses0,
 		RunFP:             runFP,
@@ -1671,6 +1687,8 @@ func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, host Project
 	if err != nil {
 		return fmt.Errorf("android: %w", err)
 	}
+	crossFileResult.Stats.Errors = append(crossFileResult.Stats.Errors, res.Stats.Errors...)
+	rules.SortDispatchErrors(crossFileResult.Stats.Errors)
 	// Replace, don't append: on the delta / affected-set replay paths the prior
 	// findings bundle is carried forward (ApplyDelta) and already holds the last
 	// run's Android findings. Drop this phase's own rules' prior rows before
@@ -1683,6 +1701,39 @@ func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, host Project
 	merged.AppendColumns(&res.Findings)
 	crossFileResult.Findings = *merged.Columns()
 	return nil
+}
+
+// emitProjectAnalysisDiagnostics reports failures that happen after the
+// DispatchPhase boundary, whose own panic diagnostic has already run.
+func emitProjectAnalysisDiagnostics(reporter *diag.Reporter, allErrors, dispatchErrors []rules.DispatchError, parseErrors []error) {
+	if reporter == nil {
+		return
+	}
+	if len(allErrors) > 0 {
+		seen := make(map[string]int, len(dispatchErrors))
+		for _, de := range dispatchErrors {
+			seen[de.Error()]++
+		}
+		phaseErrors := make([]rules.DispatchError, 0, len(allErrors))
+		for _, de := range allErrors {
+			key := de.Error()
+			if seen[key] > 0 {
+				seen[key]--
+				continue
+			}
+			phaseErrors = append(phaseErrors, de)
+		}
+		if len(phaseErrors) > 0 {
+			rules.SortDispatchErrors(phaseErrors)
+			for _, de := range phaseErrors {
+				reporter.Warnf("%s\n", de.Error())
+			}
+			reporter.Warnf("krit: %d rule panic(s) during project analysis\n", len(phaseErrors))
+		}
+	}
+	if len(parseErrors) > 0 {
+		reporter.Warnf("krit: %d file(s) failed to parse\n", len(parseErrors))
+	}
 }
 
 func androidSourcePaths(args ProjectArgs, indexResult IndexResult) []string {
@@ -2129,6 +2180,7 @@ func emitBundleHitOutput(
 				},
 			},
 		},
+		Reporter:         host.Reporter,
 		Writer:           out,
 		Format:           format,
 		BaselinePath:     args.BaselinePath,
@@ -2152,9 +2204,12 @@ func emitBundleHitOutput(
 		return ProjectResult{}, true, fmt.Errorf("output: %w", err)
 	}
 	return ProjectResult{
-		FinalFindings:     outResult.FinalFindings,
-		FilesScanned:      len(kotlinFiles) + len(javaFiles),
-		FindingsCount:     outResult.FinalFindings.Len(),
+		FinalFindings: outResult.FinalFindings,
+		FilesScanned:  len(kotlinFiles) + len(javaFiles),
+		FindingsCount: outResult.FinalFindings.Len(),
+		Stats: rules.RunStats{
+			FindingsInErrorRegions: outResult.FindingsInErrorRegions,
+		},
 		FindingsBundleHit: true,
 		PhaseTimingsMs:    *phaseTimings,
 	}, true, nil

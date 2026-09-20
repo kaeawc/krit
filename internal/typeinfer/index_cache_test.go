@@ -38,6 +38,10 @@ func TestIndexFilesParallelCachedWithTrackerReusesUnchangedFiles(t *testing.T) {
 	if got := second.ResolveImport("String", file); got != "kotlin.String" {
 		t.Fatalf("cached resolver import String = %q", got)
 	}
+	info := second.ClassHierarchy("A")
+	if info == nil || len(info.Members) != 1 || info.Members[0].Type == nil || !info.Members[0].Type.Resolved {
+		t.Fatalf("cached member type lost resolved evidence: %#v", info)
+	}
 }
 
 func TestIndexFilesParallelCachedInvalidatesChangedFileOnly(t *testing.T) {

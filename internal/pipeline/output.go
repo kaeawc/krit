@@ -33,6 +33,12 @@ func (OutputPhase) Name() string { return "output" }
 // summaries) can inspect what was actually emitted.
 func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) {
 	columns := &in.Findings
+	filtered, findingsInErrorRegions := filterColumnsByParsedErrorRegions(columns, in.KotlinFiles, in.JavaFiles)
+	columns = &filtered
+	if findingsInErrorRegions > 0 {
+		in.Reporter.Verbosef("verbose: %d finding(s) dropped: anchored inside a parse-error region\n", findingsInErrorRegions)
+	}
+
 	// Dispatch merges per-file findings in worker-completion order, so
 	// the column slice handed to Output is non-deterministic across
 	// runs. Sort once here so FinalFindings, the format emitters, and
@@ -116,9 +122,25 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 	}
 
 	return OutputResult{
-		FinalFindings: *columns,
-		Timings:       in.Timings,
+		FinalFindings:          *columns,
+		FindingsInErrorRegions: findingsInErrorRegions,
+		Timings:                in.Timings,
 	}, nil
+}
+
+func filterColumnsByParsedErrorRegions(columns *scanner.FindingColumns, kotlinFiles, javaFiles []*scanner.File) (scanner.FindingColumns, int) {
+	files := make(map[string]*scanner.File, len(kotlinFiles)+len(javaFiles))
+	for _, file := range kotlinFiles {
+		if file != nil {
+			files[file.Path] = file
+		}
+	}
+	for _, file := range javaFiles {
+		if file != nil {
+			files[file.Path] = file
+		}
+	}
+	return scanner.FilterColumnsByErrorRegions(columns, files)
 }
 
 // GitChangedFiles returns the set of absolute file paths that have changed

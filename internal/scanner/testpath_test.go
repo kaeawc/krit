@@ -2,6 +2,48 @@ package scanner
 
 import "testing"
 
+func TestIsTestFileGradleConvention(t *testing.T) {
+	InitTestPaths(nil, nil)
+	t.Cleanup(func() { InitTestPaths(nil, nil) })
+
+	for _, path := range []string{
+		"a/src/commonTest/kotlin/X.kt",
+		"a/src/nonWebTest/kotlin/X.kt",
+		"a/src/testableTest/kotlin/X.kt",
+		"a/src/dockerTest/kotlin/X.kt",
+		"a/src/test/java/X.kt",
+	} {
+		if !IsTestFile(path) {
+			t.Errorf("IsTestFile(%q) = false, want true", path)
+		}
+	}
+
+	for _, path := range []string{
+		"a/src/main/kotlin/com/x/TestHelper.kt",
+		"a/src/main/kotlin/com/x/Foo.kt",
+		"a/src/commonMain/kotlin/X.kt",
+	} {
+		if IsTestFile(path) {
+			t.Errorf("IsTestFile(%q) = true, want false", path)
+		}
+	}
+}
+
+func TestIsTestFileGradleConventionRootRelative(t *testing.T) {
+	InitTestPaths(nil, nil)
+	t.Cleanup(func() { InitTestPaths(nil, nil) })
+
+	if !IsTestFile("src/commonTest/kotlin/X.kt") {
+		t.Fatal("expected root-relative commonTest source set to be a test file")
+	}
+	if !IsTestFile("src/nonWebTest/kotlin/X.kt") {
+		t.Fatal("expected root-relative Test-suffixed source set to be a test file")
+	}
+	if IsTestFile("src/main/kotlin/X.kt") {
+		t.Fatal("expected root-relative main source set to be a non-test file")
+	}
+}
+
 func TestIsTestFileDefaults(t *testing.T) {
 	InitTestPaths(nil, nil)
 	if !IsTestFile("/repo/app/src/test/kotlin/FooTest.kt") {
@@ -34,5 +76,20 @@ func TestInitTestPathsOverride(t *testing.T) {
 	}
 	if IsTestFile("/repo/app/src/checks/kotlin/FooCheck.kt") {
 		t.Fatal("expected override to replace additive config")
+	}
+}
+
+func TestIsTestFileOverrideSuppressesConvention(t *testing.T) {
+	InitTestPaths(nil, []string{"/src/verify/"})
+	t.Cleanup(func() { InitTestPaths(nil, nil) })
+
+	path := "a/src/commonTest/kotlin/X.kt"
+	if IsTestFile(path) {
+		t.Fatal("expected override to suppress Gradle test source set convention")
+	}
+
+	InitTestPaths(nil, nil)
+	if !IsTestFile(path) {
+		t.Fatal("expected Gradle test source set convention after clearing override")
 	}
 }

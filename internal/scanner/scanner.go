@@ -120,13 +120,16 @@ func (l Language) String() string {
 // File holds parsed source in flat form. The cgo parse tree is used
 // only during flattening and is not retained on the File.
 type File struct {
-	Path            string
-	Language        Language
-	Content         []byte
-	Lines           []string
-	FlatTree        *FlatTree
-	lineOffsets     []int // cached byte offset of each line start; populated under lineOffsetsOnce
-	lineOffsetsOnce sync.Once
+	Path             string
+	Language         Language
+	Content          []byte
+	Lines            []string
+	FlatTree         *FlatTree
+	lineOffsets      []int // cached byte offset of each line start; populated under lineOffsetsOnce
+	lineOffsetsOnce  sync.Once
+	errorRegions     []errorRegion // cached ERROR/MISSING byte spans; populated under errorRegionsOnce
+	errorRegionsOnce sync.Once
+	hasErrorNodes    bool
 
 	// Generated is true when the file came from a build/generated/**
 	// directory and was kept by the parse phase's known-safe-generator

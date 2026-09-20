@@ -24,11 +24,18 @@ class UselessElvisOnNonNull {
 
     // Member access via `this` on a non-null property — also proven non-null.
     val title: String = "t"
+
     fun nonNullMemberOnThis() {
         val v = this.title ?: "dead"
+    }
+
+    fun resolvedType(value: KnownThing, fallback: KnownThing): KnownThing {
+        return value ?: fallback
     }
 }
 
 class Holder {
     val label: String = ""
 }
+
+class KnownThing

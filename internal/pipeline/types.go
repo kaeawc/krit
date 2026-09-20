@@ -474,6 +474,8 @@ type FixupResult struct {
 // formatted findings to the supplied Writer.
 type OutputInput struct {
 	FixupResult
+	// Reporter routes verbose progress from the Output phase. Nil means silent.
+	Reporter *diag.Reporter
 	// Writer is where the formatted output lands (os.Stdout for CLI,
 	// a buffer for tests and MCP).
 	Writer io.Writer
@@ -540,6 +542,9 @@ type OutputResult struct {
 	// baseline/diff filters). Empty when Output ran in a mode that
 	// filters everything out.
 	FinalFindings scanner.FindingColumns
+	// FindingsInErrorRegions is the number of findings removed because their
+	// anchor fell inside a concrete tree-sitter ERROR or MISSING node.
+	FindingsInErrorRegions int
 	// Timings is the full phase timing set including Output.
 	Timings PhaseTimings
 }

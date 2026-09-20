@@ -314,6 +314,12 @@ func (s dispatchFileState) runFile(in IndexResult, file *scanner.File, dispatche
 	}
 
 	fileColumns, fileStats := s.dispatcher.RunWithStats(file)
+	filtered, findingsInErrorRegions := scanner.FilterColumnsByErrorRegions(
+		&fileColumns,
+		map[string]*scanner.File{file.Path: file},
+	)
+	fileColumns = filtered
+	fileStats.FindingsInErrorRegions = findingsInErrorRegions
 
 	if in.ProfileDispatch {
 		finishedRunAt = time.Now()
@@ -374,6 +380,7 @@ func mergeStats(dst *rules.RunStats, src rules.RunStats) {
 	dst.AggregateFinalizeMs += src.AggregateFinalizeMs
 	dst.LineRuleMs += src.LineRuleMs
 	dst.SuppressionFilterMs += src.SuppressionFilterMs
+	dst.FindingsInErrorRegions += src.FindingsInErrorRegions
 	if src.DispatchRuleNsByRule != nil {
 		if dst.DispatchRuleNsByRule == nil {
 			dst.DispatchRuleNsByRule = make(map[string]int64, len(src.DispatchRuleNsByRule))

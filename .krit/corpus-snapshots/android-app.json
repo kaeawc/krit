@@ -1,0 +1,538 @@
+{
+  "_comment": "Normalized Krit findings for precision tracking. Regenerate via `go run ./internal/devtools/corpusprecision --update`.",
+  "corpusName": "android-app",
+  "commitSHA": "22ad59be81973dd1f5420a5fe7fe634637acdb80",
+  "findings": [
+    {
+      "rule": "DependenciesInRootProject",
+      "ruleSet": "supply-chain",
+      "relPath": "build.gradle.kts",
+      "line": 30,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "622534058ae3"
+    },
+    {
+      "rule": "GoogleAppIndexingWarningManifest",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/AndroidManifest.xml",
+      "line": 1,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "86e0a4d4f900"
+    },
+    {
+      "rule": "PermissionImpliesUnsupportedHardwareManifest",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/AndroidManifest.xml",
+      "line": 1,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "86e0a4d4f900"
+    },
+    {
+      "rule": "AllowBackupManifest",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/AndroidManifest.xml",
+      "line": 11,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "6b88a3ea95e2"
+    },
+    {
+      "rule": "DebuggableManifest",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/AndroidManifest.xml",
+      "line": 11,
+      "col": 1,
+      "severity": "error",
+      "lineHash": "6b88a3ea95e2"
+    },
+    {
+      "rule": "InsecureBaseConfigurationManifest",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/AndroidManifest.xml",
+      "line": 11,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "6b88a3ea95e2"
+    },
+    {
+      "rule": "RtlEnabledManifest",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/AndroidManifest.xml",
+      "line": 11,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "6b88a3ea95e2"
+    },
+    {
+      "rule": "ExportedWithoutPermission",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/AndroidManifest.xml",
+      "line": 30,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "87cfcafb740d"
+    },
+    {
+      "rule": "UnsafeProtectedBroadcastReceiverManifest",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/AndroidManifest.xml",
+      "line": 30,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "87cfcafb740d"
+    },
+    {
+      "rule": "ExportedWithoutPermission",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/AndroidManifest.xml",
+      "line": 39,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "f1664e15c70b"
+    },
+    {
+      "rule": "ShowToast",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 22,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "7ae4fdcb5501"
+    },
+    {
+      "rule": "SimpleDateFormat",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 25,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "6fce141f4e3c"
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 39,
+      "col": 22,
+      "severity": "warning",
+      "lineHash": "19218fce4055"
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 45,
+      "col": 26,
+      "severity": "warning",
+      "lineHash": "3c0c2e38b43b"
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 45,
+      "col": 34,
+      "severity": "warning",
+      "lineHash": "3c0c2e38b43b"
+    },
+    {
+      "rule": "EmptyFunctionBlock",
+      "ruleSet": "empty-blocks",
+      "relPath": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 49,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "e035653162e7"
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 53,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "ba927a5bfb6c"
+    },
+    {
+      "rule": "SimpleDateFormat",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 54,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "1fde1f3df1bc"
+    },
+    {
+      "rule": "RecyclerAdapterWithoutDiffUtil",
+      "ruleSet": "resource-cost",
+      "relPath": "src/main/kotlin/com/example/app/adapters/UserAdapter.kt",
+      "line": 12,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "0d310fce93c2"
+    },
+    {
+      "rule": "TooGenericExceptionCaught",
+      "ruleSet": "exceptions",
+      "relPath": "src/main/kotlin/com/example/app/adapters/UserAdapter.kt",
+      "line": 48,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "8eb5665e4768"
+    },
+    {
+      "rule": "FragmentConstructor",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 12,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "c7e5216ef231"
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 35,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "e1db933fe02a"
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 36,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "9f847f2373db"
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 37,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "8dc7fbb4809f"
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 38,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "b41425825842"
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 39,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "aa69f381c13f"
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 40,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "676177693f38"
+    },
+    {
+      "rule": "EmptyCatchBlock",
+      "ruleSet": "empty-blocks",
+      "relPath": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 50,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "619e8c16d82f"
+    },
+    {
+      "rule": "ForbiddenComment",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 55,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "e321875be5a1"
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/fragments/SettingsFragment.kt",
+      "line": 15,
+      "col": 16,
+      "severity": "warning",
+      "lineHash": "c0146902600f"
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/fragments/SettingsFragment.kt",
+      "line": 15,
+      "col": 21,
+      "severity": "warning",
+      "lineHash": "c0146902600f"
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/fragments/SettingsFragment.kt",
+      "line": 15,
+      "col": 28,
+      "severity": "warning",
+      "lineHash": "c0146902600f"
+    },
+    {
+      "rule": "FunctionOnlyReturningConstant",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/fragments/SettingsFragment.kt",
+      "line": 19,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "a0000e5f95ed"
+    },
+    {
+      "rule": "RoomSelectStarWithoutLimit",
+      "ruleSet": "database",
+      "relPath": "src/main/kotlin/com/example/app/libraries/LibraryCoverage.kt",
+      "line": 66,
+      "col": 5,
+      "severity": "warning",
+      "lineHash": "8f5e15e3a95b"
+    },
+    {
+      "rule": "RoomFallbackToDestructiveMigration",
+      "ruleSet": "database",
+      "relPath": "src/main/kotlin/com/example/app/libraries/LibraryCoverage.kt",
+      "line": 77,
+      "col": 9,
+      "severity": "warning",
+      "lineHash": "bfc48331b383"
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 54,
+      "col": 30,
+      "severity": "warning",
+      "lineHash": "d731f9fb5078"
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 63,
+      "col": 23,
+      "severity": "warning",
+      "lineHash": "b834b25d3efc"
+    },
+    {
+      "rule": "SimpleDateFormat",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 71,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "a79f88a59be1"
+    },
+    {
+      "rule": "UnusedVariable",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 75,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "c59c053985ad"
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 79,
+      "col": 27,
+      "severity": "warning",
+      "lineHash": "98872e152646"
+    },
+    {
+      "rule": "Wakelock",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 93,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "a3990f6ab6e4"
+    },
+    {
+      "rule": "SetJavaScriptEnabled",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 19,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "23c153321003"
+    },
+    {
+      "rule": "AddJavascriptInterface",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 20,
+      "col": 9,
+      "severity": "warning",
+      "lineHash": "f1cee336c019"
+    },
+    {
+      "rule": "TrustedServer",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 25,
+      "col": 51,
+      "severity": "warning",
+      "lineHash": "27678cc6c2dc"
+    },
+    {
+      "rule": "InsecureTrustManager",
+      "ruleSet": "security",
+      "relPath": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 26,
+      "col": 13,
+      "severity": "warning",
+      "lineHash": "96a018591a83"
+    },
+    {
+      "rule": "InsecureTrustManager",
+      "ruleSet": "security",
+      "relPath": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 27,
+      "col": 13,
+      "severity": "warning",
+      "lineHash": "4224df8c69a4"
+    },
+    {
+      "rule": "FunctionOnlyReturningConstant",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 40,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "b9da439183f5"
+    },
+    {
+      "rule": "SdCardPath",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 41,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "83b4c9558486"
+    },
+    {
+      "rule": "SdCardPath",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 46,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "8322d4db4ebb"
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 55,
+      "col": 37,
+      "severity": "warning",
+      "lineHash": "a24e1ab55469"
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 56,
+      "col": 34,
+      "severity": "warning",
+      "lineHash": "a024de7bb1b5"
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 61,
+      "col": 33,
+      "severity": "warning",
+      "lineHash": "295cbdb5a652"
+    },
+    {
+      "rule": "SetJavaScriptEnabled",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 73,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "23c153321003"
+    },
+    {
+      "rule": "WebViewAllowFileAccess",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 74,
+      "col": 9,
+      "severity": "warning",
+      "lineHash": "76154b176c7d"
+    },
+    {
+      "rule": "WebViewAllowContentAccess",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 75,
+      "col": 9,
+      "severity": "warning",
+      "lineHash": "05db72060835"
+    },
+    {
+      "rule": "EmptyFunctionBlock",
+      "ruleSet": "empty-blocks",
+      "relPath": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 79,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "cb76c91ee27b"
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 83,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "3b7473f6082a"
+    },
+    {
+      "rule": "DisableBaselineAlignmentResource",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/res/layout/item_user.xml",
+      "line": 2,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "3cb3e26d28fb"
+    },
+    {
+      "rule": "StringNotLocalizableResource",
+      "ruleSet": "android-lint",
+      "relPath": "src/main/res/values/strings.xml",
+      "line": 15,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "788fd832c30e"
+    }
+  ]
+}

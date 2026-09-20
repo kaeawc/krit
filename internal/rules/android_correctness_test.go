@@ -391,7 +391,7 @@ func runCommitPrefEditsWithCallTarget(t *testing.T, code string, callText string
 	fake := oracle.NewFakeOracle()
 	fake.CallTargets[file.Path] = map[string]string{}
 	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
-		if strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
+		if target != "" && strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
 			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
 			fake.CallTargets[file.Path][key] = target
 		}
@@ -406,6 +406,19 @@ func runCommitPrefEditsWithCallTarget(t *testing.T, code string, callText string
 	}
 	t.Fatalf("rule not found in registry")
 	return nil
+}
+
+func TestCommitPrefEdits_OracleUnresolvedStaysSilent(t *testing.T) {
+	findings := runCommitPrefEditsWithCallTarget(t, `
+package test
+fun save() {
+    val editor = prefs.edit()
+    editor.putString("key", "value")
+}
+`, "prefs.edit", "")
+	if len(findings) != 0 {
+		t.Fatalf("expected unresolved oracle to suppress CommitPrefEdits, got %d: %v", len(findings), findings)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -573,7 +586,7 @@ func runCommitTransactionWithCallTarget(t *testing.T, code string, callText stri
 	fake := oracle.NewFakeOracle()
 	fake.CallTargets[file.Path] = map[string]string{}
 	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
-		if strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
+		if target != "" && strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
 			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
 			fake.CallTargets[file.Path][key] = target
 		}
@@ -588,6 +601,19 @@ func runCommitTransactionWithCallTarget(t *testing.T, code string, callText stri
 	}
 	t.Fatalf("rule not found in registry")
 	return nil
+}
+
+func TestCommitTransaction_OracleUnresolvedStaysSilent(t *testing.T) {
+	findings := runCommitTransactionWithCallTarget(t, `
+package test
+fun show() {
+    val tx = supportFragmentManager.beginTransaction()
+    tx.replace(R.id.container, fragment)
+}
+`, "supportFragmentManager.beginTransaction", "")
+	if len(findings) != 0 {
+		t.Fatalf("expected unresolved oracle to suppress CommitTransaction, got %d: %v", len(findings), findings)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -803,7 +829,7 @@ func runCheckResultWithCallTarget(t *testing.T, code string, callText string, ta
 	fake := oracle.NewFakeOracle()
 	fake.CallTargets[file.Path] = map[string]string{}
 	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
-		if strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
+		if target != "" && strings.Contains(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
 			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
 			fake.CallTargets[file.Path][key] = target
 		}
@@ -818,6 +844,18 @@ func runCheckResultWithCallTarget(t *testing.T, code string, callText string, ta
 	}
 	t.Fatalf("rule not found in registry")
 	return nil
+}
+
+func TestCheckResult_OracleUnresolvedStaysSilent(t *testing.T) {
+	findings := runCheckResultWithCallTarget(t, `
+package test
+fun example() {
+    String.format("hello %s", "world")
+}
+`, "String.format", "")
+	if len(findings) != 0 {
+		t.Fatalf("expected unresolved oracle to suppress CheckResult, got %d: %v", len(findings), findings)
+	}
 }
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ class UselessElvisOnNonNull {
     // Mutable var — Kotlin cannot smart-cast; the source resolver should not
     // claim non-null even when initialized with a non-null literal.
     var name: String = "hello"
+
     fun mutableVar() {
         val y = name ?: "fallback"
     }
@@ -67,9 +68,45 @@ class UselessElvisOnNonNull {
         use(y)
     }
 
+    fun unresolvedType(value: ExternalThing, fallback: ExternalThing): ExternalThing {
+        return value ?: fallback
+    }
+
     fun use(x: Any?) {}
 }
 
 class TestHarness {
     val group: String? = null
+}
+
+class NullableElvisBailProperties {
+    class SomeType
+
+    val logFile: SomeType? = null
+
+    fun nullablePropertyBail() {
+        val f = logFile ?: return
+        use(f)
+    }
+
+    val p: SomeType?
+        get() = null
+
+    fun customGetterBail() {
+        val value = p ?: return
+        use(value)
+    }
+
+    fun use(value: Any?) {}
+}
+
+class ShadowedNullableElvisBail {
+    val x: String? = null
+
+    fun shadowingInitializer() {
+        val x = x ?: return
+        use(x)
+    }
+
+    fun use(value: Any?) {}
 }

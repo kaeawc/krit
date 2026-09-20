@@ -158,7 +158,7 @@ func runCollectInOnCreateWithCallTarget(t *testing.T, code string, callText stri
 	fake := oracle.NewFakeOracle()
 	fake.CallTargets[file.Path] = map[string]string{}
 	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
-		if strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
+		if target != "" && strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(idx)), callText) {
 			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
 			fake.CallTargets[file.Path][key] = target
 		}
@@ -173,6 +173,20 @@ func runCollectInOnCreateWithCallTarget(t *testing.T, code string, callText stri
 	}
 	t.Fatalf("rule not found in registry")
 	return nil
+}
+
+func TestCollectInOnCreateWithoutLifecycle_OracleUnresolvedStaysSilent(t *testing.T) {
+	findings := runCollectInOnCreateWithCallTarget(t, `
+package test
+class ExampleActivity {
+    fun onCreate() {
+        vm.state.collect { render(it) }
+    }
+}
+`, "vm.state.collect", "")
+	if len(findings) != 0 {
+		t.Fatalf("expected unresolved oracle to suppress collect, got %d: %v", len(findings), findings)
+	}
 }
 
 // --- GlobalCoroutineUsage ---

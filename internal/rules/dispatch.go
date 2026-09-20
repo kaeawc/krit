@@ -23,16 +23,17 @@ type RuleExecutionStat struct {
 
 // RunStats captures where per-file rule execution time is spent.
 type RunStats struct {
-	SuppressionIndexMs   int64
-	DispatchWalkMs       int64
-	DispatchRuleNs       int64
-	AggregateCollectNs   int64
-	AggregateFinalizeMs  int64
-	LineRuleMs           int64
-	SuppressionFilterMs  int64
-	DispatchRuleNsByRule map[string]int64
-	RuleStatsByRule      map[string]RuleExecutionStat
-	Errors               []DispatchError
+	SuppressionIndexMs     int64
+	DispatchWalkMs         int64
+	DispatchRuleNs         int64
+	AggregateCollectNs     int64
+	AggregateFinalizeMs    int64
+	LineRuleMs             int64
+	SuppressionFilterMs    int64
+	FindingsInErrorRegions int
+	DispatchRuleNsByRule   map[string]int64
+	RuleStatsByRule        map[string]RuleExecutionStat
+	Errors                 []DispatchError
 }
 
 func (s *RunStats) recordRule(ruleID, family string, durationNs int64) {

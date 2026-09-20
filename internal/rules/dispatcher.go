@@ -102,6 +102,8 @@ type Dispatcher struct {
 
 	flatTypeIndexSize int
 	mu                sync.RWMutex
+	projectStatsMu    sync.Mutex
+	projectStats      RunStats
 
 	// reportOnce guards ReportMissingCapabilities so repeat calls on the
 	// same dispatcher (e.g. a shared instance across CLI + LSP) emit the
@@ -903,6 +905,16 @@ func (d *Dispatcher) RunIcons(file *scanner.File, idx *android.IconIndex) scanne
 	})
 }
 
+// ProjectRuleStats returns panics recovered while running project-scope
+// Gradle, manifest, resource, and icon rules through this dispatcher.
+func (d *Dispatcher) ProjectRuleStats() RunStats {
+	d.projectStatsMu.Lock()
+	defer d.projectStatsMu.Unlock()
+	stats := d.projectStats
+	stats.Errors = append([]DispatchError(nil), stats.Errors...)
+	return stats
+}
+
 // RunResourceSource runs source AST rules that need the merged Android
 // ResourceIndex. These rules are not part of the hot per-file dispatch phase
 // because the resource index is assembled later in the Android phase.
@@ -991,23 +1003,33 @@ func (d *Dispatcher) runProjectRuleSet(file *scanner.File, ruleSet []*api.Rule, 
 	excluded := d.buildExcludedSet(file.Path)
 	langExcluded := d.excludedForLanguage(file.Language)
 	collector := scanner.NewFindingCollector(0)
+	stats := RunStats{}
 	for _, r := range ruleSet {
 		if excluded[r.ID] || langExcluded[r.ID] {
 			continue
 		}
-		cols := d.runProjectRule(r, file, populate)
+		cols := d.runProjectRule(r, file, populate, &stats)
 		collector.AppendColumns(&cols)
 	}
+	d.projectStatsMu.Lock()
+	d.projectStats.Errors = append(d.projectStats.Errors, stats.Errors...)
+	d.projectStatsMu.Unlock()
 	return *collector.Columns()
 }
 
 // runProjectRule invokes a project-level rule's Check function with a
 // freshly constructed Context, recovering from panics. Returns findings
 // in columnar form.
-func (d *Dispatcher) runProjectRule(r *api.Rule, file *scanner.File, populate func(*api.Context)) (cols scanner.FindingColumns) {
+func (d *Dispatcher) runProjectRule(r *api.Rule, file *scanner.File, populate func(*api.Context), stats *RunStats) (cols scanner.FindingColumns) {
 	defer func() {
 		if rec := recover(); rec != nil {
-			reporter().Warnf("krit: panic in rule %s on %s: %v\n", r.ID, file.Path, rec)
+			ruleID := ""
+			if r != nil {
+				ruleID = r.ID
+			}
+			if stats != nil {
+				stats.Errors = append(stats.Errors, DispatchError{RuleName: ruleID, FilePath: filePathOrEmpty(file), PanicValue: rec})
+			}
 			cols = scanner.FindingColumns{}
 		}
 	}()

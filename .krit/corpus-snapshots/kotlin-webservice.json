@@ -1,0 +1,259 @@
+{
+  "_comment": "Normalized Krit findings for precision tracking. Regenerate via `go run ./internal/devtools/corpusprecision --update`.",
+  "corpusName": "kotlin-webservice",
+  "commitSHA": "22ad59be81973dd1f5420a5fe7fe634637acdb80",
+  "findings": [
+    {
+      "rule": "DependenciesInRootProject",
+      "ruleSet": "supply-chain",
+      "relPath": "build.gradle.kts",
+      "line": 19,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "622534058ae3"
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/Application.kt",
+      "line": 3,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "296fc32c8863"
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/Application.kt",
+      "line": 4,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "46d87e6dc67c"
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/Application.kt",
+      "line": 5,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "08636133e3b3"
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/Application.kt",
+      "line": 6,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "aecb192dd46c"
+    },
+    {
+      "rule": "ForbiddenComment",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/Application.kt",
+      "line": 10,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "79043884833a"
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/routes/UserRoutes.kt",
+      "line": 4,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "296fc32c8863"
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/routes/UserRoutes.kt",
+      "line": 5,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "2b145544f7a1"
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/routes/UserRoutes.kt",
+      "line": 6,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "3a3e270f1553"
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/routes/UserRoutes.kt",
+      "line": 7,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "aecb192dd46c"
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/routes/UserRoutes.kt",
+      "line": 8,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "d23d7b6a8e10"
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/routes/UserRoutes.kt",
+      "line": 9,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "d0371e9b0fc8"
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/routes/UserRoutes.kt",
+      "line": 10,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "c52f0a627b67"
+    },
+    {
+      "rule": "EmptyFunctionBlock",
+      "ruleSet": "empty-blocks",
+      "relPath": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 14,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "0e4885aab8c3"
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 18,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "f141ac2d3043"
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 37,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "cad8e0f6512e"
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 73,
+      "col": 29,
+      "severity": "warning",
+      "lineHash": "4794e09cdf16"
+    },
+    {
+      "rule": "TooGenericExceptionCaught",
+      "ruleSet": "exceptions",
+      "relPath": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 110,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "619e8c16d82f"
+    },
+    {
+      "rule": "EmptyCatchBlock",
+      "ruleSet": "empty-blocks",
+      "relPath": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 119,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "b4580c89cf6d"
+    },
+    {
+      "rule": "ReturnFromFinally",
+      "ruleSet": "exceptions",
+      "relPath": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 129,
+      "col": 13,
+      "severity": "warning",
+      "lineHash": "470c22219b70"
+    },
+    {
+      "rule": "HardcodedLocalhostUrl",
+      "ruleSet": "release-engineering",
+      "relPath": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 8,
+      "col": 20,
+      "severity": "warning",
+      "lineHash": "809bc0b62dfa"
+    },
+    {
+      "rule": "UtilityClassWithPublicConstructor",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 5,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "65e36c2f5d58"
+    },
+    {
+      "rule": "MayBeConstant",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 9,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "479afb7ae100"
+    },
+    {
+      "rule": "UnusedPrivateProperty",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 9,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "479afb7ae100"
+    },
+    {
+      "rule": "MayBeConstant",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 10,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "c22471c6fbdc"
+    },
+    {
+      "rule": "UnusedPrivateProperty",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 10,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "c22471c6fbdc"
+    },
+    {
+      "rule": "UpperLowerInvariantMisuse",
+      "ruleSet": "i18n",
+      "relPath": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 28,
+      "col": 20,
+      "severity": "warning",
+      "lineHash": "6da08a2490b2"
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "relPath": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 35,
+      "col": 1,
+      "severity": "warning",
+      "lineHash": "6aa3b84956e5"
+    }
+  ]
+}

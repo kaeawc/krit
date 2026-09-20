@@ -12,4 +12,10 @@ class UnnecessaryNotNullCheck {
 
         return name(value) == null
     }
+
+    fun resolvedType(value: KnownThing): Boolean {
+        return value != null
+    }
 }
+
+class KnownThing

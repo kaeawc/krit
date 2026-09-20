@@ -101,7 +101,7 @@ func TestUnnecessaryNotNullOperator_TargetedResolution_FiresOnLambdaParam(t *tes
 
 	// Step 2: simulate the daemon resolving that position to a non-null String.
 	resolver := stubExprResolver{result: map[string]map[api.ExpressionPosition]*typeinfer.ResolvedType{
-		file.Path: {pos: {Name: "String", FQN: "kotlin.String", Kind: typeinfer.TypeClass, Nullable: false}},
+		file.Path: {pos: {Name: "String", FQN: "kotlin.String", Kind: typeinfer.TypeClass, Nullable: false, Resolved: true}},
 	}}
 	results, err := resolver.Resolve(positions)
 	if err != nil {

@@ -1,6 +1,7 @@
 package potentialbugs
 
 data class Box<T>(val value: T)
+
 typealias NullableName = String?
 
 class Example {
@@ -31,6 +32,11 @@ class Example {
 
     fun aliasTarget(input: String?) {
         val result = input as NullableName
+        println(result)
+    }
+
+    fun unresolvedTarget(input: String?) {
+        val result = input as ExternalThing
         println(result)
     }
 

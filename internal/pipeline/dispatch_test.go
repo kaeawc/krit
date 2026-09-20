@@ -157,6 +157,42 @@ func TestDispatchPhase_Run_CacheWriteBackIncludesJavaFiles(t *testing.T) {
 	}
 }
 
+func TestDispatchPhase_Run_CacheWriteBackExcludesParseErrorRegionFindings(t *testing.T) {
+	dir := t.TempDir()
+	file := writeKotlin(t, dir, "Broken.kt", "class Broken : Any() { val value = # }\n")
+	rule := findV2RuleForTest(t, "AbsentOrWrongFileLicense")
+	analysisCache := &cache.Cache{Files: make(map[string]cache.FileEntry)}
+	in := IndexResult{
+		ParseResult: ParseResult{
+			ActiveRules: []*api.Rule{rule},
+			KotlinFiles: []*scanner.File{file},
+		},
+		Cache:         analysisCache,
+		CacheFilePath: filepath.Join(dir, ".krit", "cache", cache.CacheFileName),
+		Version:       "test",
+		RuleHash:      "hash",
+	}
+
+	out, err := (DispatchPhase{}).Run(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := out.Findings.Len(); got != 0 {
+		t.Fatalf("Findings.Len() = %d, want 0", got)
+	}
+	if got := out.Stats.FindingsInErrorRegions; got != 1 {
+		t.Fatalf("FindingsInErrorRegions = %d, want 1", got)
+	}
+	abs, _ := filepath.Abs(file.Path)
+	entry, ok := analysisCache.Files[abs]
+	if !ok {
+		t.Fatalf("cache missing Kotlin entry for %s", abs)
+	}
+	if got := entry.Columns.Len(); got != 0 {
+		t.Fatalf("cached Kotlin findings = %d, want 0", got)
+	}
+}
+
 func TestDispatchPhase_Run_NoRules_NoFindings(t *testing.T) {
 	file := writeKotlin(t, t.TempDir(), "Sample.kt", classDeclKotlin)
 

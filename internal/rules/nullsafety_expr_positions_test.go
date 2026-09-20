@@ -116,7 +116,7 @@ func TestUnnecessaryNotNullCheck_TargetedResolution_FiresOnPropertyFromUnknownIn
 	}
 	fake := oracle.NewFakeOracle()
 	seedExprFactsAtPositions(fake, file.Path, positions[file.Path],
-		&typeinfer.ResolvedType{Name: "String", FQN: "kotlin.String", Kind: typeinfer.TypeClass, Nullable: false})
+		&typeinfer.ResolvedType{Name: "String", FQN: "kotlin.String", Kind: typeinfer.TypeClass, Nullable: false, Resolved: true})
 	findings := runRuleOnFileWithFakeOracle(t, "UnnecessaryNotNullCheck", file, fake)
 	if len(findings) != 1 {
 		t.Fatalf("expected one finding once oracle fact is seeded; got %d: %v", len(findings), findings)
@@ -194,7 +194,7 @@ func TestUnnecessarySafeCall_TargetedResolution_FiresOnLambdaParam(t *testing.T)
 	}
 	fake := oracle.NewFakeOracle()
 	seedExprFactsAtPositions(fake, file.Path, positions[file.Path],
-		&typeinfer.ResolvedType{Name: "String", FQN: "kotlin.String", Kind: typeinfer.TypeClass, Nullable: false})
+		&typeinfer.ResolvedType{Name: "String", FQN: "kotlin.String", Kind: typeinfer.TypeClass, Nullable: false, Resolved: true})
 	findings := runRuleOnFileWithFakeOracle(t, "UnnecessarySafeCall", file, fake)
 	if len(findings) != 1 {
 		t.Fatalf("expected one finding once oracle fact is seeded; got %d: %v", len(findings), findings)

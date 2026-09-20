@@ -1230,7 +1230,7 @@ func (r *CastNullableToNonNullableTypeRule) check(ctx *api.Context) {
 		return
 	}
 	targetType := ctx.Resolver.ResolveFlatNode(cast.target, file)
-	if targetType == nil || targetType.Kind == typeinfer.TypeUnknown {
+	if targetType == nil || !targetType.Resolved || targetType.Kind == typeinfer.TypeUnknown {
 		return
 	}
 	if targetType.IsNullable() {

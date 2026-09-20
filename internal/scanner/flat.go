@@ -11,6 +11,7 @@ import (
 const (
 	flatNodeFlagNamed uint8 = 1 << iota
 	flatNodeFlagError
+	flatNodeFlagIsError
 )
 
 var (
@@ -53,6 +54,13 @@ func (n FlatNode) IsNamed() bool {
 // HasError reports whether this node or its subtree contains a parse error.
 func (n FlatNode) HasError() bool {
 	return n.Flags&flatNodeFlagError != 0
+}
+
+// IsErrorNode reports whether this node itself is an ERROR or MISSING
+// recovery node. Unlike HasError, it does not include ancestors whose
+// subtrees merely contain a parse error.
+func (n FlatNode) IsErrorNode() bool {
+	return n.Flags&flatNodeFlagIsError != 0
 }
 
 // TypeName resolves the node's interned type back to its string name.
@@ -191,6 +199,9 @@ func flattenTree(root *sitter.Node) *FlatTree {
 		if node.IsError() || node.HasError() {
 			flags |= flatNodeFlagError
 		}
+		if node.IsError() || node.IsMissing() {
+			flags |= flatNodeFlagIsError
+		}
 		var parentField uint32
 		if hasParent {
 			parentField = parent
@@ -231,6 +242,54 @@ func flattenTree(root *sitter.Node) *FlatTree {
 	walk(root, 0, false)
 	t.buildNodesByType()
 	return t
+}
+
+// errorRegion is a tree-sitter ERROR or MISSING node's half-open byte span.
+// These spans are cached per File because output filtering may test many
+// findings from the same broken source file.
+type errorRegion struct {
+	startByte uint32
+	endByte   uint32
+}
+
+// OffsetInErrorRegion reports whether offset is inside any concrete ERROR or
+// MISSING node span in the file's flattened tree. The first call caches those
+// spans; clean files allocate no span storage and take the hasErrorNodes fast
+// path on every subsequent call.
+func (f *File) OffsetInErrorRegion(offset uint32) bool {
+	if f == nil || f.FlatTree == nil || f.FlatTree.Len() == 0 {
+		return false
+	}
+
+	f.errorRegionsOnce.Do(func() {
+		tree := f.FlatTree
+		for idx, flags := range tree.Flags {
+			if flags&flatNodeFlagIsError == 0 || idx >= len(tree.StartBytes) || idx >= len(tree.EndBytes) {
+				continue
+			}
+			f.errorRegions = append(f.errorRegions, errorRegion{
+				startByte: tree.StartBytes[idx],
+				endByte:   tree.EndBytes[idx],
+			})
+		}
+		f.hasErrorNodes = len(f.errorRegions) > 0
+	})
+
+	if !f.hasErrorNodes {
+		return false
+	}
+	for _, region := range f.errorRegions {
+		if region.startByte == region.endByte {
+			if offset == region.startByte {
+				return true
+			}
+			continue
+		}
+		if offset >= region.startByte && offset < region.endByte {
+			return true
+		}
+	}
+	return false
 }
 
 // buildNodesByType reconstructs the CSR posting list from t.Types.

@@ -66,7 +66,7 @@ func TestRegression_CastNullable_ByteRangeFactBeatsColumnDrift(t *testing.T) {
 }
 
 func nonNullFact(name, fqn string) *typeinfer.ResolvedType {
-	return &typeinfer.ResolvedType{Name: name, FQN: fqn, Kind: typeinfer.TypeClass, Nullable: false}
+	return &typeinfer.ResolvedType{Name: name, FQN: fqn, Kind: typeinfer.TypeClass, Nullable: false, Resolved: true}
 }
 
 // castOperandNode returns the operand node of the first `as_expression`
@@ -173,7 +173,7 @@ func TestRegression_CastNullableToNonNullable_NullableOperandStillFlagged(t *tes
 	idx := castOperandNode(t, file)
 	fake := oracle.NewFakeOracle()
 	fake.Expressions[file.Path] = map[string]*typeinfer.ResolvedType{
-		positionKey(file, idx): {Name: "Any", FQN: "kotlin.Any", Kind: typeinfer.TypeNullable, Nullable: true},
+		positionKey(file, idx): {Name: "Any", FQN: "kotlin.Any", Kind: typeinfer.TypeNullable, Nullable: true, Resolved: true},
 	}
 	findings := runRuleOnFileWithFakeOracle(t, "CastNullableToNonNullableType", file, fake)
 	if len(findings) != 1 {

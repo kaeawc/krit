@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -80,6 +81,9 @@ abstract class Example(private val name: String) {
 		if got.HasError() != (info.node.IsError() || info.node.HasError()) {
 			t.Errorf("node %d: expected error=%v, got %v", idx, info.node.IsError() || info.node.HasError(), got.HasError())
 		}
+		if got.IsErrorNode() != (info.node.IsError() || info.node.IsMissing()) {
+			t.Errorf("node %d: expected error node=%v, got %v", idx, info.node.IsError() || info.node.IsMissing(), got.IsErrorNode())
+		}
 		if idx > 0 && got.Parent != uint32(info.parent) {
 			t.Errorf("node %d: expected parent %d, got %d", idx, info.parent, got.Parent)
 		}
@@ -105,6 +109,97 @@ abstract class Example(private val name: String) {
 			t.Errorf("node %d: expected next sibling %d, got %d", idx, expectedNextSib, got.NextSib)
 		}
 	}
+}
+
+func TestFileOffsetInErrorRegion(t *testing.T) {
+	t.Run("nil and empty files", func(t *testing.T) {
+		var nilFile *File
+		if nilFile.OffsetInErrorRegion(0) {
+			t.Fatal("nil file reported an error region")
+		}
+		if (&File{}).OffsetInErrorRegion(0) {
+			t.Fatal("file without FlatTree reported an error region")
+		}
+		if (&File{FlatTree: &FlatTree{}}).OffsetInErrorRegion(0) {
+			t.Fatal("empty FlatTree reported an error region")
+		}
+	})
+
+	t.Run("valid Kotlin", func(t *testing.T) {
+		root, content := parseKotlin(t, "fun clean() = 42\n")
+		file := &File{Content: content, FlatTree: flattenTree(root)}
+		for offset := 0; offset <= len(content); offset++ {
+			if file.OffsetInErrorRegion(uint32(offset)) {
+				t.Fatalf("clean file offset %d reported inside an error region", offset)
+			}
+		}
+		if allocs := testing.AllocsPerRun(100, func() {
+			_ = file.OffsetInErrorRegion(0)
+		}); allocs != 0 {
+			t.Fatalf("clean-file fast path allocated %v times per call, want 0", allocs)
+		}
+	})
+
+	t.Run("broken Kotlin", func(t *testing.T) {
+		const source = "fun broken() {\n    val value = #\n}\n\nfun clean() = 42\n"
+		root, content := parseKotlin(t, source)
+		file := &File{Content: content, FlatTree: flattenTree(root)}
+		flatRoot := file.FlatTree.Node(0)
+		if !flatRoot.HasError() {
+			t.Fatal("broken source root should retain HasError ancestor semantics")
+		}
+		if flatRoot.IsErrorNode() {
+			t.Fatal("broken source root must not be marked as a concrete error node")
+		}
+
+		insideCount := 0
+		for offset := 0; offset <= len(content); offset++ {
+			want := false
+			for idx := uint32(0); idx < uint32(file.FlatTree.Len()); idx++ {
+				node := file.FlatTree.Node(idx)
+				if node.IsErrorNode() && uint32(offset) >= node.StartByte && uint32(offset) < node.EndByte {
+					want = true
+					break
+				}
+			}
+			if got := file.OffsetInErrorRegion(uint32(offset)); got != want {
+				t.Fatalf("OffsetInErrorRegion(%d) = %v, want %v", offset, got, want)
+			} else if got {
+				insideCount++
+			}
+		}
+		if insideCount == 0 {
+			t.Fatal("broken source produced no non-empty ERROR/MISSING span")
+		}
+		cleanOffset := strings.Index(source, "clean")
+		if cleanOffset < 0 || file.OffsetInErrorRegion(uint32(cleanOffset)) {
+			t.Fatalf("clean declaration offset %d reported inside an error region", cleanOffset)
+		}
+	})
+
+	t.Run("zero-width and half-open spans", func(t *testing.T) {
+		file := &File{FlatTree: &FlatTree{
+			Types:      []uint16{0, 0},
+			StartBytes: []uint32{10, 20},
+			EndBytes:   []uint32{10, 25},
+			Flags:      []uint8{flatNodeFlagIsError, flatNodeFlagIsError},
+		}}
+
+		for _, tc := range []struct {
+			offset uint32
+			want   bool
+		}{
+			{offset: 9, want: false},
+			{offset: 10, want: true},
+			{offset: 11, want: false},
+			{offset: 20, want: true},
+			{offset: 25, want: false},
+		} {
+			if got := file.OffsetInErrorRegion(tc.offset); got != tc.want {
+				t.Errorf("OffsetInErrorRegion(%d) = %v, want %v", tc.offset, got, tc.want)
+			}
+		}
+	})
 }
 
 func TestFlatHelpers_MatchTreeHelpers(t *testing.T) {

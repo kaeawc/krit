@@ -47,7 +47,30 @@ const CacheFileName = "incremental.cache"
 // (caught-variable / cause-unwrap narrowing) and SwallowedException
 // (exception passed/wrapped/cause-inspected, recovery bodies, empty-body
 // deferral) change those rules' findings for unchanged source.
-const cachePayloadVersion = "v4"
+// v5: oracle-confirmation tightening — ServiceCast, ShowToast, LongLogTag,
+// CommitPrefEdits, CommitTransaction, CheckResult, FlowCollectInOnCreate, and
+// ComposeRememberWithoutKey no longer treat an
+// available-but-unresolved oracle call target as confirmation, and
+// ImplicitDefaultLocale now consults oracle call targets — these change
+// those rules' findings for unchanged source.
+// v6: null-safety rules (UnnecessaryNotNullCheck/Operator/SafeCall,
+// UselessElvisOnNonNull, CastNullableToNonNullableType,
+// UselessCallOnNotNull) now require a genuinely resolved type before
+// claiming redundancy or non-null, changing their findings for unchanged
+// source.
+// v7: DependenciesInRootProject now distinguishes nested and included builds
+// from the outermost root, changing its findings for unchanged source.
+// v8: Test source-set convention detection changes findings for
+// unchanged source across rules that skip test files.
+// VarCouldBeVal default config now skips lateinit var declarations, changing
+// findings for unchanged source.
+// v9: Source type scopes now honor declaration and smart-cast positions plus
+// accessor boundaries, changing null-safety findings for unchanged source.
+// v10: UnnecessarySafeCall now honors generic and nullable function parameters,
+// changing its findings for unchanged source.
+// v11: Per-file cache entries now store findings after parse-error-region
+// filtering, invalidating stale entries that could replay unsafe findings.
+const cachePayloadVersion = "v11"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

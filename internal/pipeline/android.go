@@ -101,6 +101,8 @@ type AndroidResult struct {
 	// Findings holds every finding produced during the phase, already
 	// stamped through the dispatcher's rule/finding post-processing.
 	Findings scanner.FindingColumns
+	// Stats captures recovered project-scope rule panics from the dispatcher.
+	Stats rules.RunStats
 }
 
 // AndroidPhase is the Phase wrapper for project-level Android analysis.
@@ -359,17 +361,18 @@ func (p AndroidPhase) mergeResourceIndexes(in AndroidInput, resDir, resourceKey 
 		Language: scanner.LangXML,
 		Metadata: mergedIdx,
 	}
+	installAndroidSuppression(file)
 
 	canCache := resourceKey != "" && stats != nil && in.CacheWriter != nil && in.CacheDir != "" && in.RuleHash != ""
 	if canCache {
-		cols := in.Dispatcher.RunResource(file, mergedIdx)
+		cols := filterAndroidSuppressedFindings(file, in.Dispatcher.RunResource(file, mergedIdx))
 		collector.AppendColumns(&cols)
 		if resourceBundleCollector != nil {
 			resourceBundleCollector.AppendColumns(&cols)
 		}
 		in.CacheWriter.Save(in.CacheDir, resourceKey, cols)
 	} else {
-		cols := in.Dispatcher.RunResource(file, mergedIdx)
+		cols := filterAndroidSuppressedFindings(file, in.Dispatcher.RunResource(file, mergedIdx))
 		collector.AppendColumns(&cols)
 		if resourceBundleCollector != nil {
 			resourceBundleCollector.AppendColumns(&cols)
@@ -404,7 +407,8 @@ func (p AndroidPhase) scanResourceIcons(in AndroidInput, resDir string, scanIcon
 		Language: scanner.LangXML,
 		Metadata: iconIdx,
 	}
-	iconColumns := in.Dispatcher.RunIcons(file, iconIdx)
+	installAndroidSuppression(file)
+	iconColumns := filterAndroidSuppressedFindings(file, in.Dispatcher.RunIcons(file, iconIdx))
 	collector.AppendColumns(&iconColumns)
 	if key != "" {
 		in.CacheWriter.Save(in.CacheDir, key, iconColumns)
@@ -522,7 +526,8 @@ func (AndroidPhase) runManifestOne(in AndroidInput, path string) (scanner.Findin
 		Language: scanner.LangXML,
 		Metadata: manifest,
 	}
-	cols := in.Dispatcher.RunManifest(file, manifest)
+	installAndroidSuppression(file)
+	cols := filterAndroidSuppressedFindings(file, in.Dispatcher.RunManifest(file, manifest))
 	return cols, parseDur, time.Since(ruleStart)
 }
 
@@ -934,8 +939,31 @@ func (AndroidPhase) runGradleOne(in AndroidInput, path string) (scanner.FindingC
 	}
 	ruleStart := time.Now()
 	file := scanner.ParseGradleScript(context.Background(), path, content, cfg)
-	cols := in.Dispatcher.RunGradle(file, cfg)
+	installAndroidSuppression(file)
+	cols := filterAndroidSuppressedFindings(file, in.Dispatcher.RunGradle(file, cfg))
 	return cols, readParseDur, time.Since(ruleStart)
+}
+
+// installAndroidSuppression gives project-scope files the same suppression
+// filter the per-file dispatcher receives from ParsePhase. Manifest, resource,
+// and icon files currently have no Content or FlatTree, so their filters only
+// carry path excludes (a no-op today); inline krit:ignore/@Suppress works for
+// Gradle (.kts). Keep this hook for future XML content plumbing.
+func installAndroidSuppression(file *scanner.File) {
+	if file == nil || file.Suppression != nil {
+		return
+	}
+	file.Suppression = scanner.BuildSuppressionFilter(file, nil, rules.GetAllRuleExcludes(), "").WithRuleAliases(rules.AllSuppressionAliases())
+	file.SuppressionIdx = file.Suppression.Annotations()
+}
+
+func filterAndroidSuppressedFindings(file *scanner.File, cols scanner.FindingColumns) scanner.FindingColumns {
+	if file == nil || file.Suppression == nil || cols.Len() == 0 {
+		return cols
+	}
+	return cols.FilterRows(func(row int) bool {
+		return !file.Suppression.IsSuppressed(cols.RuleAt(row), cols.RuleSetAt(row), cols.LineAt(row))
+	})
 }
 
 func (p AndroidPhase) runManifestSubphase(in AndroidInput, collector *scanner.FindingCollector, tracker perf.Tracker) {
@@ -1239,7 +1267,11 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 	if projectBundleKey != "" && in.CacheWriter != nil {
 		in.CacheWriter.Save(in.CacheDir, projectBundleKey, cols)
 	}
-	return AndroidResult{Findings: cols}, nil
+	result := AndroidResult{Findings: cols}
+	if in.Dispatcher != nil {
+		result.Stats = in.Dispatcher.ProjectRuleStats()
+	}
+	return result, nil
 }
 
 // AndroidProjectProviders bundles the async scan futures for manifests,

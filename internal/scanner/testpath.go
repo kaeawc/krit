@@ -24,8 +24,9 @@ var defaultTestPaths = [...]string{
 }
 
 var (
-	testPathMu sync.RWMutex
-	testPaths  = defaultTestPathSlice()
+	testPathMu        sync.RWMutex
+	testPaths         = defaultTestPathSlice()
+	testPathsOverride bool
 )
 
 func InitTestPaths(config []string, override []string) {
@@ -37,6 +38,7 @@ func InitTestPaths(config []string, override []string) {
 	}
 	testPathMu.Lock()
 	testPaths = next
+	testPathsOverride = len(override) > 0
 	testPathMu.Unlock()
 }
 
@@ -49,7 +51,41 @@ func IsTestFile(path string) bool {
 			return true
 		}
 	}
-	return false
+	if testPathsOverride {
+		return false
+	}
+	return isGradleTestSourceSet(slash)
+}
+
+func isGradleTestSourceSet(slash string) bool {
+	const sourceSetPrefix = "/src/"
+	if strings.HasPrefix(slash, "src/") {
+		segment := slash[len("src/"):]
+		if end := strings.IndexByte(segment, '/'); end >= 0 {
+			segment = segment[:end]
+		}
+		if segment == "test" || strings.HasSuffix(segment, "Test") {
+			return true
+		}
+	}
+	for offset := 0; ; {
+		index := strings.Index(slash[offset:], sourceSetPrefix)
+		if index < 0 {
+			return false
+		}
+		start := offset + index + len(sourceSetPrefix)
+		end := strings.IndexByte(slash[start:], '/')
+		if end < 0 {
+			end = len(slash)
+		} else {
+			end += start
+		}
+		segment := slash[start:end]
+		if segment == "test" || strings.HasSuffix(segment, "Test") {
+			return true
+		}
+		offset = start
+	}
 }
 
 func defaultTestPathSlice() []string {

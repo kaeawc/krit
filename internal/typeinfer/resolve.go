@@ -7,14 +7,23 @@ package typeinfer
 // makeResolvedType creates a ResolvedType from a simple name.
 func (r *defaultResolver) makeResolvedType(name string, it *ImportTable, nullable bool) *ResolvedType {
 	fqn := ""
+	resolved := false
 	if it != nil {
 		fqn = it.Resolve(name)
+		resolved = fqn != ""
 	}
 	if fqn == "" {
-		if f, ok := PrimitiveTypes[name]; ok {
+		if r != nil {
+			if info, ok := r.classes[name]; ok && info != nil && info.FQN != "" {
+				resolved = true
+			}
+		}
+		if f, ok := PrimitiveTypes[name]; !resolved && ok {
 			fqn = f
-		} else if f, ok := KotlinStdlibTypes[name]; ok {
+			resolved = true
+		} else if f, ok := KotlinStdlibTypes[name]; !resolved && ok {
 			fqn = f
+			resolved = true
 		}
 	}
 
@@ -28,12 +37,16 @@ func (r *defaultResolver) makeResolvedType(name string, it *ImportTable, nullabl
 	if name == "Nothing" {
 		kind = TypeNothing
 	}
+	if fqn == "" {
+		fqn = name
+	}
 
 	return &ResolvedType{
 		Name:     name,
 		FQN:      fqn,
 		Kind:     kind,
 		Nullable: nullable,
+		Resolved: resolved,
 	}
 }
 
@@ -45,6 +58,7 @@ func (r *defaultResolver) applyStdlibReturnType(m *StdlibMethod, receiverType *R
 		FQN:      m.ReturnType.FQN,
 		Kind:     m.ReturnType.Kind,
 		Nullable: m.Nullable,
+		Resolved: m.ReturnType.Resolved,
 	}
 	// Propagate generic type args from receiver
 	if m.ReturnTypeArgIndex >= 0 && receiverType != nil && len(receiverType.TypeArgs) > m.ReturnTypeArgIndex {
@@ -52,6 +66,7 @@ func (r *defaultResolver) applyStdlibReturnType(m *StdlibMethod, receiverType *R
 		result.Name = arg.Name
 		result.FQN = arg.FQN
 		result.Kind = arg.Kind
+		result.Resolved = arg.Resolved
 		if m.Nullable {
 			result.Nullable = true
 		}

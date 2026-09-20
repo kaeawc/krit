@@ -211,11 +211,11 @@ func (r *defaultResolver) resolveByNameAtOffset(name string, offset uint32, file
 
 	if rootScope != nil {
 		if scope := rootScope.FindScopeAtOffset(offset); scope != nil {
-			if t := scope.Lookup(name); t != nil {
+			if t := scope.LookupAt(name, offset); t != nil {
 				return t
 			}
 		}
-		if t := rootScope.Lookup(name); t != nil {
+		if t := rootScope.LookupAt(name, offset); t != nil {
 			return t
 		}
 	}
@@ -223,14 +223,14 @@ func (r *defaultResolver) resolveByNameAtOffset(name string, offset uint32, file
 	if it != nil {
 		if fqn := it.Resolve(name); fqn != "" {
 			if info, ok := r.classFQN[fqn]; ok {
-				return &ResolvedType{Name: info.Name, FQN: info.FQN, Kind: TypeClass}
+				return &ResolvedType{Name: info.Name, FQN: info.FQN, Kind: TypeClass, Resolved: true}
 			}
 			return r.makeResolvedType(name, it, false)
 		}
 	}
 
 	if info, ok := r.classes[name]; ok {
-		return &ResolvedType{Name: info.Name, FQN: info.FQN, Kind: TypeClass}
+		return &ResolvedType{Name: info.Name, FQN: info.FQN, Kind: TypeClass, Resolved: true}
 	}
 
 	return nil
@@ -308,7 +308,8 @@ func (r *defaultResolver) IsNullableFlat(idx uint32, file *scanner.File) *bool {
 	}
 	if file.FlatType(idx) == "simple_identifier" {
 		if rootScope := r.scopes[file.Path]; rootScope != nil {
-			if scope := rootScope.FindScopeAtOffset(file.FlatStartByte(idx)); scope != nil && scope.IsSmartCastNonNull(file.FlatNodeText(idx)) {
+			offset := file.FlatStartByte(idx)
+			if scope := rootScope.FindScopeAtOffset(offset); scope != nil && scope.IsSmartCastNonNullAt(file.FlatNodeText(idx), offset) {
 				nonNull := false
 				return &nonNull
 			}
@@ -324,11 +325,11 @@ func (r *defaultResolver) resolveFlatName(name string, offset uint32, file *scan
 
 	if rootScope != nil {
 		if scope := rootScope.FindScopeAtOffset(offset); scope != nil {
-			if t := scope.Lookup(name); t != nil {
+			if t := scope.LookupAt(name, offset); t != nil {
 				return t
 			}
 		}
-		if t := rootScope.Lookup(name); t != nil {
+		if t := rootScope.LookupAt(name, offset); t != nil {
 			return t
 		}
 	}
@@ -337,14 +338,14 @@ func (r *defaultResolver) resolveFlatName(name string, offset uint32, file *scan
 		fqn := it.Resolve(name)
 		if fqn != "" {
 			if info, ok := r.classFQN[fqn]; ok {
-				return &ResolvedType{Name: info.Name, FQN: info.FQN, Kind: TypeClass}
+				return &ResolvedType{Name: info.Name, FQN: info.FQN, Kind: TypeClass, Resolved: true}
 			}
 			return r.makeResolvedType(name, it, false)
 		}
 	}
 
 	if info, ok := r.classes[name]; ok {
-		return &ResolvedType{Name: info.Name, FQN: info.FQN, Kind: TypeClass}
+		return &ResolvedType{Name: info.Name, FQN: info.FQN, Kind: TypeClass, Resolved: true}
 	}
 	return nil
 }
@@ -381,30 +382,14 @@ func (r *defaultResolver) resolveTypeNodeFlat(idx uint32, file *scanner.File, it
 	}
 
 	if fqn, ok := PrimitiveTypes[simpleName]; ok {
-		result := &ResolvedType{Name: simpleName, FQN: fqn, Kind: TypePrimitive}
+		result := &ResolvedType{Name: simpleName, FQN: fqn, Kind: TypePrimitive, Resolved: true}
 		if hasTypeArgs {
 			r.attachFlatTypeArgs(result, idx, file, it)
 		}
 		return result
 	}
 
-	fqn := ""
-	if it != nil {
-		fqn = it.Resolve(simpleName)
-	}
-	if fqn == "" {
-		fqn = simpleName
-	}
-
-	kind := TypeClass
-	switch simpleName {
-	case "Unit":
-		kind = TypeUnit
-	case "Nothing":
-		kind = TypeNothing
-	}
-
-	result := &ResolvedType{Name: simpleName, FQN: fqn, Kind: kind}
+	result := r.makeResolvedType(simpleName, it, false)
 	if hasTypeArgs {
 		r.attachFlatTypeArgs(result, idx, file, it)
 	}
@@ -773,7 +758,7 @@ func (r *defaultResolver) inferCallOnNavigationExprFlat(_ uint32, navIdx uint32,
 func (r *defaultResolver) inferCallByFuncNameFlat(funcName string, _ *ImportTable) *ResolvedType {
 	if funcName != "" {
 		if m := LookupStdlibMethod("_", funcName); m != nil {
-			return &ResolvedType{Name: m.ReturnType.Name, FQN: m.ReturnType.FQN, Kind: m.ReturnType.Kind, Nullable: m.Nullable}
+			return &ResolvedType{Name: m.ReturnType.Name, FQN: m.ReturnType.FQN, Kind: m.ReturnType.Kind, Nullable: m.Nullable, Resolved: m.ReturnType.Resolved}
 		}
 		if retType, ok := r.functions[funcName]; ok {
 			return retType
@@ -811,7 +796,7 @@ func (r *defaultResolver) attachFlatCallTypeArgs(result *ResolvedType, idx uint3
 func (r *defaultResolver) inferNavigationExpressionTypeFlat(idx uint32, file *scanner.File, _ *ImportTable) *ResolvedType {
 	text := strings.TrimSpace(file.FlatNodeText(idx))
 	if info, ok := r.classFQN[text]; ok {
-		return &ResolvedType{Name: info.Name, FQN: info.FQN, Kind: TypeClass}
+		return &ResolvedType{Name: info.Name, FQN: info.FQN, Kind: TypeClass, Resolved: true}
 	}
 
 	memberName := flatLastIdentifierText(file, idx)

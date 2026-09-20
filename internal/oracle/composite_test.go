@@ -40,7 +40,7 @@ func (s *stubExprOracle) LookupDiagnostics(_ string) []Diagnostic               
 var _ Lookup = (*stubExprOracle)(nil)
 
 func TestCompositeResolver_ResolveByNameFlat_SourceWinsOverOracleExpression(t *testing.T) {
-	srcType := &typeinfer.ResolvedType{Name: "Int", FQN: "kotlin.Int", Kind: typeinfer.TypeClass}
+	srcType := &typeinfer.ResolvedType{Name: "Int", FQN: "kotlin.Int", Kind: typeinfer.TypeClass, Resolved: true}
 	fallback := &fakeTypeResolver{nameResult: srcType}
 
 	stub := &stubExprOracle{
@@ -51,6 +51,22 @@ func TestCompositeResolver_ResolveByNameFlat_SourceWinsOverOracleExpression(t *t
 	got := c.ResolveByNameFlat("x", 0, nil)
 	if got != srcType {
 		t.Fatalf("expected source-resolved type to win; got %#v", got)
+	}
+}
+
+func TestCompositeResolver_ResolveByNameFlat_UnresolvedSourceFallsThroughToOracle(t *testing.T) {
+	srcType := &typeinfer.ResolvedType{Name: "Unknown", FQN: "Unknown", Kind: typeinfer.TypeClass}
+	fallback := &fakeTypeResolver{nameResult: srcType}
+
+	exprType := &typeinfer.ResolvedType{Name: "String", FQN: "kotlin.String", Kind: typeinfer.TypeClass}
+	stub := &stubExprOracle{
+		exprResult: exprType,
+	}
+
+	c := NewCompositeResolver(stub, fallback)
+	got := c.ResolveByNameFlat("x", 0, nil)
+	if got != exprType {
+		t.Fatalf("expected oracle expression fact to win over unresolved source type; got %#v", got)
 	}
 }
 

@@ -121,8 +121,18 @@ func appendJSONString(dst []byte, s string) []byte {
 			continue
 		}
 		// Multi-byte UTF-8 sequence — pass through unchanged. json's
-		// encoder also emits raw UTF-8 by default (no \u escapes).
-		_, size := utf8.DecodeRuneInString(s[i:])
+		// encoder also emits raw UTF-8 by default (no \u escapes). Invalid
+		// bytes are the exception: encoding/json replaces each with U+FFFD.
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			if start < i {
+				dst = append(dst, s[start:i]...)
+			}
+			dst = append(dst, "�"...)
+			i++
+			start = i
+			continue
+		}
 		i += size
 	}
 	if start < len(s) {

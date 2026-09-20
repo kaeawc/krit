@@ -64,7 +64,7 @@ func TestFlatKnownResolvedType_OracleNullableNotDemotedForCall(t *testing.T) {
 	id := firstFlatNodeOfType(t, file, "simple_identifier", "a")
 
 	fake := typeinfer.NewFakeResolver()
-	nullableT := &typeinfer.ResolvedType{Name: "X", FQN: "com.example.X", Kind: typeinfer.TypeNullable, Nullable: true}
+	nullableT := &typeinfer.ResolvedType{Name: "X", FQN: "com.example.X", Kind: typeinfer.TypeNullable, Nullable: true, Resolved: true}
 	nonNull := false
 	// Oracle says nullable; source IsNullableFlat says non-null (the bad guess).
 	fake.NodeTypes["getX(a)"] = nullableT

@@ -15,7 +15,7 @@ func stdlibType(name string, kind TypeKind) *ResolvedType {
 	} else if f, ok := KotlinStdlibTypes[name]; ok {
 		fqn = f
 	}
-	return &ResolvedType{Name: name, FQN: fqn, Kind: kind}
+	return &ResolvedType{Name: name, FQN: fqn, Kind: kind, Resolved: true}
 }
 
 func stdlibPrimitive(name string) *ResolvedType {
@@ -27,7 +27,7 @@ func stdlibClass(name string) *ResolvedType {
 }
 
 func stdlibUnit() *ResolvedType {
-	return &ResolvedType{Name: "Unit", FQN: "kotlin.Unit", Kind: TypeUnit}
+	return &ResolvedType{Name: "Unit", FQN: "kotlin.Unit", Kind: TypeUnit, Resolved: true}
 }
 
 // StdlibMethods maps "ReceiverType.methodName" -> return type info.
@@ -517,7 +517,7 @@ func init() {
 	// Only stdlib globals with no plausible user-defined conflict are listed
 	// here. Workspace functions whose declared return type is Nothing are
 	// resolved via r.functions in the resolver and don't need entries.
-	nothing := &StdlibMethod{ReturnType: &ResolvedType{Name: "Nothing", FQN: "kotlin.Nothing", Kind: TypeNothing}, ReturnTypeArgIndex: -1}
+	nothing := &StdlibMethod{ReturnType: &ResolvedType{Name: "Nothing", FQN: "kotlin.Nothing", Kind: TypeNothing, Resolved: true}, ReturnTypeArgIndex: -1}
 	StdlibMethods["_.TODO"] = nothing
 	StdlibMethods["_.error"] = nothing
 	StdlibMethods["_.exitProcess"] = nothing

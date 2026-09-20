@@ -49,7 +49,13 @@ func IndexFileParallel(file *scanner.File) *FileTypeInfo {
 
 	headers := scanFileHeadersFlat(0, file)
 	it := headers.it
-	rootScope := &ScopeTable{Entries: make(map[string]*ResolvedType), SmartCasts: make(map[string]bool), SmartCastTypes: make(map[string]*ResolvedType)}
+	rootScope := &ScopeTable{
+		Entries:         make(map[string]*ResolvedType),
+		EntryStarts:     make(map[string]uint32),
+		SmartCasts:      make(map[string]bool),
+		SmartCastStarts: make(map[string]uint32),
+		SmartCastTypes:  make(map[string]*ResolvedType),
+	}
 	pkg := headers.pkg
 
 	tmp.indexDeclarationsFlat(0, file, rootScope, it, pkg)

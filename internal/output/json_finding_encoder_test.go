@@ -163,6 +163,53 @@ func TestAppendFindingJSON_BufferReuse(t *testing.T) {
 	}
 }
 
+func TestAppendFindingJSON_ControlCharactersMatchJSONMarshal(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+	}{
+		{name: "tab-newline-nul-vertical-tab", message: "tab\tnewline\nNUL\x00vertical\x0btab"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			finding := JSONFinding{File: "A.kt", Line: 1, Column: 1, RuleSet: "style", Rule: "X", Severity: "warning", Message: tt.message}
+			assertFindingJSONMatchesMarshalAndRoundTrips(t, finding)
+		})
+	}
+}
+
+func TestAppendFindingJSON_InvalidUTF8MatchesJSONMarshal(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+	}{
+		{name: "invalid-leading-byte", message: "bad\xffbyte"},
+		{name: "lone-continuation-byte", message: "lone\x80continuation"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			finding := JSONFinding{File: "A.kt", Line: 1, Column: 1, RuleSet: "style", Rule: "X", Severity: "warning", Message: tt.message}
+			assertFindingJSONMatchesMarshalAndRoundTrips(t, finding)
+		})
+	}
+}
+
+func assertFindingJSONMatchesMarshalAndRoundTrips(t *testing.T, finding JSONFinding) {
+	t.Helper()
+	want, err := json.Marshal(finding)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	got := appendFindingJSON(nil, finding)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("appendFindingJSON byte mismatch:\n got: %q\nwant: %q", got, want)
+	}
+	var decoded JSONFinding
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal output: %v", err)
+	}
+}
+
 func mustMarshal(t *testing.T, f JSONFinding) string {
 	t.Helper()
 	b, err := json.Marshal(f)

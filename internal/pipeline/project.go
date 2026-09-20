@@ -667,7 +667,7 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		return ProjectResult{}, fmt.Errorf("output: %w", err)
 	}
 	stats := analysis.Stats
-	stats.FindingsInErrorRegions = outResult.FindingsInErrorRegions
+	stats.FindingsInErrorRegions += outResult.FindingsInErrorRegions
 
 	return ProjectResult{
 		FinalFindings:     outResult.FinalFindings,
@@ -783,16 +783,24 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	}
 	perf.AddEntry(host.Tracker, "kotlinPluginRules", time.Since(kotlinPluginStart))
 	phaseTimings.Android = time.Since(androidStart).Milliseconds()
+	filteredFindings, findingsInErrorRegions := filterColumnsByParsedErrorRegions(
+		&crossFileResult.Findings,
+		parseResult.KotlinFiles,
+		parseResult.JavaFiles,
+	)
+	crossFileResult.Findings = filteredFindings
+	crossFileResult.Stats.FindingsInErrorRegions += findingsInErrorRegions
+	if crossFileResult.Stats.FindingsInErrorRegions > 0 {
+		host.Reporter.Verbosef(
+			"verbose: %d finding(s) dropped: anchored inside a parse-error region\n",
+			crossFileResult.Stats.FindingsInErrorRegions,
+		)
+	}
 
 	if bundleEnabled {
 		bundleSaveStart := time.Now()
 		bundleKey := scanner.FindingsBundleKey(runFP)
 		manifest := buildDeltaManifest(manifestData, runFP)
-		bundleFindings, _ := filterColumnsByParsedErrorRegions(
-			&crossFileResult.Findings,
-			parseResult.KotlinFiles,
-			parseResult.JavaFiles,
-		)
 		// Update the in-memory mirrors synchronously so the next analyze
 		// reuses them no matter when the disk write lands. The disk write
 		// itself is the slow part (~300 ms on kotlin-corpus), so defer it
@@ -801,12 +809,12 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 		// restart, never a stale read (the resident bundle is keyed by the
 		// content-addressed FindingsBundleKey).
 		if !bundleHit {
-			residentBundleStash(host, bundleKey, &bundleFindings)
+			residentBundleStash(host, bundleKey, &crossFileResult.Findings)
 		}
 		storeDeltaManifestResident(host, manifestData, manifest)
 		runBackgroundSave(host, func() {
 			if !bundleHit {
-				_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, &bundleFindings)
+				_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, &crossFileResult.Findings)
 			}
 			_ = saveDeltaManifestDisk(host, manifestData, manifest)
 		})

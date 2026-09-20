@@ -279,6 +279,12 @@ func (f *File) OffsetInErrorRegion(offset uint32) bool {
 		return false
 	}
 	for _, region := range f.errorRegions {
+		if region.startByte == region.endByte {
+			if offset == region.startByte {
+				return true
+			}
+			continue
+		}
 		if offset >= region.startByte && offset < region.endByte {
 			return true
 		}

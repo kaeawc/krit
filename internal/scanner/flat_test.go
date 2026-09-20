@@ -176,6 +176,30 @@ func TestFileOffsetInErrorRegion(t *testing.T) {
 			t.Fatalf("clean declaration offset %d reported inside an error region", cleanOffset)
 		}
 	})
+
+	t.Run("zero-width and half-open spans", func(t *testing.T) {
+		file := &File{FlatTree: &FlatTree{
+			Types:      []uint16{0, 0},
+			StartBytes: []uint32{10, 20},
+			EndBytes:   []uint32{10, 25},
+			Flags:      []uint8{flatNodeFlagIsError, flatNodeFlagIsError},
+		}}
+
+		for _, tc := range []struct {
+			offset uint32
+			want   bool
+		}{
+			{offset: 9, want: false},
+			{offset: 10, want: true},
+			{offset: 11, want: false},
+			{offset: 20, want: true},
+			{offset: 25, want: false},
+		} {
+			if got := file.OffsetInErrorRegion(tc.offset); got != tc.want {
+				t.Errorf("OffsetInErrorRegion(%d) = %v, want %v", tc.offset, got, tc.want)
+			}
+		}
+	})
 }
 
 func TestFlatHelpers_MatchTreeHelpers(t *testing.T) {

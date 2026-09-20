@@ -314,6 +314,12 @@ func (s dispatchFileState) runFile(in IndexResult, file *scanner.File, dispatche
 	}
 
 	fileColumns, fileStats := s.dispatcher.RunWithStats(file)
+	filtered, findingsInErrorRegions := scanner.FilterColumnsByErrorRegions(
+		&fileColumns,
+		map[string]*scanner.File{file.Path: file},
+	)
+	fileColumns = filtered
+	fileStats.FindingsInErrorRegions = findingsInErrorRegions
 
 	if in.ProfileDispatch {
 		finishedRunAt = time.Now()

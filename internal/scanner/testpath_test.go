@@ -29,6 +29,21 @@ func TestIsTestFileGradleConvention(t *testing.T) {
 	}
 }
 
+func TestIsTestFileGradleConventionRootRelative(t *testing.T) {
+	InitTestPaths(nil, nil)
+	t.Cleanup(func() { InitTestPaths(nil, nil) })
+
+	if !IsTestFile("src/commonTest/kotlin/X.kt") {
+		t.Fatal("expected root-relative commonTest source set to be a test file")
+	}
+	if !IsTestFile("src/nonWebTest/kotlin/X.kt") {
+		t.Fatal("expected root-relative Test-suffixed source set to be a test file")
+	}
+	if IsTestFile("src/main/kotlin/X.kt") {
+		t.Fatal("expected root-relative main source set to be a non-test file")
+	}
+}
+
 func TestIsTestFileDefaults(t *testing.T) {
 	InitTestPaths(nil, nil)
 	if !IsTestFile("/repo/app/src/test/kotlin/FooTest.kt") {

@@ -59,6 +59,15 @@ func IsTestFile(path string) bool {
 
 func isGradleTestSourceSet(slash string) bool {
 	const sourceSetPrefix = "/src/"
+	if strings.HasPrefix(slash, "src/") {
+		segment := slash[len("src/"):]
+		if end := strings.IndexByte(segment, '/'); end >= 0 {
+			segment = segment[:end]
+		}
+		if segment == "test" || strings.HasSuffix(segment, "Test") {
+			return true
+		}
+	}
 	for offset := 0; ; {
 		index := strings.Index(slash[offset:], sourceSetPrefix)
 		if index < 0 {

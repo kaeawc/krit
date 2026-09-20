@@ -1822,10 +1822,57 @@ class Canvas {
 fun onDraw(canvas: Canvas) {
     canvas?.draw()
 }
+
 `)
 	if len(findings) == 0 {
 		t.Fatal("expected finding for unnecessary safe call on non-null canvas parameter")
 	}
+}
+
+func TestUnnecessarySafeCall_FunctionParameterResolvedType(t *testing.T) {
+	t.Run("generic parameter is not flagged", func(t *testing.T) {
+		file := parseInline(t, `
+package test
+
+fun <T> f(x: T) {
+    x?.hashCode()
+}
+`)
+		resolver := typeinfer.NewFakeResolver()
+		resolver.NameTypes["x"] = &typeinfer.ResolvedType{Kind: typeinfer.TypeGeneric, Resolved: true}
+		findings := runRuleOnFileWithResolver(t, "UnnecessarySafeCall", file, resolver)
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings for generic parameter safe call, got %d: %#v", len(findings), findings)
+		}
+	})
+
+	t.Run("concrete non-null parameter is flagged", func(t *testing.T) {
+		findings := runRuleByNameWithResolver(t, "UnnecessarySafeCall", `
+package test
+
+class Known
+
+fun f(x: Known) {
+    x?.hashCode()
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected finding for concrete non-null parameter safe call")
+		}
+	})
+}
+
+func runRuleOnFileWithResolver(t *testing.T, ruleName string, file *scanner.File, resolver typeinfer.TypeResolver) []scanner.Finding {
+	t.Helper()
+	for _, r := range api.Registry {
+		if r.ID == ruleName {
+			d := rules.NewDispatcher([]*api.Rule{r}, resolver)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule %q not found in registry", ruleName)
+	return nil
 }
 
 func TestUnnecessarySafeCall_NegativeNullableInvokeResult(t *testing.T) {

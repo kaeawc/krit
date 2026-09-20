@@ -3,6 +3,7 @@
     "rule": "DependenciesInRootProject",
     "relPath": "build.gradle.kts",
     "lineHash": "622534058ae3",
+    "col": 1,
     "verdict": "fp",
     "note": "This single-module playground's root project is the application module, so its implementation dependencies have no child module to move to."
   },
@@ -10,6 +11,7 @@
     "rule": "WildcardImport",
     "relPath": "src/main/kotlin/com/example/Application.kt",
     "lineHash": "296fc32c8863",
+    "col": 1,
     "verdict": "tp",
     "note": "The source line is an actual wildcard import."
   },
@@ -17,6 +19,7 @@
     "rule": "ForbiddenComment",
     "relPath": "src/main/kotlin/com/example/Application.kt",
     "lineHash": "79043884833a",
+    "col": 1,
     "verdict": "tp",
     "note": "The comment contains the configured TODO marker."
   },
@@ -24,6 +27,7 @@
     "rule": "EmptyFunctionBlock",
     "relPath": "src/main/kotlin/com/example/services/UserService.kt",
     "lineHash": "0e4885aab8c3",
+    "col": 1,
     "verdict": "tp",
     "note": "initialize has an empty function body."
   },
@@ -31,6 +35,7 @@
     "rule": "UnusedParameter",
     "relPath": "src/main/kotlin/com/example/services/UserService.kt",
     "lineHash": "f141ac2d3043",
+    "col": 1,
     "verdict": "tp",
     "note": "format is declared but never read."
   },
@@ -38,6 +43,7 @@
     "rule": "UnusedParameter",
     "relPath": "src/main/kotlin/com/example/services/UserService.kt",
     "lineHash": "cad8e0f6512e",
+    "col": 1,
     "verdict": "tp",
     "note": "outputPath is declared but never read."
   },
@@ -45,6 +51,7 @@
     "rule": "MagicNumber",
     "relPath": "src/main/kotlin/com/example/services/UserService.kt",
     "lineHash": "4794e09cdf16",
+    "col": 29,
     "verdict": "tp",
     "note": "The adult-age threshold is a repeated domain value that should be named."
   },
@@ -52,6 +59,7 @@
     "rule": "TooGenericExceptionCaught",
     "relPath": "src/main/kotlin/com/example/services/UserService.kt",
     "lineHash": "619e8c16d82f",
+    "col": 1,
     "verdict": "tp",
     "note": "The catch clause handles Exception instead of the expected digest failure types."
   },
@@ -59,6 +67,7 @@
     "rule": "EmptyCatchBlock",
     "relPath": "src/main/kotlin/com/example/services/UserService.kt",
     "lineHash": "b4580c89cf6d",
+    "col": 1,
     "verdict": "tp",
     "note": "The NumberFormatException catch block is empty."
   },
@@ -66,6 +75,7 @@
     "rule": "ReturnFromFinally",
     "relPath": "src/main/kotlin/com/example/services/UserService.kt",
     "lineHash": "470c22219b70",
+    "col": 13,
     "verdict": "tp",
     "note": "The finally block returns and overrides the try result."
   },
@@ -73,6 +83,7 @@
     "rule": "HardcodedLocalhostUrl",
     "relPath": "src/main/kotlin/com/example/utils/Constants.kt",
     "lineHash": "809bc0b62dfa",
+    "col": 20,
     "verdict": "tp",
     "note": "Production source contains a literal localhost API URL."
   },
@@ -80,6 +91,7 @@
     "rule": "UtilityClassWithPublicConstructor",
     "relPath": "src/main/kotlin/com/example/utils/StringUtils.kt",
     "lineHash": "65e36c2f5d58",
+    "col": 1,
     "verdict": "tp",
     "note": "The class contains only companion utilities but exposes an implicit public constructor."
   }

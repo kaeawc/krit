@@ -42,6 +42,7 @@ Labels are a sparse JSON list. Add entries only for findings that have actually 
     "rule": "MagicNumber",
     "relPath": "src/main/kotlin/com/example/Application.kt",
     "lineHash": "0123456789ab",
+    "col": 1,
     "verdict": "tp",
     "note": "A non-domain numeric literal should be named."
   }
@@ -54,7 +55,7 @@ Labels are a sparse JSON list. Add entries only for findings that have actually 
 - `fp`: a false positive.
 - `unknown`: retained as a triage note but counted as unlabeled.
 
-A label joins a current finding by the exact triple `(rule, relPath, lineHash)`. `lineHash` is the first 12 hexadecimal characters of the SHA-256 hash of the trimmed source line. This keeps a label attached when unrelated edits move that line, while a change to the finding's source line deliberately breaks the join and returns it to the unlabeled pool. There is no fuzzy matching. Copy the three signature fields from the corresponding snapshot entry when adding a label.
+A label joins a current finding by the exact quadruple `(rule, relPath, lineHash, col)`. `lineHash` is the first 12 hexadecimal characters of the SHA-256 hash of the trimmed source line. This keeps a label attached when unrelated edits move that line, while a change to the finding's source line deliberately breaks the join and returns it to the unlabeled pool. There is no fuzzy matching. Copy the four signature fields from the corresponding snapshot entry when adding a label.
 
 Run the precision report with:
 

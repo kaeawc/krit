@@ -64,11 +64,11 @@ daemon-verify:
 	go test ./internal/daemon/ -run 'TestCompare|TestDiff' -count=1
 
 # corpus-snapshot detects per-rule finding drift in the reference corpora.
-corpus-snapshot:
+corpus-snapshot: build
 	go run ./internal/devtools/corpusprecision
 
 # corpus-precision reports triaged precision and label coverage by rule.
-corpus-precision:
+corpus-precision: build
 	go run ./internal/devtools/corpusprecision --precision
 
 ci: build vet test integration regression daemon-verify

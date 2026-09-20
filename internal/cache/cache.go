@@ -66,7 +66,9 @@ const CacheFileName = "incremental.cache"
 // findings for unchanged source.
 // v9: Source type scopes now honor declaration and smart-cast positions plus
 // accessor boundaries, changing null-safety findings for unchanged source.
-const cachePayloadVersion = "v9"
+// v10: UnnecessarySafeCall now honors generic and nullable function parameters,
+// changing its findings for unchanged source.
+const cachePayloadVersion = "v10"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

@@ -74,6 +74,7 @@ type label struct {
 	Rule     string `json:"rule"`
 	RelPath  string `json:"relPath"`
 	LineHash string `json:"lineHash"`
+	Col      int    `json:"col"`
 	Verdict  string `json:"verdict"`
 	Note     string `json:"note,omitempty"`
 }
@@ -82,6 +83,7 @@ type labelSignature struct {
 	Rule     string
 	RelPath  string
 	LineHash string
+	Col      int
 }
 
 type findingDiff struct {
@@ -574,11 +576,11 @@ func precisionValue(count precisionCount) string {
 }
 
 func signatureForFinding(finding normalizedFinding) labelSignature {
-	return labelSignature{Rule: finding.Rule, RelPath: finding.RelPath, LineHash: finding.LineHash}
+	return labelSignature{Rule: finding.Rule, RelPath: finding.RelPath, LineHash: finding.LineHash, Col: finding.Col}
 }
 
 func signatureForLabel(entry label) labelSignature {
-	return labelSignature{Rule: entry.Rule, RelPath: entry.RelPath, LineHash: entry.LineHash}
+	return labelSignature{Rule: entry.Rule, RelPath: entry.RelPath, LineHash: entry.LineHash, Col: entry.Col}
 }
 
 func snapshotPath(root, corpusName string) string {

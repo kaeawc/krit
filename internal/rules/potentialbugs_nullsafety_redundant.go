@@ -1088,7 +1088,7 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 			return
 		}
 		resolved := ctx.Resolver.ResolveByNameFlat(name, idx, file)
-		if resolved == nil || !resolved.Resolved {
+		if resolved == nil || !resolved.Resolved || resolved.Kind == typeinfer.TypeGeneric || resolved.IsNullable() {
 			return
 		}
 		f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,

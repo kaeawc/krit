@@ -85,6 +85,29 @@ func TestComputePrecision(t *testing.T) {
 	}
 }
 
+func TestComputePrecisionDistinguishesFindingsByColumn(t *testing.T) {
+	findings := []normalizedFinding{
+		{Rule: "RuleA", RelPath: "A.kt", LineHash: "aaaaaaaaaaaa", Col: 4},
+		{Rule: "RuleA", RelPath: "A.kt", LineHash: "aaaaaaaaaaaa", Col: 18},
+	}
+	labels := []label{
+		{Rule: "RuleA", RelPath: "A.kt", LineHash: "aaaaaaaaaaaa", Col: 4, Verdict: "tp"},
+		{Rule: "RuleA", RelPath: "A.kt", LineHash: "aaaaaaaaaaaa", Col: 18, Verdict: "fp"},
+	}
+
+	if signatureForFinding(findings[0]) == signatureForFinding(findings[1]) {
+		t.Fatal("findings on the same line at different columns must have distinct signatures")
+	}
+	got, overall := computePrecision(findings, labels)
+	want := []precisionCount{{Rule: "RuleA", TP: 1, FP: 1}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("computePrecision() = %#v, want %#v", got, want)
+	}
+	if wantOverall := (precisionCount{Rule: "overall", TP: 1, FP: 1}); overall != wantOverall {
+		t.Fatalf("overall = %#v, want %#v", overall, wantOverall)
+	}
+}
+
 func TestLoadLabelsRejectsInvalidVerdict(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "labels.json")
 	if err := os.WriteFile(path, []byte(`[{"rule":"RuleA","relPath":"A.kt","lineHash":"aaaaaaaaaaaa","verdict":"maybe"}]`), 0o644); err != nil {

@@ -27,6 +27,9 @@ func (r *defaultResolver) buildScopesFlat(idx uint32, file *scanner.File, scope 
 	case "function_declaration":
 		r.buildFunctionDeclScopeFlat(idx, file, scope, it)
 		return
+	case "getter":
+		r.buildExecutableScopeFlat(idx, file, scope, it)
+		return
 	case "lambda_literal":
 		r.buildLambdaScopeFlat(idx, file, scope, it)
 		return
@@ -56,6 +59,13 @@ func (r *defaultResolver) buildScopesFlat(idx uint32, file *scanner.File, scope 
 	}
 }
 
+func (r *defaultResolver) buildExecutableScopeFlat(idx uint32, file *scanner.File, scope *ScopeTable, it *ImportTable) {
+	childScope := scope.NewScopeForNode(flatScopeSpan{start: file.FlatStartByte(idx), end: file.FlatEndByte(idx)})
+	flatForEachRelevantScopeChild(file, idx, func(child uint32) {
+		r.buildScopesFlat(child, file, childScope, it)
+	})
+}
+
 func (r *defaultResolver) buildSourceFileScopesFlat(file *scanner.File, scope *ScopeTable, it *ImportTable) {
 	for i := 0; i < file.FlatNamedChildCount(0); i++ {
 		child := file.FlatNamedChild(0, i)
@@ -64,6 +74,7 @@ func (r *defaultResolver) buildSourceFileScopesFlat(file *scanner.File, scope *S
 		}
 		switch file.FlatType(child) {
 		case "function_declaration", "lambda_literal", "class_declaration", "object_declaration", "class_body",
+			"getter",
 			"if_expression", "when_expression", "for_statement",
 			"property_declaration", "call_expression", "elvis_expression",
 			"control_structure_body", "statements", "function_body",
@@ -174,8 +185,26 @@ func (r *defaultResolver) declarePropertyFlat(idx uint32, file *scanner.File, sc
 		name = flatFirstIdentifierText(file, idx)
 	}
 	if _, exists := scope.Entries[name]; name != "" && !exists {
-		scope.Declare(name, r.resolvePropertyTypeFlat(idx, file, it))
+		typ := r.resolvePropertyTypeFlat(idx, file, it)
+		if flatPropertyDeclarationIsLocal(file, idx) {
+			scope.DeclareAt(name, typ, file.FlatEndByte(idx))
+		} else {
+			scope.Declare(name, typ)
+		}
 	}
+}
+
+func flatPropertyDeclarationIsLocal(file *scanner.File, idx uint32) bool {
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "function_body", "lambda_literal", "getter", "setter", "control_structure_body",
+			"catch_block", "finally_block", "anonymous_initializer":
+			return true
+		case "class_body", "source_file":
+			return false
+		}
+	}
+	return false
 }
 
 func (r *defaultResolver) buildIfExpressionScopesFlat(idx uint32, file *scanner.File, scope *ScopeTable, it *ImportTable) {
@@ -217,7 +246,7 @@ func (r *defaultResolver) buildIfExpressionScopesFlat(idx uint32, file *scanner.
 	}
 
 	if varName != "" && isNullCheck && r.ifBodyIsEarlyReturnFlat(idx, file) {
-		scope.SmartCasts[varName] = true
+		scope.MarkSmartCastAfter(varName, file.FlatEndByte(idx))
 	}
 
 	isVarName, targetType, isPositive, _ := r.extractIsCheckFromIfFlatByIdx(idx, file, it)
@@ -616,7 +645,7 @@ func (r *defaultResolver) handleRequireNotNullFlat(idx uint32, file *scanner.Fil
 			if inner != 0 && file.FlatType(inner) == "simple_identifier" {
 				varName := file.FlatNodeText(inner)
 				if varName != "" {
-					callScope.SmartCasts[varName] = true
+					callScope.MarkSmartCastAfter(varName, file.FlatEndByte(idx))
 				}
 				return
 			}
@@ -654,7 +683,7 @@ func (r *defaultResolver) handleElvisEarlyExitFlat(idx uint32, file *scanner.Fil
 	if exprScope == nil {
 		exprScope = scope
 	}
-	exprScope.SmartCasts[varName] = true
+	exprScope.MarkSmartCastAfter(varName, file.FlatEndByte(idx))
 }
 
 func flatNodeIsEarlyExit(file *scanner.File, idx uint32) bool {
@@ -825,6 +854,7 @@ func flatForEachRelevantScopeChild(file *scanner.File, idx uint32, fn func(child
 		}
 		switch file.FlatType(child) {
 		case "function_declaration", "lambda_literal", "class_declaration", "object_declaration", "class_body",
+			"getter",
 			"if_expression", "when_expression", "for_statement",
 			"property_declaration", "call_expression", "elvis_expression",
 			"control_structure_body", "statements", "function_body",

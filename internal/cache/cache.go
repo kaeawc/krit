@@ -64,7 +64,9 @@ const CacheFileName = "incremental.cache"
 // unchanged source across rules that skip test files.
 // VarCouldBeVal default config now skips lateinit var declarations, changing
 // findings for unchanged source.
-const cachePayloadVersion = "v8"
+// v9: Source type scopes now honor declaration and smart-cast positions plus
+// accessor boundaries, changing null-safety findings for unchanged source.
+const cachePayloadVersion = "v9"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

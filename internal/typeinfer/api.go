@@ -211,11 +211,11 @@ func (r *defaultResolver) resolveByNameAtOffset(name string, offset uint32, file
 
 	if rootScope != nil {
 		if scope := rootScope.FindScopeAtOffset(offset); scope != nil {
-			if t := scope.Lookup(name); t != nil {
+			if t := scope.LookupAt(name, offset); t != nil {
 				return t
 			}
 		}
-		if t := rootScope.Lookup(name); t != nil {
+		if t := rootScope.LookupAt(name, offset); t != nil {
 			return t
 		}
 	}
@@ -308,7 +308,8 @@ func (r *defaultResolver) IsNullableFlat(idx uint32, file *scanner.File) *bool {
 	}
 	if file.FlatType(idx) == "simple_identifier" {
 		if rootScope := r.scopes[file.Path]; rootScope != nil {
-			if scope := rootScope.FindScopeAtOffset(file.FlatStartByte(idx)); scope != nil && scope.IsSmartCastNonNull(file.FlatNodeText(idx)) {
+			offset := file.FlatStartByte(idx)
+			if scope := rootScope.FindScopeAtOffset(offset); scope != nil && scope.IsSmartCastNonNullAt(file.FlatNodeText(idx), offset) {
 				nonNull := false
 				return &nonNull
 			}
@@ -324,11 +325,11 @@ func (r *defaultResolver) resolveFlatName(name string, offset uint32, file *scan
 
 	if rootScope != nil {
 		if scope := rootScope.FindScopeAtOffset(offset); scope != nil {
-			if t := scope.Lookup(name); t != nil {
+			if t := scope.LookupAt(name, offset); t != nil {
 				return t
 			}
 		}
-		if t := rootScope.Lookup(name); t != nil {
+		if t := rootScope.LookupAt(name, offset); t != nil {
 			return t
 		}
 	}

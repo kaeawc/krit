@@ -78,3 +78,35 @@ class UselessElvisOnNonNull {
 class TestHarness {
     val group: String? = null
 }
+
+class NullableElvisBailProperties {
+    class SomeType
+
+    val logFile: SomeType? = null
+
+    fun nullablePropertyBail() {
+        val f = logFile ?: return
+        use(f)
+    }
+
+    val p: SomeType?
+        get() = null
+
+    fun customGetterBail() {
+        val value = p ?: return
+        use(value)
+    }
+
+    fun use(value: Any?) {}
+}
+
+class ShadowedNullableElvisBail {
+    val x: String? = null
+
+    fun shadowingInitializer() {
+        val x = x ?: return
+        use(x)
+    }
+
+    fun use(value: Any?) {}
+}

@@ -125,18 +125,27 @@ func (it *ImportTable) Resolve(simpleName string) string {
 
 // ScopeTable tracks variable declarations and their types within a scope.
 type ScopeTable struct {
-	Parent         *ScopeTable
-	Children       []*ScopeTable
-	Entries        map[string]*ResolvedType // name → type
-	SmartCasts     map[string]bool          // variable names known to be non-null in this scope
-	SmartCastTypes map[string]*ResolvedType // variable names narrowed by is-checks
-	StartByte      uint32                   // byte offset where this scope begins
-	EndByte        uint32                   // byte offset where this scope ends
+	Parent          *ScopeTable
+	Children        []*ScopeTable
+	Entries         map[string]*ResolvedType // name → type
+	EntryStarts     map[string]uint32        // name → first byte where the declaration is visible
+	SmartCasts      map[string]bool          // variable names known to be non-null in this scope
+	SmartCastStarts map[string]uint32        // name → first byte where the non-null fact applies
+	SmartCastTypes  map[string]*ResolvedType // variable names narrowed by is-checks
+	StartByte       uint32                   // byte offset where this scope begins
+	EndByte         uint32                   // byte offset where this scope ends
 }
 
 // NewScope creates a child scope.
 func (s *ScopeTable) NewScope() *ScopeTable {
-	child := &ScopeTable{Parent: s, Entries: make(map[string]*ResolvedType), SmartCasts: make(map[string]bool), SmartCastTypes: make(map[string]*ResolvedType)}
+	child := &ScopeTable{
+		Parent:          s,
+		Entries:         make(map[string]*ResolvedType),
+		EntryStarts:     make(map[string]uint32),
+		SmartCasts:      make(map[string]bool),
+		SmartCastStarts: make(map[string]uint32),
+		SmartCastTypes:  make(map[string]*ResolvedType),
+	}
 	s.Children = append(s.Children, child)
 	return child
 }
@@ -178,6 +187,17 @@ func (s *ScopeTable) Declare(name string, typ *ResolvedType) {
 	s.Entries[name] = typ
 }
 
+// DeclareAt adds a declaration that becomes visible only at startByte.
+// Kotlin local properties are not in scope inside their own initializer,
+// so references before this offset continue searching enclosing scopes.
+func (s *ScopeTable) DeclareAt(name string, typ *ResolvedType, startByte uint32) {
+	s.Declare(name, typ)
+	if s.EntryStarts == nil {
+		s.EntryStarts = make(map[string]uint32)
+	}
+	s.EntryStarts[name] = startByte
+}
+
 // Lookup finds a variable in the current scope or any parent.
 // If the variable is smart-cast to non-null in the current scope chain,
 // the returned type will have Nullable set to false.
@@ -194,6 +214,28 @@ func (s *ScopeTable) Lookup(name string) *ResolvedType {
 	}
 	// Apply smart cast: if the name is known non-null, return a non-null copy
 	if typ.Nullable && s.IsSmartCastNonNull(name) {
+		nonNull := *typ
+		nonNull.Nullable = false
+		if nonNull.Kind == TypeNullable {
+			nonNull.Kind = TypeClass
+		}
+		return &nonNull
+	}
+	return typ
+}
+
+// LookupAt finds a declaration visible at offset and applies only smart-cast
+// facts established by that point. This prevents later local declarations and
+// post-condition facts from changing the type of an earlier expression.
+func (s *ScopeTable) LookupAt(name string, offset uint32) *ResolvedType {
+	typ := s.lookupRawAt(name, offset)
+	if typ == nil {
+		return nil
+	}
+	if narrowed := s.lookupSmartCastType(name); narrowed != nil {
+		return narrowed
+	}
+	if typ.Nullable && s.IsSmartCastNonNullAt(name, offset) {
 		nonNull := *typ
 		nonNull.Nullable = false
 		if nonNull.Kind == TypeNullable {
@@ -228,6 +270,19 @@ func (s *ScopeTable) lookupRaw(name string) *ResolvedType {
 	return nil
 }
 
+func (s *ScopeTable) lookupRawAt(name string, offset uint32) *ResolvedType {
+	if typ, ok := s.Entries[name]; ok {
+		start, hasStart := s.EntryStarts[name]
+		if !hasStart || offset >= start {
+			return typ
+		}
+	}
+	if s.Parent != nil {
+		return s.Parent.lookupRawAt(name, offset)
+	}
+	return nil
+}
+
 // IsSmartCastNonNull checks if a name is smart-cast to non-null in this scope or any parent.
 func (s *ScopeTable) IsSmartCastNonNull(name string) bool {
 	if s.SmartCasts != nil && s.SmartCasts[name] {
@@ -237,4 +292,35 @@ func (s *ScopeTable) IsSmartCastNonNull(name string) bool {
 		return s.Parent.IsSmartCastNonNull(name)
 	}
 	return false
+}
+
+// IsSmartCastNonNullAt reports whether a non-null fact has been established
+// at offset. Facts without a recorded start apply to the scope's full span.
+func (s *ScopeTable) IsSmartCastNonNullAt(name string, offset uint32) bool {
+	if s.SmartCasts != nil && s.SmartCasts[name] {
+		start, hasStart := s.SmartCastStarts[name]
+		if !hasStart || offset >= start {
+			return true
+		}
+	}
+	if s.Parent != nil {
+		return s.Parent.IsSmartCastNonNullAt(name, offset)
+	}
+	return false
+}
+
+// MarkSmartCastAfter records a non-null fact that applies only after the
+// expression that established it. If several checks establish the same fact,
+// the earliest point is sufficient.
+func (s *ScopeTable) MarkSmartCastAfter(name string, startByte uint32) {
+	if s.SmartCasts == nil {
+		s.SmartCasts = make(map[string]bool)
+	}
+	if s.SmartCastStarts == nil {
+		s.SmartCastStarts = make(map[string]uint32)
+	}
+	s.SmartCasts[name] = true
+	if current, ok := s.SmartCastStarts[name]; !ok || startByte < current {
+		s.SmartCastStarts[name] = startByte
+	}
 }

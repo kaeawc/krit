@@ -313,6 +313,11 @@ func (s *ScopeTable) IsSmartCastNonNullAt(name string, offset uint32) bool {
 // expression that established it. If several checks establish the same fact,
 // the earliest point is sufficient.
 func (s *ScopeTable) MarkSmartCastAfter(name string, startByte uint32) {
+	if s.SmartCasts != nil && s.SmartCasts[name] {
+		if _, hasStart := s.SmartCastStarts[name]; !hasStart {
+			return
+		}
+	}
 	if s.SmartCasts == nil {
 		s.SmartCasts = make(map[string]bool)
 	}

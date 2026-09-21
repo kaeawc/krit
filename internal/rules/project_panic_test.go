@@ -13,7 +13,10 @@ func TestDispatcher_ProjectRulePanicsAreQueryable(t *testing.T) {
 		Check: func(*api.Context) { panic("boom") },
 	}
 	dispatcher := NewDispatcher([]*api.Rule{rule}, nil)
-	_ = dispatcher.RunGradle(&scanner.File{Path: "build.gradle.kts", Language: scanner.LangGradle}, nil)
+	_, cacheable := dispatcher.RunGradle(&scanner.File{Path: "build.gradle.kts", Language: scanner.LangGradle}, nil)
+	if cacheable {
+		t.Fatal("RunGradle cacheable = true after recovered panic, want false")
+	}
 
 	stats := dispatcher.ProjectRuleStats()
 	if len(stats.Errors) != 1 {

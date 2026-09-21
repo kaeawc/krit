@@ -148,3 +148,95 @@ func TestAndroidGradleCache_PathFoldedIntoKey(t *testing.T) {
 		t.Fatal("identical-body gradle files at different paths must not share a cache key")
 	}
 }
+
+func TestAndroidGradleCache_RecoveredPanicIsNotCached(t *testing.T) {
+	runTwice := func(t *testing.T, resident bool, panicFirst bool) (calls int, second AndroidResult) {
+		t.Helper()
+		root := t.TempDir()
+		gradlePath := writeGradle(t, root, "build.gradle.kts", "plugins {}\n")
+		cacheDir := filepath.Join(root, ".krit", "android-findings-cache")
+		rule := &api.Rule{
+			ID: "GradleCachePanic", Category: "test", Description: "test",
+			Scope: api.ScopeGradle, Needs: api.NeedsGradle,
+			Check: func(ctx *api.Context) {
+				calls++
+				if panicFirst && calls == 1 {
+					panic("boom")
+				}
+				ctx.EmitAt(1, 1, "fresh result")
+			},
+		}
+		dispatcher := rules.NewDispatcher([]*api.Rule{rule}, nil)
+		input := AndroidInput{
+			Project:     &android.Project{GradlePaths: []string{gradlePath}},
+			ActiveRules: []*api.Rule{rule}, Dispatcher: dispatcher,
+			RuleHash: "panic-cache-test", CacheDir: cacheDir,
+		}
+		if resident {
+			workspace := &WorkspaceState{}
+			input.GradleFindingsCache = workspace.GradleFindings
+		} else {
+			input.CacheWriter = scanner.NewAndroidCacheWriter(2)
+		}
+		if _, err := (AndroidPhase{}).Run(context.Background(), input); err != nil {
+			t.Fatalf("first run: %v", err)
+		}
+		if input.CacheWriter != nil {
+			if err := input.CacheWriter.Close(); err != nil {
+				t.Fatalf("flush first: %v", err)
+			}
+			contentHash, err := hashutil.Default().HashFile(gradlePath, nil)
+			if err != nil {
+				t.Fatalf("hash gradle file: %v", err)
+			}
+			_, fileHit := scanner.LoadAndroidFindings(cacheDir, input.gradleKey(gradlePath, contentHash))
+			if fileHit == panicFirst {
+				t.Fatalf("per-file cache hit = %t after panicFirst=%t, want %t", fileHit, panicFirst, !panicFirst)
+			}
+			bundleFP, ok := (AndroidPhase{}).gradleBundleFingerprint(input.Project.GradlePaths)
+			if !ok {
+				t.Fatal("gradleBundleFingerprint failed")
+			}
+			_, bundleHit := scanner.LoadAndroidFindings(cacheDir, input.gradleBundleKey(bundleFP))
+			if bundleHit == panicFirst {
+				t.Fatalf("bundle cache hit = %t after panicFirst=%t, want %t", bundleHit, panicFirst, !panicFirst)
+			}
+			input.CacheWriter = scanner.NewAndroidCacheWriter(2)
+		}
+		second, err := (AndroidPhase{}).Run(context.Background(), input)
+		if err != nil {
+			t.Fatalf("second run: %v", err)
+		}
+		if input.CacheWriter != nil {
+			if err := input.CacheWriter.Close(); err != nil {
+				t.Fatalf("flush second: %v", err)
+			}
+		}
+		return calls, second
+	}
+
+	for _, resident := range []bool{false, true} {
+		name := "disk"
+		if resident {
+			name = "resident"
+		}
+		t.Run(name+" panic", func(t *testing.T) {
+			calls, second := runTwice(t, resident, true)
+			if calls != 2 {
+				t.Fatalf("rule calls = %d, want 2 (panicked result must not be cached)", calls)
+			}
+			if got := second.Findings.Len(); got != 1 {
+				t.Fatalf("second findings = %d, want fresh finding after retry", got)
+			}
+		})
+		t.Run(name+" control", func(t *testing.T) {
+			calls, second := runTwice(t, resident, false)
+			if calls != 1 {
+				t.Fatalf("rule calls = %d, want 1 (normal result should be cached)", calls)
+			}
+			if got := second.Findings.Len(); got != 1 {
+				t.Fatalf("second findings = %d, want cached finding", got)
+			}
+		})
+	}
+}

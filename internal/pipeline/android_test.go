@@ -229,7 +229,7 @@ func TestRunIconsIncludesIconColors(t *testing.T) {
 	}
 
 	dispatcher := rules.NewDispatcher([]*api.Rule{iconColorsRule}, nil)
-	columns := dispatcher.RunIcons(&scanner.File{Path: resDir, Language: scanner.LangXML}, idx)
+	columns, _ := dispatcher.RunIcons(&scanner.File{Path: resDir, Language: scanner.LangXML}, idx)
 	if got := columns.Findings(); len(got) != 1 || got[0].Rule != "IconColors" {
 		t.Fatalf("expected one IconColors finding, got %#v", got)
 	}

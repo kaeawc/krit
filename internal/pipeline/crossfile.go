@@ -130,13 +130,21 @@ func (p CrossFilePhase) runCrossRuleSet(ctx context.Context, in DispatchResult, 
 			ruleID = r.ID
 		}
 		call := func() {
-			defer func() {
-				if rec := recover(); rec != nil {
-					result.Stats.Errors = append(result.Stats.Errors, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
-				}
+			local := scanner.NewFindingCollector(0)
+			completed := false
+			func() {
+				defer func() {
+					if rec := recover(); rec != nil {
+						result.Stats.Errors = append(result.Stats.Errors, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
+					}
+				}()
+				rctx := buildCrossRuleContext(r, codeIndex, parsedFiles, in.Resolver, in.LibraryFacts, javaSourceIndex, local, in.Thorough)
+				r.Check(rctx)
+				completed = true
 			}()
-			rctx := buildCrossRuleContext(r, codeIndex, parsedFiles, in.Resolver, in.LibraryFacts, javaSourceIndex, crossCollector, in.Thorough)
-			r.Check(rctx)
+			if completed {
+				scanner.MergeCollectors(crossCollector, local)
+			}
 		}
 		if ruleTracker != nil {
 			ruleTracker.TrackVoid(ruleID, call)
@@ -251,13 +259,21 @@ func (CrossFilePhase) runModuleAwareRules(in DispatchResult, moduleAwareRules []
 				if r != nil {
 					ruleID = r.ID
 				}
-				defer func() {
-					if rec := recover(); rec != nil {
-						result.Stats.Errors = append(result.Stats.Errors, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
-					}
+				local := scanner.NewFindingCollector(0)
+				completed := false
+				func() {
+					defer func() {
+						if rec := recover(); rec != nil {
+							result.Stats.Errors = append(result.Stats.Errors, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
+						}
+					}()
+					rctx := &api.Context{ModuleIndex: in.ModuleIndex, Collector: local, Rule: r, DefaultConfidence: 0.95}
+					r.Check(rctx)
+					completed = true
 				}()
-				rctx := &api.Context{ModuleIndex: in.ModuleIndex, Collector: crossCollector, Rule: r, DefaultConfidence: 0.95}
-				r.Check(rctx)
+				if completed {
+					scanner.MergeCollectors(crossCollector, local)
+				}
 			}()
 		}
 	}
@@ -302,13 +318,21 @@ func (p CrossFilePhase) runOnDemandModuleIndex(ctx context.Context, in DispatchR
 			if r != nil {
 				ruleID = r.ID
 			}
-			defer func() {
-				if rec := recover(); rec != nil {
-					result.Stats.Errors = append(result.Stats.Errors, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
-				}
+			local := scanner.NewFindingCollector(0)
+			completed := false
+			func() {
+				defer func() {
+					if rec := recover(); rec != nil {
+						result.Stats.Errors = append(result.Stats.Errors, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
+					}
+				}()
+				rctx := &api.Context{ModuleIndex: pmi, Collector: local, Rule: r, DefaultConfidence: 0.95}
+				r.Check(rctx)
+				completed = true
 			}()
-			rctx := &api.Context{ModuleIndex: pmi, Collector: crossCollector, Rule: r, DefaultConfidence: 0.95}
-			r.Check(rctx)
+			if completed {
+				scanner.MergeCollectors(crossCollector, local)
+			}
 		}()
 	}
 	return nil

@@ -945,8 +945,9 @@ func (w *WorkspaceState) InvalidateLibraryFacts() {
 // The watcher's InvalidateLibraryFacts hook (fired on build.gradle /
 // version-catalog edits) clears the whole map, so any gradle dependency
 // change forces re-run of every gradle rule. nil receiver disables
-// caching.
-func (w *WorkspaceState) GradleFindings(key string, build func() scanner.FindingColumns) scanner.FindingColumns {
+// caching. A build result marked non-cacheable is returned without being
+// memoized, allowing recovered rule panics to retry on the next analyze.
+func (w *WorkspaceState) GradleFindings(key string, build func() (scanner.FindingColumns, bool)) (scanner.FindingColumns, bool) {
 	if w == nil || key == "" {
 		return build()
 	}
@@ -954,12 +955,15 @@ func (w *WorkspaceState) GradleFindings(key string, build func() scanner.Finding
 	if w.gradleFindings != nil {
 		if cached, ok := w.gradleFindings[key]; ok {
 			w.gradleMu.Unlock()
-			return cached
+			return cached, true
 		}
 	}
 	w.gradleMu.Unlock()
 
-	v := build()
+	v, cacheable := build()
+	if !cacheable {
+		return v, false
+	}
 
 	w.gradleMu.Lock()
 	if w.gradleFindings == nil {
@@ -967,7 +971,7 @@ func (w *WorkspaceState) GradleFindings(key string, build func() scanner.Finding
 	}
 	w.gradleFindings[key] = v
 	w.gradleMu.Unlock()
-	return v
+	return v, true
 }
 
 // BumpSourceMTimeVersion increments the watcher-driven version

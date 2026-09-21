@@ -44,8 +44,9 @@ type DaemonCaches struct {
 
 	// GradleFindingsCache memoizes per-gradle-file rule-dispatch findings
 	// across analyzes. Daemon callers wire WorkspaceState.GradleFindings;
-	// CLI passes nil (on-disk AndroidCacheWriter covers that case).
-	GradleFindingsCache func(key string, build func() scanner.FindingColumns) scanner.FindingColumns
+	// CLI passes nil (on-disk AndroidCacheWriter covers that case). The bool
+	// prevents recovered-panic results from being stored.
+	GradleFindingsCache func(key string, build func() (scanner.FindingColumns, bool)) (scanner.FindingColumns, bool)
 
 	// BundleStatsClean / MarkBundleStatsClean are the daemon's
 	// watcher-gated cache for the manifest fileStatsMatch sweep. When

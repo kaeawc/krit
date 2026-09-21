@@ -870,8 +870,10 @@ func (d *Dispatcher) IconRules() []*api.Rule { return d.iconRules }
 // Gradle build script. The file argument carries path/content with
 // Language == LangGradle; cfg is the parsed BuildConfig. Findings are
 // filtered by the per-rule YAML excludes and the Languages filter.
-// Panics are recovered and surfaced via stderr to match Run().
-func (d *Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) scanner.FindingColumns {
+// Panics are recovered and surfaced through ProjectRuleStats. The bool is
+// false when at least one rule panicked, so callers do not cache a truncated
+// result as authoritative.
+func (d *Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) (scanner.FindingColumns, bool) {
 	return d.runProjectRuleSet(file, d.gradleRules, func(ctx *api.Context) {
 		ctx.GradlePath = file.Path
 		ctx.GradleContent = string(file.Content)
@@ -883,7 +885,7 @@ func (d *Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) sca
 // AndroidManifest.xml. The api.Context.Manifest field is typed as
 // interface{} to avoid an import cycle from the api package back into
 // rules; the dispatcher itself takes a typed *manifest.Manifest.
-func (d *Dispatcher) RunManifest(file *scanner.File, m *manifest.Manifest) scanner.FindingColumns {
+func (d *Dispatcher) RunManifest(file *scanner.File, m *manifest.Manifest) (scanner.FindingColumns, bool) {
 	return d.runProjectRuleSet(file, d.manifestRules, func(ctx *api.Context) {
 		ctx.Manifest = m
 	})
@@ -891,7 +893,7 @@ func (d *Dispatcher) RunManifest(file *scanner.File, m *manifest.Manifest) scann
 
 // RunResource runs every registered resource rule against a merged
 // ResourceIndex for a single res/ directory.
-func (d *Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) scanner.FindingColumns {
+func (d *Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) (scanner.FindingColumns, bool) {
 	return d.runProjectRuleSet(file, d.resourceRules, func(ctx *api.Context) {
 		ctx.ResourceIndex = idx
 	})
@@ -899,7 +901,7 @@ func (d *Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex)
 
 // RunIcons runs every registered icon rule against an IconIndex for a
 // single res/ directory.
-func (d *Dispatcher) RunIcons(file *scanner.File, idx *android.IconIndex) scanner.FindingColumns {
+func (d *Dispatcher) RunIcons(file *scanner.File, idx *android.IconIndex) (scanner.FindingColumns, bool) {
 	return d.runProjectRuleSet(file, d.iconRules, func(ctx *api.Context) {
 		ctx.IconIndex = idx
 	})
@@ -995,32 +997,35 @@ func (d *Dispatcher) RunResourceSource(file *scanner.File, idx *android.Resource
 // runProjectRuleSet is the shared driver for RunGradle/RunManifest/RunResource.
 // It applies config excludes + language filtering, invokes each rule's
 // Check with a fresh Context populated by the supplied closure, stamps
-// the base confidence, and returns aggregated findings in columnar form.
-func (d *Dispatcher) runProjectRuleSet(file *scanner.File, ruleSet []*api.Rule, populate func(*api.Context)) scanner.FindingColumns {
+// the base confidence, and returns aggregated findings in columnar form. Its
+// bool is false when any rule panic was recovered for this file.
+func (d *Dispatcher) runProjectRuleSet(file *scanner.File, ruleSet []*api.Rule, populate func(*api.Context)) (scanner.FindingColumns, bool) {
 	if file == nil {
-		return scanner.FindingColumns{}
+		return scanner.FindingColumns{}, true
 	}
 	excluded := d.buildExcludedSet(file.Path)
 	langExcluded := d.excludedForLanguage(file.Language)
 	collector := scanner.NewFindingCollector(0)
 	stats := RunStats{}
+	cacheable := true
 	for _, r := range ruleSet {
 		if excluded[r.ID] || langExcluded[r.ID] {
 			continue
 		}
-		cols := d.runProjectRule(r, file, populate, &stats)
+		cols, ok := d.runProjectRule(r, file, populate, &stats)
+		cacheable = cacheable && ok
 		collector.AppendColumns(&cols)
 	}
 	d.projectStatsMu.Lock()
 	d.projectStats.Errors = append(d.projectStats.Errors, stats.Errors...)
 	d.projectStatsMu.Unlock()
-	return *collector.Columns()
+	return *collector.Columns(), cacheable
 }
 
 // runProjectRule invokes a project-level rule's Check function with a
 // freshly constructed Context, recovering from panics. Returns findings
-// in columnar form.
-func (d *Dispatcher) runProjectRule(r *api.Rule, file *scanner.File, populate func(*api.Context), stats *RunStats) (cols scanner.FindingColumns) {
+// in columnar form plus whether the result is safe to cache.
+func (d *Dispatcher) runProjectRule(r *api.Rule, file *scanner.File, populate func(*api.Context), stats *RunStats) (cols scanner.FindingColumns, cacheable bool) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			ruleID := ""
@@ -1031,6 +1036,7 @@ func (d *Dispatcher) runProjectRule(r *api.Rule, file *scanner.File, populate fu
 				stats.Errors = append(stats.Errors, DispatchError{RuleName: ruleID, FilePath: filePathOrEmpty(file), PanicValue: rec})
 			}
 			cols = scanner.FindingColumns{}
+			cacheable = false
 		}
 	}()
 	collector := scanner.NewFindingCollector(0)
@@ -1045,7 +1051,7 @@ func (d *Dispatcher) runProjectRule(r *api.Rule, file *scanner.File, populate fu
 		populate(ctx)
 	}
 	r.Check(ctx)
-	return *collector.Columns()
+	return *collector.Columns(), true
 }
 
 func safeCheckV2ResourceNodeColumnar(r *api.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, resourceIndex *android.ResourceIndex, collector *scanner.FindingCollector, stats *RunStats, typeResolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaFileFacts *javafacts.JavaFileFacts, javaSourceIndex *javafacts.SourceIndex, javaSemanticFacts *javafacts.Facts, fileFacts *filefacts.Cache) {

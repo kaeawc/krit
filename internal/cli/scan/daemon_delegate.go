@@ -576,7 +576,7 @@ func daemonAutoStartDisabled() bool {
 // / os.Rename still happens with the CLI's CWD and permissions.
 func daemonCompatibleFlags(f *scanFlags) bool {
 	meta := []bool{*f.Init, *f.Doctor, *f.Version, *f.List, *f.ValidateConfig, *f.GenerateSchema,
-		*f.OracleFilterFingerprint, *f.ListExperiments}
+		*f.OracleFilterFingerprint, *f.DumpOracleDiagnostics, *f.ListExperiments}
 	for _, on := range meta {
 		if on {
 			return false

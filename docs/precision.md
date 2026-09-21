@@ -79,3 +79,16 @@ KRIT_CORPUS_METRO=../metro go run ./internal/devtools/corpusprecision --precisio
 ```
 
 The environment variable may contain an absolute path at runtime, but local paths are never written into snapshots. Updating an available external corpus creates `.krit/corpus-snapshots/metro.json`; add `.krit/corpus-labels/metro.json` only when triage begins. Do not commit a machine-specific corpus path.
+
+## Compiler parity
+
+Compiler parity compares Krit's Go rule findings with Kotlin-compiler-native diagnostics for the same defect, surfaced through Krit's JVM oracle. It currently tracks exactly `UnsafeCast`, `UselessElvisOnNonNull`, and `UnreachableCode`: the FIR oracle's `OracleDiagnosticMessageCollector.kt` factory allowlist retains only their compiler factories (`CAST_NEVER_SUCCEEDS`, `USELESS_ELVIS`, and `UNREACHABLE_CODE`), and the KAA backend has the same restriction.
+
+Run the report across every available corpus, or scope it to one corpus:
+
+```sh
+go run ./internal/devtools/corpusprecision --compiler-parity
+go run ./internal/devtools/corpusprecision --compiler-parity --corpus kotlin-webservice
+```
+
+The mode requires a built `krit-fir` jar and fails loudly when it is unavailable. `agree` means a Go finding matched the compiler diagnostic, `go-only` is a likely false positive relative to the compiler, and `compiler-only` is a likely false negative. Agreement is `agree / (agree + go-only + compiler-only)`.

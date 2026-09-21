@@ -71,13 +71,17 @@ func runRuleByNameWithCallTarget(t *testing.T, ruleName string, code string, cal
 }
 
 func runRuleByNameWithOracleDiagnostic(t *testing.T, ruleName string, code string, castText string, factoryName string) []scanner.Finding {
+	return runRuleByNameWithOracleDiagnosticForNode(t, ruleName, code, "as_expression", castText, factoryName)
+}
+
+func runRuleByNameWithOracleDiagnosticForNode(t *testing.T, ruleName string, code string, nodeType string, nodeText string, factoryName string) []scanner.Finding {
 	t.Helper()
 	file := parseInline(t, code)
 	resolver := typeinfer.NewResolver()
 	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
 	fake := oracle.NewFakeOracle()
-	file.FlatWalkNodes(0, "as_expression", func(idx uint32) {
-		if strings.TrimSpace(file.FlatNodeText(idx)) == castText {
+	file.FlatWalkNodes(0, nodeType, func(idx uint32) {
+		if strings.TrimSpace(file.FlatNodeText(idx)) == nodeText {
 			fake.Diagnostics[file.Path] = []oracle.Diagnostic{{
 				FactoryName: factoryName,
 				Severity:    "WARNING",
@@ -88,9 +92,26 @@ func runRuleByNameWithOracleDiagnostic(t *testing.T, ruleName string, code strin
 		}
 	})
 	if len(fake.Diagnostics[file.Path]) == 0 {
-		t.Fatalf("cast expression %q not found", castText)
+		t.Fatalf("%s node %q not found", nodeType, nodeText)
 	}
 	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range api.Registry {
+		if r.ID == ruleName {
+			d := rules.NewDispatcher([]*api.Rule{r}, composite)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule %q not found in registry", ruleName)
+	return nil
+}
+
+func runRuleByNameWithEmptyOracle(t *testing.T, ruleName string, code string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	composite := oracle.NewCompositeResolver(oracle.NewFakeOracle(), resolver)
 	for _, r := range api.Registry {
 		if r.ID == ruleName {
 			d := rules.NewDispatcher([]*api.Rule{r}, composite)
@@ -153,6 +174,53 @@ fun process(obj: Any) {
 	}
 	if findings[0].Fix != nil {
 		t.Fatal("expected no autofix for oracle-reported safe cast")
+	}
+}
+
+// --- UselessElvisOnNonNull ---
+
+const uselessElvisOnNonNullSource = `
+package test
+fun process() {
+    val name: String = "ready"
+    val result = name ?: "fallback"
+}
+`
+
+func TestUselessElvisOnNonNull_UsesOracleUselessElvisDiagnostic(t *testing.T) {
+	findings := runRuleByNameWithOracleDiagnosticForNode(t, "UselessElvisOnNonNull", uselessElvisOnNonNullSource,
+		"elvis_expression", `name ?: "fallback"`, "USELESS_ELVIS")
+	if len(findings) != 1 {
+		t.Fatalf("expected one projected finding, got %d", len(findings))
+	}
+	if findings[0].Confidence != api.ConfidenceVeryHigh {
+		t.Fatalf("projected confidence = %v, want %v", findings[0].Confidence, api.ConfidenceVeryHigh)
+	}
+	if got, want := findings[0].Message, "Useless elvis (?:) on non-nullable 'name'. The fallback is dead code."; got != want {
+		t.Fatalf("projected message = %q, want %q", got, want)
+	}
+}
+
+func TestUselessElvisOnNonNull_UsesHeuristicWithoutOracle(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UselessElvisOnNonNull", uselessElvisOnNonNullSource)
+	if len(findings) != 1 {
+		t.Fatalf("expected one heuristic finding, got %d", len(findings))
+	}
+	if findings[0].Confidence != api.ConfidenceHigh {
+		t.Fatalf("heuristic confidence = %v, want %v", findings[0].Confidence, api.ConfidenceHigh)
+	}
+	if got, want := findings[0].Message, "Useless elvis (?:) on non-nullable 'name'. The fallback is dead code."; got != want {
+		t.Fatalf("heuristic message = %q, want %q", got, want)
+	}
+}
+
+func TestUselessElvisOnNonNull_FallsBackWhenOracleHasNoDiagnostics(t *testing.T) {
+	findings := runRuleByNameWithEmptyOracle(t, "UselessElvisOnNonNull", uselessElvisOnNonNullSource)
+	if len(findings) != 1 {
+		t.Fatalf("expected one fallback finding, got %d", len(findings))
+	}
+	if findings[0].Confidence != api.ConfidenceHigh {
+		t.Fatalf("fallback confidence = %v, want %v", findings[0].Confidence, api.ConfidenceHigh)
 	}
 }
 

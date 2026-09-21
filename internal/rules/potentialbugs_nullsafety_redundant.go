@@ -1959,6 +1959,27 @@ func (r *UselessElvisOnNonNullRule) Confidence() float64 { return api.Confidence
 
 func (r *UselessElvisOnNonNullRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
+	if _, _, ok := uselessElvisOperand(file, idx); ok && projectDiagnostic(ctx, DiagnosticProjection{
+		RuleID:       "UselessElvisOnNonNull",
+		FactoryNames: []string{"USELESS_ELVIS"},
+		Message: func(ctx *api.Context, _ oracle.Diagnostic) string {
+			left, _, _ := uselessElvisOperand(ctx.File, ctx.Idx)
+			leftText := strings.TrimSpace(ctx.File.FlatNodeText(left))
+			return fmt.Sprintf("Useless elvis (?:) on non-nullable '%s'. The fallback is dead code.", leftText)
+		},
+		Fix: func(ctx *api.Context, _ oracle.Diagnostic) *scanner.Fix {
+			left, _, _ := uselessElvisOperand(ctx.File, ctx.Idx)
+			return &scanner.Fix{
+				ByteMode:    true,
+				StartByte:   int(ctx.File.FlatEndByte(left)),
+				EndByte:     int(ctx.File.FlatEndByte(ctx.Idx)),
+				Replacement: "",
+			}
+		},
+		Confidence: api.ConfidenceVeryHigh,
+	}) {
+		return
+	}
 	if ctx.Resolver == nil {
 		return
 	}

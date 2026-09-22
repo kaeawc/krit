@@ -13,9 +13,15 @@ import (
 type DiagnosticProjection struct {
 	RuleID       string
 	FactoryNames []string
-	Message      func(ctx *api.Context, d oracle.Diagnostic) string
-	Fix          func(ctx *api.Context, d oracle.Diagnostic) *scanner.Fix
-	Confidence   float64
+	// Accept, when set, further filters a factory-matched, node-anchored
+	// diagnostic before it is projected. It is for factories broader than the
+	// rule (e.g. SENSELESS_COMPARISON covers every always-true/false condition,
+	// but a null-check rule owns only the null-comparison direction). Returning
+	// false skips this diagnostic and lets the caller's heuristic run.
+	Accept     func(ctx *api.Context, d oracle.Diagnostic) bool
+	Message    func(ctx *api.Context, d oracle.Diagnostic) string
+	Fix        func(ctx *api.Context, d oracle.Diagnostic) *scanner.Fix
+	Confidence float64
 }
 
 // projectDiagnostic looks up compiler diagnostics for ctx.Idx and, when a
@@ -33,6 +39,9 @@ func projectDiagnostic(ctx *api.Context, spec DiagnosticProjection) bool {
 	for _, d := range oracleLookupDiagnosticsForFlatRange(resolver.Oracle(), ctx.File, ctx.Idx) {
 		if !diagnosticProjectionMatchesFactory(spec.FactoryNames, d.FactoryName) ||
 			!diagnosticAnchoredAtNode(ctx.File, ctx.Idx, d) {
+			continue
+		}
+		if spec.Accept != nil && !spec.Accept(ctx, d) {
 			continue
 		}
 		line, col := d.Line, d.Col

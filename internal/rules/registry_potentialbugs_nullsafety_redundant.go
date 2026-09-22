@@ -12,9 +12,11 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"equality_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
-			Needs:         api.NeedsResolver,
+			Needs:         api.NeedsResolver | api.NeedsOracleDiagnostics,
 			Check:         r.check,
 			ExprPositions: r.ExpressionPositions,
+			// Projection consumes compiler diagnostics only; no declaration walk.
+			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 		})
 	}
 	{
@@ -22,10 +24,12 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"postfix_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic,
-			Needs:          api.NeedsResolver,
+			Needs:          api.NeedsResolver | api.NeedsOracleDiagnostics,
 			Implementation: r,
 			Check:          r.check,
 			ExprPositions:  r.ExpressionPositions,
+			// Projection consumes compiler diagnostics only; no declaration walk.
+			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 		})
 	}
 	{
@@ -33,9 +37,11 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"navigation_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic,
-			Needs: api.NeedsResolver, Implementation: r,
+			Needs: api.NeedsResolver | api.NeedsOracleDiagnostics, Implementation: r,
 			Check:         r.check,
 			ExprPositions: r.ExpressionPositions,
+			// Projection consumes compiler diagnostics only; no declaration walk.
+			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 		})
 	}
 	{

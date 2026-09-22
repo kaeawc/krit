@@ -128,7 +128,6 @@ func TestResolverOnlyRulesDoNotContributeToOracle(t *testing.T) {
 		"SharedPreferencesForSensitiveKey",
 		"SpreadOperator",
 		"SwallowedException",
-		"UnnecessaryNotNullOperator",
 	} {
 		rule := findRegisteredRule(t, id)
 		if RuleNeedsKotlinOracle(rule) {

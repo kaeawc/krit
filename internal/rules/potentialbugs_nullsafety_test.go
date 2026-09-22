@@ -266,6 +266,83 @@ fun process() {
 	}
 }
 
+func TestUnnecessaryNotNullOperator_ProjectsCompilerDiagnostic(t *testing.T) {
+	// CONFIG is imported, so the name-based heuristic can't prove it non-null
+	// and emits nothing; the projection must fire on the compiler's
+	// UNNECESSARY_NOT_NULL_ASSERTION verdict.
+	findings := runRuleByNameWithOracleDiagnosticForNode(t, "UnnecessaryNotNullOperator", `
+package test
+import com.example.CONFIG
+fun f() {
+    val x = CONFIG!!
+}
+`, "postfix_expression", "CONFIG!!", "UNNECESSARY_NOT_NULL_ASSERTION")
+	if len(findings) != 1 {
+		t.Fatalf("expected one projected finding, got %d", len(findings))
+	}
+	if findings[0].Confidence != api.ConfidenceVeryHigh {
+		t.Fatalf("projected confidence = %v, want VeryHigh", findings[0].Confidence)
+	}
+}
+
+func TestUnnecessarySafeCall_ProjectsCompilerDiagnostic(t *testing.T) {
+	findings := runRuleByNameWithOracleDiagnosticForNode(t, "UnnecessarySafeCall", `
+package test
+import com.example.CONFIG
+fun f() {
+    val x = CONFIG?.length
+}
+`, "navigation_expression", "CONFIG?.length", "UNNECESSARY_SAFE_CALL")
+	if len(findings) != 1 {
+		t.Fatalf("expected one projected finding, got %d", len(findings))
+	}
+	if findings[0].Confidence != api.ConfidenceVeryHigh {
+		t.Fatalf("projected confidence = %v, want VeryHigh", findings[0].Confidence)
+	}
+}
+
+func TestUnnecessaryNotNullCheck_ProjectsNonNullDirectionOnly(t *testing.T) {
+	run := func(nodeText, message string) []scanner.Finding {
+		file := parseInline(t, `
+package test
+import com.example.CONFIG
+fun f(): Boolean { return CONFIG != null }
+`)
+		resolver := typeinfer.NewResolver()
+		resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+		fake := oracle.NewFakeOracle()
+		file.FlatWalkNodes(0, "equality_expression", func(idx uint32) {
+			if strings.TrimSpace(file.FlatNodeText(idx)) == nodeText {
+				fake.Diagnostics[file.Path] = []oracle.Diagnostic{{
+					FactoryName: "SENSELESS_COMPARISON",
+					Severity:    "WARNING",
+					Message:     message,
+					Line:        file.FlatRow(idx) + 1,
+					Col:         file.FlatCol(idx) + 1,
+				}}
+			}
+		})
+		composite := oracle.NewCompositeResolver(fake, resolver)
+		for _, r := range api.Registry {
+			if r.ID == "UnnecessaryNotNullCheck" {
+				cols := rules.NewDispatcher([]*api.Rule{r}, composite).Run(file)
+				return cols.Findings()
+			}
+		}
+		t.Fatal("UnnecessaryNotNullCheck not found")
+		return nil
+	}
+	// `CONFIG != null` proven always true → operand non-null → projects.
+	if f := run("CONFIG != null", "Condition is always 'true'."); len(f) != 1 {
+		t.Fatalf("non-null direction must project, got %d: %+v", len(f), f)
+	}
+	// `CONFIG != null` proven always false → operand always null → this rule
+	// (about non-nullable operands) must NOT claim it.
+	if f := run("CONFIG != null", "Condition is always 'false'."); len(f) != 0 {
+		t.Fatalf("always-null direction must not project, got %d: %+v", len(f), f)
+	}
+}
+
 func TestUnsafeCast_DoesNotFlagUnknownSubstringCallee(t *testing.T) {
 	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
 package test

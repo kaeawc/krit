@@ -4,6 +4,8 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.util.Disposer
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.parentOfType
+import org.jetbrains.kotlin.lexer.KotlinLexer
+import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
@@ -2494,6 +2496,23 @@ val diagnosticLexicalHints = listOf(
     "continue",
 )
 
+// Token-level fallback for hints that a comment or unusual whitespace can split
+// away from their receiver, defeating the raw-substring fast path. Only the
+// keyword-based operators need this: `as` / `is` in the raw hints carry
+// surrounding spaces (" as ", " is ", "!is "), so `value/*c*/as String` fails
+// the substring check but still lexes an AS_KEYWORD token. The symbolic
+// operators (`?:`, `?.`, `!!`) require zero-gap adjacency to parse at all, so a
+// comment can never split them and the raw substring already catches every
+// occurrence; keyword hints (`null`, `return`, …) likewise can't be split
+// mid-word. Those are intentionally omitted here — the raw fast path is
+// authoritative for them.
+val diagnosticLexicalTokenHints = setOf(
+    KtTokens.AS_KEYWORD,
+    KtTokens.AS_SAFE,
+    KtTokens.IS_KEYWORD,
+    KtTokens.NOT_IS,
+)
+
 fun CharSequence.containsLiteral(needle: String): Boolean {
     if (needle.isEmpty()) return true
     if (needle.length > length) return false
@@ -2514,6 +2533,17 @@ fun CharSequence.containsLiteral(needle: String): Boolean {
 fun shouldCollectDiagnostics(chars: CharSequence): Boolean {
     for (hint in diagnosticLexicalHints) {
         if (chars.containsLiteral(hint)) return true
+    }
+
+    // A raw miss is ambiguous: `value/* comment */as String`, for example,
+    // contains no " as " substring even though it has an AS_KEYWORD token.
+    // KotlinLexer recognizes comments and arbitrary whitespace separately, so
+    // scanning its tokens admits the construct without looking inside them.
+    val lexer = KotlinLexer()
+    lexer.start(chars)
+    while (lexer.tokenType != null) {
+        if (lexer.tokenType in diagnosticLexicalTokenHints) return true
+        lexer.advance()
     }
     return false
 }

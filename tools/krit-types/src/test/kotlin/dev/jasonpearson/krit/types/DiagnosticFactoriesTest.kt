@@ -44,10 +44,20 @@ class DiagnosticFactoriesTest {
     }
 
     @Test
-    fun lexicalGateAdmitsAllUselessCallSpellings() {    }
+    fun lexicalGateAdmitsTokensSeparatedFromTheirReceiverByCommentsOrWhitespace() {
+        assertTrue(shouldCollectDiagnostics("fun f(v: Any) = v/*c*/as String"))
+        assertTrue(shouldCollectDiagnostics("fun f(v: String) = v /* */ !!"))
+    }
+
+    @Test
+    fun lexicalGateDoesNotTreatCommentSplitSafeAccessCharactersAsSafeAccess() {
+        // `?/* */.` is not a SAFE_ACCESS token: KotlinLexer emits the question
+        // mark and dot separately, because a comment cannot appear inside `?.`.
+        assertFalse(shouldCollectDiagnostics("fun f(v: String) = v ?/* */. length"))
+    }
 
     @Test
     fun lexicalGateRejectsSourceWithoutDiagnosticHints() {
-        assertFalse(shouldCollectDiagnostics("fun answer(): Int = 42"))
+        assertFalse(shouldCollectDiagnostics("fun f() = 1 + 2"))
     }
 }

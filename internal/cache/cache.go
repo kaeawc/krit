@@ -76,6 +76,12 @@ const CacheFileName = "incremental.cache"
 // v13: UselessElvisOnNonNull now projects the compiler's USELESS_ELVIS verdict
 // (anchored to the tightest same-typed node, and for non-local operands),
 // changing its findings for unchanged source.
+//
+// Note: the oracle fact hash is folded into the per-file store key directly
+// (foldOracleBlobHash, versioned by its own "v1" suffix + FactSchemaVersion),
+// so a semantic fact change invalidates oracle-on entries without a payload
+// bump — and a bump here would needlessly cold-start every non-oracle user,
+// whose keys are byte-identical to before.
 const cachePayloadVersion = "v13"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.

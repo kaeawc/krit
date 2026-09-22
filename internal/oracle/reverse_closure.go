@@ -10,15 +10,23 @@ import (
 // dependency closure contains a changed path. It builds a reverse index from
 // the existing CacheEntry.Closure.DepPaths data, then performs a sorted BFS.
 // The seen set is both the duplicate filter and the cycle guard for mutually
-// recursive source files. Entry read failures conservatively omit only the
-// unreadable edge; directly changed paths always remain in the result.
+// recursive source files.
+//
+// A file whose cache entry cannot be loaded (read error, missing, or Crashed)
+// is seeded into the work set directly: its stored dependency closure is
+// unknown, so it can neither contribute a reverse edge nor be trusted to have
+// fresh facts. Skipping it would silently leave a dependent of a changed file
+// unanalyzed, keeping its stale facts in types.json. Directly changed paths
+// always remain in the result.
 func ExpandStaleOraclePaths(s *store.FileStore, cacheDir string, allPaths, changed []string) []string {
 	paths := append([]string(nil), allPaths...)
 	sort.Strings(paths)
 	reverse := make(map[string][]string)
+	var unresolved []string
 	for _, path := range paths {
 		hash, err := ContentHash(path)
 		if err != nil {
+			unresolved = append(unresolved, path)
 			continue
 		}
 		var entry *CacheEntry
@@ -28,6 +36,7 @@ func ExpandStaleOraclePaths(s *store.FileStore, cacheDir string, allPaths, chang
 			entry, err = LoadEntry(cacheDir, hash)
 		}
 		if err != nil || entry == nil || entry.Crashed {
+			unresolved = append(unresolved, path)
 			continue
 		}
 		for _, dependency := range entry.Closure.DepPaths {
@@ -41,6 +50,7 @@ func ExpandStaleOraclePaths(s *store.FileStore, cacheDir string, allPaths, chang
 	}
 
 	queue := append([]string(nil), changed...)
+	queue = append(queue, unresolved...)
 	sort.Strings(queue)
 	seen := make(map[string]bool, len(queue))
 	result := make([]string, 0, len(queue))

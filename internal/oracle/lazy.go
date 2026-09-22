@@ -119,8 +119,10 @@ func (s *preloadState) load(path string) {
 }
 
 // LazyLookup defers oracle JSON deserialization until the first semantic
-// lookup. Warm runs with complete findings-cache hits can carry this through
-// the resolver without paying jsonLoad at all.
+// lookup. Warm runs that never perform a semantic lookup avoid jsonLoad —
+// but note that folding the oracle fact hash into the per-file findings key
+// calls BlobHash, which forces the load for every file it keys, so a warm run
+// that computes those keys does pay jsonLoad.
 type LazyLookup struct {
 	path    string
 	onError func(error)

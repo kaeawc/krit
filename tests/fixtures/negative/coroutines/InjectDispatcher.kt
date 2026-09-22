@@ -81,14 +81,14 @@ interface DispatcherProvider {
 // Top-level function: there is no enclosing class/object to inject a
 // dispatcher into, so a hardcoded Dispatchers.* here is not actionable
 // and must NOT be flagged.
-fun loadTopLevel() {
+suspend fun loadTopLevel() {
     withContext(Dispatchers.IO) { fetchFromNetwork() }
 }
 
 // Top-level extension function: the receiver is fixed by the call site
 // and there is no enclosing type to inject into, so this must NOT be
 // flagged either.
-fun String.loadExt() {
+suspend fun String.loadExt() {
     withContext(Dispatchers.Default) { fetchFromNetwork() }
 }
 

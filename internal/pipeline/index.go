@@ -823,9 +823,9 @@ func (p IndexPhase) runCacheLoad(in IndexInput, result *IndexResult) {
 	var cacheResult *cache.Result
 	_ = in.trackSerial("cacheCheck", func() error {
 		if in.CacheDirty != nil {
-			cacheResult = analysisCache.CheckFilesIncremental(filePaths, in.CacheDirty, ruleHash, scanPaths...)
+			cacheResult = analysisCache.CheckFilesIncrementalWithOracle(filePaths, in.CacheDirty, ruleHash, result.OracleBlobHash, scanPaths...)
 		} else {
-			cacheResult = analysisCache.CheckFiles(filePaths, ruleHash, scanPaths...)
+			cacheResult = analysisCache.CheckFilesWithOracle(filePaths, ruleHash, result.OracleBlobHash, scanPaths...)
 		}
 		return nil
 	})
@@ -959,6 +959,7 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 		return base
 	}
 	result.Oracle = oracleLoaded
+	result.OracleBlobHash = oracleLoaded.BlobHash
 	if in.Verbose {
 		in.logf("verbose: Type oracle loaded from daemon (%d dependency types)\n", len(oracleLoaded.Dependencies()))
 	}
@@ -1032,6 +1033,7 @@ func (p IndexPhase) runDaemonOracleFir(in IndexInput, scanPaths []string, oracle
 		return base
 	}
 	result.Oracle = oracleLoaded
+	result.OracleBlobHash = oracleLoaded.BlobHash
 	if in.Verbose {
 		in.logf("verbose: Type oracle loaded from fir daemon (%d dependency types)\n", len(oracleLoaded.Dependencies()))
 	}
@@ -1200,7 +1202,7 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 
 // loadOracleFromPath configures a lazy oracle JSON lookup and wraps base in a
 // CompositeResolver on success.
-func (p IndexPhase) loadOracleFromPath(in IndexInput, oraclePath string, oracleTracker perf.Tracker, base typeinfer.TypeResolver) typeinfer.TypeResolver {
+func (p IndexPhase) loadOracleFromPath(in IndexInput, oraclePath string, oracleTracker perf.Tracker, base typeinfer.TypeResolver, result *IndexResult) typeinfer.TypeResolver {
 	if oraclePath == "" {
 		return base
 	}
@@ -1211,6 +1213,7 @@ func (p IndexPhase) loadOracleFromPath(in IndexInput, oraclePath string, oracleT
 	lazy := oracle.NewLazyLookup(oraclePath, func(err error) {
 		in.warnf("warning: type oracle: %v\n", err)
 	})
+	result.OracleBlobHash = lazy.BlobHash
 	// Move the JSON deserialization off the rule path; on large
 	// projects this is ~500 ms otherwise charged to whichever rule
 	// fires first. See #57.
@@ -1221,7 +1224,7 @@ func (p IndexPhase) loadOracleFromPath(in IndexInput, oraclePath string, oracleT
 // runAutoDetectOracle resolves the oracle JSON path via explicit
 // --input-types, a cached types.json, or by invoking krit-types, then
 // configures a lazy lookup and wraps base.
-func (p IndexPhase) runAutoDetectOracle(in IndexInput, oracleRules []*api.Rule, scanPaths []string, loadOracleFilterFiles func() []*scanner.File, oracleTracker perf.Tracker, base typeinfer.TypeResolver) typeinfer.TypeResolver {
+func (p IndexPhase) runAutoDetectOracle(in IndexInput, oracleRules []*api.Rule, scanPaths []string, loadOracleFilterFiles func() []*scanner.File, oracleTracker perf.Tracker, base typeinfer.TypeResolver, result *IndexResult) typeinfer.TypeResolver {
 	var oraclePath string
 	var cachedTypesJSONExists bool
 	oracleTracker.TrackVoid("findSources", func() {
@@ -1265,7 +1268,7 @@ func (p IndexPhase) runAutoDetectOracle(in IndexInput, oracleRules []*api.Rule, 
 	if oraclePath == "" {
 		return base
 	}
-	return p.loadOracleFromPath(in, oraclePath, oracleTracker, base)
+	return p.loadOracleFromPath(in, oraclePath, oracleTracker, base, result)
 }
 
 // runOracle is a verbatim port of the pre-refactor oracle block in
@@ -1301,7 +1304,7 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 	case in.UseDaemon:
 		resolver = p.runDaemonOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, result)
 	default:
-		resolver = p.runAutoDetectOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base)
+		resolver = p.runAutoDetectOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, result)
 	}
 
 	oracleTracker.End()

@@ -114,7 +114,11 @@ func (DispatchPhase) writeCacheBack(in IndexResult, findingsByFile map[string]sc
 	for _, pf := range in.SourceFiles() {
 		if in.CacheResult == nil || !in.CacheResult.CachedPaths[pf.Path] {
 			fileColumns := findingsByFile[pf.Path]
-			in.Cache.UpdateEntryColumns(pf.Path, &fileColumns)
+			blobHash := ""
+			if in.OracleBlobHash != nil {
+				blobHash = in.OracleBlobHash(pf.Path)
+			}
+			in.Cache.UpdateEntryColumnsWithOracle(pf.Path, &fileColumns, blobHash)
 		}
 	}
 	in.Cache.SetHeader(in.Version, in.RuleHash, in.CacheScanPaths)

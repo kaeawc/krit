@@ -101,6 +101,14 @@ func (w *CacheWriter) QueueFreshEntriesToStoreScopedV2(s *store.FileStore, cache
 	if len(jobs) == 0 {
 		return 0, nil
 	}
+	if deps != nil {
+		load := closureEntryLoader(s, cacheDir)
+		for i := range jobs {
+			if !jobs[i].crashed {
+				jobs[i].depPaths = transitiveDepPaths(jobs[i].path, jobs[i].depPaths, deps.Files, load)
+			}
+		}
+	}
 
 	w.queued.Add(int64(len(jobs)))
 	memo := newOracleCacheHashMemo(len(jobs))

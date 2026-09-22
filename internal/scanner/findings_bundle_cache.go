@@ -54,11 +54,14 @@ func (findingsBundleCacheRegistered) Stats() cacheutil.CacheStats {
 }
 
 type RunFingerprint struct {
-	Version      string
-	Rules        string
-	Config       string
-	SourceSet    string
-	CrossFile    string
+	Version   string
+	Rules     string
+	Config    string
+	SourceSet string
+	CrossFile string
+	// OracleFacts hashes sorted per-file BlobHash values. Empty means no
+	// oracle was active and is omitted from FindingsBundleKey for parity.
+	OracleFacts  string
 	Android      string
 	LibraryFacts string
 }
@@ -89,6 +92,7 @@ func (ConservativeDeltaPlanner) Plan(previous, current RunFingerprint, changed [
 		previous.Rules == current.Rules &&
 		previous.Config == current.Config &&
 		previous.CrossFile == current.CrossFile &&
+		previous.OracleFacts == current.OracleFacts &&
 		previous.Android == current.Android &&
 		previous.LibraryFacts == current.LibraryFacts
 	if !stable {
@@ -268,6 +272,9 @@ func FindingsBundleKey(fp RunFingerprint) string {
 	writeFingerprintField(h, fp.Config)
 	writeFingerprintField(h, fp.SourceSet)
 	writeFingerprintField(h, fp.CrossFile)
+	if fp.OracleFacts != "" {
+		writeFingerprintField(h, fp.OracleFacts)
+	}
 	writeFingerprintField(h, fp.Android)
 	writeFingerprintField(h, fp.LibraryFacts)
 	return hex.EncodeToString(h.Sum(nil))

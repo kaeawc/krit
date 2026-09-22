@@ -136,6 +136,47 @@ func TestCheckFiles_HitAndMiss(t *testing.T) {
 	}
 }
 
+func TestCheckFilesWithOracle_JSONPathMissesOnOracleFactChange(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "caller.kt")
+	if err := os.WriteFile(file, []byte("fun caller() {}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	abs, _ := filepath.Abs(file)
+	info, _ := os.Stat(file)
+	newCache := func() *Cache {
+		return &Cache{
+			RuleHash: "rh",
+			Files: map[string]FileEntry{
+				abs: {
+					Hash:           ComputeFileHash(file),
+					ModTime:        info.ModTime().UnixMilli(),
+					Size:           info.Size(),
+					OracleBlobHash: "facts-A",
+					Columns: testFindingColumns([]scanner.Finding{
+						{File: file, Line: 1, Col: 1, Severity: "warning", RuleSet: "s", Rule: "R", Message: "m"},
+					}),
+				},
+			},
+		}
+	}
+	blob := func(v string) func(string) string { return func(string) string { return v } }
+
+	// Unchanged content + matching oracle facts: hit.
+	if got := newCache().CheckFilesWithOracle([]string{file}, "rh", blob("facts-A")); got.TotalCached != 1 {
+		t.Fatalf("matching oracle facts must hit: cached=%d", got.TotalCached)
+	}
+	// Unchanged content but changed oracle facts: miss. Without the blobHash
+	// guard the JSON path would serve the stale entry.
+	if got := newCache().CheckFilesWithOracle([]string{file}, "rh", blob("facts-B")); got.TotalCached != 0 {
+		t.Fatalf("changed oracle facts must miss the stale JSON entry: cached=%d", got.TotalCached)
+	}
+	// No oracle (nil blobHash): behavior unchanged, still a hit.
+	if got := newCache().CheckFilesWithOracle([]string{file}, "rh", nil); got.TotalCached != 1 {
+		t.Fatalf("nil blobHash must preserve non-oracle hit: cached=%d", got.TotalCached)
+	}
+}
+
 func TestCheckFiles_GitDirtyPathsSkipCleanMetadataChecks(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")

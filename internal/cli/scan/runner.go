@@ -47,6 +47,7 @@ func (r *runner) projectInput() pipeline.ProjectInput {
 		AnalysisCacheStats:    r.cacheStats,
 		AnalysisCacheRuleHash: r.ruleHash,
 		Oracle:                r.typeOracle,
+		OracleBlobHash:        r.oracleBlobHash,
 		OracleDaemon:          r.sess.OracleDaemon,
 		AndroidProviders:      r.androidProviders,
 		AndroidCacheDir:       r.androidCacheDir,

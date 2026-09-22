@@ -1,9 +1,9 @@
 plugins {
-    kotlin("jvm") version "2.3.21"
-    id("com.gradleup.shadow") version "9.4.2"
+    kotlin("jvm") version "2.4.0"
+    id("com.gradleup.shadow") version "9.5.1"
 }
 
-val kotlinVersion = "2.3.21"
+val kotlinVersion = "2.4.0"
 
 dependencies {
     implementation(project(":krit-rule-api"))

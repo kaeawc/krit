@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm") version "2.3.21"
+    kotlin("jvm") version "2.4.0"
     `java-library`
     `maven-publish`
     signing
@@ -15,7 +15,7 @@ version = (findProperty("kritVersion") as String?)
 
 val isSnapshot = version.toString().endsWith("-SNAPSHOT")
 
-val kotlinVersion = "2.3.21"
+val kotlinVersion = "2.4.0"
 
 dependencies {
     // PSI types are surfaced on the rule API but provided at runtime

@@ -252,6 +252,27 @@ func declarationProfileFingerprint(opts InvocationOptions) string {
 	return opts.DeclarationProfile.Fingerprint
 }
 
+// diagnosticsOmittedScope marks cache entries written with compiler
+// diagnostics disabled. It rides on the declaration-profile scope because
+// omitting diagnostics is another narrowing of the emitted facts.
+const diagnosticsOmittedScope = "no-diagnostics"
+
+// factProfileScope is the cache scope for the facts an invocation emits:
+// the declaration profile, narrowed further when diagnostics are disabled.
+// Under the "empty = broad superset" convention, an entry written without
+// diagnostics never satisfies a lookup that needs them, while a full entry
+// still satisfies a diagnostics-off lookup.
+func factProfileScope(opts InvocationOptions) string {
+	scope := declarationProfileFingerprint(opts)
+	if !opts.DisableDiagnostics {
+		return scope
+	}
+	if scope == "" {
+		return diagnosticsOmittedScope
+	}
+	return scope + "+" + diagnosticsOmittedScope
+}
+
 // declarationProfileCLIValue returns the comma-separated feature list to
 // pass via --declaration-profile, or "" when the profile is full/absent
 // so callers can omit the flag.

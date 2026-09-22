@@ -175,7 +175,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.CustomRuleJars = fs.String("custom-rule-jars", "", "Comma-separated Kotlin custom-rule jars to load through the krit-types daemon (experimental)")
 	f.Daemon = fs.Bool("daemon", false, "Use long-lived krit-types daemon instead of one-shot invocation")
 	f.NoOracleFilter = fs.Bool("no-oracle-filter", false, "Disable the rule-classification oracle filter (feeds every file to krit-types, matching the pre-filter baseline; used to validate findings-equivalence)")
-	f.OracleDiagnostics = fs.Bool("oracle-diagnostics", false, "Collect Kotlin compiler diagnostics in the type oracle (slower; enables diagnostic-backed oracle findings)")
+	f.OracleDiagnostics = fs.Bool("oracle-diagnostics", false, "Force-collect Kotlin compiler diagnostics in the type oracle even when no active rule needs them (diagnostic-backed projections are collected automatically for rules that consume them)")
 	f.OracleFilterFingerprint = fs.Bool("oracle-filter-fingerprint", false, "Compute the oracle filter input-set fingerprint for the given paths and print JSON to stdout; exits without running rules. Used by the CI drift gate.")
 	f.Fir = fs.Bool("fir", false, "Enable FIR checker pass (krit-fir JVM subprocess); default off during pilot phase")
 	f.NoFir = fs.Bool("no-fir", false, "Disable FIR checker pass even when enabled by config")

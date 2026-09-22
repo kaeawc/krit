@@ -28,7 +28,7 @@ fun main(args: Array<String>) {
 
     if (daemon) {
         System.err.println("krit-fir daemon starting...")
-        val session = AnalysisSession(emptyList(), emptyList())
+        val session = createDaemonSession(args)
         val startTime = System.currentTimeMillis()
         if (port >= 0) {
             runDaemonTcp(port, session, startTime)
@@ -45,17 +45,13 @@ fun main(args: Array<String>) {
     //            [--files LIST_FILE] [--classpath JAR[:JAR...]]
     // Mirrors krit-types' one-shot surface so `oracle.InvokeWithFiles`
     // can drive either backend with the same arg vector.
-    val sources = extractCliValue(args, "--sources")?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+    val sources = extractCliSources(args)
     val output = extractCliValue(args, "--output", "-o")
     if (sources.isNullOrEmpty() || output.isNullOrBlank()) {
         printOneShotUsage()
         exitProcess(2)
     }
-    val classpath = extractCliValue(args, "--classpath", "-cp")
-        ?.split(java.io.File.pathSeparator)
-        ?.map { it.trim() }
-        ?.filter { it.isNotEmpty() }
-        .orEmpty()
+    val classpath = extractCliClasspath(args)
     runOneShot(
         sources = sources,
         outputPath = output,
@@ -73,6 +69,22 @@ internal fun extractCliValue(args: Array<String>, vararg flags: String): String?
     }
     return null
 }
+
+internal fun extractCliSources(args: Array<String>): List<String>? =
+    extractCliValue(args, "--sources")
+        ?.split(",")
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+
+internal fun extractCliClasspath(args: Array<String>): List<String> =
+    extractCliValue(args, "--classpath", "-cp")
+        ?.split(java.io.File.pathSeparator)
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        .orEmpty()
+
+internal fun createDaemonSession(args: Array<String>): AnalysisSession =
+    AnalysisSession(extractCliSources(args).orEmpty(), extractCliClasspath(args))
 
 private fun printOneShotUsage() {
     System.err.println(
@@ -466,26 +478,78 @@ fun extractStringArray(json: String, key: String): List<String>? {
 }
 
 fun extractFileRefs(json: String): List<FileRef> {
-    val filesIdx = json.indexOf("\"files\"")
-    if (filesIdx < 0) return emptyList()
-    val arrStart = json.indexOf('[', filesIdx)
-    if (arrStart < 0) return emptyList()
+    val filesKey = Regex(""""files"\s*:\s*\[""").find(json) ?: return emptyList()
+    val arrStart = filesKey.range.last
+    // Brackets inside string values (a path such as `src/[id]/Foo.kt`) must not
+    // move the depth counter, so string contents and escapes are skipped.
     var depth = 0
     var arrEnd = arrStart
+    var inString = false
+    var escaped = false
     for (i in arrStart until json.length) {
-        when (json[i]) {
+        val c = json[i]
+        if (inString) {
+            when {
+                escaped -> escaped = false
+                c == '\\' -> escaped = true
+                c == '"' -> inString = false
+            }
+            continue
+        }
+        when (c) {
+            '"' -> inString = true
             '[' -> depth++
             ']' -> { depth--; if (depth == 0) { arrEnd = i; break } }
         }
     }
     val arrBody = json.substring(arrStart + 1, arrEnd)
-    val objPat = Regex("""\{([^}]*)}""")
-    return objPat.findAll(arrBody).map { m ->
-        val obj = m.value
-        val path = extractString(obj, "path") ?: ""
-        val hash = extractString(obj, "contentHash") ?: ""
-        FileRef(path, hash)
-    }.toList()
+    // internal/oracle/daemon.go sends incremental analyzeWithDeps misses as
+    // a plain []string. The native krit-fir check protocol instead uses
+    // [{"path": ..., "contentHash": ...}], so accept both wire shapes.
+    // Treating the Go shape as an empty list silently turns a <=8-file daemon
+    // request into a no-op and drops compiler diagnostics from projection.
+    return splitJsonArrayElements(arrBody).mapNotNull { element ->
+        when {
+            element.startsWith("{") ->
+                FileRef(extractString(element, "path") ?: "", extractString(element, "contentHash") ?: "")
+            element.startsWith("\"") && element.length >= 2 ->
+                FileRef(element.substring(1, element.length - 1).replace("\\\"", "\"").replace("\\\\", "\\"))
+            else -> null
+        }
+    }
+}
+
+// Splits a JSON array body into its top-level elements. String contents are
+// skipped so braces, brackets, or commas inside a path (`src/{generated}/A.kt`)
+// can neither split an element nor be mistaken for an object.
+internal fun splitJsonArrayElements(body: String): List<String> {
+    val elements = mutableListOf<String>()
+    var depth = 0
+    var inString = false
+    var escaped = false
+    var start = 0
+    for (i in body.indices) {
+        val c = body[i]
+        if (inString) {
+            when {
+                escaped -> escaped = false
+                c == '\\' -> escaped = true
+                c == '"' -> inString = false
+            }
+            continue
+        }
+        when (c) {
+            '"' -> inString = true
+            '{', '[' -> depth++
+            '}', ']' -> depth--
+            ',' -> if (depth == 0) {
+                elements += body.substring(start, i).trim()
+                start = i + 1
+            }
+        }
+    }
+    body.substring(start).trim().takeIf { it.isNotEmpty() }?.let { elements += it }
+    return elements
 }
 
 fun escJson(s: String): String = s.replace("\\", "\\\\").replace("\"", "\\\"")

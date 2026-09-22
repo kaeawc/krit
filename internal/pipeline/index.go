@@ -1174,7 +1174,7 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		CacheWriter:        in.OracleCacheWriter,
 		CallFilter:         callFilterPtr,
 		DeclarationProfile: &declarationProfileSummary,
-		DisableDiagnostics: !in.OracleDiagnostics || !rules.NeedsOracleDiagnostics(oracleRules),
+		DisableDiagnostics: !oracleDiagnosticsRequired(in, oracleRules),
 		ForcedMisses:       in.StaleOraclePaths,
 		// Forwards `oracle.classpath` + CLASSPATH env to the spawned
 		// JVM. Both krit-types and krit-fir parse `--classpath` on
@@ -1197,7 +1197,28 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		in.warnf("warning: krit-types: %v\n", err)
 		return ""
 	}
+	if err := oracle.RecordTypesFacts(res, invokeOpts.DisableDiagnostics); err != nil && in.Verbose {
+		in.logf("verbose: oracle facts record not written: %v\n", err)
+	}
 	return res
+}
+
+// cachedTypesJSONSatisfies reports whether the cached types.json at path
+// holds the facts this run needs, so the freshness gate may reuse it.
+func cachedTypesJSONSatisfies(in IndexInput, oracleRules []*api.Rule, path string) bool {
+	if in.NoCacheOracle {
+		return false
+	}
+	return !oracleDiagnosticsRequired(in, oracleRules) || oracle.TypesJSONHasDiagnostics(path)
+}
+
+// oracleDiagnosticsRequired reports whether this run needs compiler
+// diagnostics in the oracle facts. They are collected whenever an active
+// rule consumes them (the diagnostic-projection tier), so the projection
+// fires by default; --oracle-diagnostics forces collection even when no
+// active rule declares NeedsOracleDiagnostics.
+func oracleDiagnosticsRequired(in IndexInput, oracleRules []*api.Rule) bool {
+	return in.OracleDiagnostics || rules.NeedsOracleDiagnostics(oracleRules)
 }
 
 // loadOracleFromPath configures a lazy oracle JSON lookup and wraps base in a
@@ -1247,7 +1268,18 @@ func (p IndexPhase) runAutoDetectOracle(in IndexInput, oracleRules []*api.Rule, 
 	// InvokeCachedWithOptions can do a partial reanalyze of just the
 	// stale subset; an absent path likewise triggers a cold JVM run.
 	staleHit := cachedTypesJSONExists && len(in.StaleOraclePaths) > 0
-	if staleHit || oraclePath == "" {
+	// The cached types.json is only reusable when it holds the facts this
+	// run needs. Source freshness alone does not say that: a run with every
+	// diagnostic-consuming rule disabled writes types.json without compiler
+	// diagnostics, and reusing it would silently drop every projected
+	// finding. --no-cache-oracle promises a full JVM run, so it never reuses.
+	factScopeStale := cachedTypesJSONExists && !cachedTypesJSONSatisfies(in, oracleRules, oraclePath)
+	if factScopeStale {
+		perf.AddEntryDetails(oracleTracker, "freshnessGateFactScope", 0, map[string]int64{
+			"noCacheOracle": boolMetric(in.NoCacheOracle),
+		}, nil)
+	}
+	if staleHit || factScopeStale || oraclePath == "" {
 		if staleHit && in.Verbose {
 			in.logf("verbose: oracle freshness gate: %d stale path(s) — routing through partial reanalyze\n", len(in.StaleOraclePaths))
 		}

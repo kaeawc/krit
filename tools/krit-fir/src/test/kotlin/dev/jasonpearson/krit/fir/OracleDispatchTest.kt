@@ -2,6 +2,9 @@ package dev.jasonpearson.krit.fir
 
 import dev.jasonpearson.krit.fir.runner.AnalysisSession
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
+import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -16,6 +19,9 @@ import kotlin.test.assertTrue
 class OracleDispatchTest {
 
     private val session = AnalysisSession(emptyList(), emptyList())
+
+    @TempDir
+    lateinit var tmp: Path
 
     @Test
     fun analyzeCommandRoutesToOracleResponseBuilder() {
@@ -149,6 +155,115 @@ class OracleDispatchTest {
         val response = (result as RequestResult.Response).json
         assertTrue(response.startsWith("""{"id":22,"result":{"""), response)
         assertTrue(""""cacheDeps":""" in response, response)
+    }
+
+    @Test
+    fun daemonSessionTracksSourceFilesAddedAndDeletedAfterStart() {
+        // The persistent daemon outlives edits, so its source set must be the
+        // current one on every request rather than a snapshot from the first.
+        // C.kt appears only after the session served a request; B.kt's receiver
+        // type lives there, so the diagnostic needs the fresh source list.
+        val doomed = tmp.resolve("Doomed.kt").toFile().apply { writeText("class Doomed") }
+        val source = tmp.resolve("B.kt").toFile().apply {
+            writeText(
+                """
+                fun sample(value: C) {
+                    println(value.text!!)
+                }
+                """.trimIndent(),
+            )
+        }.canonicalPath
+        val stdlib = File(Unit::class.java.protectionDomain.codeSource.location.toURI()).absolutePath
+        val daemonSession = createDaemonSession(
+            arrayOf("--daemon", "--sources", tmp.toFile().canonicalPath, "--classpath", stdlib),
+        )
+        val request = """{"id":25,"method":"analyzeWithDeps","params":{"files":[${jsonStr(source)}]}}"""
+        handleRequestLine(request, daemonSession, startTime = 0L)
+
+        tmp.resolve("C.kt").toFile().writeText(
+            """
+            class C {
+                val text: String get() = "value"
+            }
+            """.trimIndent(),
+        )
+        assertTrue(doomed.delete())
+        val response = (handleRequestLine(request, daemonSession, startTime = 0L) as RequestResult.Response).json
+        assertTrue(""""factoryName":"UNNECESSARY_NOT_NULL_ASSERTION"""" in response, response)
+        assertFalse("Doomed.kt" in response, response)
+    }
+
+    @Test
+    fun extractFileRefsIgnoresBracesAndCommasInsidePathStrings() {
+        // A `{` inside a plain-string path used to be matched as an object
+        // entry, yielding an empty FileRef and dropping the real path.
+        assertEquals(
+            listOf("/repo/src/{generated}/B.kt", "/repo/src/a,b/C.kt"),
+            extractFileRefs("""{"files":["/repo/src/{generated}/B.kt","/repo/src/a,b/C.kt"]}""").map { it.path },
+        )
+        assertEquals(
+            listOf("/repo/src/{x}/A.kt" to "h1", "/repo/B.kt" to "h2"),
+            extractFileRefs(
+                """{"files":[{"path":"/repo/src/{x}/A.kt","contentHash":"h1"},{"path":"/repo/B.kt","contentHash":"h2"}]}""",
+            ).map { it.path to it.contentHash },
+        )
+    }
+
+    @Test
+    fun extractFileRefsIgnoresBracketsInsidePathStrings() {
+        val refs = extractFileRefs(
+            """{"params":{"files":["/repo/src/[id]/A.kt","/repo/src/weird]name/B.kt"],"after":["x"]}}""",
+        )
+        assertEquals(
+            listOf("/repo/src/[id]/A.kt", "/repo/src/weird]name/B.kt"),
+            refs.map { it.path },
+        )
+    }
+
+    @Test
+    fun goDaemonStringFileMissUsesSiblingSourcesForCompilerDiagnostics() {
+        // Regression for the <=8-miss path in internal/oracle/runMissAnalysis.
+        // Only B.kt is a miss, but resolving its receiver type requires A.kt
+        // from the source roots supplied when the daemon starts.
+        tmp.resolve("A.kt").toFile().writeText(
+            """
+            class A {
+                val text: String get() = "value"
+            }
+            """.trimIndent(),
+        )
+        val source = tmp.resolve("B.kt").toFile().apply {
+            writeText(
+                """
+                fun sample(value: A) {
+                    println(value.text!!)
+                }
+                """.trimIndent(),
+            )
+        }.canonicalPath
+        val stdlib = File(Unit::class.java.protectionDomain.codeSource.location.toURI()).absolutePath
+        // The earlier literal "files" plus a following decoy array ensures
+        // extraction anchors on the files key-value pair, not a string value.
+        val request =
+            """{"id":24,"method":"analyzeWithDeps","params":{"callFilterCalleeNames":["files"],"callFilterRuleProfiles":[{"ruleID":"Rule"}],"files":[${jsonStr(source)}]}}"""
+
+        val result = handleRequestLine(
+            request,
+            createDaemonSession(
+                arrayOf(
+                    "--daemon",
+                    "--sources",
+                    tmp.toFile().canonicalPath,
+                    "--classpath",
+                    stdlib,
+                ),
+            ),
+            startTime = 0L,
+        )
+        val response = (result as RequestResult.Response).json
+
+        assertTrue(jsonStr(source) in response, response)
+        assertTrue(""""factoryName":"UNNECESSARY_NOT_NULL_ASSERTION"""" in response, response)
     }
 
     @Test

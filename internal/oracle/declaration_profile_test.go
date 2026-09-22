@@ -113,3 +113,30 @@ func TestCacheScopeCompatibleV2_DeclarationProfile(t *testing.T) {
 		t.Fatalf("narrow entry must NOT satisfy mismatched-fingerprint lookup")
 	}
 }
+
+// TestFactProfileScope_DiagnosticsOmittedEntriesNeverSatisfyDiagnosticRuns
+// guards the cache against serving an entry written with diagnostics
+// disabled (no projection rule active) to a later run whose rules consume
+// compiler diagnostics: that run would silently lose every projected finding
+// for the cached files.
+func TestFactProfileScope_DiagnosticsOmittedEntriesNeverSatisfyDiagnosticRuns(t *testing.T) {
+	profile := &DeclarationProfileSummary{Fingerprint: "abcd1234"}
+	cases := []struct {
+		name          string
+		written, want InvocationOptions
+		compatible    bool
+	}{
+		{"omitted entry, diagnostics run", InvocationOptions{DisableDiagnostics: true}, InvocationOptions{}, false},
+		{"omitted narrow entry, diagnostics run", InvocationOptions{DisableDiagnostics: true, DeclarationProfile: profile}, InvocationOptions{DeclarationProfile: profile}, false},
+		{"full entry, diagnostics-off run", InvocationOptions{}, InvocationOptions{DisableDiagnostics: true}, true},
+		{"omitted entry, diagnostics-off run", InvocationOptions{DisableDiagnostics: true}, InvocationOptions{DisableDiagnostics: true}, true},
+		{"full entry, diagnostics run", InvocationOptions{}, InvocationOptions{}, true},
+	}
+	for _, tc := range cases {
+		entry := &CacheEntry{DeclarationProfileFingerprint: factProfileScope(tc.written)}
+		if got := cacheScopeCompatibleV2(entry, "", factProfileScope(tc.want)); got != tc.compatible {
+			t.Errorf("%s: compatible = %v, want %v (entry scope %q, lookup scope %q)",
+				tc.name, got, tc.compatible, entry.DeclarationProfileFingerprint, factProfileScope(tc.want))
+		}
+	}
+}

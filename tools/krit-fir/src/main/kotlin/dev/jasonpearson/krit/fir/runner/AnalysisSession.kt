@@ -41,16 +41,18 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
     // Path to the running fat JAR — used to register our FIR plugin with the embedded compiler.
     private val selfJar: String? = resolveSelfJar()
 
-    // Eagerly collect all .kt files from sourceDirs. K2 needs all sources for correct type
-    // resolution even when checking a subset.
-    private val allSourceFiles: List<String> by lazy {
+    // Collect all .kt files from sourceDirs. K2 needs all sources for correct type
+    // resolution even when checking a subset. Re-walked on every compile because the
+    // persistent daemon outlives edits: a file added after startup would otherwise stay
+    // invisible to resolution, and a deleted one would linger in freeArgs as a
+    // missing-source error. The walk is negligible next to the compile itself.
+    private fun currentSourceFiles(): List<String> =
         sourceDirs.flatMap { dir ->
             File(dir).walkTopDown()
                 .filter { it.isFile && it.extension == "kt" }
                 .map { it.canonicalPath }
                 .toList()
         }
-    }
 
     fun check(id: Long, files: List<FileRef>, enabledRules: Set<String>): BatchResult {
         val requestedCanonical = files.map {
@@ -67,7 +69,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
 
         try {
             val args = K2JVMCompilerArguments().apply {
-                freeArgs = allSourceFiles.ifEmpty { files.map { it.path } }
+                freeArgs = currentSourceFiles().ifEmpty { files.map { it.path } }
                 this.classpath = this@AnalysisSession.classpath.joinToString(File.pathSeparator)
                 destination = outDir.absolutePath
                 noStdlib = true
@@ -119,7 +121,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         val outDir = Files.createTempDirectory("krit-fir-oracle-out-").toFile()
         try {
             val args = K2JVMCompilerArguments().apply {
-                freeArgs = (allSourceFiles + files).distinct().ifEmpty { files }
+                freeArgs = (currentSourceFiles() + files).distinct().ifEmpty { files }
                 this.classpath = this@AnalysisSession.classpath.joinToString(File.pathSeparator)
                 destination = outDir.absolutePath
                 noStdlib = true
@@ -156,7 +158,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         )
     }
 
-    fun dispose() {} // No long-lived JVM resources beyond the lazy source file list.
+    fun dispose() {} // No long-lived JVM resources.
 
     companion object {
         // Maps the protocol's checker class name to the [DIAGNOSTIC_NAME] emitted by the renderer.

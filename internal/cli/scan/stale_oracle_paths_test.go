@@ -1,9 +1,15 @@
 package scan
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // TestComputeStaleOraclePaths_FiltersGeneratedWhenDisabled is the
@@ -44,5 +50,90 @@ func TestFilterGeneratedPathStrings_DropsGeneratedKotlin(t *testing.T) {
 		if strings.Contains(filepath.ToSlash(p), "/generated/") {
 			t.Errorf("filter retained generated path: %q", p)
 		}
+	}
+}
+
+func TestComputeStaleOraclePaths_IncludesDependentsAndRefreshesMerge(t *testing.T) {
+	dir := t.TempDir()
+	dependency := filepath.Join(dir, "Dependency.kt")
+	caller := filepath.Join(dir, "Caller.kt")
+	if err := os.WriteFile(dependency, []byte("package demo\nfun dependency() = \"value\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(caller, []byte("package demo\nfun caller() = dependency().length\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cacheDir, err := oracle.CacheDir(dir)
+	if err != nil {
+		t.Fatalf("CacheDir: %v", err)
+	}
+	oldCallerFacts := &oracle.File{Expressions: map[string]*oracle.ExpressionType{
+		"2:16": {Type: "kotlin.String", Nullable: false, StartByte: 28, EndByte: 40},
+	}}
+	oldData := &oracle.Data{Version: 1, Files: map[string]*oracle.File{
+		dependency: {Package: "demo"},
+		caller:     oldCallerFacts,
+	}}
+	deps := &oracle.CacheDepsFile{Version: 1, Files: map[string]*oracle.CacheDepsEntry{
+		dependency: {DepPaths: nil},
+		caller:     {DepPaths: []string{dependency}},
+	}}
+	if _, err := oracle.WriteFreshEntries(cacheDir, oldData, deps); err != nil {
+		t.Fatalf("WriteFreshEntries: %v", err)
+	}
+	typesPath := oracle.CachePath([]string{dir})
+	if err := os.MkdirAll(filepath.Dir(typesPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(oldData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(typesPath, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	manifestKey := scanner.FindingsBundleManifestKey(dir, []string{dir})
+	manifest := scanner.FindingsBundleManifest{
+		ContentHashes: map[string]string{},
+		FileStats:     map[string]scanner.FileStat{},
+	}
+	for _, path := range []string{dependency, caller} {
+		hash, err := oracle.ContentHash(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest.ContentHashes[path] = hash
+		stat, ok := scanner.StatFile(path)
+		if !ok {
+			t.Fatalf("StatFile(%s)", path)
+		}
+		manifest.FileStats[path] = stat
+	}
+	if err := scanner.SaveFindingsBundleManifest(dir, manifestKey, manifest); err != nil {
+		t.Fatalf("SaveFindingsBundleManifest: %v", err)
+	}
+
+	if err := os.WriteFile(dependency, []byte("package demo\nfun dependency() = null\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stale := computeStaleOraclePaths([]string{dir}, []string{caller, dependency}, true, nil, false)
+	if want := []string{caller, dependency}; !reflect.DeepEqual(stale, want) {
+		t.Fatalf("StaleOraclePaths = %v, want changed plus reverse closure %v", stale, want)
+	}
+
+	freshCallerFacts := &oracle.File{Expressions: map[string]*oracle.ExpressionType{
+		"2:16": {Type: "kotlin.String", Nullable: true, StartByte: 28, EndByte: 40},
+	}}
+	merged, err := oracle.MergeFreshIntoCachedTypes(typesPath, &oracle.Data{Version: 1, Files: map[string]*oracle.File{
+		dependency: {Package: "demo"},
+		caller:     freshCallerFacts,
+	}})
+	if err != nil {
+		t.Fatalf("MergeFreshIntoCachedTypes: %v", err)
+	}
+	if got := merged.Files[caller].Expressions["2:16"].Nullable; !got {
+		t.Fatal("fresh dependent expression fact did not win partial merge")
 	}
 }

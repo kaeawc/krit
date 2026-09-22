@@ -33,6 +33,8 @@ func StatFile(path string) (FileStat, bool) {
 //     exactly which files changed since last run).
 //   - The prior run's per-file structural fingerprints, used to prove
 //     body-only Kotlin edits can replay the prior findings bundle.
+//   - The prior run's per-file oracle blob hashes, used to reject that replay
+//     when a syntactically body-only edit changes emitted semantic facts.
 //   - The BundleKey of the prior bundle so we know which findings to
 //     load and merge into.
 //
@@ -44,19 +46,20 @@ func StatFile(path string) (FileStat, bool) {
 // daemons forward-compat by virtue of treating "wrong version" as
 // "missing" in LoadFindingsBundleManifestFromPath.
 //
-// v1 → v2: AbiHashes added. v1 readers silently ignore the new field;
-// v2 readers tolerate v1 manifests at load time (treated as ok=false
-// in LoadFindingsBundleManifestFromPath so the next save rewrites).
-const findingsBundleManifestVersion = 2
+// v1 → v2: AbiHashes added.
+// v2 → v3: OracleBlobHashes added so structural replay can prove that a
+// body-only source edit did not change the file's emitted semantic facts.
+const findingsBundleManifestVersion = 3
 
 type FindingsBundleManifest struct {
-	Version       int                 `json:"version"`
-	Key           string              `json:"key"`
-	BundleKey     string              `json:"bundleKey"`
-	Fingerprint   RunFingerprint      `json:"fingerprint"`
-	ContentHashes map[string]string   `json:"contentHashes"`
-	StructuralFPs map[string]string   `json:"structuralFps,omitempty"`
-	FileStats     map[string]FileStat `json:"fileStats,omitempty"`
+	Version          int                 `json:"version"`
+	Key              string              `json:"key"`
+	BundleKey        string              `json:"bundleKey"`
+	Fingerprint      RunFingerprint      `json:"fingerprint"`
+	ContentHashes    map[string]string   `json:"contentHashes"`
+	StructuralFPs    map[string]string   `json:"structuralFps,omitempty"`
+	OracleBlobHashes map[string]string   `json:"oracleBlobHashes,omitempty"`
+	FileStats        map[string]FileStat `json:"fileStats,omitempty"`
 	// AbiHashes is per-file public-API hash computed via
 	// arch.ExtractAbiSignatures + arch.HashAbiSignatures. Populated by
 	// buildManifestData when bundleEnabled. The oracle freshness gate

@@ -81,6 +81,7 @@ type runner struct {
 	resolver          typeinfer.TypeResolver
 	reporter          *diag.Reporter
 	typeOracle        *oracle.Oracle
+	oracleBlobHash    func(string) string
 	oracleStore       *store.FileStore
 	oracleCacheWriter *oracle.CacheWriter
 	cacheResult       *cache.Result
@@ -480,7 +481,7 @@ func (r *runner) runOracleIndex() (int, error) {
 	var err error
 	var preloadedCache *cache.Cache
 	r.tracker.TrackVoid("oracleIndex", func() {
-		staleOraclePaths := computeStaleOraclePaths(r.paths, r.files, *r.f.IncludeGenerated, r.tracker, *r.f.Verbose)
+		staleOraclePaths := computeStaleOraclePathsWithStore(r.paths, r.files, *r.f.IncludeGenerated, r.tracker, *r.f.Verbose, r.oracleStore)
 		oracleBackend, oracleBackendErr := resolveOracleBackend(*r.f.OracleBackend, r.cfg)
 		if oracleBackendErr != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", oracleBackendErr)
@@ -547,6 +548,7 @@ func (r *runner) runOracleIndex() (int, error) {
 		}
 	}
 	r.typeOracle = res.Oracle
+	r.oracleBlobHash = res.OracleBlobHash
 	if r.useCache {
 		r.sess.AnalysisCache = preloadedCache
 		if r.sess.AnalysisCache == nil {

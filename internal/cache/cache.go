@@ -438,6 +438,22 @@ func computeFileHash32(path string) ([32]byte, error) {
 	return hashutil.Default().HashFileRaw(path, nil)
 }
 
+// foldOracleBlobHash implements the store-key formula
+// H(contentHash || blobHash || "v1"). An absent oracle deliberately returns
+// the raw content hash so no-oracle store keys remain byte-identical.
+func foldOracleBlobHash(contentHash [32]byte, blobHash string) [32]byte {
+	if blobHash == "" {
+		return contentHash
+	}
+	h := hashutil.Hasher().New()
+	_, _ = h.Write(contentHash[:])
+	_, _ = h.Write([]byte(blobHash))
+	_, _ = h.Write([]byte("v1"))
+	var folded [32]byte
+	copy(folded[:], h.Sum(nil))
+	return folded
+}
+
 // ParseRuleSetHash converts a 32-hex-char config hash string (from
 // ComputeConfigHash) into the 16-byte form used in store.Key.
 func ParseRuleSetHash(hexStr string) [16]byte {
@@ -495,6 +511,12 @@ func (c *Cache) headerMatches(ruleHash string, scanPaths []string) bool {
 // Returns cached findings and a set of paths that are cache hits.
 // When scanPaths is non-empty, the cache is invalidated if the scan paths differ.
 func (c *Cache) CheckFiles(filePaths []string, ruleHash string, scanPaths ...string) *Result {
+	return c.CheckFilesWithOracle(filePaths, ruleHash, nil, scanPaths...)
+}
+
+// CheckFilesWithOracle is CheckFiles with an optional per-path canonical
+// oracle fact hash lookup for store-backed cache keys.
+func (c *Cache) CheckFilesWithOracle(filePaths []string, ruleHash string, blobHash func(string) string, scanPaths ...string) *Result {
 	result := &Result{
 		CachedPaths:  make(map[string]bool),
 		CachedHashes: make(map[string]string),
@@ -503,7 +525,7 @@ func (c *Cache) CheckFiles(filePaths []string, ruleHash string, scanPaths ...str
 	collector := scanner.NewFindingCollector(0)
 
 	if c.backingStore != nil {
-		return c.checkFilesFromStore(filePaths, result, collector)
+		return c.checkFilesFromStore(filePaths, result, collector, blobHash)
 	}
 
 	if !c.headerMatches(ruleHash, scanPaths) {
@@ -557,6 +579,18 @@ func (c *Cache) CheckFilesIncremental(
 	ruleHash string,
 	scanPaths ...string,
 ) *Result {
+	return c.CheckFilesIncrementalWithOracle(filePaths, dirty, ruleHash, nil, scanPaths...)
+}
+
+// CheckFilesIncrementalWithOracle is CheckFilesIncremental with an optional
+// per-path canonical oracle fact hash lookup for store-backed cache keys.
+func (c *Cache) CheckFilesIncrementalWithOracle(
+	filePaths []string,
+	dirty []string,
+	ruleHash string,
+	blobHash func(string) string,
+	scanPaths ...string,
+) *Result {
 	result := &Result{
 		CachedPaths:  make(map[string]bool),
 		CachedHashes: make(map[string]string),
@@ -565,7 +599,7 @@ func (c *Cache) CheckFilesIncremental(
 	collector := scanner.NewFindingCollector(0)
 
 	if c.backingStore != nil {
-		return c.checkFilesFromStore(filePaths, result, collector)
+		return c.checkFilesFromStore(filePaths, result, collector, blobHash)
 	}
 
 	if !c.headerMatches(ruleHash, scanPaths) {
@@ -719,14 +753,18 @@ func normalizeAbsPath(path string) string {
 // checkFilesFromStore performs cache lookup via the unified store.
 // Each file is keyed by its full SHA-256 content hash + the active rule-set
 // hash, so a content change or rule change automatically produces a miss.
-func (c *Cache) checkFilesFromStore(filePaths []string, result *Result, collector *scanner.FindingCollector) *Result {
+func (c *Cache) checkFilesFromStore(filePaths []string, result *Result, collector *scanner.FindingCollector, blobHash func(string) string) *Result {
 	for _, path := range filePaths {
 		fh, err := computeFileHash32(path)
 		if err != nil {
 			continue
 		}
+		keyHash := fh
+		if blobHash != nil {
+			keyHash = foldOracleBlobHash(fh, blobHash(path))
+		}
 		key := store.Key{
-			FileHash:    fh,
+			FileHash:    keyHash,
 			RuleSetHash: c.storeRuleSetHash,
 			Kind:        store.KindIncremental,
 		}
@@ -782,14 +820,20 @@ func scanPathsMatch(a, b []string) bool {
 // UpdateEntryColumns updates the cache for a single file after analysis using
 // columnar findings without reconstituting []Finding.
 func (c *Cache) UpdateEntryColumns(path string, columns *scanner.FindingColumns) {
-	if columns == nil {
-		c.updateEntry(path, scanner.FindingColumns{})
-		return
-	}
-	c.updateEntry(path, columns.Clone())
+	c.UpdateEntryColumnsWithOracle(path, columns, "")
 }
 
-func (c *Cache) updateEntry(path string, columns scanner.FindingColumns) {
+// UpdateEntryColumnsWithOracle updates a per-file entry using blobHash in the
+// store key. Empty blobHash preserves the historical content-only key.
+func (c *Cache) UpdateEntryColumnsWithOracle(path string, columns *scanner.FindingColumns, blobHash string) {
+	if columns == nil {
+		c.updateEntry(path, scanner.FindingColumns{}, blobHash)
+		return
+	}
+	c.updateEntry(path, columns.Clone(), blobHash)
+}
+
+func (c *Cache) updateEntry(path string, columns scanner.FindingColumns, blobHash ...string) {
 	if c.backingStore != nil {
 		fh, err := computeFileHash32(path)
 		if err != nil {
@@ -799,8 +843,12 @@ func (c *Cache) updateEntry(path string, columns scanner.FindingColumns) {
 		if err != nil {
 			return
 		}
+		keyHash := fh
+		if len(blobHash) > 0 {
+			keyHash = foldOracleBlobHash(fh, blobHash[0])
+		}
 		key := store.Key{
-			FileHash:    fh,
+			FileHash:    keyHash,
 			RuleSetHash: c.storeRuleSetHash,
 			Kind:        store.KindIncremental,
 		}

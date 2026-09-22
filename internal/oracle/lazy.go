@@ -213,6 +213,15 @@ func (l *LazyLookup) Stats() Stats {
 	return Stats{}
 }
 
+// BlobHash loads the backing oracle if necessary and returns path's canonical
+// per-file fact hash. Cache-key callers use this before replaying findings.
+func (l *LazyLookup) BlobHash(path string) string {
+	if o := l.get(); o != nil {
+		return o.BlobHash(path)
+	}
+	return ""
+}
+
 func (l *LazyLookup) LookupClass(name string) *typeinfer.ClassInfo {
 	if o := l.get(); o != nil {
 		return o.LookupClass(name)

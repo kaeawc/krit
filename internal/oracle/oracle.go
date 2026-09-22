@@ -40,6 +40,7 @@ type Lookup interface {
 // Oracle holds pre-computed type information from the Kotlin compiler.
 type Oracle struct {
 	raw                   *Data
+	blobHashes            map[string]string
 	classByFQN            map[string]*typeinfer.ClassInfo
 	classBySimple         map[string]*typeinfer.ClassInfo
 	sealedVariants        map[string][]string
@@ -124,8 +125,13 @@ func parseLineCol(s string) (uint64, bool) {
 
 // newOracleShell allocates an Oracle with all empty indexes wired to raw.
 func newOracleShell(raw *Data) *Oracle {
+	blobHashes := make(map[string]string, len(raw.Files))
+	for path, file := range raw.Files {
+		blobHashes[path] = BlobHash(file)
+	}
 	return &Oracle{
 		raw:                   raw,
+		blobHashes:            blobHashes,
 		classByFQN:            make(map[string]*typeinfer.ClassInfo),
 		classBySimple:         make(map[string]*typeinfer.ClassInfo),
 		sealedVariants:        make(map[string][]string),
@@ -141,6 +147,18 @@ func newOracleShell(raw *Data) *Oracle {
 		callTargetSuspend:     make(map[string]map[uint64]bool),
 		callTargetAnnotations: make(map[string]map[uint64][]string),
 	}
+}
+
+// BlobHash returns the canonical fact hash captured for path before the
+// Oracle releases its raw declaration/expression payloads after indexing.
+func (o *Oracle) BlobHash(path string) string {
+	if o == nil {
+		return ""
+	}
+	if hash, ok := o.blobHashes[path]; ok {
+		return hash
+	}
+	return BlobHash(nil)
 }
 
 // indexFileExpressions indexes all expression/call-target entries for one file.

@@ -220,6 +220,9 @@ type IndexResult struct {
 	// Oracle is the Kotlin Analysis API-backed type oracle. Nil when
 	// --no-type-oracle or no rule needs oracle data.
 	Oracle *oracle.Oracle
+	// OracleBlobHash returns the canonical facts hash for one source path.
+	// Nil means no oracle was active for this run.
+	OracleBlobHash func(string) string
 	// Daemon is the optional long-lived krit-types daemon handle
 	// (populated when --daemon is set and the KAA backend is
 	// selected). Callers are responsible for Close()-ing it at

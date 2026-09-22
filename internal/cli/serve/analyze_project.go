@@ -560,6 +560,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 			FindingsBundleManifestSaver:  diskCache.manifestSaver,
 			PriorContentHashes:           priorManifest.ContentHashes,
 			PriorStructuralFPs:           priorManifest.StructuralFPs,
+			PriorOracleBlobHashes:        priorManifest.OracleBlobHashes,
 			PriorAbiHashes:               priorManifest.AbiHashes,
 			PriorFileStats:               priorManifest.FileStats,
 		},

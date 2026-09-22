@@ -8,6 +8,7 @@ import (
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/store"
 )
 
 // computeStaleOraclePaths consults the prior findings-bundle manifest to
@@ -16,8 +17,9 @@ import (
 // scan; the freshness gate's lazy-load fast path is safe) or when no
 // types.json exists (cold path is going to recompute everything
 // anyway). Returns a non-empty slice when one or more files differ in
-// stat (size + mtime); the oracle layer will treat those as forced
-// misses and route them through a partial JVM reanalyze.
+// stat (size + mtime), expanded through cached reverse dependencies;
+// the oracle layer treats the result as forced misses and routes every
+// changed file and dependent through a partial JVM reanalyze.
 //
 // Only the daemon path persists a bundle manifest today, so one-shot
 // CLI runs typically return nil here and continue to rely on the
@@ -36,6 +38,10 @@ import (
 // pointless krit-fir/krit-types one-shot JVM launches on files the
 // parse phase will discard anyway.
 func computeStaleOraclePaths(scanPaths []string, kotlinFilePaths []string, includeGenerated bool, tracker perf.Tracker, verbose bool) []string {
+	return computeStaleOraclePathsWithStore(scanPaths, kotlinFilePaths, includeGenerated, tracker, verbose, nil)
+}
+
+func computeStaleOraclePathsWithStore(scanPaths []string, kotlinFilePaths []string, includeGenerated bool, tracker perf.Tracker, verbose bool, oracleStore *store.FileStore) []string {
 	if !includeGenerated {
 		kotlinFilePaths = filterGeneratedPathStrings(kotlinFilePaths)
 	}
@@ -72,6 +78,11 @@ func computeStaleOraclePaths(scanPaths []string, kotlinFilePaths []string, inclu
 		}
 		return nil
 	}
+	changedCount := len(stale)
+	cacheDir, err := oracle.CacheDir(repoDir)
+	if err == nil {
+		stale = oracle.ExpandStaleOraclePaths(oracleStore, cacheDir, kotlinFilePaths, stale)
+	}
 	if verbose {
 		preview := stale
 		if len(preview) > 5 {
@@ -81,6 +92,7 @@ func computeStaleOraclePaths(scanPaths []string, kotlinFilePaths []string, inclu
 			len(stale), strings.Join(preview, ", "))
 	}
 	perf.AddEntryDetails(tracker, "freshnessGateStaleCandidates", 0, map[string]int64{
+		"changed":   int64(changedCount),
 		"stale":     int64(len(stale)),
 		"checked":   int64(len(kotlinFilePaths)),
 		"priorSize": int64(len(prior.FileStats)),

@@ -6,7 +6,7 @@ package oracle
 // JSON entry keyed by the content hash of its bytes. The primary disk backend
 // packs those JSON blobs into first-byte shard packs; the legacy one-json-file
 // layout remains readable as a migration fallback. Each entry carries a
-// "closure" of the file's direct source-dependency paths plus a fingerprint
+// "closure" of the file's transitive source-dependency paths plus a fingerprint
 // computed by hashing the current on-disk contents of those deps. A cache
 // lookup is a HIT only if (a) the content hash matches (b) every dep path still
 // exists on disk and (c) the recomputed closure fingerprint matches the stored
@@ -72,7 +72,10 @@ func recordOracleDir(cacheDir string) {
 // v3: krit-fir now records smart-cast-refined nullability for stable
 // references (OracleSmartCastChecker), so previously-cached declared-type
 // facts (e.g. `x: Any?` where `x` is smart-cast non-null) are stale.
-const CacheVersion = 3
+// v4: cache closures now persist the sorted transitive source-dependency set,
+// so a semantic change behind an unchanged intermediate source invalidates
+// every cached file whose facts were inferred through that dependency chain.
+const CacheVersion = 4
 
 // CacheEntry is one file's cached oracle analysis. The JSON field names
 // are intentionally short because there can be tens of thousands of these
@@ -111,7 +114,7 @@ type CacheEntry struct {
 	CrashError string `json:"crash_error,omitempty"`
 }
 
-// CacheClosure records this file's direct source-file dependencies and the
+// CacheClosure records this file's transitive source-file dependencies and the
 // fingerprint computed over their content at write time.
 type CacheClosure struct {
 	DepPaths    []string `json:"dep_paths"`
@@ -578,6 +581,70 @@ type CacheDepsEntry struct {
 	PerFileDeps map[string]*Class `json:"perFileDeps"`
 }
 
+// transitiveDepPaths expands one file's direct dependency paths through the
+// dependency fragments emitted for the same oracle analysis, falling back to
+// each dependency's already-written CacheEntry closure when a partial analysis
+// did not emit that dependency. A sorted result makes closure persistence
+// deterministic; seen starts with owner so mutual recursion cannot add the
+// file itself or loop indefinitely. Unloadable dependencies remain leaves.
+func transitiveDepPaths(owner string, direct []string, entries map[string]*CacheDepsEntry, load func(string) *CacheEntry) []string {
+	seen := map[string]bool{owner: true}
+	frontier := append([]string(nil), direct...)
+	sort.Strings(frontier)
+	closure := make([]string, 0, len(frontier))
+	for len(frontier) > 0 {
+		path := frontier[0]
+		frontier = frontier[1:]
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		closure = append(closure, path)
+		var next []string
+		if entry := entries[path]; entry != nil {
+			next = append(next, entry.DepPaths...)
+		} else if load != nil {
+			if entry := load(path); entry != nil {
+				next = append(next, entry.Closure.DepPaths...)
+			}
+		}
+		sort.Strings(next)
+		frontier = append(frontier, next...)
+	}
+	sort.Strings(closure)
+	return closure
+}
+
+func closureEntryLoader(s *store.FileStore, cacheDir string) func(string) *CacheEntry {
+	loaded := make(map[string]*CacheEntry)
+	missing := make(map[string]bool)
+	return func(path string) *CacheEntry {
+		if entry, ok := loaded[path]; ok {
+			return entry
+		}
+		if missing[path] {
+			return nil
+		}
+		hash, err := ContentHash(path)
+		if err != nil {
+			missing[path] = true
+			return nil
+		}
+		var entry *CacheEntry
+		if s != nil {
+			entry, err = LoadEntryFromStore(s, hash)
+		} else {
+			entry, err = LoadEntry(cacheDir, hash)
+		}
+		if err != nil || entry == nil {
+			missing[path] = true
+			return nil
+		}
+		loaded[path] = entry
+		return entry
+	}
+}
+
 // mergeCacheDeps is the CacheDepsFile counterpart of mergeData. The
 // same disjointness invariant applies: callers split files across
 // shards by path so per-shard `Files` and `Crashed` maps are unique.
@@ -739,7 +806,7 @@ func freshOracleEntryJobs(fresh *Data, deps *CacheDepsFile) []freshOracleEntryJo
 		var depPaths []string
 		var perFileDeps map[string]*Class
 		if depEntry != nil {
-			depPaths = append([]string(nil), depEntry.DepPaths...)
+			depPaths = transitiveDepPaths(path, depEntry.DepPaths, deps.Files, nil)
 			perFileDeps = cloneOracleClassMap(depEntry.PerFileDeps)
 		}
 		jobs = append(jobs, freshOracleEntryJob{
@@ -923,6 +990,7 @@ func WriteFreshEntriesWithTrackerScopedV2(
 	stats := newFreshEntryWriteStats(fresh, deps)
 	defer stats.emit(tracker, false)
 	hashCache := make(map[string]string, len(fresh.Files))
+	loadClosure := closureEntryLoader(nil, cacheDir)
 	writes := make([]oracleEncodedEntryWrite, 0, len(fresh.Files))
 	pendingPoisonWrites := int64(0)
 	for path, fr := range fresh.Files {
@@ -941,7 +1009,7 @@ func WriteFreshEntriesWithTrackerScopedV2(
 		var depPaths []string
 		var perFileDeps map[string]*Class
 		if depEntry != nil {
-			depPaths = depEntry.DepPaths
+			depPaths = transitiveDepPaths(path, depEntry.DepPaths, deps.Files, loadClosure)
 			perFileDeps = depEntry.PerFileDeps
 		}
 		stats.recordDepPaths(depPaths)
@@ -1203,6 +1271,7 @@ func WriteFreshEntriesToStoreWithTrackerScopedV2(
 	stats := newFreshEntryWriteStats(fresh, deps)
 	defer stats.emit(tracker, true)
 	hashCache := make(map[string]string, len(fresh.Files))
+	loadClosure := closureEntryLoader(s, cacheDir)
 	approx := ""
 	if deps != nil {
 		approx = deps.Approximation
@@ -1223,7 +1292,7 @@ func WriteFreshEntriesToStoreWithTrackerScopedV2(
 		var depPaths []string
 		var perFileDeps map[string]*Class
 		if depEntry != nil {
-			depPaths = depEntry.DepPaths
+			depPaths = transitiveDepPaths(path, depEntry.DepPaths, deps.Files, loadClosure)
 			perFileDeps = depEntry.PerFileDeps
 		}
 		stats.recordDepPaths(depPaths)

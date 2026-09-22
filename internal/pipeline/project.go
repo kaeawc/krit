@@ -265,6 +265,9 @@ type ProjectHostState struct {
 	AndroidCacheWriter *scanner.AndroidCacheWriter
 	// Oracle, when non-nil, is the resident type-oracle handle.
 	Oracle *oracle.Oracle
+	// OracleBlobHash returns the current run's canonical per-file fact hash.
+	// Nil means oracle facts are absent for this run.
+	OracleBlobHash func(string) string
 	// OracleDaemon, when non-nil, is the long-lived krit-types JVM
 	// daemon handle (used only when Oracle is also set).
 	OracleDaemon *oracle.Daemon
@@ -338,7 +341,8 @@ type ProjectHostState struct {
 	// means "the host has no opinion, fall back to walking the
 	// filesystem."
 	SourceSetDirty []string
-	// PriorContentHashes and PriorStructuralFPs, when non-nil, let
+	// PriorContentHashes, PriorStructuralFPs, and PriorOracleBlobHashes,
+	// when non-nil, let
 	// sourceSetFingerprint / crossFileStructuralFingerprint /
 	// buildManifestData skip the ~3s per-call cost of recomputing
 	// per-file hashes and structural fingerprints across the 16 k+
@@ -348,8 +352,9 @@ type ProjectHostState struct {
 	// from the resident bundle manifest; CLI callers leave them nil
 	// and pay the recompute, which is only noticeable at very large
 	// repos and only when the bundle-fingerprint check needs them.
-	PriorContentHashes map[string]string
-	PriorStructuralFPs map[string]string
+	PriorContentHashes    map[string]string
+	PriorStructuralFPs    map[string]string
+	PriorOracleBlobHashes map[string]string
 	// PriorAbiHashes is the daemon-side hint of last-run per-file
 	// public-ABI hashes. Used by buildManifestData to carry forward
 	// hashes for files that were not parsed this run (cache-hit
@@ -743,6 +748,10 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	if err != nil {
 		return ProjectAnalysisResult{}, fmt.Errorf("index: %w", err)
 	}
+	// Oracle facts are produced inside IndexPhase for daemon/input-types
+	// project runs. Make the current lookup available to the bundle manifest
+	// builder and structural-replay gate that run immediately afterward.
+	host.OracleBlobHash = indexResult.OracleBlobHash
 	defer endProjectAnalysisTrackers(indexResult)
 	if err := loadJavaSemanticFacts(ctx, args, host, parseResult.JavaFiles, &indexResult); err != nil {
 		return ProjectAnalysisResult{}, err
@@ -997,6 +1006,9 @@ func completeRunProjectIndexResult(args ProjectArgs, host ProjectHostState, warm
 	if host.Oracle != nil && indexResult.Oracle == nil {
 		indexResult.Oracle = host.Oracle
 	}
+	if host.OracleBlobHash != nil && indexResult.OracleBlobHash == nil {
+		indexResult.OracleBlobHash = host.OracleBlobHash
+	}
 	if host.OracleDaemon != nil && indexResult.Daemon == nil {
 		indexResult.Daemon = host.OracleDaemon
 	}
@@ -1180,6 +1192,12 @@ func buildWarmAnalysisCachePlan(args ProjectArgs, host ProjectHostState) warmAna
 	if host.AnalysisCache == nil || !host.AnalysisCacheLookup {
 		return warmAnalysisCachePlan{}
 	}
+	// Project-hosted oracle runs refresh facts inside IndexPhase. A findings
+	// lookup before that refresh would key on prior facts and could skip parsing
+	// a dependent whose semantics changed, so defer lookup to IndexPhase.
+	if args.OracleEnabled {
+		return warmAnalysisCachePlan{}
+	}
 	kotlinPaths, javaPaths := warmSourcePaths(args)
 	filePaths := warmCacheFilePaths(args, kotlinPaths, javaPaths)
 	ruleHash := projectRuleHashWithEditorConfig(args.ActiveRules, args.Config, args.EditorConfigEnabled)
@@ -1219,9 +1237,9 @@ func warmAnalysisCacheResult(args ProjectArgs, host ProjectHostState, filePaths 
 	start := time.Now()
 	var result *cache.Result
 	if host.AnalysisCacheDirty != nil {
-		result = host.AnalysisCache.CheckFilesIncremental(filePaths, host.AnalysisCacheDirty, ruleHash, args.Paths...)
+		result = host.AnalysisCache.CheckFilesIncrementalWithOracle(filePaths, host.AnalysisCacheDirty, ruleHash, host.OracleBlobHash, args.Paths...)
 	} else {
-		result = host.AnalysisCache.CheckFiles(filePaths, ruleHash, args.Paths...)
+		result = host.AnalysisCache.CheckFilesWithOracle(filePaths, ruleHash, host.OracleBlobHash, args.Paths...)
 	}
 	stats := &cache.Stats{
 		Cached:    result.TotalCached,
@@ -1474,11 +1492,12 @@ func wireOracleHandles(in *IndexInput, args ProjectArgs, host ProjectHostState, 
 // planner needs. Populated by buildManifestData before dispatch so
 // runDispatchOrLoadBundle can quickly compare against the prior run.
 type deltaManifestData struct {
-	enabled       bool
-	manifestKey   string
-	contentHashes map[string]string
-	structuralFPs map[string]string
-	fileStats     map[string]scanner.FileStat
+	enabled          bool
+	manifestKey      string
+	contentHashes    map[string]string
+	structuralFPs    map[string]string
+	oracleBlobHashes map[string]string
+	fileStats        map[string]scanner.FileStat
 	// abiHashes is per-file public-ABI hash (Kotlin files only).
 	// Computed lazily by buildManifestData and persisted in
 	// FindingsBundleManifest.AbiHashes. The oracle freshness gate
@@ -1519,6 +1538,10 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 	total := len(parsedByPath) + len(host.PriorContentHashes)
 	contentHashes := make(map[string]string, total)
 	structuralFPs := make(map[string]string, total)
+	var oracleBlobHashes map[string]string
+	if host.OracleBlobHash != nil {
+		oracleBlobHashes = make(map[string]string, total)
+	}
 	fileStats := make(map[string]scanner.FileStat, total)
 	abiHashes := make(map[string]string, len(parseResult.KotlinFiles))
 	dirty := dirtyPathSet(host.SourceSetDirty)
@@ -1530,6 +1553,7 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 		structuralFPs[path] = priorOrCompute(host.PriorStructuralFPs, dirty, path, func() string {
 			return scanner.FileStructuralFingerprint(f)
 		})
+		recordOracleBlobHash(oracleBlobHashes, host.PriorOracleBlobHashes, dirty, path, host.OracleBlobHash)
 		if stat, ok := statForPath(path); ok {
 			fileStats[path] = stat
 		}
@@ -1553,6 +1577,7 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 		if fp, ok := host.PriorStructuralFPs[path]; ok {
 			structuralFPs[path] = fp
 		}
+		recordOracleBlobHash(oracleBlobHashes, host.PriorOracleBlobHashes, dirty, path, host.OracleBlobHash)
 		// Reuse host.PriorFileStats for carry-forward when populated
 		// (daemon path post-#590). By construction these files are
 		// NOT in the dirty set — neither the watcher saw an event
@@ -1576,13 +1601,29 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 		}
 	}
 	return deltaManifestData{
-		enabled:       true,
-		manifestKey:   scanner.FindingsBundleManifestKey(host.FindingsBundleCacheRoot, args.Paths),
-		contentHashes: contentHashes,
-		structuralFPs: structuralFPs,
-		fileStats:     fileStats,
-		abiHashes:     abiHashes,
+		enabled:          true,
+		manifestKey:      scanner.FindingsBundleManifestKey(host.FindingsBundleCacheRoot, args.Paths),
+		contentHashes:    contentHashes,
+		structuralFPs:    structuralFPs,
+		oracleBlobHashes: oracleBlobHashes,
+		fileStats:        fileStats,
+		abiHashes:        abiHashes,
 	}
+}
+
+func recordOracleBlobHash(
+	oracleBlobHashes map[string]string,
+	priorOracleBlobHashes map[string]string,
+	dirty map[string]bool,
+	path string,
+	oracleBlobHash func(string) string,
+) {
+	if oracleBlobHashes == nil || oracleBlobHash == nil {
+		return
+	}
+	oracleBlobHashes[path] = priorOrCompute(priorOracleBlobHashes, dirty, path, func() string {
+		return oracleBlobHash(path)
+	})
 }
 
 // buildDeltaManifest assembles the manifest struct for the current run
@@ -1591,12 +1632,13 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 // mutable state.
 func buildDeltaManifest(m deltaManifestData, runFP scanner.RunFingerprint) scanner.FindingsBundleManifest {
 	return scanner.FindingsBundleManifest{
-		BundleKey:     scanner.FindingsBundleKey(runFP),
-		Fingerprint:   runFP,
-		ContentHashes: m.contentHashes,
-		StructuralFPs: m.structuralFPs,
-		FileStats:     m.fileStats,
-		AbiHashes:     m.abiHashes,
+		BundleKey:        scanner.FindingsBundleKey(runFP),
+		Fingerprint:      runFP,
+		ContentHashes:    m.contentHashes,
+		StructuralFPs:    m.structuralFPs,
+		OracleBlobHashes: m.oracleBlobHashes,
+		FileStats:        m.fileStats,
+		AbiHashes:        m.abiHashes,
 	}
 }
 
@@ -1964,7 +2006,7 @@ func tryLoadStructurallyStableBundle(host ProjectHostState, runFP scanner.RunFin
 	}
 	changedPaths := diffContentHashes(prior.ContentHashes, manifest.contentHashes)
 	plan := scanner.ConservativeDeltaPlanner{}.Plan(prior.Fingerprint, runFP, changedPaths)
-	if !plan.ReusePrevious || len(plan.ChangedPaths) != 1 || !bodyOnlyKotlinChange(plan.ChangedPaths[0], prior.StructuralFPs, manifest.structuralFPs) {
+	if !plan.ReusePrevious || len(plan.ChangedPaths) != 1 || !bodyOnlyKotlinChange(plan.ChangedPaths[0], prior.StructuralFPs, manifest.structuralFPs, prior.OracleBlobHashes, manifest.oracleBlobHashes) {
 		return nil, false
 	}
 	priorBundle, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, prior.Fingerprint)
@@ -2014,14 +2056,20 @@ func aliasBundleOutputCache(host ProjectHostState, priorFP, newFP scanner.RunFin
 	host.StoreBundleOutput(newKey, existing)
 }
 
-func bodyOnlyKotlinChange(path string, prior, current map[string]string) bool {
+func bodyOnlyKotlinChange(path string, prior, current, priorOracle, currentOracle map[string]string) bool {
 	if !strings.HasSuffix(path, ".kt") && !strings.HasSuffix(path, ".kts") {
 		return false
 	}
 	if len(prior) == 0 || len(current) == 0 {
 		return false
 	}
-	return prior[path] != "" && prior[path] == current[path]
+	if prior[path] == "" || prior[path] != current[path] {
+		return false
+	}
+	if len(priorOracle) == 0 && len(currentOracle) == 0 {
+		return true
+	}
+	return priorOracle[path] != "" && priorOracle[path] == currentOracle[path]
 }
 
 func reportFindingsBundleMiss(host ProjectHostState, manifest deltaManifestData, runFP scanner.RunFingerprint) {
@@ -2053,6 +2101,7 @@ func runFingerprintDiffFields(prior, current scanner.RunFingerprint) []string {
 	add("config", prior.Config, current.Config)
 	add("sourceSet", prior.SourceSet, current.SourceSet)
 	add("crossFile", prior.CrossFile, current.CrossFile)
+	add("oracleFacts", prior.OracleFacts, current.OracleFacts)
 	add("android", prior.Android, current.Android)
 	add("libraryFacts", prior.LibraryFacts, current.LibraryFacts)
 	return changed
@@ -2484,6 +2533,7 @@ func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, t
 		Config:       rulesHash,
 		SourceSet:    fingerprintPathHashMap(prior.ContentHashes),
 		CrossFile:    fingerprintPathHashMap(prior.StructuralFPs),
+		OracleFacts:  fingerprintOptionalPathHashMap(prior.OracleBlobHashes),
 		Android:      androidFP,
 		LibraryFacts: libraryFactsFP,
 	}
@@ -2708,6 +2758,48 @@ func fingerprintPathHashMap(values map[string]string) string {
 	}
 	sort.Strings(entries)
 	return hashutil.HashHex([]byte(strings.Join(entries, "\x01")))
+}
+
+func fingerprintOptionalPathHashMap(values map[string]string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return fingerprintPathHashMap(values)
+}
+
+func oracleFactsFingerprint(
+	kotlinFiles, javaFiles []*scanner.File,
+	priorSources, priorBlobs map[string]string,
+	dirty map[string]bool,
+	lookup func(string) string,
+) string {
+	if lookup == nil {
+		return ""
+	}
+	parsed := make(map[string]bool, len(kotlinFiles)+len(javaFiles))
+	values := make(map[string]string, len(kotlinFiles)+len(javaFiles)+len(priorSources))
+	addParsed := func(files []*scanner.File) {
+		for _, file := range files {
+			if file == nil {
+				continue
+			}
+			parsed[file.Path] = true
+			values[file.Path] = priorOrCompute(priorBlobs, dirty, file.Path, func() string {
+				return lookup(file.Path)
+			})
+		}
+	}
+	addParsed(kotlinFiles)
+	addParsed(javaFiles)
+	for path := range priorSources {
+		if parsed[path] || (dirty != nil && dirty[path]) {
+			continue
+		}
+		values[path] = priorOrCompute(priorBlobs, dirty, path, func() string {
+			return lookup(path)
+		})
+	}
+	return fingerprintPathHashMap(values)
 }
 
 // tryDeltaDispatch attempts the ConservativeDeltaPlanner's single-file
@@ -3214,6 +3306,7 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 		Config:       rulesHash,
 		SourceSet:    sourceSetFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, dirty),
 		CrossFile:    crossFileStructuralFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorStructuralFPs, dirty),
+		OracleFacts:  oracleFactsFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, host.PriorOracleBlobHashes, dirty, host.OracleBlobHash),
 		Android:      androidFP,
 		LibraryFacts: libraryFactsFP,
 	}
@@ -3270,7 +3363,7 @@ func tryLoadStructurallyStableBundleWithPrior(host ProjectHostState, runFP scann
 	}
 	changedPaths := diffContentHashes(prior.ContentHashes, manifest.contentHashes)
 	plan := scanner.ConservativeDeltaPlanner{}.Plan(prior.Fingerprint, runFP, changedPaths)
-	if !plan.ReusePrevious || len(plan.ChangedPaths) != 1 || !bodyOnlyKotlinChange(plan.ChangedPaths[0], prior.StructuralFPs, manifest.structuralFPs) {
+	if !plan.ReusePrevious || len(plan.ChangedPaths) != 1 || !bodyOnlyKotlinChange(plan.ChangedPaths[0], prior.StructuralFPs, manifest.structuralFPs, prior.OracleBlobHashes, manifest.oracleBlobHashes) {
 		return nil, false
 	}
 	priorKey := scanner.FindingsBundleKey(prior.Fingerprint)
@@ -3366,6 +3459,10 @@ func buildPreviewManifestData(args ProjectArgs, host ProjectHostState, parseResu
 	total := len(parsedByPath) + len(host.PriorContentHashes)
 	contentHashes := make(map[string]string, total)
 	structuralFPs := make(map[string]string, total)
+	var oracleBlobHashes map[string]string
+	if host.OracleBlobHash != nil {
+		oracleBlobHashes = make(map[string]string, total)
+	}
 	dirty := dirtyPathSet(host.SourceSetDirty)
 	for path, f := range parsedByPath {
 		contentHashes[path] = priorOrCompute(host.PriorContentHashes, dirty, path, func() string {
@@ -3374,6 +3471,11 @@ func buildPreviewManifestData(args ProjectArgs, host ProjectHostState, parseResu
 		structuralFPs[path] = priorOrCompute(host.PriorStructuralFPs, dirty, path, func() string {
 			return scanner.FileStructuralFingerprint(f)
 		})
+		if oracleBlobHashes != nil {
+			oracleBlobHashes[path] = priorOrCompute(host.PriorOracleBlobHashes, dirty, path, func() string {
+				return host.OracleBlobHash(path)
+			})
+		}
 	}
 	for path, hash := range host.PriorContentHashes {
 		if _, parsed := parsedByPath[path]; parsed {
@@ -3386,12 +3488,18 @@ func buildPreviewManifestData(args ProjectArgs, host ProjectHostState, parseResu
 		if fp, ok := host.PriorStructuralFPs[path]; ok {
 			structuralFPs[path] = fp
 		}
+		if oracleBlobHashes != nil {
+			oracleBlobHashes[path] = priorOrCompute(host.PriorOracleBlobHashes, dirty, path, func() string {
+				return host.OracleBlobHash(path)
+			})
+		}
 	}
 	return deltaManifestData{
-		enabled:       true,
-		manifestKey:   scanner.FindingsBundleManifestKey(host.FindingsBundleCacheRoot, args.Paths),
-		contentHashes: contentHashes,
-		structuralFPs: structuralFPs,
+		enabled:          true,
+		manifestKey:      scanner.FindingsBundleManifestKey(host.FindingsBundleCacheRoot, args.Paths),
+		contentHashes:    contentHashes,
+		structuralFPs:    structuralFPs,
+		oracleBlobHashes: oracleBlobHashes,
 	}
 }
 
@@ -3411,6 +3519,7 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 		SourceSet: sourceSetFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, dirty),
 	}
 	fp.CrossFile = crossFileStructuralFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorStructuralFPs, dirty)
+	fp.OracleFacts = oracleFactsFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, host.PriorOracleBlobHashes, dirty, indexResult.OracleBlobHash)
 	if indexResult.AndroidProject != nil {
 		fp.Android = libraryFactsFingerprint(indexResult.AndroidProject.GradlePaths)
 	}

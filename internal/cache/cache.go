@@ -73,7 +73,10 @@ const CacheFileName = "incremental.cache"
 // v12: Setter and initializer-block smart casts are now scoped to their own
 // body instead of leaking class-wide, changing null-safety findings for
 // unchanged source.
-const cachePayloadVersion = "v12"
+// v13: UselessElvisOnNonNull now projects the compiler's USELESS_ELVIS verdict
+// (anchored to the tightest same-typed node, and for non-local operands),
+// changing its findings for unchanged source.
+const cachePayloadVersion = "v13"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

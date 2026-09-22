@@ -101,11 +101,12 @@ type precisionCount struct {
 func main() {
 	update := flag.Bool("update", false, "rewrite corpus snapshots with current findings")
 	precision := flag.Bool("precision", false, "print precision from current findings and triage labels")
+	compilerParity := flag.Bool("compiler-parity", false, "compare current findings against compiler diagnostics per rule and print an agreement report")
 	corpusName := flag.String("corpus", "", "restrict the run to one corpus name")
 	flag.Parse()
 
-	if *update && *precision {
-		fmt.Fprintln(os.Stderr, "error: --update and --precision are mutually exclusive")
+	if (*update && *precision) || (*update && *compilerParity) || (*precision && *compilerParity) {
+		fmt.Fprintln(os.Stderr, "error: --update, --precision, and --compiler-parity are mutually exclusive")
 		os.Exit(2)
 	}
 
@@ -121,33 +122,41 @@ func main() {
 		os.Exit(2)
 	}
 
-	observed, err := collect(root, selected)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
-	}
-
 	switch {
-	case *update:
-		if err := updateSnapshots(root, observed); err != nil {
+	case *compilerParity:
+		if err := printCompilerParity(root, selected, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)
 		}
-	case *precision:
-		if err := printPrecision(root, observed, os.Stdout); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(2)
-		}
+		return
 	default:
-		clean, err := checkSnapshots(root, observed, os.Stderr)
+		observed, err := collect(root, selected)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)
 		}
-		if !clean {
-			os.Exit(1)
+		switch {
+		case *update:
+			if err := updateSnapshots(root, observed); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(2)
+			}
+		case *precision:
+			if err := printPrecision(root, observed, os.Stdout); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(2)
+			}
+		default:
+			clean, err := checkSnapshots(root, observed, os.Stderr)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(2)
+			}
+			if !clean {
+				os.Exit(1)
+			}
+			fmt.Printf("Corpus precision snapshot gate: OK (%d corpora).\n", len(observed))
 		}
-		fmt.Printf("Corpus precision snapshot gate: OK (%d corpora).\n", len(observed))
 	}
 }
 

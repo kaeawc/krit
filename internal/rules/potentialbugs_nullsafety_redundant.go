@@ -1959,6 +1959,31 @@ func (r *UselessElvisOnNonNullRule) Confidence() float64 { return api.Confidence
 
 func (r *UselessElvisOnNonNullRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
+	// Projection trusts the compiler's USELESS_ELVIS verdict, so it gates only
+	// on the structural left operand — not uselessElvisOperand's resolver
+	// heuristic, which refuses e.g. an imported non-local identifier. Gating
+	// projection on that heuristic would drop a compiler-confirmed finding.
+	if _, ok := uselessElvisLeftOperand(file, idx); ok && projectDiagnostic(ctx, DiagnosticProjection{
+		RuleID:       "UselessElvisOnNonNull",
+		FactoryNames: []string{"USELESS_ELVIS"},
+		Message: func(ctx *api.Context, _ oracle.Diagnostic) string {
+			left, _ := uselessElvisLeftOperand(ctx.File, ctx.Idx)
+			leftText := strings.TrimSpace(ctx.File.FlatNodeText(left))
+			return fmt.Sprintf("Useless elvis (?:) on non-nullable '%s'. The fallback is dead code.", leftText)
+		},
+		Fix: func(ctx *api.Context, _ oracle.Diagnostic) *scanner.Fix {
+			left, _ := uselessElvisLeftOperand(ctx.File, ctx.Idx)
+			return &scanner.Fix{
+				ByteMode:    true,
+				StartByte:   int(ctx.File.FlatEndByte(left)),
+				EndByte:     int(ctx.File.FlatEndByte(ctx.Idx)),
+				Replacement: "",
+			}
+		},
+		Confidence: api.ConfidenceVeryHigh,
+	}) {
+		return
+	}
 	if ctx.Resolver == nil {
 		return
 	}
@@ -2033,6 +2058,20 @@ func (r *UselessElvisOnNonNullRule) ExpressionPositions(file *scanner.File) []ui
 		}
 	})
 	return out
+}
+
+// uselessElvisLeftOperand returns the elvis's left child with only a
+// structural check (elvis shape + present left child). It applies none of
+// uselessElvisOperand's resolver-heuristic gates (same-file target, skip
+// shapes), because the projection path relies on the compiler's authoritative
+// USELESS_ELVIS verdict rather than source inference — so it must still emit
+// for imported / non-local operands the heuristic would refuse.
+func uselessElvisLeftOperand(file *scanner.File, idx uint32) (left uint32, ok bool) {
+	if file == nil || file.FlatType(idx) != "elvis_expression" || file.FlatChildCount(idx) < 3 {
+		return 0, false
+	}
+	left = file.FlatChild(idx, 0)
+	return left, left != 0
 }
 
 // uselessElvisOperand returns (left child, unwrapped operand) when the

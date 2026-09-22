@@ -456,6 +456,13 @@ func (r *runner) bootstrapResolver() {
 			StoreDir:      r.f.StoreDir,
 			Paths:         flag.Args(),
 		})
+		if *r.f.DumpOracleDiagnostics {
+			os.Exit(RunDumpOracleDiagnosticsTo(os.Stdout, os.Stderr, RunDumpOracleDiagnosticsOpts{
+				Backend: *r.f.OracleBackend,
+				Verbose: *r.f.Verbose,
+				Paths:   flag.Args(),
+			}))
+		}
 	})
 }
 

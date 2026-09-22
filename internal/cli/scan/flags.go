@@ -57,6 +57,7 @@ type scanFlags struct {
 	GenerateSchema           *bool
 	InputTypes               *string
 	OutputTypes              *string
+	DumpOracleDiagnostics    *bool
 	NoTypeOracle             *bool
 	OracleBackend            *string
 	NoCacheOracle            *bool
@@ -166,6 +167,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.GenerateSchema = fs.Bool("generate-schema", false, "Print JSON Schema for krit.yml to stdout")
 	f.InputTypes = fs.String("input-types", "", "Load pre-built type oracle JSON (skip JVM invocation)")
 	f.OutputTypes = fs.String("output-types", "", "Run krit-types and write oracle JSON to this path, then exit")
+	f.DumpOracleDiagnostics = fs.Bool("dump-oracle-diagnostics", false, "Print retained Kotlin compiler diagnostics as JSON, then exit")
 	f.NoTypeOracle = fs.Bool("no-type-oracle", false, "Skip the JVM type oracle entirely (faster, less precise)")
 	f.OracleBackend = fs.String("oracle-backend", "", "Pick the JVM daemon for the type oracle: 'fir' (krit-fir, default) or 'kaa' (krit-types). Overrides the oracle.backend value in krit.yml.")
 	f.NoCacheOracle = fs.Bool("no-cache-oracle", false, "Disable the on-disk incremental oracle cache (forces a full JVM run)")

@@ -53,7 +53,7 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 			NodeTypes:              []string{"elvis_expression"},
 			Confidence:             0.85,
 			Fix:                    api.FixSemantic,
-			Needs:                  api.NeedsTypeInfo | api.NeedsOracleExprType,
+			Needs:                  api.NeedsTypeInfo | api.NeedsOracleExprType | api.NeedsOracleDiagnostics,
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Implementation:         r,
 			Check:                  r.check,

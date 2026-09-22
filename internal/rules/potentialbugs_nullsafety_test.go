@@ -162,6 +162,23 @@ fun process(obj: Any) {
 	}
 }
 
+func TestUnsafeCast_NestedDiagnosticNotClaimedByEnclosingCast(t *testing.T) {
+	// The compiler emits CAST_NEVER_SUCCEEDS on the inner cast `obj as Foo`.
+	// The enclosing cast `(obj as Foo) as Bar` contains that range, so a plain
+	// overlap check would wrongly attribute the diagnostic (and its deleting
+	// fix) to the outer cast too. Foo/Bar are unresolved, so the local
+	// never-succeeds fallback stays off and only the diagnostic path can fire.
+	findings := runRuleByNameWithOracleDiagnosticForNode(t, "UnsafeCast", `
+package test
+fun process(obj: Any) {
+    val x = (obj as Foo) as Bar
+}
+`, "as_expression", "obj as Foo", "CAST_NEVER_SUCCEEDS")
+	if len(findings) != 1 {
+		t.Fatalf("nested cast diagnostic must be claimed only by the inner cast, got %d findings: %+v", len(findings), findings)
+	}
+}
+
 func TestUnsafeCast_UsesOracleCastNeverSucceedsDiagnosticForSafeCast(t *testing.T) {
 	findings := runRuleByNameWithOracleDiagnostic(t, "UnsafeCast", `
 package test

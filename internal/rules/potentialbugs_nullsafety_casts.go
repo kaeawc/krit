@@ -219,25 +219,16 @@ func unsafeCastHasNeverSucceedsDiagnosticFlat(ctx *api.Context, idx uint32) (ora
 		if !unsafeCastNeverSucceedsDiagnosticFactories[d.FactoryName] {
 			continue
 		}
-		if unsafeCastDiagnosticOverlapsFlat(ctx.File, idx, d) {
+		// Anchor to the tightest as_expression rather than any overlapping
+		// one: for a nested cast like `(x as A) as B`, a CAST_NEVER_SUCCEEDS
+		// the compiler emitted on the inner cast overlaps the outer node's
+		// range, and a plain overlap check would wrongly attribute it (and its
+		// deleting fix) to the outer cast.
+		if diagnosticAnchoredAtNode(ctx.File, idx, d) {
 			return d, true
 		}
 	}
 	return oracle.Diagnostic{}, false
-}
-
-func unsafeCastDiagnosticOverlapsFlat(file *scanner.File, idx uint32, d oracle.Diagnostic) bool {
-	if file == nil || idx == 0 {
-		return false
-	}
-	if d.EndByte > d.StartByte {
-		return d.StartByte < int(file.FlatEndByte(idx)) && d.EndByte > int(file.FlatStartByte(idx))
-	}
-	if d.Line <= 0 || d.Col <= 0 {
-		return false
-	}
-	off := file.LineOffset(d.Line-1) + d.Col - 1
-	return off >= int(file.FlatStartByte(idx)) && off < int(file.FlatEndByte(idx))
 }
 
 func unsafeCastLocalNeverSucceedsFlat(ctx *api.Context, cast unsafeCastExpressionParts) bool {

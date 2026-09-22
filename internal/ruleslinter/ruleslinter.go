@@ -289,13 +289,15 @@ type funcKey struct {
 }
 
 type funcInfo struct {
-	Body     *ast.BlockStmt
-	CtxParam string // name of the parameter typed *api.Context, if any
-	RecvName string // name of the receiver parameter, if any (e.g. "r")
-	RecvType string // type of the receiver, stripped of leading '*' (e.g. "FooRule")
+	Body         *ast.BlockStmt
+	CtxParam     string          // name of the parameter typed *api.Context, if any
+	OracleParams map[string]bool // names of parameters statically shaped like oracle.Lookup
+	RecvName     string          // name of the receiver parameter, if any (e.g. "r")
+	RecvType     string          // type of the receiver, stripped of leading '*' (e.g. "FooRule")
 }
 
 func analyzeFiles(fset *token.FileSet, files []*ast.File) []Violation {
+	oracleInterfaces := oracleShapedInterfaceNames(files)
 	funcs := make(map[funcKey]funcInfo)
 	for _, f := range files {
 		for _, decl := range f.Decls {
@@ -305,10 +307,11 @@ func analyzeFiles(fset *token.FileSet, files []*ast.File) []Violation {
 			}
 			recv := receiverTypeName(fn)
 			funcs[funcKey{Receiver: recv, Name: fn.Name.Name}] = funcInfo{
-				Body:     fn.Body,
-				CtxParam: ctxParamName(fn.Type),
-				RecvName: receiverParamName(fn),
-				RecvType: recv,
+				Body:         fn.Body,
+				CtxParam:     ctxParamName(fn.Type),
+				OracleParams: oracleParamNames(fn.Type, oracleInterfaces),
+				RecvName:     receiverParamName(fn),
+				RecvType:     recv,
 			}
 		}
 	}
@@ -323,7 +326,7 @@ func analyzeFiles(fset *token.FileSet, files []*ast.File) []Violation {
 			if !isAPIRegisterCall(call) {
 				return true
 			}
-			v := analyzeRegisterCall(fset, funcs, f, call)
+			v := analyzeRegisterCall(fset, funcs, oracleInterfaces, f, call)
 			violations = append(violations, v...)
 			return true
 		})
@@ -335,6 +338,76 @@ func analyzeFiles(fset *token.FileSet, files []*ast.File) []Violation {
 		return violations[i].Position.Offset < violations[j].Position.Offset
 	})
 	return violations
+}
+
+// oracleShapedInterfaceNames returns locally-declared interfaces that expose
+// at least one oracle.Lookup method. This lets the linter follow helpers that
+// accept a smaller oracle interface without needing type information.
+func oracleShapedInterfaceNames(files []*ast.File) map[string]bool {
+	names := make(map[string]bool)
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok {
+					continue
+				}
+				iface, ok := ts.Type.(*ast.InterfaceType)
+				if !ok || iface.Methods == nil {
+					continue
+				}
+				for _, method := range iface.Methods.List {
+					// Embedded interfaces have no explicit method name and are
+					// deliberately excluded from this name-based approximation.
+					for _, name := range method.Names {
+						if _, ok := oracleMethodNeedNames[name.Name]; ok {
+							names[ts.Name.Name] = true
+						}
+					}
+				}
+			}
+		}
+	}
+	return names
+}
+
+func oracleParamNames(ft *ast.FuncType, oracleInterfaces map[string]bool) map[string]bool {
+	names := make(map[string]bool)
+	if ft == nil || ft.Params == nil {
+		return names
+	}
+	for _, field := range ft.Params.List {
+		if !isOracleLookupType(field.Type, oracleInterfaces) {
+			continue
+		}
+		for _, name := range field.Names {
+			names[name.Name] = true
+		}
+	}
+	return names
+}
+
+func isOracleLookupType(expr ast.Expr, oracleInterfaces map[string]bool) bool {
+	for {
+		paren, ok := expr.(*ast.ParenExpr)
+		if !ok {
+			break
+		}
+		expr = paren.X
+	}
+	if sel, ok := expr.(*ast.SelectorExpr); ok {
+		if id, ok := sel.X.(*ast.Ident); ok {
+			return id.Name == "oracle" && sel.Sel.Name == "Lookup"
+		}
+	}
+	if id, ok := expr.(*ast.Ident); ok {
+		return oracleInterfaces[id.Name]
+	}
+	return false
 }
 
 // receiverParamName returns the name of the method receiver parameter,
@@ -486,6 +559,17 @@ func capabilityViolations(reg registration, usage bodyUsage, pos token.Position)
 			Message:  "calls (*oracle.CompositeResolver).Oracle() but does not declare NeedsOracle or a NeedsOracle* capability in Meta()",
 		})
 	}
+	for _, capability := range sortedOracleCapabilities(usage.oracleCaps) {
+		if reg.NeedsNames[capability] || reg.NeedsNames["NeedsOracle"] {
+			continue
+		}
+		method := usage.oracleCaps[capability]
+		out = append(out, Violation{
+			RuleID:   reg.ID,
+			Position: pos,
+			Message:  "calls oracle.Lookup." + method + " (via .Oracle()) but does not declare " + capability + " or NeedsOracle in Meta()",
+		})
+	}
 	if usage.concurrent && !declaresConcurrent {
 		out = append(out, Violation{
 			RuleID:   reg.ID,
@@ -535,7 +619,34 @@ var narrowOracleNeedNames = map[string]bool{
 	"NeedsOracleLibraryClasses":    true,
 }
 
-func analyzeRegisterCall(fset *token.FileSet, funcs map[funcKey]funcInfo, file *ast.File, call *ast.CallExpr) []Violation {
+// oracleMethodNeedNames maps every method of oracle.Lookup to the narrow
+// capability that requests the facts it reads. Keep this complete: the test
+// suite parses the interface and detects additions or removals.
+var oracleMethodNeedNames = map[string]string{
+	"LookupClass":                 "NeedsOracleSupertypes",
+	"LookupSealedVariants":        "NeedsOracleSupertypes",
+	"LookupEnumEntries":           "NeedsOracleSupertypes",
+	"IsSubtype":                   "NeedsOracleSupertypes",
+	"Dependencies":                "NeedsOracleLibraryClasses",
+	"LookupFunction":              "NeedsOracleMembers",
+	"LookupExpression":            "NeedsOracleExprType",
+	"LookupAnnotations":           "NeedsOracleMemberAnnotations",
+	"LookupCallTarget":            "NeedsOracleCallTargets",
+	"LookupCallTargetSuspend":     "NeedsOracleSuspendMarkers",
+	"LookupCallTargetAnnotations": "NeedsOracleExprAnnotations",
+	"LookupDiagnostics":           "NeedsOracleDiagnostics",
+}
+
+func sortedOracleCapabilities(caps map[string]string) []string {
+	keys := make([]string, 0, len(caps))
+	for capability := range caps {
+		keys = append(keys, capability)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func analyzeRegisterCall(fset *token.FileSet, funcs map[funcKey]funcInfo, oracleInterfaces map[string]bool, file *ast.File, call *ast.CallExpr) []Violation {
 	if len(call.Args) != 1 {
 		return nil
 	}
@@ -551,11 +662,11 @@ func analyzeRegisterCall(fset *token.FileSet, funcs map[funcKey]funcInfo, file *
 	if reg.CheckExpr == nil {
 		return nil
 	}
-	info, ok := resolveCheckBody(funcs, file, call, reg.CheckExpr)
+	info, ok := resolveCheckBody(funcs, oracleInterfaces, file, call, reg.CheckExpr)
 	if !ok {
 		return nil
 	}
-	sc := &scanCtx{funcs: funcs, visited: map[funcKey]bool{}}
+	sc := &scanCtx{funcs: funcs, oracleInterfaces: oracleInterfaces, visited: map[funcKey]bool{}}
 	usage := scanBodyUsage(sc, info)
 	return capabilityViolations(reg, usage, fset.Position(call.Pos()))
 }
@@ -643,10 +754,10 @@ func collectCapabilityNames(expr ast.Expr, out map[string]bool) {
 // resolveCheckBody resolves the Check expression to a function body and
 // the metadata of its *api.Context parameter and method receiver. The
 // second return reports whether resolution succeeded.
-func resolveCheckBody(funcs map[funcKey]funcInfo, file *ast.File, call *ast.CallExpr, expr ast.Expr) (funcInfo, bool) {
+func resolveCheckBody(funcs map[funcKey]funcInfo, oracleInterfaces map[string]bool, file *ast.File, call *ast.CallExpr, expr ast.Expr) (funcInfo, bool) {
 	switch e := expr.(type) {
 	case *ast.FuncLit:
-		return funcInfo{Body: e.Body, CtxParam: ctxParamName(e.Type)}, true
+		return funcInfo{Body: e.Body, CtxParam: ctxParamName(e.Type), OracleParams: oracleParamNames(e.Type, oracleInterfaces)}, true
 	case *ast.Ident:
 		if info, ok := funcs[funcKey{Name: e.Name}]; ok {
 			return info, true
@@ -751,17 +862,29 @@ func enclosingBlock(file *ast.File, pos token.Pos) *ast.BlockStmt {
 type bodyUsage struct {
 	resolver    bool
 	oracle      bool
+	oracleCaps  map[string]string // narrow capability -> first Lookup method seen
 	concurrent  bool
 	fixAssigned bool // any `<x>.Fix = <expr>` assignment seen
 }
 
 func (u bodyUsage) merge(other bodyUsage) bodyUsage {
-	return bodyUsage{
+	merged := bodyUsage{
 		resolver:    u.resolver || other.resolver,
 		oracle:      u.oracle || other.oracle,
 		concurrent:  u.concurrent || other.concurrent,
 		fixAssigned: u.fixAssigned || other.fixAssigned,
 	}
+	for _, caps := range []map[string]string{u.oracleCaps, other.oracleCaps} {
+		for capability, method := range caps {
+			if merged.oracleCaps == nil {
+				merged.oracleCaps = make(map[string]string)
+			}
+			if _, exists := merged.oracleCaps[capability]; !exists {
+				merged.oracleCaps[capability] = method
+			}
+		}
+	}
+	return merged
 }
 
 func usageFromSelector(e *ast.SelectorExpr, ctxName string) bodyUsage {
@@ -782,17 +905,24 @@ func usageFromSelector(e *ast.SelectorExpr, ctxName string) bodyUsage {
 // scanCtx bundles the per-scan state threaded through scanBodyUsage
 // and usageFromCall to avoid parameter sprawl.
 type scanCtx struct {
-	funcs    map[funcKey]funcInfo
-	ctxName  string // name of the *api.Context parameter
-	selfName string // name of the method receiver (e.g. "r")
-	selfType string // type of the method receiver (e.g. "FooRule")
-	visited  map[funcKey]bool
+	funcs            map[funcKey]funcInfo
+	oracleInterfaces map[string]bool
+	ctxName          string // name of the *api.Context parameter
+	selfName         string // name of the method receiver (e.g. "r")
+	selfType         string // type of the method receiver (e.g. "FooRule")
+	oracleVars       map[string]bool
+	visited          map[funcKey]bool
 }
 
 func usageFromCall(sc *scanCtx, e *ast.CallExpr) bodyUsage {
 	var u bodyUsage
-	if sel, ok := e.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Oracle" && len(e.Args) == 0 {
+	if isOracleCall(e) {
 		u.oracle = true
+	}
+	if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
+		if capability, ok := oracleMethodNeedNames[sel.Sel.Name]; ok && isOracleDerivedExpr(sel.X, sc.oracleVars) {
+			u.oracleCaps = map[string]string{capability: sel.Sel.Name}
+		}
 	}
 	if isMergeCollectorsCall(e) {
 		u.concurrent = true
@@ -822,6 +952,92 @@ func usageFromCall(sc *scanCtx, e *ast.CallExpr) bodyUsage {
 	return u
 }
 
+func isOracleCall(e *ast.CallExpr) bool {
+	sel, ok := e.Fun.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == "Oracle" && len(e.Args) == 0
+}
+
+// isOracleDerivedExpr reports whether expr is a direct Oracle() result or a
+// simple alias of one. It intentionally does not attempt type checking.
+func isOracleDerivedExpr(expr ast.Expr, oracleVars map[string]bool) bool {
+	for {
+		switch e := expr.(type) {
+		case *ast.ParenExpr:
+			expr = e.X
+		case *ast.TypeAssertExpr:
+			expr = e.X
+		default:
+			goto unwrapped
+		}
+	}
+
+unwrapped:
+	if call, ok := expr.(*ast.CallExpr); ok && isOracleCall(call) {
+		return true
+	}
+	if id, ok := expr.(*ast.Ident); ok {
+		return oracleVars[id.Name]
+	}
+	return false
+}
+
+// oracleDerivedVariables makes a small, forward-only approximation of the
+// aliases to an oracle.Lookup value in one function scope. Two passes cover
+// the simple declaration/assignment chains used by rules without needing a
+// full data-flow fixed point.
+func oracleDerivedVariables(body *ast.BlockStmt, seed, oracleInterfaces map[string]bool) map[string]bool {
+	vars := make(map[string]bool, len(seed))
+	for name := range seed {
+		vars[name] = true
+	}
+	for pass := 0; pass < 2; pass++ {
+		changed := false
+		ast.Inspect(body, func(n ast.Node) bool {
+			switch stmt := n.(type) {
+			case *ast.AssignStmt:
+				for i, lhs := range stmt.Lhs {
+					if i >= len(stmt.Rhs) {
+						continue
+					}
+					id, ok := lhs.(*ast.Ident)
+					if !ok || vars[id.Name] || !isOracleDerivedExpr(stmt.Rhs[i], vars) {
+						continue
+					}
+					vars[id.Name] = true
+					changed = true
+				}
+			case *ast.DeclStmt:
+				gen, ok := stmt.Decl.(*ast.GenDecl)
+				if !ok || gen.Tok != token.VAR {
+					break
+				}
+				for _, spec := range gen.Specs {
+					value, ok := spec.(*ast.ValueSpec)
+					if !ok {
+						continue
+					}
+					for i, name := range value.Names {
+						derived := isOracleLookupType(value.Type, oracleInterfaces)
+						if !derived && i < len(value.Values) {
+							derived = isOracleDerivedExpr(value.Values[i], vars)
+						}
+						if !derived || vars[name.Name] {
+							continue
+						}
+						vars[name.Name] = true
+						changed = true
+					}
+				}
+			}
+			return true
+		})
+		if !changed {
+			break
+		}
+	}
+	return vars
+}
+
 // scanBodyUsage reports whether body (or any same-package helper it
 // transitively calls) uses ctx.Resolver, calls <x>.Oracle() with no
 // args, or uses concurrent-state primitives (go statement,
@@ -836,11 +1052,14 @@ func scanBodyUsage(sc *scanCtx, info funcInfo) bodyUsage {
 	if info.Body == nil {
 		return usage
 	}
-	prevCtx, prevName, prevType := sc.ctxName, sc.selfName, sc.selfType
+	prevCtx, prevName, prevType, prevOracleVars := sc.ctxName, sc.selfName, sc.selfType, sc.oracleVars
 	sc.ctxName = info.CtxParam
 	sc.selfName = info.RecvName
 	sc.selfType = info.RecvType
-	defer func() { sc.ctxName, sc.selfName, sc.selfType = prevCtx, prevName, prevType }()
+	sc.oracleVars = oracleDerivedVariables(info.Body, info.OracleParams, sc.oracleInterfaces)
+	defer func() {
+		sc.ctxName, sc.selfName, sc.selfType, sc.oracleVars = prevCtx, prevName, prevType, prevOracleVars
+	}()
 	ast.Inspect(info.Body, func(n ast.Node) bool {
 		switch e := n.(type) {
 		case *ast.GoStmt:

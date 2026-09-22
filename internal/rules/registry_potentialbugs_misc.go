@@ -18,7 +18,7 @@ func registerPotentialbugsMiscRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "navigation_expression", "user_type"}, Confidence: api.ConfidenceMedium, Implementation: r,
-			Needs:             api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Needs:             api.NeedsTypeInfo | api.NeedsOracleCallTargets | api.NeedsOracleExprAnnotations,
 			OracleCallTargets: &api.OracleCallTargetFilter{AnnotatedIdentifiers: []string{"Deprecated"}},
 			// Narrow by the "Deprecated" token — captures @Deprecated,
 			// @kotlin.Deprecated, @java.lang.Deprecated, and any import
@@ -177,7 +177,7 @@ func registerPotentialbugsMiscRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
-			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets | api.NeedsOracleExprAnnotations | api.NeedsOracleExprType | api.NeedsOracleMemberAnnotations,
 			OracleCallTargets: &api.OracleCallTargetFilter{
 				DiscardedOnly:        true,
 				AnnotatedIdentifiers: []string{"CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"},

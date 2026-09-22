@@ -224,6 +224,31 @@ func TestUselessElvisOnNonNull_FallsBackWhenOracleHasNoDiagnostics(t *testing.T)
 	}
 }
 
+func TestUselessElvisOnNonNull_ProjectsForNonLocalIdentifier(t *testing.T) {
+	// CONFIG is imported, not declared in-file, so uselessElvisOperand's
+	// same-file-target heuristic refuses it and the heuristic path emits
+	// nothing. The projection must still fire on the compiler's authoritative
+	// USELESS_ELVIS verdict — otherwise a compiler-confirmed finding is lost.
+	const src = `
+package test
+import com.example.CONFIG
+fun process() {
+    val result = CONFIG ?: "fallback"
+}
+`
+	findings := runRuleByNameWithOracleDiagnosticForNode(t, "UselessElvisOnNonNull", src,
+		"elvis_expression", `CONFIG ?: "fallback"`, "USELESS_ELVIS")
+	if len(findings) != 1 {
+		t.Fatalf("expected one projected finding for a non-local identifier, got %d", len(findings))
+	}
+	if findings[0].Confidence != api.ConfidenceVeryHigh {
+		t.Fatalf("projected confidence = %v, want %v", findings[0].Confidence, api.ConfidenceVeryHigh)
+	}
+	if got, want := findings[0].Message, "Useless elvis (?:) on non-nullable 'CONFIG'. The fallback is dead code."; got != want {
+		t.Fatalf("projected message = %q, want %q", got, want)
+	}
+}
+
 func TestUnsafeCast_DoesNotFlagUnknownSubstringCallee(t *testing.T) {
 	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
 package test

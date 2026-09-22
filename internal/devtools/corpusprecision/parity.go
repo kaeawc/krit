@@ -238,31 +238,59 @@ func matchParityPath(goFindings []parityGoFinding, diagnostics []compilerDiagnos
 		}
 		return diagnostics[i].Col < diagnostics[j].Col
 	})
-	used := make([]bool, len(diagnostics))
-	for _, finding := range goFindings {
-		matched := false
-		for i, diagnostic := range diagnostics {
-			if !used[i] && parityLocationsMatch(finding, diagnostic) {
-				used[i], matched, agree = true, true, agree+1
-				break
-			}
-		}
-		if !matched {
+	// Maximum bipartite matching (Kuhn's augmenting paths) rather than
+	// greedy first-fit: a broad Go span must not greedily consume the only
+	// diagnostic a later narrow span could match when another diagnostic also
+	// fits the broad span. Per-file sets are small, so O(V*E) is ample.
+	matchOf := make([]int, len(diagnostics)) // diagnostic -> finding, -1 = free
+	for i := range matchOf {
+		matchOf[i] = -1
+	}
+	for f := range goFindings {
+		seen := make([]bool, len(diagnostics))
+		if augmentParityMatch(f, goFindings, diagnostics, seen, matchOf) {
+			agree++
+		} else {
 			goOnly++
 		}
 	}
-	for _, wasUsed := range used {
-		if !wasUsed {
+	for _, f := range matchOf {
+		if f == -1 {
 			compilerOnly++
 		}
 	}
 	return agree, goOnly, compilerOnly
 }
 
+// augmentParityMatch tries to match Go finding f to some diagnostic, reassigning
+// previously-matched findings along an augmenting path when that frees a slot.
+func augmentParityMatch(f int, goFindings []parityGoFinding, diagnostics []compilerDiagnostic, seen []bool, matchOf []int) bool {
+	for d := range diagnostics {
+		if seen[d] || !parityLocationsMatch(goFindings[f], diagnostics[d]) {
+			continue
+		}
+		seen[d] = true
+		if matchOf[d] == -1 || augmentParityMatch(matchOf[d], goFindings, diagnostics, seen, matchOf) {
+			matchOf[d] = f
+			return true
+		}
+	}
+	return false
+}
+
 func parityLocationsMatch(finding parityGoFinding, diagnostic compilerDiagnostic) bool {
 	if finding.HasBytes && diagnostic.EndByte > diagnostic.StartByte {
 		return finding.StartByte < diagnostic.EndByte && diagnostic.StartByte < finding.EndByte
 	}
+	// Byte-range overlap above is the precise matcher. The line-only fallback is
+	// deliberately column-agnostic: Krit's heuristic findings and kotlinc's
+	// diagnostics anchor the same issue at different columns (rule operand start
+	// vs. compiler token), so requiring column equality would report a
+	// systematic false disagreement for every heuristic finding that lacks a
+	// byte range. Same-line collisions between two distinct issues are possible
+	// but rare, and the maximum-matching caller keeps them from double-counting;
+	// tightening this belongs with real byte ranges on both producers, not a
+	// guessed column tolerance.
 	return finding.Line == diagnostic.Line
 }
 

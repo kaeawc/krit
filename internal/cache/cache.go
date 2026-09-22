@@ -98,22 +98,30 @@ type FileEntry struct {
 	ModTime int64                  `json:"modTime"`
 	Size    int64                  `json:"size"`
 	Columns scanner.FindingColumns `json:"-"`
+	// OracleBlobHash is the canonical oracle fact hash the findings were
+	// computed against, or "" when no oracle was active. The in-memory / JSON
+	// cache path checks it so a dependent whose content is unchanged but whose
+	// oracle facts changed is not served as a stale hit; the store-backed path
+	// folds the same hash into its key instead (foldOracleBlobHash).
+	OracleBlobHash string `json:"-"`
 }
 
 type fileEntryJSON struct {
-	Hash     string                  `json:"hash"`
-	ModTime  int64                   `json:"modTime"`
-	Size     int64                   `json:"size"`
-	Findings []scanner.Finding       `json:"findings,omitempty"`
-	Columns  *scanner.FindingColumns `json:"columns,omitempty"`
+	Hash           string                  `json:"hash"`
+	ModTime        int64                   `json:"modTime"`
+	Size           int64                   `json:"size"`
+	OracleBlobHash string                  `json:"oracleBlobHash,omitempty"`
+	Findings       []scanner.Finding       `json:"findings,omitempty"`
+	Columns        *scanner.FindingColumns `json:"columns,omitempty"`
 }
 
 // MarshalJSON persists the cache in columnar form.
 func (e FileEntry) MarshalJSON() ([]byte, error) {
 	payload := fileEntryJSON{
-		Hash:    e.Hash,
-		ModTime: e.ModTime,
-		Size:    e.Size,
+		Hash:           e.Hash,
+		ModTime:        e.ModTime,
+		Size:           e.Size,
+		OracleBlobHash: e.OracleBlobHash,
 	}
 	if e.Columns.Len() > 0 {
 		clone := e.Columns.Clone()
@@ -133,6 +141,7 @@ func (e *FileEntry) UnmarshalJSON(data []byte) error {
 	e.Hash = payload.Hash
 	e.ModTime = payload.ModTime
 	e.Size = payload.Size
+	e.OracleBlobHash = payload.OracleBlobHash
 	e.Columns = scanner.FindingColumns{}
 	if payload.Columns != nil {
 		e.Columns = payload.Columns.Clone()
@@ -549,6 +558,13 @@ func (c *Cache) CheckFilesWithOracle(filePaths []string, ruleHash string, blobHa
 		if !ok {
 			continue
 		}
+		// A dependent whose content is unchanged can still have stale findings
+		// when an oracle fact it was computed against changed. Miss before any
+		// content-only fast path (including the git-clean shortcut below), which
+		// would otherwise serve the stale entry without even a stat.
+		if blobHash != nil && entry.OracleBlobHash != blobHash(path) {
+			continue
+		}
 		if dirtyOK && !dirtyPaths[abs] {
 			result.CachedPaths[path] = true
 			result.CachedHashes[path] = entry.Hash
@@ -623,6 +639,11 @@ func (c *Cache) CheckFilesIncrementalWithOracle(
 		entry, ok := c.Files[abs]
 		c.filesMu.RUnlock()
 		if !ok {
+			continue
+		}
+		// See CheckFilesWithOracle: an unchanged dependent with changed oracle
+		// facts must miss before the not-dirty fast path serves it stale.
+		if blobHash != nil && entry.OracleBlobHash != blobHash(path) {
 			continue
 		}
 		if _, isDirty := dirtySet[abs]; !isDirty {
@@ -867,13 +888,18 @@ func (c *Cache) updateEntry(path string, columns scanner.FindingColumns, blobHas
 	if err != nil {
 		return
 	}
+	oracleBlobHash := ""
+	if len(blobHash) > 0 {
+		oracleBlobHash = blobHash[0]
+	}
 	// Compute hash outside the lock — SHA-256 + file I/O can be tens of
 	// milliseconds on large files and would otherwise stall every reader.
 	entry := FileEntry{
-		Hash:    ComputeFileHash(path),
-		ModTime: info.ModTime().UnixMilli(),
-		Size:    info.Size(),
-		Columns: columns,
+		Hash:           ComputeFileHash(path),
+		ModTime:        info.ModTime().UnixMilli(),
+		Size:           info.Size(),
+		Columns:        columns,
+		OracleBlobHash: oracleBlobHash,
 	}
 	c.filesMu.Lock()
 	c.Files[abs] = entry

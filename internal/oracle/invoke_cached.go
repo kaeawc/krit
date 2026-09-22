@@ -414,7 +414,7 @@ func InvokeCachedWithOptions(
 	}
 	addOracleInstant(tracker, "ktFilesDiscovered", map[string]int64{"files": int64(len(ktFiles)), "sourceDirs": int64(len(sourceDirs))}, nil)
 	callFilterScope := callFilterFingerprint(opts)
-	declarationProfileScope := declarationProfileFingerprint(opts)
+	declarationProfileScope := factProfileScope(opts)
 
 	if filterListPath != "" {
 		ktFiles = applyOracleFilter(ktFiles, filterListPath, tracker, verbose)

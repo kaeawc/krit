@@ -101,8 +101,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
      * [OracleCollector], which the orchestrator drains here.
      *
      * Diagnostic checkers run on the same K2 invocation; warnings from
-     * the retained factory subset (`UNREACHABLE_CODE`, `USELESS_ELVIS`,
-     * `CAST_NEVER_SUCCEEDS`) are projected into each
+     * the retained compiler-diagnostic factory subset are projected into each
      * [`FilePayload.diagnostics`] via [`OracleDiagnosticMessageCollector`].
      * Non-matching compiler messages are dropped.
      */
@@ -126,13 +125,15 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
                 noStdlib = true
                 noReflect = true
                 // `suppressWarnings = false` + `reportAllWarnings = true`
-                // so K2 emits warning-level diagnostics through the
-                // message collector. The plugin's `KritFirCheckers`
-                // adds K2's `UnreachableCodeChecker` to its own
-                // control-flow checker set so the third retained
-                // factory (UNREACHABLE_CODE) lands here too — the
-                // checker lives in the experimental package by
-                // default and is not on the standard pipeline.
+                // so K2 emits warning-level diagnostics through the message
+                // collector even when compilation also finds an error. The
+                // plugin's `KritFirCheckers` adds K2's `UnreachableCodeChecker`
+                // to its own control-flow checker set so UNREACHABLE_CODE lands
+                // here too — the checker lives in the experimental package by
+                // default and is not on the standard pipeline. The retained
+                // factories are all standard-pipeline warnings, so K2's extended
+                // checkers stay off (they would only add USELESS_CALL_ON_NOT_NULL,
+                // which no rule consumes yet).
                 suppressWarnings = false
                 reportAllWarnings = true
                 if (selfJar != null) {

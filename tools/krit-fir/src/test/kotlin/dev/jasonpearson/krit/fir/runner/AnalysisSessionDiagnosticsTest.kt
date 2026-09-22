@@ -13,10 +13,9 @@ import kotlin.test.assertTrue
 
 /**
  * End-to-end coverage for the diagnostic projection in
- * [`AnalysisSession.analyze`]: the krit-types-retained K2 warning
- * factories (`USELESS_ELVIS`, `CAST_NEVER_SUCCEEDS`, `UNREACHABLE_CODE`)
- * round-trip through the [`OracleDiagnosticMessageCollector`] into
- * each [`FilePayload.diagnostics`] list.
+ * [`AnalysisSession.analyze`]: the retained K2 warning factories round-trip
+ * through the [`OracleDiagnosticMessageCollector`] into each
+ * [`FilePayload.diagnostics`] list.
  */
 class AnalysisSessionDiagnosticsTest {
 
@@ -81,11 +80,9 @@ class AnalysisSessionDiagnosticsTest {
     @Test
     fun unreachableCodeIsRecorded() {
         // K2's UNREACHABLE_CODE checker lives in the experimental
-        // checker set. AnalysisSession.analyzeFull turns it on via
-        // `useFirExperimentalCheckers = true` so the projection
-        // collects all three retained factories on the default
-        // analyze path — no `-Wextra` opt-in needed at the request
-        // boundary.
+        // checker set. KritFirCheckers registers it with the plugin's
+        // control-flow checkers so the projection collects it on the
+        // default analyze path.
         val path = writeKt(
             "Unreachable.kt",
             """

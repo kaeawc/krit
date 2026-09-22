@@ -75,7 +75,11 @@ func recordOracleDir(cacheDir string) {
 // v4: cache closures now persist the sorted transitive source-dependency set,
 // so a semantic change behind an unchanged intermediate source invalidates
 // every cached file whose facts were inferred through that dependency chain.
-const CacheVersion = 4
+// v5: both oracle backends now retain the null-safety compiler diagnostics
+// (UNNECESSARY_NOT_NULL_ASSERTION / UNNECESSARY_SAFE_CALL / SENSELESS_COMPARISON
+// / USELESS_CAST), so entries written before the change lack those facts and
+// would keep the diagnostic-backed projections from firing on a warm cache.
+const CacheVersion = 5
 
 // CacheEntry is one file's cached oracle analysis. The JSON field names
 // are intentionally short because there can be tens of thousands of these

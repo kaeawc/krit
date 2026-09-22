@@ -1,5 +1,7 @@
 package dev.jasonpearson.krit.fir.oracle
 
+import org.jetbrains.kotlin.cli.common.messages.CompilerMessageLocation
+import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -130,6 +132,56 @@ class OracleCollectorTest {
         assertEquals(1, payload?.diagnostics?.size)
         assertEquals(emptyList(), payload?.declarations)
         assertEquals(emptyMap(), payload?.expressions)
+    }
+
+    @Test
+    fun compilerDiagnosticMessagesMapToNullSafetyFactories() {
+        val messages = linkedMapOf(
+            "Unnecessary non-null assertion (!!) on a non-null receiver of type 'String'." to
+                "UNNECESSARY_NOT_NULL_ASSERTION",
+            "Unnecessary safe call on a non-null receiver of type 'String'." to
+                "UNNECESSARY_SAFE_CALL",
+            "Condition is always 'true'." to "SENSELESS_COMPARISON",
+            "No cast needed." to "USELESS_CAST",
+        )
+
+        for ((message, expectedFactory) in messages) {
+            val collector = OracleCollector()
+            val path = "/src/Diagnostics.kt"
+            OracleDiagnosticMessageCollector(collector).report(
+                CompilerMessageSeverity.WARNING,
+                message,
+                CompilerMessageLocation.create(path, 1, 1, message),
+            )
+
+            val diagnostics = collector.toResult().files[path]?.diagnostics.orEmpty()
+            assertEquals(
+                listOf(expectedFactory),
+                diagnostics.map { it.factoryName },
+                "unexpected mapping for: $message",
+            )
+        }
+    }
+
+    @Test
+    fun elvisNullOperandMessagesAreNotAttributedToRetainedFactories() {
+        val collector = OracleCollector()
+        val path = "/src/Elvis.kt"
+        val messageCollector = OracleDiagnosticMessageCollector(collector)
+        val messages = listOf(
+            "Elvis operator (?:) is useless if the left operand is null.",
+            "Right operand of elvis operator (?:) is useless if it is null.",
+        )
+
+        for (message in messages) {
+            messageCollector.report(
+                CompilerMessageSeverity.WARNING,
+                message,
+                CompilerMessageLocation.create(path, 1, 1, message),
+            )
+        }
+
+        assertEquals(emptyMap(), collector.toResult().files)
     }
 
     @Test

@@ -194,6 +194,22 @@ class OracleDispatchTest {
     }
 
     @Test
+    fun extractFileRefsIgnoresBracesAndCommasInsidePathStrings() {
+        // A `{` inside a plain-string path used to be matched as an object
+        // entry, yielding an empty FileRef and dropping the real path.
+        assertEquals(
+            listOf("/repo/src/{generated}/B.kt", "/repo/src/a,b/C.kt"),
+            extractFileRefs("""{"files":["/repo/src/{generated}/B.kt","/repo/src/a,b/C.kt"]}""").map { it.path },
+        )
+        assertEquals(
+            listOf("/repo/src/{x}/A.kt" to "h1", "/repo/B.kt" to "h2"),
+            extractFileRefs(
+                """{"files":[{"path":"/repo/src/{x}/A.kt","contentHash":"h1"},{"path":"/repo/B.kt","contentHash":"h2"}]}""",
+            ).map { it.path to it.contentHash },
+        )
+    }
+
+    @Test
     fun extractFileRefsIgnoresBracketsInsidePathStrings() {
         val refs = extractFileRefs(
             """{"params":{"files":["/repo/src/[id]/A.kt","/repo/src/weird]name/B.kt"],"after":["x"]}}""",

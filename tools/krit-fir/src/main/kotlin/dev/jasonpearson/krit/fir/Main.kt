@@ -503,23 +503,53 @@ fun extractFileRefs(json: String): List<FileRef> {
         }
     }
     val arrBody = json.substring(arrStart + 1, arrEnd)
-    val objPat = Regex("""\{([^}]*)}""")
-    val objectRefs = objPat.findAll(arrBody).map { m ->
-        val obj = m.value
-        val path = extractString(obj, "path") ?: ""
-        val hash = extractString(obj, "contentHash") ?: ""
-        FileRef(path, hash)
-    }.toList()
-    if (objectRefs.isNotEmpty()) return objectRefs
-
     // internal/oracle/daemon.go sends incremental analyzeWithDeps misses as
     // a plain []string. The native krit-fir check protocol instead uses
     // [{"path": ..., "contentHash": ...}], so accept both wire shapes.
     // Treating the Go shape as an empty list silently turns a <=8-file daemon
     // request into a no-op and drops compiler diagnostics from projection.
-    return Regex(""""([^"\\]*(?:\\.[^"\\]*)*)"""").findAll(arrBody).map {
-        FileRef(it.groupValues[1].replace("\\\"", "\"").replace("\\\\", "\\"))
-    }.toList()
+    return splitJsonArrayElements(arrBody).mapNotNull { element ->
+        when {
+            element.startsWith("{") ->
+                FileRef(extractString(element, "path") ?: "", extractString(element, "contentHash") ?: "")
+            element.startsWith("\"") && element.length >= 2 ->
+                FileRef(element.substring(1, element.length - 1).replace("\\\"", "\"").replace("\\\\", "\\"))
+            else -> null
+        }
+    }
+}
+
+// Splits a JSON array body into its top-level elements. String contents are
+// skipped so braces, brackets, or commas inside a path (`src/{generated}/A.kt`)
+// can neither split an element nor be mistaken for an object.
+internal fun splitJsonArrayElements(body: String): List<String> {
+    val elements = mutableListOf<String>()
+    var depth = 0
+    var inString = false
+    var escaped = false
+    var start = 0
+    for (i in body.indices) {
+        val c = body[i]
+        if (inString) {
+            when {
+                escaped -> escaped = false
+                c == '\\' -> escaped = true
+                c == '"' -> inString = false
+            }
+            continue
+        }
+        when (c) {
+            '"' -> inString = true
+            '{', '[' -> depth++
+            '}', ']' -> depth--
+            ',' -> if (depth == 0) {
+                elements += body.substring(start, i).trim()
+                start = i + 1
+            }
+        }
+    }
+    body.substring(start).trim().takeIf { it.isNotEmpty() }?.let { elements += it }
+    return elements
 }
 
 fun escJson(s: String): String = s.replace("\\", "\\\\").replace("\"", "\\\"")

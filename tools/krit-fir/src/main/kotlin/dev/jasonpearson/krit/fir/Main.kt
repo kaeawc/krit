@@ -480,10 +480,24 @@ fun extractStringArray(json: String, key: String): List<String>? {
 fun extractFileRefs(json: String): List<FileRef> {
     val filesKey = Regex(""""files"\s*:\s*\[""").find(json) ?: return emptyList()
     val arrStart = filesKey.range.last
+    // Brackets inside string values (a path such as `src/[id]/Foo.kt`) must not
+    // move the depth counter, so string contents and escapes are skipped.
     var depth = 0
     var arrEnd = arrStart
+    var inString = false
+    var escaped = false
     for (i in arrStart until json.length) {
-        when (json[i]) {
+        val c = json[i]
+        if (inString) {
+            when {
+                escaped -> escaped = false
+                c == '\\' -> escaped = true
+                c == '"' -> inString = false
+            }
+            continue
+        }
+        when (c) {
+            '"' -> inString = true
             '[' -> depth++
             ']' -> { depth--; if (depth == 0) { arrEnd = i; break } }
         }

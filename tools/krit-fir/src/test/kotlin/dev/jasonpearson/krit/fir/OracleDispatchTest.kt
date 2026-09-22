@@ -158,6 +158,53 @@ class OracleDispatchTest {
     }
 
     @Test
+    fun daemonSessionTracksSourceFilesAddedAndDeletedAfterStart() {
+        // The persistent daemon outlives edits, so its source set must be the
+        // current one on every request rather than a snapshot from the first.
+        // C.kt appears only after the session served a request; B.kt's receiver
+        // type lives there, so the diagnostic needs the fresh source list.
+        val doomed = tmp.resolve("Doomed.kt").toFile().apply { writeText("class Doomed") }
+        val source = tmp.resolve("B.kt").toFile().apply {
+            writeText(
+                """
+                fun sample(value: C) {
+                    println(value.text!!)
+                }
+                """.trimIndent(),
+            )
+        }.canonicalPath
+        val stdlib = File(Unit::class.java.protectionDomain.codeSource.location.toURI()).absolutePath
+        val daemonSession = createDaemonSession(
+            arrayOf("--daemon", "--sources", tmp.toFile().canonicalPath, "--classpath", stdlib),
+        )
+        val request = """{"id":25,"method":"analyzeWithDeps","params":{"files":[${jsonStr(source)}]}}"""
+        handleRequestLine(request, daemonSession, startTime = 0L)
+
+        tmp.resolve("C.kt").toFile().writeText(
+            """
+            class C {
+                val text: String get() = "value"
+            }
+            """.trimIndent(),
+        )
+        assertTrue(doomed.delete())
+        val response = (handleRequestLine(request, daemonSession, startTime = 0L) as RequestResult.Response).json
+        assertTrue(""""factoryName":"UNNECESSARY_NOT_NULL_ASSERTION"""" in response, response)
+        assertFalse("Doomed.kt" in response, response)
+    }
+
+    @Test
+    fun extractFileRefsIgnoresBracketsInsidePathStrings() {
+        val refs = extractFileRefs(
+            """{"params":{"files":["/repo/src/[id]/A.kt","/repo/src/weird]name/B.kt"],"after":["x"]}}""",
+        )
+        assertEquals(
+            listOf("/repo/src/[id]/A.kt", "/repo/src/weird]name/B.kt"),
+            refs.map { it.path },
+        )
+    }
+
+    @Test
     fun goDaemonStringFileMissUsesSiblingSourcesForCompilerDiagnostics() {
         // Regression for the <=8-miss path in internal/oracle/runMissAnalysis.
         // Only B.kt is a miss, but resolving its receiver type requires A.kt

@@ -1068,21 +1068,6 @@ func ignoredReturnValueOracleAnnotations(lookup oracleAnnotationLookup, filePath
 		}
 	}
 	add(lookup.LookupCallTargetAnnotations(filePath, line, col))
-	target := lookup.LookupCallTarget(filePath, line, col)
-	if target == "" {
-		return out
-	}
-	add(lookup.LookupAnnotations(target))
-	for container := ignoredReturnValueContainerName(target); container != ""; container = ignoredReturnValueContainerName(container) {
-		simple := ignoredReturnValueSimpleContainerName(container)
-		if simple == "" || simple[0] < 'A' || simple[0] > 'Z' {
-			break
-		}
-		add(lookup.LookupAnnotations(container))
-		if simple != container {
-			add(lookup.LookupAnnotations(simple))
-		}
-	}
 	return out
 }
 
@@ -1107,23 +1092,7 @@ func ignoredReturnValueMergedOracleAnnotations(lookup oracle.Lookup, file *scann
 }
 
 type oracleAnnotationLookup interface {
-	LookupAnnotations(key string) []string
-	LookupCallTarget(filePath string, line, col int) string
 	LookupCallTargetAnnotations(filePath string, line, col int) []string
-}
-
-func ignoredReturnValueContainerName(target string) string {
-	if idx := strings.LastIndex(target, "."); idx > 0 {
-		return target[:idx]
-	}
-	return ""
-}
-
-func ignoredReturnValueSimpleContainerName(target string) string {
-	if idx := strings.LastIndex(target, "."); idx >= 0 && idx < len(target)-1 {
-		return target[idx+1:]
-	}
-	return target
 }
 
 // matchAnnotationPattern matches an annotation FQN against a pattern.

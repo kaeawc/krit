@@ -907,56 +907,18 @@ fun f() { maybeBuild() }`, "maybeBuild()", &typeinfer.ResolvedType{Name: "String
 		t.Fatalf("expected @CanIgnoreReturnValue suppression, got %d", len(findings))
 	}
 
-	t.Run("check return on containing declaration", func(t *testing.T) {
-		findings := runIgnoredReturnValueWithOracleEvidence(t, `
-package test
-class TokenBuilder {
-    fun build(): String = "token"
-}
-fun f(builder: TokenBuilder) {
-    builder.build()
-}
-`, oracleCallEvidence{
-			CallText:   "builder.build()",
-			CallTarget: "test.TokenBuilder.build",
-			ContainerAnnotations: map[string][]string{
-				"test.TokenBuilder": {"com.google.errorprone.annotations.CheckReturnValue"},
-			},
-		})
-		if len(findings) != 1 {
-			t.Fatalf("expected one finding, got %d: %#v", len(findings), findings)
-		}
-	})
-
-	t.Run("can ignore on containing declaration", func(t *testing.T) {
-		findings := runIgnoredReturnValueWithOracleEvidence(t, `
-package test
-class TokenBuilder {
-    fun build(): String = "token"
-}
-fun f(builder: TokenBuilder) {
-    builder.build()
-}
-`, oracleCallEvidence{
-			CallText:    "builder.build()",
-			CallTarget:  "test.TokenBuilder.build",
-			Annotations: []string{"com.google.errorprone.annotations.CheckReturnValue"},
-			ContainerAnnotations: map[string][]string{
-				"test.TokenBuilder": {"com.google.errorprone.annotations.CanIgnoreReturnValue"},
-			},
-		})
-		if len(findings) != 0 {
-			t.Fatalf("expected no findings, got %d: %#v", len(findings), findings)
-		}
-	})
+	// Note: @CheckReturnValue / @CanIgnoreReturnValue on the *containing*
+	// declaration is intentionally not consulted. That would require class-level
+	// annotations (NeedsOracleClassAnnotations), which this rule does not
+	// request, so the lookup returned nothing in production. See
+	// registry_potentialbugs_misc.go.
 }
 
 type oracleCallEvidence struct {
-	CallText             string
-	CallTarget           string
-	ReturnType           *typeinfer.ResolvedType
-	Annotations          []string
-	ContainerAnnotations map[string][]string
+	CallText    string
+	CallTarget  string
+	ReturnType  *typeinfer.ResolvedType
+	Annotations []string
 }
 
 func runIgnoredReturnValueWithOracle(t *testing.T, code, callText string, rt *typeinfer.ResolvedType, annotations []string) []scanner.Finding {
@@ -974,9 +936,6 @@ func runIgnoredReturnValueWithOracleEvidence(t *testing.T, code string, ev oracl
 	fake.Expressions[file.Path] = map[string]*typeinfer.ResolvedType{}
 	fake.CallTargets[file.Path] = map[string]string{}
 	fake.CallTargetAnnotations[file.Path] = map[string][]string{}
-	for target, annotations := range ev.ContainerAnnotations {
-		fake.Annotations[target] = annotations
-	}
 	var matched bool
 	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
 		text := strings.TrimSpace(file.FlatNodeText(idx))

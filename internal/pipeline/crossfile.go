@@ -411,10 +411,19 @@ func (p CrossFilePhase) collectCrossFileFindings(ctx context.Context, in Dispatc
 		return false
 	}
 
+	errBaseline := len(result.Stats.Errors)
 	crossStart := time.Now()
 	crossFindingsKey, crossFindingsCacheable, crossFindingsCacheHit := p.runCrossPhase(ctx, in, codeIndex, crossCollector, crossStart, result)
 	if crossFindingsCacheHit || !crossFindingsCacheable || in.CrossFindingsCacheDir == "" {
 		return crossFindingsCacheHit
+	}
+	if len(result.Stats.Errors) > errBaseline {
+		// A cross-file rule panicked mid-phase; crossCollector now holds a
+		// degraded, partial result. Caching it would replay the degraded
+		// findings on every warm run keyed on the index fingerprint, and the
+		// panic warning would vanish because the rule never re-runs. Skip the
+		// save so the next run recomputes from scratch.
+		return false
 	}
 	p.saveCrossFindingsCache(in, crossFindingsKey, crossCollector)
 	return false
@@ -695,10 +704,14 @@ func mergeSortedLocalErrs(localErrs [][]rules.DispatchError) []rules.DispatchErr
 	return out
 }
 
-// runConcurrentCrossRule invokes a single rule's Check against a given
-// collector, recovering from panics the same way the serial path does.
+// runConcurrentCrossRule invokes a single rule's Check against a per-rule
+// scratch collector and merges it into the caller's collector only when Check
+// returns without panicking, recovering from panics the same way the serial
+// path does. A rule that panics mid-emit must not leak the findings it had
+// already written before the panic, so the scratch is discarded on recovery.
 // Each caller hands its own collector so the goroutines never contend.
 func runConcurrentCrossRule(r *api.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, resolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaSourceIndex *javafacts.SourceIndex, local *scanner.FindingCollector, errs *[]rules.DispatchError, thorough bool) {
+	scratch := scanner.NewFindingCollector(0)
 	defer func() {
 		if rec := recover(); rec != nil {
 			if errs != nil {
@@ -708,9 +721,11 @@ func runConcurrentCrossRule(r *api.Rule, codeIndex *scanner.CodeIndex, parsedFil
 				}
 				*errs = append(*errs, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
 			}
+			return
 		}
+		scanner.MergeCollectors(local, scratch)
 	}()
-	rctx := buildCrossRuleContext(r, codeIndex, parsedFiles, resolver, libraryFacts, javaSourceIndex, local, thorough)
+	rctx := buildCrossRuleContext(r, codeIndex, parsedFiles, resolver, libraryFacts, javaSourceIndex, scratch, thorough)
 	r.Check(rctx)
 }
 

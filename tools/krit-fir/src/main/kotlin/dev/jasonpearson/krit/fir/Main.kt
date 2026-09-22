@@ -480,11 +480,21 @@ fun extractFileRefs(json: String): List<FileRef> {
     }
     val arrBody = json.substring(arrStart + 1, arrEnd)
     val objPat = Regex("""\{([^}]*)}""")
-    return objPat.findAll(arrBody).map { m ->
+    val objectRefs = objPat.findAll(arrBody).map { m ->
         val obj = m.value
         val path = extractString(obj, "path") ?: ""
         val hash = extractString(obj, "contentHash") ?: ""
         FileRef(path, hash)
+    }.toList()
+    if (objectRefs.isNotEmpty()) return objectRefs
+
+    // internal/oracle/daemon.go sends incremental analyzeWithDeps misses as
+    // a plain []string. The native krit-fir check protocol instead uses
+    // [{"path": ..., "contentHash": ...}], so accept both wire shapes.
+    // Treating the Go shape as an empty list silently turns a <=8-file daemon
+    // request into a no-op and drops compiler diagnostics from projection.
+    return Regex(""""([^"\\]*(?:\\.[^"\\]*)*)"""").findAll(arrBody).map {
+        FileRef(it.groupValues[1].replace("\\\"", "\"").replace("\\\\", "\\"))
     }.toList()
 }
 

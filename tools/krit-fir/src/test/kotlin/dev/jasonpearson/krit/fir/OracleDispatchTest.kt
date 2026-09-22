@@ -2,6 +2,9 @@ package dev.jasonpearson.krit.fir
 
 import dev.jasonpearson.krit.fir.runner.AnalysisSession
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
+import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -16,6 +19,9 @@ import kotlin.test.assertTrue
 class OracleDispatchTest {
 
     private val session = AnalysisSession(emptyList(), emptyList())
+
+    @TempDir
+    lateinit var tmp: Path
 
     @Test
     fun analyzeCommandRoutesToOracleResponseBuilder() {
@@ -149,6 +155,39 @@ class OracleDispatchTest {
         val response = (result as RequestResult.Response).json
         assertTrue(response.startsWith("""{"id":22,"result":{"""), response)
         assertTrue(""""cacheDeps":""" in response, response)
+    }
+
+    @Test
+    fun goDaemonStringFileMissRetainsCompilerDiagnostics() {
+        // Regression for the <=8-miss path in internal/oracle/runMissAnalysis.
+        // Go encodes `files []string` as a JSON string array; the FIR parser's
+        // native protocol uses FileRef objects. Dropping the string entries
+        // made the daemon analyze an empty miss set and return no diagnostics.
+        val source = tmp.resolve("Sample.kt").toFile().apply {
+            writeText(
+                """
+                fun sample() {
+                    val text: String = "value"
+                    println(text!!)
+                    println(text?.length)
+                }
+                """.trimIndent(),
+            )
+        }.canonicalPath
+        val stdlib = File(Unit::class.java.protectionDomain.codeSource.location.toURI()).absolutePath
+        val request =
+            """{"id":24,"method":"analyzeWithDeps","params":{"files":[${jsonStr(source)}]}}"""
+
+        val result = handleRequestLine(
+            request,
+            AnalysisSession(emptyList(), listOf(stdlib)),
+            startTime = 0L,
+        )
+        val response = (result as RequestResult.Response).json
+
+        assertTrue(jsonStr(source) in response, response)
+        assertTrue(""""factoryName":"UNNECESSARY_NOT_NULL_ASSERTION"""" in response, response)
+        assertTrue(""""factoryName":"UNNECESSARY_SAFE_CALL"""" in response, response)
     }
 
     @Test

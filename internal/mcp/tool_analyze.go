@@ -197,7 +197,7 @@ func collectManifestFindings(dispatcher *rules.Dispatcher, collector *scanner.Fi
 			Language: scanner.LangXML,
 			Metadata: rManifest,
 		}
-		cols := dispatcher.RunManifest(file, rManifest)
+		cols, _ := dispatcher.RunManifest(file, rManifest)
 		collector.AppendColumns(&cols)
 	}
 }
@@ -213,7 +213,7 @@ func collectResourceFindings(dispatcher *rules.Dispatcher, collector *scanner.Fi
 			Language: scanner.LangXML,
 			Metadata: idx,
 		}
-		cols := dispatcher.RunResource(file, idx)
+		cols, _ := dispatcher.RunResource(file, idx)
 		collector.AppendColumns(&cols)
 	}
 }
@@ -234,7 +234,7 @@ func collectGradleFindings(dispatcher *rules.Dispatcher, collector *scanner.Find
 			Content:  content,
 			Metadata: cfg,
 		}
-		cols := dispatcher.RunGradle(file, cfg)
+		cols, _ := dispatcher.RunGradle(file, cfg)
 		collector.AppendColumns(&cols)
 	}
 }
@@ -250,7 +250,7 @@ func collectIconFindings(dispatcher *rules.Dispatcher, collector *scanner.Findin
 			Language: scanner.LangXML,
 			Metadata: idx,
 		}
-		cols := dispatcher.RunIcons(file, idx)
+		cols, _ := dispatcher.RunIcons(file, idx)
 		collector.AppendColumns(&cols)
 	}
 }

@@ -19,29 +19,41 @@ import (
 )
 
 func TestCrossFilePhase_RecoversSerialRulePanics(t *testing.T) {
-	panicRule := api.FakeRule("SerialPanic", api.WithNeeds(api.NeedsCrossFile), api.WithCheck(func(*api.Context) {
+	panicRule := api.FakeRule("SerialPanic", api.WithNeeds(api.NeedsCrossFile), api.WithCheck(func(ctx *api.Context) {
+		ctx.Emit(scanner.Finding{File: "panic.kt", Line: 1, Message: "must be discarded"})
 		panic("boom")
 	}))
 	in := DispatchResult{IndexResult: IndexResult{ParseResult: ParseResult{ActiveRules: []*api.Rule{panicRule}}}}
-	result := CrossFileResult{}
-	(CrossFilePhase{}).runCrossRuleSet(context.Background(), in, nil, nil, nil, scanner.NewFindingCollector(0), nil, &result)
+	result, err := (CrossFilePhase{}).Run(context.Background(), in)
+	if err != nil {
+		t.Fatalf("CrossFilePhase.Run: %v", err)
+	}
 	assertPanicRule(t, result.Stats.Errors, "SerialPanic")
+	if got := result.Findings.Len(); got != 0 {
+		t.Fatalf("Findings.Len = %d, want 0 after recovered panic; got %+v", got, result.Findings.Findings())
+	}
 }
 
 func TestCrossFilePhase_RecoversModuleAwareRulePanics(t *testing.T) {
-	panicRule := api.FakeRule("ModulePanic", api.WithNeeds(api.NeedsModuleIndex), api.WithCheck(func(*api.Context) {
+	panicRule := api.FakeRule("ModulePanic", api.WithNeeds(api.NeedsModuleIndex), api.WithCheck(func(ctx *api.Context) {
+		ctx.Emit(scanner.Finding{File: "panic.kt", Line: 1, Message: "must be discarded"})
 		panic("boom")
 	}))
 	result := CrossFileResult{}
+	collector := scanner.NewFindingCollector(0)
 	(CrossFilePhase{}).runModuleAwareRules(
 		DispatchResult{IndexResult: IndexResult{ModuleIndex: &module.PerModuleIndex{}}},
-		[]*api.Rule{panicRule}, scanner.NewFindingCollector(0), &result,
+		[]*api.Rule{panicRule}, collector, &result,
 	)
 	assertPanicRule(t, result.Stats.Errors, "ModulePanic")
+	if got := collector.Columns().Len(); got != 0 {
+		t.Fatalf("collector.Len = %d, want 0 after recovered panic; got %+v", got, collector.Columns().Findings())
+	}
 }
 
 func TestCrossFilePhase_RecoversOnDemandModuleIndexRulePanics(t *testing.T) {
-	panicRule := api.FakeRule("OnDemandModulePanic", api.WithNeeds(api.NeedsModuleIndex), api.WithCheck(func(*api.Context) {
+	panicRule := api.FakeRule("OnDemandModulePanic", api.WithNeeds(api.NeedsModuleIndex), api.WithCheck(func(ctx *api.Context) {
+		ctx.Emit(scanner.Finding{File: "panic.kt", Line: 1, Message: "must be discarded"})
 		panic("boom")
 	}))
 	graph := module.NewModuleGraph(t.TempDir())
@@ -51,10 +63,14 @@ func TestCrossFilePhase_RecoversOnDemandModuleIndexRulePanics(t *testing.T) {
 		Graph:       graph,
 	}}
 	result := CrossFileResult{}
-	if err := (CrossFilePhase{}).runOnDemandModuleIndex(context.Background(), in, nil, scanner.NewFindingCollector(0), &result); err != nil {
+	collector := scanner.NewFindingCollector(0)
+	if err := (CrossFilePhase{}).runOnDemandModuleIndex(context.Background(), in, nil, collector, &result); err != nil {
 		t.Fatalf("runOnDemandModuleIndex: %v", err)
 	}
 	assertPanicRule(t, result.Stats.Errors, "OnDemandModulePanic")
+	if got := collector.Columns().Len(); got != 0 {
+		t.Fatalf("collector.Len = %d, want 0 after recovered panic; got %+v", got, collector.Columns().Findings())
+	}
 }
 
 func TestCrossFilePhaseKeepsDispatchPanicsSeparateFromCrossFilePanics(t *testing.T) {
@@ -103,7 +119,7 @@ func TestAndroidGradleFindingsHonorInlineSuppression(t *testing.T) {
 		Check: func(ctx *api.Context) { ctx.EmitAt(1, 1, "must be suppressed") },
 	}
 	phase := AndroidPhase{}
-	cols, _, _ := phase.runGradleOne(AndroidInput{Dispatcher: rules.NewDispatcher([]*api.Rule{rule}, nil)}, path)
+	cols, _, _, _ := phase.runGradleOne(AndroidInput{Dispatcher: rules.NewDispatcher([]*api.Rule{rule}, nil)}, path)
 	if cols.Len() != 0 {
 		t.Fatalf("suppressed Gradle findings = %+v, want none", cols.Findings())
 	}

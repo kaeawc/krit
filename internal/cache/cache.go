@@ -70,7 +70,10 @@ const CacheFileName = "incremental.cache"
 // changing its findings for unchanged source.
 // v11: Per-file cache entries now store findings after parse-error-region
 // filtering, invalidating stale entries that could replay unsafe findings.
-const cachePayloadVersion = "v11"
+// v12: Setter and initializer-block smart casts are now scoped to their own
+// body instead of leaking class-wide, changing null-safety findings for
+// unchanged source.
+const cachePayloadVersion = "v12"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

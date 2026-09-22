@@ -161,6 +161,84 @@ func TestCrossFilePhase_CrossFindingsCacheExcludesModuleAwareFindings(t *testing
 	}
 }
 
+// TestCrossFilePhase_CrossFindingsCacheSkipsRecoveredPanic verifies that when a
+// cross-file rule panics mid-phase, its partial output is not written to the
+// cross-findings disk cache. Caching a degraded result would replay it on every
+// warm run keyed on the index fingerprint, and the panic warning would vanish
+// because the rule never re-runs.
+func TestCrossFilePhase_CrossFindingsCacheSkipsRecoveredPanic(t *testing.T) {
+	cacheDir := t.TempDir()
+	codeIndex := scanner.BuildIndexFromData(nil, nil)
+	codeIndex.Fingerprint = "panic-fingerprint"
+
+	panicRule := api.FakeRule("PanicCrossRule", api.WithNeeds(api.NeedsCrossFile), api.WithCheck(func(ctx *api.Context) {
+		ctx.Emit(scanner.Finding{File: "src/Foo.kt", Line: 1, Col: 1, Message: "partial"})
+		panic("boom")
+	}))
+
+	in := DispatchResult{
+		IndexResult: IndexResult{
+			ParseResult: ParseResult{
+				ActiveRules: []*api.Rule{panicRule},
+			},
+			CodeIndex:             codeIndex,
+			RuleHash:              "rules-v1",
+			CrossFindingsCacheDir: cacheDir,
+		},
+		Findings: scanner.CollectFindings(nil),
+	}
+
+	result, err := CrossFilePhase{}.Run(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Stats.Errors) == 0 {
+		t.Fatal("expected the recovered panic to be recorded in Stats.Errors")
+	}
+	key := scanner.CrossFindingsKey(codeIndex.Fingerprint, in.RuleHash)
+	if _, ok := scanner.LoadCrossFindings(cacheDir, key); ok {
+		t.Fatal("cross findings cache saved a partial result from a panicked rule")
+	}
+}
+
+// TestCrossFilePhase_ConcurrentRuleDiscardsPartialFindingsOnPanic verifies that
+// a NeedsConcurrent rule which panics after emitting does not leak the findings
+// it wrote before the panic. The concurrent path buffers each rule into a
+// scratch collector and merges only on clean completion.
+func TestCrossFilePhase_ConcurrentRuleDiscardsPartialFindingsOnPanic(t *testing.T) {
+	codeIndex := scanner.BuildIndexFromData(nil, nil)
+	codeIndex.Fingerprint = "concurrent-panic-fingerprint"
+
+	panicRule := api.FakeRule("PanicConcurrentRule", api.WithNeeds(api.NeedsCrossFile|api.NeedsConcurrent), api.WithCheck(func(ctx *api.Context) {
+		ctx.Emit(scanner.Finding{File: "src/Foo.kt", Line: 1, Col: 1, Message: "partial-concurrent"})
+		panic("boom")
+	}))
+
+	in := DispatchResult{
+		IndexResult: IndexResult{
+			ParseResult: ParseResult{
+				ActiveRules: []*api.Rule{panicRule},
+			},
+			CodeIndex: codeIndex,
+			RuleHash:  "rules-v1",
+		},
+		Findings: scanner.CollectFindings(nil),
+	}
+
+	result, err := CrossFilePhase{}.Run(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Stats.Errors) == 0 {
+		t.Fatal("expected the recovered concurrent-rule panic to be recorded")
+	}
+	for _, finding := range result.Findings.Findings() {
+		if finding.Rule == "PanicConcurrentRule" {
+			t.Fatalf("partial finding from a panicked concurrent rule leaked into output: %+v", finding)
+		}
+	}
+}
+
 // TestCrossFilePhase_SuppressionAppliedToCrossFileFinding is the
 // acceptance regression for the PhasePipeline roadmap (criterion #3):
 // findings emitted by cross-file rules MUST be filtered through the same

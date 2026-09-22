@@ -441,6 +441,185 @@ func init() {
 	}
 }
 
+func TestAnalyzeSource_FlagsWrongNarrowOracleCapability(t *testing.T) {
+	src := `package rules
+
+import api "github.com/kaeawc/krit/internal/rules/api"
+
+func init() {
+	api.Register(&api.Rule{
+		ID:          "WrongNarrowOracle",
+		Description: "uses diagnostics under call-target capability",
+		Needs:       api.NeedsOracleCallTargets,
+		Check: func(ctx *api.Context) {
+			cr.Oracle().LookupDiagnostics("source.kt")
+		},
+	})
+}
+`
+	violations := analyzeSource(t, "wrongnarrow.go", src)
+	if len(violations) != 1 {
+		t.Fatalf("want 1 violation, got %d: %v", len(violations), violations)
+	}
+	if !strings.Contains(violations[0].Message, "LookupDiagnostics") || !strings.Contains(violations[0].Message, "NeedsOracleDiagnostics") {
+		t.Fatalf("want diagnostic method and capability in message, got %q", violations[0].Message)
+	}
+}
+
+func TestAnalyzeSource_AcceptsMatchingNarrowOracleCapability(t *testing.T) {
+	src := `package rules
+
+import api "github.com/kaeawc/krit/internal/rules/api"
+
+func init() {
+	api.Register(&api.Rule{
+		ID:          "CorrectNarrowOracle",
+		Description: "uses diagnostics under diagnostics capability",
+		Needs:       api.NeedsOracleDiagnostics,
+		Check: func(ctx *api.Context) {
+			lookup := cr.Oracle()
+			lookup.LookupDiagnostics("source.kt")
+		},
+	})
+}
+`
+	violations := analyzeSource(t, "correctnarrow.go", src)
+	if len(violations) != 0 {
+		t.Fatalf("want 0 violations, got %d: %v", len(violations), violations)
+	}
+}
+
+func TestAnalyzeSource_FollowsOracleLookupHelper(t *testing.T) {
+	src := `package rules
+
+import (
+	"github.com/kaeawc/krit/internal/oracle"
+	api "github.com/kaeawc/krit/internal/rules/api"
+)
+
+func helper(lookup oracle.Lookup) {
+	lookup.LookupDiagnostics("source.kt")
+}
+
+func init() {
+	api.Register(&api.Rule{
+		ID:          "HelperNarrowOracle",
+		Description: "helper consumes diagnostics",
+		Needs:       api.NeedsOracleCallTargets,
+		Check: func(ctx *api.Context) {
+			helper(cr.Oracle())
+		},
+	})
+}
+`
+	violations := analyzeSource(t, "helpernarrow.go", src)
+	if len(violations) != 1 || !strings.Contains(violations[0].Message, "NeedsOracleDiagnostics") {
+		t.Fatalf("want one diagnostics violation, got %v", violations)
+	}
+
+	src = strings.Replace(src, "api.NeedsOracleCallTargets", "api.NeedsOracleDiagnostics", 1)
+	violations = analyzeSource(t, "helpernarrow-good.go", src)
+	if len(violations) != 0 {
+		t.Fatalf("want 0 violations with diagnostics capability, got %d: %v", len(violations), violations)
+	}
+}
+
+func TestOracleMethodNeedNamesMatchesLookupInterface(t *testing.T) {
+	_, thisFile, _, _ := runtime.Caller(0)
+	oraclePath := filepath.Join(filepath.Dir(thisFile), "..", "oracle", "oracle.go")
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, oraclePath, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", oraclePath, err)
+	}
+
+	lookupMethods := make(map[string]bool)
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok || ts.Name.Name != "Lookup" {
+				continue
+			}
+			iface, ok := ts.Type.(*ast.InterfaceType)
+			if !ok {
+				t.Fatalf("Lookup is %T, want interface", ts.Type)
+			}
+			for _, method := range iface.Methods.List {
+				for _, name := range method.Names {
+					lookupMethods[name.Name] = true
+				}
+			}
+		}
+	}
+	if len(lookupMethods) != len(oracleMethodNeedNames) {
+		t.Fatalf("Lookup has %d methods, method-capability table has %d: lookup=%v table=%v", len(lookupMethods), len(oracleMethodNeedNames), lookupMethods, oracleMethodNeedNames)
+	}
+	for method := range lookupMethods {
+		if _, ok := oracleMethodNeedNames[method]; !ok {
+			t.Fatalf("Lookup method %s is missing from method-capability table", method)
+		}
+	}
+	for method := range oracleMethodNeedNames {
+		if !lookupMethods[method] {
+			t.Fatalf("method-capability table contains non-Lookup method %s", method)
+		}
+	}
+}
+
+func TestAnalyzeSource_OracleEscapesAndFlatInterfacesStayPermissive(t *testing.T) {
+	src := `package rules
+
+import (
+	"github.com/kaeawc/krit/internal/scanner"
+	api "github.com/kaeawc/krit/internal/rules/api"
+)
+
+type oracleFlatLookup interface {
+	LookupCallTargetFlat(file *scanner.File, idx uint32) string
+}
+
+type oracleAnnotationLookup interface {
+	LookupAnnotations(key string) []string
+}
+
+func external(value interface{}) {}
+
+func init() {
+	api.Register(&api.Rule{
+		ID:          "OracleEscape",
+		Description: "oracle value escapes without a known lookup",
+		Needs:       api.NeedsOracleCallTargets,
+		Check: func(ctx *api.Context) {
+			var flat oracleFlatLookup
+			_ = flat
+			external(cr.Oracle())
+		},
+	})
+}
+`
+	violations := analyzeSource(t, "oracleescape.go", src)
+	if len(violations) != 0 {
+		t.Fatalf("want no false positive for escaped oracle, got %d: %v", len(violations), violations)
+	}
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "shapes.go", src, 0)
+	if err != nil {
+		t.Fatalf("parse shapes: %v", err)
+	}
+	shapes := oracleShapedInterfaceNames([]*ast.File{file})
+	if shapes["oracleFlatLookup"] {
+		t.Fatalf("oracleFlatLookup must not be treated as oracle-shaped: %v", shapes)
+	}
+	if !shapes["oracleAnnotationLookup"] {
+		t.Fatalf("oracleAnnotationLookup must be treated as oracle-shaped: %v", shapes)
+	}
+}
+
 func TestAnalyzeSource_NeedsTypeInfoDoesNotSatisfyOracle(t *testing.T) {
 	src := `package rules
 

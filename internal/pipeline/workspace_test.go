@@ -529,34 +529,56 @@ func TestWorkspaceState_InvalidateLibraryFactsDropsAndroid(t *testing.T) {
 func TestWorkspaceState_GradleFindingsMemoizes(t *testing.T) {
 	w := NewWorkspaceState("")
 	var builds int
-	first := w.GradleFindings("k1", func() scanner.FindingColumns {
+	first, _ := w.GradleFindings("k1", func() (scanner.FindingColumns, bool) {
 		builds++
-		return scanner.FindingColumns{}
+		return scanner.FindingColumns{}, true
 	})
 	if builds != 1 {
 		t.Fatalf("GradleFindings builds = %d after first call, want 1", builds)
 	}
-	_ = w.GradleFindings("k1", func() scanner.FindingColumns {
+	_, _ = w.GradleFindings("k1", func() (scanner.FindingColumns, bool) {
 		builds++
-		return scanner.FindingColumns{}
+		return scanner.FindingColumns{}, true
 	})
 	if builds != 1 {
 		t.Errorf("GradleFindings builds = %d after hit, want 1", builds)
 	}
-	_ = w.GradleFindings("k2", func() scanner.FindingColumns {
+	_, _ = w.GradleFindings("k2", func() (scanner.FindingColumns, bool) {
 		builds++
-		return scanner.FindingColumns{}
+		return scanner.FindingColumns{}, true
 	})
 	if builds != 2 {
 		t.Errorf("GradleFindings builds = %d after distinct key, want 2", builds)
 	}
 	_ = first
 	w.InvalidateLibraryFacts()
-	_ = w.GradleFindings("k1", func() scanner.FindingColumns {
+	_, _ = w.GradleFindings("k1", func() (scanner.FindingColumns, bool) {
 		builds++
-		return scanner.FindingColumns{}
+		return scanner.FindingColumns{}, true
 	})
 	if builds != 3 {
 		t.Errorf("GradleFindings builds = %d after InvalidateLibraryFacts, want 3", builds)
+	}
+}
+
+func TestWorkspaceState_GradleFindingsDoesNotMemoizeNonCacheableBuild(t *testing.T) {
+	w := NewWorkspaceState("")
+	builds := 0
+	_, cacheable := w.GradleFindings("panic", func() (scanner.FindingColumns, bool) {
+		builds++
+		return scanner.FindingColumns{}, false
+	})
+	if cacheable {
+		t.Fatal("first GradleFindings result cacheable = true, want false")
+	}
+	_, cacheable = w.GradleFindings("panic", func() (scanner.FindingColumns, bool) {
+		builds++
+		return scanner.FindingColumns{}, true
+	})
+	if !cacheable {
+		t.Fatal("second GradleFindings result cacheable = false, want true")
+	}
+	if builds != 2 {
+		t.Fatalf("GradleFindings builds = %d, want 2 after non-cacheable first build", builds)
 	}
 }

@@ -870,7 +870,7 @@ func TestRunIcons_IncludesNewChecks(t *testing.T) {
 	}
 
 	dispatcher := rules.NewDispatcher(selected, nil)
-	cols := dispatcher.RunIcons(&scanner.File{Path: resDir, Language: scanner.LangXML}, idx)
+	cols, _ := dispatcher.RunIcons(&scanner.File{Path: resDir, Language: scanner.LangXML}, idx)
 	findings := cols.Findings()
 	hasIconColors := false
 	hasLauncherShape := false

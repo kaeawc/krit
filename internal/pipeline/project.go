@@ -801,6 +801,7 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 		bundleSaveStart := time.Now()
 		bundleKey := scanner.FindingsBundleKey(runFP)
 		manifest := buildDeltaManifest(manifestData, runFP)
+		findingsCacheable := len(crossFileResult.Stats.Errors) == 0
 		// Update the in-memory mirrors synchronously so the next analyze
 		// reuses them no matter when the disk write lands. The disk write
 		// itself is the slow part (~300 ms on kotlin-corpus), so defer it
@@ -808,12 +809,15 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 		// a not-yet-flushed disk write only costs a recompute on a daemon
 		// restart, never a stale read (the resident bundle is keyed by the
 		// content-addressed FindingsBundleKey).
-		if !bundleHit {
+		if !bundleHit && findingsCacheable {
 			residentBundleStash(host, bundleKey, &crossFileResult.Findings)
+		}
+		if !findingsCacheable && host.Reporter != nil {
+			host.Reporter.Verbosef("verbose: Findings bundle cache: save skipped after recovered rule panic\n")
 		}
 		storeDeltaManifestResident(host, manifestData, manifest)
 		runBackgroundSave(host, func() {
-			if !bundleHit {
+			if !bundleHit && findingsCacheable {
 				_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, &crossFileResult.Findings)
 			}
 			_ = saveDeltaManifestDisk(host, manifestData, manifest)

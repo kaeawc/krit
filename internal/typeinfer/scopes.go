@@ -27,7 +27,7 @@ func (r *defaultResolver) buildScopesFlat(idx uint32, file *scanner.File, scope 
 	case "function_declaration":
 		r.buildFunctionDeclScopeFlat(idx, file, scope, it)
 		return
-	case "getter":
+	case "getter", "setter", "anonymous_initializer":
 		r.buildExecutableScopeFlat(idx, file, scope, it)
 		return
 	case "lambda_literal":
@@ -854,7 +854,7 @@ func flatForEachRelevantScopeChild(file *scanner.File, idx uint32, fn func(child
 		}
 		switch file.FlatType(child) {
 		case "function_declaration", "lambda_literal", "class_declaration", "object_declaration", "class_body",
-			"getter",
+			"getter", "setter", "anonymous_initializer",
 			"if_expression", "when_expression", "for_statement",
 			"property_declaration", "call_expression", "elvis_expression",
 			"control_structure_body", "statements", "function_body",

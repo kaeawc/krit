@@ -33,6 +33,49 @@ func (r *recordingBundleStore) Save(root string, fp scanner.RunFingerprint, cols
 	return r.store.Save(root, fp, cols)
 }
 
+func TestRunProject_FindingsBundleCache_SkipsRecoveredPanic(t *testing.T) {
+	run := func(t *testing.T, rule *api.Rule) *recordingBundleStore {
+		t.Helper()
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "Sample.kt"), []byte("class Sample\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		bundle := &recordingBundleStore{}
+		if _, err := RunProject(context.Background(), ProjectInput{
+			Args: ProjectArgs{
+				Config:      config.NewConfig(),
+				Paths:       []string{dir},
+				ActiveRules: []*api.Rule{rule},
+				Format:      "json",
+				Version:     "test",
+			},
+			Host: ProjectHostState{
+				FindingsBundleStore:     bundle,
+				FindingsBundleCacheRoot: t.TempDir(),
+			},
+		}); err != nil {
+			t.Fatalf("RunProject: %v", err)
+		}
+		return bundle
+	}
+
+	t.Run("panic skips save", func(t *testing.T) {
+		rule := api.FakeRule("BundlePanic", api.WithNeeds(api.NeedsCrossFile), api.WithCheck(func(*api.Context) {
+			panic("boom")
+		}))
+		if got := run(t, rule).saveCalls; got != 0 {
+			t.Fatalf("saveCalls = %d, want 0 after recovered panic", got)
+		}
+	})
+
+	t.Run("normal run saves", func(t *testing.T) {
+		rule := api.FakeRule("BundleControl", api.WithNeeds(api.NeedsCrossFile))
+		if got := run(t, rule).saveCalls; got != 1 {
+			t.Fatalf("saveCalls = %d, want 1 without panic", got)
+		}
+	})
+}
+
 // TestRunProject_FindingsBundleCache_HitSkipsDispatch is the load-
 // bearing #55 acceptance test: a second RunProject call against a
 // byte-identical fixture hits the cache (returns cached findings,

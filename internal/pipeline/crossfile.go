@@ -130,13 +130,21 @@ func (p CrossFilePhase) runCrossRuleSet(ctx context.Context, in DispatchResult, 
 			ruleID = r.ID
 		}
 		call := func() {
-			defer func() {
-				if rec := recover(); rec != nil {
-					result.Stats.Errors = append(result.Stats.Errors, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
-				}
+			local := scanner.NewFindingCollector(0)
+			completed := false
+			func() {
+				defer func() {
+					if rec := recover(); rec != nil {
+						result.Stats.Errors = append(result.Stats.Errors, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
+					}
+				}()
+				rctx := buildCrossRuleContext(r, codeIndex, parsedFiles, in.Resolver, in.LibraryFacts, javaSourceIndex, local, in.Thorough)
+				r.Check(rctx)
+				completed = true
 			}()
-			rctx := buildCrossRuleContext(r, codeIndex, parsedFiles, in.Resolver, in.LibraryFacts, javaSourceIndex, crossCollector, in.Thorough)
-			r.Check(rctx)
+			if completed {
+				scanner.MergeCollectors(crossCollector, local)
+			}
 		}
 		if ruleTracker != nil {
 			ruleTracker.TrackVoid(ruleID, call)
@@ -251,13 +259,21 @@ func (CrossFilePhase) runModuleAwareRules(in DispatchResult, moduleAwareRules []
 				if r != nil {
 					ruleID = r.ID
 				}
-				defer func() {
-					if rec := recover(); rec != nil {
-						result.Stats.Errors = append(result.Stats.Errors, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
-					}
+				local := scanner.NewFindingCollector(0)
+				completed := false
+				func() {
+					defer func() {
+						if rec := recover(); rec != nil {
+							result.Stats.Errors = append(result.Stats.Errors, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
+						}
+					}()
+					rctx := &api.Context{ModuleIndex: in.ModuleIndex, Collector: local, Rule: r, DefaultConfidence: 0.95}
+					r.Check(rctx)
+					completed = true
 				}()
-				rctx := &api.Context{ModuleIndex: in.ModuleIndex, Collector: crossCollector, Rule: r, DefaultConfidence: 0.95}
-				r.Check(rctx)
+				if completed {
+					scanner.MergeCollectors(crossCollector, local)
+				}
 			}()
 		}
 	}
@@ -302,13 +318,21 @@ func (p CrossFilePhase) runOnDemandModuleIndex(ctx context.Context, in DispatchR
 			if r != nil {
 				ruleID = r.ID
 			}
-			defer func() {
-				if rec := recover(); rec != nil {
-					result.Stats.Errors = append(result.Stats.Errors, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
-				}
+			local := scanner.NewFindingCollector(0)
+			completed := false
+			func() {
+				defer func() {
+					if rec := recover(); rec != nil {
+						result.Stats.Errors = append(result.Stats.Errors, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
+					}
+				}()
+				rctx := &api.Context{ModuleIndex: pmi, Collector: local, Rule: r, DefaultConfidence: 0.95}
+				r.Check(rctx)
+				completed = true
 			}()
-			rctx := &api.Context{ModuleIndex: pmi, Collector: crossCollector, Rule: r, DefaultConfidence: 0.95}
-			r.Check(rctx)
+			if completed {
+				scanner.MergeCollectors(crossCollector, local)
+			}
 		}()
 	}
 	return nil
@@ -387,10 +411,19 @@ func (p CrossFilePhase) collectCrossFileFindings(ctx context.Context, in Dispatc
 		return false
 	}
 
+	errBaseline := len(result.Stats.Errors)
 	crossStart := time.Now()
 	crossFindingsKey, crossFindingsCacheable, crossFindingsCacheHit := p.runCrossPhase(ctx, in, codeIndex, crossCollector, crossStart, result)
 	if crossFindingsCacheHit || !crossFindingsCacheable || in.CrossFindingsCacheDir == "" {
 		return crossFindingsCacheHit
+	}
+	if len(result.Stats.Errors) > errBaseline {
+		// A cross-file rule panicked mid-phase; crossCollector now holds a
+		// degraded, partial result. Caching it would replay the degraded
+		// findings on every warm run keyed on the index fingerprint, and the
+		// panic warning would vanish because the rule never re-runs. Skip the
+		// save so the next run recomputes from scratch.
+		return false
 	}
 	p.saveCrossFindingsCache(in, crossFindingsKey, crossCollector)
 	return false
@@ -671,10 +704,14 @@ func mergeSortedLocalErrs(localErrs [][]rules.DispatchError) []rules.DispatchErr
 	return out
 }
 
-// runConcurrentCrossRule invokes a single rule's Check against a given
-// collector, recovering from panics the same way the serial path does.
+// runConcurrentCrossRule invokes a single rule's Check against a per-rule
+// scratch collector and merges it into the caller's collector only when Check
+// returns without panicking, recovering from panics the same way the serial
+// path does. A rule that panics mid-emit must not leak the findings it had
+// already written before the panic, so the scratch is discarded on recovery.
 // Each caller hands its own collector so the goroutines never contend.
 func runConcurrentCrossRule(r *api.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, resolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaSourceIndex *javafacts.SourceIndex, local *scanner.FindingCollector, errs *[]rules.DispatchError, thorough bool) {
+	scratch := scanner.NewFindingCollector(0)
 	defer func() {
 		if rec := recover(); rec != nil {
 			if errs != nil {
@@ -684,9 +721,11 @@ func runConcurrentCrossRule(r *api.Rule, codeIndex *scanner.CodeIndex, parsedFil
 				}
 				*errs = append(*errs, rules.DispatchError{RuleName: ruleID, PanicValue: rec})
 			}
+			return
 		}
+		scanner.MergeCollectors(local, scratch)
 	}()
-	rctx := buildCrossRuleContext(r, codeIndex, parsedFiles, resolver, libraryFacts, javaSourceIndex, local, thorough)
+	rctx := buildCrossRuleContext(r, codeIndex, parsedFiles, resolver, libraryFacts, javaSourceIndex, scratch, thorough)
 	r.Check(rctx)
 }
 

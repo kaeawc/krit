@@ -408,6 +408,136 @@ data class Example(val x: String? = null) {
 	}
 }
 
+func TestIsNullableFlat_ClassPropertyInitializerSmartCastDoesNotAffectEarlierMember(t *testing.T) {
+	src := `
+data class Example(val member: String? = null) {
+    val earlier: String?
+        get() = member
+
+    val normalized = member ?: throw IllegalStateException()
+}
+`
+	file := parseTestFile(t, src)
+	resolver := buildTestResolver(t, file)
+
+	var refs []uint32
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if file.FlatType(idx) == "simple_identifier" && file.FlatNodeText(idx) == "member" {
+			refs = append(refs, idx)
+		}
+	})
+	if len(refs) != 3 {
+		t.Fatalf("expected declaration, earlier getter, and initializer references, got %d", len(refs))
+	}
+	for _, ref := range refs[1:] {
+		nullable := resolver.IsNullableFlat(ref, file)
+		if nullable == nil || !*nullable {
+			t.Fatalf("expected reference at byte %d to remain nullable, got %v", file.FlatStartByte(ref), nullable)
+		}
+	}
+}
+
+func TestIsNullableFlat_SetterSmartCastDoesNotLeakToOtherMembers(t *testing.T) {
+	src := `
+data class Example(val member: String? = null) {
+    val earlier: String?
+        get() = member
+
+    var target: String? = null
+        set(value) {
+            val local = member ?: return
+            field = local
+        }
+
+    val later: String?
+        get() = member
+}
+`
+	file := parseTestFile(t, src)
+	resolver := buildTestResolver(t, file)
+
+	var refs []uint32
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if file.FlatType(idx) == "simple_identifier" && file.FlatNodeText(idx) == "member" {
+			refs = append(refs, idx)
+		}
+	})
+	if len(refs) != 4 {
+		t.Fatalf("expected declaration, earlier getter, setter, and later getter references, got %d", len(refs))
+	}
+	for _, ref := range []uint32{refs[1], refs[3]} {
+		nullable := resolver.IsNullableFlat(ref, file)
+		if nullable == nil || !*nullable {
+			t.Fatalf("expected other-member reference at byte %d to remain nullable, got %v", file.FlatStartByte(ref), nullable)
+		}
+	}
+}
+
+func TestIsNullableFlat_AnonymousInitializerSmartCastDoesNotLeakToOtherMembers(t *testing.T) {
+	src := `
+data class Example(val member: String? = null) {
+    val earlier: String?
+        get() = member
+
+    init {
+        val local = member ?: throw IllegalStateException()
+        println(local)
+    }
+
+    val later: String?
+        get() = member
+}
+`
+	file := parseTestFile(t, src)
+	resolver := buildTestResolver(t, file)
+
+	var refs []uint32
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if file.FlatType(idx) == "simple_identifier" && file.FlatNodeText(idx) == "member" {
+			refs = append(refs, idx)
+		}
+	})
+	if len(refs) != 4 {
+		t.Fatalf("expected declaration, earlier getter, init, and later getter references, got %d", len(refs))
+	}
+	for _, ref := range []uint32{refs[1], refs[3]} {
+		nullable := resolver.IsNullableFlat(ref, file)
+		if nullable == nil || !*nullable {
+			t.Fatalf("expected other-member reference at byte %d to remain nullable, got %v", file.FlatStartByte(ref), nullable)
+		}
+	}
+}
+
+func TestIsNullableFlat_ElvisBailPreservesBlockWideSmartCast(t *testing.T) {
+	src := `
+fun example(x: String?) {
+    if (x != null) {
+        println(x.length)
+        x ?: return
+        println(x.length)
+    }
+}
+`
+	file := parseTestFile(t, src)
+	resolver := buildTestResolver(t, file)
+
+	var refs []uint32
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if file.FlatType(idx) == "simple_identifier" && file.FlatNodeText(idx) == "x" {
+			refs = append(refs, idx)
+		}
+	})
+	if len(refs) != 5 {
+		t.Fatalf("expected parameter, condition, pre-elvis, elvis, and post-elvis references, got %d", len(refs))
+	}
+	for _, ref := range []uint32{refs[2], refs[4]} {
+		nullable := resolver.IsNullableFlat(ref, file)
+		if nullable == nil || *nullable {
+			t.Fatalf("expected block reference at byte %d to remain smart-cast non-null, got %v", file.FlatStartByte(ref), nullable)
+		}
+	}
+}
+
 func TestResolveFlatNode_TypeAliasCarriesNullableTarget(t *testing.T) {
 	src := `
 typealias NullableName = String?

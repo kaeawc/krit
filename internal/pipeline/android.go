@@ -77,7 +77,7 @@ type AndroidInput struct {
 	// findings across analyzes. Daemon callers wire this to a
 	// WorkspaceState-resident map; cache keys include the content
 	// hash + rule hash so config changes invalidate. CLI passes nil.
-	GradleFindingsCache func(key string, build func() scanner.FindingColumns) scanner.FindingColumns
+	GradleFindingsCache func(key string, build func() (scanner.FindingColumns, bool)) (scanner.FindingColumns, bool)
 
 	// BackgroundSave, when non-nil, runs the resource-source bundle
 	// manifest disk write on the daemon's background-save worker instead
@@ -296,12 +296,12 @@ type resourceCacheStats struct {
 // large projects) is cached by resDir-content fingerprint. On a cache hit,
 // scan + merge are skipped unless resource-source rules need the merged index
 // to loop over SourceFiles after this returns.
-func (p AndroidPhase) runResourceDir(in AndroidInput, resDir string, resDirFP string, resourceDeps rules.AndroidDataDependency, valueKinds android.ValuesScanKind, scanIcons bool, needResourceSource bool, providers *AndroidProjectProviders, collector *scanner.FindingCollector, resourceBundleCollector *scanner.FindingCollector, t *androidResourceTimings, stats *resourceCacheStats) *android.ResourceIndex {
+func (p AndroidPhase) runResourceDir(in AndroidInput, resDir string, resDirFP string, resourceDeps rules.AndroidDataDependency, valueKinds android.ValuesScanKind, scanIcons bool, needResourceSource bool, providers *AndroidProjectProviders, collector *scanner.FindingCollector, resourceBundleCollector *scanner.FindingCollector, t *androidResourceTimings, stats *resourceCacheStats) (*android.ResourceIndex, bool) {
 	resourceCacheHit, resourceKey := p.loadCachedResourceFindings(in, resDir, resDirFP, resourceDeps, valueKinds, collector, resourceBundleCollector, stats)
 	partialIndexes, hadResourceErr := p.scanResourceIndexes(resDir, resourceDeps, valueKinds, needResourceSource, resourceCacheHit, providers, t)
-	mergedIdx := p.mergeResourceIndexes(in, resDir, resourceKey, resourceCacheHit, partialIndexes, hadResourceErr, stats, collector, resourceBundleCollector, t)
+	mergedIdx, cacheable := p.mergeResourceIndexes(in, resDir, resourceKey, resourceCacheHit, partialIndexes, hadResourceErr, stats, collector, resourceBundleCollector, t)
 	p.scanResourceIcons(in, resDir, scanIcons, providers, collector, t)
-	return mergedIdx
+	return mergedIdx, cacheable
 }
 
 func (p AndroidPhase) loadCachedResourceFindings(in AndroidInput, resDir, resDirFP string, resourceDeps rules.AndroidDataDependency, valueKinds android.ValuesScanKind, collector *scanner.FindingCollector, resourceBundleCollector *scanner.FindingCollector, stats *resourceCacheStats) (resourceCacheHit bool, resourceKey string) {
@@ -346,13 +346,13 @@ func (p AndroidPhase) scanResourceIndexes(resDir string, resourceDeps rules.Andr
 	return partialIndexes, hadResourceErr
 }
 
-func (p AndroidPhase) mergeResourceIndexes(in AndroidInput, resDir, resourceKey string, resourceCacheHit bool, partialIndexes []*android.ResourceIndex, hadResourceErr bool, stats *resourceCacheStats, collector *scanner.FindingCollector, resourceBundleCollector *scanner.FindingCollector, t *androidResourceTimings) *android.ResourceIndex {
+func (p AndroidPhase) mergeResourceIndexes(in AndroidInput, resDir, resourceKey string, resourceCacheHit bool, partialIndexes []*android.ResourceIndex, hadResourceErr bool, stats *resourceCacheStats, collector *scanner.FindingCollector, resourceBundleCollector *scanner.FindingCollector, t *androidResourceTimings) (*android.ResourceIndex, bool) {
 	if hadResourceErr || len(partialIndexes) == 0 || in.Dispatcher == nil {
-		return nil
+		return nil, true
 	}
 	mergedIdx := android.MergeResourceIndexes(partialIndexes...)
 	if resourceCacheHit {
-		return mergedIdx
+		return mergedIdx, true
 	}
 
 	start := time.Now()
@@ -364,23 +364,18 @@ func (p AndroidPhase) mergeResourceIndexes(in AndroidInput, resDir, resourceKey 
 	installAndroidSuppression(file)
 
 	canCache := resourceKey != "" && stats != nil && in.CacheWriter != nil && in.CacheDir != "" && in.RuleHash != ""
-	if canCache {
-		cols := filterAndroidSuppressedFindings(file, in.Dispatcher.RunResource(file, mergedIdx))
-		collector.AppendColumns(&cols)
-		if resourceBundleCollector != nil {
-			resourceBundleCollector.AppendColumns(&cols)
-		}
+	raw, cacheable := in.Dispatcher.RunResource(file, mergedIdx)
+	cols := filterAndroidSuppressedFindings(file, raw)
+	collector.AppendColumns(&cols)
+	if resourceBundleCollector != nil {
+		resourceBundleCollector.AppendColumns(&cols)
+	}
+	if canCache && cacheable {
 		in.CacheWriter.Save(in.CacheDir, resourceKey, cols)
-	} else {
-		cols := filterAndroidSuppressedFindings(file, in.Dispatcher.RunResource(file, mergedIdx))
-		collector.AppendColumns(&cols)
-		if resourceBundleCollector != nil {
-			resourceBundleCollector.AppendColumns(&cols)
-		}
 	}
 
 	t.rulesDur += time.Since(start)
-	return mergedIdx
+	return mergedIdx, cacheable
 }
 
 func (p AndroidPhase) scanResourceIcons(in AndroidInput, resDir string, scanIcons bool, providers *AndroidProjectProviders, collector *scanner.FindingCollector, t *androidResourceTimings) {
@@ -408,9 +403,10 @@ func (p AndroidPhase) scanResourceIcons(in AndroidInput, resDir string, scanIcon
 		Metadata: iconIdx,
 	}
 	installAndroidSuppression(file)
-	iconColumns := filterAndroidSuppressedFindings(file, in.Dispatcher.RunIcons(file, iconIdx))
+	raw, cacheable := in.Dispatcher.RunIcons(file, iconIdx)
+	iconColumns := filterAndroidSuppressedFindings(file, raw)
 	collector.AppendColumns(&iconColumns)
-	if key != "" {
+	if key != "" && cacheable {
 		in.CacheWriter.Save(in.CacheDir, key, iconColumns)
 	}
 	t.iconRulesDur += time.Since(start)
@@ -468,6 +464,7 @@ func (p AndroidPhase) runManifestPhase(in AndroidInput, collector *scanner.Findi
 		}
 		bundleCollector = scanner.NewFindingCollector(len(in.Project.ManifestPaths) * 4)
 	}
+	bundleCacheable := true
 
 	memo := hashutil.Default()
 	for _, path := range in.Project.ManifestPaths {
@@ -484,24 +481,29 @@ func (p AndroidPhase) runManifestPhase(in AndroidInput, collector *scanner.Findi
 					continue
 				}
 				stats.misses++
-				cols, pdur, rdur := p.runManifestOne(in, path)
+				cols, resultCacheable, pdur, rdur := p.runManifestOne(in, path)
 				parseDur += pdur
 				ruleDur += rdur
 				collector.AppendColumns(&cols)
 				bundleCollector.AppendColumns(&cols)
-				in.CacheWriter.Save(in.CacheDir, key, cols)
+				if resultCacheable {
+					in.CacheWriter.Save(in.CacheDir, key, cols)
+				} else {
+					bundleCacheable = false
+				}
 				continue
 			}
 		}
-		cols, pdur, rdur := p.runManifestOne(in, path)
+		cols, resultCacheable, pdur, rdur := p.runManifestOne(in, path)
 		parseDur += pdur
 		ruleDur += rdur
 		collector.AppendColumns(&cols)
+		bundleCacheable = bundleCacheable && resultCacheable
 		if bundleCollector != nil {
 			bundleCollector.AppendColumns(&cols)
 		}
 	}
-	if bundleKey != "" && bundleCollector != nil {
+	if bundleKey != "" && bundleCollector != nil && bundleCacheable {
 		in.CacheWriter.Save(in.CacheDir, bundleKey, *bundleCollector.Columns())
 	}
 	return parseDur, ruleDur, stats
@@ -509,16 +511,16 @@ func (p AndroidPhase) runManifestPhase(in AndroidInput, collector *scanner.Findi
 
 // runManifestOne does the parse + rule dispatch for a single manifest path.
 // Returns the empty FindingColumns when parsing fails.
-func (AndroidPhase) runManifestOne(in AndroidInput, path string) (scanner.FindingColumns, time.Duration, time.Duration) {
+func (AndroidPhase) runManifestOne(in AndroidInput, path string) (scanner.FindingColumns, bool, time.Duration, time.Duration) {
 	parseStart := time.Now()
 	parsed, err := android.ParseManifest(path)
 	parseDur := time.Since(parseStart)
 	if err != nil {
-		return scanner.FindingColumns{}, parseDur, 0
+		return scanner.FindingColumns{}, true, parseDur, 0
 	}
 	manifest := ConvertManifestForRules(android.ConvertManifest(parsed, path))
 	if in.Dispatcher == nil {
-		return scanner.FindingColumns{}, parseDur, 0
+		return scanner.FindingColumns{}, true, parseDur, 0
 	}
 	ruleStart := time.Now()
 	file := &scanner.File{
@@ -527,8 +529,9 @@ func (AndroidPhase) runManifestOne(in AndroidInput, path string) (scanner.Findin
 		Metadata: manifest,
 	}
 	installAndroidSuppression(file)
-	cols := filterAndroidSuppressedFindings(file, in.Dispatcher.RunManifest(file, manifest))
-	return cols, parseDur, time.Since(ruleStart)
+	raw, cacheable := in.Dispatcher.RunManifest(file, manifest)
+	cols := filterAndroidSuppressedFindings(file, raw)
+	return cols, cacheable, parseDur, time.Since(ruleStart)
 }
 
 // resourceSourceCacheStats counts cache outcomes during the resource-source
@@ -826,6 +829,16 @@ type gradleCacheStats struct {
 	skips  int
 }
 
+func saveAndroidFindingsIfCacheable(in AndroidInput, key string, cols scanner.FindingColumns, cacheable bool) {
+	if cacheable && in.CacheWriter != nil && key != "" {
+		in.CacheWriter.Save(in.CacheDir, key, cols)
+	}
+}
+
+func combineCacheability(current, next bool) bool {
+	return current && next
+}
+
 func (AndroidPhase) gradleBundleFingerprint(paths []string) (string, bool) {
 	h := hashutil.Hasher().New()
 	if !writePathHashes(h, "gradle", paths) {
@@ -855,6 +868,7 @@ func (p AndroidPhase) runGradlePhase(in AndroidInput, collector *scanner.Finding
 			bundleCollector = scanner.NewFindingCollector(len(in.Project.GradlePaths) * 4)
 		}
 	}
+	bundleCacheable := true
 	memo := hashutil.Default()
 	for _, path := range in.Project.GradlePaths {
 		// In-memory daemon cache: keyed by (contentHash, ruleHash) so a
@@ -866,10 +880,10 @@ func (p AndroidPhase) runGradlePhase(in AndroidInput, collector *scanner.Finding
 			if herr == nil {
 				key := path + "\x00" + contentHash + "\x00" + in.RuleHash
 				var rpdur, rdur time.Duration
-				cols := in.GradleFindingsCache(key, func() scanner.FindingColumns {
-					c, rp, rd := p.runGradleOne(in, path)
+				cols, resultCacheable := in.GradleFindingsCache(key, func() (scanner.FindingColumns, bool) {
+					c, ok, rp, rd := p.runGradleOne(in, path)
 					rpdur, rdur = rp, rd
-					return c
+					return c, ok
 				})
 				readParseDur += rpdur
 				rulesDur += rdur
@@ -877,6 +891,7 @@ func (p AndroidPhase) runGradlePhase(in AndroidInput, collector *scanner.Finding
 				if bundleCollector != nil {
 					bundleCollector.AppendColumns(&cols)
 				}
+				bundleCacheable = combineCacheability(bundleCacheable, resultCacheable)
 				continue
 			}
 		}
@@ -895,26 +910,28 @@ func (p AndroidPhase) runGradlePhase(in AndroidInput, collector *scanner.Finding
 					continue
 				}
 				stats.misses++
-				cols, rpdur, rdur := p.runGradleOne(in, path)
+				cols, resultCacheable, rpdur, rdur := p.runGradleOne(in, path)
 				readParseDur += rpdur
 				rulesDur += rdur
 				collector.AppendColumns(&cols)
 				if bundleCollector != nil {
 					bundleCollector.AppendColumns(&cols)
 				}
-				in.CacheWriter.Save(in.CacheDir, key, cols)
+				saveAndroidFindingsIfCacheable(in, key, cols, resultCacheable)
+				bundleCacheable = combineCacheability(bundleCacheable, resultCacheable)
 				continue
 			}
 		}
-		cols, rpdur, rdur := p.runGradleOne(in, path)
+		cols, resultCacheable, rpdur, rdur := p.runGradleOne(in, path)
 		readParseDur += rpdur
 		rulesDur += rdur
 		collector.AppendColumns(&cols)
 		if bundleCollector != nil {
 			bundleCollector.AppendColumns(&cols)
 		}
+		bundleCacheable = combineCacheability(bundleCacheable, resultCacheable)
 	}
-	if bundleKey != "" && bundleCollector != nil {
+	if bundleKey != "" && bundleCollector != nil && bundleCacheable {
 		in.CacheWriter.Save(in.CacheDir, bundleKey, *bundleCollector.Columns())
 	}
 	return readParseDur, rulesDur, stats
@@ -923,25 +940,26 @@ func (p AndroidPhase) runGradlePhase(in AndroidInput, collector *scanner.Finding
 // runGradleOne reads, parses, and dispatches Gradle rules for a single
 // build script. Returns empty columns when the file can't be read or
 // parsed.
-func (AndroidPhase) runGradleOne(in AndroidInput, path string) (scanner.FindingColumns, time.Duration, time.Duration) {
+func (AndroidPhase) runGradleOne(in AndroidInput, path string) (scanner.FindingColumns, bool, time.Duration, time.Duration) {
 	readParseStart := time.Now()
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return scanner.FindingColumns{}, time.Since(readParseStart), 0
+		return scanner.FindingColumns{}, true, time.Since(readParseStart), 0
 	}
 	cfg, err := android.ParseBuildGradleContent(string(content))
 	readParseDur := time.Since(readParseStart)
 	if err != nil {
-		return scanner.FindingColumns{}, readParseDur, 0
+		return scanner.FindingColumns{}, true, readParseDur, 0
 	}
 	if in.Dispatcher == nil {
-		return scanner.FindingColumns{}, readParseDur, 0
+		return scanner.FindingColumns{}, true, readParseDur, 0
 	}
 	ruleStart := time.Now()
 	file := scanner.ParseGradleScript(context.Background(), path, content, cfg)
 	installAndroidSuppression(file)
-	cols := filterAndroidSuppressedFindings(file, in.Dispatcher.RunGradle(file, cfg))
-	return cols, readParseDur, time.Since(ruleStart)
+	raw, cacheable := in.Dispatcher.RunGradle(file, cfg)
+	cols := filterAndroidSuppressedFindings(file, raw)
+	return cols, cacheable, readParseDur, time.Since(ruleStart)
 }
 
 // installAndroidSuppression gives project-scope files the same suppression
@@ -1003,17 +1021,19 @@ func (p AndroidPhase) runResourceSubphase(in AndroidInput, resourceDeps rules.An
 		if needResources && androidFindingsCacheable {
 			resourceBundleCollector = scanner.NewFindingCollector(len(in.Project.ResDirs) * 8)
 		}
+		resourceBundleCacheable := true
 		for _, resDir := range in.Project.ResDirs {
 			var resDirFP string
 			if needResources && androidFindingsCacheable {
 				resDirFP = resDirFPs.fingerprint(resDir)
 			}
-			mergedIdx := p.runResourceDir(in, resDir, resDirFP, resourceDeps, valueKinds, needIcons, needResourceSource, providers, collector, resourceBundleCollector, &t, &resourceStats)
+			mergedIdx, resultCacheable := p.runResourceDir(in, resDir, resDirFP, resourceDeps, valueKinds, needIcons, needResourceSource, providers, collector, resourceBundleCollector, &t, &resourceStats)
+			resourceBundleCacheable = resourceBundleCacheable && resultCacheable
 			if mergedIdx != nil {
 				resourceSourceIndexes = append(resourceSourceIndexes, mergedIdx)
 			}
 		}
-		if resourceBundleCollector != nil {
+		if resourceBundleCollector != nil && resourceBundleCacheable {
 			mergedResourceFP := mergedResourceIndexFingerprintWith(in.Project.ResDirs, &resDirFPs)
 			in.CacheWriter.Save(in.CacheDir, in.resourceBundleKey(mergedResourceFP, resourceDeps, valueKinds), *resourceBundleCollector.Columns())
 		}
@@ -1206,6 +1226,19 @@ func (p AndroidPhase) runGradleSubphase(in AndroidInput, collector *scanner.Find
 	gradleTracker.End()
 }
 
+func projectRulePanicCount(dispatcher *rules.Dispatcher) int {
+	if dispatcher == nil {
+		return 0
+	}
+	return len(dispatcher.ProjectRuleStats().Errors)
+}
+
+func saveAndroidProjectBundle(in AndroidInput, key string, cols scanner.FindingColumns, cacheable bool) {
+	if key != "" && in.CacheWriter != nil && cacheable {
+		in.CacheWriter.Save(in.CacheDir, key, cols)
+	}
+}
+
 // Run implements Phase.
 func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, error) {
 	if err := ctx.Err(); err != nil {
@@ -1221,6 +1254,7 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 	}
 
 	collector := scanner.NewFindingCollector(len(in.Project.ManifestPaths)*4 + len(in.Project.ResDirs)*8 + len(in.Project.GradlePaths)*4)
+	projectPanicCount := projectRulePanicCount(in.Dispatcher)
 
 	resourceDeps := p.androidResourceDeps(in.ActiveRules)
 	valueKinds := androidValuesScanKinds(resourceDeps)
@@ -1264,13 +1298,13 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 	}
 
 	cols := *collector.Columns()
-	if projectBundleKey != "" && in.CacheWriter != nil {
-		in.CacheWriter.Save(in.CacheDir, projectBundleKey, cols)
-	}
 	result := AndroidResult{Findings: cols}
+	runHadPanic := false
 	if in.Dispatcher != nil {
 		result.Stats = in.Dispatcher.ProjectRuleStats()
+		runHadPanic = len(result.Stats.Errors) > projectPanicCount
 	}
+	saveAndroidProjectBundle(in, projectBundleKey, cols, !runHadPanic)
 	return result, nil
 }
 

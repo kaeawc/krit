@@ -285,3 +285,91 @@ func TestPreloadCache_KeepsInFlightEntries(t *testing.T) {
 		t.Fatalf("after draining in-flight loads, cache len = %d, want <= %d", got, preloadCacheCap)
 	}
 }
+
+func writeLazyOracleClassJSON(t *testing.T, path, fqn string) {
+	t.Helper()
+	body, err := json.Marshal(Data{
+		Version: 1,
+		Files:   map[string]*File{},
+		Dependencies: map[string]*Class{
+			fqn: {FQN: fqn, Kind: "class", Visibility: "public"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal oracle data: %v", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+		t.Fatalf("write oracle data: %v", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatalf("rename oracle data: %v", err)
+	}
+}
+
+func waitPreloadDone(t *testing.T, path string) {
+	t.Helper()
+	select {
+	case <-preloadStateFor(path).done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("preload of %s did not finish", path)
+	}
+}
+
+// TestPreloadCache_RewrittenFileIsReloaded reproduces the CLI sequence that
+// served stale oracle facts for one run after every edit: the scan runner
+// preloads the previous run's types.json at startup, the oracle refresh then
+// atomically rewrites it, and the LazyLookup built afterwards must see the
+// rewritten contents rather than the startup preload.
+func TestPreloadCache_RewrittenFileIsReloaded(t *testing.T) {
+	resetPreloadCache()
+	path := filepath.Join(t.TempDir(), "types.json")
+	writeLazyOracleClassJSON(t, path, "com.example.Before")
+	PreloadPath(path)
+	waitPreloadDone(t, path)
+
+	writeLazyOracleClassJSON(t, path, "com.example.After")
+	lazy := NewLazyLookup(path, nil)
+	lazy.Preload()
+	if got := lazy.LookupClass("com.example.After"); got == nil {
+		t.Fatal("lookup after rewrite served the stale startup preload")
+	}
+	if got := lazy.LookupClass("com.example.Before"); got != nil {
+		t.Fatalf("lookup after rewrite still sees the old class: %+v", got)
+	}
+}
+
+// TestPreloadCache_InPlaceRewriteIsReloaded covers writers that truncate and
+// rewrite the same inode instead of renaming over it.
+func TestPreloadCache_InPlaceRewriteIsReloaded(t *testing.T) {
+	resetPreloadCache()
+	path := filepath.Join(t.TempDir(), "types.json")
+	writeLazyOracleClassJSON(t, path, "com.example.A")
+	PreloadPath(path)
+	waitPreloadDone(t, path)
+
+	body, err := json.Marshal(Data{Version: 1, Files: map[string]*File{}, Dependencies: map[string]*Class{
+		"com.example.Longer": {FQN: "com.example.Longer", Kind: "class", Visibility: "public"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := NewLazyLookup(path, nil).LookupClass("com.example.Longer"); got == nil {
+		t.Fatal("lookup after in-place rewrite served the stale preload")
+	}
+}
+
+// TestPreloadCache_UnchangedFileReusesState guards the preload's purpose:
+// asking again for an unmodified file must return the already-loaded state.
+func TestPreloadCache_UnchangedFileReusesState(t *testing.T) {
+	resetPreloadCache()
+	path := filepath.Join(t.TempDir(), "types.json")
+	writeLazyOracleClassJSON(t, path, "com.example.Same")
+	first := preloadStateFor(path)
+	if second := preloadStateFor(path); second != first {
+		t.Fatal("unchanged file produced a new preload state")
+	}
+}

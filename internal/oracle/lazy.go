@@ -2,6 +2,7 @@ package oracle
 
 import (
 	"container/list"
+	"os"
 	"sync"
 	"sync/atomic"
 
@@ -10,8 +11,14 @@ import (
 )
 
 type preloadState struct {
-	once   sync.Once
-	done   chan struct{}
+	once sync.Once
+	done chan struct{}
+	// stamp is the file identity observed when the state was created,
+	// before load reads the file. A later request for the same path whose
+	// stamp differs means the JSON was rewritten (for example by the oracle
+	// refresh that runs after the CLI's speculative startup preload), so the
+	// cached state is stale and must not be served. Nil when stat failed.
+	stamp  os.FileInfo
 	loaded *Oracle
 	err    error
 }
@@ -48,18 +55,36 @@ func PreloadPath(path string) {
 }
 
 func preloadStateFor(path string) *preloadState {
+	stamp, _ := os.Stat(path)
 	preloadMu.Lock()
 	defer preloadMu.Unlock()
 	if elem := preloadByPath[path]; elem != nil {
-		preloadLRU.MoveToFront(elem)
-		return elem.Value.(*preloadEntry).state
+		if sameOracleFile(elem.Value.(*preloadEntry).state.stamp, stamp) {
+			preloadLRU.MoveToFront(elem)
+			return elem.Value.(*preloadEntry).state
+		}
+		// The file changed since this entry was stamped. Drop it so the
+		// caller loads the current contents; an in-flight load finishes
+		// into the orphaned state, which nothing references afterwards.
+		preloadLRU.Remove(elem)
+		delete(preloadByPath, path)
 	}
-	state := &preloadState{done: make(chan struct{})}
+	state := &preloadState{done: make(chan struct{}), stamp: stamp}
 	entry := &preloadEntry{path: path, state: state}
 	elem := preloadLRU.PushFront(entry)
 	preloadByPath[path] = elem
 	evictOldestCompletedLocked()
 	return state
+}
+
+// sameOracleFile reports whether two stat results describe the same file
+// contents. Oracle JSON is replaced by atomic rename, which changes the
+// file identity; size and mtime cover in-place rewrites.
+func sameOracleFile(a, b os.FileInfo) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return os.SameFile(a, b) && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
 }
 
 // evictOldestCompletedLocked trims the LRU until either the cap is met

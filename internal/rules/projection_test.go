@@ -88,6 +88,47 @@ func TestProjectDiagnostic_ReturnsFalseForNonOverlappingDiagnostic(t *testing.T)
 	}
 }
 
+// TestProjectDiagnostic_NestedDiagnosticNotClaimedByEnclosingNode pins the fix
+// for the mis-attribution bug: a USELESS_ELVIS emitted by the compiler on an
+// inner elvis nested inside the right operand of an outer elvis must be claimed
+// only by the inner node, never by the enclosing node whose byte range happens
+// to contain it. A byte-range-overlap gate would (wrongly) let the outer node
+// emit a false positive with a code-deleting fix.
+func TestProjectDiagnostic_NestedDiagnosticNotClaimedByEnclosingNode(t *testing.T) {
+	file := parseInlineForInternalTest(t, "fun f(x: String?) { val r = x ?: run { \"a\" ?: \"b\" } }\n")
+	outer := firstFlatNodeOfType(t, file, "elvis_expression", "x ?: run { \"a\" ?: \"b\" }")
+	inner := firstFlatNodeOfType(t, file, "elvis_expression", "\"a\" ?: \"b\"")
+
+	fake := oracle.NewFakeOracle()
+	// The compiler anchors USELESS_ELVIS on the inner elvis only.
+	fake.Diagnostics[file.Path] = []oracle.Diagnostic{{
+		FactoryName: "USELESS_ELVIS",
+		StartByte:   int(file.FlatStartByte(inner)),
+		EndByte:     int(file.FlatEndByte(inner)),
+	}}
+	resolver := oracle.NewCompositeResolver(fake, typeinfer.NewResolver())
+
+	// Dispatched on the OUTER elvis: the nested diagnostic must not be claimed.
+	outerCollector := scanner.NewFindingCollector(0)
+	outerCtx := &api.Context{File: file, Idx: outer, Resolver: resolver, Collector: outerCollector}
+	if projectDiagnostic(outerCtx, testDiagnosticProjection()) {
+		t.Fatal("outer elvis wrongly claimed a diagnostic anchored on the inner elvis")
+	}
+	if outerCollector.Columns().Len() != 0 {
+		t.Fatalf("outer findings = %d, want 0", outerCollector.Columns().Len())
+	}
+
+	// Dispatched on the INNER elvis: the diagnostic is claimed exactly once.
+	innerCollector := scanner.NewFindingCollector(0)
+	innerCtx := &api.Context{File: file, Idx: inner, Resolver: resolver, Collector: innerCollector}
+	if !projectDiagnostic(innerCtx, testDiagnosticProjection()) {
+		t.Fatal("inner elvis failed to claim its own diagnostic")
+	}
+	if innerCollector.Columns().Len() != 1 {
+		t.Fatalf("inner findings = %d, want 1", innerCollector.Columns().Len())
+	}
+}
+
 func testDiagnosticProjection() DiagnosticProjection {
 	return DiagnosticProjection{
 		FactoryNames: []string{"USELESS_ELVIS"},

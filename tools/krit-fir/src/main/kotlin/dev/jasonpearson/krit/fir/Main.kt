@@ -28,7 +28,7 @@ fun main(args: Array<String>) {
 
     if (daemon) {
         System.err.println("krit-fir daemon starting...")
-        val session = AnalysisSession(emptyList(), emptyList())
+        val session = createDaemonSession(args)
         val startTime = System.currentTimeMillis()
         if (port >= 0) {
             runDaemonTcp(port, session, startTime)
@@ -45,17 +45,13 @@ fun main(args: Array<String>) {
     //            [--files LIST_FILE] [--classpath JAR[:JAR...]]
     // Mirrors krit-types' one-shot surface so `oracle.InvokeWithFiles`
     // can drive either backend with the same arg vector.
-    val sources = extractCliValue(args, "--sources")?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+    val sources = extractCliSources(args)
     val output = extractCliValue(args, "--output", "-o")
     if (sources.isNullOrEmpty() || output.isNullOrBlank()) {
         printOneShotUsage()
         exitProcess(2)
     }
-    val classpath = extractCliValue(args, "--classpath", "-cp")
-        ?.split(java.io.File.pathSeparator)
-        ?.map { it.trim() }
-        ?.filter { it.isNotEmpty() }
-        .orEmpty()
+    val classpath = extractCliClasspath(args)
     runOneShot(
         sources = sources,
         outputPath = output,
@@ -73,6 +69,22 @@ internal fun extractCliValue(args: Array<String>, vararg flags: String): String?
     }
     return null
 }
+
+internal fun extractCliSources(args: Array<String>): List<String>? =
+    extractCliValue(args, "--sources")
+        ?.split(",")
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+
+internal fun extractCliClasspath(args: Array<String>): List<String> =
+    extractCliValue(args, "--classpath", "-cp")
+        ?.split(java.io.File.pathSeparator)
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        .orEmpty()
+
+internal fun createDaemonSession(args: Array<String>): AnalysisSession =
+    AnalysisSession(extractCliSources(args).orEmpty(), extractCliClasspath(args))
 
 private fun printOneShotUsage() {
     System.err.println(
@@ -466,10 +478,8 @@ fun extractStringArray(json: String, key: String): List<String>? {
 }
 
 fun extractFileRefs(json: String): List<FileRef> {
-    val filesIdx = json.indexOf("\"files\"")
-    if (filesIdx < 0) return emptyList()
-    val arrStart = json.indexOf('[', filesIdx)
-    if (arrStart < 0) return emptyList()
+    val filesKey = Regex(""""files"\s*:\s*\[""").find(json) ?: return emptyList()
+    val arrStart = filesKey.range.last
     var depth = 0
     var arrEnd = arrStart
     for (i in arrStart until json.length) {

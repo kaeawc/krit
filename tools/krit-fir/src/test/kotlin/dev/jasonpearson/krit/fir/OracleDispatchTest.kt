@@ -158,36 +158,49 @@ class OracleDispatchTest {
     }
 
     @Test
-    fun goDaemonStringFileMissRetainsCompilerDiagnostics() {
+    fun goDaemonStringFileMissUsesSiblingSourcesForCompilerDiagnostics() {
         // Regression for the <=8-miss path in internal/oracle/runMissAnalysis.
-        // Go encodes `files []string` as a JSON string array; the FIR parser's
-        // native protocol uses FileRef objects. Dropping the string entries
-        // made the daemon analyze an empty miss set and return no diagnostics.
-        val source = tmp.resolve("Sample.kt").toFile().apply {
+        // Only B.kt is a miss, but resolving its receiver type requires A.kt
+        // from the source roots supplied when the daemon starts.
+        tmp.resolve("A.kt").toFile().writeText(
+            """
+            class A {
+                val text: String get() = "value"
+            }
+            """.trimIndent(),
+        )
+        val source = tmp.resolve("B.kt").toFile().apply {
             writeText(
                 """
-                fun sample() {
-                    val text: String = "value"
-                    println(text!!)
-                    println(text?.length)
+                fun sample(value: A) {
+                    println(value.text!!)
                 }
                 """.trimIndent(),
             )
         }.canonicalPath
         val stdlib = File(Unit::class.java.protectionDomain.codeSource.location.toURI()).absolutePath
+        // The earlier literal "files" plus a following decoy array ensures
+        // extraction anchors on the files key-value pair, not a string value.
         val request =
-            """{"id":24,"method":"analyzeWithDeps","params":{"files":[${jsonStr(source)}]}}"""
+            """{"id":24,"method":"analyzeWithDeps","params":{"callFilterCalleeNames":["files"],"callFilterRuleProfiles":[{"ruleID":"Rule"}],"files":[${jsonStr(source)}]}}"""
 
         val result = handleRequestLine(
             request,
-            AnalysisSession(emptyList(), listOf(stdlib)),
+            createDaemonSession(
+                arrayOf(
+                    "--daemon",
+                    "--sources",
+                    tmp.toFile().canonicalPath,
+                    "--classpath",
+                    stdlib,
+                ),
+            ),
             startTime = 0L,
         )
         val response = (result as RequestResult.Response).json
 
         assertTrue(jsonStr(source) in response, response)
         assertTrue(""""factoryName":"UNNECESSARY_NOT_NULL_ASSERTION"""" in response, response)
-        assertTrue(""""factoryName":"UNNECESSARY_SAFE_CALL"""" in response, response)
     }
 
     @Test

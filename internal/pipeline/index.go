@@ -1174,7 +1174,12 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		CacheWriter:        in.OracleCacheWriter,
 		CallFilter:         callFilterPtr,
 		DeclarationProfile: &declarationProfileSummary,
-		DisableDiagnostics: !in.OracleDiagnostics || !rules.NeedsOracleDiagnostics(oracleRules),
+		// Collect compiler diagnostics whenever an active rule consumes them
+		// (the diagnostic-projection tier), so the projection fires by default
+		// rather than only under an explicit --oracle-diagnostics opt-in. The
+		// flag remains a force-on for the rare case where no active rule
+		// declares NeedsOracleDiagnostics.
+		DisableDiagnostics: !in.OracleDiagnostics && !rules.NeedsOracleDiagnostics(oracleRules),
 		ForcedMisses:       in.StaleOraclePaths,
 		// Forwards `oracle.classpath` + CLASSPATH env to the spawned
 		// JVM. Both krit-types and krit-fir parse `--classpath` on

@@ -79,7 +79,10 @@ func recordOracleDir(cacheDir string) {
 // (UNNECESSARY_NOT_NULL_ASSERTION / UNNECESSARY_SAFE_CALL / SENSELESS_COMPARISON
 // / USELESS_CAST), so entries written before the change lack those facts and
 // would keep the diagnostic-backed projections from firing on a warm cache.
-const CacheVersion = 5
+// v6: compiler diagnostics are now collected by default whenever a projection
+// rule is active (previously gated behind --oracle-diagnostics), so entries
+// written under the old opt-out default lack diagnostics and must be recomputed.
+const CacheVersion = 6
 
 // CacheEntry is one file's cached oracle analysis. The JSON field names
 // are intentionally short because there can be tens of thousands of these

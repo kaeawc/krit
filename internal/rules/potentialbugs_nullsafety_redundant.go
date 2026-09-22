@@ -91,6 +91,40 @@ func (r *UnnecessaryNotNullCheckRule) check(ctx *api.Context) {
 	if !ok {
 		return
 	}
+
+	// Trust the compiler's SENSELESS_COMPARISON verdict for the non-null
+	// direction of a null comparison — `x != null` always true, `x == null`
+	// always false. Accept gates out the always-null direction (the factory
+	// covers every always-true/false condition; this rule owns only the
+	// non-null null check), and covers operands the heuristic below skips.
+	if projectDiagnostic(ctx, DiagnosticProjection{
+		RuleID:       "UnnecessaryNotNullCheck",
+		FactoryNames: []string{"SENSELESS_COMPARISON"},
+		Accept: func(_ *api.Context, d oracle.Diagnostic) bool {
+			val := senselessComparisonAlwaysValue(d.Message)
+			return (op == "!=" && val == "true") || (op == "==" && val == "false")
+		},
+		Message: func(ctx *api.Context, _ oracle.Diagnostic) string {
+			operandText := strings.TrimSpace(ctx.File.FlatNodeText(flatUnwrapParenExpr(ctx.File, operand)))
+			return fmt.Sprintf("Unnecessary null check on non-nullable '%s'.", operandText)
+		},
+		Fix: func(ctx *api.Context, _ oracle.Diagnostic) *scanner.Fix {
+			replacement := "true"
+			if op == "==" {
+				replacement = "false"
+			}
+			return &scanner.Fix{
+				ByteMode:    true,
+				StartByte:   int(ctx.File.FlatStartByte(ctx.Idx)),
+				EndByte:     int(ctx.File.FlatEndByte(ctx.Idx)),
+				Replacement: replacement,
+			}
+		},
+		Confidence: api.ConfidenceVeryHigh,
+	}) {
+		return
+	}
+
 	operand = flatUnwrapParenExpr(file, operand)
 	resolved, ok := flatResolvedNullCheckOperandType(file, ctx.Resolver, operand)
 	if !ok || resolved.IsNullable() {
@@ -162,6 +196,24 @@ func flatNullComparisonOperand(file *scanner.File, idx uint32) (operand uint32, 
 	default:
 		return 0, "", false
 	}
+}
+
+// senselessComparisonAlwaysValue extracts the always-value ("true"/"false")
+// from the compiler's SENSELESS_COMPARISON message, whose template is
+// `Condition is always ”{0}”.` and renders as `Condition is always 'true'.`.
+// Returns "" when the message doesn't carry a recognizable value.
+func senselessComparisonAlwaysValue(message string) string {
+	const marker = "always '"
+	i := strings.Index(message, marker)
+	if i < 0 {
+		return ""
+	}
+	rest := message[i+len(marker):]
+	j := strings.IndexByte(rest, '\'')
+	if j < 0 {
+		return ""
+	}
+	return rest[:j]
 }
 
 func flatResolvedNullCheckOperandType(file *scanner.File, resolver typeinfer.TypeResolver, operand uint32) (*typeinfer.ResolvedType, bool) {
@@ -557,6 +609,27 @@ func (r *UnnecessaryNotNullOperatorRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
 	text := file.FlatNodeText(idx)
 	if !flatPostfixHasNotNullAssertion(file, idx) {
+		return
+	}
+
+	// Trust the compiler's UNNECESSARY_NOT_NULL_ASSERTION verdict when the
+	// oracle supplies it: it proves the `!!` is redundant without the
+	// heuristic guards below, and covers dotted / complex receivers the
+	// name-based fallback deliberately skips. Falls through to the heuristic
+	// when no oracle diagnostic is present.
+	if projectDiagnostic(ctx, DiagnosticProjection{
+		RuleID:       "UnnecessaryNotNullOperator",
+		FactoryNames: []string{"UNNECESSARY_NOT_NULL_ASSERTION"},
+		Message: func(ctx *api.Context, _ oracle.Diagnostic) string {
+			recv := strings.TrimSpace(strings.TrimSuffix(ctx.File.FlatNodeText(ctx.Idx), "!!"))
+			return fmt.Sprintf("Unnecessary not-null assertion (!!) on non-nullable '%s'.", recv)
+		},
+		Fix: func(ctx *api.Context, _ oracle.Diagnostic) *scanner.Fix {
+			end := int(ctx.File.FlatEndByte(ctx.Idx))
+			return &scanner.Fix{ByteMode: true, StartByte: end - 2, EndByte: end, Replacement: ""}
+		},
+		Confidence: api.ConfidenceVeryHigh,
+	}) {
 		return
 	}
 
@@ -1015,6 +1088,32 @@ func (r *UnnecessarySafeCallRule) Confidence() float64 { return api.ConfidenceMe
 func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
 	if !flatNavigationHasSafeCall(file, idx) {
+		return
+	}
+
+	// Trust the compiler's UNNECESSARY_SAFE_CALL verdict when available: it is
+	// emitted only for a genuinely non-null receiver, so the safe-cast /
+	// indexing / name-collision guards below are unnecessary on this path, and
+	// it covers dotted receivers the name-based heuristic skips.
+	if projectDiagnostic(ctx, DiagnosticProjection{
+		RuleID:       "UnnecessarySafeCall",
+		FactoryNames: []string{"UNNECESSARY_SAFE_CALL"},
+		Message: func(ctx *api.Context, _ oracle.Diagnostic) string {
+			recv := ""
+			if r0 := ctx.File.FlatChild(ctx.Idx, 0); r0 != 0 {
+				recv = strings.TrimSpace(ctx.File.FlatNodeText(r0))
+			}
+			return fmt.Sprintf("Unnecessary safe call (?.) on non-nullable '%s'.", recv)
+		},
+		Fix: func(ctx *api.Context, _ oracle.Diagnostic) *scanner.Fix {
+			op := flatNavigationSafeCallOperator(ctx.File, ctx.Idx)
+			if op == 0 {
+				return nil
+			}
+			return &scanner.Fix{ByteMode: true, StartByte: int(ctx.File.FlatStartByte(op)), EndByte: int(ctx.File.FlatEndByte(op)), Replacement: "."}
+		},
+		Confidence: api.ConfidenceVeryHigh,
+	}) {
 		return
 	}
 

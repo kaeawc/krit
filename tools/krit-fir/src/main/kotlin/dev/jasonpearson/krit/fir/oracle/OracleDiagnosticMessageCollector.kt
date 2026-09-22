@@ -7,8 +7,7 @@ import java.io.File
 
 /**
  * `MessageCollector` that filters K2 warnings down to the same factory
- * subset krit-types retains (`UNREACHABLE_CODE`, `USELESS_ELVIS`,
- * `CAST_NEVER_SUCCEEDS`) and routes them through an [OracleCollector]
+ * subset krit-types retains and routes them through an [OracleCollector]
  * as [DiagnosticPayload]s.
  *
  * K2 doesn't expose factory names through the `MessageCollector`
@@ -98,10 +97,21 @@ internal class OracleDiagnosticMessageCollector(
         // separate factories that krit-types intentionally does NOT retain;
         // matching only the "always returns the left operand" template
         // keeps parity with the krit-types projection.
+        // USELESS_IS_CHECK is deliberately NOT matched: K2 renders it and
+        // IMPOSSIBLE_IS_CHECK with the byte-identical template "Check for
+        // instance is always ''{0}''.", so the MessageCollector surface cannot
+        // tell them apart. Retaining it here would silently emit USELESS_IS_CHECK
+        // for IMPOSSIBLE_IS_CHECK cases, disagreeing with the krit-types
+        // (Analysis-API, real-factory-name) backend. No rule projects it.
         private val factoryPrefixes: List<Pair<String, String>> = listOf(
             "Elvis operator (?:) always returns" to "USELESS_ELVIS",
             "This cast can never succeed" to "CAST_NEVER_SUCCEEDS",
             "Unreachable code" to "UNREACHABLE_CODE",
+            "Unnecessary non-null assertion (!!) on a non-null receiver" to
+                "UNNECESSARY_NOT_NULL_ASSERTION",
+            "Unnecessary safe call on a non-null receiver" to "UNNECESSARY_SAFE_CALL",
+            "Condition is always" to "SENSELESS_COMPARISON",
+            "No cast needed." to "USELESS_CAST",
         )
 
         private val pluginDiagnosticPrefix = Regex("""\[[A-Z_]+]""")

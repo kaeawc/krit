@@ -2471,10 +2471,27 @@ val retainedDiagnosticFactories = setOf(
     "UNREACHABLE_CODE",
     "USELESS_ELVIS",
     "CAST_NEVER_SUCCEEDS",
+    "UNNECESSARY_NOT_NULL_ASSERTION",
+    "UNNECESSARY_SAFE_CALL",
+    "SENSELESS_COMPARISON",
+    "USELESS_CAST",
 )
 
 val diagnosticLexicalHints = listOf(
-    "?:"
+    "?:",
+    "!!",
+    "?.",
+    "null",
+    " as ",
+    " is ",
+    "!is ",
+    // Common control-flow terminators for the already-retained
+    // UNREACHABLE_CODE factory. These remove its former accidental
+    // dependence on an unrelated Elvis operator elsewhere in the file.
+    "return",
+    "throw",
+    "break",
+    "continue",
 )
 
 fun CharSequence.containsLiteral(needle: String): Boolean {

@@ -1,5 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// Negative: Flow.collect() called from onStart(), not onCreate() — should NOT trigger
+// Positive: Flow.collect() in onStart() without repeatOnLifecycle keeps the
+// upstream active past the STOPPED state, the same leak as in onCreate. The
+// rule covers onCreate/onStart/onViewCreated — should trigger.
 package test
 
 import kotlinx.coroutines.flow.Flow
@@ -19,6 +21,6 @@ class MyFragment : Fragment() {
     }
 
     override fun onStart() {
-        flow.collect { println(it) }
+        <!FLOW_COLLECT_IN_ON_CREATE!>flow.collect { println(it) }<!>
     }
 }

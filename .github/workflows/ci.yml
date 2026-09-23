@@ -369,16 +369,57 @@ jobs:
         if: steps.cache-krit-fir.outputs.cache-hit != 'true'
         working-directory: tools/krit-fir
         run: ./gradlew --no-daemon shadowJar
+      # TestFirPilotParity compiles the FIR pilot fixtures through krit-fir,
+      # so it needs a standalone kotlin-stdlib on the classpath. The jar is
+      # normally in the Gradle module cache after the shadowJar build above,
+      # but a krit-fir jar cache hit can skip that build and leave the cache
+      # cold, which would make the test skip silently. Resolve the jar
+      # explicitly (falling back to a dependency resolution when the cache is
+      # cold) and fail loudly if it is still missing, so the test runs rather
+      # than skips.
+      - name: Locate kotlin-stdlib jar
+        run: |
+          glob() {
+            local base="$HOME/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib"
+            local candidates=() f
+            for f in "$base"/*/*/kotlin-stdlib-*.jar; do
+              [ -f "$f" ] || continue
+              case "$f" in *sources*|*javadoc*) continue;; esac
+              candidates+=("$f")
+            done
+            [ ${#candidates[@]} -eq 0 ] && return 0
+            printf '%s\n' "${candidates[@]}" | sort | tail -1
+          }
+          jar="$(glob)"
+          if [ -z "$jar" ]; then
+            echo "kotlin-stdlib not in Gradle cache; resolving krit-fir dependencies"
+            (cd tools/krit-fir && ./gradlew --no-daemon --quiet :dependencies --configuration runtimeClasspath >/dev/null 2>&1 || true)
+            jar="$(glob)"
+          fi
+          if [ -z "$jar" ]; then
+            echo "::error::kotlin-stdlib jar not found; TestFirPilotParity would skip"
+            exit 1
+          fi
+          echo "KOTLIN_STDLIB_JAR=$jar" >> "$GITHUB_ENV"
+          echo "kotlin-stdlib: $jar"
       # TestOracleBackendParity guards the declaration surface across
       # both backends; TestFirOracleFactContract guards the FIR
       # expression surface (types, nullability, call targets, suspend
       # markers, diagnostics) the type-aware rules read — the facts the
-      # cross-backend gate deliberately doesn't compare. Both must pass
-      # before the FIR backend can be made the default.
+      # cross-backend gate deliberately doesn't compare. TestFirPilotParity
+      # compiles the pilot fixtures through krit-fir end to end (it caught a
+      # fixture that stopped compiling under K2). All must pass before the
+      # FIR backend can be made the default.
       - name: Run oracle backend parity
         env:
           KRIT_TYPES_JAR: ${{ github.workspace }}/tools/krit-types/build/libs/krit-types.jar
-        run: go test ./tests/parity/ -count=1 -run 'TestOracleBackendParity|TestFirOracleFactContract' -v
+        run: |
+          set -o pipefail
+          go test ./tests/parity/ -count=1 -run 'TestOracleBackendParity|TestFirOracleFactContract|TestFirPilotParity' -v | tee parity.log
+          if grep -q -- '--- SKIP: TestFirPilotParity' parity.log; then
+            echo "::error::TestFirPilotParity skipped; the CI parity job must execute it"
+            exit 1
+          fi
 
   krit-lint-sarif:
     runs-on: ubuntu-latest

@@ -19,7 +19,18 @@ internal object FlowCollectInOnCreate : FirFunctionCallChecker(MppCheckerKind.Co
         FqName("kotlinx.coroutines.flow.collect"),
         FqName("kotlinx.coroutines.flow.Flow.collect"),
     )
-    private val safeContainers = setOf("repeatOnLifecycle", "launchWhenStarted", "launchWhenResumed")
+
+    // Lifecycle callbacks whose bodies run before the view is STOPPED; a Flow
+    // collection started here keeps the upstream active past the lifecycle
+    // unless it is restarted with repeatOnLifecycle. Matches the Go
+    // CollectInOnCreateWithoutLifecycle rule's callback set.
+    private val lifecycleCallbacks = setOf("onCreate", "onStart", "onViewCreated")
+
+    // Only repeatOnLifecycle actually cancels and restarts the collection with
+    // the lifecycle. launchWhenStarted/launchWhenResumed merely SUSPEND the
+    // collector while keeping the upstream flow subscribed, so they do not fix
+    // the leak and are not treated as safe (matching the Go rule).
+    private const val SAFE_WRAPPER = "repeatOnLifecycle"
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
@@ -28,15 +39,17 @@ internal object FlowCollectInOnCreate : FirFunctionCallChecker(MppCheckerKind.Co
         val callee = expression.calleeReference.toResolvedCallableSymbol() ?: return
         if (!isFlowCollect(expression, callee)) return
 
-        val containingFunctions = context.containingDeclarations.filterIsInstance<FirNamedFunctionSymbol>()
+        // Safe only if an enclosing call is repeatOnLifecycle.
+        if (context.callsOrAssignments.filterIsInstance<FirFunctionCall>().any { callName(it) == SAFE_WRAPPER }) return
 
-        // Safe if wrapped in a lifecycle-aware call.
-        if (containingFunctions.any { it.name.asString() in safeContainers }) return
-        if (context.callsOrAssignments.filterIsInstance<FirFunctionCall>().any { callName(it) in safeContainers }) return
-
-        // Flag if the outermost function in the call stack is onCreate
-        val outerFunction = containingFunctions.lastOrNull() ?: return
-        if (outerFunction.name.asString() != "onCreate") return
+        // The nearest enclosing named function must be a lifecycle callback.
+        // Coroutine builders (launch, repeatOnLifecycle) contribute anonymous
+        // functions, so the nearest named function is the lifecycle method
+        // that lexically contains the collect.
+        val enclosingFunction = context.containingDeclarations
+            .filterIsInstance<FirNamedFunctionSymbol>()
+            .lastOrNull() ?: return
+        if (enclosingFunction.name.asString() !in lifecycleCallbacks) return
 
         reporter.reportOn(source, KritDiagnostics.FLOW_COLLECT_IN_ON_CREATE)
     }

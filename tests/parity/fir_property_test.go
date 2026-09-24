@@ -336,7 +336,13 @@ func runGoRuleCountOnSource(t *testing.T, ruleID, source string) (int, bool) {
 			r.IndexFilesParallel([]*scanner.File{file}, 1)
 			resolver = r
 		}
-		cols := rules.NewDispatcher([]*api.Rule{rule}, resolver).Run(file)
+		cols, stats := rules.NewDispatcher([]*api.Rule{rule}, resolver).RunWithStats(file)
+		if len(stats.Errors) > 0 {
+			// A rule that errors during dispatch emits no findings; without this
+			// the differential would read that as "Go says no flag" — a vacuous
+			// pass. Surface it instead.
+			t.Fatalf("Go rule %q errored on generated source: %v", ruleID, stats.Errors)
+		}
 		findings := cols.Findings()
 		n := 0
 		for _, f := range findings {

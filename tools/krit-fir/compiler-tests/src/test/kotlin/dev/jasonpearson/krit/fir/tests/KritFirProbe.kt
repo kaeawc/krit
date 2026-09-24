@@ -1,5 +1,6 @@
 package dev.jasonpearson.krit.fir.tests
 
+import org.jetbrains.kotlin.cli.common.ExitCode
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSourceLocation
@@ -61,7 +62,7 @@ object KritFirProbe {
                 }
             }
             val stdlibJar = System.getProperty("kotlin.stdlib.jar")?.let { File(it).takeIf { f -> f.exists() } }
-            K2JVMCompiler().exec(
+            val exitCode = K2JVMCompiler().exec(
                 collector,
                 Services.EMPTY,
                 K2JVMCompilerArguments().apply {
@@ -73,9 +74,14 @@ object KritFirProbe {
                     pluginClasspaths = arrayOf(pluginJar.absolutePath)
                 },
             )
-            check(compileErrors.isEmpty()) {
-                "Test snippet(s) failed to compile — checker verdicts would be vacuous:\n" +
-                    compileErrors.joinToString("\n").prependIndent("  ")
+            // A checker that throws makes K2 return INTERNAL_ERROR without a
+            // requested-file ERROR line, so exit code catches crashes that the
+            // per-file error scan misses; both would otherwise leave "no
+            // diagnostics" and pass negatives vacuously.
+            check(exitCode != ExitCode.INTERNAL_ERROR && compileErrors.isEmpty()) {
+                "Test snippet(s) did not compile cleanly (exit=$exitCode) — checker verdicts would be vacuous:\n" +
+                    compileErrors.joinToString("\n").ifEmpty { "  (a checker threw; see the compiler exception above)" }
+                        .prependIndent("  ")
             }
             return diags
         } finally {

@@ -11,3 +11,7 @@ object Dispatchers {
 }
 
 suspend fun <T> withContext(context: CoroutineDispatcher, block: () -> T): T = block()
+
+// launchWhenStarted only suspends the collector; it is NOT a safe wrapper, so a
+// collect inside it in a lifecycle callback must still be flagged.
+fun launchWhenStarted(block: () -> Unit) { block() }

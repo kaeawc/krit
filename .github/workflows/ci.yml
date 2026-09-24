@@ -415,9 +415,9 @@ jobs:
           KRIT_TYPES_JAR: ${{ github.workspace }}/tools/krit-types/build/libs/krit-types.jar
         run: |
           set -o pipefail
-          go test ./tests/parity/ -count=1 -run 'TestOracleBackendParity|TestFirOracleFactContract|TestFirPilotParity' -v | tee parity.log
-          if grep -q -- '--- SKIP: TestFirPilotParity' parity.log; then
-            echo "::error::TestFirPilotParity skipped; the CI parity job must execute it"
+          go test ./tests/parity/ -count=1 -run 'TestOracleBackendParity|TestFirOracleFactContract|TestFirPilotParity|TestFirProperty|FuzzFirCheckers' -v | tee parity.log
+          if grep -qE -- '--- SKIP: (TestFirPilotParity|TestFirProperty|FuzzFirCheckers)' parity.log; then
+            echo "::error::a FIR parity/property/fuzz test skipped; the CI parity job must execute them"
             exit 1
           fi
 

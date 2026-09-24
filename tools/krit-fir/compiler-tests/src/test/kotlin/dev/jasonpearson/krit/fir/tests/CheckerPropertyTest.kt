@@ -69,8 +69,11 @@ class CheckerPropertyTest {
         val methods = listOf("onCreate", "onStart", "onViewCreated", "onResume", "observe")
         val lifecycle = setOf("onCreate", "onStart", "onViewCreated")
         val wrappers = listOf(
+            // repeatOnLifecycle is the one safe wrapper; launchWhenStarted only
+            // suspends the collector, so it does not clear the finding.
             Triple("none", "", ""),
             Triple("repeatOnLifecycle", "repeatOnLifecycle {", "}"),
+            Triple("launchWhenStarted", "launchWhenStarted {", "}"),
         )
         return buildList {
             for (m in methods) {
@@ -83,6 +86,7 @@ class CheckerPropertyTest {
                             """
                             package fl_${m}_$w
                             import androidx.lifecycle.repeatOnLifecycle
+                            import kotlinx.coroutines.launchWhenStarted
                             import kotlinx.coroutines.flow.Flow
                             import kotlinx.coroutines.flow.collect
                             class F {

@@ -34,6 +34,8 @@ object KritFirProbe {
             }
             val outDir = tmpDir.resolve("out").apply { mkdirs() }
             val diags = mutableListOf<Diag>()
+            val compileErrors = mutableListOf<String>()
+            val requested = sources.keys
             val collector = object : MessageCollector {
                 override fun clear() {}
                 override fun hasErrors() = false
@@ -42,9 +44,20 @@ object KritFirProbe {
                     message: String,
                     location: CompilerMessageSourceLocation?,
                 ) {
-                    if (location == null || severity !in reportable) return
-                    val match = pluginDiagnosticRe.find(message) ?: return
-                    diags.add(Diag(File(location.path).name, location.line, match.groupValues[1]))
+                    if (location == null) return
+                    val fileName = File(location.path).name
+                    val match = pluginDiagnosticRe.find(message)
+                    if (match != null) {
+                        if (severity in reportable) diags.add(Diag(fileName, location.line, match.groupValues[1]))
+                        return
+                    }
+                    // A non-plugin ERROR in a requested source means the snippet did
+                    // not compile. Without this, a checker that bails on unresolved
+                    // symbols yields "no diagnostics", making every negative case (and
+                    // golden negative) pass vacuously. Fail loudly instead.
+                    if (severity == CompilerMessageSeverity.ERROR && fileName in requested) {
+                        compileErrors.add("$fileName:${location.line}: $message")
+                    }
                 }
             }
             val stdlibJar = System.getProperty("kotlin.stdlib.jar")?.let { File(it).takeIf { f -> f.exists() } }
@@ -60,6 +73,10 @@ object KritFirProbe {
                     pluginClasspaths = arrayOf(pluginJar.absolutePath)
                 },
             )
+            check(compileErrors.isEmpty()) {
+                "Test snippet(s) failed to compile — checker verdicts would be vacuous:\n" +
+                    compileErrors.joinToString("\n").prependIndent("  ")
+            }
             return diags
         } finally {
             tmpDir.deleteRecursively()

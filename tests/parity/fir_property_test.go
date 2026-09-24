@@ -296,7 +296,7 @@ func TestFirProperty_Determinism(t *testing.T) {
 		var keys []string
 		for f, fs := range by {
 			for _, fd := range fs {
-				keys = append(keys, fmt.Sprintf("%s:%d:%s", f, fd.Line, fd.Rule))
+				keys = append(keys, fmt.Sprintf("%s:%d:%d:%s:%s", f, fd.Line, fd.Col, fd.Rule, fd.Message))
 			}
 		}
 		sort.Strings(keys)
@@ -391,6 +391,9 @@ func TestFirProperty_Differential(t *testing.T) {
 					if firFlag != c.shouldFlag {
 						t.Errorf("[%s] documented-divergence case has wrong FIR verdict (%s): FIR=%v want=%v", c.name, c.axes, firFlag, c.shouldFlag)
 					}
+					if firFlag == (goCount > 0) {
+						t.Errorf("[%s] no longer diverges (FIR=Go=%v) — remove it from knownDivergences", c.name, firFlag)
+					}
 					t.Logf("[%s] known FIR/Go boundary (FIR=%v Go=%v): %s", c.name, firFlag, goCount > 0, reason)
 					continue
 				}
@@ -418,11 +421,14 @@ var fuzzWrappers = []func(string) string{
 	func(s string) string { return s + "\n// trailing\n" },
 }
 
-func absInt(x int) int {
-	if x < 0 {
-		return -x
+// modIndex maps any int (including math.MinInt, where negation overflows) into
+// [0, n) without panicking.
+func modIndex(x, n int) int {
+	i := x % n
+	if i < 0 {
+		i += n
 	}
-	return x
+	return i
 }
 
 // FuzzFirCheckers drives the krit-fir pipeline over generated-and-mutated
@@ -441,8 +447,8 @@ func FuzzFirCheckers(f *testing.F) {
 		if len(all) == 0 {
 			t.Skip("no generated cases")
 		}
-		c := all[absInt(idx)%len(all)]
-		src := fuzzWrappers[absInt(wrapSel)%len(fuzzWrappers)](c.source)
+		c := all[modIndex(idx, len(all))]
+		src := fuzzWrappers[modIndex(wrapSel, len(fuzzWrappers))](c.source)
 
 		sources := map[string]string{c.name: src, "ZLaunchWhenStub.kt": launchWhenStartedStub}
 		// firCheck skips when the jar/stdlib is absent, and t.Fatalf's on a

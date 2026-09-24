@@ -26,25 +26,26 @@ abstract class AbstractDiagnosticTest {
         val raw = file.readText()
         val (cleanSource, expected) = parseMarkers(raw)
 
+        // Compare (line, diagnostic-name) pairs, not just lines, so a marker that
+        // expects rule A on a line where the checker actually emits rule B fails.
         val actual = KritFirProbe.diagnose(mapOf(file.name to cleanSource))
             .filter { it.file == file.name }
-            .map { it.line }
+            .map { it.line to it.name }
+            .toSet()
+        val expectedSet = expected.map { it.line to it.name }.toSet()
+        val missing = expectedSet - actual
+        val unexpected = actual - expectedSet
 
-        val expectedLines = expected.map { it.line }.toSet()
-        val missingLines = expectedLines - actual.toSet()
-        val unexpectedLines = actual.toSet() - expectedLines
-
-        if (missingLines.isNotEmpty() || unexpectedLines.isNotEmpty()) {
+        if (missing.isNotEmpty() || unexpected.isNotEmpty()) {
             fail(buildString {
                 appendLine("Diagnostic mismatch in $relativePath")
-                if (missingLines.isNotEmpty()) {
-                    appendLine("  Expected diagnostics on lines (not found): $missingLines")
-                    for (d in expected.filter { it.line in missingLines }) {
-                        appendLine("    line ${d.line}: ${d.name}")
-                    }
+                if (missing.isNotEmpty()) {
+                    appendLine("  Expected (not found):")
+                    for ((line, name) in missing.sortedBy { it.first }) appendLine("    line $line: $name")
                 }
-                if (unexpectedLines.isNotEmpty()) {
-                    appendLine("  Unexpected krit diagnostics on lines: $unexpectedLines")
+                if (unexpected.isNotEmpty()) {
+                    appendLine("  Unexpected krit diagnostics:")
+                    for ((line, name) in unexpected.sortedBy { it.first }) appendLine("    line $line: $name")
                 }
             })
         }

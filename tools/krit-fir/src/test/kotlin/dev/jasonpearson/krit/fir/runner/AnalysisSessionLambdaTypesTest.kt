@@ -151,7 +151,7 @@ class AnalysisSessionLambdaTypesTest {
     private fun writeKt(name: String, source: String): String {
         val file = tmp.resolve(name).toFile()
         file.writeText(source)
-        return file.canonicalPath
+        return file.absolutePath
     }
 
     private fun findKotlinStdlib(): String? {

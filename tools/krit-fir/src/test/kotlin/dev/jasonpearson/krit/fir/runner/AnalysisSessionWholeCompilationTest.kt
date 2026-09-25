@@ -35,12 +35,12 @@ class AnalysisSessionWholeCompilationTest {
         ).analyzeFull(listOf(requested)).result
 
         assertEquals(expected, result.files.keys)
-        assertEquals("p.consts", result.files.getValue(tmp.resolve("Const.kt").toFile().canonicalPath).packageName)
+        assertEquals("p.consts", result.files.getValue(tmp.resolve("Const.kt").toFile().absolutePath).packageName)
     }
 
     private fun writeKt(name: String, source: String): String {
         val file = tmp.resolve(name).toFile()
         file.writeText(source)
-        return file.canonicalPath
+        return file.absolutePath
     }
 }

@@ -21,7 +21,7 @@ data class Finding(
 // [RULE_NAME] prefix set in KritDiagnosticsRendering), filters to the requested files,
 // and optionally restricts to the enabled rule set (empty = all rules).
 class FindingCollector(
-    private val requestedPaths: Set<String>,
+    private val requestedPaths: Map<String, String>,
     private val enabledRules: Set<String> = emptySet(),
 ) : MessageCollector {
     val findings = mutableListOf<Finding>()
@@ -41,8 +41,9 @@ class FindingCollector(
             _hasErrors = true
             if (location != null) {
                 val canonicalPath = try { File(location.path).canonicalPath } catch (_: Exception) { location.path }
-                if (canonicalPath in requestedPaths || location.path in requestedPaths) {
-                    crashes[location.path] = message
+                val requestedPath = requestedPaths[canonicalPath]
+                if (requestedPath != null) {
+                    crashes[requestedPath] = message
                 }
             }
         }
@@ -52,7 +53,7 @@ class FindingCollector(
 
         // Only record findings for the files the caller asked to check.
         val canonicalPath = try { File(location.path).canonicalPath } catch (_: Exception) { location.path }
-        if (canonicalPath !in requestedPaths && location.path !in requestedPaths) return
+        val requestedPath = requestedPaths[canonicalPath] ?: return
 
         // Only count diagnostics emitted by our plugin (identified by [RULE_NAME] prefix).
         val match = pluginDiagnosticRe.find(message) ?: return
@@ -62,7 +63,7 @@ class FindingCollector(
 
         findings.add(
             Finding(
-                path = location.path,
+                path = requestedPath,
                 line = location.line,
                 col = location.column,
                 rule = ruleName,

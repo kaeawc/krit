@@ -21,6 +21,7 @@ import java.io.File
  */
 internal class OracleDiagnosticMessageCollector(
     private val collector: OracleCollector,
+    private val pathByCanonical: Map<String, String> = emptyMap(),
 ) : MessageCollector {
 
     override fun clear() {}
@@ -42,7 +43,8 @@ internal class OracleDiagnosticMessageCollector(
         } catch (_: Exception) {
             location.path
         }
-        val offsets = collector.offsetsFor(canonicalPath) ?: collector.offsetsFor(location.path)
+        val callerPath = pathByCanonical[canonicalPath] ?: location.path
+        val offsets = collector.offsetsFor(callerPath)
         val startByte: Int
         val endByte: Int
         if (offsets != null && location.lineEnd > 0 && location.columnEnd > 0) {
@@ -56,7 +58,7 @@ internal class OracleDiagnosticMessageCollector(
         }
 
         collector.addDiagnostic(
-            canonicalPath,
+            callerPath,
             DiagnosticPayload(
                 factoryName = factory,
                 severity = severity.wireString(),

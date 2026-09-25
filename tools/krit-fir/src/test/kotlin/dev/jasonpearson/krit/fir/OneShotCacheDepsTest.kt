@@ -35,6 +35,6 @@ class OneShotCacheDepsTest {
         assertTrue(output.length() > 0, "no --output written")
         val body = deps.readText()
         assertTrue(""""approximation":"fir-whole-compilation"""" in body, body)
-        assertTrue(""""depPaths":["${File(src, "Base.kt").canonicalPath}"]""" in body, body)
+        assertTrue(""""depPaths":["${File(src, "Base.kt").absolutePath}"]""" in body, body)
     }
 }

@@ -36,9 +36,8 @@ import org.jetbrains.kotlin.util.getChildren
 // when both clauses catch the same type, unreachable when the later type is a
 // proper subtype. The message names each type as it is written, like Go. Go's
 // name table misses qualified names, aliases and project exceptions, and it
-// holds one wrong edge (SocketTimeoutException is not a SocketException); it
-// also reads a project class named like a well-known exception as that
-// exception. The golden data pins both directions.
+// reads a project class named like a well-known exception as that exception.
+// The golden data pins both directions.
 internal object UnreachableCatchBlock : FirExpressionChecker<FirTryExpression>(MppCheckerKind.Common), FirRule {
     override val ruleId = "UnreachableCatchBlock"
     override val expressionCheckers = object : ExpressionCheckers() {

@@ -6,6 +6,8 @@ package test
 
 import java.io.FileNotFoundException
 import java.io.IOException
+import java.net.SocketException
+import java.net.SocketTimeoutException
 
 fun risky() {
     throw IOException("fail")
@@ -22,6 +24,19 @@ fun specificFirst() {
         println(e)
     } catch (t: Throwable) {
         println(t)
+    }
+}
+
+// SocketTimeoutException extends InterruptedIOException, not
+// SocketException, so the second clause is reachable. Go's exception table
+// agrees.
+fun socketTimeoutIsNotASocketException() {
+    try {
+        risky()
+    } catch (e: SocketException) {
+        println(e)
+    } catch (e: SocketTimeoutException) {
+        println(e)
     }
 }
 

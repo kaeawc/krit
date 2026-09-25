@@ -8,27 +8,11 @@ package test
 
 import java.io.IOException
 import java.io.IOException as IoErr
-import java.net.SocketException
-import java.net.SocketTimeoutException
 
 typealias StorageFailure = IOException
 
 fun risky() {
     throw IOException("fail")
-}
-
-// Go reports this because its table lists SocketException as a supertype of
-// SocketTimeoutException. FIR is correct to drop it: SocketTimeoutException
-// extends InterruptedIOException, not SocketException, so the clause is
-// reachable.
-fun socketTimeoutIsNotASocketException() {
-    try {
-        risky()
-    } catch (e: SocketException) {
-        println(e)
-    } catch (e: SocketTimeoutException) {
-        println(e)
-    }
 }
 
 // A project class that reuses a well-known exception name.

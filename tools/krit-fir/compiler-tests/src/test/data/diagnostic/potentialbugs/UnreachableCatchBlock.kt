@@ -6,6 +6,8 @@ package test
 
 import java.io.FileNotFoundException
 import java.io.IOException
+import java.io.InterruptedIOException
+import java.net.SocketTimeoutException
 
 fun risky() {
     throw IOException("fail")
@@ -17,6 +19,16 @@ fun subtypeAfterSupertype() {
     } catch (e: Exception) {
         println(e)
     } <!UnreachableCatchBlock!>catch<!> (e: IOException) {
+        println(e)
+    }
+}
+
+fun socketTimeoutAfterInterruptedIO() {
+    try {
+        risky()
+    } catch (e: InterruptedIOException) {
+        println(e)
+    } <!UnreachableCatchBlock!>catch<!> (e: SocketTimeoutException) {
         println(e)
     }
 }

@@ -160,6 +160,6 @@ class AnalysisSessionAnalyzeTest {
         // symlinks `/var` → `/private/var`); return the canonical path
         // so test assertions against the `files` map line up with what
         // the projection layer captured.
-        return file.canonicalPath
+        return file.absolutePath
     }
 }

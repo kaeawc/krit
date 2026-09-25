@@ -422,9 +422,8 @@ internal fun handleAnalyzeFile(request: CheckRequest, session: AnalysisSession):
         // run; fall back to empty maps and a resolver that returns
         // null/false.
         val (expressions, lambdaSuspendByKey) = try {
-            val canonical = JavaFile(path).canonicalPath
             val result = session.analyze(listOf(path))
-            val filePayload = result.files[canonical] ?: result.files[path]
+            val filePayload = result.files[path]
             (filePayload?.expressions ?: emptyMap<String, dev.jasonpearson.krit.fir.oracle.ExpressionPayload>()) to
                 (filePayload?.lambdaSuspendByLineCol ?: emptyMap<String, Boolean>())
         } catch (t: Throwable) {

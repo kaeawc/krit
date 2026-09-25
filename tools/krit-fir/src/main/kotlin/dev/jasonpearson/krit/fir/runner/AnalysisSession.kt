@@ -48,28 +48,43 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
     // missing-source error. The walk is negligible next to the compile itself.
     private fun currentSourceFiles(): List<String> =
         sourceDirs.flatMap { dir ->
+            val canonicalRoot = File(dir).canonicalFile.toPath()
             File(dir).walkTopDown()
                 .filter { it.isFile && it.extension == "kt" }
-                .map { it.canonicalPath }
+                .map { file ->
+                    val relative = canonicalRoot.relativize(file.canonicalFile.toPath())
+                    // A symlinked file can escape the root; its walked name still
+                    // addresses that file, whereas root + ../... might not.
+                    if (relative.startsWith("..")) file.path else File(dir, relative.toString()).path
+                }
                 .toList()
         }
 
+    // Choose one spelling per physical file. Explicit requests win because Go
+    // indexes the response with those exact strings; walked files retain the
+    // sourceDirs spelling so unrequested dependencies also match Go's walk.
+    private fun compilationFiles(files: List<String>): List<String> {
+        val byCanonical = LinkedHashMap<String, String>()
+        for (path in currentSourceFiles()) byCanonical.putIfAbsent(File(path).canonicalPath, path)
+        for (path in files) byCanonical[File(path).canonicalPath] = path
+        return byCanonical.values.toList()
+    }
+
     fun check(id: Long, files: List<FileRef>, enabledRules: Set<String>): BatchResult {
-        val requestedCanonical = files.map {
-            try { File(it.path).canonicalPath } catch (_: Exception) { it.path }
-        }.toSet()
+        val requestedPaths = files.associateBy { File(it.path).canonicalPath }
+            .mapValues { it.value.path }
 
         // The protocol uses checker class names (e.g. "FlowCollectInOnCreate"), but FindingCollector
         // matches against the diagnostic names in [RULE_NAME] format (e.g. "FLOW_COLLECT_IN_ON_CREATE").
         val enabledDiagnostics = if (enabledRules.isEmpty()) emptySet()
             else enabledRules.map { checkerToDiagnostic[it] ?: it }.toSet()
 
-        val collector = FindingCollector(requestedCanonical, enabledDiagnostics)
+        val collector = FindingCollector(requestedPaths, enabledDiagnostics)
         val outDir = Files.createTempDirectory("krit-fir-out-").toFile()
 
         try {
             val args = K2JVMCompilerArguments().apply {
-                freeArgs = currentSourceFiles().ifEmpty { files.map { it.path } }
+                freeArgs = compilationFiles(files.map { it.path })
                 this.classpath = this@AnalysisSession.classpath.joinToString(File.pathSeparator)
                 destination = outDir.absolutePath
                 noStdlib = true
@@ -121,7 +136,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         val outDir = Files.createTempDirectory("krit-fir-oracle-out-").toFile()
         try {
             val args = K2JVMCompilerArguments().apply {
-                freeArgs = (currentSourceFiles() + files).distinct().ifEmpty { files }
+                freeArgs = compilationFiles(files)
                 this.classpath = this@AnalysisSession.classpath.joinToString(File.pathSeparator)
                 destination = outDir.absolutePath
                 noStdlib = true
@@ -142,7 +157,9 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
                     pluginClasspaths = arrayOf(selfJar)
                 }
             }
-            K2JVMCompiler().exec(OracleDiagnosticMessageCollector(collector), Services.EMPTY, args)
+            val pathByCanonical = args.freeArgs.associateBy { File(it).canonicalPath }
+                .mapValues { it.value }
+            K2JVMCompiler().exec(OracleDiagnosticMessageCollector(collector, pathByCanonical), Services.EMPTY, args)
         } finally {
             outDir.deleteRecursively()
             OracleCollectorRegistry.end()

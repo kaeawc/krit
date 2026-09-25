@@ -1,8 +1,9 @@
 import * as assert from 'node:assert/strict';
 import * as crypto from 'node:crypto';
+import * as net from 'node:net';
 import { test } from 'node:test';
 import * as zlib from 'node:zlib';
-import { archiveName, detectPlatform, expectedChecksum, extractFile, verifyChecksum } from './release';
+import { archiveName, detectPlatform, download, expectedChecksum, extractFile, verifyChecksum } from './release';
 
 test('archive names match goreleaser naming', () => {
     assert.equal(archiveName('0.2.0', { os: 'darwin', arch: 'arm64', musl: false }), 'krit_0.2.0_darwin_arm64.tar.gz');
@@ -112,4 +113,18 @@ test('extracts krit-lsp.exe from a windows zip archive', () => {
     ]);
     assert.equal(extractFile(archive, 'krit_0.2.0_windows_amd64.zip', 'krit-lsp.exe').toString(), 'lsp-exe'.repeat(100));
     assert.equal(extractFile(archive, 'krit_0.2.0_windows_amd64.zip', 'LICENSE').toString(), 'mit');
+});
+
+test('download rejects when the connection stalls', async () => {
+    // Accepts TCP connections but never answers the TLS handshake.
+    const sockets: net.Socket[] = [];
+    const server = net.createServer((socket) => sockets.push(socket));
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as net.AddressInfo;
+    try {
+        await assert.rejects(download(`https://127.0.0.1:${port}/archive`, {}, 0, 200), /timed out after 200ms/);
+    } finally {
+        sockets.forEach((s) => s.destroy());
+        server.close();
+    }
 });

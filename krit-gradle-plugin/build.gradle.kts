@@ -10,10 +10,12 @@ group = "dev.jasonpearson.krit"
 // release build pins it via -PkritVersion or KRIT_VERSION (same as
 // krit-rule-api); the fallback is the latest stable release so local
 // builds resolve a published binary. Bump it when a new release ships.
-version = (findProperty("kritVersion") as String?)
+version = ((findProperty("kritVersion") as String?)
     ?.takeIf { it.isNotBlank() }
     ?: System.getenv("KRIT_VERSION")?.takeIf { it.isNotBlank() }
-    ?: "0.2.0"
+    ?: "0.2.0")
+    .trim()
+    .removePrefix("v")
 
 repositories {
     mavenCentral()
@@ -39,7 +41,7 @@ dependencies {
 // Codegen so the default krit binary version tracks `version` rather than
 // drifting from a hand-edited constant in KritPlugin.
 val generateKritVersion = tasks.register("generateKritVersion") {
-    val versionString = version.toString().removePrefix("v")
+    val versionString = version.toString()
     val outputDir = layout.buildDirectory.dir("generated/source/kritVersion/main")
     inputs.property("kritVersion", versionString)
     outputs.dir(outputDir)

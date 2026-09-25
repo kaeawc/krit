@@ -191,9 +191,20 @@ export async function resolveReleaseTag(version: string): Promise<string> {
     return tag;
 }
 
-export function download(url: string, headers: Record<string, string> = {}, redirects = 5): Promise<Buffer> {
+/**
+ * GETs `url`, following redirects. `timeoutMs` bounds socket inactivity both
+ * while connecting and between chunks, so a stalled connection rejects
+ * instead of leaving the download progress notification up forever.
+ */
+export function download(
+    url: string,
+    headers: Record<string, string> = {},
+    redirects = 5,
+    timeoutMs = 30_000,
+): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-        const request = https.get(url, { headers: { 'User-Agent': 'krit-vscode', ...headers } }, (response) => {
+        const options = { headers: { 'User-Agent': 'krit-vscode', ...headers }, timeout: timeoutMs };
+        const request = https.get(url, options, (response) => {
             const status = response.statusCode ?? 0;
             if (status >= 300 && status < 400) {
                 response.resume();
@@ -202,7 +213,7 @@ export function download(url: string, headers: Record<string, string> = {}, redi
                     reject(new Error(`Download failed: bad redirect from ${url}`));
                     return;
                 }
-                download(new URL(location, url).toString(), headers, redirects - 1).then(resolve, reject);
+                download(new URL(location, url).toString(), headers, redirects - 1, timeoutMs).then(resolve, reject);
                 return;
             }
             if (status !== 200) {
@@ -215,6 +226,7 @@ export function download(url: string, headers: Record<string, string> = {}, redi
             response.on('end', () => resolve(Buffer.concat(chunks)));
             response.on('error', reject);
         });
+        request.on('timeout', () => request.destroy(new Error(`Download timed out after ${timeoutMs}ms: ${url}`)));
         request.on('error', reject);
     });
 }

@@ -118,10 +118,11 @@ Outputs land in `tools/krit-rule-api/build/staging-deploy/`.
 Release-candidate tags (`vX.Y.Z-rc1`) no longer trigger a Central
 publish. To validate the workflow without publishing publicly, dispatch
 `publish-krit-rule-api.yml` manually with a candidate version
-(`X.Y.Z-rc1`). The publish step will run against the real Central
-staging repository but the resulting release sits in "staging" until
-manually promoted from the Central Portal UI, giving you a chance to
-inspect the artifacts and abort.
+(`X.Y.Z-rc1`). The publish step uploads to Sonatype's OSSRH Staging API
+compatibility endpoint. The build does not call that API's
+`/manual/upload` transfer, so the deployment never reaches the Central
+Portal: it can't be inspected or promoted there, and nothing becomes
+public. That makes a dispatch a check of signing and upload only.
 
 ## Troubleshooting
 

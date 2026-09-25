@@ -22,9 +22,31 @@ object KritFirProbe {
 
     // Outcome of one in-memory compile. [compileErrors] holds the non-plugin
     // ERROR diagnostics located in requested sources ("File.kt:line: message");
-    // [crashed] is true when K2 returned INTERNAL_ERROR (a checker threw).
-    data class Compilation(val diags: List<Diag>, val compileErrors: List<String>, val crashed: Boolean) {
-        val clean: Boolean get() = !crashed && compileErrors.isEmpty()
+    // [otherErrors] holds every other ERROR: messages with no source location
+    // (a missing source root, a bad plugin or classpath entry) and errors
+    // located in the stubs. The compile is clean only
+    // when K2 exits OK: KRIT_RULE is a warning, so findings never change the
+    // exit code, while an error anywhere (including INTERNAL_ERROR from a
+    // checker that threw, or an error inside a stub) does.
+    data class Compilation(
+        val diags: List<Diag>,
+        val compileErrors: List<String>,
+        val otherErrors: List<String>,
+        val exitCode: ExitCode,
+    ) {
+        val crashed: Boolean get() = exitCode == ExitCode.INTERNAL_ERROR
+        val clean: Boolean get() = exitCode == ExitCode.OK && compileErrors.isEmpty()
+
+        // Why the compile is not clean, for failure messages.
+        fun problems(): String = buildString {
+            appendLine("exit=$exitCode")
+            compileErrors.forEach { appendLine(it) }
+            otherErrors.forEach { appendLine(it) }
+            if (crashed) appendLine("(a checker threw; see the compiler exception above)")
+            if (compileErrors.isEmpty() && otherErrors.isEmpty() && !crashed) {
+                appendLine("(the compiler failed without reporting an error)")
+            }
+        }.trimEnd()
     }
 
     // Compiles all [sources] (keyed by filename) together and returns every krit
@@ -39,9 +61,8 @@ object KritFirProbe {
         // INTERNAL_ERROR without a requested-file ERROR line, so the exit code
         // catches crashes that the per-file error scan misses. Fail loudly.
         check(result.clean) {
-            "Test snippet(s) did not compile cleanly (crashed=${result.crashed}) — checker verdicts would be vacuous:\n" +
-                result.compileErrors.joinToString("\n").ifEmpty { "  (a checker threw; see the compiler exception above)" }
-                    .prependIndent("  ")
+            "Test snippet(s) did not compile cleanly — checker verdicts would be vacuous:\n" +
+                result.problems().prependIndent("  ")
         }
         return result.diags
     }
@@ -49,7 +70,12 @@ object KritFirProbe {
     // Compiles [sources] like [diagnose] but reports compile errors instead of
     // failing on them. [ruleContext] selects the FIR rules (and their options)
     // exactly as a production check request does; null enables every rule.
-    fun compile(sources: Map<String, String>, ruleContext: FirRuleCompileContext? = null): Compilation {
+    // [configure] adjusts the compiler arguments (tests of the probe itself).
+    fun compile(
+        sources: Map<String, String>,
+        ruleContext: FirRuleCompileContext? = null,
+        configure: (K2JVMCompilerArguments) -> Unit = {},
+    ): Compilation {
         val pluginJar = requireNotNull(locatePluginJar()) {
             "krit-fir plugin JAR not found. Set 'krit.fir.plugin.jar' or run `./gradlew :jar`."
         }
@@ -75,6 +101,7 @@ object KritFirProbe {
             val outDir = tmpDir.resolve("out").apply { mkdirs() }
             val diags = mutableListOf<Diag>()
             val compileErrors = mutableListOf<String>()
+            val otherErrors = mutableListOf<String>()
             val requested = sources.keys
             val collector = object : MessageCollector {
                 override fun clear() {}
@@ -84,15 +111,19 @@ object KritFirProbe {
                     message: String,
                     location: CompilerMessageSourceLocation?,
                 ) {
-                    if (location == null) return
+                    if (location == null) {
+                        if (severity == CompilerMessageSeverity.ERROR) otherErrors.add("(no location): $message")
+                        return
+                    }
                     val fileName = File(location.path).name
                     val match = pluginDiagnosticRe.find(message)
                     if (match != null) {
                         if (severity in reportable) diags.add(Diag(fileName, location.line, match.groupValues[1]))
                         return
                     }
-                    if (severity == CompilerMessageSeverity.ERROR && fileName in requested) {
-                        compileErrors.add("$fileName:${location.line}: $message")
+                    if (severity == CompilerMessageSeverity.ERROR) {
+                        val located = "$fileName:${location.line}: $message"
+                        if (fileName in requested) compileErrors.add(located) else otherErrors.add(located)
                     }
                 }
             }
@@ -116,12 +147,13 @@ object KritFirProbe {
                         noReflect = true
                         if (stdlibJar != null) classpath = stdlibJar.absolutePath
                         pluginClasspaths = arrayOf(pluginJar.absolutePath)
+                        configure(this)
                     },
                 )
             } finally {
                 if (ruleContext != null) FirRuleContext.end()
             }
-            return Compilation(diags, compileErrors, crashed = exitCode == ExitCode.INTERNAL_ERROR)
+            return Compilation(diags, compileErrors, otherErrors, exitCode)
         } finally {
             tmpDir.deleteRecursively()
         }

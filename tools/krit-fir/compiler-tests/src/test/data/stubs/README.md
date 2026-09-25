@@ -11,7 +11,10 @@
 Diagnostic tests, checker property tests, and `FixtureParityTest` (which
 compiles each FIR rule's Go fixtures from `tests/fixtures`) all go through that
 probe, so new declarations are available automatically and are never added to
-the production artifact. The compilation has kotlin-stdlib and the JDK on its
+the production artifact. The Go FIR tests in `tests/parity` use the same
+library through the krit-fir jar: they send the Kotlin stubs as sources and
+compile the Java layer with javac onto the classpath, which works only because
+the Java layer is self-contained. The compilation has kotlin-stdlib and the JDK on its
 classpath and nothing else: every Android, AndroidX, Compose, coroutines,
 DI, logging, test, and networking type a checker needs comes from here.
 

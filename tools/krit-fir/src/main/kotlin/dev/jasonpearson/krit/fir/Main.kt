@@ -22,6 +22,12 @@ import java.net.SocketTimeoutException
 import kotlin.system.exitProcess
 
 fun main(args: Array<String>) {
+    // `krit-fir --list-rules`: the built-in FIR rule IDs, one per line.
+    if (args.contains("--list-rules")) {
+        print(listRulesOutput())
+        System.out.flush()
+        exitProcess(0)
+    }
     val daemon = args.contains("--daemon")
     val portIdx = args.indexOf("--port")
     val port = if (portIdx >= 0 && portIdx + 1 < args.size) args[portIdx + 1].toIntOrNull() ?: -1 else -1
@@ -62,6 +68,9 @@ fun main(args: Array<String>) {
     )
     exitProcess(0)
 }
+
+// Sorted rule IDs of every FirRule discovered in this jar, one per line.
+internal fun listRulesOutput(): String = FirRuleDiscovery.rules.joinToString("") { it.ruleId + "\n" }
 
 // `internal` so unit tests in the same module can verify the
 // arg-vector parser without driving a JVM subprocess.

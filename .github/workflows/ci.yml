@@ -317,6 +317,9 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      # `test` runs every project's tests, including :compiler-tests (golden
+      # diagnostics, stub guards, and FixtureParityTest against the Go
+      # fixtures in tests/fixtures).
       - name: Validate krit-fir
         working-directory: tools/krit-fir
         run: ./gradlew --no-daemon test --stacktrace
@@ -325,7 +328,9 @@ jobs:
         uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
         with:
           name: krit-fir-test-reports
-          path: tools/krit-fir/build/reports/tests/test/
+          path: |
+            tools/krit-fir/build/reports/tests/test/
+            tools/krit-fir/compiler-tests/build/reports/tests/test/
 
   # oracle-backend-parity drives both JVM oracles (krit-types and
   # krit-fir) through their one-shot `--sources --output` CLIs and
@@ -406,17 +411,20 @@ jobs:
       # both backends; TestFirOracleFactContract guards the FIR
       # expression surface (types, nullability, call targets, suspend
       # markers, diagnostics) the type-aware rules read — the facts the
-      # cross-backend gate deliberately doesn't compare. TestFirPilotParity
-      # compiles the pilot fixtures through krit-fir end to end (it caught a
-      # fixture that stopped compiling under K2). All must pass before the
-      # FIR backend can be made the default.
+      # cross-backend gate deliberately doesn't compare. TestFirFixtureParity
+      # compiles every FIR rule's Go fixtures through krit-fir against the
+      # compiler-tests stub library (the Java stubs are compiled with javac
+      # from setup-java) and requires per-line agreement with the Go rule;
+      # the per-checker correctness tests pin known edge shapes. All must
+      # pass before the FIR backend can be made the default.
       - name: Run oracle backend parity
         env:
           KRIT_TYPES_JAR: ${{ github.workspace }}/tools/krit-types/build/libs/krit-types.jar
         run: |
           set -o pipefail
-          go test ./tests/parity/ -count=1 -run 'TestOracleBackendParity|TestFirOracleFactContract|TestFirPilotParity|TestFirProperty|FuzzFirCheckers' -v | tee parity.log
-          if grep -qE -- '--- SKIP: (TestFirPilotParity|TestFirProperty|FuzzFirCheckers)' parity.log; then
+          go test ./tests/parity/ -count=1 -run 'TestOracleBackendParity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_' -v | tee parity.log
+          # Top-level tests only: an exempt rule's subtest may skip.
+          if grep -qE -- '--- SKIP: (TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+) \(' parity.log; then
             echo "::error::a FIR parity/property/fuzz test skipped; the CI parity job must execute them"
             exit 1
           fi

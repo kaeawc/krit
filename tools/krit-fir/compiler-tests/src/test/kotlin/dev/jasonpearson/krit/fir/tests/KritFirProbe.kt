@@ -1,5 +1,7 @@
 package dev.jasonpearson.krit.fir.tests
 
+import dev.jasonpearson.krit.fir.FirRuleCompileContext
+import dev.jasonpearson.krit.fir.FirRuleContext
 import org.jetbrains.kotlin.cli.common.ExitCode
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
@@ -18,10 +20,62 @@ object KritFirProbe {
 
     private val stubsDir: File get() = File("src/test/data/stubs")
 
+    // Outcome of one in-memory compile. [compileErrors] holds the non-plugin
+    // ERROR diagnostics located in requested sources ("File.kt:line: message");
+    // [otherErrors] holds every other ERROR: messages with no source location
+    // (a missing source root, a bad plugin or classpath entry) and errors
+    // located in the stubs. The compile is clean only
+    // when K2 exits OK: KRIT_RULE is a warning, so findings never change the
+    // exit code, while an error anywhere (including INTERNAL_ERROR from a
+    // checker that threw, or an error inside a stub) does.
+    data class Compilation(
+        val diags: List<Diag>,
+        val compileErrors: List<String>,
+        val otherErrors: List<String>,
+        val exitCode: ExitCode,
+    ) {
+        val crashed: Boolean get() = exitCode == ExitCode.INTERNAL_ERROR
+        val clean: Boolean get() = exitCode == ExitCode.OK && compileErrors.isEmpty()
+
+        // Why the compile is not clean, for failure messages.
+        fun problems(): String = buildString {
+            appendLine("exit=$exitCode")
+            compileErrors.forEach { appendLine(it) }
+            otherErrors.forEach { appendLine(it) }
+            if (crashed) appendLine("(a checker threw; see the compiler exception above)")
+            if (compileErrors.isEmpty() && otherErrors.isEmpty() && !crashed) {
+                appendLine("(the compiler failed without reporting an error)")
+            }
+        }.trimEnd()
+    }
+
     // Compiles all [sources] (keyed by filename) together and returns every krit
     // plugin diagnostic, tagged with its factory name (the [NAME] render prefix),
-    // file name, and 1-based line.
+    // file name, and 1-based line. Fails when a requested source does not compile.
     fun diagnose(sources: Map<String, String>): List<Diag> {
+        val result = compile(sources)
+        // A non-plugin ERROR in a requested source means the snippet did not
+        // compile. Without this, a checker that bails on unresolved symbols
+        // yields "no diagnostics", making every negative case (and golden
+        // negative) pass vacuously. A checker that throws makes K2 return
+        // INTERNAL_ERROR without a requested-file ERROR line, so the exit code
+        // catches crashes that the per-file error scan misses. Fail loudly.
+        check(result.clean) {
+            "Test snippet(s) did not compile cleanly — checker verdicts would be vacuous:\n" +
+                result.problems().prependIndent("  ")
+        }
+        return result.diags
+    }
+
+    // Compiles [sources] like [diagnose] but reports compile errors instead of
+    // failing on them. [ruleContext] selects the FIR rules (and their options)
+    // exactly as a production check request does; null enables every rule.
+    // [configure] adjusts the compiler arguments (tests of the probe itself).
+    fun compile(
+        sources: Map<String, String>,
+        ruleContext: FirRuleCompileContext? = null,
+        configure: (K2JVMCompilerArguments) -> Unit = {},
+    ): Compilation {
         val pluginJar = requireNotNull(locatePluginJar()) {
             "krit-fir plugin JAR not found. Set 'krit.fir.plugin.jar' or run `./gradlew :jar`."
         }
@@ -47,6 +101,7 @@ object KritFirProbe {
             val outDir = tmpDir.resolve("out").apply { mkdirs() }
             val diags = mutableListOf<Diag>()
             val compileErrors = mutableListOf<String>()
+            val otherErrors = mutableListOf<String>()
             val requested = sources.keys
             val collector = object : MessageCollector {
                 override fun clear() {}
@@ -56,49 +111,49 @@ object KritFirProbe {
                     message: String,
                     location: CompilerMessageSourceLocation?,
                 ) {
-                    if (location == null) return
+                    if (location == null) {
+                        if (severity == CompilerMessageSeverity.ERROR) otherErrors.add("(no location): $message")
+                        return
+                    }
                     val fileName = File(location.path).name
                     val match = pluginDiagnosticRe.find(message)
                     if (match != null) {
                         if (severity in reportable) diags.add(Diag(fileName, location.line, match.groupValues[1]))
                         return
                     }
-                    // A non-plugin ERROR in a requested source means the snippet did
-                    // not compile. Without this, a checker that bails on unresolved
-                    // symbols yields "no diagnostics", making every negative case (and
-                    // golden negative) pass vacuously. Fail loudly instead.
-                    if (severity == CompilerMessageSeverity.ERROR && fileName in requested) {
-                        compileErrors.add("$fileName:${location.line}: $message")
+                    if (severity == CompilerMessageSeverity.ERROR) {
+                        val located = "$fileName:${location.line}: $message"
+                        if (fileName in requested) compileErrors.add(located) else otherErrors.add(located)
                     }
                 }
             }
             val stdlibJar = System.getProperty("kotlin.stdlib.jar")?.let { File(it).takeIf { f -> f.exists() } }
-            val exitCode = K2JVMCompiler().exec(
-                collector,
-                Services.EMPTY,
-                K2JVMCompilerArguments().apply {
-                    freeArgs = listOf(ktDir.absolutePath)
-                    // K2 resolves Java sources directly (no javac), giving the
-                    // Android platform stubs real Java symbol shapes: statics,
-                    // synthetic properties, and platform types.
-                    javaSourceRoots = arrayOf(javaDir.absolutePath)
-                    destination = outDir.absolutePath
-                    noStdlib = true
-                    noReflect = true
-                    if (stdlibJar != null) classpath = stdlibJar.absolutePath
-                    pluginClasspaths = arrayOf(pluginJar.absolutePath)
-                },
-            )
-            // A checker that throws makes K2 return INTERNAL_ERROR without a
-            // requested-file ERROR line, so exit code catches crashes that the
-            // per-file error scan misses; both would otherwise leave "no
-            // diagnostics" and pass negatives vacuously.
-            check(exitCode != ExitCode.INTERNAL_ERROR && compileErrors.isEmpty()) {
-                "Test snippet(s) did not compile cleanly (exit=$exitCode) — checker verdicts would be vacuous:\n" +
-                    compileErrors.joinToString("\n").ifEmpty { "  (a checker threw; see the compiler exception above)" }
-                        .prependIndent("  ")
+            // The plugin jar is loaded by a child of this class loader, so the
+            // plugin sees the same FirRuleContext object the test sets here
+            // (K2 builds its checkers on the calling thread).
+            if (ruleContext != null) FirRuleContext.begin(ruleContext)
+            val exitCode = try {
+                K2JVMCompiler().exec(
+                    collector,
+                    Services.EMPTY,
+                    K2JVMCompilerArguments().apply {
+                        freeArgs = listOf(ktDir.absolutePath)
+                        // K2 resolves Java sources directly (no javac), giving the
+                        // Android platform stubs real Java symbol shapes: statics,
+                        // synthetic properties, and platform types.
+                        javaSourceRoots = arrayOf(javaDir.absolutePath)
+                        destination = outDir.absolutePath
+                        noStdlib = true
+                        noReflect = true
+                        if (stdlibJar != null) classpath = stdlibJar.absolutePath
+                        pluginClasspaths = arrayOf(pluginJar.absolutePath)
+                        configure(this)
+                    },
+                )
+            } finally {
+                if (ruleContext != null) FirRuleContext.end()
             }
-            return diags
+            return Compilation(diags, compileErrors, otherErrors, exitCode)
         } finally {
             tmpDir.deleteRecursively()
         }

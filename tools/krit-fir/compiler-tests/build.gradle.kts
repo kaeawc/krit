@@ -59,6 +59,23 @@ tasks.test {
     inputs.dir(project.file("src/test/data")).withPropertyName("testData")
     systemProperty("krit.fir.plugin.jar", pluginJarPath.get().asFile.absolutePath)
 
+    // FixtureParityTest reads the Go rule fixtures and the generated config
+    // schema (its list of Go rule IDs) from the krit repo root, two levels
+    // above the krit-fir build. Declare them as inputs so an edit reruns it.
+    val repoRoot = rootProject.projectDir.resolve("../..").canonicalFile
+    systemProperty("krit.repo.root", repoRoot.absolutePath)
+    inputs.dir(repoRoot.resolve("tests/fixtures/positive")).withPropertyName("goPositiveFixtures")
+    inputs.dir(repoRoot.resolve("tests/fixtures/negative")).withPropertyName("goNegativeFixtures")
+    inputs.file(repoRoot.resolve("schemas/krit-config.schema.json")).withPropertyName("goRuleSchema")
+
+    // Show why a test failed or was skipped (FixtureParityTest names the
+    // unresolved symbols and the offending fixture) and its per-rule summary.
+    testLogging {
+        events("failed", "skipped")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStandardStreams = true
+    }
+
     // Pass kotlin-stdlib.jar path so the embedded compiler can resolve built-in declarations.
     val stdlibJar = configurations.testRuntimeClasspath.get()
         .firstOrNull { it.name.matches(Regex("kotlin-stdlib-\\d.*\\.jar")) }

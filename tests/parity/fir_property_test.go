@@ -85,8 +85,10 @@ fun use(x: Any?) {}
 	return cases
 }
 
-// ---- Flow: lifecycle method × wrapper ----
+// ---- Flow: lifecycle method x wrapper ----
 
+// The screen holds a LifecycleOwner instead of extending an Activity, so the
+// method names are free (a real Activity's onStart would need `override`).
 func flowCases() []genCase {
 	var cases []genCase
 	methods := []string{"onCreate", "onStart", "onViewCreated", "onResume", "observe"}
@@ -95,30 +97,27 @@ func flowCases() []genCase {
 		key         string
 		open, close string
 	}{
-		{"none", "", ""},
-		{"repeatOnLifecycle", "repeatOnLifecycle(Lifecycle.State.STARTED) {", "}"},
-		{"launchWhenStarted", "lifecycleScope.launchWhenStarted {", "}"},
+		{"none", "owner.lifecycleScope.launch {", "}"},
+		{"repeatOnLifecycle", "owner.lifecycleScope.launch { owner.repeatOnLifecycle(Lifecycle.State.STARTED) {", "} }"},
+		{"launchWhenStarted", "owner.lifecycleScope.launchWhenStarted {", "}"},
 	}
 	for _, m := range methods {
 		for _, w := range wrappers {
 			name := fmt.Sprintf("flow_%s_%s", m, w.key)
 			shouldFlag := lifecycle[m] && w.key != "repeatOnLifecycle"
 			src := fmt.Sprintf(`package %s
-import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.launchWhenStarted
 import kotlinx.coroutines.flow.MutableStateFlow
-class Screen : AppCompatActivity() {
+import kotlinx.coroutines.launch
+class Screen(private val owner: LifecycleOwner) {
     private val state = MutableStateFlow(0)
     fun %s() {
-        lifecycleScope.launch {
-            %s
+        %s
             state.collect { }
-            %s
-        }
+        %s
     }
 }
 `, name, m, w.open, w.close)
@@ -222,19 +221,11 @@ fun use(x: Any?) {}
 	return cases
 }
 
-// launchWhenStartedStub is needed by the Flow grid; the parity stubs omit it.
-const launchWhenStartedStub = `package kotlinx.coroutines
-fun CoroutineScope.launchWhenStarted(block: suspend CoroutineScope.() -> Unit) {}
-`
-
-// firFlagCounts runs one krit-fir invocation over all cases (plus any extra
-// stub files) and returns the flag count per case file for the given rule.
-func firFlagCounts(t *testing.T, ruleCheckerName, ruleID string, cases []genCase, extraStubs map[string]string) map[string]int {
+// firFlagCounts runs one krit-fir invocation over all cases and returns the
+// flag count per case file for the given rule.
+func firFlagCounts(t *testing.T, ruleCheckerName, ruleID string, cases []genCase) map[string]int {
 	t.Helper()
 	sources := map[string]string{}
-	for k, v := range extraStubs {
-		sources[k] = v
-	}
 	for _, c := range cases {
 		sources[c.name] = c.source
 	}
@@ -263,16 +254,15 @@ func TestFirProperty_Expectation(t *testing.T) {
 	rules := []struct {
 		checker, id string
 		cases       []genCase
-		stubs       map[string]string
 	}{
-		{"ComposeRememberWithoutKey", "ComposeRememberWithoutKey", composeCases(), nil},
-		{"CollectInOnCreateWithoutLifecycle", "CollectInOnCreateWithoutLifecycle", flowCases(), map[string]string{"ZLaunchWhenStub.kt": launchWhenStartedStub}},
-		{"InjectDispatcher", "InjectDispatcher", injectCases(), nil},
-		{"UnsafeCastWhenNullable", "UnsafeCastWhenNullable", castCases(), nil},
+		{"ComposeRememberWithoutKey", "ComposeRememberWithoutKey", composeCases()},
+		{"CollectInOnCreateWithoutLifecycle", "CollectInOnCreateWithoutLifecycle", flowCases()},
+		{"InjectDispatcher", "InjectDispatcher", injectCases()},
+		{"UnsafeCastWhenNullable", "UnsafeCastWhenNullable", castCases()},
 	}
 	for _, r := range rules {
 		t.Run(r.checker, func(t *testing.T) {
-			counts := firFlagCounts(t, r.checker, r.id, r.cases, r.stubs)
+			counts := firFlagCounts(t, r.checker, r.id, r.cases)
 			assertExpectation(t, r.cases, counts)
 		})
 	}
@@ -281,11 +271,7 @@ func TestFirProperty_Expectation(t *testing.T) {
 func TestFirProperty_Determinism(t *testing.T) {
 	// Same batch, two independent krit-fir runs -> identical per-case findings.
 	cases := append(append(append(composeCases(), flowCases()...), injectCases()...), castCases()...)
-	stubs := map[string]string{"ZLaunchWhenStub.kt": launchWhenStartedStub}
 	sources := map[string]string{}
-	for k, v := range stubs {
-		sources[k] = v
-	}
 	for _, c := range cases {
 		sources[c.name] = c.source
 	}
@@ -365,12 +351,11 @@ func TestFirProperty_Differential(t *testing.T) {
 	rules := []struct {
 		checker, id string
 		cases       []genCase
-		stubs       map[string]string
 	}{
-		{"ComposeRememberWithoutKey", "ComposeRememberWithoutKey", composeCases(), nil},
-		{"CollectInOnCreateWithoutLifecycle", "CollectInOnCreateWithoutLifecycle", flowCases(), map[string]string{"ZLaunchWhenStub.kt": launchWhenStartedStub}},
-		{"InjectDispatcher", "InjectDispatcher", injectCases(), nil},
-		{"UnsafeCastWhenNullable", "UnsafeCastWhenNullable", castCases(), nil},
+		{"ComposeRememberWithoutKey", "ComposeRememberWithoutKey", composeCases()},
+		{"CollectInOnCreateWithoutLifecycle", "CollectInOnCreateWithoutLifecycle", flowCases()},
+		{"InjectDispatcher", "InjectDispatcher", injectCases()},
+		{"UnsafeCastWhenNullable", "UnsafeCastWhenNullable", castCases()},
 	}
 	// Documented boundaries where FIR is intentionally more precise than the
 	// Go rule. FIR resolves a bound callable reference's captured receiver
@@ -381,7 +366,7 @@ func TestFirProperty_Differential(t *testing.T) {
 	}
 	for _, r := range rules {
 		t.Run(r.checker, func(t *testing.T) {
-			firCounts := firFlagCounts(t, r.checker, r.id, r.cases, r.stubs)
+			firCounts := firFlagCounts(t, r.checker, r.id, r.cases)
 			for _, c := range r.cases {
 				firFlag := firCounts[c.name] > 0
 				goCount, hasGoRule := runGoRuleCountOnSource(t, r.id, c.source)
@@ -456,7 +441,7 @@ func FuzzFirCheckers(f *testing.F) {
 		c := all[modIndex(idx, len(all))]
 		src := fuzzWrappers[modIndex(wrapSel, len(fuzzWrappers))](c.source)
 
-		sources := map[string]string{c.name: src, "ZLaunchWhenStub.kt": launchWhenStartedStub}
+		sources := map[string]string{c.name: src}
 		// firCheck skips when the jar/stdlib is absent, and t.Fatalf's on a
 		// crash or invoke error — exactly the no-crash property. Enable all four
 		// checkers so any of them may run on the mutated snippet.

@@ -5,27 +5,16 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// firCheck runs the krit-fir checkers over the given extra sources (on top of
-// the shared parity stubs) and returns findings grouped by absolute file path.
-// It skips when the jar or stdlib is unavailable, mirroring TestFirPilotParity.
+// firCheck runs the krit-fir checkers over the given sources (on top of the
+// compiler-tests stub library) and returns findings keyed by the caller's file
+// names. It skips when the jar, stdlib, or javac is unavailable.
 func firCheck(t *testing.T, rules []string, sources map[string]string) map[string][]scanner.Finding {
 	t.Helper()
-	root := repoRoot(t)
-	jar := firchecks.FindFirJar([]string{root})
-	if jar == "" || !isExecutableJar(jar) {
-		t.Skip("krit-fir executable jar not found; run `cd tools/krit-fir && ./gradlew shadowJar`")
-	}
-	stdlib := findKotlinStdlib()
-	if stdlib == "" {
-		t.Skip("kotlin-stdlib jar not found in Gradle cache")
-	}
-
 	tmp := t.TempDir()
-	files := writeParityStubs(t, tmp)
+	var files []string
 	byName := map[string]string{}
 	for name, body := range sources {
 		p := filepath.Join(tmp, name)
@@ -37,10 +26,7 @@ func firCheck(t *testing.T, rules []string, sources map[string]string) map[strin
 		byName[name] = abs
 	}
 
-	res, err := firchecks.InvokeCached(jar, files, nil, []string{stdlib}, rules, nil, "", false, false)
-	if err != nil {
-		t.Fatalf("krit-fir invoke: %v", err)
-	}
+	res := firInvoke(t, rules, files)
 	if len(res.Crashed) > 0 {
 		t.Fatalf("krit-fir crashed: %v", res.Crashed)
 	}
@@ -78,11 +64,6 @@ func rulesOf(findings []scanner.Finding, rule string) int {
 // match that precision rather than flag every keyless remember.
 func TestComposeRememberWithoutKey_KeylessNoCapture(t *testing.T) {
 	sources := map[string]string{
-		"State.kt": `package androidx.compose.runtime
-
-class MutableState<T>(var value: T)
-fun <T> mutableStateOf(value: T): MutableState<T> = MutableState(value)
-`,
 		"NoCapture.kt": `package sample
 
 import androidx.compose.runtime.Composable
@@ -152,45 +133,38 @@ fun use2(x: Int) {}
 // (launchWhenStarted/launchWhenResumed only suspend the collector, leaving the
 // upstream flow active — the leak repeatOnLifecycle fixes).
 func flowCollectSources() map[string]string {
-	extra := `package kotlinx.coroutines
-
-fun CoroutineScope.launchWhenStarted(block: suspend CoroutineScope.() -> Unit) {}
-`
-	activity := func(pkg, method, wrapperOpen, wrapperClose string) string {
+	screen := func(pkg, method, wrapperOpen, wrapperClose string) string {
 		return `package ` + pkg + `
 
-import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.launchWhenStarted
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 
-class Screen : AppCompatActivity() {
+class Screen(private val owner: LifecycleOwner) {
     private val state = MutableStateFlow(0)
     fun ` + method + `() {
-        lifecycleScope.launch {
-            ` + wrapperOpen + `
+        ` + wrapperOpen + `
             state.collect { }
-            ` + wrapperClose + `
-        }
+        ` + wrapperClose + `
     }
 }
 `
 	}
+	launch, end := "owner.lifecycleScope.launch {", "}"
 	return map[string]string{
-		"ExtraCoroutines.kt": extra,
 		// onStart is in the Go rule's callback set; a bare collect here must flag.
-		"OnStart.kt": activity("onstart", "onStart", "", ""),
+		"OnStart.kt": screen("onstart", "onStart", launch, end),
 		// onViewCreated is also in the set.
-		"OnViewCreated.kt": activity("onview", "onViewCreated", "", ""),
+		"OnViewCreated.kt": screen("onview", "onViewCreated", launch, end),
 		// onResume is deliberately NOT in the set; must not flag.
-		"OnResume.kt": activity("onresume", "onResume", "", ""),
+		"OnResume.kt": screen("onresume", "onResume", launch, end),
 		// launchWhenStarted only suspends the collector; Go still flags it.
-		"LaunchWhen.kt": activity("launchwhen", "onCreate", "lifecycleScope.launchWhenStarted {", "}"),
+		"LaunchWhen.kt": screen("launchwhen", "onCreate", "owner.lifecycleScope.launchWhenStarted {", end),
 		// repeatOnLifecycle is the one safe wrapper; must not flag.
-		"RepeatOn.kt": activity("repeaton", "onCreate", "repeatOnLifecycle(Lifecycle.State.STARTED) {", "}"),
+		"RepeatOn.kt": screen("repeaton", "onCreate", launch+" owner.repeatOnLifecycle(Lifecycle.State.STARTED) {", "} }"),
 	}
 }
 

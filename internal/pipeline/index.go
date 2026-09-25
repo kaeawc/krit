@@ -921,9 +921,21 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 			// covers the stale paths. mergeFreshIntoCachedTypes
 			// rewrites types.json with the union (fresh wins on
 			// overlap), then loads the merged result.
-			merged, mergeErr := oracle.MergeFreshIntoCachedTypes(cachedTypesPath, fresh)
+			currentFiles := make(map[string]bool, len(in.KotlinFilePaths))
+			for _, path := range in.KotlinFilePaths {
+				currentFiles[path] = true
+			}
+			merged, pruned, mergeErr := oracle.MergeFreshIntoCachedTypes(cachedTypesPath, fresh, currentFiles)
 			if mergeErr != nil {
 				in.warnf("warning: oracle partial merge (fallback to analyzeAll): %v\n", mergeErr)
+			}
+			if pruned {
+				// Dependencies has no per-file provenance in types.json. A
+				// pruned file may have contributed an FQN that survives the
+				// union, so only a full daemon result is safe to load.
+				in.warnf("warning: daemon partial merge pruned removed Kotlin files; falling back to analyzeAll\n")
+			}
+			if shouldFallbackToAnalyzeAll(mergeErr, pruned) {
 				od, allErr := d.AnalyzeAllWithCallFilter(callFilterPtr)
 				if allErr != nil {
 					in.warnf("warning: daemon analyzeAll: %v\n", allErr)
@@ -964,6 +976,12 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 		in.logf("verbose: Type oracle loaded from daemon (%d dependency types)\n", len(oracleLoaded.Dependencies()))
 	}
 	return oracle.NewCompositeResolver(oracleLoaded, base)
+}
+
+// shouldFallbackToAnalyzeAll keeps partial-merge recovery decisions testable
+// without constructing the concrete RPC-backed oracle.Daemon in pipeline tests.
+func shouldFallbackToAnalyzeAll(mergeErr error, pruned bool) bool {
+	return mergeErr != nil || pruned
 }
 
 // runDaemonOracleFir spawns (or reuses) the krit-fir persistent

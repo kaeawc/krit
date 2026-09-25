@@ -25,7 +25,10 @@ func TestMergeOracleData_FreshWinsOnFileOverlap(t *testing.T) {
 			"/a.kt": {Package: "p", Declarations: []*Class{{FQN: "p.A", Members: []*Member{{Name: "newFn"}}}}},
 		},
 	}
-	merged := mergeOracleData(cached, fresh)
+	merged, pruned := mergeOracleData(cached, fresh, currentFiles("/a.kt", "/b.kt"))
+	if pruned {
+		t.Fatal("merge reported pruning for a current source set")
+	}
 	// Both files survive; /a.kt reflects fresh content.
 	if len(merged.Files) != 2 {
 		t.Fatalf("merged.Files = %d, want 2", len(merged.Files))
@@ -43,7 +46,10 @@ func TestMergeOracleData_AddingNewFile(t *testing.T) {
 	t.Parallel()
 	cached := &Data{Files: map[string]*File{"/a.kt": {Package: "p"}}}
 	fresh := &Data{Files: map[string]*File{"/c.kt": {Package: "p"}}}
-	merged := mergeOracleData(cached, fresh)
+	merged, pruned := mergeOracleData(cached, fresh, currentFiles("/a.kt", "/c.kt"))
+	if pruned {
+		t.Fatal("merge reported pruning for a current source set")
+	}
 	if _, ok := merged.Files["/a.kt"]; !ok {
 		t.Errorf("merged missing /a.kt")
 	}
@@ -62,7 +68,10 @@ func TestMergeOracleData_DependenciesUnion(t *testing.T) {
 		"java.lang.String": {FQN: "java.lang.String", Kind: "class"}, // fresh wins
 		"kotlin.Int":       {FQN: "kotlin.Int"},                      // new
 	}}
-	merged := mergeOracleData(cached, fresh)
+	merged, pruned := mergeOracleData(cached, fresh, currentFiles())
+	if pruned {
+		t.Fatal("merge reported pruning for a current source set")
+	}
 	if len(merged.Dependencies) != 3 {
 		t.Errorf("merged.Dependencies = %d, want 3 (java.lang.String overwritten, java.lang.Object preserved, kotlin.Int added)", len(merged.Dependencies))
 	}
@@ -77,7 +86,10 @@ func TestMergeOracleData_VersionAndKotlinVersion(t *testing.T) {
 	// Empty fresh — partial-reanalyze response often omits top-level
 	// fields because they describe the whole project, not the subset.
 	fresh := &Data{}
-	merged := mergeOracleData(cached, fresh)
+	merged, pruned := mergeOracleData(cached, fresh, currentFiles())
+	if pruned {
+		t.Fatal("merge reported pruning for a current source set")
+	}
 	if merged.Version != 1 {
 		t.Errorf("merged.Version = %d, want 1 (preserve cached when fresh.Version == 0)", merged.Version)
 	}
@@ -86,7 +98,10 @@ func TestMergeOracleData_VersionAndKotlinVersion(t *testing.T) {
 	}
 	// Fresh that DOES carry these fields should override.
 	fresh = &Data{Version: 2, KotlinVersion: "2.0.0"}
-	merged = mergeOracleData(cached, fresh)
+	merged, pruned = mergeOracleData(cached, fresh, currentFiles())
+	if pruned {
+		t.Fatal("merge reported pruning for a current source set")
+	}
 	if merged.Version != 2 || merged.KotlinVersion != "2.0.0" {
 		t.Errorf("fresh non-zero fields did not override: %+v", merged)
 	}
@@ -95,10 +110,65 @@ func TestMergeOracleData_VersionAndKotlinVersion(t *testing.T) {
 func TestMergeOracleData_NilInputs(t *testing.T) {
 	t.Parallel()
 	// Defensive: neither nil should panic; an absent map becomes empty.
-	merged := mergeOracleData(nil, nil)
+	merged, pruned := mergeOracleData(nil, nil, currentFiles())
+	if pruned {
+		t.Fatal("merge reported pruning for a current source set")
+	}
 	if merged == nil || merged.Files == nil || merged.Dependencies == nil {
 		t.Errorf("nil/nil merge produced unusable result: %+v", merged)
 	}
+}
+
+func TestMergeOracleData_PrunesFilesOutsideCurrentSourceSet(t *testing.T) {
+	t.Parallel()
+	cached := &Data{Files: map[string]*File{
+		"/current.kt": {Package: "p"},
+		"/deleted.kt": {Package: "p"},
+	}}
+	merged, pruned := mergeOracleData(cached, &Data{}, currentFiles("/current.kt"))
+	if !pruned {
+		t.Fatal("merge reported no pruning for stale cached file")
+	}
+	if merged.Files["/deleted.kt"] != nil {
+		t.Fatal("merged result retained deleted cached file")
+	}
+	if merged.Files["/current.kt"] == nil {
+		t.Fatal("merged result dropped current cached file")
+	}
+}
+
+func TestMergeOracleData_PruneSignalAndStaleDependencyContract(t *testing.T) {
+	t.Parallel()
+	cached := &Data{
+		Files:        map[string]*File{"/deleted.kt": {Declarations: []*Class{{FQN: "p.Ghost"}}}},
+		Dependencies: map[string]*Class{"p.Ghost": {FQN: "p.Ghost", Kind: "class"}},
+	}
+	merged, pruned := mergeOracleData(cached, &Data{}, currentFiles("/kept.kt"))
+	if !pruned {
+		t.Fatal("merge did not signal removed cached file")
+	}
+	if merged.Dependencies["p.Ghost"] == nil {
+		t.Fatal("test setup expected dependency union to retain stale FQN")
+	}
+	// This proves the merge layer signals that the result is unsafe to load:
+	// Dependencies has no per-file provenance, so the caller must run a full
+	// analysis, whose clean result omits the removed file's p.Ghost fact.
+	clean := &Data{Files: map[string]*File{"/kept.kt": {}}, Dependencies: map[string]*Class{}}
+	if clean.Dependencies["p.Ghost"] != nil {
+		t.Fatal("clean full-analysis result unexpectedly contains stale FQN")
+	}
+	_, pruned = mergeOracleData(&Data{Files: map[string]*File{"/kept.kt": {}}}, &Data{}, currentFiles("/kept.kt"))
+	if pruned {
+		t.Fatal("merge reported pruning when cached files are a subset of current source set")
+	}
+}
+
+func currentFiles(paths ...string) map[string]bool {
+	files := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		files[path] = true
+	}
+	return files
 }
 
 func TestMergeFreshIntoCachedTypes_RoundTripWritesMerged(t *testing.T) {
@@ -121,9 +191,12 @@ func TestMergeFreshIntoCachedTypes_RoundTripWritesMerged(t *testing.T) {
 		"/a.kt": {Package: "p", Declarations: []*Class{{FQN: "p.A", Members: []*Member{{Name: "extra"}}}}},
 		"/b.kt": {Package: "p"},
 	}}
-	merged, err := MergeFreshIntoCachedTypes(path, fresh)
+	merged, pruned, err := MergeFreshIntoCachedTypes(path, fresh, currentFiles("/a.kt", "/b.kt"))
 	if err != nil {
 		t.Fatalf("merge: %v", err)
+	}
+	if pruned {
+		t.Fatal("merge unexpectedly pruned a current source file")
 	}
 	if len(merged.Files) != 2 {
 		t.Errorf("merged.Files = %d, want 2", len(merged.Files))
@@ -145,7 +218,7 @@ func TestMergeFreshIntoCachedTypes_EmptyOutputPath(t *testing.T) {
 	t.Parallel()
 	// Defensive: empty path must not crash. Returns error so caller
 	// falls back to analyzeAll instead of silently writing nothing.
-	if _, err := MergeFreshIntoCachedTypes("", &Data{}); err == nil {
+	if _, _, err := MergeFreshIntoCachedTypes("", &Data{}, currentFiles()); err == nil {
 		t.Errorf("empty outputPath: want error, got nil")
 	}
 }
@@ -160,12 +233,37 @@ func TestMergeFreshIntoCachedTypes_SkipsWriteWhenFreshIsEmpty(t *testing.T) {
 	priorStat, _ := os.Stat(path)
 	// Empty fresh — the no-op merge must not re-marshal + rewrite the
 	// 1MB JSON. Modtime stays unchanged.
-	if _, err := MergeFreshIntoCachedTypes(path, &Data{Files: map[string]*File{}, Dependencies: map[string]*Class{}}); err != nil {
+	if _, _, err := MergeFreshIntoCachedTypes(path, &Data{Files: map[string]*File{}, Dependencies: map[string]*Class{}}, currentFiles("/a.kt")); err != nil {
 		t.Fatalf("merge: %v", err)
 	}
 	afterStat, _ := os.Stat(path)
 	if !afterStat.ModTime().Equal(priorStat.ModTime()) {
 		t.Errorf("empty-fresh merge wrote to disk (modtime changed): %v -> %v", priorStat.ModTime(), afterStat.ModTime())
+	}
+}
+
+func TestMergeFreshIntoCachedTypes_WritesWhenPruningWithEmptyFresh(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "types.json")
+	cached := &Data{Files: map[string]*File{"/kept.kt": {}, "/deleted.kt": {}}, Dependencies: map[string]*Class{}}
+	raw, _ := json.Marshal(cached)
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	merged, pruned, err := MergeFreshIntoCachedTypes(path, &Data{}, currentFiles("/kept.kt"))
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if !pruned || merged.Files["/deleted.kt"] != nil {
+		t.Fatalf("merge = (pruned %v, files %v), want stale file pruned", pruned, merged.Files)
+	}
+	onDisk, err := readOracleJSON(path)
+	if err != nil {
+		t.Fatalf("read merged: %v", err)
+	}
+	if onDisk.Files["/deleted.kt"] != nil {
+		t.Fatal("pruned stale file remained on disk")
 	}
 }
 
@@ -178,9 +276,12 @@ func TestMergeFreshIntoCachedTypes_NilFreshTreatedAsEmpty(t *testing.T) {
 	_ = os.WriteFile(path, raw, 0o644)
 	// nil fresh means "no new facts" — the merge should pass through
 	// cached content unchanged.
-	merged, err := MergeFreshIntoCachedTypes(path, nil)
+	merged, pruned, err := MergeFreshIntoCachedTypes(path, nil, currentFiles("/a.kt"))
 	if err != nil {
 		t.Fatalf("merge: %v", err)
+	}
+	if pruned {
+		t.Fatal("nil-fresh merge unexpectedly pruned cached content")
 	}
 	if len(merged.Files) != 1 || merged.Files["/a.kt"] == nil {
 		t.Errorf("nil-fresh merge dropped cached content: %+v", merged.Files)

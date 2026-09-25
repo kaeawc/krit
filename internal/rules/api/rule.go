@@ -1185,15 +1185,19 @@ type Context struct {
 	AtThoroughDepth bool
 }
 
-// GradleAST returns the parsed Gradle build script when it carries a
-// tree-sitter flat AST — i.e. a Kotlin DSL (.kts) script parsed by
-// scanner.ParseGradleScript. It returns nil for Groovy (.gradle) scripts,
-// where rules must fall back to line/regex scanning over GradleContent.
-// Gradle rules migrating off regex should branch on this rather than reaching
-// into ctx.File.FlatTree directly, so the AST-vs-regex contract stays in one
-// place.
+// GradleAST returns a parsed Kotlin DSL (.kts) Gradle script carrying a flat
+// AST. Kotlin-specific callers should continue to fall back to regex for
+// Groovy scripts.
 func (c *Context) GradleAST() *scanner.File {
-	if c.File != nil && c.File.FlatTree != nil {
+	if c.File != nil && c.File.Language == scanner.LangGradle && strings.HasSuffix(c.File.Path, ".kts") && c.File.FlatTree != nil {
+		return c.File
+	}
+	return nil
+}
+
+// GroovyGradleAST returns a parsed Groovy (.gradle) script carrying a flat AST.
+func (c *Context) GroovyGradleAST() *scanner.File {
+	if c.File != nil && c.File.IsGroovyGradle() && c.File.FlatTree != nil {
 		return c.File
 	}
 	return nil

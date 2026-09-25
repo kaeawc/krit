@@ -479,6 +479,36 @@ func TestRunOracleProcess_GracePeriodKillsAfterOutputWritten(t *testing.T) {
 	}
 }
 
+func TestRunOracleProcess_PreexistingOutputDoesNotStartGracePeriod(t *testing.T) {
+	sh := shBinary(t)
+	tmp := t.TempDir()
+	outputPath := filepath.Join(tmp, "types.json")
+	if err := os.WriteFile(outputPath, []byte(`{"version":"stale"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Fake oracle: analyze for longer than the grace period, then write
+	// fresh output and exit. The previous run's non-empty file is already
+	// at outputPath; it must not be mistaken for this run's output, or the
+	// grace timer kills the process and the stale facts are returned.
+	script := `sleep 1.5; echo '{"version":"fresh"}' > "$0"`
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if _, err := runOracleProcess(ctx, sh,
+		[]string{"-c", script, outputPath},
+		outputPath, 10*time.Second, 200*time.Millisecond); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	body, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "fresh") {
+		t.Fatalf("output = %q, want the fresh output written by this run", body)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // stderrTail ring buffer tests
 // ---------------------------------------------------------------------------

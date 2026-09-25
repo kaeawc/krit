@@ -46,13 +46,20 @@ import org.jetbrains.kotlin.name.Name
  * Deliberate differences from Go, pinned by goldens and listed in the PR:
  * - Precision: the constructed class must resolve to java.io.ObjectInputStream.
  *   Go accepts any call spelled `ObjectInputStream(...)` once the file imports
- *   or mentions the FQN, so it also reports a local or nested class, or a
- *   function, named ObjectInputStream.
+ *   or mentions the FQN (a `java.io.*` star import counts), so it also reports
+ *   a local, nested, or same-package class (declared in this or another file),
+ *   or a function, named ObjectInputStream.
  * - Recall: an import alias, a type alias, or a backticked name still creates
- *   an ObjectInputStream; Go matches the spelled name and misses them. A class
- *   that merely mentions `ObjectInputStream` and `resolveClass` (a nested
- *   filtering subclass, a comment) is not a filtering subclass, so a raw
- *   ObjectInputStream built in it is reported; Go skips it.
+ *   an ObjectInputStream; Go matches the spelled name and misses them. Go's
+ *   safe scope is a text match on the nearest class, and the call itself
+ *   supplies the ObjectInputStream mention, so Go skips a raw call in any
+ *   class whose text mentions `resolveClass`: one holding a nested filtering
+ *   class or object, an object literal filter, or a companion filter; an
+ *   interface or a plain class declaring a `resolveClass` helper; a comment or
+ *   a string literal; an enum class whose other entry is a filter. None of
+ *   those is a filtering subclass, so FIR reports the raw stream. A filtering
+ *   subclass written as an object is not exempt either: exempting it would
+ *   lose Go's finding in a top-level object filter.
  */
 internal object JavaObjectInputStream : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "JavaObjectInputStream"

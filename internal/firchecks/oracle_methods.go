@@ -70,8 +70,8 @@ func (d *FirDaemon) AnalyzeWithDeps(files, sourceDirs, classpath []string) (*ora
 		ID:         id,
 		Command:    "analyzeWithDeps",
 		Files:      toFileRefs(files),
-		SourceDirs: sourceDirs,
-		Classpath:  classpath,
+		SourceDirs: oracle.AbsolutePaths(sourceDirs),
+		Classpath:  oracle.AbsolutePaths(classpath),
 	}
 	line, err := d.sendAndReceive(req)
 	if err != nil {
@@ -113,8 +113,8 @@ func (d *FirDaemon) runAnalyze(command string, files []fileRef, sourceDirs, clas
 		ID:         id,
 		Command:    command,
 		Files:      files,
-		SourceDirs: sourceDirs,
-		Classpath:  classpath,
+		SourceDirs: oracle.AbsolutePaths(sourceDirs),
+		Classpath:  oracle.AbsolutePaths(classpath),
 	}
 	line, err := d.sendAndReceive(req)
 	if err != nil {
@@ -180,13 +180,15 @@ func (d *FirDaemon) sendAndReceive(req firDaemonRequest) (string, error) {
 	}
 }
 
+// toFileRefs builds absolute file refs: the daemon does not share the
+// caller's working directory (see StartFirDaemonWithPort).
 func toFileRefs(paths []string) []fileRef {
 	if len(paths) == 0 {
 		return nil
 	}
 	out := make([]fileRef, len(paths))
 	for i, p := range paths {
-		out[i] = fileRef{Path: p}
+		out[i] = fileRef{Path: oracle.AbsolutePath(p)}
 	}
 	return out
 }

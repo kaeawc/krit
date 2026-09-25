@@ -105,7 +105,7 @@ func (d *Daemon) Analyze(files []string) (*Data, error) {
 	defer d.mu.Unlock()
 
 	params := map[string]interface{}{
-		"files": files,
+		"files": AbsolutePaths(files),
 	}
 
 	result, err := d.sendResult("analyze", params)
@@ -168,7 +168,7 @@ func (d *Daemon) AnalyzeFilesWithCallFilter(files []string, callFilter *CallTarg
 	if params == nil {
 		params = map[string]interface{}{}
 	}
-	params["files"] = files
+	params["files"] = AbsolutePaths(files)
 
 	result, err := d.sendResult("analyzeFiles", params)
 	if err != nil {
@@ -201,7 +201,7 @@ func (d *Daemon) DecompileJar(jarPath, fqn string) (string, error) {
 	defer d.mu.Unlock()
 
 	result, err := d.sendResult("decompileJar", map[string]interface{}{
-		"jarPath": jarPath,
+		"jarPath": AbsolutePath(jarPath),
 		"fqn":     fqn,
 	})
 	if err != nil {
@@ -305,8 +305,9 @@ func (d *Daemon) ListPlugins(jars []string) (ListPluginsResult, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	requested, spelling := AbsoluteRequestPaths(jars)
 	result, err := d.sendResult("listPlugins", map[string]interface{}{
-		"jars": jars,
+		"jars": requested,
 	})
 	if err != nil {
 		return ListPluginsResult{}, err
@@ -317,6 +318,9 @@ func (d *Daemon) ListPlugins(jars []string) (ListPluginsResult, error) {
 	var out ListPluginsResult
 	if err := json.Unmarshal(*result, &out); err != nil {
 		return ListPluginsResult{}, fmt.Errorf("unmarshal listPlugins response: %w", err)
+	}
+	for i := range out.Diagnostics {
+		out.Diagnostics[i].Jar = spelling.Caller(out.Diagnostics[i].Jar)
 	}
 	return out, nil
 }
@@ -417,9 +421,11 @@ func (d *Daemon) AnalyzePluginFile(
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	// krit-types looks path up in its session, which holds absolute paths;
+	// its findings carry that session path, as before.
 	params := map[string]interface{}{
-		"jars":    jars,
-		"path":    path,
+		"jars":    AbsolutePaths(jars),
+		"path":    AbsolutePath(path),
 		"source":  string(source),
 		"ruleIds": ruleIDs,
 	}
@@ -482,8 +488,9 @@ func (d *Daemon) AnalyzeWithDepsWithTimings(files []string, collectTimings bool,
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	requested, spelling := AbsoluteRequestPaths(files)
 	params := map[string]interface{}{
-		"files":   files,
+		"files":   requested,
 		"timings": collectTimings,
 	}
 	if callFilter != nil && callFilter.Enabled {
@@ -540,9 +547,11 @@ func (d *Daemon) AnalyzeWithDepsWithTimings(files []string, collectTimings bool,
 		if cacheDeps.Crashed == nil {
 			cacheDeps.Crashed = map[string]string{}
 		}
+		// Errors are keyed by the requested path; the poison entry must
+		// carry the caller's spelling of the miss.
 		for path, msg := range resp.Errors {
 			if strings.Contains(msg, "not found in source module") {
-				cacheDeps.Crashed[path] = "daemon: " + msg
+				cacheDeps.Crashed[spelling.Caller(path)] = "daemon: " + msg
 			}
 			// Other per-file analysis errors (FIR crashes inside
 			// analyzeKtFile) are already handled by the daemon-side

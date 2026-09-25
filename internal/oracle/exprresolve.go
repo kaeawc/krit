@@ -46,13 +46,19 @@ func (d *Daemon) ResolveExpressionTypes(positions map[string][]ExpressionPositio
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	paths := make([]string, 0, len(positions))
+	for path := range positions {
+		paths = append(paths, path)
+	}
+	requested, spelling := AbsoluteRequestPaths(paths)
 	wirePositions := make(map[string][]map[string]int, len(positions))
-	for path, list := range positions {
+	for k, path := range paths {
+		list := positions[path]
 		entries := make([]map[string]int, len(list))
 		for i, pos := range list {
 			entries[i] = map[string]int{"line": pos.Line, "col": pos.Col}
 		}
-		wirePositions[path] = entries
+		wirePositions[requested[k]] = entries
 	}
 
 	params := map[string]interface{}{"expressionPositions": wirePositions}
@@ -79,7 +85,7 @@ func (d *Daemon) ResolveExpressionTypes(positions map[string][]ExpressionPositio
 			}
 			fileMap[pos] = factToResolvedType(fact)
 		}
-		out[path] = fileMap
+		out[spelling.Caller(path)] = fileMap
 	}
 	return out, nil
 }

@@ -14,8 +14,10 @@ import (
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/cli/clishared"
+	"github.com/kaeawc/krit/internal/cli/scan"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/pipeline"
@@ -483,7 +485,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 
 	diskCache := s.resolveDiskCacheWiring(args, repoDir, androidCacheWriter, androidCacheDir)
 	baselinePath, basePath, maxFixLevel := resolveBaselineDryRunArgs(args, paths)
-	return pipeline.ProjectInput{
+	in := pipeline.ProjectInput{
 		Args: pipeline.ProjectArgs{
 			Config:           cfg,
 			Paths:            paths,
@@ -564,7 +566,33 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 			PriorAbiHashes:               priorManifest.AbiHashes,
 			PriorFileStats:               priorManifest.FileStats,
 		},
-	}, nil
+	}
+	in.Host.FindingsPostPass = firFindingsPostPass(args, paths, cfg)
+	return in, nil
+}
+
+// firFindingsPostPass returns the pipeline hook that runs the --fir pass
+// for a delegated `krit --fir` scan, or nil when FIR is off. It is the same
+// pass (and compile context) the in-process scan runs in firCheckAndCollect.
+// Verbose output stays off: the daemon's stderr is not the caller's.
+func firFindingsPostPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *config.Config) func(pipeline.ParseResult, []scanner.Finding) []scanner.Finding {
+	if !args.Fir {
+		return nil
+	}
+	return func(parsed pipeline.ParseResult, findings []scanner.Finding) []scanner.Finding {
+		checker := scan.NewFIRChecker(paths, cfg, !args.NoFirDaemon, false)
+		return firchecks.RunPass(firchecks.PassOptions{
+			Enabled:          true,
+			Checker:          checker,
+			ActiveRules:      parsed.ActiveRules,
+			Config:           cfg,
+			ParsedFiles:      parsed.KotlinFiles,
+			KotlinPaths:      parsed.KotlinPaths,
+			IncludeGenerated: args.IncludeGenerated,
+			SourceDirs:       checker.SourceDirs,
+			Classpath:        checker.Classpath,
+		}, findings)
+	}
 }
 
 // diskCacheWiring bundles the on-disk cache pointers buildProjectInput

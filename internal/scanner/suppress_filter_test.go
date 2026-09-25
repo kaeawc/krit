@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -557,5 +558,27 @@ func TestSuppressionByteOffsetForLine(t *testing.T) {
 				t.Fatalf("suppressionByteOffsetForLine(line=%d) = %d, want %d", tc.line, got, tc.want)
 			}
 		})
+	}
+}
+
+// A finding on the first line of an annotated declaration that starts after
+// the line's indentation is inside the declaration by byte offset, though
+// the line start is not.
+func TestSuppressionFilter_IsSuppressedAtUsesFindingByte(t *testing.T) {
+	src := "class X {\n    @Suppress(\"MagicNumber\") fun f() = 42\n    fun g() = 43\n}\n"
+	f := parsedFileForFilter(t, "X.kt", src)
+	sf := BuildSuppressionFilter(f, nil, nil, "")
+	at := strings.Index(src, "42")
+	if sf.IsSuppressed("MagicNumber", "style", 2) {
+		t.Fatal("precondition: the line start precedes the annotated declaration")
+	}
+	if !sf.IsSuppressedAt("MagicNumber", "style", 2, at) {
+		t.Error("finding inside the annotated declaration must be suppressed by its byte offset")
+	}
+	if sf.IsSuppressedAt("MagicNumber", "style", 3, strings.Index(src, "43")) {
+		t.Error("the next declaration is not suppressed")
+	}
+	if sf.IsSuppressedAt("MagicNumber", "style", 2, -1) {
+		t.Error("a negative offset checks the line start only")
 	}
 }

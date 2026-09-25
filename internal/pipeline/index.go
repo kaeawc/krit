@@ -1027,7 +1027,7 @@ func (p IndexPhase) runDaemonOracleFir(in IndexInput, scanPaths []string, oracle
 	var d *firchecks.FirDaemon
 	var daemonErr error
 	oracleTracker.TrackVoid("firDaemonStart", func() {
-		d, daemonErr = firchecks.ConnectOrStartFirDaemon(jarPath, sourceDirs, in.Verbose)
+		d, daemonErr = firchecks.ConnectOrStartFirDaemon(jarPath, sourceDirs, in.OracleClasspath, in.Verbose)
 	})
 	if daemonErr != nil {
 		in.warnf("warning: --daemon: %v\n", daemonErr)

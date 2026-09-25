@@ -23,7 +23,9 @@ import (
 )
 
 // FirCacheVersion is bumped when the entry layout changes incompatibly.
-const FirCacheVersion = 3
+// 4: entries record the advertised rules and compiler-error gating, and the
+// fingerprint covers the whole compilation.
+const FirCacheVersion = 4
 
 // FirCacheEntry is one file's cached FIR findings.
 type FirCacheEntry struct {
@@ -35,6 +37,13 @@ type FirCacheEntry struct {
 	// Crashed marks a poison entry: the file deterministically crashes the FIR checker.
 	Crashed    bool   `json:"crashed,omitempty"`
 	CrashError string `json:"crash_error,omitempty"`
+	// ErrorMessage, when non-empty, records why the checker verdict for this
+	// file is not authoritative (CheckResponse.ErrorFiles).
+	ErrorMessage string `json:"error_message,omitempty"`
+	// Rules is the response's advertised rule set (rules the jar has a
+	// checker for, among those requested). Identical for every entry written
+	// under one fingerprint; kept per entry so an all-hit run knows it too.
+	Rules []string `json:"rules,omitempty"`
 }
 
 // Hot-path counters.
@@ -208,6 +217,7 @@ func WriteFreshEntriesForFingerprint(cacheDir string, files []string, resp *Chec
 				ClosureFingerprint: fingerprint,
 				Crashed:            true,
 				CrashError:         crashMsg,
+				Rules:              resp.Rules,
 			}
 			if WriteCacheEntry(cacheDir, entry) == nil {
 				written++
@@ -221,10 +231,26 @@ func WriteFreshEntriesForFingerprint(cacheDir string, files []string, resp *Chec
 			FilePath:           p,
 			Findings:           findings,
 			ClosureFingerprint: fingerprint,
+			ErrorMessage:       errorFileMessage(resp.ErrorFiles, p),
+			Rules:              resp.Rules,
 		}
 		if WriteCacheEntry(cacheDir, entry) == nil {
 			written++
 		}
 	}
 	return written
+}
+
+// errorFileMessage returns the gating reason for path, or "" when the file is
+// not gated. A gated file always gets a non-empty reason so the cache entry
+// cannot lose the gate.
+func errorFileMessage(errorFiles map[string]string, path string) string {
+	msg, ok := errorFiles[path]
+	if !ok {
+		return ""
+	}
+	if msg == "" {
+		return "compiler error"
+	}
+	return msg
 }

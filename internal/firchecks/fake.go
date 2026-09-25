@@ -1,6 +1,10 @@
 package firchecks
 
-import "github.com/kaeawc/krit/internal/scanner"
+import (
+	"slices"
+
+	"github.com/kaeawc/krit/internal/scanner"
+)
 
 // FirChecker is the interface for running FIR checks. The production
 // implementation calls InvokeCached; tests use FakeFirChecker.
@@ -9,13 +13,21 @@ type FirChecker interface {
 }
 
 // FakeFirChecker is a configurable test double for FirChecker.
-// Set Findings and Crashed before use.
+// Set Findings, Crashed, ErrorFiles, and Rules before use.
 type FakeFirChecker struct {
-	Findings []scanner.Finding
-	Crashed  map[string]string
-	Err      error
+	Findings   []scanner.Finding
+	Crashed    map[string]string
+	ErrorFiles map[string]string
+	// Rules is the advertised rule set. nil advertises every requested rule.
+	Rules []string
+	Err   error
 	// Called is the list of file slices passed to Check.
 	Called [][]string
+	// CalledSourceDirs / CalledClasspath / CalledRules record each call's
+	// compile context and requested rules.
+	CalledSourceDirs [][]string
+	CalledClasspath  [][]string
+	CalledRules      [][]string
 	// CalledRuleConfigs is the ruleConfigs passed to each Check call.
 	CalledRuleConfigs []RuleConfigs
 }
@@ -23,27 +35,35 @@ type FakeFirChecker struct {
 // NewFakeFirChecker returns a FakeFirChecker with all maps initialized.
 func NewFakeFirChecker() *FakeFirChecker {
 	return &FakeFirChecker{
-		Crashed: map[string]string{},
+		Crashed:    map[string]string{},
+		ErrorFiles: map[string]string{},
 	}
 }
 
 // Check records the call and returns the configured findings.
-func (f *FakeFirChecker) Check(files []string, _, _, _ []string, ruleConfigs RuleConfigs) (*Result, error) {
-	cp := make([]string, len(files))
-	copy(cp, files)
-	f.Called = append(f.Called, cp)
+func (f *FakeFirChecker) Check(files []string, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs) (*Result, error) {
+	f.Called = append(f.Called, slices.Clone(files))
+	f.CalledSourceDirs = append(f.CalledSourceDirs, slices.Clone(sourceDirs))
+	f.CalledClasspath = append(f.CalledClasspath, slices.Clone(classpath))
+	f.CalledRules = append(f.CalledRules, slices.Clone(rules))
 	f.CalledRuleConfigs = append(f.CalledRuleConfigs, ruleConfigs)
 	if f.Err != nil {
 		return nil, f.Err
 	}
-	crashed := f.Crashed
-	if crashed == nil {
-		crashed = map[string]string{}
+	res := newResult()
+	res.Findings = append([]scanner.Finding(nil), f.Findings...)
+	for k, v := range f.Crashed {
+		res.Crashed[k] = v
 	}
-	return &Result{
-		Findings: append([]scanner.Finding(nil), f.Findings...),
-		Crashed:  crashed,
-	}, nil
+	for k, v := range f.ErrorFiles {
+		res.ErrorFiles[k] = v
+	}
+	advertised := f.Rules
+	if advertised == nil {
+		advertised = rules
+	}
+	res.addRules(slices.Clone(advertised))
+	return res, nil
 }
 
 // Compile-time check.

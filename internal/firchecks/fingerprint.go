@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/oracle"
 )
 
 // RuleConfigs maps a rule ID to its configured options. It is sent to
@@ -91,4 +92,28 @@ func FirInvocationFingerprint(classpath []string, jarPath string, rules []string
 	}
 	return hashutil.HashHex([]byte(ClasspathFingerprint(classpath) + "\x00" + jarIdentity + "\x00" +
 		strings.Join(ids, "\x00") + "\x00" + string(options)))
+}
+
+// CheckCacheFingerprint is the closure fingerprint every FIR finding cache
+// entry is validated against: the invocation (classpath, jar, rules,
+// options) plus the whole compilation the check runs, i.e. every `.kt` under
+// sourceDirs and every requested file, by path and content. krit-fir compiles
+// the module as one unit, so a file's findings can change when any other
+// source in it changes; keying on the compilation makes any source edit
+// invalidate every cached FIR verdict (coarse but correct, the same trade-off
+// as krit-fir's oracle cache).
+func CheckCacheFingerprint(sourceDirs, files, classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs) string {
+	sources := oracle.CompilationSources(sourceDirs)
+	seen := make(map[string]bool, len(sources)+len(files))
+	for _, p := range sources {
+		seen[p] = true
+	}
+	for _, p := range files {
+		if !seen[p] {
+			seen[p] = true
+			sources = append(sources, p)
+		}
+	}
+	compilation := oracle.CompilationFingerprint(sources, classpath, jarPath)
+	return hashutil.HashHex([]byte(FirInvocationFingerprint(classpath, jarPath, rules, ruleConfigs) + "\x00" + compilation))
 }

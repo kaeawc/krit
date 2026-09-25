@@ -13,16 +13,51 @@ package firchecks
 import (
 	"fmt"
 	"os"
+	"slices"
 	"unicode/utf8"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// Result carries the findings and per-file crash markers from InvokeCached.
+// Result carries the findings and per-file gating markers from InvokeCached.
 type Result struct {
 	Findings []scanner.Finding
 	// Crashed maps file path → error message for files that crashed the FIR checker.
 	Crashed map[string]string
+	// ErrorFiles maps file path → first compiler ERROR (or exclusion reason)
+	// for requested files whose checker verdict is not authoritative.
+	ErrorFiles map[string]string
+	// Rules is the set of requested rules the jar has a checker for: the
+	// rules whose verdict FIR owns on authoritative files.
+	Rules []string
+}
+
+func newResult() *Result {
+	return &Result{Crashed: map[string]string{}, ErrorFiles: map[string]string{}}
+}
+
+// addResponse folds a daemon/one-shot response into r.
+func (r *Result) addResponse(resp *CheckResponse) {
+	contentCache := map[string][]byte{}
+	for _, f := range resp.Findings {
+		r.Findings = append(r.Findings, toScannerFindingWithRange(f, contentCache))
+	}
+	for path, msg := range resp.Crashed {
+		r.Crashed[path] = msg
+	}
+	for path := range resp.ErrorFiles {
+		r.ErrorFiles[path] = errorFileMessage(resp.ErrorFiles, path)
+	}
+	r.addRules(resp.Rules)
+}
+
+func (r *Result) addRules(rules []string) {
+	if len(rules) == 0 {
+		return
+	}
+	r.Rules = append(r.Rules, rules...)
+	slices.Sort(r.Rules)
+	r.Rules = slices.Compact(r.Rules)
 }
 
 // InvokeCached is the cache-aware entry point for running FIR checks.
@@ -46,7 +81,7 @@ func InvokeCached(
 	verbose bool,
 ) (*Result, error) {
 	if len(files) == 0 {
-		return &Result{Crashed: map[string]string{}}, nil
+		return newResult(), nil
 	}
 
 	// If no repo dir, skip cache and go straight to JVM.
@@ -62,7 +97,7 @@ func InvokeCached(
 		return runUncached(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, useDaemon, verbose)
 	}
 
-	cacheFingerprint := FirInvocationFingerprint(classpath, jarPath, rules, ruleConfigs)
+	cacheFingerprint := CheckCacheFingerprint(sourceDirs, files, classpath, jarPath, rules, ruleConfigs)
 	hits, misses := ClassifyFilesForFingerprint(cacheDir, files, cacheFingerprint)
 	if verbose {
 		reporter().Verbosef("verbose: fir cache: %d hits, %d misses (%d files)\n",
@@ -88,13 +123,7 @@ func InvokeCached(
 
 	// Assemble hits + fresh findings.
 	result := assembleFromCache(hits)
-	contentCache := map[string][]byte{}
-	for _, f := range resp.Findings {
-		result.Findings = append(result.Findings, toScannerFindingWithRange(f, contentCache))
-	}
-	for path, msg := range resp.Crashed {
-		result.Crashed[path] = msg
-	}
+	result.addResponse(resp)
 	return result, nil
 }
 
@@ -112,14 +141,8 @@ func runUncached(
 	if err != nil {
 		return nil, err
 	}
-	result := &Result{Crashed: map[string]string{}}
-	contentCache := map[string][]byte{}
-	for _, f := range resp.Findings {
-		result.Findings = append(result.Findings, toScannerFindingWithRange(f, contentCache))
-	}
-	for path, msg := range resp.Crashed {
-		result.Crashed[path] = msg
-	}
+	result := newResult()
+	result.addResponse(resp)
 	return result, nil
 }
 
@@ -135,7 +158,7 @@ func runMisses(
 ) (*CheckResponse, error) {
 	// Try persistent daemon.
 	if useDaemon && jarPath != "" {
-		d, err := ConnectOrStartFirDaemon(jarPath, sourceDirs, verbose)
+		d, err := connectOrStartFirCheckDaemon(jarPath, sourceDirs, classpath, verbose)
 		if err == nil {
 			defer func() { _ = d.Release() }()
 			refs := buildFileRefs(misses)
@@ -168,12 +191,16 @@ func buildFileRefs(files []string) []fileRef {
 }
 
 func assembleFromCache(hits []*FirCacheEntry) *Result {
-	result := &Result{Crashed: map[string]string{}}
+	result := newResult()
 	contentCache := map[string][]byte{}
 	for _, entry := range hits {
+		result.addRules(entry.Rules)
 		if entry.Crashed {
 			result.Crashed[entry.FilePath] = entry.CrashError
 			continue
+		}
+		if entry.ErrorMessage != "" {
+			result.ErrorFiles[entry.FilePath] = entry.ErrorMessage
 		}
 		for _, f := range entry.Findings {
 			result.Findings = append(result.Findings, toScannerFindingWithRange(f, contentCache))
@@ -283,83 +310,4 @@ func firScanIdentifier(content []byte, start int) int {
 		end = start + width
 	}
 	return end
-}
-
-// hasGoTwin reports whether a FIR rule ID is also a registered Go rule, i.e.
-// a tree-sitter implementation may report the same issue.
-func hasGoTwin(rule string) bool {
-	return catalogRule(rule) != nil
-}
-
-// MergeFindings merges FIR findings into the existing allFindings slice,
-// deduplicating on (file, line, col, rule). Rules with a Go twin also dedupe
-// on (file, line, rule) because compiler source ranges can point at a callee
-// token while the tree-sitter rule points at the containing call expression.
-// Go tree-sitter findings win on collision (they're already in allFindings).
-func MergeFindings(allFindings []scanner.Finding, firFindings []scanner.Finding) []scanner.Finding {
-	type key struct {
-		file, rule string
-		line, col  int
-	}
-	type lineKey struct {
-		file, rule string
-		line       int
-	}
-	type byteKey struct {
-		file, rule string
-		start, end int
-	}
-	existing := make(map[key]struct{}, len(allFindings))
-	existingLines := make(map[lineKey]struct{}, len(allFindings))
-	existingLineWithoutBytes := make(map[lineKey]struct{}, len(allFindings))
-	existingBytes := make(map[byteKey]struct{}, len(allFindings))
-	for _, f := range allFindings {
-		existing[key{f.File, f.Rule, f.Line, f.Col}] = struct{}{}
-		if f.EndByte > f.StartByte {
-			existingBytes[byteKey{f.File, f.Rule, f.StartByte, f.EndByte}] = struct{}{}
-		}
-		if hasGoTwin(f.Rule) {
-			lk := lineKey{f.File, f.Rule, f.Line}
-			existingLines[lk] = struct{}{}
-			if f.EndByte <= f.StartByte {
-				existingLineWithoutBytes[lk] = struct{}{}
-			}
-		}
-	}
-	for _, f := range firFindings {
-		k := key{f.File, f.Rule, f.Line, f.Col}
-		bk := byteKey{f.File, f.Rule, f.StartByte, f.EndByte}
-		if f.EndByte > f.StartByte {
-			if _, ok := existingBytes[bk]; ok {
-				continue
-			}
-		}
-		if _, ok := existing[k]; !ok {
-			lk := lineKey{f.File, f.Rule, f.Line}
-			if hasGoTwin(f.Rule) {
-				if f.EndByte > f.StartByte {
-					if _, ok := existingLineWithoutBytes[lk]; ok {
-						continue
-					}
-				}
-				if _, ok := existingLines[lk]; ok {
-					if f.EndByte <= f.StartByte {
-						continue
-					}
-				}
-			}
-			allFindings = append(allFindings, f)
-			existing[k] = struct{}{}
-			if f.EndByte > f.StartByte {
-				existingBytes[bk] = struct{}{}
-			}
-			if hasGoTwin(f.Rule) {
-				existingLines[lk] = struct{}{}
-				if f.EndByte <= f.StartByte {
-					existingLineWithoutBytes[lk] = struct{}{}
-				}
-			}
-		}
-	}
-	return allFindings
 }

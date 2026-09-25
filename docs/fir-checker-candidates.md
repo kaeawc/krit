@@ -16,7 +16,7 @@ A rule can be implemented at three levels. Pick the cheapest one that is correct
    rule needs resolved facts that source analysis cannot get reliably: types,
    nullability, resolved call targets, supertypes across modules, suspend markers.
    Checkers live in `tools/krit-fir/.../checkers/` and currently surface only
-   through the `--fir` pilot pass.
+   through the opt-in `--fir` pass (see [The `--fir` pass](#the---fir-pass)).
 3. **Go rule on the source AST.** Imports and the local syntax tree are enough.
 
 A Go rule that declares `NeedsTypeInfo`, `NeedsResolver`, or `NeedsOracle*` and runs
@@ -197,3 +197,47 @@ Every promoted rule should add positive and negative fixtures in
 The existing `tests/parity` grids illustrate compile-failure guards that stop
 negative cases from passing vacuously; extending their shared lists is not
 required to register a checker.
+
+## The `--fir` pass
+
+`krit --fir` (off by default; `--no-fir` turns it back off) runs the FIR
+checkers after the Go rules and lets the compiler decide wherever it can.
+`krit --daemon --fir` forwards the flag, and `--no-fir-daemon`, to the daemon,
+which runs the same pass.
+
+**Compile context.** The checkers compile the whole module the way the oracle
+does: every Kotlin file under the JVM source roots (`src/<set>/kotlin` and
+`java`, with non-JVM Kotlin Multiplatform sets such as `jsMain` and `iosMain`
+left out), the scanned files, and `oracle.classpath` plus the `CLASSPATH`
+environment variable, on top of the bundled Kotlin stdlib. A scanned file from
+a non-JVM source set is not sent to the checkers at all.
+
+**Which files FIR decides.** For each checked file the response says whether
+the compiler analyzed it cleanly. A file is *gated* when it has an
+error-severity compiler diagnostic (an unresolved reference, often from a
+library missing from `oracle.classpath`), when a location-less compiler error
+affects the whole compilation, when it is not part of the JVM compilation, or
+when the compiler crashed. `-v` lists the gated files with the first error.
+
+**The verdict.** For every file that is not gated, and every rule the jar has a
+checker for, FIR's findings are the final findings:
+
+- A Go finding that a FIR finding overlaps (by byte range, else on the same
+  line) is kept as Go reported it, with its message, range, and autofix.
+- A Go finding with no FIR counterpart is dropped: the compiler says the code
+  is clean.
+- A FIR finding with no Go counterpart is added with FIR's message. It goes
+  through the same filters as Go findings first: `@Suppress`,
+  `@SuppressWarnings`, `detekt:`/`"all"` spellings, `@file:Suppress`,
+  `// krit:ignore`, and the rule's `excludes` globs. Baselines, `--diff`, and
+  `--min-confidence` apply afterwards to every finding alike.
+
+Everywhere else (gated files, files FIR did not check, rules without a
+checker) Go's findings stand and FIR's are discarded. `-v` prints, per rule,
+how many findings FIR confirmed, dropped, added, and enriched with Go's fix,
+and how many files were gated.
+
+**Caching.** FIR findings are cached per file under `.krit/fir-cache`, keyed by
+the whole compilation (every source path and content, the classpath, and the
+jar) plus the enabled rules and their options, so any source edit re-runs the
+checkers for every file.

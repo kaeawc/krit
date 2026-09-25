@@ -317,6 +317,12 @@ type AnalyzeProjectArgs struct {
 	// typed error response so silent-fallthrough cannot drop the
 	// caller's selection.
 	OracleBackend string `json:"oracle_backend,omitempty"`
+	// Fir mirrors --fir (after --no-fir): run the FIR checker pass and
+	// apply its authoritative verdict, like an in-process scan does.
+	Fir bool `json:"fir,omitempty"`
+	// NoFirDaemon mirrors --no-fir-daemon: run the FIR checkers one-shot
+	// instead of through the persistent krit-fir daemon.
+	NoFirDaemon bool `json:"no_fir_daemon,omitempty"`
 }
 
 // AnalyzeProjectResult is the response payload. Findings is the raw

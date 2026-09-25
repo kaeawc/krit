@@ -44,6 +44,9 @@ func firCheck(t *testing.T, rules []string, sources map[string]string) map[strin
 	if len(res.Crashed) > 0 {
 		t.Fatalf("krit-fir crashed: %v", res.Crashed)
 	}
+	if len(res.ErrorFiles) > 0 {
+		t.Fatalf("krit-fir hit compiler errors: %v", res.ErrorFiles)
+	}
 
 	out := map[string][]scanner.Finding{}
 	for _, f := range res.Findings {

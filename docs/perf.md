@@ -172,7 +172,10 @@ they're skipped instead of running with degraded data.
 ### `--no-fir`
 
 Disables the FIR checker pass (separate krit-fir JVM subprocess). FIR is
-opt-in to begin with; use this to override a config that turned it on.
+opt-in to begin with; use this to override a config that turned it on. The
+pass compiles the whole module on a cache miss, and any source edit misses
+the FIR findings cache for every file; see
+[The `--fir` pass](fir-checker-candidates.md#the---fir-pass).
 
 ### `--no-fir-daemon`
 

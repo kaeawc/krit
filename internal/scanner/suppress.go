@@ -100,6 +100,16 @@ func BuildSuppressionFilter(file *File, baseline *Baseline, excludes map[string]
 // A nil filter reports false — matches the pre-filter "no suppression
 // data available" behaviour.
 func (f *SuppressionFilter) IsSuppressed(ruleID, ruleSet string, line int) bool {
+	return f.IsSuppressedAt(ruleID, ruleSet, line, -1)
+}
+
+// IsSuppressedAt is IsSuppressed for a finding whose start byte is known
+// (byteOffset >= 0). An @Suppress / @SuppressWarnings annotation whose
+// declaration covers either the finding's start byte or the start of its
+// line suppresses it, so a finding on a declaration's first line is caught
+// even when the declaration starts after the line's indentation. A negative
+// byteOffset checks the line start only, like IsSuppressed.
+func (f *SuppressionFilter) IsSuppressedAt(ruleID, ruleSet string, line, byteOffset int) bool {
 	if f == nil {
 		return false
 	}
@@ -123,13 +133,21 @@ func (f *SuppressionFilter) IsSuppressed(ruleID, ruleSet string, line int) bool 
 			}
 		}
 	}
-	if f.annotations != nil && f.file != nil {
-		byteOffset := suppressionByteOffsetForLine(f.file, line)
-		if f.annotations.isSuppressedWithAliases(byteOffset, ruleID, ruleSet, aliases) {
-			return true
-		}
+	return f.annotationSuppresses(ruleID, ruleSet, line, byteOffset, aliases)
+}
+
+// annotationSuppresses checks the @Suppress / @SuppressWarnings index at the
+// start of line and, when known, at the finding's own start byte.
+func (f *SuppressionFilter) annotationSuppresses(ruleID, ruleSet string, line, byteOffset int, aliases []string) bool {
+	if f.annotations == nil || f.file == nil {
+		return false
 	}
-	return false
+	lineOffset := suppressionByteOffsetForLine(f.file, line)
+	if f.annotations.isSuppressedWithAliases(lineOffset, ruleID, ruleSet, aliases) {
+		return true
+	}
+	return byteOffset >= 0 && byteOffset != lineOffset && byteOffset < len(f.file.Content) &&
+		f.annotations.isSuppressedWithAliases(byteOffset, ruleID, ruleSet, aliases)
 }
 
 // suppressionByteOffsetForLine maps a 1-based finding line to a byte

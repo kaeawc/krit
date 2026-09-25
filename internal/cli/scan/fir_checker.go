@@ -1,141 +1,40 @@
 package scan
 
 import (
-	"fmt"
-	"io"
-	"path/filepath"
-	"sort"
-	"time"
-
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/firchecks"
-	"github.com/kaeawc/krit/internal/perf"
-	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // firCheckerOpts groups every flag and runtime input runFIRCheckerPass
-// needs. Pulled out so the call site reads as one struct literal.
-type firCheckerOpts struct {
-	Enabled bool // typically *firFlag && !*noFirFlag
-	// Checker is the FirChecker that runs the actual subprocess or
-	// daemon invocation. Production callers pass *ProductionFirChecker;
-	// tests inject FakeFirChecker. When nil the pass is a no-op even if
-	// Enabled is true.
-	Checker     firchecks.FirChecker
-	Verbose     bool
-	ActiveRules []*api.Rule
-	// Config supplies each active rule's options, sent to krit-fir as
-	// ruleConfigs so FirRule.config() sees the same options as Go rules.
-	Config      *config.Config
-	ParsedFiles []*scanner.File
-	Tracker     perf.Tracker
-	VerboseOut  io.Writer
-	// Thorough mirrors --depth=thorough and tells ActiveFirRules to
-	// project per-rule ThoroughIdentifiers / ThoroughAllFiles. False
-	// keeps the existing balanced/fast filter shape.
-	Thorough bool
-}
+// needs. The pass itself lives in firchecks so the daemon's analyze-project
+// verb (internal/cli/serve) runs the same code.
+type firCheckerOpts = firchecks.PassOptions
 
-// resolveFIRTargetFiles picks the Kotlin file list the FIR checker should
-// run against. When summary.AllFiles is true (every parsed file is a
-// candidate), the helper expands parsedFiles into absolute paths and
-// returns them sorted for deterministic invocation; otherwise it returns
-// summary.Paths verbatim.
-//
-// Pure: same inputs always produce the same output, no global state. The
-// AllFiles branch is the only piece worth unit-testing — it's where the
-// abs-path-then-sort behavior lives.
-func resolveFIRTargetFiles(summary firchecks.FirFilterSummary, parsedFiles []*scanner.File) []string {
-	if !summary.AllFiles {
-		return summary.Paths
-	}
-	out := make([]string, 0, len(parsedFiles))
-	for _, file := range parsedFiles {
-		if file == nil {
-			continue
-		}
-		abs, err := filepath.Abs(file.Path)
-		if err != nil {
-			abs = file.Path
-		}
-		out = append(out, abs)
-	}
-	sort.Strings(out)
-	return out
-}
-
-// activeRuleIDs flattens a rule slice into its non-nil rule IDs.
-func activeRuleIDs(rules []*api.Rule) []string {
-	out := make([]string, 0, len(rules))
-	for _, r := range rules {
-		if r == nil {
-			continue
-		}
-		out = append(out, r.ID)
-	}
-	return out
-}
-
-// firRuleConfigs collects the configured options (rules.<RuleId> minus
-// active/excludes) of every active rule. Go has no index of which rules have
-// a FIR checker, so it sends options for every active rule, mirroring the
-// rule-ID list; rules without options are omitted.
-func firRuleConfigs(cfg *config.Config, rules []*api.Rule) firchecks.RuleConfigs {
-	var out firchecks.RuleConfigs
-	for _, r := range rules {
-		if r == nil {
-			continue
-		}
-		opts := cfg.RuleOptions(r.Category, r.ID)
-		if len(opts) == 0 {
-			continue
-		}
-		if out == nil {
-			out = firchecks.RuleConfigs{}
-		}
-		out[r.ID] = opts
-	}
-	return out
-}
-
-// runFIRCheckerPass invokes the FIR checker subprocess (or daemon) and
-// merges its findings into base. No-op when opts.Enabled is false; the
-// returned slice is base unchanged.
-//
-// Errors are silenced unless Verbose is set (FIR is gated behind --fir
-// during the pilot phase, so a stray daemon failure must never break the
-// main scan); a verbose-only line reports the error. Verbose mode also
-// emits a one-line summary of timing, finding counts, file selection,
-// and the FIR cache stats.
+// runFIRCheckerPass runs the FIR checkers and applies the FIR-authoritative
+// verdict to base. No-op when opts.Enabled is false.
 func runFIRCheckerPass(opts firCheckerOpts, base []scanner.Finding) []scanner.Finding {
-	if !opts.Enabled || opts.Checker == nil {
-		return base
-	}
-	active := firchecks.ActiveFirRules(activeRuleIDs(opts.ActiveRules), opts.Thorough)
-	if len(active.Names) == 0 {
-		return base
-	}
-	start := time.Now()
-	subTracker := opts.Tracker.Serial("firCheck")
-	summary := firchecks.CollectFirCheckFiles(opts.ParsedFiles)
-	ktFiles := resolveFIRTargetFiles(summary, opts.ParsedFiles)
-	result, err := opts.Checker.Check(ktFiles, nil, nil, active.Names, firRuleConfigs(opts.Config, opts.ActiveRules))
-	subTracker.End()
+	return firchecks.RunPass(opts, base)
+}
 
-	if err != nil {
-		if opts.Verbose && opts.VerboseOut != nil {
-			fmt.Fprintf(opts.VerboseOut, "verbose: FIR checker error: %v\n", err)
-		}
-		return base
+// FIRCompileContext returns the compile context the --fir pass checks
+// against: the JVM-scoped source roots the oracle compiles (non-JVM KMP
+// source sets dropped) and the configured oracle classpath, so the checkers
+// resolve cross-file and library references the way the oracle does.
+func FIRCompileContext(paths []string, cfg *config.Config) (sourceDirs, classpath []string) {
+	return oracle.FindSourceDirs(paths), resolveOracleClasspath(cfg)
+}
+
+// NewFIRChecker builds the production checker for a scan of paths.
+func NewFIRChecker(paths []string, cfg *config.Config, useDaemon, verbose bool) *firchecks.ProductionFirChecker {
+	sourceDirs, classpath := FIRCompileContext(paths, cfg)
+	return &firchecks.ProductionFirChecker{
+		JarPath:    firchecks.FindFirJar(paths),
+		SourceDirs: sourceDirs,
+		Classpath:  classpath,
+		RepoDir:    oracle.FindRepoDir(paths),
+		UseDaemon:  useDaemon,
+		Verbose:    verbose,
 	}
-	merged := firchecks.MergeFindings(base, result.Findings)
-	if opts.Verbose && opts.VerboseOut != nil {
-		stats := firchecks.Stats()
-		fmt.Fprintf(opts.VerboseOut,
-			"verbose: FIR checker in %v (%d findings, %d/%d files, cache hits=%d misses=%d)\n",
-			time.Since(start).Round(time.Millisecond), len(result.Findings),
-			summary.MarkedFiles, summary.TotalFiles, stats.Hits, stats.Misses)
-	}
-	return merged
 }

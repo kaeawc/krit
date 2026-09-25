@@ -1144,9 +1144,10 @@ func runMissAnalysis(
 			"connected": int64(pool.Connected),
 			"started":   int64(pool.Started),
 		}, nil)
-		if !pool.MatchesRepo(jarPath, sourceDirs, opts.Classpath...) {
-			addOracleInstant(tracker, "daemonPoolRepoMismatch", map[string]int64{"misses": int64(len(misses))}, nil)
-			return fallback("daemon pool (jar, sourceDirs) mismatch")
+		var matchErr error
+		pool, matchErr = reconnectMismatchedDaemonPool(pool, jarPath, sourceDirs, opts.Classpath, poolSize, verbose, len(misses), tracker)
+		if matchErr != nil {
+			return fallback(matchErr.Error())
 		}
 		if verbose {
 			reporter().Verbosef("verbose: sharding daemon miss analysis across %d persistent workers (%d files)\n", len(pool.Members), len(misses))
@@ -1182,9 +1183,10 @@ func runMissAnalysis(
 	// invocation, defeating the whole purpose of the persistent daemon.
 	defer func() { _ = d.Release() }()
 
-	if !d.MatchesRepo(jarPath, sourceDirs, opts.Classpath...) {
-		addOracleInstant(tracker, "daemonRepoMismatch", map[string]int64{"misses": int64(len(misses))}, nil)
-		return fallback("daemon (jar, sourceDirs) mismatch")
+	var matchErr error
+	d, matchErr = reconnectMismatchedDaemon(d, jarPath, sourceDirs, opts.Classpath, verbose, len(misses), tracker)
+	if matchErr != nil {
+		return fallback(matchErr.Error())
 	}
 
 	var fresh *Data
@@ -1211,6 +1213,40 @@ func runMissAnalysis(
 	// cost that was doubling cold-run wall time on large repos.
 
 	return fresh, deps, true, nil
+}
+
+func reconnectMismatchedDaemonPool(pool *DaemonPool, jarPath string, sourceDirs, classpath []string, size int, verbose bool, misses int, tracker perf.Tracker) (*DaemonPool, error) {
+	if pool.MatchesRepo(jarPath, sourceDirs, classpath...) {
+		return pool, nil
+	}
+	addOracleInstant(tracker, "daemonPoolRepoMismatch", map[string]int64{"misses": int64(misses)}, nil)
+	_ = pool.Release()
+	replacement, err := ConnectOrStartDaemonPool(jarPath, sourceDirs, classpath, size, verbose)
+	if err != nil {
+		return pool, fmt.Errorf("reconnect daemon pool: %w", err)
+	}
+	if !replacement.MatchesRepo(jarPath, sourceDirs, classpath...) {
+		_ = replacement.Release()
+		return replacement, fmt.Errorf("daemon pool (jar, sourceDirs) mismatch after reconnect")
+	}
+	return replacement, nil
+}
+
+func reconnectMismatchedDaemon(d *Daemon, jarPath string, sourceDirs, classpath []string, verbose bool, misses int, tracker perf.Tracker) (*Daemon, error) {
+	if d.MatchesRepo(jarPath, sourceDirs, classpath...) {
+		return d, nil
+	}
+	addOracleInstant(tracker, "daemonRepoMismatch", map[string]int64{"misses": int64(misses)}, nil)
+	_ = d.Release()
+	replacement, err := ConnectOrStartDaemon(jarPath, sourceDirs, classpath, verbose)
+	if err != nil {
+		return d, fmt.Errorf("reconnect daemon: %w", err)
+	}
+	if !replacement.MatchesRepo(jarPath, sourceDirs, classpath...) {
+		_ = replacement.Release()
+		return replacement, fmt.Errorf("daemon (jar, sourceDirs) mismatch after reconnect")
+	}
+	return replacement, nil
 }
 
 // readOracleJSON parses a krit-types output file into Data. Shares

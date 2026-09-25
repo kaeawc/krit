@@ -2,11 +2,40 @@ package serve
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/oracle"
 )
+
+func TestEnsureOracleDaemonRestartsAfterJarReplacement(t *testing.T) {
+	root := t.TempDir()
+	jar := filepath.Join(root, "krit-types.jar")
+	if err := os.WriteFile(jar, []byte("A"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KRIT_TYPES_JAR", jar)
+	state := newDaemonState(root)
+	t.Cleanup(state.closeOracleDaemons)
+	first := &oracle.Daemon{}
+	second := &oracle.Daemon{}
+	fake := &fakeOracleDaemonStarter{returns: []*oracle.Daemon{first, second}}
+	state.oracleDaemonStarter = fake
+	if got, err := state.ensureOracleDaemon([]string{root}, oracle.BackendKAA); err != nil || got != first {
+		t.Fatalf("first daemon = %p, err %v", got, err)
+	}
+	if err := os.WriteFile(jar, []byte("replacement"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := state.ensureOracleDaemon([]string{root}, oracle.BackendKAA); err != nil || got != second {
+		t.Fatalf("replacement daemon = %p, err %v", got, err)
+	}
+	if got := fake.calls.Load(); got != 2 {
+		t.Fatalf("starter called %d times, want 2", got)
+	}
+}
 
 // fakeOracleDaemonStarter records every Start call and returns a
 // pre-canned daemon (or error) so tests exercise the lifecycle without

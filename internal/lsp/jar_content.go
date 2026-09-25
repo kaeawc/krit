@@ -55,9 +55,45 @@ func (s *Server) jarCacheLocked() *oracle.DecompileCache {
 }
 
 func (s *Server) installDaemonDecompiler(d *oracle.Daemon) {
+	s.indexMu.Lock()
+	indexer, ok := s.indexer.(OracleWorkspaceIndexer)
+	s.indexMu.Unlock()
 	s.jarMu.Lock()
 	defer s.jarMu.Unlock()
-	s.jarCache = oracle.NewDecompileCache(filepath.Join(s.jarCacheRoot(), "kaa"), s.jarDecompilerLocked(d))
+	jarIdentity := "missing"
+	if ok {
+		jarIdentity = oracle.JarIdentity(indexer.JARPath)
+	}
+	s.jarCache = oracle.NewDecompileCache(filepath.Join(s.jarCacheRoot(), "kaa", jarIdentity), s.jarDecompilerLocked(d))
+}
+
+func (s *Server) refreshOracleDecompiler() {
+	s.indexMu.Lock()
+	old := s.oracleDaemon
+	indexer, ok := s.indexer.(OracleWorkspaceIndexer)
+	if !ok || (old != nil && old.MatchesRepo(indexer.JARPath, []string{indexer.Root}, indexer.Classpath...)) {
+		s.indexMu.Unlock()
+		return
+	}
+	d, err := oracle.ConnectOrStartDaemon(indexer.JARPath, []string{indexer.Root}, indexer.Classpath, indexer.Verbose)
+	if err != nil || !d.MatchesRepo(indexer.JARPath, []string{indexer.Root}, indexer.Classpath...) {
+		if d != nil {
+			_ = d.Release()
+		}
+		s.oracleDaemon = nil
+		s.indexMu.Unlock()
+		if old != nil {
+			_ = old.Release()
+		}
+		s.installDaemonDecompiler(nil)
+		return
+	}
+	s.oracleDaemon = d
+	s.indexMu.Unlock()
+	if old != nil {
+		_ = old.Release()
+	}
+	s.installDaemonDecompiler(d)
 }
 
 func (s *Server) jarDecompilerLocked(d *oracle.Daemon) oracle.Decompiler {
@@ -99,6 +135,7 @@ func (s *Server) handleJARContent(req *Request) {
 		return
 	}
 
+	s.refreshOracleDecompiler()
 	s.jarMu.Lock()
 	cache := s.jarCacheLocked()
 	s.jarMu.Unlock()
@@ -142,6 +179,7 @@ func (s *Server) jarText(uri string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	s.refreshOracleDecompiler()
 	s.jarMu.Lock()
 	cache := s.jarCacheLocked()
 	s.jarMu.Unlock()

@@ -200,6 +200,10 @@ near-zero on a warm run.
 
 ### When the oracle cache re-runs the JVM
 
+The oracle and FIR checker reuse a persistent helper only while its jar is
+unchanged. Replacing the jar starts a fresh helper and stops the old one for
+that project.
+
 The oracle cache stores each Kotlin file's compiler facts and reuses them while
 the file is unchanged. How a change to one file reaches the facts of files that
 depend on it depends on the backend:

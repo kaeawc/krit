@@ -27,6 +27,14 @@ func (o OracleWorkspaceIndexer) BuildWorkspaceIndex(ctx context.Context, root st
 		progress(0, 1)
 	}
 	d, err := oracle.ConnectOrStartDaemon(o.JARPath, []string{root}, o.Classpath, o.Verbose)
+	if err == nil && !d.MatchesRepo(o.JARPath, []string{root}, o.Classpath...) {
+		_ = d.Release()
+		d, err = oracle.ConnectOrStartDaemon(o.JARPath, []string{root}, o.Classpath, o.Verbose)
+		if err == nil && !d.MatchesRepo(o.JARPath, []string{root}, o.Classpath...) {
+			_ = d.Release()
+			err = fmt.Errorf("oracle jar changed during daemon connection")
+		}
+	}
 	if err != nil {
 		if o.Fallback != nil {
 			return o.Fallback.BuildWorkspaceIndex(ctx, root, progress)

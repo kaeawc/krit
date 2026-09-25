@@ -21,8 +21,8 @@ class AnalysisSessionBundledStdlibTest {
             """.trimIndent(),
         )
 
-        val result = AnalysisSession(listOf(tmp.toString()), emptyList()).analyzeFull(emptyList()).result
-        val file = result.files[source.toFile().canonicalPath]
+        val result = AnalysisSession(listOf(tmp.toFile().absolutePath), emptyList()).analyzeFull(emptyList()).result
+        val file = result.files[source.toFile().absolutePath]
         assertNotNull(file, "file payload missing: ${result.files.keys}")
         val mapCall = file.expressions.values.singleOrNull { it.callTarget?.endsWith(".map") == true }
         assertNotNull(mapCall, "map call missing: ${file.expressions.values}")

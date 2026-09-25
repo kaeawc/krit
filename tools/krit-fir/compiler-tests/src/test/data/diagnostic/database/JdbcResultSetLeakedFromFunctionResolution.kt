@@ -22,3 +22,8 @@ typealias Cursor = java.sql.ResultSet
 // Go misses it: Go reads the last dotted segment of `(java.sql.ResultSet)`, which is
 // `ResultSet)`, not `ResultSet`.
 <!JdbcResultSetLeakedFromFunction!>fun<!> parenthesized(stmt: Statement): (java.sql.ResultSet) = stmt.executeQuery("SELECT 1")
+
+// Go misses it: Go trims the trailing `?` of `(java.sql.ResultSet)?`, and the
+// last dotted segment of `(java.sql.ResultSet)` is `ResultSet)`. The return type
+// is a nullable java.sql.ResultSet.
+<!JdbcResultSetLeakedFromFunction!>fun<!> parenNullable(stmt: Statement?): (java.sql.ResultSet)? = stmt?.executeQuery("SELECT 1")

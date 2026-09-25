@@ -44,3 +44,43 @@ class Pool {
 // type's text, `ResultSet<Int>`, which is not `ResultSet`. It returns a
 // closeable ResultSet all the same.
 <!JdbcResultSetLeakedFromFunction!>fun<!> pooled(): Pool.ResultSet<Int> = Pool.ResultSet(1)
+
+// Like Go: a class named ResultSet that declares close() without implementing
+// AutoCloseable. The caller still has to close it, so the message's claim that
+// callers forget to close it holds; only `.use {}` does not apply. This is a
+// judgment call, so it matches Go.
+class Cursor {
+    class ResultSet {
+        fun close() {}
+    }
+}
+
+<!JdbcResultSetLeakedFromFunction!>fun<!> closeByMethod(): Cursor.ResultSet = Cursor.ResultSet()
+
+<!JdbcResultSetLeakedFromFunction!>fun<!> closeByMethodNullable(): Cursor.ResultSet? = null
+
+open class Releasable {
+    fun close(force: Boolean) {}
+}
+
+class Pooled {
+    class ResultSet : Releasable()
+}
+
+// Like Go: close() is inherited and takes an argument; it still has to be
+// called.
+<!JdbcResultSetLeakedFromFunction!>fun<!> inheritedClose(): Pooled.ResultSet = Pooled.ResultSet()
+
+// Divergence: Go misses it. No declared return type; the inferred type is the
+// closeable Driver.ResultSet.
+<!JdbcResultSetLeakedFromFunction!>fun<!> inferredCloseable() = Driver.ResultSet()
+
+// Divergence: Go misses it, as above; the inferred type is Cursor.ResultSet,
+// which declares close().
+<!JdbcResultSetLeakedFromFunction!>fun<!> inferredCloseByMethod() = Cursor.ResultSet()
+
+typealias DriverRows = Driver.ResultSet
+
+// Divergence: Go misses it. Go reads the declared type's text, `DriverRows`;
+// the alias expands to the closeable Driver.ResultSet.
+<!JdbcResultSetLeakedFromFunction!>fun<!> aliasedCloseable(): DriverRows = Driver.ResultSet()

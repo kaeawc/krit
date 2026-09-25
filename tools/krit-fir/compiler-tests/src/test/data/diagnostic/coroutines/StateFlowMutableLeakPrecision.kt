@@ -46,3 +46,31 @@ class ViewModel {
         }
     }
 }
+
+class SecondaryConstructed {
+    // Go reports this because tree-sitter parses a secondary constructor's body
+    // as a block, not a function_body; FIR is correct because a constructor
+    // local is not part of the class API.
+    constructor() {
+        val local = MutableStateFlow(7)
+        local.value = 8
+    }
+}
+
+enum class Mode {
+    A {
+        // Go reports this because an enum entry body is a class body in
+        // tree-sitter; FIR is correct because the entry body is an anonymous
+        // object whose members are not visible through Mode.
+        val state = MutableStateFlow(9)
+    },
+    B,
+}
+
+// Go reports this because the class name contains the text "MutableStateFlow";
+// FIR is correct because the type is not a MutableStateFlow subtype.
+class MutableStateFlowSettings(val retries: Int)
+
+class SettingsHolder {
+    val settings = MutableStateFlowSettings(3)
+}

@@ -8,12 +8,12 @@ class ProviderSmoke {
     @ParameterizedTest
     @ValueSource(strings = ["", " "])
     fun blank(value: String) {
-        println(value.isBlank())
+        <!PrintlnInProduction!>println<!>(value.isBlank())
     }
 
     @ParameterizedTest
     @ValueSource(longs = [1L], booleans = [true])
     fun mixed(value: Long) {
-        println(value)
+        <!PrintlnInProduction!>println<!>(value)
     }
 }

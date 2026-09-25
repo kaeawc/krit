@@ -14,6 +14,6 @@ fun migrateManually(db: SupportSQLiteDatabase) {
     val stmt: SupportSQLiteStatement = db.compileStatement("DELETE FROM t WHERE id = ?")
     stmt.bindLong(1, 1L)
     stmt.bindString(2, "x")
-    println(stmt.executeUpdateDelete() + db.version)
+    <!PrintlnInProduction!>println<!>(stmt.executeUpdateDelete() + db.version)
     if (db.inTransaction()) db.endTransaction()
 }

@@ -62,7 +62,7 @@ func TestTestFilesOfClassifiesTheScanSpelling(t *testing.T) {
 func TestCheckSendsTestFilesOnTheWire(t *testing.T) {
 	d, requests := fakeFirDaemon(t, `{"id":1,"succeeded":2,"skipped":0,"findings":[],"rules":[],"crashed":{}}`)
 	files := []fileRef{{Path: "/p/src/main/kotlin/M.kt"}, {Path: "/p/src/test/kotlin/T.kt"}}
-	if _, err := d.Check(files, nil, nil, []string{"StateFlowMutableLeak"}, nil, []string{"/p/src/test/kotlin/T.kt"}); err != nil {
+	if _, err := d.Check(files, nil, nil, []string{"StateFlowMutableLeak"}, nil, FileFacts{TestFiles: []string{"/p/src/test/kotlin/T.kt"}}); err != nil {
 		t.Fatalf("Check: %v", err)
 	}
 	var sent struct {
@@ -77,7 +77,7 @@ func TestCheckSendsTestFilesOnTheWire(t *testing.T) {
 	}
 
 	d, requests = fakeFirDaemon(t, `{"id":1,"succeeded":1,"skipped":0,"findings":[],"rules":[],"crashed":{}}`)
-	if _, err := d.Check(files[:1], nil, nil, []string{"StateFlowMutableLeak"}, nil, nil); err != nil {
+	if _, err := d.Check(files[:1], nil, nil, []string{"StateFlowMutableLeak"}, nil, FileFacts{}); err != nil {
 		t.Fatalf("Check: %v", err)
 	}
 	if raw := <-requests; strings.Contains(string(raw), "testFiles") {
@@ -85,13 +85,75 @@ func TestCheckSendsTestFilesOnTheWire(t *testing.T) {
 	}
 }
 
-func TestRequestedTestFilesKeepsOnlyRequestedFiles(t *testing.T) {
-	got := requestedTestFiles([]string{"/a/T1.kt", "/a/T2.kt"}, []string{"/a/M.kt", "/a/T2.kt"})
-	if !reflect.DeepEqual(got, []string{"/a/T2.kt"}) {
-		t.Fatalf("requestedTestFiles = %v", got)
+func TestFileFactsForFilesKeepsOnlyRequestedFiles(t *testing.T) {
+	facts := FileFacts{
+		TestFiles: []string{"/a/T1.kt", "/a/T2.kt"},
+		ScanPaths: map[string]string{"/a/T1.kt": "T1.kt", "/a/M.kt": "M.kt"},
 	}
-	if got := requestedTestFiles(nil, []string{"/a/M.kt"}); got != nil {
-		t.Fatalf("requestedTestFiles(nil) = %v", got)
+	got := facts.forFiles([]string{"/a/M.kt", "/a/T2.kt"})
+	want := FileFacts{TestFiles: []string{"/a/T2.kt"}, ScanPaths: map[string]string{"/a/M.kt": "M.kt"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("forFiles = %+v, want %+v", got, want)
+	}
+	if got := (FileFacts{}).forFiles([]string{"/a/M.kt"}); !reflect.DeepEqual(got, FileFacts{}) {
+		t.Fatalf("empty forFiles = %+v", got)
+	}
+}
+
+// The pass sends the scan's own spelling of each requested file whose
+// spelling differs from the absolute path it requests, so a checker applies
+// Go's path heuristics to the same string the Go rule tests.
+func TestRunPassSendsScanPaths(t *testing.T) {
+	p := newVerdictProject(t, map[string]string{
+		"samples/proj/src/X.kt": "package x\n",
+		"src/main/kotlin/M.kt":  "package m\n",
+	}, nil)
+	absolute := p.abs("src/main/kotlin/M.kt")
+	checker := NewFakeFirChecker()
+	RunPass(PassOptions{
+		Enabled:     true,
+		Checker:     checker,
+		ActiveRules: []*api.Rule{{ID: verdictRule}},
+		KotlinPaths: []string{"samples/proj/src/X.kt", absolute},
+	}, nil)
+	if len(checker.CalledScanPaths) != 1 {
+		t.Fatalf("Check calls = %d, want 1", len(checker.CalledScanPaths))
+	}
+	want := map[string]string{p.abs("samples/proj/src/X.kt"): "samples/proj/src/X.kt"}
+	if got := checker.CalledScanPaths[0]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("scanPaths = %v, want %v (a file scanned by its absolute path needs no entry)", got, want)
+	}
+}
+
+func TestCheckSendsScanPathsOnTheWire(t *testing.T) {
+	d, requests := fakeFirDaemon(t, `{"id":1,"succeeded":1,"skipped":0,"findings":[],"rules":[],"crashed":{}}`)
+	files := []fileRef{{Path: "/p/samples/proj/src/X.kt"}}
+	facts := FileFacts{ScanPaths: map[string]string{"/p/samples/proj/src/X.kt": "samples/proj/src/X.kt"}}
+	if _, err := d.Check(files, nil, nil, []string{"PrintlnInProduction"}, nil, facts); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	var sent struct {
+		ScanPaths map[string]string `json:"scanPaths"`
+	}
+	raw := <-requests
+	if err := json.Unmarshal(raw, &sent); err != nil {
+		t.Fatalf("request is not JSON: %v\n%s", err, raw)
+	}
+	if !reflect.DeepEqual(sent.ScanPaths, facts.ScanPaths) {
+		t.Fatalf("scanPaths = %v\n%s", sent.ScanPaths, raw)
+	}
+}
+
+// Scanning the same files from another working directory changes their scan
+// spelling, and so possibly a path-based verdict: it must miss the FIR cache.
+func TestFirInvocationFingerprintIncludesScanPaths(t *testing.T) {
+	jar := filepath.Join(t.TempDir(), "krit-fir.jar")
+	rules := []string{"PrintlnInProduction"}
+	none := FirInvocationFingerprint(nil, jar, rules, nil, FileFacts{})
+	relative := FirInvocationFingerprint(nil, jar, rules, nil, FileFacts{ScanPaths: map[string]string{"/p/samples/X.kt": "samples/X.kt"}})
+	nested := FirInvocationFingerprint(nil, jar, rules, nil, FileFacts{ScanPaths: map[string]string{"/p/samples/X.kt": "X.kt"}})
+	if none == relative || relative == nested {
+		t.Fatal("a different scan spelling must change the fingerprint")
 	}
 }
 
@@ -111,23 +173,23 @@ func TestInvokeCached_TestFileClassificationChangeMisses(t *testing.T) {
 	cacheDir, _ := CacheDir(tmp)
 	if err := WriteCacheEntry(cacheDir, &FirCacheEntry{
 		V: FirCacheVersion, ContentHash: hash, FilePath: ktFile, Rules: rules,
-		ClosureFingerprint: CheckCacheFingerprint(nil, []string{ktFile}, nil, "", rules, nil, nil),
+		ClosureFingerprint: CheckCacheFingerprint(nil, []string{ktFile}, nil, "", rules, nil, FileFacts{}),
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := InvokeCached("", []string{ktFile}, nil, nil, rules, nil, nil, tmp, false, false); err != nil {
+	if _, err := InvokeCached("", []string{ktFile}, nil, nil, rules, nil, FileFacts{}, tmp, false, false); err != nil {
 		t.Fatalf("same classification must hit the cache: %v", err)
 	}
 	// A miss needs the jar, which "" cannot provide: the error proves the miss.
-	_, err = InvokeCached("", []string{ktFile}, nil, nil, rules, nil, []string{ktFile}, tmp, false, false)
+	_, err = InvokeCached("", []string{ktFile}, nil, nil, rules, nil, FileFacts{TestFiles: []string{ktFile}}, tmp, false, false)
 	if err == nil || !strings.Contains(err.Error(), "krit-fir.jar not found") {
 		t.Fatalf("reclassified file must miss the cache, got err=%v", err)
 	}
 
 	jar := filepath.Join(tmp, "krit-fir.jar")
-	if FirInvocationFingerprint(nil, jar, rules, nil, []string{"/b.kt", "/a.kt"}) !=
-		FirInvocationFingerprint(nil, jar, rules, nil, []string{"/a.kt", "/b.kt", "/a.kt"}) {
+	if FirInvocationFingerprint(nil, jar, rules, nil, FileFacts{TestFiles: []string{"/b.kt", "/a.kt"}}) !=
+		FirInvocationFingerprint(nil, jar, rules, nil, FileFacts{TestFiles: []string{"/a.kt", "/b.kt", "/a.kt"}}) {
 		t.Fatal("testFiles order or duplicates must not change the fingerprint")
 	}
 }

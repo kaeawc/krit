@@ -7,5 +7,5 @@ import kotlinx.coroutines.withContext
 
 suspend fun loadData(dispatcher: CoroutineDispatcher) {
     val data = withContext(dispatcher) { "data" }
-    println(data)
+    <!PrintlnInProduction!>println<!>(data)
 }

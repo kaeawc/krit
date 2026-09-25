@@ -119,6 +119,31 @@ test file. To test the skip, pass `testFiles` to `KritFirProbe.compile` (see
 `StateFlowMutableLeakTestFileTest`). The classification is part of the FIR
 cache fingerprint, so a change to the test paths invalidates cached verdicts.
 
+### Go path heuristics
+
+If the Go rule tests other markers in `file.Path` (`/samples/`, `/demo/`,
+`build.gradle`, `.kts`, ...), apply them to `containingScanPath()` inside
+`check`, or to `scanPath(path)` when you already have the file path:
+
+```kotlin
+if (isNonProductionPath(containingScanPath())) return
+```
+
+Never apply them to the compiler's path (`context.containingFile?.path`). Go
+tests the scan's own spelling of the file, usually relative to the directory
+krit ran in (`samples/proj/src/X.kt` for `krit samples/proj`), while the
+compiler sees the absolute path, which also holds every directory above the
+scan root, so a checkout under a `samples` directory would be skipped
+wholesale. The Go FIR pass sends each requested file's scan spelling in the
+check request as `scanPaths` (only where it differs from the requested
+absolute path). `scanPath` maps the compiler's spelling back to the requested
+file (as spelled, then canonical, like `isTestFile`) and returns its scan
+spelling, falling back to the requested path. Outside a check request it
+returns the path unchanged. Match the markers on that string exactly as the Go
+rule does, with no normalization. To test it, pass `scanPaths` to
+`KritFirProbe.compile` (see `PrintlnInProductionFilesTest`). The scan
+spellings are part of the FIR cache fingerprint.
+
 ## 5. Options
 
 - Read options with `config()`. It returns the Go rule's options keyed by the Go
@@ -138,9 +163,12 @@ All tests live under `tools/krit-fir/compiler-tests/src/test/`.
   package or class), scope-boundary negatives, and Java-interop cases where the
   rule touches Java types. Java-interop cases are Kotlin code calling the Java
   stubs. File and directory names must be valid Kotlin identifiers, because the
-  generator turns them into test classes and methods. Golden files and stub
-  smoke files run with every rule enabled. If your checker fires in someone
-  else's data, treat it as a false positive until you have shown otherwise.
+  generator turns them into test classes and methods. A golden file runs with
+  only its own rules enabled: the rule its name starts with plus any rule named
+  in its markers, so name every golden file `<RuleId>….kt`. Stub smoke files
+  (and any file that names no rule) run with every rule enabled and must report
+  nothing, so if your checker fires in a smoke file, treat it as a false
+  positive until you have shown otherwise.
 - **Fixture parity** runs against the Go fixtures in two tiers, and both must
   pass:
   1. *Fast, lane-local:* `FixtureParityTest` in `compiler-tests` runs as part
@@ -154,7 +182,13 @@ All tests live under `tools/krit-fir/compiler-tests/src/test/`.
      jar against the same stubs. For each line, the number of FIR findings
      must equal the number of findings from the in-process Go rule, which runs
      with source inference and no oracle. `api.Registry` decides whether the
-     Go rule exists.
+     Go rule exists. Its `CrossRule` subtest applies the same line-for-line
+     check to every FIR rule on every other rule's fixtures, since the batch
+     runs every rule on every fixture: a checker that fires on code another
+     fixture happens to contain (a `println`, a `catch` chain) must agree
+     with its Go rule there too. A difference that is a reviewed divergence
+     pinned in golden data goes in `firCrossRuleAllowlist` with the golden
+     case as its reason.
 
   A fixture must compile cleanly: the failure lists the compiler errors.
   Library and platform symbols belong in the stubs. You can declare helpers

@@ -13,5 +13,5 @@ fun muLogging(error: Throwable) {
     muLogger.error(error) { "error" }
     muLogger.info("plain slf4j {}", 1)
     val slf4j: org.slf4j.Logger = muLogger
-    println(slf4j.name)
+    <!PrintlnInProduction!>println<!>(slf4j.name)
 }

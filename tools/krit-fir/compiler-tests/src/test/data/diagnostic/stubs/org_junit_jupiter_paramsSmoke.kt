@@ -10,19 +10,19 @@ class ParamsSmoke {
     @ParameterizedTest
     @ValueSource(ints = [1, 2, 3])
     fun positive(value: Int) {
-        println(value)
+        <!PrintlnInProduction!>println<!>(value)
     }
 
     @ParameterizedTest(name = "{0} has length {1}")
     @CsvSource("a, 1", "bb, 2")
     fun lengths(text: String, length: Int) {
-        println(text.length == length)
+        <!PrintlnInProduction!>println<!>(text.length == length)
     }
 
     @ParameterizedTest
     @MethodSource("names")
     fun fromMethod(name: String) {
-        println(name)
+        <!PrintlnInProduction!>println<!>(name)
     }
 
     companion object {

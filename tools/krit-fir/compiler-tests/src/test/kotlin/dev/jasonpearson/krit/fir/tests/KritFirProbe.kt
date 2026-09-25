@@ -52,8 +52,9 @@ object KritFirProbe {
     // Compiles all [sources] (keyed by filename) together and returns every krit
     // plugin diagnostic, tagged with its factory name (the [NAME] render prefix),
     // file name, and 1-based line. Fails when a requested source does not compile.
-    fun diagnose(sources: Map<String, String>): List<Diag> {
-        val result = compile(sources)
+    // [ruleContext] limits the enabled rules; null enables every rule.
+    fun diagnose(sources: Map<String, String>, ruleContext: FirRuleCompileContext? = null): List<Diag> {
+        val result = compile(sources, ruleContext)
         // A non-plugin ERROR in a requested source means the snippet did not
         // compile. Without this, a checker that bails on unresolved symbols
         // yields "no diagnostics", making every negative case (and golden
@@ -72,16 +73,22 @@ object KritFirProbe {
     // exactly as a production check request does; null enables every rule.
     // [testFiles] names the [sources] keys the request classifies as test
     // files (FirRule.isTestFile); it needs a [ruleContext]. A key may contain
-    // `/` to place the source in a subdirectory.
+    // `/` to place the source in a subdirectory. [scanPaths] maps a [sources]
+    // key to the scan's own spelling of it (FirRule.scanPath); with a
+    // [ruleContext], every source is a requested file, spelled by its
+    // absolute path as Go requests it.
     // [configure] adjusts the compiler arguments (tests of the probe itself).
     fun compile(
         sources: Map<String, String>,
         ruleContext: FirRuleCompileContext? = null,
         testFiles: Set<String> = emptySet(),
+        scanPaths: Map<String, String> = emptyMap(),
         configure: (K2JVMCompilerArguments) -> Unit = {},
     ): Compilation {
         require(testFiles.isEmpty() || ruleContext != null) { "testFiles needs a ruleContext" }
+        require(scanPaths.isEmpty() || ruleContext != null) { "scanPaths needs a ruleContext" }
         require(sources.keys.containsAll(testFiles)) { "testFiles must name sources: $testFiles" }
+        require(sources.keys.containsAll(scanPaths.keys)) { "scanPaths must name sources: ${scanPaths.keys}" }
         val pluginJar = requireNotNull(locatePluginJar()) {
             "krit-fir plugin JAR not found. Set 'krit.fir.plugin.jar' or run `./gradlew :jar`."
         }
@@ -139,7 +146,14 @@ object KritFirProbe {
             // (K2 builds its checkers on the calling thread).
             if (ruleContext != null) {
                 val paths = testFiles.map { ktDir.resolve(it).absolutePath }
-                FirRuleContext.begin(ruleContext.copy(testFiles = ruleContext.testFiles + paths))
+                FirRuleContext.begin(
+                    ruleContext.copy(
+                        testFiles = ruleContext.testFiles + paths,
+                        files = ruleContext.files + sources.keys.map { ktDir.resolve(it).absolutePath },
+                        scanPaths = ruleContext.scanPaths +
+                            scanPaths.mapKeys { (key, _) -> ktDir.resolve(key).absolutePath },
+                    ),
+                )
             }
             val exitCode = try {
                 K2JVMCompiler().exec(

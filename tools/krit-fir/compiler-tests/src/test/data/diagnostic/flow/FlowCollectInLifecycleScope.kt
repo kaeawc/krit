@@ -22,7 +22,7 @@ class MyFragment : Fragment() {
     override fun onStart() {
         super.onStart()
         lifecycleScope.launch {
-            <!CollectInOnCreateWithoutLifecycle!>flow.collect { println(it) }<!>
+            <!CollectInOnCreateWithoutLifecycle!>flow.collect<!> { <!PrintlnInProduction!>println<!>(it) }
         }
     }
 }

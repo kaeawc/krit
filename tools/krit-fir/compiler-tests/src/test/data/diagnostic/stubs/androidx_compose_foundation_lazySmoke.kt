@@ -38,7 +38,7 @@ fun EntryList(entries: List<LazyEntry>, onClick: (LazyEntry) -> Unit) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         items(entries) { Text(it.name) }
     }
-    println(state.firstVisibleItemIndex)
+    <!PrintlnInProduction!>println<!>(state.firstVisibleItemIndex)
 }
 
 fun LazyListScope.footer() {

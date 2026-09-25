@@ -22,6 +22,6 @@ class SmokeDrawable : Drawable() {
 fun background(): Drawable {
     val drawable = ColorDrawable(Color.BLACK)
     drawable.setBounds(0, 0, 10, 10)
-    println(drawable.intrinsicWidth)
+    <!PrintlnInProduction!>println<!>(drawable.intrinsicWidth)
     return drawable
 }

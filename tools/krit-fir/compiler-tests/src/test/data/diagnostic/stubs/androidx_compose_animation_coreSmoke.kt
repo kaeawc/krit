@@ -19,5 +19,5 @@ fun FadingThing(visible: Boolean) {
     val bounce by animateFloatAsState(if (visible) 2f else 1f, spring(dampingRatio = 0.5f))
     val state = remember { MutableTransitionState(false) }
     state.targetState = true
-    println("$alpha $bounce ${state.currentState} ${state.isIdle}")
+    <!PrintlnInProduction!>println<!>("$alpha $bounce ${state.currentState} ${state.isIdle}")
 }

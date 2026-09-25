@@ -70,10 +70,53 @@ type firDaemonRequest struct {
 	// krit classifies as test sources (scanner.IsTestFile, honoring the
 	// configured test paths); checkers read it through FirRule.isTestFile.
 	TestFiles []string `json:"testFiles,omitempty"`
+	// ScanPaths maps a file (spelled exactly as in Files) to the scan's own
+	// spelling of it, the path string the Go rules test, when the two
+	// differ; checkers read it through FirRule.scanPath.
+	ScanPaths map[string]string `json:"scanPaths,omitempty"`
 	// RuleConfigs is rule ID -> options, read by FirRule.config(). It stays
 	// after the fixed fields; krit-fir also blanks it out before its
 	// nest-blind field extraction so option names cannot shadow them.
 	RuleConfigs map[string]any `json:"ruleConfigs,omitempty"`
+}
+
+// FileFacts is what Go knows about the requested files that the checkers
+// need to decide like the Go rules do. Every path is spelled exactly as in
+// the request's files.
+type FileFacts struct {
+	// TestFiles are the requested files krit classifies as test sources.
+	TestFiles []string
+	// ScanPaths maps a requested file to the scan's own spelling of it
+	// (usually relative to the working directory), for files whose scan
+	// spelling differs from the requested (absolute) path.
+	ScanPaths map[string]string
+}
+
+// forFiles keeps the facts about files, so a check request only describes
+// the files it actually asks krit-fir to check.
+func (f FileFacts) forFiles(files []string) FileFacts {
+	if len(f.TestFiles) == 0 && len(f.ScanPaths) == 0 {
+		return FileFacts{}
+	}
+	want := make(map[string]bool, len(files))
+	for _, p := range files {
+		want[p] = true
+	}
+	var out FileFacts
+	for _, p := range f.TestFiles {
+		if want[p] {
+			out.TestFiles = append(out.TestFiles, p)
+		}
+	}
+	for p, spelling := range f.ScanPaths {
+		if want[p] {
+			if out.ScanPaths == nil {
+				out.ScanPaths = map[string]string{}
+			}
+			out.ScanPaths[p] = spelling
+		}
+	}
+	return out
 }
 
 // fileRef is a file path + content hash sent in check requests.
@@ -253,8 +296,21 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 	return d, nil
 }
 
+// absoluteScanPaths keys ScanPaths by the absolute spelling Check sends in
+// Files, since krit-fir matches the two exactly.
+func absoluteScanPaths(scanPaths map[string]string) map[string]string {
+	if len(scanPaths) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(scanPaths))
+	for path, spelling := range scanPaths {
+		out[oracle.AbsolutePath(path)] = spelling
+	}
+	return out
+}
+
 // Check sends a check request to the daemon and returns the response.
-func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, testFiles []string) (*CheckResponse, error) {
+func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, facts FileFacts) (*CheckResponse, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -275,7 +331,8 @@ func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string
 		SourceDirs:  oracle.AbsolutePaths(sourceDirs),
 		Classpath:   oracle.AbsolutePaths(classpath),
 		Rules:       rules,
-		TestFiles:   oracle.AbsolutePaths(testFiles),
+		TestFiles:   oracle.AbsolutePaths(facts.TestFiles),
+		ScanPaths:   absoluteScanPaths(facts.ScanPaths),
 		RuleConfigs: wireRuleConfigs(ruleConfigs),
 	}
 	data, err := json.Marshal(req)

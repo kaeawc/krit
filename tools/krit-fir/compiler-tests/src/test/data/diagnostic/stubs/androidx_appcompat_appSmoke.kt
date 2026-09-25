@@ -26,7 +26,7 @@ fun hierarchy(activity: AppCompatActivity) {
     val component: ComponentActivity = activity
     val fragmentActivity: FragmentActivity = activity
     val context: Context = activity
-    println("$owner $component $fragmentActivity $context")
+    <!PrintlnInProduction!>println<!>("$owner $component $fragmentActivity $context")
 }
 
 fun confirm(context: Context) {

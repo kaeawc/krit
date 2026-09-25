@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.protocol
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -23,7 +24,8 @@ object ProtocolProbe : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
         checks.incrementAndGet()
         if (expression.calleeReference.toResolvedCallableSymbol()?.name?.asString() == "protocolProbe") {
             val testFile = if (isInTestFile()) " (test file)" else ""
-            report(expression.source, "configured: ${config()["tag"]}$testFile")
+            val scan = if (config()["showScanPath"] == true) " scan=${containingScanPath()}" else ""
+            report(expression.source, "configured: ${config()["tag"]}$testFile$scan")
         }
     }
 }

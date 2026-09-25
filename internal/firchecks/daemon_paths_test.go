@@ -235,7 +235,7 @@ func TestCheckSendsAbsolutePathsAndKeepsCallerSpelling(t *testing.T) {
 	d := &FirDaemon{conn: client, reader: reader, nextID: 1, started: true, shared: true}
 
 	resp, err := d.Check([]fileRef{{Path: relFile, ContentHash: "h"}},
-		[]string{filepath.Join("src", "main", "kotlin")}, []string{"dep.jar"}, []string{"R"}, nil, []string{relFile})
+		[]string{filepath.Join("src", "main", "kotlin")}, []string{"dep.jar"}, []string{"R"}, nil, FileFacts{TestFiles: []string{relFile}, ScanPaths: map[string]string{relFile: "scan/" + relFile}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,6 +251,10 @@ func TestCheckSendsAbsolutePathsAndKeepsCallerSpelling(t *testing.T) {
 	}
 	if want := []string{absFile}; !reflect.DeepEqual(req.TestFiles, want) {
 		t.Errorf("request testFiles = %v, want %v", req.TestFiles, want)
+	}
+	// ScanPaths keys must match Files exactly, so they are sent absolute too.
+	if want := map[string]string{absFile: "scan/" + relFile}; !reflect.DeepEqual(req.ScanPaths, want) {
+		t.Errorf("request scanPaths = %v, want %v", req.ScanPaths, want)
 	}
 
 	if len(resp.Findings) != 1 || resp.Findings[0].Path != relFile {

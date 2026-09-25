@@ -25,7 +25,7 @@ class JavaxService @Inject constructor(
 
     @Inject
     fun setup(@Named("setup") value: String) {
-        println(value)
+        <!PrintlnInProduction!>println<!>(value)
     }
 
     fun label(): String = name + other + provider.get()

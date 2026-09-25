@@ -18,7 +18,7 @@ class MyFragment : Fragment() {
         super.onCreate(savedInstanceState)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                flow.collect { println(it) }
+                flow.collect { <!PrintlnInProduction!>println<!>(it) }
             }
         }
     }

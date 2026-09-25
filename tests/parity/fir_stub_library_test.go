@@ -114,7 +114,7 @@ func firInvoke(t *testing.T, rules []string, files []string) *firchecks.Result {
 	stubs, stubClasspath := firStubLibrary(t)
 	all := append(append([]string{}, stubs...), files...)
 	classpath := append([]string{stdlib}, stubClasspath...)
-	res, err := firchecks.InvokeCached(jar, all, nil, classpath, rules, nil, nil, "", false, false)
+	res, err := firchecks.InvokeCached(jar, all, nil, classpath, rules, nil, firchecks.FileFacts{}, "", false, false)
 	if err != nil {
 		t.Fatalf("krit-fir invoke: %v", err)
 	}

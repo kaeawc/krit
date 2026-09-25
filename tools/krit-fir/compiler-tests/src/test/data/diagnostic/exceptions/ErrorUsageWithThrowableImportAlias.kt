@@ -8,5 +8,6 @@ package test
 import kotlin.io.println as error
 
 fun importedFromOtherPackage(e: Exception) {
-    error(e)
+    // The call is kotlin.io.println, so PrintlnInProduction reports it.
+    <!PrintlnInProduction!>error(e)<!>
 }

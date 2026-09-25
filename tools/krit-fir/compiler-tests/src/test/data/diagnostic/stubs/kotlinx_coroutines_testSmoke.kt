@@ -30,7 +30,7 @@ class CoroutineTestSmoke {
         advanceTimeBy(500)
         runCurrent()
         advanceUntilIdle()
-        println(currentTime + testScheduler.currentTime)
+        <!PrintlnInProduction!>println<!>(currentTime + testScheduler.currentTime)
         backgroundScope.launch {}
         Dispatchers.resetMain()
     }
@@ -38,6 +38,6 @@ class CoroutineTestSmoke {
     @Test
     fun scoped() = TestScope(UnconfinedTestDispatcher()).runTest {
         val scope: TestScope = this
-        println(scope)
+        <!PrintlnInProduction!>println<!>(scope)
     }
 }

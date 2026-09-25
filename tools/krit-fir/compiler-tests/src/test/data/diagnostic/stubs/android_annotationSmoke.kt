@@ -12,6 +12,6 @@ class OreoOnly @TargetApi(26) constructor() {
     fun run() {
         @SuppressLint("SetTextI18n")
         val local = "local"
-        println(local)
+        <!PrintlnInProduction!>println<!>(local)
     }
 }

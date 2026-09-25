@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // --- PrintStackTrace ---
@@ -194,6 +195,49 @@ fun main() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+// java.net.SocketTimeoutException extends InterruptedIOException, not
+// SocketException, so a SocketTimeoutException clause after a
+// SocketException clause is reachable; after InterruptedIOException it is not.
+func TestUnreachableCatchBlock_SocketTimeoutIsAnInterruptedIOException(t *testing.T) {
+	for _, run := range []struct {
+		name string
+		fn   func(*testing.T, string, string) []scanner.Finding
+	}{
+		{"table", runRuleByName},
+		{"resolver", runRuleByNameWithResolver},
+	} {
+		t.Run(run.name, func(t *testing.T) {
+			findings := run.fn(t, "UnreachableCatchBlock", `
+package test
+import java.io.InterruptedIOException
+import java.net.SocketException
+import java.net.SocketTimeoutException
+fun reachable() {
+    try {
+        doSomething()
+    } catch (e: SocketException) {
+        handle(e)
+    } catch (e: SocketTimeoutException) {
+        handleTimeout(e)
+    }
+}
+fun unreachable() {
+    try {
+        doSomething()
+    } catch (e: InterruptedIOException) {
+        handle(e)
+    } catch (e: SocketTimeoutException) {
+        handleTimeout(e)
+    }
+}
+`)
+			if len(findings) != 1 || findings[0].Line != 20 {
+				t.Fatalf("want one finding on line 20 (the clause after InterruptedIOException), got %v", findings)
+			}
+		})
 	}
 }
 

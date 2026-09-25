@@ -4,5 +4,5 @@ package test
 
 fun example(x: Any) {
     val y = x as? String
-    println(y)
+    <!PrintlnInProduction!>println<!>(y)
 }

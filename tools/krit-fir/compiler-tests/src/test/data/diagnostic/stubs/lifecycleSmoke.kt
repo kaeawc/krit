@@ -34,7 +34,7 @@ class LifecycleSmokeViewModel : ViewModel() {
 
 class LoggingObserver : DefaultLifecycleObserver {
     override fun onStart(owner: LifecycleOwner) {
-        println(owner.lifecycle.currentState)
+        <!PrintlnInProduction!>println<!>(owner.lifecycle.currentState)
     }
 }
 
@@ -45,15 +45,15 @@ fun observe(owner: LifecycleOwner, flow: Flow<Int>, viewModel: LifecycleSmokeVie
     })
     owner.lifecycleScope.launch {
         owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            flow.collect { println(it) }
+            flow.collect { <!PrintlnInProduction!>println<!>(it) }
         }
     }
     owner.lifecycleScope.launch {
         owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {}
         flow.flowWithLifecycle(owner.lifecycle, Lifecycle.State.STARTED).collect {}
     }
-    viewModel.name.observe(owner, Observer { value -> println(value) })
-    viewModel.name.observe(owner) { value -> println(value) }
+    viewModel.name.observe(owner, Observer { value -> <!PrintlnInProduction!>println<!>(value) })
+    viewModel.name.observe(owner) { value -> <!PrintlnInProduction!>println<!>(value) }
     if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.CREATED)) viewModel.load()
 }
 

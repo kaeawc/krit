@@ -27,6 +27,6 @@ fun openFirstCamera(context: Context) {
             Handler(Looper.getMainLooper()),
         )
     } catch (e: CameraAccessException) {
-        println(e.reason)
+        <!PrintlnInProduction!>println<!>(e.reason)
     }
 }

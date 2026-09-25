@@ -194,7 +194,7 @@ fun anonymousSettings(): WebSettings {
 // takes the enable flag first still enables JavaScript).
 fun WebSettings.setJavaScriptEnabled(enabled: Boolean, log: Boolean) {
     setJavaScriptEnabled(enabled)
-    if (log) println(enabled)
+    if (log) <!PrintlnInProduction!>println<!>(enabled)
 }
 
 fun enableThroughOverload(settings: WebSettings) {

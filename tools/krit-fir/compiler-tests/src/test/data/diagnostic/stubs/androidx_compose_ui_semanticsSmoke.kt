@@ -30,5 +30,5 @@ fun SemanticsSmoke(onOpen: () -> Unit) {
             .clearAndSetSemantics { contentDescription = "Hidden" },
     ) {}
     val roles: List<Role> = listOf(Role.Checkbox, Role.Switch, Role.RadioButton, Role.Tab, Role.Image)
-    println(roles)
+    <!PrintlnInProduction!>println<!>(roles)
 }

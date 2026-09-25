@@ -14,7 +14,7 @@ import android.os.PowerManager
 
 fun sdkChecks(): Boolean {
     val sdk: Int = Build.VERSION.SDK_INT
-    if (Build.VERSION.SDK_INT >= 26) println(Build.VERSION.RELEASE)
+    if (Build.VERSION.SDK_INT >= 26) <!PrintlnInProduction!>println<!>(Build.VERSION.RELEASE)
     return sdk >= Build.VERSION_CODES.O && Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM &&
         Build.MANUFACTURER.isNotEmpty()
 }
@@ -42,7 +42,7 @@ fun postToMain(block: Runnable) {
 
 class SmokeHandler(looper: Looper) : Handler(looper) {
     override fun handleMessage(msg: Message) {
-        println(msg.obj)
+        <!PrintlnInProduction!>println<!>(msg.obj)
     }
 }
 

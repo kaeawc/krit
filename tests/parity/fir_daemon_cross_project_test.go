@@ -77,7 +77,7 @@ func TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate(t *testing.T) {
 		for i, p := range rel {
 			files[i] = filepath.Join(dir, p)
 		}
-		res, err := firchecks.InvokeCached(jar, files, sourceDirs, nil, []string{"InjectDispatcher"}, nil, nil, "", true, false)
+		res, err := firchecks.InvokeCached(jar, files, sourceDirs, nil, []string{"InjectDispatcher"}, nil, firchecks.FileFacts{}, "", true, false)
 		if err != nil {
 			t.Fatalf("project %s: %v", name, err)
 		}

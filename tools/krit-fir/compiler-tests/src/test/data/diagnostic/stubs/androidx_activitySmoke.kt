@@ -32,6 +32,6 @@ class SmokeComponentActivity : ComponentActivity() {
         val saved: SavedStateRegistryOwner = this
         val core: androidx.core.app.ComponentActivity = this
         val platform: android.app.Activity = this
-        println("$viewModel $owner $store $saved $core $platform ${lifecycle.currentState} ${viewModelStore}")
+        <!PrintlnInProduction!>println<!>("$viewModel $owner $store $saved $core $platform ${lifecycle.currentState} ${viewModelStore}")
     }
 }

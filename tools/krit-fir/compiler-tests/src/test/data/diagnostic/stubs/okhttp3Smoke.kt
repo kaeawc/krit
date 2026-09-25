@@ -35,7 +35,7 @@ fun execute(client: OkHttpClient) {
         .post("{}".toRequestBody("application/json".toMediaType()))
         .build()
     client.newCall(request).execute().use { response: Response ->
-        if (response.isSuccessful) println(response.body?.string() + response.code)
+        if (response.isSuccessful) <!PrintlnInProduction!>println<!>(response.body?.string() + response.code)
     }
     client.newCall(Request.Builder().url("https://example.com").get().build()).enqueue(object : Callback {
         override fun onFailure(call: Call, e: IOException) {}
@@ -44,5 +44,5 @@ fun execute(client: OkHttpClient) {
             response.close()
         }
     })
-    println(client.newBuilder().build().hostnameVerifier)
+    <!PrintlnInProduction!>println<!>(client.newBuilder().build().hostnameVerifier)
 }

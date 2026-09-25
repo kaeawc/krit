@@ -9,5 +9,5 @@ import androidx.compose.runtime.remember
 
 fun MyComposable(input: String) {
     val value = <!ComposeRememberWithoutKey!>remember<!> { input.length }
-    println(value)
+    <!PrintlnInProduction!>println<!>(value)
 }

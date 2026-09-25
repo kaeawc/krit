@@ -58,16 +58,16 @@ class FlowSmokeStore(private val scope: CoroutineScope) {
 
     fun replayed(source: Flow<Int>): SharedFlow<Int> = source.shareIn(scope, SharingStarted.Eagerly, replay = 1)
 
-    fun observe(): Job = state.onEach { println(it) }.launchIn(scope)
+    fun observe(): Job = state.onEach { <!PrintlnInProduction!>println<!>(it) }.launchIn(scope)
 }
 
 suspend fun consume(source: Flow<Int>) {
-    source.collect { value -> println(value) }
-    source.collect(FlowCollector { value -> println(value) })
-    source.collectLatest { println(it) }
+    source.collect { value -> <!PrintlnInProduction!>println<!>(value) }
+    source.collect(FlowCollector { value -> <!PrintlnInProduction!>println<!>(value) })
+    source.collectLatest { <!PrintlnInProduction!>println<!>(it) }
     val first: Int = source.first()
     val all: List<Int> = source.take(2).toList()
-    println("$first $all")
+    <!PrintlnInProduction!>println<!>("$first $all")
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -78,8 +78,8 @@ fun pipeline(source: Flow<Int>, other: Flow<String>): Flow<String> =
         .distinctUntilChanged()
         .debounce(100L)
         .onStart { emit(0) }
-        .onCompletion { cause -> println(cause) }
-        .catch { error -> println(error) }
+        .onCompletion { cause -> <!PrintlnInProduction!>println<!>(cause) }
+        .catch { error -> <!PrintlnInProduction!>println<!>(error) }
         .flatMapLatest { value -> flowOf(value, value) }
         .combine(other) { number, text -> "$number$text" }
         .flowOn(Dispatchers.Default)
@@ -94,6 +94,6 @@ fun builders(): List<Flow<Int>> = listOf(
     emptyFlow(),
     callbackFlow {
         trySend(1)
-        awaitClose { println("closed") }
+        awaitClose { <!PrintlnInProduction!>println<!>("closed") }
     },
 )

@@ -213,6 +213,10 @@ func TestExceptionHierarchy(t *testing.T) {
 		{"ArrayIndexOutOfBoundsException", "RuntimeException", true},
 		{"ConnectException", "SocketException", true},
 		{"ConnectException", "IOException", true},
+		// java.net.SocketTimeoutException extends InterruptedIOException.
+		{"SocketTimeoutException", "InterruptedIOException", true},
+		{"SocketTimeoutException", "IOException", true},
+		{"InterruptedIOException", "IOException", true},
 		// Root types
 		{"Throwable", "Throwable", true},
 		{"Exception", "Throwable", true},
@@ -235,6 +239,7 @@ func TestExceptionHierarchy(t *testing.T) {
 		// Not related
 		{"IOException", "RuntimeException", false},
 		{"NullPointerException", "IOException", false},
+		{"SocketTimeoutException", "SocketException", false},
 		// Reverse direction is not subtype
 		{"Exception", "CancellationException", false},
 		{"Throwable", "IOException", false},

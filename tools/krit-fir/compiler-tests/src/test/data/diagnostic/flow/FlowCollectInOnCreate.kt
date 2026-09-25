@@ -14,7 +14,7 @@ class MyFragment : Fragment() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         lifecycleScope.launch {
-            flow.<!CollectInOnCreateWithoutLifecycle!>collect<!> { println(it) }
+            flow.<!CollectInOnCreateWithoutLifecycle!>collect<!> { <!PrintlnInProduction!>println<!>(it) }
         }
     }
 }

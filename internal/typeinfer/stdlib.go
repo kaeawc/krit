@@ -690,7 +690,10 @@ var ExceptionAncestors = map[string][]string{
 	// IOException subtypes
 	"SocketException":        {"IOException", "Exception", "Throwable"},
 	"ConnectException":       {"SocketException", "IOException", "Exception", "Throwable"},
-	"SocketTimeoutException": {"SocketException", "IOException", "Exception", "Throwable"},
+	"InterruptedIOException": {"IOException", "Exception", "Throwable"},
+	// java.net.SocketTimeoutException extends InterruptedIOException, not
+	// SocketException.
+	"SocketTimeoutException": {"InterruptedIOException", "IOException", "Exception", "Throwable"},
 	"MalformedURLException":  {"IOException", "Exception", "Throwable"},
 	"UnknownHostException":   {"IOException", "Exception", "Throwable"},
 	"EOFException":           {"IOException", "Exception", "Throwable"},

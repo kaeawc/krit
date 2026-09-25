@@ -24,9 +24,9 @@ fun slf4jLogging(error: Throwable, nullable: String?) {
     slf4jLogger.atDebug().log { "lazy" }
     LoggerFactory.getLogger("named").warn("named {}", slf4jLogger.name)
     MDC.put("requestId", "42")
-    MDC.putCloseable("scoped", "1").use { println(MDC.get("scoped")) }
+    MDC.putCloseable("scoped", "1").use { <!PrintlnInProduction!>println<!>(MDC.get("scoped")) }
     val copy: Map<String, String>? = MDC.getCopyOfContextMap()
     MDC.remove("requestId")
     MDC.clear()
-    println(copy)
+    <!PrintlnInProduction!>println<!>(copy)
 }

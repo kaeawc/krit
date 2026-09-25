@@ -32,7 +32,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.CoroutineContext
 
 suspend fun loadAll(scope: CoroutineScope): List<Int> {
-    val handler = CoroutineExceptionHandler { _, throwable -> println(throwable) }
+    val handler = CoroutineExceptionHandler { _, throwable -> <!PrintlnInProduction!>println<!>(throwable) }
     val job: Job = scope.launch(Dispatchers.IO + handler) {
         withContext(Dispatchers.Default) { delay(10) }
         ensureActive()
@@ -55,9 +55,9 @@ fun buildScopes(dispatcher: CoroutineDispatcher): CoroutineContext {
     val scope = CoroutineScope(context)
     val main = MainScope()
     val child = Job(parent = context[Job])
-    println(scope.isActive)
+    <!PrintlnInProduction!>println<!>(scope.isActive)
     main.cancel()
-    child.invokeOnCompletion { cause -> println(cause) }
+    child.invokeOnCompletion { cause -> <!PrintlnInProduction!>println<!>(cause) }
     return dispatcher + Dispatchers.Main.immediate + Dispatchers.IO.limitedParallelism(2)
 }
 

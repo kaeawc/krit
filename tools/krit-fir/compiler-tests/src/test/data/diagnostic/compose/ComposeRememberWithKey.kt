@@ -6,5 +6,5 @@ import androidx.compose.runtime.remember
 
 fun MyComposable(input: String) {
     val value = remember(input) { input.length }
-    println(value)
+    <!PrintlnInProduction!>println<!>(value)
 }

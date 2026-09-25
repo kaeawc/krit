@@ -9,6 +9,6 @@ class Repository {
     private val flow: Flow<Int> = TODO()
 
     suspend fun observe() {
-        flow.collect { println(it) }
+        flow.collect { <!PrintlnInProduction!>println<!>(it) }
     }
 }

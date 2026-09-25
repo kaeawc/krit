@@ -36,10 +36,10 @@ fun retrofitSmoke(client: OkHttpClient) {
     val reified: UserApi = retrofit.create()
     api.create(RetrofitUser("1"), "token").enqueue(object : Callback<RetrofitUser> {
         override fun onResponse(call: Call<RetrofitUser>, response: Response<RetrofitUser>) {
-            if (response.isSuccessful) println(response.body() ?: response.code())
+            if (response.isSuccessful) <!PrintlnInProduction!>println<!>(response.body() ?: response.code())
         }
 
         override fun onFailure(call: Call<RetrofitUser>, t: Throwable) {}
     })
-    println(reified)
+    <!PrintlnInProduction!>println<!>(reified)
 }

@@ -12,7 +12,7 @@ fun hasCamera(context: Context): Boolean {
     } catch (e: PackageManager.NameNotFoundException) {
         null
     }
-    println(info?.versionName)
+    <!PrintlnInProduction!>println<!>(info?.versionName)
     return pm.hasSystemFeature(PackageManager.FEATURE_CAMERA) &&
         context.checkSelfPermission(android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 }

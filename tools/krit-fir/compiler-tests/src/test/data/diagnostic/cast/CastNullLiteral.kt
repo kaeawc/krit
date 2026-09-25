@@ -5,5 +5,5 @@ package test
 
 fun example() {
     val y = null as String?
-    println(y)
+    <!PrintlnInProduction!>println<!>(y)
 }

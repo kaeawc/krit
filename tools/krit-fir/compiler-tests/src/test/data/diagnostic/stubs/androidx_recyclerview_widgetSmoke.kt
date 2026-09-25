@@ -15,7 +15,7 @@ data class ListRow(val id: Long, val title: String)
 class RowViewHolder(view: View) : RecyclerView.ViewHolder(view) {
     fun bind(row: ListRow) {
         (itemView as TextView).text = row.title
-        println(bindingAdapterPosition)
+        <!PrintlnInProduction!>println<!>(bindingAdapterPosition)
     }
 }
 
@@ -58,5 +58,5 @@ fun attach(recyclerView: RecyclerView, rows: List<ListRow>) {
     recyclerView.adapter = adapter
     recyclerView.setHasFixedSize(true)
     adapter.submitList(rows)
-    println(adapter.currentList.size + adapter.getItemCount())
+    <!PrintlnInProduction!>println<!>(adapter.currentList.size + adapter.getItemCount())
 }

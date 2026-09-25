@@ -10,6 +10,8 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChec
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
+import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
+import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
@@ -19,9 +21,15 @@ import org.jetbrains.kotlin.name.Name
 
 // Flags a SimpleDateFormat constructor call that passes fewer than two
 // arguments: `SimpleDateFormat()` and `SimpleDateFormat(pattern)` format with
-// the default locale. Both java.text.SimpleDateFormat and
-// android.icu.text.SimpleDateFormat count; their one- and zero-argument
-// constructors both use the default (format) locale.
+// the default locale. java.text.SimpleDateFormat, ICU4J's
+// com.ibm.icu.text.SimpleDateFormat, and android.icu.text.SimpleDateFormat
+// (Android's repackaged ICU4J) all count; their one- and zero-argument
+// constructors use the default (format) locale. A project class that extends
+// one of them counts too when it, or the call, is named SimpleDateFormat (a
+// typealias or import alias): it still builds a SimpleDateFormat whose locale
+// the call does not state, and Go reports the call by its name. A subclass
+// called by another name (`class RootFormat : SimpleDateFormat`) is not
+// reported, like Go.
 //
 // Like the Go rule:
 // - any call with two or more arguments is accepted, whatever the second
@@ -40,9 +48,10 @@ import org.jetbrains.kotlin.name.Name
 //   backticked name are reported. Go needs a call whose callee is spelled
 //   SimpleDateFormat.
 // - Precision: a call named SimpleDateFormat that does not construct a
-//   java.text or android.icu.text SimpleDateFormat (a project class, a local
-//   class, a function or member function, a lambda-typed local, or a member
-//   called on a receiver) is not reported. Go reports every call spelled
+//   SimpleDateFormat is not reported: a project, local, or nested class named
+//   SimpleDateFormat that is neither one of the three classes above nor a
+//   subtype of one, a function or member function, a lambda-typed local, or a
+//   member called on a receiver. Go reports every call spelled
 //   SimpleDateFormat with fewer than two arguments.
 internal object SimpleDateFormat : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "SimpleDateFormat"
@@ -56,7 +65,10 @@ internal object SimpleDateFormat : FirFunctionCallChecker(MppCheckerKind.Common)
     private val simpleDateFormatClassIds = setOf(
         ClassId(FqName("java.text"), Name.identifier("SimpleDateFormat")),
         ClassId(FqName("android.icu.text"), Name.identifier("SimpleDateFormat")),
+        ClassId(FqName("com.ibm.icu.text"), Name.identifier("SimpleDateFormat")),
     )
+
+    private val simpleDateFormatName = Name.identifier("SimpleDateFormat")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
@@ -66,7 +78,26 @@ internal object SimpleDateFormat : FirFunctionCallChecker(MppCheckerKind.Common)
         // constructor it is expanded to the aliased class.
         val constructed = constructor.resolvedReturnType.fullyExpandedType().lowerBoundIfFlexible() as? ConeClassLikeType
             ?: return
-        if (constructed.lookupTag.classId !in simpleDateFormatClassIds) return
+        val classId = constructed.lookupTag.classId
+        if (classId !in simpleDateFormatClassIds) {
+            // A subclass counts when either the class or the call is named
+            // SimpleDateFormat: Go matches the written call name, which a
+            // typealias or import alias can give to a subclass named otherwise.
+            val named = classId.shortClassName == simpleDateFormatName ||
+                expression.calleeReference.name == simpleDateFormatName
+            if (!named || !extendsSimpleDateFormat(constructor)) return
+        }
         report(expression.source, MESSAGE)
+    }
+
+    // A class named SimpleDateFormat that is not one of the known classes may
+    // still subclass one. The class comes from the constructor's containing
+    // class lookup tag, which is bound to local classes; looking a local class
+    // up by class id throws. Only class ids already in hand are compared.
+    context(context: CheckerContext)
+    private fun extendsSimpleDateFormat(constructor: FirConstructorSymbol): Boolean {
+        val owner = constructor.getContainingClassSymbol() ?: return false
+        return lookupSuperTypes(owner, lookupInterfaces = false, deep = true, useSiteSession = context.session)
+            .any { it.lookupTag.classId in simpleDateFormatClassIds }
     }
 }

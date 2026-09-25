@@ -180,6 +180,7 @@ positives, and simple intra-procedural checks on the argument can build on that.
    ecosystem only ships with type resolution.
 4. The type-hierarchy group, built on one shared is-subtype-of helper.
 
+To port a rule, follow the [FIR checker authoring checklist](fir-checker-authoring.md).
 A built-in checker is a Kotlin singleton object implementing `FirRule` in
 `tools/krit-fir/src/main/kotlin/dev/jasonpearson/krit/fir/checkers/<category>/<RuleId>.kt`.
 Its `ruleId` is the exact Go catalog ID; it contributes an `ExpressionCheckers`
@@ -194,6 +195,8 @@ The external Kotlin rule API is a separate subsystem.
 
 Every promoted rule should add positive and negative fixtures in
 `compiler-tests` and independent property, differential, and fuzz coverage.
+`FixtureParityTest` also checks each checker against its Go rule's
+`tests/fixtures` positive and negative fixtures.
 The existing `tests/parity` grids illustrate compile-failure guards that stop
 negative cases from passing vacuously; extending their shared lists is not
 required to register a checker.

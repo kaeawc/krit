@@ -317,6 +317,9 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
+      # `test` runs every project's tests, including :compiler-tests (golden
+      # diagnostics, stub guards, and FixtureParityTest against the Go
+      # fixtures in tests/fixtures).
       - name: Validate krit-fir
         working-directory: tools/krit-fir
         run: ./gradlew --no-daemon test --stacktrace
@@ -325,7 +328,9 @@ jobs:
         uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
         with:
           name: krit-fir-test-reports
-          path: tools/krit-fir/build/reports/tests/test/
+          path: |
+            tools/krit-fir/build/reports/tests/test/
+            tools/krit-fir/compiler-tests/build/reports/tests/test/
 
   # oracle-backend-parity drives both JVM oracles (krit-types and
   # krit-fir) through their one-shot `--sources --output` CLIs and

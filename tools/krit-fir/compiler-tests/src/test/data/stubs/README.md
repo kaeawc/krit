@@ -8,9 +8,10 @@
   directories and passed as a Java source root (`javaSourceRoots`). K2
   resolves them from source without javac.
 
-Diagnostic tests and checker property tests both go through that probe, so new
-declarations are available automatically and are never added to the
-production artifact. The compilation has kotlin-stdlib and the JDK on its
+Diagnostic tests, checker property tests, and `FixtureParityTest` (which
+compiles each FIR rule's Go fixtures from `tests/fixtures`) all go through that
+probe, so new declarations are available automatically and are never added to
+the production artifact. The compilation has kotlin-stdlib and the JDK on its
 classpath and nothing else: every Android, AndroidX, Compose, coroutines,
 DI, logging, test, and networking type a checker needs comes from here.
 

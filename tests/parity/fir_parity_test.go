@@ -305,13 +305,6 @@ func writeCaseSource(t *testing.T, root, dir string, index int, tc parityCase) s
 		t.Fatal(err)
 	}
 	source := rewritePackage(string(data), tc.packageName)
-	if strings.Contains(tc.fixture, "/compose/") {
-		source += `
-
-fun buildSeries(dataset: List<Int>): List<Int> = dataset
-fun Render(series: List<Int>) {}
-`
-	}
 	path := filepath.Join(dir, fmt.Sprintf("%02d_%s.kt", index, strings.ReplaceAll(tc.name, "-", "_")))
 	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
 		t.Fatal(err)

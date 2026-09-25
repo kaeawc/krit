@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/kaeawc/krit/internal/versioncatalog"
 )
 
 // VersionCatalog is a best-effort Gradle version-catalog model. It is not a
@@ -59,10 +61,6 @@ type CatalogLibrary struct {
 }
 
 var (
-	catalogSectionRe          = regexp.MustCompile(`^\[([A-Za-z0-9_.-]+)]$`)
-	catalogStringFieldRe      = regexp.MustCompile(`([A-Za-z0-9_.-]+)\s*=\s*"([^"]*)"`)
-	catalogQuotedValueRe      = regexp.MustCompile(`^"([^"]*)"$`)
-	catalogQuotedStringRe     = regexp.MustCompile(`"([^"]*)"`)
 	catalogPluginAliasRe      = regexp.MustCompile(`alias\s*\(\s*libs\.plugins\.([A-Za-z0-9_.]+)\s*\)`)
 	catalogVersionAccessorRe  = regexp.MustCompile(`libs\.versions\.([A-Za-z0-9_.]+)\.get\s*\(`)
 	catalogDependencyAliasRe  = regexp.MustCompile(`["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s*\(\s*(?:platform\s*\(\s*)?libs\.([A-Za-z0-9_.]+)`)
@@ -83,102 +81,27 @@ func ParseVersionCatalogContent(content string) VersionCatalog {
 		Libraries: make(map[string]CatalogLibrary),
 		Bundles:   make(map[string][]string),
 	}
-	section := ""
-	pendingBundleKey := ""
-	pendingBundleValue := ""
-	for _, rawLine := range strings.Split(content, "\n") {
-		line := strings.TrimSpace(stripTomlComment(rawLine))
-		if line == "" {
-			continue
+	parsed, err := versioncatalog.Parse([]byte(content))
+	if err != nil {
+		return catalog
+	}
+	for _, e := range parsed.Versions {
+		if value := e.Version.Effective(); value != "" {
+			catalog.Versions[e.Alias] = value
 		}
-		if pendingBundleKey != "" {
-			pendingBundleValue += " " + line
-			if strings.Contains(line, "]") {
-				if aliases := parseTomlStringArray(pendingBundleValue); len(aliases) > 0 {
-					catalog.Bundles[pendingBundleKey] = aliases
-				}
-				pendingBundleKey = ""
-				pendingBundleValue = ""
-			}
-			continue
-		}
-		if match := catalogSectionRe.FindStringSubmatch(line); len(match) == 2 {
-			section = match[1]
-			continue
-		}
-		key, value, ok := splitTomlAssignment(line)
-		if !ok {
-			continue
-		}
-		switch section {
-		case "versions":
-			parseCatalogVersionEntry(&catalog, key, value)
-		case "plugins":
-			if !parseCatalogPluginEntry(&catalog, key, value) {
-				continue
-			}
-		case "libraries":
-			if !parseCatalogLibraryEntry(&catalog, key, value) {
-				continue
-			}
-		case "bundles":
-			if strings.Contains(value, "[") && !strings.Contains(value, "]") {
-				pendingBundleKey = key
-				pendingBundleValue = value
-				continue
-			}
-			if aliases := parseTomlStringArray(value); len(aliases) > 0 {
-				catalog.Bundles[key] = aliases
-			}
+	}
+	for _, lib := range parsed.Libraries {
+		catalog.Libraries[lib.Alias] = CatalogLibrary{Group: lib.Group, Name: lib.Name, Version: lib.Resolved}
+	}
+	for _, p := range parsed.Plugins {
+		catalog.Plugins[p.Alias] = CatalogPlugin{ID: p.ID, Version: p.Resolved}
+	}
+	for _, b := range parsed.Bundles {
+		if len(b.Libraries) > 0 {
+			catalog.Bundles[b.Alias] = b.Libraries
 		}
 	}
 	return catalog
-}
-
-func parseCatalogVersionEntry(catalog *VersionCatalog, key, value string) {
-	if version := parseQuotedTomlValue(value); version != "" {
-		catalog.Versions[key] = version
-	}
-}
-
-func parseCatalogPluginEntry(catalog *VersionCatalog, key, value string) bool {
-	if coordinate := parseQuotedTomlValue(value); coordinate != "" {
-		if plugin, ok := parseCatalogPluginCoordinate(coordinate); ok {
-			catalog.Plugins[key] = plugin
-		}
-		return true
-	}
-	fields := parseInlineTomlFields(value)
-	id := fields["id"]
-	if id == "" {
-		return false
-	}
-	catalog.Plugins[key] = CatalogPlugin{ID: id, Version: catalog.resolveVersion(fields)}
-	return true
-}
-
-func parseCatalogLibraryEntry(catalog *VersionCatalog, key, value string) bool {
-	if coordinate := parseQuotedTomlValue(value); coordinate != "" {
-		if library, ok := parseCatalogLibraryCoordinate(coordinate); ok {
-			catalog.Libraries[key] = library
-		}
-		return true
-	}
-	fields := parseInlineTomlFields(value)
-	group := fields["group"]
-	name := fields["name"]
-	if module := fields["module"]; module != "" {
-		parts := strings.SplitN(module, ":", 2)
-		if len(parts) == 2 {
-			group = parts[0]
-			name = parts[1]
-		}
-	}
-	if group == "" || name == "" {
-		return false
-	}
-	catalog.Libraries[key] = CatalogLibrary{Group: group, Name: name, Version: catalog.resolveVersion(fields)}
-	return true
 }
 
 func ParseSettingsVersionCatalogContent(content string) VersionCatalog {
@@ -646,16 +569,6 @@ func (c VersionCatalog) PluginByIDOrAlias(idOrAlias string) (CatalogPlugin, bool
 	return CatalogPlugin{}, false
 }
 
-func (c VersionCatalog) resolveVersion(fields map[string]string) string {
-	if version := fields["version"]; version != "" {
-		return version
-	}
-	if ref := fields["version.ref"]; ref != "" {
-		return c.Versions[ref]
-	}
-	return ""
-}
-
 func applyCatalogProfileFacts(profile *ProjectProfile, content string, cfgPluginIDs []string, catalog VersionCatalog, source string) {
 	if catalog.Empty() {
 		return
@@ -837,37 +750,6 @@ func unresolvedCatalogAliases(content string, catalog VersionCatalog, source str
 	return aliases
 }
 
-func splitTomlAssignment(line string) (string, string, bool) {
-	parts := strings.SplitN(line, "=", 2)
-	if len(parts) != 2 {
-		return "", "", false
-	}
-	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), true
-}
-
-func stripTomlComment(line string) string {
-	inQuote := false
-	escaped := false
-	for i, r := range line {
-		if escaped {
-			escaped = false
-			continue
-		}
-		if r == '\\' && inQuote {
-			escaped = true
-			continue
-		}
-		if r == '"' {
-			inQuote = !inQuote
-			continue
-		}
-		if r == '#' && !inQuote {
-			return line[:i]
-		}
-	}
-	return line
-}
-
 func stripGradleComments(content string) string {
 	var out strings.Builder
 	out.Grow(len(content))
@@ -931,55 +813,6 @@ func stripGradleComments(content string) string {
 		out.WriteRune(ch)
 	}
 	return out.String()
-}
-
-func parseQuotedTomlValue(value string) string {
-	match := catalogQuotedValueRe.FindStringSubmatch(strings.TrimSpace(value))
-	if len(match) == 2 {
-		return match[1]
-	}
-	return ""
-}
-
-func parseInlineTomlFields(value string) map[string]string {
-	fields := make(map[string]string)
-	for _, match := range catalogStringFieldRe.FindAllStringSubmatch(value, -1) {
-		fields[match[1]] = match[2]
-	}
-	return fields
-}
-
-func parseTomlStringArray(value string) []string {
-	start := strings.Index(value, "[")
-	end := strings.LastIndex(value, "]")
-	if start < 0 || end <= start {
-		return nil
-	}
-	var values []string
-	for _, match := range catalogQuotedStringRe.FindAllStringSubmatch(value[start:end+1], -1) {
-		values = append(values, match[1])
-	}
-	return values
-}
-
-func parseCatalogLibraryCoordinate(coordinate string) (CatalogLibrary, bool) {
-	parts := strings.SplitN(coordinate, ":", 3)
-	if len(parts) < 2 {
-		return CatalogLibrary{}, false
-	}
-	library := CatalogLibrary{Group: parts[0], Name: parts[1]}
-	if len(parts) == 3 {
-		library.Version = parts[2]
-	}
-	return library, true
-}
-
-func parseCatalogPluginCoordinate(coordinate string) (CatalogPlugin, bool) {
-	index := strings.LastIndex(coordinate, ":")
-	if index <= 0 || index == len(coordinate)-1 {
-		return CatalogPlugin{}, false
-	}
-	return CatalogPlugin{ID: coordinate[:index], Version: coordinate[index+1:]}, true
 }
 
 func catalogAccessorToAlias(accessor string) string {

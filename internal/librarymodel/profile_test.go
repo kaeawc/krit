@@ -675,3 +675,50 @@ func writeTestFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestParseVersionCatalogContentSpecCompliantShapes(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+	}{
+		{"sub-table", "[versions]\nk = \"1.0\"\n[libraries.core]\nmodule = \"a:b\"\nversion.ref = \"k\"\n"},
+		{"nested-inline-ref", "[versions]\nk = \"1.0\"\n[libraries]\ncore = { module = \"a:b\", version = { ref = \"k\" } }\n"},
+		{"rich-version-prefer", "[versions]\nk = { strictly = \"[1.0,2.0)\", prefer = \"1.5\" }\n[libraries]\ncore = { module = \"a:b\", version.ref = \"k\" }\n"},
+		{"literal-strings", "[versions]\nk = '1.0'\n[libraries]\ncore = { module = 'a:b', version.ref = 'k' }\n"},
+		{"dotted-keys", "versions.k = \"1.0\"\nlibraries.core = { module = \"a:b\", version.ref = \"k\" }\n"},
+		{"quoted-key", "[versions]\nk = \"1.0\"\n[libraries]\n\"core\" = { module = \"a:b\", version.ref = \"k\" }\n"},
+		{"spaced-header", "[ versions ]\nk = \"1.0\"\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			catalog := ParseVersionCatalogContent(tc.content)
+			if tc.name == "spaced-header" {
+				if got := catalog.Versions["k"]; got != "1.0" {
+					t.Fatalf("version k = %q, want 1.0", got)
+				}
+				return
+			}
+			lib, ok := catalog.Libraries["core"]
+			if !ok || lib.Group != "a" || lib.Name != "b" {
+				t.Fatalf("core = %#v, present %v; want a:b", lib, ok)
+			}
+			wantVersion := "1.0"
+			if tc.name == "rich-version-prefer" {
+				wantVersion = "1.5"
+			}
+			if lib.Version != wantVersion {
+				t.Errorf("core version = %q, want %q", lib.Version, wantVersion)
+			}
+		})
+	}
+}
+
+func TestParseVersionCatalogContentInvalidTOMLReturnsEmptyMaps(t *testing.T) {
+	catalog := ParseVersionCatalogContent("[versions]\nk = \"1.0\"\nk = \"2.0\"\n")
+	if catalog.Versions == nil || catalog.Plugins == nil || catalog.Libraries == nil || catalog.Bundles == nil {
+		t.Fatal("invalid TOML returned nil catalog maps")
+	}
+	if len(catalog.Versions) != 0 || len(catalog.Plugins) != 0 || len(catalog.Libraries) != 0 || len(catalog.Bundles) != 0 {
+		t.Fatalf("invalid TOML returned non-empty catalog: %#v", catalog)
+	}
+}

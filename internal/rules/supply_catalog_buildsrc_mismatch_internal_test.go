@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -46,26 +47,42 @@ func TestVersionCatalogBuildSrcMismatch(t *testing.T) {
 	})
 }
 
-func TestParseLibraryRHS(t *testing.T) {
-	versions := map[string]string{"okhttp": "4.12.0"}
+func TestReadCatalogCoordinates(t *testing.T) {
 	cases := []struct {
-		name        string
-		value       string
-		wantModule  string
-		wantVersion string
+		name, src string
+		wantLine  int
 	}{
-		{"shorthand", `"com.example:lib:1.2.3"`, "com.example:lib", "1.2.3"},
-		{"inline-literal", `{ module = "g:n", version = "9.9" }`, "g:n", "9.9"},
-		{"inline-ref", `{ module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }`, "com.squareup.okhttp3:okhttp", "4.12.0"},
-		{"split-fields", `{ group = "g", name = "n", version = "1.0" }`, "g:n", "1.0"},
-		{"unrecognized-bare", `42`, "", ""},
-		{"shorthand-no-version", `"only:two"`, "", ""},
+		{
+			name:     "library sub-table",
+			src:      "[versions]\nk = \"1.0\"\n[libraries.core]\nmodule = \"a:b\"\nversion.ref = \"k\"\n",
+			wantLine: 3,
+		},
+		{
+			name:     "inline version table",
+			src:      "[versions]\nk = \"1.0\"\n[libraries]\ncore = { module = \"a:b\", version = { ref = \"k\" } }\n",
+			wantLine: 4,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotMod, gotVer := parseLibraryRHS(tc.value, versions)
-			if gotMod != tc.wantModule || gotVer != tc.wantVersion {
-				t.Errorf("parseLibraryRHS(%q) = (%q,%q), want (%q,%q)", tc.value, gotMod, gotVer, tc.wantModule, tc.wantVersion)
+			path := filepath.Join(t.TempDir(), "libs.versions.toml")
+			if err := os.WriteFile(path, []byte(tc.src), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cat, err := module.ParseVersionCatalog(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			coords := readCatalogCoordinates(cat)
+			got, ok := coords["a:b"]
+			if !ok {
+				t.Fatalf("coordinate a:b missing: %+v", coords)
+			}
+			if got.Alias != "core" || got.Version != "1.0" {
+				t.Errorf("coordinate = %+v, want alias core and version 1.0", got)
+			}
+			if got.Line != tc.wantLine {
+				t.Errorf("coordinate line = %d, want %d", got.Line, tc.wantLine)
 			}
 		})
 	}

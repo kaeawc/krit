@@ -1,0 +1,116 @@
+name: Publish to Maven Central
+
+# Publishes krit-rule-api and the self-contained JVM oracle jars to Maven Central.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (without leading v). Defaults to the current tag.'
+        required: false
+        type: string
+      publishing_type:
+        description: 'Leave the deployment for manual publish/drop in the Central Portal (user_managed) or publish it for real (automatic).'
+        required: false
+        type: choice
+        options:
+          - user_managed
+          - automatic
+        default: user_managed
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    # Stable tags only; manual dispatch always proceeds, including for recovery.
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-maven-central-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        with:
+          distribution: zulu
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+        with:
+          cache-cleanup: on-success
+          validate-wrappers: true
+      # Derive the version from dispatch input or v-prefixed tag, failing closed otherwise.
+      - name: Resolve publish version
+        id: version
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -n "${DISPATCH_VERSION:-}" ]; then
+            ver="${DISPATCH_VERSION}"
+          elif [[ "${GITHUB_REF_TYPE:-}" = "tag" ]] && [[ "${GITHUB_REF_NAME}" =~ ^v ]]; then
+            ver="${GITHUB_REF_NAME#v}"
+          else
+            echo "::error::No version available — workflow_dispatch needs an input and push must be a v* tag"
+            exit 1
+          fi
+          echo "version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "Publishing ${ver}"
+      - name: Publish krit-rule-api
+        working-directory: tools/krit-rule-api
+        env:
+          KRIT_VERSION: ${{ steps.version.outputs.version }}
+          SIGNING_KEY: ${{ secrets.MAVEN_CENTRAL_SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.MAVEN_CENTRAL_SIGNING_PASSWORD }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon \
+            publishAllPublicationsToStagingDirRepository \
+            publishAllPublicationsToCentralPortalRepository
+      - name: Publish krit-types to Sonatype Central Portal
+        working-directory: tools/krit-types
+        env:
+          KRIT_VERSION: ${{ steps.version.outputs.version }}
+          SIGNING_KEY: ${{ secrets.MAVEN_CENTRAL_SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.MAVEN_CENTRAL_SIGNING_PASSWORD }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon \
+            :publishAllPublicationsToStagingDirRepository \
+            :publishAllPublicationsToCentralPortalRepository
+      - name: Publish krit-fir to Sonatype Central Portal
+        working-directory: tools/krit-fir
+        env:
+          KRIT_VERSION: ${{ steps.version.outputs.version }}
+          SIGNING_KEY: ${{ secrets.MAVEN_CENTRAL_SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.MAVEN_CENTRAL_SIGNING_PASSWORD }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon \
+            :publishAllPublicationsToStagingDirRepository \
+            :publishAllPublicationsToCentralPortalRepository
+      - name: Finalize Sonatype Central Portal staging repository
+        env:
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+          CENTRAL_PUBLISHING_TYPE: ${{ github.event_name == 'workflow_dispatch' && inputs.publishing_type || 'automatic' }}
+        run: scripts/release/central-portal-upload.sh
+      # Failure bundle helps diagnose rejected Central publications.
+      - name: Upload staged artifacts for inspection
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: oracle-jars-${{ steps.version.outputs.version }}
+          path: |
+            tools/krit-rule-api/build/staging-deploy/
+            tools/krit-types/build/staging-deploy/
+            tools/krit-fir/build/staging-deploy/
+          if-no-files-found: warn
+          retention-days: 14

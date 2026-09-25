@@ -40,5 +40,5 @@ suspend fun mockkSmoke() {
     verify(exactly = 1) { service.load(1) }
     verify { spy.save(eq("x")) }
     coVerify { service.fetch() }
-    println(relaxed)
+    <!PrintlnInProduction!>println<!>(relaxed)
 }

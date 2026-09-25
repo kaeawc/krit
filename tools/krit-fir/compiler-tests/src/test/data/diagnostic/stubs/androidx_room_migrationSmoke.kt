@@ -7,6 +7,6 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 class Migration2To3 : Migration(2, 3) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY)")
-        println("$startVersion -> $endVersion")
+        <!PrintlnInProduction!>println<!>("$startVersion -> $endVersion")
     }
 }

@@ -17,12 +17,12 @@ class WebView {
 
 class ScriptToggle {
     fun setJavaScriptEnabled(flag: Boolean) {
-        println(flag)
+        <!PrintlnInProduction!>println<!>(flag)
     }
 }
 
 fun setJavaScriptEnabled(flag: Boolean) {
-    println(flag)
+    <!PrintlnInProduction!>println<!>(flag)
 }
 
 fun configure(view: WebView, settings: WebSettings, toggle: ScriptToggle) {
@@ -38,7 +38,7 @@ fun configure(view: WebView, settings: WebSettings, toggle: ScriptToggle) {
 // checkers).
 fun anonymousLookalikes() {
     val toggle = object {
-        fun setJavaScriptEnabled(flag: Boolean) = println(flag)
+        fun setJavaScriptEnabled(flag: Boolean) = <!PrintlnInProduction!>println<!>(flag)
     }
     toggle.setJavaScriptEnabled(true)
     toggle.setJavaScriptEnabled(false)

@@ -22,7 +22,7 @@ fun qualified(e: Exception): Nothing = kotlin.error(e)
 // Local lookalikes: a member and a local function named `error`.
 class Logger {
     fun error(t: Throwable) {
-        println(t)
+        <!PrintlnInProduction!>println<!>(t)
     }
 
     fun log(t: Throwable) {
@@ -36,7 +36,7 @@ fun loggerCall(logger: Logger, t: Throwable) {
 
 fun localFunction(t: Throwable) {
     fun error(x: Throwable) {
-        println(x)
+        <!PrintlnInProduction!>println<!>(x)
     }
     error(t)
 }
@@ -54,7 +54,7 @@ fun suppressedArgument(e: Exception): Nothing = error(e.suppressed)
 // because the call resolves to the `with` receiver's member, not kotlin.error.
 class Log {
     fun error(message: Any?) {
-        println(message)
+        <!PrintlnInProduction!>println<!>(message)
     }
 }
 
@@ -94,7 +94,7 @@ fun capturedVarElseBranch(initial: Any) {
     var value = initial
     val reset = { value = "reset" }
     reset()
-    if (value is Exception) println("exception") else error(value)
+    if (value is Exception) <!PrintlnInProduction!>println<!>("exception") else error(value)
 }
 
 // Throwing directly is the recommended form.

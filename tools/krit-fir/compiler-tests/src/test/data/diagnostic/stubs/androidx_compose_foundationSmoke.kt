@@ -37,5 +37,5 @@ fun ClickableCard(onOpen: () -> Unit) {
         contentScale = ContentScale.Crop,
         colorFilter = ColorFilter.tint(Color.Black),
     )
-    println(scroll.value)
+    <!PrintlnInProduction!>println<!>(scroll.value)
 }

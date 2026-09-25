@@ -11,5 +11,5 @@ fun registerState(owner: SavedStateRegistryOwner) {
     registry.registerSavedStateProvider("smoke") { Bundle() }
     val restored: Bundle? = registry.consumeRestoredStateForKey("smoke")
     val lifecycleOwner: LifecycleOwner = owner
-    println("$restored $lifecycleOwner")
+    <!PrintlnInProduction!>println<!>("$restored $lifecycleOwner")
 }

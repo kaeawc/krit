@@ -52,7 +52,7 @@ class Collide {
 
     fun other() {
         val count: Long = 2L
-        println(count)
+        <!PrintlnInProduction!>println<!>(count)
     }
 
     fun f() {

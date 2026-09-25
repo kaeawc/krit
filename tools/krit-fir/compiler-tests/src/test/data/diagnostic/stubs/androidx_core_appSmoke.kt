@@ -19,7 +19,7 @@ fun askCamera(activity: Activity) {
 fun coreHierarchy(activity: ComponentActivity) {
     val owner: LifecycleOwner = activity
     val platform: Activity = activity
-    println("$owner $platform")
+    <!PrintlnInProduction!>println<!>("$owner $platform")
 }
 
 @Suppress("MissingPermission")

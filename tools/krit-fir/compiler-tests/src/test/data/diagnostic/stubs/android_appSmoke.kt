@@ -36,7 +36,7 @@ class SmokeActivity : Activity() {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.cancel(1)
         val activityManager: ActivityManager? = getSystemService(ActivityManager::class.java)
-        println(activityManager?.isLowRamDevice)
+        <!PrintlnInProduction!>println<!>(activityManager?.isLowRamDevice)
         startActivity(Intent(this, SmokeActivity::class.java))
         runOnUiThread { Dialog(this).show() }
         if (isFinishing) finish()

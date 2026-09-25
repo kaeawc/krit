@@ -21,5 +21,5 @@ fun traced(tracer: Tracer) {
     } finally {
         span.end()
     }
-    println(Span.current())
+    <!PrintlnInProduction!>println<!>(Span.current())
 }

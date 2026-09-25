@@ -16,8 +16,8 @@ import android.net.Uri
 class SmokeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val extra: String? = intent.getStringExtra("key")
-        println(context.getString(android.R.string.ok))
-        println(context.getString(android.R.string.ok, extra))
+        <!PrintlnInProduction!>println<!>(context.getString(android.R.string.ok))
+        <!PrintlnInProduction!>println<!>(context.getString(android.R.string.ok, extra))
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) goAsync().finish()
     }
 }
@@ -60,14 +60,14 @@ fun registerAndSave(context: Context, receiver: BroadcastReceiver, dialog: Dialo
     prefs.edit().putString("key", "value").apply()
     val committed: Boolean = prefs.edit().remove("key").commit()
     val stored: String? = prefs.getString("key", null)
-    prefs.registerOnSharedPreferenceChangeListener { _, key -> println(key) }
+    prefs.registerOnSharedPreferenceChangeListener { _, key -> <!PrintlnInProduction!>println<!>(key) }
     context.enforceCallingPermission(android.Manifest.permission.CAMERA, "camera")
     val granted: Int = context.checkCallingOrSelfPermission(android.Manifest.permission.CAMERA)
     val attrs = context.obtainStyledAttributes(intArrayOf(1))
     attrs.recycle()
-    println(context.resources.getString(android.R.string.cancel))
+    <!PrintlnInProduction!>println<!>(context.resources.getString(android.R.string.cancel))
     context.contentResolver.query(Uri.parse("content://smoke"), null, null, null, null)?.close()
     context.applicationContext.getString(android.R.string.ok)
     dialog.dismiss()
-    println("$committed $stored $granted")
+    <!PrintlnInProduction!>println<!>("$committed $stored $granted")
 }

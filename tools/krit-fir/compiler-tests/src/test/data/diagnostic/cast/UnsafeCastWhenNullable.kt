@@ -4,5 +4,5 @@ package test
 
 fun example(x: Any) {
     val y = x <!UnsafeCastWhenNullable!>as<!> String?
-    println(y)
+    <!PrintlnInProduction!>println<!>(y)
 }

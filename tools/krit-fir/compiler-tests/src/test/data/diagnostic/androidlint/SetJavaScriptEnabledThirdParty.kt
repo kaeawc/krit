@@ -8,7 +8,7 @@ package test.thirdparty
 
 open class WebSettings {
     fun setJavaScriptEnabled(flag: Boolean) {
-        println(flag)
+        <!PrintlnInProduction!>println<!>(flag)
     }
 }
 

@@ -27,7 +27,7 @@ class JupiterSmoke {
         Assertions.assertNotNull(Any(), "message")
         Assertions.assertThrows(IllegalStateException::class.java) { error("boom") }
         val thrown: IllegalStateException = assertThrows<IllegalStateException> { error("boom") }
-        println(thrown)
+        <!PrintlnInProduction!>println<!>(thrown)
     }
 
     @Disabled("flaky")

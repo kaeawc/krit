@@ -14,6 +14,6 @@ fun countRequests(registry: MeterRegistry) {
     Metrics.counter("global").increment()
     Metrics.globalRegistry.counter("global2").increment()
     val timer: Timer = registry.timer("latency")
-    timer.record(Runnable { println("timed") })
-    println(counter.count())
+    timer.record(Runnable { <!PrintlnInProduction!>println<!>("timed") })
+    <!PrintlnInProduction!>println<!>(counter.count())
 }

@@ -19,14 +19,14 @@ suspend fun channelSmoke(scope: CoroutineScope) {
     val receiver: ReceiveChannel<Int> = channel
     scope.launch {
         sender.send(1)
-        println(sender.trySend(2).isSuccess)
+        <!PrintlnInProduction!>println<!>(sender.trySend(2).isSuccess)
         sender.close()
     }
-    for (value in receiver) println(value)
+    for (value in receiver) <!PrintlnInProduction!>println<!>(value)
     val first: Int = channel.receive()
     val maybe: String? = conflated.tryReceive().getOrNull()
     val asFlow: Flow<Int> = Channel<Int>(Channel.UNLIMITED).receiveAsFlow()
-    scope.produce { send(1) }.consumeEach { println(it) }
+    scope.produce { send(1) }.consumeEach { <!PrintlnInProduction!>println<!>(it) }
     conflated.cancel()
-    println("$first $maybe $asFlow ${channel.isClosedForSend}")
+    <!PrintlnInProduction!>println<!>("$first $maybe $asFlow ${channel.isClosedForSend}")
 }

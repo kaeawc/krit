@@ -15,5 +15,5 @@ fun ModifierSmoke(modifier: Modifier = Modifier) {
     val horizontal: Alignment.Horizontal = Alignment.End
     val vertical: Alignment.Vertical = Alignment.Bottom
     Box(modifier = combined, contentAlignment = Alignment.TopStart) {}
-    println("$companion $horizontal $vertical")
+    <!PrintlnInProduction!>println<!>("$companion $horizontal $vertical")
 }

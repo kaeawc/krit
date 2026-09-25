@@ -54,7 +54,7 @@ fun Counter(label: String, onDone: () -> Unit, flow: StateFlow<Int>, events: Flo
     LaunchedEffect(label) {
         delay(1)
         latestOnDone()
-        snapshotFlow { count }.collect { println(it) }
+        snapshotFlow { count }.collect { <!PrintlnInProduction!>println<!>(it) }
     }
     LaunchedEffect(Unit, label) {}
     DisposableEffect(label) {

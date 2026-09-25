@@ -10,7 +10,7 @@ fun readNames(cursor: Cursor): List<String> {
         while (c.moveToNext()) {
             if (!c.isNull(column)) names += c.getString(column) ?: ""
         }
-        println(c.count + c.getInt(c.getColumnIndex("age")) + c.getLong(0))
+        <!PrintlnInProduction!>println<!>(c.count + c.getInt(c.getColumnIndex("age")) + c.getLong(0))
     }
     return names
 }

@@ -9,8 +9,8 @@ import org.slf4j.MDC
 suspend fun withMdc() {
     MDC.put("requestId", "42")
     withContext(Dispatchers.IO + MDCContext()) {
-        println(MDC.get("requestId"))
+        <!PrintlnInProduction!>println<!>(MDC.get("requestId"))
     }
     val explicit = MDCContext(mapOf("k" to "v"))
-    println(explicit.contextMap)
+    <!PrintlnInProduction!>println<!>(explicit.contextMap)
 }

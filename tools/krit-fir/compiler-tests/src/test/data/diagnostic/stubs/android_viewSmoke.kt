@@ -60,6 +60,6 @@ fun inflateAndBind(parent: ViewGroup, menu: Menu, context: Context): View {
         view,
         ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
     )
-    println("$found ${view.context} ${view.width} ${view.id}")
+    <!PrintlnInProduction!>println<!>("$found ${view.context} ${view.width} ${view.id}")
     return view
 }

@@ -37,13 +37,13 @@ class SmokeFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                println(view.id)
+                <!PrintlnInProduction!>println<!>(view.id)
             }
         }
         val ctx: Context = requireContext()
         val host: FragmentActivity = requireActivity()
         val args: Bundle? = arguments
-        println("$viewModel $shared $ctx $host $args $context ${getString(android.R.string.ok)}")
+        <!PrintlnInProduction!>println<!>("$viewModel $shared $ctx $host $args $context ${getString(android.R.string.ok)}")
     }
 
     override fun onAttach(context: Context) {
@@ -67,5 +67,5 @@ fun showDialog(activity: FragmentActivity) {
         .addToBackStack(null)
         .commit()
     val owner: LifecycleOwner = SmokeFragment()
-    println(manager.findFragmentByTag("tag") ?: owner)
+    <!PrintlnInProduction!>println<!>(manager.findFragmentByTag("tag") ?: owner)
 }

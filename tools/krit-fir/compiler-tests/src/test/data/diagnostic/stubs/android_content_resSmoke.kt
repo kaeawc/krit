@@ -17,14 +17,14 @@ fun readStyled(context: Context, attrs: AttributeSet?) {
     val landscape = res.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val typed: TypedArray = context.obtainStyledAttributes(attrs, intArrayOf(1))
     typed.use { array ->
-        println(array.getString(0))
-        println(array.getInt(0, 0) + array.getColor(0, 0))
-        println(array.getBoolean(0, false))
+        <!PrintlnInProduction!>println<!>(array.getString(0))
+        <!PrintlnInProduction!>println<!>(array.getInt(0, 0) + array.getColor(0, 0))
+        <!PrintlnInProduction!>println<!>(array.getBoolean(0, false))
     }
     val color = try {
         res.getColor(1, context.theme)
     } catch (e: Resources.NotFoundException) {
         0
     }
-    println("$title $formatted $plural $id $night $landscape $color")
+    <!PrintlnInProduction!>println<!>("$title $formatted $plural $id $night $landscape $color")
 }

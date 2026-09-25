@@ -22,5 +22,5 @@ fun corePermissions(context: Context, prefs: SharedPreferences, receiver: Broadc
     val typed: NotificationManager? = ContextCompat.getSystemService(context, NotificationManager::class.java)
     prefs.edit { putString("k", "v") }
     prefs.edit(commit = true) { remove("k") }
-    println("$granted $color $drawable $manager $typed")
+    <!PrintlnInProduction!>println<!>("$granted $color $drawable $manager $typed")
 }

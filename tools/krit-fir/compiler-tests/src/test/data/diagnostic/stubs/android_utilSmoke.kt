@@ -28,5 +28,5 @@ fun logAll(error: Throwable, attrs: AttributeSet?, nullableTag: String?) {
     val one: String? = sparse[1]
     val fallback: String = sparse.get(2, "two")
     val area = Size(1, 2).width * SizeF(1f, 2f).height
-    println("$one $fallback $area ${sparse.size()} ${attrs?.attributeCount}")
+    <!PrintlnInProduction!>println<!>("$one $fallback $area ${sparse.size()} ${attrs?.attributeCount}")
 }

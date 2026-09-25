@@ -10,7 +10,7 @@ import android.view.View
 fun fadeIn(view: View) {
     val fade: ObjectAnimator = ObjectAnimator.ofFloat(view, "alpha", 0f, 1f)
     val scale: ValueAnimator = ValueAnimator.ofFloat(0f, 1f)
-    scale.addUpdateListener { animation -> println(animation.animatedValue) }
+    scale.addUpdateListener { animation -> <!PrintlnInProduction!>println<!>(animation.animatedValue) }
     val set = AnimatorSet()
     set.playTogether(fade, scale)
     set.addListener(object : Animator.AnimatorListener {

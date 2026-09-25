@@ -7,5 +7,5 @@ import androidx.compose.runtime.remember
 
 fun MyComposable() {
     val value = remember { "constant" }
-    println(value)
+    <!PrintlnInProduction!>println<!>(value)
 }

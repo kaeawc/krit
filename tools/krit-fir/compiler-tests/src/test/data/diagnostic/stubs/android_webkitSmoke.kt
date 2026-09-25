@@ -13,7 +13,7 @@ import android.webkit.WebViewClient
 class SmokeBridge {
     @JavascriptInterface
     fun postMessage(message: String) {
-        println(message)
+        <!PrintlnInProduction!>println<!>(message)
     }
 }
 
@@ -35,6 +35,6 @@ fun configure(webView: WebView) {
     settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
     webView.webViewClient = SmokeClient()
     webView.addJavascriptInterface(SmokeBridge(), "bridge")
-    webView.evaluateJavascript("1 + 1") { result -> println(result) }
+    webView.evaluateJavascript("1 + 1") { result -> <!PrintlnInProduction!>println<!>(result) }
     webView.loadUrl("https://example.com")
 }

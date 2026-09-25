@@ -49,5 +49,5 @@ fun LayoutSmoke(padding: PaddingValues) {
     val uniform = PaddingValues(16.dp)
     val mixed = PaddingValues(horizontal = 8.dp)
     val sides = PaddingValues(start = 1.dp, top = 2.dp, end = 3.dp, bottom = 4.dp)
-    println("$uniform $mixed $sides")
+    <!PrintlnInProduction!>println<!>("$uniform $mixed $sides")
 }

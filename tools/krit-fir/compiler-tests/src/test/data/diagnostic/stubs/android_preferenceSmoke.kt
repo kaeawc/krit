@@ -14,7 +14,7 @@ class SmokeSettingsActivity : PreferenceActivity() {
         super.onCreate(savedInstanceState)
         addPreferencesFromResource(1)
         val list: ListActivity = this
-        println(list)
+        <!PrintlnInProduction!>println<!>(list)
     }
 
     override fun isValidFragment(fragmentName: String?): Boolean = false

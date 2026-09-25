@@ -904,10 +904,11 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 			perf.AddEntryDetails(oracleTracker, "daemonPartialReanalyze", 0, map[string]int64{
 				"stalePaths": int64(len(in.StaleOraclePaths)),
 			}, nil)
+			analyzeAll := func() (*oracle.Data, error) { return d.AnalyzeAllWithCallFilter(callFilterPtr) }
 			fresh, err := d.AnalyzeFilesWithCallFilter(in.StaleOraclePaths, callFilterPtr)
 			if err != nil {
 				in.warnf("warning: daemon analyzeFiles (fallback to analyzeAll): %v\n", err)
-				od, allErr := d.AnalyzeAllWithCallFilter(callFilterPtr)
+				od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf)
 				if allErr != nil {
 					in.warnf("warning: daemon analyzeAll: %v\n", allErr)
 					return
@@ -932,7 +933,7 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 				in.warnf("warning: daemon partial merge pruned removed Kotlin files; falling back to analyzeAll\n")
 			}
 			if shouldFallbackToAnalyzeAll(mergeErr, pruned) {
-				od, allErr := d.AnalyzeAllWithCallFilter(callFilterPtr)
+				od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf)
 				if allErr != nil {
 					in.warnf("warning: daemon analyzeAll: %v\n", allErr)
 					return
@@ -978,6 +979,24 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 // without constructing the concrete RPC-backed oracle.Daemon in pipeline tests.
 func shouldFallbackToAnalyzeAll(mergeErr error, pruned bool) bool {
 	return mergeErr != nil || pruned
+}
+
+// analyzeAllAndPersist runs a full daemon analysis and writes it to the
+// cached types.json. The partial path only ever writes types.json through
+// the merge, so without this the pruned merge (which can still carry a
+// deleted file's Dependencies entries) would stay on disk and the next
+// partial run would union those stale entries back in.
+func analyzeAllAndPersist(analyzeAll func() (*oracle.Data, error), typesPath string, warnf func(string, ...any)) (*oracle.Data, error) {
+	od, err := analyzeAll()
+	if err != nil {
+		return nil, err
+	}
+	if typesPath != "" && od != nil {
+		if err := oracle.WriteTypesJSON(typesPath, od); err != nil {
+			warnf("warning: persist daemon analyzeAll types.json: %v\n", err)
+		}
+	}
+	return od, nil
 }
 
 // runDaemonOracleFir spawns (or reuses) the krit-fir persistent

@@ -33,13 +33,20 @@ func MergeFreshIntoCachedTypes(outputPath string, fresh *Data) (*Data, bool, err
 	// hot warm path where the caller passed a hint that produced no
 	// fresh facts (e.g. all stale paths resolved to cache hits after
 	// per-file content-hash check).
-	if !cacheMissing && !pruned && (fresh == nil || (len(fresh.Files) == 0 && len(fresh.Dependencies) == 0)) {
+	if !cacheMissing && !pruned && len(fresh.Files) == 0 && len(fresh.Dependencies) == 0 {
 		return merged, pruned, nil
 	}
 	if err := writeOracleJSON(outputPath, merged); err != nil {
 		return nil, pruned, fmt.Errorf("merge: write types.json: %w", err)
 	}
 	return merged, pruned, nil
+}
+
+// WriteTypesJSON persists a full oracle result as the cached types.json, so a
+// caller that replaces a partial merge with a full analysis leaves the full
+// result on disk for the next partial run to merge into.
+func WriteTypesJSON(outputPath string, data *Data) error {
+	return writeOracleJSON(outputPath, data)
 }
 
 // mergeOracleData performs the section-wise union described in

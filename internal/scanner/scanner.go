@@ -15,6 +15,7 @@ import (
 	"time"
 
 	sitter "github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/groovy"
 	"github.com/smacker/go-tree-sitter/java"
 	"github.com/smacker/go-tree-sitter/kotlin"
 
@@ -33,6 +34,17 @@ func GetKotlinParser() *sitter.Parser {
 func PutKotlinParser(p *sitter.Parser) {
 	p.Close()
 }
+
+// GetGroovyParser returns a fresh Groovy parser. Callers must call
+// PutGroovyParser when done.
+func GetGroovyParser() *sitter.Parser {
+	p := sitter.NewParser()
+	p.SetLanguage(groovy.GetLanguage())
+	return p
+}
+
+// PutGroovyParser releases a Groovy parser.
+func PutGroovyParser(p *sitter.Parser) { p.Close() }
 
 // Finding is the serialization-boundary representation of a single lint
 // finding. Internally krit stores findings in columnar form via
@@ -272,9 +284,8 @@ func NewParsedFile(path string, content []byte, tree *sitter.Tree) *File {
 }
 
 // ParseGradleScript builds a File for a Gradle build script. For Kotlin DSL
-// scripts (.kts) the content is parsed with the Kotlin tree-sitter grammar so
-// Gradle rules can walk the flat AST; Groovy (.gradle) scripts return a File
-// with no FlatTree and rules fall back to line/regex scanning. The returned
+// scripts (.kts) the content is parsed with the Kotlin tree-sitter grammar;
+// Groovy (.gradle) scripts are parsed with the Groovy grammar. The returned
 // File always carries Language == LangGradle and the given metadata (typically
 // the parsed *android.BuildConfig, kept as `any` to avoid an import cycle).
 // The ctx is forwarded to the tree-sitter parser so callers can cancel a
@@ -293,8 +304,19 @@ func ParseGradleScript(ctx context.Context, path string, content []byte, metadat
 		if tree, err := parser.ParseCtx(ctx, nil, content); err == nil && tree != nil {
 			file.FlatTree = flattenTree(tree.RootNode())
 		}
+	} else if strings.HasSuffix(path, ".gradle") {
+		parser := GetGroovyParser()
+		defer PutGroovyParser(parser)
+		if tree, err := parser.ParseCtx(ctx, nil, content); err == nil && tree != nil {
+			file.FlatTree = flattenTree(tree.RootNode())
+		}
 	}
 	return file
+}
+
+// IsGroovyGradle reports whether f is a Groovy-DSL Gradle script.
+func (f *File) IsGroovyGradle() bool {
+	return f != nil && f.Language == LangGradle && !strings.HasSuffix(f.Path, ".kts")
 }
 
 // CollectKotlinFiles finds all .kt and .kts files under the given paths.

@@ -1,10 +1,24 @@
 package api
 
 import (
+	"context"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
+
+func TestGradleASTAccessors(t *testing.T) {
+	groovy := scanner.ParseGradleScript(context.Background(), "build.gradle", []byte("plugins {}"), nil)
+	ctx := &Context{File: groovy}
+	if ctx.GradleAST() != nil || ctx.GroovyGradleAST() == nil {
+		t.Fatal("Groovy AST accessors returned wrong result")
+	}
+	kotlin := scanner.ParseGradleScript(context.Background(), "build.gradle.kts", []byte("plugins {}"), nil)
+	ctx.File = kotlin
+	if ctx.GradleAST() == nil || ctx.GroovyGradleAST() != nil {
+		t.Fatal("Kotlin AST accessors returned wrong result")
+	}
+}
 
 func TestCapabilities_Has(t *testing.T) {
 	tests := []struct {

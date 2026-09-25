@@ -34,6 +34,25 @@ class Crypto {
         <!WeakMessageDigest!>MessageDigest.getInstance("MD5")<!>
         val inLambda = { <!WeakMessageDigest!>MessageDigest.getInstance("MD5")<!> }
         <!WeakMessageDigest!>MessageDigest.getInstance(/* weak */ "MD5")<!>
+        // A comment ending in `{` before the literal is not a template entry.
+        val commentBrace = <!WeakMessageDigest!>MessageDigest.getInstance( // switch algorithm {<!>
+            "MD5"
+        )
+        <!WeakMessageDigest!>MessageDigest.getInstance(/* { */ "SHA-1")<!>
+        // Deliberate improvement: Go misses this because its parenthesis unwrap
+        // reads the comment as the inner expression; FIR is correct because the
+        // parenthesized value is the literal "MD5".
+        <!WeakMessageDigest!>MessageDigest.getInstance(( /* { */ "MD5"))<!>
+        val rawMultiline = <!WeakMessageDigest!>MessageDigest.getInstance(<!>
+            """
+            MD5
+            """
+        )
+        // Deliberate improvement: Go reports neither because it reads the
+        // annotation or label node as the argument; FIR is correct because the
+        // argument value is still the literal "MD5".
+        <!WeakMessageDigest!>MessageDigest.getInstance(@Suppress("x") "MD5")<!>
+        <!WeakMessageDigest!>MessageDigest.getInstance(label@ "MD5")<!>
     }
 
     fun strong(algorithm: String) {
@@ -51,6 +70,8 @@ class Crypto {
         MessageDigest.getInstance("$algorithm")
         MessageDigest.getInstance("${"MD5"}")
         MessageDigest.getInstance("${ ("SHA1") }")
+        MessageDigest.getInstance("${/* { */ "MD5"}")
+        MessageDigest.getInstance(("${"MD5"}"))
         MessageDigest.getInstance("MD\u0035")
         MessageDigest.getInstance("MD5\t")
     }

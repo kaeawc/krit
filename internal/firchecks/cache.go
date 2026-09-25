@@ -29,7 +29,8 @@ import (
 // 4: entries record the advertised rules and compiler-error gating, are keyed
 // by path and content, and the fingerprint covers the whole compilation.
 // 5: the fingerprint covers the request's test-file classification.
-const FirCacheVersion = 5
+// 6: entries record per-rule checker exceptions (RuleErrors).
+const FirCacheVersion = 6
 
 // FirCacheEntry is one file's cached FIR findings.
 type FirCacheEntry struct {
@@ -48,6 +49,16 @@ type FirCacheEntry struct {
 	// checker for, among those requested). Identical for every entry written
 	// under one fingerprint; kept per entry so an all-hit run knows it too.
 	Rules []string `json:"rules,omitempty"`
+	// RuleErrors maps rule ID -> the exception that rule's checker threw on
+	// this file (CheckResponse.RuleErrors). It is cached, not treated as a
+	// reason to skip the entry: the error is a function of the same inputs the
+	// fingerprint covers (file content, whole compilation, classpath, jar
+	// identity, rules, rule options), so a hit replays the uncached run's
+	// output exactly (Go's findings for that rule on this file), and
+	// rebuilding the jar with a fixed checker or editing the source
+	// invalidates it. Not caching it would instead relaunch the whole-module
+	// compile on every warm run for as long as the checker stays broken.
+	RuleErrors map[string]string `json:"rule_errors,omitempty"`
 }
 
 // Hot-path counters.
@@ -235,12 +246,33 @@ func WriteFreshEntriesForFingerprint(cacheDir string, files []string, resp *Chec
 			ClosureFingerprint: fingerprint,
 			ErrorMessage:       errorFileMessage(resp.ErrorFiles, p),
 			Rules:              resp.Rules,
+			RuleErrors:         ruleErrorsForFile(resp.RuleErrors, p),
 		}
 		if WriteCacheEntry(cacheDir, entry) == nil {
 			written++
 		}
 	}
 	return written
+}
+
+// ruleErrorsForFile returns rule ID -> checker exception for path, or nil.
+// Every recorded rule keeps a non-empty message so the entry cannot lose it.
+func ruleErrorsForFile(ruleErrors map[string]map[string]string, path string) map[string]string {
+	var out map[string]string
+	for rule, byPath := range ruleErrors {
+		msg, ok := byPath[path]
+		if !ok {
+			continue
+		}
+		if msg == "" {
+			msg = "checker threw"
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[rule] = msg
+	}
+	return out
 }
 
 // errorFileMessage returns the gating reason for path, or "" when the file is

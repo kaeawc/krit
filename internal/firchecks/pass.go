@@ -109,8 +109,15 @@ func RunPass(opts PassOptions, base []scanner.Finding) []scanner.Finding {
 const maxGatedFilesListed = 10
 
 func writeVerdictSummary(w io.Writer, stats VerdictStats) {
-	fmt.Fprintf(w, "verbose: FIR verdict: %d authoritative files, %d gated (compiler error or crash), %d excluded (scripts or not in a JVM source set)\n",
-		stats.AuthoritativeFiles, len(stats.GatedFiles), stats.ExcludedFiles)
+	fmt.Fprintf(w, "verbose: FIR verdict: %d authoritative files, %d gated (compiler error or crash), %d excluded (scripts or not in a JVM source set), %d rule errors (checker threw; Go kept for that rule and file)\n",
+		stats.AuthoritativeFiles, len(stats.GatedFiles), stats.ExcludedFiles, len(stats.RuleErrors))
+	for i, e := range stats.RuleErrors {
+		if i == maxGatedFilesListed {
+			fmt.Fprintf(w, "verbose: FIR rule error: ... and %d more\n", len(stats.RuleErrors)-maxGatedFilesListed)
+			break
+		}
+		fmt.Fprintf(w, "verbose: FIR rule error: %s: %s: %s\n", e.Rule, e.File, firstLine(e.Message))
+	}
 	gated := make([]string, 0, len(stats.GatedFiles))
 	for path := range stats.GatedFiles {
 		gated = append(gated, path)
@@ -130,8 +137,8 @@ func writeVerdictSummary(w io.Writer, stats VerdictStats) {
 	sort.Strings(ruleIDs)
 	for _, id := range ruleIDs {
 		r := stats.Rules[id]
-		fmt.Fprintf(w, "verbose: FIR verdict %s: confirmed=%d go-dropped=%d fir-added=%d enriched-with-fix=%d suppressed=%d files-gated=%d\n",
-			id, r.Confirmed, r.GoDropped, r.FirAdded, r.EnrichedWithFix, r.Suppressed, len(stats.GatedFiles))
+		fmt.Fprintf(w, "verbose: FIR verdict %s: confirmed=%d go-dropped=%d fir-added=%d enriched-with-fix=%d suppressed=%d files-gated=%d rule-errors=%d\n",
+			id, r.Confirmed, r.GoDropped, r.FirAdded, r.EnrichedWithFix, r.Suppressed, len(stats.GatedFiles), r.RuleErrorFiles)
 	}
 }
 

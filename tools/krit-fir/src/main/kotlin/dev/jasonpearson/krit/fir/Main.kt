@@ -497,8 +497,13 @@ fun buildCheckResponse(result: BatchResult): String {
         "${jsonStr(k)}:${jsonStr(v)}"
     }
 
+    // Rule id -> file -> the exception that rule's checker threw on the file.
+    val ruleErrorsJson = result.ruleErrors.entries.joinToString(",", "{", "}") { (rule, byPath) ->
+        jsonStr(rule) + ":" + byPath.entries.joinToString(",", "{", "}") { (k, v) -> "${jsonStr(k)}:${jsonStr(v)}" }
+    }
+
     val rulesJson = result.rules.joinToString(",", "[", "]") { jsonStr(it) }
-    return """{"id":${result.id},"succeeded":${result.succeeded},"skipped":${result.skipped},"findings":[$findingsJson],"rules":$rulesJson,"crashed":$crashedJson,"errorFiles":$errorFilesJson}"""
+    return """{"id":${result.id},"succeeded":${result.succeeded},"skipped":${result.skipped},"findings":[$findingsJson],"rules":$rulesJson,"crashed":$crashedJson,"errorFiles":$errorFilesJson,"ruleErrors":$ruleErrorsJson}"""
 }
 
 // ── Minimal JSON parsing (no external deps) ───────────────────────────────────

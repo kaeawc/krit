@@ -13,11 +13,13 @@ type FirChecker interface {
 }
 
 // FakeFirChecker is a configurable test double for FirChecker.
-// Set Findings, Crashed, ErrorFiles, and Rules before use.
+// Set Findings, Crashed, ErrorFiles, RuleErrors, and Rules before use.
 type FakeFirChecker struct {
 	Findings   []scanner.Finding
 	Crashed    map[string]string
 	ErrorFiles map[string]string
+	// RuleErrors is rule ID -> file -> checker exception message.
+	RuleErrors map[string]map[string]string
 	// Rules is the advertised rule set. nil advertises every requested rule.
 	Rules []string
 	Err   error
@@ -60,6 +62,11 @@ func (f *FakeFirChecker) Check(files []string, sourceDirs, classpath, rules []st
 	}
 	for k, v := range f.ErrorFiles {
 		res.ErrorFiles[k] = v
+	}
+	for rule, byPath := range f.RuleErrors {
+		for path, msg := range byPath {
+			res.addRuleError(rule, path, msg)
+		}
 	}
 	advertised := f.Rules
 	if advertised == nil {

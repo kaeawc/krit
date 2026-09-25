@@ -28,6 +28,9 @@ class KritFirCheckers(session: FirSession) : FirAdditionalCheckersExtension(sess
             override val fileCheckers = setOf(OracleFileChecker)
             override val controlFlowAnalyserCheckers = setOf(UnreachableCodeChecker)
         }),
+        // Captured here, on the thread running the compile, so rule isolation
+        // does not depend on which thread K2 dispatches checkers from.
+        recorder = FirRuleErrors.current(),
     )
     override val expressionCheckers = merged.expression
     override val declarationCheckers = merged.declaration

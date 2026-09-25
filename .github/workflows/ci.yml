@@ -364,6 +364,15 @@ jobs:
         if: steps.cache-krit-types.outputs.cache-hit != 'true'
         working-directory: tools/krit-types
         run: ./gradlew --no-daemon shadowJar
+      # TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd adds a
+      # test-only throwing probe rule from krit-fir's compiled test classes to
+      # a copy of the shadow jar. Build them on every run (the jar cache below
+      # can skip the Gradle build), and BEFORE the shadow jar is restored or
+      # built: testClasses also builds the thin `jar`, which has the same
+      # build/libs/krit-fir.jar name and would overwrite the shadow jar.
+      - name: Build krit-fir test classes
+        working-directory: tools/krit-fir
+        run: ./gradlew --no-daemon testClasses
       - name: Cache krit-fir shadow jar
         id: cache-krit-fir
         uses: actions/cache@v5
@@ -415,16 +424,18 @@ jobs:
       # compiles every FIR rule's Go fixtures through krit-fir against the
       # compiler-tests stub library (the Java stubs are compiled with javac
       # from setup-java) and requires per-line agreement with the Go rule;
-      # the per-checker correctness tests pin known edge shapes. All must
+      # the per-checker correctness tests pin known edge shapes; the rule
+      # isolation test proves a throwing checker costs only its own rule and
+      # file. All must
       # pass before the FIR backend can be made the default.
       - name: Run oracle backend parity
         env:
           KRIT_TYPES_JAR: ${{ github.workspace }}/tools/krit-types/build/libs/krit-types.jar
         run: |
           set -o pipefail
-          go test ./tests/parity/ -count=1 -run 'TestOracleBackendParity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_' -v | tee parity.log
+          go test ./tests/parity/ -count=1 -run 'TestOracleBackendParity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd' -v | tee parity.log
           # Top-level tests only: an exempt rule's subtest may skip.
-          if grep -qE -- '--- SKIP: (TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+) \(' parity.log; then
+          if grep -qE -- '--- SKIP: (TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd) \(' parity.log; then
             echo "::error::a FIR parity/property/fuzz test skipped; the CI parity job must execute them"
             exit 1
           fi

@@ -6,7 +6,10 @@ package firchecks
 // ErrorFiles) and every rule the jar has a checker for (Result.Rules), FIR's
 // findings are the verdict: Go findings for that (file, rule) are kept only
 // where FIR confirms them, and FIR findings Go missed are added. Everywhere
-// else Go's findings stand and FIR's are discarded.
+// else Go's findings stand and FIR's are discarded. That includes the
+// (file, rule) pairs in Result.RuleErrors, where the rule's checker threw:
+// krit-fir isolates the exception to that rule and file, so only that pair
+// falls back to Go.
 
 import (
 	"path/filepath"
@@ -50,6 +53,14 @@ type RuleVerdict struct {
 	FirAdded int
 	// Suppressed: FIR-only findings dropped by suppression or excludes.
 	Suppressed int
+	// RuleErrorFiles: authoritative files where this rule's checker threw;
+	// Go's findings for the rule stand there.
+	RuleErrorFiles int
+}
+
+// RuleError is one (file, rule) pair whose checker threw.
+type RuleError struct {
+	File, Rule, Message string
 }
 
 // VerdictStats summarizes an ApplyVerdict call.
@@ -63,6 +74,10 @@ type VerdictStats struct {
 	GatedFiles map[string]string
 	// ExcludedFiles is len(VerdictInput.Excluded).
 	ExcludedFiles int
+	// RuleErrors lists, sorted by file then rule, the (file, rule) pairs on
+	// authoritative files and rules that fell back to Go because the rule's
+	// checker threw there.
+	RuleErrors []RuleError
 }
 
 type fileRule struct{ file, rule string }
@@ -97,7 +112,10 @@ func ApplyVerdict(in VerdictInput) ([]scanner.Finding, VerdictStats) {
 	if len(authoritativeFile) == 0 || len(authoritativeRule) == 0 {
 		return in.Go, stats
 	}
-	owned := func(file, rule string) bool { return authoritativeFile[file] && authoritativeRule[rule] }
+	threw := collectRuleErrors(in.FIR.RuleErrors, authoritativeFile, authoritativeRule, &stats)
+	owned := func(file, rule string) bool {
+		return authoritativeFile[file] && authoritativeRule[rule] && !threw[fileRule{file, rule}]
+	}
 
 	out, goByKey := partitionGoFindings(in.Go, owned)
 	firByKey := groupFIRFindings(in.FIR.Findings, owned)
@@ -135,6 +153,34 @@ func gateFiles(requested []string, fir *Result, stats *VerdictStats) map[string]
 	}
 	stats.AuthoritativeFiles = len(authoritative)
 	return authoritative
+}
+
+// collectRuleErrors returns the authoritative (file, rule) pairs whose
+// checker threw and records them in stats. Pairs on gated files or
+// unadvertised rules are already Go's and are not counted.
+func collectRuleErrors(ruleErrors map[string]map[string]string, files, rules map[string]bool, stats *VerdictStats) map[fileRule]bool {
+	threw := map[fileRule]bool{}
+	for rule, byPath := range ruleErrors {
+		if !rules[rule] {
+			continue
+		}
+		for path, msg := range byPath {
+			if !files[path] {
+				continue
+			}
+			threw[fileRule{path, rule}] = true
+			stats.Rules[rule].RuleErrorFiles++
+			stats.RuleErrors = append(stats.RuleErrors, RuleError{File: path, Rule: rule, Message: msg})
+		}
+	}
+	sort.Slice(stats.RuleErrors, func(i, j int) bool {
+		a, b := stats.RuleErrors[i], stats.RuleErrors[j]
+		if a.File != b.File {
+			return a.File < b.File
+		}
+		return a.Rule < b.Rule
+	})
+	return threw
 }
 
 // partitionGoFindings splits Go findings into the ones FIR does not own

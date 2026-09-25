@@ -15,7 +15,7 @@ class Prefs {
     fun getString(key: String, default: String): String = System.getenv(key) ?: default
 }
 
-var MUTABLE_PREFIX = "0123456789"
+lateinit var LATE_PREFIX: String
 
 val ENV_PREFIX: String
     get() = System.getenv("IV_PREFIX") ?: "0123456789"
@@ -54,8 +54,8 @@ class Crypto(private val prefs: Prefs, private val random: ByteArray, private va
     // Go reports: the decoded literal is only an input to xor with random bytes.
     fun decodedMixed() = IvParameterSpec(xor(JBase64.getDecoder().decode("AAAA"), random))
 
-    // Go reports: the template reads a var, which can hold any value when the IV is built.
-    fun varTemplate() = IvParameterSpec("$MUTABLE_PREFIX-abcde".toByteArray())
+    // Go reports: the template reads a lateinit var, which has no initializer; its value is assigned at runtime.
+    fun lateinitTemplate() = IvParameterSpec("$LATE_PREFIX-abcde".toByteArray())
 
     // Go reports: the template reads a getter that returns a runtime value.
     fun getterTemplate() = IvParameterSpec("$ENV_PREFIX-abcde".toByteArray())

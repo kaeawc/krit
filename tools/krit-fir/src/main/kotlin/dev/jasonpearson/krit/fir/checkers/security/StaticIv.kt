@@ -3,7 +3,6 @@ package dev.jasonpearson.krit.fir.checkers.security
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.KtNodeTypes
-import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -11,6 +10,7 @@ import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
 import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
+import org.jetbrains.kotlin.fir.declarations.utils.isLateInit
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirCallableReferenceAccess
 import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
@@ -64,9 +64,10 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *    class named `Base64` (android.util, kotlin.io.encoding, BouncyCastle, a
  *    project codec), or `java.util.Base64.Decoder.decode`.
  * A literal string is a string literal (raw or not), a template whose entries
- * are literals, `const val`s, or final read-only vals initialized with a
- * literal string, or a `kotlin.text` call (`trimIndent()`, `replace(" ", "")`)
- * on a literal string with literal arguments.
+ * are literals, `const val`s, or properties (val or var, final or open, not
+ * lateinit) initialized with a literal string, or a `kotlin.text` call
+ * (`trimIndent()`, `replace(" ", "")`) on a literal string with literal
+ * arguments.
  *
  * The argument may wrap the source in `!!`, `as`, `?.`, or an Elvis whose left
  * side is literal, and may chain calls on it (`.copyOf(16)`,
@@ -427,7 +428,7 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
 
     // A string fixed in the source: a literal, a template of literal entries,
     // or a kotlin.text transform of one with literal arguments.
-    private fun isLiteralString(expression: FirExpression, seen: Set<FirPropertySymbol> = emptySet()): Boolean {
+    private fun isLiteralString(expression: FirExpression, seen: PropertyVerdicts = PropertyVerdicts()): Boolean {
         val value = unwrap(expression)
         return when (value) {
             is FirLiteralExpression -> value.value is String
@@ -445,7 +446,7 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
         }
     }
 
-    private fun isLiteralArgument(argument: FirExpression, seen: Set<FirPropertySymbol>): Boolean {
+    private fun isLiteralArgument(argument: FirExpression, seen: PropertyVerdicts): Boolean {
         val value = unwrap(argument)
         if (value is FirLiteralExpression || isIntegerLiteral(value)) return true
         if (isLiteralProperty(value, seen) || isLiteralString(value, seen)) return true
@@ -456,18 +457,33 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
         return false
     }
 
-    // A `const val`, or a final read-only val with a default getter and no
-    // delegate whose initializer is a literal string: its value is fixed in
-    // the source.
-    private fun isLiteralProperty(expression: FirExpression, seen: Set<FirPropertySymbol>): Boolean {
+    // A `const val`, or a property with a default getter and no delegate
+    // whose initializer is a literal string. A var or an open val counts too:
+    // the literal it is initialized with is still written in the source, and
+    // Go reports a template over one. A lateinit var has no initializer.
+    private fun isLiteralProperty(expression: FirExpression, seen: PropertyVerdicts): Boolean {
         if (expression !is FirPropertyAccessExpression) return false
         val symbol = expression.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol ?: return false
         if (symbol.resolvedStatus.isConst) return true
-        if (symbol in seen || !symbol.isVal || symbol.hasDelegate) return false
+        if (symbol.isLateInit || symbol.hasDelegate) return false
         if (symbol.resolvedStatus.isExpect) return false
-        if (symbol.resolvedStatus.modality != Modality.FINAL) return false
         if (symbol.getterSymbol?.isDefault == false) return false
         val initializer = symbol.resolvedInitializer ?: return false
-        return isLiteralString(initializer, seen + symbol)
+        return seen.property(symbol) { isLiteralString(initializer, seen) }
+    }
+
+    // One literal-string check's property verdicts. Each property is walked
+    // once and its verdict reused: a shared initializer (`val B = "$A$A"`)
+    // is not walked again, which would make the check exponential in the
+    // chain length, and a property read again while its own initializer is
+    // being walked (a cycle) is not literal on that path.
+    private class PropertyVerdicts {
+        private val verdicts = HashMap<FirPropertySymbol, Boolean?>()
+
+        fun property(symbol: FirPropertySymbol, compute: () -> Boolean): Boolean {
+            if (symbol in verdicts) return verdicts[symbol] == true
+            verdicts[symbol] = null
+            return compute().also { verdicts[symbol] = it }
+        }
     }
 }

@@ -10,12 +10,8 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
 
 const val KEY_TEXT = "p@ssw0rd12345678"
-var MUTABLE_KEY = "c2VjcmV0MTIzNDU2Nzg="
 val FROM_ENV: String = System.getenv("KEY_B64")
-
-open class OpenKey {
-    open val key = "c2VjcmV0MTIzNDU2Nzg="
-}
+lateinit var LATE_KEY: String
 
 class RuntimeKey(seed: String) {
     val key = seed
@@ -61,19 +57,17 @@ class Crypto(private val keyStore: KeyStore, private val prefs: Map<String, Stri
     }
 
     // Go reports these because the argument starts with or holds a quote;
-    // FIR does not because the value read can change after its hardcoded
-    // initializer: a var can be reassigned, and an open val can be overridden.
-    fun mutableOrOverridable(base: OpenKey) {
-        SecretKeySpec("$MUTABLE_KEY".toByteArray(), "AES")
-        SecretKeySpec(Base64.getDecoder().decode("$MUTABLE_KEY"), "AES")
-        SecretKeySpec(Base64.getDecoder().decode("${base.key}"), "AES")
+    // FIR is correct because a lateinit var has no initializer: its value is
+    // assigned at runtime, so the key bytes are not hardcoded.
+    fun lateinitTemplates() {
+        SecretKeySpec("$LATE_KEY".toByteArray(), "AES")
+        SecretKeySpec(Base64.getDecoder().decode("$LATE_KEY"), "AES")
     }
 
     // Neither Go nor FIR reports these.
-    fun bareRuntimeReads(base: OpenKey) {
-        SecretKeySpec(Base64.getDecoder().decode(MUTABLE_KEY), "AES")
-        SecretKeySpec(Base64.getDecoder().decode(base.key), "AES")
+    fun bareRuntimeReads() {
         SecretKeySpec(Base64.getDecoder().decode(FROM_ENV), "AES")
+        SecretKeySpec(Base64.getDecoder().decode(LATE_KEY), "AES")
     }
 
     // Go reports these because the argument contains `.decode(` on a Base64

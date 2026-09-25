@@ -1,7 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // Positive: the key is read from a value the source fixes: a const val, a
-// final val whose initializer is a hardcoded string, or a Java compile-time
-// constant field.
+// property (val or var, final or open) whose initializer is a hardcoded
+// string, or a Java compile-time constant field.
 package test
 
 import android.Manifest
@@ -23,6 +23,12 @@ object Keys {
 
 class Holder {
     val key = "c2VjcmV0MTIzNDU2Nzg="
+}
+
+var MUTABLE_KEY = "c2VjcmV0MTIzNDU2Nzg="
+
+open class OpenKey {
+    open val key = "c2VjcmV0MTIzNDU2Nzg="
 }
 
 class Crypto(private val holder: Holder) {
@@ -59,9 +65,25 @@ class Crypto(private val holder: Holder) {
         <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode(JarFile.MANIFEST_NAME + "=="), "AES")
     }
 
+    // A var or an open val with a hardcoded initializer: the secret is still
+    // written in the source, even if the value can later be reassigned or
+    // overridden. Go reports these because the argument starts with or holds
+    // a quote, and FIR matches it.
+    fun mutableOrOverridable(base: OpenKey) {
+        <!HardcodedSecretKey!>SecretKeySpec<!>("$MUTABLE_KEY".toByteArray(), "AES")
+        <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode("$MUTABLE_KEY"), "AES")
+        <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode("${base.key}"), "AES")
+        var local = "c2VjcmV0MTIzNDU2Nzg="
+        local += ""
+        <!HardcodedSecretKey!>SecretKeySpec<!>("$local".toByteArray(), "AES")
+    }
+
     // Go misses these because the key argument holds no quote; FIR is correct
-    // because the decoded string is fixed by the source.
-    fun bareReads() {
+    // because the decoded string is fixed by the source (for the var and the
+    // open val, by its hardcoded initializer).
+    fun bareReads(base: OpenKey) {
+        <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode(MUTABLE_KEY), "AES")
+        <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode(base.key), "AES")
         <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode(KEY_B64), "AES")
         <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode(KEY_VAL), "AES")
         <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode(Manifest.permission.CAMERA), "AES")

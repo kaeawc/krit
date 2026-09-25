@@ -35,14 +35,19 @@ import org.jetbrains.kotlin.util.getChildren
 //
 // Deliberate differences from Go, pinned by goldens:
 // - Precision: Go matches any `<receiver>.uppercase()` / `.lowercase()` by
-//   name. A project member or extension with that name (including a
-//   same-package `String.uppercase()` that shadows the stdlib one, or another
-//   function imported `as uppercase`) is not a stdlib case conversion and
-//   takes no Locale, so FIR does not report it.
+//   name. A project member or extension with that name (a class member, a
+//   member or local extension, a same-package `String.uppercase()` or one
+//   brought in by an explicit or star import, another function imported
+//   `as uppercase`, or a local function-typed value invoked as `s.uppercase()`)
+//   is not a stdlib case conversion and takes no Locale, so FIR does not
+//   report it.
 // - Recall: Go only sees calls with an explicit receiver and spelled
 //   `uppercase` / `lowercase`. FIR also reports the stdlib calls made on an
-//   implicit receiver (`with(s) { uppercase() }`, an extension body) and
-//   through an import alias (`import kotlin.text.uppercase as up`).
+//   implicit receiver (`with(s) { uppercase() }`, an extension body), through
+//   an import alias (`import kotlin.text.uppercase as up`) and spelled with
+//   backticks (`s.`uppercase`()`). An implicit-receiver call has no receiver
+//   text, so the ASCII-invariant exemption cannot apply to it:
+//   `with(currencyCode) { uppercase() }` is reported.
 internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "UpperLowerInvariantMisuse"
     override val expressionCheckers = object : ExpressionCheckers() {

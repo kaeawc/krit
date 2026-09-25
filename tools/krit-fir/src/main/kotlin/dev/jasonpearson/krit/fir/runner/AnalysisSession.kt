@@ -8,6 +8,7 @@ import dev.jasonpearson.krit.fir.oracle.OracleCollector
 import dev.jasonpearson.krit.fir.oracle.OracleCollectorRegistry
 import dev.jasonpearson.krit.fir.oracle.OracleDiagnosticMessageCollector
 import dev.jasonpearson.krit.fir.oracle.OracleResponse
+import org.jetbrains.kotlin.cli.common.ExitCode
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
 import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 import org.jetbrains.kotlin.config.Services
@@ -35,6 +36,9 @@ data class BatchResult(
     val findings: List<Finding>,
     val crashed: Map<String, String>,
     val rules: List<String> = emptyList(),
+    // Requested file -> first reason the checker verdict for it is not
+    // authoritative (a compiler ERROR, or not part of the JVM compilation).
+    val errorFiles: Map<String, String> = emptyMap(),
 )
 
 // Holds the current session config. When sourceDirs or classpath change the Go side sends a
@@ -74,30 +78,59 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         return byCanonical.values.toList()
     }
 
+    /**
+     * Runs the enabled FIR rule checkers over [files] in one K2 compilation of
+     * the whole module: every `.kt` under [sourceDirs] plus the requested files,
+     * against [classpath] (plus the bundled stdlib), the same compilation
+     * [analyzeFull] runs for oracle facts.
+     *
+     * The result tells Go where the checker verdict can be trusted:
+     *  - `errorFiles` lists requested files the compiler could not analyze
+     *    cleanly (an ERROR diagnostic in the file, or a location-less ERROR
+     *    that affects the whole compilation), and requested files that are
+     *    not compiled at all: Kotlin scripts and files outside the JVM
+     *    compilation (see [excludedFromJvmCompilation]).
+     *  - `crashed` lists every compiled file when the compiler itself crashed.
+     */
     fun check(
         id: Long, files: List<FileRef>, enabledRules: Set<String>,
         ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),
     ): BatchResult {
-        val requestedPaths = files.associateBy { File(it.path).canonicalPath }
+        val (excluded, compiled) = files.partition { isScript(it.path) || excludedFromJvmCompilation(it.path) }
+        val errorFiles = linkedMapOf<String, String>()
+        for (ref in excluded) errorFiles[ref.path] = if (isScript(ref.path)) SCRIPT_NOT_COMPILED else NOT_IN_JVM_COMPILATION
+        val enabled = FirRuleDiscovery.enabled(FirRuleCompileContext(enabledRules))
+        if (compiled.isEmpty()) {
+            return BatchResult(
+                id = id, succeeded = 0, skipped = excluded.size, findings = emptyList(),
+                crashed = emptyMap(), rules = enabled.map { it.ruleId }, errorFiles = errorFiles,
+            )
+        }
+        val requestedPaths = compiled.associateBy { File(it.path).canonicalPath }
             .mapValues { it.value.path }
 
         val collector = FindingCollector(requestedPaths, enabledRules)
-        val enabled = FirRuleDiscovery.enabled(FirRuleCompileContext(enabledRules))
         val outDir = Files.createTempDirectory("krit-fir-out-").toFile()
 
         FirRuleContext.begin(FirRuleCompileContext(enabledRules, ruleConfigs))
-        try {
+        val exitCode = try {
             val args = K2JVMCompilerArguments().apply {
-                freeArgs = compilationFiles(files.map { it.path })
-                // --fir passes no SourceDirs today (internal/cli/scan/runner_state.go), so this
-                // no-ops there; wiring SourceDirs into --fir would pull its scanned jsMain files
-                // into a multiplatform compile, since --fir compiles the scanned files themselves.
+                freeArgs = compilationFiles(compiled.map { it.path })
+                // Go sends the JVM-scoped source roots (non-JVM KMP sets dropped,
+                // oracle.FindSourceDirs) and never requests files from dropped
+                // roots, and excludedFromJvmCompilation drops any that still
+                // arrive, so this compiles common + JVM sources the way the
+                // oracle's analyzeFull does.
                 MultiplatformSources.configure(this, this@AnalysisSession.sourceDirs, freeArgs)
                 this.classpath = effectiveClasspath(this@AnalysisSession.classpath).joinToString(File.pathSeparator)
                 destination = outDir.absolutePath
                 noStdlib = true
                 noReflect = true
                 suppressWarnings = false
+                // Without this K2 drops every warning, rule findings included,
+                // once any file in the module has an error. Go would then read
+                // the error-free files as checked and clean.
+                reportAllWarnings = true
                 if (selfJar != null) {
                     pluginClasspaths = arrayOf(selfJar)
                 }
@@ -108,16 +141,51 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
             FirRuleContext.end()
         }
 
-        val crashed = collector.crashes.toMap()
+        val crashMessage = collector.exceptions.firstOrNull()
+            ?: if (exitCode == ExitCode.INTERNAL_ERROR) "krit-fir: compiler exited with INTERNAL_ERROR" else null
+        val crashed = if (crashMessage != null) compiled.associate { it.path to crashMessage } else emptyMap()
+        errorFiles.putAll(collector.errorFiles)
+        collector.globalErrors.firstOrNull()?.let { global ->
+            for (ref in compiled) errorFiles.putIfAbsent(ref.path, global)
+        }
+        val gated = crashed.keys + errorFiles.keys
         return BatchResult(
             id = id,
-            succeeded = files.size - crashed.size,
-            skipped = 0,
+            succeeded = compiled.count { it.path !in gated },
+            skipped = excluded.size,
             findings = collector.findings.toList(),
             crashed = crashed,
             rules = enabled.map { it.ruleId },
+            errorFiles = errorFiles,
         )
     }
+
+    /**
+     * True when [path] sits in a Gradle source-set root (`.../src/<set>/kotlin`
+     * or `java`) that is not one of this session's [sourceDirs]. Go only sends
+     * the roots of JVM-compilable source sets, so such a file belongs to a
+     * dropped target (jsMain, iosMain, ...) and compiling it on the JVM would
+     * produce a verdict for code the JVM never compiles. Paths outside that
+     * layout, and every path when no source roots were sent, are compiled.
+     */
+    internal fun excludedFromJvmCompilation(path: String): Boolean {
+        if (sourceDirs.isEmpty()) return false
+        var dir = File(path).absoluteFile.normalize().parentFile
+        while (dir != null) {
+            if ((dir.name == "kotlin" || dir.name == "java") && dir.parentFile?.parentFile?.name == "src") {
+                return canonicalOrSelf(dir) !in canonicalSourceDirs
+            }
+            dir = dir.parentFile
+        }
+        return false
+    }
+
+    // Kotlin scripts (build.gradle.kts, ...) compile against script
+    // definitions the module compilation does not have; like the oracle,
+    // which only compiles `.kt`, the check never compiles them.
+    private fun isScript(path: String): Boolean = !path.endsWith(".kt")
+
+    private val canonicalSourceDirs: Set<String> by lazy { sourceDirs.map { canonicalOrSelf(File(it)) }.toSet() }
 
     /**
      * Run a K2 frontend compilation to collect oracle-style per-class
@@ -191,6 +259,14 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
     fun dispose() {} // No long-lived JVM resources.
 
     companion object {
+        internal const val SCRIPT_NOT_COMPILED =
+            "krit-fir: not compiled; Kotlin scripts are not part of the module compilation"
+        internal const val NOT_IN_JVM_COMPILATION =
+            "krit-fir: not compiled; the file's source set is not part of the JVM compilation"
+
+        private fun canonicalOrSelf(file: File): String =
+            try { file.canonicalPath } catch (_: Exception) { file.absolutePath }
+
         private fun resolveSelfJar(): String? {
             // Test harnesses override the plugin classpath via this
             // system property — the plain `:jar` task output is enough

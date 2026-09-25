@@ -694,6 +694,8 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		FixLevel:         *f.FixLevel,
 		IncludeColumns:   includeColumns,
 		OracleBackend:    *f.OracleBackend,
+		Fir:              *f.Fir && !*f.NoFir,
+		NoFirDaemon:      *f.NoFirDaemon,
 		ClientBinaryHash: daemonclient.CurrentBinaryHash(),
 	}
 }

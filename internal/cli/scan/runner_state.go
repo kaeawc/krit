@@ -15,7 +15,6 @@ import (
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/experiment"
-	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
@@ -622,26 +621,23 @@ func (r *runner) setupParseCaches() {
 func (r *runner) firCheckAndCollect() {
 	r.tracker.TrackVoid("firCheckAndCollect", func() {
 		enabled := *r.f.Fir && !*r.f.NoFir
-		var checker firchecks.FirChecker
-		if enabled {
-			checker = &firchecks.ProductionFirChecker{
-				JarPath:   firchecks.FindFirJar(r.paths),
-				RepoDir:   oracle.FindRepoDir(r.paths),
-				UseDaemon: !*r.f.NoFirDaemon,
-				Verbose:   *r.f.Verbose,
-			}
+		opts := firCheckerOpts{
+			Enabled:          enabled,
+			Verbose:          *r.f.Verbose,
+			ActiveRules:      r.activeRules,
+			Config:           r.cfg,
+			ParsedFiles:      r.parsedFiles,
+			KotlinPaths:      r.parseResult.KotlinPaths,
+			IncludeGenerated: *r.f.IncludeGenerated,
+			Tracker:          r.tracker,
+			VerboseOut:       os.Stderr,
+			Thorough:         r.depthPreset == DepthThorough,
 		}
-		r.allFindings = runFIRCheckerPass(firCheckerOpts{
-			Enabled:     enabled,
-			Checker:     checker,
-			Verbose:     *r.f.Verbose,
-			ActiveRules: r.activeRules,
-			Config:      r.cfg,
-			ParsedFiles: r.parsedFiles,
-			Tracker:     r.tracker,
-			VerboseOut:  os.Stderr,
-			Thorough:    r.depthPreset == DepthThorough,
-		}, r.allFindings)
+		if enabled {
+			checker := NewFIRChecker(r.paths, r.cfg, !*r.f.NoFirDaemon, *r.f.Verbose)
+			opts.Checker, opts.SourceDirs, opts.Classpath = checker, checker.SourceDirs, checker.Classpath
+		}
+		r.allFindings = runFIRCheckerPass(opts, r.allFindings)
 
 		r.applySLOs()
 

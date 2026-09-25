@@ -101,6 +101,9 @@ func TestFirPilotParity(t *testing.T) {
 	if len(firResult.Crashed) > 0 {
 		t.Fatalf("FIR parity check crashed: %v", firResult.Crashed)
 	}
+	if len(firResult.ErrorFiles) > 0 {
+		t.Fatalf("FIR parity check hit compiler errors: %v", firResult.ErrorFiles)
+	}
 
 	firByPath := map[string][]scanner.Finding{}
 	for _, f := range firResult.Findings {

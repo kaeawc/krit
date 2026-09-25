@@ -28,6 +28,11 @@ type CheckResponse struct {
 	Findings  []FirFinding      `json:"findings"`
 	Crashed   map[string]string `json:"crashed"`
 	Rules     []string          `json:"rules"`
+	// ErrorFiles maps each requested file whose checker verdict is not
+	// authoritative to the first reason: an ERROR-severity compiler
+	// diagnostic in (or affecting) the file, or the file not being part of
+	// the JVM compilation. Go keeps its own findings for these files.
+	ErrorFiles map[string]string `json:"errorFiles"`
 }
 
 var catalogOnce sync.Once

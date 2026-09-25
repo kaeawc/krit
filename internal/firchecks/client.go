@@ -41,16 +41,21 @@ type FirDaemon struct {
 	started bool
 	shared  bool
 	slot    int
-	// sourcesHash is the jar and sourceDirs registry key this daemon serves.
+	// sourcesHash is the registry key (role, jar, sourceDirs, classpath)
+	// this daemon serves.
 	sourcesHash string
+	// role separates the checker daemon from the oracle-backend daemon; see
+	// firCheckRole.
+	role string
 }
 
-// MatchesRepo returns true if this daemon uses the current jar and sourceDirs.
-func (d *FirDaemon) MatchesRepo(jarPath string, sourceDirs []string) bool {
+// MatchesRepo returns true if this daemon uses the current jar, sourceDirs,
+// and classpath.
+func (d *FirDaemon) MatchesRepo(jarPath string, sourceDirs []string, classpath ...string) bool {
 	if d.sourcesHash == "" {
 		return false
 	}
-	return d.sourcesHash == firRegistryKey(jarPath, sourceDirs)
+	return d.sourcesHash == firRegistryKeyFor(d.role, jarPath, sourceDirs, classpath)
 }
 
 // firDaemonRequest is the JSON shape sent to the krit-fir daemon.
@@ -197,24 +202,41 @@ func StartFirDaemonWithPort(jarPath string, verbose bool) (*FirDaemon, error) {
 	return d, nil
 }
 
+// firCheckRole namespaces the daemon that serves `check` requests (the --fir
+// pass) apart from the oracle-backend daemon. Both can serve the same
+// sourceDirs and classpath, but the oracle path keeps its connection open for
+// the whole scan and a daemon serves one client at a time, so sharing one
+// would stall the checker's ping and kill the oracle's daemon.
+const firCheckRole = "check"
+
 // ConnectOrStartFirDaemon tries to reuse an existing daemon for the given
-// sourceDirs (via PID file), or starts a new one.
-func ConnectOrStartFirDaemon(jarPath string, sourceDirs []string, verbose bool) (*FirDaemon, error) {
+// sourceDirs and classpath (via PID file), or starts a new one.
+func ConnectOrStartFirDaemon(jarPath string, sourceDirs, classpath []string, verbose bool) (*FirDaemon, error) {
+	return connectOrStartFirDaemon("", jarPath, sourceDirs, classpath, verbose)
+}
+
+func connectOrStartFirCheckDaemon(jarPath string, sourceDirs, classpath []string, verbose bool) (*FirDaemon, error) {
+	return connectOrStartFirDaemon(firCheckRole, jarPath, sourceDirs, classpath, verbose)
+}
+
+func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []string, verbose bool) (*FirDaemon, error) {
 	// Capture the jar identity once, before any JVM opens the jar. If the jar
 	// is replaced while a new daemon starts, it stays registered under the
 	// identity observed first, so the next caller restarts it instead of
 	// trusting a daemon that may be running the old artifact.
-	srcHash := firRegistryKey(jarPath, sourceDirs)
+	srcHash := firRegistryKeyFor(role, jarPath, sourceDirs, classpath)
 	if d, err := connectExistingFirDaemon(srcHash, verbose); err == nil {
+		d.role = role
 		return d, nil
 	}
-	retireSupersededFirDaemons(jarPath, sourceDirs, srcHash, verbose)
+	retireSupersededFirDaemons(firRegistryPrefix(role, jarPath, sourceDirs, classpath), sourceDirs, srcHash, verbose)
 	stopFirDaemon(srcHash, verbose)
 	d, err := StartFirDaemonWithPort(jarPath, verbose)
 	if err != nil {
 		return nil, fmt.Errorf("start persistent fir daemon: %w", err)
 	}
 	d.sourcesHash = srcHash
+	d.role = role
 	if err := writeFirPIDFile(d.cmd.Process.Pid, d.port, srcHash); err != nil {
 		d.conn.Close()
 		d.cmd.Process.Kill()
@@ -534,13 +556,13 @@ func stopFirDaemon(hash string, verbose bool) {
 }
 
 // Retiring an old daemon can interrupt another krit mid-request, but the jar
-// that daemon was started from has already been replaced on disk.
-func retireSupersededFirDaemons(jarPath string, sourceDirs []string, current string, verbose bool) {
+// that daemon was started from has already been replaced on disk. prefix is
+// firRegistryPrefix for the caller's role, jar path, sourceDirs, and classpath.
+func retireSupersededFirDaemons(prefix string, sourceDirs []string, current string, verbose bool) {
 	dir, err := firDaemonsDir()
 	if err != nil {
 		return
 	}
-	prefix := hashFirSources(sourceDirs) + "-" + oracle.JarPathTag(jarPath) + "@"
 	paths, err := filepath.Glob(filepath.Join(dir, prefix+"*.krit-fir.pid"))
 	if err == nil {
 		for _, path := range paths {
@@ -573,8 +595,30 @@ func validFirIdentity(identity string) bool {
 	return true
 }
 
+// firRegistryKey is the oracle-backend daemon's registry key for a daemon
+// started without a classpath.
 func firRegistryKey(jarPath string, sourceDirs []string) string {
-	return hashFirSources(sourceDirs) + "-" + oracle.JarPathTag(jarPath) + "@" + oracle.JarIdentity(jarPath)
+	return firRegistryKeyFor("", jarPath, sourceDirs, nil)
+}
+
+// firRegistryKeyFor identifies a daemon by role, source dirs, classpath, jar
+// path, and jar identity, mirroring the oracle daemon key: a daemon started
+// for one classpath never answers for another, since its checker verdicts
+// would be computed against the wrong libraries.
+func firRegistryKeyFor(role, jarPath string, sourceDirs, classpath []string) string {
+	return firRegistryPrefix(role, jarPath, sourceDirs, classpath) + oracle.JarIdentity(jarPath)
+}
+
+func firRegistryPrefix(role, jarPath string, sourceDirs, classpath []string) string {
+	key := hashFirSources(sourceDirs)
+	if len(classpath) > 0 {
+		// Order matters on a classpath, so hash it as given.
+		key += "-" + hashutil.HashHex([]byte(strings.Join(classpath, "\n")))[:8]
+	}
+	if role != "" {
+		key = role + "-" + key
+	}
+	return key + "-" + oracle.JarPathTag(jarPath) + "@"
 }
 
 // hashFirSources returns a 16-hex-char fingerprint of sorted sourceDirs.

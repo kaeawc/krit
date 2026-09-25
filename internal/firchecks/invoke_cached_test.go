@@ -2,6 +2,8 @@ package firchecks
 
 import (
 	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 
 	_ "github.com/kaeawc/krit/internal/rules"
@@ -23,33 +25,6 @@ func TestFakeFirChecker_RecordsCall(t *testing.T) {
 	}
 	if len(fake.Called) != 1 {
 		t.Fatalf("expected 1 recorded call, got %d", len(fake.Called))
-	}
-}
-
-func TestMergeFindings_DeduplicatesOnCollision(t *testing.T) {
-	existing := []scanner.Finding{
-		{File: "/src/A.kt", Line: 10, Col: 1, Rule: "SomeGoRule", RuleSet: "kotlin"},
-		{File: "/src/A.kt", Line: 20, Col: 5, Rule: "FIR_RULE", RuleSet: "fir"},
-	}
-	fir := []scanner.Finding{
-		{File: "/src/A.kt", Line: 20, Col: 5, Rule: "FIR_RULE", RuleSet: "fir"}, // duplicate
-		{File: "/src/A.kt", Line: 30, Col: 1, Rule: "NEW_FIR_RULE", RuleSet: "fir"},
-	}
-	merged := MergeFindings(existing, fir)
-	if len(merged) != 3 {
-		t.Errorf("expected 3 findings after dedup, got %d", len(merged))
-	}
-}
-
-func TestMergeFindings_GoWinsOnCollision(t *testing.T) {
-	goFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 1, Rule: "BOTH", RuleSet: "kotlin", Message: "go message"}
-	firFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 1, Rule: "BOTH", RuleSet: "fir", Message: "fir message"}
-	merged := MergeFindings([]scanner.Finding{goFinding}, []scanner.Finding{firFinding})
-	if len(merged) != 1 {
-		t.Fatalf("expected 1 finding (dedup), got %d", len(merged))
-	}
-	if merged[0].Message != "go message" {
-		t.Errorf("expected Go finding to win, got message: %q", merged[0].Message)
 	}
 }
 
@@ -82,7 +57,7 @@ func TestInvokeCached_AllCacheHits(t *testing.T) {
 		V:                  FirCacheVersion,
 		ContentHash:        hash,
 		FilePath:           ktFile,
-		ClosureFingerprint: FirInvocationFingerprint(nil, "", nil, nil),
+		ClosureFingerprint: CheckCacheFingerprint(nil, []string{ktFile}, nil, "", nil, nil),
 		Findings: []FirFinding{
 			{Path: ktFile, Line: 1, Col: 14, Rule: "CollectInOnCreateWithoutLifecycle", Severity: "warning", Message: "use repeatOnLifecycle", Confidence: 1.0},
 		},
@@ -129,67 +104,6 @@ func TestToScannerFinding_MapsKnownDiagnosticToCatalogRule(t *testing.T) {
 	}
 }
 
-func TestMergeFindings_DeduplicatesPilotRuleOnSameLine(t *testing.T) {
-	goFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 5, Rule: "CollectInOnCreateWithoutLifecycle", RuleSet: "coroutines", Message: "go message"}
-	firFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 12, Rule: "CollectInOnCreateWithoutLifecycle", RuleSet: "coroutines", Message: "fir message"}
-	merged := MergeFindings([]scanner.Finding{goFinding}, []scanner.Finding{firFinding})
-	if len(merged) != 1 {
-		t.Fatalf("expected 1 finding after line-level pilot dedup, got %d", len(merged))
-	}
-	if merged[0].Message != "go message" {
-		t.Errorf("expected Go finding to win, got message: %q", merged[0].Message)
-	}
-}
-
-func TestMergeFindings_ByteRangesAvoidPilotLineDedupe(t *testing.T) {
-	goFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 5, StartByte: 100, EndByte: 110, Rule: "CollectInOnCreateWithoutLifecycle", RuleSet: "coroutines", Message: "go message"}
-	firFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 12, StartByte: 130, EndByte: 140, Rule: "CollectInOnCreateWithoutLifecycle", RuleSet: "coroutines", Message: "fir message"}
-	merged := MergeFindings([]scanner.Finding{goFinding}, []scanner.Finding{firFinding})
-	if len(merged) != 2 {
-		t.Fatalf("expected byte-distinct findings to survive line dedup, got %d", len(merged))
-	}
-}
-
-func TestMergeFindings_PilotLineDedupeWhenExistingHasNoByteRange(t *testing.T) {
-	goFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 5, Rule: "CollectInOnCreateWithoutLifecycle", RuleSet: "coroutines", Message: "go message"}
-	firFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 12, StartByte: 130, EndByte: 140, Rule: "CollectInOnCreateWithoutLifecycle", RuleSet: "coroutines", Message: "fir message"}
-	merged := MergeFindings([]scanner.Finding{goFinding}, []scanner.Finding{firFinding})
-	if len(merged) != 1 {
-		t.Fatalf("expected old line dedupe to remain when existing finding has no byte range, got %d", len(merged))
-	}
-}
-
-// Line-level dedupe applies to any FIR rule whose ID is a registered Go rule
-// (it has a tree-sitter twin), with no per-rule table to keep in sync.
-func TestMergeFindings_LineDedupeIsGenericForRegisteredRules(t *testing.T) {
-	const twin = "MagicNumber"
-	if catalogRule(twin) == nil {
-		t.Fatalf("test precondition: %s must be a registered Go rule", twin)
-	}
-	goFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 5, Rule: twin, Message: "go message"}
-	firFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 12, Rule: twin, Message: "fir message"}
-	merged := MergeFindings([]scanner.Finding{goFinding}, []scanner.Finding{firFinding})
-	if len(merged) != 1 || merged[0].Message != "go message" {
-		t.Fatalf("expected the registered rule's same-line FIR finding to collapse into the Go one, got %+v", merged)
-	}
-}
-
-func TestMergeFindings_UnregisteredFirRuleGetsOnlyExactDedupe(t *testing.T) {
-	const firOnly = "FirOnlyRuleWithoutGoTwin"
-	if catalogRule(firOnly) != nil {
-		t.Fatalf("test precondition: %s must not be a registered Go rule", firOnly)
-	}
-	existing := []scanner.Finding{{File: "/src/A.kt", Line: 10, Col: 5, Rule: firOnly}}
-	fir := []scanner.Finding{
-		{File: "/src/A.kt", Line: 10, Col: 12, Rule: firOnly}, // same line, different col: kept
-		{File: "/src/A.kt", Line: 10, Col: 5, Rule: firOnly},  // exact duplicate: dropped
-	}
-	merged := MergeFindings(existing, fir)
-	if len(merged) != 2 {
-		t.Fatalf("expected only the exact duplicate to be dropped, got %+v", merged)
-	}
-}
-
 func TestToScannerFindingWithRange_DerivesByteRange(t *testing.T) {
 	tmp := t.TempDir()
 	ktFile := tmp + "/A.kt"
@@ -208,5 +122,67 @@ func TestToScannerFinding_EmptySeverityDefaultsToWarning(t *testing.T) {
 	f := ToScannerFinding(fir)
 	if f.Severity != "warning" {
 		t.Errorf("expected severity=warning for empty input, got %q", f.Severity)
+	}
+}
+
+// A cache hit carries the gating and the advertised rules, so a warm run
+// applies the same verdict as the cold run that wrote the entries.
+func TestInvokeCached_HitsCarryErrorFilesAndRules(t *testing.T) {
+	tmp := t.TempDir()
+	clean := filepath.Join(tmp, "Clean.kt")
+	broken := filepath.Join(tmp, "Broken.kt")
+	for _, p := range []string{clean, broken} {
+		if err := os.WriteFile(p, []byte("fun "+filepath.Base(p)[:1]+"() {}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := []string{clean, broken}
+	rules := []string{"InjectDispatcher", "MagicNumber"}
+	fp := CheckCacheFingerprint(nil, files, nil, "", rules, nil)
+	cacheDir, _ := CacheDir(tmp)
+	resp := &CheckResponse{
+		Rules:      []string{"InjectDispatcher"},
+		ErrorFiles: map[string]string{broken: "Unresolved reference 'x'."},
+	}
+	if n := WriteFreshEntriesForFingerprint(cacheDir, files, resp, fp); n != 2 {
+		t.Fatalf("wrote %d entries, want 2", n)
+	}
+	res, err := InvokeCached("", files, nil, nil, rules, nil, tmp, false, false)
+	if err != nil {
+		t.Fatalf("expected an all-hit run, got %v", err)
+	}
+	if want := map[string]string{broken: "Unresolved reference 'x'."}; !reflect.DeepEqual(res.ErrorFiles, want) {
+		t.Fatalf("ErrorFiles = %v, want %v", res.ErrorFiles, want)
+	}
+	if want := []string{"InjectDispatcher"}; !reflect.DeepEqual(res.Rules, want) {
+		t.Fatalf("Rules = %v, want %v", res.Rules, want)
+	}
+}
+
+// krit-fir compiles the whole module, so editing a file that is not itself
+// requested (a dependency under the source dirs) must invalidate the cached
+// verdict of the files that were.
+func TestCheckCacheFingerprint_DependencyEditInvalidatesDependent(t *testing.T) {
+	src := t.TempDir()
+	dependent := filepath.Join(src, "Dependent.kt")
+	dependency := filepath.Join(src, "Dependency.kt")
+	if err := os.WriteFile(dependent, []byte("class Dependent : Base()\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dependency, []byte("open class Base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cacheDir, _ := CacheDir(t.TempDir())
+	before := CheckCacheFingerprint([]string{src}, []string{dependent}, nil, "", []string{"R"}, nil)
+	WriteFreshEntriesForFingerprint(cacheDir, []string{dependent}, &CheckResponse{}, before)
+	if hits, _ := ClassifyFilesForFingerprint(cacheDir, []string{dependent}, before); len(hits) != 1 {
+		t.Fatalf("expected a hit before the dependency edit")
+	}
+	if err := os.WriteFile(dependency, []byte("open class Base { fun changed() {} }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	after := CheckCacheFingerprint([]string{src}, []string{dependent}, nil, "", []string{"R"}, nil)
+	if hits, misses := ClassifyFilesForFingerprint(cacheDir, []string{dependent}, after); len(hits) != 0 || len(misses) != 1 {
+		t.Fatalf("dependency edit must invalidate the dependent's entry; hits=%d misses=%d", len(hits), len(misses))
 	}
 }

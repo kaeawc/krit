@@ -99,6 +99,7 @@ the declaration keyword.
   declarations.
 - **All modules share one compilation.** Every Gradle module's kept
   directories are compiled together, as before.
-- **FIR checker rules (`--fir`) are unchanged.** They compile the scanned
-  files directly rather than the oracle source directories, so none of the
-  above applies to them.
+- **FIR checker rules (`--fir`) use the same source roots.** They compile
+  the kept JVM directories and the classpath like the oracle, and scanned
+  files from dropped non-JVM source sets are not checked (Go's findings
+  stand for them).

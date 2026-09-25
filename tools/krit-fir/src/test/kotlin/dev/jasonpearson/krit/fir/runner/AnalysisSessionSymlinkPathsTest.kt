@@ -37,7 +37,8 @@ class AnalysisSessionSymlinkPathsTest {
         // Findings are keyed by their bracket prefix; the unconditional smoke
         // checker reports as [SMOKE_CLASS].
         val check = session.check(1, listOf(FileRef(base), FileRef(leaf)), setOf("SMOKE_CLASS"))
-        assertTrue(check.crashed.isEmpty(), "duplicate compilation errors: ${check.crashed}")
+        assertTrue(check.crashed.isEmpty(), "compiler crashed: ${check.crashed}")
+        assertTrue(check.errorFiles.isEmpty(), "duplicate compilation errors: ${check.errorFiles}")
         assertEquals(listOf(base), check.findings.map { it.path })
     }
 }

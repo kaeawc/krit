@@ -1,8 +1,9 @@
 package scan
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
-	"sort"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/config"
@@ -12,62 +13,6 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-func TestActiveRuleIDs(t *testing.T) {
-	cases := []struct {
-		name string
-		in   []*api.Rule
-		want []string
-	}{
-		{"empty", nil, []string{}},
-		{"all nil entries skipped", []*api.Rule{nil, nil}, []string{}},
-		{"single", []*api.Rule{{ID: "Foo"}}, []string{"Foo"}},
-		{"mixed nil and real", []*api.Rule{nil, {ID: "Foo"}, nil, {ID: "Bar"}}, []string{"Foo", "Bar"}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := activeRuleIDs(tc.in)
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("activeRuleIDs = %v; want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestResolveFIRTargetFilesNotAllFilesUsesSummaryPaths(t *testing.T) {
-	summary := firchecks.FirFilterSummary{
-		AllFiles: false,
-		Paths:    []string{"/a", "/b"},
-	}
-	got := resolveFIRTargetFiles(summary, nil)
-	if !reflect.DeepEqual(got, summary.Paths) {
-		t.Fatalf("got %v; want %v (verbatim from summary)", got, summary.Paths)
-	}
-}
-
-func TestResolveFIRTargetFilesAllFilesAbsolutizesAndSorts(t *testing.T) {
-	summary := firchecks.FirFilterSummary{AllFiles: true}
-	parsed := []*scanner.File{
-		nil,
-		{Path: "z.kt"},
-		{Path: "a.kt"},
-		nil,
-		{Path: "m.kt"},
-	}
-	got := resolveFIRTargetFiles(summary, parsed)
-
-	if len(got) != 3 {
-		t.Fatalf("got %d files (after dropping nils); want 3", len(got))
-	}
-	if !sort.StringsAreSorted(got) {
-		t.Fatalf("expected sorted output, got %v", got)
-	}
-	for _, p := range got {
-		if !filepathIsAbs(p) {
-			t.Fatalf("expected absolute path, got %q", p)
-		}
-	}
-}
-
 func TestRunFIRCheckerPassDisabledIsNoOp(t *testing.T) {
 	base := []scanner.Finding{{Rule: "X"}}
 	got := runFIRCheckerPass(firCheckerOpts{Enabled: false}, base)
@@ -76,11 +21,11 @@ func TestRunFIRCheckerPassDisabledIsNoOp(t *testing.T) {
 	}
 }
 
-// Guard against paying for JVM startup when the active rule set contains
-// no FIR-eligible rules. Important now that --depth=thorough defaults
-// FIR on regardless of which rules the project actually has enabled.
+// Every active rule ID reaches the jar: discovery there decides which rules
+// have a checker, and the response's advertised rules scope the verdict.
 func TestRunFIRCheckerPassUnknownRuleInvokesChecker(t *testing.T) {
 	checker := firchecks.NewFakeFirChecker()
+	checker.Rules = []string{}
 	base := []scanner.Finding{{Rule: "X"}}
 	got := runFIRCheckerPass(firCheckerOpts{
 		Enabled:     true,
@@ -125,9 +70,28 @@ func TestRunFIRCheckerPassSendsActiveRuleOptions(t *testing.T) {
 	}
 }
 
-// filepathIsAbs lets the test assert absolute-path-ness without importing
-// path/filepath at the top (and without colliding if other tests in the
-// package shadow it).
-func filepathIsAbs(p string) bool {
-	return len(p) > 0 && (p[0] == '/' || (len(p) > 2 && p[1] == ':'))
+// The --fir checker compiles against the oracle's JVM-scoped source roots
+// and the configured classpath; without them cross-file and library
+// references stay unresolved and every file is gated.
+func TestNewFIRCheckerUsesOracleCompileContext(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"src/main/kotlin", "src/jsMain/kotlin"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lib := filepath.Join(root, "lib.jar")
+	cfg := config.NewConfigFromData(map[string]interface{}{
+		"oracle": map[string]interface{}{"classpath": []interface{}{lib}},
+	})
+	t.Setenv("CLASSPATH", "")
+
+	checker := NewFIRChecker([]string{root}, cfg, false, false)
+
+	if want := []string{filepath.Join(root, "src/main/kotlin")}; !reflect.DeepEqual(checker.SourceDirs, want) {
+		t.Fatalf("SourceDirs = %v, want %v (JVM roots only)", checker.SourceDirs, want)
+	}
+	if want := []string{lib}; !reflect.DeepEqual(checker.Classpath, want) {
+		t.Fatalf("Classpath = %v, want %v", checker.Classpath, want)
+	}
 }

@@ -2,6 +2,8 @@ package firchecks
 
 import (
 	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -30,7 +32,7 @@ func TestCacheRoundtrip_EmptyFindings(t *testing.T) {
 		t.Fatalf("WriteCacheEntry failed: %v", err)
 	}
 
-	loaded, err := LoadCacheEntry(cacheDir, "abc123")
+	loaded, err := LoadCacheEntry(cacheDir, "/src/Foo.kt", "abc123")
 	if err != nil {
 		t.Fatalf("LoadCacheEntry failed: %v", err)
 	}
@@ -57,7 +59,7 @@ func TestCacheRoundtrip_WithFindings(t *testing.T) {
 	if err := WriteCacheEntry(cacheDir, entry); err != nil {
 		t.Fatalf("WriteCacheEntry failed: %v", err)
 	}
-	loaded, err := LoadCacheEntry(cacheDir, "hash999")
+	loaded, err := LoadCacheEntry(cacheDir, "/src/Bar.kt", "hash999")
 	if err != nil {
 		t.Fatalf("LoadCacheEntry failed: %v", err)
 	}
@@ -73,7 +75,7 @@ func TestLoadCacheEntry_MissOnMissing(t *testing.T) {
 	tmp := t.TempDir()
 	cacheDir, _ := CacheDir(tmp)
 
-	entry, err := LoadCacheEntry(cacheDir, "nonexistent")
+	entry, err := LoadCacheEntry(cacheDir, "/src/Missing.kt", "nonexistent")
 	if err != nil {
 		t.Fatalf("expected nil error on miss, got %v", err)
 	}
@@ -94,7 +96,7 @@ func TestLoadCacheEntry_VersionMismatchReturnsMiss(t *testing.T) {
 	if err := WriteCacheEntry(cacheDir, entry); err != nil {
 		t.Fatalf("WriteCacheEntry failed: %v", err)
 	}
-	loaded, err := LoadCacheEntry(cacheDir, "stale123")
+	loaded, err := LoadCacheEntry(cacheDir, "/src/Stale.kt", "stale123")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -201,7 +203,7 @@ func TestCachePoisonEntry(t *testing.T) {
 	if err := WriteCacheEntry(cacheDir, entry); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := LoadCacheEntry(cacheDir, "crash1")
+	loaded, err := LoadCacheEntry(cacheDir, "/src/Bad.kt", "crash1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,5 +262,34 @@ func TestCacheMissWhenFirEnabledRulesChange(t *testing.T) {
 	}
 	if hits, misses := ClassifyFilesForFingerprint(cacheDir, []string{source}, second); len(hits) != 0 || len(misses) != 1 {
 		t.Fatalf("hits=%d misses=%d", len(hits), len(misses))
+	}
+}
+
+// Entries are per path: two files with identical content can have different
+// verdicts (one compiles, one does not), and must not share an entry.
+func TestFreshEntriesForIdenticalContentStayPerPath(t *testing.T) {
+	dir := t.TempDir()
+	clean := filepath.Join(dir, "a", "Same.kt")
+	broken := filepath.Join(dir, "b", "Same.kt")
+	for _, p := range []string{clean, broken} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("fun same() = helper()\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cacheDir, _ := CacheDir(t.TempDir())
+	resp := &CheckResponse{ErrorFiles: map[string]string{broken: "Unresolved reference 'helper'."}}
+	if n := WriteFreshEntriesForFingerprint(cacheDir, []string{broken, clean}, resp, "fp"); n != 2 {
+		t.Fatalf("wrote %d entries, want 2", n)
+	}
+	hits, misses := ClassifyFilesForFingerprint(cacheDir, []string{clean, broken}, "fp")
+	if len(hits) != 2 || len(misses) != 0 {
+		t.Fatalf("hits=%d misses=%v, want both files to hit", len(hits), misses)
+	}
+	got := assembleFromCache(hits)
+	if want := map[string]string{broken: "Unresolved reference 'helper'."}; !reflect.DeepEqual(got.ErrorFiles, want) {
+		t.Fatalf("ErrorFiles = %v, want %v", got.ErrorFiles, want)
 	}
 }

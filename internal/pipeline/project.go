@@ -160,6 +160,12 @@ type ProjectArgs struct {
 type ProjectHostState struct {
 	// Reporter routes verbose progress and warning lines.
 	Reporter *diag.Reporter
+	// FindingsPostPass, when non-nil, rewrites the analysis findings after
+	// every analysis phase and before FixupPhase. The daemon's analyze-
+	// project verb installs the --fir pass here so `krit --daemon --fir`
+	// applies the same verdict as the in-process scan. Setting it turns off
+	// the bundle-output shortcuts, which would replay pre-pass bytes.
+	FindingsPostPass func(ParseResult, []scanner.Finding) []scanner.Finding
 	// Tracker, when non-nil, wraps expensive sub-phases for --perf.
 	Tracker perf.Tracker
 	// ParseCache, when non-nil, is consulted by ParsePhase to skip
@@ -622,6 +628,13 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		// ok=false with nil error → cache build declined (degenerate
 		// FindingColumns). Fall through to FixupPhase+OutputPhase for
 		// correctness.
+	}
+
+	if host.FindingsPostPass != nil {
+		postStart := time.Now()
+		post := host.FindingsPostPass(analysis.ParseResult, analysis.CrossFileResult.Findings.Findings())
+		analysis.CrossFileResult.Findings = scanner.CollectFindings(post)
+		perf.AddEntry(host.Tracker, "findingsPostPass", time.Since(postStart))
 	}
 
 	fixupStart := time.Now()
@@ -2107,6 +2120,16 @@ func runFingerprintDiffFields(prior, current scanner.RunFingerprint) []string {
 	return changed
 }
 
+// preParseBundleShortcutAllowed reports whether the pre-parse bundle hit may
+// serve the run. Fix / FixBinary / DryRun / CustomRuleJars / a findings post
+// pass all change the post-pipeline column set the bundle cannot replay.
+func preParseBundleShortcutAllowed(args ProjectArgs, host ProjectHostState) bool {
+	if args.Fix || args.FixBinary || args.DryRun || len(args.CustomRuleJars) > 0 || host.FindingsPostPass != nil {
+		return false
+	}
+	return host.FindingsBundleStore != nil && host.FindingsBundleCacheRoot != ""
+}
+
 func tryLoadFindingsBundleBeforeParse(
 	ctx context.Context,
 	startTime time.Time,
@@ -2116,7 +2139,7 @@ func tryLoadFindingsBundleBeforeParse(
 	out io.Writer,
 	phaseTimings *PhaseTimingsMs,
 ) (ProjectResult, bool, error) {
-	if args.Fix || args.FixBinary || args.DryRun || len(args.CustomRuleJars) > 0 || host.FindingsBundleStore == nil || host.FindingsBundleCacheRoot == "" {
+	if !preParseBundleShortcutAllowed(args, host) {
 		return ProjectResult{}, false, nil
 	}
 	start := time.Now()
@@ -2289,7 +2312,7 @@ func canUsePostParseBundleOutputShortcut(args ProjectArgs, host ProjectHostState
 	if args.Fix || args.FixBinary || args.DryRun {
 		return false
 	}
-	if len(args.CustomRuleJars) > 0 {
+	if len(args.CustomRuleJars) > 0 || host.FindingsPostPass != nil {
 		return false
 	}
 	return canUseBundleOutputCache(args, host)

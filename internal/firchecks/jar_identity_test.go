@@ -73,7 +73,7 @@ func TestConnectOrStartFirDaemonReplacedJarIsNotReused(t *testing.T) {
 		t.Fatal("replaced jar still matches")
 	}
 	t.Setenv("PATH", t.TempDir())
-	d, err = ConnectOrStartFirDaemon(jar, sources, false)
+	d, err = ConnectOrStartFirDaemon(jar, sources, nil, false)
 	if d != nil || err == nil || !strings.Contains(err.Error(), "java") {
 		if d != nil {
 			_ = d.Release()
@@ -144,7 +144,7 @@ func TestFirDaemonRetiresLegacyAndPreservesOtherEntries(t *testing.T) {
 		}
 	}
 	t.Setenv("PATH", t.TempDir())
-	_, _ = ConnectOrStartFirDaemon(jar, sources, false)
+	_, _ = ConnectOrStartFirDaemon(jar, sources, nil, false)
 	if err := cmd.Process.Signal(os.Interrupt); err == nil {
 		t.Fatal("legacy process remains alive")
 	}
@@ -203,7 +203,7 @@ exec sleep 60
 	t.Setenv("PATH", javaDir)
 	preStartKey := firRegistryKey(jar, sources)
 
-	d, err := ConnectOrStartFirDaemon(jar, sources, false)
+	d, err := ConnectOrStartFirDaemon(jar, sources, nil, false)
 	if err != nil {
 		t.Fatalf("start fir daemon: %v", err)
 	}

@@ -126,7 +126,7 @@ func TestComputeStaleOraclePaths_IncludesDependentsAndRefreshesMerge(t *testing.
 	freshCallerFacts := &oracle.File{Expressions: map[string]*oracle.ExpressionType{
 		"2:16": {Type: "kotlin.String", Nullable: true, StartByte: 28, EndByte: 40},
 	}}
-	merged, err := oracle.MergeFreshIntoCachedTypes(typesPath, &oracle.Data{Version: 1, Files: map[string]*oracle.File{
+	merged, _, err := oracle.MergeFreshIntoCachedTypes(typesPath, &oracle.Data{Version: 1, Files: map[string]*oracle.File{
 		dependency: {Package: "demo"},
 		caller:     freshCallerFacts,
 	}})

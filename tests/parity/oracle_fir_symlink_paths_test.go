@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/firchecks"
@@ -18,7 +17,18 @@ func TestFirOracleSymlinkedSourcePathsCacheUnderCallerForm(t *testing.T) {
 		t.Skip("krit-fir executable jar not found; run `cd tools/krit-fir && ./gradlew shadowJar`")
 	}
 	t.Setenv("KRIT_DAEMON_CACHE", "on")
-	repo := t.TempDir() // Keep macOS's /var spelling; /var resolves to /private/var.
+	// Scan through an explicit symlink so every platform exercises the
+	// non-canonical spelling (macOS's /var -> /private/var alone would leave
+	// this test vacuous on Linux).
+	tmp := t.TempDir()
+	real := filepath.Join(tmp, "real")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(tmp, "linked")
+	if err := os.Symlink(real, repo); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
 	srcDir := filepath.Join(repo, "src")
 	if err := os.MkdirAll(srcDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -58,18 +68,15 @@ func TestFirOracleSymlinkedSourcePathsCacheUnderCallerForm(t *testing.T) {
 			if err := json.Unmarshal(raw, &data); err != nil {
 				t.Fatal(err)
 			}
+			// A file compiled under two spellings comes back twice. Redeclaration
+			// errors can't be asserted here: ERROR-severity diagnostics are not
+			// retained in the oracle payload.
 			if len(data.Files) != 2 {
 				t.Fatalf("files=%d, want 2: %v", len(data.Files), data.Files)
 			}
 			for _, path := range paths {
-				file := data.Files[path]
-				if file == nil {
+				if data.Files[path] == nil {
 					t.Fatalf("missing Go path %q; keys: %v", path, data.Files)
-				}
-				for _, diagnostic := range file.Diagnostics {
-					if strings.Contains(diagnostic.FactoryName, "REDECLARATION") || strings.Contains(diagnostic.FactoryName, "CONFLICTING_OVERLOADS") {
-						t.Fatalf("duplicate compilation diagnostic at %s: %+v", path, diagnostic)
-					}
 				}
 			}
 			hits, misses := oracle.ClassifyFilesScopedV3(cacheDir, paths, "", "", oracle.BackendFIR.CacheApproximation())

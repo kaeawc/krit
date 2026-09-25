@@ -29,9 +29,6 @@ class AnalysisSessionSymlinkPathsTest {
         val outcome = session.analyzeFull(listOf(leaf, base))
         assertEquals(setOf(base, leaf), outcome.result.files.keys)
         assertTrue(outcome.result.files.getValue(leaf).diagnostics.any { it.factoryName == "USELESS_ELVIS" })
-        assertTrue(outcome.result.files.values.flatMap { it.diagnostics }.none {
-            it.factoryName == "REDECLARATION" || it.factoryName == "CONFLICTING_OVERLOADS"
-        })
         assertEquals(setOf(leaf), outcome.cacheDeps.depPathsByFile.keys)
         assertEquals(setOf(base), outcome.cacheDeps.depPathsByFile.getValue(leaf))
         assertEquals(setOf(leaf), outcome.cacheDeps.perFileDeps.keys)

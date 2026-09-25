@@ -70,12 +70,18 @@ object KritFirProbe {
     // Compiles [sources] like [diagnose] but reports compile errors instead of
     // failing on them. [ruleContext] selects the FIR rules (and their options)
     // exactly as a production check request does; null enables every rule.
+    // [testFiles] names the [sources] keys the request classifies as test
+    // files (FirRule.isTestFile); it needs a [ruleContext]. A key may contain
+    // `/` to place the source in a subdirectory.
     // [configure] adjusts the compiler arguments (tests of the probe itself).
     fun compile(
         sources: Map<String, String>,
         ruleContext: FirRuleCompileContext? = null,
+        testFiles: Set<String> = emptySet(),
         configure: (K2JVMCompilerArguments) -> Unit = {},
     ): Compilation {
+        require(testFiles.isEmpty() || ruleContext != null) { "testFiles needs a ruleContext" }
+        require(sources.keys.containsAll(testFiles)) { "testFiles must name sources: $testFiles" }
         val pluginJar = requireNotNull(locatePluginJar()) {
             "krit-fir plugin JAR not found. Set 'krit.fir.plugin.jar' or run `./gradlew :jar`."
         }
@@ -86,7 +92,7 @@ object KritFirProbe {
             // directories and are resolved as Java sources, not Kotlin ones.
             val ktDir = tmpDir.resolve("src").apply { mkdirs() }
             val javaDir = tmpDir.resolve("java").apply { mkdirs() }
-            sources.forEach { (name, body) -> ktDir.resolve(name).writeText(body) }
+            sources.forEach { (name, body) -> ktDir.resolve(name).apply { parentFile.mkdirs() }.writeText(body) }
             if (stubsDir.isDirectory) {
                 stubsDir.listFiles { f -> f.extension == "kt" }?.forEach { stub ->
                     stub.copyTo(ktDir.resolve(stub.name), overwrite = true)
@@ -102,7 +108,7 @@ object KritFirProbe {
             val diags = mutableListOf<Diag>()
             val compileErrors = mutableListOf<String>()
             val otherErrors = mutableListOf<String>()
-            val requested = sources.keys
+            val requested = sources.keys.mapTo(HashSet()) { File(it).name }
             val collector = object : MessageCollector {
                 override fun clear() {}
                 override fun hasErrors() = false
@@ -131,7 +137,10 @@ object KritFirProbe {
             // The plugin jar is loaded by a child of this class loader, so the
             // plugin sees the same FirRuleContext object the test sets here
             // (K2 builds its checkers on the calling thread).
-            if (ruleContext != null) FirRuleContext.begin(ruleContext)
+            if (ruleContext != null) {
+                val paths = testFiles.map { ktDir.resolve(it).absolutePath }
+                FirRuleContext.begin(ruleContext.copy(testFiles = ruleContext.testFiles + paths))
+            }
             val exitCode = try {
                 K2JVMCompiler().exec(
                     collector,

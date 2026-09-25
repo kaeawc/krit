@@ -64,8 +64,10 @@ func (r *Result) addRules(rules []string) {
 //
 // jarPath is the krit-fir.jar (required when misses need JVM analysis).
 // files is the set of .kt file paths to check (pre-filtered by CollectFirCheckFiles).
-// sourceDirs / classpath / rules / ruleConfigs are forwarded to the daemon's
-// check request; rules and ruleConfigs are also part of the cache fingerprint.
+// sourceDirs / classpath / rules / ruleConfigs / testFiles are forwarded to
+// the daemon's check request; rules, ruleConfigs, and testFiles (the subset of
+// files krit classifies as test sources) are also part of the cache
+// fingerprint.
 // repoDir is used to locate the cache; empty disables caching.
 // useDaemon controls whether to prefer the persistent daemon (vs one-shot).
 // verbose enables progress logging to stderr.
@@ -76,6 +78,7 @@ func InvokeCached(
 	classpath []string,
 	rules []string,
 	ruleConfigs RuleConfigs,
+	testFiles []string,
 	repoDir string,
 	useDaemon bool,
 	verbose bool,
@@ -86,7 +89,7 @@ func InvokeCached(
 
 	// If no repo dir, skip cache and go straight to JVM.
 	if repoDir == "" {
-		return runUncached(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, useDaemon, verbose)
+		return runUncached(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, testFiles, useDaemon, verbose)
 	}
 
 	cacheDir, err := CacheDir(repoDir)
@@ -94,10 +97,10 @@ func InvokeCached(
 		if verbose {
 			reporter().Verbosef("verbose: fir cache dir init failed (%v), falling back to uncached\n", err)
 		}
-		return runUncached(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, useDaemon, verbose)
+		return runUncached(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, testFiles, useDaemon, verbose)
 	}
 
-	cacheFingerprint := CheckCacheFingerprint(sourceDirs, files, classpath, jarPath, rules, ruleConfigs)
+	cacheFingerprint := CheckCacheFingerprint(sourceDirs, files, classpath, jarPath, rules, ruleConfigs, testFiles)
 	hits, misses := ClassifyFilesForFingerprint(cacheDir, files, cacheFingerprint)
 	if verbose {
 		reporter().Verbosef("verbose: fir cache: %d hits, %d misses (%d files)\n",
@@ -110,7 +113,7 @@ func InvokeCached(
 	}
 
 	// Slow path: analyze misses via daemon or one-shot.
-	resp, err := runMisses(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, useDaemon, verbose)
+	resp, err := runMisses(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, testFiles, useDaemon, verbose)
 	if err != nil {
 		return nil, err
 	}
@@ -134,10 +137,11 @@ func runUncached(
 	classpath []string,
 	rules []string,
 	ruleConfigs RuleConfigs,
+	testFiles []string,
 	useDaemon bool,
 	verbose bool,
 ) (*Result, error) {
-	resp, err := runMisses(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, useDaemon, verbose)
+	resp, err := runMisses(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, testFiles, useDaemon, verbose)
 	if err != nil {
 		return nil, err
 	}
@@ -153,16 +157,18 @@ func runMisses(
 	classpath []string,
 	rules []string,
 	ruleConfigs RuleConfigs,
+	testFiles []string,
 	useDaemon bool,
 	verbose bool,
 ) (*CheckResponse, error) {
+	testFiles = requestedTestFiles(testFiles, misses)
 	// Try persistent daemon.
 	if useDaemon && jarPath != "" {
 		d, err := connectOrStartFirCheckDaemon(jarPath, sourceDirs, classpath, verbose)
 		if err == nil {
 			defer func() { _ = d.Release() }()
 			refs := buildFileRefs(misses)
-			resp, err := d.Check(refs, sourceDirs, classpath, rules, ruleConfigs)
+			resp, err := d.Check(refs, sourceDirs, classpath, rules, ruleConfigs, testFiles)
 			if err == nil {
 				return resp, nil
 			}
@@ -178,7 +184,26 @@ func runMisses(
 	if jarPath == "" {
 		return nil, fmt.Errorf("krit-fir.jar not found; build with: cd tools/krit-fir && ./gradlew shadowJar")
 	}
-	return InvokeOneShot(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, verbose)
+	return InvokeOneShot(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, testFiles, verbose)
+}
+
+// requestedTestFiles keeps the test files among requested, so a check request
+// only classifies the files it actually asks krit-fir to check.
+func requestedTestFiles(testFiles, requested []string) []string {
+	if len(testFiles) == 0 {
+		return nil
+	}
+	want := make(map[string]bool, len(requested))
+	for _, p := range requested {
+		want[p] = true
+	}
+	var out []string
+	for _, p := range testFiles {
+		if want[p] {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func buildFileRefs(files []string) []fileRef {

@@ -9,7 +9,7 @@ import (
 // FirChecker is the interface for running FIR checks. The production
 // implementation calls InvokeCached; tests use FakeFirChecker.
 type FirChecker interface {
-	Check(files []string, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs) (*Result, error)
+	Check(files []string, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, testFiles []string) (*Result, error)
 }
 
 // FakeFirChecker is a configurable test double for FirChecker.
@@ -30,6 +30,8 @@ type FakeFirChecker struct {
 	CalledRules      [][]string
 	// CalledRuleConfigs is the ruleConfigs passed to each Check call.
 	CalledRuleConfigs []RuleConfigs
+	// CalledTestFiles is the testFiles passed to each Check call.
+	CalledTestFiles [][]string
 }
 
 // NewFakeFirChecker returns a FakeFirChecker with all maps initialized.
@@ -41,12 +43,13 @@ func NewFakeFirChecker() *FakeFirChecker {
 }
 
 // Check records the call and returns the configured findings.
-func (f *FakeFirChecker) Check(files []string, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs) (*Result, error) {
+func (f *FakeFirChecker) Check(files []string, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, testFiles []string) (*Result, error) {
 	f.Called = append(f.Called, slices.Clone(files))
 	f.CalledSourceDirs = append(f.CalledSourceDirs, slices.Clone(sourceDirs))
 	f.CalledClasspath = append(f.CalledClasspath, slices.Clone(classpath))
 	f.CalledRules = append(f.CalledRules, slices.Clone(rules))
 	f.CalledRuleConfigs = append(f.CalledRuleConfigs, ruleConfigs)
+	f.CalledTestFiles = append(f.CalledTestFiles, slices.Clone(testFiles))
 	if f.Err != nil {
 		return nil, f.Err
 	}
@@ -80,7 +83,7 @@ type ProductionFirChecker struct {
 }
 
 // Check runs InvokeCached with the configured parameters.
-func (p *ProductionFirChecker) Check(files []string, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs) (*Result, error) {
+func (p *ProductionFirChecker) Check(files []string, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, testFiles []string) (*Result, error) {
 	sd := p.SourceDirs
 	if len(sourceDirs) > 0 {
 		sd = sourceDirs
@@ -89,7 +92,7 @@ func (p *ProductionFirChecker) Check(files []string, sourceDirs, classpath, rule
 	if len(classpath) > 0 {
 		cl = classpath
 	}
-	return InvokeCached(p.JarPath, files, sd, cl, rules, ruleConfigs, p.RepoDir, p.UseDaemon, p.Verbose)
+	return InvokeCached(p.JarPath, files, sd, cl, rules, ruleConfigs, testFiles, p.RepoDir, p.UseDaemon, p.Verbose)
 }
 
 // Compile-time check.

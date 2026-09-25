@@ -69,6 +69,58 @@ class FirRuleProtocolTest {
         assertEquals(true, request.ruleConfigs["ProtocolProbe"]?.get("strict"))
     }
 
+    @Test fun wireRequestTestFilesReachFirRuleIsTestFile() {
+        // The request, not the path, decides: `src/test` below is NOT listed,
+        // so it is checked like production code, while Listed.kt is a test file.
+        val listed = tmp.resolve("Listed.kt").toFile().apply {
+            writeText("fun protocolProbe() {}\nfun use() { protocolProbe() }\n")
+        }
+        val unlisted = tmp.resolve("src/test/Unlisted.kt").toFile().apply {
+            parentFile.mkdirs()
+            writeText("fun use2() { protocolProbe() }\n")
+        }
+        val stdlib = java.io.File(kotlin.Unit::class.java.protectionDomain.codeSource.location.toURI()).absolutePath
+        val session = AnalysisSession(listOf(tmp.toString()), listOf(stdlib))
+        // Same shape internal/firchecks marshals: testFiles is spelled as in
+        // files, and an option named testFiles must not be read as the field.
+        val line = """{"id":6,"command":"check","files":[{"path":${jsonStr(listed.absolutePath)}},""" +
+            """{"path":${jsonStr(unlisted.absolutePath)}}],"rules":["ProtocolProbe"],""" +
+            """"testFiles":[${jsonStr(listed.absolutePath)}],""" +
+            """"ruleConfigs":{"ProtocolProbe":{"tag":"t","testFiles":[${jsonStr(unlisted.absolutePath)}]}}}"""
+        val response = (handleRequestLine(line, session, System.currentTimeMillis()) as RequestResult.Response).json
+        assertEquals(1, Regex("""configured: t \(test file\)""").findAll(response).count(), response)
+        assertEquals(1, Regex("""configured: t"""").findAll(response).count(), "the unlisted src/test file is not a test file: $response")
+    }
+
+    @Test fun checkRequestParsesTestFilesAtTopLevelOnly() {
+        val request = parseRequest(
+            """{"id":4,"command":"check","files":[{"path":"/p/src/[id]/A.kt"},{"path":"/p/B.kt"}],""" +
+                """"ruleConfigs":{"R":{"testFiles":["/p/B.kt"]}},"testFiles":["/p/src/[id]/A.kt"]}""",
+        )
+        assertEquals(setOf("/p/src/[id]/A.kt"), request.testFiles)
+        assertEquals(listOf("/p/src/[id]/A.kt", "/p/B.kt"), request.files.map { it.path })
+        assertEquals(emptySet(), parseRequest("""{"id":5,"command":"check","files":[]}""").testFiles)
+    }
+
+    @Test fun compileContextMatchesTestFilesByRequestOrCanonicalSpelling() {
+        val real = tmp.resolve("real").toFile().apply { mkdirs() }
+        val file = real.resolve("T.kt").apply { writeText("") }
+        val link = tmp.resolve("link")
+        java.nio.file.Files.createSymbolicLink(link, real.toPath())
+        val context = FirRuleCompileContext(testFiles = setOf(link.resolve("T.kt").toString()))
+        assertTrue(context.isTestFile(link.resolve("T.kt").toString()))
+        assertTrue(context.isTestFile(file.absolutePath), "canonical spelling of a listed file")
+        assertFalse(context.isTestFile(real.resolve("Other.kt").absolutePath))
+        assertFalse(context.isTestFile(null))
+        assertFalse(FirRuleCompileContext().isTestFile(file.absolutePath))
+        // No request context (oracle compile, direct compiler runs): nothing is a test file.
+        assertFalse(ProtocolProbe.isTestFile(file.absolutePath))
+        FirRuleContext.begin(context)
+        try {
+            assertTrue(ProtocolProbe.isTestFile(file.absolutePath))
+        } finally { FirRuleContext.end() }
+    }
+
     @Test fun oracleContextHasNoRuleCheckersButKeepsOracleCheckers() {
         FirRuleContext.begin(FirRuleCompileContext(noneEnabled = true))
         try {

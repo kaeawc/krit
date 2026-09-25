@@ -102,7 +102,7 @@ func FindFirJar(scanPaths []string) string {
 // InvokeOneShot starts a fresh krit-fir daemon, sends a single check request
 // for the given files, and returns the response. The daemon is shut down
 // after the request. Used when the persistent daemon is unavailable.
-func InvokeOneShot(jarPath string, files []string, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, verbose bool) (*CheckResponse, error) {
+func InvokeOneShot(jarPath string, files []string, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, testFiles []string, verbose bool) (*CheckResponse, error) {
 	d, err := StartFirDaemonWithPort(jarPath, verbose)
 	if err != nil {
 		return nil, fmt.Errorf("fir one-shot start: %w", err)
@@ -118,7 +118,7 @@ func InvokeOneShot(jarPath string, files []string, sourceDirs, classpath, rules 
 		refs = append(refs, fileRef{Path: p, ContentHash: hash})
 	}
 
-	resp, err := d.Check(refs, sourceDirs, classpath, rules, ruleConfigs)
+	resp, err := d.Check(refs, sourceDirs, classpath, rules, ruleConfigs, testFiles)
 	if err != nil {
 		return nil, fmt.Errorf("fir one-shot check: %w", err)
 	}

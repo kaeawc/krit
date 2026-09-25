@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.coroutines
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.descriptors.Visibilities
@@ -69,29 +70,6 @@ internal object StateFlowMutableLeak : FirPropertyChecker(MppCheckerKind.Common)
 
     private val mutableStateFlow = ClassId(FqName("kotlinx.coroutines.flow"), Name.identifier("MutableStateFlow"))
 
-    // scanner.defaultTestPaths plus the Gradle test source-set check in
-    // internal/scanner/testpath.go: Go skips these files for this rule.
-    // TestFirCheckerTestPathMarkersMatchDefaultTestPaths (internal/scanner)
-    // keeps this list equal to the Go one. krit-fir does not receive the
-    // project's testSourcePaths / testSourcePathsOverride config, so only the
-    // default test paths are honored here.
-    private val testPathMarkers = listOf(
-        "/test/", "/androidTest/", "/commonTest/", "/jvmTest/", "/jvmAndroidTest/",
-        "/commonJvmTest/", "/browserCommonTest/", "/jvmCommonTest/",
-        "/androidUnitTest/", "/androidInstrumentedTest/", "/jsTest/", "/iosTest/",
-        "/nativeTest/", "/nonJvmCommonTest/",
-        "/testShared/", "/sharedTest/",
-        "/benchmark/", "/canary/",
-        "/test-utils/",
-        "/javatests/", "/kotlintests/", "/javatest/", "/kotlintest/",
-        "/functionalTest/", "/functionaltests/",
-        "/test/resources/", "/testResources/", "/testFixtures/",
-        "/integration-tests/", "/integrationTest/",
-        "/nonEmulatorCommonTest/", "/nonEmulatorJvmTest/",
-        "/testData/", "/testdata/", "/test-data/",
-        "/test/data/", "/compiler-tests/", "/compilertests/",
-    )
-
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirProperty) {
         if (declaration.isLocal) return
@@ -106,7 +84,9 @@ internal object StateFlowMutableLeak : FirPropertyChecker(MppCheckerKind.Common)
             visibility == Visibilities.Internal || visibility == Visibilities.PrivateToThis
         ) return
         if (!mentionsMutableStateFlow(declaration.returnTypeRef.coneType, context.session, depth = 0)) return
-        if (isTestFile(context.containingFile?.path)) return
+        // Go skips scanner.IsTestFile files; the check request carries that
+        // classification (configured test paths included).
+        if (isInTestFile()) return
 
         report(source, "MutableStateFlow '${declaration.name.asString()}' is publicly exposed. Keep it private and expose as StateFlow<T>.")
     }
@@ -151,26 +131,6 @@ internal object StateFlowMutableLeak : FirPropertyChecker(MppCheckerKind.Common)
         val symbol = type.lookupTag.toRegularClassSymbol(session) ?: return false
         return lookupSuperTypes(symbol, lookupInterfaces = true, deep = true, useSiteSession = session)
             .any { it.classId == mutableStateFlow }
-    }
-
-    private fun isTestFile(path: String?): Boolean {
-        if (path == null) return false
-        val slash = path.replace('\\', '/')
-        if (testPathMarkers.any { slash.contains(it) }) return true
-        return isGradleTestSourceSet(slash)
-    }
-
-    private fun isGradleTestSourceSet(slash: String): Boolean {
-        fun isTestSegment(segment: String) = segment == "test" || segment.endsWith("Test")
-        if (slash.startsWith("src/") && isTestSegment(slash.removePrefix("src/").substringBefore('/'))) return true
-        var offset = 0
-        while (true) {
-            val index = slash.indexOf("/src/", offset)
-            if (index < 0) return false
-            val start = index + "/src/".length
-            if (isTestSegment(slash.substring(start).substringBefore('/'))) return true
-            offset = start
-        }
     }
 
     private const val MAX_TYPE_DEPTH = 16

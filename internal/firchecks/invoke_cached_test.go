@@ -16,7 +16,7 @@ func TestFakeFirChecker_RecordsCall(t *testing.T) {
 		{File: "/src/A.kt", Line: 5, Col: 1, Rule: "CollectInOnCreateWithoutLifecycle", Severity: "warning", Message: "use repeatOnLifecycle"},
 	}
 
-	res, err := fake.Check([]string{"/src/A.kt"}, nil, nil, nil, nil)
+	res, err := fake.Check([]string{"/src/A.kt"}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestFakeFirChecker_RecordsCall(t *testing.T) {
 }
 
 func TestInvokeCached_EmptyFilesReturnsEmpty(t *testing.T) {
-	res, err := InvokeCached("krit-fir.jar", nil, nil, nil, nil, nil, t.TempDir(), false, false)
+	res, err := InvokeCached("krit-fir.jar", nil, nil, nil, nil, nil, nil, t.TempDir(), false, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestInvokeCached_AllCacheHits(t *testing.T) {
 		V:                  FirCacheVersion,
 		ContentHash:        hash,
 		FilePath:           ktFile,
-		ClosureFingerprint: CheckCacheFingerprint(nil, []string{ktFile}, nil, "", nil, nil),
+		ClosureFingerprint: CheckCacheFingerprint(nil, []string{ktFile}, nil, "", nil, nil, nil),
 		Findings: []FirFinding{
 			{Path: ktFile, Line: 1, Col: 14, Rule: "CollectInOnCreateWithoutLifecycle", Severity: "warning", Message: "use repeatOnLifecycle", Confidence: 1.0},
 		},
@@ -67,7 +67,7 @@ func TestInvokeCached_AllCacheHits(t *testing.T) {
 	}
 
 	// InvokeCached should serve from cache — no jar path needed.
-	res, err := InvokeCached("", []string{ktFile}, nil, nil, nil, nil, tmp, false, false)
+	res, err := InvokeCached("", []string{ktFile}, nil, nil, nil, nil, nil, tmp, false, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestInvokeCached_HitsCarryErrorFilesAndRules(t *testing.T) {
 	}
 	files := []string{clean, broken}
 	rules := []string{"InjectDispatcher", "MagicNumber"}
-	fp := CheckCacheFingerprint(nil, files, nil, "", rules, nil)
+	fp := CheckCacheFingerprint(nil, files, nil, "", rules, nil, nil)
 	cacheDir, _ := CacheDir(tmp)
 	resp := &CheckResponse{
 		Rules:      []string{"InjectDispatcher"},
@@ -147,7 +147,7 @@ func TestInvokeCached_HitsCarryErrorFilesAndRules(t *testing.T) {
 	if n := WriteFreshEntriesForFingerprint(cacheDir, files, resp, fp); n != 2 {
 		t.Fatalf("wrote %d entries, want 2", n)
 	}
-	res, err := InvokeCached("", files, nil, nil, rules, nil, tmp, false, false)
+	res, err := InvokeCached("", files, nil, nil, rules, nil, nil, tmp, false, false)
 	if err != nil {
 		t.Fatalf("expected an all-hit run, got %v", err)
 	}
@@ -173,7 +173,7 @@ func TestCheckCacheFingerprint_DependencyEditInvalidatesDependent(t *testing.T) 
 		t.Fatal(err)
 	}
 	cacheDir, _ := CacheDir(t.TempDir())
-	before := CheckCacheFingerprint([]string{src}, []string{dependent}, nil, "", []string{"R"}, nil)
+	before := CheckCacheFingerprint([]string{src}, []string{dependent}, nil, "", []string{"R"}, nil, nil)
 	WriteFreshEntriesForFingerprint(cacheDir, []string{dependent}, &CheckResponse{}, before)
 	if hits, _ := ClassifyFilesForFingerprint(cacheDir, []string{dependent}, before); len(hits) != 1 {
 		t.Fatalf("expected a hit before the dependency edit")
@@ -181,7 +181,7 @@ func TestCheckCacheFingerprint_DependencyEditInvalidatesDependent(t *testing.T) 
 	if err := os.WriteFile(dependency, []byte("open class Base { fun changed() {} }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	after := CheckCacheFingerprint([]string{src}, []string{dependent}, nil, "", []string{"R"}, nil)
+	after := CheckCacheFingerprint([]string{src}, []string{dependent}, nil, "", []string{"R"}, nil, nil)
 	if hits, misses := ClassifyFilesForFingerprint(cacheDir, []string{dependent}, after); len(hits) != 0 || len(misses) != 1 {
 		t.Fatalf("dependency edit must invalidate the dependent's entry; hits=%d misses=%d", len(hits), len(misses))
 	}

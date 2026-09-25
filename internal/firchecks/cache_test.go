@@ -226,7 +226,7 @@ func TestCacheMissWhenFirJarIdentityChanges(t *testing.T) {
 	if err := os.WriteFile(jar, []byte("jar-one"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	first := FirInvocationFingerprint(nil, jar, []string{"A"}, nil)
+	first := FirInvocationFingerprint(nil, jar, []string{"A"}, nil, nil)
 	WriteFreshEntriesForFingerprint(cacheDir, []string{source}, &CheckResponse{}, first)
 	if hits, _ := ClassifyFilesForFingerprint(cacheDir, []string{source}, first); len(hits) != 1 {
 		t.Fatal("expected initial hit")
@@ -234,7 +234,7 @@ func TestCacheMissWhenFirJarIdentityChanges(t *testing.T) {
 	if err := os.WriteFile(jar, []byte("jar-two-larger"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	second := FirInvocationFingerprint(nil, jar, []string{"A"}, nil)
+	second := FirInvocationFingerprint(nil, jar, []string{"A"}, nil, nil)
 	if first == second {
 		t.Fatal("jar fingerprint did not change")
 	}
@@ -254,9 +254,9 @@ func TestCacheMissWhenFirEnabledRulesChange(t *testing.T) {
 	if err := os.WriteFile(jar, []byte("jar"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	first := FirInvocationFingerprint(nil, jar, []string{"A"}, nil)
+	first := FirInvocationFingerprint(nil, jar, []string{"A"}, nil, nil)
 	WriteFreshEntriesForFingerprint(cacheDir, []string{source}, &CheckResponse{}, first)
-	second := FirInvocationFingerprint(nil, jar, []string{"B"}, nil)
+	second := FirInvocationFingerprint(nil, jar, []string{"B"}, nil, nil)
 	if first == second {
 		t.Fatal("rule fingerprint did not change")
 	}

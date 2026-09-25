@@ -3,6 +3,8 @@ package oracle
 import (
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/kaeawc/krit/internal/fsutil"
 )
@@ -46,9 +48,33 @@ func AbsolutePaths(paths []string) []string {
 
 // PathSpelling maps the absolute paths sent to a daemon back to the caller's
 // spelling of them. Daemons echo request paths in their responses, and Go
-// indexes those responses by the paths it asked about.
+// indexes those responses by the paths it asked about. Files the daemon
+// reports without being asked about them (walked from a source root) map
+// back through the caller's spelling of that root.
 type PathSpelling struct {
 	caller map[string]string
+	// dirs maps absolute source roots to the caller's relative spelling,
+	// longest root first.
+	dirs []dirSpelling
+}
+
+type dirSpelling struct {
+	abs, caller string
+}
+
+// WithDirs adds the caller's source roots: a reported path under one of
+// them that is not an exact request path is re-spelled under the caller's
+// spelling of the root, the way Go's own walk of that root spells it.
+func (s PathSpelling) WithDirs(dirs []string) PathSpelling {
+	for _, dir := range dirs {
+		abs := AbsolutePath(dir)
+		if abs == dir || dir == "" {
+			continue
+		}
+		s.dirs = append(s.dirs, dirSpelling{abs: filepath.Clean(abs), caller: dir})
+	}
+	sort.SliceStable(s.dirs, func(i, j int) bool { return len(s.dirs[i].abs) > len(s.dirs[j].abs) })
+	return s
 }
 
 // AbsoluteRequestPaths absolutizes paths for a daemon request and returns
@@ -77,13 +103,33 @@ func (s PathSpelling) Caller(path string) string {
 	if orig, ok := s.caller[path]; ok {
 		return orig
 	}
+	for _, d := range s.dirs {
+		if rest, ok := strings.CutPrefix(path, d.abs+string(filepath.Separator)); ok && rest != "" {
+			return filepath.Join(d.caller, rest)
+		}
+	}
 	return path
+}
+
+func (s PathSpelling) identity() bool { return len(s.caller) == 0 && len(s.dirs) == 0 }
+
+// CallerPaths returns paths in the caller's spelling (paths itself when
+// nothing was rewritten).
+func (s PathSpelling) CallerPaths(paths []string) []string {
+	if s.identity() || len(paths) == 0 {
+		return paths
+	}
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = s.Caller(p)
+	}
+	return out
 }
 
 // CallerKeys returns m re-keyed by the caller's spelling (m itself when no
 // request path was rewritten).
 func CallerKeys[V any](s PathSpelling, m map[string]V) map[string]V {
-	if len(s.caller) == 0 || len(m) == 0 {
+	if s.identity() || len(m) == 0 {
 		return m
 	}
 	out := make(map[string]V, len(m))
@@ -91,6 +137,30 @@ func CallerKeys[V any](s PathSpelling, m map[string]V) map[string]V {
 		out[s.Caller(k)] = v
 	}
 	return out
+}
+
+// CallerData re-keys a daemon's oracle facts by the caller's spelling.
+func (s PathSpelling) CallerData(d *Data) {
+	if d != nil {
+		d.Files = CallerKeys(s, d.Files)
+	}
+}
+
+// CallerCacheDeps re-keys a daemon's dependency closure by the caller's
+// spelling: the per-file entries, their dependency edges, and crash markers.
+func (s PathSpelling) CallerCacheDeps(c *CacheDepsFile) {
+	if c == nil || s.identity() {
+		return
+	}
+	c.Files = CallerKeys(s, c.Files)
+	for _, entry := range c.Files {
+		if entry == nil {
+			continue
+		}
+		entry.DepPaths = s.CallerPaths(entry.DepPaths)
+		entry.PropagatingDepPaths = s.CallerPaths(entry.PropagatingDepPaths)
+	}
+	c.Crashed = CallerKeys(s, c.Crashed)
 }
 
 // DaemonWorkDir is the working directory persistent daemons are started in:

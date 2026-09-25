@@ -50,7 +50,7 @@ func (d *Daemon) ResolveExpressionTypes(positions map[string][]ExpressionPositio
 	for path := range positions {
 		paths = append(paths, path)
 	}
-	requested, spelling := AbsoluteRequestPaths(paths)
+	requested, spelling := d.requestSpelling(paths)
 	wirePositions := make(map[string][]map[string]int, len(positions))
 	for k, path := range paths {
 		list := positions[path]

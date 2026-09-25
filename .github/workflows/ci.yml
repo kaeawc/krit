@@ -426,16 +426,19 @@ jobs:
       # from setup-java) and requires per-line agreement with the Go rule;
       # the per-checker correctness tests pin known edge shapes; the rule
       # isolation test proves a throwing checker costs only its own rule and
-      # file. All must
-      # pass before the FIR backend can be made the default.
+      # file. The daemon relative-path tests prove `krit .` scans of different
+      # projects never share a daemon and that each backend's daemon facts
+      # come back (and are cached) under the caller's relative spelling.
+      # All must pass before the FIR backend can be made the default.
       - name: Run oracle backend parity
         env:
           KRIT_TYPES_JAR: ${{ github.workspace }}/tools/krit-types/build/libs/krit-types.jar
         run: |
           set -o pipefail
-          go test ./tests/parity/ -count=1 -run 'TestOracleBackendParity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd' -v | tee parity.log
-          # Top-level tests only: an exempt rule's subtest may skip.
-          if grep -qE -- '--- SKIP: (TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd) \(' parity.log; then
+          go test ./tests/parity/ -count=1 -run 'TestOracleBackendParity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative' -v | tee parity.log
+          # Top-level tests only: an exempt rule's subtest may skip. The
+          # daemon relative-path tests' per-backend subtests must all run.
+          if grep -qE -- '--- SKIP: (TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative[A-Za-z]+(/(fir|kaa))?) \(' parity.log; then
             echo "::error::a FIR parity/property/fuzz test skipped; the CI parity job must execute them"
             exit 1
           fi

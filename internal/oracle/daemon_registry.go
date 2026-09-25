@@ -346,11 +346,12 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 	scanner.Buffer(make([]byte, 0, 64*1024), 512*1024*1024)
 
 	d := &Daemon{
-		cmd:     cmd,
-		stdin:   stdinPipe,
-		stdout:  scanner,
-		logFile: logFile,
-		nextID:  1,
+		cmd:        cmd,
+		stdin:      stdinPipe,
+		stdout:     scanner,
+		logFile:    logFile,
+		nextID:     1,
+		sourceDirs: sourceDirs,
 	}
 
 	if _, err := waitPipeReady(cmd, scanner); err != nil {
@@ -405,6 +406,7 @@ func connectExistingDaemonSlot(jarPath string, sourceDirs []string, verbose bool
 		shared:      true,
 		slot:        slot,
 		sourcesHash: info.SourcesHash,
+		sourceDirs:  sourceDirs,
 	}
 
 	// Verify the daemon is responsive with a ping
@@ -666,6 +668,7 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 		shared:      false,
 		slot:        slot,
 		sourcesHash: srcHash,
+		sourceDirs:  sourceDirs,
 	}
 
 	return d, nil

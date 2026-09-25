@@ -125,6 +125,126 @@ func requestFiles(req daemonRequest) []string {
 	return out
 }
 
+func TestPathSpellingWithDirsMapsWalkedFiles(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	root := filepath.Join("src", "main", "kotlin")
+	nested := filepath.Join(root, "gen")
+	abs, spelling := AbsoluteRequestPaths([]string{"./" + filepath.Join(root, "A.kt")})
+	spelling = spelling.WithDirs([]string{root, nested, "/abs/root"})
+	cases := map[string]string{
+		// A request keeps its exact spelling, even an unclean one.
+		abs[0]: "./" + filepath.Join(root, "A.kt"),
+		// Walked files are re-spelled under the caller's root, the way
+		// filepath.Walk spells them; the longest root wins.
+		filepath.Join(dir, root, "p", "B.kt"): filepath.Join(root, "p", "B.kt"),
+		filepath.Join(dir, nested, "C.kt"):    filepath.Join(nested, "C.kt"),
+		filepath.Join(dir, root):              filepath.Join(dir, root),
+		filepath.Join(dir, "src", "other.kt"): filepath.Join(dir, "src", "other.kt"),
+		filepath.Join(dir, root+"x", "D.kt"):  filepath.Join(dir, root+"x", "D.kt"),
+		filepath.Join("/abs", "root", "E.kt"): filepath.Join("/abs", "root", "E.kt"),
+		filepath.Join("/elsewhere", "F.kt"):   filepath.Join("/elsewhere", "F.kt"),
+	}
+	for in, want := range cases {
+		if got := spelling.Caller(in); got != want {
+			t.Errorf("Caller(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A relative request must come back keyed the way it was asked, including
+// files the daemon reports under the source root without being asked, the
+// closure's edges, and crash markers.
+func TestAnalyzeWithDepsMapsDataAndCacheDepsToCallerSpelling(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	root := filepath.Join("src", "main", "kotlin")
+	relA, relB := filepath.Join(root, "A.kt"), filepath.Join(root, "B.kt")
+	absA, absB := filepath.Join(dir, relA), filepath.Join(dir, relB)
+	d := pipeDaemon(t, func(req daemonRequest) string {
+		return fmt.Sprintf(`{"id":%d,"result":{"version":1,"files":{%q:{"package":"p"},%q:{"package":"p"}},"dependencies":{}},`+
+			`"cacheDeps":{"version":1,"files":{%q:{"depPaths":[%q],"propagatingDepPaths":[%q],"perFileDeps":{}}},"crashed":{%q:"boom"}}}`,
+			req.ID, absA, absB, absB, absA, absA, absB)
+	})
+	d.sourceDirs = []string{root}
+	data, deps, err := d.AnalyzeWithDeps([]string{relA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.Files[relA] == nil || data.Files[relB] == nil || len(data.Files) != 2 {
+		t.Errorf("Files keys = %v, want %q and %q", mapKeys(data.Files), relA, relB)
+	}
+	entry := deps.Files[relB]
+	if entry == nil || len(deps.Files) != 1 {
+		t.Fatalf("CacheDeps.Files keys = %v, want %q", mapKeys(deps.Files), relB)
+	}
+	if !reflect.DeepEqual(entry.DepPaths, []string{relA}) || !reflect.DeepEqual(entry.PropagatingDepPaths, []string{relA}) {
+		t.Errorf("edges = %v / %v, want [%q]", entry.DepPaths, entry.PropagatingDepPaths, relA)
+	}
+	if _, ok := deps.Crashed[relB]; !ok || len(deps.Crashed) != 1 {
+		t.Errorf("Crashed = %v, want key %q", deps.Crashed, relB)
+	}
+}
+
+func TestAnalyzeAndAnalyzeAllMapFilesToCallerSpelling(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	root := filepath.Join("src", "main", "kotlin")
+	rel := filepath.Join(root, "A.kt")
+	d := pipeDaemon(t, func(req daemonRequest) string {
+		return fmt.Sprintf(`{"id":%d,"result":{"version":1,"files":{%q:{"package":"p"}},"dependencies":{}}}`,
+			req.ID, filepath.Join(dir, rel))
+	})
+	d.sourceDirs = []string{root}
+	for name, call := range map[string]func() (*Data, error){
+		"analyze":      func() (*Data, error) { return d.Analyze([]string{rel}) },
+		"analyzeAll":   d.AnalyzeAll,
+		"analyzeFiles": func() (*Data, error) { return d.AnalyzeFilesWithCallFilter([]string{rel}, nil) },
+	} {
+		data, err := call()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if data.Files[rel] == nil || len(data.Files) != 1 {
+			t.Errorf("%s: Files keys = %v, want %q", name, mapKeys(data.Files), rel)
+		}
+	}
+}
+
+func TestAnalyzePluginFileKeepsCallerSpelling(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	rel := filepath.Join("src", "A.kt")
+	abs := filepath.Join(dir, rel)
+	var sentPath string
+	d := pipeDaemon(t, func(req daemonRequest) string {
+		sentPath, _ = req.Params["path"].(string)
+		return fmt.Sprintf(`{"id":%d,"result":{"findings":[{"file":%q,"line":1,"column":1,"ruleId":"R"}],"errors":{%q:"x"}}}`,
+			req.ID, abs, abs)
+	})
+	out, err := d.AnalyzePluginFile(nil, rel, []byte("x"), []string{"R"}, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sentPath != abs {
+		t.Errorf("request path = %q, want %q", sentPath, abs)
+	}
+	if len(out.Findings) != 1 || out.Findings[0].File != rel {
+		t.Errorf("findings = %+v, want file %q", out.Findings, rel)
+	}
+	if _, ok := out.Errors[rel]; !ok || len(out.Errors) != 1 {
+		t.Errorf("errors = %v, want key %q", out.Errors, rel)
+	}
+}
+
+func mapKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
 func TestAnalyzeWithDepsSendsAbsoluteFilesAndKeepsCallerSpelling(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)

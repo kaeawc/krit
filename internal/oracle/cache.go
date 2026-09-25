@@ -99,7 +99,12 @@ func recordOracleDir(cacheDir string) {
 // common source sets as common sources. KMP files cached from the old flat
 // compile carry facts corrupted by conflicting actuals; krit-types entries
 // are not stamped with a compilation fingerprint, so only a bump drops them.
-const CacheVersion = 11
+// v12: persistent daemons are sent absolute paths and their facts are mapped
+// back to the caller's spelling. A relative `krit .` scan through a daemon
+// previously got facts under a different spelling than its misses, so the
+// analyzed files were written as jar-skipped poison entries (or were
+// analyzed against another project's sources sharing the relative key).
+const CacheVersion = 12
 
 // ApproximationFIRWholeCompilation marks entries written by krit-fir, whose
 // every run returns facts for the whole compilation.

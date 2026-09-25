@@ -8,8 +8,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/oracle"
 )
 
 // twoProjects returns two project roots that each hold src/main/kotlin, the
@@ -111,6 +114,85 @@ func TestConnectOrStartFirCheckDaemonDoesNotReuseAnotherProjectsDaemon(t *testin
 	}
 	if !strings.Contains(err.Error(), "java") {
 		t.Fatalf("expected a start failure, got %v", err)
+	}
+}
+
+// pipeFirDaemon connects a FirDaemon to respond, which answers each request.
+func pipeFirDaemon(t *testing.T, respond func(req firDaemonRequest) string) *FirDaemon {
+	t.Helper()
+	server, client := net.Pipe()
+	t.Cleanup(func() { _ = server.Close(); _ = client.Close() })
+	go func() {
+		sc := bufio.NewScanner(server)
+		sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+		for sc.Scan() {
+			var req firDaemonRequest
+			if err := json.Unmarshal(sc.Bytes(), &req); err != nil {
+				return
+			}
+			_, _ = server.Write([]byte(respond(req) + "\n"))
+		}
+	}()
+	reader := bufio.NewScanner(client)
+	reader.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	return &FirDaemon{conn: client, reader: reader, nextID: 1, started: true, shared: true}
+}
+
+// The oracle-backend RPCs send absolute paths and return facts keyed by the
+// caller's spelling, walked (unrequested) files and closure edges included.
+func TestFirOracleRPCsMapFactsToCallerSpelling(t *testing.T) {
+	proj, _ := twoProjects(t)
+	t.Chdir(proj)
+	root := filepath.Join("src", "main", "kotlin")
+	relA, relB := filepath.Join(root, "A.kt"), filepath.Join(root, "B.kt")
+	absA, absB := filepath.Join(proj, relA), filepath.Join(proj, relB)
+	var sent []firDaemonRequest
+	d := pipeFirDaemon(t, func(req firDaemonRequest) string {
+		sent = append(sent, req)
+		files := `"files":{"` + absA + `":{"package":"p"},"` + absB + `":{"package":"p"}},"dependencies":{}`
+		if req.Command == "analyzeWithDeps" {
+			return `{"id":` + strconv.FormatInt(req.ID, 10) + `,"result":{` + files + `},` +
+				`"cacheDeps":{"files":{"` + absB + `":{"depPaths":["` + absA + `"],"perFileDeps":{}}},"crashed":{"` + absB + `":"boom"}}}`
+		}
+		return `{"id":` + strconv.FormatInt(req.ID, 10) + `,"result":{` + files + `}}`
+	})
+	check := func(name string, files map[string]*oracle.File) {
+		t.Helper()
+		if files[relA] == nil || files[relB] == nil || len(files) != 2 {
+			t.Errorf("%s: files = %v, want %q and %q", name, files, relA, relB)
+		}
+	}
+
+	data, err := d.Analyze([]string{relA}, []string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("analyze", data.Files)
+	data, err = d.AnalyzeAll([]string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("analyzeAll", data.Files)
+	data, deps, err := d.AnalyzeWithDeps([]string{relA}, []string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("analyzeWithDeps", data.Files)
+	if e := deps.Files[relB]; e == nil || !reflect.DeepEqual(e.DepPaths, []string{relA}) || len(deps.Files) != 1 {
+		t.Errorf("cacheDeps.files = %v", deps.Files)
+	}
+	if _, ok := deps.Crashed[relB]; !ok || len(deps.Crashed) != 1 {
+		t.Errorf("cacheDeps.crashed = %v", deps.Crashed)
+	}
+	for _, req := range sent {
+		if !reflect.DeepEqual(req.SourceDirs, []string{filepath.Join(proj, root)}) {
+			t.Errorf("%s sourceDirs = %v", req.Command, req.SourceDirs)
+		}
+		for _, f := range req.Files {
+			if f.Path != absA {
+				t.Errorf("%s file = %q, want %q", req.Command, f.Path, absA)
+			}
+		}
 	}
 }
 

@@ -33,6 +33,10 @@ type Daemon struct {
 	// classpath this Daemon serves. MatchesRepo checks it against the
 	// current jar identity. Empty string means unknown.
 	sourcesHash string
+	// sourceDirs is this caller's spelling of the daemon's source roots.
+	// The daemon is started with (and reports files under) their absolute
+	// form; responses are mapped back through it (see requestSpelling).
+	sourceDirs []string
 
 	// Breaker state layers a soft-open under the started=false hard-fail.
 	// The hard-fail is permanent (set on process death); the breaker
@@ -42,6 +46,14 @@ type Daemon struct {
 	breakerMu       sync.Mutex
 	breakerFailures int
 	breakerOpenedAt time.Time
+}
+
+// requestSpelling absolutizes request files and returns the mapping from
+// the daemon's absolute paths, requested or walked from a source root, back
+// to this caller's spelling.
+func (d *Daemon) requestSpelling(files []string) ([]string, PathSpelling) {
+	abs, spelling := AbsoluteRequestPaths(files)
+	return abs, spelling.WithDirs(d.sourceDirs)
 }
 
 // daemonNow is the time source for breaker cooldown; tests override it.
@@ -104,8 +116,9 @@ func (d *Daemon) Analyze(files []string) (*Data, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	requested, spelling := d.requestSpelling(files)
 	params := map[string]interface{}{
-		"files": AbsolutePaths(files),
+		"files": requested,
 	}
 
 	result, err := d.sendResult("analyze", params)
@@ -113,7 +126,18 @@ func (d *Daemon) Analyze(files []string) (*Data, error) {
 		return nil, err
 	}
 
-	return unmarshalOracleData(result)
+	return unmarshalCallerOracleData(result, spelling)
+}
+
+// unmarshalCallerOracleData parses a daemon's oracle facts keyed by the
+// caller's spelling.
+func unmarshalCallerOracleData(result *json.RawMessage, spelling PathSpelling) (*Data, error) {
+	data, err := unmarshalOracleData(result)
+	if err != nil {
+		return nil, err
+	}
+	spelling.CallerData(data)
+	return data, nil
 }
 
 // AnalyzeAll sends a full analysis request for all files.
@@ -133,7 +157,8 @@ func (d *Daemon) AnalyzeAllWithCallFilter(callFilter *CallTargetFilterSummary) (
 		return nil, err
 	}
 
-	return unmarshalOracleData(result)
+	_, spelling := d.requestSpelling(nil)
+	return unmarshalCallerOracleData(result, spelling)
 }
 
 // AnalyzeFilesWithCallFilter asks the daemon to analyze only the listed
@@ -168,14 +193,15 @@ func (d *Daemon) AnalyzeFilesWithCallFilter(files []string, callFilter *CallTarg
 	if params == nil {
 		params = map[string]interface{}{}
 	}
-	params["files"] = AbsolutePaths(files)
+	requested, spelling := d.requestSpelling(files)
+	params["files"] = requested
 
 	result, err := d.sendResult("analyzeFiles", params)
 	if err != nil {
 		return nil, err
 	}
 
-	return unmarshalOracleData(result)
+	return unmarshalCallerOracleData(result, spelling)
 }
 
 // callFilterParams packs a CallTargetFilterSummary into the wire
@@ -421,11 +447,10 @@ func (d *Daemon) AnalyzePluginFile(
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	// krit-types looks path up in its session, which holds absolute paths;
-	// its findings carry that session path, as before.
+	requested, spelling := d.requestSpelling([]string{path})
 	params := map[string]interface{}{
 		"jars":    AbsolutePaths(jars),
-		"path":    AbsolutePath(path),
+		"path":    requested[0],
 		"source":  string(source),
 		"ruleIds": ruleIDs,
 	}
@@ -458,6 +483,10 @@ func (d *Daemon) AnalyzePluginFile(
 	if err := json.Unmarshal(*result, &out); err != nil {
 		return AnalyzePluginFileResult{}, fmt.Errorf("unmarshal analyzeFile response: %w", err)
 	}
+	for i := range out.Findings {
+		out.Findings[i].File = spelling.Caller(out.Findings[i].File)
+	}
+	out.Errors = CallerKeys(spelling, out.Errors)
 	return out, nil
 }
 
@@ -488,7 +517,7 @@ func (d *Daemon) AnalyzeWithDepsWithTimings(files []string, collectTimings bool,
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	requested, spelling := AbsoluteRequestPaths(files)
+	requested, spelling := d.requestSpelling(files)
 	params := map[string]interface{}{
 		"files":   requested,
 		"timings": collectTimings,
@@ -530,6 +559,11 @@ func (d *Daemon) AnalyzeWithDepsWithTimings(files []string, collectTimings bool,
 			return nil, nil, nil, fmt.Errorf("unmarshal timings: %w", err)
 		}
 	}
+
+	// The cache writer, the skipped-file poison pass and Oracle lookups all
+	// index by the caller's spelling of each path.
+	spelling.CallerData(oracleData)
+	spelling.CallerCacheDeps(&cacheDeps)
 
 	// If the daemon reported any files it couldn't find in its source
 	// module (e.g. files Go's CollectKtFiles walker includes but the

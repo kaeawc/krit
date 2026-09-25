@@ -11,7 +11,7 @@
 # apparmor profile so fanotify_init / fanotify_mark / open_by_handle_at
 # don't fail with EPERM. The Makefile target sets both.
 
-FROM golang:1.25-bookworm
+FROM golang:1.27-bookworm
 
 # fanotify_init with FAN_REPORT_DFID_NAME requires Linux 5.17+ and
 # CAP_SYS_ADMIN; open_by_handle_at additionally needs the kernel to

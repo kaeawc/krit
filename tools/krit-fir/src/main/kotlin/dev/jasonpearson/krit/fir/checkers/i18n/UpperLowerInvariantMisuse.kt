@@ -11,10 +11,20 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
+import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
+import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
+import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
+import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirAnonymousFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirReceiverParameterSymbol
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.FqName
+import org.jetbrains.kotlin.text
 import org.jetbrains.kotlin.toKtLightSourceElement
 import org.jetbrains.kotlin.util.getChildren
 
@@ -29,7 +39,9 @@ import org.jetbrains.kotlin.util.getChildren
 //   ASCII-invariant identifiers (`currencyCode`, `url`, `mimeType`, `hex`,
 //   ...) is skipped. The match is a plain substring match on the receiver
 //   text, exactly as Go does it, so `ghostName` is skipped because it contains
-//   `host`;
+//   `host`. A call on an implicit receiver gets the same exemption on the
+//   text that names that receiver (see implicitReceiverText); when no text
+//   names it, the call is not reported;
 // - the finding is reported on the line where the whole qualified call starts
 //   (the receiver's first line), as Go reports on its call_expression.
 //
@@ -43,11 +55,12 @@ import org.jetbrains.kotlin.util.getChildren
 //   report it.
 // - Recall: Go only sees calls with an explicit receiver and spelled
 //   `uppercase` / `lowercase`. FIR also reports the stdlib calls made on an
-//   implicit receiver (`with(s) { uppercase() }`, an extension body), through
-//   an import alias (`import kotlin.text.uppercase as up`) and spelled with
-//   backticks (`s.`uppercase`()`). An implicit-receiver call has no receiver
-//   text, so the ASCII-invariant exemption cannot apply to it:
-//   `with(currencyCode) { uppercase() }` is reported.
+//   implicit receiver (`with(s) { uppercase() }`, `s.run { uppercase() }`,
+//   an extension body), through an import alias
+//   (`import kotlin.text.uppercase as up`) and spelled with backticks
+//   (`s.`uppercase`()`). The ASCII-invariant exemption, a user opt-out,
+//   still applies to the implicit-receiver calls, so
+//   `with(currencyCode) { uppercase() }` is not reported.
 internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "UpperLowerInvariantMisuse"
     override val expressionCheckers = object : ExpressionCheckers() {
@@ -55,6 +68,11 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
     }
 
     private val kotlinText = FqName("kotlin.text")
+    private val kotlinPackage = FqName("kotlin")
+
+    // Stdlib scope functions whose lambda's receiver is the call's explicit
+    // receiver (`with` takes it as its first argument instead).
+    private val receiverLambdaScopes = setOf("run", "apply")
     private val methodNames = setOf("uppercase", "lowercase")
 
     // Go's containsASCIIInvariantIdentifier list, matched as substrings of
@@ -86,12 +104,61 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
 
         val source = expression.source ?: return
         val qualified = qualifiedCall(source)
-        if (qualified != null) {
+        val receiverText = if (qualified != null) {
             val receiver = significantChildren(qualified, source.treeStructure).firstOrNull() ?: return
-            val receiverText = source.treeStructure.toString(receiver).toString()
-            if (asciiInvariantIdentifiers.any { receiverText.contains(it) }) return
+            source.treeStructure.toString(receiver).toString()
+        } else {
+            implicitReceiverText(expression) ?: return
         }
+        if (asciiInvariantIdentifiers.any { receiverText.contains(it) }) return
         report(qualified?.let { sourceOf(it, source) } ?: source, message(name))
+    }
+
+    // The text that names the implicit receiver of [call], for the
+    // ASCII-invariant exemption Go applies to receiver text:
+    // - in the lambda of a stdlib scope function, the receiver argument as
+    //   written: `currencyCode` for `with(currencyCode) { .. }`,
+    //   `currencyCode.run { .. }` and `currencyCode.apply { .. }`;
+    // - in an extension function or property, its name, the label of its
+    //   receiver (`this@hexUpper` in `fun String.hexUpper()`).
+    // Null when nothing names the receiver (another lambda with receiver, a
+    // scope function called on an implicit receiver).
+    context(context: CheckerContext)
+    private fun implicitReceiverText(call: FirFunctionCall): String? {
+        var receiver = call.extensionReceiver ?: return null
+        while (receiver is FirSmartCastExpression) receiver = receiver.originalExpression
+        val thisReceiver = receiver as? FirThisReceiverExpression ?: return null
+        val parameter = thisReceiver.calleeReference.boundSymbol as? FirReceiverParameterSymbol ?: return null
+        return when (val owner = parameter.containingDeclarationSymbol) {
+            is FirAnonymousFunctionSymbol -> scopeFunctionReceiverText(owner)
+            is FirNamedFunctionSymbol -> owner.name.asString()
+            is FirPropertySymbol -> owner.name.asString()
+            else -> null
+        }
+    }
+
+    // The receiver argument of the stdlib scope function call that takes
+    // [lambda], as written.
+    context(context: CheckerContext)
+    private fun scopeFunctionReceiverText(lambda: FirAnonymousFunctionSymbol): String? {
+        val call = context.callsOrAssignments.asReversed().firstNotNullOfOrNull { statement ->
+            (statement as? FirFunctionCall)?.takeIf { candidate ->
+                candidate.argumentList.arguments.any { it.passesLambda(lambda) }
+            }
+        } ?: return null
+        val callableId = call.calleeReference.toResolvedCallableSymbol()?.callableId ?: return null
+        if (callableId.packageName != kotlinPackage || callableId.className != null) return null
+        val receiver = when (callableId.callableName.asString()) {
+            "with" -> call.argumentList.arguments.firstOrNull { !it.passesLambda(lambda) }
+            in receiverLambdaScopes -> call.explicitReceiver
+            else -> null
+        }
+        return receiver?.source?.text?.toString()
+    }
+
+    private fun FirExpression.passesLambda(lambda: FirAnonymousFunctionSymbol): Boolean {
+        val value = if (this is FirWrappedArgumentExpression) expression else this
+        return value is FirAnonymousFunctionExpression && value.anonymousFunction.symbol == lambda
     }
 
     private fun message(name: String) =

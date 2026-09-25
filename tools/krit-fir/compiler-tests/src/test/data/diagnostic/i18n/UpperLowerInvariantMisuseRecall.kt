@@ -21,13 +21,16 @@ fun aliased(userName: String): String = <!UpperLowerInvariantMisuse!>userName.do
 // resolves to kotlin.text.uppercase.
 fun backtick(userName: String): String = <!UpperLowerInvariantMisuse!>userName.`uppercase`()<!>
 
-// Deliberate bypass of Go's ASCII-invariant exemption. Go skips
-// `currencyCode.uppercase()` because the receiver text names an ASCII-only
-// value, but it never sees these implicit-receiver calls at all. FIR has no
-// receiver text to test, so it reports them: the stdlib uppercase() is called
-// without a Locale, which is what the message says.
-fun withInvariant(currencyCode: String): String = with(currencyCode) { <!UpperLowerInvariantMisuse!>uppercase()<!> }
+// Go misses these because it only reports calls with an explicit receiver.
+// The text that names the implicit receiver (the scope function's receiver
+// argument `userName`, the extension property's name `shouted`) names no
+// ASCII-invariant value, so the exemption does not apply.
+fun runReceiver(userName: String): String = userName.run { <!UpperLowerInvariantMisuse!>uppercase()<!> }
 
-fun runInvariant(currencyCode: String): String = currencyCode.run { <!UpperLowerInvariantMisuse!>uppercase()<!> }
+fun applyReceiver(userName: String): String = userName.apply { <!UpperLowerInvariantMisuse!>uppercase()<!> }
 
-fun String.hexUpper(): String = <!UpperLowerInvariantMisuse!>uppercase()<!>
+val String.shouted: String get() = <!UpperLowerInvariantMisuse!>uppercase()<!>
+
+// Go reports this: the explicit receiver text is `this`, which names no
+// ASCII-invariant value, and FIR matches it.
+fun explicitThis(currencyCode: String): String = with(currencyCode) { <!UpperLowerInvariantMisuse!>this.uppercase()<!> }

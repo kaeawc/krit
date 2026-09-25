@@ -1,11 +1,11 @@
-import * as crypto from 'crypto';
 import * as fs from 'fs';
-import * as https from 'https';
-import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions } from 'vscode-languageclient/node';
+import {
+    archiveName, detectPlatform, download, extractFile, lspBinaryName, releasesUrl, resolveReleaseTag, verifyChecksum,
+} from './release';
 
 let client: LanguageClient;
 let statusBarItem: vscode.StatusBarItem;
@@ -156,21 +156,8 @@ function findBinaryCandidates(): string[] {
     ];
 }
 
-function getPlatformSuffix(): string {
-    const platform = process.platform === 'darwin' ? 'darwin' :
-                     process.platform === 'win32' ? 'windows' : 'linux';
-    const arch = process.arch === 'arm64' ? 'arm64' : 'amd64';
-    return `${platform}-${arch}`;
-}
-
 async function downloadBinary(version: string, binDir: string, binPath: string): Promise<void> {
-    const suffix = getPlatformSuffix();
-    const ext = process.platform === 'win32' ? '.exe' : '';
-    const binaryName = `krit-lsp-${suffix}${ext}`;
-    const url = `https://github.com/kaeawc/krit/releases/download/${version}/${binaryName}`;
-    const checksumsUrl = `https://github.com/kaeawc/krit/releases/download/${version}/checksums.txt`;
-
-    fs.mkdirSync(binDir, { recursive: true });
+    const platform = detectPlatform();
 
     await vscode.window.withProgress(
         {
@@ -179,108 +166,29 @@ async function downloadBinary(version: string, binDir: string, binPath: string):
             cancellable: false,
         },
         async () => {
-            await downloadFile(url, binPath);
-            if (process.platform !== 'win32') {
-                fs.chmodSync(binPath, 0o755);
-            }
+            const tag = await resolveReleaseTag(version);
+            const archive = archiveName(tag, platform);
+            const baseUrl = `${releasesUrl}/download/${tag}`;
 
-            // Verify checksum (skip gracefully for dev builds)
-            const checksumOk = await verifyChecksum(binPath, checksumsUrl, binaryName);
-            if (checksumOk === false) {
-                fs.unlinkSync(binPath);
-                throw new Error('Checksum verification failed for krit-lsp binary');
+            const [archiveBytes, checksums] = await Promise.all([
+                download(`${baseUrl}/${archive}`),
+                download(`${baseUrl}/checksums.txt`),
+            ]);
+            verifyChecksum(archiveBytes, checksums.toString('utf-8'), archive);
+            const binary = extractFile(archiveBytes, archive, lspBinaryName(platform));
+
+            // Write to a temp file and rename so an interrupted install never
+            // leaves a truncated binary that ensureBinary() would pick up.
+            fs.mkdirSync(binDir, { recursive: true });
+            const tmpPath = `${binPath}.${process.pid}.tmp`;
+            try {
+                fs.writeFileSync(tmpPath, binary, { mode: 0o755 });
+                fs.renameSync(tmpPath, binPath);
+            } finally {
+                fs.rmSync(tmpPath, { force: true });
             }
         }
     );
 
     vscode.window.showInformationMessage('krit-lsp downloaded successfully.');
-}
-
-/**
- * Verify the SHA-256 checksum of a downloaded file against checksums.txt.
- * Returns true if verified, false if mismatch, undefined if checksums unavailable.
- */
-async function verifyChecksum(
-    binaryPath: string,
-    checksumsUrl: string,
-    archiveName: string,
-): Promise<boolean | undefined> {
-    let checksumsText: string;
-    try {
-        checksumsText = await downloadText(checksumsUrl);
-    } catch {
-        // checksums.txt not available (dev build) -- skip verification
-        return undefined;
-    }
-
-    const expectedLine = checksumsText.split('\n').find(l => l.includes(archiveName));
-    if (!expectedLine) {
-        return undefined;
-    }
-    const expected = expectedLine.split(/\s+/)[0];
-
-    const hash = crypto.createHash('sha256');
-    const data = fs.readFileSync(binaryPath);
-    hash.update(data);
-    const actual = hash.digest('hex');
-    return expected === actual;
-}
-
-function downloadText(url: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const request = https.get(url, (response) => {
-            if (response.statusCode === 301 || response.statusCode === 302) {
-                const redirectUrl = response.headers.location;
-                if (!redirectUrl) {
-                    reject(new Error('Redirect with no location header'));
-                    return;
-                }
-                downloadText(redirectUrl).then(resolve, reject);
-                return;
-            }
-            if (response.statusCode !== 200) {
-                reject(new Error(`Download failed: HTTP ${response.statusCode}`));
-                return;
-            }
-            const chunks: Buffer[] = [];
-            response.on('data', (chunk: Buffer) => chunks.push(chunk));
-            response.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
-        });
-        request.on('error', reject);
-    });
-}
-
-function downloadFile(url: string, dest: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const file = fs.createWriteStream(dest);
-        const request = https.get(url, (response) => {
-            // Handle redirects
-            if (response.statusCode === 301 || response.statusCode === 302) {
-                const redirectUrl = response.headers.location;
-                if (!redirectUrl) {
-                    reject(new Error('Redirect with no location header'));
-                    return;
-                }
-                file.close();
-                fs.unlinkSync(dest);
-                downloadFile(redirectUrl, dest).then(resolve, reject);
-                return;
-            }
-
-            if (response.statusCode !== 200) {
-                reject(new Error(`Download failed: HTTP ${response.statusCode}`));
-                return;
-            }
-
-            response.pipe(file);
-            file.on('finish', () => {
-                file.close();
-                resolve();
-            });
-        });
-        request.on('error', (err) => {
-            fs.unlink(dest, () => {});
-            reject(err);
-        });
-    });
 }

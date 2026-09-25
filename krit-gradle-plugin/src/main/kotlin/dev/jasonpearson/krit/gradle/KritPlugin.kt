@@ -19,11 +19,11 @@ import java.io.File
  * Usage:
  * ```
  * plugins {
- *     id("dev.jasonpearson.krit") version "0.1.0"
+ *     id("dev.jasonpearson.krit") version "<krit-version>"
  * }
  *
  * krit {
- *     toolVersion.set("0.2.0")
+ *     advanced { toolVersion.set("<krit-version>") } // defaults to the plugin's version
  *     config.set(file("krit.yml"))
  *     reports {
  *         sarif { required.set(true) }
@@ -327,7 +327,8 @@ class KritPlugin : Plugin<Project> {
     }
 
     companion object {
-        const val KRIT_DEFAULT_VERSION = "0.2.0"
+        /** krit release downloaded when `advanced.toolVersion` is unset: the plugin's own version. */
+        const val KRIT_DEFAULT_VERSION = KritVersion.VERSION
 
         /**
          * Category attribute value identifying a Krit custom-rule bundle

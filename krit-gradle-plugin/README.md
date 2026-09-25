@@ -1,6 +1,6 @@
 # Krit Gradle Plugin
 
-Gradle plugin that integrates the [krit](https://github.com/kaeawc/krit) Kotlin static analysis tool into your build. Krit is a Go binary that parses Kotlin with tree-sitter and runs 472 rules via single-pass AST dispatch, outputting JSON/SARIF/Checkstyle.
+Gradle plugin that integrates the [krit](https://github.com/kaeawc/krit) Kotlin static analysis tool into your build. Krit is a Go binary that parses Kotlin with tree-sitter and runs its built-in rule set via single-pass AST dispatch, outputting JSON/SARIF/Checkstyle.
 
 > **Multi-module repos:** for a single root config that covers every Kotlin /
 > Java / Android subproject, use the [settings plugin](../krit-settings-plugin/README.md)
@@ -57,7 +57,7 @@ For overrides most projects never need:
 ```kotlin
 krit {
     advanced {
-        toolVersion = "0.2.0"                       // pin the binary version
+        toolVersion = "0.2.0"                       // pin the binary version (defaults to the plugin version)
         binary = file("/usr/local/bin/krit")        // skip the download entirely
         parallel = 4                                // -j
         noCache = false                             // --no-cache

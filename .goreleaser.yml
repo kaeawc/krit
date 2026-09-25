@@ -7,7 +7,8 @@ project_name: krit
 # producing per-target archives, checksums, and signatures. The funnel
 # job downloads all dist/ outputs, merges checksums, re-signs the
 # combined checksum file, and hand-rolls the GitHub release create plus
-# the brew cask and scoop manifest commits to their respective tap repos.
+# the brew cask and scoop manifest commits to their respective tap repos
+# and the winget-pkgs submission (stable tags only).
 # That's why this config has neither a homebrew_casks nor scoops block,
 # and skips a release.github block — those publishers are driven by the
 # workflow rather than goreleaser.

@@ -20,6 +20,24 @@ All notable changes to Krit will be documented in this file.
 ### Changed
 - `krit daemon: ready` startup line now reports the resolved watcher
   backend (`watcher=fsnotify` / `watcher=fanotify` / `watcher=off`).
+- Homebrew, Scoop, and Maven Central (`krit-rule-api`) publishing only
+  runs for stable `vX.Y.Z` tags; nightly and release-candidate tags stop
+  at the GitHub prerelease.
+- The Gradle plugin's version is now the krit release it downloads by
+  default, instead of a separately hardcoded tool version.
+- winget manifests are generated on each stable release and submitted to
+  microsoft/winget-pkgs when a `WINGET_TOKEN` secret is configured.
+
+### Fixed
+- Gradle plugin binary download requested archives the release never
+  published (`krit-<os>-<arch>.tar.gz`) and could not unpack the Windows
+  zip. It now fetches `krit_<version>_<os>_<arch>` archives (including the
+  musl build on Alpine), extracts `.tar.gz` and `.zip`, and requires a
+  matching `checksums.txt` entry.
+- VS Code extension download requested a raw `krit-lsp-<os>-<arch>` binary
+  the release never published, and `krit.version: latest` built an invalid
+  URL. It now resolves the release tag, downloads and verifies the release
+  archive against `checksums.txt`, and extracts `krit-lsp`.
 
 ## [0.2.0] - 2026-05-11
 

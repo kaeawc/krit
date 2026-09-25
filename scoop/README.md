@@ -1,47 +1,32 @@
-# Scoop Bucket for Krit
+# Scoop bucket for krit
 
-This directory contains the Scoop manifest template for Krit.
+Krit publishes a Scoop manifest to the
+[`kaeawc/scoop-krit`](https://github.com/kaeawc/scoop-krit) bucket on every
+stable `vX.Y.Z` release. The `release` job in
+`.github/workflows/release.yml` runs `scripts/release/update-scoop-bucket.sh`,
+which renders `bucket/krit.json` with the release's Windows zip URL and
+SHA256 (read from the combined `checksums.txt`) and pushes it to the
+bucket. Prerelease tags (nightlies, release candidates) skip this step.
 
-## Setting Up the Bucket Repository
+## Install
 
-1. Create a new GitHub repository named `kaeawc/scoop-krit`.
-
-2. Copy the manifest into the repo:
-   ```bash
-   git clone https://github.com/kaeawc/scoop-krit.git
-   cp scoop/krit.json scoop-krit/bucket/krit.json
-   cd scoop-krit
-   git add bucket/krit.json
-   git commit -m "Add krit manifest"
-   git push origin main
-   ```
-
-3. After the first GitHub release is cut and real checksums are filled in,
-   users can install with:
-   ```powershell
-   scoop bucket add krit https://github.com/kaeawc/scoop-krit
-   scoop install krit
-   ```
-
-## Updating the Manifest
-
-Replace the `PLACEHOLDER` hash value with the actual SHA256 of the release zip before publishing:
 ```powershell
-Get-FileHash krit_0.1.0_windows_amd64.zip -Algorithm SHA256
+scoop bucket add krit https://github.com/kaeawc/scoop-krit
+scoop install krit
 ```
 
-## GoReleaser Integration
+## Bucket setup
 
-GoReleaser can auto-update this manifest on each release. Add to `.goreleaser.yaml`:
-```yaml
-scoops:
-  - repository:
-      owner: kaeawc
-      name: scoop-krit
-    folder: bucket
-    homepage: "https://github.com/kaeawc/krit"
-    description: "Go-first static analysis for Kotlin, Java, and Android"
-    license: MIT
+The release workflow needs a `SCOOP_BUCKET_TOKEN` repository secret
+holding a PAT with Contents: write on `kaeawc/scoop-krit`.
+
+## Manual publish
+
+If the release step failed after the GitHub release was created, rerun
+the script against that release's assets:
+
+```bash
+mkdir dist
+gh release download vX.Y.Z --repo kaeawc/krit --pattern checksums.txt --dir dist
+GH_TOKEN=<bucket PAT> TAG=vX.Y.Z REPO=kaeawc/krit bash scripts/release/update-scoop-bucket.sh
 ```
-
-With this configuration, GoReleaser will automatically push updated manifests to the bucket repository on every release.

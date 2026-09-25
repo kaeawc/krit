@@ -51,6 +51,9 @@ type firFixture struct {
 // for that rule must equal the Go rule's findings line for line (the count
 // per line; the Go rule runs in-process on the original fixture, with source
 // inference and no oracle). api.Registry decides whether a Go rule exists.
+// The CrossRule subtest holds every FIR rule to the same line-for-line
+// equality on every other rule's fixtures too, since the batch runs every
+// FIR rule on every fixture.
 //
 // All fixtures go through one krit-fir run, each rewritten into its own
 // package so their declarations cannot collide. A fixture with a compile
@@ -113,6 +116,77 @@ func TestFirFixtureParity(t *testing.T) {
 				}
 			}
 		})
+	}
+
+	t.Run("CrossRule", func(t *testing.T) {
+		checkCrossRuleParity(t, root, checked, fixtures, crashed, firByPath)
+	})
+}
+
+// firCrossRuleAllowlist lists (rule, fixture) pairs where a FIR rule's
+// findings on another rule's Go fixture may differ from its Go rule's,
+// because the difference is a reviewed divergence pinned in the krit-fir
+// golden data. Key: rule ID + "|" + repo-relative fixture path. Keep it
+// minimal: an entry must name the golden case, and an entry whose pair
+// agrees fails as stale.
+var firCrossRuleAllowlist = map[string]string{}
+
+// checkCrossRuleParity holds every FIR rule to its Go rule on every fixture
+// of the batch, not only the rule's own: runParityBatch compiles all
+// fixtures with every FIR rule enabled, so firByPath holds each rule's
+// findings on each fixture. Fixtures that are skipped or do not compile have
+// no FIR verdict and are left out, as in the per-rule check.
+func checkCrossRuleParity(t *testing.T, root string, rules []string, fixtures []firFixture, crashed map[string]string, firByPath map[string][]scanner.Finding) {
+	t.Helper()
+	var ids []string
+	for _, id := range rules {
+		// A FIR rule with no usable Go rule already fails its own subtest.
+		if rule := findGoRule(id); rule != nil && !rule.Needs.HasAny(projectScopeNeeds) {
+			ids = append(ids, id)
+		}
+	}
+	matched := map[string]bool{}
+	var mismatches []string
+	compared, withFindings := 0, 0
+	for _, f := range fixtures {
+		if _, broken := crashed[f.tmp]; broken || f.hasSkip {
+			continue
+		}
+		for _, id := range ids {
+			if id == f.rule {
+				continue // the rule's own fixture is checked by its subtest
+			}
+			goCounts := findingLineCounts(runGoRule(t, root, id, f.rel), id)
+			firCounts := map[int]int{}
+			for line, n := range findingLineCounts(firByPath[f.tmp], id) {
+				firCounts[line-f.lineOffset] += n
+			}
+			key := id + "|" + f.rel
+			compared++
+			if len(goCounts)+len(firCounts) > 0 {
+				withFindings++
+			}
+			if sameCounts(goCounts, firCounts) {
+				continue
+			}
+			if _, ok := firCrossRuleAllowlist[key]; ok {
+				matched[key] = true
+				continue
+			}
+			mismatches = append(mismatches, fmt.Sprintf("%s on %s (line -> findings): Go %v, FIR %v", id, f.rel, goCounts, firCounts))
+		}
+	}
+	if compared == 0 {
+		t.Fatal("cross-rule parity compared no (rule, fixture) pair")
+	}
+	t.Logf("cross-rule parity: %d (rule, fixture) pairs compared, %d with findings on either side, %d mismatches", compared, withFindings, len(mismatches))
+	for _, m := range mismatches {
+		t.Errorf("cross-rule FIR/Go parity mismatch: %s", m)
+	}
+	for key, reason := range firCrossRuleAllowlist {
+		if !matched[key] {
+			t.Errorf("firCrossRuleAllowlist entry %q (%s) no longer differs; remove it", key, reason)
+		}
 	}
 }
 

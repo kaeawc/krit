@@ -33,7 +33,7 @@ brew install --cask kaeawc/tap/krit
 scoop bucket add krit https://github.com/kaeawc/scoop-krit
 scoop install krit
 
-# Go (any platform; needs Go 1.25+ and a C compiler)
+# Go (any platform; needs Go 1.27+ and a C compiler)
 go install github.com/kaeawc/krit/cmd/krit@latest
 ```
 

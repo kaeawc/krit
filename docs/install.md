@@ -50,7 +50,7 @@ go install github.com/kaeawc/krit/cmd/krit-lsp@latest
 go install github.com/kaeawc/krit/cmd/krit-mcp@latest
 ```
 
-Requires Go 1.25+ and a C compiler (CGO is required by tree-sitter).
+Requires Go 1.27+ and a C compiler (CGO is required by tree-sitter).
 
 ## From source
 

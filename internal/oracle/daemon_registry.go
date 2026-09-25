@@ -88,10 +88,11 @@ func daemonPortFileName(sourcesHash string, slot int) string {
 // sorted, newline-joined sourceDirs list. Deterministic across
 // platforms — the sort makes the order of sourceDirs irrelevant to
 // the hash, so "sourcesA\nsourcesB" and "sourcesB\nsourcesA" are the
-// same repo.
+// same repo. Relative dirs are hashed in absolute form: the registry is
+// shared by every working directory, and "src/main/kotlin" names a
+// different tree in each project.
 func hashSources(sourceDirs []string) string {
-	sorted := make([]string, len(sourceDirs))
-	copy(sorted, sourceDirs)
+	sorted := AbsolutePaths(sourceDirs)
 	sort.Strings(sorted)
 	return hashutil.HashHex([]byte(strings.Join(sorted, "\n")))[:16]
 }
@@ -116,8 +117,8 @@ func daemonLegacyKey(jarPath string, sourceDirs []string, classpath ...string) s
 func daemonLegacySuffix(sourceDirs []string, classpath ...string) string {
 	key := hashSources(sourceDirs)
 	if len(classpath) > 0 {
-		// Order matters on a classpath, so hash it as given.
-		key += "-" + hashutil.HashHex([]byte(strings.Join(classpath, "\n")))[:8]
+		// Order matters on a classpath, so hash it in the given order.
+		key += "-" + hashutil.HashHex([]byte(strings.Join(AbsolutePaths(classpath), "\n")))[:8]
 	}
 	return key
 }
@@ -289,7 +290,24 @@ func retryOnHandshakeNoise(jarPath string, verbose bool, spawn func() (*Daemon, 
 	return spawn()
 }
 
+// appendDaemonJarArgs appends the jar and its daemon inputs, all absolute:
+// the daemon runs in DaemonWorkDir, not the caller's directory.
+func appendDaemonJarArgs(args []string, jarPath string, sourceDirs, classpath []string, daemonArgs ...string) []string {
+	args = append(args, "-jar", AbsolutePath(jarPath))
+	args = append(args, daemonArgs...)
+	if len(sourceDirs) > 0 {
+		args = append(args, "--sources", strings.Join(AbsolutePaths(sourceDirs), ","))
+	}
+	if len(classpath) > 0 {
+		args = append(args, "--classpath", strings.Join(AbsolutePaths(classpath), string(os.PathListSeparator)))
+	}
+	return args
+}
+
 func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, verbose bool) (*Daemon, error) {
+	// The daemon does not run in the caller's directory; the AOT/CDS
+	// startup-cache args and -jar must name the same absolute jar.
+	jarPath = AbsolutePath(jarPath)
 	javaPath, err := exec.LookPath("java")
 	if err != nil {
 		return nil, fmt.Errorf("java not found in PATH: %w", err)
@@ -298,19 +316,14 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 	args := buildJVMBaseArgs()
 	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgsFromEnv())
-	args = append(args, "-jar", jarPath, "--daemon")
-	if len(sourceDirs) > 0 {
-		args = append(args, "--sources", strings.Join(sourceDirs, ","))
-	}
-	if len(classpath) > 0 {
-		args = append(args, "--classpath", strings.Join(classpath, string(os.PathListSeparator)))
-	}
+	args = appendDaemonJarArgs(args, jarPath, sourceDirs, classpath, "--daemon")
 
 	if verbose {
 		reporter().Verbosef("verbose: Starting krit-types daemon: %s %s\n", javaPath, strings.Join(args, " "))
 	}
 
 	cmd := exec.CommandContext(context.Background(), javaPath, args...)
+	cmd.Dir = DaemonWorkDir()
 	logFile := openDaemonLogFile(cmd, verbose)
 
 	stdinPipe, err := cmd.StdinPipe()
@@ -333,11 +346,12 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 	scanner.Buffer(make([]byte, 0, 64*1024), 512*1024*1024)
 
 	d := &Daemon{
-		cmd:     cmd,
-		stdin:   stdinPipe,
-		stdout:  scanner,
-		logFile: logFile,
-		nextID:  1,
+		cmd:        cmd,
+		stdin:      stdinPipe,
+		stdout:     scanner,
+		logFile:    logFile,
+		nextID:     1,
+		sourceDirs: sourceDirs,
 	}
 
 	if _, err := waitPipeReady(cmd, scanner); err != nil {
@@ -392,6 +406,7 @@ func connectExistingDaemonSlot(jarPath string, sourceDirs []string, verbose bool
 		shared:      true,
 		slot:        slot,
 		sourcesHash: info.SourcesHash,
+		sourceDirs:  sourceDirs,
 	}
 
 	// Verify the daemon is responsive with a ping
@@ -580,6 +595,9 @@ func StartDaemonWithPortSlot(jarPath string, sourceDirs []string, classpath []st
 }
 
 func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath []string, verbose bool, slot int) (*Daemon, error) {
+	// The daemon does not run in the caller's directory; the AOT/CDS
+	// startup-cache args and -jar must name the same absolute jar.
+	jarPath = AbsolutePath(jarPath)
 	// Capture the jar identity before the JVM opens the jar. If the jar is
 	// replaced during startup, the daemon is registered under the identity
 	// observed first, so the next caller sees a mismatch and restarts rather
@@ -594,19 +612,14 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 	args := buildJVMBaseArgs()
 	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgsFromEnv())
-	args = append(args, "-jar", jarPath, "--daemon", "--port", "0")
-	if len(sourceDirs) > 0 {
-		args = append(args, "--sources", strings.Join(sourceDirs, ","))
-	}
-	if len(classpath) > 0 {
-		args = append(args, "--classpath", strings.Join(classpath, string(os.PathListSeparator)))
-	}
+	args = appendDaemonJarArgs(args, jarPath, sourceDirs, classpath, "--daemon", "--port", "0")
 
 	if verbose {
 		reporter().Verbosef("verbose: Starting persistent krit-types daemon slot %d: %s %s\n", slot, javaPath, strings.Join(args, " "))
 	}
 
 	cmd := exec.CommandContext(context.Background(), javaPath, args...)
+	cmd.Dir = DaemonWorkDir()
 	logFile := openDaemonLogFile(cmd, verbose)
 
 	stdoutPipe, err := cmd.StdoutPipe()
@@ -655,6 +668,7 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 		shared:      false,
 		slot:        slot,
 		sourcesHash: srcHash,
+		sourceDirs:  sourceDirs,
 	}
 
 	return d, nil

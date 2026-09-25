@@ -98,7 +98,10 @@ func daemonRequestTimeout() time.Duration {
 	return 10 * time.Minute
 }
 
-// StartFirDaemonWithPort launches krit-fir.jar in TCP daemon mode.
+// StartFirDaemonWithPort launches krit-fir.jar in TCP daemon mode. The
+// daemon runs in oracle.DaemonWorkDir: it may outlive this invocation and
+// serve krit runs from other directories, so every path it is sent is
+// absolute (see Check) and nothing may resolve against its working directory.
 func StartFirDaemonWithPort(jarPath string, verbose bool) (*FirDaemon, error) {
 	javaPath, err := exec.LookPath("java")
 	if err != nil {
@@ -109,7 +112,7 @@ func StartFirDaemonWithPort(jarPath string, verbose bool) (*FirDaemon, error) {
 		"-XX:+UseG1GC",
 		"-XX:+UseStringDeduplication",
 		"-Xms512m",
-		"-jar", jarPath,
+		"-jar", oracle.AbsolutePath(jarPath),
 		"--daemon", "--port", "0",
 	}
 
@@ -118,6 +121,7 @@ func StartFirDaemonWithPort(jarPath string, verbose bool) (*FirDaemon, error) {
 	}
 
 	cmd := exec.CommandContext(context.Background(), javaPath, args...)
+	cmd.Dir = oracle.DaemonWorkDir()
 	logFile, logPath, err := fsutil.CreateUserKritFile("krit-fir-daemon.log")
 	if err != nil {
 		cmd.Stderr = os.Stderr
@@ -261,14 +265,17 @@ func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string
 	id := d.nextID
 	d.nextID++
 
+	// The daemon echoes request paths back; send them absolute and restore
+	// the caller's spelling in the response, which Go indexes by it.
+	requested, spelling := absoluteFileRefs(files)
 	req := firDaemonRequest{
 		ID:          id,
 		Command:     "check",
-		Files:       files,
-		SourceDirs:  sourceDirs,
-		Classpath:   classpath,
+		Files:       requested,
+		SourceDirs:  oracle.AbsolutePaths(sourceDirs),
+		Classpath:   oracle.AbsolutePaths(classpath),
 		Rules:       rules,
-		TestFiles:   testFiles,
+		TestFiles:   oracle.AbsolutePaths(testFiles),
 		RuleConfigs: wireRuleConfigs(ruleConfigs),
 	}
 	data, err := json.Marshal(req)
@@ -320,7 +327,36 @@ func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string
 	if resp.ID != id {
 		return nil, fmt.Errorf("fir response ID mismatch: expected %d, got %d", id, resp.ID)
 	}
+	resp.toCallerSpelling(spelling)
 	return &resp, nil
+}
+
+// absoluteFileRefs returns refs with absolute paths and the mapping back to
+// the caller's spelling.
+func absoluteFileRefs(refs []fileRef) ([]fileRef, oracle.PathSpelling) {
+	paths := make([]string, len(refs))
+	for i, ref := range refs {
+		paths[i] = ref.Path
+	}
+	abs, spelling := oracle.AbsoluteRequestPaths(paths)
+	out := make([]fileRef, len(refs))
+	for i, ref := range refs {
+		out[i] = fileRef{Path: abs[i], ContentHash: ref.ContentHash}
+	}
+	return out, spelling
+}
+
+// toCallerSpelling re-keys every path in r from the absolute form sent to
+// the daemon to the caller's spelling.
+func (r *CheckResponse) toCallerSpelling(spelling oracle.PathSpelling) {
+	for i := range r.Findings {
+		r.Findings[i].Path = spelling.Caller(r.Findings[i].Path)
+	}
+	r.Crashed = oracle.CallerKeys(spelling, r.Crashed)
+	r.ErrorFiles = oracle.CallerKeys(spelling, r.ErrorFiles)
+	for rule, byPath := range r.RuleErrors {
+		r.RuleErrors[rule] = oracle.CallerKeys(spelling, byPath)
+	}
 }
 
 // Ping verifies the daemon is responsive.
@@ -617,8 +653,8 @@ func firRegistryKeyFor(role, jarPath string, sourceDirs, classpath []string) str
 func firRegistryPrefix(role, jarPath string, sourceDirs, classpath []string) string {
 	key := hashFirSources(sourceDirs)
 	if len(classpath) > 0 {
-		// Order matters on a classpath, so hash it as given.
-		key += "-" + hashutil.HashHex([]byte(strings.Join(classpath, "\n")))[:8]
+		// Order matters on a classpath, so hash it in the given order.
+		key += "-" + hashutil.HashHex([]byte(strings.Join(oracle.AbsolutePaths(classpath), "\n")))[:8]
 	}
 	if role != "" {
 		key = role + "-" + key
@@ -626,10 +662,11 @@ func firRegistryPrefix(role, jarPath string, sourceDirs, classpath []string) str
 	return key + "-" + oracle.JarPathTag(jarPath) + "@"
 }
 
-// hashFirSources returns a 16-hex-char fingerprint of sorted sourceDirs.
+// hashFirSources returns a 16-hex-char fingerprint of sorted sourceDirs in
+// absolute form. The registry is shared by every working directory, so the
+// relative "src/main/kotlin" of two projects must not name one daemon.
 func hashFirSources(sourceDirs []string) string {
-	sorted := make([]string, len(sourceDirs))
-	copy(sorted, sourceDirs)
+	sorted := oracle.AbsolutePaths(sourceDirs)
 	sort.Strings(sorted)
 	return hashutil.HashHex([]byte(strings.Join(sorted, "\n")))[:16]
 }

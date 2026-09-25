@@ -46,7 +46,7 @@ func (d *FirDaemon) Analyze(files, sourceDirs, classpath []string) (*oracle.Data
 	if len(files) == 0 {
 		command = "analyzeAll"
 	}
-	return d.runAnalyze(command, toFileRefs(files), sourceDirs, classpath)
+	return d.runAnalyze(command, files, sourceDirs, classpath)
 }
 
 // AnalyzeAll is the explicit form of [Analyze] with no per-file slice
@@ -66,12 +66,13 @@ func (d *FirDaemon) AnalyzeWithDeps(files, sourceDirs, classpath []string) (*ora
 	}
 	id := d.nextID
 	d.nextID++
+	refs, spelling := toFileRefs(files, sourceDirs)
 	req := firDaemonRequest{
 		ID:         id,
 		Command:    "analyzeWithDeps",
-		Files:      toFileRefs(files),
-		SourceDirs: sourceDirs,
-		Classpath:  classpath,
+		Files:      refs,
+		SourceDirs: oracle.AbsolutePaths(sourceDirs),
+		Classpath:  oracle.AbsolutePaths(classpath),
 	}
 	line, err := d.sendAndReceive(req)
 	if err != nil {
@@ -87,6 +88,9 @@ func (d *FirDaemon) AnalyzeWithDeps(files, sourceDirs, classpath []string) (*ora
 	if resp.ID != id {
 		return nil, nil, fmt.Errorf("fir response ID mismatch: expected %d, got %d", id, resp.ID)
 	}
+	spelling.CallerData(resp.Result)
+	spelling.CallerCacheDeps(resp.CacheDeps)
+	resp.Errors = oracle.CallerKeys(spelling, resp.Errors)
 	if resp.Result != nil && len(resp.Errors) > 0 {
 		// Surface fatal per-file errors by returning a non-nil Data
 		// alongside the err so the caller can decide whether to
@@ -101,7 +105,7 @@ func (d *FirDaemon) AnalyzeWithDeps(files, sourceDirs, classpath []string) (*ora
 // runAnalyze is the shared body of Analyze / AnalyzeAll. Held lock,
 // id alloc, TCP send, response parse all live here so the public
 // methods stay declarative.
-func (d *FirDaemon) runAnalyze(command string, files []fileRef, sourceDirs, classpath []string) (*oracle.Data, error) {
+func (d *FirDaemon) runAnalyze(command string, files, sourceDirs, classpath []string) (*oracle.Data, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if !d.started {
@@ -109,12 +113,13 @@ func (d *FirDaemon) runAnalyze(command string, files []fileRef, sourceDirs, clas
 	}
 	id := d.nextID
 	d.nextID++
+	refs, spelling := toFileRefs(files, sourceDirs)
 	req := firDaemonRequest{
 		ID:         id,
 		Command:    command,
-		Files:      files,
-		SourceDirs: sourceDirs,
-		Classpath:  classpath,
+		Files:      refs,
+		SourceDirs: oracle.AbsolutePaths(sourceDirs),
+		Classpath:  oracle.AbsolutePaths(classpath),
 	}
 	line, err := d.sendAndReceive(req)
 	if err != nil {
@@ -130,6 +135,7 @@ func (d *FirDaemon) runAnalyze(command string, files []fileRef, sourceDirs, clas
 	if resp.ID != id {
 		return nil, fmt.Errorf("fir response ID mismatch: expected %d, got %d", id, resp.ID)
 	}
+	spelling.CallerData(resp.Result)
 	return resp.Result, nil
 }
 
@@ -180,13 +186,19 @@ func (d *FirDaemon) sendAndReceive(req firDaemonRequest) (string, error) {
 	}
 }
 
-func toFileRefs(paths []string) []fileRef {
+// toFileRefs builds absolute file refs, since the daemon does not share the
+// caller's working directory (see StartFirDaemonWithPort), and returns the
+// mapping from the paths the daemon reports (requested files, and files
+// walked from sourceDirs) back to the caller's spelling.
+func toFileRefs(paths, sourceDirs []string) ([]fileRef, oracle.PathSpelling) {
+	abs, spelling := oracle.AbsoluteRequestPaths(paths)
+	spelling = spelling.WithDirs(sourceDirs)
 	if len(paths) == 0 {
-		return nil
+		return nil, spelling
 	}
-	out := make([]fileRef, len(paths))
-	for i, p := range paths {
+	out := make([]fileRef, len(abs))
+	for i, p := range abs {
 		out[i] = fileRef{Path: p}
 	}
-	return out
+	return out, spelling
 }

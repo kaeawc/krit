@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.releaseengineering
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -23,7 +24,6 @@ import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import java.io.File
 
 /**
  * Flags console output in production code: a call to `kotlin.io.println` /
@@ -60,8 +60,8 @@ import java.io.File
  *   imported as `out`), an import alias of the built-in or of `System`, a
  *   typealias of `System`, and a parenthesized `(System.out)` receiver. Each
  *   of those resolves to console output and is reported.
- * - Paths: the directory markers are matched on the path relative to the
- *   working directory, spelled as Go spells it (see [isNonProductionPath]).
+ * - Paths: the directory markers are matched on the scan's own spelling of
+ *   the path, the string the Go rule tests (see [isNonProductionPath]).
  */
 internal object PrintlnInProduction : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "PrintlnInProduction"
@@ -91,7 +91,7 @@ internal object PrintlnInProduction : FirFunctionCallChecker(MppCheckerKind.Comm
         if (callee.name !in PRINT_NAMES) return
         if (!isConsolePrint(expression, callee.callableId)) return
         if (isInTestFile()) return
-        if (isNonProductionPath(context.containingFile?.path)) return
+        if (isNonProductionPath(containingScanPath())) return
         if (isExemptEnclosingFunction()) return
         report(expression.source, MESSAGE)
     }
@@ -139,66 +139,17 @@ internal object PrintlnInProduction : FirFunctionCallChecker(MppCheckerKind.Comm
     /**
      * Go skips test files, Gradle build scripts, `.kts` scripts, and paths
      * containing `/samples/`, `/sample/`, `/demos/` or `/demo/` (lowercased).
-     * Go tests the scan's own spelling of the path, usually relative to the
-     * working directory krit (and so krit-fir) runs in (`samples/proj/src/X.kt`
-     * for `krit samples/proj`); the compiler sees the absolute path. A path
-     * below the working directory is therefore cut down to that relative
-     * spelling, without a leading `/`, so a marker counts only below the first
-     * relative component, as in Go, and a project checked out under a
-     * `samples` directory is not skipped wholesale. The prefix is compared
-     * first as spelled, then in canonical form, because krit spells request
-     * paths from `$PWD` while the JVM's `user.dir` is canonical, so a working
-     * directory reached through a symlink (or macOS `/tmp`) still matches. A
-     * path outside the working directory is matched whole, as Go matches an
-     * absolute path it was given.
-     *
-     * Known limitation: `user.dir` is the working directory of the krit
-     * process that launched the persistent krit-fir daemon, and neither the
-     * daemon registry key nor the FIR cache fingerprint includes the caller's
-     * working directory. A later `krit --fir` run from another directory that
-     * reuses the daemon, or a cached verdict, is scoped against the first
-     * run's directory. Exact parity needs a Go-computed list of non-production
-     * files in the check request, like `testFiles`.
+     * [path] is the file's scan path ([FirRule.scanPath]): the exact string
+     * the Go rule tests, usually relative to the directory krit ran in
+     * (`samples/proj/src/X.kt` for `krit samples/proj`, which Go does not
+     * skip). The markers are matched on it as Go matches them, with no
+     * normalization.
      */
-    internal fun isNonProductionPath(path: String?, workingDirectory: String? = System.getProperty("user.dir")): Boolean {
-        if (path == null) return false
-        val normalized = normalize(path)
-        val base = normalized.substringAfterLast('/')
-        if (base == "build.gradle" || normalized.endsWith(".kts")) return true
-        val scoped = workingDirectory?.let { relativeTo(path, it) } ?: normalized
-        val lower = scoped.lowercase()
+    internal fun isNonProductionPath(path: String?): Boolean {
+        if (path.isNullOrEmpty()) return false
+        val base = path.substringAfterLast('/').substringAfterLast('\\')
+        if (base == "build.gradle" || base.endsWith(".kts")) return true
+        val lower = path.lowercase()
         return NON_PRODUCTION_DIRECTORIES.any { it in lower }
-    }
-
-    // The part of [path] below [workingDirectory], without a leading `/`, or
-    // null when it is not below it in either the raw or the canonical spelling.
-    private fun relativeTo(path: String, workingDirectory: String): String? {
-        stripRoot(normalize(path), normalize(workingDirectory))?.let { return it }
-        val root = canonicalRoot(workingDirectory) ?: return null
-        val canonical = canonical(path) ?: return null
-        return stripRoot(canonical, root)
-    }
-
-    private fun stripRoot(path: String, root: String): String? {
-        val prefix = root.trimEnd('/') + "/"
-        return if (path.startsWith(prefix)) path.substring(prefix.length) else null
-    }
-
-    private fun normalize(path: String) = path.replace('\\', '/')
-
-    private fun canonical(path: String): String? {
-        val file = File(path)
-        if (!file.isAbsolute) return null
-        return runCatching { normalize(file.canonicalPath) }.getOrNull()
-    }
-
-    // The working directory rarely changes, so its canonical form is cached.
-    @Volatile private var canonicalRootCache: Pair<String, String?>? = null
-
-    private fun canonicalRoot(workingDirectory: String): String? {
-        canonicalRootCache?.let { (raw, resolved) -> if (raw == workingDirectory) return resolved }
-        val resolved = canonical(workingDirectory)
-        canonicalRootCache = workingDirectory to resolved
-        return resolved
     }
 }

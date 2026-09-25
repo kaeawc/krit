@@ -249,7 +249,9 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 } else {
                     session
                 }
-                val result = activeSession.check(request.id, request.files, request.rules.toSet(), request.ruleConfigs, request.testFiles)
+                val result = activeSession.check(
+                    request.id, request.files, request.rules.toSet(), request.ruleConfigs, request.testFiles, request.scanPaths,
+                )
                 val response = buildCheckResponse(result)
                 if (needsRebuild) {
                     RequestResult.SessionRebuilt(response, activeSession)
@@ -369,6 +371,9 @@ data class CheckRequest(
     // Requested files krit classifies as test files (scanner.IsTestFile on the
     // Go side), spelled as in `files`; exposed to checkers via FirRule.isTestFile.
     val testFiles: Set<String> = emptySet(),
+    // Requested file (spelled as in `files`) -> the scan's own spelling of it,
+    // when the two differ; exposed to checkers via FirRule.scanPath.
+    val scanPaths: Map<String, String> = emptyMap(),
     // Plugin-rule jar paths, matching krit-types' `"jars"` array in
     // `listPlugins` / `analyzeFile` requests.
     val pluginJars: List<String> = emptyList(),
@@ -388,10 +393,12 @@ data class CheckRequest(
 fun parseRequest(request: String): CheckRequest {
     val ruleConfigs = parseFirRuleConfigs(request)
     val testFiles = parseFirTestFiles(request)
+    val scanPaths = parseFirScanPaths(request)
     // Field extraction below is nest-blind, and rule option names are
     // user-chosen, so blank out the ruleConfigs object first: an option named
     // `classpath` or `path` must never be read as the request's own field.
-    val json = withoutObjectBlock(request, "ruleConfigs")
+    // The scanPaths object holds nothing but paths; blank it too.
+    val json = withoutObjectBlock(withoutObjectBlock(request, "ruleConfigs"), "scanPaths")
     val id = extractLong(json, "id") ?: throw IllegalArgumentException("Missing 'id' field")
     // Accept either `command` (krit-fir's native shape) or `method` (the
     // oracle.Daemon shape used by internal/oracle/daemon.go when it routes
@@ -413,7 +420,10 @@ fun parseRequest(request: String): CheckRequest {
     val source = extractString(json, "source")
     val files = extractFileRefs(json)
     val payloads = if (command == "analyzeFile") ProjectPayloads.parse(json) else ProjectPayloads.EMPTY
-    return CheckRequest(id, command, files, sourceDirs, classpath, rules, ruleConfigs, testFiles, pluginJars, path, source, ruleIds, payloads)
+    return CheckRequest(
+        id, command, files, sourceDirs, classpath, rules, ruleConfigs, testFiles, scanPaths,
+        pluginJars, path, source, ruleIds, payloads,
+    )
 }
 
 private fun withoutObjectBlock(json: String, key: String): String {

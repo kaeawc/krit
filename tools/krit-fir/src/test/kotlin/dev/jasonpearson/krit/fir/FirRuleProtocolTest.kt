@@ -102,6 +102,38 @@ class FirRuleProtocolTest {
         assertEquals(emptySet(), parseRequest("""{"id":5,"command":"check","files":[]}""").testFiles)
     }
 
+    @Test fun wireRequestScanPathsReachFirRuleScanPath() {
+        val spelled = tmp.resolve("samples/proj/src/A.kt").toFile().apply {
+            parentFile.mkdirs()
+            writeText("fun protocolProbe() {}\nfun use() { protocolProbe() }\n")
+        }
+        val unspelled = tmp.resolve("B.kt").toFile().apply { writeText("fun use2() { protocolProbe() }\n") }
+        val stdlib = java.io.File(kotlin.Unit::class.java.protectionDomain.codeSource.location.toURI()).absolutePath
+        val session = AnalysisSession(listOf(tmp.toString()), listOf(stdlib))
+        // Same shape internal/firchecks marshals: scanPaths is keyed by the
+        // path as spelled in files, and only lists files whose scan spelling
+        // differs.
+        val line = """{"id":9,"command":"check","files":[{"path":${jsonStr(spelled.absolutePath)}},""" +
+            """{"path":${jsonStr(unspelled.absolutePath)}}],"rules":["ProtocolProbe"],""" +
+            """"scanPaths":{${jsonStr(spelled.absolutePath)}:"samples/proj/src/A.kt"},""" +
+            """"ruleConfigs":{"ProtocolProbe":{"tag":"t","showScanPath":true}}}"""
+        val response = (handleRequestLine(line, session, System.currentTimeMillis()) as RequestResult.Response).json
+        assertTrue("configured: t scan=samples/proj/src/A.kt" in response, response)
+        assertTrue("configured: t scan=${unspelled.absolutePath}" in response, "no scan spelling: as requested: $response")
+    }
+
+    @Test fun checkRequestParsesScanPathsAtTopLevelOnly() {
+        val request = parseRequest(
+            """{"id":7,"command":"check","files":[{"path":"/p/samples/[id]/A.kt"},{"path":"/p/B.kt"}],""" +
+                """"scanPaths":{"/p/samples/[id]/A.kt":"samples/[id]/A.kt"},""" +
+                """"ruleConfigs":{"R":{"scanPaths":{"/p/B.kt":"B.kt"}}}}""",
+        )
+        assertEquals(mapOf("/p/samples/[id]/A.kt" to "samples/[id]/A.kt"), request.scanPaths)
+        assertEquals(listOf("/p/samples/[id]/A.kt", "/p/B.kt"), request.files.map { it.path })
+        assertEquals("check", request.command)
+        assertEquals(emptyMap(), parseRequest("""{"id":8,"command":"check","files":[]}""").scanPaths)
+    }
+
     @Test fun compileContextMatchesTestFilesByRequestOrCanonicalSpelling() {
         val real = tmp.resolve("real").toFile().apply { mkdirs() }
         val file = real.resolve("T.kt").apply { writeText("") }

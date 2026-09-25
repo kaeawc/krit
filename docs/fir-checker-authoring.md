@@ -119,6 +119,31 @@ test file. To test the skip, pass `testFiles` to `KritFirProbe.compile` (see
 `StateFlowMutableLeakTestFileTest`). The classification is part of the FIR
 cache fingerprint, so a change to the test paths invalidates cached verdicts.
 
+### Go path heuristics
+
+If the Go rule tests other markers in `file.Path` (`/samples/`, `/demo/`,
+`build.gradle`, `.kts`, ...), apply them to `containingScanPath()` inside
+`check`, or to `scanPath(path)` when you already have the file path:
+
+```kotlin
+if (isNonProductionPath(containingScanPath())) return
+```
+
+Never apply them to the compiler's path (`context.containingFile?.path`). Go
+tests the scan's own spelling of the file, usually relative to the directory
+krit ran in (`samples/proj/src/X.kt` for `krit samples/proj`), while the
+compiler sees the absolute path, which also holds every directory above the
+scan root, so a checkout under a `samples` directory would be skipped
+wholesale. The Go FIR pass sends each requested file's scan spelling in the
+check request as `scanPaths` (only where it differs from the requested
+absolute path). `scanPath` maps the compiler's spelling back to the requested
+file (as spelled, then canonical, like `isTestFile`) and returns its scan
+spelling, falling back to the requested path. Outside a check request it
+returns the path unchanged. Match the markers on that string exactly as the Go
+rule does, with no normalization. To test it, pass `scanPaths` to
+`KritFirProbe.compile` (see `PrintlnInProductionFilesTest`). The scan
+spellings are part of the FIR cache fingerprint.
+
 ## 5. Options
 
 - Read options with `config()`. It returns the Go rule's options keyed by the Go
@@ -157,7 +182,13 @@ All tests live under `tools/krit-fir/compiler-tests/src/test/`.
      jar against the same stubs. For each line, the number of FIR findings
      must equal the number of findings from the in-process Go rule, which runs
      with source inference and no oracle. `api.Registry` decides whether the
-     Go rule exists.
+     Go rule exists. Its `CrossRule` subtest applies the same line-for-line
+     check to every FIR rule on every other rule's fixtures, since the batch
+     runs every rule on every fixture: a checker that fires on code another
+     fixture happens to contain (a `println`, a `catch` chain) must agree
+     with its Go rule there too. A difference that is a reviewed divergence
+     pinned in golden data goes in `firCrossRuleAllowlist` with the golden
+     case as its reason.
 
   A fixture must compile cleanly: the failure lists the compiler errors.
   Library and platform symbols belong in the stubs. You can declare helpers

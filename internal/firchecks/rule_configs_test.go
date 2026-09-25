@@ -37,7 +37,7 @@ func TestCheckSendsConfiguredRuleOptionsAsRuleConfigs(t *testing.T) {
 	ruleConfigs := RuleConfigs{"InjectDispatcher": cfg.RuleOptions("coroutines", "InjectDispatcher")}
 
 	d, requests := fakeFirDaemon(t, `{"id":1,"succeeded":1,"skipped":0,"findings":[],"rules":[],"crashed":{}}`)
-	if _, err := d.Check([]fileRef{{Path: "/src/A.kt"}}, nil, nil, []string{"InjectDispatcher"}, ruleConfigs, nil); err != nil {
+	if _, err := d.Check([]fileRef{{Path: "/src/A.kt"}}, nil, nil, []string{"InjectDispatcher"}, ruleConfigs, FileFacts{}); err != nil {
 		t.Fatalf("Check: %v", err)
 	}
 	var sent struct {
@@ -59,7 +59,7 @@ func TestCheckSendsConfiguredRuleOptionsAsRuleConfigs(t *testing.T) {
 
 func TestCheckOmitsRuleConfigsWhenNoneConfigured(t *testing.T) {
 	d, requests := fakeFirDaemon(t, `{"id":1,"succeeded":0,"skipped":0,"findings":[],"rules":[],"crashed":{}}`)
-	if _, err := d.Check(nil, nil, nil, []string{"A"}, RuleConfigs{"A": {}}, nil); err != nil {
+	if _, err := d.Check(nil, nil, nil, []string{"A"}, RuleConfigs{"A": {}}, FileFacts{}); err != nil {
 		t.Fatalf("Check: %v", err)
 	}
 	var sent map[string]json.RawMessage
@@ -78,7 +78,7 @@ func TestCheckDecodesEscapedControlCharactersInMessages(t *testing.T) {
 		`"rule":"InjectDispatcher","severity":"warning","message":"a\nb\r\tc\u0001\"q\\","confidence":1.0}],` +
 		`"rules":["InjectDispatcher"],"crashed":{"/src/B.kt":"boom\nat B.kt:1"}}`
 	d, _ := fakeFirDaemon(t, response)
-	resp, err := d.Check(nil, nil, nil, []string{"InjectDispatcher"}, nil, nil)
+	resp, err := d.Check(nil, nil, nil, []string{"InjectDispatcher"}, nil, FileFacts{})
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -105,9 +105,9 @@ func TestFirFingerprintChangesWithRuleOptions(t *testing.T) {
 	optsA := func(limit int) RuleConfigs {
 		return RuleConfigs{"A": {"limit": limit, "names": []any{"x"}}, "B": {"flag": true}}
 	}
-	first := FirInvocationFingerprint(nil, jar, rules, optsA(1), nil)
+	first := FirInvocationFingerprint(nil, jar, rules, optsA(1), FileFacts{})
 	for i := 0; i < 20; i++ { // map iteration order must not matter
-		if again := FirInvocationFingerprint(nil, jar, rules, optsA(1), nil); again != first {
+		if again := FirInvocationFingerprint(nil, jar, rules, optsA(1), FileFacts{}); again != first {
 			t.Fatal("fingerprint is not deterministic for identical options")
 		}
 	}
@@ -115,14 +115,14 @@ func TestFirFingerprintChangesWithRuleOptions(t *testing.T) {
 	if hits, _ := ClassifyFilesForFingerprint(cacheDir, []string{source}, first); len(hits) != 1 {
 		t.Fatal("expected initial hit")
 	}
-	second := FirInvocationFingerprint(nil, jar, rules, optsA(2), nil)
+	second := FirInvocationFingerprint(nil, jar, rules, optsA(2), FileFacts{})
 	if first == second {
 		t.Fatal("option change did not change the fingerprint")
 	}
 	if hits, misses := ClassifyFilesForFingerprint(cacheDir, []string{source}, second); len(hits) != 0 || len(misses) != 1 {
 		t.Fatalf("hits=%d misses=%d", len(hits), len(misses))
 	}
-	if FirInvocationFingerprint(nil, jar, rules, nil, nil) != FirInvocationFingerprint(nil, jar, rules, RuleConfigs{"A": {}}, nil) {
+	if FirInvocationFingerprint(nil, jar, rules, nil, FileFacts{}) != FirInvocationFingerprint(nil, jar, rules, RuleConfigs{"A": {}}, FileFacts{}) {
 		t.Fatal("an empty options map must fingerprint like no options")
 	}
 }

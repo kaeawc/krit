@@ -28,6 +28,23 @@ internal fun parseFirTestFiles(json: String): Set<String> {
     return files.filterIsInstance<String>().toSet()
 }
 
+/**
+ * check.scanPaths: requested file (spelled as in `files`) -> the scan's own
+ * spelling of it, the path string the Go rules test, sent for the files whose
+ * two spellings differ. Read like [parseFirTestFiles], as a key of the
+ * top-level request object.
+ */
+internal fun parseFirScanPaths(json: String): Map<String, String> {
+    if ("\"scanPaths\"" !in json) return emptyMap()
+    val request = ConfigJsonReader(json, "request").value() as? Map<*, *> ?: return emptyMap()
+    val paths = request["scanPaths"] as? Map<*, *> ?: return emptyMap()
+    return paths.entries.mapNotNull { (file, spelling) ->
+        val key = file as? String ?: return@mapNotNull null
+        val value = spelling as? String ?: return@mapNotNull null
+        key to value
+    }.toMap()
+}
+
 private class ConfigJsonReader(private val text: String, private val what: String) {
     private var pos = 0
     fun value(): Any? {

@@ -77,7 +77,7 @@ func RunPass(opts PassOptions, base []scanner.Finding) []scanner.Finding {
 	}
 	sub := tracker.Serial("firCheck")
 	result, err := opts.Checker.Check(requested, opts.SourceDirs, opts.Classpath, active.Names,
-		firRuleConfigs(opts.Config, opts.ActiveRules), testFilesOf(requested, targets.display))
+		firRuleConfigs(opts.Config, opts.ActiveRules), fileFactsOf(requested, targets.display))
 	sub.End()
 	verbose := opts.Verbose && opts.VerboseOut != nil
 	if err != nil {
@@ -209,6 +209,26 @@ func partitionJVMFiles(files []string) (jvm, excluded []string) {
 		}
 	}
 	return jvm, excluded
+}
+
+// fileFactsOf returns the facts sent with a check request about the
+// requested files: which ones are test sources (testFilesOf) and the scan's
+// own spelling of each file whose spelling differs from the requested
+// absolute path. The scan spelling is the path string the Go rules test (a
+// relative `samples/proj/src/X.kt` for `krit samples/proj`), so a checker
+// that applies a Go path heuristic reads it through FirRule.scanPath instead
+// of guessing from the absolute path.
+func fileFactsOf(requested []string, display map[string]string) FileFacts {
+	facts := FileFacts{TestFiles: testFilesOf(requested, display)}
+	for _, path := range requested {
+		if d, ok := display[path]; ok && d != path {
+			if facts.ScanPaths == nil {
+				facts.ScanPaths = map[string]string{}
+			}
+			facts.ScanPaths[path] = d
+		}
+	}
+	return facts
 }
 
 // testFilesOf returns the requested paths krit classifies as test sources,

@@ -10,11 +10,16 @@ import kotlin.test.assertTrue
 // exemptions (test files, sample and demo directories).
 class PrintlnInProductionFilesTest {
 
-    private fun findings(sources: Map<String, String>, testFiles: Set<String> = emptySet()): Map<String, Int> {
+    private fun findings(
+        sources: Map<String, String>,
+        testFiles: Set<String> = emptySet(),
+        scanPaths: Map<String, String> = emptyMap(),
+    ): Map<String, Int> {
         val result = KritFirProbe.compile(
             sources,
             FirRuleCompileContext(enabledRuleIds = setOf("PrintlnInProduction")),
             testFiles = testFiles,
+            scanPaths = scanPaths,
         )
         assertTrue(result.clean, result.problems())
         return result.diags.filter { it.name == "PrintlnInProduction" }.groupingBy { it.file }.eachCount()
@@ -141,6 +146,25 @@ class PrintlnInProductionFilesTest {
             mapOf("AppService.kt" to 1, "DemonstrationService.kt" to 1),
             findings(sources),
         )
+    }
+
+    // Go tests the scan's own spelling of the path, which the request carries
+    // (FirRule.scanPath). `krit samples/proj` scans `samples/proj/src/X.kt`:
+    // no `/samples/` in it, so Go reports the file, even though its absolute
+    // path holds `/samples/`; a `/sample/` below the scan root still counts.
+    // When Go scanned the absolute path itself (no scan spelling in the
+    // request), the checkout's `/samples/` directory counts, as it does in Go.
+    @Test fun markersAreMatchedOnTheScanSpelling() {
+        val sources = mapOf(
+            "samples/proj/src/X.kt" to printer("x"),
+            "samples/proj/app/sample/Y.kt" to printer("y"),
+        )
+        val relative = mapOf(
+            "samples/proj/src/X.kt" to "samples/proj/src/X.kt",
+            "samples/proj/app/sample/Y.kt" to "samples/proj/app/sample/Y.kt",
+        )
+        assertEquals(mapOf("X.kt" to 1), findings(sources, scanPaths = relative))
+        assertEquals(emptyMap(), findings(sources))
     }
 
     @Test fun requestListedTestFileIsSkipped() {

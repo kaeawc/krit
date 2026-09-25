@@ -6,6 +6,7 @@ import dev.jasonpearson.krit.fir.checkers.InjectDispatcher
 import dev.jasonpearson.krit.fir.checkers.UnsafeCastWhenNullable
 import dev.jasonpearson.krit.fir.oracle.OracleClassChecker
 import dev.jasonpearson.krit.fir.oracle.OracleExpressionChecker
+import dev.jasonpearson.krit.fir.oracle.OracleFileChecker
 import dev.jasonpearson.krit.fir.oracle.OracleQualifiedAccessChecker
 import dev.jasonpearson.krit.fir.oracle.OracleSmartCastChecker
 import dev.jasonpearson.krit.fir.rules.SmokeChecker
@@ -64,6 +65,8 @@ class KritFirCheckers(session: FirSession) : FirAdditionalCheckersExtension(sess
     // so adding it costs nothing extra at JVM init.
     override val declarationCheckers = object : DeclarationCheckers() {
         override val classCheckers = setOf(SmokeChecker, OracleClassChecker)
+        // Gives every compiled file an entry in the oracle result.
+        override val fileCheckers = setOf(OracleFileChecker)
         override val controlFlowAnalyserCheckers = setOf(UnreachableCodeChecker)
     }
 }

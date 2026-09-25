@@ -197,7 +197,7 @@ class OracleResponseTest {
             ),
         )
         assertTrue(response.startsWith("""{"id":4,"result":{"""), response)
-        assertTrue(""""cacheDeps":{"version":1,"approximation":"symbol-resolved-sources","files":{},"crashed":{}}""" in response, response)
+        assertTrue(""""cacheDeps":{"version":1,"approximation":"fir-whole-compilation","files":{},"crashed":{}}""" in response, response)
         // errors is a sibling of result, not nested inside it.
         val resultEnd = response.indexOf("}", response.indexOf(""""result":{"""))
         val errorsAt = response.indexOf(""""errors":""")
@@ -211,7 +211,7 @@ class OracleResponseTest {
     fun analyzeWithDepsOmitsErrorsKeyWhenEmpty() {
         val response = OracleResponse.buildAnalyzeWithDeps(id = 5)
         assertTrue("errors" !in response, response)
-        assertTrue(""""cacheDeps":{"version":1,"approximation":"symbol-resolved-sources","files":{},"crashed":{}}""" in response, response)
+        assertTrue(""""cacheDeps":{"version":1,"approximation":"fir-whole-compilation","files":{},"crashed":{}}""" in response, response)
     }
 
     @Test
@@ -233,7 +233,7 @@ class OracleResponseTest {
                 crashedFiles = mapOf("/src/Broken.kt" to "boom"),
             ),
         )
-        assertTrue(""""cacheDeps":{"version":1,"approximation":"symbol-resolved-sources"""" in response, response)
+        assertTrue(""""cacheDeps":{"version":1,"approximation":"fir-whole-compilation"""" in response, response)
         assertTrue(""""/src/Leaf.kt":{"depPaths":["/src/Base.kt"],"perFileDeps":{"com.acme.Base":""" in response, response)
         assertTrue(""""crashed":{"/src/Broken.kt":"boom"}""" in response, response)
     }

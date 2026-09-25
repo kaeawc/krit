@@ -100,8 +100,19 @@ object OracleResponse {
         }
     }
 
+    /**
+     * The standalone cacheDeps document the one-shot CLI writes to
+     * `--cache-deps-out`: the same shape as the `analyzeWithDeps` envelope's
+     * `cacheDeps` field and krit-types' `--cache-deps-out` file.
+     */
+    fun buildCacheDeps(view: CacheDepsView): String =
+        StringBuilder().also { appendCacheDeps(it, view) }.toString()
+
     private fun appendCacheDeps(sb: StringBuilder, view: CacheDepsView) {
-        sb.append("""{"version":1,"approximation":"symbol-resolved-sources","files":{""")
+        // "fir-whole-compilation": every krit-fir run reports every file in
+        // the compilation, whatever subset was requested
+        // (oracle.ApproximationFIRWholeCompilation on the Go side).
+        sb.append("""{"version":1,"approximation":"fir-whole-compilation","files":{""")
         val fileKeys = (view.depPathsByFile.keys + view.perFileDeps.keys).toSet()
         var firstFile = true
         for (filePath in fileKeys) {

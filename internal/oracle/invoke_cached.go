@@ -265,6 +265,8 @@ func writeSkippedPoisonEntries(
 				FilePath:                      p,
 				Crashed:                       true,
 				CrashError:                    "jar-skipped: file not in Analysis API KtFile set (typically oversized source)",
+				Approximation:                 depsFile.approximation(),
+				CompilationFingerprint:        depsFile.compilationFingerprint(),
 				CallFilterFingerprint:         callFilterScope,
 				DeclarationProfileFingerprint: declarationProfileScope,
 			}
@@ -416,6 +418,8 @@ func InvokeCachedWithOptions(
 	callFilterScope := callFilterFingerprint(opts)
 	declarationProfileScope := factProfileScope(opts)
 
+	compilation := wholeCompilationFingerprint(opts, sourceDirs, jarPath, tracker)
+
 	if filterListPath != "" {
 		ktFiles = applyOracleFilter(ktFiles, filterListPath, tracker, verbose)
 	}
@@ -424,10 +428,11 @@ func InvokeCachedWithOptions(
 	recordForcedMissCount(tracker, len(opts.ForcedMisses), len(forcedInScan))
 
 	startClassify := time.Now()
-	hits, misses := ClassifyFilesWithStoreScopedV2(s, cacheDir, classifyInput, callFilterScope, declarationProfileScope)
+	hits, misses := ClassifyFilesWithStoreScopedV3(s, cacheDir, classifyInput, callFilterScope, declarationProfileScope, opts.Backend.CacheApproximation())
 	if len(forcedInScan) > 0 {
 		misses = append(misses, forcedInScan...)
 	}
+	misses = requestCompilationRefresh(opts, hits, misses, compilation, tracker, verbose)
 	classifyElapsed := time.Since(startClassify)
 	perf.AddEntryDetails(tracker, "cacheClassify", classifyElapsed, map[string]int64{
 		"files":  int64(len(ktFiles)),
@@ -492,6 +497,7 @@ func InvokeCachedWithOptions(
 		reporter().Verbosef("verbose: miss analysis via %s\n", source)
 	}
 
+	stampCacheDeps(depsFile, opts, compilation)
 	if depsFile == nil {
 		if verbose {
 			reporter().Verbosef("verbose: no cache deps returned; cache not updated\n")
@@ -503,6 +509,56 @@ func InvokeCachedWithOptions(
 	writeSkippedPoisonEntries(s, cacheDir, misses, freshData, depsFile, callFilterScope, declarationProfileScope, tracker, verbose)
 
 	return assembleAndWriteOracle(hits, freshData, outputPath, cacheDir, tracker, verbose)
+}
+
+// wholeCompilationFingerprint returns the current compilation's fingerprint
+// for a whole-compilation backend, or "" for other backends. The backend's
+// facts depend on every file it compiles, including generated sources and
+// files the oracle filter drops, so the fingerprint covers its own source
+// enumeration rather than the classified files.
+func wholeCompilationFingerprint(opts InvocationOptions, sourceDirs []string, jarPath string, tracker perf.Tracker) string {
+	if !opts.Backend.ReturnsWholeCompilation() {
+		return ""
+	}
+	var compilation string
+	_ = trackOracle(tracker, "compilationFingerprint", func() error {
+		compilation = CompilationFingerprint(CompilationSources(sourceDirs), opts.Classpath, jarPath)
+		return nil
+	})
+	return compilation
+}
+
+// requestCompilationRefresh returns the misses to analyze. Every run of a
+// whole-compilation backend refreshes every file's facts, so any miss already
+// refreshes stale hits too. With no misses, a hit computed against a
+// different compilation (a dependency outside the classified files changed, a
+// file was deleted, or the classpath moved) still needs one run: it is
+// requested for that file alone, and the backend answers with facts for the
+// whole compilation.
+func requestCompilationRefresh(opts InvocationOptions, hits []*CacheEntry, misses []string, compilation string, tracker perf.Tracker, verbose bool) []string {
+	if !opts.Backend.ReturnsWholeCompilation() || len(misses) > 0 {
+		return misses
+	}
+	stale := staleCompilationHit(hits, compilation)
+	if stale == "" {
+		return misses
+	}
+	addOracleInstant(tracker, "compilationChanged", nil, map[string]string{"refresh": stale})
+	if verbose {
+		reporter().Verbosef("verbose: cache classify: compilation changed; refreshing through %s\n", stale)
+	}
+	return []string{stale}
+}
+
+// stampCacheDeps records which backend and compilation produced depsFile, so
+// the entries written from it say what Go ran rather than what the jar
+// reported about itself.
+func stampCacheDeps(depsFile *CacheDepsFile, opts InvocationOptions, compilation string) {
+	if depsFile == nil || opts.Backend == "" {
+		return
+	}
+	depsFile.Approximation = opts.Backend.CacheApproximation()
+	depsFile.CompilationFingerprint = compilation
 }
 
 // prepareMissTemps creates three tempfiles for the miss-run round trip:

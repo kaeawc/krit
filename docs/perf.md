@@ -198,6 +198,28 @@ near-zero on a warm run.
 | `--cache-dir PATH` | Override incremental cache directory |
 | `--store-dir PATH` | Use the unified store-backed cache |
 
+### When the oracle cache re-runs the JVM
+
+The oracle cache stores each Kotlin file's compiler facts and reuses them while
+the file is unchanged. How a change to one file reaches the facts of files that
+depend on it depends on the backend:
+
+- **krit-fir (default)** compiles every source file on each run and reports
+  facts for all of them, so any run refreshes the whole cache. Each cached
+  entry also records the compilation it came from: every Kotlin file's path
+  and content, the classpath, and the krit-fir jar. When nothing krit needs
+  has changed but the compilation has (for example, a file outside the oracle
+  filter was edited or deleted, or a library was updated), krit runs the
+  compiler once to refresh the cache.
+- **krit-types** analyzes only the files that changed. A file's cached facts
+  are refreshed when a class it imports or extends changes, but not when a
+  same-package or imported top-level function changes. Use `--no-cache-oracle`
+  when that matters.
+
+Cached entries are tied to the backend that wrote them, so switching
+`--oracle-backend` re-runs the compiler rather than mixing the two backends'
+facts.
+
 ## Profiling
 
 When something's slow and you want a fact instead of a theory:

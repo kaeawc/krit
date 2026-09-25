@@ -66,7 +66,7 @@ class OracleDispatchTest {
         val result = handleRequestLine(request, session, startTime = 0L)
         val response = (result as RequestResult.Response).json
         assertTrue(response.startsWith("""{"id":14,"result":{"""), response)
-        assertTrue(""""cacheDeps":{"version":1,"approximation":"symbol-resolved-sources","files":{},"crashed":{}}""" in response, response)
+        assertTrue(""""cacheDeps":{"version":1,"approximation":"fir-whole-compilation","files":{},"crashed":{}}""" in response, response)
     }
 
     @Test

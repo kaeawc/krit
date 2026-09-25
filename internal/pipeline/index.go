@@ -1181,6 +1181,7 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		// their one-shot CLI, so the same args vector drives either
 		// backend. Empty preserves source-tree discovery.
 		Classpath: in.OracleClasspath,
+		Backend:   backend,
 	}
 	var res string
 	var err error

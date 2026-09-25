@@ -52,8 +52,9 @@ object KritFirProbe {
     // Compiles all [sources] (keyed by filename) together and returns every krit
     // plugin diagnostic, tagged with its factory name (the [NAME] render prefix),
     // file name, and 1-based line. Fails when a requested source does not compile.
-    fun diagnose(sources: Map<String, String>): List<Diag> {
-        val result = compile(sources)
+    // [ruleContext] limits the enabled rules; null enables every rule.
+    fun diagnose(sources: Map<String, String>, ruleContext: FirRuleCompileContext? = null): List<Diag> {
+        val result = compile(sources, ruleContext)
         // A non-plugin ERROR in a requested source means the snippet did not
         // compile. Without this, a checker that bails on unresolved symbols
         // yields "no diagnostics", making every negative case (and golden

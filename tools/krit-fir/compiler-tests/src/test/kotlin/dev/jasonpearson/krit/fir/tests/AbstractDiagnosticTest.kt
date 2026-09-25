@@ -1,5 +1,7 @@
 package dev.jasonpearson.krit.fir.tests
 
+import dev.jasonpearson.krit.fir.FirRuleCompileContext
+import dev.jasonpearson.krit.fir.FirRuleDiscovery
 import java.io.File
 import kotlin.test.fail
 
@@ -11,6 +13,12 @@ import kotlin.test.fail
 // Shared stubs (for coroutines, Compose, etc.) live in src/test/data/stubs/ and
 // are compiled alongside every test file so that FQ names resolve correctly.
 // The actual compile is delegated to [KritFirProbe], shared with the property tests.
+//
+// A golden file runs with only the rules it is about: the rule its file name
+// starts with (`<RuleId>*.kt`) plus any rule named in its markers. Every other
+// checker is disabled, so a rule that fires on common code (println, catch
+// blocks) cannot break other rules' golden data. A file that names no rule
+// either way (smoke files, older goldens) still runs with every rule enabled.
 //
 // Running `./gradlew :compiler-tests:generateTests` regenerates the test class;
 // `./gradlew :compiler-tests:test` runs the suite.
@@ -28,7 +36,7 @@ abstract class AbstractDiagnosticTest {
 
         // Compare (line, diagnostic-name) pairs, not just lines, so a marker that
         // expects rule A on a line where the checker actually emits rule B fails.
-        val actual = KritFirProbe.diagnose(mapOf(file.name to cleanSource))
+        val actual = KritFirProbe.diagnose(mapOf(file.name to cleanSource), ruleContextFor(file, expected))
             .filter { it.file == file.name }
             .map { it.line to it.name }
             .toSet()
@@ -49,6 +57,14 @@ abstract class AbstractDiagnosticTest {
                 }
             })
         }
+    }
+
+    // The rules a golden file is about; null (every rule) when it names none.
+    private fun ruleContextFor(file: File, expected: List<ExpectedDiagnostic>): FirRuleCompileContext? {
+        val known = FirRuleDiscovery.rules.map { it.ruleId }
+        val byName = known.filter { file.nameWithoutExtension.startsWith(it) }.maxByOrNull { it.length }
+        val rules = expected.map { it.name }.toSet() + listOfNotNull(byName)
+        return if (rules.isEmpty()) null else FirRuleCompileContext(enabledRuleIds = rules)
     }
 
     // Returns (cleanSource, expectedDiagnostics).

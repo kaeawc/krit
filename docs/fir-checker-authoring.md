@@ -138,9 +138,12 @@ All tests live under `tools/krit-fir/compiler-tests/src/test/`.
   package or class), scope-boundary negatives, and Java-interop cases where the
   rule touches Java types. Java-interop cases are Kotlin code calling the Java
   stubs. File and directory names must be valid Kotlin identifiers, because the
-  generator turns them into test classes and methods. Golden files and stub
-  smoke files run with every rule enabled. If your checker fires in someone
-  else's data, treat it as a false positive until you have shown otherwise.
+  generator turns them into test classes and methods. A golden file runs with
+  only its own rules enabled: the rule its name starts with plus any rule named
+  in its markers, so name every golden file `<RuleId>….kt`. Stub smoke files
+  (and any file that names no rule) run with every rule enabled and must report
+  nothing, so if your checker fires in a smoke file, treat it as a false
+  positive until you have shown otherwise.
 - **Fixture parity** runs against the Go fixtures in two tiers, and both must
   pass:
   1. *Fast, lane-local:* `FixtureParityTest` in `compiler-tests` runs as part

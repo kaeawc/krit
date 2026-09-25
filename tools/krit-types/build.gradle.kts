@@ -5,7 +5,27 @@ plugins {
 
 val kotlinVersion = "2.3.21"
 
+val bundledKotlinStdlib by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
+val bundledStdlibResources = layout.buildDirectory.dir("generated/kotlin-stdlib-resources")
+val copyKotlinStdlib by tasks.registering(Copy::class) {
+    from(bundledKotlinStdlib)
+    into(bundledStdlibResources.map { it.dir("krit") })
+    rename { "kotlin-stdlib.jar" }
+}
+
+sourceSets.main {
+    resources.srcDir(bundledStdlibResources)
+}
+tasks.processResources {
+    dependsOn(copyKotlinStdlib)
+}
+
 dependencies {
+    add(bundledKotlinStdlib.name, "org.jetbrains.kotlin:kotlin-stdlib:$kotlinVersion") { isTransitive = false }
     implementation(project(":krit-rule-api"))
 
     // Kotlin compiler (non-embeddable, full APIs)

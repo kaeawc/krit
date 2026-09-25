@@ -89,7 +89,10 @@ func recordOracleDir(cacheDir string) {
 // krit-fir entries carry the compilation fingerprint they were computed
 // against. A krit-fir entry could previously be served after a change to a
 // file outside the classified set, or a deletion, left its facts stale.
-const CacheVersion = 8
+// v9: both backends now resolve Kotlin stdlib symbols by default; cached facts
+// for stdlib-touching files may lack call targets, types, or diagnostics that
+// were previously absent or marked "<error>".
+const CacheVersion = 9
 
 // ApproximationFIRWholeCompilation marks entries written by krit-fir, whose
 // every run returns facts for the whole compilation.

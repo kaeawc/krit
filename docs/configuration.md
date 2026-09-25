@@ -119,6 +119,22 @@ Compare `fast` and `balanced` on a representative target before changing CI
 defaults. `fast` is appropriate for projects that do not enable rules requiring
 oracle facts.
 
+## Oracle classpath
+
+`oracle.classpath` is a list of jar paths under the top-level `oracle:` block;
+it extends the classpath seen by the JVM-backed type oracle.
+
+```yaml
+oracle:
+  classpath:
+    - libs/android.jar
+```
+
+The Kotlin standard library is supplied automatically when the effective
+classpath does not already include a Kotlin stdlib jar. Other libraries, such
+as the Android SDK, AndroidX, and application dependencies, still need to be
+listed explicitly for their types to resolve.
+
 ## Experimental performance knobs
 
 Cold type-oracle cache misses use one-shot `krit-types` analysis with `--experimental-parallel-files 4` by default. Override the worker count with `KRIT_TYPES_PARALLEL_FILES=N`; set it to `0` or `1` to disable in-JVM file parallelism. Set `KRIT_DAEMON_CACHE=on` to use the persistent daemon miss-analysis path instead.

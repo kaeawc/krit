@@ -141,6 +141,9 @@ func TestIsJVMCompilableSourceSet(t *testing.T) {
 		{"src/jsonMain/kotlin", true},
 		{"src/nativelyMain/kotlin", true},
 		{"src/iosishMain/kotlin", true},
+		{"src/webhookMain/kotlin", true},
+		{"src/posixishMain/kotlin", true},
+		{"src/nonJvmishMain/kotlin", true},
 		// Non-JVM target families: dropped.
 		{"src/jsMain/kotlin", false},
 		{"src/jsTest/kotlin", false},
@@ -161,6 +164,11 @@ func TestIsJVMCompilableSourceSet(t *testing.T) {
 		{"src/androidNativeMain/kotlin", false},
 		{"src/androidNativeArm64Main/kotlin", false},
 		{"src/jsMain/java", false},
+		{"src/webMain/kotlin", false},
+		{"src/webTest/kotlin", false},
+		{"src/posixMain/kotlin", false},
+		{"src/nonJvmMain/kotlin", false},
+		{"src/nonJvmCommonTest/kotlin", false},
 		// Non-standard layouts are never guessed at.
 		{"custom/kotlin", true},
 		{"jsMain/kotlin", true},

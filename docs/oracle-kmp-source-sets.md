@@ -15,11 +15,14 @@ with a trailing `Main` or `Test` removed, is one of these target families, or
 starts with one followed by an upper-case letter or digit:
 
 `js`, `wasm`, `native`, `apple`, `ios`, `macos`, `tvos`, `watchos`, `linux`,
-`mingw`, `androidNative`
+`mingw`, `androidNative`, `web`, `posix`, `nonJvm`
 
 So `jsMain`, `wasmJsMain`, `nativeTest`, `iosArm64Main`, `linuxX64Main`,
-`jsAndWasmSharedMain`, and `androidNativeArm64Main` are dropped. Everything
-else is kept:
+`jsAndWasmSharedMain`, `androidNativeArm64Main`, `webMain` (the shared JS and
+WASM set), `posixMain`, and `nonJvmMain` are dropped. The last three are shared
+sets whose actuals live only in non-JVM source sets, so keeping them would
+leave their `expect` declarations without a JVM `actual`. Everything else is
+kept:
 
 - plain JVM and Android source sets (`main`, `test`, `debug`, `androidTest`, ...);
 - `commonMain`, `commonTest`, `jvm*`, and `android*` (other than `androidNative*`);
@@ -71,7 +74,9 @@ Why each shape goes where it does:
   rather than spreading them to `commonMain`.
 
 The `expect` and `actual` modifiers are read from source, ignoring comments
-and string literals.
+and string literals. A modifier counts only at the start of a declaration,
+after any annotations and other modifiers. A line break may separate it from
+the declaration keyword.
 
 ## Known limits
 

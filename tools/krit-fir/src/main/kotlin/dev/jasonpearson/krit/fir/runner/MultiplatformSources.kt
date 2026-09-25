@@ -101,14 +101,18 @@ internal object MultiplatformSources {
 
     // `expect`/`actual` are soft keywords: `expect(value)`, `val actual = x`
     // and `assertEquals(expected, actual)` are ordinary identifiers. Only the
-    // modifier form, followed on the same line by another modifier or a
-    // declaration keyword, counts.
-    private const val FOLLOWING =
-        "(?:public|internal|private|protected|abstract|open|final|sealed|enum|annotation|data|value|" +
-            "inline|external|suspend|infix|operator|tailrec|inner|override|const|lateinit|fun|class|" +
-            "interface|object|val|var|typealias|constructor)\\b"
-    private val EXPECT_MODIFIER = Regex("(?<![\\w.`])expect[ \\t]+$FOLLOWING")
-    private val ACTUAL_MODIFIER = Regex("(?<![\\w.`])actual[ \\t]+$FOLLOWING")
+    // modifier form counts: at the start of a line after optional annotations
+    // and other modifiers, then followed (possibly across a line break) by
+    // another modifier or a declaration keyword. The line-start anchor keeps
+    // `val y = actual` followed by a `val z` line from reading as a modifier.
+    private const val MODIFIERS =
+        "public|internal|private|protected|abstract|open|final|sealed|enum|annotation|data|value|" +
+            "inline|external|suspend|infix|operator|tailrec|inner|override|const|lateinit"
+    private const val DECLARATIONS = "fun|class|interface|object|val|var|typealias|constructor"
+    private const val LEADING = "(?m)^[ \\t]*(?:(?:@[\\w.]+(?:\\([^)\\n]*\\))?|$MODIFIERS)\\s+)*"
+    private const val FOLLOWING = "\\s+(?:$MODIFIERS|$DECLARATIONS)\\b"
+    private val EXPECT_MODIFIER = Regex("${LEADING}expect$FOLLOWING")
+    private val ACTUAL_MODIFIER = Regex("${LEADING}actual$FOLLOWING")
 
     /**
      * Blanks out comments and string/char literals so words inside them are

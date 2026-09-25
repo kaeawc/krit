@@ -130,10 +130,13 @@ func FindJar(scanPaths []string) string {
 // never compile to JVM bytecode. A Gradle source set whose name (minus its
 // Main/Test suffix) is one of these, or starts with one followed by an
 // upper-case letter or digit (iosArm64, linuxX64, wasmJs, androidNativeArm64,
-// jsAndWasmShared, ...), holds code for a non-JVM compilation.
+// jsAndWasmShared, ...), holds code for a non-JVM compilation. web (Kotlin's
+// shared js + wasm set), posix (native-only), and nonJvm are shared sets whose
+// actuals live only in dropped sets; keeping them would leave expects without
+// a JVM actual.
 var nonJVMSourceSetFamilies = []string{
 	"js", "wasm", "native", "apple", "ios", "macos", "tvos", "watchos",
-	"linux", "mingw", "androidNative",
+	"linux", "mingw", "androidNative", "web", "posix", "nonJvm",
 }
 
 // isJVMCompilableSourceSet reports whether a discovered kotlin/java root

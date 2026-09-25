@@ -141,16 +141,31 @@ class AnalysisSessionMultiplatformTest {
             "src/desktopMain/kotlin/r/D.kt",
             "package r\n// expect fun x()\n/* outer /* expect class Y */ still comment */\nval s = \"expect fun z()\"\nval r = \"\"\"\nexpect val q\n\"\"\"\n",
         )
+        // A modifier split from its declaration keyword by a line break still
+        // counts, and `actual` used as an identifier does not demote the set.
+        val lineBreak = write(
+            "src/serverMain/kotlin/r/S.kt",
+            "package r\n@Suppress(\"x\")\ninternal expect\nfun s(): String\nfun check(actual: String) = actual\nval after = 1\n",
+        )
+        // An identifier at the end of a line is not a modifier of the next line.
+        val identifierOnly = write(
+            "src/jvmSharedMain/kotlin/r/I.kt",
+            "package r\nfun e(expect: String) = expect\nfun g() = 1\n",
+        )
         val main = write("src/main/kotlin/r/Main.kt", "package r\nexpect fun m(): String\n")
         val flat = write("other/kotlin/r/Flat.kt", "package r\nexpect fun f(): String\n")
-        val all = listOf(common, commonTest, expectOnly, actualOnly, mixed1, mixed2, jvm, commentOnly, main, flat)
+        val all = listOf(
+            common, commonTest, expectOnly, actualOnly, mixed1, mixed2, jvm, commentOnly, lineBreak, identifierOnly,
+            main, flat,
+        )
 
         val dirs = listOf(
             "src/commonMain", "src/commonTest", "src/concurrentMain", "src/jvmAndroidMain",
-            "src/jvmCommonMain", "src/jvmMain", "src/desktopMain", "src/main", "other",
+            "src/jvmCommonMain", "src/jvmMain", "src/desktopMain", "src/serverMain", "src/jvmSharedMain",
+            "src/main", "other",
         ).map { tmp.resolve("$it/kotlin").toFile().path }
 
-        assertEquals(listOf(common, commonTest, expectOnly), MultiplatformSources.commonSources(dirs, all))
+        assertEquals(listOf(common, commonTest, expectOnly, lineBreak), MultiplatformSources.commonSources(dirs, all))
     }
 
     // Plain JVM/Android projects have no commonMain/commonTest root: the

@@ -89,6 +89,9 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         try {
             val args = K2JVMCompilerArguments().apply {
                 freeArgs = compilationFiles(files.map { it.path })
+                // --fir passes no SourceDirs today (internal/cli/scan/runner_state.go), so this
+                // no-ops there; wiring SourceDirs into --fir would pull its scanned jsMain files
+                // into a multiplatform compile, since --fir compiles the scanned files themselves.
                 MultiplatformSources.configure(this, this@AnalysisSession.sourceDirs, freeArgs)
                 this.classpath = effectiveClasspath(this@AnalysisSession.classpath).joinToString(File.pathSeparator)
                 destination = outDir.absolutePath

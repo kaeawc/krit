@@ -8,6 +8,8 @@ import java.util.Locale
 
 fun formatToday(): String {
     val format: DateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-    val plain = SimpleDateFormat("HH:mm")
+    // Pass a locale: SimpleDateFormat(pattern) uses the default locale, which
+    // the SimpleDateFormat rule reports.
+    val plain = SimpleDateFormat("HH:mm", Locale.ROOT)
     return format.format(Date()) + plain.format(Date())
 }

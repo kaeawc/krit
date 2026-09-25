@@ -37,7 +37,7 @@ func firCheck(t *testing.T, rules []string, sources map[string]string) map[strin
 		byName[name] = abs
 	}
 
-	res, err := firchecks.InvokeCached(jar, files, nil, []string{stdlib}, rules, "", false, false)
+	res, err := firchecks.InvokeCached(jar, files, nil, []string{stdlib}, rules, nil, "", false, false)
 	if err != nil {
 		t.Fatalf("krit-fir invoke: %v", err)
 	}

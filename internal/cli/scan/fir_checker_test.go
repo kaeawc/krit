@@ -5,6 +5,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/perf"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -92,6 +93,35 @@ func TestRunFIRCheckerPassUnknownRuleInvokesChecker(t *testing.T) {
 	}
 	if len(checker.Called) != 1 {
 		t.Fatalf("checker.Check should receive unknown rule ID; got %d invocations", len(checker.Called))
+	}
+}
+
+// Active rules' configured options reach the FIR checker as ruleConfigs;
+// krit-interpreted keys (active, excludes) and option-less rules do not.
+func TestRunFIRCheckerPassSendsActiveRuleOptions(t *testing.T) {
+	cfg := config.NewConfig()
+	cfg.Set("coroutines", "InjectDispatcher", "active", true)
+	cfg.Set("coroutines", "InjectDispatcher", "excludes", []interface{}{"**/gen/**"})
+	cfg.Set("coroutines", "InjectDispatcher", "dispatcherNames", []interface{}{"IO"})
+	cfg.Set("style", "MagicNumber", "active", true)
+	cfg.Set("style", "Inactive", "threshold", 9) // not an active rule
+	checker := firchecks.NewFakeFirChecker()
+	runFIRCheckerPass(firCheckerOpts{
+		Enabled: true,
+		Checker: checker,
+		Config:  cfg,
+		ActiveRules: []*api.Rule{
+			{ID: "InjectDispatcher", Category: "coroutines"},
+			{ID: "MagicNumber", Category: "style"},
+		},
+		Tracker: perf.New(false),
+	}, nil)
+	if len(checker.CalledRuleConfigs) != 1 {
+		t.Fatalf("expected one Check call, got %d", len(checker.CalledRuleConfigs))
+	}
+	want := firchecks.RuleConfigs{"InjectDispatcher": {"dispatcherNames": []interface{}{"IO"}}}
+	if got := checker.CalledRuleConfigs[0]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ruleConfigs = %#v; want %#v", got, want)
 	}
 }
 

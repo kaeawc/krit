@@ -29,6 +29,7 @@ class KritFirCheckers(session: FirSession) : FirAdditionalCheckersExtension(sess
             override val controlFlowAnalyserCheckers = setOf(UnreachableCodeChecker)
         }),
     )
-    override val expressionCheckers = merged.first
-    override val declarationCheckers = merged.second
+    override val expressionCheckers = merged.expression
+    override val declarationCheckers = merged.declaration
+    override val typeCheckers = merged.type
 }

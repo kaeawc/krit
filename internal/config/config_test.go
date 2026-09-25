@@ -257,6 +257,34 @@ func TestFindDefaultConfigNoFile(t *testing.T) {
 	}
 }
 
+func TestRuleOptionsDropsReservedKeys(t *testing.T) {
+	cfg := NewConfig()
+	cfg.Set("coroutines", "InjectDispatcher", "active", true)
+	cfg.Set("coroutines", "InjectDispatcher", "excludes", []interface{}{"**/test/**"})
+	cfg.Set("coroutines", "InjectDispatcher", "dispatcherNames", []interface{}{"IO"})
+	cfg.Set("coroutines", "InjectDispatcher", "limit", 3)
+
+	got := cfg.RuleOptions("coroutines", "InjectDispatcher")
+	if len(got) != 2 || got["limit"] != 3 {
+		t.Fatalf("expected only dispatcherNames and limit, got %v", got)
+	}
+	if _, ok := got["dispatcherNames"]; !ok {
+		t.Fatalf("expected dispatcherNames option, got %v", got)
+	}
+
+	cfg.Set("style", "MagicNumber", "active", false)
+	if opts := cfg.RuleOptions("style", "MagicNumber"); opts != nil {
+		t.Fatalf("expected nil options for an active-only block, got %v", opts)
+	}
+	if opts := cfg.RuleOptions("style", "Missing"); opts != nil {
+		t.Fatalf("expected nil options for an unconfigured rule, got %v", opts)
+	}
+	var nilCfg *Config
+	if opts := nilCfg.RuleOptions("style", "MagicNumber"); opts != nil {
+		t.Fatalf("expected nil options from a nil config, got %v", opts)
+	}
+}
+
 func TestGetBoolMissingKey(t *testing.T) {
 	cfg := NewConfig()
 	cfg.Set("style", "MagicNumber", "active", true)

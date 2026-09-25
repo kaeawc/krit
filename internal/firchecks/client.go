@@ -60,6 +60,10 @@ type firDaemonRequest struct {
 	SourceDirs []string  `json:"sourceDirs,omitempty"`
 	Classpath  []string  `json:"classpath,omitempty"`
 	Rules      []string  `json:"rules,omitempty"`
+	// RuleConfigs is rule ID -> options, read by FirRule.config(). It stays
+	// after the fixed fields; krit-fir also blanks it out before its
+	// nest-blind field extraction so option names cannot shadow them.
+	RuleConfigs map[string]any `json:"ruleConfigs,omitempty"`
 }
 
 // fileRef is a file path + content hash sent in check requests.
@@ -214,7 +218,7 @@ func ConnectOrStartFirDaemon(jarPath string, sourceDirs []string, verbose bool) 
 }
 
 // Check sends a check request to the daemon and returns the response.
-func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string) (*CheckResponse, error) {
+func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs) (*CheckResponse, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -226,12 +230,13 @@ func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string
 	d.nextID++
 
 	req := firDaemonRequest{
-		ID:         id,
-		Command:    "check",
-		Files:      files,
-		SourceDirs: sourceDirs,
-		Classpath:  classpath,
-		Rules:      rules,
+		ID:          id,
+		Command:     "check",
+		Files:       files,
+		SourceDirs:  sourceDirs,
+		Classpath:   classpath,
+		Rules:       rules,
+		RuleConfigs: wireRuleConfigs(ruleConfigs),
 	}
 	data, err := json.Marshal(req)
 	if err != nil {

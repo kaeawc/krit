@@ -373,7 +373,12 @@ data class CheckRequest(
     val projectPayloads: ProjectPayloads = ProjectPayloads.EMPTY,
 )
 
-fun parseRequest(json: String): CheckRequest {
+fun parseRequest(request: String): CheckRequest {
+    val ruleConfigs = parseFirRuleConfigs(request)
+    // Field extraction below is nest-blind, and rule option names are
+    // user-chosen, so blank out the ruleConfigs object first: an option named
+    // `classpath` or `path` must never be read as the request's own field.
+    val json = withoutObjectBlock(request, "ruleConfigs")
     val id = extractLong(json, "id") ?: throw IllegalArgumentException("Missing 'id' field")
     // Accept either `command` (krit-fir's native shape) or `method` (the
     // oracle.Daemon shape used by internal/oracle/daemon.go when it routes
@@ -389,7 +394,6 @@ fun parseRequest(json: String): CheckRequest {
     val sourceDirs = extractStringArray(json, "sourceDirs") ?: emptyList()
     val classpath = extractStringArray(json, "classpath") ?: emptyList()
     val rules = extractStringArray(json, "rules") ?: emptyList()
-    val ruleConfigs = parseFirRuleConfigs(json)
     val pluginJars = extractStringArray(json, "jars") ?: emptyList()
     val ruleIds = extractStringArray(json, "ruleIds")
     val path = extractString(json, "path")
@@ -397,6 +401,13 @@ fun parseRequest(json: String): CheckRequest {
     val files = extractFileRefs(json)
     val payloads = if (command == "analyzeFile") ProjectPayloads.parse(json) else ProjectPayloads.EMPTY
     return CheckRequest(id, command, files, sourceDirs, classpath, rules, ruleConfigs, pluginJars, path, source, ruleIds, payloads)
+}
+
+private fun withoutObjectBlock(json: String, key: String): String {
+    val block = dev.jasonpearson.krit.fir.plugins.PayloadParsers.extractObjectBlock(json, key) ?: return json
+    val start = json.indexOf(block, json.indexOf("\"$key\"").coerceAtLeast(0))
+    if (start < 0) return json
+    return json.substring(0, start) + "{}" + json.substring(start + block.length)
 }
 
 internal fun handleAnalyzeFile(request: CheckRequest, session: AnalysisSession): String {
@@ -566,5 +577,24 @@ internal fun splitJsonArrayElements(body: String): List<String> {
     return elements
 }
 
-fun escJson(s: String): String = s.replace("\\", "\\\\").replace("\"", "\\\"")
+/**
+ * JSON string-body escaping. Every control character is escaped: responses are
+ * newline-delimited, so a raw newline in a message would split the response
+ * and the Go client would drop the whole reply.
+ */
+fun escJson(s: String): String {
+    val out = StringBuilder(s.length + 8)
+    for (c in s) {
+        when {
+            c == '\\' -> out.append("\\\\")
+            c == '"' -> out.append("\\\"")
+            c == '\n' -> out.append("\\n")
+            c == '\r' -> out.append("\\r")
+            c == '\t' -> out.append("\\t")
+            c.code < 0x20 -> out.append("\\u").append(String.format("%04x", c.code))
+            else -> out.append(c)
+        }
+    }
+    return out.toString()
+}
 fun jsonStr(s: String): String = "\"${escJson(s)}\""

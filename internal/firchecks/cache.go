@@ -23,7 +23,7 @@ import (
 )
 
 // FirCacheVersion is bumped when the entry layout changes incompatibly.
-const FirCacheVersion = 2
+const FirCacheVersion = 3
 
 // FirCacheEntry is one file's cached FIR findings.
 type FirCacheEntry struct {

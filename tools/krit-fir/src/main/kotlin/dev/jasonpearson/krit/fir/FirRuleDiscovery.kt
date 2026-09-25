@@ -1,11 +1,12 @@
 package dev.jasonpearson.krit.fir
 
 import java.io.File
+import java.lang.reflect.Modifier
 import java.util.jar.JarFile
 
 /** Scans the plugin code source and test classpath roots; no per-rule index or service file. */
 object FirRuleDiscovery {
-    private const val prefix = "dev/jasonpearson/krit/fir/checkers/"
+    internal const val CHECKERS_PREFIX = "dev/jasonpearson/krit/fir/checkers/"
     val rules: List<FirRule> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) { discover() }
 
     fun enabled(context: FirRuleCompileContext? = FirRuleContext.current()): List<FirRule> =
@@ -25,13 +26,13 @@ object FirRuleDiscovery {
         val loader = FirRuleDiscovery::class.java.classLoader
         // Gradle test workers use an isolated URLClassLoader whose roots are
         // absent from java.class.path; package resources expose those roots.
-        val resources = loader.getResources(prefix)
+        val resources = loader.getResources(CHECKERS_PREFIX)
         while (resources.hasMoreElements()) {
             val url = resources.nextElement()
             when (url.protocol) {
                 "file" -> runCatching {
                     var root = File(url.toURI())
-                    repeat(prefix.trimEnd('/').split('/').size) { root = root.parentFile }
+                    repeat(CHECKERS_PREFIX.trimEnd('/').split('/').size) { root = root.parentFile }
                     roots += root
                 }
                 "jar" -> runCatching {
@@ -40,28 +41,34 @@ object FirRuleDiscovery {
                 }
             }
         }
+        return discover(roots, loader)
+    }
+
+    /**
+     * Scans [roots] (class directories or jars) for rule objects under [prefix].
+     *
+     * Every concrete [FirRule] implementer found must be a Kotlin `object`
+     * (top-level or nested, any visibility); anything else is an authoring
+     * error and fails discovery loudly rather than silently dropping the rule.
+     */
+    internal fun discover(
+        roots: Collection<File>,
+        loader: ClassLoader,
+        prefix: String = CHECKERS_PREFIX,
+    ): List<FirRule> {
         val result = mutableListOf<FirRule>()
         val seenClasses = mutableSetOf<String>()
         for (root in roots) {
-            val names = when {
-                root.isDirectory -> File(root, prefix).takeIf { it.isDirectory }?.walkTopDown()
-                    ?.filter { it.isFile && it.extension == "class" }
-                    ?.map { it.relativeTo(root).path.replace(File.separatorChar, '/') }
-                    ?.toList().orEmpty()
-                root.isFile && root.extension == "jar" -> JarFile(root).use { jar ->
-                    jar.entries().asSequence().map { it.name }
-                        .filter { it.startsWith(prefix) && it.endsWith(".class") }.toList()
-                }
-                else -> emptyList()
-            }
-            for (path in names.sorted()) {
-                if ('$' in path) continue
+            for (path in classEntries(root, prefix).sorted()) {
                 val name = path.removeSuffix(".class").replace('/', '.')
                 if (!seenClasses.add(name)) continue
                 val cls = Class.forName(name, false, loader)
                 if (!FirRule::class.java.isAssignableFrom(cls)) continue
-                val instance = runCatching { cls.getField("INSTANCE").get(null) }.getOrNull()
-                if (instance is FirRule) result += instance
+                if (cls.isInterface || Modifier.isAbstract(cls.modifiers)) continue
+                // Anonymous/local classes (e.g. an `object : FirRule` expression
+                // inside a helper) are never rule declarations.
+                if (cls.isAnonymousClass || cls.isLocalClass || cls.isSynthetic) continue
+                result += ruleInstance(cls)
             }
         }
         val byId = mutableMapOf<String, FirRule>()
@@ -72,5 +79,40 @@ object FirRuleDiscovery {
             }
         }
         return result.sortedBy { it.ruleId }
+    }
+
+    private fun classEntries(root: File, prefix: String): List<String> = when {
+        root.isDirectory -> File(root, prefix).takeIf { it.isDirectory }?.walkTopDown()
+            ?.filter { it.isFile && it.extension == "class" }
+            ?.map { it.relativeTo(root).path.replace(File.separatorChar, '/') }
+            ?.toList().orEmpty()
+        // Roots include the whole JVM classpath, so one unreadable jar must
+        // not take down discovery (and with it every check request).
+        root.isFile && root.extension == "jar" -> try {
+            JarFile(root).use { jar ->
+                jar.entries().asSequence().map { it.name }
+                    .filter { it.startsWith(prefix) && it.endsWith(".class") }.toList()
+            }
+        } catch (e: Exception) {
+            System.err.println("krit-fir: skipping unreadable classpath jar ${root.path}: ${e.message}")
+            emptyList()
+        }
+        else -> emptyList()
+    }
+
+    private fun ruleInstance(cls: Class<*>): FirRule {
+        // getDeclaredField + setAccessible: a file-private top-level object
+        // compiles to a package-private class whose INSTANCE is otherwise
+        // inaccessible from this package.
+        val instance = try {
+            cls.getDeclaredField("INSTANCE").apply { isAccessible = true }.get(null)
+        } catch (e: Exception) {
+            error(
+                "FIR rule class ${cls.name} implements FirRule but is not a readable Kotlin object " +
+                    "(${e.javaClass.simpleName}: ${e.message}). Declare it as `object ${cls.simpleName} : FirRule`.",
+            )
+        }
+        return instance as? FirRule
+            ?: error("FIR rule class ${cls.name}: INSTANCE is ${instance?.javaClass?.name}, not a FirRule")
     }
 }

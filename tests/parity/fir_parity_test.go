@@ -90,6 +90,7 @@ func TestFirPilotParity(t *testing.T) {
 		nil,
 		[]string{stdlib},
 		[]string{"CollectInOnCreateWithoutLifecycle", "ComposeRememberWithoutKey", "InjectDispatcher"},
+		nil,
 		"",
 		false,
 		false,

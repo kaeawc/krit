@@ -2,16 +2,26 @@ package dev.jasonpearson.krit.fir
 
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
+import org.jetbrains.kotlin.fir.analysis.checkers.type.TypeCheckers
 
-// K2 2.3.21 checker-set surface: 36 expression and 24 declaration properties.
-// New rules contribute checker sets; only a K2 API change requires updating this file.
+internal data class MergedFirCheckers(
+    val expression: ExpressionCheckers,
+    val declaration: DeclarationCheckers,
+    val type: TypeCheckers,
+)
+
+// K2 2.3.21 checker-set surface: 36 expression, 24 declaration and 4 type
+// properties. New rules contribute checker sets; only a K2 API change requires
+// updating this file, and FirCheckerSurfaceTest fails when one is missed.
 internal fun mergeFirRules(
     rules: List<FirRule>,
     baseExpressions: List<ExpressionCheckers> = emptyList(),
     baseDeclarations: List<DeclarationCheckers> = emptyList(),
-): Pair<ExpressionCheckers, DeclarationCheckers> {
+    baseTypes: List<TypeCheckers> = emptyList(),
+): MergedFirCheckers {
     val expressions = baseExpressions + rules.mapNotNull { it.expressionCheckers }
     val declarations = baseDeclarations + rules.mapNotNull { it.declarationCheckers }
+    val types = baseTypes + rules.mapNotNull { it.typeCheckers }
     val expression = object : ExpressionCheckers() {
         override val basicExpressionCheckers = mergeSets(expressions) { it.basicExpressionCheckers }
         override val qualifiedAccessExpressionCheckers = mergeSets(expressions) { it.qualifiedAccessExpressionCheckers }
@@ -76,7 +86,13 @@ internal fun mergeFirRules(
         override val controlFlowAnalyserCheckers = mergeSets(declarations) { it.controlFlowAnalyserCheckers }
         override val variableAssignmentCfaBasedCheckers = mergeSets(declarations) { it.variableAssignmentCfaBasedCheckers }
     }
-    return expression to declaration
+    val type = object : TypeCheckers() {
+        override val typeRefCheckers = mergeSets(types) { it.typeRefCheckers }
+        override val resolvedTypeRefCheckers = mergeSets(types) { it.resolvedTypeRefCheckers }
+        override val functionTypeRefCheckers = mergeSets(types) { it.functionTypeRefCheckers }
+        override val intersectionTypeRefCheckers = mergeSets(types) { it.intersectionTypeRefCheckers }
+    }
+    return MergedFirCheckers(expression, declaration, type)
 }
 
 private fun <S, T> mergeSets(sets: List<S>, get: (S) -> Set<T>): Set<T> =

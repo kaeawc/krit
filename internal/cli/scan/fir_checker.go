@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/perf"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -24,6 +25,9 @@ type firCheckerOpts struct {
 	Checker     firchecks.FirChecker
 	Verbose     bool
 	ActiveRules []*api.Rule
+	// Config supplies each active rule's options, sent to krit-fir as
+	// ruleConfigs so FirRule.config() sees the same options as Go rules.
+	Config      *config.Config
 	ParsedFiles []*scanner.File
 	Tracker     perf.Tracker
 	VerboseOut  io.Writer
@@ -73,6 +77,28 @@ func activeRuleIDs(rules []*api.Rule) []string {
 	return out
 }
 
+// firRuleConfigs collects the configured options (rules.<RuleId> minus
+// active/excludes) of every active rule. Go has no index of which rules have
+// a FIR checker, so it sends options for every active rule, mirroring the
+// rule-ID list; rules without options are omitted.
+func firRuleConfigs(cfg *config.Config, rules []*api.Rule) firchecks.RuleConfigs {
+	var out firchecks.RuleConfigs
+	for _, r := range rules {
+		if r == nil {
+			continue
+		}
+		opts := cfg.RuleOptions(r.Category, r.ID)
+		if len(opts) == 0 {
+			continue
+		}
+		if out == nil {
+			out = firchecks.RuleConfigs{}
+		}
+		out[r.ID] = opts
+	}
+	return out
+}
+
 // runFIRCheckerPass invokes the FIR checker subprocess (or daemon) and
 // merges its findings into base. No-op when opts.Enabled is false; the
 // returned slice is base unchanged.
@@ -94,7 +120,7 @@ func runFIRCheckerPass(opts firCheckerOpts, base []scanner.Finding) []scanner.Fi
 	subTracker := opts.Tracker.Serial("firCheck")
 	summary := firchecks.CollectFirCheckFiles(opts.ParsedFiles)
 	ktFiles := resolveFIRTargetFiles(summary, opts.ParsedFiles)
-	result, err := opts.Checker.Check(ktFiles, nil, nil, active.Names)
+	result, err := opts.Checker.Check(ktFiles, nil, nil, active.Names, firRuleConfigs(opts.Config, opts.ActiveRules))
 	subTracker.End()
 
 	if err != nil {

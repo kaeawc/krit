@@ -5,7 +5,7 @@ import "github.com/kaeawc/krit/internal/scanner"
 // FirChecker is the interface for running FIR checks. The production
 // implementation calls InvokeCached; tests use FakeFirChecker.
 type FirChecker interface {
-	Check(files []string, sourceDirs, classpath, rules []string) (*Result, error)
+	Check(files []string, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs) (*Result, error)
 }
 
 // FakeFirChecker is a configurable test double for FirChecker.
@@ -16,6 +16,8 @@ type FakeFirChecker struct {
 	Err      error
 	// Called is the list of file slices passed to Check.
 	Called [][]string
+	// CalledRuleConfigs is the ruleConfigs passed to each Check call.
+	CalledRuleConfigs []RuleConfigs
 }
 
 // NewFakeFirChecker returns a FakeFirChecker with all maps initialized.
@@ -26,10 +28,11 @@ func NewFakeFirChecker() *FakeFirChecker {
 }
 
 // Check records the call and returns the configured findings.
-func (f *FakeFirChecker) Check(files []string, _, _, _ []string) (*Result, error) {
+func (f *FakeFirChecker) Check(files []string, _, _, _ []string, ruleConfigs RuleConfigs) (*Result, error) {
 	cp := make([]string, len(files))
 	copy(cp, files)
 	f.Called = append(f.Called, cp)
+	f.CalledRuleConfigs = append(f.CalledRuleConfigs, ruleConfigs)
 	if f.Err != nil {
 		return nil, f.Err
 	}
@@ -57,7 +60,7 @@ type ProductionFirChecker struct {
 }
 
 // Check runs InvokeCached with the configured parameters.
-func (p *ProductionFirChecker) Check(files []string, sourceDirs, classpath, rules []string) (*Result, error) {
+func (p *ProductionFirChecker) Check(files []string, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs) (*Result, error) {
 	sd := p.SourceDirs
 	if len(sourceDirs) > 0 {
 		sd = sourceDirs
@@ -66,7 +69,7 @@ func (p *ProductionFirChecker) Check(files []string, sourceDirs, classpath, rule
 	if len(classpath) > 0 {
 		cl = classpath
 	}
-	return InvokeCached(p.JarPath, files, sd, cl, rules, p.RepoDir, p.UseDaemon, p.Verbose)
+	return InvokeCached(p.JarPath, files, sd, cl, rules, ruleConfigs, p.RepoDir, p.UseDaemon, p.Verbose)
 }
 
 // Compile-time check.

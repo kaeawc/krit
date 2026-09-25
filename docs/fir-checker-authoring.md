@@ -15,13 +15,17 @@ Checklist for porting one existing krit rule to a K2 FIR checker in
   and `tests/fixtures/negative/<category>/<RuleId>.kt`. A `.java`-only fixture
   does not count, because FIR checks Kotlin. FIR parity (step 6) runs against
   these fixtures.
-- K2 does not already report the Go rule's primary positive. Before porting,
-  compile the Go positive fixture and check the compiler's own diagnostics. If
-  K2 reports that code shape as a compiler error or warning, do not port the
-  rule as a checker: the right tool is a projection of that diagnostic onto the
-  Go rule ID, not a second checker for the same code.
-  `SynchronizedOnBoxedPrimitive` is the example: from language version 2.1, K2
-  reports `synchronized` on a primitive as the error
+- K2 does not already report the Go rule's positives. Before porting, compile
+  the Go positive fixture and check the compiler's own diagnostics:
+  - If a K2 diagnostic covers every shape the Go rule reports, do not write a
+    checker: project that diagnostic onto the Go rule ID instead.
+  - If K2 rejects only some shapes (a compiler error), those files are gated and
+    Go stays authoritative for them. Port the rule for the shapes that still
+    compile, mark the non-compiling Go positive fixture with
+    `// fir-parity: skip <reason>`, and pin the compiling positives in golden
+    data. Port it only when those remaining shapes are worth a checker.
+  `SynchronizedOnBoxedPrimitive` is the example of the second case: from
+  language version 2.1, K2 reports `synchronized` on a primitive as the error
   `SYNCHRONIZED_BLOCK_ON_VALUE_CLASS_OR_PRIMITIVE`, so the Go positive never
   compiles cleanly and the ported checker is only authoritative for
   monitor-lock wrappers (see

@@ -99,3 +99,24 @@ fun capturedVarElseBranch(initial: Any) {
 
 // Throwing directly is the recommended form.
 fun rethrow(e: Exception): Nothing = throw IllegalStateException("wrapped", e)
+
+// Reassigned after the check: the value passed is no longer the checked
+// Throwable, so neither the early exit nor the `is` branch proves it.
+fun capturedVarReassignedAfterGuard(initial: Any, replacement: Any) {
+    var value = initial
+    val reset = { value = "reset" }
+    reset()
+    if (value !is Exception) return
+    value = replacement
+    error(value)
+}
+
+fun capturedVarReassignedInBranch(initial: Any, replacement: Any) {
+    var value = initial
+    val reset = { value = "reset" }
+    reset()
+    if (value is Exception) {
+        value = replacement
+        error(value)
+    }
+}

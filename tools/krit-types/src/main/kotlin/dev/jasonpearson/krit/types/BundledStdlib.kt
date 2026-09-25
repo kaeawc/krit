@@ -6,23 +6,39 @@ import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
+import java.util.zip.ZipFile
 
 internal object BundledStdlib {
     private val stdlibJarName = Regex("kotlin-stdlib(-[0-9][^/]*)?\\.jar")
-    private val jdkStdlibJarName = Regex("kotlin-stdlib-jdk[78](-.*)?\\.jar")
+
+    // The file facade that declares listOf/mapOf. Its presence proves a real
+    // stdlib; kotlin-stdlib-jdk7/8 are empty shims since Kotlin 1.8, and build
+    // tools (Bazel, AAR extraction) can rename the stdlib jar.
+    private const val STDLIB_PROBE = "kotlin/collections/CollectionsKt.class"
+    private val probed = ConcurrentHashMap<String, Boolean>()
     private val bundledPath: String? by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         extract()
     }
 
     fun effectiveClasspath(user: List<String>): List<String> {
-        if (user.any { entry ->
-                val name = File(entry).name
-                stdlibJarName.matches(name) || jdkStdlibJarName.matches(name)
-            }
-        ) {
+        if (user.any { entry -> stdlibJarName.matches(File(entry).name) || containsStdlib(entry) }) {
             return user
         }
         return bundledPath?.let { user + it } ?: user
+    }
+
+    internal fun containsStdlib(entry: String): Boolean = probed.getOrPut(entry) {
+        val file = File(entry)
+        when {
+            file.isDirectory -> File(file, STDLIB_PROBE).isFile
+            file.isFile -> try {
+                ZipFile(file).use { it.getEntry(STDLIB_PROBE) != null }
+            } catch (_: IOException) {
+                false
+            }
+            else -> false
+        }
     }
 
     private fun extract(): String? = try {
@@ -45,6 +61,11 @@ internal object BundledStdlib {
                 } catch (_: AtomicMoveNotSupportedException) {
                     Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING)
                 }
+            } catch (failure: IOException) {
+                // The name is content-addressed, so a copy another process put
+                // there first (and may hold open, which blocks the replace on
+                // Windows) is the same jar.
+                if (!Files.isRegularFile(target)) throw failure
             } finally {
                 Files.deleteIfExists(temp)
             }

@@ -136,10 +136,13 @@ func TestDownloadVerifiedJar(t *testing.T) {
 		{"sha512 fallback", hex.EncodeToString(sha512Sum[:]), http.StatusNotFound, false},
 		{"mismatch", strings.Repeat("0", 64), http.StatusOK, true},
 		{"none", "", http.StatusNotFound, true},
+		{"sha1 only", "legacy checksum", http.StatusNotFound, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			base := useJarTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 				switch {
+				case r.URL.Path == "/jar":
+					_, _ = w.Write(jar)
 				case strings.HasSuffix(r.URL.Path, ".sha256"):
 					if tc.status != http.StatusOK {
 						http.NotFound(w, r)
@@ -152,10 +155,10 @@ func TestDownloadVerifiedJar(t *testing.T) {
 						return
 					}
 					fmt.Fprintln(w, tc.checksum)
-				case strings.HasSuffix(r.URL.Path, ".sha1"):
-					http.NotFound(w, r)
+				case strings.HasSuffix(r.URL.Path, ".sha1") && tc.name == "sha1 only":
+					_, _ = io.WriteString(w, "legacy checksum")
 				default:
-					_, _ = w.Write(jar)
+					http.NotFound(w, r)
 				}
 			})
 			target := filepath.Join(t.TempDir(), "jar")

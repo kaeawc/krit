@@ -3,7 +3,6 @@ package oracle
 import (
 	"bytes"
 	"context"
-	"crypto/sha1" //nolint:gosec // Legacy Maven checksum fallback for download integrity only.
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
@@ -83,9 +82,8 @@ func downloadVerifiedJar(ctx context.Context, jarURL, target string) error {
 		hashes := map[string]hash.Hash{
 			".sha256": sha256.New(),
 			".sha512": sha512.New(),
-			".sha1":   sha1.New(), //nolint:gosec // Legacy Maven checksum fallback for download integrity only.
 		}
-		writers := []io.Writer{w, hashes[".sha256"], hashes[".sha512"], hashes[".sha1"]}
+		writers := []io.Writer{w, hashes[".sha256"], hashes[".sha512"]}
 		if _, err := io.Copy(io.MultiWriter(writers...), resp.Body); err != nil {
 			return err
 		}
@@ -97,7 +95,7 @@ func downloadVerifiedJar(ctx context.Context, jarURL, target string) error {
 // A malformed or mismatched published checksum is authoritative and fails the install.
 func verifyJarChecksum(ctx context.Context, jarURL string, hashes map[string]hash.Hash) error {
 	var unavailable []error
-	for _, suffix := range []string{".sha256", ".sha512", ".sha1"} {
+	for _, suffix := range []string{".sha256", ".sha512"} {
 		content, err := fetchJarChecksum(ctx, jarURL+suffix)
 		if err != nil {
 			unavailable = append(unavailable, fmt.Errorf("%s: %w", redactURL(jarURL+suffix), err))

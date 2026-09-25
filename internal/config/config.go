@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
+
+	shippedconfig "github.com/kaeawc/krit/config"
 )
 
 // Config holds the parsed YAML configuration for krit rules.
@@ -151,7 +153,36 @@ func LoadAndMerge(userPath string, defaultPath string, roots ...string) (*Config
 	} else {
 		base = &Config{data: make(map[string]interface{})}
 	}
+	return mergeUserConfig(base, userPath, roots)
+}
 
+// LoadAndMergeDefaults is LoadAndMerge over krit's shipped defaults:
+// config/default-krit.yml when FindDefaultConfig locates it on disk (a
+// source checkout, where edits apply without a rebuild), else the copy
+// embedded in the binary. Released archives ship no config/ directory, and
+// default-krit.yml is where rule option defaults live, so the embedded copy
+// keeps a released binary's defaults identical to a checkout's.
+func LoadAndMergeDefaults(userPath string, roots ...string) (*Config, error) {
+	if path := FindDefaultConfig(); path != "" {
+		return LoadAndMerge(userPath, path, roots...)
+	}
+	base, err := parseConfig(shippedconfig.DefaultConfig(), "embedded "+shippedconfig.DefaultConfigName)
+	if err != nil {
+		return nil, err
+	}
+	return mergeUserConfig(base, userPath, roots)
+}
+
+// DefaultConfigSource names where LoadAndMergeDefaults reads defaults from:
+// the on-disk default-krit.yml path, or "embedded".
+func DefaultConfigSource() string {
+	if path := FindDefaultConfig(); path != "" {
+		return path
+	}
+	return "embedded"
+}
+
+func mergeUserConfig(base *Config, userPath string, roots []string) (*Config, error) {
 	var user *Config
 	var err error
 	if userPath != "" {
@@ -177,9 +208,14 @@ func loadFile(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseConfig(data, path)
+}
+
+// parseConfig parses YAML config content; name labels parse errors.
+func parseConfig(data []byte, name string) (*Config, error) {
 	var raw map[string]interface{}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parsing %s: %w", path, err)
+		return nil, fmt.Errorf("parsing %s: %w", name, err)
 	}
 	if raw == nil {
 		raw = make(map[string]interface{})

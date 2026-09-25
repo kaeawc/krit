@@ -241,7 +241,6 @@ func resolveEffectiveFormat(f *scanFlags) string {
 }
 
 func loadScanConfig(f *scanFlags) *config.Config {
-	defaultCfgPath := config.FindDefaultConfig()
 	userCfgPath := *f.Config
 	if userCfgPath == "" {
 		userCfgPath = detectConfigForScanArgs(flag.Args())
@@ -252,7 +251,7 @@ func loadScanConfig(f *scanFlags) *config.Config {
 	// threading the full arg list into LoadAndMerge keeps detection
 	// working when other arg shapes (multiple roots, file paths) are
 	// passed without --config.
-	cfg, cfgErr := config.LoadAndMerge(userCfgPath, defaultCfgPath, flag.Args()...)
+	cfg, cfgErr := config.LoadAndMergeDefaults(userCfgPath, flag.Args()...)
 	if cfgErr != nil {
 		fmt.Fprintf(os.Stderr, "warning: config: %v\n", cfgErr)
 	}

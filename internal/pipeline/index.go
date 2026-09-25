@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -371,6 +372,22 @@ func (in IndexInput) logf(format string, args ...any) {
 // warnf forwards warning lines to Reporter when set.
 func (in IndexInput) warnf(format string, args ...any) {
 	in.Reporter.Warnf(format, args...)
+}
+
+// reportMissingOracleJar explains why the JVM oracle is off. A failed
+// download is a warning; a download that was never attempted (dev build,
+// opt-out, no java) stays verbose-only, as a missing jar always was.
+func (in IndexInput) reportMissingOracleJar(err error) {
+	if err == nil {
+		return
+	}
+	if errors.Is(err, oracle.ErrJarDownloadSkipped) {
+		if in.Verbose {
+			in.logf("verbose: type oracle disabled: %v\n", err)
+		}
+		return
+	}
+	in.warnf("warning: type oracle disabled: %v\n", err)
 }
 
 // trackSerial runs fn under a child Tracker named name when Tracker is
@@ -1007,13 +1024,13 @@ func analyzeAllAndPersist(analyzeAll func() (*oracle.Data, error), typesPath str
 // markers — the warm-JVM win is the only thing carrying over.
 //
 // Daemon resolution mirrors runJvmAnalyze's backend split: the FIR
-// jar comes from `firchecks.FindFirJar(scanPaths)` and the spawn
+// jar comes from `oracle.EnsureBackendJar` and the spawn
 // goes through `firchecks.ConnectOrStartFirDaemon`, which reuses an
 // existing daemon when one already serves the same sourceDirs hash.
 func (p IndexPhase) runDaemonOracleFir(in IndexInput, scanPaths []string, oracleTracker perf.Tracker, base typeinfer.TypeResolver, result *IndexResult) typeinfer.TypeResolver {
-	jarPath := firchecks.FindFirJar(scanPaths)
+	jarPath, err := oracle.EnsureBackendJar(context.Background(), oracle.BackendFIR, scanPaths, in.Verbose)
 	if jarPath == "" {
-		in.warnf("warning: --daemon: krit-fir.jar not found; falling back to base resolver\n")
+		in.warnf("warning: --daemon: %v; falling back to base resolver\n", err)
 		return base
 	}
 	var sourceDirs []string
@@ -1137,27 +1154,29 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 	if backend == "" {
 		backend = oracle.DefaultBackend
 	}
-	var jarPath string
-	jvmTracker.TrackVoid("findJar", func() {
-		switch backend {
-		case oracle.BackendFIR:
-			// krit-fir ships the same analyze / analyzeAll /
-			// analyzeWithDeps RPCs as krit-types (see PR 2.x
-			// parity work), so we can swap the jar without
-			// touching the InvokeCached pipeline below.
-			jarPath = firchecks.FindFirJar(scanPaths)
-		default:
-			jarPath = oracle.FindJar(scanPaths)
-		}
-	})
-	if jarPath == "" {
-		return ""
-	}
 	var sourceDirs []string
 	jvmTracker.TrackVoid("findSourceDirs", func() {
 		sourceDirs = oracle.FindSourceDirs(scanPaths)
 	})
 	if len(sourceDirs) == 0 {
+		return ""
+	}
+	// krit-fir ships the same analyze / analyzeAll / analyzeWithDeps RPCs
+	// as krit-types, so the jar is the only thing the backend swaps; the
+	// InvokeCached pipeline below is shared. Tagged releases download a
+	// missing jar, and fall back to an installed krit-types jar when the
+	// krit-fir one can't be had. Resolved after the source dirs so a
+	// project with nothing to analyze never triggers a download.
+	var jarPath, jarWarning string
+	var jarErr error
+	jvmTracker.TrackVoid("findJar", func() {
+		jarPath, backend, jarWarning, jarErr = oracle.ResolveOracleJar(context.Background(), backend, scanPaths, in.Verbose)
+	})
+	if jarWarning != "" {
+		in.warnf("warning: %s\n", jarWarning)
+	}
+	if jarPath == "" {
+		in.reportMissingOracleJar(jarErr)
 		return ""
 	}
 	perf.AddEntryDetails(jvmTracker, "sourceDirsFound", 0, map[string]int64{"sourceDirs": int64(len(sourceDirs))}, nil)

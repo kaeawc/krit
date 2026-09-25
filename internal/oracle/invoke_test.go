@@ -18,17 +18,23 @@ import (
 // FindJar tests
 // ---------------------------------------------------------------------------
 
-// isolateJarLookup repoints HOME and clears KRIT_TYPES_JAR / oracle.Version so
-// the test sees only fixtures it explicitly creates. Returns the isolated
-// fake-home directory.
+// isolateJarLookup repoints HOME and clears the jar env overrides and
+// oracle.Version so the test sees only fixtures it explicitly creates.
+// Returns the isolated fake-home directory.
 func isolateJarLookup(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("KRIT_TYPES_JAR", "")
+	t.Setenv("KRIT_FIR_JAR", "")
+	t.Setenv(NoJarDownloadEnv, "")
 	prev := Version
 	Version = ""
-	t.Cleanup(func() { Version = prev })
+	failedDownloads = map[string]error{}
+	t.Cleanup(func() {
+		Version = prev
+		failedDownloads = map[string]error{}
+	})
 	return home
 }
 

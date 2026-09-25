@@ -11,6 +11,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	shippedconfig "github.com/kaeawc/krit/config"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/onboarding"
 	"github.com/kaeawc/krit/internal/onboarding/tui"
 )
@@ -53,7 +55,7 @@ func Run(args []string) int {
 		return 2
 	}
 
-	repoRoot, err := findOnboardingRepoRoot()
+	repoRoot, err := resolveOnboardingRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 2
@@ -178,6 +180,34 @@ func runHeadlessInit(opts onboarding.ScanOptions, reg *onboarding.Registry, prof
 	}
 	fmt.Printf("baseline written to %s\n", baselinePath)
 	return 0
+}
+
+// resolveOnboardingRoot returns a directory holding config/default-krit.yml,
+// config/profiles/, and config/onboarding/: the krit repo root when one is
+// found (so a checkout's edits apply), else a copy of the configuration
+// embedded in the binary, written once per content hash under the krit user
+// cache dir. Released archives ship no config/ directory.
+func resolveOnboardingRoot() (string, error) {
+	if root, err := findOnboardingRepoRoot(); err == nil {
+		return root, nil
+	}
+	base, err := fsutil.UserKritDir()
+	if err != nil {
+		return "", err
+	}
+	return materializeShippedConfig(filepath.Join(base, "shipped-config", shippedconfig.ContentHash()[:16]))
+}
+
+// materializeShippedConfig writes the embedded configuration under
+// root/config/ and returns root. It rewrites every file on each call: the
+// files are small, init is rare, and a run interrupted mid-write can't leave
+// a partial tree behind for the next one to trust.
+func materializeShippedConfig(root string) (string, error) {
+	configDir := filepath.Join(root, "config")
+	if err := shippedconfig.WriteTree(configDir); err != nil {
+		return "", fmt.Errorf("write embedded config to %s: %w", configDir, err)
+	}
+	return root, nil
 }
 
 // findOnboardingRepoRoot locates the krit repo root — the directory

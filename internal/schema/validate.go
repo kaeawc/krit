@@ -55,6 +55,10 @@ func ValidateConfig(cfg *config.Config) []ValidationError {
 		if key == "config" {
 			continue
 		}
+		if key == "analysis" {
+			errs = append(errs, validateAnalysis(val)...)
+			continue
+		}
 		if key == "module_template" {
 			section, ok := val.(map[string]interface{})
 			if !ok {
@@ -123,6 +127,50 @@ func ValidateConfig(cfg *config.Config) []ValidationError {
 		}
 	}
 
+	return errs
+}
+
+// validateAnalysis checks the top-level analysis block. Its only key is
+// depth, one of the presets --depth accepts.
+func validateAnalysis(raw interface{}) []ValidationError {
+	section, ok := raw.(map[string]interface{})
+	if !ok {
+		return []ValidationError{{
+			Path:    "analysis",
+			Message: fmt.Sprintf("expected object, got %T", raw),
+			Level:   "error",
+		}}
+	}
+	keys := make([]string, 0, len(section))
+	for key := range section {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var errs []ValidationError
+	for _, key := range keys {
+		path := "analysis." + key
+		if key != "depth" {
+			errs = append(errs, ValidationError{
+				Path:    path,
+				Message: fmt.Sprintf("unknown config key '%s' in analysis", key),
+				Level:   "error",
+			})
+			continue
+		}
+		if err := checkType(path, section[key], OptionTypeString); err != nil {
+			errs = append(errs, *err)
+			continue
+		}
+		switch section[key] {
+		case "fast", "balanced", "thorough":
+		default:
+			errs = append(errs, ValidationError{
+				Path:    path,
+				Message: fmt.Sprintf("unknown depth %q: want one of fast, balanced, thorough", section[key]),
+				Level:   "error",
+			})
+		}
+	}
 	return errs
 }
 

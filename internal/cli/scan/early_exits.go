@@ -170,39 +170,67 @@ func runDoctorFlag(doctorFlag bool, version string) {
 	if !doctorFlag {
 		return
 	}
-	fmt.Println("krit doctor")
-	fmt.Println()
-	fmt.Printf("  krit version: %s\n", version)
-	fmt.Printf("  rules: %d registered (%d active by default)\n", len(api.Registry), countActiveV2(api.Registry))
+	printDoctor(os.Stdout, version)
+	os.Exit(0)
+}
+
+// printDoctor writes the --doctor report. Split from runDoctorFlag so tests
+// can drive it without the os.Exit.
+func printDoctor(w io.Writer, version string) {
+	fmt.Fprintln(w, "krit doctor")
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  krit version: %s\n", version)
+	fmt.Fprintf(w, "  rules: %d registered (%d active by default)\n", len(api.Registry), countActiveV2(api.Registry))
 	configFound := false
 	for _, name := range config.Filenames {
 		if _, err := os.Stat(name); err == nil {
-			fmt.Printf("  config: %s (found)\n", name)
+			fmt.Fprintf(w, "  config: %s (found)\n", name)
 			configFound = true
 			break
 		}
 	}
 	if !configFound {
-		fmt.Println("  config: none (run --init to create)")
+		fmt.Fprintln(w, "  config: none (run --init to create)")
 	}
+	fmt.Fprintf(w, "  default config: %s\n", config.DefaultConfigSource())
 	if javaPath, err := exec.LookPath("java"); err == nil {
-		fmt.Printf("  java: %s\n", javaPath)
+		fmt.Fprintf(w, "  java: %s\n", javaPath)
 	} else {
-		fmt.Println("  java: not found (optional — needed for type oracle)")
+		fmt.Fprintln(w, "  java: not found (optional — needed for type oracle)")
+	}
+	if javacPath, err := exec.LookPath("javac"); err == nil {
+		fmt.Fprintf(w, "  javac: %s (Java semantic facts available)\n", javacPath)
+	} else {
+		fmt.Fprintln(w, "  javac: not found (optional — needed for Java semantic facts)")
 	}
 	if cwebpPath, err := exec.LookPath("cwebp"); err == nil {
-		fmt.Printf("  cwebp: %s (WebP conversion available)\n", cwebpPath)
+		fmt.Fprintf(w, "  cwebp: %s (WebP conversion available)\n", cwebpPath)
 	} else {
-		fmt.Println("  cwebp: not found (optional — needed for --fix-binary WebP)")
+		fmt.Fprintln(w, "  cwebp: not found (optional — needed for --fix-binary WebP)")
 	}
-	if p := oracle.FindJar(nil); p != "" {
-		fmt.Printf("  krit-types: %s\n", p)
-	} else {
-		fmt.Println("  krit-types: not found (optional — auto-downloaded on first use of --daemon / --custom-rule-jars in tagged releases)")
+	for _, b := range []oracle.Backend{oracle.BackendFIR, oracle.BackendKAA} {
+		fmt.Fprintf(w, "  %s\n", oracleJarStatus(b))
 	}
-	fmt.Println()
-	fmt.Println("  Everything looks good!")
-	os.Exit(0)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "  Everything looks good!")
+}
+
+// oracleJarStatus is the --doctor line for one oracle backend's jar: where it
+// was found, or how a missing one gets installed.
+func oracleJarStatus(b oracle.Backend) string {
+	role := "optional"
+	if b == oracle.DefaultBackend {
+		role = "default oracle backend"
+	}
+	name := strings.TrimSuffix(b.JarName(), ".jar")
+	if p := oracle.FindBackendJar(b, nil); p != "" {
+		return fmt.Sprintf("%s: %s (%s)", name, p, role)
+	}
+	how := "auto-downloaded to ~/.krit/jars on first use in tagged releases"
+	if !oracle.IsReleaseBuild() {
+		how = fmt.Sprintf("dev build: cd tools/%s && ./gradlew shadowJar", name)
+	}
+	return fmt.Sprintf("%s: not found (%s; %s, or set %s)", name, role, how, b.JarEnvVar())
 }
 
 func runGenerateSchemaFlag(generateSchemaFlag bool) {

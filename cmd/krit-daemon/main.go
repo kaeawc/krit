@@ -24,6 +24,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/cli/serve"
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/oracle"
 )
 
 var version = "dev"
@@ -111,6 +112,7 @@ func main() {
 	// serve.Version is the version reported by the status verb. Mirror
 	// the krit-daemon binary's version so clients can detect upgrades.
 	serve.Version = version
+	oracle.Version = version
 
 	// The binary-hash handshake compares the CLI's krit binary hash to
 	// what the daemon advertises. With krit and krit-daemon as separate

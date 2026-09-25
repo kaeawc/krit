@@ -78,7 +78,7 @@ func Build(paths []string, configPath string) ([]Row, error) {
 		return nil, fmt.Errorf("parsing Kotlin files: %w", parseErrs[0])
 	}
 
-	cfg, err := config.LoadAndMerge(configPath, config.FindDefaultConfig())
+	cfg, err := config.LoadAndMergeDefaults(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading config: %w", err)
 	}

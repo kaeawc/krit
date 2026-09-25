@@ -1,6 +1,8 @@
 package scan
 
 import (
+	"context"
+
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/oracle"
@@ -29,8 +31,11 @@ func FIRCompileContext(paths []string, cfg *config.Config) (sourceDirs, classpat
 // NewFIRChecker builds the production checker for a scan of paths.
 func NewFIRChecker(paths []string, cfg *config.Config, useDaemon, verbose bool) *firchecks.ProductionFirChecker {
 	sourceDirs, classpath := FIRCompileContext(paths, cfg)
+	// Tagged releases download a missing krit-fir jar. On failure JarPath
+	// stays "" and the checker reports the missing jar itself.
+	jarPath, _ := oracle.EnsureBackendJar(context.Background(), oracle.BackendFIR, paths, verbose)
 	return &firchecks.ProductionFirChecker{
-		JarPath:    firchecks.FindFirJar(paths),
+		JarPath:    jarPath,
 		SourceDirs: sourceDirs,
 		Classpath:  classpath,
 		RepoDir:    oracle.FindRepoDir(paths),

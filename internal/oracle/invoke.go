@@ -54,76 +54,11 @@ func invokeGraceExitFrom(r env.Reader) time.Duration {
 	return 15 * time.Second
 }
 
-// FindJar locates the krit-types shadow JAR. Checked in order:
-//  1. $KRIT_TYPES_JAR env override (when the file exists)
-//  2. Installed jars under ~/.krit/jars/ — version-pinned then unversioned
-//  3. ~/.krit/krit-types.jar (legacy, pre-#300 install location)
-//  4. Next to the krit binary or under exe-dir/tools/krit-types/build/libs/
-//  5. In the project being scanned (.krit/krit-types.jar or
-//     tools/krit-types/build/libs/krit-types.jar)
-//  6. Under the current working directory's tools/krit-types/build/libs/
-//
-// Returns "" when no jar is found. Use EnsureJar instead when the caller
+// FindJar locates the krit-types shadow JAR without downloading; see
+// FindBackendJar for the lookup order. Use EnsureJar instead when the caller
 // should auto-download a missing jar for the current krit release.
 func FindJar(scanPaths []string) string {
-	if v := strings.TrimSpace(os.Getenv("KRIT_TYPES_JAR")); v != "" {
-		if _, err := os.Stat(v); err == nil {
-			return v
-		}
-	}
-
-	candidates := []string{}
-
-	// Installed locations under ~/.krit. krit binary releases download
-	// the matching jar here on first use; see EnsureJar.
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		jarsDir := filepath.Join(home, ".krit", "jars")
-		if tag := versionTag(); tag != "" {
-			candidates = append(candidates, filepath.Join(jarsDir, "krit-types-"+tag+".jar"))
-		}
-		candidates = append(candidates,
-			filepath.Join(jarsDir, "krit-types.jar"),
-			filepath.Join(home, ".krit", "krit-types.jar"),
-		)
-	}
-
-	// Check relative to the krit binary
-	exe, err := os.Executable()
-	if err == nil {
-		exeDir := filepath.Dir(exe)
-		candidates = append(candidates,
-			filepath.Join(exeDir, "krit-types.jar"),
-			filepath.Join(exeDir, "tools", "krit-types", "build", "libs", "krit-types.jar"),
-			filepath.Join(exeDir, "..", "tools", "krit-types", "build", "libs", "krit-types.jar"),
-		)
-	}
-
-	// Check in the project directory
-	if len(scanPaths) > 0 {
-		projectDir := scanPaths[0]
-		fi, err := os.Stat(projectDir)
-		if err == nil && !fi.IsDir() {
-			projectDir = filepath.Dir(projectDir)
-		}
-		candidates = append(candidates,
-			filepath.Join(projectDir, ".krit", "krit-types.jar"),
-			filepath.Join(projectDir, "tools", "krit-types", "build", "libs", "krit-types.jar"),
-		)
-	}
-
-	// Check working directory
-	cwd, _ := os.Getwd()
-	candidates = append(candidates,
-		filepath.Join(cwd, "tools", "krit-types", "build", "libs", "krit-types.jar"),
-		filepath.Join(cwd, "krit-types.jar"),
-	)
-
-	for _, path := range candidates {
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-	return ""
+	return FindBackendJar(BackendKAA, scanPaths)
 }
 
 // nonJVMSourceSetFamilies are the Kotlin Multiplatform target families that

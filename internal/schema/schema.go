@@ -180,6 +180,13 @@ func GenerateSchema(metas []RuleMeta) *jsonschema.Schema {
 		"warningsAsErrors": jsonschema.Boolean("").WithDefault(false),
 	}).WithDescription("Global krit configuration.").AdditionalPropertiesFalse()
 
+	props["analysis"] = jsonschema.Object(map[string]*jsonschema.Schema{
+		"depth": jsonschema.StringEnum(
+			[]string{"fast", "balanced", "thorough"},
+			"Analysis depth preset: fast skips the JVM type oracle, balanced (default) adds it, thorough enables every compiler-backed precision feature. --depth wins.",
+		),
+	}).WithDescription("Analysis depth settings.").AdditionalPropertiesFalse()
+
 	props["maxCost"] = jsonschema.StringEnum(
 		[]string{"trivial", "line", "ast", "crossfile", "oracle", "fir", "fast", "balanced", "thorough"},
 		"Maximum rule weight class to run. Filters the active rule set so higher-cost rules are skipped. Presets: fast≡ast, balanced≡crossfile, thorough≡fir.",
@@ -310,6 +317,7 @@ func sortedKeys(m map[string][]RuleMeta) []string {
 // KnownRuleSets returns the set of known ruleset names from the registry.
 func KnownRuleSets() map[string]bool {
 	sets := map[string]bool{
+		"analysis":                true,
 		"config":                  true,
 		"module_template":         true,
 		"slos":                    true,

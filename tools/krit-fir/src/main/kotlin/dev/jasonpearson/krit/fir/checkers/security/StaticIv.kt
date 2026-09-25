@@ -65,7 +65,7 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *    project codec), or `java.util.Base64.Decoder.decode`.
  * A literal string is a string literal (raw or not), a template whose entries
  * are literals, `const val`s, or properties (val or var, final or open, not
- * lateinit; a local var only when nothing in its function reassigns it)
+ * lateinit; a local var only when its function assigns it literal values only)
  * initialized with a literal string, or a `kotlin.text` call
  * (`trimIndent()`, `replace(" ", "")`) on a literal string with literal
  * arguments.
@@ -93,8 +93,8 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *    bytes, a parenthesized string concatenation, and a String transform
  *    before toByteArray (StaticIvGoMisses).
  *  - Go false positives FIR skips, where the IV is not literal bytes: a string
- *    template with a runtime entry, or over a local var reassigned in its
- *    function (StaticIvLocalVars); a chain that mixes in runtime or random
+ *    template with a runtime entry, or over a local var its function also
+ *    assigns a runtime value (StaticIvLocalVars); a chain that mixes in runtime or random
  *    bytes, or whose lambda overwrites them; a decode whose data argument is
  *    not a literal but whose text holds a quote; a literal source nested in
  *    another call's argument (StaticIvPrecision); a same-file
@@ -170,7 +170,7 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
         // Java constructors take no named arguments, so the IV is positional.
         if (callee.valueParameterSymbols.size <= ivIndex) return
         val ivArgument = expression.argumentList.arguments.getOrNull(ivIndex) ?: return
-        val locals = LocalAssignments { assignedLocals() }
+        val locals = LocalAssignments { assignedLocalValues() }
         if (with(locals) { literalBytes(ivArgument, emptySet()) } == null) return
         report(expression.source, MESSAGE)
     }
@@ -474,42 +474,65 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
     // whose initializer is a literal string. A member or top-level var and an
     // open val count too: the literal it is initialized with is still written
     // in the source (the default), and Go reports a template over one. A local
-    // var counts only when nothing in its function assigns it again;
-    // otherwise its value at the read need not be the initializer. A lateinit
-    // var has no initializer.
+    // var counts only when every value its function assigns to it is literal
+    // too (`prefix += "ab"`, `prefix = OTHER`), since any of them may be the
+    // value read; `prefix = loadPrefix()` disqualifies it. A lateinit var has
+    // no initializer.
     context(locals: LocalAssignments)
     private fun isLiteralProperty(expression: FirExpression, seen: PropertyVerdicts): Boolean {
         if (expression !is FirPropertyAccessExpression) return false
         val symbol = expression.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol ?: return false
         if (symbol.resolvedStatus.isConst) return true
         if (symbol.isLateInit || symbol.hasDelegate) return false
-        if (isReassignedLocalVar(symbol, locals::assigned)) return false
         if (symbol.resolvedStatus.isExpect) return false
         if (symbol.getterSymbol?.isDefault == false) return false
         val initializer = symbol.resolvedInitializer ?: return false
-        return seen.property(symbol) { isLiteralString(initializer, seen) }
+        return seen.property(symbol) {
+            isLiteralString(initializer, seen) && (!isLocalVar(symbol) || seen.reassigning(symbol) {
+                reassignmentsAll(symbol, locals.assigned()) { isLiteralArgument(it, seen) }
+            })
+        }
     }
 
-    // The local variables assigned in the enclosing declaration (see
-    // assignedLocals), computed on the first local var read of a check.
-    private class LocalAssignments(compute: () -> Set<FirBasedSymbol<*>>?) {
+    // The values assigned to local variables in the enclosing declaration
+    // (see assignedLocalValues), computed on the first local var read of a
+    // check.
+    private class LocalAssignments(compute: () -> Map<FirBasedSymbol<*>, List<FirExpression>>?) {
         private val once by lazy(LazyThreadSafetyMode.NONE, compute)
 
-        fun assigned(): Set<FirBasedSymbol<*>>? = once
+        fun assigned(): Map<FirBasedSymbol<*>, List<FirExpression>>? = once
     }
 
     // One literal-string check's property verdicts. Each property is walked
     // once and its verdict reused: a shared initializer (`val B = "$A$A"`)
     // is not walked again, which would make the check exponential in the
     // chain length, and a property read again while its own initializer is
-    // being walked (a cycle) is not literal on that path.
+    // being walked (a cycle) is not literal on that path, except a local var
+    // read in a value assigned to it (`prefix = "$prefix-x"`): that read is
+    // the var's earlier value, literal by induction when its initializer and
+    // every other assigned value are.
     private class PropertyVerdicts {
         private val verdicts = HashMap<FirPropertySymbol, Boolean?>()
+        private var reassigned: FirPropertySymbol? = null
 
         fun property(symbol: FirPropertySymbol, compute: () -> Boolean): Boolean {
-            if (symbol in verdicts) return verdicts[symbol] == true
+            if (symbol in verdicts) return verdicts[symbol] == true || symbol == reassigned
             verdicts[symbol] = null
             return compute().also { verdicts[symbol] = it }
+        }
+
+        // Evaluates the values assigned to the local var [symbol].
+        // Verdicts reached while assuming the var hardcoded are dropped when
+        // the assumption fails.
+        fun reassigning(symbol: FirPropertySymbol, compute: () -> Boolean): Boolean {
+            val outer = reassigned
+            val before = HashSet(verdicts.keys)
+            reassigned = symbol
+            try {
+                return compute().also { holds -> if (!holds) verdicts.keys.retainAll(before) }
+            } finally {
+                reassigned = outer
+            }
         }
     }
 }

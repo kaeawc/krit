@@ -1,12 +1,15 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// A local var holds its hardcoded initializer only when nothing in its
-// function assigns it again: a reassignment before the read, after it (a loop
-// or a later call can observe it), or inside a lambda or local function that
-// captures the var can replace the literal with a runtime value.
+// A local var holds a hardcoded key only when its initializer and every value
+// its function assigns to it are hardcoded: any assignment (before the read,
+// after it in a loop, or inside a lambda or local function that captures the
+// var) may be the value read. A compound assignment (`key += x`) combines the
+// current value with `x`, so only `x` is checked.
 package test
 
 import java.util.Base64
 import javax.crypto.spec.SecretKeySpec
+
+const val OTHER_KEY = "b3RoZXJrZXkxMjM0NTY3OA=="
 
 fun loadKey(): String = System.getenv("KEY") ?: ""
 
@@ -25,7 +28,27 @@ class Crypto {
         values.forEach { _ -> <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode(key), "AES") }
     }
 
-    // Neither Go nor FIR reports these bare reads of a reassigned var.
+    // Reassigned only with hardcoded values: another literal, a const, a
+    // hardcoded suffix, or the var itself extended with a literal. Every value
+    // the var can hold is written in the source. Go reports the templates and
+    // misses the bare reads; FIR reports all of them.
+    fun reassignedWithHardcodedValues(flag: Boolean) {
+        var key = "c2VjcmV0MTIzNDU2Nzg="
+        if (flag) key = "b3RoZXJrZXkxMjM0NTY3OA=="
+        <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode(key), "AES")
+        var fromConst = "c2VjcmV0MTIzNDU2Nzg="
+        if (flag) fromConst = OTHER_KEY
+        <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode(fromConst), "AES")
+        var suffixed = "c2VjcmV0MTIzNDU2Nzg"
+        suffixed += "="
+        <!HardcodedSecretKey!>SecretKeySpec<!>("$suffixed".toByteArray(), "AES")
+        var extended = "c2VjcmV0MTIzNDU2Nzg"
+        extended = extended + "="
+        <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode(extended), "AES")
+    }
+
+    // Neither Go nor FIR reports these bare reads: some assigned value is a
+    // runtime value.
     fun reassignedBefore() {
         var key = ""
         key = loadKey()
@@ -55,23 +78,29 @@ class Crypto {
         SecretKeySpec(Base64.getDecoder().decode(key), "AES")
     }
 
-    fun compoundAssignment() {
+    fun compoundRuntimeOperand() {
         var key = "c2VjcmV0"
         key += loadKey()
         SecretKeySpec(Base64.getDecoder().decode(key), "AES")
     }
 
+    // A literal reassignment does not make up for a runtime one.
+    fun mixedReassignments(flag: Boolean) {
+        var key = "c2VjcmV0MTIzNDU2Nzg="
+        if (flag) key = "b3RoZXJrZXkxMjM0NTY3OA==" else key = loadKey()
+        SecretKeySpec(Base64.getDecoder().decode(key), "AES")
+    }
+
     // Go reports these because the argument starts with or holds a quote;
-    // FIR is correct to drop them: the var is reassigned in its function, so
-    // the bytes read need not be the literal. (Even a reassignment to another
-    // literal drops the finding: only the initializer is trusted.)
-    fun reassignedTemplates() {
+    // FIR is correct to drop them: the var is also assigned a runtime value,
+    // so the bytes read need not be a literal.
+    fun reassignedTemplates(flag: Boolean) {
         var key = "c2VjcmV0MTIzNDU2Nzg="
         key = loadKey()
         SecretKeySpec("$key".toByteArray(), "AES")
         SecretKeySpec(Base64.getDecoder().decode("$key"), "AES")
-        var suffixed = "c2VjcmV0MTIzNDU2Nzg="
-        suffixed += ""
-        SecretKeySpec("$suffixed".toByteArray(), "AES")
+        var mixed = "c2VjcmV0MTIzNDU2Nzg="
+        if (flag) mixed = "b3RoZXJrZXkxMjM0NTY3OA==" else mixed = loadKey()
+        SecretKeySpec("$mixed".toByteArray(), "AES")
     }
 }

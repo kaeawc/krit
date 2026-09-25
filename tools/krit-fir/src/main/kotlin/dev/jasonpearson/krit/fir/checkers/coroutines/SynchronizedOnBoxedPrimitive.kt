@@ -17,6 +17,7 @@ import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.utils.isCompanion
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirImplicitInvokeCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
@@ -28,9 +29,16 @@ import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
+import org.jetbrains.kotlin.fir.types.ConeClassLikeType
+import org.jetbrains.kotlin.fir.types.ConeKotlinType
+import org.jetbrains.kotlin.fir.types.ConeTypeParameterType
 import org.jetbrains.kotlin.fir.types.isAnyOrNullableAny
+import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
+import org.jetbrains.kotlin.fir.types.resolvedType
+import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.lexer.KtTokens
+import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.text
 
 // Flags `synchronized(lock) { }` whose lock is a boxed primitive: a
@@ -40,31 +48,46 @@ import org.jetbrains.kotlin.text
 // end up contending on, or deadlocking over, the same monitor.
 //
 // Mirrors the Go SynchronizedOnBoxedPrimitive rule:
-// - The call is written `synchronized(...)` (optionally qualified). The lock
-//   is its first positional argument; a named `lock = ...` argument, or a
+// - The call is written `synchronized(...)` (optionally qualified), whatever
+//   it resolves to: kotlin.synchronized, a wrapper, an import alias into that
+//   name, or a value named synchronized called through `invoke`. The lock is
+//   its first positional argument; a named `lock = ...` argument, or a
 //   parenthesized, negated, or otherwise compound expression, is not
 //   inspected.
 // - Literal lock: decimal integer, long (`1L`, `0x1L`), floating-point,
 //   boolean, and character literals. Hex/binary integers without an `L`
 //   suffix and unsigned literals are not tree-sitter integer/long literals,
 //   so Go does not flag them either. Literals are flagged anywhere.
-// - Identifier lock: a bare name that resolves to a property declared (as a
-//   member or local, at any depth) inside the nearest enclosing class or
-//   object declaration (a companion object counts as its outer class, as in
-//   Go). Its declared type is read from the declaration text exactly as Go
-//   does: the text after the first `:`, cut at `=`, with `?` and type
-//   arguments dropped, must be one of the eight primitive names, which is
-//   also the name the message reports. Parameters, primary-constructor
-//   properties, top-level properties, and inferred types are not flagged.
+// - Identifier lock: a bare name inside a class or object declaration (a
+//   companion object counts as its outer class, as in Go). Go looks the name
+//   up among the property declarations (members or locals, at any depth) of
+//   the nearest enclosing class or object and reads the first typed one's
+//   type from its text: after the first `:`, cut at `=`, with `?` and type
+//   arguments dropped, it must be one of the eight primitive names.
+//   Parameters, primary-constructor properties, top-level properties, and
+//   inferred types are never that declaration.
 //
-// Deliberate precision fixes over Go, which matches by name only:
-// - The callee must be a monitor-lock function: named `synchronized` with a
-//   first parameter of type Any (after typealias expansion). That covers
-//   kotlin.synchronized, atomicfu's JVM `synchronized(SynchronizedObject)`
-//   (a typealias of Any), and multiplatform `expect`/`actual` wrappers; a
-//   lookalike whose first parameter is a specific type is ignored.
-// - The identifier must resolve to that property, so a parameter or local
-//   that shadows a boxed-primitive property is ignored.
+// Where resolution and Go's name lookup disagree, the lock's resolved type
+// decides. A finding needs the lock to really be a boxed primitive, and then
+// either Go's lookup or the property the name resolves to (declared in that
+// class, with a primitive type written in its text) to say so. The message
+// names the lock's real type. So:
+// - A parameter, local, or implicit-receiver property that shadows a
+//   boxed-primitive property is dropped when it is not a primitive itself,
+//   and kept (as Go reports it) when it is.
+// - Findings Go misses are added only where the resolved property is
+//   primitive-typed: a later same-named declaration than the one Go picks,
+//   or a typed when-subject variable, which tree-sitter does not parse as a
+//   property declaration.
+//
+// Deliberate precision fix over Go: the callee must be a monitor-lock
+// function, whose first parameter is Any or Any? after typealias expansion,
+// or a type parameter bounded only by those. That covers kotlin.synchronized,
+// atomicfu's JVM `synchronized(SynchronizedObject)` (a typealias of Any), and
+// multiplatform or generic wrappers; a lookalike whose first parameter is a
+// specific type is ignored. This matches on the written name and the lock
+// parameter's type instead of a callableId on purpose: Go matches by name,
+// and those wrappers share no callableId.
 //
 // From language version 2.1, K2 itself rejects kotlin.synchronized on a
 // primitive (SYNCHRONIZED_BLOCK_ON_VALUE_CLASS_OR_PRIMITIVE), so a file with
@@ -82,19 +105,18 @@ internal object SynchronizedOnBoxedPrimitive : FirFunctionCallChecker(MppChecker
 
     private val boxedPrimitiveTypes = setOf("Int", "Long", "Short", "Byte", "Float", "Double", "Boolean", "Char")
 
+    private val kotlinPackage = FqName("kotlin")
+
     private const val LITERAL_MESSAGE =
         "synchronized() on a boxed primitive literal. Boxed primitives have identity-equality surprises. Use a dedicated Any() object."
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
         val callee = expression.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol ?: return
-        if (callee.name.asString() != SYNCHRONIZED) return
-        // Go matches the call by its written name, so an import alias is not a
-        // synchronized() call there.
-        if (expression.calleeReference.source?.text?.toString() != SYNCHRONIZED) return
+        if (writtenCalleeName(expression) != SYNCHRONIZED) return
 
         val lockParameter = callee.valueParameterSymbols.firstOrNull() ?: return
-        if (!lockParameter.resolvedReturnType.fullyExpandedType().isAnyOrNullableAny) return
+        if (!isMonitorType(lockParameter.resolvedReturnType)) return
         val lockArgument = expression.resolvedArgumentMapping
             ?.entries
             ?.firstOrNull { it.value.name == lockParameter.name }
@@ -110,11 +132,35 @@ internal object SynchronizedOnBoxedPrimitive : FirFunctionCallChecker(MppChecker
             return
         }
 
-        val typeName = boxedPropertyTypeName(lock, lockSource) ?: return
+        val typeName = boxedIdentifierTypeName(lock, lockArgument.resolvedType, lockSource) ?: return
         report(
             expression.source,
             "synchronized() on a boxed primitive ($typeName). Boxed primitives have identity-equality surprises. Use a dedicated Any() object.",
         )
+    }
+
+    // The name the call is written with, as Go reads it: the callee name, or
+    // for `synchronized(...)` resolved to `synchronized.invoke(...)`, the name
+    // of the value being invoked.
+    private fun writtenCalleeName(expression: FirFunctionCall): String? {
+        val nameSource = if (expression is FirImplicitInvokeCall) {
+            val receiver = expression.explicitReceiver as? FirPropertyAccessExpression ?: return null
+            receiver.calleeReference.source
+        } else {
+            expression.calleeReference.source
+        }
+        return nameSource?.text?.toString()
+    }
+
+    // A monitor-lock parameter accepts any object: Any or Any? (after
+    // typealias expansion), or a type parameter whose bounds are only those.
+    context(context: CheckerContext)
+    private fun isMonitorType(type: ConeKotlinType): Boolean {
+        val expanded = type.fullyExpandedType()
+        if (expanded.isAnyOrNullableAny) return true
+        val typeParameter = expanded as? ConeTypeParameterType ?: return false
+        return typeParameter.lookupTag.typeParameterSymbol.resolvedBounds
+            .all { it.coneType.fullyExpandedType().isAnyOrNullableAny }
     }
 
     // The lock expression is the whole argument (not wrapped in parentheses or
@@ -145,42 +191,71 @@ internal object SynchronizedOnBoxedPrimitive : FirFunctionCallChecker(MppChecker
         return !lower.startsWith("0x") && !lower.startsWith("0b")
     }
 
+    // The primitive name for a bare identifier lock inside a class or object,
+    // or null when it is not flagged (see the header comment).
     context(context: CheckerContext)
-    private fun boxedPropertyTypeName(lock: FirExpression, source: KtSourceElement): String? {
+    private fun boxedIdentifierTypeName(lock: FirExpression, lockType: ConeKotlinType, source: KtSourceElement): String? {
         if (lock !is FirPropertyAccessExpression) return null
         if (lock.explicitReceiver != null) return null
         if (source.elementType != KtNodeTypes.REFERENCE_EXPRESSION) return null
-        val property = lock.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol ?: return null
-        val propertySource = property.source ?: return null
-        if (propertySource.kind !is KtRealSourceElementKind) return null
-        if (propertySource.elementType != KtNodeTypes.PROPERTY) return null
+        val primitive = primitiveName(lockType) ?: return null
+        val name = source.text?.toString() ?: return null
 
         val owner = context.containingDeclarations
             .filterIsInstance<FirRegularClassSymbol>()
             .lastOrNull { !it.isCompanion } ?: return null
-        if (!declaresProperty(owner, property)) return null
+        val declarations = namedPropertyDeclarations(owner, name)
 
-        val typeName = declaredTypeText(propertySource) ?: return null
-        return typeName.takeIf { it in boxedPrimitiveTypes }
+        val goType = declarations
+            .filter { !isWhenSubject(it) }
+            .firstNotNullOfOrNull { declaration -> declaredTypeText(declaration.source!!)?.takeIf { it.isNotEmpty() } }
+        if (goType in boxedPrimitiveTypes) return primitive
+
+        val resolved = (lock.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol)?.unwrapFakeOverrides()
+            ?: return null
+        val resolvedDeclaration = declarations.firstOrNull { it.symbol == resolved } ?: return null
+        return primitive.takeIf { declaredTypeText(resolvedDeclaration.source!!) in boxedPrimitiveTypes }
     }
 
-    // True when [property] is declared anywhere inside [owner]'s body: a
-    // member, a member of a nested class or companion, or a local in one of
-    // its functions, initializers, lambdas, or object literals.
+    // The short name of kotlin.Int, kotlin.Long, ... for [type], ignoring
+    // nullability and platform flexibility, or null for any other type.
+    context(context: CheckerContext)
+    private fun primitiveName(type: ConeKotlinType): String? {
+        val classType = type.fullyExpandedType().lowerBoundIfFlexible() as? ConeClassLikeType ?: return null
+        val classId = classType.lookupTag.classId
+        if (classId.packageFqName != kotlinPackage || classId.isNestedClass) return null
+        return classId.shortClassName.asString().takeIf { it in boxedPrimitiveTypes }
+    }
+
+    // Every source `val`/`var` declaration named [name] anywhere inside
+    // [owner]'s body (members, members of nested classes and companions, and
+    // locals in its functions, initializers, lambdas, and object literals),
+    // in source order, as Go walks the class's property_declaration nodes.
     @OptIn(SymbolInternals::class)
-    private fun declaresProperty(owner: FirRegularClassSymbol, property: FirPropertySymbol): Boolean {
-        var found = false
+    private fun namedPropertyDeclarations(owner: FirRegularClassSymbol, name: String): List<FirProperty> {
+        val found = mutableListOf<FirProperty>()
         owner.fir.accept(object : FirVisitorVoid() {
             override fun visitElement(element: FirElement) {
-                if (found) return
-                if (element is FirProperty && element.symbol == property) {
-                    found = true
-                    return
+                if (element is FirProperty && element.name.asString() == name) {
+                    val source = element.source
+                    if (source != null &&
+                        source.kind is KtRealSourceElementKind &&
+                        source.elementType == KtNodeTypes.PROPERTY
+                    ) {
+                        found += element
+                    }
                 }
                 element.acceptChildren(this)
             }
         })
-        return found
+        return found.sortedBy { it.source!!.startOffset }
+    }
+
+    // `when (val n: Int = x)`: PSI makes the subject variable a PROPERTY, but
+    // tree-sitter has no property_declaration for it, so Go's lookup skips it.
+    private fun isWhenSubject(property: FirProperty): Boolean {
+        val source = property.source ?: return false
+        return source.treeStructure.getParent(source.lighterASTNode)?.tokenType == KtNodeTypes.WHEN
     }
 
     // Go's resolvePropertyTypeInScope: the declaration text (modifiers

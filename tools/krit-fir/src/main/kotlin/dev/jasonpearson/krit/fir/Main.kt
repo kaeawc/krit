@@ -249,7 +249,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 } else {
                     session
                 }
-                val result = activeSession.check(request.id, request.files, request.rules.toSet(), request.ruleConfigs)
+                val result = activeSession.check(request.id, request.files, request.rules.toSet(), request.ruleConfigs, request.testFiles)
                 val response = buildCheckResponse(result)
                 if (needsRebuild) {
                     RequestResult.SessionRebuilt(response, activeSession)
@@ -366,6 +366,9 @@ data class CheckRequest(
     val classpath: List<String> = emptyList(),
     val rules: List<String> = emptyList(),
     val ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),
+    // Requested files krit classifies as test files (scanner.IsTestFile on the
+    // Go side), spelled as in `files`; exposed to checkers via FirRule.isTestFile.
+    val testFiles: Set<String> = emptySet(),
     // Plugin-rule jar paths, matching krit-types' `"jars"` array in
     // `listPlugins` / `analyzeFile` requests.
     val pluginJars: List<String> = emptyList(),
@@ -384,6 +387,7 @@ data class CheckRequest(
 
 fun parseRequest(request: String): CheckRequest {
     val ruleConfigs = parseFirRuleConfigs(request)
+    val testFiles = parseFirTestFiles(request)
     // Field extraction below is nest-blind, and rule option names are
     // user-chosen, so blank out the ruleConfigs object first: an option named
     // `classpath` or `path` must never be read as the request's own field.
@@ -409,7 +413,7 @@ fun parseRequest(request: String): CheckRequest {
     val source = extractString(json, "source")
     val files = extractFileRefs(json)
     val payloads = if (command == "analyzeFile") ProjectPayloads.parse(json) else ProjectPayloads.EMPTY
-    return CheckRequest(id, command, files, sourceDirs, classpath, rules, ruleConfigs, pluginJars, path, source, ruleIds, payloads)
+    return CheckRequest(id, command, files, sourceDirs, classpath, rules, ruleConfigs, testFiles, pluginJars, path, source, ruleIds, payloads)
 }
 
 private fun withoutObjectBlock(json: String, key: String): String {

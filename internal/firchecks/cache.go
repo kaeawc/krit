@@ -28,7 +28,8 @@ import (
 // FirCacheVersion is bumped when the entry layout changes incompatibly.
 // 4: entries record the advertised rules and compiler-error gating, are keyed
 // by path and content, and the fingerprint covers the whole compilation.
-const FirCacheVersion = 4
+// 5: the fingerprint covers the request's test-file classification.
+const FirCacheVersion = 5
 
 // FirCacheEntry is one file's cached FIR findings.
 type FirCacheEntry struct {

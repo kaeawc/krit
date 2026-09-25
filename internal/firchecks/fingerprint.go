@@ -74,10 +74,13 @@ func jsonSafe(v any) any {
 }
 
 // FirInvocationFingerprint combines the classpath with the checker binary
-// identity, the enabled rule set, and the rules' options. Stat avoids hashing
-// the large fat jar. encoding/json sorts map keys, so the options encoding is
-// deterministic regardless of map iteration order.
-func FirInvocationFingerprint(classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs) string {
+// identity, the enabled rule set, the rules' options, and the test-file
+// classification sent with the request (checkers skip test files through
+// FirRule.isTestFile, so reclassifying a file, e.g. by editing the configured
+// test paths, changes verdicts without changing any source). Stat avoids
+// hashing the large fat jar. encoding/json sorts map keys, so the options
+// encoding is deterministic regardless of map iteration order.
+func FirInvocationFingerprint(classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, testFiles []string) string {
 	jarIdentity := jarPath + ":missing"
 	if info, err := os.Stat(jarPath); err == nil {
 		jarIdentity = fmt.Sprintf("%s:%d:%d", jarPath, info.Size(), info.ModTime().UnixNano())
@@ -90,19 +93,28 @@ func FirInvocationFingerprint(classpath []string, jarPath string, rules []string
 		// Unreachable after jsonSafe; never let a stale fingerprint match.
 		options = []byte(fmt.Sprintf("unencodable:%v", err))
 	}
+	tests := slices.Clone(testFiles)
+	slices.Sort(tests)
+	tests = slices.Compact(tests)
+	// A JSON array keeps the list unambiguous whatever the paths contain.
+	testsJSON, err := json.Marshal(tests)
+	if err != nil {
+		testsJSON = []byte(fmt.Sprintf("unencodable:%v", err))
+	}
 	return hashutil.HashHex([]byte(ClasspathFingerprint(classpath) + "\x00" + jarIdentity + "\x00" +
-		strings.Join(ids, "\x00") + "\x00" + string(options)))
+		strings.Join(ids, "\x00") + "\x00" + string(options) + "\x00" + string(testsJSON)))
 }
 
 // CheckCacheFingerprint is the closure fingerprint every FIR finding cache
 // entry is validated against: the invocation (classpath, jar, rules,
-// options) plus the whole compilation the check runs, i.e. every `.kt` under
-// sourceDirs and every requested file, by path and content. krit-fir compiles
+// options, test-file classification) plus the whole compilation the check
+// runs, i.e. every `.kt` under sourceDirs and every requested file, by path
+// and content. krit-fir compiles
 // the module as one unit, so a file's findings can change when any other
 // source in it changes; keying on the compilation makes any source edit
 // invalidate every cached FIR verdict (coarse but correct, the same trade-off
 // as krit-fir's oracle cache).
-func CheckCacheFingerprint(sourceDirs, files, classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs) string {
+func CheckCacheFingerprint(sourceDirs, files, classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, testFiles []string) string {
 	sources := oracle.CompilationSources(sourceDirs)
 	seen := make(map[string]bool, len(sources)+len(files))
 	for _, p := range sources {
@@ -115,5 +127,5 @@ func CheckCacheFingerprint(sourceDirs, files, classpath []string, jarPath string
 		}
 	}
 	compilation := oracle.CompilationFingerprint(sources, classpath, jarPath)
-	return hashutil.HashHex([]byte(FirInvocationFingerprint(classpath, jarPath, rules, ruleConfigs) + "\x00" + compilation))
+	return hashutil.HashHex([]byte(FirInvocationFingerprint(classpath, jarPath, rules, ruleConfigs, testFiles) + "\x00" + compilation))
 }

@@ -76,7 +76,8 @@ func RunPass(opts PassOptions, base []scanner.Finding) []scanner.Finding {
 		tracker = perf.New(false)
 	}
 	sub := tracker.Serial("firCheck")
-	result, err := opts.Checker.Check(requested, opts.SourceDirs, opts.Classpath, active.Names, firRuleConfigs(opts.Config, opts.ActiveRules))
+	result, err := opts.Checker.Check(requested, opts.SourceDirs, opts.Classpath, active.Names,
+		firRuleConfigs(opts.Config, opts.ActiveRules), testFilesOf(requested, targets.display))
 	sub.End()
 	verbose := opts.Verbose && opts.VerboseOut != nil
 	if err != nil {
@@ -201,6 +202,26 @@ func partitionJVMFiles(files []string) (jvm, excluded []string) {
 		}
 	}
 	return jvm, excluded
+}
+
+// testFilesOf returns the requested paths krit classifies as test sources,
+// spelled as requested so krit-fir can match them against its compiled files.
+// Each path is classified by the scan's own spelling of it (display), the
+// string Go rules pass to scanner.IsTestFile, so a checker skips exactly the
+// files the Go rule skips, configured test paths included. Classifying the
+// absolute path instead would also match directories above the scan root.
+func testFilesOf(requested []string, display map[string]string) []string {
+	var out []string
+	for _, path := range requested {
+		spelling := path
+		if d, ok := display[path]; ok {
+			spelling = d
+		}
+		if scanner.IsTestFile(spelling) {
+			out = append(out, path)
+		}
+	}
+	return out
 }
 
 // suppressor answers VerdictInput.Suppressed from each file's

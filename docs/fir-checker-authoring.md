@@ -15,6 +15,21 @@ Checklist for porting one existing krit rule to a K2 FIR checker in
   and `tests/fixtures/negative/<category>/<RuleId>.kt`. A `.java`-only fixture
   does not count, because FIR checks Kotlin. FIR parity (step 6) runs against
   these fixtures.
+- K2 does not already report the Go rule's positives. Before porting, compile
+  the Go positive fixture and check the compiler's own diagnostics:
+  - If a K2 diagnostic covers every shape the Go rule reports, do not write a
+    checker: project that diagnostic onto the Go rule ID instead.
+  - If K2 rejects only some shapes (a compiler error), those files are gated and
+    Go stays authoritative for them. Port the rule for the shapes that still
+    compile, mark the non-compiling Go positive fixture with
+    `// fir-parity: skip <reason>`, and pin the compiling positives in golden
+    data. Port it only when those remaining shapes are worth a checker.
+  `SynchronizedOnBoxedPrimitive` is the example of the second case: from
+  language version 2.1, K2 reports `synchronized` on a primitive as the error
+  `SYNCHRONIZED_BLOCK_ON_VALUE_CLASS_OR_PRIMITIVE`, so the Go positive never
+  compiles cleanly and the ported checker is only authoritative for
+  monitor-lock wrappers (see
+  [A compiler error gates the whole file](#a-compiler-error-gates-the-whole-file)).
 
 ## 2. File layout and naming
 
@@ -71,6 +86,38 @@ Checklist for porting one existing krit rule to a K2 FIR checker in
   it covers.
 - Require receiver or owner proof for common method names (`collect`, `launch`,
   `query`, `d`, `execute`). A local lookalike with the same name must not fire.
+- Never look up a class by `classId` from a symbol that may be local or
+  anonymous. `getClassLikeSymbolByClassId` (and anything that resolves a class
+  id through the symbol provider) throws for a local or anonymous class, and
+  the exception aborts every checker in the compilation. Get the owner from the
+  containing-class lookup tag (`getContainingClassSymbol()`), which is bound to
+  local classes, and compare class ids you already hold instead of resolving
+  them. Cover a member of an `object { ... }` expression in the golden data.
+
+### Skipping test files
+
+If the Go rule skips test files (`scanner.IsTestFile(file.Path)`), skip them
+with `isInTestFile()` inside `check` (it needs the `CheckerContext`), or with
+`isTestFile(path)` when you already have the file path:
+
+```kotlin
+context(context: CheckerContext, reporter: DiagnosticReporter)
+override fun check(declaration: FirProperty) {
+    if (isInTestFile()) return
+    // ...
+}
+```
+
+Do not match path markers such as `/test/` or `src/*Test` in the checker, and
+do not copy the Go list of test paths. The Go FIR pass classifies every
+requested file with `scanner.IsTestFile`, the same call the Go rules make with
+the configured `testSourcePaths` / `testSourcePathsOverride`. It sends the test
+files in the check request as `testFiles`. krit-fir stores them in
+`FirRuleContext`, and the helpers read them from there. Outside a check request
+(oracle compiles, a bare compiler run, the golden tests) nothing counts as a
+test file. To test the skip, pass `testFiles` to `KritFirProbe.compile` (see
+`StateFlowMutableLeakTestFileTest`). The classification is part of the FIR
+cache fingerprint, so a change to the test paths invalidates cached verdicts.
 
 ## 5. Options
 
@@ -127,15 +174,124 @@ All tests live under `tools/krit-fir/compiler-tests/src/test/`.
 FIR checker runs on the files that compile. For a rule with a FIR checker, the
 FIR result is authoritative on files that compile cleanly: it replaces the Go
 rule's findings there. Go remains the fallback on files that do not compile
-cleanly, and whenever FIR is disabled or unavailable. A checker therefore must
-not report findings Go would not, and must not miss findings Go reports, unless
-the difference is a deliberate precision fix that you test.
+cleanly, and whenever FIR is disabled or unavailable.
 
 Do not implement `@Suppress`, `excludes`, rule activation, or baselines in a
 checker. Go applies all of them to FIR findings, just as it does to its own
 findings.
 
-## 8. Validation
+### Parity principle
+
+Because FIR replaces Go per rule on clean Kotlin files, a checker is held to
+these rules. The pilot ports (`WeakMessageDigest`, `RsaNoPadding`,
+`SynchronizedOnBoxedPrimitive`, `ErrorUsageWithThrowable`,
+`StateFlowMutableLeak`, `SetJavaScriptEnabled`) were all built this way.
+
+- **Never lose a Go true positive.** Every finding Go reports on real
+  vulnerable or buggy code must also come from the checker. A lost true
+  positive is a regression that only shows up when `--fir` is on.
+- **Never add a false positive.** The checker must not report code that Go
+  correctly leaves alone.
+- **Decide artifact vs. true positive by the message, not by how Go found
+  it.** A Go finding is an artifact only if the reported code lacks the
+  property the finding's message asserts: the lock is not a primitive, the
+  type is not a `MutableStateFlow`, the algorithm is not a weak digest. How Go
+  found it (a simple-name fallback, a text match, a guessed type) is
+  irrelevant. If the
+  message is true of the code, the finding is a true positive and the checker
+  must keep it, even when Go reached it through a fallback the checker would
+  not otherwise take. For example, `SetJavaScriptEnabled` keeps Go's findings
+  on a third-party `com.tencent.smtt.sdk.WebSettings`: Go finds it by the
+  simple name `WebSettings`, but the code does enable JavaScript in a
+  WebView.
+- **Do not copy Go's mistakes.** Some Go findings are tree-sitter artifacts or
+  Go false positives by the test above: a substring match on the property
+  text, a type guessed from a same-named declaration elsewhere in the file, or
+  a secondary constructor body parsed as a plain block, where the code does
+  not have the property the message asserts. Keep the more correct FIR
+  behavior. Pin it with a golden case whose comment names the Go divergence,
+  for example `// Go reports this because the class declares size: Int; the
+  lock is ...`. See `SynchronizedOnBoxedPrimitiveDivergence.kt` and
+  `StateFlowMutableLeakPrecision.kt`.
+- **Match Go by default.** When either answer is defensible (which visibility
+  counts as exposed, whether a wrapper call counts), do what Go does. The
+  checker is a more precise version of the same rule, not a different rule.
+- **Pin deliberate improvements as golden positives.** When FIR catches a true
+  positive Go misses (an inferred type, an import or type alias, a subtype
+  whose name does not show it), add a golden positive with a comment saying
+  Go misses it and why.
+- **The reviewer decides every divergence, not the lane.** Every difference
+  from Go, in either direction (a Go finding dropped, a finding Go misses
+  added), must be listed in the PR description's `Divergences` table for the
+  reviewer to accept:
+
+  | Code shape | Go | FIR | Golden case |
+  | --- | --- | --- | --- |
+  | `view.settings.extra.javaScriptEnabled = true` (`extra` is not a `WebSettings`) | reports | no finding | `SetJavaScriptEnabledNegative.kt` |
+
+  An unlisted divergence is a bug, and a listed one the reviewer does not
+  accept goes back to matching Go.
+
+The Go fixtures under `tests/fixtures/` must match exactly:
+`TestFirFixtureParity` requires the same finding count on every line, so a Go
+fixture never carries a divergence. Divergences live only in the
+`compiler-tests` golden data, pinned there and listed in the PR's
+`Divergences` table. A line-count difference on a Go fixture is a bug in the
+checker (or a fixture that needs a `// fir-parity: skip` reason, step 6).
+
+### A compiler error gates the whole file
+
+A file with any compiler ERROR is not authoritative for any rule. krit-fir
+reports it in `errorFiles`, and Go's findings stand for that file for every
+FIR-backed rule, not just the rule whose code caused the error. K2 also stops
+reporting warnings, and `KRIT_RULE` findings are warnings, once a compilation
+has an error, so an error-free file is only authoritative because krit-fir
+turns on `reportAllWarnings`.
+
+This matters when the Go rule targets code that K2 itself rejects. Since
+language version 2.1, K2 makes `synchronized` on a primitive lock an error
+(`SYNCHRONIZED_BLOCK_ON_VALUE_CLASS_OR_PRIMITIVE`). The Go positive fixture for
+`SynchronizedOnBoxedPrimitive` therefore never compiles cleanly. It carries
+`// fir-parity: skip <reason>`, Go stays authoritative for it, and the FIR
+positives are covered by golden data that compiles, through a monitor-lock
+wrapper. If your rule's positives cannot compile, make the same split: skip
+marker on the Go fixture, compiling golden coverage in `compiler-tests`.
+
+## 8. Adversarial scope-parity review (required)
+
+Every port gets an adversarial review against the Go rule before it merges.
+The review runs after the port commit and its fixes land as a separate
+`fix(krit-fir): ...` commit. Every pilot checker needed one. The reviewer reads
+the Go implementation, not just its fixtures, and tries to break parity. That
+includes the helpers the rule calls, not just the rule body: fallback name
+lists, shared receiver and type matchers, and simple-name fallbacks (for
+example `SetJavaScriptEnabled`'s helper also accepts any type named
+`WebSettings`) define findings the fixtures never show.
+
+- [ ] **Scope:** every node type, callback, wrapper, receiver shape, and
+      container the Go rule visits is covered: top-level, member, companion,
+      object, and interface declarations; nested and local scopes; delegated,
+      getter-backed, and aliased forms.
+- [ ] **Exemptions:** every Go early return (test files, visibility, override,
+      suppressed owners, config options) is mirrored, and none is added.
+- [ ] **Lost true positives:** for each Go positive shape, look for a way the
+      checker's resolution fails to see it: unresolved receivers, platform
+      types, flexible or nullable types, type aliases, import aliases, star
+      imports, smart casts (including unstable ones), subtypes.
+- [ ] **New false positives:** local lookalikes, same-package shadows,
+      companion shadows, declarations named like library symbols, Java
+      lookalikes, and third-party classes with the same simple name.
+- [ ] **Message and line:** the same message text, reported on the line Go
+      reports.
+- [ ] **Divergences:** every intentional difference is pinned in golden data
+      with a comment naming the Go behavior, and listed in the PR's
+      `Divergences` table, as the parity principle requires. Each dropped Go
+      finding passes the message test: the code lacks what the message
+      asserts.
+- [ ] **Regression tests:** each review finding gets a golden case (or a probe
+      test) that fails before the fix.
+
+## 9. Validation
 
 ```bash
 cd tools/krit-fir

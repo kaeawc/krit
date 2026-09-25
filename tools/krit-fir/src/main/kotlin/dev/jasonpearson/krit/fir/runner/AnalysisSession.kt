@@ -82,7 +82,9 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
      * Runs the enabled FIR rule checkers over [files] in one K2 compilation of
      * the whole module: every `.kt` under [sourceDirs] plus the requested files,
      * against [classpath] (plus the bundled stdlib), the same compilation
-     * [analyzeFull] runs for oracle facts.
+     * [analyzeFull] runs for oracle facts. [ruleConfigs] and [testFiles] (the
+     * requested files krit classifies as test files) reach the checkers
+     * through [FirRuleContext]; the oracle compile sends neither.
      *
      * The result tells Go where the checker verdict can be trusted:
      *  - `errorFiles` lists requested files the compiler could not analyze
@@ -95,6 +97,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
     fun check(
         id: Long, files: List<FileRef>, enabledRules: Set<String>,
         ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),
+        testFiles: Set<String> = emptySet(),
     ): BatchResult {
         val (excluded, compiled) = files.partition { isScript(it.path) || excludedFromJvmCompilation(it.path) }
         val errorFiles = linkedMapOf<String, String>()
@@ -112,7 +115,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         val collector = FindingCollector(requestedPaths, enabledRules)
         val outDir = Files.createTempDirectory("krit-fir-out-").toFile()
 
-        FirRuleContext.begin(FirRuleCompileContext(enabledRules, ruleConfigs))
+        FirRuleContext.begin(FirRuleCompileContext(enabledRules, ruleConfigs, testFiles = testFiles))
         val exitCode = try {
             val args = K2JVMCompilerArguments().apply {
                 freeArgs = compilationFiles(compiled.map { it.path })

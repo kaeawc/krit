@@ -29,7 +29,7 @@ class SmokeClient : WebViewClient() {
 @SuppressLint("SetJavaScriptEnabled")
 fun configure(webView: WebView) {
     val settings: WebSettings = webView.settings
-    settings.javaScriptEnabled = true
+    settings.javaScriptEnabled = false
     settings.domStorageEnabled = true
     settings.allowFileAccess = false
     settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW

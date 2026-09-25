@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.protocol
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -21,7 +22,8 @@ object ProtocolProbe : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override fun check(expression: FirFunctionCall) {
         checks.incrementAndGet()
         if (expression.calleeReference.toResolvedCallableSymbol()?.name?.asString() == "protocolProbe") {
-            report(expression.source, "configured: ${config()["tag"]}")
+            val testFile = if (isInTestFile()) " (test file)" else ""
+            report(expression.source, "configured: ${config()["tag"]}$testFile")
         }
     }
 }

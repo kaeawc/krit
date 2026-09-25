@@ -215,10 +215,18 @@ depend on it depends on the backend:
   has changed but the compilation has (for example, a file outside the oracle
   filter was edited or deleted, or a library was updated), krit runs the
   compiler once to refresh the cache.
-- **krit-types** analyzes only the files that changed. A file's cached facts
-  are refreshed when a class it imports or extends changes, but not when a
-  same-package or imported top-level function changes. Use `--no-cache-oracle`
-  when that matters.
+- **krit-types** analyzes only the files that changed and the files that
+  depend on them. A file depends on every Kotlin or Java source file that
+  declares something it resolves: a same-package or imported function or
+  property, a class, a typealias and what it expands to, a supertype, or an
+  operator it uses. A dependency's own dependencies count too, but only those
+  that can change what its dependents see: ones in its signatures,
+  annotations, and parameter defaults, and in bodies whose type is inferred or
+  that are `const`, `inline`, or declare a contract. A change inside an
+  explicitly typed function body re-analyzes that file, not its dependents.
+  A file whose dependencies span more than 2,000 files is not cached and is
+  re-analyzed on every run. Libraries are not tracked: after changing only
+  the classpath, run once with `--no-cache-oracle`.
 
 Cached entries are tied to the backend that wrote them, so switching
 `--oracle-backend` re-runs the compiler rather than mixing the two backends'

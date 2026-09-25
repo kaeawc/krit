@@ -25,6 +25,7 @@ type CacheWriter struct {
 	bytes     atomic.Int64
 
 	poisonWrites         atomic.Int64
+	closuresOverCap      atomic.Int64
 	depPaths             atomic.Int64
 	contentHashNs        atomic.Int64
 	closureFingerprintNs atomic.Int64
@@ -45,6 +46,7 @@ type CacheWriterStats struct {
 	Failed                 int64
 	Bytes                  int64
 	PoisonWrites           int64
+	ClosuresOverCap        int64
 	DepPaths               int64
 	UniqueDepPaths         int64
 	ContentHashDuration    time.Duration
@@ -105,7 +107,7 @@ func (w *CacheWriter) QueueFreshEntriesToStoreScopedV2(s *store.FileStore, cache
 		load := closureEntryLoader(s, cacheDir)
 		for i := range jobs {
 			if !jobs[i].crashed {
-				jobs[i].depPaths = transitiveDepPaths(jobs[i].path, jobs[i].depPaths, deps.Files, load)
+				jobs[i].depPaths = transitiveDepPaths(jobs[i].path, jobs[i].depPaths, deps, load)
 			}
 		}
 	}
@@ -171,6 +173,7 @@ func (w *CacheWriter) Stats() CacheWriterStats {
 		Failed:                 w.failed.Load(),
 		Bytes:                  w.bytes.Load(),
 		PoisonWrites:           w.poisonWrites.Load(),
+		ClosuresOverCap:        w.closuresOverCap.Load(),
 		DepPaths:               w.depPaths.Load(),
 		UniqueDepPaths:         uniqueDepPaths,
 		ContentHashDuration:    time.Duration(w.contentHashNs.Load()),
@@ -209,6 +212,7 @@ func (w *CacheWriter) AddPerfEntries(t perf.Tracker, storeBacked bool) {
 		"depPaths":       stats.DepPaths,
 		"uniqueDepPaths": stats.UniqueDepPaths,
 		"poisonWrites":   stats.PoisonWrites,
+		"overCap":        stats.ClosuresOverCap,
 	}, nil)
 	perf.AddEntryDetails(t, "oracleCacheWriterSummary", 0, map[string]int64{
 		"queued":     stats.Queued,
@@ -315,6 +319,10 @@ func (w *CacheWriter) buildEntryData(memo *oracleCacheHashMemo, job freshOracleE
 		entry.Crashed = true
 		entry.CrashError = job.crashError
 	} else {
+		if closureOverCap(job.approximation, job.depPaths) {
+			w.closuresOverCap.Add(1)
+			return nil, nil, false, false
+		}
 		w.recordDepPaths(job.depPaths)
 		fpStart := time.Now()
 		fp, err := closureFingerprintWithMemo(job.depPaths, memo)
@@ -325,7 +333,7 @@ func (w *CacheWriter) buildEntryData(memo *oracleCacheHashMemo, job freshOracleE
 		}
 		entry.FileResult = job.fileResult
 		entry.PerFileDeps = job.perFileDeps
-		entry.Closure = CacheClosure{DepPaths: job.depPaths, Fingerprint: fp}
+		entry.Closure = CacheClosure{DepPaths: job.depPaths, PropagatingDepPaths: job.propagatingPaths, Fingerprint: fp}
 	}
 
 	marshalStart := time.Now()

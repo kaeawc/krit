@@ -201,16 +201,37 @@ fun handleRequestLine(
         return RequestResult.ParseError("""{"id":null,"error":"Parse error: ${escJsonStr(e.message ?: "unknown")}"}""")
     }
 
+    // The session reads each source file once and never re-reads it, so a
+    // request after any source edit would be answered from the old content
+    // (and from memos keyed only by the analyzed file's own content).
+    // Rebuild first when the sources have changed.
+    val active = if (request.method in sourceReadingMethods && session.sourcesChanged()) {
+        try {
+            val start = System.currentTimeMillis()
+            session.dispose()
+            DaemonSession.build(parsed).also {
+                System.err.println("krit-types daemon: sources changed; rebuilt session in ${System.currentTimeMillis() - start}ms")
+            }
+        } catch (e: Exception) {
+            System.err.println("Error rebuilding session for ${request.method}: ${e.message}")
+            return RequestResult.Response("""{"id":${request.id},"error":"${escJsonStr(e.message ?: "session rebuild failed")}"}""")
+        }
+    } else {
+        session
+    }
+    fun adopt(result: RequestResult): RequestResult =
+        if (active !== session && result is RequestResult.Response) RequestResult.SessionRebuilt(result.json, active) else result
+
     return try {
-        when (request.method) {
-            "analyze" -> RequestResult.Response(session.handleAnalyze(request))
-            "analyzeAll" -> RequestResult.Response(session.handleAnalyzeAll(request))
-            "analyzeFiles" -> RequestResult.Response(session.handleAnalyzeFiles(request))
-            "analyzeWithDeps" -> RequestResult.Response(session.handleAnalyzeWithDeps(request))
+        adopt(when (request.method) {
+            "analyze" -> RequestResult.Response(active.handleAnalyze(request))
+            "analyzeAll" -> RequestResult.Response(active.handleAnalyzeAll(request))
+            "analyzeFiles" -> RequestResult.Response(active.handleAnalyzeFiles(request))
+            "analyzeWithDeps" -> RequestResult.Response(active.handleAnalyzeWithDeps(request))
             "listPlugins" -> RequestResult.Response(session.handleListPlugins(request))
-            "analyzeFile" -> RequestResult.Response(session.handleAnalyzeFileWithPlugins(request))
-            "decompileJar" -> RequestResult.Response(session.handleDecompileJar(request))
-            "resolveExpressionTypes" -> RequestResult.Response(session.handleResolveExpressionTypes(request))
+            "analyzeFile" -> RequestResult.Response(active.handleAnalyzeFileWithPlugins(request))
+            "decompileJar" -> RequestResult.Response(active.handleDecompileJar(request))
+            "resolveExpressionTypes" -> RequestResult.Response(active.handleResolveExpressionTypes(request))
             "rebuild" -> {
                 val start = System.currentTimeMillis()
                 session.dispose()
@@ -228,11 +249,47 @@ fun handleRequestLine(
             "checkpoint" -> RequestResult.Response(handleCheckpoint(request))
             "shutdown" -> RequestResult.Shutdown("""{"id":${request.id},"result":{"ok":true}}""")
             else -> RequestResult.Response("""{"id":${request.id},"error":"Unknown method: ${escJsonStr(request.method)}"}""")
-        }
+        })
     } catch (e: Exception) {
         System.err.println("Error handling ${request.method}: ${e.message}")
-        RequestResult.Response("""{"id":${request.id},"error":"${escJsonStr(e.message ?: "unknown")}"}""")
+        adopt(RequestResult.Response("""{"id":${request.id},"error":"${escJsonStr(e.message ?: "unknown")}"}"""))
     }
+}
+
+/** Daemon methods that read source PSI or facts derived from it. */
+val sourceReadingMethods = setOf(
+    "analyze", "analyzeAll", "analyzeFiles", "analyzeWithDeps", "analyzeFile", "decompileJar", "resolveExpressionTypes",
+)
+
+/**
+ * Modification stamps (mtime in nanoseconds and size) of every Kotlin and
+ * Java file under [sourceDirs], keyed by path. Comparing two snapshots
+ * detects edits, additions, and deletions.
+ */
+fun snapshotSourceFiles(sourceDirs: List<String>): Map<String, Pair<Long, Long>> {
+    val out = HashMap<String, Pair<Long, Long>>()
+    for (dir in sourceDirs) {
+        val root = Paths.get(dir)
+        if (!java.nio.file.Files.exists(root)) continue
+        try {
+            java.nio.file.Files.walkFileTree(root, object : java.nio.file.SimpleFileVisitor<java.nio.file.Path>() {
+                override fun visitFile(file: java.nio.file.Path, attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult {
+                    val name = file.fileName?.toString() ?: return java.nio.file.FileVisitResult.CONTINUE
+                    if (attrs.isRegularFile && (name.endsWith(".kt") || name.endsWith(".kts") || name.endsWith(".java"))) {
+                        out[file.toString()] = attrs.lastModifiedTime().to(java.util.concurrent.TimeUnit.NANOSECONDS) to attrs.size()
+                    }
+                    return java.nio.file.FileVisitResult.CONTINUE
+                }
+
+                override fun visitFileFailed(file: java.nio.file.Path, exc: java.io.IOException): java.nio.file.FileVisitResult =
+                    java.nio.file.FileVisitResult.CONTINUE
+            })
+        } catch (_: java.io.IOException) {
+            // An unreadable root reads as empty; a later readable walk
+            // differs and triggers a rebuild.
+        }
+    }
+    return out
 }
 
 /**
@@ -265,7 +322,9 @@ class DaemonSession(
     private var disposable: Disposable,
     val sourceModule: KaSourceModule,
     val args: ParsedArgs,
-    val memo: AnalysisMemo = AnalysisMemo()
+    val memo: AnalysisMemo = AnalysisMemo(),
+    // Source stamps taken before the session read any file; see sourcesChanged.
+    private val sourceSnapshot: Map<String, Pair<Long, Long>>? = null
 ) {
     // file path -> last analyzed mtime
     private val fileTimestamps = mutableMapOf<String, Long>()
@@ -274,11 +333,19 @@ class DaemonSession(
 
     companion object {
         fun build(args: ParsedArgs): DaemonSession {
+            val snapshot = snapshotSourceFiles(args.sourceDirs)
             val disposable = Disposer.newDisposable("krit-types-daemon")
             val sourceModule = buildSession(disposable, args)
-            return DaemonSession(disposable, sourceModule, args)
+            return DaemonSession(disposable, sourceModule, args, sourceSnapshot = snapshot)
         }
     }
+
+    /**
+     * Whether any Kotlin or Java source was edited, added, or deleted since
+     * this session was built. The snapshot predates every read, so when it
+     * still matches the disk, every file the session read is current.
+     */
+    fun sourcesChanged(): Boolean = sourceSnapshot != null && snapshotSourceFiles(args.sourceDirs) != sourceSnapshot
 
     fun dispose() {
         Disposer.dispose(disposable)
@@ -2439,6 +2506,9 @@ fun appendClassCompact(sb: StringBuilder, c: ClassResult) {
 class DepTracker {
     // path -> set of absolute source file paths whose PSI was touched
     val depPathsByFile: MutableMap<String, LinkedHashSet<String>> = mutableMapOf()
+    // path -> the subset of depPathsByFile a dependent's closure continues
+    // through (see DepEdges.kt for which positions propagate)
+    val propagatingDepPathsByFile: MutableMap<String, LinkedHashSet<String>> = mutableMapOf()
     // path -> per-file ClassResult fragments (deps uniquely observed while
     // analyzing this file). Not necessarily all dependency types in the full
     // run: collectDependencySupertypes short-circuits on global dedup via the
@@ -2451,9 +2521,12 @@ class DepTracker {
     // content-hash-unchanged files that deterministically crash krit-types.
     val crashedFiles: MutableMap<String, String> = mutableMapOf()
 
-    fun recordDepPath(forFile: String, depPath: String) {
+    // Supertype and member-signature edges default to propagating: they are
+    // part of the declaring file's API.
+    fun recordDepPath(forFile: String, depPath: String, propagating: Boolean = true) {
         if (depPath == forFile) return
         depPathsByFile.getOrPut(forFile) { LinkedHashSet() }.add(depPath)
+        if (propagating) propagatingDepPathsByFile.getOrPut(forFile) { LinkedHashSet() }.add(depPath)
     }
 
     fun recordCrash(forFile: String, error: String) {
@@ -2738,6 +2811,7 @@ fun analyzeKtFile(
     // not "zero deps".
     if (depTracker != null) {
         depTracker.depPathsByFile.getOrPut(path) { LinkedHashSet() }
+        depTracker.propagatingDepPathsByFile.getOrPut(path) { LinkedHashSet() }
         depTracker.perFileDeps.getOrPut(path) { mutableMapOf() }
     }
     try {
@@ -2830,7 +2904,7 @@ fun analyzeKtFile(
                             importMemo?.put(importedFqNameString, sourcePath)
                         }
                         perf?.recordMemoProbe("importFqn", importedFqNameString)
-                        sourcePath?.let { depTracker.recordDepPath(path, it) }
+                        sourcePath?.let { depTracker.recordDepPath(path, it, false) }
                     } catch (_: Throwable) {}
                 }
                 importDepsNs += System.nanoTime() - importStart
@@ -3118,6 +3192,20 @@ fun analyzeKtFile(
                     perf?.count("kotlinDiagnosticsException")
                 } finally {
                     perf?.addPhaseTotal("kotlinDiagnostics", System.nanoTime() - diagnosticsStart)
+                }
+            }
+
+            // Resolved-reference edges (DepEdges.kt), after diagnostics so the
+            // walk reuses the bodies collectDiagnostics already resolved.
+            if (depTracker != null) {
+                try {
+                    recordResolvedDependencyEdges(ktFile, depTracker, perf)
+                } catch (t: Throwable) {
+                    perf?.count("kotlinDepEdgesException")
+                    System.err.println(
+                        "krit-types: dependency edges incomplete for $path: " +
+                            "${t.javaClass.simpleName}: ${t.message?.lineSequence()?.firstOrNull() ?: "(no message)"}"
+                    )
                 }
             }
 
@@ -3494,6 +3582,9 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
                     for ((path, paths) in lt.depPathsByFile) {
                         tracker.depPathsByFile.getOrPut(path) { LinkedHashSet() }.addAll(paths)
                     }
+                    for ((path, paths) in lt.propagatingDepPathsByFile) {
+                        tracker.propagatingDepPathsByFile.getOrPut(path) { LinkedHashSet() }.addAll(paths)
+                    }
                     for ((path, map) in lt.perFileDeps) {
                         tracker.perFileDeps.getOrPut(path) { mutableMapOf() }.putAll(map)
                     }
@@ -3563,8 +3654,8 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
 //
 // Shape:
 //   {"version":1,
-//    "approximation":"symbol-resolved-sources",
-//    "files":{"<path>":{"depPaths":[...],"perFileDeps":{<fqn>:<ClassResult>}}},
+//    "approximation":"kaa-tagged-references",
+//    "files":{"<path>":{"depPaths":[...],"propagatingDepPaths":[...],"perFileDeps":{<fqn>:<ClassResult>}}},
 //    "crashed":{"<path>":"<error first line>"}}
 //
 // Shared between the one-shot analyzeAndExport path (--cache-deps-out
@@ -3575,7 +3666,7 @@ fun buildCacheDepsJson(tracker: DepTracker): String {
     val sb = StringBuilder()
     sb.append("{")
     sb.append(""""version":1,""")
-    sb.append(""""approximation":"symbol-resolved-sources",""")
+    sb.append(""""approximation":"kaa-tagged-references",""")
     sb.append(""""files":{""")
     var first = true
     for ((filePath, depPaths) in tracker.depPathsByFile) {
@@ -3583,6 +3674,12 @@ fun buildCacheDepsJson(tracker: DepTracker): String {
         sb.append(esc(filePath)).append(":{")
         sb.append(""""depPaths":[""")
         depPaths.forEachIndexed { j, p ->
+            if (j > 0) sb.append(",")
+            sb.append(esc(p))
+        }
+        sb.append("],")
+        sb.append(""""propagatingDepPaths":[""")
+        (tracker.propagatingDepPathsByFile[filePath] ?: emptySet()).forEachIndexed { j, p ->
             if (j > 0) sb.append(",")
             sb.append(esc(p))
         }

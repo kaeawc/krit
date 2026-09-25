@@ -93,3 +93,28 @@ func sortedCopy(in []string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// TestExpandStaleOraclePaths_OneHopRespectsTaggedClosure: A depends on B, and
+// only B's explicitly typed body uses C, so A's tagged closure excludes C.
+// Changing C makes B stale but must not drag A in through B.
+func TestExpandStaleOraclePaths_OneHopRespectsTaggedClosure(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir, err := CacheDir(dir)
+	if err != nil {
+		t.Fatalf("CacheDir: %v", err)
+	}
+	c := writeTempFile(t, dir, "C.kt", "package demo\nfun c() = 1\n")
+	b := writeTempFile(t, dir, "B.kt", "package demo\nfun b(): Int { return c() }\n")
+	a := writeTempFile(t, dir, "A.kt", "package demo\nfun a() = b()\n")
+	if _, err := WriteFreshEntries(cacheDir,
+		&Data{Version: 1, Files: map[string]*File{a: {}, b: {}, c: {}}},
+		taggedDeps(map[string][]string{a: {b}, b: {c}, c: nil}, map[string][]string{a: {b}}),
+	); err != nil {
+		t.Fatalf("WriteFreshEntries: %v", err)
+	}
+
+	got := ExpandStaleOraclePaths(nil, cacheDir, []string{a, b, c}, []string{c})
+	if want := []string{b, c}; !reflect.DeepEqual(sortedCopy(got), want) {
+		t.Fatalf("C changed: got %v, want %v (A's closure does not contain C)", got, want)
+	}
+}

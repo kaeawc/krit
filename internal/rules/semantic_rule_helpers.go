@@ -845,7 +845,7 @@ func setJavaScriptEnabledJavaCall(ctx *api.Context, call uint32) bool {
 	if len(args) != 1 || !isJavaBooleanTrue(file, args[0]) {
 		return false
 	}
-	if fact, ok := javaSemanticCallFact(ctx, call); ok {
+	if fact, ok := javaSemanticCallFact(ctx, call); ok && fact.ReceiverType != "" {
 		return javaProfileTypeMatches(ctx, fact.ReceiverType, "android.webkit.WebSettings")
 	}
 	if !sourceImportsOrMentions(file, "android.webkit.WebSettings") && !sourceImportsOrMentions(file, "android.webkit.WebView") {

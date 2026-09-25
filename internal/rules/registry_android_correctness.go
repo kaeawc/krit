@@ -984,7 +984,7 @@ func checkCommitPrefEditsJava(ctx *api.Context, idx uint32) {
 	if len(javaArgumentExpressions(file, idx)) != 0 {
 		return
 	}
-	if fact, ok := javaSemanticCallFact(ctx, idx); ok {
+	if fact, ok := javaSemanticCallFact(ctx, idx); ok && fact.ReceiverType != "" {
 		if !javaProfileTypeMatches(ctx, fact.ReceiverType, "android.content.SharedPreferences") {
 			return
 		}
@@ -1010,7 +1010,7 @@ func checkCommitTransactionJava(ctx *api.Context, idx uint32) {
 	if javaMethodInvocationName(file, idx) != "beginTransaction" {
 		return
 	}
-	if fact, ok := javaSemanticCallFact(ctx, idx); ok {
+	if fact, ok := javaSemanticCallFact(ctx, idx); ok && fact.ReceiverType != "" {
 		if !javaProfileTypeMatches(ctx, fact.ReceiverType,
 			"android.app.FragmentManager",
 			"androidx.fragment.app.FragmentManager") {
@@ -1064,6 +1064,9 @@ func checkResultJava(ctx *api.Context, idx uint32) {
 func checkResultJavaSemanticConfirmed(ctx *api.Context, idx uint32, name string) (bool, bool) {
 	fact, ok := javaSemanticCallFact(ctx, idx)
 	if !ok {
+		return false, false
+	}
+	if fact.ReturnType == "" {
 		return false, false
 	}
 	if expected := javaProfileMethodReturn(ctx, fact.MethodOwner, fact.ReceiverType, name, len(javaArgumentExpressions(ctx.File, idx))); expected != "" {

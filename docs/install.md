@@ -76,7 +76,9 @@ make build
 
 CGO requires a C compiler. Optional compiler-backed analysis uses JVM
 helper tools in `tools/krit-types/` and `tools/krit-fir/`; install a
-JDK when you want KAA/FIR-backed checks.
+JDK when you want KAA/FIR-backed checks. Java semantic facts use the helper
+in `tools/krit-java-facts/` and require `javac` on `PATH`; Krit compiles it
+once and caches it under the per-user Krit `jars` cache directory (`~/.krit/jars/`-style location).
 
 ## Shell completions
 

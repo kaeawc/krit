@@ -333,6 +333,20 @@ class Store {
 			t.Fatalf("expected 0 findings for same simple-name javac-confirmed lookalike, got %d", len(findings))
 		}
 	})
+	t.Run("Java unresolved semantic facts fall back to imported type", func(t *testing.T) {
+		findings := runRuleByNameOnJavaWithSemanticCalls(t, "CommitPrefEdits", `
+package test;
+import android.content.SharedPreferences;
+class Store {
+  void save(SharedPreferences prefs) {
+    SharedPreferences.Editor editor = prefs.edit();
+    editor.putString("key", "value");
+  }
+}`, javaSemanticCallSpec{Callee: "edit", ReceiverType: "", ReturnType: ""})
+		if len(findings) == 0 {
+			t.Fatal("expected Java CommitPrefEdits finding")
+		}
+	})
 }
 
 // Oracle resolves `.edit()` to a non-SharedPreferences callable → suppressed.
@@ -528,6 +542,19 @@ class Screen {
 			t.Fatalf("expected 0 findings for javac-confirmed local lookalike, got %d", len(findings))
 		}
 	})
+	t.Run("Java unresolved semantic facts fall back to imported type", func(t *testing.T) {
+		findings := runRuleByNameOnJavaWithSemanticCalls(t, "CommitTransaction", `
+package test;
+import androidx.fragment.app.FragmentManager;
+class Screen {
+  void show(FragmentManager manager) {
+    manager.beginTransaction().replace(1, new Object());
+  }
+}`, javaSemanticCallSpec{Callee: "beginTransaction", ReceiverType: "", ReturnType: ""})
+		if len(findings) == 0 {
+			t.Fatal("expected Java CommitTransaction finding")
+		}
+	})
 }
 
 // Oracle resolves `.beginTransaction()` to a non-FragmentManager callable → suppressed.
@@ -718,6 +745,19 @@ class Strings {
     value.replace("a", "b");
   }
 }`)
+		if len(findings) == 0 {
+			t.Fatal("expected Java CheckResult finding")
+		}
+	})
+	t.Run("Java unresolved semantic facts fall back to imported type", func(t *testing.T) {
+		findings := runRuleByNameOnJavaWithSemanticCalls(t, "CheckResult", `
+package test;
+import android.content.SharedPreferences;
+class Settings {
+  void example(SharedPreferences preferences) {
+    preferences.edit();
+  }
+}`, javaSemanticCallSpec{Callee: "edit", ReceiverType: "", ReturnType: ""})
 		if len(findings) == 0 {
 			t.Fatal("expected Java CheckResult finding")
 		}

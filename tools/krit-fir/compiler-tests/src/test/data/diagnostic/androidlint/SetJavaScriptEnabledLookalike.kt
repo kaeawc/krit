@@ -28,3 +28,19 @@ fun configure(view: WebView, settings: WebSettings, toggle: ScriptToggle) {
     toggle.setJavaScriptEnabled(true)
     setJavaScriptEnabled(true)
 }
+
+// Members of anonymous objects: their owner is a local class, which must not
+// be looked up by class id (that lookup throws and aborts the compilation's
+// checkers).
+fun anonymousLookalikes() {
+    val toggle = object {
+        fun setJavaScriptEnabled(flag: Boolean) = println(flag)
+    }
+    toggle.setJavaScriptEnabled(true)
+    toggle.setJavaScriptEnabled(false)
+    val options = object {
+        var javaScriptEnabled = false
+    }
+    options.javaScriptEnabled = true
+    options.javaScriptEnabled = false
+}

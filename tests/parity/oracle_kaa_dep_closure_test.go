@@ -33,7 +33,11 @@ func TestKAAOracleCacheRefreshesResolvedCallableDependents(t *testing.T) {
 	}
 	classpath := []string{stdlib}
 
-	cases := []struct{ name, initialLib, changedLib, use, diagnostic string }{
+	cases := []struct {
+		name, initialLib, changedLib, use, diagnostic string
+		// extra holds unchanging sources, keyed by path under src.
+		extra map[string]string
+	}{
 		{
 			name:       "same-package",
 			initialLib: "package p\n\nclass R\nfun helper(): R? = R()\n",
@@ -55,6 +59,21 @@ func TestKAAOracleCacheRefreshesResolvedCallableDependents(t *testing.T) {
 			use:        "package p\n\nfun use(): Int = helper()\n",
 			diagnostic: "DEPRECATION",
 		},
+		{
+			// Use.kt reaches Impl only through a Java method's return type,
+			// and foo() resolves to Base.kt's declaration. Java sources get
+			// no dependency fragments of their own, so the edge to Impl.kt
+			// must come from the resolved callable's return type.
+			name:       "java-factory",
+			initialLib: "package p\n\nclass Impl : Base()\n",
+			changedLib: "package p\n\nclass Impl : Base() {\n    override fun foo(): String = \"x\"\n}\n",
+			use:        "package p\n\nfun use() = JavaFactory.make().foo()!!\n",
+			diagnostic: "UNNECESSARY_NOT_NULL_ASSERTION",
+			extra: map[string]string{
+				"Base.kt":            "package p\n\nopen class Base {\n    open fun foo(): String? = null\n}\n",
+				"p/JavaFactory.java": "package p;\n\npublic class JavaFactory {\n    public static Impl make() { return new Impl(); }\n}\n",
+			},
+		},
 	}
 	for _, mode := range []string{"on", "off"} {
 		for _, tc := range cases {
@@ -72,6 +91,13 @@ func TestKAAOracleCacheRefreshesResolvedCallableDependents(t *testing.T) {
 				use := filepath.Join(src, "Use.kt")
 				writeFile(t, lib, tc.initialLib)
 				writeFile(t, use, tc.use)
+				for rel, body := range tc.extra {
+					path := filepath.Join(src, rel)
+					if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+						t.Fatal(err)
+					}
+					writeFile(t, path, body)
+				}
 				if mode == "on" {
 					t.Cleanup(func() {
 						if d, err := oracle.ConnectOrStartDaemon(jar, []string{src}, classpath, false); err == nil {

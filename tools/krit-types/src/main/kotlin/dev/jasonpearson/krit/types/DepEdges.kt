@@ -7,7 +7,7 @@ import com.intellij.psi.impl.source.tree.LeafPsiElement
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.symbols.*
-import org.jetbrains.kotlin.analysis.api.types.KaClassType
+import org.jetbrains.kotlin.analysis.api.types.*
 import org.jetbrains.kotlin.idea.references.KtReference
 import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.lexer.KtTokens
@@ -103,15 +103,59 @@ internal fun KaSession.recordResolvedDependencyEdges(file: KtFile, tracker: DepT
     val start = System.nanoTime()
     val owner = file.virtualFilePath
 
+    fun recordPath(symbol: KaSymbol?, propagating: Boolean) {
+        dependencySourcePathOf(symbol)?.let { tracker.recordDepPath(owner, it, propagating) }
+    }
+
+    // Every source class named in [type], its type arguments, and the
+    // typealias it was written as. A callable's declaring file does not
+    // always cover the classes its type names: a Java declaration has no
+    // dependency fragment of its own, so a Kotlin class reached only through
+    // a Java method's return type would otherwise be missing from the
+    // closure.
+    fun recordType(type: KaType?, propagating: Boolean, depth: Int = 0) {
+        if (type == null || depth > 8) return
+        when (type) {
+            is KaClassType -> {
+                recordPath(type.symbol, propagating)
+                for (argument in type.typeArguments) {
+                    recordType((argument as? KaTypeArgumentWithVariance)?.type, propagating, depth + 1)
+                }
+            }
+            is KaFlexibleType -> {
+                recordType(type.lowerBound, propagating, depth + 1)
+                recordType(type.upperBound, propagating, depth + 1)
+            }
+            is KaDefinitelyNotNullType -> recordType(type.original, propagating, depth + 1)
+            is KaIntersectionType -> type.conjuncts.forEach { recordType(it, propagating, depth + 1) }
+            else -> {}
+        }
+        type.abbreviation?.let { recordPath(it.symbol, propagating) }
+    }
+
+    fun recordSignatureTypes(callable: KaCallableSymbol, propagating: Boolean) {
+        try {
+            recordType(callable.returnType, propagating)
+            recordType(callable.receiverParameter?.returnType, propagating)
+        } catch (_: Throwable) {}
+    }
+
     fun recordSymbol(symbol: KaSymbol, propagating: Boolean) {
+        // The resolved symbol's types may be substituted (a generic member
+        // seen through a subclass); the declaration's are recorded below.
+        if (symbol is KaCallableSymbol) recordSignatureTypes(symbol, propagating)
         var declaring: KaSymbol = symbol
         if (declaring is KaConstructorSymbol) {
             declaring = runCatching { declaring.originalConstructorIfTypeAliased }.getOrNull() ?: declaring
         }
         if (declaring is KaCallableSymbol) {
-            declaring = runCatching { declaring.fakeOverrideOriginal }.getOrNull() ?: declaring
+            val original = runCatching { declaring.fakeOverrideOriginal }.getOrNull()
+            if (original != null && original !== declaring) {
+                recordSignatureTypes(original, propagating)
+                declaring = original
+            }
         }
-        dependencySourcePathOf(declaring)?.let { tracker.recordDepPath(owner, it, propagating) }
+        recordPath(declaring, propagating)
         when (declaring) {
             // A default constructor may have no PSI of its own; its class does.
             is KaConstructorSymbol ->

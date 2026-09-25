@@ -258,7 +258,7 @@ fun handleRequestLine(
 
 /** Daemon methods that read source PSI or facts derived from it. */
 val sourceReadingMethods = setOf(
-    "analyze", "analyzeAll", "analyzeFiles", "analyzeWithDeps", "analyzeFile", "decompileJar", "resolveExpressionTypes",
+    "analyze", "analyzeAll", "analyzeFiles", "analyzeWithDeps", "analyzeFile", "resolveExpressionTypes",
 )
 
 /**

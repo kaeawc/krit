@@ -103,7 +103,16 @@ class DepEdgeScopeTest {
         assertLocalOnly(edges, "Base.kt")
     }
 
-    @Test fun supertypePropagates() = assertPropagating(edgesOf("Subclass.kt"), "Base.kt")
+    // Java sources get no dependency fragments, so the Kotlin class a Java
+    // method returns must be a direct edge of the Kotlin caller.
+    @Test fun classReachedThroughAJavaReturnTypeIsAnEdge() {
+        val edges = edgesOf("JavaFactoryUse.kt")
+        assertLocalOnly(edges, "JavaFactory.java")
+        assertLocalOnly(edges, "Impl.kt")
+        assertLocalOnly(edges, "Base.kt")
+    }
+
+    @Test fun supertypePropagates()= assertPropagating(edgesOf("Subclass.kt"), "Base.kt")
 
     @Test fun extensionOperatorWithoutANameIsAnEdge() = assertLocalOnly(edgesOf("OperatorUse.kt"), "Ops.kt")
 
@@ -182,13 +191,20 @@ class DepEdgeScopeTest {
             "TypeCheck.kt" to "package p\nfun use(x: Any): Boolean = x is Target\n",
             "InheritedCall.kt" to "package p\nfun use(c: Child): Int { return c.m() }\n",
             "Subclass.kt" to "package p\nclass UseSub : Base()\n",
+            "Impl.kt" to "package p\nclass Impl : Base()\n",
+            "p/JavaFactory.java" to "package p;\npublic class JavaFactory { public static Impl make() { return new Impl(); } }\n",
+            "JavaFactoryUse.kt" to "package p\nfun use(): Int { return JavaFactory.make().m() }\n",
             "OperatorUse.kt" to "package p\nfun use(b: Box): Int { return b[0] }\n",
         )
 
         private val module: KaSourceModule by lazy {
             val root = createTempDirectory("krit-kaa-dep-edges-")
             root.toFile().deleteOnExit()
-            for ((name, body) in sources) Files.writeString(root.resolve(name), body)
+            for ((name, body) in sources) {
+                val path = root.resolve(name)
+                Files.createDirectories(path.parent)
+                Files.writeString(path, body)
+            }
             val stdlib = Path.of(KotlinVersion::class.java.protectionDomain.codeSource.location.toURI()).toString()
             buildSession(
                 Disposer.newDisposable("dep-edge-test"),

@@ -228,6 +228,18 @@ depend on it depends on the backend:
   re-analyzed on every run. Libraries are not tracked: after changing only
   the classpath, run once with `--no-cache-oracle`.
 
+  A few changes are not tracked. A new file can change how an existing file
+  resolves, for example by adding a subclass of a sealed class it checks
+  exhaustively, or an overload or extension that it now calls instead, but
+  the existing file has no dependency on a file that did not exist when it
+  was analyzed. Its facts refresh when it or the sealed parent changes; run
+  with `--no-cache-oracle` otherwise. Changes are detected by content for
+  cached entries, but the krit-types daemon notices source edits by file
+  size and modification time, so an edit that keeps a file's size within
+  the filesystem's timestamp granularity can be missed until the next edit.
+  After any source edit, the daemon rebuilds its whole analysis session
+  before answering.
+
 Cached entries are tied to the backend that wrote them, so switching
 `--oracle-backend` re-runs the compiler rather than mixing the two backends'
 facts.

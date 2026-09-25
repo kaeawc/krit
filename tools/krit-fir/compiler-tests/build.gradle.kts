@@ -51,7 +51,7 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
     dependsOn(":jar")
-    val pluginJarPath = rootProject.layout.buildDirectory.file("libs/krit-fir.jar")
+    val pluginJarPath = rootProject.tasks.named("jar", Jar::class.java).flatMap { it.archiveFile }
     inputs.file(pluginJarPath)
     // Test data (stubs and diagnostic sources) is read at runtime, not compiled,
     // so declare it as an input: a stub-only edit must rerun the suite instead

@@ -2,8 +2,11 @@ package firchecks
 
 // cache.go — on-disk content-hash cache of FIR finding results.
 //
-// Each entry is keyed by the content hash of the source file and stored at:
-//   {repo}/.krit/fir-cache/entries/{hash[:2]}/{hash[2:]}.json
+// Each entry is keyed by the source file's path and content hash and stored at:
+//   {repo}/.krit/fir-cache/entries/{key[:2]}/{key[2:]}.json
+// The path is part of the key: a verdict depends on where the file sits in
+// the compilation, and two files with identical content (common for small
+// files) must not share or overwrite one entry.
 //
 // Entries record the finding list plus a closure fingerprint so
 // dep-closure edits invalidate downstream entries. Poison markers for
@@ -23,8 +26,8 @@ import (
 )
 
 // FirCacheVersion is bumped when the entry layout changes incompatibly.
-// 4: entries record the advertised rules and compiler-error gating, and the
-// fingerprint covers the whole compilation.
+// 4: entries record the advertised rules and compiler-error gating, are keyed
+// by path and content, and the fingerprint covers the whole compilation.
 const FirCacheVersion = 4
 
 // FirCacheEntry is one file's cached FIR findings.
@@ -78,18 +81,16 @@ func CacheDir(repoDir string) (string, error) {
 	return dir, nil
 }
 
-// entryPath returns the sharded JSON path for a given content hash.
-func entryPath(cacheDir, hash string) string {
-	if len(hash) < 3 {
-		return filepath.Join(cacheDir, "entries", hash+".json")
-	}
-	return filepath.Join(cacheDir, "entries", hash[:2], hash[2:]+".json")
+// entryPath returns the sharded JSON path for a file's entry.
+func entryPath(cacheDir, filePath, contentHash string) string {
+	key := hashutil.HashHex([]byte(filePath + "\x00" + contentHash))
+	return filepath.Join(cacheDir, "entries", key[:2], key[2:]+".json")
 }
 
-// LoadCacheEntry reads a cache entry for the given content hash.
-// Returns (nil, nil) on miss.
-func LoadCacheEntry(cacheDir, hash string) (*FirCacheEntry, error) {
-	path := entryPath(cacheDir, hash)
+// LoadCacheEntry reads the cache entry for filePath at the given content
+// hash. Returns (nil, nil) on miss.
+func LoadCacheEntry(cacheDir, filePath, hash string) (*FirCacheEntry, error) {
+	path := entryPath(cacheDir, filePath, hash)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -101,7 +102,7 @@ func LoadCacheEntry(cacheDir, hash string) (*FirCacheEntry, error) {
 	if err := json.Unmarshal(data, &entry); err != nil {
 		return nil, fmt.Errorf("unmarshal fir cache entry: %w", err)
 	}
-	if entry.V != FirCacheVersion || entry.ContentHash != hash {
+	if entry.V != FirCacheVersion || entry.ContentHash != hash || entry.FilePath != filePath {
 		os.Remove(path)
 		return nil, nil
 	}
@@ -110,7 +111,7 @@ func LoadCacheEntry(cacheDir, hash string) (*FirCacheEntry, error) {
 
 // WriteCacheEntry writes a cache entry to disk.
 func WriteCacheEntry(cacheDir string, entry *FirCacheEntry) error {
-	path := entryPath(cacheDir, entry.ContentHash)
+	path := entryPath(cacheDir, entry.FilePath, entry.ContentHash)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("mkdir fir cache: %w", err)
 	}
@@ -169,7 +170,7 @@ func ClassifyFilesForFingerprint(cacheDir string, files []string, fingerprint st
 			firCacheMisses.Add(1)
 			continue
 		}
-		entry, err := LoadCacheEntry(cacheDir, hash)
+		entry, err := LoadCacheEntry(cacheDir, p, hash)
 		if err != nil || entry == nil {
 			misses = append(misses, p)
 			firCacheMisses.Add(1)

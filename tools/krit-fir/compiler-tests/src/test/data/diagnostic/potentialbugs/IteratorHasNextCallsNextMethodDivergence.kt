@@ -68,6 +68,10 @@ class ComparesIterators(private val items: Iterator<Int>) : Comparable<Iterator<
     fun hasNext(): Boolean = items.next() > 0
 }
 
+// A hasNext() with a context parameter (Go reports it; FIR drops it because it
+// is not Iterator.hasNext()) needs -Xcontext-parameters to compile, so it is
+// pinned in IteratorHasNextCallsNextMethodTest.contextParameterHasNext.
+
 // --- True positives Go misses ---
 
 // Go misses this because an anonymous object outside any class declaration
@@ -169,4 +173,68 @@ class Parenthesized(private val items: IntArray) : Iterator<Int> {
     }
 
     override fun next(): Int = items[index++]
+}
+
+class ReferenceInvoked(private val items: Iterator<Int>) : Iterator<Int> {
+    // Go misses this because it reads no call name through the parentheses;
+    // invoking the reference calls items.next().
+    <!IteratorHasNextCallsNextMethod!>override<!> fun hasNext(): Boolean = (items::next)() > 0
+
+    override fun next(): Int = items.next()
+}
+
+class Stride(val size: Int) {
+    infix fun next(step: Int): Int = size + step
+}
+
+class InfixNext(private val stride: Stride, private val items: IntArray) : Iterator<Int> {
+    private var index = 0
+
+    // Go misses this because tree-sitter parses the infix form as an
+    // infix_expression, not a call_expression; it is the same call as
+    // `stride.next(1)`, which Go reports (any call named next counts).
+    <!IteratorHasNextCallsNextMethod!>override<!> fun hasNext(): Boolean = (stride next 1) <= items.size
+
+    override fun next(): Int = items[index++]
+}
+
+class ForOverThis(private val values: IntArray) : Iterator<Int> {
+    private var index = 0
+
+    // Go misses this because the source has no call named next; a for-loop over
+    // an iterator runs Iterator<T>.iterator(), which returns the iterator
+    // itself, and then calls this.next() on each pass.
+    <!IteratorHasNextCallsNextMethod!>override<!> fun hasNext(): Boolean {
+        for (v in this) {
+            if (v < 0) return false
+        }
+        return index < values.size
+    }
+
+    override fun next(): Int = values[index++]
+}
+
+class ForOverField(private val items: Iterator<Int>) : Iterator<Int> {
+    // Go misses this for the same reason; the loop calls items.next(), which
+    // Go reports when it is written out.
+    <!IteratorHasNextCallsNextMethod!>override<!> fun hasNext(): Boolean {
+        for (x in items) {
+            if (x > 0) return true
+        }
+        return false
+    }
+
+    override fun next(): Int = items.next()
+}
+
+class ForOverScanner(private val scanner: java.util.Scanner) : Iterator<String> {
+    // Scanner is a java.util.Iterator, so the loop calls scanner.next().
+    <!IteratorHasNextCallsNextMethod!>override<!> fun hasNext(): Boolean {
+        for (token in scanner) {
+            if (token.isNotEmpty()) return true
+        }
+        return false
+    }
+
+    override fun next(): String = scanner.next()
 }

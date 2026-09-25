@@ -267,3 +267,28 @@ enum class Countdown : Iterator<Int> {
 
     override fun next(): Int = 0
 }
+
+class NextInLoopBody(private val items: Iterator<Int>, private val limits: List<Int>) : Iterator<Int> {
+    // The for-loop's own generated next() does not count, but a real next()
+    // call inside its body does.
+    <!IteratorHasNextCallsNextMethod!>override<!> fun hasNext(): Boolean {
+        for (limit in limits) {
+            if (items.next() > limit) return true
+        }
+        return false
+    }
+
+    override fun next(): Int = items.next()
+}
+
+class NextInLoopRange(private val items: Iterator<Int>) : Iterator<Int> {
+    // A real next() call in a for-loop's range expression.
+    <!IteratorHasNextCallsNextMethod!>override<!> fun hasNext(): Boolean {
+        for (x in 0 until items.next()) {
+            if (x > 0) return true
+        }
+        return false
+    }
+
+    override fun next(): Int = items.next()
+}

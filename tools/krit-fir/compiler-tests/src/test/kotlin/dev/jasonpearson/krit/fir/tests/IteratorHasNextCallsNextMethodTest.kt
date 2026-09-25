@@ -1,5 +1,6 @@
 package dev.jasonpearson.krit.fir.tests
 
+import dev.jasonpearson.krit.fir.FirRuleCompileContext
 import org.junit.jupiter.api.Test
 import kotlin.test.fail
 
@@ -90,6 +91,37 @@ class IteratorHasNextCallsNextMethodTest {
         val stray = diags.filter { it.name == RULE && it.file in support.keys }
         if (stray.isNotEmpty()) fail("unexpected findings in support files: $stray")
         if (failures.isNotEmpty()) fail(failures.joinToString("\n"))
+    }
+
+    // Go reports any function named hasNext in an iterator, so it reports a
+    // hasNext() with a context parameter. That is not Iterator.hasNext(), so
+    // FIR drops it (a golden cannot compile context parameters: they need
+    // -Xcontext-parameters). The iterator's own hasNext() in the same class is
+    // still reported.
+    @Test
+    fun contextParameterHasNext() {
+        val source = """
+            package contextparams
+
+            class Tagged(val tag: String)
+
+            class WithContextHasNext(private val items: Iterator<Int>) : Iterator<Int> {
+                override fun hasNext(): Boolean = items.next() > 0
+
+                context(t: Tagged)
+                fun hasNext(): Boolean = items.next() > t.tag.length
+
+                override fun next(): Int = items.next()
+            }
+        """.trimIndent()
+        val result = KritFirProbe.compile(
+            mapOf("ContextHasNext.kt" to source),
+            FirRuleCompileContext(enabledRuleIds = setOf(RULE)),
+            configure = { it.contextParameters = true },
+        )
+        if (!result.clean) fail("did not compile cleanly:\n${result.problems()}")
+        val lines = result.diags.filter { it.name == RULE }.map { it.line }
+        if (lines != listOf(6)) fail("expected a finding on line 6 only (the iterator's own hasNext()), got $lines")
     }
 
     private companion object {

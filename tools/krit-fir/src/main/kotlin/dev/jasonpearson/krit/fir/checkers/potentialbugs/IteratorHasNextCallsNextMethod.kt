@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.potentialbugs
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
@@ -13,13 +14,19 @@ import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirDeclarationChec
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirImplicitInvokeCall
+import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
+import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
+import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
+import org.jetbrains.kotlin.fir.references.FirNamedReference
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
+import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
@@ -40,13 +47,22 @@ import org.jetbrains.kotlin.name.Name
  *
  * The body calls `next()`, like Go, when any call anywhere in it (lambdas,
  * local functions, and local classes included, as Go walks the whole body) is
- * named `next`: a call that resolves to a function named `next`, whatever
- * declares it, or the invocation of a function-typed value named `next`. This
- * matches Go on purpose instead of requiring an iterator owner: a cursor's
- * `next()` that is not an `Iterator` member (`java.sql.ResultSet.next()`, a
- * reader's or tokenizer's `next()`) advances the state the iterator reads just
- * as `items.next()` does, and resolution cannot tell it from a linked-list
- * node's side-effect-free `next()`.
+ * written `next`: a function called by the name `next`, whatever declares it
+ * (so the constructor of a class named `next` and a function imported under
+ * the alias `next` count, and a `next` imported under another name does not),
+ * or the invocation of a value, callable reference, or object named `next`.
+ * This matches Go on purpose instead of requiring an iterator owner: a
+ * cursor's `next()` that is not an `Iterator` member
+ * (`java.sql.ResultSet.next()`, a reader's or tokenizer's `next()`) advances
+ * the state the iterator reads just as `items.next()` does, and resolution
+ * cannot tell it from a linked-list node's side-effect-free `next()`.
+ *
+ * FIR rewrites every `for (x in xs)` into `iterator()`, `hasNext()`, and
+ * `next()` calls. That generated `next()` is not a call in the source and
+ * advances the loop's own fresh iterator, so it does not count (Go sees no
+ * call either). The one exception is a loop over an iterator held in `this`
+ * or a value (`for (x in this)`, `for (x in items)`): `Iterator<T>.iterator()`
+ * returns that iterator, so the loop really does call its `next()`.
  *
  * Deliberate differences from Go, each pinned in the golden data
  * (`IteratorHasNextCallsNextMethod*.kt`) or in
@@ -58,8 +74,9 @@ import org.jetbrains.kotlin.name.Name
  *   companion's `hasNext`, a member of an anonymous object nested in an
  *   iterator, the `hasNext` of a class that merely contains an iterator class,
  *   and the `hasNext` of a class whose supertype only mentions `Iterator` as a
- *   type argument (`Comparable<Iterator<Int>>`). None of those is an
- *   iterator's `hasNext()`, so none is reported here.
+ *   type argument (`Comparable<Iterator<Int>>`), and a `hasNext()` with a
+ *   context parameter. None of those is an iterator's `hasNext()`, so none is
+ *   reported here.
  * - Go cannot see declarations in other files, so it reports an iterator of a
  *   same-package `Iterator` lookalike declared in another file (no finding
  *   here: it is not an iterator).
@@ -70,7 +87,11 @@ import org.jetbrains.kotlin.name.Name
  *   extending `Iterator`.
  * - Go reads no call name through parentheses, so it misses `(next)()`, the
  *   same invocation of a function-typed value named `next` it reports as
- *   `next()`.
+ *   `next()`, and `(items::next)()`, which calls `items.next()`.
+ * - Go only reads `call_expression`s, so it misses the infix call
+ *   `stride next 1`, the same call as `stride.next(1)`, which it reports.
+ * - Go sees no call in a for-loop over an iterator (`for (x in this)`,
+ *   `for (x in items)`), which calls that iterator's `next()`.
  */
 internal object IteratorHasNextCallsNextMethod :
     FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common), FirRule {
@@ -81,10 +102,12 @@ internal object IteratorHasNextCallsNextMethod :
 
     private val hasNext = Name.identifier("hasNext")
     private val next = Name.identifier("next")
+    private val kotlinIterator = ClassId(FqName("kotlin.collections"), Name.identifier("Iterator"))
     private val iteratorClassIds = setOf(
-        ClassId(FqName("kotlin.collections"), Name.identifier("Iterator")),
+        kotlinIterator,
         ClassId(FqName("java.util"), Name.identifier("Iterator")),
     )
+    private val iteratorOperator = CallableId(FqName("kotlin.collections"), Name.identifier("iterator"))
 
     private const val MESSAGE = "hasNext() should not call next(). This modifies the iterator state."
 
@@ -113,8 +136,8 @@ internal object IteratorHasNextCallsNextMethod :
                 .any { it.classId in iteratorClassIds }
 
     // Walks the whole body, like Go, into lambdas, local functions, and local
-    // classes, looking for a call named next: a function named next, whatever
-    // declares it, or the invocation of a function-typed value named next.
+    // classes, looking for a call written next: a function called as next,
+    // whatever declares it, or the invocation of a value named next.
     private fun callsNext(body: FirElement): Boolean {
         var found = false
         body.accept(object : FirVisitorVoid() {
@@ -133,11 +156,40 @@ internal object IteratorHasNextCallsNextMethod :
         return found
     }
 
+    // Go reads the call's name as written, so this does too: the callee
+    // reference keeps the written name, which is `next` for a function
+    // imported under the alias next and for the constructor of a class named
+    // next, and not `next` for a next() imported under another name.
     private fun isNextCall(call: FirFunctionCall): Boolean {
+        // FIR rewrites `for (x in xs)` into iterator(), hasNext(), and next()
+        // calls on a fresh local iterator. That next() is not in the source and
+        // advances the loop's own iterator, so it does not count, unless the
+        // loop runs over an existing iterator: then iterator() returns that
+        // iterator and the loop calls its next().
+        if (call.source?.kind == KtFakeSourceElementKind.DesugaredForLoop) return advancesHeldIterator(call)
         if (call is FirImplicitInvokeCall) {
-            val value = call.explicitReceiver as? FirQualifiedAccessExpression ?: return false
-            return value.calleeReference.toResolvedCallableSymbol()?.name == next
+            return when (val value = call.explicitReceiver) {
+                // A function-typed value or a callable reference named next.
+                is FirQualifiedAccessExpression -> (value.calleeReference as? FirNamedReference)?.name == next
+                // An object named next, invoked through a qualified name.
+                is FirResolvedQualifier -> value.relativeClassFqName?.shortName() == next
+                else -> false
+            }
         }
-        return (call.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol)?.name == next
+        return call.calleeReference.name == next
+    }
+
+    // The iterator() call of a for-loop over an iterator held in `this` or in a
+    // value (`for (x in this)`, `for (x in items)`): the stdlib
+    // `operator fun <T> Iterator<T>.iterator() = this`, which hands the loop
+    // that iterator, so the loop calls its next(). A loop over an iterator a
+    // call returns (`for (x in list.iterator())`) advances that fresh
+    // iterator instead, like a loop over the list, and Go reports neither.
+    private fun advancesHeldIterator(call: FirFunctionCall): Boolean {
+        val symbol = call.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol ?: return false
+        if (symbol.callableId != iteratorOperator || symbol.resolvedReceiverType?.classId != kotlinIterator) return false
+        var subject = call.explicitReceiver
+        while (subject is FirSmartCastExpression) subject = subject.originalExpression
+        return subject is FirThisReceiverExpression || subject is FirPropertyAccessExpression
     }
 }

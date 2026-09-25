@@ -178,12 +178,10 @@ func TestIndexPhase_Run_InputTypesUsesLazyOracle(t *testing.T) {
 	if !ok {
 		t.Fatalf("Resolver = %T, want *oracle.CompositeResolver", out.Resolver)
 	}
-	lazy, ok := cr.Oracle().(*oracle.LazyLookup)
-	if !ok {
+	// The phase preloads the JSON on a background goroutine, so whether it
+	// has finished by now is a race; only the deferral itself is checked.
+	if _, ok := cr.Oracle().(*oracle.LazyLookup); !ok {
 		t.Fatalf("Composite oracle = %T, want *oracle.LazyLookup", cr.Oracle())
-	}
-	if lazy.Loaded() {
-		t.Fatal("lazy oracle loaded during IndexPhase")
 	}
 	// IndexPhase now buckets its internal spans under "indexPhaseRun";
 	// typeOracle nests there rather than at the tracker root.

@@ -438,7 +438,7 @@ jobs:
           go test ./tests/parity/ -count=1 -run 'TestOracleBackendParity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative' -v | tee parity.log
           # Top-level tests only: an exempt rule's subtest may skip. The
           # daemon relative-path tests' per-backend subtests must all run.
-          if grep -qE -- '--- SKIP: (TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative[A-Za-z]+(/(fir|kaa))?) \(' parity.log; then
+          if grep -qE -- '--- SKIP: (TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative[A-Za-z]+(/(fir|kaa)(-symlink)?)?) \(' parity.log; then
             echo "::error::a FIR parity/property/fuzz test skipped; the CI parity job must execute them"
             exit 1
           fi

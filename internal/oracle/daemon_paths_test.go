@@ -152,6 +152,56 @@ func TestPathSpellingWithDirsMapsWalkedFiles(t *testing.T) {
 	}
 }
 
+// A request's own spelling wins over a source-root re-spelling, also when
+// the request was already absolute (serve/LSP callers send absolute files
+// on handles started with relative roots).
+func TestPathSpellingAbsoluteRequestKeepsItsSpelling(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	root := filepath.Join("src", "main", "kotlin")
+	absA := filepath.Join(dir, root, "A.kt")
+	absB := filepath.Join(dir, root, "B.kt")
+	abs, spelling := AbsoluteRequestPaths([]string{absA})
+	spelling = spelling.WithDirs([]string{root})
+	if abs[0] != absA {
+		t.Fatalf("abs = %v", abs)
+	}
+	if got := spelling.Caller(absA); got != absA {
+		t.Errorf("Caller(requested %q) = %q, want it unchanged", absA, got)
+	}
+	// An unrequested file under the root still takes the root's spelling.
+	if got, want := spelling.Caller(absB), filepath.Join(root, "B.kt"); got != want {
+		t.Errorf("Caller(walked %q) = %q, want %q", absB, got, want)
+	}
+	m := CallerKeys(spelling, map[string]int{absA: 1, absB: 2})
+	if want := map[string]int{absA: 1, filepath.Join(root, "B.kt"): 2}; !reflect.DeepEqual(m, want) {
+		t.Errorf("CallerKeys = %v, want %v", m, want)
+	}
+	// With no rewrite and no roots, responses pass through untouched.
+	_, plain := AbsoluteRequestPaths([]string{absA})
+	if filepath.Separator == '/' && !plain.identity() {
+		t.Error("absolute-only request with no roots should be the identity mapping")
+	}
+}
+
+// krit-types' virtual file system reports forward-slash paths on Windows;
+// they must still match the native request and root spellings.
+func TestPathSpellingMatchesForwardSlashEchoes(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	root := filepath.Join("src", "main", "kotlin")
+	rel := filepath.Join(root, "A.kt")
+	abs, spelling := AbsoluteRequestPaths([]string{rel})
+	spelling = spelling.WithDirs([]string{root})
+	if got := spelling.Caller(filepath.ToSlash(abs[0])); got != rel {
+		t.Errorf("Caller(%q) = %q, want %q", filepath.ToSlash(abs[0]), got, rel)
+	}
+	walked := filepath.ToSlash(filepath.Join(dir, root, "p", "B.kt"))
+	if got, want := spelling.Caller(walked), filepath.Join(root, "p", "B.kt"); got != want {
+		t.Errorf("Caller(%q) = %q, want %q", walked, got, want)
+	}
+}
+
 // A relative request must come back keyed the way it was asked, including
 // files the daemon reports under the source root without being asked, the
 // closure's edges, and crash markers.

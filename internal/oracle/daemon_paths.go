@@ -52,7 +52,12 @@ func AbsolutePaths(paths []string) []string {
 // reports without being asked about them (walked from a source root) map
 // back through the caller's spelling of that root.
 type PathSpelling struct {
+	// caller maps each absolute path sent to the daemon to the caller's
+	// spelling of it, identity entries included: a request's own spelling
+	// always wins over a source-root re-spelling.
 	caller map[string]string
+	// rewrites is set when some request was sent in a different spelling.
+	rewrites bool
 	// dirs maps absolute source roots to the caller's relative spelling,
 	// longest root first.
 	dirs []dirSpelling
@@ -85,33 +90,41 @@ func AbsoluteRequestPaths(paths []string) ([]string, PathSpelling) {
 	for i, p := range paths {
 		abs := AbsolutePath(p)
 		out[i] = abs
-		if abs == p {
+		if p == "" {
 			continue
 		}
 		if spelling.caller == nil {
-			spelling.caller = make(map[string]string)
+			spelling.caller = make(map[string]string, len(paths))
 		}
 		if _, ok := spelling.caller[abs]; !ok {
 			spelling.caller[abs] = p
+			spelling.rewrites = spelling.rewrites || abs != p
 		}
 	}
 	return out, spelling
 }
 
-// Caller returns the caller's spelling of a path the daemon reported.
+// Caller returns the caller's spelling of a path the daemon reported. A
+// daemon may echo a path with forward slashes (krit-types' virtual file
+// system does on Windows), so the path is matched in native form.
 func (s PathSpelling) Caller(path string) string {
-	if orig, ok := s.caller[path]; ok {
+	native := filepath.FromSlash(path)
+	if orig, ok := s.caller[native]; ok {
 		return orig
 	}
 	for _, d := range s.dirs {
-		if rest, ok := strings.CutPrefix(path, d.abs+string(filepath.Separator)); ok && rest != "" {
+		if rest, ok := strings.CutPrefix(native, d.abs+string(filepath.Separator)); ok && rest != "" {
 			return filepath.Join(d.caller, rest)
 		}
 	}
 	return path
 }
 
-func (s PathSpelling) identity() bool { return len(s.caller) == 0 && len(s.dirs) == 0 }
+// identity reports whether Caller returns every path unchanged. Where the
+// separator is not '/', a request can still come back re-slashed.
+func (s PathSpelling) identity() bool {
+	return !s.rewrites && len(s.dirs) == 0 && filepath.Separator == '/'
+}
 
 // CallerPaths returns paths in the caller's spelling (paths itself when
 // nothing was rewritten).

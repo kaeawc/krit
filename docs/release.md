@@ -17,8 +17,11 @@ Krit ships from `v*` tags:
   `winget` job submits to microsoft/winget-pkgs.
 - **Maven Central** — stable `vX.Y.Z` tags only.
   `dev.jasonpearson.krit:krit-rule-api` so external rule authors can
-  compile against the SPI without vendoring the analyzer. Owned by
-  [`publish-krit-rule-api.yml`](../.github/workflows/publish-krit-rule-api.yml).
+  compile against the SPI without vendoring the analyzer, plus the
+  self-contained `:krit-types` and `:krit-fir` oracle jars (see
+  [Oracle jars on Maven Central](#oracle-jars-on-maven-central) below).
+  Owned by
+  [`publish-maven-central.yml`](../.github/workflows/publish-maven-central.yml).
 - **Gradle Plugin Portal** — `dev.jasonpearson.krit` Gradle plugin
   (separate; not yet automated, see
   [`krit-gradle-plugin/`](../krit-gradle-plugin/)). The plugin's version
@@ -35,7 +38,7 @@ is documented inline in `release.yml`.
 ## Versioning
 
 Both workflows derive their version from the pushed tag: `vX.Y.Z` →
-`X.Y.Z`. `publish-krit-rule-api.yml` skips tags with a prerelease
+`X.Y.Z`. `publish-maven-central.yml` skips tags with a prerelease
 suffix, and also accepts a manual-dispatch input so a maintainer can
 republish a specific version (e.g. after a Central staging rejection)
 without cutting a new tag. A dispatched version is published as given,
@@ -50,7 +53,7 @@ only one within the SPI compatibility window.
 
 Configure these in **Settings → Secrets and variables → Actions** on
 the `kaeawc/krit` repo. All four are required for a successful
-`publish-krit-rule-api.yml` run; the workflow fails fast if any are
+`publish-maven-central.yml` run; the workflow fails fast if any are
 missing during signing or upload.
 
 | Secret | Purpose |
@@ -115,14 +118,19 @@ Outputs land in `tools/krit-rule-api/build/staging-deploy/`.
 
 ## Dry-running the workflow
 
-Release-candidate tags (`vX.Y.Z-rc1`) no longer trigger a Central
-publish. To validate the workflow without publishing publicly, dispatch
-`publish-krit-rule-api.yml` manually with a candidate version
-(`X.Y.Z-rc1`). The publish step uploads to Sonatype's OSSRH Staging API
-compatibility endpoint. The build does not call that API's
-`/manual/upload` transfer, so the deployment never reaches the Central
-Portal: it can't be inspected or promoted there, and nothing becomes
-public. That makes a dispatch a check of signing and upload only.
+To stage a deployment for inspection without publishing it, dispatch
+`publish-maven-central.yml` manually and leave `publishing_type` at its
+default, `user_managed` (or set it explicitly). The workflow publishes
+and stages all three artifacts for real, then calls
+`scripts/release/central-portal-upload.sh`, which POSTs to Central's
+`/manual/upload` transfer endpoint with `publishing_type=user_managed`.
+That moves the OSSRH staging deployment into the Central Portal, where
+it waits for a maintainer to inspect it and manually publish or drop
+it — nothing becomes public automatically. Setting `publishing_type` to
+`automatic` on a dispatch publishes the deployment for real, matching
+what a tag push does. Release-candidate tags (`vX.Y.Z-rc1`) don't run
+the job at all — only manual dispatches and dash-free stable tags pass
+the job's `if` condition.
 
 ## Troubleshooting
 
@@ -136,3 +144,29 @@ public. That makes a dispatch a check of signing and upload only.
 - **Workflow exits with "No version available".** A push event landed
   on a non-tag ref, or a manual dispatch from a branch omitted the
   version input. Dispatch again with the desired version.
+
+## Oracle jars on Maven Central
+
+The Kotlin Analysis API and FIR oracle helpers `krit` shells out to are
+also published to Maven Central as self-contained fat jars:
+
+- `dev.jasonpearson.krit:krit-types`
+- `dev.jasonpearson.krit:krit-fir`
+
+Each publication uses the shadow jar as its main artifact and ships a
+dependency-free POM, so consumers don't need access to JetBrains'
+`intellij-dependencies` repository, which hosts the Kotlin compiler and
+Analysis API modules these jars bundle and that Maven Central itself
+cannot resolve. The jars carry `META-INF/LICENSE-krit.txt` (Krit's own
+license) and `META-INF/THIRD_PARTY_NOTICES.txt` (notices for the bundled
+Apache-2.0 compiler/Analysis API) so the bundled code stays attributed.
+
+`publish-maven-central.yml` publishes `krit-types` and `krit-fir` to the
+`centralPortal` repository right after `krit-rule-api`, on the same
+stable-tag or dispatch trigger, then runs its finalize step
+(`scripts/release/central-portal-upload.sh`) once for all three
+artifacts together — see [Dry-running the workflow](#dry-running-the-workflow)
+for what that finalize step does. Publishing either shadow jar to
+`centralPortal` with a non-SNAPSHOT version fails fast if `SIGNING_KEY`
+or `SIGNING_PASSWORD` is missing, the same guard
+`krit-rule-api` uses.

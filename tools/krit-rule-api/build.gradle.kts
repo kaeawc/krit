@@ -1,3 +1,5 @@
+import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
+
 plugins {
     kotlin("jvm") version "2.3.21"
     `java-library`
@@ -159,4 +161,18 @@ signing {
 // unsigned so local + CI snapshot pushes don't need a key.
 tasks.withType<Sign>().configureEach {
     onlyIf { !isSnapshot }
+}
+
+tasks.withType<PublishToMavenRepository>().configureEach {
+    if (repository.name == "centralPortal") {
+        doFirst {
+            if (!isSnapshot) {
+                val missing = listOf("SIGNING_KEY", "SIGNING_PASSWORD")
+                    .filter { System.getenv(it).isNullOrBlank() }
+                if (missing.isNotEmpty()) {
+                    throw GradleException("Cannot publish to centralPortal without ${missing.joinToString(" and ")}")
+                }
+            }
+        }
+    }
 }

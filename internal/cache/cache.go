@@ -95,7 +95,8 @@ const CacheFileName = "incremental.cache"
 // v16: normalized Kotlin annotations change findings for unchanged source.
 // v17: version catalogs are parsed as spec-compliant TOML, so catalog-derived
 // findings change for unchanged source.
-const cachePayloadVersion = "v17"
+// v18: Java semantic facts with unresolved types fall back to AST heuristics.
+const cachePayloadVersion = "v18"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

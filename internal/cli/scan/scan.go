@@ -108,55 +108,6 @@ func runJavaSemanticFacts(ctx context.Context, scanPaths []string, javaFiles []*
 	return javafacts.Invoke(ctx, helperClasspath, javaFilePaths(javaFiles), opts, tracker)
 }
 
-func compileJavaFactsHelper(scanPaths []string) (classpath string, cleanup func(), warning string, err error) {
-	javac, lookupErr := exec.LookPath("javac")
-	if lookupErr != nil {
-		// Surfaces the lookup failure as a warning string, not an err
-		// — javac being absent is non-fatal: the caller falls back to
-		// pure-AST analysis. Errors are reserved for genuine helper-
-		// build failures (mkdir/javac compile) below.
-		return "", nil, javafacts.UnavailableWarning(fmt.Errorf("javac not found")), nil //nolint:nilerr // see comment: lookupErr is intentionally surfaced as warning, not err
-	}
-	repoDir := oracle.FindRepoDir(scanPaths)
-	if repoDir == "" {
-		repoDir = "."
-	}
-	helper := javaFactsHelperSourcePath(repoDir)
-	if helper == "" {
-		if cwd, cwdErr := os.Getwd(); cwdErr == nil {
-			helper = javaFactsHelperSourcePath(cwd)
-		}
-	}
-	if helper == "" {
-		helper = filepath.Join(repoDir, "tools", "krit-java-facts", "src", "main", "java", "dev", "jasonpearson", "krit", "javafacts", "Main.java")
-	}
-	if _, statErr := os.Stat(helper); statErr != nil {
-		// Same non-fatal warning pattern as the javac lookup above.
-		return "", nil, javafacts.UnavailableWarning(fmt.Errorf("helper source not found at %s", helper)), nil //nolint:nilerr // statErr surfaced as warning, not err
-	}
-	tmp, mkErr := os.MkdirTemp("", "krit-java-facts-helper-*")
-	if mkErr != nil {
-		return "", nil, "", mkErr
-	}
-	cleanup = func() { _ = os.RemoveAll(tmp) }
-	if output, compileErr := exec.CommandContext(context.Background(), javac, "-d", tmp, helper).CombinedOutput(); compileErr != nil {
-		cleanup()
-		return "", nil, javafacts.UnavailableWarning(fmt.Errorf("compile helper: %w: %s", compileErr, string(output))), nil
-	}
-	return tmp, cleanup, "", nil
-}
-
-func javaFactsHelperSourcePath(root string) string {
-	if root == "" {
-		return ""
-	}
-	helper := filepath.Join(root, "tools", "krit-java-facts", "src", "main", "java", "dev", "jasonpearson", "krit", "javafacts", "Main.java")
-	if _, err := os.Stat(helper); err == nil {
-		return helper
-	}
-	return ""
-}
-
 func javaSemanticClasspath(facts *librarymodel.Facts, files []*scanner.File) string {
 	seen := map[string]bool{}
 	var entries []string

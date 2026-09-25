@@ -20,6 +20,7 @@ import java.util.Locale;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.tools.DiagnosticCollector;
 import javax.tools.JavaCompiler;
@@ -156,16 +157,23 @@ public final class Main {
         }
       }
       TypeMirror returnType = trees.getTypeMirror(path);
-      fact.returnType = returnType == null ? "" : returnType.toString();
+      fact.returnType = typeName(returnType);
       Tree receiver = receiverExpression(node);
       if (receiver != null) {
         TypeMirror receiverType = trees.getTypeMirror(new TreePath(path, receiver));
-        fact.receiverType = receiverType == null ? "" : receiverType.toString();
+        fact.receiverType = typeName(receiverType);
       } else {
         fact.receiverType = "";
       }
       facts.calls.add(fact);
       return super.visitMethodInvocation(node, unused);
+    }
+
+    private static String typeName(TypeMirror type) {
+      if (type == null || type.getKind() == TypeKind.ERROR) {
+        return "";
+      }
+      return type.toString();
     }
 
     @Override

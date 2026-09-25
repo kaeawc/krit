@@ -416,6 +416,19 @@ class Browser {
 			t.Fatal("expected Java SetJavaScriptEnabled finding")
 		}
 	})
+	t.Run("unresolved semantic facts fall back to imported type", func(t *testing.T) {
+		findings := runRuleByNameOnJavaWithSemanticCalls(t, "SetJavaScriptEnabled", `
+package test;
+import android.webkit.WebView;
+class Browser {
+  void setup(WebView webView) {
+    webView.getSettings().setJavaScriptEnabled(true);
+  }
+}`, javaSemanticCallSpec{Callee: "setJavaScriptEnabled", ReceiverType: "", ReturnType: "void"})
+		if len(findings) == 0 {
+			t.Fatal("expected Java SetJavaScriptEnabled finding")
+		}
+	})
 	t.Run("negative false argument", func(t *testing.T) {
 		findings := runRuleByNameOnJava(t, "SetJavaScriptEnabled", `
 package test;

@@ -54,9 +54,55 @@ class Recall {
         return <!BufferedReadWithoutBuffer!>input.read()<!>
     }
 
-    // Go misses this: a buffered() call on a side branch does not buffer the
-    // stream that is read.
+    // Go misses these: a buffered() call on a side branch, or in a statement
+    // of a lambda, does not buffer the stream that is read.
     fun sideBranchBuffered(path: String): Int = <!BufferedReadWithoutBuffer!>FileInputStream(path).also { it.buffered() }.read()<!>
+
+    fun lambdaStatementBuffered(path: String, log: MutableList<InputStream>): Int =
+        <!BufferedReadWithoutBuffer!>run { log += FileInputStream(path).buffered(); DataInputStream(FileInputStream(path)) }.read()<!>
+
+    // Go misses these: it only accepts a local whose initializer calls
+    // FileInputStream directly, not an if/when, a cast or a try expression
+    // that yields one.
+    fun branchLocal(path: String, useFile: Boolean): Int {
+        val input: InputStream = if (useFile) FileInputStream(path) else System.`in`
+        return <!BufferedReadWithoutBuffer!>input.read()<!>
+    }
+
+    fun castLocal(path: String): Int {
+        val input = FileInputStream(path) as InputStream
+        return <!BufferedReadWithoutBuffer!>input.read()<!>
+    }
+
+    fun tryLocal(path: String): Int? {
+        val input = try {
+            FileInputStream(path)
+        } catch (e: Exception) {
+            null
+        }
+        return <!BufferedReadWithoutBuffer!>input?.read()<!>
+    }
+
+    // Go misses these: it only checks a local's initializer, not a
+    // FileInputStream assigned to it later.
+    fun assignedLater(path: String): Int {
+        var input: InputStream = System.`in`
+        input.close()
+        input = FileInputStream(path)
+        return <!BufferedReadWithoutBuffer!>input.read()<!>
+    }
+
+    fun assignedOnOneBranch(path: String, useFile: Boolean): Int {
+        var input: InputStream = System.`in`
+        if (useFile) input = FileInputStream(path)
+        return <!BufferedReadWithoutBuffer!>input.read()<!>
+    }
+
+    fun deferredVal(path: String, useFile: Boolean): Int {
+        val input: InputStream
+        if (useFile) input = FileInputStream(path) else input = System.`in`
+        return <!BufferedReadWithoutBuffer!>input.read()<!>
+    }
 
     // Go misses these: an import alias and a type alias of FileInputStream.
     fun importAlias(path: String): Int = <!BufferedReadWithoutBuffer!>RawFileStream(path).read()<!>

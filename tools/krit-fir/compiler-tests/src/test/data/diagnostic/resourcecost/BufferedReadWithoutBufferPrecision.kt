@@ -14,6 +14,8 @@ import java.nio.ByteBuffer
 
 fun FileInputStream.read(tag: String): Int = tag.length
 
+class CountingBufferedStream(input: InputStream) : BufferedInputStream(input)
+
 class Precision {
     // Go reports this: the receiver is a Reader, not an InputStream, and
     // InputStreamReader decodes the file through its own byte buffer.
@@ -43,6 +45,22 @@ class Precision {
         input = BufferedInputStream(input)
         return input.read()
     }
+
+    // Go reports this: it only checks the var's initializer, but the read is
+    // on System.in, which the var holds from the assignment before it.
+    fun reassignedToOtherStream(path: String): Int {
+        var input: InputStream = FileInputStream(path)
+        input.close()
+        input = System.`in`
+        return input.read()
+    }
+
+    // Go reports these: a BufferedInputStream subclass and an anonymous
+    // BufferedInputStream buffer the FileInputStream, but Go only exempts a
+    // call spelled buffered / BufferedInputStream.
+    fun bufferedSubclass(path: String): Int = CountingBufferedStream(FileInputStream(path)).read()
+
+    fun anonymousBuffered(path: String): Int = object : BufferedInputStream(FileInputStream(path)) {}.read()
 
     // Go reports this: it matches the local by name anywhere earlier in the
     // function, but the read is on the shadowing System.in.

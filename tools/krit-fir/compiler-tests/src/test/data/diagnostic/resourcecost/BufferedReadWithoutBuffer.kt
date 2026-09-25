@@ -7,7 +7,9 @@ import java.io.BufferedInputStream
 import java.io.DataInputStream
 import java.io.File
 import java.io.FileInputStream
+import java.io.FilterInputStream
 import java.io.InputStream
+import java.io.SequenceInputStream
 import java.util.zip.GZIPInputStream
 
 class Reads {
@@ -78,6 +80,68 @@ class Reads {
 
     fun elvis(path: String, fallback: InputStream?): Int = <!BufferedReadWithoutBuffer!>(fallback ?: FileInputStream(path)).read()<!>
 
+    // The stream is a lambda's result.
+    fun lambdaResult(path: String): Int = <!BufferedReadWithoutBuffer!>run { DataInputStream(FileInputStream(path)) }.read()<!>
+
+    fun letWrapper(path: String): Int = <!BufferedReadWithoutBuffer!>FileInputStream(path).let { DataInputStream(it) }.read()<!>
+
+    fun mappedList(path: String): Int = <!BufferedReadWithoutBuffer!>listOf(FileInputStream(path)).map { DataInputStream(it) }.first().read()<!>
+
+    // The stream is a try expression's result.
+    fun tryResult(path: String): Int = <!BufferedReadWithoutBuffer!>(try { DataInputStream(FileInputStream(path)) } finally { println() }).read()<!>
+
+    // An anonymous object whose superclass wraps the FileInputStream.
+    fun anonymousFilter(path: String): Int = <!BufferedReadWithoutBuffer!>object : FilterInputStream(FileInputStream(path)) {}.read()<!>
+
+    // Reads before the var is reassigned still read the FileInputStream.
+    fun readBeforeReassigned(path: String): Int {
+        var input: InputStream = FileInputStream(path)
+        val first = <!BufferedReadWithoutBuffer!>input.read()<!>
+        input = System.`in`
+        return first + input.available()
+    }
+
+    fun readBeforeBuffering(path: String): Int {
+        var input: InputStream = FileInputStream(path)
+        val header = <!BufferedReadWithoutBuffer!>input.read()<!>
+        input = BufferedInputStream(input)
+        return header + input.available()
+    }
+
+    // The first iteration reads the FileInputStream.
+    fun readInLoopBeforeReassigned(path: String): Int {
+        var input: InputStream = FileInputStream(path)
+        while (true) {
+            val value = <!BufferedReadWithoutBuffer!>input.read()<!>
+            input = System.`in`
+            if (value > 0) return value
+        }
+    }
+
+    // Buffered only on one branch: the other still reads the file.
+    fun bufferedOnOneBranch(path: String, buffer: Boolean): Int {
+        var input: InputStream = FileInputStream(path)
+        if (buffer) input = BufferedInputStream(input)
+        return <!BufferedReadWithoutBuffer!>input.read()<!>
+    }
+
+    // A buffered stream held in a local does not buffer the other source.
+    fun sequenceWithBufferedLocal(first: String, second: String): Int {
+        val buffered = BufferedInputStream(FileInputStream(second))
+        return <!BufferedReadWithoutBuffer!>SequenceInputStream(FileInputStream(first), buffered).read()<!>
+    }
+
+    // A buffered() / BufferedInputStream call among the sources: Go exempts the
+    // whole receiver, and FIR matches it.
+    fun sequenceWithBufferedCall(first: String, second: String): Int =
+        SequenceInputStream(BufferedInputStream(FileInputStream(first)), FileInputStream(second)).read()
+
+    fun branchBuffered(path: String, buffer: Boolean): Int =
+        (if (buffer) BufferedInputStream(FileInputStream(path)) else FileInputStream(path)).read()
+
+    fun listWithBuffered(first: String, second: String): Int =
+        listOf(FileInputStream(first), FileInputStream(second).buffered()).last().read()
+
     // Buffered: no finding.
     fun bufferedExtension(path: String): Int = FileInputStream(path).buffered().read()
 
@@ -94,6 +158,17 @@ class Reads {
     }
 
     fun bufferedWrapper(path: String): Int = DataInputStream(FileInputStream(path).buffered()).read()
+
+    // The FileInputStream is assigned on another branch than the read.
+    fun assignedOnOtherBranch(path: String, useFile: Boolean): Int {
+        var input: InputStream = System.`in`
+        if (useFile) {
+            input = FileInputStream(path)
+            return 0
+        } else {
+            return input.read()
+        }
+    }
 
     // Not a read call.
     fun readBytes(path: String): ByteArray = FileInputStream(path).readBytes()

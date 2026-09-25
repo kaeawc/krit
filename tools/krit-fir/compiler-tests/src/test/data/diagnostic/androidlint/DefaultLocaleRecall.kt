@@ -31,3 +31,14 @@ class Recall {
     fun patternMentionsLocale(patterns: Map<Locale, String>, value: Int): String =
         <!DefaultLocale!>String.format(patterns.getValue(Locale.US), value)<!>
 }
+
+class CompanionExpressions {
+    // Go misses: the receiver is an expression of type String.Companion whose
+    // text is not `String`; it is the same static default-locale format.
+    fun fromLambda(value: Int): String = <!DefaultLocale!>value.let { String }.format("%d", value)<!>
+
+    fun fromVariable(value: Int): String {
+        val c = String.Companion
+        return <!DefaultLocale!>c.format("%d", value)<!>
+    }
+}

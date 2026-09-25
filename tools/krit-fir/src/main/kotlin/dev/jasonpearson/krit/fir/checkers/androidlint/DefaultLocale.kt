@@ -34,7 +34,12 @@ import org.jetbrains.kotlin.util.getChildren
 //   extensions on kotlin.String and the JDK members of java.lang.String. K2
 //   rejects the stdlib ones (DEPRECATION_ERROR since Kotlin 2.1), so they only
 //   reach a clean compile under `@Suppress("DEPRECATION_ERROR")`; the JDK
-//   members compile when the receiver is typed java.lang.String.
+//   members compile when the receiver is typed java.lang.String;
+// - ICU's static `UCharacter.toLowerCase(String)` / `toUpperCase(String)`
+//   (android.icu.lang and ICU4J's com.ibm.icu.lang), which ICU documents as
+//   using the default locale. Their int code-point overloads are
+//   locale-independent and the (Locale/ULocale, String) overloads are
+//   explicit, so neither is reported.
 //
 // Like the Go rule, the finding sits on the first line of the call expression
 // (the receiver's first line for a qualified call), with Go's messages. The
@@ -46,20 +51,25 @@ import org.jetbrains.kotlin.util.getChildren
 // - Precision: Go matches the call by name (`toLowerCase` / `toUpperCase` on
 //   any receiver, `format` on the receiver text `String`) and skips it only
 //   when an argument mentions the identifier `Locale`. FIR reports only the
-//   default-locale JDK/stdlib overloads, so it does not report a call that
-//   passes an explicit Locale held in a variable or parameter
-//   (`String.format(locale, ...)`, `s.toLowerCase(locale)`), a null Locale
+//   default-locale JDK/stdlib/ICU overloads, so it does not report a call
+//   that passes an explicit Locale held in a variable or parameter
+//   (`String.format(locale, ...)`, `s.toLowerCase(locale)`), a Locale passed
+//   by name (`String.format(locale = Locale.US, ...)`), an ICU `ULocale`
+//   (`UCharacter.toLowerCase(ULocale.ROOT, s)`), a null Locale
 //   (`String.format(null, ...)`, which applies no localization), the
-//   locale-independent `Char.toLowerCase()` / `Character.toLowerCase(c)`, or a
-//   project function or class member of the same name (including a
-//   same-package `String.Companion.format` extension and a nested
-//   `object String`).
+//   locale-independent `Char.toLowerCase()` / `Character.toLowerCase(c)` /
+//   `UCharacter.toLowerCase(codePoint)` / Guava's ASCII-only
+//   `Ascii.toLowerCase(s)`, or a project function or class member of the same
+//   name (including a same-package `String.Companion.format` extension and a
+//   nested `object String`).
 // - Recall: resolution sees the static call however it is spelled
 //   (`java.lang.String.format`, `kotlin.String.format`,
-//   `String.Companion.format`, a typealias of String, an implicit `String`
-//   receiver, an import alias), with named arguments, and with a format argument whose text
-//   happens to mention `Locale` (`String.format(patterns.getValue(Locale.US), x)`
-//   still formats with the default locale). Go misses those.
+//   `String.Companion.format`, a typealias of String, any expression of type
+//   String.Companion, an implicit `String` receiver, an import alias of
+//   `format` or `toLowerCase`), with named arguments, and with a format
+//   argument whose text happens to mention `Locale`
+//   (`String.format(patterns.getValue(Locale.US), x)` still formats with the
+//   default locale). Go misses those.
 internal object DefaultLocale : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "DefaultLocale"
     override val expressionCheckers = object : ExpressionCheckers() {
@@ -77,6 +87,10 @@ internal object DefaultLocale : FirFunctionCallChecker(MppCheckerKind.Common), F
     private val stringCompanion = StandardClassIds.String.createNestedClassId(Name.identifier("Companion"))
     private val format = Name.identifier("format")
     private val caseNames = setOf(Name.identifier("toLowerCase"), Name.identifier("toUpperCase"))
+    private val icuUCharacter = setOf(
+        ClassId(FqName("android.icu.lang"), Name.identifier("UCharacter")),
+        ClassId(FqName("com.ibm.icu.lang"), Name.identifier("UCharacter")),
+    )
 
     private val qualifiedTypes = setOf(KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION)
 
@@ -89,10 +103,12 @@ internal object DefaultLocale : FirFunctionCallChecker(MppCheckerKind.Common), F
             in caseNames -> CASE_MESSAGE.takeIf { isDefaultLocaleCaseConversion(callee) }
             else -> null
         } ?: return
-        // Owner proof: the kotlin.text top-level extension or a java.lang.String member.
+        // Owner proof: the kotlin.text top-level extension, a java.lang.String
+        // member, or an ICU UCharacter static.
         val stdlib = callableId.packageName == kotlinText && callableId.className == null
         val jdk = callableId.classId == javaString
-        if (!stdlib && !jdk) return
+        val icu = callableId.classId in icuUCharacter
+        if (!stdlib && !jdk && !icu) return
         val source = expression.source ?: return
         report(qualifiedCall(source)?.let { sourceOf(it, source) } ?: source, message)
     }
@@ -112,10 +128,18 @@ internal object DefaultLocale : FirFunctionCallChecker(MppCheckerKind.Common), F
 
     // The no-argument conversion of a String: kotlin.text's
     // `String.toLowerCase()` (not the Char one, which uses the invariant
-    // Unicode mapping) or java.lang.String's member.
+    // Unicode mapping) or java.lang.String's member; or ICU's static
+    // `UCharacter.toLowerCase(String)` / `toUpperCase(String)`, whose only
+    // parameter is the text.
     private fun isDefaultLocaleCaseConversion(callee: FirFunctionSymbol<*>): Boolean {
+        val owner = callee.callableId?.classId
+        if (owner in icuUCharacter) {
+            val only = callee.valueParameterSymbols.singleOrNull() ?: return false
+            val type = only.resolvedReturnType.lowerBoundIfFlexible().classId
+            return type == StandardClassIds.String || type == javaString
+        }
         if (callee.valueParameterSymbols.isNotEmpty()) return false
-        return when (callee.callableId?.classId) {
+        return when (owner) {
             javaString -> true
             null -> callee.resolvedReceiverType?.lowerBoundIfFlexible()?.classId == StandardClassIds.String
             else -> false

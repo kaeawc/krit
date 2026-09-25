@@ -35,3 +35,17 @@ class CharacterStatics {
 
     fun upperCodePoint(codePoint: Int): Int = Character.toUpperCase(codePoint)
 }
+
+class NamedLocale {
+    // Go skips labeled arguments when it looks for the first positional
+    // argument, so it tests `value`, finds no `Locale`, and reports. The call
+    // resolves to the Locale overload with an explicit Locale.
+    fun namedLocale(value: Int): String = String.format(locale = Locale.US, format = "%d", value)
+
+    fun namedLocaleVariable(l: Locale, value: Int): String = String.format(locale = l, "%d", value)
+}
+
+// The ICU UCharacter (ULocale, String) overloads, the int code-point
+// overloads, and Guava's ASCII-only Ascii.toLowerCase(s) are pinned in
+// DefaultLocaleTest (localeIndependentAndExplicitIcuOverloadsAreNotReported),
+// which declares those Java classes itself.

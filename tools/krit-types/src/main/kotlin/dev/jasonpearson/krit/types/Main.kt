@@ -2189,7 +2189,7 @@ fun buildSession(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf? = n
             val dependenciesStart = System.nanoTime()
             val dependencies = buildKtLibraryModule {
                 this.platform = platform
-                addBinaryRoots(args.classpath.map { Path(it) })
+                addBinaryRoots(effectiveClasspath(args.classpath).map { Path(it) })
                 libraryName = "dependencies"
             }
             perf?.addPhaseTotal("kotlinBuildSession.dependenciesModule", System.nanoTime() - dependenciesStart)

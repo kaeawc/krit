@@ -89,7 +89,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         try {
             val args = K2JVMCompilerArguments().apply {
                 freeArgs = compilationFiles(files.map { it.path })
-                this.classpath = this@AnalysisSession.classpath.joinToString(File.pathSeparator)
+                this.classpath = effectiveClasspath(this@AnalysisSession.classpath).joinToString(File.pathSeparator)
                 destination = outDir.absolutePath
                 noStdlib = true
                 noReflect = true
@@ -144,7 +144,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         try {
             val args = K2JVMCompilerArguments().apply {
                 freeArgs = compilationFiles(files)
-                this.classpath = this@AnalysisSession.classpath.joinToString(File.pathSeparator)
+                this.classpath = effectiveClasspath(this@AnalysisSession.classpath).joinToString(File.pathSeparator)
                 destination = outDir.absolutePath
                 noStdlib = true
                 noReflect = true

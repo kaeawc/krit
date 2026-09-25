@@ -129,7 +129,12 @@ func runScanCLI(t *testing.T, argv []string) []byte {
 func runRunProjectDirect(t *testing.T, root string) []byte {
 	t.Helper()
 
-	cfg := config.NewConfig()
+	// The CLI and the daemon both layer the shipped defaults under any
+	// user config; mirror that so the comparison isolates the entry point.
+	cfg, err := config.LoadAndMergeDefaults("", root)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
 	rules.ApplyConfig(cfg)
 	activeRules := rules.ActiveRulesV2(map[string]bool{}, map[string]bool{}, false, false, false)
 

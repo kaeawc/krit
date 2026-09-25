@@ -670,9 +670,8 @@ func resolveBaselineDryRunArgs(args daemon.AnalyzeProjectArgs, paths []string) (
 // silently — the daemon should be useful out of the box without
 // requiring krit.yml.
 func loadDaemonConfig(root string) (*config.Config, error) {
-	defaultCfgPath := config.FindDefaultConfig()
 	userCfgPath := clishared.FindConfigInDir(root)
-	cfg, mergeErr := config.LoadAndMerge(userCfgPath, defaultCfgPath)
+	cfg, mergeErr := config.LoadAndMergeDefaults(userCfgPath)
 	if cfg == nil {
 		cfg = config.NewConfig()
 	}

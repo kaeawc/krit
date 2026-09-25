@@ -119,10 +119,16 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # Build the JVM sidecar (krit-types shaded jar) once and stage it for
-  # the release funnel. The Go CLI auto-downloads this asset on first
-  # use of --daemon / --custom-rule-jars; see internal/oracle.EnsureJar.
-  build-krit-types:
+  # Build the JVM sidecar shaded jars once and stage them for the
+  # release funnel: krit-fir (the default oracle backend) and krit-types
+  # (the KAA backend, --daemon, --custom-rule-jars). Released CLIs
+  # auto-download the asset matching their version, verified against
+  # checksums.txt; see internal/oracle.EnsureBackendJar.
+  build-jvm-jars:
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: [krit-types, krit-fir]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -132,21 +138,22 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@94baf225fe0a508e581a564467443d0e2379123b # v4.3.0
-      - name: Build krit-types shaded jar
-        working-directory: tools/krit-types
+      - name: Build ${{ matrix.tool }} shaded jar
+        working-directory: tools/${{ matrix.tool }}
         run: ./gradlew --no-daemon shadowJar
       - name: Stage jar with release-tagged name
         shell: bash
         env:
           TAG: ${{ github.ref_name }}
+          TOOL: ${{ matrix.tool }}
         run: |
           set -euo pipefail
           mkdir staged
-          cp tools/krit-types/build/libs/krit-types.jar "staged/krit-types-${TAG}.jar"
+          cp "tools/${TOOL}/build/libs/${TOOL}.jar" "staged/${TOOL}-${TAG}.jar"
           ls -la staged/
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
         with:
-          name: dist-krit-types
+          name: dist-${{ matrix.tool }}
           path: staged/
           retention-days: 1
           if-no-files-found: error
@@ -155,7 +162,7 @@ jobs:
   # checksums.txt covering all platforms, sign it, create the GitHub
   # release, and push the brew cask + scoop manifest to their tap repos.
   release:
-    needs: [build, build-krit-types]
+    needs: [build, build-jvm-jars]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -271,7 +278,7 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
-          subject-path: 'dist/*.tar.gz,dist/*.zip'
+          subject-path: 'dist/*.tar.gz,dist/*.zip,dist/*.jar'
 
   # Submit the rendered winget manifests to microsoft/winget-pkgs (opens a
   # PR from the token owner's winget-pkgs fork). Stable tags only, and a

@@ -78,6 +78,31 @@ CGO requires a C compiler. Optional compiler-backed analysis uses JVM
 helper tools in `tools/krit-types/` and `tools/krit-fir/`; install a
 JDK when you want KAA/FIR-backed checks.
 
+## JVM analysis helpers
+
+Released binaries are self-contained for source analysis: the default
+rule configuration (`config/default-krit.yml`) and the `krit init`
+profiles are embedded in the binary. Compiler-backed analysis needs
+Java on `PATH` and a helper jar:
+
+| Helper | Used for | How a released binary gets it |
+|---|---|---|
+| `krit-fir.jar` | Default type oracle (`balanced` / `thorough` depth), `--fir` | Downloaded on first use to `~/.krit/jars/krit-fir-<tag>.jar` |
+| `krit-types.jar` | `--oracle-backend=kaa`, `--daemon`, `--custom-rule-jars` | Downloaded on first use to `~/.krit/jars/krit-types-<tag>.jar` |
+
+Downloads come from the GitHub release matching the binary's version
+and are checked against the SHA-256 in that release's `checksums.txt`
+before they are installed (an integrity check; the checksum file's
+GPG signature is not verified by krit). Only tagged release builds
+download; `make build` and `go build` binaries use the in-tree jars. If the `krit-fir` jar can't be downloaded but a
+`krit-types` jar is installed, the oracle falls back to the KAA
+backend with a warning. `krit --doctor` reports which jars are found.
+
+For offline or air-gapped machines, set `KRIT_NO_JAR_DOWNLOAD=1` and
+either pre-seed `~/.krit/jars/` with the release assets or point
+`KRIT_FIR_JAR` / `KRIT_TYPES_JAR` at existing jars. Without Java the
+JVM-backed checks are skipped and source-level inference still runs.
+
 ## Shell completions
 
 ```bash

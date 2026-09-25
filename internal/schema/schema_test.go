@@ -756,3 +756,43 @@ func TestOnboardingProfilesValidate(t *testing.T) {
 		})
 	}
 }
+
+// The shipped defaults load under every user config, so they must pass
+// --validate-config on their own.
+func TestValidateConfig_ShippedDefaultsAreValid(t *testing.T) {
+	t.Chdir(t.TempDir())
+	cfg, err := config.LoadAndMergeDefaults("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range ValidateConfig(cfg) {
+		if e.Level == "error" {
+			t.Errorf("shipped default-krit.yml: %s", e)
+		}
+	}
+}
+
+func TestValidateConfig_AnalysisDepth(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		section interface{}
+		wantErr bool
+	}{
+		{"known preset", map[string]interface{}{"depth": "fast"}, false},
+		{"unknown preset", map[string]interface{}{"depth": "deep"}, true},
+		{"unknown key", map[string]interface{}{"speed": "fast"}, true},
+		{"not an object", "fast", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.NewConfig()
+			cfg.Data()["analysis"] = tc.section
+			gotErr := false
+			for _, e := range ValidateConfig(cfg) {
+				gotErr = gotErr || e.Level == "error"
+			}
+			if gotErr != tc.wantErr {
+				t.Errorf("error = %v, want %v: %v", gotErr, tc.wantErr, ValidateConfig(cfg))
+			}
+		})
+	}
+}

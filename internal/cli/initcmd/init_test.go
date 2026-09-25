@@ -229,3 +229,38 @@ func TestResolveKritBinEnv(t *testing.T) {
 		t.Errorf("resolveKritBin = %q, want %q", got, binPath)
 	}
 }
+
+// A released binary has no repo checkout to find, so init runs from the
+// embedded config written under the krit user dir.
+func TestResolveOnboardingRootFallsBackToEmbeddedConfig(t *testing.T) {
+	t.Setenv("KRIT_REPO_ROOT", "")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	if _, err := findOnboardingRepoRoot(); err == nil {
+		// The test binary lives outside the repo, so only the cwd walk
+		// could find it; the chdir above rules that out.
+		t.Skip("repo root still reachable from the test binary")
+	}
+
+	root, err := resolveOnboardingRoot()
+	if err != nil {
+		t.Fatalf("resolveOnboardingRoot: %v", err)
+	}
+	for _, name := range onboarding.ProfileNames {
+		if _, err := os.Stat(onboarding.ProfilePath(root, name)); err != nil {
+			t.Errorf("profile %s missing: %v", name, err)
+		}
+	}
+	if _, err := onboarding.LoadRegistry(filepath.Join(root, "config", "onboarding", "controversial-rules.json")); err != nil {
+		t.Errorf("registry: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "config", "default-krit.yml")); err != nil {
+		t.Errorf("default-krit.yml missing: %v", err)
+	}
+	// A second resolve reuses the same content-keyed directory.
+	again, err := resolveOnboardingRoot()
+	if err != nil || again != root {
+		t.Errorf("second resolve = %q, %v; want %q", again, err, root)
+	}
+}

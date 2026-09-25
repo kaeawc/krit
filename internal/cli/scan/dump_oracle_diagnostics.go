@@ -1,13 +1,13 @@
 package scan
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"sort"
 
-	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/oracle"
 )
 
@@ -41,19 +41,10 @@ func RunDumpOracleDiagnosticsTo(out, errOut io.Writer, opts RunDumpOracleDiagnos
 		fmt.Fprintf(errOut, "error: %v\n", err)
 		return 2
 	}
-	var jarPath string
-	if backend == oracle.BackendFIR {
-		jarPath = firchecks.FindFirJar(opts.Paths)
-		if jarPath == "" {
-			fmt.Fprintln(errOut, "error: krit-fir.jar not found. Build with `cd tools/krit-fir && ./gradlew shadowJar`")
-			return 2
-		}
-	} else {
-		jarPath = oracle.FindJar(opts.Paths)
-		if jarPath == "" {
-			fmt.Fprintln(errOut, "error: krit-types.jar not found. Build with `cd tools/krit-types && ./gradlew shadowJar`")
-			return 2
-		}
+	jarPath, err := oracle.EnsureBackendJar(context.Background(), backend, opts.Paths, opts.Verbose)
+	if err != nil {
+		fmt.Fprintf(errOut, "error: %v\n", err)
+		return 2
 	}
 	sourceDirs := oracle.FindSourceDirs(opts.Paths)
 	if len(sourceDirs) == 0 {

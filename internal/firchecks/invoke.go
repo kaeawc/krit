@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/kaeawc/krit/internal/oracle"
 )
 
 // CollectFirKtFiles walks the given scan paths and returns all .kt files,
@@ -58,45 +60,11 @@ func CollectFirKtFiles(scanPaths []string) ([]string, error) {
 	return out, nil
 }
 
-// FindFirJar locates krit-fir.jar by checking standard locations relative
-// to the krit binary and the project being scanned.
+// FindFirJar locates krit-fir.jar without downloading; see
+// oracle.FindBackendJar for the lookup order (KRIT_FIR_JAR, ~/.krit/jars,
+// next to the binary, the project, and the in-tree build output).
 func FindFirJar(scanPaths []string) string {
-	var candidates []string
-
-	exe, err := os.Executable()
-	if err == nil {
-		exeDir := filepath.Dir(exe)
-		candidates = append(candidates,
-			filepath.Join(exeDir, "krit-fir.jar"),
-			filepath.Join(exeDir, "tools", "krit-fir", "build", "libs", "krit-fir.jar"),
-			filepath.Join(exeDir, "..", "tools", "krit-fir", "build", "libs", "krit-fir.jar"),
-		)
-	}
-
-	if len(scanPaths) > 0 {
-		projectDir := scanPaths[0]
-		fi, err := os.Stat(projectDir)
-		if err == nil && !fi.IsDir() {
-			projectDir = filepath.Dir(projectDir)
-		}
-		candidates = append(candidates,
-			filepath.Join(projectDir, ".krit", "krit-fir.jar"),
-			filepath.Join(projectDir, "tools", "krit-fir", "build", "libs", "krit-fir.jar"),
-		)
-	}
-
-	cwd, _ := os.Getwd()
-	candidates = append(candidates,
-		filepath.Join(cwd, "tools", "krit-fir", "build", "libs", "krit-fir.jar"),
-		filepath.Join(cwd, "krit-fir.jar"),
-	)
-
-	for _, p := range candidates {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return ""
+	return oracle.FindBackendJar(oracle.BackendFIR, scanPaths)
 }
 
 // InvokeOneShot starts a fresh krit-fir daemon, sends a single check request

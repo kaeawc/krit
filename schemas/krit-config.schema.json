@@ -194,6 +194,22 @@
         }
       }
     },
+    "analysis": {
+      "description": "Analysis depth settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "depth": {
+          "description": "Analysis depth preset: fast skips the JVM type oracle, balanced (default) adds it, thorough enables every compiler-backed precision feature. --depth wins.",
+          "type": "string",
+          "enum": [
+            "fast",
+            "balanced",
+            "thorough"
+          ]
+        }
+      }
+    },
     "android-lint": {
       "description": "Configuration for the android-lint ruleset.",
       "type": "object",
@@ -11015,7 +11031,7 @@
           }
         },
         "Deprecation": {
-          "description": "Detects usage of deprecated functions, classes, or properties. [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
+          "description": "Detects usage of deprecated functions, classes, or properties. [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, oracle:diagnostics, oracle:expr-annotations, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11236,7 +11252,7 @@
           }
         },
         "IgnoredReturnValue": {
-          "description": "Detects discarded return values from functional operations or @CheckReturnValue-annotated functions. [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
+          "description": "Detects discarded return values from functional operations or @CheckReturnValue-annotated functions. [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, oracle:expr-annotations, oracle:expr-type, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11708,7 +11724,7 @@
           }
         },
         "UnnecessaryNotNullCheck": {
-          "description": "Detects unnecessary null checks on expressions that are already non-nullable. [fixable: idiomatic] [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
+          "description": "Detects unnecessary null checks on expressions that are already non-nullable. [fixable: idiomatic] [precision: type-aware] [noisiness: normal] [capabilities: oracle:diagnostics, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11727,7 +11743,7 @@
           }
         },
         "UnnecessaryNotNullOperator": {
-          "description": "Detects the !! operator applied to expressions that are already non-nullable. [fixable: idiomatic] [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
+          "description": "Detects the !! operator applied to expressions that are already non-nullable. [fixable: idiomatic] [precision: type-aware] [noisiness: normal] [capabilities: oracle:diagnostics, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11746,7 +11762,7 @@
           }
         },
         "UnnecessarySafeCall": {
-          "description": "Detects the ?. safe-call operator applied to expressions that are already non-nullable. [fixable: idiomatic] [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
+          "description": "Detects the ?. safe-call operator applied to expressions that are already non-nullable. [fixable: idiomatic] [precision: type-aware] [noisiness: normal] [capabilities: oracle:diagnostics, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11865,7 +11881,7 @@
           }
         },
         "UselessElvisOnNonNull": {
-          "description": "Detects the ?: elvis operator applied to expressions that are already non-nullable, making the fallback dead code. [fixable: semantic] [precision: type-aware] [noisiness: normal] [capabilities: oracle:expr-type, resolver]",
+          "description": "Detects the ?: elvis operator applied to expressions that are already non-nullable, making the fallback dead code. [fixable: semantic] [precision: type-aware] [noisiness: normal] [capabilities: oracle:diagnostics, oracle:expr-type, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

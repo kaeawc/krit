@@ -8,11 +8,15 @@ import (
 	"os"
 
 	"github.com/kaeawc/krit/internal/mcp"
+	"github.com/kaeawc/krit/internal/oracle"
 )
 
 var version = "dev"
 
 func main() {
+	// Picks the oracle jar release asset matching this binary; see
+	// oracle.EnsureBackendJar.
+	oracle.Version = version
 	versionFlag := flag.Bool("version", false, "Print version")
 	verboseFlag := flag.Bool("verbose", false, "Enable lifecycle logging to stderr")
 	flag.BoolVar(verboseFlag, "v", false, "Alias for --verbose")

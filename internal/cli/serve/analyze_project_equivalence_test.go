@@ -46,7 +46,12 @@ func TestAnalyzeProject_OutputMatchesDirectRunProject(t *testing.T) {
 		"package demo\n\nfun bar(unused: Int): Int { return 42 }\n")
 
 	// --- Direct path -----------------------------------------------
-	cfg := config.NewConfig()
+	// The CLI and the daemon both layer the shipped defaults under any
+	// user config; mirror that so the comparison isolates the entry point.
+	cfg, err := config.LoadAndMergeDefaults("", state.root)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
 	rules.ApplyConfig(cfg)
 	activeRules := rules.ActiveRulesV2(map[string]bool{}, map[string]bool{}, false, false, false)
 	repoDir := oracle.FindRepoDir([]string{state.root})

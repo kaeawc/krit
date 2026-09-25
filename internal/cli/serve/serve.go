@@ -25,7 +25,6 @@ import (
 	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
-	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/pipeline"
@@ -491,7 +490,10 @@ func (e *oracleDaemonEntry) close() error {
 func oracleJarForBackend(scanPaths []string, backend oracle.Backend) string {
 	switch backend {
 	case oracle.BackendFIR:
-		return firchecks.FindFirJar(scanPaths)
+		// FIR is the default backend, so tagged releases download a
+		// missing krit-fir jar rather than silently running without it.
+		jarPath, _ := oracle.EnsureBackendJar(context.Background(), oracle.BackendFIR, scanPaths, false)
+		return jarPath
 	default:
 		return oracle.FindJar(scanPaths)
 	}
@@ -500,7 +502,7 @@ func oracleJarForBackend(scanPaths []string, backend oracle.Backend) string {
 // ensureOracleDaemon lazy-starts (or reuses) the JVM daemon backing
 // the requested backend for the given scan paths. BackendKAA spawns
 // krit-types via oracle.FindJar; BackendFIR spawns krit-fir via
-// firchecks.FindFirJar. Returns (nil, nil) when the matching JAR
+// oracle.EnsureBackendJar. Returns (nil, nil) when the matching JAR
 // cannot be located — callers treat that as "oracle disabled" and
 // the verb proceeds without type resolution.
 //

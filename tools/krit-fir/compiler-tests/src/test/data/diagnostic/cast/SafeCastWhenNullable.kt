@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// Negative: safe `as?` cast — should NOT trigger UNSAFE_CAST_WHEN_NULLABLE
+// Negative: safe `as?` cast — should NOT trigger UnsafeCastWhenNullable
 package test
 
 fun example(x: Any) {

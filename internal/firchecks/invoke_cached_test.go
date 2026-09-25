@@ -4,16 +4,17 @@ import (
 	"os"
 	"testing"
 
+	_ "github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func TestFakeFirChecker_RecordsCall(t *testing.T) {
 	fake := NewFakeFirChecker()
 	fake.Findings = []scanner.Finding{
-		{File: "/src/A.kt", Line: 5, Col: 1, Rule: "FLOW_COLLECT_IN_ON_CREATE", Severity: "warning", Message: "use repeatOnLifecycle"},
+		{File: "/src/A.kt", Line: 5, Col: 1, Rule: "CollectInOnCreateWithoutLifecycle", Severity: "warning", Message: "use repeatOnLifecycle"},
 	}
 
-	res, err := fake.Check([]string{"/src/A.kt"}, nil, nil, nil)
+	res, err := fake.Check([]string{"/src/A.kt"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -53,7 +54,7 @@ func TestMergeFindings_GoWinsOnCollision(t *testing.T) {
 }
 
 func TestInvokeCached_EmptyFilesReturnsEmpty(t *testing.T) {
-	res, err := InvokeCached("krit-fir.jar", nil, nil, nil, nil, t.TempDir(), false, false)
+	res, err := InvokeCached("krit-fir.jar", nil, nil, nil, nil, nil, t.TempDir(), false, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -78,11 +79,12 @@ func TestInvokeCached_AllCacheHits(t *testing.T) {
 
 	cacheDir, _ := CacheDir(tmp)
 	entry := &FirCacheEntry{
-		V:           FirCacheVersion,
-		ContentHash: hash,
-		FilePath:    ktFile,
+		V:                  FirCacheVersion,
+		ContentHash:        hash,
+		FilePath:           ktFile,
+		ClosureFingerprint: FirInvocationFingerprint(nil, "", nil, nil),
 		Findings: []FirFinding{
-			{Path: ktFile, Line: 1, Col: 14, Rule: "FLOW_COLLECT_IN_ON_CREATE", Severity: "warning", Message: "use repeatOnLifecycle", Confidence: 1.0},
+			{Path: ktFile, Line: 1, Col: 14, Rule: "CollectInOnCreateWithoutLifecycle", Severity: "warning", Message: "use repeatOnLifecycle", Confidence: 1.0},
 		},
 	}
 	if err := WriteCacheEntry(cacheDir, entry); err != nil {
@@ -90,7 +92,7 @@ func TestInvokeCached_AllCacheHits(t *testing.T) {
 	}
 
 	// InvokeCached should serve from cache — no jar path needed.
-	res, err := InvokeCached("", []string{ktFile}, nil, nil, nil, tmp, false, false)
+	res, err := InvokeCached("", []string{ktFile}, nil, nil, nil, nil, tmp, false, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -114,7 +116,7 @@ func TestToScannerFinding_SetsRuleSetFirForUnknownDiagnostic(t *testing.T) {
 }
 
 func TestToScannerFinding_MapsKnownDiagnosticToCatalogRule(t *testing.T) {
-	fir := FirFinding{Path: "/src/A.kt", Line: 5, Col: 2, StartByte: 12, EndByte: 23, Rule: "INJECT_DISPATCHER", Severity: "warning", Message: "msg", Confidence: 0.9}
+	fir := FirFinding{Path: "/src/A.kt", Line: 5, Col: 2, StartByte: 12, EndByte: 23, Rule: "InjectDispatcher", Severity: "warning", Message: "msg", Confidence: 0.9}
 	f := ToScannerFinding(fir)
 	if f.Rule != "InjectDispatcher" {
 		t.Errorf("expected mapped Rule=InjectDispatcher, got %q", f.Rule)
@@ -157,13 +159,44 @@ func TestMergeFindings_PilotLineDedupeWhenExistingHasNoByteRange(t *testing.T) {
 	}
 }
 
+// Line-level dedupe applies to any FIR rule whose ID is a registered Go rule
+// (it has a tree-sitter twin), with no per-rule table to keep in sync.
+func TestMergeFindings_LineDedupeIsGenericForRegisteredRules(t *testing.T) {
+	const twin = "MagicNumber"
+	if catalogRule(twin) == nil {
+		t.Fatalf("test precondition: %s must be a registered Go rule", twin)
+	}
+	goFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 5, Rule: twin, Message: "go message"}
+	firFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 12, Rule: twin, Message: "fir message"}
+	merged := MergeFindings([]scanner.Finding{goFinding}, []scanner.Finding{firFinding})
+	if len(merged) != 1 || merged[0].Message != "go message" {
+		t.Fatalf("expected the registered rule's same-line FIR finding to collapse into the Go one, got %+v", merged)
+	}
+}
+
+func TestMergeFindings_UnregisteredFirRuleGetsOnlyExactDedupe(t *testing.T) {
+	const firOnly = "FirOnlyRuleWithoutGoTwin"
+	if catalogRule(firOnly) != nil {
+		t.Fatalf("test precondition: %s must not be a registered Go rule", firOnly)
+	}
+	existing := []scanner.Finding{{File: "/src/A.kt", Line: 10, Col: 5, Rule: firOnly}}
+	fir := []scanner.Finding{
+		{File: "/src/A.kt", Line: 10, Col: 12, Rule: firOnly}, // same line, different col: kept
+		{File: "/src/A.kt", Line: 10, Col: 5, Rule: firOnly},  // exact duplicate: dropped
+	}
+	merged := MergeFindings(existing, fir)
+	if len(merged) != 2 {
+		t.Fatalf("expected only the exact duplicate to be dropped, got %+v", merged)
+	}
+}
+
 func TestToScannerFindingWithRange_DerivesByteRange(t *testing.T) {
 	tmp := t.TempDir()
 	ktFile := tmp + "/A.kt"
 	if err := os.WriteFile(ktFile, []byte("fun main() {\n    Dispatchers.IO\n}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	fir := FirFinding{Path: ktFile, Line: 2, Col: 5, Rule: "INJECT_DISPATCHER", Severity: "warning", Message: "msg"}
+	fir := FirFinding{Path: ktFile, Line: 2, Col: 5, Rule: "InjectDispatcher", Severity: "warning", Message: "msg"}
 	f := toScannerFindingWithRange(fir, map[string][]byte{})
 	if f.StartByte != 17 || f.EndByte != 31 {
 		t.Fatalf("expected Dispatchers.IO byte range 17..31, got %d..%d", f.StartByte, f.EndByte)

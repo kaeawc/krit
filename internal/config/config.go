@@ -480,6 +480,27 @@ func (c *Config) getRuleConfig(ruleSet, rule string) map[string]interface{} {
 	return m
 }
 
+// ruleReservedKeys are per-rule keys krit itself interprets; everything else
+// in a rule's block is a rule option.
+var ruleReservedKeys = map[string]struct{}{"active": {}, "excludes": {}}
+
+// RuleOptions returns a copy of a rule's configured options: its config
+// block minus the keys krit itself interprets (active, excludes). Returns nil
+// when the rule has no options.
+func (c *Config) RuleOptions(ruleSet, rule string) map[string]interface{} {
+	var out map[string]interface{}
+	for k, v := range c.getRuleConfig(ruleSet, rule) {
+		if _, reserved := ruleReservedKeys[k]; reserved {
+			continue
+		}
+		if out == nil {
+			out = map[string]interface{}{}
+		}
+		out[k] = v
+	}
+	return out
+}
+
 // GetTopLevelString returns a string value from a top-level config section.
 // For example, GetTopLevelString("android", "enabled", "auto") reads android.enabled.
 func (c *Config) GetTopLevelString(section, key, defaultVal string) string {

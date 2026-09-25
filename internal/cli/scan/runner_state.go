@@ -636,6 +636,7 @@ func (r *runner) firCheckAndCollect() {
 			Checker:     checker,
 			Verbose:     *r.f.Verbose,
 			ActiveRules: r.activeRules,
+			Config:      r.cfg,
 			ParsedFiles: r.parsedFiles,
 			Tracker:     r.tracker,
 			VerboseOut:  os.Stderr,

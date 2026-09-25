@@ -1,8 +1,9 @@
-package dev.jasonpearson.krit.fir.checkers
+package dev.jasonpearson.krit.fir.checkers.compose
 
-import dev.jasonpearson.krit.fir.KritDiagnostics
+import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.report
+import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
-import org.jetbrains.kotlin.diagnostics.reportOn
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -26,7 +27,11 @@ import org.jetbrains.kotlin.name.FqName
 // `remember { Paint() }`) is the correct, idiomatic form and must not be
 // flagged. This mirrors the Go ComposeRememberWithoutKey rule, which fires
 // only when the calculation references an enclosing function parameter.
-internal object ComposeRememberWithoutKey : FirFunctionCallChecker(MppCheckerKind.Common) {
+internal object ComposeRememberWithoutKey : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
+    override val ruleId = "ComposeRememberWithoutKey"
+    override val expressionCheckers = object : ExpressionCheckers() {
+        override val functionCallCheckers = setOf(ComposeRememberWithoutKey)
+    }
     private val rememberFqName = FqName("androidx.compose.runtime.remember")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
@@ -49,7 +54,7 @@ internal object ComposeRememberWithoutKey : FirFunctionCallChecker(MppCheckerKin
         // capture would.
         if (!capturesEnclosingParam(unwrapArgument(argument), enclosingParams)) return
 
-        reporter.reportOn(source, KritDiagnostics.COMPOSE_REMEMBER_WITHOUT_KEY, callee.name.asString())
+        report(source, "remember { ${callee.name.asString()} } is missing an explicit key argument.")
     }
 
     private fun unwrapArgument(argument: FirExpression): FirExpression =

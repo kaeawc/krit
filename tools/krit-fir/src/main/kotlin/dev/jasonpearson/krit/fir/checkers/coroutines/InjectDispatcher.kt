@@ -1,8 +1,9 @@
-package dev.jasonpearson.krit.fir.checkers
+package dev.jasonpearson.krit.fir.checkers.coroutines
 
-import dev.jasonpearson.krit.fir.KritDiagnostics
+import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.report
+import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
-import org.jetbrains.kotlin.diagnostics.reportOn
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
@@ -15,7 +16,11 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.name.FqName
 
-internal object InjectDispatcher : FirFunctionCallChecker(MppCheckerKind.Common) {
+internal object InjectDispatcher : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
+    override val ruleId = "InjectDispatcher"
+    override val expressionCheckers = object : ExpressionCheckers() {
+        override val functionCallCheckers = setOf(InjectDispatcher)
+    }
     private val dispatcherProperties = mapOf(
         FqName("kotlinx.coroutines.Dispatchers.IO") to "IO",
         FqName("kotlinx.coroutines.Dispatchers.Default") to "Default",
@@ -31,7 +36,7 @@ internal object InjectDispatcher : FirFunctionCallChecker(MppCheckerKind.Common)
         for (argument in expression.argumentList.arguments) {
             val dispatcher = hardcodedDispatcherArgument(argument) ?: continue
             if (dispatcher.name == "Main") continue
-            reporter.reportOn(dispatcher.source, KritDiagnostics.INJECT_DISPATCHER, dispatcher.name)
+            report(dispatcher.source, "Hardcoded Dispatchers.${dispatcher.name}. Inject dispatchers for better testability.")
         }
     }
 

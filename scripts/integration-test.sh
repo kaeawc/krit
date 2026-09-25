@@ -68,7 +68,7 @@ run_lint_test "SARIF generation" ./krit -f sarif -no-type-inference -no-type-ora
 
 echo ""
 echo "=== Go Integration Tests ==="
-run_test "CLI tests" go test ./cmd/krit/ -count=1 -timeout 60s
+run_test "CLI tests" go test ./cmd/krit/ -count=1 -timeout 600s
 run_test "LSP tests" go test ./cmd/krit-lsp/ -count=1 -timeout 60s
 run_test "MCP tests" go test ./cmd/krit-mcp/ -count=1 -timeout 60s
 

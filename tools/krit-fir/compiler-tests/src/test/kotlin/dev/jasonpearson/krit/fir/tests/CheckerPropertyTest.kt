@@ -183,13 +183,13 @@ class CheckerPropertyTest {
         }
     }
 
-    @Test fun composeExpectation() = checkGrid("COMPOSE_REMEMBER_WITHOUT_KEY", composeGrid())
+    @Test fun composeExpectation() = checkGrid("ComposeRememberWithoutKey", composeGrid())
 
-    @Test fun flowExpectation() = checkGrid("FLOW_COLLECT_IN_ON_CREATE", flowGrid())
+    @Test fun flowExpectation() = checkGrid("CollectInOnCreateWithoutLifecycle", flowGrid())
 
-    @Test fun injectExpectation() = checkGrid("INJECT_DISPATCHER", injectGrid())
+    @Test fun injectExpectation() = checkGrid("InjectDispatcher", injectGrid())
 
-    @Test fun castExpectation() = checkGrid("UNSAFE_CAST_WHEN_NULLABLE", castGrid())
+    @Test fun castExpectation() = checkGrid("UnsafeCastWhenNullable", castGrid())
 
     // Metamorphic: a verdict-flipping edit must flip the verdict. Each pair is a
     // flagged source and the same code with the one change that should clear it.
@@ -198,22 +198,22 @@ class CheckerPropertyTest {
         data class Pair3(val name: String, val diag: String, val flagged: String, val cleared: String)
         val pairs = listOf(
             Pair3(
-                "compose_addKey", "COMPOSE_REMEMBER_WITHOUT_KEY",
+                "compose_addKey", "ComposeRememberWithoutKey",
                 "package mm1\nimport androidx.compose.runtime.remember\nfun S(seed: Int) { val v = remember { seed + 1 }; use(v) }\nfun use(x: Any?) {}",
                 "package mm1\nimport androidx.compose.runtime.remember\nfun S(seed: Int) { val v = remember(seed) { seed + 1 }; use(v) }\nfun use(x: Any?) {}",
             ),
             Pair3(
-                "flow_wrapRepeatOnLifecycle", "FLOW_COLLECT_IN_ON_CREATE",
+                "flow_wrapRepeatOnLifecycle", "CollectInOnCreateWithoutLifecycle",
                 "package mm2\nimport kotlinx.coroutines.flow.Flow\nimport kotlinx.coroutines.flow.collect\nclass F { val flow: Flow<Int> = TODO(); fun onCreate() { flow.collect { } } }",
                 "package mm2\nimport androidx.lifecycle.repeatOnLifecycle\nimport kotlinx.coroutines.flow.Flow\nimport kotlinx.coroutines.flow.collect\nclass F { val flow: Flow<Int> = TODO(); fun onCreate() { repeatOnLifecycle { flow.collect { } } } }",
             ),
             Pair3(
-                "inject_toParameter", "INJECT_DISPATCHER",
+                "inject_toParameter", "InjectDispatcher",
                 "package mm3\nimport kotlinx.coroutines.Dispatchers\nimport kotlinx.coroutines.withContext\nclass C { suspend fun m() { withContext(Dispatchers.IO) { } } }",
                 "package mm3\nimport kotlinx.coroutines.CoroutineDispatcher\nimport kotlinx.coroutines.withContext\nclass C { suspend fun m(d: CoroutineDispatcher) { withContext(d) { } } }",
             ),
             Pair3(
-                "cast_toSafeCast", "UNSAFE_CAST_WHEN_NULLABLE",
+                "cast_toSafeCast", "UnsafeCastWhenNullable",
                 "package mm4\nfun any(): Any? = null\nfun f() { val a: Any? = any(); val y = a as String?; use(y) }\nfun use(x: Any?) {}",
                 "package mm4\nfun any(): Any? = null\nfun f() { val a: Any? = any(); val y = a as? String; use(y) }\nfun use(x: Any?) {}",
             ),

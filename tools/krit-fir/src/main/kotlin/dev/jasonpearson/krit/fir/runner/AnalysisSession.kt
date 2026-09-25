@@ -1,5 +1,8 @@
 package dev.jasonpearson.krit.fir.runner
 
+import dev.jasonpearson.krit.fir.FirRuleCompileContext
+import dev.jasonpearson.krit.fir.FirRuleContext
+import dev.jasonpearson.krit.fir.FirRuleDiscovery
 import dev.jasonpearson.krit.fir.oracle.AnalyzeResult
 import dev.jasonpearson.krit.fir.oracle.OracleCollector
 import dev.jasonpearson.krit.fir.oracle.OracleCollectorRegistry
@@ -31,6 +34,7 @@ data class BatchResult(
     val skipped: Int,
     val findings: List<Finding>,
     val crashed: Map<String, String>,
+    val rules: List<String> = emptyList(),
 )
 
 // Holds the current session config. When sourceDirs or classpath change the Go side sends a
@@ -70,18 +74,18 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         return byCanonical.values.toList()
     }
 
-    fun check(id: Long, files: List<FileRef>, enabledRules: Set<String>): BatchResult {
+    fun check(
+        id: Long, files: List<FileRef>, enabledRules: Set<String>,
+        ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),
+    ): BatchResult {
         val requestedPaths = files.associateBy { File(it.path).canonicalPath }
             .mapValues { it.value.path }
 
-        // The protocol uses checker class names (e.g. "FlowCollectInOnCreate"), but FindingCollector
-        // matches against the diagnostic names in [RULE_NAME] format (e.g. "FLOW_COLLECT_IN_ON_CREATE").
-        val enabledDiagnostics = if (enabledRules.isEmpty()) emptySet()
-            else enabledRules.map { checkerToDiagnostic[it] ?: it }.toSet()
-
-        val collector = FindingCollector(requestedPaths, enabledDiagnostics)
+        val collector = FindingCollector(requestedPaths, enabledRules)
+        val enabled = FirRuleDiscovery.enabled(FirRuleCompileContext(enabledRules))
         val outDir = Files.createTempDirectory("krit-fir-out-").toFile()
 
+        FirRuleContext.begin(FirRuleCompileContext(enabledRules, ruleConfigs))
         try {
             val args = K2JVMCompilerArguments().apply {
                 freeArgs = compilationFiles(files.map { it.path })
@@ -97,6 +101,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
             K2JVMCompiler().exec(collector, Services.EMPTY, args)
         } finally {
             outDir.deleteRecursively()
+            FirRuleContext.end()
         }
 
         val crashed = collector.crashes.toMap()
@@ -106,6 +111,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
             skipped = 0,
             findings = collector.findings.toList(),
             crashed = crashed,
+            rules = enabled.map { it.ruleId },
         )
     }
 
@@ -132,8 +138,9 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
      */
     fun analyzeFull(files: List<String>): AnalyzeOutcome {
         val collector = OracleCollector()
-        OracleCollectorRegistry.begin(collector)
         val outDir = Files.createTempDirectory("krit-fir-oracle-out-").toFile()
+        OracleCollectorRegistry.begin(collector)
+        FirRuleContext.begin(FirRuleCompileContext(noneEnabled = true))
         try {
             val args = K2JVMCompilerArguments().apply {
                 freeArgs = compilationFiles(files)
@@ -163,6 +170,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         } finally {
             outDir.deleteRecursively()
             OracleCollectorRegistry.end()
+            FirRuleContext.end()
         }
         val tracker = collector.depTracker
         return AnalyzeOutcome(
@@ -178,15 +186,6 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
     fun dispose() {} // No long-lived JVM resources.
 
     companion object {
-        // Maps the protocol's checker class name to the [DIAGNOSTIC_NAME] emitted by the renderer.
-        internal val checkerToDiagnostic = mapOf(
-            "FlowCollectInOnCreate" to "FLOW_COLLECT_IN_ON_CREATE",
-            "ComposeRememberWithoutKey" to "COMPOSE_REMEMBER_WITHOUT_KEY",
-            "InjectDispatcher" to "INJECT_DISPATCHER",
-            "UnsafeCastWhenNullable" to "UNSAFE_CAST_WHEN_NULLABLE",
-            "SmokeChecker" to "SMOKE_CLASS",
-        )
-
         private fun resolveSelfJar(): String? {
             // Test harnesses override the plugin classpath via this
             // system property — the plain `:jar` task output is enough

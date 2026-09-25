@@ -1,9 +1,5 @@
 package dev.jasonpearson.krit.fir
 
-import dev.jasonpearson.krit.fir.checkers.ComposeRememberWithoutKey
-import dev.jasonpearson.krit.fir.checkers.FlowCollectInOnCreate
-import dev.jasonpearson.krit.fir.checkers.InjectDispatcher
-import dev.jasonpearson.krit.fir.checkers.UnsafeCastWhenNullable
 import dev.jasonpearson.krit.fir.oracle.OracleClassChecker
 import dev.jasonpearson.krit.fir.oracle.OracleExpressionChecker
 import dev.jasonpearson.krit.fir.oracle.OracleFileChecker
@@ -17,56 +13,23 @@ import org.jetbrains.kotlin.fir.analysis.checkers.extra.UnreachableCodeChecker
 import org.jetbrains.kotlin.fir.analysis.extensions.FirAdditionalCheckersExtension
 
 class KritFirCheckers(session: FirSession) : FirAdditionalCheckersExtension(session) {
-    // The oracle expression checker is included unconditionally and gates
-    // itself on `OracleCollectorRegistry.current() != null`, so non-oracle
-    // paths (diagnostic `check` command) pay only a thread-local lookup
-    // per call expression.
-    override val expressionCheckers = object : ExpressionCheckers() {
-        override val functionCallCheckers = setOf(
-            FlowCollectInOnCreate,
-            ComposeRememberWithoutKey,
-            InjectDispatcher,
-            OracleExpressionChecker,
-        )
-        override val typeOperatorCallCheckers = setOf(
-            UnsafeCastWhenNullable,
-        )
-        // OracleQualifiedAccessChecker fills in the expression-type
-        // gap that OracleExpressionChecker leaves: property reads,
-        // variable references, receiver expressions in non-call
-        // chains. The checker bypasses FirFunctionCall (which is also
-        // a FirQualifiedAccessExpression) so call-site entries from
-        // OracleExpressionChecker remain authoritative on collisions.
-        override val qualifiedAccessExpressionCheckers = setOf(
-            OracleQualifiedAccessChecker,
-        )
-        // OracleSmartCastChecker records the data-flow-refined (smart-cast)
-        // type of a stable reference, overriding the declared type that
-        // OracleQualifiedAccessChecker would otherwise record for the same
-        // position (pre-order traversal + first-wins dedup). Lets Go-side
-        // nullability rules see `Any` instead of `Any?` after `if (x==null)
-        // return`, eliminating equals()/guarded-cast false positives.
-        override val smartCastExpressionCheckers = setOf(
-            OracleSmartCastChecker,
-        )
-    }
-
-    // Same self-gating story for OracleClassChecker on the declaration
-    // side: non-oracle paths pay only the thread-local probe per
-    // declaration. Per-lambda suspend status is captured at the call
-    // site inside `OracleExpressionChecker` — see its
-    // `recordLambdaSuspendArguments` for the rationale.
-    //
-    // `UnreachableCodeChecker` lives in K2's `extra` package and isn't
-    // wired into the default checker pipeline; registering it here
-    // lets the oracle's `OracleDiagnosticMessageCollector` surface the
-    // UNREACHABLE_CODE factory alongside USELESS_ELVIS and
-    // CAST_NEVER_SUCCEEDS. The class is a static object on K2's side,
-    // so adding it costs nothing extra at JVM init.
-    override val declarationCheckers = object : DeclarationCheckers() {
-        override val classCheckers = setOf(SmokeChecker, OracleClassChecker)
-        // Gives every compiled file an entry in the oracle result.
-        override val fileCheckers = setOf(OracleFileChecker)
-        override val controlFlowAnalyserCheckers = setOf(UnreachableCodeChecker)
-    }
+    // Oracle and smoke registration stays unconditional. Oracle checkers self-gate
+    // on OracleCollectorRegistry; built-in rules are selected before K2 dispatch.
+    private val merged = mergeFirRules(
+        FirRuleDiscovery.enabled(),
+        baseExpressions = listOf(object : ExpressionCheckers() {
+            override val functionCallCheckers = setOf(OracleExpressionChecker)
+            override val qualifiedAccessExpressionCheckers = setOf(OracleQualifiedAccessChecker)
+            override val smartCastExpressionCheckers = setOf(OracleSmartCastChecker)
+        }),
+        baseDeclarations = listOf(object : DeclarationCheckers() {
+            override val classCheckers = setOf(SmokeChecker, OracleClassChecker)
+            // Gives every compiled file an entry in the oracle result.
+            override val fileCheckers = setOf(OracleFileChecker)
+            override val controlFlowAnalyserCheckers = setOf(UnreachableCodeChecker)
+        }),
+    )
+    override val expressionCheckers = merged.expression
+    override val declarationCheckers = merged.declaration
+    override val typeCheckers = merged.type
 }

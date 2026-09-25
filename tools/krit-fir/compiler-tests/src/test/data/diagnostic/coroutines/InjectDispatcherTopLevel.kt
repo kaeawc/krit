@@ -1,7 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // Negative: hardcoded dispatchers inside a top-level function and an extension
 // function have no class/constructor to inject into, so they must NOT trigger
-// INJECT_DISPATCHER.
+// InjectDispatcher.
 package test
 
 import kotlinx.coroutines.Dispatchers

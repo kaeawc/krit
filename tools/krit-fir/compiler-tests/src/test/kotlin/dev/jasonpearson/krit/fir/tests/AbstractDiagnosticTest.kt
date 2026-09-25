@@ -54,7 +54,7 @@ abstract class AbstractDiagnosticTest {
     // Returns (cleanSource, expectedDiagnostics).
     // Strips <!DIAG_NAME!>token<!> markers and records expected (line, name) pairs.
     private fun parseMarkers(source: String): Pair<String, List<ExpectedDiagnostic>> {
-        val markerRe = Regex("""<!([A-Z_]+)!>(.*?)<!>""", RegexOption.DOT_MATCHES_ALL)
+        val markerRe = Regex("""<!([A-Za-z][A-Za-z0-9_]*)!>(.*?)<!>""", RegexOption.DOT_MATCHES_ALL)
         val expected = mutableListOf<ExpectedDiagnostic>()
         val cleaned = source.lines().mapIndexed { idx, line ->
             var result = line

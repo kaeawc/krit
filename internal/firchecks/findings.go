@@ -1,22 +1,11 @@
 package firchecks
 
-import "github.com/kaeawc/krit/internal/scanner"
+import (
+	"sync"
 
-var firDiagnosticRuleNames = map[string]string{
-	"FLOW_COLLECT_IN_ON_CREATE":    "CollectInOnCreateWithoutLifecycle",
-	"COMPOSE_REMEMBER_WITHOUT_KEY": "ComposeRememberWithoutKey",
-	"INJECT_DISPATCHER":            "InjectDispatcher",
-	"UNSAFE_CAST_WHEN_NULLABLE":    "UnsafeCastWhenNullable",
-	"SMOKE_CLASS":                  "SmokeChecker",
-}
-
-var firDiagnosticRuleSets = map[string]string{
-	"FLOW_COLLECT_IN_ON_CREATE":    "coroutines",
-	"COMPOSE_REMEMBER_WITHOUT_KEY": "compose",
-	"INJECT_DISPATCHER":            "coroutines",
-	"UNSAFE_CAST_WHEN_NULLABLE":    "potentialbugs",
-	"SMOKE_CLASS":                  "fir",
-}
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
+)
 
 // FirFinding is the per-finding JSON shape emitted by krit-fir.
 type FirFinding struct {
@@ -38,24 +27,36 @@ type CheckResponse struct {
 	Skipped   int               `json:"skipped"`
 	Findings  []FirFinding      `json:"findings"`
 	Crashed   map[string]string `json:"crashed"`
+	Rules     []string          `json:"rules"`
 }
 
-// ToScannerFinding converts a FirFinding to a scanner.Finding.
-// Known FIR diagnostics are normalized back to Krit catalog rule IDs so
-// --fir findings deduplicate with the Go implementations while Track B runs
-// both versions side by side.
+var catalogOnce sync.Once
+var catalogByID map[string]*api.Rule
+
+func catalogRule(id string) *api.Rule {
+	catalogOnce.Do(func() {
+		catalogByID = make(map[string]*api.Rule, len(api.Registry))
+		for _, rule := range api.Registry {
+			if rule != nil {
+				catalogByID[rule.ID] = rule
+			}
+		}
+	})
+	return catalogByID[id]
+}
+
+// ToScannerFinding preserves the identity rule ID and resolves catalog metadata.
 func ToScannerFinding(f FirFinding) scanner.Finding {
 	sev := f.Severity
 	if sev == "" {
 		sev = "warning"
 	}
-	rule := f.Rule
-	if mapped := firDiagnosticRuleNames[f.Rule]; mapped != "" {
-		rule = mapped
-	}
-	ruleSet := firDiagnosticRuleSets[f.Rule]
-	if ruleSet == "" {
-		ruleSet = "fir"
+	ruleSet := "fir"
+	if rule := catalogRule(f.Rule); rule != nil {
+		ruleSet = rule.Category
+		if rule.Sev != "" {
+			sev = string(rule.Sev)
+		}
 	}
 	return scanner.Finding{
 		File:       f.Path,
@@ -64,7 +65,7 @@ func ToScannerFinding(f FirFinding) scanner.Finding {
 		StartByte:  f.StartByte,
 		EndByte:    f.EndByte,
 		RuleSet:    ruleSet,
-		Rule:       rule,
+		Rule:       f.Rule,
 		Severity:   sev,
 		Message:    f.Message,
 		Confidence: f.Confidence,

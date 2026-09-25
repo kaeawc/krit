@@ -5,7 +5,9 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/firchecks"
+	"github.com/kaeawc/krit/internal/perf"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -77,19 +79,49 @@ func TestRunFIRCheckerPassDisabledIsNoOp(t *testing.T) {
 // Guard against paying for JVM startup when the active rule set contains
 // no FIR-eligible rules. Important now that --depth=thorough defaults
 // FIR on regardless of which rules the project actually has enabled.
-func TestRunFIRCheckerPassNoActiveRulesSkipsChecker(t *testing.T) {
+func TestRunFIRCheckerPassUnknownRuleInvokesChecker(t *testing.T) {
 	checker := firchecks.NewFakeFirChecker()
 	base := []scanner.Finding{{Rule: "X"}}
 	got := runFIRCheckerPass(firCheckerOpts{
 		Enabled:     true,
 		Checker:     checker,
 		ActiveRules: []*api.Rule{{ID: "NotAFirRule"}},
+		Tracker:     perf.New(false),
 	}, base)
 	if !reflect.DeepEqual(got, base) {
 		t.Fatalf("got %v; want %v (base unchanged when no FIR rules active)", got, base)
 	}
-	if len(checker.Called) != 0 {
-		t.Fatalf("checker.Check should not be invoked with zero FIR rules; got %d invocations", len(checker.Called))
+	if len(checker.Called) != 1 {
+		t.Fatalf("checker.Check should receive unknown rule ID; got %d invocations", len(checker.Called))
+	}
+}
+
+// Active rules' configured options reach the FIR checker as ruleConfigs;
+// krit-interpreted keys (active, excludes) and option-less rules do not.
+func TestRunFIRCheckerPassSendsActiveRuleOptions(t *testing.T) {
+	cfg := config.NewConfig()
+	cfg.Set("coroutines", "InjectDispatcher", "active", true)
+	cfg.Set("coroutines", "InjectDispatcher", "excludes", []interface{}{"**/gen/**"})
+	cfg.Set("coroutines", "InjectDispatcher", "dispatcherNames", []interface{}{"IO"})
+	cfg.Set("style", "MagicNumber", "active", true)
+	cfg.Set("style", "Inactive", "threshold", 9) // not an active rule
+	checker := firchecks.NewFakeFirChecker()
+	runFIRCheckerPass(firCheckerOpts{
+		Enabled: true,
+		Checker: checker,
+		Config:  cfg,
+		ActiveRules: []*api.Rule{
+			{ID: "InjectDispatcher", Category: "coroutines"},
+			{ID: "MagicNumber", Category: "style"},
+		},
+		Tracker: perf.New(false),
+	}, nil)
+	if len(checker.CalledRuleConfigs) != 1 {
+		t.Fatalf("expected one Check call, got %d", len(checker.CalledRuleConfigs))
+	}
+	want := firchecks.RuleConfigs{"InjectDispatcher": {"dispatcherNames": []interface{}{"IO"}}}
+	if got := checker.CalledRuleConfigs[0]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ruleConfigs = %#v; want %#v", got, want)
 	}
 }
 

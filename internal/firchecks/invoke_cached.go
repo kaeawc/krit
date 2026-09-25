@@ -29,7 +29,8 @@ type Result struct {
 //
 // jarPath is the krit-fir.jar (required when misses need JVM analysis).
 // files is the set of .kt file paths to check (pre-filtered by CollectFirCheckFiles).
-// sourceDirs / classpath / rules are forwarded to the daemon's check request.
+// sourceDirs / classpath / rules / ruleConfigs are forwarded to the daemon's
+// check request; rules and ruleConfigs are also part of the cache fingerprint.
 // repoDir is used to locate the cache; empty disables caching.
 // useDaemon controls whether to prefer the persistent daemon (vs one-shot).
 // verbose enables progress logging to stderr.
@@ -39,6 +40,7 @@ func InvokeCached(
 	sourceDirs []string,
 	classpath []string,
 	rules []string,
+	ruleConfigs RuleConfigs,
 	repoDir string,
 	useDaemon bool,
 	verbose bool,
@@ -49,7 +51,7 @@ func InvokeCached(
 
 	// If no repo dir, skip cache and go straight to JVM.
 	if repoDir == "" {
-		return runUncached(jarPath, files, sourceDirs, classpath, rules, useDaemon, verbose)
+		return runUncached(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, useDaemon, verbose)
 	}
 
 	cacheDir, err := CacheDir(repoDir)
@@ -57,10 +59,10 @@ func InvokeCached(
 		if verbose {
 			reporter().Verbosef("verbose: fir cache dir init failed (%v), falling back to uncached\n", err)
 		}
-		return runUncached(jarPath, files, sourceDirs, classpath, rules, useDaemon, verbose)
+		return runUncached(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, useDaemon, verbose)
 	}
 
-	cacheFingerprint := ClasspathFingerprint(classpath)
+	cacheFingerprint := FirInvocationFingerprint(classpath, jarPath, rules, ruleConfigs)
 	hits, misses := ClassifyFilesForFingerprint(cacheDir, files, cacheFingerprint)
 	if verbose {
 		reporter().Verbosef("verbose: fir cache: %d hits, %d misses (%d files)\n",
@@ -73,7 +75,7 @@ func InvokeCached(
 	}
 
 	// Slow path: analyze misses via daemon or one-shot.
-	resp, err := runMisses(jarPath, misses, sourceDirs, classpath, rules, useDaemon, verbose)
+	resp, err := runMisses(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, useDaemon, verbose)
 	if err != nil {
 		return nil, err
 	}
@@ -102,10 +104,11 @@ func runUncached(
 	sourceDirs []string,
 	classpath []string,
 	rules []string,
+	ruleConfigs RuleConfigs,
 	useDaemon bool,
 	verbose bool,
 ) (*Result, error) {
-	resp, err := runMisses(jarPath, files, sourceDirs, classpath, rules, useDaemon, verbose)
+	resp, err := runMisses(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, useDaemon, verbose)
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +129,7 @@ func runMisses(
 	sourceDirs []string,
 	classpath []string,
 	rules []string,
+	ruleConfigs RuleConfigs,
 	useDaemon bool,
 	verbose bool,
 ) (*CheckResponse, error) {
@@ -135,7 +139,7 @@ func runMisses(
 		if err == nil {
 			defer func() { _ = d.Release() }()
 			refs := buildFileRefs(misses)
-			resp, err := d.Check(refs, sourceDirs, classpath, rules)
+			resp, err := d.Check(refs, sourceDirs, classpath, rules, ruleConfigs)
 			if err == nil {
 				return resp, nil
 			}
@@ -151,7 +155,7 @@ func runMisses(
 	if jarPath == "" {
 		return nil, fmt.Errorf("krit-fir.jar not found; build with: cd tools/krit-fir && ./gradlew shadowJar")
 	}
-	return InvokeOneShot(jarPath, misses, sourceDirs, classpath, rules, verbose)
+	return InvokeOneShot(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, verbose)
 }
 
 func buildFileRefs(files []string) []fileRef {
@@ -281,15 +285,15 @@ func firScanIdentifier(content []byte, start int) int {
 	return end
 }
 
-var firLineDedupeRules = map[string]struct{}{
-	"CollectInOnCreateWithoutLifecycle": {},
-	"ComposeRememberWithoutKey":         {},
-	"InjectDispatcher":                  {},
+// hasGoTwin reports whether a FIR rule ID is also a registered Go rule, i.e.
+// a tree-sitter implementation may report the same issue.
+func hasGoTwin(rule string) bool {
+	return catalogRule(rule) != nil
 }
 
 // MergeFindings merges FIR findings into the existing allFindings slice,
-// deduplicating on (file, line, col, rule). Pilot FIR rules also dedupe on
-// (file, line, rule) because compiler source ranges can point at a callee
+// deduplicating on (file, line, col, rule). Rules with a Go twin also dedupe
+// on (file, line, rule) because compiler source ranges can point at a callee
 // token while the tree-sitter rule points at the containing call expression.
 // Go tree-sitter findings win on collision (they're already in allFindings).
 func MergeFindings(allFindings []scanner.Finding, firFindings []scanner.Finding) []scanner.Finding {
@@ -314,7 +318,7 @@ func MergeFindings(allFindings []scanner.Finding, firFindings []scanner.Finding)
 		if f.EndByte > f.StartByte {
 			existingBytes[byteKey{f.File, f.Rule, f.StartByte, f.EndByte}] = struct{}{}
 		}
-		if _, ok := firLineDedupeRules[f.Rule]; ok {
+		if hasGoTwin(f.Rule) {
 			lk := lineKey{f.File, f.Rule, f.Line}
 			existingLines[lk] = struct{}{}
 			if f.EndByte <= f.StartByte {
@@ -332,7 +336,7 @@ func MergeFindings(allFindings []scanner.Finding, firFindings []scanner.Finding)
 		}
 		if _, ok := existing[k]; !ok {
 			lk := lineKey{f.File, f.Rule, f.Line}
-			if _, lineDedupe := firLineDedupeRules[f.Rule]; lineDedupe {
+			if hasGoTwin(f.Rule) {
 				if f.EndByte > f.StartByte {
 					if _, ok := existingLineWithoutBytes[lk]; ok {
 						continue
@@ -349,7 +353,7 @@ func MergeFindings(allFindings []scanner.Finding, firFindings []scanner.Finding)
 			if f.EndByte > f.StartByte {
 				existingBytes[bk] = struct{}{}
 			}
-			if _, lineDedupe := firLineDedupeRules[f.Rule]; lineDedupe {
+			if hasGoTwin(f.Rule) {
 				existingLines[lk] = struct{}{}
 				if f.EndByte <= f.StartByte {
 					existingLineWithoutBytes[lk] = struct{}{}

@@ -30,6 +30,7 @@ import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
+import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFieldSymbol
@@ -83,13 +84,15 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  *    Base64 conversions with whitespace or a line break before the dot
  *    (HardcodedSecretKeyLiteralForms). A Base64 decode of a bare hardcoded
  *    read with no quote in the argument (`decode(KEY_B64)`, also of a var or
- *    an open val with a hardcoded initializer) reports
- *    (HardcodedSecretKeyConstants).
+ *    an open val with a hardcoded initializer, and of a local var nothing in
+ *    its function reassigns) reports (HardcodedSecretKeyConstants,
+ *    HardcodedSecretKeyLocalVars).
  *  - Precision (Go reports, FIR does not): a `SecretKeySpec` that resolves to
  *    another class, such as an import alias of a lookalike under a
  *    `javax.crypto.spec.*` import (HardcodedSecretKeyLookalike); a string
- *    template that interpolates a runtime value (`"$pin".toByteArray()`);
- *    and a Base64 decode of a runtime value in an
+ *    template that interpolates a runtime value (`"$pin".toByteArray()`)
+ *    or a local var reassigned anywhere in its function
+ *    (HardcodedSecretKeyLocalVars); and a Base64 decode of a runtime value in an
  *    argument that merely holds a quote somewhere: a lookup key or a partial
  *    literal (`decode(prefs["key"])`, `decode(System.getenv("K"))`,
  *    `decode("c2Vj" + pin)`) (HardcodedSecretKeyNegative,
@@ -116,7 +119,7 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
         val callee = expression.calleeReference.toResolvedCallableSymbol() as? FirConstructorSymbol ?: return
         if (callee.containingClassLookupTag()?.classId != secretKeySpecClassId) return
         val key = expression.argumentList.arguments.firstOrNull()?.let(::unwrap) ?: return
-        if (!isHardcodedKey(key, Walk())) return
+        if (!isHardcodedKey(key, Walk { assignedLocals() })) return
         report(expression.source, MESSAGE)
     }
 
@@ -342,9 +345,12 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
     private val lazyId = CallableId(FqName("kotlin"), Name.identifier("lazy"))
 
     // A read whose value the source fixes: its declared initializer (or
-    // getter, or lazy result) is hardcoded. A var or an open val counts too:
-    // the hardcoded initializer is still a secret written in the source, and
-    // Go reports a template over one. A lateinit var has no initializer.
+    // getter, or lazy result) is hardcoded. A member or top-level var and an
+    // open val count too: the hardcoded initializer is still a secret written
+    // in the source (the default), and Go reports a template over one. A
+    // local var counts only when nothing in its function assigns it again;
+    // otherwise its value at the read need not be the initializer. A
+    // lateinit var has no initializer.
     @OptIn(SymbolInternals::class)
     private fun isFixedRead(access: FirPropertyAccessExpression, walk: Walk): Boolean =
         when (val symbol = access.calleeReference.toResolvedCallableSymbol()) {
@@ -352,6 +358,7 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
                 symbol.isConst -> true
                 symbol.callableId?.classId in charsetOwners -> true
                 symbol.isLateInit -> false
+                isReassignedLocalVar(symbol, walk::assignedLocals) -> false
                 else -> walk.property(symbol) {
                     when {
                         symbol.hasDelegate -> isHardcodedLazy(symbol.delegate, walk)
@@ -400,9 +407,14 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
     // cycle, `val A: String = if (f) B else B` with B reading A) counts as
     // not hardcoded on that path. Without this, branching initializers make
     // the walk exponential in the chain length.
-    private class Walk {
+    private class Walk(assigned: () -> Set<FirBasedSymbol<*>>?) {
         var depth = 0
         private val properties = HashMap<FirPropertySymbol, Boolean?>()
+        private val assignedOnce by lazy(LazyThreadSafetyMode.NONE, assigned)
+
+        // The local variables assigned in the enclosing declaration (see
+        // assignedLocals), computed on the first local var read.
+        fun assignedLocals(): Set<FirBasedSymbol<*>>? = assignedOnce
 
         fun property(symbol: FirPropertySymbol, compute: () -> Boolean): Boolean {
             if (symbol in properties) return properties[symbol] == true

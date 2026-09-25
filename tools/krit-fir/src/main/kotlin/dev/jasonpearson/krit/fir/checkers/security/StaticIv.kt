@@ -65,7 +65,8 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *    project codec), or `java.util.Base64.Decoder.decode`.
  * A literal string is a string literal (raw or not), a template whose entries
  * are literals, `const val`s, or properties (val or var, final or open, not
- * lateinit) initialized with a literal string, or a `kotlin.text` call
+ * lateinit; a local var only when nothing in its function reassigns it)
+ * initialized with a literal string, or a `kotlin.text` call
  * (`trimIndent()`, `replace(" ", "")`) on a literal string with literal
  * arguments.
  *
@@ -92,7 +93,8 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *    bytes, a parenthesized string concatenation, and a String transform
  *    before toByteArray (StaticIvGoMisses).
  *  - Go false positives FIR skips, where the IV is not literal bytes: a string
- *    template with a runtime entry; a chain that mixes in runtime or random
+ *    template with a runtime entry, or over a local var reassigned in its
+ *    function (StaticIvLocalVars); a chain that mixes in runtime or random
  *    bytes, or whose lambda overwrites them; a decode whose data argument is
  *    not a literal but whose text holds a quote; a literal source nested in
  *    another call's argument (StaticIvPrecision); a same-file
@@ -168,7 +170,8 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
         // Java constructors take no named arguments, so the IV is positional.
         if (callee.valueParameterSymbols.size <= ivIndex) return
         val ivArgument = expression.argumentList.arguments.getOrNull(ivIndex) ?: return
-        if (literalBytes(ivArgument, emptySet()) == null) return
+        val locals = LocalAssignments { assignedLocals() }
+        if (with(locals) { literalBytes(ivArgument, emptySet()) } == null) return
         report(expression.source, MESSAGE)
     }
 
@@ -199,6 +202,7 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
     // parameters and receivers of enclosing chain lambdas, which stand for the
     // literal bytes the lambda was called on. Returns how Go treats the chain,
     // or null when the bytes are not literal.
+    context(locals: LocalAssignments)
     private fun literalBytes(expression: FirExpression, self: Set<FirBasedSymbol<*>>): Root? {
         val value = unwrap(expression)
         if (isSelfReference(value, self)) return Root.TEXT
@@ -224,6 +228,7 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
         return if (keepsLiteral) root else null
     }
 
+    context(locals: LocalAssignments)
     private fun literalSource(call: FirFunctionCall, self: Set<FirBasedSymbol<*>>): Root? {
         val callee = call.calleeReference.toResolvedCallableSymbol()?.unwrapFakeOverrides() ?: return null
         val callableId = callee.callableId ?: return null
@@ -279,6 +284,7 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
             if (argument is FirVarargArgumentsExpression) argument.arguments else listOf(argument)
         }
 
+    context(locals: LocalAssignments)
     private fun keepsBytesLiteral(argument: FirExpression, self: Set<FirBasedSymbol<*>>): Boolean {
         val value = unwrap(argument)
         if (value is FirSpreadArgumentExpression) return literalBytes(value.expression, self) != null
@@ -300,6 +306,7 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
     // does too unless the lambda provably brings in runtime bytes: it
     // overwrites the literal bytes, or (when the call returns the lambda's
     // result) it returns them mixed with runtime bytes.
+    context(locals: LocalAssignments)
     private fun lambdaKeepsBytes(
         call: FirFunctionCall,
         lambda: FirAnonymousFunction,
@@ -322,6 +329,7 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
 
     // True when [result] is a call that takes the lambda's literal bytes along
     // with bytes that are not literal (`xor(it, random)`, `it + random`).
+    context(locals: LocalAssignments)
     private fun mixesRuntimeBytes(result: FirExpression, self: Set<FirBasedSymbol<*>>): Boolean {
         if (result !is FirFunctionCall) return false
         val receiver = result.explicitReceiver?.let(::unwrap)?.takeUnless { it is FirResolvedQualifier }
@@ -363,6 +371,7 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
     // True when the lambda body writes runtime or random bytes into the
     // literal bytes: `rng.nextBytes(it)`, `it[0] = random[0]`,
     // `random.copyInto(it)`. Writing literals (`this[0] = 1`) keeps them literal.
+    context(locals: LocalAssignments)
     private fun mutatesSelf(body: FirElement, self: Set<FirBasedSymbol<*>>): Boolean {
         var found = false
         body.accept(object : FirVisitorVoid() {
@@ -378,6 +387,7 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
         return found
     }
 
+    context(locals: LocalAssignments)
     private fun writesRuntimeBytes(call: FirFunctionCall, self: Set<FirBasedSymbol<*>>): Boolean {
         val callableId = call.calleeReference.toResolvedCallableSymbol()?.unwrapFakeOverrides()?.callableId
         val mutator = mutator(callableId) ?: return false
@@ -396,6 +406,7 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
         return inputs.any { !isLiteralValue(it, self) }
     }
 
+    context(locals: LocalAssignments)
     private fun isLiteralValue(expression: FirExpression, self: Set<FirBasedSymbol<*>>): Boolean {
         val value = unwrap(expression)
         return value is FirLiteralExpression || isIntegerLiteral(value) || isSelfReference(value, self) ||
@@ -428,6 +439,7 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
 
     // A string fixed in the source: a literal, a template of literal entries,
     // or a kotlin.text transform of one with literal arguments.
+    context(locals: LocalAssignments)
     private fun isLiteralString(expression: FirExpression, seen: PropertyVerdicts = PropertyVerdicts()): Boolean {
         val value = unwrap(expression)
         return when (value) {
@@ -446,6 +458,7 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
         }
     }
 
+    context(locals: LocalAssignments)
     private fun isLiteralArgument(argument: FirExpression, seen: PropertyVerdicts): Boolean {
         val value = unwrap(argument)
         if (value is FirLiteralExpression || isIntegerLiteral(value)) return true
@@ -458,18 +471,31 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
     }
 
     // A `const val`, or a property with a default getter and no delegate
-    // whose initializer is a literal string. A var or an open val counts too:
-    // the literal it is initialized with is still written in the source, and
-    // Go reports a template over one. A lateinit var has no initializer.
+    // whose initializer is a literal string. A member or top-level var and an
+    // open val count too: the literal it is initialized with is still written
+    // in the source (the default), and Go reports a template over one. A local
+    // var counts only when nothing in its function assigns it again;
+    // otherwise its value at the read need not be the initializer. A lateinit
+    // var has no initializer.
+    context(locals: LocalAssignments)
     private fun isLiteralProperty(expression: FirExpression, seen: PropertyVerdicts): Boolean {
         if (expression !is FirPropertyAccessExpression) return false
         val symbol = expression.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol ?: return false
         if (symbol.resolvedStatus.isConst) return true
         if (symbol.isLateInit || symbol.hasDelegate) return false
+        if (isReassignedLocalVar(symbol, locals::assigned)) return false
         if (symbol.resolvedStatus.isExpect) return false
         if (symbol.getterSymbol?.isDefault == false) return false
         val initializer = symbol.resolvedInitializer ?: return false
         return seen.property(symbol) { isLiteralString(initializer, seen) }
+    }
+
+    // The local variables assigned in the enclosing declaration (see
+    // assignedLocals), computed on the first local var read of a check.
+    private class LocalAssignments(compute: () -> Set<FirBasedSymbol<*>>?) {
+        private val once by lazy(LazyThreadSafetyMode.NONE, compute)
+
+        fun assigned(): Set<FirBasedSymbol<*>>? = once
     }
 
     // One literal-string check's property verdicts. Each property is walked

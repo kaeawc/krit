@@ -65,17 +65,15 @@ class Crypto(private val holder: Holder) {
         <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode(JarFile.MANIFEST_NAME + "=="), "AES")
     }
 
-    // A var or an open val with a hardcoded initializer: the secret is still
-    // written in the source, even if the value can later be reassigned or
-    // overridden. Go reports these because the argument starts with or holds
-    // a quote, and FIR matches it.
+    // A member or top-level var or an open val with a hardcoded initializer:
+    // the secret is still written in the source (the default), even if the
+    // value can later be reassigned or overridden. Go reports these because
+    // the argument starts with or holds a quote, and FIR matches it. Local
+    // vars are in HardcodedSecretKeyLocalVars.
     fun mutableOrOverridable(base: OpenKey) {
         <!HardcodedSecretKey!>SecretKeySpec<!>("$MUTABLE_KEY".toByteArray(), "AES")
         <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode("$MUTABLE_KEY"), "AES")
         <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode("${base.key}"), "AES")
-        var local = "c2VjcmV0MTIzNDU2Nzg="
-        local += ""
-        <!HardcodedSecretKey!>SecretKeySpec<!>("$local".toByteArray(), "AES")
     }
 
     // Go misses these because the key argument holds no quote; FIR is correct

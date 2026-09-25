@@ -92,7 +92,8 @@ const CacheFileName = "incremental.cache"
 // so a semantic fact change invalidates oracle-on entries without a payload
 // bump — and a bump here would needlessly cold-start every non-oracle user,
 // whose keys are byte-identical to before.
-const cachePayloadVersion = "v15"
+// v16: normalized Kotlin annotations change findings for unchanged source.
+const cachePayloadVersion = "v16"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

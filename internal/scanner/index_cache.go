@@ -86,7 +86,8 @@ func recordCrossFileDisk(paths crossFileCachePaths, entries int) {
 // Java modifiers so Java declarations can participate in the source index.
 // v8: meta records per-file content hashes and optional small-change
 // overlays so one-file edits do not force rewriting payload.gob.
-const CrossFileCacheVersion = 8
+// v9: normalized Kotlin annotations change indexed declaration flags.
+const CrossFileCacheVersion = 9
 
 // bloomLibraryVersion is the pinned bits-and-blooms/bloom/v3 version.
 // It is mixed into the cross-file fingerprint so a library upgrade

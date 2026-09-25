@@ -129,7 +129,7 @@ func TestComputeStaleOraclePaths_IncludesDependentsAndRefreshesMerge(t *testing.
 	merged, _, err := oracle.MergeFreshIntoCachedTypes(typesPath, &oracle.Data{Version: 1, Files: map[string]*oracle.File{
 		dependency: {Package: "demo"},
 		caller:     freshCallerFacts,
-	}}, map[string]bool{caller: true, dependency: true})
+	}})
 	if err != nil {
 		t.Fatalf("MergeFreshIntoCachedTypes: %v", err)
 	}

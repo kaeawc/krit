@@ -921,11 +921,7 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 			// covers the stale paths. mergeFreshIntoCachedTypes
 			// rewrites types.json with the union (fresh wins on
 			// overlap), then loads the merged result.
-			currentFiles := make(map[string]bool, len(in.KotlinFilePaths))
-			for _, path := range in.KotlinFilePaths {
-				currentFiles[path] = true
-			}
-			merged, pruned, mergeErr := oracle.MergeFreshIntoCachedTypes(cachedTypesPath, fresh, currentFiles)
+			merged, pruned, mergeErr := oracle.MergeFreshIntoCachedTypes(cachedTypesPath, fresh)
 			if mergeErr != nil {
 				in.warnf("warning: oracle partial merge (fallback to analyzeAll): %v\n", mergeErr)
 			}

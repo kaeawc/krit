@@ -1,7 +1,10 @@
 package oracle
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 )
 
 // MergeFreshIntoCachedTypes merges fresh per-file oracle facts from a
@@ -9,7 +12,7 @@ import (
 // Fresh entries win on overlap (files and dependencies); cached entries
 // without a fresh counterpart are preserved. Top-level Version /
 // KotlinVersion are kept from cache when fresh leaves them zero.
-func MergeFreshIntoCachedTypes(outputPath string, fresh *Data, currentFiles map[string]bool) (*Data, bool, error) {
+func MergeFreshIntoCachedTypes(outputPath string, fresh *Data) (*Data, bool, error) {
 	if outputPath == "" {
 		return nil, false, fmt.Errorf("merge: empty outputPath")
 	}
@@ -21,7 +24,10 @@ func MergeFreshIntoCachedTypes(outputPath string, fresh *Data, currentFiles map[
 	if cacheMissing {
 		cached = &Data{Files: map[string]*File{}, Dependencies: map[string]*Class{}}
 	}
-	merged, pruned := mergeOracleData(cached, fresh, currentFiles)
+	merged, pruned := mergeOracleData(cached, fresh, func(path string) error {
+		_, err := os.Stat(path)
+		return err
+	})
 	// Skip the write when the merge is a no-op — fresh was empty AND
 	// the cached file was readable. Saves a ~1MB re-marshal on the
 	// hot warm path where the caller passed a hint that produced no
@@ -39,7 +45,7 @@ func MergeFreshIntoCachedTypes(outputPath string, fresh *Data, currentFiles map[
 // mergeOracleData performs the section-wise union described in
 // MergeFreshIntoCachedTypes. Extracted so unit tests can exercise the
 // merge rules without touching disk.
-func mergeOracleData(cached, fresh *Data, currentFiles map[string]bool) (*Data, bool) {
+func mergeOracleData(cached, fresh *Data, stat func(string) error) (*Data, bool) {
 	if cached == nil {
 		cached = &Data{}
 	}
@@ -60,11 +66,11 @@ func mergeOracleData(cached, fresh *Data, currentFiles map[string]bool) (*Data, 
 	}
 	pruned := false
 	for path, f := range cached.Files {
-		if !currentFiles[path] {
+		if keepOnStatErr(stat(path)) {
+			merged.Files[path] = f
+		} else {
 			pruned = true
-			continue
 		}
-		merged.Files[path] = f
 	}
 	for path, f := range fresh.Files {
 		merged.Files[path] = f
@@ -76,4 +82,11 @@ func mergeOracleData(cached, fresh *Data, currentFiles map[string]bool) (*Data, 
 		merged.Dependencies[fqn] = c
 	}
 	return merged, pruned
+}
+
+// keepOnStatErr reports whether a cached file should survive a stat error.
+// Only a definite not-exist result proves the source file was deleted; other
+// errors may be transient and must not discard cached facts.
+func keepOnStatErr(err error) bool {
+	return err == nil || !errors.Is(err, fs.ErrNotExist)
 }

@@ -232,7 +232,11 @@ jobs:
             $prerelease_flag \
             $(ls *.tar.gz *.zip *.jar *.sbom.json checksums.txt checksums.txt.sig 2>/dev/null)
 
+      # Package managers only track stable releases. Tags with a SemVer
+      # prerelease suffix (nightly.yml's v*-nightly.* tags, -rc/-beta tags)
+      # stop at the GitHub prerelease above.
       - name: Publish Homebrew cask
+        if: ${{ !contains(github.ref_name, '-') }}
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           TAG: ${{ github.ref_name }}
@@ -240,13 +244,62 @@ jobs:
         run: bash scripts/release/update-brew-tap.sh
 
       - name: Publish Scoop manifest
+        if: ${{ !contains(github.ref_name, '-') }}
         env:
           GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
         run: bash scripts/release/update-scoop-bucket.sh
 
+      - name: Render winget manifests
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: bash scripts/release/render-winget-manifests.sh
+
+      # Kept as an artifact so a release can be submitted to winget-pkgs by
+      # hand when the winget job below is skipped (no WINGET_TOKEN) or fails.
+      - name: Upload winget manifests
+        if: ${{ !contains(github.ref_name, '-') }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: winget-manifests
+          path: dist/winget/
+          if-no-files-found: error
+
       - name: Attest build provenance
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: 'dist/*.tar.gz,dist/*.zip'
+
+  # Submit the rendered winget manifests to microsoft/winget-pkgs (opens a
+  # PR from the token owner's winget-pkgs fork). Stable tags only, and a
+  # no-op until a WINGET_TOKEN secret — a classic PAT with public_repo
+  # scope — is configured. wingetcreate only ships for Windows.
+  winget:
+    needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download winget manifests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: winget-manifests
+          path: winget
+
+      - name: Submit to microsoft/winget-pkgs
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if (-not $env:WINGET_TOKEN) {
+            Write-Output "::notice::WINGET_TOKEN is not configured; skipping winget submission. Manifests are in the winget-manifests artifact."
+            exit 0
+          }
+          $version = $env:TAG.TrimStart('v')
+          Invoke-WebRequest -Uri https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          .\wingetcreate.exe submit --token $env:WINGET_TOKEN "winget/manifests/k/kaeawc/krit/$version"

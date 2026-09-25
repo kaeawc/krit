@@ -1,12 +1,15 @@
 name: Publish krit-rule-api
 
 # Publishes dev.jasonpearson.krit:krit-rule-api to Maven Central
-# (Sonatype Central Portal) on every v* tag, alongside the binary
-# release in release.yml.
+# (Sonatype Central Portal) on every stable vX.Y.Z tag, alongside the
+# binary release in release.yml. Prerelease tags (nightly.yml's
+# v*-nightly.* tags, -rc/-beta tags) are skipped: Central releases are
+# immutable, so nightlies would pile up permanently.
 #
 # workflow_dispatch is also wired up so a maintainer can republish a
 # specific version (e.g. after a Central staging rejection) without
-# cutting a new git tag.
+# cutting a new git tag; an explicitly dispatched version is published
+# as-is, prerelease or not.
 on:
   push:
     tags: ['v*']
@@ -22,6 +25,7 @@ permissions:
 
 jobs:
   publish:
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

@@ -1,12 +1,15 @@
 # Homebrew tap for krit
 
-Krit publishes a Homebrew **cask** to `kaeawc/homebrew-tap` automatically
-on every tagged release via GoReleaser (the `homebrew_casks:` block in
-`.goreleaser.yml`). There is no hand-written formula or cask checked into
-this repo — GoReleaser generates and pushes the cask file with correct
-download URLs and signed SHA256s.
+Krit publishes a Homebrew **cask** to `kaeawc/homebrew-tap` on every
+stable `vX.Y.Z` release. The `release` job in
+`.github/workflows/release.yml` runs `scripts/release/update-brew-tap.sh`,
+which renders `Casks/krit.rb` with the release's darwin and linux archive
+URLs and SHA256s (read from the combined `checksums.txt`) and pushes it to
+the tap. GoReleaser does not publish the cask, and no formula or cask is
+checked into this repo. Prerelease tags (nightlies, release candidates)
+skip this step.
 
-## Install (after the first release is cut)
+## Install
 
 ```bash
 brew install --cask kaeawc/tap/krit
@@ -14,12 +17,11 @@ brew install --cask kaeawc/tap/krit
 
 This drops `krit`, `krit-lsp`, and `krit-mcp` onto your `PATH`.
 
-## One-time tap setup
+## Tap setup
 
-The tap repo (`kaeawc/homebrew-tap`) needs to exist before the first
-`v*` tag is pushed — it does, it's empty until GoReleaser populates it.
-The release workflow also needs a `HOMEBREW_TAP_TOKEN` repository secret
-holding a PAT with write access to the tap repo.
+The tap repo (`kaeawc/homebrew-tap`) must exist, and the release workflow
+needs a `HOMEBREW_TAP_TOKEN` repository secret holding a PAT with
+Contents: write on the tap repo.
 
 ## Why a cask, not a formula
 
@@ -29,14 +31,13 @@ requires a C toolchain on the user's machine) or ship binaries — which
 is exactly what a cask does. Cask is the right tool for prebuilt-binary
 distribution.
 
-## Emergency manual publish
+## Manual publish
 
-If the automated path is broken and you need to push a cask manually:
+If the release step failed after the GitHub release was created, rerun
+the script against that release's assets:
 
-1. Build and sign archives for darwin amd64 + arm64.
-2. Compute SHA256s.
-3. Render a cask file (use a previous release's generated cask as a
-   template) and commit it to `Casks/krit.rb` in the tap repo.
-
-Under normal operation this should never be necessary; fix the release
-workflow instead.
+```bash
+mkdir dist
+gh release download vX.Y.Z --repo kaeawc/krit --pattern checksums.txt --dir dist
+GH_TOKEN=<tap PAT> TAG=vX.Y.Z REPO=kaeawc/krit bash scripts/release/update-brew-tap.sh
+```

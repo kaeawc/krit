@@ -184,9 +184,9 @@ All tests live under `tools/krit-fir/compiler-tests/src/test/`.
   production source path), and requires the reported lines and per-line
   counts to equal the header. It needs no jar, so it runs in every
   `go test ./...`. The golden's rule is picked as the compiler test picks it,
-  the longest checker ID its file name starts with; files that name no
-  checker (stub smoke files, older goldens) and goldens of FIR-only checkers
-  are exempt and must not carry the header. Write or refresh the headers
+  the longest checker ID its file name starts with. A golden whose name
+  starts with no checker ID fails (only the stub smoke files may), and
+  goldens of FIR-only checkers are exempt and must not carry the header. Write or refresh the headers
   from Go's actual output with
 
   ```bash

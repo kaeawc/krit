@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negative: Flow.collect() wrapped in repeatOnLifecycle inside onCreate is
 // lifecycle-aware — must NOT trigger CollectInOnCreateWithoutLifecycle.
 package test

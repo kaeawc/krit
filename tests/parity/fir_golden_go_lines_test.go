@@ -48,9 +48,11 @@ var (
 //
 // The golden's rule is chosen as AbstractDiagnosticTest chooses it: the
 // longest FIR checker ID (from the checker sources, so no jar is needed)
-// that prefixes the file name. Goldens that name no checker (older goldens,
-// the stubs/ smoke files) and goldens of FIR-only checkers (no Go rule) are
-// exempt and must not carry the header. The Go rule runs alone, in-process,
+// that prefixes the file name. A golden outside stubs/ whose name starts
+// with no checker ID fails: the compiler test would run it with every rule
+// enabled and its claims about its own rule would go unchecked. The stubs/
+// smoke files and goldens of FIR-only checkers (no Go rule) are exempt and
+// must not carry the header. The Go rule runs alone, in-process,
 // with source inference and no oracle, like TestFirFixtureParity's Go side,
 // on a production (non-test) path.
 //
@@ -86,6 +88,10 @@ func TestFirGoldenGoLines(t *testing.T) {
 			}
 			lines := strings.Split(string(data), "\n")
 			headerIdx, header, herr := findGoLinesHeader(lines)
+			if firID == "" {
+				t.Fatalf("%s names no FIR checker: name a golden `<RuleId>…kt` after the rule it tests, "+
+					"so the compiler test runs that rule and this test checks its go-lines", rel)
+			}
 			if rule == nil {
 				if headerIdx >= 0 || herr != nil {
 					t.Fatalf("%s carries a go-lines header but names no ported Go rule (FIR checker %q); remove the header", rel, firID)

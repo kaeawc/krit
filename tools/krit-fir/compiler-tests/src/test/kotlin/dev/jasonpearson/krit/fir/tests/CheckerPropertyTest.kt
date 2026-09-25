@@ -63,17 +63,22 @@ class CheckerPropertyTest {
         }
     }
 
-    // ---- Flow: lifecycle method × wrapper (bare collect; repeatOnLifecycle is the safe wrapper) ----
+    // ---- Flow: lifecycle method × wrapper (collect needs a coroutine; repeatOnLifecycle is the safe wrapper) ----
 
     private fun flowGrid(): List<Case> {
         val methods = listOf("onCreate", "onStart", "onViewCreated", "onResume", "observe")
         val lifecycle = setOf("onCreate", "onStart", "onViewCreated")
         val wrappers = listOf(
+            // collect is suspend, so every case launches a coroutine first.
             // repeatOnLifecycle is the one safe wrapper; launchWhenStarted only
             // suspends the collector, so it does not clear the finding.
-            Triple("none", "", ""),
-            Triple("repeatOnLifecycle", "repeatOnLifecycle {", "}"),
-            Triple("launchWhenStarted", "launchWhenStarted {", "}"),
+            Triple("none", "owner.lifecycleScope.launch {", "}"),
+            Triple(
+                "repeatOnLifecycle",
+                "owner.lifecycleScope.launch { owner.repeatOnLifecycle(Lifecycle.State.STARTED) {",
+                "} }",
+            ),
+            Triple("launchWhenStarted", "owner.lifecycleScope.launchWhenStarted {", "}"),
         )
         return buildList {
             for (m in methods) {
@@ -85,11 +90,13 @@ class CheckerPropertyTest {
                             name,
                             """
                             package fl_${m}_$w
+                            import androidx.lifecycle.Lifecycle
+                            import androidx.lifecycle.LifecycleOwner
+                            import androidx.lifecycle.lifecycleScope
                             import androidx.lifecycle.repeatOnLifecycle
-                            import kotlinx.coroutines.launchWhenStarted
                             import kotlinx.coroutines.flow.Flow
-                            import kotlinx.coroutines.flow.collect
-                            class F {
+                            import kotlinx.coroutines.launch
+                            class F(private val owner: LifecycleOwner) {
                                 private val flow: Flow<Int> = TODO()
                                 fun $m() {
                                     $open
@@ -196,6 +203,14 @@ class CheckerPropertyTest {
     @Test
     fun metamorphicClearingEdits() {
         data class Pair3(val name: String, val diag: String, val flagged: String, val cleared: String)
+        val mm2Imports = listOf(
+            "androidx.lifecycle.Lifecycle",
+            "androidx.lifecycle.LifecycleOwner",
+            "androidx.lifecycle.lifecycleScope",
+            "androidx.lifecycle.repeatOnLifecycle",
+            "kotlinx.coroutines.flow.Flow",
+            "kotlinx.coroutines.launch",
+        ).joinToString("\n") { "import $it" }
         val pairs = listOf(
             Pair3(
                 "compose_addKey", "ComposeRememberWithoutKey",
@@ -204,8 +219,8 @@ class CheckerPropertyTest {
             ),
             Pair3(
                 "flow_wrapRepeatOnLifecycle", "CollectInOnCreateWithoutLifecycle",
-                "package mm2\nimport kotlinx.coroutines.flow.Flow\nimport kotlinx.coroutines.flow.collect\nclass F { val flow: Flow<Int> = TODO(); fun onCreate() { flow.collect { } } }",
-                "package mm2\nimport androidx.lifecycle.repeatOnLifecycle\nimport kotlinx.coroutines.flow.Flow\nimport kotlinx.coroutines.flow.collect\nclass F { val flow: Flow<Int> = TODO(); fun onCreate() { repeatOnLifecycle { flow.collect { } } } }",
+                "package mm2\n$mm2Imports\nclass F(val owner: LifecycleOwner) { val flow: Flow<Int> = TODO(); fun onCreate() { owner.lifecycleScope.launch { flow.collect { } } } }",
+                "package mm2\n$mm2Imports\nclass F(val owner: LifecycleOwner) { val flow: Flow<Int> = TODO(); fun onCreate() { owner.lifecycleScope.launch { owner.repeatOnLifecycle(Lifecycle.State.STARTED) { flow.collect { } } } } }",
             ),
             Pair3(
                 "inject_toParameter", "InjectDispatcher",

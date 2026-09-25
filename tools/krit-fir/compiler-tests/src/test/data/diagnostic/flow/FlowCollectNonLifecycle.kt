@@ -4,12 +4,11 @@
 package test
 
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.collect
 
 class Repository {
     private val flow: Flow<Int> = TODO()
 
-    fun observe() {
+    suspend fun observe() {
         flow.collect { println(it) }
     }
 }

@@ -14,5 +14,5 @@ suspend fun loadDataTopLevel(): String {
 
 // Top-level extension function: no class owner, nothing to inject into.
 suspend fun String.loadDataExtension(): String {
-    return withContext(Dispatchers.Default) { this }
+    return withContext(Dispatchers.Default) { this@loadDataExtension }
 }

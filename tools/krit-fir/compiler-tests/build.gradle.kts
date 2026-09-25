@@ -53,6 +53,10 @@ tasks.test {
     dependsOn(":jar")
     val pluginJarPath = rootProject.layout.buildDirectory.file("libs/krit-fir.jar")
     inputs.file(pluginJarPath)
+    // Test data (stubs and diagnostic sources) is read at runtime, not compiled,
+    // so declare it as an input: a stub-only edit must rerun the suite instead
+    // of reusing an up-to-date or cached result.
+    inputs.dir(project.file("src/test/data")).withPropertyName("testData")
     systemProperty("krit.fir.plugin.jar", pluginJarPath.get().asFile.absolutePath)
 
     // Pass kotlin-stdlib.jar path so the embedded compiler can resolve built-in declarations.

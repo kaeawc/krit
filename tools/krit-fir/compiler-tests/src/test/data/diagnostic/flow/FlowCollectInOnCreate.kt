@@ -1,17 +1,20 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// Positive: Flow.collect() called bare inside onCreate() — should trigger CollectInOnCreateWithoutLifecycle
+// Positive: Flow.collect() launched from onCreate() without repeatOnLifecycle — should trigger CollectInOnCreateWithoutLifecycle
 package test
 
+import android.os.Bundle
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.collect
-
-open class Fragment { open fun onCreate() {} }
+import kotlinx.coroutines.launch
 
 class MyFragment : Fragment() {
     private val flow: Flow<Int> = TODO()
 
-    override fun onCreate() {
-        super.onCreate()
-        flow.<!CollectInOnCreateWithoutLifecycle!>collect<!> { println(it) }
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        lifecycleScope.launch {
+            flow.<!CollectInOnCreateWithoutLifecycle!>collect<!> { println(it) }
+        }
     }
 }

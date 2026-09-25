@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -56,16 +57,28 @@ func mavenJarURL(repoBase, artifactID, version string) string {
 }
 
 // jarSources chooses a mirror alone when configured, otherwise GitHub then Maven Central.
-func jarSources(b Backend, tag string) []jarSource {
+func jarSources(b Backend, tag string) ([]jarSource, error) {
 	artifact := b.jarBaseName()
 	version := mavenVersion(tag)
 	if base := strings.TrimSpace(os.Getenv(jarRepositoryEnv)); base != "" {
-		return []jarSource{{url: mavenJarURL(base, artifact, version), mavenChecksum: true}}
+		u, err := url.Parse(base)
+		host := ""
+		if err == nil {
+			host = u.Hostname()
+		}
+		loopback := host == "localhost"
+		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+			loopback = true
+		}
+		if err != nil || host == "" || (u.Scheme != "https" && (u.Scheme != "http" || !loopback)) {
+			return nil, fmt.Errorf("%s must be an https URL (plain http is only allowed for loopback hosts): %s", jarRepositoryEnv, redactURL(base))
+		}
+		return []jarSource{{url: mavenJarURL(base, artifact, version), mavenChecksum: true}}, nil
 	}
 	return []jarSource{
 		{url: jarReleaseURL(b)},
 		{url: mavenJarURL(mavenCentralBase, artifact, version), mavenChecksum: true},
-	}
+	}, nil
 }
 
 // downloadVerifiedJar streams a Maven jar atomically and checks its sibling digest.

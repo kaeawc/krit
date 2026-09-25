@@ -101,7 +101,8 @@ download; `make build` and `go build` binaries use the in-tree jars. If the `kri
 backend with a warning. `krit --doctor` reports which jars are found.
 
 If GitHub fails, krit tries Maven Central. Set `KRIT_JAR_REPOSITORY` to a
-corporate Maven repository base URL to use only that mirror. The coordinates
+corporate Maven repository base URL to use only that mirror; the URL must use
+HTTPS, with plain HTTP accepted only for loopback hosts such as local mirrors and tests. The coordinates
 are `dev.jasonpearson.krit:krit-fir:<version>` and
 `dev.jasonpearson.krit:krit-types:<version>`, where version is the release tag
 without its leading `v`. Maven jars are verified against their published

@@ -110,15 +110,74 @@ func TestMavenCoordinatesAndSources(t *testing.T) {
 		t.Fatal(got)
 	}
 	for _, b := range []Backend{BackendKAA, BackendFIR} {
-		sources := jarSources(b, "v1.2.3")
+		sources, err := jarSources(b, "v1.2.3")
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(sources) != 2 || sources[0].mavenChecksum || !sources[1].mavenChecksum || !strings.Contains(sources[1].url, b.jarBaseName()) {
 			t.Fatalf("%s: %+v", b, sources)
 		}
 	}
 	t.Setenv(jarRepositoryEnv, " https://mirror/ ")
-	sources := jarSources(BackendFIR, "v1.2.3")
+	sources, err := jarSources(BackendFIR, "v1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(sources) != 1 || !sources[0].mavenChecksum || sources[0].url != "https://mirror/dev/jasonpearson/krit/krit-fir/1.2.3/krit-fir-1.2.3.jar" {
 		t.Fatalf("%+v", sources)
+	}
+}
+
+func TestJarSourcesValidatesConfiguredRepository(t *testing.T) {
+	for _, tc := range []struct {
+		name, value string
+		wantErr     bool
+		redacted    bool
+	}{
+		{"https", "https://mirror.example/maven", false, false},
+		{"ipv4 loopback", "http://127.0.0.1:1234/repo", false, false},
+		{"localhost", "http://localhost/repo", false, false},
+		{"ipv6 loopback", "http://[::1]/repo", false, false},
+		{"plain http", "http://mirror.example/maven", true, false},
+		{"ftp", "ftp://x", true, false},
+		{"not url", "not a url", true, false},
+		{"bad scheme", "://bad", true, false},
+		{"credentials", "http://user:secret@mirror.example/", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(jarRepositoryEnv, tc.value)
+			sources, err := jarSources(BackendFIR, "v1.2.3")
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("jarSources() error = %v", err)
+			}
+			if tc.wantErr && sources != nil {
+				t.Fatalf("sources = %+v, want nil", sources)
+			}
+			if tc.redacted && strings.Contains(err.Error(), "secret") {
+				t.Fatalf("credential leaked in error: %v", err)
+			}
+		})
+	}
+}
+
+func TestEnsureBackendJarRejectsInsecureRepositoryBeforeRequest(t *testing.T) {
+	isolateJarLookup(t)
+	Version = "1.2.3"
+	t.Setenv(jarRepositoryEnv, "http://not-a-loopback-hostname.example/repo")
+	priorClient, priorJava := jarHTTPClient, javaAvailable
+	hits := 0
+	jarHTTPClient = &http.Client{Transport: jarRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		hits++
+		return nil, fmt.Errorf("unexpected HTTP request")
+	})}
+	javaAvailable = func() bool { return true }
+	t.Cleanup(func() { jarHTTPClient, javaAvailable = priorClient, priorJava })
+	_, err := EnsureBackendJar(context.Background(), BackendFIR, []string{t.TempDir()}, false)
+	if err == nil {
+		t.Fatal("expected insecure repository error")
+	}
+	if hits != 0 {
+		t.Fatalf("made %d HTTP requests before rejecting repository", hits)
 	}
 }
 

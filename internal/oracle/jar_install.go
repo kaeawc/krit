@@ -212,7 +212,11 @@ var failedDownloads = map[string]error{}
 
 func downloadReleaseJar(ctx context.Context, b Backend, tag, asset, target string, verbose bool) (string, error) {
 	var failures []error
-	for _, source := range jarSources(b, tag) {
+	sources, err := jarSources(b, tag)
+	if err != nil {
+		return "", missingJarError(b, err)
+	}
+	for _, source := range sources {
 		if verbose {
 			reporter().Verbosef("verbose: downloading %s from %s\n", b.JarName(), redactURL(source.url))
 		}

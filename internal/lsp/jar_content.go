@@ -55,9 +55,64 @@ func (s *Server) jarCacheLocked() *oracle.DecompileCache {
 }
 
 func (s *Server) installDaemonDecompiler(d *oracle.Daemon) {
+	s.indexMu.Lock()
+	indexer, ok := s.indexer.(OracleWorkspaceIndexer)
+	s.indexMu.Unlock()
 	s.jarMu.Lock()
 	defer s.jarMu.Unlock()
-	s.jarCache = oracle.NewDecompileCache(filepath.Join(s.jarCacheRoot(), "kaa"), s.jarDecompilerLocked(d))
+	jarIdentity := "missing"
+	if ok {
+		jarIdentity = oracle.JarIdentity(indexer.JARPath)
+	}
+	kaaRoot := filepath.Join(s.jarCacheRoot(), "kaa")
+	pruneStaleJarIdentityDirs(kaaRoot, jarIdentity)
+	s.jarCache = oracle.NewDecompileCache(filepath.Join(kaaRoot, jarIdentity), s.jarDecompilerLocked(d))
+}
+
+// pruneStaleJarIdentityDirs removes decompile caches under kaaRoot left by
+// previous krit-types jars, so one directory does not accumulate per upgrade.
+// Only direct child directories other than current are removed; a failed
+// removal just leaves the stale cache behind.
+func pruneStaleJarIdentityDirs(kaaRoot, current string) {
+	entries, err := os.ReadDir(kaaRoot)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Name() == current {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(kaaRoot, entry.Name()))
+	}
+}
+
+func (s *Server) refreshOracleDecompiler() {
+	s.indexMu.Lock()
+	old := s.oracleDaemon
+	indexer, ok := s.indexer.(OracleWorkspaceIndexer)
+	if !ok || (old != nil && old.MatchesRepo(indexer.JARPath, []string{indexer.Root}, indexer.Classpath...)) {
+		s.indexMu.Unlock()
+		return
+	}
+	d, err := oracle.ConnectOrStartDaemon(indexer.JARPath, []string{indexer.Root}, indexer.Classpath, indexer.Verbose)
+	if err != nil || !d.MatchesRepo(indexer.JARPath, []string{indexer.Root}, indexer.Classpath...) {
+		if d != nil {
+			_ = d.Release()
+		}
+		s.oracleDaemon = nil
+		s.indexMu.Unlock()
+		if old != nil {
+			_ = old.Release()
+		}
+		s.installDaemonDecompiler(nil)
+		return
+	}
+	s.oracleDaemon = d
+	s.indexMu.Unlock()
+	if old != nil {
+		_ = old.Release()
+	}
+	s.installDaemonDecompiler(d)
 }
 
 func (s *Server) jarDecompilerLocked(d *oracle.Daemon) oracle.Decompiler {
@@ -99,6 +154,7 @@ func (s *Server) handleJARContent(req *Request) {
 		return
 	}
 
+	s.refreshOracleDecompiler()
 	s.jarMu.Lock()
 	cache := s.jarCacheLocked()
 	s.jarMu.Unlock()
@@ -142,6 +198,7 @@ func (s *Server) jarText(uri string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	s.refreshOracleDecompiler()
 	s.jarMu.Lock()
 	cache := s.jarCacheLocked()
 	s.jarMu.Unlock()

@@ -457,9 +457,10 @@ func (defaultOracleDaemonStarter) Start(jarPath string, sourceDirs, classpath []
 // constructed under so a future change to scan paths or jar location
 // can detect divergence and rebuild.
 type oracleDaemonEntry struct {
-	daemon     *oracle.Daemon
-	jarPath    string
-	sourceDirs []string
+	daemon      *oracle.Daemon
+	jarPath     string
+	jarIdentity string
+	sourceDirs  []string
 	// closeFn, when non-nil, replaces entry.daemon.Close() in
 	// closeOracleDaemons. Used by tests to inject a controllable
 	// close — production code leaves it nil.
@@ -528,13 +529,17 @@ func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Back
 	s.oracleDaemonMu.Lock()
 	defer s.oracleDaemonMu.Unlock()
 	if entry, ok := s.oracleDaemonByKey[key]; ok {
-		return entry.daemon, nil
+		if entry != nil && entry.jarIdentity == oracle.JarIdentity(jarPath) {
+			return entry.daemon, nil
+		}
+		_ = entry.close()
+		delete(s.oracleDaemonByKey, key)
 	}
 	d, err := s.oracleDaemonStarter.Start(jarPath, sourceDirs, nil, false)
 	if err != nil {
 		return nil, fmt.Errorf("start oracle daemon: %w", err)
 	}
-	s.oracleDaemonByKey[key] = &oracleDaemonEntry{daemon: d, jarPath: jarPath, sourceDirs: sourceDirs}
+	s.oracleDaemonByKey[key] = &oracleDaemonEntry{daemon: d, jarPath: jarPath, jarIdentity: oracle.JarIdentity(jarPath), sourceDirs: sourceDirs}
 	return d, nil
 }
 
@@ -553,7 +558,7 @@ func (s *daemonState) pingOracleDaemon() {
 		if entry == nil || entry.daemon == nil {
 			continue
 		}
-		if err := entry.daemon.Ping(); err == nil {
+		if entry.jarIdentity == oracle.JarIdentity(entry.jarPath) && entry.daemon.Ping() == nil {
 			continue
 		}
 		// Failed ping → close and rebuild. Closing a dead daemon is
@@ -566,6 +571,7 @@ func (s *daemonState) pingOracleDaemon() {
 			continue
 		}
 		entry.daemon = d
+		entry.jarIdentity = oracle.JarIdentity(entry.jarPath)
 	}
 }
 

@@ -5,7 +5,7 @@ package firchecks
 // Mirrors internal/oracle/daemon.go: spawns java -jar krit-fir.jar
 // --daemon --port 0, reads the JSON readiness handshake, keeps the TCP
 // connection open for reuse. Daemon PID/port files live at
-//   ~/.krit/cache/daemons/{sourcesHash}.krit-fir.{pid,port}
+//   ~/.krit/cache/daemons/{sourcesHash}-{pathTag}@{identity}.krit-fir.{pid,port}
 // so multiple repos can keep two warm daemons without colliding.
 
 import (
@@ -26,6 +26,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/oracle"
 )
 
 // FirDaemon manages a long-lived krit-fir JVM process.
@@ -40,16 +41,16 @@ type FirDaemon struct {
 	started bool
 	shared  bool
 	slot    int
-	// sourcesHash is the 16-hex-char fingerprint of sourceDirs this daemon serves.
+	// sourcesHash is the jar and sourceDirs registry key this daemon serves.
 	sourcesHash string
 }
 
-// MatchesRepo returns true if this daemon was started for the given sourceDirs.
-func (d *FirDaemon) MatchesRepo(sourceDirs []string) bool {
+// MatchesRepo returns true if this daemon uses the current jar and sourceDirs.
+func (d *FirDaemon) MatchesRepo(jarPath string, sourceDirs []string) bool {
 	if d.sourcesHash == "" {
 		return false
 	}
-	return d.sourcesHash == hashFirSources(sourceDirs)
+	return d.sourcesHash == firRegistryKey(jarPath, sourceDirs)
 }
 
 // firDaemonRequest is the JSON shape sent to the krit-fir daemon.
@@ -195,15 +196,20 @@ func StartFirDaemonWithPort(jarPath string, verbose bool) (*FirDaemon, error) {
 // ConnectOrStartFirDaemon tries to reuse an existing daemon for the given
 // sourceDirs (via PID file), or starts a new one.
 func ConnectOrStartFirDaemon(jarPath string, sourceDirs []string, verbose bool) (*FirDaemon, error) {
-	if d, err := connectExistingFirDaemon(sourceDirs, verbose); err == nil {
+	// Capture the jar identity once, before any JVM opens the jar. If the jar
+	// is replaced while a new daemon starts, it stays registered under the
+	// identity observed first, so the next caller restarts it instead of
+	// trusting a daemon that may be running the old artifact.
+	srcHash := firRegistryKey(jarPath, sourceDirs)
+	if d, err := connectExistingFirDaemon(srcHash, verbose); err == nil {
 		return d, nil
 	}
-	cleanStaleFirDaemon(sourceDirs, verbose)
+	retireSupersededFirDaemons(jarPath, sourceDirs, srcHash, verbose)
+	stopFirDaemon(srcHash, verbose)
 	d, err := StartFirDaemonWithPort(jarPath, verbose)
 	if err != nil {
 		return nil, fmt.Errorf("start persistent fir daemon: %w", err)
 	}
-	srcHash := hashFirSources(sourceDirs)
 	d.sourcesHash = srcHash
 	if err := writeFirPIDFile(d.cmd.Process.Pid, d.port, srcHash); err != nil {
 		d.conn.Close()
@@ -434,8 +440,9 @@ func removeFirPIDFile(sourcesHash string) {
 	os.Remove(firPortPath(sourcesHash))
 }
 
-func connectExistingFirDaemon(sourceDirs []string, verbose bool) (*FirDaemon, error) {
-	hash := hashFirSources(sourceDirs)
+// connectExistingFirDaemon reuses the daemon registered under hash, a
+// firRegistryKey.
+func connectExistingFirDaemon(hash string, verbose bool) (*FirDaemon, error) {
 	pidData, err := os.ReadFile(firPIDPath(hash))
 	if err != nil {
 		return nil, fmt.Errorf("no existing fir daemon: %w", err)
@@ -484,8 +491,7 @@ func connectExistingFirDaemon(sourceDirs []string, verbose bool) (*FirDaemon, er
 	return d, nil
 }
 
-func cleanStaleFirDaemon(sourceDirs []string, verbose bool) {
-	hash := hashFirSources(sourceDirs)
+func stopFirDaemon(hash string, verbose bool) {
 	pidData, err := os.ReadFile(firPIDPath(hash))
 	if err != nil {
 		removeFirPIDFile(hash)
@@ -520,6 +526,50 @@ func cleanStaleFirDaemon(sourceDirs []string, verbose bool) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	removeFirPIDFile(hash)
+}
+
+// Retiring an old daemon can interrupt another krit mid-request, but the jar
+// that daemon was started from has already been replaced on disk.
+func retireSupersededFirDaemons(jarPath string, sourceDirs []string, current string, verbose bool) {
+	dir, err := firDaemonsDir()
+	if err != nil {
+		return
+	}
+	prefix := hashFirSources(sourceDirs) + "-" + oracle.JarPathTag(jarPath) + "@"
+	paths, err := filepath.Glob(filepath.Join(dir, prefix+"*.krit-fir.pid"))
+	if err == nil {
+		for _, path := range paths {
+			stem := strings.TrimSuffix(filepath.Base(path), ".krit-fir.pid")
+			identity := strings.TrimPrefix(stem, prefix)
+			if !strings.HasPrefix(stem, prefix) || !validFirIdentity(identity) || stem == current {
+				continue
+			}
+			stopFirDaemon(stem, verbose)
+		}
+	}
+	legacy := hashFirSources(sourceDirs)
+	if _, err := os.Stat(firPIDPath(legacy)); err == nil {
+		stopFirDaemon(legacy, verbose)
+	}
+}
+
+func validFirIdentity(identity string) bool {
+	if identity == "missing" {
+		return true
+	}
+	if len(identity) != 8 {
+		return false
+	}
+	for _, c := range identity {
+		if !strings.ContainsRune("0123456789abcdef", c) {
+			return false
+		}
+	}
+	return true
+}
+
+func firRegistryKey(jarPath string, sourceDirs []string) string {
+	return hashFirSources(sourceDirs) + "-" + oracle.JarPathTag(jarPath) + "@" + oracle.JarIdentity(jarPath)
 }
 
 // hashFirSources returns a 16-hex-char fingerprint of sorted sourceDirs.

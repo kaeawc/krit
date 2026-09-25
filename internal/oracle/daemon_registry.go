@@ -102,7 +102,19 @@ func hashSources(sourceDirs []string) string {
 // answers for another (its facts would be computed against the wrong
 // libraries).
 func daemonRegistryKey(jarPath string, sourceDirs []string, classpath ...string) string {
-	key := jarTag(jarPath) + "-" + hashSources(sourceDirs)
+	return daemonRegistryPrefix(jarPath, sourceDirs, classpath...) + "@" + JarIdentity(jarPath)
+}
+
+func daemonRegistryPrefix(jarPath string, sourceDirs []string, classpath ...string) string {
+	return jarTag(jarPath) + "-" + JarPathTag(jarPath) + "-" + daemonLegacySuffix(sourceDirs, classpath...)
+}
+
+func daemonLegacyKey(jarPath string, sourceDirs []string, classpath ...string) string {
+	return jarTag(jarPath) + "-" + daemonLegacySuffix(sourceDirs, classpath...)
+}
+
+func daemonLegacySuffix(sourceDirs []string, classpath ...string) string {
+	key := hashSources(sourceDirs)
 	if len(classpath) > 0 {
 		// Order matters on a classpath, so hash it as given.
 		key += "-" + hashutil.HashHex([]byte(strings.Join(classpath, "\n")))[:8]
@@ -405,16 +417,25 @@ func cleanStaleDaemon(jarPath string, sourceDirs []string, verbose bool, classpa
 
 func cleanStaleDaemonSlot(jarPath string, sourceDirs []string, verbose bool, slot int, classpath ...string) {
 	hash := daemonRegistryKey(jarPath, sourceDirs, classpath...)
-	info, err := readPIDFileSlot(hash, slot)
+	stopDaemonSlot(hash, slot, verbose)
+}
+
+func stopDaemonSlot(hash string, slot int, verbose bool) {
+	pidData, err := os.ReadFile(daemonPIDPathForSlot(hash, slot))
 	if err != nil {
 		// No PID file or unreadable — nothing to clean
 		removePIDFileSlot(hash, slot)
 		return
 	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(pidData)))
+	if err != nil || pid <= 0 {
+		removePIDFileSlot(hash, slot)
+		return
+	}
 
-	if !isProcessAlive(info.PID) {
+	if !isProcessAlive(pid) {
 		if verbose {
-			reporter().Verbosef("verbose: Cleaning up stale daemon slot %d PID file (PID %d no longer alive)\n", slot, info.PID)
+			reporter().Verbosef("verbose: Cleaning up stale daemon slot %d PID file (PID %d no longer alive)\n", slot, pid)
 		}
 		removePIDFileSlot(hash, slot)
 		return
@@ -422,10 +443,10 @@ func cleanStaleDaemonSlot(jarPath string, sourceDirs []string, verbose bool, slo
 
 	// Process is alive but we couldn't connect — it's stuck. Kill it.
 	if verbose {
-		reporter().Verbosef("verbose: Killing unresponsive daemon slot %d (PID %d)\n", slot, info.PID)
+		reporter().Verbosef("verbose: Killing unresponsive daemon slot %d (PID %d)\n", slot, pid)
 	}
 
-	proc, err := os.FindProcess(info.PID)
+	proc, err := os.FindProcess(pid)
 	if err != nil {
 		removePIDFileSlot(hash, slot)
 		return
@@ -438,16 +459,16 @@ func cleanStaleDaemonSlot(jarPath string, sourceDirs []string, verbose bool, slo
 	// "SIGKILL needs more than a few hundred ms" case (loaded host,
 	// kernel reaping lag) with a longer bounded loop.
 	_ = proc.Signal(syscall.SIGTERM)
-	if waitUntilDead(info.PID, 5*time.Second) {
+	if waitUntilDead(pid, 5*time.Second) {
 		removePIDFileSlot(hash, slot)
 		return
 	}
 
 	if verbose {
-		reporter().Verbosef("verbose: SIGTERM ignored by daemon slot %d (PID %d); sending SIGKILL\n", slot, info.PID)
+		reporter().Verbosef("verbose: SIGTERM ignored by daemon slot %d (PID %d); sending SIGKILL\n", slot, pid)
 	}
 	_ = proc.Signal(syscall.SIGKILL)
-	if waitUntilDead(info.PID, 3*time.Second) {
+	if waitUntilDead(pid, 3*time.Second) {
 		removePIDFileSlot(hash, slot)
 		return
 	}
@@ -457,8 +478,78 @@ func cleanStaleDaemonSlot(jarPath string, sourceDirs []string, verbose bool, slo
 	// wedged on it. The kernel will eventually reap; the worst case is
 	// a brief window where the new daemon's port-0 bind dodges the
 	// zombie's old port (port-0 always picks an unused one).
-	reporter().Verbosef("verbose: daemon slot %d (PID %d) survived SIGKILL within timeout; PID file removed regardless\n", slot, info.PID)
+	reporter().Verbosef("verbose: daemon slot %d (PID %d) survived SIGKILL within timeout; PID file removed regardless\n", slot, pid)
 	removePIDFileSlot(hash, slot)
+}
+
+// retireSupersededDaemons removes only entries for this path, sources and
+// classpath. A concurrent request on an old daemon can be interrupted after
+// its jar is replaced on disk; that daemon can no longer serve the current jar.
+func retireSupersededDaemons(jarPath string, sourceDirs []string, classpath []string, verbose bool) {
+	dir, err := daemonsDir()
+	if err != nil {
+		return
+	}
+	prefix := daemonRegistryPrefix(jarPath, sourceDirs, classpath...)
+	current := daemonRegistryKey(jarPath, sourceDirs, classpath...)
+	paths, err := filepath.Glob(filepath.Join(dir, prefix+"@*.pid"))
+	if err == nil {
+		for _, path := range paths {
+			key, slot, ok := parseDaemonPIDName(strings.TrimSuffix(filepath.Base(path), ".pid"), prefix+"@")
+			if ok && key != current {
+				stopDaemonSlot(key, slot, verbose)
+			}
+		}
+	}
+	legacy := daemonLegacyKey(jarPath, sourceDirs, classpath...)
+	paths, err = filepath.Glob(filepath.Join(dir, legacy+"*.pid"))
+	if err == nil {
+		for _, path := range paths {
+			key, slot, ok := parseLegacyDaemonPIDName(strings.TrimSuffix(filepath.Base(path), ".pid"), legacy)
+			if ok {
+				stopDaemonSlot(key, slot, verbose)
+			}
+		}
+	}
+}
+
+func parseDaemonPIDName(stem, prefix string) (string, int, bool) {
+	if !strings.HasPrefix(stem, prefix) {
+		return "", 0, false
+	}
+	remainder := strings.TrimPrefix(stem, prefix)
+	identity, slotText, hasSlot := strings.Cut(remainder, ".")
+	if identity != "missing" {
+		if len(identity) != 8 {
+			return "", 0, false
+		}
+		for _, c := range identity {
+			if !strings.ContainsRune("0123456789abcdef", c) {
+				return "", 0, false
+			}
+		}
+	}
+	slot := 0
+	if hasSlot {
+		var err error
+		slot, err = strconv.Atoi(slotText)
+		if err != nil || slot < 1 || strconv.Itoa(slot) != slotText {
+			return "", 0, false
+		}
+	}
+	return prefix + identity, slot, true
+}
+
+func parseLegacyDaemonPIDName(stem, key string) (string, int, bool) {
+	if stem == key {
+		return key, 0, true
+	}
+	if !strings.HasPrefix(stem, key+".") {
+		return "", 0, false
+	}
+	slotText := strings.TrimPrefix(stem, key+".")
+	slot, err := strconv.Atoi(slotText)
+	return key, slot, err == nil && slot > 0 && strconv.Itoa(slot) == slotText
 }
 
 // waitUntilDead polls isProcessAlive at 100ms intervals up to timeout.
@@ -489,6 +580,12 @@ func StartDaemonWithPortSlot(jarPath string, sourceDirs []string, classpath []st
 }
 
 func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath []string, verbose bool, slot int) (*Daemon, error) {
+	// Capture the jar identity before the JVM opens the jar. If the jar is
+	// replaced during startup, the daemon is registered under the identity
+	// observed first, so the next caller sees a mismatch and restarts rather
+	// than trusting a daemon that may be running the old artifact.
+	srcHash := daemonRegistryKey(jarPath, sourceDirs, classpath...)
+
 	javaPath, err := exec.LookPath("java")
 	if err != nil {
 		return nil, fmt.Errorf("java not found in PATH: %w", err)
@@ -529,8 +626,6 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 	if verbose {
 		reporter().Verbosef("verbose: Daemon started on port %d (PID %d)\n", ready.Port, cmd.Process.Pid)
 	}
-
-	srcHash := daemonRegistryKey(jarPath, sourceDirs, classpath...)
 
 	if err := writePIDFileSlot(cmd.Process.Pid, ready.Port, srcHash, slot); err != nil {
 		cmd.Process.Kill()
@@ -580,6 +675,7 @@ func ConnectOrStartDaemon(jarPath string, sourceDirs []string, classpath []strin
 	if d, err := connectExistingDaemon(jarPath, sourceDirs, verbose, classpath...); err == nil {
 		return d, nil
 	}
+	retireSupersededDaemons(jarPath, sourceDirs, classpath, verbose)
 
 	// Clean up this (jar, repo)'s stale daemon entry (if any). Other
 	// registry entries are left alone.

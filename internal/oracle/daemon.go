@@ -29,12 +29,9 @@ type Daemon struct {
 	started bool
 	shared  bool // true if this daemon was connected to (not started by us)
 	slot    int  // daemon-pool slot; 0 is the legacy single-daemon slot
-	// sourcesHash is the 16-hex-char fingerprint of the sourceDirs this
-	// Daemon was built for (or connected to). Used by MatchesRepo to
-	// detect cross-repo daemon reuse. For freshly-started-by-us daemons
-	// the field is set from the actual sourceDirs at startup. For
-	// shared/connected-to daemons, it's populated from daemon.sources
-	// on the filesystem. Empty string means unknown — see MatchesRepo.
+	// sourcesHash is the full registry key for the jar, sourceDirs and
+	// classpath this Daemon serves. MatchesRepo checks it against the
+	// current jar identity. Empty string means unknown.
 	sourcesHash string
 
 	// Breaker state layers a soft-open under the started=false hard-fail.

@@ -53,18 +53,35 @@ func ConnectOrStartDaemonPool(jarPath string, sourceDirs []string, classpath []s
 		size = 1
 	}
 	pool := &DaemonPool{Requested: size, Members: make([]*Daemon, 0, size)}
+	connected := make([]*Daemon, size)
+	allConnected := true
 	for slot := 0; slot < size; slot++ {
 		d, err := connectExistingDaemonSlot(jarPath, sourceDirs, verbose, slot, classpath...)
-		if err == nil {
+		if err != nil {
+			allConnected = false
+			continue
+		}
+		connected[slot] = d
+	}
+	if !allConnected {
+		retireSupersededDaemons(jarPath, sourceDirs, classpath, verbose)
+	}
+	for slot := 0; slot < size; slot++ {
+		if d := connected[slot]; d != nil {
 			pool.Members = append(pool.Members, d)
 			pool.Connected++
 			continue
 		}
 
 		cleanStaleDaemonSlot(jarPath, sourceDirs, verbose, slot, classpath...)
-		d, err = StartDaemonWithPortSlot(jarPath, sourceDirs, classpath, verbose, slot)
+		d, err := StartDaemonWithPortSlot(jarPath, sourceDirs, classpath, verbose, slot)
 		if err != nil {
 			_ = pool.Release()
+			for _, pending := range connected[slot+1:] {
+				if pending != nil {
+					_ = pending.Release()
+				}
+			}
 			return nil, fmt.Errorf("start daemon pool slot %d: %w", slot, err)
 		}
 		pool.Members = append(pool.Members, d)

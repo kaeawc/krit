@@ -10,11 +10,10 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipFile
 
 internal object BundledStdlib {
-    private val stdlibJarName = Regex("kotlin-stdlib(-[0-9][^/]*)?\\.jar")
-
-    // The file facade that declares listOf/mapOf. Its presence proves a real
-    // stdlib; kotlin-stdlib-jdk7/8 are empty shims since Kotlin 1.8, and build
-    // tools (Bazel, AAR extraction) can rename the stdlib jar.
+    // The file facade that declares listOf/mapOf. Only its presence proves a
+    // usable stdlib: a stdlib-named entry can be missing on disk,
+    // kotlin-stdlib-jdk7/8 are empty shims since Kotlin 1.8, and build tools
+    // (Bazel, AAR extraction) can rename the stdlib jar.
     private const val STDLIB_PROBE = "kotlin/collections/CollectionsKt.class"
     private val probed = ConcurrentHashMap<String, Boolean>()
     private val bundledPath: String? by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
@@ -22,7 +21,7 @@ internal object BundledStdlib {
     }
 
     fun effectiveClasspath(user: List<String>): List<String> {
-        if (user.any { entry -> stdlibJarName.matches(File(entry).name) || containsStdlib(entry) }) {
+        if (user.any(::containsStdlib)) {
             return user
         }
         return bundledPath?.let { user + it } ?: user

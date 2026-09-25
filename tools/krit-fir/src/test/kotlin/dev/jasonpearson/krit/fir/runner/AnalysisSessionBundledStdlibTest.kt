@@ -36,8 +36,12 @@ class AnalysisSessionBundledStdlibTest {
     }
 
     @Test
-    fun existingStdlibFilenameLeavesClasspathUnchanged() {
-        val classpath = listOf("missing/path/kotlin-stdlib-2.1.0.jar")
-        assertEquals(classpath, effectiveClasspath(classpath))
+    fun missingStdlibNamedEntryStillGetsTheBundledStdlib() {
+        // A stdlib-named path that doesn't exist provides no classes, so it must
+        // not suppress the bundle.
+        val missing = "missing/path/kotlin-stdlib-2.1.0.jar"
+        val effective = effectiveClasspath(listOf(missing))
+        assertEquals(2, effective.size, "bundled stdlib not appended: $effective")
+        assertEquals(missing, effective.first())
     }
 }

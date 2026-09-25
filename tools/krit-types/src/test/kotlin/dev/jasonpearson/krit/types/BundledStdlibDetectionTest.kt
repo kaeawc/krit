@@ -37,6 +37,12 @@ class BundledStdlibDetectionTest {
     }
 
     @Test
+    fun standardStdlibJarLeavesClasspathUnchanged() {
+        val stdlib = jar("kotlin-stdlib-2.1.0.jar", "kotlin/collections/CollectionsKt.class")
+        assertEquals(listOf(stdlib), effectiveClasspath(listOf(stdlib)))
+    }
+
+    @Test
     fun renamedJarContainingTheStdlibIsRecognized() {
         val renamed = jar("stdlib.jar", "kotlin/collections/CollectionsKt.class")
         assertEquals(listOf(renamed), effectiveClasspath(listOf(renamed)))

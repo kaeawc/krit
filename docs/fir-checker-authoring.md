@@ -190,7 +190,9 @@ changes. Cancellation (`ProcessCanceledException`) and JVM failures such as
 `OutOfMemoryError` still propagate. Only check requests isolate checkers: the
 `:compiler-tests` harness runs them unwrapped, so an exception there fails the
 test. A rule error is a bug in the checker: fix
-it, do not rely on the fallback.
+it, do not rely on the fallback. Because each rule's checkers are wrapped
+separately, register a checker object in only one checker set: K2 no longer
+deduplicates the same object across overlapping sets, so it would run twice.
 
 Do not implement `@Suppress`, `excludes`, rule activation, or baselines in a
 checker. Go applies all of them to FIR findings, just as it does to its own

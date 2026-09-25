@@ -21,7 +21,8 @@ const (
 	// Bumped to 3 when ResolvedType gained Resolved. Older payloads would
 	// decode genuine type evidence as unresolved via the bool zero value.
 	// Bumped to 4 when scopes gained declaration and smart-cast start offsets.
-	typeIndexCacheVersion = 4
+	// Bumped to 5 when reattached top-level annotations moved declaration starts.
+	typeIndexCacheVersion = 5
 )
 
 var (

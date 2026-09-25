@@ -44,7 +44,8 @@ func normalizeTopLevelAnnotations(t *FlatTree) *FlatTree {
 			continue
 		}
 		if splitParen != nil {
-			annotations[0].children = append(annotations[0].children, splitParen)
+			last := annotations[len(annotations)-1]
+			last.children = append(last.children, splitParen)
 		}
 		for _, ann := range annotations {
 			repairSplitAnnotation(ann)
@@ -74,7 +75,7 @@ func topLevelAnnotationTarget(children []*annotationTreeNode, prefixIdx int, nes
 		}
 		return nil, end
 	}
-	for end < len(children) && children[end].typ == "multiline_comment" {
+	for end < len(children) && (children[end].typ == "multiline_comment" || children[end].typ == "line_comment") {
 		end++
 	}
 	if end == len(children) || !isTopLevelAnnotationDeclaration(children[end].typ) {
@@ -125,6 +126,9 @@ func isTopLevelAnnotationDeclaration(typ string) bool {
 	return false
 }
 
+// repairTopLevelAnonymousFunction handles only plain fun name( recovery.
+// Receiver forms like `fun Foo.name(` and type-parameter forms like
+// `fun <T> name(` are not repaired when nested; they have no target match.
 func repairTopLevelAnonymousFunction(decl *annotationTreeNode) bool {
 	if len(decl.children) < 2 || decl.children[0].typ != "fun" || decl.children[1].typ != "ERROR" || len(decl.children[1].children) != 1 || decl.children[1].children[0].typ != "simple_identifier" {
 		return false
@@ -185,6 +189,9 @@ func appendAnnotationTree(t *FlatTree, n *annotationTreeNode, parent uint32, has
 	t.ChildCounts = append(t.ChildCounts, saturateUint16(uint32(len(n.children))))
 	named := uint32(0)
 	flags := n.flags &^ flatNodeFlagError
+	if n.flags&flatNodeFlagIsError != 0 {
+		flags |= flatNodeFlagError
+	}
 	for _, child := range n.children {
 		if child.flags&flatNodeFlagNamed != 0 {
 			named++

@@ -89,3 +89,16 @@ func TestIndexFilesParallelCachedInvalidatesChangedFileOnly(t *testing.T) {
 		t.Fatalf("changed file did not index class C")
 	}
 }
+
+func TestTypeIndexCacheRejectsPreAnnotationOffsetVersion(t *testing.T) {
+	old := packedFileTypeInfo{
+		Version: 4,
+		Path:    "Old.kt",
+		RootScope: packedScope{
+			Children: []packedScope{{StartByte: 24, EndByte: 40}},
+		},
+	}
+	if _, ok := unpackFileTypeInfo(old); ok {
+		t.Fatal("accepted version 4 type index with declaration offsets predating annotation normalization")
+	}
+}

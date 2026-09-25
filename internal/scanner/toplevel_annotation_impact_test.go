@@ -20,6 +20,7 @@ func TestTopLevelAnnotationDeclarationShapes(t *testing.T) {
 		{"stacked second", "package p\n@A(\"x\")\n@B(\"y\")\nfun f() {}\nfun g() {}\n", "function_declaration", "B", "stacked"},
 		{"other modifier", "package p\n@Suppress(\"X\") private fun f() {}\nfun g() {}\n", "function_declaration", "Suppress", "attached"},
 		{"KDoc between", "package p\n@A(\"x\")\n/** docs */\nfun f() {}\nfun g() {}\n", "function_declaration", "A", "split"},
+		{"line comment between", "package p\n@Deprecated(\"x\") // TODO\nfun old() {}\nfun use() {}\n", "function_declaration", "Deprecated", "split"},
 		{"class", "package p\n@A(\"x\")\nclass C\nfun g() {}\n", "class_declaration", "A", "attached"},
 		{"object", "package p\n@A(\"x\")\nobject O\nfun g() {}\n", "object_declaration", "A", "split"},
 		{"interface", "package p\n@A(\"x\")\ninterface I\nfun g() {}\n", "class_declaration", "A", "attached"},
@@ -172,4 +173,103 @@ func TestTopLevelAnnotationStackedParseErrorRemoved(t *testing.T) {
 		t.Fatal("normalized root still contains the recovered parser error")
 	}
 	FlatWalkNodes(flat, "ERROR", func(uint32) { t.Error("normalized tree still exposes parser recovery node") })
+}
+
+func TestTopLevelAnnotationUnrelatedSyntaxErrorRetained(t *testing.T) {
+	src := "@A(\"x\")\nfun f() {}\nfun g() {}\nfun broken( {}\n"
+	root, _ := parseKotlin(t, src)
+	if !strings.Contains(root.String(), "(prefix_expression (annotation") {
+		t.Fatalf("expected split annotation, raw tree: %s", root.String())
+	}
+	flat := flattenTree(root)
+	var recovery uint32
+	for idx := range flat.Types {
+		if flat.Node(uint32(idx)).IsErrorNode() && flat.ChildCounts[idx] == 0 {
+			recovery = uint32(idx)
+			break
+		}
+	}
+	if recovery == 0 {
+		t.Fatalf("expected leaf ERROR/MISSING node, raw tree: %s", root.String())
+	}
+	if !flat.Node(recovery).HasError() {
+		t.Errorf("leaf recovery node %s at byte %d lost HasError", flat.Node(recovery).TypeName(), flat.StartBytes[recovery])
+	}
+	if !flat.Node(0).HasError() {
+		t.Error("source_file lost HasError from unrelated syntax error")
+	}
+}
+
+func TestTopLevelAnnotationBareOuterParenthesizedInner(t *testing.T) {
+	src := "@A\n@B(\"y\")\nfun f() {}\nfun g() {}\n"
+	root, content := parseKotlin(t, src)
+	raw := root.String()
+	const wantRaw = "(source_file (prefix_expression (annotation (user_type (type_identifier))) (prefix_expression (annotation (user_type (type_identifier))) (parenthesized_expression (string_literal (string_content))))) (function_declaration (simple_identifier) (function_value_parameters) (function_body)) (function_declaration (simple_identifier) (function_value_parameters) (function_body)))"
+	if raw != wantRaw {
+		t.Fatalf("unexpected raw stacked split shape: %s", raw)
+	}
+	flat := flattenTree(root)
+	var decl uint32
+	FlatWalkNodes(flat, "function_declaration", func(idx uint32) {
+		if decl == 0 {
+			decl = idx
+		}
+	})
+	if decl == 0 {
+		t.Fatal("normalized function declaration missing")
+	}
+	mods, ok := FlatFindChild(flat, decl, "modifiers")
+	if !ok {
+		t.Fatal("normalized modifiers missing")
+	}
+	var anns []uint32
+	for child := flat.FirstChildren[mods]; child != 0; child = flat.NextSibs[child] {
+		if nodeTypeName(flat.Types[child]) == "annotation" {
+			anns = append(anns, child)
+		}
+	}
+	if len(anns) != 2 {
+		t.Fatalf("normalized annotation count = %d, want 2; raw tree: %s", len(anns), raw)
+	}
+	if got := FlatNodeText(flat, anns[0], content); got != "@A" {
+		t.Errorf("outer annotation = %q, want bare @A", got)
+	}
+	if _, ok := FlatFindChild(flat, anns[0], "constructor_invocation"); ok {
+		t.Error("bare @A unexpectedly has a constructor invocation")
+	}
+	if got := FlatNodeText(flat, anns[1], content); got != "@B(\"y\")" {
+		t.Errorf("inner annotation = %q, want @B(\"y\")", got)
+	}
+	call, ok := FlatFindChild(flat, anns[1], "constructor_invocation")
+	if !ok {
+		t.Fatal("@B constructor invocation missing")
+	}
+	args, ok := FlatFindChild(flat, call, "value_arguments")
+	if !ok || FlatNodeText(flat, args, content) != "(\"y\")" {
+		t.Errorf("@B value arguments = %q, want (\"y\")", FlatNodeText(flat, args, content))
+	}
+}
+
+func TestTopLevelAnnotationNestedFunctionRecoveryLimit(t *testing.T) {
+	for _, tc := range []struct{ name, first string }{
+		{"receiver", "user_type"},
+		{"type parameters", "type_parameters"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			decl := &annotationTreeNode{typ: "anonymous_function", children: []*annotationTreeNode{
+				{typ: "fun"},
+				{typ: tc.first},
+				{typ: "ERROR", children: []*annotationTreeNode{{typ: "simple_identifier"}}},
+			}}
+			if repairTopLevelAnonymousFunction(decl) {
+				t.Error("repaired unsupported anonymous_function recovery shape")
+			}
+			if decl.typ != "anonymous_function" || decl.children[1].typ != tc.first {
+				t.Error("unsupported recovery shape was mutated")
+			}
+			if target, _ := topLevelAnnotationTarget(nil, 0, decl); target != nil {
+				t.Error("unsupported nested recovery matched a declaration target")
+			}
+		})
+	}
 }

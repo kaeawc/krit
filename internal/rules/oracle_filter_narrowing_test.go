@@ -19,7 +19,6 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 		identifiers []string
 		callTargets []string
 	}{
-		{"Deprecation", []string{"Deprecated"}, []string{"Deprecated"}},
 		{"IgnoredReturnValue", []string{"Sequence", "Flow", "Stream", "Function", "->", "CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}, []string{"CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}},
 		{"NullableToStringCall", []string{"toString", "$"}, []string{"toString"}},
 		{"ObjectAnimatorBinding", []string{"ObjectAnimator", "ofFloat", "ofInt", "ofObject"}, nil},
@@ -60,6 +59,28 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 				t.Errorf("%s: OracleCallTargets identifiers = %v, want %v", tc.id, oracleCallTargetIdentifiers(r.OracleCallTargets), tc.callTargets)
 			}
 		}
+	}
+}
+
+// TestDeprecationOracleFilterCoversAllFiles locks in Deprecation's
+// deliberate exception to identifier narrowing. It projects the compiler's
+// DEPRECATION diagnostic, and the files that reference a deprecated symbol
+// usually never mention "Deprecated" (library APIs, inherited members, types
+// declared elsewhere), so a token-based file filter would drop the
+// diagnostics. Call-target narrowing is unaffected and stays in place.
+func TestDeprecationOracleFilterCoversAllFiles(t *testing.T) {
+	rule := findRegisteredRule(t, "Deprecation")
+	if !RuleNeedsKotlinOracle(rule) || rule.Needs&api.NeedsOracleDiagnostics == 0 {
+		t.Fatalf("Deprecation should consume oracle diagnostics, got Needs=%b", rule.Needs)
+	}
+	if rule.Oracle != nil {
+		t.Fatalf("Deprecation Oracle filter = %+v, want nil (all files)", rule.Oracle)
+	}
+	if rule.OracleCallTargets == nil || rule.OracleCallTargets.AllCalls {
+		t.Fatalf("Deprecation OracleCallTargets = %+v, want bounded call filtering", rule.OracleCallTargets)
+	}
+	if got := oracleCallTargetIdentifiers(rule.OracleCallTargets); !slices.Equal(got, []string{"Deprecated"}) {
+		t.Fatalf("Deprecation OracleCallTargets identifiers = %v, want [Deprecated]", got)
 	}
 }
 

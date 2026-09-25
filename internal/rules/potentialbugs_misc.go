@@ -2,6 +2,7 @@ package rules
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
@@ -117,6 +118,145 @@ func flatDeprecationRefName(file *scanner.File, idx uint32) string {
 		return text
 	default:
 		return ""
+	}
+}
+
+// flatDeprecationRefNameNode returns the identifier node that
+// flatDeprecationRefName reads the referenced name from, or 0. The compiler
+// anchors DEPRECATION on exactly that token, so matching it lets one dispatched
+// node claim each diagnostic even though call_expression, navigation_expression,
+// and user_type can all cover the same span: in `a.dep.m()` the call's name
+// node is `m`, and the inner `a.dep` navigation owns the diagnostic on `dep`.
+func flatDeprecationRefNameNode(file *scanner.File, idx uint32) uint32 {
+	name := flatDeprecationRefName(file, idx)
+	if name == "" {
+		return 0
+	}
+	switch file.FlatType(idx) {
+	case "call_expression":
+		for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+			switch file.FlatType(child) {
+			case "simple_identifier":
+				if file.FlatNodeTextEquals(child, name) {
+					return child
+				}
+				return 0
+			case "navigation_expression":
+				return flatNavigationExpressionLastIdentifierNamed(file, child, name)
+			}
+		}
+	case "navigation_expression":
+		return flatNavigationExpressionLastIdentifierNamed(file, idx, name)
+	case "user_type":
+		// The last type_identifier outside any type_arguments: `a.b.Old<X>`
+		// names Old, not X.
+		var last uint32
+		var walk func(uint32)
+		walk = func(n uint32) {
+			for child := file.FlatFirstChild(n); child != 0; child = file.FlatNextSib(child) {
+				switch file.FlatType(child) {
+				case "type_arguments":
+					continue
+				case "type_identifier":
+					if file.FlatNodeTextEquals(child, name) {
+						last = child
+					}
+				default:
+					walk(child)
+				}
+			}
+		}
+		walk(idx)
+		return last
+	}
+	return 0
+}
+
+// deprecationMessage formats a finding message from same-file @Deprecated
+// details, shared by the compiler-projection and source-level paths.
+func deprecationMessage(name string, info *deprecationInfo) string {
+	switch {
+	case info.message != "" && info.level != "":
+		return fmt.Sprintf("'%s' is deprecated (level=%s): %s", name, info.level, info.message)
+	case info.message != "":
+		return fmt.Sprintf("'%s' is deprecated: %s", name, info.message)
+	case info.level != "":
+		return fmt.Sprintf("'%s' is deprecated (level=%s).", name, info.level)
+	}
+	return fmt.Sprintf("'%s' is deprecated.", name)
+}
+
+// deprecationReplaceWithFix offers the same-file ReplaceWith expression as an
+// auto-fix for a call or navigation reference, or nil when none applies.
+func deprecationReplaceWithFix(file *scanner.File, idx uint32, info *deprecationInfo) *scanner.Fix {
+	if info == nil || info.replaceWith == "" {
+		return nil
+	}
+	if t := file.FlatType(idx); t != "call_expression" && t != "navigation_expression" {
+		return nil
+	}
+	return &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   int(file.FlatStartByte(idx)),
+		EndByte:     int(file.FlatEndByte(idx)),
+		Replacement: info.replaceWith,
+	}
+}
+
+// compilerDeprecationDetail extracts the @Deprecated message from K2's
+// DEPRECATION text, "'<symbol>' is deprecated. <message>.", returning "" when
+// there is none.
+func compilerDeprecationDetail(message string) string {
+	const marker = "' is deprecated."
+	i := strings.Index(message, marker)
+	if i < 0 {
+		return ""
+	}
+	return strings.TrimSuffix(strings.TrimSpace(message[i+len(marker):]), ".")
+}
+
+// sameFileDeprecationFor returns the same-file @Deprecated entry named name only
+// when it is the declaration the compiler flagged: the index is keyed by name
+// alone, so another class's member, another overload, or a library symbol with
+// the same name must not lend this diagnostic its message or ReplaceWith fix.
+// The compiler's rendered message carries the @Deprecated text, which must match.
+func sameFileDeprecationFor(file *scanner.File, name string, d oracle.Diagnostic) *deprecationInfo {
+	info := deprecatedDeclIndex(file)[name]
+	if info == nil || compilerDeprecationDetail(d.Message) != strings.TrimSuffix(info.message, ".") {
+		return nil
+	}
+	return info
+}
+
+// deprecationProjection projects K2's DEPRECATION verdict for the reference
+// named name. The compiler resolves overloads, inherited and Java-annotated
+// members, typealiases, and property and type references, which the rule's
+// call-target and same-file paths miss or match only by name.
+func deprecationProjection(name string) DiagnosticProjection {
+	return DiagnosticProjection{
+		RuleID:       "Deprecation",
+		FactoryNames: []string{"DEPRECATION"},
+		Accept: func(ctx *api.Context, d oracle.Diagnostic) bool {
+			nameNode := flatDeprecationRefNameNode(ctx.File, ctx.Idx)
+			if nameNode == 0 {
+				return false
+			}
+			start, _, ok := diagnosticAnchorBytes(ctx.File, d)
+			return ok && start == ctx.File.FlatStartByte(nameNode)
+		},
+		Message: func(ctx *api.Context, d oracle.Diagnostic) string {
+			if info := sameFileDeprecationFor(ctx.File, name, d); info != nil {
+				return deprecationMessage(name, info)
+			}
+			if detail := compilerDeprecationDetail(d.Message); detail != "" {
+				return fmt.Sprintf("'%s' is deprecated: %s", name, detail)
+			}
+			return fmt.Sprintf("'%s' is deprecated.", name)
+		},
+		Fix: func(ctx *api.Context, d oracle.Diagnostic) *scanner.Fix {
+			return deprecationReplaceWithFix(ctx.File, ctx.Idx, sameFileDeprecationFor(ctx.File, name, d))
+		},
+		Confidence: api.ConfidenceVeryHigh,
 	}
 }
 

@@ -1,8 +1,9 @@
-package dev.jasonpearson.krit.fir.checkers
+package dev.jasonpearson.krit.fir.checkers.coroutines
 
-import dev.jasonpearson.krit.fir.KritDiagnostics
+import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.report
+import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
-import org.jetbrains.kotlin.diagnostics.reportOn
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
@@ -14,7 +15,11 @@ import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.name.FqName
 
-internal object FlowCollectInOnCreate : FirFunctionCallChecker(MppCheckerKind.Common) {
+internal object CollectInOnCreateWithoutLifecycle : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
+    override val ruleId = "CollectInOnCreateWithoutLifecycle"
+    override val expressionCheckers = object : ExpressionCheckers() {
+        override val functionCallCheckers = setOf(CollectInOnCreateWithoutLifecycle)
+    }
     private val collectFqNames = setOf(
         FqName("kotlinx.coroutines.flow.collect"),
         FqName("kotlinx.coroutines.flow.Flow.collect"),
@@ -51,7 +56,7 @@ internal object FlowCollectInOnCreate : FirFunctionCallChecker(MppCheckerKind.Co
             .lastOrNull() ?: return
         if (enclosingFunction.name.asString() !in lifecycleCallbacks) return
 
-        reporter.reportOn(source, KritDiagnostics.FLOW_COLLECT_IN_ON_CREATE)
+        report(source, "Flow.collect() called directly in onCreate(). Use lifecycleScope.launch { repeatOnLifecycle(Lifecycle.State.STARTED) { collect() } }.")
     }
 
     private fun callName(call: FirFunctionCall): String? =

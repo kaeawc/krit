@@ -143,7 +143,7 @@ fun use2(x: Int) {}
 	}
 }
 
-// flowCollectSources builds a project exercising FlowCollectInOnCreate across
+// flowCollectSources builds a project exercising CollectInOnCreateWithoutLifecycle across
 // lifecycle callbacks and coroutine builders. The Go rule covers onCreate,
 // onStart, and onViewCreated, and treats only repeatOnLifecycle as safe
 // (launchWhenStarted/launchWhenResumed only suspend the collector, leaving the
@@ -191,8 +191,8 @@ class Screen : AppCompatActivity() {
 	}
 }
 
-func TestFlowCollectInOnCreate_LifecycleCoverage(t *testing.T) {
-	f := firCheck(t, []string{"FlowCollectInOnCreate"}, flowCollectSources())
+func TestCollectInOnCreateWithoutLifecycle_LifecycleCoverage(t *testing.T) {
+	f := firCheck(t, []string{"CollectInOnCreateWithoutLifecycle"}, flowCollectSources())
 	rule := "CollectInOnCreateWithoutLifecycle"
 	want := map[string]int{
 		"OnStart.kt":       1,

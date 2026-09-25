@@ -1,6 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // Negative: `x as String?` where x is already String always succeeds (redundant,
-// USELESS_CAST — not unsafe) — must NOT trigger UNSAFE_CAST_WHEN_NULLABLE.
+// USELESS_CAST — not unsafe) — must NOT trigger UnsafeCastWhenNullable.
 package test
 
 fun example(x: String) {

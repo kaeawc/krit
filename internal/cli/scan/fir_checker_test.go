@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/firchecks"
+	"github.com/kaeawc/krit/internal/perf"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -77,19 +78,20 @@ func TestRunFIRCheckerPassDisabledIsNoOp(t *testing.T) {
 // Guard against paying for JVM startup when the active rule set contains
 // no FIR-eligible rules. Important now that --depth=thorough defaults
 // FIR on regardless of which rules the project actually has enabled.
-func TestRunFIRCheckerPassNoActiveRulesSkipsChecker(t *testing.T) {
+func TestRunFIRCheckerPassUnknownRuleInvokesChecker(t *testing.T) {
 	checker := firchecks.NewFakeFirChecker()
 	base := []scanner.Finding{{Rule: "X"}}
 	got := runFIRCheckerPass(firCheckerOpts{
 		Enabled:     true,
 		Checker:     checker,
 		ActiveRules: []*api.Rule{{ID: "NotAFirRule"}},
+		Tracker:     perf.New(false),
 	}, base)
 	if !reflect.DeepEqual(got, base) {
 		t.Fatalf("got %v; want %v (base unchanged when no FIR rules active)", got, base)
 	}
-	if len(checker.Called) != 0 {
-		t.Fatalf("checker.Check should not be invoked with zero FIR rules; got %d invocations", len(checker.Called))
+	if len(checker.Called) != 1 {
+		t.Fatalf("checker.Check should receive unknown rule ID; got %d invocations", len(checker.Called))
 	}
 }
 

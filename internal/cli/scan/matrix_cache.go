@@ -193,7 +193,12 @@ func matrixCacheDir() string {
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		dir := filepath.Join(home, ".cache", "krit", "matrix-baseline")
 		if err := os.MkdirAll(dir, 0o755); err == nil {
-			return dir
+			// An existing directory can be read-only even when MkdirAll succeeds.
+			if probe, err := os.CreateTemp(dir, ".krit-write-probe-*"); err == nil {
+				_ = probe.Close()
+				_ = os.Remove(probe.Name())
+				return dir
+			}
 		}
 	}
 	fallback := filepath.Join(os.TempDir(), "krit-matrix-baseline")

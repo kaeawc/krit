@@ -51,7 +51,7 @@ func TestCacheRoundtrip_WithFindings(t *testing.T) {
 		ContentHash: "hash999",
 		FilePath:    "/src/Bar.kt",
 		Findings: []FirFinding{
-			{Path: "/src/Bar.kt", Line: 10, Col: 5, Rule: "FLOW_COLLECT_IN_ON_CREATE", Severity: "warning", Message: "test", Confidence: 1.0},
+			{Path: "/src/Bar.kt", Line: 10, Col: 5, Rule: "CollectInOnCreateWithoutLifecycle", Severity: "warning", Message: "test", Confidence: 1.0},
 		},
 	}
 	if err := WriteCacheEntry(cacheDir, entry); err != nil {
@@ -64,7 +64,7 @@ func TestCacheRoundtrip_WithFindings(t *testing.T) {
 	if len(loaded.Findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(loaded.Findings))
 	}
-	if loaded.Findings[0].Rule != "FLOW_COLLECT_IN_ON_CREATE" {
+	if loaded.Findings[0].Rule != "CollectInOnCreateWithoutLifecycle" {
 		t.Errorf("unexpected rule: %q", loaded.Findings[0].Rule)
 	}
 }
@@ -210,5 +210,55 @@ func TestCachePoisonEntry(t *testing.T) {
 	}
 	if loaded.CrashError == "" {
 		t.Error("expected non-empty CrashError")
+	}
+}
+
+func TestCacheMissWhenFirJarIdentityChanges(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir, _ := CacheDir(dir)
+	source := dir + "/A.kt"
+	jar := dir + "/krit-fir.jar"
+	if err := os.WriteFile(source, []byte("class A"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jar, []byte("jar-one"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	first := FirInvocationFingerprint(nil, jar, []string{"A"})
+	WriteFreshEntriesForFingerprint(cacheDir, []string{source}, &CheckResponse{}, first)
+	if hits, _ := ClassifyFilesForFingerprint(cacheDir, []string{source}, first); len(hits) != 1 {
+		t.Fatal("expected initial hit")
+	}
+	if err := os.WriteFile(jar, []byte("jar-two-larger"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	second := FirInvocationFingerprint(nil, jar, []string{"A"})
+	if first == second {
+		t.Fatal("jar fingerprint did not change")
+	}
+	if hits, misses := ClassifyFilesForFingerprint(cacheDir, []string{source}, second); len(hits) != 0 || len(misses) != 1 {
+		t.Fatalf("hits=%d misses=%d", len(hits), len(misses))
+	}
+}
+
+func TestCacheMissWhenFirEnabledRulesChange(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir, _ := CacheDir(dir)
+	source := dir + "/A.kt"
+	jar := dir + "/krit-fir.jar"
+	if err := os.WriteFile(source, []byte("class A"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jar, []byte("jar"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	first := FirInvocationFingerprint(nil, jar, []string{"A"})
+	WriteFreshEntriesForFingerprint(cacheDir, []string{source}, &CheckResponse{}, first)
+	second := FirInvocationFingerprint(nil, jar, []string{"B"})
+	if first == second {
+		t.Fatal("rule fingerprint did not change")
+	}
+	if hits, misses := ClassifyFilesForFingerprint(cacheDir, []string{source}, second); len(hits) != 0 || len(misses) != 1 {
+		t.Fatalf("hits=%d misses=%d", len(hits), len(misses))
 	}
 }

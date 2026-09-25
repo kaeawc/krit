@@ -38,13 +38,13 @@ func TestFirPilotParity(t *testing.T) {
 
 	cases := []parityCase{
 		{
-			name:        "FlowCollectInOnCreate_Positive",
+			name:        "CollectInOnCreateWithoutLifecycle_Positive",
 			goRule:      "CollectInOnCreateWithoutLifecycle",
 			fixture:     "tests/fixtures/positive/coroutines/CollectInOnCreateWithoutLifecycle.kt",
 			packageName: "parity.flow.positive",
 		},
 		{
-			name:        "FlowCollectInOnCreate_Negative",
+			name:        "CollectInOnCreateWithoutLifecycle_Negative",
 			goRule:      "CollectInOnCreateWithoutLifecycle",
 			fixture:     "tests/fixtures/negative/coroutines/CollectInOnCreateWithoutLifecycle.kt",
 			packageName: "parity.flow.negative",
@@ -89,7 +89,7 @@ func TestFirPilotParity(t *testing.T) {
 		files,
 		nil,
 		[]string{stdlib},
-		[]string{"FlowCollectInOnCreate", "ComposeRememberWithoutKey", "InjectDispatcher"},
+		[]string{"CollectInOnCreateWithoutLifecycle", "ComposeRememberWithoutKey", "InjectDispatcher"},
 		"",
 		false,
 		false,

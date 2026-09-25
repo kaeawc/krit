@@ -240,7 +240,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 } else {
                     session
                 }
-                val result = activeSession.check(request.id, request.files, request.rules.toSet())
+                val result = activeSession.check(request.id, request.files, request.rules.toSet(), request.ruleConfigs)
                 val response = buildCheckResponse(result)
                 if (needsRebuild) {
                     RequestResult.SessionRebuilt(response, activeSession)
@@ -356,6 +356,7 @@ data class CheckRequest(
     val sourceDirs: List<String> = emptyList(),
     val classpath: List<String> = emptyList(),
     val rules: List<String> = emptyList(),
+    val ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),
     // Plugin-rule jar paths, matching krit-types' `"jars"` array in
     // `listPlugins` / `analyzeFile` requests.
     val pluginJars: List<String> = emptyList(),
@@ -388,13 +389,14 @@ fun parseRequest(json: String): CheckRequest {
     val sourceDirs = extractStringArray(json, "sourceDirs") ?: emptyList()
     val classpath = extractStringArray(json, "classpath") ?: emptyList()
     val rules = extractStringArray(json, "rules") ?: emptyList()
+    val ruleConfigs = parseFirRuleConfigs(json)
     val pluginJars = extractStringArray(json, "jars") ?: emptyList()
     val ruleIds = extractStringArray(json, "ruleIds")
     val path = extractString(json, "path")
     val source = extractString(json, "source")
     val files = extractFileRefs(json)
     val payloads = if (command == "analyzeFile") ProjectPayloads.parse(json) else ProjectPayloads.EMPTY
-    return CheckRequest(id, command, files, sourceDirs, classpath, rules, pluginJars, path, source, ruleIds, payloads)
+    return CheckRequest(id, command, files, sourceDirs, classpath, rules, ruleConfigs, pluginJars, path, source, ruleIds, payloads)
 }
 
 internal fun handleAnalyzeFile(request: CheckRequest, session: AnalysisSession): String {
@@ -467,7 +469,8 @@ fun buildCheckResponse(result: BatchResult): String {
         "${jsonStr(k)}:${jsonStr(v)}"
     }
 
-    return """{"id":${result.id},"succeeded":${result.succeeded},"skipped":${result.skipped},"findings":[$findingsJson],"crashed":$crashedJson}"""
+    val rulesJson = result.rules.joinToString(",", "[", "]") { jsonStr(it) }
+    return """{"id":${result.id},"succeeded":${result.succeeded},"skipped":${result.skipped},"findings":[$findingsJson],"rules":$rulesJson,"crashed":$crashedJson}"""
 }
 
 // ── Minimal JSON parsing (no external deps) ───────────────────────────────────

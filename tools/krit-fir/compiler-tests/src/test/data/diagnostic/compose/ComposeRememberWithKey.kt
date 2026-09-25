@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// Negative: remember { } with an explicit key — should NOT trigger COMPOSE_REMEMBER_WITHOUT_KEY
+// Negative: remember { } with an explicit key — should NOT trigger ComposeRememberWithoutKey
 package test
 
 import androidx.compose.runtime.remember

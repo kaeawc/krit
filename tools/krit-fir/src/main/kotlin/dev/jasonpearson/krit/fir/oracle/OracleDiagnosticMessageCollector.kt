@@ -135,7 +135,7 @@ internal class OracleDiagnosticMessageCollector(
         // matters: DEPRECATION embeds the user's @Deprecated message, so an
         // unanchored match would drop "'f' is deprecated. [OLD] use g." as a
         // plugin diagnostic.
-        private val pluginDiagnosticPrefix = Regex("""^\[[A-Z_]+]""")
+        private val pluginDiagnosticPrefix = Regex("""^\[[A-Za-z][A-Za-z0-9_]*]""")
     }
 }
 

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// Positive: Flow.collect() called bare inside onCreate() — should trigger FLOW_COLLECT_IN_ON_CREATE
+// Positive: Flow.collect() called bare inside onCreate() — should trigger CollectInOnCreateWithoutLifecycle
 package test
 
 import kotlinx.coroutines.flow.Flow
@@ -12,6 +12,6 @@ class MyFragment : Fragment() {
 
     override fun onCreate() {
         super.onCreate()
-        flow.<!FLOW_COLLECT_IN_ON_CREATE!>collect<!> { println(it) }
+        flow.<!CollectInOnCreateWithoutLifecycle!>collect<!> { println(it) }
     }
 }

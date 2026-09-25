@@ -4,13 +4,14 @@ import (
 	"os"
 	"testing"
 
+	_ "github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func TestFakeFirChecker_RecordsCall(t *testing.T) {
 	fake := NewFakeFirChecker()
 	fake.Findings = []scanner.Finding{
-		{File: "/src/A.kt", Line: 5, Col: 1, Rule: "FLOW_COLLECT_IN_ON_CREATE", Severity: "warning", Message: "use repeatOnLifecycle"},
+		{File: "/src/A.kt", Line: 5, Col: 1, Rule: "CollectInOnCreateWithoutLifecycle", Severity: "warning", Message: "use repeatOnLifecycle"},
 	}
 
 	res, err := fake.Check([]string{"/src/A.kt"}, nil, nil, nil)
@@ -78,11 +79,12 @@ func TestInvokeCached_AllCacheHits(t *testing.T) {
 
 	cacheDir, _ := CacheDir(tmp)
 	entry := &FirCacheEntry{
-		V:           FirCacheVersion,
-		ContentHash: hash,
-		FilePath:    ktFile,
+		V:                  FirCacheVersion,
+		ContentHash:        hash,
+		FilePath:           ktFile,
+		ClosureFingerprint: FirInvocationFingerprint(nil, "", nil),
 		Findings: []FirFinding{
-			{Path: ktFile, Line: 1, Col: 14, Rule: "FLOW_COLLECT_IN_ON_CREATE", Severity: "warning", Message: "use repeatOnLifecycle", Confidence: 1.0},
+			{Path: ktFile, Line: 1, Col: 14, Rule: "CollectInOnCreateWithoutLifecycle", Severity: "warning", Message: "use repeatOnLifecycle", Confidence: 1.0},
 		},
 	}
 	if err := WriteCacheEntry(cacheDir, entry); err != nil {
@@ -114,7 +116,7 @@ func TestToScannerFinding_SetsRuleSetFirForUnknownDiagnostic(t *testing.T) {
 }
 
 func TestToScannerFinding_MapsKnownDiagnosticToCatalogRule(t *testing.T) {
-	fir := FirFinding{Path: "/src/A.kt", Line: 5, Col: 2, StartByte: 12, EndByte: 23, Rule: "INJECT_DISPATCHER", Severity: "warning", Message: "msg", Confidence: 0.9}
+	fir := FirFinding{Path: "/src/A.kt", Line: 5, Col: 2, StartByte: 12, EndByte: 23, Rule: "InjectDispatcher", Severity: "warning", Message: "msg", Confidence: 0.9}
 	f := ToScannerFinding(fir)
 	if f.Rule != "InjectDispatcher" {
 		t.Errorf("expected mapped Rule=InjectDispatcher, got %q", f.Rule)
@@ -163,7 +165,7 @@ func TestToScannerFindingWithRange_DerivesByteRange(t *testing.T) {
 	if err := os.WriteFile(ktFile, []byte("fun main() {\n    Dispatchers.IO\n}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	fir := FirFinding{Path: ktFile, Line: 2, Col: 5, Rule: "INJECT_DISPATCHER", Severity: "warning", Message: "msg"}
+	fir := FirFinding{Path: ktFile, Line: 2, Col: 5, Rule: "InjectDispatcher", Severity: "warning", Message: "msg"}
 	f := toScannerFindingWithRange(fir, map[string][]byte{})
 	if f.StartByte != 17 || f.EndByte != 31 {
 		t.Fatalf("expected Dispatchers.IO byte range 17..31, got %d..%d", f.StartByte, f.EndByte)

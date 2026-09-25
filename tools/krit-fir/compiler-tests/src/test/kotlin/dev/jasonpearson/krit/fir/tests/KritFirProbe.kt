@@ -105,5 +105,5 @@ object KritFirProbe {
         CompilerMessageSeverity.STRONG_WARNING,
         CompilerMessageSeverity.ERROR,
     )
-    private val pluginDiagnosticRe = Regex("""\[([A-Z_]+)]""")
+    private val pluginDiagnosticRe = Regex("""^\[([A-Za-z][A-Za-z0-9_]*)]""")
 }

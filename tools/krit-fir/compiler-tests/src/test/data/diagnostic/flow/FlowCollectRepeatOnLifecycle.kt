@@ -1,6 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // Negative: Flow.collect() wrapped in repeatOnLifecycle inside onCreate is
-// lifecycle-aware — must NOT trigger FLOW_COLLECT_IN_ON_CREATE.
+// lifecycle-aware — must NOT trigger CollectInOnCreateWithoutLifecycle.
 package test
 
 import androidx.lifecycle.repeatOnLifecycle

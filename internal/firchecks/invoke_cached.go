@@ -60,7 +60,7 @@ func InvokeCached(
 		return runUncached(jarPath, files, sourceDirs, classpath, rules, useDaemon, verbose)
 	}
 
-	cacheFingerprint := ClasspathFingerprint(classpath)
+	cacheFingerprint := FirInvocationFingerprint(classpath, jarPath, rules)
 	hits, misses := ClassifyFilesForFingerprint(cacheDir, files, cacheFingerprint)
 	if verbose {
 		reporter().Verbosef("verbose: fir cache: %d hits, %d misses (%d files)\n",

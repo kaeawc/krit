@@ -266,7 +266,7 @@ func TestFirProperty_Expectation(t *testing.T) {
 		stubs       map[string]string
 	}{
 		{"ComposeRememberWithoutKey", "ComposeRememberWithoutKey", composeCases(), nil},
-		{"FlowCollectInOnCreate", "CollectInOnCreateWithoutLifecycle", flowCases(), map[string]string{"ZLaunchWhenStub.kt": launchWhenStartedStub}},
+		{"CollectInOnCreateWithoutLifecycle", "CollectInOnCreateWithoutLifecycle", flowCases(), map[string]string{"ZLaunchWhenStub.kt": launchWhenStartedStub}},
 		{"InjectDispatcher", "InjectDispatcher", injectCases(), nil},
 		{"UnsafeCastWhenNullable", "UnsafeCastWhenNullable", castCases(), nil},
 	}
@@ -291,7 +291,7 @@ func TestFirProperty_Determinism(t *testing.T) {
 	}
 	fingerprint := func() string {
 		by := firCheck(t, []string{
-			"ComposeRememberWithoutKey", "FlowCollectInOnCreate", "InjectDispatcher", "UnsafeCastWhenNullable",
+			"ComposeRememberWithoutKey", "CollectInOnCreateWithoutLifecycle", "InjectDispatcher", "UnsafeCastWhenNullable",
 		}, sources)
 		var keys []string
 		for f, fs := range by {
@@ -368,7 +368,7 @@ func TestFirProperty_Differential(t *testing.T) {
 		stubs       map[string]string
 	}{
 		{"ComposeRememberWithoutKey", "ComposeRememberWithoutKey", composeCases(), nil},
-		{"FlowCollectInOnCreate", "CollectInOnCreateWithoutLifecycle", flowCases(), map[string]string{"ZLaunchWhenStub.kt": launchWhenStartedStub}},
+		{"CollectInOnCreateWithoutLifecycle", "CollectInOnCreateWithoutLifecycle", flowCases(), map[string]string{"ZLaunchWhenStub.kt": launchWhenStartedStub}},
 		{"InjectDispatcher", "InjectDispatcher", injectCases(), nil},
 		{"UnsafeCastWhenNullable", "UnsafeCastWhenNullable", castCases(), nil},
 	}
@@ -465,5 +465,5 @@ func FuzzFirCheckers(f *testing.F) {
 }
 
 var allCheckerNames = []string{
-	"ComposeRememberWithoutKey", "FlowCollectInOnCreate", "InjectDispatcher", "UnsafeCastWhenNullable",
+	"ComposeRememberWithoutKey", "CollectInOnCreateWithoutLifecycle", "InjectDispatcher", "UnsafeCastWhenNullable",
 }

@@ -21,6 +21,6 @@ class MyFragment : Fragment() {
     }
 
     override fun onStart() {
-        <!FLOW_COLLECT_IN_ON_CREATE!>flow.collect { println(it) }<!>
+        <!CollectInOnCreateWithoutLifecycle!>flow.collect { println(it) }<!>
     }
 }

@@ -48,7 +48,7 @@ const CacheFileName = "incremental.cache"
 // (exception passed/wrapped/cause-inspected, recovery bodies, empty-body
 // deferral) change those rules' findings for unchanged source.
 // v5: oracle-confirmation tightening — ServiceCast, ShowToast, LongLogTag,
-// CommitPrefEdits, CommitTransaction, CheckResult, FlowCollectInOnCreate, and
+// CommitPrefEdits, CommitTransaction, CheckResult, CollectInOnCreateWithoutLifecycle, and
 // ComposeRememberWithoutKey no longer treat an
 // available-but-unresolved oracle call target as confirmation, and
 // ImplicitDefaultLocale now consults oracle call targets — these change

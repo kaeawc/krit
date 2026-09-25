@@ -1,8 +1,9 @@
-package dev.jasonpearson.krit.fir.checkers
+package dev.jasonpearson.krit.fir.checkers.potentialbugs
 
-import dev.jasonpearson.krit.fir.KritDiagnostics
+import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.report
+import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
-import org.jetbrains.kotlin.diagnostics.reportOn
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirTypeOperatorCallChecker
@@ -21,7 +22,11 @@ import org.jetbrains.kotlin.fir.types.resolvedType
 // subtype of the nullable target, i.e. the cast can throw. `null as String?`
 // (operand type Nothing?) and `nonNullString as String?` always succeed —
 // those are redundant (USELESS_CAST), not unsafe — so they are not flagged.
-internal object UnsafeCastWhenNullable : FirTypeOperatorCallChecker(MppCheckerKind.Common) {
+internal object UnsafeCastWhenNullable : FirTypeOperatorCallChecker(MppCheckerKind.Common), FirRule {
+    override val ruleId = "UnsafeCastWhenNullable"
+    override val expressionCheckers = object : ExpressionCheckers() {
+        override val typeOperatorCallCheckers = setOf(UnsafeCastWhenNullable)
+    }
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirTypeOperatorCall) {
@@ -37,6 +42,6 @@ internal object UnsafeCastWhenNullable : FirTypeOperatorCallChecker(MppCheckerKi
         val operandType = runCatching { expression.argumentList.arguments.firstOrNull()?.resolvedType }.getOrNull()
         if (operandType != null && operandType.isSubtypeOf(targetType, context.session)) return
 
-        reporter.reportOn(source, KritDiagnostics.UNSAFE_CAST_WHEN_NULLABLE)
+        report(source, "Unsafe cast to nullable type; prefer 'as?' to avoid ClassCastException at runtime.")
     }
 }

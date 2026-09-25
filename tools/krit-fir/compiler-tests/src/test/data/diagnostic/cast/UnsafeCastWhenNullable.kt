@@ -1,8 +1,8 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// Positive: unsafe `as` cast to a nullable type — should trigger UNSAFE_CAST_WHEN_NULLABLE
+// Positive: unsafe `as` cast to a nullable type — should trigger UnsafeCastWhenNullable
 package test
 
 fun example(x: Any) {
-    val y = x <!UNSAFE_CAST_WHEN_NULLABLE!>as<!> String?
+    val y = x <!UnsafeCastWhenNullable!>as<!> String?
     println(y)
 }

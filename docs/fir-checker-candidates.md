@@ -180,7 +180,20 @@ positives, and simple intra-procedural checks on the argument can build on that.
    ecosystem only ships with type resolution.
 4. The type-hierarchy group, built on one shared is-subtype-of helper.
 
-Every promoted rule should follow the same pattern as the existing checkers:
-positive and negative fixtures in `compiler-tests`, the property, differential,
-and fuzz grids in `tests/parity`, and the compile-failure guards that stop
-negative cases from passing vacuously.
+A built-in checker is a Kotlin singleton object implementing `FirRule` in
+`tools/krit-fir/src/main/kotlin/dev/jasonpearson/krit/fir/checkers/<category>/<RuleId>.kt`.
+Its `ruleId` is the exact Go catalog ID; it contributes an `ExpressionCheckers`
+and/or `DeclarationCheckers` set and calls `report(source, message)` for findings.
+The plugin discovers these objects recursively from its jar or classes directory
+and merges every K2 2.3.21 checker-set property. A new checker needs only its
+own file and test data: no registry, diagnostic factory, or Go mapping edit.
+The `check` request selects rule IDs and may pass per-rule `ruleConfigs` options;
+`config()` reads the current compile's options. Oracle analysis explicitly
+selects zero built-in rule checkers while retaining its existing oracle checkers.
+The external Kotlin rule API is a separate subsystem.
+
+Every promoted rule should add positive and negative fixtures in
+`compiler-tests` and independent property, differential, and fuzz coverage.
+The existing `tests/parity` grids illustrate compile-failure guards that stop
+negative cases from passing vacuously; extending their shared lists is not
+required to register a checker.

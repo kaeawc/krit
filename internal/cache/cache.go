@@ -93,7 +93,9 @@ const CacheFileName = "incremental.cache"
 // bump — and a bump here would needlessly cold-start every non-oracle user,
 // whose keys are byte-identical to before.
 // v16: normalized Kotlin annotations change findings for unchanged source.
-const cachePayloadVersion = "v16"
+// v17: version catalogs are parsed as spec-compliant TOML, so catalog-derived
+// findings change for unchanged source.
+const cachePayloadVersion = "v17"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

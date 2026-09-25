@@ -15,7 +15,7 @@ import (
 
 const (
 	projectProfileCacheDirName = "librarymodel-cache"
-	projectProfileCacheVersion = 1
+	projectProfileCacheVersion = 2
 )
 
 var (

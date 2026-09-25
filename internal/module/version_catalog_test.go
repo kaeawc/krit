@@ -3,7 +3,6 @@ package module
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -60,27 +59,8 @@ network = ["okhttp", "kotlin-stdlib"]
 		}
 	}
 	for _, e := range cat.Libraries {
-		if e.Alias == "unused-lib" && e.Value != "com.example:unused:1.0" {
-			t.Errorf("unused-lib value: got %q, want %q", e.Value, "com.example:unused:1.0")
-		}
-		if e.Alias == "okhttp" && !strings.HasPrefix(e.Value, "{") {
-			t.Errorf("okhttp inline-table value should retain braces; got %q", e.Value)
-		}
-	}
-}
-
-func TestStripLineComment(t *testing.T) {
-	cases := map[string]string{
-		`foo = "bar" # comment`:          `foo = "bar" `,
-		`foo = "value with # inside"`:    `foo = "value with # inside"`,
-		`# whole line`:                   ``,
-		`val = 'single # inside string'`: `val = 'single # inside string'`,
-		`plain = "no comment"`:           `plain = "no comment"`,
-	}
-	for input, want := range cases {
-		got := stripLineComment(input)
-		if got != want {
-			t.Errorf("stripLineComment(%q) = %q, want %q", input, got, want)
+		if e.Value != "" {
+			t.Errorf("library %s value: got %q, want empty", e.Alias, e.Value)
 		}
 	}
 }
@@ -115,5 +95,68 @@ func TestFindVersionCatalog(t *testing.T) {
 	}
 	if got := FindVersionCatalog(dir); got != path {
 		t.Errorf("present catalog: got %q, want %q", got, path)
+	}
+}
+
+func TestParseVersionCatalogSpecCompliantShapes(t *testing.T) {
+	cases := []struct {
+		name, content string
+		wantLine      int
+		wantVersion   string
+	}{
+		{"sub-table", "[versions]\nk = \"1.0\"\n[libraries.core]\nmodule = \"a:b\"\nversion.ref = \"k\"\n", 3, "1.0"},
+		{"nested-inline-ref", "[versions]\nk = \"1.0\"\n[libraries]\ncore = { module = \"a:b\", version = { ref = \"k\" } }\n", 4, "1.0"},
+		{"rich-version-prefer", "[versions]\nk = { strictly = \"[1.0,2.0)\", prefer = \"1.5\" }\n[libraries]\ncore = { module = \"a:b\", version.ref = \"k\" }\n", 4, "1.5"},
+		{"literal-strings", "[versions]\nk = '1.0'\n[libraries]\ncore = { module = 'a:b', version.ref = 'k' }\n", 4, "1.0"},
+		{"dotted-keys", "versions.k = \"1.0\"\nlibraries.core = { module = \"a:b\", version.ref = \"k\" }\n", 2, "1.0"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "libs.versions.toml")
+			if err := os.WriteFile(path, []byte(tc.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cat, err := ParseVersionCatalog(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var lib *CatalogEntry
+			for i := range cat.Libraries {
+				if cat.Libraries[i].Alias == "core" {
+					lib = &cat.Libraries[i]
+				}
+			}
+			if lib == nil || lib.Module != "a:b" || lib.Version != tc.wantVersion || lib.Line != tc.wantLine {
+				t.Fatalf("core = %#v, want module a:b version %q line %d", lib, tc.wantVersion, tc.wantLine)
+			}
+		})
+	}
+}
+
+func TestParseVersionCatalogRichVersionDuplicateCheckValue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "libs.versions.toml")
+	content := "[versions]\na = \"1.0\"\nb = \"1.0\"\nc = { strictly = \"1.0\" }\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cat, err := ParseVersionCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"a": "1.0", "b": "1.0", "c": ""}
+	for _, e := range cat.Versions {
+		if got := want[e.Alias]; e.Value != got {
+			t.Errorf("%s Value = %q, want %q", e.Alias, e.Value, got)
+		}
+	}
+}
+
+func TestParseVersionCatalogInvalidTOML(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "libs.versions.toml")
+	if err := os.WriteFile(path, []byte("[versions]\nk = \"1.0\"\nk = \"2.0\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseVersionCatalog(path); err == nil {
+		t.Fatal("expected duplicate key parse error")
 	}
 }

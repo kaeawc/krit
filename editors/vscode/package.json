@@ -31,7 +31,7 @@
         "krit.version": {
           "type": "string",
           "default": "latest",
-          "description": "Version of krit-lsp to download (e.g. 'v0.1.0' or 'latest')"
+          "description": "Version of krit-lsp to download (e.g. 'v0.2.0', '0.2.0', or 'latest')"
         }
       }
     }
@@ -40,6 +40,7 @@
     "compile": "tsc -p ./ --noEmit",
     "bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18 --minify",
     "watch": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18 --sourcemap --watch",
+    "test": "esbuild src/release.test.ts --bundle --outfile=out/test/release.test.js --format=cjs --platform=node --target=node18 && node --test out/test/",
     "package": "npm run compile && npm run bundle && vsce package"
   },
   "dependencies": {

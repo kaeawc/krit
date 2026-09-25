@@ -52,6 +52,11 @@ class Crypto {
         // argument value is still the literal "HmacMD5".
         <!WeakMacAlgorithm!>Mac.getInstance(@Suppress("x") "HmacMD5")<!>
         <!WeakMacAlgorithm!>Mac.getInstance(label@ "HmacMD5")<!>
+        // Deliberate improvement: Go misses this because it compares the
+        // receiver text `(Mac)` with `Mac`; FIR is correct because the
+        // parenthesized receiver still resolves to javax.crypto.Mac.
+        <!WeakMacAlgorithm!>(Mac).getInstance("HmacMD5")<!>
+        (Mac).getInstance("HmacSHA256")
     }
 
     fun strong() {

@@ -40,6 +40,17 @@ class WeakMacAlgorithmTest {
                 }
             }
         """.trimIndent(),
+        "MacLookalikeNestedInBase.kt" to """
+            package com.example.base
+
+            open class Base2 {
+                class Mac {
+                    companion object {
+                        fun getInstance(algorithm: String): Mac = Mac()
+                    }
+                }
+            }
+        """.trimIndent(),
     )
 
     @Test
@@ -76,6 +87,86 @@ class WeakMacAlgorithmTest {
                 // Go reports this because the star import satisfies its mention
                 // check; FIR is correct because the explicit import wins.
                 why = "the explicit lookalike import wins over javax.crypto.* (deliberate precision fix)",
+            ),
+            // In the next three cases Go's mention check is satisfied by
+            // something other than an import of javax.crypto.Mac, so Go
+            // reports; FIR is correct because the explicit import of the
+            // lookalike decides what the bare `Mac` resolves to.
+            Case(
+                "MacImportsOtherPackageCommentMention.kt",
+                """
+                    package macimportsothercomment
+
+                    import com.example.hmac.Mac
+
+                    /** Not javax.crypto.Mac: this wraps the in-house HMAC factory. */
+                    fun mac() {
+                        // Unlike javax.crypto.Mac, this Mac is ours.
+                        Mac.getInstance("HmacMD5")
+                    }
+                """.trimIndent(),
+                expected = 0,
+                // Go's byte search for "javax.crypto.Mac" finds the comment
+                // and KDoc text.
+                why = "a comment or KDoc naming javax.crypto.Mac does not change the imported lookalike (deliberate precision fix)",
+            ),
+            Case(
+                "MacImportsOtherPackageMacSpi.kt",
+                """
+                    package macimportsothermacspi
+
+                    import javax.crypto.MacSpi
+                    import com.example.hmac.Mac
+
+                    fun spi(spi: MacSpi): MacSpi = spi
+
+                    fun mac() {
+                        Mac.getInstance("HmacMD5")
+                    }
+                """.trimIndent(),
+                expected = 0,
+                // Go's byte search for "javax.crypto.Mac" matches inside
+                // "javax.crypto.MacSpi".
+                why = "importing javax.crypto.MacSpi does not make the imported lookalike the JDK Mac (deliberate precision fix)",
+            ),
+            Case(
+                "MacImportsOtherPackageAliasedJdk.kt",
+                """
+                    package macimportsotheraliasedjdk
+
+                    import javax.crypto.Mac as JMac
+                    import com.example.hmac.Mac
+
+                    fun jdk(mac: JMac): JMac = mac
+
+                    fun mac() {
+                        Mac.getInstance("HmacMD5")
+                    }
+                """.trimIndent(),
+                expected = 0,
+                // Go's byte search for "javax.crypto.Mac" matches the aliased
+                // import, which binds JMac, not Mac.
+                why = "javax.crypto.Mac imported as JMac leaves the bare Mac bound to the lookalike (deliberate precision fix)",
+            ),
+            Case(
+                "MacInheritedNestedClass.kt",
+                """
+                    package macinheritednested
+
+                    import com.example.base.Base2
+                    import javax.crypto.Mac
+
+                    class Sub : Base2() {
+                        fun mac() {
+                            Mac.getInstance("HmacMD5")
+                        }
+                    }
+                """.trimIndent(),
+                expected = 0,
+                // Go reports this because the file imports javax.crypto.Mac and
+                // declares no Mac; FIR is correct because the nested Mac
+                // inherited from Base2 shadows the import inside Sub.
+                why = "a nested Mac inherited from a supertype in another file shadows the import (deliberate precision fix)",
             ),
             Case(
                 "MacSamePackageOverStar.kt",

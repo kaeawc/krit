@@ -40,17 +40,23 @@ import org.jetbrains.kotlin.util.getChildren
 // - Recall (Go misses these true positives): an import alias, typealias, or
 //   backticked spelling of javax.crypto.Mac, and a statically imported
 //   getInstance (WeakMacAlgorithmSpellings); a bare `Mac` in a file that also
-//   declares an unrelated, non-shadowing class, object, or typealias named Mac
-//   (WeakMacAlgorithmDeclaredName); an annotated or labeled literal
-//   (`@A "HmacMD5"`, `l@ "HmacMD5"`), or a parenthesized literal preceded by a
-//   comment, which Go reads as the argument node instead of the literal
-//   (WeakMacAlgorithm).
+//   declares an unrelated, non-shadowing top-level, nested, or local class or
+//   nested object named Mac (WeakMacAlgorithmDeclaredName); a top-level
+//   `typealias Mac = javax.crypto.Mac`, which Go counts as a lookalike
+//   declaration (WeakMacAlgorithmTypealiasNamedMac); a parenthesized receiver
+//   `(Mac)`, an annotated or labeled literal (`@A "HmacMD5"`,
+//   `l@ "HmacMD5"`), or a parenthesized literal preceded by a comment, which
+//   Go reads as the argument node instead of the literal (WeakMacAlgorithm).
 // - Precision (Go reports these, but the call is not javax.crypto.Mac's):
-//   a local val, parameter, or companion object named Mac that shadows the
-//   import (WeakMacAlgorithmShadowed); an explicit import of another class as
-//   or named Mac over a `javax.crypto.*` star import
-//   (WeakMacAlgorithmAliasedOther), and a same-package Mac declared in
-//   another file over a star import (WeakMacAlgorithmTest).
+//   a local val, parameter, member property, or companion object named Mac
+//   that shadows the import (WeakMacAlgorithmShadowed), and a top-level
+//   property named Mac (WeakMacAlgorithmShadowedTopLevel); an explicit import
+//   of another class as or named Mac over a `javax.crypto.*` star import
+//   (WeakMacAlgorithmAliasedOther); and, in WeakMacAlgorithmTest, a
+//   same-package Mac declared in another file over a star import, an explicit
+//   import of another Mac where Go's javax.crypto.Mac mention check is met by
+//   a comment, a `javax.crypto.MacSpi` import, or `javax.crypto.Mac as JMac`,
+//   and a nested Mac inherited from a supertype declared in another file.
 internal object WeakMacAlgorithm : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "WeakMacAlgorithm"
     override val expressionCheckers = object : ExpressionCheckers() {

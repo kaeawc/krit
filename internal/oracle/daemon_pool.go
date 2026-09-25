@@ -54,14 +54,14 @@ func ConnectOrStartDaemonPool(jarPath string, sourceDirs []string, classpath []s
 	}
 	pool := &DaemonPool{Requested: size, Members: make([]*Daemon, 0, size)}
 	for slot := 0; slot < size; slot++ {
-		d, err := connectExistingDaemonSlot(jarPath, sourceDirs, verbose, slot)
+		d, err := connectExistingDaemonSlot(jarPath, sourceDirs, verbose, slot, classpath...)
 		if err == nil {
 			pool.Members = append(pool.Members, d)
 			pool.Connected++
 			continue
 		}
 
-		cleanStaleDaemonSlot(jarPath, sourceDirs, verbose, slot)
+		cleanStaleDaemonSlot(jarPath, sourceDirs, verbose, slot, classpath...)
 		d, err = StartDaemonWithPortSlot(jarPath, sourceDirs, classpath, verbose, slot)
 		if err != nil {
 			_ = pool.Release()
@@ -89,12 +89,12 @@ func (p *DaemonPool) Release() error {
 	return firstErr
 }
 
-func (p *DaemonPool) MatchesRepo(jarPath string, sourceDirs []string) bool {
+func (p *DaemonPool) MatchesRepo(jarPath string, sourceDirs []string, classpath ...string) bool {
 	if p == nil || len(p.Members) == 0 {
 		return false
 	}
 	for _, d := range p.Members {
-		if d == nil || !d.MatchesRepo(jarPath, sourceDirs) {
+		if d == nil || !d.MatchesRepo(jarPath, sourceDirs, classpath...) {
 			return false
 		}
 	}

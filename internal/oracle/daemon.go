@@ -62,11 +62,11 @@ var daemonNow = time.Now
 // An empty sourcesHash (older daemon that predates Phase 3 sources
 // tagging) always returns false so callers conservatively fall back.
 // The old daemon keeps running for its original consumer.
-func (d *Daemon) MatchesRepo(jarPath string, sourceDirs []string) bool {
+func (d *Daemon) MatchesRepo(jarPath string, sourceDirs []string, classpath ...string) bool {
 	if d.sourcesHash == "" {
 		return false
 	}
-	return d.sourcesHash == daemonRegistryKey(jarPath, sourceDirs)
+	return d.sourcesHash == daemonRegistryKey(jarPath, sourceDirs, classpath...)
 }
 
 // daemonRequest is the JSON request sent to the daemon process.

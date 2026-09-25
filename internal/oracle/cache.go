@@ -85,7 +85,18 @@ func recordOracleDir(cacheDir string) {
 // v7: both backends retain DEPRECATION, and krit-types collects diagnostics for
 // every analyzed file (the lexical pre-gate is gone), so earlier entries lack
 // deprecation facts and, on krit-types, any diagnostics for hint-free files.
-const CacheVersion = 7
+// v8: entries record the backend that wrote them and are scoped to it, and
+// krit-fir entries carry the compilation fingerprint they were computed
+// against. A krit-fir entry could previously be served after a change to a
+// file outside the classified set, or a deletion, left its facts stale.
+const CacheVersion = 8
+
+// ApproximationFIRWholeCompilation marks entries written by krit-fir, whose
+// every run returns facts for the whole compilation.
+const ApproximationFIRWholeCompilation = "fir-whole-compilation"
+
+// ApproximationSymbolResolvedSources marks entries written by krit-types.
+const ApproximationSymbolResolvedSources = "symbol-resolved-sources"
 
 // CacheEntry is one file's cached oracle analysis. The JSON field names
 // are intentionally short because there can be tens of thousands of these
@@ -107,12 +118,19 @@ type CacheEntry struct {
 	// broader-superset rule that applies to CallFilterFingerprint also
 	// applies here: empty = contains every field = satisfies any lookup.
 	DeclarationProfileFingerprint string `json:"declaration_profile_fingerprint,omitempty"`
-	// Approximation tags the dep-closure tracking method used when the
-	// entry was written. Any mismatch with the current runtime's
-	// approximation is treated as a miss — lets us upgrade the tracker
-	// without leaving stale entries from a weaker approximation lying
-	// around.
+	// Approximation tags how the entry was produced, which also identifies
+	// the backend that computed its facts. The V3 classify functions treat
+	// a mismatch with the running backend's approximation as a miss, so one
+	// backend never serves the other's facts.
 	Approximation string `json:"approximation,omitempty"`
+	// CompilationFingerprint is set on entries written by a backend that
+	// returns the whole compilation (see Backend.ReturnsWholeCompilation):
+	// it identifies every source file, the classpath, and the backend jar
+	// the facts were computed against. An entry whose fingerprint differs
+	// from the current compilation may be stale even though its own content
+	// is unchanged: a dependency outside the classified files changed, a
+	// file was deleted, or a library moved.
+	CompilationFingerprint string `json:"compilation_fingerprint,omitempty"`
 	// Crashed marks this entry as a poison marker: the file with this
 	// exact content deterministically crashes krit-types during analysis.
 	// FileResult and PerFileDeps are nil for crash entries; they contribute
@@ -410,6 +428,13 @@ func ClassifyFilesScoped(cacheDir string, paths []string, callFilterFingerprint 
 }
 
 func ClassifyFilesScopedV2(cacheDir string, paths []string, callFilterFingerprint, declarationProfileFingerprint string) (hits []*CacheEntry, misses []string) {
+	return ClassifyFilesScopedV3(cacheDir, paths, callFilterFingerprint, declarationProfileFingerprint, "")
+}
+
+// ClassifyFilesScopedV3 is ClassifyFilesScopedV2 that also requires each hit
+// to carry the given approximation (see Backend.CacheApproximation). An empty
+// approximation accepts any entry.
+func ClassifyFilesScopedV3(cacheDir string, paths []string, callFilterFingerprint, declarationProfileFingerprint, approximation string) (hits []*CacheEntry, misses []string) {
 	recordOracleDir(cacheDir)
 	hits = make([]*CacheEntry, 0, len(paths))
 	misses = make([]string, 0)
@@ -466,7 +491,8 @@ func ClassifyFilesScopedV2(cacheDir string, paths []string, callFilterFingerprin
 			misses = append(misses, p)
 			continue
 		}
-		if !cacheScopeCompatibleV2(entry, callFilterFingerprint, declarationProfileFingerprint) {
+		if !cacheScopeCompatibleV2(entry, callFilterFingerprint, declarationProfileFingerprint) ||
+			(approximation != "" && entry.Approximation != approximation) {
 			misses = append(misses, p)
 			continue
 		}
@@ -583,6 +609,27 @@ type CacheDepsFile struct {
 	Approximation string                     `json:"approximation"`
 	Files         map[string]*CacheDepsEntry `json:"files"`
 	Crashed       map[string]string          `json:"crashed,omitempty"`
+	// CompilationFingerprint is stamped onto every entry written from this
+	// analysis. The caller sets it for whole-compilation backends; it is
+	// never read from the backend's JSON.
+	CompilationFingerprint string `json:"-"`
+}
+
+// approximation returns f's approximation, or "" when f is nil.
+func (f *CacheDepsFile) approximation() string {
+	if f == nil {
+		return ""
+	}
+	return f.Approximation
+}
+
+// compilationFingerprint returns the fingerprint to stamp on entries, or ""
+// when f is nil.
+func (f *CacheDepsFile) compilationFingerprint() string {
+	if f == nil {
+		return ""
+	}
+	return f.CompilationFingerprint
 }
 
 // CacheDepsEntry is one file's dep-closure fragment.
@@ -723,6 +770,7 @@ type freshOracleEntryJob struct {
 	depPaths      []string
 	perFileDeps   map[string]*Class
 	approximation string
+	compilation   string
 	crashed       bool
 	crashError    string
 }
@@ -825,6 +873,7 @@ func freshOracleEntryJobs(fresh *Data, deps *CacheDepsFile) []freshOracleEntryJo
 			depPaths:      depPaths,
 			perFileDeps:   perFileDeps,
 			approximation: approx,
+			compilation:   deps.compilationFingerprint(),
 		})
 	}
 	if deps != nil {
@@ -832,6 +881,7 @@ func freshOracleEntryJobs(fresh *Data, deps *CacheDepsFile) []freshOracleEntryJo
 			jobs = append(jobs, freshOracleEntryJob{
 				path:          path,
 				approximation: approx,
+				compilation:   deps.CompilationFingerprint,
 				crashed:       true,
 				crashError:    deps.Crashed[path],
 			})
@@ -1047,6 +1097,7 @@ func WriteFreshEntriesWithTrackerScopedV2(
 				Fingerprint: fp,
 			},
 			Approximation:                 approx,
+			CompilationFingerprint:        deps.compilationFingerprint(),
 			CallFilterFingerprint:         callFilterFingerprint,
 			DeclarationProfileFingerprint: declarationProfileFingerprint,
 		}
@@ -1082,6 +1133,7 @@ func WriteFreshEntriesWithTrackerScopedV2(
 				Crashed:                       true,
 				CrashError:                    errMsg,
 				Approximation:                 approx,
+				CompilationFingerprint:        deps.CompilationFingerprint,
 				CallFilterFingerprint:         callFilterFingerprint,
 				DeclarationProfileFingerprint: declarationProfileFingerprint,
 				Closure: CacheClosure{
@@ -1188,8 +1240,14 @@ func ClassifyFilesWithStoreScoped(s *store.FileStore, cacheDir string, paths []s
 // compatible; the usual "empty fingerprint = broad superset" rule applies
 // to both axes.
 func ClassifyFilesWithStoreScopedV2(s *store.FileStore, cacheDir string, paths []string, callFilterFingerprint, declarationProfileFingerprint string) (hits []*CacheEntry, misses []string) {
+	return ClassifyFilesWithStoreScopedV3(s, cacheDir, paths, callFilterFingerprint, declarationProfileFingerprint, "")
+}
+
+// ClassifyFilesWithStoreScopedV3 is ClassifyFilesWithStoreScopedV2 plus the
+// approximation requirement of ClassifyFilesScopedV3.
+func ClassifyFilesWithStoreScopedV3(s *store.FileStore, cacheDir string, paths []string, callFilterFingerprint, declarationProfileFingerprint, approximation string) (hits []*CacheEntry, misses []string) {
 	if s == nil {
-		return ClassifyFilesScopedV2(cacheDir, paths, callFilterFingerprint, declarationProfileFingerprint)
+		return ClassifyFilesScopedV3(cacheDir, paths, callFilterFingerprint, declarationProfileFingerprint, approximation)
 	}
 	recordOracleDir(cacheDir)
 	hits = make([]*CacheEntry, 0, len(paths))
@@ -1212,7 +1270,8 @@ func ClassifyFilesWithStoreScopedV2(s *store.FileStore, cacheDir string, paths [
 			misses = append(misses, p)
 			continue
 		}
-		if !cacheScopeCompatibleV2(entry, callFilterFingerprint, declarationProfileFingerprint) {
+		if !cacheScopeCompatibleV2(entry, callFilterFingerprint, declarationProfileFingerprint) ||
+			(approximation != "" && entry.Approximation != approximation) {
 			misses = append(misses, p)
 			continue
 		}
@@ -1320,6 +1379,7 @@ func WriteFreshEntriesToStoreWithTrackerScopedV2(
 			FileResult:                    fr,
 			PerFileDeps:                   perFileDeps,
 			Approximation:                 approx,
+			CompilationFingerprint:        deps.compilationFingerprint(),
 			CallFilterFingerprint:         callFilterFingerprint,
 			DeclarationProfileFingerprint: declarationProfileFingerprint,
 			Closure: CacheClosure{
@@ -1362,6 +1422,7 @@ func WriteFreshEntriesToStoreWithTrackerScopedV2(
 				Crashed:                       true,
 				CrashError:                    errMsg,
 				Approximation:                 approx,
+				CompilationFingerprint:        deps.CompilationFingerprint,
 				CallFilterFingerprint:         callFilterFingerprint,
 				DeclarationProfileFingerprint: declarationProfileFingerprint,
 				Closure:                       CacheClosure{},

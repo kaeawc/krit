@@ -42,6 +42,11 @@ type InvocationOptions struct {
 	// `--classpath` parser alongside this field landing. Empty
 	// preserves the existing source-tree-discovery fallback.
 	Classpath []string
+	// Backend is the JVM backend being invoked. When set, cached entries
+	// written by the other backend are misses (see Backend.CacheApproximation),
+	// and a whole-compilation backend's entries are checked against the
+	// current compilation (see Backend.ReturnsWholeCompilation).
+	Backend Backend
 }
 
 func (o InvocationOptions) tracker() perf.Tracker {

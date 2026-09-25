@@ -43,6 +43,7 @@ fun main(args: Array<String>) {
     // One-shot CLI:
     //   krit-fir --sources DIR[,DIR...] --output FILE
     //            [--files LIST_FILE] [--classpath JAR[:JAR...]]
+    //            [--cache-deps-out FILE]
     // Mirrors krit-types' one-shot surface so `oracle.InvokeWithFiles`
     // can drive either backend with the same arg vector.
     val sources = extractCliSources(args)
@@ -57,6 +58,7 @@ fun main(args: Array<String>) {
         outputPath = output,
         filesListPath = extractCliValue(args, "--files"),
         classpath = classpath,
+        cacheDepsOutPath = extractCliValue(args, "--cache-deps-out"),
     )
     exitProcess(0)
 }
@@ -93,15 +95,17 @@ private fun printOneShotUsage() {
         |  krit-fir --daemon [--port N]
         |  krit-fir --sources DIR[,DIR...] --output FILE
         |           [--files LIST_FILE] [--classpath JAR[${java.io.File.pathSeparatorChar}JAR...]]
+        |           [--cache-deps-out FILE]
         """.trimMargin(),
     )
 }
 
-private fun runOneShot(
+internal fun runOneShot(
     sources: List<String>,
     outputPath: String,
     filesListPath: String?,
     classpath: List<String>,
+    cacheDepsOutPath: String?,
 ) {
     val session = AnalysisSession(sources, classpath)
     val files = if (filesListPath.isNullOrBlank()) {
@@ -111,8 +115,16 @@ private fun runOneShot(
         // restrict analysis to. Same shape krit-types accepts.
         java.io.File(filesListPath).readLines().map { it.trim() }.filter { it.isNotEmpty() }
     }
-    val result = session.analyze(files)
-    java.io.File(outputPath).writeText(dev.jasonpearson.krit.fir.oracle.OracleResponse.buildOneShot(result))
+    val outcome = session.analyzeFull(files)
+    // The cache-deps file is written first: the Go caller treats a non-empty
+    // --output as "done" and may stop waiting for the process after a grace
+    // period, so the deps must already be on disk by then.
+    if (!cacheDepsOutPath.isNullOrBlank()) {
+        java.io.File(cacheDepsOutPath).writeText(
+            dev.jasonpearson.krit.fir.oracle.OracleResponse.buildCacheDeps(outcome.cacheDeps),
+        )
+    }
+    java.io.File(outputPath).writeText(dev.jasonpearson.krit.fir.oracle.OracleResponse.buildOneShot(outcome.result))
     System.err.println("Wrote $outputPath")
 }
 

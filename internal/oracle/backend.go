@@ -82,3 +82,26 @@ func (b Backend) JarName() string {
 		return "krit-types.jar"
 	}
 }
+
+// ReturnsWholeCompilation reports whether one analysis run returns fresh facts
+// for every file in the compilation, whatever subset was requested. krit-fir
+// compiles every source file on each request and reports them all, so any run
+// refreshes the whole cache. krit-types analyzes only the requested files.
+func (b Backend) ReturnsWholeCompilation() bool {
+	return b == BackendFIR
+}
+
+// CacheApproximation names how the backend's cache entries were produced. An
+// entry written by the other backend never satisfies a lookup: its facts and
+// its dependency closure were computed differently. An unset backend returns
+// "", which accepts any entry.
+func (b Backend) CacheApproximation() string {
+	switch b {
+	case BackendFIR:
+		return ApproximationFIRWholeCompilation
+	case BackendKAA:
+		return ApproximationSymbolResolvedSources
+	default:
+		return ""
+	}
+}

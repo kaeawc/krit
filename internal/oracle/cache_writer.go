@@ -307,6 +307,7 @@ func (w *CacheWriter) buildEntryData(memo *oracleCacheHashMemo, job freshOracleE
 		ContentHash:                   hash,
 		FilePath:                      job.path,
 		Approximation:                 job.approximation,
+		CompilationFingerprint:        job.compilation,
 		CallFilterFingerprint:         callFilterFingerprint,
 		DeclarationProfileFingerprint: declarationProfileFingerprint,
 	}

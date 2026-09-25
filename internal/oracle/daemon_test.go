@@ -520,6 +520,25 @@ func TestDaemon_MatchesRepo_DifferentJar(t *testing.T) {
 	}
 }
 
+func TestDaemon_MatchesRepo_DifferentClasspath(t *testing.T) {
+	// A daemon compiles against the classpath it was started with, so it
+	// must not answer for a caller that needs a different one.
+	cp := []string{"/libs/a.jar", "/libs/b.jar"}
+	d := &Daemon{sourcesHash: daemonRegistryKey(testJarPath, testSourceDirs, cp...)}
+	if !d.MatchesRepo(testJarPath, testSourceDirs, cp...) {
+		t.Error("MatchesRepo should return true for the same classpath")
+	}
+	if d.MatchesRepo(testJarPath, testSourceDirs) {
+		t.Error("MatchesRepo should return false when the caller has no classpath")
+	}
+	if d.MatchesRepo(testJarPath, testSourceDirs, "/libs/b.jar", "/libs/a.jar") {
+		t.Error("MatchesRepo should return false for a reordered classpath")
+	}
+	if daemonRegistryKey(testJarPath, testSourceDirs) != daemonRegistryKey(testJarPath, testSourceDirs, []string{}...) {
+		t.Error("an empty classpath must keep the classpath-free key")
+	}
+}
+
 func TestDaemon_MatchesRepo_EmptyHash(t *testing.T) {
 	// An older daemon that didn't write daemon.sources has an empty
 	// sourcesHash. MatchesRepo returns false so callers fall back.

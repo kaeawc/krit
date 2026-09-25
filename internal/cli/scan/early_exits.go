@@ -489,7 +489,10 @@ func RunOutputTypesTo(errOut io.Writer, opts RunOutputTypesOpts) int {
 	if opts.NoCacheOracle {
 		_, err = oracle.Invoke(jarPath, sourceDirs, opts.OutputPath, opts.Verbose)
 	} else {
-		_, err = oracle.InvokeCached(jarPath, sourceDirs, oracle.FindRepoDir(opts.Paths), opts.OutputPath, "", opts.Verbose, opts.Store)
+		// EnsureJar resolves krit-types; scope the cache to it so a dump
+		// never serves facts krit-fir cached.
+		_, err = oracle.InvokeCachedWithOptions(jarPath, sourceDirs, oracle.FindRepoDir(opts.Paths), opts.OutputPath, "", opts.Verbose, opts.Store,
+			oracle.InvocationOptions{Backend: oracle.BackendKAA})
 	}
 	if err != nil {
 		fmt.Fprintf(errOut, "error: %v\n", err)

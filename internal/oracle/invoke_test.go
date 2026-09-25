@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -104,6 +106,120 @@ func TestFindJar_VersionPinnedInstall(t *testing.T) {
 // ---------------------------------------------------------------------------
 // FindSourceDirs tests
 // ---------------------------------------------------------------------------
+
+func TestIsJVMCompilableSourceSet(t *testing.T) {
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		// Plain JVM / Android layouts.
+		{"src/main/kotlin", true},
+		{"src/main/java", true},
+		{"src/test/kotlin", true},
+		{"src/debug/kotlin", true},
+		{"src/testFixtures/kotlin", true},
+		{"src/integrationTest/kotlin", true},
+		// KMP JVM-side and shared source sets.
+		{"src/commonMain/kotlin", true},
+		{"src/commonTest/java", true},
+		{"src/jvmMain/kotlin", true},
+		{"src/jvmTest/kotlin", true},
+		{"src/androidMain/kotlin", true},
+		{"src/androidTest/kotlin", true},
+		{"src/androidUnitTest/kotlin", true},
+		{"src/androidInstrumentedTest/kotlin", true},
+		// Custom intermediate source sets compile on the JVM: kept.
+		{"src/jvmAndroidMain/kotlin", true},
+		{"src/jvmCommonMain/kotlin", true},
+		{"src/jvmAndAndroidMain/kotlin", true},
+		{"src/nonJsMain/kotlin", true},
+		{"src/concurrentMain/kotlin", true},
+		{"src/jvmSharedMain/kotlin", true},
+		{"src/desktopMain/kotlin", true},
+		{"src/serverMain/kotlin", true},
+		// Unknown names and lookalikes of a family prefix: kept.
+		{"src/jsonMain/kotlin", true},
+		{"src/nativelyMain/kotlin", true},
+		{"src/iosishMain/kotlin", true},
+		// Non-JVM target families: dropped.
+		{"src/jsMain/kotlin", false},
+		{"src/jsTest/kotlin", false},
+		{"src/jsAndWasmSharedMain/kotlin", false},
+		{"src/wasmJsMain/kotlin", false},
+		{"src/wasmWasiTest/kotlin", false},
+		{"src/nativeMain/kotlin", false},
+		{"src/nativeTest/kotlin", false},
+		{"src/appleMain/kotlin", false},
+		{"src/iosMain/kotlin", false},
+		{"src/iosArm64Main/kotlin", false},
+		{"src/iosSimulatorArm64Test/kotlin", false},
+		{"src/macosX64Main/kotlin", false},
+		{"src/tvosMain/kotlin", false},
+		{"src/watchosArm32Main/kotlin", false},
+		{"src/linuxX64Main/kotlin", false},
+		{"src/mingwX64Main/kotlin", false},
+		{"src/androidNativeMain/kotlin", false},
+		{"src/androidNativeArm64Main/kotlin", false},
+		{"src/jsMain/java", false},
+		// Non-standard layouts are never guessed at.
+		{"custom/kotlin", true},
+		{"jsMain/kotlin", true},
+		{"src/kotlin", true},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			path := filepath.FromSlash(tc.path)
+			if got := isJVMCompilableSourceSet(path); got != tc.want {
+				t.Errorf("isJVMCompilableSourceSet(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+// A plain JVM/Android project must hand the oracles exactly the roots it did
+// before source-set filtering existed.
+func TestFindSourceDirs_PlainProjectUnchanged(t *testing.T) {
+	root := t.TempDir()
+	want := []string{
+		filepath.Join(root, "app", "src", "main", "java"),
+		filepath.Join(root, "app", "src", "main", "kotlin"),
+		filepath.Join(root, "app", "src", "test", "kotlin"),
+		filepath.Join(root, "app", "src", "androidTest", "kotlin"),
+		filepath.Join(root, "lib", "src", "main", "kotlin"),
+		filepath.Join(root, "lib", "src", "debug", "kotlin"),
+		filepath.Join(root, "tools", "kotlin"),
+	}
+	for _, dir := range want {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := FindSourceDirs([]string{root})
+	sort.Strings(got)
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("FindSourceDirs(plain project) = %v, want %v", got, want)
+	}
+}
+
+func TestFindSourceDirs_FiltersNonJVMSets(t *testing.T) {
+	root := t.TempDir()
+	for _, set := range []string{"commonMain", "jvmMain", "concurrentMain", "jsMain", "nativeMain", "androidNativeArm64Main"} {
+		if err := os.MkdirAll(filepath.Join(root, "src", set, "kotlin"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dirs := FindSourceDirs([]string{root})
+	for _, set := range []string{"commonMain", "jvmMain", "concurrentMain"} {
+		if !containsPath(dirs, filepath.Join(root, "src", set, "kotlin")) {
+			t.Errorf("missing %s from %v", set, dirs)
+		}
+	}
+	for _, set := range []string{"jsMain", "nativeMain", "androidNativeArm64Main"} {
+		if containsPath(dirs, filepath.Join(root, "src", set, "kotlin")) {
+			t.Errorf("unexpected %s in %v", set, dirs)
+		}
+	}
+}
 
 func TestFindSourceDirs_FindsKotlinDir(t *testing.T) {
 	tmp := t.TempDir()

@@ -89,6 +89,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         try {
             val args = K2JVMCompilerArguments().apply {
                 freeArgs = compilationFiles(files.map { it.path })
+                MultiplatformSources.configure(this, this@AnalysisSession.sourceDirs, freeArgs)
                 this.classpath = effectiveClasspath(this@AnalysisSession.classpath).joinToString(File.pathSeparator)
                 destination = outDir.absolutePath
                 noStdlib = true
@@ -144,6 +145,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         try {
             val args = K2JVMCompilerArguments().apply {
                 freeArgs = compilationFiles(files)
+                MultiplatformSources.configure(this, this@AnalysisSession.sourceDirs, freeArgs)
                 this.classpath = effectiveClasspath(this@AnalysisSession.classpath).joinToString(File.pathSeparator)
                 destination = outDir.absolutePath
                 noStdlib = true

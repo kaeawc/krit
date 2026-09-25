@@ -126,7 +126,57 @@ func FindJar(scanPaths []string) string {
 	return ""
 }
 
-// FindSourceDirs discovers Kotlin source directories under the given paths.
+// nonJVMSourceSetFamilies are the Kotlin Multiplatform target families that
+// never compile to JVM bytecode. A Gradle source set whose name (minus its
+// Main/Test suffix) is one of these, or starts with one followed by an
+// upper-case letter or digit (iosArm64, linuxX64, wasmJs, androidNativeArm64,
+// jsAndWasmShared, ...), holds code for a non-JVM compilation.
+var nonJVMSourceSetFamilies = []string{
+	"js", "wasm", "native", "apple", "ios", "macos", "tvos", "watchos",
+	"linux", "mingw", "androidNative",
+}
+
+// isJVMCompilableSourceSet reports whether a discovered kotlin/java root
+// belongs in the JVM oracle compilation. Both oracle backends compile every
+// root as one JVM module, so a KMP project's JS/Native/WASM actuals would
+// otherwise collide with the JVM actuals and erase facts for every call that
+// resolves through the shared expect declaration.
+//
+// This is a deny-list on purpose: only roots shaped src/<sourceSet>/kotlin|java
+// whose source set belongs to a known non-JVM target family are dropped.
+// Everything else stays, including main/test, android*, and custom
+// intermediate sets (jvmAndroidMain, concurrentMain, nonJsMain, desktopMain,
+// ...), which compile on the JVM and must keep their facts. Roots outside the
+// src/<sourceSet>/ layout stay too: their target cannot be read from the path.
+func isJVMCompilableSourceSet(dirPath string) bool {
+	parent := filepath.Dir(dirPath)
+	if filepath.Base(filepath.Dir(parent)) != "src" {
+		return true
+	}
+	return !isNonJVMSourceSetName(filepath.Base(parent))
+}
+
+func isNonJVMSourceSetName(name string) bool {
+	stem, ok := strings.CutSuffix(name, "Main")
+	if !ok {
+		stem = strings.TrimSuffix(name, "Test")
+	}
+	for _, family := range nonJVMSourceSetFamilies {
+		rest, ok := strings.CutPrefix(stem, family)
+		if !ok {
+			continue
+		}
+		if rest == "" {
+			return true
+		}
+		if c := rest[0]; (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
+			return true
+		}
+	}
+	return false
+}
+
+// FindSourceDirs discovers JVM-compilable Kotlin and Java source directories.
 func FindSourceDirs(scanPaths []string) []string {
 	var dirs []string
 	seen := map[string]bool{}
@@ -150,8 +200,7 @@ func FindSourceDirs(scanPaths []string) []string {
 				return filepath.SkipDir
 			}
 			if info.Name() == "kotlin" || info.Name() == "java" {
-				// Standard source layout: src/main/kotlin, src/commonMain/kotlin, etc.
-				if !seen[path] {
+				if isJVMCompilableSourceSet(path) && !seen[path] {
 					seen[path] = true
 					dirs = append(dirs, path)
 				}

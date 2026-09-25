@@ -13,7 +13,10 @@ package rules_test
 // when ranking implementation work.
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,6 +26,48 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
+
+// An excluded source set has no JVM oracle file entry. Its nullable source
+// declaration must still be checked, and the missing fact must not become an
+// invented non-null verdict.
+func TestExcludedSourceSetMissingOracleFactsStayUnknown(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "src", "jsMain", "kotlin", "Unsafe.kt")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package repro\nfun unsafe(value: String?) = value!!\nfun unclear() = externalApi()?.length\nfun fallback() = externalApi() ?: \"none\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := oracle.NewFakeOracle() // no facts for this file
+	if got := runRuleOnFileWithFakeOracle(t, "UnsafeCallOnNullableType", file, fake); len(got) != 1 {
+		t.Fatalf("missing oracle facts cleared nullable assertion: %v", got)
+	}
+	// Nor may the missing facts be read as "non-null" by the redundancy rules.
+	for _, rule := range []string{"UnnecessarySafeCall", "UselessElvisOnNonNull"} {
+		if got := runRuleOnFileWithFakeOracle(t, rule, file, fake); len(got) != 0 {
+			t.Fatalf("%s claimed redundancy without oracle facts: %v", rule, got)
+		}
+	}
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	var missingCall uint32
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if file.FlatNodeText(idx) == "externalApi()" {
+			missingCall = idx
+		}
+	})
+	if missingCall == 0 {
+		t.Fatal("missing unresolved call in fixture")
+	}
+	if got := composite.ResolveFlatNode(missingCall, file); got == nil || got.Kind != typeinfer.TypeUnknown {
+		t.Fatalf("missing oracle fact should remain unknown, got %v", got)
+	}
+}
 
 // runRuleWithFakeOracle executes ruleName against code using a
 // CompositeResolver that wraps the real source-level resolver with the

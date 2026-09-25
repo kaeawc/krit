@@ -94,7 +94,12 @@ func recordOracleDir(cacheDir string) {
 // were previously absent or marked "<error>".
 // v10: krit-types records tagged source-reference edges. Older entries lack
 // propagating edges and miss same-package and imported callable dependencies.
-const CacheVersion = 10
+// v11: the oracle compilation drops Kotlin Multiplatform source sets of
+// non-JVM targets (js, wasm, native, apple, ...), and krit-fir compiles
+// common source sets as common sources. KMP files cached from the old flat
+// compile carry facts corrupted by conflicting actuals; krit-types entries
+// are not stamped with a compilation fingerprint, so only a bump drops them.
+const CacheVersion = 11
 
 // ApproximationFIRWholeCompilation marks entries written by krit-fir, whose
 // every run returns facts for the whole compilation.

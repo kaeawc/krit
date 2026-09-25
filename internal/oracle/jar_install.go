@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -210,22 +211,34 @@ func EnsureBackendJar(ctx context.Context, b Backend, scanPaths []string, verbos
 var failedDownloads = map[string]error{}
 
 func downloadReleaseJar(ctx context.Context, b Backend, tag, asset, target string, verbose bool) (string, error) {
-	url := jarReleaseURL(b)
-	if verbose {
-		reporter().Verbosef("verbose: downloading %s from %s\n", b.JarName(), url)
-	}
-	// Bounds the checksums fetch and the jar download together; neither
-	// the callers' contexts nor http.DefaultClient carry a deadline.
-	ctx, cancel := context.WithTimeout(ctx, jarDownloadTimeout)
-	defer cancel()
-	want, err := releaseChecksum(ctx, tag, asset)
+	var failures []error
+	sources, err := jarSources(b, tag)
 	if err != nil {
-		return "", fmt.Errorf("download %s: %w", b.JarName(), err)
+		return "", missingJarError(b, err)
 	}
-	if err := downloadVerified(ctx, url, target, want); err != nil {
-		return "", fmt.Errorf("download %s from %s: %w", b.JarName(), url, err)
+	for _, source := range sources {
+		if verbose {
+			reporter().Verbosef("verbose: downloading %s from %s\n", b.JarName(), redactURL(source.url))
+		}
+		// Each source gets a fresh budget, including its checksum request.
+		attemptCtx, cancel := context.WithTimeout(ctx, jarDownloadTimeout)
+		var err error
+		if source.mavenChecksum {
+			err = downloadVerifiedJar(attemptCtx, source.url, target)
+		} else {
+			var want []byte
+			want, err = releaseChecksum(attemptCtx, tag, asset)
+			if err == nil {
+				err = downloadVerified(attemptCtx, source.url, target, want)
+			}
+		}
+		cancel()
+		if err == nil {
+			return target, nil
+		}
+		failures = append(failures, fmt.Errorf("%s: %w", redactURL(source.url), err))
 	}
-	return target, nil
+	return "", missingJarError(b, errors.Join(failures...))
 }
 
 // ResolveOracleJar returns the jar for the requested oracle backend,
@@ -316,16 +329,16 @@ func releaseChecksum(ctx context.Context, tag, asset string) ([]byte, error) {
 	url := releaseDownloadBase + "/" + tag + "/checksums.txt"
 	resp, err := httpGet(ctx, url)
 	if err != nil {
-		return nil, fmt.Errorf("fetch %s: %w", url, err)
+		return nil, fmt.Errorf("fetch %s: %w", redactURL(url), err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxChecksumsSize))
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", url, err)
+		return nil, fmt.Errorf("read %s: %w", redactURL(url), err)
 	}
 	sum, err := parseChecksum(body, asset)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", url, err)
+		return nil, fmt.Errorf("%s: %w", redactURL(url), err)
 	}
 	return sum, nil
 }
@@ -374,13 +387,20 @@ func downloadVerified(ctx context.Context, url, target string, want []byte) erro
 	})
 }
 
+// jarHTTPClient is the shared injectable HTTP seam for release and Maven downloads.
+var jarHTTPClient = http.DefaultClient
+
 func httpGet(ctx context.Context, url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := jarHTTPClient.Do(req)
 	if err != nil {
+		var ue *neturl.Error
+		if errors.As(err, &ue) {
+			ue.URL = redactURL(ue.URL)
+		}
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -395,5 +415,5 @@ func httpGet(ctx context.Context, url string) (*http.Response, error) {
 // options visible together.
 func missingJarError(b Backend, reason error) error {
 	base := b.jarBaseName()
-	return fmt.Errorf("%s not found (%w). Install a tagged krit release to enable auto-download, set %s to an existing jar, or build with: cd tools/%s && ./gradlew shadowJar", b.JarName(), reason, b.JarEnvVar(), base)
+	return fmt.Errorf("%s not found (%w). Install a tagged krit release to enable auto-download, set %s for a Maven mirror or %s to an existing jar, or build with: cd tools/%s && ./gradlew shadowJar", b.JarName(), reason, jarRepositoryEnv, b.JarEnvVar(), base)
 }

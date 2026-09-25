@@ -82,7 +82,10 @@ const CacheFileName = "incremental.cache"
 // v15: Deprecation's same-file path matches @Deprecated by exact annotation
 // name, so declarations annotated with e.g. @OptIn(DeprecatedFor…::class) are
 // no longer reported deprecated — changing findings for unchanged source whose
-// oracle facts (and so fact hash) did not change.
+// oracle facts (and so fact hash) did not change. The same bump covers two
+// projection fixes: a DEPRECATION projection no longer borrows a same-named
+// overload's ReplaceWith, and diagnostics without byte offsets anchor by UTF-16
+// column instead of byte column.
 //
 // Note: the oracle fact hash is folded into the per-file store key directly
 // (foldOracleBlobHash, versioned by its own "v1" suffix + FactSchemaVersion),

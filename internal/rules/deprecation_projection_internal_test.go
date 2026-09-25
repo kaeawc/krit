@@ -210,3 +210,48 @@ fun use(b: B) { b.run() }
 		t.Fatalf("fix = %#v; a different declaration's ReplaceWith must not be applied", f.Fix)
 	}
 }
+
+func TestDeprecationProjection_OverloadsSharingAMessageGetNoGuessedFix(t *testing.T) {
+	// Both overloads share the message but not the ReplaceWith. The index is
+	// keyed by name, so it cannot tell which overload the compiler flagged,
+	// and neither ReplaceWith may be applied.
+	code := `package p
+class A {
+    @Deprecated("Use new", ReplaceWith("newString(s)"))
+    fun old(s: String) {}
+    @Deprecated("Use new", ReplaceWith("newInt(i)"))
+    fun old(i: Int) {}
+}
+fun use(a: A) { a.old("x") }
+`
+	findings := runDeprecation(t, code, []deprecationAnchor{
+		{kind: "simple_identifier", text: "old", nth: 2, message: "'fun old(s: String): Unit' is deprecated. Use new."},
+	})
+	if len(findings) != 1 {
+		t.Fatalf("findings = %#v, want 1", findings)
+	}
+	if findings[0].Message != "'old' is deprecated: Use new" {
+		t.Fatalf("message = %q, want the compiler's reason", findings[0].Message)
+	}
+	if findings[0].Fix != nil {
+		t.Fatalf("fix = %#v; an ambiguous overload's ReplaceWith must not be applied", findings[0].Fix)
+	}
+}
+
+func TestDeprecationProjection_IdenticalOverloadsKeepTheirFix(t *testing.T) {
+	code := `package p
+class A {
+    @Deprecated("Use new", ReplaceWith("fresh()"))
+    fun old() {}
+    @Deprecated("Use new", ReplaceWith("fresh()"))
+    fun old(i: Int = 0, j: Int) {}
+}
+fun use(a: A) { a.old() }
+`
+	findings := runDeprecation(t, code, []deprecationAnchor{
+		{kind: "simple_identifier", text: "old", nth: 2, message: "'fun old(): Unit' is deprecated. Use new."},
+	})
+	if len(findings) != 1 || findings[0].Fix == nil {
+		t.Fatalf("findings = %#v, want 1 with the shared ReplaceWith fix", findings)
+	}
+}

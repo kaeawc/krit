@@ -28,6 +28,11 @@ type deprecationInfo struct {
 	message     string // @Deprecated("message")
 	replaceWith string // @Deprecated(replaceWith = ReplaceWith("expr"))
 	level       string // WARNING, ERROR, or HIDDEN
+	// ambiguous marks a name that more than one same-file @Deprecated
+	// declaration uses with a different message, ReplaceWith, or level (for
+	// example overloads). The index keeps the last one, so it cannot tell
+	// which of them a compiler diagnostic refers to.
+	ambiguous bool
 }
 
 type DeprecationRule struct {
@@ -67,6 +72,10 @@ func collectDeprecatedDeclsFlat(file *scanner.File, out map[string]*deprecationI
 		if info := extractDeprecatedInfoFlat(file, idx); info != nil {
 			name := extractIdentifierFlat(file, idx)
 			if name != "" {
+				if prev := out[name]; prev != nil && (prev.ambiguous || prev.message != info.message ||
+					prev.replaceWith != info.replaceWith || prev.level != info.level) {
+					info.ambiguous = true
+				}
 				out[name] = info
 			}
 		}
@@ -257,10 +266,11 @@ func compilerDeprecationDetail(message string) string {
 // when it is the declaration the compiler flagged: the index is keyed by name
 // alone, so another class's member, another overload, or a library symbol with
 // the same name must not lend this diagnostic its message or ReplaceWith fix.
-// The compiler's rendered message carries the @Deprecated text, which must match.
+// The compiler's rendered message carries the @Deprecated text, which must match,
+// and a name shared by differing same-file declarations is never trusted.
 func sameFileDeprecationFor(file *scanner.File, name string, d oracle.Diagnostic) *deprecationInfo {
 	info := deprecatedDeclIndex(file)[name]
-	if info == nil || compilerDeprecationDetail(d.Message) != strings.TrimSuffix(info.message, ".") {
+	if info == nil || info.ambiguous || compilerDeprecationDetail(d.Message) != strings.TrimSuffix(info.message, ".") {
 		return nil
 	}
 	return info

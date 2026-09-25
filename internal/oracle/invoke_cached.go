@@ -1133,7 +1133,7 @@ func runMissAnalysis(
 		var pool *DaemonPool
 		if err := trackOracle(tracker, "daemonPoolConnectOrStart", func() error {
 			var err error
-			pool, err = ConnectOrStartDaemonPool(jarPath, sourceDirs, nil, poolSize, verbose)
+			pool, err = ConnectOrStartDaemonPool(jarPath, sourceDirs, opts.Classpath, poolSize, verbose)
 			return err
 		}); err != nil {
 			return fallback(fmt.Sprintf("ConnectOrStartDaemonPool: %v", err))
@@ -1144,7 +1144,7 @@ func runMissAnalysis(
 			"connected": int64(pool.Connected),
 			"started":   int64(pool.Started),
 		}, nil)
-		if !pool.MatchesRepo(jarPath, sourceDirs) {
+		if !pool.MatchesRepo(jarPath, sourceDirs, opts.Classpath...) {
 			addOracleInstant(tracker, "daemonPoolRepoMismatch", map[string]int64{"misses": int64(len(misses))}, nil)
 			return fallback("daemon pool (jar, sourceDirs) mismatch")
 		}
@@ -1169,7 +1169,7 @@ func runMissAnalysis(
 	var d *Daemon
 	if err := trackOracle(tracker, "daemonConnectOrStart", func() error {
 		var err error
-		d, err = ConnectOrStartDaemon(jarPath, sourceDirs, nil, verbose)
+		d, err = ConnectOrStartDaemon(jarPath, sourceDirs, opts.Classpath, verbose)
 		return err
 	}); err != nil {
 		return fallback(fmt.Sprintf("ConnectOrStartDaemon: %v", err))
@@ -1182,7 +1182,7 @@ func runMissAnalysis(
 	// invocation, defeating the whole purpose of the persistent daemon.
 	defer func() { _ = d.Release() }()
 
-	if !d.MatchesRepo(jarPath, sourceDirs) {
+	if !d.MatchesRepo(jarPath, sourceDirs, opts.Classpath...) {
 		addOracleInstant(tracker, "daemonRepoMismatch", map[string]int64{"misses": int64(len(misses))}, nil)
 		return fallback("daemon (jar, sourceDirs) mismatch")
 	}

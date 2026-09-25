@@ -364,6 +364,15 @@ jobs:
         if: steps.cache-krit-types.outputs.cache-hit != 'true'
         working-directory: tools/krit-types
         run: ./gradlew --no-daemon shadowJar
+      # TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd adds a
+      # test-only throwing probe rule from krit-fir's compiled test classes to
+      # a copy of the shadow jar. Build them on every run (the jar cache below
+      # can skip the Gradle build), and BEFORE the shadow jar is restored or
+      # built: testClasses also builds the thin `jar`, which has the same
+      # build/libs/krit-fir.jar name and would overwrite the shadow jar.
+      - name: Build krit-fir test classes
+        working-directory: tools/krit-fir
+        run: ./gradlew --no-daemon testClasses
       - name: Cache krit-fir shadow jar
         id: cache-krit-fir
         uses: actions/cache@v5
@@ -374,13 +383,6 @@ jobs:
         if: steps.cache-krit-fir.outputs.cache-hit != 'true'
         working-directory: tools/krit-fir
         run: ./gradlew --no-daemon shadowJar
-      # TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd adds a
-      # test-only throwing probe rule from krit-fir's compiled test classes to
-      # a copy of the shadow jar. Build them on every run: the jar cache above
-      # can skip the Gradle build entirely.
-      - name: Build krit-fir test classes
-        working-directory: tools/krit-fir
-        run: ./gradlew --no-daemon testClasses
       # TestFirPilotParity compiles the FIR pilot fixtures through krit-fir,
       # so it needs a standalone kotlin-stdlib on the classpath. The jar is
       # normally in the Gradle module cache after the shadowJar build above,

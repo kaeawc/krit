@@ -85,6 +85,23 @@ class AnalysisSessionCheckGatingTest {
         assertEquals(listOf(jvm), result.findings.filter { it.rule == "ProtocolProbe" }.map { it.path }, result.toString())
     }
 
+    // A Gradle script in the request must not reach the module compilation:
+    // its Gradle API references would be errors, and a location-less script
+    // error would gate every file.
+    @Test fun requestedKotlinScriptIsExcludedNotCompiled() {
+        val clean = write("src/main/kotlin/p/Clean.kt", "package p\n\nfun protocolProbe() {}\nfun use() { protocolProbe() }\n")
+        val script = write(
+            "build.gradle.kts",
+            "plugins { kotlin(\"jvm\") }\ndependencies { implementation(project(\":core\")) }\n",
+        )
+        val result = AnalysisSession(listOf(tmp.resolve("src/main/kotlin").toString()), listOf(stdlib))
+            .check(1, listOf(FileRef(clean), FileRef(script)), setOf("ProtocolProbe"))
+
+        assertEquals(mapOf(script to AnalysisSession.SCRIPT_NOT_COMPILED), result.errorFiles, result.toString())
+        assertTrue(result.crashed.isEmpty(), result.crashed.toString())
+        assertEquals(listOf(clean), result.findings.map { it.path })
+    }
+
     @Test fun withoutSourceDirsEveryRequestedFileIsCompiled() {
         val file = write("src/jsMain/kotlin/r/Loose.kt", "package r\n\nfun protocolProbe() {}\nfun use() { protocolProbe() }\n")
         val result = AnalysisSession(emptyList(), listOf(stdlib)).check(1, listOf(FileRef(file)), setOf("ProtocolProbe"))

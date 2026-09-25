@@ -87,18 +87,18 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
      * The result tells Go where the checker verdict can be trusted:
      *  - `errorFiles` lists requested files the compiler could not analyze
      *    cleanly (an ERROR diagnostic in the file, or a location-less ERROR
-     *    that affects the whole compilation), and requested files outside the
-     *    JVM compilation (see [excludedFromJvmCompilation]), which are not
-     *    compiled at all.
+     *    that affects the whole compilation), and requested files that are
+     *    not compiled at all: Kotlin scripts and files outside the JVM
+     *    compilation (see [excludedFromJvmCompilation]).
      *  - `crashed` lists every compiled file when the compiler itself crashed.
      */
     fun check(
         id: Long, files: List<FileRef>, enabledRules: Set<String>,
         ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),
     ): BatchResult {
-        val (excluded, compiled) = files.partition { excludedFromJvmCompilation(it.path) }
+        val (excluded, compiled) = files.partition { isScript(it.path) || excludedFromJvmCompilation(it.path) }
         val errorFiles = linkedMapOf<String, String>()
-        for (ref in excluded) errorFiles[ref.path] = NOT_IN_JVM_COMPILATION
+        for (ref in excluded) errorFiles[ref.path] = if (isScript(ref.path)) SCRIPT_NOT_COMPILED else NOT_IN_JVM_COMPILATION
         val enabled = FirRuleDiscovery.enabled(FirRuleCompileContext(enabledRules))
         if (compiled.isEmpty()) {
             return BatchResult(
@@ -180,6 +180,11 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         return false
     }
 
+    // Kotlin scripts (build.gradle.kts, ...) compile against script
+    // definitions the module compilation does not have; like the oracle,
+    // which only compiles `.kt`, the check never compiles them.
+    private fun isScript(path: String): Boolean = !path.endsWith(".kt")
+
     private val canonicalSourceDirs: Set<String> by lazy { sourceDirs.map { canonicalOrSelf(File(it)) }.toSet() }
 
     /**
@@ -254,6 +259,8 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
     fun dispose() {} // No long-lived JVM resources.
 
     companion object {
+        internal const val SCRIPT_NOT_COMPILED =
+            "krit-fir: not compiled; Kotlin scripts are not part of the module compilation"
         internal const val NOT_IN_JVM_COMPILATION =
             "krit-fir: not compiled; the file's source set is not part of the JVM compilation"
 

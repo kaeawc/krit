@@ -108,7 +108,7 @@ func RunPass(opts PassOptions, base []scanner.Finding) []scanner.Finding {
 const maxGatedFilesListed = 10
 
 func writeVerdictSummary(w io.Writer, stats VerdictStats) {
-	fmt.Fprintf(w, "verbose: FIR verdict: %d authoritative files, %d gated (compiler error or crash), %d excluded (not in a JVM source set)\n",
+	fmt.Fprintf(w, "verbose: FIR verdict: %d authoritative files, %d gated (compiler error or crash), %d excluded (scripts or not in a JVM source set)\n",
 		stats.AuthoritativeFiles, len(stats.GatedFiles), stats.ExcludedFiles)
 	gated := make([]string, 0, len(stats.GatedFiles))
 	for path := range stats.GatedFiles {
@@ -187,11 +187,14 @@ func passTargets(parsed []*scanner.File, kotlinPaths []string, includeGenerated 
 }
 
 // partitionJVMFiles splits files into those the JVM compilation covers and
-// those in a non-JVM Kotlin Multiplatform source set (jsMain, iosMain, ...),
-// which are never sent to the checker and so keep Go's findings.
+// the rest, which are never sent to the checker and so keep Go's findings:
+// Kotlin scripts (build.gradle.kts and friends compile against APIs the
+// module compilation does not have; the oracle never compiles them either,
+// and a script error with no location would gate every file) and files in a
+// non-JVM Kotlin Multiplatform source set (jsMain, iosMain, ...).
 func partitionJVMFiles(files []string) (jvm, excluded []string) {
 	for _, path := range files {
-		if oracle.InJVMCompilableSourceSet(path) {
+		if strings.HasSuffix(path, ".kt") && oracle.InJVMCompilableSourceSet(path) {
 			jvm = append(jvm, path)
 		} else {
 			excluded = append(excluded, path)

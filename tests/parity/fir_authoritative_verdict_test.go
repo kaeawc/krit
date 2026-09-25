@@ -104,7 +104,12 @@ func TestFirAuthoritativeVerdictEndToEnd(t *testing.T) {
 		t.Skip("krit-fir executable jar not found; run `cd tools/krit-fir && ./gradlew shadowJar`")
 	}
 	bin := buildVerdictKrit(t, root)
-	project := writeVerdictProject(t, map[string]string{"src/main/kotlin/generated/kotlinx/coroutines/Stubs.kt": coroutineStubs})
+	project := writeVerdictProject(t, map[string]string{
+		"src/main/kotlin/generated/kotlinx/coroutines/Stubs.kt": coroutineStubs,
+		// A Gradle script is scanned but never compiled: compiling it would
+		// fail on the Gradle API and gate every file.
+		"build.gradle.kts": "plugins { kotlin(\"jvm\") }\ndependencies { implementation(project(\":core\")) }\n",
+	})
 
 	goFindings, _ := runVerdictKrit(t, bin, jar, project, false)
 	firFindings, firStderr := runVerdictKrit(t, bin, jar, project, true)
@@ -124,7 +129,7 @@ func TestFirAuthoritativeVerdictEndToEnd(t *testing.T) {
 		t.Fatalf("--fir InjectDispatcher findings = %v, want %v", withFir, want)
 	}
 	for _, line := range []string{
-		"verbose: FIR verdict: 3 authoritative files, 1 gated",
+		"verbose: FIR verdict: 3 authoritative files, 1 gated (compiler error or crash), 1 excluded",
 		"verbose: FIR verdict InjectDispatcher: confirmed=1 go-dropped=1 fir-added=1",
 	} {
 		if !strings.Contains(firStderr, line) {

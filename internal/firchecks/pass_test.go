@@ -139,6 +139,8 @@ class Crashes { fun f() = run(Dispatchers.IO) }
 
 class Js { fun f() = run(Dispatchers.IO) }
 `,
+		"build.gradle.kts": `val io = run(Dispatchers.IO)
+`,
 	}
 	p := newVerdictProject(t, files, map[string][]string{verdictRule: {"**/C.kt"}})
 
@@ -151,6 +153,7 @@ class Js { fun f() = run(Dispatchers.IO) }
 		p.at("Err.kt", "Dispatchers.IO", verdictRule, "go: kept, file has compiler errors"),
 		p.at("Crash.kt", "Dispatchers.IO", verdictRule, "go: kept, checker crashed"),
 		p.at("src/jsMain/kotlin/J.kt", "Dispatchers.IO", verdictRule, "go: kept, not in the JVM compilation"),
+		p.at("build.gradle.kts", "Dispatchers.IO", verdictRule, "go: kept, scripts are not compiled"),
 		{File: "Unrequested.kt", Line: 3, Rule: verdictRule, Message: "go: kept, file not checked"},
 	}
 
@@ -171,6 +174,7 @@ class Js { fun f() = run(Dispatchers.IO) }
 	checker.ErrorFiles = map[string]string{p.abs("Err.kt"): "Unresolved reference 'missing'."}
 	checker.Crashed = map[string]string{p.abs("Crash.kt"): "internal error"}
 
+	var verbose strings.Builder
 	opts := PassOptions{
 		Enabled:     true,
 		Checker:     checker,
@@ -186,13 +190,19 @@ class Js { fun f() = run(Dispatchers.IO) }
 		SourceDirs: []string{"src/main/kotlin"},
 		Classpath:  []string{"lib.jar"},
 		Tracker:    perf.New(false),
+		Verbose:    true,
+		VerboseOut: &verbose,
 	}
 	got := RunPass(opts, slices.Clone(goFindings))
+	if !strings.Contains(verbose.String(), "3 authoritative files, 2 gated (compiler error or crash), 2 excluded") {
+		t.Fatalf("verbose summary must count the script and the jsMain file as excluded:\n%s", verbose.String())
+	}
+	opts.Verbose = false
 
 	want := describe([]scanner.Finding{
 		confirmedGo, // FIR-confirmed: Go's form, message, and fix
 		p.at("A.kt", "Custom.IO", verdictRule, "fir: Custom.IO"), // FIR-only: added
-		goFindings[2], goFindings[3], goFindings[4], goFindings[5], goFindings[6],
+		goFindings[2], goFindings[3], goFindings[4], goFindings[5], goFindings[6], goFindings[7],
 	})
 	if d := describe(got); !reflect.DeepEqual(d, want) {
 		t.Fatalf("verdict mismatch\ngot:  %s\nwant: %s", strings.Join(d, "\n      "), strings.Join(want, "\n      "))
@@ -209,6 +219,9 @@ class Js { fun f() = run(Dispatchers.IO) }
 	requested := checker.Called[0]
 	if slices.Contains(requested, p.abs("src/jsMain/kotlin/J.kt")) {
 		t.Fatalf("non-JVM source-set file must not be sent to the checker: %v", requested)
+	}
+	if slices.Contains(requested, p.abs("build.gradle.kts")) {
+		t.Fatalf("Kotlin scripts must not be sent to the checker: %v", requested)
 	}
 	if !slices.Contains(requested, p.abs("A.kt")) || !slices.IsSorted(requested) {
 		t.Fatalf("requested files must be the sorted absolute scan files: %v", requested)

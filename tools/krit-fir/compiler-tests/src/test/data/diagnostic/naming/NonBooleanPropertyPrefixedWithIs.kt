@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 9, 11, 13, 18, 21, 23, 26, 29, 31, 34, 38, 41, 45, 46, 49, 57, 61, 65, 70, 75, 77, 80, 85, 90, 94, 102, 105, 108, 114
 // Positive: properties named is* whose type is not Boolean. Each is reported
 // on the property's first line (modifier list, else val/var), the line the Go
 // rule reports. Every case here is also a Go finding.

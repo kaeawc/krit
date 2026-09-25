@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 14, 17, 20, 24, 29, 31, 35, 39
 // Go findings FIR drops: each property below IS a Boolean, so Go's message
 // ("Non-Boolean property ...") is false of the code. Go decides Boolean-ness
 // from the declared type's text (only `Boolean` / `Boolean?`) or a literal

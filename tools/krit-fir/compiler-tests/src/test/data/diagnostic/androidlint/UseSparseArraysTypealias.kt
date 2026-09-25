@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Divergence (recall): a user typealias to HashMap. Each call constructs a
 // java.util.HashMap with an Int key, so FIR reports it ("Use SparseArray
 // instead of HashMap<Int, ...>"). Go misses both, because the call name is the

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // True positive Go misses: a same-package type alias named Boolean takes
 // priority over the default import of kotlin.Boolean.
 package test

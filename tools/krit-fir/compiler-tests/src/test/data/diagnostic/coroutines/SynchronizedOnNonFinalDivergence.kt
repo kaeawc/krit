@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 17, 24, 30, 46, 60, 145, 148, 163, 172, 177, 181, 204
 // Where FIR resolution and the Go rule's name-based lookup disagree. Go
 // reports a bare lock name when any `var` of that name is declared inside the
 // nearest enclosing class or object; FIR reports when the name resolves to a

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 21, 27, 38, 41
 // Lookalikes: a project `Locale.getDefault()` is not the device default
 // locale, and a project `DateTimeFormatter.ISO_*` holder is a java.time ISO
 // formatter only when it holds the java.time constant.

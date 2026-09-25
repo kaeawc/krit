@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Recall: the same call spelled in ways Go's text match misses. FIR resolves
 // the receiver root and the argument, so it reports all of them; Go reports
 // none, because it matches the spelled texts `DateTimeFormatter.ISO_...` and

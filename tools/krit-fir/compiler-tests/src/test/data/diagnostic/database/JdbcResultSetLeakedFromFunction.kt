@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 13, 16, 21, 23, 25, 27, 32, 35, 38, 40, 43, 47, 53, 59, 63, 67
 // Positive: a function with a body whose declared return type is
 // java.sql.ResultSet. Each is reported on the function's first line (its
 // modifier list, else `fun`), the line the Go rule reports.

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 21, 22
 // Go matches the call by its written name, so `synchronized(lock) { }` counts
 // when `synchronized` is a class whose companion has an `operator fun invoke`:
 // the call resolves to `synchronized.Companion.invoke(lock) { }` on the class

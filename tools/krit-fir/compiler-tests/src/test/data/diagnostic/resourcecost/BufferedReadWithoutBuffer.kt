@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 17, 19, 21, 23, 27, 32, 38, 45, 50, 54, 56, 58, 60, 63, 66, 70, 75, 80, 82, 85, 87, 89, 92, 95, 100, 107, 116, 126, 132
 // Unbuffered reads Go and FIR both report, and buffered or unrelated reads
 // both leave alone.
 package test

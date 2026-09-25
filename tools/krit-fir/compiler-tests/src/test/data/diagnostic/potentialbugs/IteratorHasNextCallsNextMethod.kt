@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 12, 22, 33, 42, 50, 60, 67, 73, 80, 89, 97, 106, 113, 122, 130, 136, 144, 159, 170, 176, 184, 192, 204, 216, 229, 241, 255, 263, 275, 287
 // Positive: an iterator's hasNext() whose body calls next(). Each is reported
 // once, on the function's first line (its modifier list, else `fun`), the line
 // the Go rule reports.

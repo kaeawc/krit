@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 13, 17, 20, 22
 // Local lookalikes: classes in this package named like the Throwable base
 // types shadow the default imports, so these objects extend plain classes.
 package test

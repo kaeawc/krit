@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 22, 24
 // Divergence (recall): tree-sitter misparses a generic constructor call on the
 // right-hand side of an Elvis or `+` operator, so Go never sees a
 // call_expression named HashMap there and reports nothing. Each call

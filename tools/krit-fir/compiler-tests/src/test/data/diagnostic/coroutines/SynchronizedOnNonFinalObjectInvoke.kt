@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 19, 20
 // Go matches the call by its written name, so `synchronized(lock) { }` counts
 // when `synchronized` is an object with an `operator fun invoke`: the call
 // resolves to `synchronized.invoke(lock) { }` on the object's qualifier. FIR

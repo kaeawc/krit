@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // True positives Go misses: the stdlib String.format and String.toLowerCase()
 // spelled through import aliases. Go needs the call name `format` or
 // `toLowerCase`. (An alias hides the original name in this file, so these

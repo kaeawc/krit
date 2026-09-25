@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 20, 22, 24, 26
 // Divergence: Go reports every function below except `aliased` because it
 // reads the declared return type's text, and each is named ResultSet (or ends
 // in `.ResultSet`).

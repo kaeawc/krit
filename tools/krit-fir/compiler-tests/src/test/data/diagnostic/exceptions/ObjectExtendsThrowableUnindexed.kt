@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 14, 16, 23, 31, 32, 44, 57, 67
 // Objects declared in a companion object body or an enum class body. Go's
 // declaration index never descends into either container, so the resolver
 // has no hierarchy for these objects and Go falls back to searching the whole

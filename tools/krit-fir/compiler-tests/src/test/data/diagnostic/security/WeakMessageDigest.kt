@@ -77,9 +77,20 @@ class Crypto {
         MessageDigest.getInstance("MD5\t")
     }
 
+    // Deliberate improvements: other spellings of
+    // java.security.MessageDigest.getInstance. Go misses each of these because
+    // it only accepts a receiver spelled `MessageDigest` or
+    // `java.security.MessageDigest`: an import alias, a typealias, a statically
+    // imported getInstance, a parenthesized receiver, and a backticked one. FIR
+    // is correct to report them because each call resolves to
+    // java.security.MessageDigest.getInstance with a weak algorithm literal.
     fun otherSpellings() {
-        Digest.getInstance("MD5")
-        AliasedDigest.getInstance("MD5")
-        getInstance("MD5")
+        <!WeakMessageDigest!>Digest.getInstance("MD5")<!>
+        <!WeakMessageDigest!>AliasedDigest.getInstance("MD5")<!>
+        <!WeakMessageDigest!>getInstance("MD5")<!>
+        <!WeakMessageDigest!>(MessageDigest).getInstance("SHA-1")<!>
+        <!WeakMessageDigest!>`MessageDigest`.getInstance("MD5")<!>
+        Digest.getInstance("SHA-256")
+        getInstance("SHA-512")
     }
 }

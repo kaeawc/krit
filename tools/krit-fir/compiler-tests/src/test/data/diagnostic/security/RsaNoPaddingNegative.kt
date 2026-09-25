@@ -1,12 +1,12 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
 // Negative: padded RSA, non-RSA NoPadding, malformed transformations,
-// non-literal arguments, aliased imports, and local getInstance lookalikes
-// must NOT trigger RsaNoPadding.
+// non-literal arguments, and local getInstance lookalikes must NOT trigger
+// RsaNoPadding. (Aliased spellings of javax.crypto.Cipher are positives, in
+// RsaNoPaddingSpellings.kt.)
 package test
 
 import javax.crypto.Cipher
-import javax.crypto.Cipher as JCipher
 
 const val RSA_NO_PADDING = "RSA/ECB/NoPadding"
 
@@ -40,9 +40,6 @@ class Crypto(private val mode: String) {
         val transformation = "RSA/ECB/NoPadding"
         return Cipher.getInstance(transformation)
     }
-
-    // Go requires the receiver to be spelled `Cipher` or `javax.crypto.Cipher`.
-    fun aliased(): Cipher = JCipher.getInstance("RSA/ECB/NoPadding")
 
     // Local lookalikes: same method name, different owner.
     fun lookalikeObject(): String = KeyCipher.getInstance("RSA/ECB/NoPadding")

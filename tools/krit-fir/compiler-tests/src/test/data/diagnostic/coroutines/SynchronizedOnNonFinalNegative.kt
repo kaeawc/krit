@@ -70,11 +70,11 @@ class Service(val ctorLock: Any) {
     companion object
 }
 
-// Java-interop: `tag` is the synthetic property over View.getTag/setTag, not
-// a Kotlin `var`; Go sees no declaration named tag in the class either.
-class TaggedView(context: Context) : View(context) {
+// Java-interop: a synthetic property with no setter is a `val`
+// (View.getContext has no setContext), and Go sees no `var context` either.
+class ContextView(context: Context) : View(context) {
     fun use() {
-        synchronized(tag) { }
+        synchronized(context) { }
     }
 }
 

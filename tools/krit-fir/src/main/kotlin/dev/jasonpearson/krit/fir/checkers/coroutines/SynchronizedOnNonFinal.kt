@@ -16,12 +16,15 @@ import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirImplicitInvokeCall
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
+import org.jetbrains.kotlin.fir.expressions.FirSamConversionExpression
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirFieldSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
-import org.jetbrains.kotlin.fir.symbols.impl.FirSyntheticPropertySymbol
 import org.jetbrains.kotlin.text
 
 // Flags `synchronized(lock) { }` whose lock is a `var`: reassigning it swaps
@@ -30,24 +33,28 @@ import org.jetbrains.kotlin.text
 // Mirrors the Go SynchronizedOnNonFinal rule:
 // - The call is written `synchronized(...)` (optionally qualified), whatever
 //   it resolves to, as Go matches the call by name: kotlin.synchronized, a
-//   wrapper, or a value named synchronized called through `invoke`.
+//   wrapper, or a value, object, or companion-owning class named
+//   synchronized called through `invoke`.
 // - The lock is the first unlabelled argument inside the parentheses, and it
-//   must be a bare name. A `lock = ...` argument, a qualified `this.lock`, or
-//   a parenthesized or compound expression is not inspected.
-// - The message names the lock as written.
+//   must be a bare name (smart casts and SAM conversions are looked through).
+//   A `lock = ...` argument, a qualified `this.lock`, or a parenthesized or
+//   compound expression is not inspected.
+// - The message names the lock as written, backticks included.
 //
 // Where Go looks the name up among the property declarations (members or
 // locals, at any depth) of the nearest enclosing class or object, the checker
-// reads the declaration the name resolves to, and reports when it is a
-// Kotlin `var` (a member, top-level, or local variable). So:
-// - A parameter or `val` that shares its name with a `var` declared somewhere
-//   in the class is not reported: the lock is final (Go reports it).
-// - A `var` Go cannot see from the class body is reported: a top-level
-//   property, a primary-constructor `var`, an outer or inherited class's
-//   property, a scope receiver's property (`with(o)`), a destructured local,
-//   or any `var` used outside a class (Go needs an enclosing class).
-// Java getter/setter pairs (synthetic properties) and Java fields are not
-// reported, as Go never sees their declarations either.
+// reads the declaration the name resolves to, and reports when it can be
+// reassigned: a Kotlin `var` (member, top-level, or local), a synthetic
+// property over a Java getter/setter pair, or a non-final Java field. So:
+// - A final binding that shares its name with a `var` declared somewhere in
+//   the class is not reported (Go reports it): a parameter, a local or
+//   object-expression `val`, a lambda, loop, or catch parameter, a `when`
+//   subject, or a getter-only Java property.
+// - A reassignable lock Go cannot see from the class body is reported: a
+//   top-level property, a primary-constructor `var`, an outer or inherited
+//   class's property (Kotlin or Java), a scope or extension receiver's
+//   property, a destructured local, a backticked spelling of a `var`, or any
+//   `var` used outside a class (Go needs an enclosing class).
 internal object SynchronizedOnNonFinal : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "SynchronizedOnNonFinal"
     override val expressionCheckers = object : ExpressionCheckers() {
@@ -61,16 +68,14 @@ internal object SynchronizedOnNonFinal : FirFunctionCallChecker(MppCheckerKind.C
         if (writtenCalleeName(expression) != SYNCHRONIZED) return
 
         for (argument in arguments(expression)) {
-            val lock = (if (argument is FirSmartCastExpression) argument.originalExpression else argument)
-                as? FirPropertyAccessExpression ?: continue
+            val lock = unwrapConversions(argument) as? FirPropertyAccessExpression ?: continue
             if (lock.explicitReceiver != null) continue
             val source = lock.source ?: continue
             if (source.kind !is KtRealSourceElementKind) continue
             if (source.elementType != KtNodeTypes.REFERENCE_EXPRESSION) continue
             if (!isFirstPositionalArgument(source)) continue
 
-            val symbol = lock.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol ?: return
-            if (symbol is FirSyntheticPropertySymbol || !symbol.isVar) return
+            if (!isNonFinal(lock.calleeReference.toResolvedCallableSymbol())) return
             val name = source.text?.toString() ?: return
             report(
                 expression.source,
@@ -80,18 +85,68 @@ internal object SynchronizedOnNonFinal : FirFunctionCallChecker(MppCheckerKind.C
         }
     }
 
+    // A property or a Java field that can be reassigned: a Kotlin `var`
+    // (member, top-level, or local), a synthetic property over a Java
+    // getter/setter pair, or a non-final Java field. Whether a property is
+    // synthetic, and where it was declared, decides nothing here, so a library
+    // class reads the same from Java or Kotlin, from a stub or a binary. A
+    // backing `field` is neither and is not reported, as Go does not.
+    private fun isNonFinal(symbol: FirCallableSymbol<*>?): Boolean = when (symbol) {
+        is FirPropertySymbol -> symbol.isVar
+        is FirFieldSymbol -> symbol.isVar
+        else -> false
+    }
+
+    // The expression the argument was written as: FIR wraps a smart-cast value
+    // and a value converted to a Kotlin or Java SAM interface.
+    private fun unwrapConversions(argument: FirExpression): FirExpression {
+        var current = argument
+        while (true) {
+            current = when (current) {
+                is FirSmartCastExpression -> current.originalExpression
+                is FirSamConversionExpression -> current.expression
+                else -> return current
+            }
+        }
+    }
+
     // The name the call is written with, as Go reads it: the callee name, or
     // for `synchronized(...)` resolved to `synchronized.invoke(...)`, the name
-    // of the value being invoked.
+    // of the value, object, or companion-owning class being invoked, bare or
+    // qualified.
     private fun writtenCalleeName(expression: FirFunctionCall): String? {
-        val nameSource = if (expression is FirImplicitInvokeCall) {
-            val receiver = expression.explicitReceiver as? FirPropertyAccessExpression ?: return null
-            receiver.calleeReference.source
-        } else {
-            expression.calleeReference.source
+        if (expression !is FirImplicitInvokeCall) return expression.calleeReference.source?.text?.toString()
+        return when (val receiver = expression.explicitReceiver?.let(::unwrapConversions)) {
+            is FirPropertyAccessExpression -> receiver.calleeReference.source?.text?.toString()
+            is FirResolvedQualifier -> receiver.source?.let(::lastReferenceName)
+            else -> null
         }
-        return nameSource?.text?.toString()
     }
+
+    // The last simple name of a qualifier as written: `synchronized` for both
+    // `synchronized` and `pkg.synchronized`.
+    private fun lastReferenceName(source: KtSourceElement): String? {
+        val tree = source.treeStructure
+        var node = source.lighterASTNode
+        while (true) {
+            node = when (node.tokenType) {
+                KtNodeTypes.REFERENCE_EXPRESSION -> return tree.toString(node).toString()
+                KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION ->
+                    children(source, node).lastOrNull { it.tokenType in selectorTypes } ?: return null
+                KtNodeTypes.CALL_EXPRESSION ->
+                    children(source, node).firstOrNull()?.takeIf { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION }
+                        ?: return null
+                else -> return null
+            }
+        }
+    }
+
+    private val selectorTypes = setOf(
+        KtNodeTypes.REFERENCE_EXPRESSION,
+        KtNodeTypes.CALL_EXPRESSION,
+        KtNodeTypes.DOT_QUALIFIED_EXPRESSION,
+        KtNodeTypes.SAFE_ACCESS_EXPRESSION,
+    )
 
     // The call's argument expressions, with varargs flattened. Labelled,
     // spread, and lambda arguments stay wrapped and are skipped by the caller.

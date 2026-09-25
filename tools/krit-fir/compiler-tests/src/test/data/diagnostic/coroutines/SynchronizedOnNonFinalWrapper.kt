@@ -25,6 +25,15 @@ class Guarded {
         <!SynchronizedOnNonFinal!>synchronized(lock) { }<!>
         synchronized(fixed) { }
     }
+
+    // The value is smart-cast to Locker before it is invoked.
+    fun smartCastInvoke(candidate: Any) {
+        val synchronized = candidate
+        if (synchronized is Locker) {
+            <!SynchronizedOnNonFinal!>synchronized(lock) { }<!>
+            synchronized(fixed) { }
+        }
+    }
 }
 
 class MemberLookalike {

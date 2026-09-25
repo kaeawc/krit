@@ -133,3 +133,78 @@ fun topLevelFunction() {
     <!SynchronizedOnNonFinal!>synchronized(localLock) { }<!>
     localLock = Any()
 }
+
+// Go reports these because the class declares `var lock`; FIR is correct to
+// drop them because in an init block and a property initializer the name
+// resolves to the final primary-constructor parameter `lock`.
+class InitShadow(lock: Any) {
+    var lock = lock
+
+    init {
+        synchronized(lock) { }
+    }
+
+    val v = synchronized(lock) { 1 }
+}
+
+class FinalShadows {
+    var lock = Any()
+    var item = Any()
+    var e = Any()
+
+    // Go reports this because the nearest class is FinalShadows, whose body
+    // declares `var lock`; FIR is correct to drop it because the lock is the
+    // object expression's final `val lock`.
+    fun objectShadow(): Runnable = object : Runnable {
+        val lock = Any()
+
+        override fun run() {
+            synchronized(lock) { }
+        }
+    }
+
+    // Go reports these because the class declares `var item`, `var e`, and
+    // `var lock`; FIR is correct to drop them because each lock is a final
+    // binding: a for-loop variable, a catch parameter, and a `when` subject.
+    fun loopCatchWhen(items: List<Any>) {
+        for (item in items) {
+            synchronized(item) { }
+        }
+        try {
+            println(items)
+        } catch (e: Exception) {
+            synchronized(e) { }
+        }
+        when (val lock = items.firstOrNull()) {
+            null -> Unit
+            else -> synchronized(lock) { }
+        }
+    }
+}
+
+class ExtensionOwner {
+    var lock = Any()
+}
+
+// Go misses this because an extension function has no enclosing class; FIR is
+// correct because the lock is the receiver's `var ExtensionOwner.lock`.
+fun ExtensionOwner.ext() {
+    <!SynchronizedOnNonFinal!>synchronized(lock) { }<!>
+}
+
+class Backticks {
+    var lock = Any()
+    var `fun` = Any()
+    var `plain` = Any()
+
+    fun f() {
+        // Go reports this too: the declaration and the lock are both spelled
+        // with backticks, and the message names the lock as written.
+        <!SynchronizedOnNonFinal!>synchronized(`fun`) { }<!>
+        // Go misses these because it compares the names as written, backticks
+        // included; FIR is correct because each lock is a `var`. The message
+        // names the lock as written, as Go's does.
+        <!SynchronizedOnNonFinal!>synchronized(`lock`) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized(plain) { }<!>
+    }
+}

@@ -41,5 +41,61 @@ fun localFunction(t: Throwable) {
     error(t)
 }
 
+// Go reports these because its resolver types a property read off a
+// Throwable as a Throwable; FIR is correct because they are an array, a
+// String and an array.
+fun stackTraceArgument(e: Exception): Nothing = error(e.stackTrace)
+
+fun localizedMessageArgument(e: Exception): Nothing = error(e.localizedMessage)
+
+fun suppressedArgument(e: Exception): Nothing = error(e.suppressed)
+
+// Go reports this because it matches the bare name `error`; FIR is correct
+// because the call resolves to the `with` receiver's member, not kotlin.error.
+class Log {
+    fun error(message: Any?) {
+        println(message)
+    }
+}
+
+fun withReceiver(log: Log, e: Exception) {
+    with(log) { error(e) }
+}
+
+// A local `var` captured and reassigned by a lambda has no smart cast; FIR
+// only narrows it from an `is` check that proves a Throwable on this path.
+fun capturedVarUnchecked(initial: Any): Nothing {
+    var value = initial
+    val reset = { value = "reset" }
+    reset()
+    error(value)
+}
+
+fun capturedVarOtherType(initial: Any) {
+    var value = initial
+    val reset = { value = "reset" }
+    reset()
+    if (value is CharSequence) error(value)
+}
+
+// Go reports this because it narrows from an `is` check anywhere in an `||`
+// condition; FIR is correct because `enabled` alone can take the branch.
+fun capturedVarDisjunction(initial: Any, enabled: Boolean) {
+    var value = initial
+    val reset = { value = "reset" }
+    reset()
+    if (enabled || value is Exception) error(value)
+}
+
+// Go reports this because it narrows `value` in every branch body of the
+// `if`, including `else`; FIR is correct because the else branch runs only
+// when `value` is not an Exception.
+fun capturedVarElseBranch(initial: Any) {
+    var value = initial
+    val reset = { value = "reset" }
+    reset()
+    if (value is Exception) println("exception") else error(value)
+}
+
 // Throwing directly is the recommended form.
 fun rethrow(e: Exception): Nothing = throw IllegalStateException("wrapped", e)

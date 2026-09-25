@@ -148,6 +148,96 @@ class AnalysisSessionDiagnosticsTest {
         assertEquals("WARNING", diagnostic.severity)
     }
 
+    @Test
+    fun deprecationIsRecordedForEveryReferenceKindAndOnlyTheDeprecatedOverload() {
+        writeKt(
+            "Lib.kt",
+            """
+            package com.acme.dep
+
+            @Deprecated("use newFn") fun oldFn() {}
+            fun overloaded(i: Int) {}
+            @Deprecated("use the Int overload") fun overloaded(s: String) {}
+            @Deprecated("use NewType") class OldType
+            class Holder {
+                @Deprecated("use newProp") val oldProp: Int = 1
+                val newProp: Int = 2
+            }
+            open class Base { @Deprecated("gone") open fun m() {} }
+            class Child : Base()
+            @Deprecated("use String") typealias OldAlias = String
+            """.trimIndent(),
+        )
+        // Deliberately free of the tokens the old lexical gate keyed on.
+        val use = writeKt(
+            "Use.kt",
+            """
+            package com.acme.dep
+
+            import java.util.Date
+
+            fun useAll(h: Holder, c: Child, t: OldType, a: OldAlias) {
+                oldFn()
+                overloaded(1)
+                overloaded("s")
+                println(h.oldProp)
+                println(h.newProp)
+                c.m()
+                println(Date().year)
+            }
+            """.trimIndent(),
+        )
+
+        val deprecations = diagnosticsFor(use).filter { it.factoryName == "DEPRECATION" }
+        // Line 5: the OldType and OldAlias parameter types. Then oldFn (6), the
+        // String overload (8), oldProp (9), the inherited m (11), and the
+        // Java-deprecated Date.year getter (12). Not overloaded(1) (7) or
+        // newProp (10).
+        assertEquals(
+            listOf(5, 5, 6, 8, 9, 11, 12),
+            deprecations.map { it.line }.sorted(),
+            "got ${deprecations.map { "${it.line}:${it.col} ${it.message}" }}",
+        )
+        assertTrue(deprecations.all { it.severity == "WARNING" })
+    }
+
+    @Test
+    fun deprecationMessageContainingBracketedTextIsStillRecorded() {
+        // The @Deprecated message is embedded in the compiler message; an
+        // unanchored "[NAME]" check would mistake it for a krit plugin
+        // diagnostic and drop it.
+        val path = writeKt(
+            "Bracketed.kt",
+            """
+            package com.acme.bracketed
+
+            @Deprecated("[OLD] use g") fun f() {}
+            fun g() {}
+            fun caller() { f() }
+            """.trimIndent(),
+        )
+
+        val deprecations = diagnosticsFor(path).filter { it.factoryName == "DEPRECATION" }
+        assertEquals(listOf(5), deprecations.map { it.line }, "got $deprecations")
+    }
+
+    @Test
+    fun otherDeprecationWordedWarningsAreNotRecordedAsDeprecation() {
+        // DEPRECATED_IDENTITY_EQUALS renders "Identity equality … is
+        // deprecated." — a different factory the DEPRECATION pattern must not
+        // claim.
+        val path = writeKt(
+            "Identity.kt",
+            """
+            package com.acme.identity
+
+            fun same(a: Int, b: Int) = a === b
+            """.trimIndent(),
+        )
+
+        assertEquals(emptyList(), diagnosticsFor(path).filter { it.factoryName == "DEPRECATION" })
+    }
+
     private fun diagnosticsFor(path: String): List<DiagnosticPayload> {
         val result = AnalysisSession(
             sourceDirs = listOf(tmp.toFile().absolutePath),

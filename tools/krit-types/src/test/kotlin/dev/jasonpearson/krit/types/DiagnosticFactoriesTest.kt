@@ -2,11 +2,13 @@ package dev.jasonpearson.krit.types
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class DiagnosticFactoriesTest {
 
+    // Must stay in step with OracleDiagnosticMessageCollector's factory list in
+    // krit-fir: both backends project the same compiler verdicts. Every analyzed
+    // file is collected — DEPRECATION can fire on any reference, so there is no
+    // lexical pre-gate; tests/parity covers that end to end across both backends.
     @Test
     fun retainedFactorySetMatchesCompilerDiagnosticProjectionTier() {
         assertEquals(
@@ -18,46 +20,9 @@ class DiagnosticFactoriesTest {
                 "UNNECESSARY_SAFE_CALL",
                 "SENSELESS_COMPARISON",
                 "USELESS_CAST",
+                "DEPRECATION",
             ),
             retainedDiagnosticFactories,
         )
-    }
-
-    @Test
-    fun lexicalGateAdmitsEachNewDiagnosticConstruct() {
-        val representativeSources = mapOf(
-            "UNNECESSARY_NOT_NULL_ASSERTION" to "fun f(value: String) = value!!",
-            "UNNECESSARY_SAFE_CALL" to "fun f(value: String) = value?.length",
-            "SENSELESS_COMPARISON" to "fun f(value: String) = value == null",
-            "USELESS_CAST" to "fun f(value: String) = value as String",
-        )
-
-        for ((factory, source) in representativeSources) {
-            assertTrue(shouldCollectDiagnostics(source), "$factory source should pass the lexical gate")
-        }
-    }
-
-    @Test
-    fun lexicalGateAdmitsExistingCastAndUnreachableConstructsWithoutElvis() {
-        assertTrue(shouldCollectDiagnostics("fun f(value: String) = value as Int"))
-        assertTrue(shouldCollectDiagnostics("fun f(): Int { return 1; return 2 }"))
-    }
-
-    @Test
-    fun lexicalGateAdmitsTokensSeparatedFromTheirReceiverByCommentsOrWhitespace() {
-        assertTrue(shouldCollectDiagnostics("fun f(v: Any) = v/*c*/as String"))
-        assertTrue(shouldCollectDiagnostics("fun f(v: String) = v /* */ !!"))
-    }
-
-    @Test
-    fun lexicalGateDoesNotTreatCommentSplitSafeAccessCharactersAsSafeAccess() {
-        // `?/* */.` is not a SAFE_ACCESS token: KotlinLexer emits the question
-        // mark and dot separately, because a comment cannot appear inside `?.`.
-        assertFalse(shouldCollectDiagnostics("fun f(v: String) = v ?/* */. length"))
-    }
-
-    @Test
-    fun lexicalGateRejectsSourceWithoutDiagnosticHints() {
-        assertFalse(shouldCollectDiagnostics("fun f() = 1 + 2"))
     }
 }

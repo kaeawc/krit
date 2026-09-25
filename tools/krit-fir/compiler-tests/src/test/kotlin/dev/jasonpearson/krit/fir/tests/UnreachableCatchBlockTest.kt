@@ -63,6 +63,35 @@ class UnreachableCatchBlockTest {
         assertEquals(mapOf(8 to 2, 15 to 1, 16 to 1), countsByLine(source))
     }
 
+    // A reified type parameter in a catch clause compiles from language version
+    // 2.4. Go compares the written text, so `catch (e: T)` twice is a
+    // duplicate; FIR must not drop it for not being a class type.
+    @Test
+    fun reifiedTypeParameterDuplicate() {
+        val source = """
+            package reified
+
+            fun r() {}
+
+            inline fun <reified T : Throwable> f() {
+                try { r() } catch (e: T) { } catch (e: T) { }
+            }
+
+            inline fun <reified T : Exception> g() {
+                try { r() } catch (e: Exception) { } catch (e: T) { }
+            }
+        """.trimIndent()
+        val result = KritFirProbe.compile(mapOf("Main.kt" to source)) { it.languageVersion = "2.4" }
+        check(result.clean) { "reified catch did not compile:\n" + result.problems() }
+        val counts = result.diags
+            .filter { it.name == "UnreachableCatchBlock" }
+            .groupingBy { it.line }
+            .eachCount()
+        // Line 6: T duplicates T. Line 10: T is bounded by Exception, so the
+        // Exception clause above catches everything it could.
+        assertEquals(mapOf(6 to 1, 10 to 1), counts)
+    }
+
     @Test
     fun annotatedCatchType() {
         val source = """

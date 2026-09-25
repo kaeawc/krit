@@ -7,6 +7,7 @@
 package test
 
 import java.io.IOException
+import java.io.IOException as IoErr
 import java.net.SocketException
 import java.net.SocketTimeoutException
 
@@ -71,6 +72,43 @@ fun aliasDuplicate() {
     }
 }
 
+// Go misses this duplicate: the texts differ, but kotlin.Exception and
+// java.lang.Exception are the same class however the name is written.
+fun kotlinQualifiedDuplicate() {
+    try {
+        risky()
+    } catch (e: Exception) {
+        println(e)
+    } <!UnreachableCatchBlock!>catch<!> (e: kotlin.Exception) {
+        println(e)
+    }
+}
+
+// Go misses this duplicate: the texts differ and the import alias IoErr is not
+// in its table. The alias names java.io.IOException, so both clauses catch the
+// same class.
+fun importAlias() {
+    try {
+        risky()
+    } catch (e: IOException) {
+        println(e)
+    } <!UnreachableCatchBlock!>catch<!> (e: IoErr) {
+        println(e)
+    }
+}
+
+// Go misses this: the unreachable clause names its type through the import
+// alias, which Go's table does not know.
+fun importAliasSubtype() {
+    try {
+        risky()
+    } catch (e: Exception) {
+        println(e)
+    } <!UnreachableCatchBlock!>catch<!> (e: IoErr) {
+        println(e)
+    }
+}
+
 // Go misses this: the project type alias is not in its table.
 fun projectTypeAlias() {
     try {
@@ -95,6 +133,29 @@ fun projectHierarchy() {
     } <!UnreachableCatchBlock!>catch<!> (e: RepositoryFailure) {
         println(e)
     } <!UnreachableCatchBlock!>catch<!> (e: MissingRow) {
+        println(e)
+    }
+}
+
+// Go misses these: nested project exceptions are not in its table, and it
+// compares the written names, so Holder.Failure and Holder.Companion.Inner are
+// unknown to it.
+class Holder {
+    open class Failure : IOException()
+
+    companion object {
+        class Inner : Failure()
+    }
+}
+
+fun nestedClasses() {
+    try {
+        risky()
+    } catch (e: IOException) {
+        println(e)
+    } <!UnreachableCatchBlock!>catch<!> (e: Holder.Failure) {
+        println(e)
+    } <!UnreachableCatchBlock!>catch<!> (e: Holder.Companion.Inner) {
         println(e)
     }
 }

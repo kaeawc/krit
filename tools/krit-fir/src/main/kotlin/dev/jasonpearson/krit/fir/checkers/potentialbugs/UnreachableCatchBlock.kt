@@ -15,6 +15,7 @@ import org.jetbrains.kotlin.fir.expressions.FirCatch
 import org.jetbrains.kotlin.fir.expressions.FirTryExpression
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
+import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
@@ -31,19 +32,20 @@ import org.jetbrains.kotlin.util.getChildren
 // Each (earlier, later) pair reports once on the later clause's `catch` line, so
 // a clause shadowed by two earlier clauses gets two findings (one per distinct
 // message; see check). FIR makes the same
-// pairwise comparison on the resolved, alias-expanded class types: a duplicate
-// when both clauses catch the same class, unreachable when the later class is a
+// pairwise comparison on the resolved, alias-expanded catch types: a duplicate
+// when both clauses catch the same type, unreachable when the later type is a
 // proper subtype. The message names each type as it is written, like Go. Go's
 // name table misses qualified names, aliases and project exceptions, and it
-// holds one wrong edge (SocketTimeoutException is not a SocketException); the
-// golden data pins both directions.
+// holds one wrong edge (SocketTimeoutException is not a SocketException); it
+// also reads a project class named like a well-known exception as that
+// exception. The golden data pins both directions.
 internal object UnreachableCatchBlock : FirExpressionChecker<FirTryExpression>(MppCheckerKind.Common), FirRule {
     override val ruleId = "UnreachableCatchBlock"
     override val expressionCheckers = object : ExpressionCheckers() {
         override val tryExpressionCheckers = setOf(UnreachableCatchBlock)
     }
 
-    private class CatchEntry(val source: KtSourceElement, val type: ConeClassLikeType, val name: String)
+    private class CatchEntry(val source: KtSourceElement, val type: ConeKotlinType, val name: String)
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirTryExpression) {
@@ -59,7 +61,7 @@ internal object UnreachableCatchBlock : FirExpressionChecker<FirTryExpression>(M
             for (i in 0 until j) {
                 val parent = catches[i]
                 messages += when {
-                    child.type.lookupTag.classId == parent.type.lookupTag.classId ->
+                    sameType(child.type, parent.type) ->
                         "Duplicate catch block for '${child.name}'."
                     child.type.isSubtypeOf(parent.type, context.session) ->
                         "Catch block for '${child.name}' is unreachable because '${parent.name}' is caught above."
@@ -70,11 +72,24 @@ internal object UnreachableCatchBlock : FirExpressionChecker<FirTryExpression>(M
         }
     }
 
+    // Class types compare by class id, which is only compared, never resolved
+    // (resolving a local class id throws). Any other catch type, such as a
+    // reified type parameter (K2 accepts `catch (e: T)` from language version
+    // 2.4), is the same type when each is a subtype of the other, so
+    // `catch (e: T)` twice stays a duplicate, as it is in Go.
+    context(context: CheckerContext)
+    private fun sameType(a: ConeKotlinType, b: ConeKotlinType): Boolean =
+        if (a is ConeClassLikeType && b is ConeClassLikeType) {
+            a.lookupTag.classId == b.lookupTag.classId
+        } else {
+            a.isSubtypeOf(b, context.session) && b.isSubtypeOf(a, context.session)
+        }
+
     context(context: CheckerContext)
     private fun entry(catch: FirCatch): CatchEntry? {
         val source = catch.source ?: return null
         val typeRef = catch.parameter.returnTypeRef
-        val type = typeRef.coneType.fullyExpandedType().lowerBoundIfFlexible() as? ConeClassLikeType ?: return null
+        val type = typeRef.coneType.fullyExpandedType().lowerBoundIfFlexible()
         val name = typeRef.source?.let { writtenTypeName(it) } ?: return null
         return CatchEntry(source, type, name)
     }

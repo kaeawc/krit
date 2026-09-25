@@ -6,13 +6,15 @@ Checklist for porting one existing krit rule to a K2 FIR checker in
 
 ## 1. Prerequisites
 
-- The rule exists in the Go registry: `RuleName: "<RuleId>"` under
-  `internal/rules/`. krit sends krit-fir only the IDs of active Go rules, so a
-  FIR checker whose ID has no registry entry never runs in production
-  (`UnsafeCastWhenNullable` is one today).
-- The rule has Go fixtures `tests/fixtures/positive/<category>/<RuleId>.kt` and
-  `tests/fixtures/negative/<category>/<RuleId>.kt`. FIR parity (step 6) runs
-  against them.
+- The rule is registered in Go (`api.Registry`) and has an entry in
+  `schemas/krit-config.schema.json`. If you just added the Go rule, run
+  `make schema` to regenerate the schema. krit sends krit-fir only the IDs of
+  active Go rules, so a FIR checker whose ID has no Go rule never runs in
+  production (`UnsafeCastWhenNullable` is one today).
+- The rule has Kotlin Go fixtures `tests/fixtures/positive/<category>/<RuleId>.kt`
+  and `tests/fixtures/negative/<category>/<RuleId>.kt`. A `.java`-only fixture
+  does not count, because FIR checks Kotlin. FIR parity (step 6) runs against
+  these fixtures.
 
 ## 2. File layout and naming
 
@@ -37,11 +39,13 @@ Checklist for porting one existing krit rule to a K2 FIR checker in
 - Report with `report(source, message)`. It emits `KRIT_RULE` as
   `[<RuleId>] <message>`.
 - Use Go's user-facing message text for the same finding, including any
-  interpolated names. Copy it from the Go rule's `Finding` call.
-- Anchor on the element Go reports on, such as the call name, the argument, or
-  the declaration name, so the finding has the same file, line, and column.
-  Merge dedup, baselines, and suppressions key on that position. Do not report
-  on a whole function, class, or file unless Go does.
+  interpolated names. Copy it from the message the Go rule passes to
+  `ctx.Emit` or `ctx.EmitAt`.
+- Report on the same line as Go. Anchor on the element Go reports on, such as
+  the call name, the argument, or the declaration name. The column does not
+  have to match, because many Go rules report column 1. Parity and merge dedup
+  compare the file, the rule, and the line. Do not report on a whole function,
+  class, or file unless Go does.
 
 ## 4. Matching rules
 
@@ -90,16 +94,29 @@ All tests live under `tools/krit-fir/compiler-tests/src/test/`.
   generator turns them into test classes and methods. Golden files and stub
   smoke files run with every rule enabled. If your checker fires in someone
   else's data, treat it as a false positive until you have shown otherwise.
-- **Fixture parity:** `FixtureParityTest` compiles each Go fixture against the
-  stubs with only your rule enabled. The positive fixture must produce at least
-  one finding and the negative fixture none. A rule without both fixtures, or
-  whose ID is not in the Go registry, fails. A fixture must compile cleanly:
-  the failure lists unresolved symbols. Library and platform symbols belong in
-  the stubs. Fixture-local helpers can be declared in the fixture itself, as
-  long as the Go verdict does not change. As a last resort, add
-  `// fir-parity: skip <reason>` to the fixture and give a real reason. If a
-  checker disagrees with its Go fixture, fix the checker or report the
-  disagreement. Do not weaken the fixture.
+- **Fixture parity** runs against the Go fixtures in two tiers, and both must
+  pass:
+  1. *Fast, lane-local:* `FixtureParityTest` in `compiler-tests` runs as part
+     of `./gradlew test`. It compiles each Go fixture against the stubs with
+     only your rule enabled. The positive fixture must produce at least one
+     finding and the negative fixture none. It also fails when the rule has no
+     schema entry or lacks either `.kt` fixture.
+  2. *Exact:* `TestFirFixtureParity` in `tests/parity` runs with `go test` and
+     needs the shadow jar and a JDK. It enumerates rules with
+     `krit-fir --list-rules` and compiles every rule's fixtures through the
+     jar against the same stubs. For each line, the number of FIR findings
+     must equal the number of findings from the in-process Go rule, which runs
+     with source inference and no oracle. `api.Registry` decides whether the
+     Go rule exists.
+
+  A fixture must compile cleanly: the failure lists the compiler errors.
+  Library and platform symbols belong in the stubs. You can declare helpers
+  that belong only to the fixture in the fixture itself, as long as the Go
+  verdict does not change. As a last resort, add
+  `// fir-parity: skip <reason>` to the fixture with a real reason. The marker
+  fails as stale once the fixture compiles. If a checker disagrees with its Go
+  fixture, fix the checker or report the disagreement. Do not weaken the
+  fixture.
 - **Stubs:** follow `data/stubs/README.md`. Use the real signatures, the Java
   layer for Java libraries, one declaration per line, never redeclare, and add
   a smoke file for each new stub or Java package.
@@ -114,6 +131,10 @@ cleanly, and whenever FIR is disabled or unavailable. A checker therefore must
 not report findings Go would not, and must not miss findings Go reports, unless
 the difference is a deliberate precision fix that you test.
 
+Do not implement `@Suppress`, `excludes`, rule activation, or baselines in a
+checker. Go applies all of them to FIR findings, just as it does to its own
+findings.
+
 ## 8. Validation
 
 ```bash
@@ -122,8 +143,11 @@ cd tools/krit-fir
 ./gradlew --no-daemon shadowJar   # last: `test` leaves a thin jar in build/libs
 cd ../..
 go build -o krit ./cmd/krit/ && go vet ./... && golangci-lint run ./... && go test ./... -count=1
+go test ./tests/parity/ -count=1 -run TestFirFixtureParity -v   # needs the shadow jar and a JDK
 make integration
 ```
 
-The CI `krit-fir` job runs the same `./gradlew --no-daemon test`, including
-fixture parity.
+The `TestFirFixtureParity` run must show your rule as passing, not skipped.
+In CI, the `krit-fir` job runs the fast tier through `./gradlew --no-daemon test`.
+The `oracle-backend-parity` job builds the shadow jar and runs the exact tier.
+It fails if that test skips.

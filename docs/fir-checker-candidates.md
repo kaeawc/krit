@@ -195,8 +195,9 @@ The external Kotlin rule API is a separate subsystem.
 
 Every promoted rule should add positive and negative fixtures in
 `compiler-tests` and independent property, differential, and fuzz coverage.
-`FixtureParityTest` also checks each checker against its Go rule's
-`tests/fixtures` positive and negative fixtures.
+Each checker is also checked against its Go rule's `tests/fixtures` positive
+and negative fixtures, by `FixtureParityTest` in `compiler-tests` and, line by
+line, by `TestFirFixtureParity` in `tests/parity`.
 The existing `tests/parity` grids illustrate compile-failure guards that stop
 negative cases from passing vacuously; extending their shared lists is not
 required to register a checker.

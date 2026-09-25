@@ -241,7 +241,7 @@ func flattenTree(root *sitter.Node) *FlatTree {
 
 	walk(root, 0, false)
 	t.buildNodesByType()
-	return t
+	return normalizeTopLevelAnnotations(t)
 }
 
 // errorRegion is a tree-sitter ERROR or MISSING node's half-open byte span.

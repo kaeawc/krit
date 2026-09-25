@@ -94,7 +94,9 @@ func (crossFileShardsRegistered) Stats() cacheutil.CacheStats {
 // new framed payload.
 // v7: Symbol payload includes language/package/FQN/owner/signature/arity
 // plus static/final flags for Java declarations.
-const crossFileShardVersion = 7
+// v8: normalized Kotlin annotations change declaration flags and references
+// for unchanged content, so pre-fix shards must be rebuilt.
+const crossFileShardVersion = 8
 
 // Per-shard bloom sizing. Every shard's bloom uses these exact
 // (m, k) parameters so they can be unioned with BloomFilter.Merge,

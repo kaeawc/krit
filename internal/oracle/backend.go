@@ -100,7 +100,7 @@ func (b Backend) CacheApproximation() string {
 	case BackendFIR:
 		return ApproximationFIRWholeCompilation
 	case BackendKAA:
-		return ApproximationSymbolResolvedSources
+		return ApproximationKAATaggedReferences
 	default:
 		return ""
 	}

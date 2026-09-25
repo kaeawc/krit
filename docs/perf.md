@@ -215,10 +215,30 @@ depend on it depends on the backend:
   has changed but the compilation has (for example, a file outside the oracle
   filter was edited or deleted, or a library was updated), krit runs the
   compiler once to refresh the cache.
-- **krit-types** analyzes only the files that changed. A file's cached facts
-  are refreshed when a class it imports or extends changes, but not when a
-  same-package or imported top-level function changes. Use `--no-cache-oracle`
-  when that matters.
+- **krit-types** analyzes only the files that changed and the files that
+  depend on them. A file depends on every Kotlin or Java source file that
+  declares something it resolves: a same-package or imported function or
+  property, a class, a typealias and what it expands to, a supertype, or an
+  operator it uses. A dependency's own dependencies count too, but only those
+  that can change what its dependents see: ones in its signatures,
+  annotations, and parameter defaults, and in bodies whose type is inferred or
+  that are `const`, `inline`, or declare a contract. A change inside an
+  explicitly typed function body re-analyzes that file, not its dependents.
+  A file whose dependencies span more than 2,000 files is not cached and is
+  re-analyzed on every run. Libraries are not tracked: after changing only
+  the classpath, run once with `--no-cache-oracle`.
+
+  A few changes are not tracked. A new file can change how an existing file
+  resolves, for example by adding a subclass of a sealed class it checks
+  exhaustively, or an overload or extension that it now calls instead, but
+  the existing file has no dependency on a file that did not exist when it
+  was analyzed. Its facts refresh when it or the sealed parent changes; run
+  with `--no-cache-oracle` otherwise. Changes are detected by content for
+  cached entries, but the krit-types daemon notices source edits by file
+  size and modification time, so an edit that keeps a file's size within
+  the filesystem's timestamp granularity can be missed until the next edit.
+  After any source edit, the daemon rebuilds its whole analysis session
+  before answering.
 
 Cached entries are tied to the backend that wrote them, so switching
 `--oracle-backend` re-runs the compiler rather than mixing the two backends'

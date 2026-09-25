@@ -92,14 +92,24 @@ func recordOracleDir(cacheDir string) {
 // v9: both backends now resolve Kotlin stdlib symbols by default; cached facts
 // for stdlib-touching files may lack call targets, types, or diagnostics that
 // were previously absent or marked "<error>".
-const CacheVersion = 9
+// v10: krit-types records tagged source-reference edges. Older entries lack
+// propagating edges and miss same-package and imported callable dependencies.
+const CacheVersion = 10
 
 // ApproximationFIRWholeCompilation marks entries written by krit-fir, whose
 // every run returns facts for the whole compilation.
 const ApproximationFIRWholeCompilation = "fir-whole-compilation"
 
-// ApproximationSymbolResolvedSources marks entries written by krit-types.
+// ApproximationSymbolResolvedSources marks legacy, untagged krit-types entries.
 const ApproximationSymbolResolvedSources = "symbol-resolved-sources"
+
+// ApproximationKAATaggedReferences marks krit-types entries whose edges reach
+// every source file declaring a symbol the analyzed file resolves, each edge
+// tagged propagating or not. A dependency's own dependencies matter to a
+// dependent only through its propagating edges, which krit-types records from
+// signatures, annotations, parameter defaults, and bodies whose type is
+// inferred (or that are const, inline, or declare a contract).
+const ApproximationKAATaggedReferences = "kaa-tagged-references"
 
 // CacheEntry is one file's cached oracle analysis. The JSON field names
 // are intentionally short because there can be tens of thousands of these
@@ -146,10 +156,12 @@ type CacheEntry struct {
 }
 
 // CacheClosure records this file's transitive source-file dependencies and the
-// fingerprint computed over their content at write time.
+// fingerprint computed over their content at write time. PropagatingDepPaths
+// retains the direct edges through which a dependent's closure may continue.
 type CacheClosure struct {
-	DepPaths    []string `json:"dep_paths"`
-	Fingerprint string   `json:"fingerprint"`
+	DepPaths            []string `json:"dep_paths"`
+	PropagatingDepPaths []string `json:"propagating_dep_paths,omitempty"`
+	Fingerprint         string   `json:"fingerprint"`
 }
 
 // CacheDir returns the cache root for a repo. The directory is created if
@@ -637,17 +649,31 @@ func (f *CacheDepsFile) compilationFingerprint() string {
 
 // CacheDepsEntry is one file's dep-closure fragment.
 type CacheDepsEntry struct {
-	DepPaths    []string          `json:"depPaths"`
-	PerFileDeps map[string]*Class `json:"perFileDeps"`
+	DepPaths            []string          `json:"depPaths"`
+	PropagatingDepPaths []string          `json:"propagatingDepPaths,omitempty"`
+	PerFileDeps         map[string]*Class `json:"perFileDeps"`
 }
 
-// transitiveDepPaths expands one file's direct dependency paths through the
-// dependency fragments emitted for the same oracle analysis, falling back to
-// each dependency's already-written CacheEntry closure when a partial analysis
-// did not emit that dependency. A sorted result makes closure persistence
-// deterministic; seen starts with owner so mutual recursion cannot add the
-// file itself or loop indefinitely. Unloadable dependencies remain leaves.
-func transitiveDepPaths(owner string, direct []string, entries map[string]*CacheDepsEntry, load func(string) *CacheEntry) []string {
+// tagged reports whether f's fragments carry propagating-edge tags, which
+// krit-types records (see ApproximationKAATaggedReferences).
+func (f *CacheDepsFile) tagged() bool {
+	return f != nil && f.Approximation == ApproximationKAATaggedReferences
+}
+
+// transitiveDepPaths returns owner's closure: every direct dependency, plus
+// whatever each dependency's meaning can in turn depend on. From a dependency
+// the walk continues only through its propagating edges when its fragment or
+// cache entry is tagged, and through all of its edges otherwise. Fragments
+// emitted by this analysis take precedence; a dependency the analysis did not
+// emit falls back to its already-written CacheEntry. A sorted result makes
+// closure persistence deterministic; seen starts with owner so mutual
+// recursion cannot add the file itself or loop indefinitely. Unloadable
+// dependencies remain leaves.
+func transitiveDepPaths(owner string, direct []string, deps *CacheDepsFile, load func(string) *CacheEntry) []string {
+	var entries map[string]*CacheDepsEntry
+	if deps != nil {
+		entries = deps.Files
+	}
 	seen := map[string]bool{owner: true}
 	frontier := append([]string(nil), direct...)
 	sort.Strings(frontier)
@@ -662,10 +688,18 @@ func transitiveDepPaths(owner string, direct []string, entries map[string]*Cache
 		closure = append(closure, path)
 		var next []string
 		if entry := entries[path]; entry != nil {
-			next = append(next, entry.DepPaths...)
+			if deps.tagged() {
+				next = append(next, entry.PropagatingDepPaths...)
+			} else {
+				next = append(next, entry.DepPaths...)
+			}
 		} else if load != nil {
 			if entry := load(path); entry != nil {
-				next = append(next, entry.Closure.DepPaths...)
+				if entry.Approximation == ApproximationKAATaggedReferences {
+					next = append(next, entry.Closure.PropagatingDepPaths...)
+				} else {
+					next = append(next, entry.Closure.DepPaths...)
+				}
 			}
 		}
 		sort.Strings(next)
@@ -673,6 +707,29 @@ func transitiveDepPaths(owner string, direct []string, entries map[string]*Cache
 	}
 	sort.Strings(closure)
 	return closure
+}
+
+// propagatingDirect returns the direct propagating edges to persist for a
+// fragment, so a later partial analysis can continue a closure through this
+// file, or nil for untagged fragments.
+func propagatingDirect(deps *CacheDepsFile, entry *CacheDepsEntry) []string {
+	if !deps.tagged() || entry == nil {
+		return nil
+	}
+	return append([]string(nil), entry.PropagatingDepPaths...)
+}
+
+// maxPersistedClosure bounds how many dependency paths one entry may persist.
+// Closures are stored per entry, so a file reaching a hub-dense part of the
+// project would otherwise grow storage quadratically. An entry over the cap is
+// not written: the file misses every run, which is always correct.
+const maxPersistedClosure = 2000
+
+// closureOverCap reports whether a closure is too large to persist. Only tagged
+// krit-types closures are capped; krit-fir entries are refreshed through the
+// compilation fingerprint, and their closures are persisted as before.
+func closureOverCap(approximation string, depPaths []string) bool {
+	return approximation == ApproximationKAATaggedReferences && len(depPaths) > maxPersistedClosure
 }
 
 func closureEntryLoader(s *store.FileStore, cacheDir string) func(string) *CacheEntry {
@@ -753,6 +810,7 @@ type freshEntryWriteStats struct {
 	depPaths             int64
 	uniqueDepPaths       map[string]struct{}
 	poisonWrites         int64
+	closuresOverCap      int64
 	contentHashNs        int64
 	closureFingerprintNs int64
 	marshalNs            int64
@@ -768,14 +826,15 @@ type freshEntrySize struct {
 }
 
 type freshOracleEntryJob struct {
-	path          string
-	fileResult    *File
-	depPaths      []string
-	perFileDeps   map[string]*Class
-	approximation string
-	compilation   string
-	crashed       bool
-	crashError    string
+	path             string
+	fileResult       *File
+	depPaths         []string
+	propagatingPaths []string
+	perFileDeps      map[string]*Class
+	approximation    string
+	compilation      string
+	crashed          bool
+	crashError       string
 }
 
 type oracleCacheHashMemo struct {
@@ -867,16 +926,17 @@ func freshOracleEntryJobs(fresh *Data, deps *CacheDepsFile) []freshOracleEntryJo
 		var depPaths []string
 		var perFileDeps map[string]*Class
 		if depEntry != nil {
-			depPaths = transitiveDepPaths(path, depEntry.DepPaths, deps.Files, nil)
+			depPaths = transitiveDepPaths(path, depEntry.DepPaths, deps, nil)
 			perFileDeps = cloneOracleClassMap(depEntry.PerFileDeps)
 		}
 		jobs = append(jobs, freshOracleEntryJob{
-			path:          path,
-			fileResult:    fr,
-			depPaths:      depPaths,
-			perFileDeps:   perFileDeps,
-			approximation: approx,
-			compilation:   deps.compilationFingerprint(),
+			path:             path,
+			fileResult:       fr,
+			depPaths:         depPaths,
+			propagatingPaths: propagatingDirect(deps, depEntry),
+			perFileDeps:      perFileDeps,
+			approximation:    approx,
+			compilation:      deps.compilationFingerprint(),
 		})
 	}
 	if deps != nil {
@@ -969,6 +1029,7 @@ func (s *freshEntryWriteStats) emit(t perf.Tracker, storeBacked bool) {
 		"depPaths":       s.depPaths,
 		"uniqueDepPaths": int64(len(s.uniqueDepPaths)),
 		"poisonWrites":   s.poisonWrites,
+		"overCap":        s.closuresOverCap,
 	}, nil)
 	if len(s.sizeTop) > 0 {
 		sort.Slice(s.sizeTop, func(i, j int) bool {
@@ -1072,8 +1133,13 @@ func WriteFreshEntriesWithTrackerScopedV2(
 		var depPaths []string
 		var perFileDeps map[string]*Class
 		if depEntry != nil {
-			depPaths = transitiveDepPaths(path, depEntry.DepPaths, deps.Files, loadClosure)
+			depPaths = transitiveDepPaths(path, depEntry.DepPaths, deps, loadClosure)
 			perFileDeps = depEntry.PerFileDeps
+		}
+		if closureOverCap(deps.approximation(), depPaths) {
+			stats.skipped++
+			stats.closuresOverCap++
+			continue
 		}
 		stats.recordDepPaths(depPaths)
 		fpStart := time.Now()
@@ -1096,8 +1162,9 @@ func WriteFreshEntriesWithTrackerScopedV2(
 			FileResult:  fr,
 			PerFileDeps: perFileDeps,
 			Closure: CacheClosure{
-				DepPaths:    depPaths,
-				Fingerprint: fp,
+				DepPaths:            depPaths,
+				PropagatingDepPaths: propagatingDirect(deps, depEntry),
+				Fingerprint:         fp,
 			},
 			Approximation:                 approx,
 			CompilationFingerprint:        deps.compilationFingerprint(),
@@ -1364,8 +1431,13 @@ func WriteFreshEntriesToStoreWithTrackerScopedV2(
 		var depPaths []string
 		var perFileDeps map[string]*Class
 		if depEntry != nil {
-			depPaths = transitiveDepPaths(path, depEntry.DepPaths, deps.Files, loadClosure)
+			depPaths = transitiveDepPaths(path, depEntry.DepPaths, deps, loadClosure)
 			perFileDeps = depEntry.PerFileDeps
+		}
+		if closureOverCap(deps.approximation(), depPaths) {
+			stats.skipped++
+			stats.closuresOverCap++
+			continue
 		}
 		stats.recordDepPaths(depPaths)
 		fpStart := time.Now()
@@ -1386,8 +1458,9 @@ func WriteFreshEntriesToStoreWithTrackerScopedV2(
 			CallFilterFingerprint:         callFilterFingerprint,
 			DeclarationProfileFingerprint: declarationProfileFingerprint,
 			Closure: CacheClosure{
-				DepPaths:    depPaths,
-				Fingerprint: fp,
+				DepPaths:            depPaths,
+				PropagatingDepPaths: propagatingDirect(deps, depEntry),
+				Fingerprint:         fp,
 			},
 		}
 		entry.V = CacheVersion

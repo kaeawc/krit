@@ -8,9 +8,9 @@ import (
 
 // ExpandStaleOraclePaths returns changed plus every cached file whose stored
 // dependency closure contains a changed path. It builds a reverse index from
-// the existing CacheEntry.Closure.DepPaths data, then performs a sorted BFS.
-// The seen set is both the duplicate filter and the cycle guard for mutually
-// recursive source files.
+// the existing CacheEntry.Closure.DepPaths data and takes one hop through it.
+// Stored closures are already transitive through propagating dependencies;
+// walking farther would incorrectly cross a tagged non-propagating edge.
 //
 // A file whose cache entry cannot be loaded (read error, missing, or Crashed)
 // is seeded into the work set directly: its stored dependency closure is
@@ -45,24 +45,21 @@ func ExpandStaleOraclePaths(s *store.FileStore, cacheDir string, allPaths, chang
 			}
 		}
 	}
-	for dependency := range reverse {
-		sort.Strings(reverse[dependency])
-	}
-
-	queue := append([]string(nil), changed...)
-	queue = append(queue, unresolved...)
-	sort.Strings(queue)
-	seen := make(map[string]bool, len(queue))
-	result := make([]string, 0, len(queue))
-	for len(queue) > 0 {
-		path := queue[0]
-		queue = queue[1:]
-		if path == "" || seen[path] {
-			continue
+	seeds := append([]string(nil), changed...)
+	seeds = append(seeds, unresolved...)
+	seen := make(map[string]bool, len(seeds))
+	result := make([]string, 0, len(seeds))
+	add := func(path string) {
+		if path != "" && !seen[path] {
+			seen[path] = true
+			result = append(result, path)
 		}
-		seen[path] = true
-		result = append(result, path)
-		queue = append(queue, reverse[path]...)
+	}
+	for _, path := range seeds {
+		add(path)
+		for _, dependent := range reverse[path] {
+			add(dependent)
+		}
 	}
 	sort.Strings(result)
 	return result

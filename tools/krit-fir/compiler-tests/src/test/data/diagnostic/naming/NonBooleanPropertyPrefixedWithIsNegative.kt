@@ -37,15 +37,6 @@ class Flags(val enabled: Boolean) {
 
 class IsWrapper(val value: String)
 
-// An inferred Nothing (K2 rejects it on a member, not on a local) says nothing
-// about the intended type.
-fun pending(): String {
-    val isMissing = null
-    if (isMissing != null) return "never"
-    val isPending = TODO()
-    return isPending
-}
-
 fun notProperties(items: List<String>, pairs: List<Pair<String, Int>>, isParam: String): String {
     // Loop variables are not property declarations in Go's tree.
     for (isItem in items) {

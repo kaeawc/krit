@@ -23,6 +23,12 @@ class Divergence(private val items: List<String>) {
     @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
     val isBoxed: java.lang.Boolean? = null
 
+    // Go reports these: the declared type text is the parenthesized `(Boolean)`
+    // / `(Boolean)?`, not `Boolean` / `Boolean?`.
+    val isParen: (Boolean) = true
+
+    val isParenNullable: (Boolean)? = null
+
     // Go reports this: no declared type, but the lambda's `it: String`
     // contains ": "; the inferred type is Boolean.
     val isAnyEmpty = items.any { it: String -> it.isEmpty() }

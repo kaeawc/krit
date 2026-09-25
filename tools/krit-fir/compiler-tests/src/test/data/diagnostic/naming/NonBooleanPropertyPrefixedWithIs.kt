@@ -93,6 +93,21 @@ val anonymous = object {
     <!NonBooleanPropertyPrefixedWithIs!>val<!> isInAnonymous: String = "anon"
 }
 
+// An inferred Nothing is not Boolean either. On a member or top-level
+// property K2 rejects it, but a local compiles, and Go reports these because
+// the text contains ": ".
+fun inferredNothing(flag: Boolean) {
+    if (flag) {
+        <!NonBooleanPropertyPrefixedWithIs!>val<!> isNothing = error("bad: state")
+    }
+    if (!flag) {
+        <!NonBooleanPropertyPrefixedWithIs!>val<!> isTodo = TODO("wire up: later")
+    }
+    if (flag) {
+        <!NonBooleanPropertyPrefixedWithIs!>val<!> isThrow = throw IllegalStateException("a: b")
+    }
+}
+
 fun localClass(): Int {
     class Local {
         <!NonBooleanPropertyPrefixedWithIs!>val<!> isInLocalClass: Int = 1

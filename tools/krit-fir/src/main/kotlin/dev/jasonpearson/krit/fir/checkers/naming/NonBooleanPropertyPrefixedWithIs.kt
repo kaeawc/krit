@@ -15,7 +15,6 @@ import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeErrorType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
-import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.name.ClassId
@@ -42,15 +41,17 @@ import org.jetbrains.kotlin.name.StandardClassIds
  * initializer and otherwise requires the text `": "` somewhere in the
  * declaration (see the golden data):
  * - a property whose resolved type is Boolean is not reported even when Go
- *   cannot see it (`kotlin.Boolean`, a type alias of Boolean, `java.lang.Boolean`,
- *   or an inferred Boolean whose initializer happens to contain `": "`);
+ *   cannot see it (`kotlin.Boolean`, `(Boolean)`, a type alias or import alias
+ *   of Boolean, `java.lang.Boolean`, or an inferred Boolean whose initializer
+ *   happens to contain `": "`);
  * - a non-Boolean property is reported even when Go cannot see it: an inferred
  *   type with no `": "` in the declaration, a declared type written without a
  *   space after the colon, a `Boolean` that resolves to a same-named
  *   non-stdlib class, and primary-constructor `val`/`var` properties (Go only
  *   visits property declarations, not class parameters).
- * An inferred `Nothing` type (`val isReady = TODO()`) is not reported, like
- * Go: it says nothing about the intended type.
+ * An inferred `Nothing` / `Nothing?` (a local `val isReady = TODO()` or
+ * `val isMissing = null`) is not Boolean and is reported like any other type:
+ * Go reports it too whenever the declaration text contains `": "`.
  */
 internal object NonBooleanPropertyPrefixedWithIs : FirPropertyChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "NonBooleanPropertyPrefixedWithIs"
@@ -74,8 +75,6 @@ internal object NonBooleanPropertyPrefixedWithIs : FirPropertyChecker(MppChecker
         val type = typeRef.coneType.fullyExpandedType().lowerBoundIfFlexible()
         if (type is ConeErrorType) return
         if (isBoolean(type)) return
-        val implicitType = typeRef.source.let { it == null || it.kind is KtFakeSourceElementKind } && !fromConstructor
-        if (implicitType && type.classId == StandardClassIds.Nothing) return
 
         report(source, "Non-Boolean property '$text' should not be prefixed with 'is'")
     }

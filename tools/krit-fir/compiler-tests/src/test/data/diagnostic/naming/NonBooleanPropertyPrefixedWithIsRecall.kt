@@ -37,6 +37,20 @@ class Recall(
     // name does not start with "is"; the property is named isQuoted.
     <!NonBooleanPropertyPrefixedWithIs!>val<!> `isQuoted`: String = "quoted"
 
+    // Go misses these: an inferred Nothing? / Nothing is not Boolean, but the
+    // declaration text has no ": ". (K2 rejects an inferred Nothing on a
+    // member, not on a local.)
+    fun pending(): String {
+        <!NonBooleanPropertyPrefixedWithIs!>val<!> isMissing = null
+        if (isMissing != null) return "never"
+        <!NonBooleanPropertyPrefixedWithIs!>val<!> isPending = TODO()
+        return isPending
+    }
+
+    // Go misses this: the inferred type is an anonymous object, and the
+    // declaration text has no ": ".
+    <!NonBooleanPropertyPrefixedWithIs!>private<!> val isAnon = object { val x = 1 }
+
     class Shadow {
         class Boolean
 
@@ -45,3 +59,10 @@ class Recall(
         <!NonBooleanPropertyPrefixedWithIs!>val<!> isShadowed: Boolean = Boolean()
     }
 }
+
+// Go misses these: value and annotation class constructor properties are
+// class parameters, not property declarations, in Go's tree.
+@JvmInline
+value class ValueRecall(<!NonBooleanPropertyPrefixedWithIs!>val<!> isValue: Int)
+
+annotation class AnnotationRecall(<!NonBooleanPropertyPrefixedWithIs!>val<!> isLabel: String)

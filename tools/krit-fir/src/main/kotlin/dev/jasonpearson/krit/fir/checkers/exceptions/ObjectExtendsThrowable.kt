@@ -44,6 +44,15 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *   parameter type, and an object extending a lookalike class named
  *   `Exception`, `Error`, `Throwable`, or `RuntimeException` that is not a
  *   Throwable. None of those objects is a Throwable, so none is reported here.
+ *   The same holds for type names inside an interface delegate expression
+ *   (`Sink by object : Sink { ... Throwable ... }`).
+ * - Go's resolver never indexes an object declared in a companion object or
+ *   enum class body (or nested in one), so Go searches that object's whole
+ *   text for `: Exception`, `: Error`, `: IllegalStateException(`, and the
+ *   like. It then reports an object whose member type annotation
+ *   (`val cause: Exception?`), interface name (`: ErrorHandler`), or nested
+ *   object mentions one. Those objects are not Throwables and are not
+ *   reported here; the Throwable objects Go finds this way still are.
  * - Go looks the object up by simple name, so a class with the same name
  *   declared later in the file replaces it: Go then reads that class's
  *   supertypes, reporting an object that is not a Throwable and missing one

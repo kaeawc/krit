@@ -43,3 +43,18 @@ object Clash : Comparator<Int> {
 class ClashHolder {
     class Clash : Exception()
 }
+
+interface Sink {
+    fun put(t: Throwable)
+}
+
+// Go reports this because it reads every type name in the delegation
+// specifiers, including `Throwable` and `Error` inside the `by` delegate
+// expression; FIR is correct to drop it because the object is a Sink, not a
+// Throwable.
+object DelegatedErr : Sink by object : Sink {
+    override fun put(t: Throwable) {
+        val e: Error? = null
+        if (e != null) throw e
+    }
+}

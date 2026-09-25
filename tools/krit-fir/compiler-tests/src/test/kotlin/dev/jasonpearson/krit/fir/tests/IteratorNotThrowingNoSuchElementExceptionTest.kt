@@ -5,9 +5,10 @@ import kotlin.test.fail
 
 // IteratorNotThrowingNoSuchElementException cases a single-file golden cannot
 // express: an Iterator or NoSuchElementException lookalike declared in another
-// file of the same package (or another package), which shadows the stdlib name
-// without the using file declaring it. The Go rule only sees one file, so it
-// cannot tell these lookalikes from the stdlib types.
+// file of the same package, or imported (explicitly or with a star import) from
+// another package, which shadows the stdlib name without the using file
+// declaring it. The Go rule only sees one file, so it cannot tell these
+// lookalikes from the stdlib types.
 class IteratorNotThrowingNoSuchElementExceptionTest {
 
     private data class Case(val file: String, val source: String, val expected: Int, val why: String)
@@ -23,6 +24,11 @@ class IteratorNotThrowingNoSuchElementExceptionTest {
         """.trimIndent(),
         "SamePackageException.kt" to """
             package samepackageexception
+
+            class NoSuchElementException(message: String? = null) : RuntimeException(message)
+        """.trimIndent(),
+        "OtherPackageException.kt" to """
+            package b.errors
 
             class NoSuchElementException(message: String? = null) : RuntimeException(message)
         """.trimIndent(),
@@ -91,6 +97,50 @@ class IteratorNotThrowingNoSuchElementExceptionTest {
             expected = 1,
             why = "a same-package NoSuchElementException lookalike is not java.util.NoSuchElementException " +
                 "(Go misses it: it cannot see the declaration in the other file)",
+        ),
+        Case(
+            "ImportsOtherException.kt",
+            """
+                package importsotherexception
+
+                import b.errors.NoSuchElementException
+
+                class Cursor(private val items: List<Int>) : Iterator<Int> {
+                    private var index = 0
+
+                    override fun hasNext(): Boolean = index < items.size
+
+                    override fun next(): Int {
+                        if (!hasNext()) throw NoSuchElementException("x")
+                        return items[index++]
+                    }
+                }
+            """.trimIndent(),
+            expected = 1,
+            why = "an imported NoSuchElementException lookalike is not java.util.NoSuchElementException " +
+                "(Go misses it: it matches the call by its simple name)",
+        ),
+        Case(
+            "StarImportsOtherException.kt",
+            """
+                package starimportsotherexception
+
+                import b.errors.*
+
+                class Cursor(private val items: List<Int>) : Iterator<Int> {
+                    private var index = 0
+
+                    override fun hasNext(): Boolean = index < items.size
+
+                    override fun next(): Int {
+                        if (!hasNext()) throw NoSuchElementException("x")
+                        return items[index++]
+                    }
+                }
+            """.trimIndent(),
+            expected = 1,
+            why = "a star-imported NoSuchElementException lookalike wins over the default kotlin import and is " +
+                "not java.util.NoSuchElementException (Go misses it: it matches the call by its simple name)",
         ),
     )
 

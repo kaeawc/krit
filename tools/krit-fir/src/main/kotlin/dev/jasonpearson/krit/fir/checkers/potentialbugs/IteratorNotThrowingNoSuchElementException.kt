@@ -11,13 +11,17 @@ import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirDeclarationChecker
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
+import org.jetbrains.kotlin.fir.expressions.FirBlock
+import org.jetbrains.kotlin.fir.expressions.FirElvisExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirThrowExpression
+import org.jetbrains.kotlin.fir.expressions.FirTryExpression
+import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
-import org.jetbrains.kotlin.fir.resolve.toRegularClassSymbol
+import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
@@ -50,8 +54,10 @@ import org.jetbrains.kotlin.name.Name
  * The body satisfies the contract, like Go, when any `throw` anywhere in it
  * (lambdas, local functions, and local classes included, as Go walks the whole
  * body) throws `NoSuchElementException` (`kotlin.NoSuchElementException` is a
- * type alias of `java.util.NoSuchElementException`): the thrown expression's
- * type is it or a subclass of it, or the thrown expression contains a call to
+ * type alias of `java.util.NoSuchElementException`): the type of the thrown
+ * expression, or of a value it can evaluate to (an `if`/`when` branch, either
+ * side of an elvis, a `try` or `catch` block), is it or a subclass of it
+ * (named, local, or anonymous), or the thrown expression contains a call to
  * its constructor (`throw if (done) NoSuchElementException() else ...`).
  * Delegating to another iterator's `next()` or to a helper that throws is not a
  * throw in the body, so Go and this checker both report it.
@@ -69,21 +75,26 @@ import org.jetbrains.kotlin.name.Name
  *   type argument (`Comparable<Iterator<Int>>`). None of those is an
  *   iterator's `next()`, so none is reported here.
  * - Go reads the thrown exception by the name of the call inside `throw`, so
- *   it reports `throw e` where `e` is a `NoSuchElementException`,
- *   `throw MissingElement()` where `MissingElement` extends it, a call through
- *   an import alias of it, and `throw java.util.NoSuchElementException()` in a
- *   file that also declares a `NoSuchElementException` lookalike. All of them
+ *   it reports `throw e` where `e` is a `NoSuchElementException`, a throw of a
+ *   named, local, or anonymous subclass of it (also from one branch of an
+ *   `if`), a call through an import alias of it, a call to a same-file factory
+ *   function that returns one, and a reflective `newInstance()` of it. Go also
+ *   rejects every call named `NoSuchElementException` in a file that declares
+ *   anything with that name (a nested class, a factory function, a lookalike
+ *   class), even when the call constructs the real exception. All of them
  *   throw a `NoSuchElementException`, so none is reported here.
  * - Go cannot see declarations in other files, so it reports an iterator of a
  *   same-package `Iterator` lookalike declared in another file (no finding
  *   here: it has no `NoSuchElementException` contract), and accepts a throw of
- *   a same-package `NoSuchElementException` lookalike declared in another file
+ *   a `NoSuchElementException` lookalike declared in another file of the same
+ *   package or imported from another package, explicitly or with a star import
  *   (reported here: it is not `java.util.NoSuchElementException`).
  * - Resolution sees iterators Go misses: an anonymous object outside any class
- *   (Go only looks through class and object declarations), `MutableListIterator`,
- *   a type alias, an import alias, a user interface or abstract class
- *   extending `Iterator`, and a qualified `kotlin.collections.Iterator` in a
- *   file that declares its own `Iterator`.
+ *   (in a top-level function or property; Go only looks through class and
+ *   object declarations), `MutableListIterator`, a type alias, an import
+ *   alias, a user interface, abstract class, or open class extending
+ *   `Iterator`, and a qualified `kotlin.collections.Iterator` in a file that
+ *   declares its own `Iterator`.
  */
 internal object IteratorNotThrowingNoSuchElementException :
     FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common), FirRule {
@@ -143,13 +154,39 @@ internal object IteratorNotThrowingNoSuchElementException :
         override fun visitThrowExpression(throwExpression: FirThrowExpression) {
             if (found) return
             val exception = throwExpression.exception
-            if (isNoSuchElementType(exception.resolvedType, session, subtypes = true, depth = 0) ||
+            val results = mutableListOf<FirExpression>()
+            collectResults(exception, results, depth = 0)
+            if (results.any { isNoSuchElementType(it.resolvedType, session, subtypes = true, depth = 0) } ||
                 constructsNoSuchElementException(exception)
             ) {
                 found = true
                 return
             }
             throwExpression.acceptChildren(this)
+        }
+
+        // The thrown expression and every value it can evaluate to: the
+        // branches of `if`/`when`, both sides of an elvis, and the `try` and
+        // `catch` blocks, so `throw if (strict) MissingElement() else ...`
+        // counts a subclass thrown from one branch.
+        private fun collectResults(expression: FirExpression, into: MutableList<FirExpression>, depth: Int) {
+            into += expression
+            if (depth > MAX_TYPE_DEPTH) return
+            when (expression) {
+                is FirWhenExpression -> expression.branches.forEach { collectResults(it.result, into, depth + 1) }
+                is FirElvisExpression -> {
+                    collectResults(expression.lhs, into, depth + 1)
+                    collectResults(expression.rhs, into, depth + 1)
+                }
+                is FirTryExpression -> {
+                    collectResults(expression.tryBlock, into, depth + 1)
+                    expression.catches.forEach { collectResults(it.block, into, depth + 1) }
+                }
+                is FirBlock -> (expression.statements.lastOrNull() as? FirExpression)?.let {
+                    collectResults(it, into, depth + 1)
+                }
+                else -> Unit
+            }
         }
 
         // Go counts a throw whose thrown expression contains a call to
@@ -184,8 +221,11 @@ internal object IteratorNotThrowingNoSuchElementException :
             is ConeTypeParameterType -> subtypes && bound.lookupTag.typeParameterSymbol.resolvedBounds.any {
                 isNoSuchElementType(it.coneType, session, subtypes, depth + 1)
             }
+            // The lookup tag of a local class or an anonymous object
+            // (`throw object : NoSuchElementException() {}`) is bound to its
+            // symbol, so no class id is resolved from a symbol that may be local.
             is ConeClassLikeType -> bound.classId == noSuchElementException || (
-                subtypes && bound.lookupTag.toRegularClassSymbol(session)?.let { symbol ->
+                subtypes && bound.lookupTag.toClassSymbol(session)?.let { symbol ->
                     lookupSuperTypes(symbol, lookupInterfaces = false, deep = true, useSiteSession = session)
                         .any { it.classId == noSuchElementException }
                 } == true

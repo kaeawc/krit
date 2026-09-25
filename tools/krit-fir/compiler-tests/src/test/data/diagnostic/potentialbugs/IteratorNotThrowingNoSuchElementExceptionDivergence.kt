@@ -116,11 +116,63 @@ class ThrowsImportAlias(private val items: List<Int>) : Iterator<Int> {
     }
 }
 
+class ThrowsAnonymousSubclass : Iterator<Int> {
+    override fun hasNext(): Boolean = false
+
+    // Go reports this because an object expression is not a call named
+    // NoSuchElementException; FIR is correct to drop it because the anonymous
+    // object is a NoSuchElementException.
+    override fun next(): Int = throw object : NoSuchElementException("exhausted") {}
+}
+
+class ThrowsLocalSubclass : Iterator<Int> {
+    override fun hasNext(): Boolean = false
+
+    // Go reports this because the call is named Done; FIR is correct to drop
+    // it because the local class Done is a NoSuchElementException.
+    override fun next(): Int {
+        class Done : NoSuchElementException()
+        throw Done()
+    }
+}
+
+class ThrowsReflective : Iterator<Int> {
+    override fun hasNext(): Boolean = false
+
+    // Go reports this because the call is named newInstance; FIR is correct to
+    // drop it because the instance is a NoSuchElementException.
+    override fun next(): Int {
+        throw NoSuchElementException::class.java.getDeclaredConstructor().newInstance()
+    }
+}
+
+class ThrowsSubclassInBranch(private val items: List<Int>, private val strict: Boolean) : Iterator<Int> {
+    private var index = 0
+
+    override fun hasNext(): Boolean = index < items.size
+
+    // Go reports this because no call named NoSuchElementException is thrown;
+    // FIR is correct to drop it because the strict branch throws a
+    // NoSuchElementException subclass.
+    override fun next(): Int {
+        if (!hasNext()) throw if (strict) MissingElement() else IllegalStateException()
+        return items[index++]
+    }
+}
+
 // --- True positives Go misses ---
 
 // Go misses this because an anonymous object outside any class declaration
 // has no enclosing class for it to inspect.
 fun topLevelAnonymous(): Iterator<Int> = object : Iterator<Int> {
+    override fun hasNext(): Boolean = false
+
+    <!IteratorNotThrowingNoSuchElementException!>override<!> fun next(): Int = 0
+}
+
+// Go misses this because an anonymous object in a top-level property
+// initializer has no enclosing class for it to inspect.
+val topProp: Iterator<Int> = object : Iterator<Int> {
     override fun hasNext(): Boolean = false
 
     <!IteratorNotThrowingNoSuchElementException!>override<!> fun next(): Int = 0
@@ -157,6 +209,19 @@ class FromBase : BaseIterator<String>() {
     override fun hasNext(): Boolean = false
 
     <!IteratorNotThrowingNoSuchElementException!>override<!> fun next(): String = ""
+}
+
+// Go misses this because the open base class's name does not show it is an
+// iterator; a concrete open class counts, not only an interface or an
+// abstract class.
+open class OpenIter : Iterator<Int> {
+    override fun hasNext(): Boolean = false
+
+    override fun next(): Int = throw NoSuchElementException()
+}
+
+class SubIter : OpenIter() {
+    <!IteratorNotThrowingNoSuchElementException!>override<!> fun next(): Int = 1
 }
 
 typealias Ints = Iterator<Int>

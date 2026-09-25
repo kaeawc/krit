@@ -169,3 +169,22 @@ class PlatformIterator(private val items: List<Int>) : java.util.Iterator<Int> {
 
     <!IteratorNotThrowingNoSuchElementException!>override<!> fun next(): Int = items[index++]
 }
+
+// A companion object that is itself an iterator; Go finds it through the
+// enclosing class's supertype lists.
+class Host {
+    companion object : Iterator<Int> {
+        override fun hasNext(): Boolean = true
+
+        <!IteratorNotThrowingNoSuchElementException!>override<!> fun next(): Int = 0
+    }
+}
+
+class LineCommented(private val items: List<Int>) : Iterator<Int> {
+    private var index = 0
+
+    override fun hasNext(): Boolean = index < items.size
+
+    // A line comment is not part of the reported line either.
+    <!IteratorNotThrowingNoSuchElementException!>override<!> fun next(): Int = items[index++]
+}

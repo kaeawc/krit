@@ -44,11 +44,17 @@ import org.jetbrains.kotlin.name.Name
 // Deliberate differences from Go, each pinned in the golden data:
 // - Recall: the key and value types are resolved, so a key or value named
 //   through a typealias, a parenthesized key type, an import alias of HashMap,
-//   and type arguments inferred from the expected type
+//   a user typealias to HashMap (`typealias IntMap<V> = HashMap<Int, V>`), and
+//   type arguments inferred from the expected type
 //   (`val m: HashMap<Int, String> = HashMap()`) are reported. Go reads only the
-//   written type arguments by their last identifier.
+//   written type arguments by their last identifier and needs the call name
+//   HashMap. A call on the right of `?:` or `+` is reported too; tree-sitter
+//   does not parse it as a call there, so Go misses it.
 // - Precision: a same-package class or function named HashMap is not
 //   java.util.HashMap and is not reported. Go matches the call name alone.
+//   Neither is a key that is only named Int or Long (an imported or nested
+//   class, a type parameter), and a value only named Boolean, Int, or Long
+//   suggests plain SparseArray.
 internal object UseSparseArrays : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "UseSparseArrays"
     override val expressionCheckers = object : ExpressionCheckers() {

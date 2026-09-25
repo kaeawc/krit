@@ -42,7 +42,8 @@ class SafeBrowserHost(private val webView: WebView) {
 
     // Precision fix: Go's WebView-parameter fallback accepts any chain through
     // `settings`, so it reports this; FIR is correct because the property
-    // belongs to ScriptOptions, not WebSettings.
+    // belongs to ScriptOptions, not a WebSettings, so this code does not
+    // enable JavaScript in a WebView as the message asserts.
     fun unrelatedPropertyThroughSettings(view: WebView) {
         view.settings.extra.javaScriptEnabled = true
     }

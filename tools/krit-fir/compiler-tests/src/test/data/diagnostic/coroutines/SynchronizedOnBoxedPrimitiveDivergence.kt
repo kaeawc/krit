@@ -89,6 +89,31 @@ class InvokeConvention {
     }
 }
 
+typealias Count = Int
+
+class WrittenTypeHiddenFromGo {
+    @field:JvmField
+    val annotated: Int = 0
+    val qualified: kotlin.Int = 1
+    val aliased: Count = 1
+    val lazyCount: Int by lazy { 0 }
+    val computed: Int get() = 0
+
+    fun f() {
+        // Go misses these because it reads the type as the text after the
+        // first `:` of the declaration: `JvmField val annotated: Int` (that
+        // `:` is the annotation's use-site target), `kotlin.Int`, `Count`,
+        // `Int by lazy { 0 }`, and `Int get()` are not primitive names. FIR is
+        // correct because each property's written type is a primitive, so the
+        // lock is a boxed primitive.
+        <!SynchronizedOnBoxedPrimitive!>synchronized(annotated) { }<!>
+        <!SynchronizedOnBoxedPrimitive!>synchronized(qualified) { }<!>
+        <!SynchronizedOnBoxedPrimitive!>synchronized(aliased) { }<!>
+        <!SynchronizedOnBoxedPrimitive!>synchronized(lazyCount) { }<!>
+        <!SynchronizedOnBoxedPrimitive!>synchronized(computed) { }<!>
+    }
+}
+
 open class Base<T> {
     val count: Int = 1
 

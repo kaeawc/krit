@@ -32,6 +32,7 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.ConeTypeParameterType
+import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.isAnyOrNullableAny
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
@@ -70,15 +71,17 @@ import org.jetbrains.kotlin.text
 // Where resolution and Go's name lookup disagree, the lock's resolved type
 // decides. A finding needs the lock to really be a boxed primitive, and then
 // either Go's lookup or the property the name resolves to (declared in that
-// class, with a primitive type written in its text) to say so. The message
-// names the lock's real type. So:
+// class, with an explicitly written type that is a primitive) to say so. The
+// message names the lock's real type. So:
 // - A parameter, local, or implicit-receiver property that shadows a
 //   boxed-primitive property is dropped when it is not a primitive itself,
 //   and kept (as Go reports it) when it is.
-// - Findings Go misses are added only where the resolved property is
-//   primitive-typed: a later same-named declaration than the one Go picks,
-//   or a typed when-subject variable, which tree-sitter does not parse as a
-//   property declaration.
+// - Findings Go misses are added only where the resolved property has a
+//   written primitive type: a later same-named declaration than the one Go
+//   picks, a typed when-subject variable (which tree-sitter does not parse
+//   as a property declaration), and a declared primitive type that Go's text
+//   read loses (an annotation with a `:` use-site target before it, a
+//   qualified `kotlin.Int`, a typealias, a delegate, or a getter).
 //
 // Deliberate precision fix over Go: the callee must be a monitor-lock
 // function, whose first parameter is Any or Any? after typealias expansion,
@@ -214,7 +217,20 @@ internal object SynchronizedOnBoxedPrimitive : FirFunctionCallChecker(MppChecker
         val resolved = (lock.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol)?.unwrapFakeOverrides()
             ?: return null
         val resolvedDeclaration = declarations.firstOrNull { it.symbol == resolved } ?: return null
-        return primitive.takeIf { declaredTypeText(resolvedDeclaration.source!!) in boxedPrimitiveTypes }
+        return primitive.takeIf { hasWrittenPrimitiveType(resolvedDeclaration) }
+    }
+
+    // The property's type is written in its declaration (not inferred) and is
+    // a primitive, read from the resolved type reference rather than the
+    // declaration text, so annotations (`@field:JvmField val x: Int`), a
+    // qualified name (`kotlin.Int`), a typealias, a delegate, or a getter do
+    // not hide it.
+    context(context: CheckerContext)
+    private fun hasWrittenPrimitiveType(property: FirProperty): Boolean {
+        val typeRef = property.returnTypeRef
+        val source = typeRef.source ?: return false
+        if (source.kind !is KtRealSourceElementKind || source.elementType != KtNodeTypes.TYPE_REFERENCE) return false
+        return primitiveName(typeRef.coneType) != null
     }
 
     // The short name of kotlin.Int, kotlin.Long, ... for [type], ignoring

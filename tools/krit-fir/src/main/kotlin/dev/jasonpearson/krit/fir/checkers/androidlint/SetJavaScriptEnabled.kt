@@ -21,34 +21,36 @@ import org.jetbrains.kotlin.fir.resolve.toClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.types.ConstantValueKind
 
 /**
- * Flags enabling JavaScript on an `android.webkit.WebSettings`: a
- * `setJavaScriptEnabled(true)` call or a `javaScriptEnabled = true` assignment
- * of the synthetic property over that setter.
+ * Flags enabling JavaScript on a `WebSettings`: a `setJavaScriptEnabled(true)`
+ * call or a `javaScriptEnabled = true` assignment of the (synthetic or Kotlin)
+ * property over that setter.
  *
  * Like the Go rule, the value must be the literal `true` (a constant, a
  * variable, or `!false` is not a finding), and the finding sits on the first
  * line of the call or assignment. For a call, the value is the argument bound
  * to the first parameter, as Go reads the first argument.
  *
- * The owner comes from the resolved symbol: the member must be declared on
- * `WebSettings` or a subtype of it (including local and anonymous classes), or
- * be an extension on one of those types. Go reports a user overload such as
+ * The owner comes from the resolved symbol: the member must be declared on a
+ * class whose simple name is `WebSettings`, in any package, or on a subtype of
+ * one (including local and anonymous classes), or be an extension on one of
+ * those types. Go matches the receiver type by the simple name `WebSettings`
+ * too, so this covers `android.webkit.WebSettings` and third-party engines that
+ * reuse its name and setter, such as Tencent X5's
+ * `com.tencent.smtt.sdk.WebSettings`, where enabling JavaScript is the same
+ * XSS surface. Go reports a user overload such as
  * `fun WebSettings.setJavaScriptEnabled(enabled: Boolean, log: Boolean)`
  * through its receiver type, and so does this checker.
  *
  * Deliberate differences from Go, each pinned in the golden data:
- * - Go also falls back to simple names (a receiver whose type is spelled
- *   `WebSettings`, or a `WebView`-typed parameter chain through `settings`),
- *   so it reports third-party engines that reuse the platform's class names
- *   (such as Tencent X5's `com.tencent.smtt.sdk.WebSettings`), local
- *   lookalikes, and unrelated properties reached through `settings`. Android
- *   Lint covers `android.webkit` only, and so does this checker.
+ * - Go also falls back to a `WebView`-typed parameter chain through
+ *   `settings`, so it reports a `javaScriptEnabled` property of an unrelated
+ *   class reached through `settings` (`view.settings.extra.javaScriptEnabled`).
+ *   That code does not enable JavaScript on any web settings, so this checker
+ *   does not report it.
  * - Resolution sees receivers Go's source inference cannot type (locals, class
  *   properties, `getSettings()`, `!!`, parenthesized and elvis receivers,
  *   anonymous subclasses, implicit receivers such as
@@ -65,7 +67,7 @@ internal object SetJavaScriptEnabled : FirFunctionCallChecker(MppCheckerKind.Com
     }
 
     private const val MESSAGE = "Using setJavaScriptEnabled(true). Review for XSS vulnerabilities."
-    private val WEB_SETTINGS = ClassId(FqName("android.webkit"), Name.identifier("WebSettings"))
+    private val WEB_SETTINGS = Name.identifier("WebSettings")
     private val SETTER = Name.identifier("setJavaScriptEnabled")
     private val PROPERTY = Name.identifier("javaScriptEnabled")
 
@@ -96,6 +98,7 @@ internal object SetJavaScriptEnabled : FirFunctionCallChecker(MppCheckerKind.Com
 
     // The containing class comes from the symbol's lookup tag, which is bound to
     // local and anonymous classes; looking one of those up by class id throws.
+    // Only class ids already in hand are compared, never looked up.
     context(context: CheckerContext)
     private fun isWebSettingsMember(symbol: FirCallableSymbol<*>): Boolean {
         val owner = symbol.getContainingClassSymbol()
@@ -106,9 +109,9 @@ internal object SetJavaScriptEnabled : FirFunctionCallChecker(MppCheckerKind.Com
 
     context(context: CheckerContext)
     private fun isWebSettingsClass(symbol: FirClassLikeSymbol<*>): Boolean =
-        symbol.classId == WEB_SETTINGS ||
+        symbol.classId.shortClassName == WEB_SETTINGS ||
             lookupSuperTypes(symbol, lookupInterfaces = true, deep = true, useSiteSession = context.session)
-                .any { it.lookupTag.classId == WEB_SETTINGS }
+                .any { it.lookupTag.classId.shortClassName == WEB_SETTINGS }
 
     // FIR drops the parentheses, annotation, or label around a literal, so a
     // wrapped `true` is still a Boolean literal here.

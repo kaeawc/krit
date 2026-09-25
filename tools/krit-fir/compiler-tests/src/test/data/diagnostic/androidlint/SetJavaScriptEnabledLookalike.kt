@@ -1,7 +1,10 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// Negative: local lookalikes named WebSettings/WebView with the same members.
-// Only the android.webkit owner counts; Go's simple-name fallback would fire
-// here, and not firing is a deliberate precision fix.
+// Lookalikes of WebSettings/WebView. A class named WebSettings in any package
+// is web settings to Go (it matches the simple name), and
+// `javaScriptEnabled = true` on one is the finding the message describes, so
+// FIR reports those two assignments as Go does. Setters on classes with other
+// names, a top-level function, and members of anonymous objects are not
+// WebSettings members and report in neither Go nor FIR.
 package test.lookalike
 
 class WebSettings {
@@ -23,8 +26,9 @@ fun setJavaScriptEnabled(flag: Boolean) {
 }
 
 fun configure(view: WebView, settings: WebSettings, toggle: ScriptToggle) {
-    view.settings.javaScriptEnabled = true
-    settings.javaScriptEnabled = true
+    <!SetJavaScriptEnabled!>view.settings.javaScriptEnabled = true<!>
+    <!SetJavaScriptEnabled!>settings.javaScriptEnabled = true<!>
+    settings.javaScriptEnabled = false
     toggle.setJavaScriptEnabled(true)
     setJavaScriptEnabled(true)
 }

@@ -14,11 +14,6 @@ class Service(val ctorCount: Int) {
     private val lock = Any()
     private val name: String = "service"
     val inferred = 1
-    val qualified: kotlin.Int = 1
-    val lazyCount: Int by lazy { 0 }
-    val computed: Int get() = 0
-    @field:JvmField
-    val annotated: Int = 0
     val counts: List<Int> = listOf(1)
     val shadowed: Int = 1
 
@@ -40,10 +35,6 @@ class Service(val ctorCount: Int) {
         synchronized(ctorCount) { }
         synchronized(topLevelCount) { }
         synchronized(inferred) { }
-        synchronized(qualified) { }
-        synchronized(lazyCount) { }
-        synchronized(computed) { }
-        synchronized(annotated) { }
         synchronized(counts) { }
         kotlin.synchronized(lock) { }
     }

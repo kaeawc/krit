@@ -20,12 +20,23 @@ data class Finding(
 // MessageCollector implementation that captures krit diagnostics (identified by the
 // [RULE_NAME] prefix set in KritDiagnosticsRendering), filters to the requested files,
 // and optionally restricts to the enabled rule set (empty = all rules).
+//
+// It also records which requested files the compiler could not analyze cleanly, so Go
+// only treats the checker verdict as authoritative where the compilation was sound:
+//  - [errorFiles]: requested files with an ERROR-severity compiler diagnostic (an
+//    unresolved reference from a missing classpath entry, a syntax error, ...), mapped
+//    to the first such message.
+//  - [globalErrors]: ERROR diagnostics with no source location. They describe the
+//    compilation as a whole, so every requested file is gated by them.
+//  - [exceptions]: compiler crashes (EXCEPTION severity).
 class FindingCollector(
     private val requestedPaths: Map<String, String>,
     private val enabledRules: Set<String> = emptySet(),
 ) : MessageCollector {
     val findings = mutableListOf<Finding>()
-    val crashes = mutableMapOf<String, String>()
+    val errorFiles = linkedMapOf<String, String>()
+    val globalErrors = mutableListOf<String>()
+    val exceptions = mutableListOf<String>()
 
     private var _hasErrors = false
 
@@ -37,14 +48,17 @@ class FindingCollector(
         message: String,
         location: CompilerMessageSourceLocation?,
     ) {
+        if (severity == CompilerMessageSeverity.EXCEPTION) {
+            _hasErrors = true
+            exceptions += message
+            return
+        }
         if (severity == CompilerMessageSeverity.ERROR && !pluginDiagnosticRe.containsMatchIn(message)) {
             _hasErrors = true
-            if (location != null) {
-                val canonicalPath = try { File(location.path).canonicalPath } catch (_: Exception) { location.path }
-                val requestedPath = requestedPaths[canonicalPath]
-                if (requestedPath != null) {
-                    crashes[requestedPath] = message
-                }
+            if (location == null) {
+                globalErrors += message
+            } else {
+                requestedPaths[canonical(location.path)]?.let { errorFiles.putIfAbsent(it, message) }
             }
         }
 
@@ -52,8 +66,7 @@ class FindingCollector(
         if (location == null) return
 
         // Only record findings for the files the caller asked to check.
-        val canonicalPath = try { File(location.path).canonicalPath } catch (_: Exception) { location.path }
-        val requestedPath = requestedPaths[canonicalPath] ?: return
+        val requestedPath = requestedPaths[canonical(location.path)] ?: return
 
         // Only count diagnostics emitted by our plugin (identified by [RULE_NAME] prefix).
         val match = pluginDiagnosticRe.find(message) ?: return
@@ -73,6 +86,9 @@ class FindingCollector(
             )
         )
     }
+
+    private fun canonical(path: String): String =
+        try { File(path).canonicalPath } catch (_: Exception) { path }
 
     companion object {
         private val reportable = setOf(

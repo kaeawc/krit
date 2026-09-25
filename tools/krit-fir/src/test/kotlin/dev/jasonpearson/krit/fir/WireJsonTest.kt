@@ -28,12 +28,14 @@ class WireJsonTest {
                 severity = "warning", message = message)),
             crashed = mapOf("/src/B.kt" to crash),
             rules = listOf("ProtocolProbe"),
+            errorFiles = mapOf("/src/C.kt" to "Unresolved reference\n'x'"),
         ))
         // The Go client reads one response per line.
         assertEquals(1, response.lines().size, response)
         assertFalse(response.any { it.code < 0x20 }, response)
         assertEquals(message, PayloadParsers.extractString(response, "message"))
         assertEquals(crash, PayloadParsers.extractString(response, "/src/B.kt"))
+        assertEquals("Unresolved reference\n'x'", PayloadParsers.extractString(response, "/src/C.kt"))
     }
 
     @Test fun ruleConfigOptionNamesNeverShadowTopLevelRequestFields() {

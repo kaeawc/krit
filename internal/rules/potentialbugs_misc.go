@@ -77,12 +77,8 @@ func extractDeprecatedInfoFlat(file *scanner.File, idx uint32) *deprecationInfo 
 	if file == nil || idx == 0 {
 		return nil
 	}
-	mods, _ := file.FlatFindChild(idx, "modifiers")
-	if mods == 0 {
-		return nil
-	}
-	text := file.FlatNodeText(mods)
-	if !strings.Contains(text, "Deprecated") {
+	text := deprecationAnnotationText(file, idx)
+	if text == "" {
 		return nil
 	}
 	info := &deprecationInfo{}
@@ -93,6 +89,48 @@ func extractDeprecatedInfoFlat(file *scanner.File, idx uint32) *deprecationInfo 
 	info.level = extractDeprecationLevel(text)
 	info.replaceWith = extractReplaceWith(text)
 	return info
+}
+
+// deprecationAnnotationText returns the source text of the @Deprecated
+// annotation among idx's modifiers, or "" when there is none. The annotation's
+// type name must match exactly. An annotation that merely contains the word,
+// such as @OptIn(DeprecatedForRemovalCompilerApi::class) or a project's own
+// @DeprecatedApi marker, is not a deprecation. The message, level, and
+// ReplaceWith arguments are then read from this annotation alone, never from a
+// neighbor.
+func deprecationAnnotationText(file *scanner.File, idx uint32) string {
+	mods, _ := file.FlatFindChild(idx, "modifiers")
+	if mods == 0 {
+		return ""
+	}
+	for child := file.FlatFirstChild(mods); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "annotation" {
+			continue
+		}
+		text := file.FlatNodeText(child)
+		switch deprecationAnnotationTypeName(text) {
+		case "Deprecated", "kotlin.Deprecated", "java.lang.Deprecated":
+			return text
+		}
+	}
+	return ""
+}
+
+// deprecationAnnotationTypeName reduces annotation text to its type name:
+// "@field:kotlin.Deprecated(\"x\")" becomes "kotlin.Deprecated". A use-site
+// target is dropped only when its colon precedes the argument list, so a colon
+// inside a message string is left alone.
+func deprecationAnnotationTypeName(text string) string {
+	text = strings.TrimPrefix(strings.TrimSpace(text), "@")
+	paren := strings.Index(text, "(")
+	if colon := strings.Index(text, ":"); colon >= 0 && (paren < 0 || colon < paren) {
+		text = text[colon+1:]
+		paren = strings.Index(text, "(")
+	}
+	if paren >= 0 {
+		text = text[:paren]
+	}
+	return strings.Join(strings.Fields(text), "")
 }
 
 func flatDeprecationRefName(file *scanner.File, idx uint32) string {

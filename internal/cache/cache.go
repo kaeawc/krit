@@ -79,13 +79,17 @@ const CacheFileName = "incremental.cache"
 // v14: UnsafeCast anchors the compiler's CAST_NEVER_SUCCEEDS verdict to the
 // tightest enclosing cast, so a nested cast no longer double-flags the outer
 // one — changing its findings for unchanged source.
+// v15: Deprecation's same-file path matches @Deprecated by exact annotation
+// name, so declarations annotated with e.g. @OptIn(DeprecatedFor…::class) are
+// no longer reported deprecated — changing findings for unchanged source whose
+// oracle facts (and so fact hash) did not change.
 //
 // Note: the oracle fact hash is folded into the per-file store key directly
 // (foldOracleBlobHash, versioned by its own "v1" suffix + FactSchemaVersion),
 // so a semantic fact change invalidates oracle-on entries without a payload
 // bump — and a bump here would needlessly cold-start every non-oracle user,
 // whose keys are byte-identical to before.
-const cachePayloadVersion = "v14"
+const cachePayloadVersion = "v15"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

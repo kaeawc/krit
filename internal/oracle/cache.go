@@ -82,7 +82,10 @@ func recordOracleDir(cacheDir string) {
 // v6: compiler diagnostics are now collected by default whenever a projection
 // rule is active (previously gated behind --oracle-diagnostics), so entries
 // written under the old opt-out default lack diagnostics and must be recomputed.
-const CacheVersion = 6
+// v7: both backends retain DEPRECATION, and krit-types collects diagnostics for
+// every analyzed file (the lexical pre-gate is gone), so earlier entries lack
+// deprecation facts and, on krit-types, any diagnostics for hint-free files.
+const CacheVersion = 7
 
 // CacheEntry is one file's cached oracle analysis. The JSON field names
 // are intentionally short because there can be tens of thousands of these

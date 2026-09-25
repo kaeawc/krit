@@ -18,14 +18,13 @@ func registerPotentialbugsMiscRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "navigation_expression", "user_type"}, Confidence: api.ConfidenceMedium, Implementation: r,
-			Needs:             api.NeedsTypeInfo | api.NeedsOracleCallTargets | api.NeedsOracleExprAnnotations,
+			Needs:             api.NeedsTypeInfo | api.NeedsOracleCallTargets | api.NeedsOracleExprAnnotations | api.NeedsOracleDiagnostics,
 			OracleCallTargets: &api.OracleCallTargetFilter{AnnotatedIdentifiers: []string{"Deprecated"}},
-			// Narrow by the "Deprecated" token — captures @Deprecated,
-			// @kotlin.Deprecated, @java.lang.Deprecated, and any import
-			// header that aliases kotlin.Deprecated. Inherited deprecations
-			// from base types that live in files without the token are a
-			// documented trade-off.
-			Oracle: &api.OracleFilter{Identifiers: []string{"Deprecated"}},
+			// No Oracle file filter: the compiler's DEPRECATION verdict is
+			// needed wherever a deprecated symbol is referenced, and that is
+			// usually a file that never mentions "Deprecated" — a call to a
+			// deprecated library API, an inherited member, or a type declared
+			// elsewhere.
 			// Uses LookupCallTargetAnnotations (annotations embedded directly in
 			// call-resolution data) so no declaration extraction is needed.
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
@@ -63,6 +62,13 @@ func registerPotentialbugsMiscRules() {
 					return
 				}
 
+				// 0. Compiler verdict: project K2's DEPRECATION when the oracle
+				// collected it. It is overload-exact and covers the reference
+				// kinds the paths below miss.
+				if projectDiagnostic(ctx, deprecationProjection(name)) {
+					return
+				}
+
 				// 1. Oracle-based check: annotations are embedded in the call-target
 				// resolution entry, so no member-declaration extraction is needed.
 				if oracleLookup != nil {
@@ -84,29 +90,8 @@ func registerPotentialbugsMiscRules() {
 					return
 				}
 
-				msg := fmt.Sprintf("'%s' is deprecated.", name)
-				if info.level != "" {
-					msg = fmt.Sprintf("'%s' is deprecated (level=%s).", name, info.level)
-				}
-				if info.message != "" {
-					msg = fmt.Sprintf("'%s' is deprecated: %s", name, info.message)
-					if info.level != "" {
-						msg = fmt.Sprintf("'%s' is deprecated (level=%s): %s", name, info.level, info.message)
-					}
-				}
-
-				f := r.Finding(file, line, col, msg)
-
-				// If replaceWith is available, offer an auto-fix
-				if info.replaceWith != "" && (nodeType == "call_expression" || nodeType == "navigation_expression") {
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   int(file.FlatStartByte(idx)),
-						EndByte:     int(file.FlatEndByte(idx)),
-						Replacement: info.replaceWith,
-					}
-				}
-
+				f := r.Finding(file, line, col, deprecationMessage(name, info))
+				f.Fix = deprecationReplaceWithFix(file, idx, info)
 				ctx.Emit(f)
 			},
 		})

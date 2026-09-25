@@ -138,3 +138,37 @@ func testDiagnosticProjection() DiagnosticProjection {
 		Confidence: api.ConfidenceVeryHigh,
 	}
 }
+
+func TestDiagnosticAnchorBytes_LineColFallbackCountsUTF16Units(t *testing.T) {
+	// "é" is 2 bytes and 1 UTF-16 unit; "😀" is 4 bytes and 2 UTF-16 units.
+	// Without byte offsets, the compiler's column must be converted, not
+	// added to the line offset as bytes.
+	src := "package p\nval s = \"é😀\"; val x = old()\n"
+	file := parseInlineForInternalTest(t, src)
+	idx := firstFlatNodeOfType(t, file, "call_expression", "old()")
+	want := file.FlatStartByte(idx)
+	// `val s = "é😀"; val x = ` is 23 UTF-16 units (31 bytes), so col 24.
+	start, end, ok := diagnosticAnchorBytes(file, oracle.Diagnostic{Line: 2, Col: 24})
+	if !ok || start != want || end != want {
+		t.Fatalf("anchor = %d..%d ok=%v, want %d", start, end, ok, want)
+	}
+}
+
+func TestUTF16ColumnToByteOffset(t *testing.T) {
+	for _, tc := range []struct {
+		line string
+		col  int
+		want int
+	}{
+		{"abc", 1, 0},
+		{"abc", 3, 2},
+		{"é_x", 2, 2},
+		{"😀x", 3, 4},
+		{"ab\ncd", 9, 2}, // past the end clamps to the newline
+		{"ab", 9, 2},
+	} {
+		if got := utf16ColumnToByteOffset([]byte(tc.line), tc.col); got != tc.want {
+			t.Errorf("utf16ColumnToByteOffset(%q, %d) = %d, want %d", tc.line, tc.col, got, tc.want)
+		}
+	}
+}

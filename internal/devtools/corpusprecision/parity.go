@@ -15,16 +15,19 @@ import (
 )
 
 // parityMapping maps Krit rules to retained Kotlin compiler diagnostic factories.
-// Both JVM backends retain exactly UNREACHABLE_CODE, USELESS_ELVIS, and
-// CAST_NEVER_SUCCEEDS (tools/krit-fir/.../OracleDiagnosticMessageCollector.kt
-// and tools/krit-types/.../Main.kt); do not add factories until both Kotlin-side
-// allowlists are extended. UnsafeCast's existing diagnostic map proves
-// CAST_NEVER_SUCCEEDS; the FIR contract fixture proves USELESS_ELVIS for the
-// non-null elvis shape; UnreachableCode is the Go analogue of UNREACHABLE_CODE.
+// A factory belongs here only once both JVM backends retain it
+// (tools/krit-fir/.../OracleDiagnosticMessageCollector.kt and
+// tools/krit-types/.../Main.kt) and it maps one-to-one onto the rule.
+// UnnecessaryNotNullCheck is deliberately absent: it projects only the
+// null-comparison direction of SENSELESS_COMPARISON, so an unfiltered mapping
+// would count every always-true/false condition as a compiler-only miss.
 var parityMapping = map[string][]string{
-	"UnsafeCast":            {"CAST_NEVER_SUCCEEDS"},
-	"UnreachableCode":       {"UNREACHABLE_CODE"},
-	"UselessElvisOnNonNull": {"USELESS_ELVIS"},
+	"UnsafeCast":                 {"CAST_NEVER_SUCCEEDS"},
+	"UnreachableCode":            {"UNREACHABLE_CODE"},
+	"UselessElvisOnNonNull":      {"USELESS_ELVIS"},
+	"UnnecessaryNotNullOperator": {"UNNECESSARY_NOT_NULL_ASSERTION"},
+	"UnnecessarySafeCall":        {"UNNECESSARY_SAFE_CALL"},
+	"Deprecation":                {"DEPRECATION"},
 }
 
 type parityRawReport struct {
@@ -92,7 +95,9 @@ func runKritForParity(root string, c availableCorpus) ([]parityGoFinding, error)
 	if err != nil {
 		return nil, err
 	}
-	args := []string{"-f", "json", "--no-cache", "--no-daemon", "--base-path", c.ScanPath}
+	// --all-rules: some mapped rules (Deprecation) are opt-in, and the report
+	// reads only mapped rules' findings, so enabling the rest is harmless.
+	args := []string{"-f", "json", "--no-cache", "--no-daemon", "--all-rules", "--base-path", c.ScanPath}
 	args = append(args, c.Flags...)
 	args = append(args, c.ScanPath)
 	cmd := exec.CommandContext(context.Background(), krit, args...)

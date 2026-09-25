@@ -1,6 +1,8 @@
 package rules
 
 import (
+	"unicode/utf16"
+
 	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -123,9 +125,24 @@ func diagnosticAnchorBytes(file *scanner.File, d oracle.Diagnostic) (start, end 
 	if d.Line <= 0 || d.Col <= 0 {
 		return 0, 0, false
 	}
-	offset := file.LineOffset(d.Line-1) + d.Col - 1
+	offset := file.LineOffset(d.Line-1) + utf16ColumnToByteOffset(file.Content[file.LineOffset(d.Line-1):], d.Col)
 	if offset < 0 {
 		return 0, 0, false
 	}
 	return uint32(offset), uint32(offset), true
+}
+
+// utf16ColumnToByteOffset converts a compiler column, which is 1-based and
+// counted in UTF-16 code units, into a byte offset within line, which starts
+// at the column's line. A column past the end of the line clamps to the line
+// end.
+func utf16ColumnToByteOffset(line []byte, col int) int {
+	units := 0
+	for i, r := range string(line) {
+		if units >= col-1 || r == '\n' {
+			return i
+		}
+		units += utf16.RuneLen(r)
+	}
+	return len(line)
 }

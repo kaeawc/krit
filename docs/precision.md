@@ -82,7 +82,9 @@ The environment variable may contain an absolute path at runtime, but local path
 
 ## Compiler parity
 
-Compiler parity compares Krit's Go rule findings with Kotlin-compiler-native diagnostics for the same defect, surfaced through Krit's JVM oracle. It currently tracks exactly `UnsafeCast`, `UselessElvisOnNonNull`, and `UnreachableCode`: the FIR oracle's `OracleDiagnosticMessageCollector.kt` factory allowlist retains only their compiler factories (`CAST_NEVER_SUCCEEDS`, `USELESS_ELVIS`, and `UNREACHABLE_CODE`), and the KAA backend has the same restriction.
+Compiler parity compares Krit's rule findings with Kotlin compiler diagnostics for the same defect, surfaced through Krit's JVM oracle. It tracks the rules whose compiler factory maps one-to-one onto the rule: `UnsafeCast` (`CAST_NEVER_SUCCEEDS`), `UselessElvisOnNonNull` (`USELESS_ELVIS`), `UnreachableCode` (`UNREACHABLE_CODE`), `UnnecessaryNotNullOperator` (`UNNECESSARY_NOT_NULL_ASSERTION`), `UnnecessarySafeCall` (`UNNECESSARY_SAFE_CALL`), and `Deprecation` (`DEPRECATION`). Both oracle backends must retain a factory before it is added here. See [fir-checker-candidates.md](fir-checker-candidates.md) for which compiler diagnostics can be projected.
+
+The report runs with `--all-rules` so that opt-in mapped rules such as `Deprecation` produce findings. For rules that project the compiler's verdict, it measures the rule end to end, including how it anchors each diagnostic to a syntax node.
 
 Run the report across every available corpus, or scope it to one corpus:
 

@@ -73,6 +73,9 @@ internal class OracleDiagnosticMessageCollector(
         for ((prefix, factory) in factoryPrefixes) {
             if (message.startsWith(prefix)) return factory
         }
+        for ((pattern, factory) in factoryPatterns) {
+            if (pattern.containsMatchIn(message)) return factory
+        }
         return null
     }
 
@@ -114,7 +117,23 @@ internal class OracleDiagnosticMessageCollector(
             "No cast needed." to "USELESS_CAST",
         )
 
-        private val pluginDiagnosticPrefix = Regex("""\[[A-Z_]+]""")
+        // Templates whose variable part comes first, so a fixed prefix cannot
+        // match them. DEPRECATION renders as "'<symbol>' is deprecated.
+        // <message>". The anchored shape excludes the other deprecation-worded
+        // warnings: TYPEALIAS_EXPANSION_DEPRECATION ("'X' uses 'Y', which is
+        // deprecated.") and DEPRECATED_IDENTITY_EQUALS ("Identity equality … is
+        // deprecated."). DEPRECATION_ERROR shares the template but is error
+        // severity, which retainedSeverities already drops.
+        private val factoryPatterns: List<Pair<Regex, String>> = listOf(
+            Regex("""^'.+' is deprecated\.""") to "DEPRECATION",
+        )
+
+        // krit-fir's own checkers render as "[RULE_NAME] message"
+        // (KritDiagnosticsRendering), always with the bracket first. Anchoring
+        // matters: DEPRECATION embeds the user's @Deprecated message, so an
+        // unanchored match would drop "'f' is deprecated. [OLD] use g." as a
+        // plugin diagnostic.
+        private val pluginDiagnosticPrefix = Regex("""^\[[A-Z_]+]""")
     }
 }
 

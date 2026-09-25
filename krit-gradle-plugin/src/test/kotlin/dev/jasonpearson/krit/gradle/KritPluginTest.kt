@@ -6,6 +6,7 @@ import org.gradle.testfixtures.ProjectBuilder
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -220,22 +221,147 @@ class KritPluginTest {
         assertTrue(platform.os in listOf("darwin", "linux", "windows"))
         assertTrue(platform.arch in listOf("amd64", "arm64"))
         assertTrue(platform.binaryName.startsWith("krit"))
-        assertTrue(platform.archiveName.endsWith(".tar.gz"))
+        val archive = platform.archiveName("0.2.0")
+        assertTrue(archive.startsWith("krit_0.2.0_${platform.os}_"))
+        assertTrue(archive.endsWith(if (platform.os == "windows") ".zip" else ".tar.gz"))
     }
 
     @Test
-    fun `platform binary name is correct for each OS`() {
-        val darwinPlatform = KritBinaryResolver.Platform("darwin", "arm64")
-        assertEquals("krit", darwinPlatform.binaryName)
-        assertEquals("krit-darwin-arm64.tar.gz", darwinPlatform.archiveName)
+    fun `archive names match goreleaser naming`() {
+        val darwin = KritBinaryResolver.Platform("darwin", "arm64")
+        assertEquals("krit", darwin.binaryName)
+        assertEquals("krit_0.2.0_darwin_arm64.tar.gz", darwin.archiveName("0.2.0"))
 
-        val linuxPlatform = KritBinaryResolver.Platform("linux", "amd64")
-        assertEquals("krit", linuxPlatform.binaryName)
-        assertEquals("krit-linux-amd64.tar.gz", linuxPlatform.archiveName)
+        val linux = KritBinaryResolver.Platform("linux", "amd64")
+        assertEquals("krit", linux.binaryName)
+        assertEquals("krit_0.2.0_linux_amd64.tar.gz", linux.archiveName("0.2.0"))
 
-        val windowsPlatform = KritBinaryResolver.Platform("windows", "amd64")
-        assertEquals("krit.exe", windowsPlatform.binaryName)
-        assertEquals("krit-windows-amd64.tar.gz", windowsPlatform.archiveName)
+        val linuxMusl = KritBinaryResolver.Platform("linux", "amd64", musl = true)
+        assertEquals("krit_0.2.0_linux_musl_amd64.tar.gz", linuxMusl.archiveName("0.2.0"))
+        assertEquals("linux-musl-amd64", linuxMusl.id)
+        assertEquals("linux-amd64", linux.id)
+
+        val windows = KritBinaryResolver.Platform("windows", "amd64")
+        assertEquals("krit.exe", windows.binaryName)
+        assertEquals("krit_0.2.0_windows_amd64.zip", windows.archiveName("0.2.0"))
+    }
+
+    @Test
+    fun `release version accepts a leading v and prerelease suffixes`() {
+        val linux = KritBinaryResolver.Platform("linux", "arm64")
+        assertEquals("krit_0.2.0_linux_arm64.tar.gz", linux.archiveName("v0.2.0"))
+        assertEquals(
+            "krit_0.3.0-nightly.20260925_linux_arm64.tar.gz",
+            linux.archiveName("0.3.0-nightly.20260925"),
+        )
+        assertEquals(
+            "https://github.com/kaeawc/krit/releases/download/v0.2.0",
+            KritBinaryResolver.releaseBaseUrl("0.2.0"),
+        )
+        assertEquals(
+            "https://github.com/kaeawc/krit/releases/download/v0.2.0",
+            KritBinaryResolver.releaseBaseUrl("v0.2.0"),
+        )
+    }
+
+    @Test
+    fun `default tool version is the plugin build version`() {
+        val project = newProject()
+        val extension = project.extensions.getByType(KritExtension::class.java)
+        assertEquals(KritPlugin.KRIT_DEFAULT_VERSION, extension.advanced.toolVersion.get())
+        assertTrue(Regex("""\d+\.\d+\.\d+.*""").matches(KritPlugin.KRIT_DEFAULT_VERSION))
+    }
+
+    @Test
+    fun `extracts binary from tar gz release archive`() {
+        val archive = tarGz(
+            "README.md" to "readme".toByteArray(),
+            "krit-lsp" to "lsp".toByteArray(),
+            "krit" to "krit-binary".toByteArray(),
+        )
+        val out = File(projectDir, "tar-out")
+        KritBinaryResolver.extractBinary(archive, "krit_0.2.0_linux_amd64.tar.gz", out, "krit")
+
+        val binary = File(out, "krit")
+        assertEquals("krit-binary", binary.readText())
+        assertTrue(binary.canExecute())
+        assertEquals(listOf("krit"), out.list()!!.toList(), "no temp files left behind")
+    }
+
+    @Test
+    fun `tar extraction skips pax headers named like the binary`() {
+        val archive = tarGz(
+            "PaxHeaders.0/krit" to "30 mtime=1747000000.000000000\n".toByteArray(),
+            "krit" to "real".toByteArray(),
+            paxFor = "PaxHeaders.0/krit",
+        )
+        val out = File(projectDir, "pax-out")
+        KritBinaryResolver.extractBinary(archive, "krit_0.2.0_darwin_arm64.tar.gz", out, "krit")
+        assertEquals("real", File(out, "krit").readText())
+    }
+
+    @Test
+    fun `extracts binary from windows zip release archive`() {
+        val bytes = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(bytes).use { zip ->
+            for ((name, content) in listOf("LICENSE" to "mit", "krit-lsp.exe" to "lsp", "krit.exe" to "exe")) {
+                zip.putNextEntry(java.util.zip.ZipEntry(name))
+                zip.write(content.toByteArray())
+                zip.closeEntry()
+            }
+        }
+        val out = File(projectDir, "zip-out")
+        KritBinaryResolver.extractBinary(bytes.toByteArray(), "krit_0.2.0_windows_amd64.zip", out, "krit.exe")
+        assertEquals("exe", File(out, "krit.exe").readText())
+    }
+
+    @Test
+    fun `extraction fails when binary is missing from archive`() {
+        val archive = tarGz("krit-lsp" to "lsp".toByteArray())
+        val error = assertThrows(IllegalStateException::class.java) {
+            KritBinaryResolver.extractBinary(archive, "krit_0.2.0_linux_amd64.tar.gz", projectDir, "krit")
+        }
+        assertTrue(error.message!!.contains("krit_0.2.0_linux_amd64.tar.gz"))
+    }
+
+    @Test
+    fun `checksum verification matches exact archive names`() {
+        val archive = "archive-bytes".toByteArray()
+        val sha = java.security.MessageDigest.getInstance("SHA-256").digest(archive)
+            .joinToString("") { "%02x".format(it) }
+        val checksums = """
+            0000000000000000000000000000000000000000000000000000000000000000  krit_0.2.0_linux_musl_amd64.tar.gz
+            $sha  krit_0.2.0_linux_amd64.tar.gz
+        """.trimIndent()
+
+        KritBinaryResolver.verifyChecksum(archive, checksums, "krit_0.2.0_linux_amd64.tar.gz")
+
+        assertThrows(IllegalArgumentException::class.java) {
+            KritBinaryResolver.verifyChecksum(archive, checksums, "krit_0.2.0_linux_musl_amd64.tar.gz")
+        }
+        assertThrows(IllegalStateException::class.java) {
+            KritBinaryResolver.verifyChecksum(archive, checksums, "krit_0.2.0_darwin_arm64.tar.gz")
+        }
+    }
+
+    /** Minimal ustar writer; [paxFor] marks that entry as a PAX extended header ('x'). */
+    private fun tarGz(vararg entries: Pair<String, ByteArray>, paxFor: String? = null): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        java.util.zip.GZIPOutputStream(out).use { gz ->
+            for ((name, content) in entries) {
+                val header = ByteArray(512)
+                name.toByteArray().copyInto(header, 0)
+                "0000755\u0000".toByteArray().copyInto(header, 100)
+                String.format("%011o\u0000", content.size).toByteArray().copyInto(header, 124)
+                header[156] = (if (name == paxFor) 'x' else '0').code.toByte()
+                "ustar\u000000".toByteArray().copyInto(header, 257)
+                gz.write(header)
+                gz.write(content)
+                gz.write(ByteArray((512 - content.size % 512) % 512))
+            }
+            gz.write(ByteArray(1024))
+        }
+        return out.toByteArray()
     }
 
     @Test

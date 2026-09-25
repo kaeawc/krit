@@ -100,6 +100,13 @@ download; `make build` and `go build` binaries use the in-tree jars. If the `kri
 `krit-types` jar is installed, the oracle falls back to the KAA
 backend with a warning. `krit --doctor` reports which jars are found.
 
+If GitHub fails, krit tries Maven Central. Set `KRIT_JAR_REPOSITORY` to a
+corporate Maven repository base URL to use only that mirror. The coordinates
+are `dev.jasonpearson.krit:krit-fir:<version>` and
+`dev.jasonpearson.krit:krit-types:<version>`, where version is the release tag
+without its leading `v`. Maven jars are verified against their published
+`.sha256`, `.sha512`, or `.sha1` sibling checksum files before installation.
+
 For offline or air-gapped machines, set `KRIT_NO_JAR_DOWNLOAD=1` and
 either pre-seed `~/.krit/jars/` with the release assets or point
 `KRIT_FIR_JAR` / `KRIT_TYPES_JAR` at existing jars. Without Java the

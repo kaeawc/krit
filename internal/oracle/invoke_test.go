@@ -27,6 +27,7 @@ func isolateJarLookup(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("KRIT_TYPES_JAR", "")
 	t.Setenv("KRIT_FIR_JAR", "")
+	t.Setenv(jarRepositoryEnv, "")
 	t.Setenv(NoJarDownloadEnv, "")
 	prev := Version
 	Version = ""

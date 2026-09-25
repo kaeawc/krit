@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -213,7 +214,7 @@ func downloadReleaseJar(ctx context.Context, b Backend, tag, asset, target strin
 	var failures []error
 	for _, source := range jarSources(b, tag) {
 		if verbose {
-			reporter().Verbosef("verbose: downloading %s from %s\n", b.JarName(), source.url)
+			reporter().Verbosef("verbose: downloading %s from %s\n", b.JarName(), redactURL(source.url))
 		}
 		// Each source gets a fresh budget, including its checksum request.
 		attemptCtx, cancel := context.WithTimeout(ctx, jarDownloadTimeout)
@@ -231,7 +232,7 @@ func downloadReleaseJar(ctx context.Context, b Backend, tag, asset, target strin
 		if err == nil {
 			return target, nil
 		}
-		failures = append(failures, fmt.Errorf("%s: %w", source.url, err))
+		failures = append(failures, fmt.Errorf("%s: %w", redactURL(source.url), err))
 	}
 	return "", missingJarError(b, errors.Join(failures...))
 }
@@ -324,16 +325,16 @@ func releaseChecksum(ctx context.Context, tag, asset string) ([]byte, error) {
 	url := releaseDownloadBase + "/" + tag + "/checksums.txt"
 	resp, err := httpGet(ctx, url)
 	if err != nil {
-		return nil, fmt.Errorf("fetch %s: %w", url, err)
+		return nil, fmt.Errorf("fetch %s: %w", redactURL(url), err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxChecksumsSize))
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", url, err)
+		return nil, fmt.Errorf("read %s: %w", redactURL(url), err)
 	}
 	sum, err := parseChecksum(body, asset)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", url, err)
+		return nil, fmt.Errorf("%s: %w", redactURL(url), err)
 	}
 	return sum, nil
 }
@@ -392,6 +393,10 @@ func httpGet(ctx context.Context, url string) (*http.Response, error) {
 	}
 	resp, err := jarHTTPClient.Do(req)
 	if err != nil {
+		var ue *neturl.Error
+		if errors.As(err, &ue) {
+			ue.URL = redactURL(ue.URL)
+		}
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {

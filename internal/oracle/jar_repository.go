@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,22 @@ import (
 
 const mavenCentralBase = "https://repo1.maven.org/maven2"
 const jarRepositoryEnv = "KRIT_JAR_REPOSITORY"
+
+// redactURL removes credentials from a URL before it is shown in logs or errors.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "<unparseable URL>"
+	}
+	if u.User == nil {
+		return raw
+	}
+	if _, hasPassword := u.User.Password(); hasPassword {
+		return u.Redacted()
+	}
+	u.User = url.User("xxxxx")
+	return u.String()
+}
 
 // jarSource describes one download endpoint; mavenChecksum selects sibling
 // checksum verification, while GitHub uses release checksums.txt instead.
@@ -59,7 +76,7 @@ func downloadVerifiedJar(ctx context.Context, jarURL, target string) error {
 	}
 	resp, err := httpGet(ctx, jarURL)
 	if err != nil {
-		return err
+		return fmt.Errorf("download %s: %w", redactURL(jarURL), err)
 	}
 	defer resp.Body.Close()
 	return fsutil.WriteFileAtomicStream(target, 0o644, func(w io.Writer) error {
@@ -83,7 +100,7 @@ func verifyJarChecksum(ctx context.Context, jarURL string, hashes map[string]has
 	for _, suffix := range []string{".sha256", ".sha512", ".sha1"} {
 		content, err := fetchJarChecksum(ctx, jarURL+suffix)
 		if err != nil {
-			unavailable = append(unavailable, fmt.Errorf("%s: %w", suffix, err))
+			unavailable = append(unavailable, fmt.Errorf("%s: %w", redactURL(jarURL+suffix), err))
 			continue
 		}
 		fields := strings.Fields(string(content))
@@ -108,7 +125,7 @@ func fetchJarChecksum(ctx context.Context, checksumURL string) ([]byte, error) {
 	defer cancel()
 	resp, err := httpGet(ctx, checksumURL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch %s: %w", redactURL(checksumURL), err)
 	}
 	defer resp.Body.Close()
 	content, err := io.ReadAll(io.LimitReader(resp.Body, 1025))

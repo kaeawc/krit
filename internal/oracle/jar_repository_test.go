@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/sha512"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -16,6 +17,66 @@ import (
 )
 
 type jarRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func TestRedactURL(t *testing.T) {
+	for _, tc := range []struct {
+		input, want string
+		unchanged   bool
+	}{
+		{"https://user:pass@host/path", "https://user:xxxxx@host/path", false},
+		{"https://token@host/path", "https://xxxxx@host/path", false},
+		{"https://host/path", "https://host/path", true},
+		{"https://host/path\n", "<unparseable URL>", false},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			got := redactURL(tc.input)
+			if got != tc.want {
+				t.Fatalf("redactURL() = %q, want %q", got, tc.want)
+			}
+			if tc.unchanged && got != tc.input {
+				t.Fatal("URL without userinfo changed")
+			}
+			if strings.Contains(got, "pass") || strings.Contains(got, "token") {
+				t.Fatalf("credential leaked: %q", got)
+			}
+		})
+	}
+}
+
+func TestConfiguredRepositoryRedactsErrorsAndKeepsBasicAuth(t *testing.T) {
+	isolateJarLookup(t)
+	Version = "1.2.3"
+	authorized := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.User != nil {
+			t.Errorf("request path contained userinfo: %v", r.URL.User)
+		}
+		if r.Header.Get("Authorization") != "Basic "+base64.StdEncoding.EncodeToString([]byte("user:s3cret")) {
+			t.Errorf("Authorization = %q", r.Header.Get("Authorization"))
+		} else {
+			authorized = true
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(server.Close)
+	priorClient, priorBase, priorJava := jarHTTPClient, releaseDownloadBase, javaAvailable
+	jarHTTPClient = http.DefaultClient
+	releaseDownloadBase = server.URL + "/github"
+	javaAvailable = func() bool { return true }
+	t.Cleanup(func() { jarHTTPClient, releaseDownloadBase, javaAvailable = priorClient, priorBase, priorJava })
+	base := strings.TrimPrefix(server.URL, "http://")
+	t.Setenv(jarRepositoryEnv, "http://user:s3cret@"+base+"/repo")
+	_, err := EnsureBackendJar(context.Background(), BackendFIR, []string{t.TempDir()}, false)
+	if err == nil {
+		t.Fatal("expected 404 download error")
+	}
+	if strings.Contains(err.Error(), "s3cret") {
+		t.Fatalf("credential leaked in error: %v", err)
+	}
+	if !authorized {
+		t.Fatal("server did not receive Basic Auth credentials")
+	}
+}
 
 func (f jarRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 

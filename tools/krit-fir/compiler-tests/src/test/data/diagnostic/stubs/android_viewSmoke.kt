@@ -46,7 +46,9 @@ class SmokeGroup(context: Context, attrs: AttributeSet?) : ViewGroup(context, at
 fun inflateAndBind(parent: ViewGroup, menu: Menu, context: Context): View {
     val themed = ContextThemeWrapper(context, 0)
     val view: View = LayoutInflater.from(themed).inflate(android.R.layout.simple_list_item_1, parent, false)
-    view.visibility = View.GONE
+    // Java getVisibility/setVisibility -> synthetic property; View.VISIBLE is a Java static.
+    view.visibility = View.VISIBLE
+    if (view.visibility == View.VISIBLE) view.visibility = View.GONE
     view.setOnClickListener { clicked -> clicked.isEnabled = false }
     view.setOnLongClickListener { true }
     view.contentDescription = "row"

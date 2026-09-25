@@ -25,6 +25,8 @@ object EncryptedSharedPreferences : SharedPreferences {
         prefValueEncryptionScheme: PrefValueEncryptionScheme,
     ): SharedPreferences = TODO()
 
+    override fun getAll(): Map<String, *> = TODO()
+
     override fun getString(key: String, defValue: String?): String? = TODO()
 
     override fun getStringSet(key: String, defValues: Set<String>?): Set<String>? = TODO()

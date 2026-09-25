@@ -29,7 +29,10 @@ class SmokeActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(android.R.layout.simple_list_item_1)
         val label = findViewById<TextView>(android.R.id.content)
-        label.text = intent.getStringExtra("title") ?: ""
+        // getStringExtra returns a platform type, so it assigns straight into text.
+        label.text = intent.getStringExtra("title")
+        startActivity(Intent(Intent.ACTION_VIEW))
+        setResult(Activity.RESULT_OK)
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.cancel(1)
         val activityManager: ActivityManager? = getSystemService(ActivityManager::class.java)

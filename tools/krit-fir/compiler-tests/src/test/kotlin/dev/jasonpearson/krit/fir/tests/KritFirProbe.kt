@@ -27,10 +27,21 @@ object KritFirProbe {
         }
         val tmpDir = kotlin.io.path.createTempDirectory("krit-fir-probe").toFile()
         try {
-            sources.forEach { (name, body) -> tmpDir.resolve(name).writeText(body) }
+            // Kotlin sources (requested + Kotlin stubs) and the Java stub layer
+            // live in sibling roots so the Java files keep their package
+            // directories and are resolved as Java sources, not Kotlin ones.
+            val ktDir = tmpDir.resolve("src").apply { mkdirs() }
+            val javaDir = tmpDir.resolve("java").apply { mkdirs() }
+            sources.forEach { (name, body) -> ktDir.resolve(name).writeText(body) }
             if (stubsDir.isDirectory) {
                 stubsDir.listFiles { f -> f.extension == "kt" }?.forEach { stub ->
-                    stub.copyTo(tmpDir.resolve(stub.name), overwrite = true)
+                    stub.copyTo(ktDir.resolve(stub.name), overwrite = true)
+                }
+            }
+            val javaStubsDir = stubsDir.resolve("java")
+            if (javaStubsDir.isDirectory) {
+                javaStubsDir.walkTopDown().filter { it.isFile && it.extension == "java" }.forEach { stub ->
+                    stub.copyTo(javaDir.resolve(stub.relativeTo(javaStubsDir)), overwrite = true)
                 }
             }
             val outDir = tmpDir.resolve("out").apply { mkdirs() }
@@ -66,7 +77,11 @@ object KritFirProbe {
                 collector,
                 Services.EMPTY,
                 K2JVMCompilerArguments().apply {
-                    freeArgs = listOf(tmpDir.absolutePath)
+                    freeArgs = listOf(ktDir.absolutePath)
+                    // K2 resolves Java sources directly (no javac), giving the
+                    // Android platform stubs real Java symbol shapes: statics,
+                    // synthetic properties, and platform types.
+                    javaSourceRoots = arrayOf(javaDir.absolutePath)
                     destination = outDir.absolutePath
                     noStdlib = true
                     noReflect = true

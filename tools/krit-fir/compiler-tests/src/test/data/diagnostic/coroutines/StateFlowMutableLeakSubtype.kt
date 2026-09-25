@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 16, 18, 20, 35
 // Positive: a property whose type is a subtype of MutableStateFlow still hands
 // callers a writable state holder, so it is reported like MutableStateFlow itself.
 package test.subtype

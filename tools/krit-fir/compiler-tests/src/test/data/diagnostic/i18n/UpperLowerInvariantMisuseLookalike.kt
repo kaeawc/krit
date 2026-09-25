@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 20x3, 26
 // Lookalikes: project functions named uppercase / lowercase are not the stdlib
 // case conversion and take no Locale, so FIR does not report them.
 package ulimlookalike

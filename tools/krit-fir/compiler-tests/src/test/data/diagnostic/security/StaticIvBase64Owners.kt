@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 27, 29
 // Positive: a decode on any class named Base64, not only the platform
 // decoders. Go reports each call because the argument text holds
 // `Base64.decode(` and a quote. The decoders below really decode the literal,

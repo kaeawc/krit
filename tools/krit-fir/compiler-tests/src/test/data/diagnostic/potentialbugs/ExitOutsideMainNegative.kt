@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negatives: calls whose nearest enclosing named function is `main` (any
 // owner, receiver or signature, as Go matches by name), including calls inside
 // lambdas, anonymous functions and local-class initializers within main; exit

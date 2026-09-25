@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 48, 49, 54, 55, 82, 83
 // Negative: locks that are not a bare boxed-primitive literal or a
 // primitive-typed property declared in the enclosing class/object must not
 // trigger SynchronizedOnBoxedPrimitive. Primitive locks go through a
@@ -39,13 +40,15 @@ class Service(val ctorCount: Int) {
         kotlin.synchronized(lock) { }
     }
 
-    // A parameter that shadows a boxed-primitive property is not that property.
+    // A parameter or a local that shadows a boxed-primitive property is not
+    // that property. Go reports all four calls below because it looks the lock
+    // up by name among the class's properties; FIR is correct to drop them
+    // because the lock is an Any.
     fun shadowedByParameter(shadowed: Any) {
         kotlin.synchronized(shadowed) { }
         synchronized(shadowed) { }
     }
 
-    // A local that shadows a boxed-primitive property is not that property.
     fun shadowedByLocal() {
         val shadowed = Any()
         kotlin.synchronized(shadowed) { }
@@ -67,7 +70,9 @@ fun topLevel() {
     synchronized(count) { }
 }
 
-// Local lookalike: its first parameter is not a monitor object.
+// Local lookalike: its first parameter is not a monitor object. Go reports
+// both calls because it matches the call by the name synchronized; FIR is
+// correct to drop them because this synchronized takes a count, not a lock.
 object Lookalike {
     val count: Int = 1
 

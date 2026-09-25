@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 28, 34, 35, 36, 37
 // A SecretKeySpec lookalike never reports; same-named byte helpers still do,
 // as in Go.
 package test

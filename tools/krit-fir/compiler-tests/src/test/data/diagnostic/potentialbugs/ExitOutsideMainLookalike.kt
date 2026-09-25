@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 34, 38, 42, 48
 // Negatives: local lookalikes that do not terminate the process. None of these
 // calls is kotlin.system.exitProcess or java.lang.System.exit, so the message
 // "Do not call exitProcess() or System.exit()" is not true of them.

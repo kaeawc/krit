@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 16, 17, 18
 // Negative, deliberate precision fix: an explicit import aliases another
 // java.security class to MessageDigest, which wins over the star import.
 // Go reports these calls because the star import satisfies its

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 41, 42
 // Negative: calls named println / print that do not print to the console.
 package test
 

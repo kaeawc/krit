@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 26, 31, 63, 73, 88, 89, 125
 // Where FIR resolution and the Go rule's name-based lookup disagree. FIR
 // keeps every Go finding whose lock really is a boxed primitive, drops Go
 // findings whose lock is not one, and adds findings Go misses only where the

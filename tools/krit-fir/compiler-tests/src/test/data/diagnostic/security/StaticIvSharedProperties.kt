@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 57
 // A template over properties that read a shared property more than once.
 // Each property is walked once per check and its verdict reused. Without
 // that, the walk is exponential in the chain length: the 40-level chain below

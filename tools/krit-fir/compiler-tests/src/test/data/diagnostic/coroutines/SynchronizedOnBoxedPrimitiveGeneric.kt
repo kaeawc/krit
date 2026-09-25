@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 16, 17, 25, 26
 // Positive: a monitor-lock wrapper whose lock parameter is a type parameter
 // bounded by Any (or Any?) still locks on the argument, so a boxed-primitive
 // lock must trigger SynchronizedOnBoxedPrimitive, as it does in Go.

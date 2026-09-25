@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 17, 18, 19, 20, 21, 22, 27, 28, 29, 30, 31, 32, 33, 39, 40, 41, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 60, 64, 70, 72, 73
 // Positive: SecretKeySpec built from hardcoded key bytes, in every shape the Go
 // rule reports.
 package test

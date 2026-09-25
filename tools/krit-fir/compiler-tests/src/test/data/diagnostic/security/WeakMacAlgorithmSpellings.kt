@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Deliberate improvements: other spellings of javax.crypto.Mac.getInstance.
 // Go misses every call below because it only accepts a receiver spelled `Mac`
 // or `javax.crypto.Mac`; FIR is correct to report them because each call

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 13, 15, 20, 23, 26, 29, 31, 37, 39, 41, 43, 45, 48, 52, 56, 58, 62, 68, 73, 77
 // Positive: public, non-override properties whose type exposes MutableStateFlow.
 // Each is reported on the property's first line (modifier list, else val/var),
 // the line the Go rule reports.

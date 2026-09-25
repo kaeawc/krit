@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Positive: hardcoded key bytes written in forms the Go rule's text parser
 // rejects.
 package test

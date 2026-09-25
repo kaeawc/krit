@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 18
 // A file that declares any class named MessageDigest (here a nested class that
 // does not shadow the import) keeps the bare `MessageDigest` receiver silent,
 // matching the Go rule's same-file lookalike guard. The fully qualified call

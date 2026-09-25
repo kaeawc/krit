@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 16, 18
 // Go reads the transformation from the literal's source text with escape
 // sequences left undecoded: a trailing escaped newline or tab is not trimmed
 // whitespace, while an escaped backslash inside the mode still leaves three

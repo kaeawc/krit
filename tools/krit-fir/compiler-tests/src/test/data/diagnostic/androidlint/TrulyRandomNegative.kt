@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negatives for TrulyRandom: the default constructor, factory methods, setSeed
 // (SecureRandom's rule, not this one), a subclass constructor, superclass
 // delegation, and a constructor reference. Go reports none of these either:

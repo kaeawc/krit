@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negative: a local class named MutableStateFlow is not the kotlinx type.
 package test.lookalike
 

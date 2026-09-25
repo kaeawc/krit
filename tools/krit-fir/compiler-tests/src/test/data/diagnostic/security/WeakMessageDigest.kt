@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 31, 35, 36, 37, 39, 42, 47
 // Positives and negatives for WeakMessageDigest: java.security.MessageDigest
 // getInstance with a plain string literal naming a weak digest algorithm.
 package test

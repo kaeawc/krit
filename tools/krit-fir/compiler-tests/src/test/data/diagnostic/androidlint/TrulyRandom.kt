@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 10, 12, 14, 16, 18, 20, 22, 24, 26, 29, 36, 43, 50, 54
 // Positives for TrulyRandom: a java.security.SecureRandom constructor call that
 // passes a seed. Any seed argument counts, as in the Go rule.
 package test

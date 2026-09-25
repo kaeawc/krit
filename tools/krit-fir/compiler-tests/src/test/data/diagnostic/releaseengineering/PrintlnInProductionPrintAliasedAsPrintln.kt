@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Go misses this: it treats any import aliased as println as a shadow of the
 // built-in. The alias here is kotlin.io.print itself, so the call is console
 // output and FIR reports it.

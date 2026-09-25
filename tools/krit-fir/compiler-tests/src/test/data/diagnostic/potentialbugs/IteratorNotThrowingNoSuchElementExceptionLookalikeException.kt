@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 17, 32
 // Local lookalike: this package declares its own NoSuchElementException, which
 // shadows kotlin.NoSuchElementException in this file. Throwing it does not
 // throw the java.util.NoSuchElementException iterator callers expect, so Go

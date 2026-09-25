@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 19
 // Negative: a class named `Cipher` in the same package wins over the
 // javax.crypto star import, so the bare call is not
 // javax.crypto.Cipher.getInstance, while the fully qualified call still is.

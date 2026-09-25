@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Go misses the String call: the file declares a function named println, so
 // Go skips every bare println in it. That overload takes an Int, so
 // println("x") falls through to kotlin.io.println, which FIR reports. The Int

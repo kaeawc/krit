@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 24, 31, 38, 44, 53, 60, 75, 88, 101, 114, 126, 134, 145, 158
 // Where FIR resolution and the Go rule's name-based matching disagree. Go
 // takes any function named `next` whose nearest enclosing class declaration
 // mentions Iterator in a supertype list anywhere in its body, and reads the

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 18, 21, 24, 27, 31, 36, 37, 43, 44, 56, 66, 76
 // Deliberate precision differences from the Go rule, which reports any public
 // property whose source text contains "MutableStateFlow". None of these
 // properties exposes a MutableStateFlow type, so none is reported here.

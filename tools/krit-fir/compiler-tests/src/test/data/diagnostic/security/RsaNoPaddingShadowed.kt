@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 17, 21, 27
 // Negative: a bare `Cipher` that resolves to something other than
 // javax.crypto.Cipher, and a raw string whose value is not a valid
 // transformation, must NOT trigger RsaNoPadding.

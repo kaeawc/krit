@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negative: padded RSA, non-RSA NoPadding, malformed transformations,
 // non-literal arguments, aliased imports, and local getInstance lookalikes
 // must NOT trigger RsaNoPadding.

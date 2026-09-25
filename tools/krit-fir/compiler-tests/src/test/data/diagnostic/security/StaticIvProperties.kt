@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 20, 22
 // Positive: an IV template over a member or top-level property initialized
 // with a literal string. A var or an open val counts: the literal it is
 // initialized with is written in the source (the default), even if the value

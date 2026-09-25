@@ -169,6 +169,35 @@ All tests live under `tools/krit-fir/compiler-tests/src/test/`.
   (and any file that names no rule) run with every rule enabled and must report
   nothing, so if your checker fires in a smoke file, treat it as a false
   positive until you have shown otherwise.
+- **Go lines (`// go-lines:`):** every golden of a ported rule carries a header
+  that lists the lines where the Go rule reports on the same file, for example
+  `// go-lines: 12, 15, 31x2` (`x2`: two findings on line 31) or
+  `// go-lines: none`. The markers show what FIR reports and the header shows
+  what Go reports, so every divergence in the file is visible: a marker on a
+  line the header does not list is a finding Go misses, and a listed line
+  without a marker is a Go finding FIR drops. Line numbers refer to the file
+  as written, header included; the markers are inline, so stripping them
+  moves no line. Put the header above `package`, on line 2 after
+  `// RENDER_DIAGNOSTICS_FULL_TEXT` (the generator puts it there).
+  `TestFirGoldenGoLines` in `tests/parity` checks every header: it strips the
+  markers, runs the Go rule alone in-process (source inference, no oracle, a
+  production source path), and requires the reported lines and per-line
+  counts to equal the header. It needs no jar, so it runs in every
+  `go test ./...`. The golden's rule is picked as the compiler test picks it,
+  the longest checker ID its file name starts with; files that name no
+  checker (stub smoke files, older goldens) and goldens of FIR-only checkers
+  are exempt and must not carry the header. Write or refresh the headers
+  from Go's actual output with
+
+  ```bash
+  KRIT_UPDATE_GO_LINES=1 go test ./tests/parity/ -run TestFirGoldenGoLines -count=1
+  ```
+
+  then check every divergence comment against the new header. Adding or
+  removing a line above a finding shifts the header, so regenerate after any
+  edit. Never edit the header by hand to make the test pass: a header that
+  disagrees with Go means a golden comment's claim about Go ("Go reports
+  this because…", "Go misses…") may be wrong too.
 - **Fixture parity** runs against the Go fixtures in two tiers, and both must
   pass:
   1. *Fast, lane-local:* `FixtureParityTest` in `compiler-tests` runs as part
@@ -282,7 +311,13 @@ these rules. The pilot ports (`WeakMessageDigest`, `RsaNoPadding`,
   | `view.settings.extra.javaScriptEnabled = true` (`extra` is not a `WebSettings`) | reports | no finding | `SetJavaScriptEnabledNegative.kt` |
 
   An unlisted divergence is a bug, and a listed one the reviewer does not
-  accept goes back to matching Go.
+  accept goes back to matching Go. Build the table from the golden files:
+  each line where the markers and the `// go-lines:` header disagree (step 6)
+  is one divergence, and the header is computed from the Go rule, so neither
+  the table nor a golden comment has to take a claim about Go on trust. For
+  every listed line without a marker (a Go finding FIR drops), apply the
+  message test above; if the message is true of the code, it is a lost true
+  positive and the checker must report it.
 
 The Go fixtures under `tests/fixtures/` must match exactly:
 `TestFirFixtureParity` requires the same finding count on every line, so a Go
@@ -339,7 +374,8 @@ example `SetJavaScriptEnabled`'s helper also accepts any type named
       with a comment naming the Go behavior, and listed in the PR's
       `Divergences` table, as the parity principle requires. Each dropped Go
       finding passes the message test: the code lacks what the message
-      asserts.
+      asserts. Every golden's `// go-lines:` header is regenerated, and each
+      comment's claim about Go agrees with it.
 - [ ] **Regression tests:** each review finding gets a golden case (or a probe
       test) that fails before the fix.
 
@@ -350,6 +386,7 @@ cd tools/krit-fir
 ./gradlew --no-daemon test        # all projects, including :compiler-tests
 ./gradlew --no-daemon shadowJar   # last: `test` leaves a thin jar in build/libs
 cd ../..
+KRIT_UPDATE_GO_LINES=1 go test ./tests/parity/ -count=1 -run TestFirGoldenGoLines   # after editing goldens
 go build -o krit ./cmd/krit/ && go vet ./... && golangci-lint run ./... && go test ./... -count=1
 go test ./tests/parity/ -count=1 -run TestFirFixtureParity -v   # needs the shadow jar and a JDK
 make integration

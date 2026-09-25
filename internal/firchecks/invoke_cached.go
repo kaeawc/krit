@@ -30,10 +30,30 @@ type Result struct {
 	// Rules is the set of requested rules the jar has a checker for: the
 	// rules whose verdict FIR owns on authoritative files.
 	Rules []string
+	// RuleErrors maps rule ID -> file path -> the exception that rule's
+	// checker threw on the file (CheckResponse.RuleErrors). Go keeps its own
+	// findings for exactly those (file, rule) pairs.
+	RuleErrors map[string]map[string]string
 }
 
 func newResult() *Result {
-	return &Result{Crashed: map[string]string{}, ErrorFiles: map[string]string{}}
+	return &Result{Crashed: map[string]string{}, ErrorFiles: map[string]string{}, RuleErrors: map[string]map[string]string{}}
+}
+
+// addRuleError records that rule's checker threw on path.
+func (r *Result) addRuleError(rule, path, msg string) {
+	if msg == "" {
+		msg = "checker threw"
+	}
+	if r.RuleErrors == nil {
+		r.RuleErrors = map[string]map[string]string{}
+	}
+	byPath := r.RuleErrors[rule]
+	if byPath == nil {
+		byPath = map[string]string{}
+		r.RuleErrors[rule] = byPath
+	}
+	byPath[path] = msg
 }
 
 // addResponse folds a daemon/one-shot response into r.
@@ -47,6 +67,11 @@ func (r *Result) addResponse(resp *CheckResponse) {
 	}
 	for path := range resp.ErrorFiles {
 		r.ErrorFiles[path] = errorFileMessage(resp.ErrorFiles, path)
+	}
+	for rule, byPath := range resp.RuleErrors {
+		for path, msg := range byPath {
+			r.addRuleError(rule, path, msg)
+		}
 	}
 	r.addRules(resp.Rules)
 }
@@ -226,6 +251,9 @@ func assembleFromCache(hits []*FirCacheEntry) *Result {
 		}
 		if entry.ErrorMessage != "" {
 			result.ErrorFiles[entry.FilePath] = entry.ErrorMessage
+		}
+		for rule, msg := range entry.RuleErrors {
+			result.addRuleError(rule, entry.FilePath, msg)
 		}
 		for _, f := range entry.Findings {
 			result.Findings = append(result.Findings, toScannerFindingWithRange(f, contentCache))

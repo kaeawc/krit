@@ -3,6 +3,8 @@ package dev.jasonpearson.krit.fir.runner
 import dev.jasonpearson.krit.fir.FirRuleCompileContext
 import dev.jasonpearson.krit.fir.FirRuleContext
 import dev.jasonpearson.krit.fir.FirRuleDiscovery
+import dev.jasonpearson.krit.fir.FirRuleErrorRecorder
+import dev.jasonpearson.krit.fir.FirRuleErrors
 import dev.jasonpearson.krit.fir.oracle.AnalyzeResult
 import dev.jasonpearson.krit.fir.oracle.OracleCollector
 import dev.jasonpearson.krit.fir.oracle.OracleCollectorRegistry
@@ -39,6 +41,10 @@ data class BatchResult(
     // Requested file -> first reason the checker verdict for it is not
     // authoritative (a compiler ERROR, or not part of the JVM compilation).
     val errorFiles: Map<String, String> = emptyMap(),
+    // Rule id -> requested file -> the exception that rule's checker threw
+    // there. The compile went on; only that rule's verdict for that file is
+    // not authoritative.
+    val ruleErrors: Map<String, Map<String, String>> = emptyMap(),
 )
 
 // Holds the current session config. When sourceDirs or classpath change the Go side sends a
@@ -93,6 +99,9 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
      *    not compiled at all: Kotlin scripts and files outside the JVM
      *    compilation (see [excludedFromJvmCompilation]).
      *  - `crashed` lists every compiled file when the compiler itself crashed.
+     *  - `ruleErrors` lists, per rule, the requested files on which that
+     *    rule's checker threw. The exception is isolated to the rule (see
+     *    FirRuleIsolation.kt): the compile and every other rule carry on.
      */
     fun check(
         id: Long, files: List<FileRef>, enabledRules: Set<String>,
@@ -113,10 +122,12 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
             .mapValues { it.value.path }
 
         val collector = FindingCollector(requestedPaths, enabledRules)
+        val ruleErrorRecorder = FirRuleErrorRecorder()
         val outDir = Files.createTempDirectory("krit-fir-out-").toFile()
 
         FirRuleContext.begin(FirRuleCompileContext(enabledRules, ruleConfigs, testFiles = testFiles))
         val exitCode = try {
+            FirRuleErrors.begin(ruleErrorRecorder)
             val args = K2JVMCompilerArguments().apply {
                 freeArgs = compilationFiles(compiled.map { it.path })
                 // Go sends the JVM-scoped source roots (non-JVM KMP sets dropped,
@@ -141,6 +152,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
             K2JVMCompiler().exec(collector, Services.EMPTY, args)
         } finally {
             outDir.deleteRecursively()
+            FirRuleErrors.end()
             FirRuleContext.end()
         }
 
@@ -160,7 +172,30 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
             crashed = crashed,
             rules = enabled.map { it.ruleId },
             errorFiles = errorFiles,
+            ruleErrors = requestedRuleErrors(ruleErrorRecorder.snapshot(), requestedPaths, compiled),
         )
+    }
+
+    // Maps recorded rule errors onto request spellings. Errors in files that
+    // were compiled but not requested are dropped (Go never reads FIR's verdict
+    // for them); an error with no file applies to every compiled request.
+    private fun requestedRuleErrors(
+        recorded: Map<String, Map<String, String>>,
+        requestedPaths: Map<String, String>,
+        compiled: List<FileRef>,
+    ): Map<String, Map<String, String>> {
+        val out = linkedMapOf<String, MutableMap<String, String>>()
+        for ((ruleId, byPath) in recorded) {
+            for ((path, message) in byPath) {
+                val targets = if (path.isEmpty()) {
+                    compiled.map { it.path }
+                } else {
+                    listOfNotNull(requestedPaths[canonicalOrSelf(File(path))])
+                }
+                for (target in targets) out.getOrPut(ruleId) { linkedMapOf() }.putIfAbsent(target, message)
+            }
+        }
+        return out
     }
 
     /**

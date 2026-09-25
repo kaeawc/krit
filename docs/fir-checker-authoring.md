@@ -176,6 +176,22 @@ FIR result is authoritative on files that compile cleanly: it replaces the Go
 rule's findings there. Go remains the fallback on files that do not compile
 cleanly, and whenever FIR is disabled or unavailable.
 
+A checker that throws does not take the compile down with it. krit-fir wraps
+each rule's checkers so an exception is recorded against that rule and the file
+being checked, and the compile and every other rule carry on. The check
+response lists it under `ruleErrors` (rule, file, message). Go then treats only
+that (file, rule) pair as non-authoritative: it keeps its own findings for the
+rule on that file and drops any FIR findings the checker reported there before
+throwing. Other files, and other rules on the same file, keep the FIR verdict.
+`krit --fir -v` prints each rule error and counts them per rule
+(`rule-errors=N`). Rule errors are cached with the file's entry, so a warm run
+repeats the cold run's output until the source, the classpath, or the jar
+changes. Cancellation (`ProcessCanceledException`) and JVM failures such as
+`OutOfMemoryError` still propagate. Only check requests isolate checkers: the
+`:compiler-tests` harness runs them unwrapped, so an exception there fails the
+test. A rule error is a bug in the checker: fix
+it, do not rely on the fallback.
+
 Do not implement `@Suppress`, `excludes`, rule activation, or baselines in a
 checker. Go applies all of them to FIR findings, just as it does to its own
 findings.

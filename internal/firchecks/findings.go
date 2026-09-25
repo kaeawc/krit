@@ -33,6 +33,11 @@ type CheckResponse struct {
 	// diagnostic in (or affecting) the file, or the file not being part of
 	// the JVM compilation. Go keeps its own findings for these files.
 	ErrorFiles map[string]string `json:"errorFiles"`
+	// RuleErrors maps rule ID -> requested file -> the exception that rule's
+	// checker threw on the file. krit-fir isolates a checker exception to its
+	// rule: the compile and every other rule continue, and only that
+	// (file, rule) verdict is not authoritative.
+	RuleErrors map[string]map[string]string `json:"ruleErrors"`
 }
 
 var catalogOnce sync.Once

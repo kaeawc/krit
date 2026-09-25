@@ -25,12 +25,38 @@ fun viaVariable(instant: Instant): String {
     return DateTimeFormatter.ISO_INSTANT.withLocale(locale).format(instant)
 }
 
-// The formatter held in a variable: Go only matches the constant spelled at
-// the root of the receiver, and FIR does the same.
-fun viaFormatter(instant: Instant): String {
-    val formatter = DateTimeFormatter.ISO_INSTANT
+// A formatter from a function parameter, a var, or a function call: FIR
+// cannot trace them to a constant, and Go only matches the constant spelled at
+// the root of the receiver.
+fun viaParameter(formatter: DateTimeFormatter): DateTimeFormatter = formatter.withLocale(Locale.getDefault())
+
+fun viaVar(instant: Instant): String {
+    var formatter = DateTimeFormatter.ISO_INSTANT
+    formatter = DateTimeFormatter.ofPattern("EEEE d MMMM")
     return formatter.withLocale(Locale.getDefault()).format(instant)
 }
+
+fun isoFormatter(): DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
+val viaFunction = isoFormatter().withLocale(Locale.getDefault())
+
+// An open property may be overridden with a user-facing formatter, so FIR
+// does not trace its initializer; Go does not match the receiver text either.
+open class Formats {
+    open val iso: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
+}
+
+class UserFormats : Formats() {
+    override val iso: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE d MMMM")
+}
+
+fun viaOpenProperty(formats: Formats): DateTimeFormatter = formats.iso.withLocale(Locale.getDefault())
+
+// A static factory is a new formatter, not the receiver chain's constant.
+val factory = DateTimeFormatter.ofPattern("yyyy").withLocale(Locale.getDefault())
+
+// A formatter built inside `with`: Go needs the constant at the start of the
+// receiver text, and FIR does not trace the implicit receiver of `with`.
+val inWith = with(DateTimeFormatter.ISO_INSTANT) { withZone(java.time.ZoneOffset.UTC).withLocale(Locale.getDefault()) }
 
 // An implicit receiver: Go needs a navigation expression, and FIR needs an
 // explicit receiver.

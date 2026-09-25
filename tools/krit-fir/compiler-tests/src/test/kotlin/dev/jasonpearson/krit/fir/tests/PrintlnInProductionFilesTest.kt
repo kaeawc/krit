@@ -73,6 +73,59 @@ class PrintlnInProductionFilesTest {
         assertEquals(emptyMap(), findings(sources))
     }
 
+    // Go reports this call: the calling file declares and imports nothing
+    // named println. Inside `with(log)` it resolves to the Log member declared
+    // in another file, a user function that prints nothing, so FIR does not
+    // report it. (Declared in the same file, Go would skip it too.)
+    @Test fun printlnMemberOfWithReceiverDeclaredInAnotherFile() {
+        val sources = mapOf(
+            "Log.kt" to """
+                package logging
+
+                interface Log {
+                    fun println(s: String)
+                }
+            """.trimIndent(),
+            "WithReceiver.kt" to """
+                package caller
+
+                import logging.Log
+
+                fun emit(log: Log) {
+                    with(log) {
+                        println("x")
+                    }
+                }
+            """.trimIndent(),
+        )
+        assertEquals(emptyMap(), findings(sources))
+    }
+
+    // Go skips every bare println in a file that imports a user println. The
+    // imported function takes an Int, so println("x") falls through to
+    // kotlin.io.println and is console output, which FIR reports. The Int
+    // call resolves to the import and is not reported by either.
+    @Test fun importedPrintlnThatDoesNotFitFallsThroughToTheBuiltIn() {
+        val sources = mapOf(
+            "Counter.kt" to """
+                package counter
+
+                fun println(value: Int): Int = value
+            """.trimIndent(),
+            "Imported.kt" to """
+                package caller
+
+                import counter.println
+
+                fun emit(): Int {
+                    println("x")
+                    return println(1)
+                }
+            """.trimIndent(),
+        )
+        assertEquals(mapOf("Imported.kt" to 1), findings(sources))
+    }
+
     @Test fun sampleAndDemoDirectoriesAreSkipped() {
         // Findings are keyed by file name, so every file name is distinct.
         val sources = mapOf(

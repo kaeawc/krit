@@ -381,6 +381,13 @@ func runOracleProcessMeasured(
 	cmd := exec.CommandContext(ctx, binaryPath, args...)
 	cmd.Stderr = stderrWriter
 
+	// A one-shot run writes to a stable path (<repo>/.krit/types.json), so
+	// a previous run's output is usually already there. Only a file that
+	// differs from this snapshot counts as this run's output; otherwise the
+	// grace timer would start immediately and kill a JVM that is still
+	// analyzing, returning the previous run's facts.
+	preStart, _ := os.Stat(outputPath)
+
 	if err := cmd.Start(); err != nil {
 		return oracleProcessResult{}, fmt.Errorf("krit-types start: %w", err)
 	}
@@ -425,7 +432,7 @@ func runOracleProcessMeasured(
 				}
 				continue
 			}
-			if fi, err := os.Stat(outputPath); err == nil && fi.Size() > 0 {
+			if fi, err := os.Stat(outputPath); err == nil && fi.Size() > 0 && !sameOracleFile(preStart, fi) {
 				outputSeenAt = time.Now()
 				if verbose {
 					reporter().Verbosef("verbose: krit-types wrote %d bytes to %s; waiting up to %s for clean exit\n", fi.Size(), outputPath, graceExit)

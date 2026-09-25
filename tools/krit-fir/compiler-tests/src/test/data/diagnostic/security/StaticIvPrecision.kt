@@ -3,20 +3,24 @@
 // argument by its source text: it reports any argument that starts with a
 // string literal followed by `.toByteArray(`, and any argument whose text
 // contains `Base64.decode(` and a quote anywhere. None of these IVs is built
-// from literal bytes, so FIR reports none of them.
+// from literal bytes: each one takes runtime or random bytes, so FIR reports
+// none of them.
 package test
 
 import java.security.SecureRandom
 import java.util.Base64 as JBase64
 import javax.crypto.spec.IvParameterSpec
 
-object Base64 {
-    fun decode(text: String, flags: Int): ByteArray = JBase64.getDecoder().decode(text.reversed())
+class Prefs {
+    fun getString(key: String, default: String): String = System.getenv(key) ?: default
 }
 
-class Prefs {
-    fun getString(key: String, default: String): String = key + default
-}
+var MUTABLE_PREFIX = "0123456789"
+
+val ENV_PREFIX: String
+    get() = System.getenv("IV_PREFIX") ?: "0123456789"
+
+fun ByteArray.randomized(rng: SecureRandom): ByteArray = ByteArray(size).also { rng.nextBytes(it) }
 
 fun ByteArray.mixWith(other: ByteArray): ByteArray = ByteArray(size) { i -> (this[i].toInt() xor other[i].toInt()).toByte() }
 
@@ -38,7 +42,7 @@ class Crypto(private val prefs: Prefs, private val random: ByteArray, private va
     // Go reports: a runtime byte is appended to the literal ones.
     fun mixedByte(extra: Byte) = IvParameterSpec("0123456789abcde".toByteArray() + extra)
 
-    // Go reports: a lambda computes the IV from the literal.
+    // Go reports: the lambda returns the literal xored with random bytes.
     fun lambda() = IvParameterSpec("0123456789abcdef".toByteArray().let { xor(it, random) })
 
     // Go reports: the lambda overwrites the literal bytes with random ones.
@@ -50,6 +54,24 @@ class Crypto(private val prefs: Prefs, private val random: ByteArray, private va
     // Go reports: the decoded literal is only an input to xor with random bytes.
     fun decodedMixed() = IvParameterSpec(xor(JBase64.getDecoder().decode("AAAA"), random))
 
-    // Go reports: `Base64` here is the local object above, not a platform decoder.
-    fun decodedLookalike() = IvParameterSpec(Base64.decode("AAAAAAAAAAAAAAAAAAAAAA==", 0))
+    // Go reports: the template reads a var, which can hold any value when the IV is built.
+    fun varTemplate() = IvParameterSpec("$MUTABLE_PREFIX-abcde".toByteArray())
+
+    // Go reports: the template reads a getter that returns a runtime value.
+    fun getterTemplate() = IvParameterSpec("$ENV_PREFIX-abcde".toByteArray())
+
+    // Go reports: a random source is fed into the chain.
+    fun randomArgument(rng: SecureRandom) = IvParameterSpec("0123456789abcdef".toByteArray().randomized(rng))
+
+    // Go reports: the lambda overwrites the literal bytes with random ones.
+    fun applyMutates() = IvParameterSpec("0123456789abcdef".toByteArray().apply { SecureRandom().nextBytes(this) })
+
+    // Go reports: the lambda copies a random byte into the IV.
+    fun lambdaSetsRandom() = IvParameterSpec("0123456789abcdef".toByteArray().also { it[0] = random[0] })
+
+    // Go reports: the callable reference fills the IV with random bytes.
+    fun referenceMutates() = IvParameterSpec("0123456789abcdef".toByteArray().also(SecureRandom()::nextBytes))
+
+    // Go reports: the lambda appends random bytes to the literal ones.
+    fun lambdaMixes() = IvParameterSpec("01234567".toByteArray().let { it + random })
 }

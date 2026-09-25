@@ -11,6 +11,12 @@ const val IV_BYTE: Byte = 1
 const val IV_TEXT = "0123456789abcdef"
 val IV_BYTES = byteArrayOf(1, 2, 3)
 
+fun ByteArray.randomized(rng: SecureRandom): ByteArray = ByteArray(size).also { rng.nextBytes(it) }
+
+fun ByteArray.scrambled(): ByteArray = ByteArray(size).also { SecureRandom().nextBytes(it) }
+
+fun scramble(bytes: ByteArray): ByteArray = bytes.scrambled()
+
 object Local {
     class IvParameterSpec(val bytes: ByteArray)
 }
@@ -37,5 +43,10 @@ class Crypto(private val field: ByteArray) {
         GCMParameterSpec(128, random)
         GCMParameterSpec(byteArrayOf(1, 2).size * 64, random)
         Local.IvParameterSpec(byteArrayOf(0, 0, 0, 0))
+        // Go takes no call chained on byteArrayOf; FIR takes only stdlib array
+        // copies there, and none of these keeps the literal bytes.
+        IvParameterSpec(byteArrayOf(0).randomized(SecureRandom()))
+        IvParameterSpec(byteArrayOf(0).scrambled())
+        IvParameterSpec(byteArrayOf(0).let { scramble(it) })
     }
 }

@@ -5,9 +5,9 @@ import kotlin.test.assertFalse
 import kotlin.test.fail
 
 // StaticIv cases a single-file golden cannot express: the Android
-// android.util.Base64 decoder (not part of the stub library, so it is declared
-// here as a Java source), and spec or Base64 lookalikes declared in another
-// file of the same package.
+// android.util.Base64 decoder and a third-party BouncyCastle Base64 (not part
+// of the stub library, so they are declared here as Java sources), and spec or
+// Base64 lookalikes declared in another file of the same package.
 class StaticIvTest {
 
     private data class Case(val file: String, val source: String, val expected: Int, val why: String)
@@ -20,6 +20,9 @@ class StaticIvTest {
         }
         if (failures.isNotEmpty()) fail(failures.joinToString("\n"))
     }
+
+    // A raw-string delimiter to splice into the raw-string sources below.
+    private val rawQuote = "\"\"\""
 
     // The real android.util.Base64 is a final class of static methods.
     private val androidBase64 = mapOf(
@@ -52,10 +55,22 @@ class StaticIvTest {
                         fun literal() = IvParameterSpec(Base64.decode("AAAAAAAAAAAAAAAAAAAAAA==", Base64.DEFAULT))
                         fun literalBytes() = GCMParameterSpec(128, Base64.decode("AAAAAAAAAAAAAAAA".toByteArray(), Base64.DEFAULT))
                         fun qualified() = IvParameterSpec(android.util.Base64.decode("AAAA", 0).copyOf(16))
+                        fun safeCall() = IvParameterSpec(Base64.decode("AAAAAAAAAAAAAAAAAAAAAA==", 0)?.copyOf(16))
+                        fun notNull() = IvParameterSpec(Base64.decode("AAAAAAAAAAAAAAAAAAAAAA==", 0)!!)
+                        fun elvis() = GCMParameterSpec(128, Base64.decode("AAAAAAAAAAAAAAAA", 0) ?: ByteArray(12))
+                        fun trimmed() = IvParameterSpec(
+                            Base64.decode(
+                                $rawQuote
+                                AAAAAAAAAAAA
+                                AAAAAAAAAA==
+                                $rawQuote.trimIndent(),
+                                Base64.DEFAULT,
+                            )
+                        )
                     }
                 """.trimIndent(),
-                expected = 3,
-                why = "Go reports each: the text holds `Base64.decode(` and a quote",
+                expected = 7,
+                why = "Go reports each: the text holds `Base64.decode(` and a quote, and the data is a literal",
             ),
             Case(
                 "AndroidDecodeNegative.kt",
@@ -76,6 +91,42 @@ class StaticIvTest {
                 """.trimIndent(),
                 expected = 0,
                 why = "the decoded data is not a literal (keyed: deliberate precision fix)",
+            ),
+        ),
+    )
+
+    // BouncyCastle's decoder is a class of static methods named Base64.
+    private val bouncyCastleBase64 = mapOf(
+        "org/bouncycastle/util/encoders/Base64.java" to """
+            package org.bouncycastle.util.encoders;
+
+            public class Base64 {
+                public static byte[] decode(String data) { return null; }
+                public static byte[] decode(byte[] data) { return null; }
+            }
+        """.trimIndent(),
+    )
+
+    @Test
+    fun thirdPartyBase64Decode() = assertCases(
+        bouncyCastleBase64,
+        listOf(
+            Case(
+                "BouncyCastleDecode.kt",
+                """
+                    package bouncycastle
+
+                    import org.bouncycastle.util.encoders.Base64
+                    import javax.crypto.spec.IvParameterSpec
+
+                    class Crypto(private val stored: String) {
+                        fun literal() = IvParameterSpec(Base64.decode("AAAAAAAAAAAAAAAAAAAAAA=="))
+                        fun qualified() = IvParameterSpec(org.bouncycastle.util.encoders.Base64.decode("AAAAAAAAAAAAAAAAAAAAAA=="))
+                        fun stored() = IvParameterSpec(Base64.decode(stored))
+                    }
+                """.trimIndent(),
+                expected = 2,
+                why = "Go reports the literal decodes (`Base64.decode(` and a quote); the stored data is not a literal",
             ),
         ),
     )
@@ -121,11 +172,11 @@ class StaticIvTest {
 
                     fun gcmSpec() = GCMParameterSpec(128, Base64.decode("AAAAAAAAAAAAAAAA", 0))
                 """.trimIndent(),
-                expected = 0,
-                // Go reports this because it matches the text `Base64.decode(`;
-                // FIR is correct because the same-package Base64 wins over
-                // android.util.* and decodes nothing from the literal.
-                why = "a same-package Base64 wins over android.util.* (deliberate precision fix)",
+                expected = 1,
+                // The same-package Base64 wins over android.util.*, but it is
+                // still a Base64 decode of a literal that yields a fixed IV, so
+                // Go and FIR both report it.
+                why = "a same-package Base64 decode of a literal is still a static IV",
             ),
             Case(
                 "StarImportOnly.kt",

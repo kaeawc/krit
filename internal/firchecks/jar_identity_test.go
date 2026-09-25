@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -52,7 +53,7 @@ func TestConnectOrStartFirDaemonReplacedJarIsNotReused(t *testing.T) {
 	if err := writeFirPIDFile(cmd.Process.Pid, listener.Addr().(*net.TCPAddr).Port, oldKey); err != nil {
 		t.Fatal(err)
 	}
-	d, err := connectExistingFirDaemon(jar, sources, false)
+	d, err := connectExistingFirDaemon(firRegistryKey(jar, sources), false)
 	if err != nil {
 		t.Fatalf("sanity connect: %v", err)
 	}
@@ -152,5 +153,73 @@ func TestFirDaemonRetiresLegacyAndPreservesOtherEntries(t *testing.T) {
 		if (err == nil) != want {
 			t.Fatalf("key %s exists=%t, want %t: %v", key, err == nil, want, err)
 		}
+	}
+}
+
+func TestConnectOrStartFirDaemonRegistersJarIdentityObservedBeforeStartup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	jar := filepath.Join(t.TempDir(), "krit-fir.jar")
+	if err := os.WriteFile(jar, []byte("A"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sources := []string{t.TempDir()}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				scanner := bufio.NewScanner(conn)
+				for scanner.Scan() {
+					_, _ = conn.Write([]byte("{}\n"))
+				}
+			}()
+		}
+	}()
+	// A fake java that replaces the jar it was given before reporting ready,
+	// as if the jar were upgraded while the JVM was starting.
+	javaDir := t.TempDir()
+	script := `#!/bin/sh
+jar=""
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "-jar" ]; then jar="$a"; fi
+  prev="$a"
+done
+printf 'replaced during daemon startup' > "$jar"
+echo '{"ready":true,"port":` + strconv.Itoa(listener.Addr().(*net.TCPAddr).Port) + `}'
+exec sleep 60
+`
+	if err := os.WriteFile(filepath.Join(javaDir, "java"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", javaDir)
+	preStartKey := firRegistryKey(jar, sources)
+
+	d, err := ConnectOrStartFirDaemon(jar, sources, false)
+	if err != nil {
+		t.Fatalf("start fir daemon: %v", err)
+	}
+	t.Cleanup(func() { _ = d.cmd.Process.Kill(); _ = d.Close() })
+
+	if firRegistryKey(jar, sources) == preStartKey {
+		t.Fatal("fake java did not replace the jar during startup")
+	}
+	if d.MatchesRepo(jar, sources) {
+		t.Fatal("daemon started while the jar was replaced claims to match the replacement jar")
+	}
+	if _, err := os.Stat(firPIDPath(preStartKey)); err != nil {
+		t.Fatalf("daemon not registered under the pre-start jar identity: %v", err)
+	}
+	if reused, err := connectExistingFirDaemon(firRegistryKey(jar, sources), false); err == nil {
+		_ = reused.Release()
+		t.Fatal("daemon started while the jar was replaced is reused for the replacement jar")
 	}
 }

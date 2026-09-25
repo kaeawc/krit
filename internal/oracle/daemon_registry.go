@@ -580,6 +580,12 @@ func StartDaemonWithPortSlot(jarPath string, sourceDirs []string, classpath []st
 }
 
 func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath []string, verbose bool, slot int) (*Daemon, error) {
+	// Capture the jar identity before the JVM opens the jar. If the jar is
+	// replaced during startup, the daemon is registered under the identity
+	// observed first, so the next caller sees a mismatch and restarts rather
+	// than trusting a daemon that may be running the old artifact.
+	srcHash := daemonRegistryKey(jarPath, sourceDirs, classpath...)
+
 	javaPath, err := exec.LookPath("java")
 	if err != nil {
 		return nil, fmt.Errorf("java not found in PATH: %w", err)
@@ -620,8 +626,6 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 	if verbose {
 		reporter().Verbosef("verbose: Daemon started on port %d (PID %d)\n", ready.Port, cmd.Process.Pid)
 	}
-
-	srcHash := daemonRegistryKey(jarPath, sourceDirs, classpath...)
 
 	if err := writePIDFileSlot(cmd.Process.Pid, ready.Port, srcHash, slot); err != nil {
 		cmd.Process.Kill()

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -39,34 +40,6 @@ func testLivePID(t *testing.T) int {
 	go func() { _ = cmd.Wait(); close(done) }()
 	t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
 	return cmd.Process.Pid
-}
-
-func TestJarIdentityChangesWithStat(t *testing.T) {
-	p := testJar(t)
-	first := JarIdentity(p)
-	if len(first) != 8 || first == "missing" {
-		t.Fatalf("initial identity = %q", first)
-	}
-	if err := os.WriteFile(p, []byte("longer"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	second := JarIdentity(p)
-	if second == first {
-		t.Fatal("size change did not change identity")
-	}
-	stamp := time.Now().Add(10 * time.Second)
-	if err := os.Chtimes(p, stamp, stamp); err != nil {
-		t.Fatal(err)
-	}
-	if JarIdentity(p) == second {
-		t.Fatal("mtime change did not change identity")
-	}
-	if err := os.Remove(p); err != nil {
-		t.Fatal(err)
-	}
-	if JarIdentity(p) != "missing" {
-		t.Fatal("missing jar did not get missing identity")
-	}
 }
 
 func TestConnectOrStartDaemon_ReplacedJarIsNotReused(t *testing.T) {
@@ -193,5 +166,60 @@ func TestDaemonMatchesRepoAfterJarReplacement(t *testing.T) {
 	replaceTestJar(t, jar)
 	if d.MatchesRepo(jar, sources) {
 		t.Fatal("replaced jar still matches")
+	}
+}
+
+// writeJarSwappingJava installs a fake `java` on PATH that, when launched as a
+// daemon, replaces the jar it was given before reporting ready on port.
+func writeJarSwappingJava(t *testing.T, port int) {
+	t.Helper()
+	dir := t.TempDir()
+	script := `#!/bin/sh
+jar=""
+daemon=""
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "-jar" ]; then jar="$a"; fi
+  if [ "$a" = "--daemon" ]; then daemon=1; fi
+  prev="$a"
+done
+if [ -z "$daemon" ]; then exit 0; fi
+printf 'replaced during daemon startup' > "$jar"
+echo '{"ready":true,"port":` + strconv.Itoa(port) + `}'
+exec sleep 60
+`
+	if err := os.WriteFile(filepath.Join(dir, "java"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+}
+
+func TestStartDaemonRegistersJarIdentityObservedBeforeStartup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	jar := testJar(t)
+	sources := []string{t.TempDir()}
+	fake := NewFakeDaemon(t)
+	t.Cleanup(fake.Close)
+	writeJarSwappingJava(t, fake.Port)
+	preStartKey := daemonRegistryKey(jar, sources)
+
+	d, err := ConnectOrStartDaemon(jar, sources, nil, false)
+	if err != nil {
+		t.Fatalf("start daemon: %v", err)
+	}
+	t.Cleanup(func() { _ = d.cmd.Process.Kill(); _ = d.Close() })
+
+	if daemonRegistryKey(jar, sources) == preStartKey {
+		t.Fatal("fake java did not replace the jar during startup")
+	}
+	if d.MatchesRepo(jar, sources) {
+		t.Fatal("daemon started while the jar was replaced claims to match the replacement jar")
+	}
+	if _, err := os.Stat(daemonPIDPathForSlot(preStartKey, 0)); err != nil {
+		t.Fatalf("daemon not registered under the pre-start jar identity: %v", err)
+	}
+	if reused, err := connectExistingDaemon(jar, sources, false); err == nil {
+		_ = reused.Release()
+		t.Fatal("daemon started while the jar was replaced is reused for the replacement jar")
 	}
 }

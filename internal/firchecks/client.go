@@ -196,16 +196,20 @@ func StartFirDaemonWithPort(jarPath string, verbose bool) (*FirDaemon, error) {
 // ConnectOrStartFirDaemon tries to reuse an existing daemon for the given
 // sourceDirs (via PID file), or starts a new one.
 func ConnectOrStartFirDaemon(jarPath string, sourceDirs []string, verbose bool) (*FirDaemon, error) {
-	if d, err := connectExistingFirDaemon(jarPath, sourceDirs, verbose); err == nil {
+	// Capture the jar identity once, before any JVM opens the jar. If the jar
+	// is replaced while a new daemon starts, it stays registered under the
+	// identity observed first, so the next caller restarts it instead of
+	// trusting a daemon that may be running the old artifact.
+	srcHash := firRegistryKey(jarPath, sourceDirs)
+	if d, err := connectExistingFirDaemon(srcHash, verbose); err == nil {
 		return d, nil
 	}
-	retireSupersededFirDaemons(jarPath, sourceDirs, verbose)
-	cleanStaleFirDaemon(jarPath, sourceDirs, verbose)
+	retireSupersededFirDaemons(jarPath, sourceDirs, srcHash, verbose)
+	stopFirDaemon(srcHash, verbose)
 	d, err := StartFirDaemonWithPort(jarPath, verbose)
 	if err != nil {
 		return nil, fmt.Errorf("start persistent fir daemon: %w", err)
 	}
-	srcHash := firRegistryKey(jarPath, sourceDirs)
 	d.sourcesHash = srcHash
 	if err := writeFirPIDFile(d.cmd.Process.Pid, d.port, srcHash); err != nil {
 		d.conn.Close()
@@ -436,8 +440,9 @@ func removeFirPIDFile(sourcesHash string) {
 	os.Remove(firPortPath(sourcesHash))
 }
 
-func connectExistingFirDaemon(jarPath string, sourceDirs []string, verbose bool) (*FirDaemon, error) {
-	hash := firRegistryKey(jarPath, sourceDirs)
+// connectExistingFirDaemon reuses the daemon registered under hash, a
+// firRegistryKey.
+func connectExistingFirDaemon(hash string, verbose bool) (*FirDaemon, error) {
 	pidData, err := os.ReadFile(firPIDPath(hash))
 	if err != nil {
 		return nil, fmt.Errorf("no existing fir daemon: %w", err)
@@ -486,10 +491,6 @@ func connectExistingFirDaemon(jarPath string, sourceDirs []string, verbose bool)
 	return d, nil
 }
 
-func cleanStaleFirDaemon(jarPath string, sourceDirs []string, verbose bool) {
-	stopFirDaemon(firRegistryKey(jarPath, sourceDirs), verbose)
-}
-
 func stopFirDaemon(hash string, verbose bool) {
 	pidData, err := os.ReadFile(firPIDPath(hash))
 	if err != nil {
@@ -529,13 +530,12 @@ func stopFirDaemon(hash string, verbose bool) {
 
 // Retiring an old daemon can interrupt another krit mid-request, but the jar
 // that daemon was started from has already been replaced on disk.
-func retireSupersededFirDaemons(jarPath string, sourceDirs []string, verbose bool) {
+func retireSupersededFirDaemons(jarPath string, sourceDirs []string, current string, verbose bool) {
 	dir, err := firDaemonsDir()
 	if err != nil {
 		return
 	}
 	prefix := hashFirSources(sourceDirs) + "-" + oracle.JarPathTag(jarPath) + "@"
-	current := firRegistryKey(jarPath, sourceDirs)
 	paths, err := filepath.Glob(filepath.Join(dir, prefix+"*.krit-fir.pid"))
 	if err == nil {
 		for _, path := range paths {

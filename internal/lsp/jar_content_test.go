@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -165,4 +167,52 @@ func TestJARContentRejectsNonJARURI(t *testing.T) {
 		}
 	}
 	t.Fatal("no response for id=2")
+}
+
+func TestInstallDaemonDecompilerPrunesStaleJarIdentityDirs(t *testing.T) {
+	root := t.TempDir()
+	jar := filepath.Join(t.TempDir(), "krit-types.jar")
+	if err := os.WriteFile(jar, []byte("current jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(nil, &bytes.Buffer{})
+	server.rootURI = "file://" + root
+	server.SetWorkspaceIndexer(OracleWorkspaceIndexer{JARPath: jar, Root: root})
+
+	kaaRoot := filepath.Join(root, ".krit", "jar-decompile", "kaa")
+	current := oracle.JarIdentity(jar)
+	stale := []string{"0badc0de", "missing"}
+	for _, dir := range append([]string{current}, stale...) {
+		if err := os.MkdirAll(filepath.Join(kaaRoot, dir, "libhash"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(kaaRoot, dir, "libhash", "Foo.kt"), []byte("class Foo"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	strayFile := filepath.Join(kaaRoot, "README")
+	if err := os.WriteFile(strayFile, []byte("not a cache dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(root, ".krit", "jar-decompile", "stub", "0badc0de")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	server.installDaemonDecompiler(nil)
+
+	if _, err := os.Stat(filepath.Join(kaaRoot, current, "libhash", "Foo.kt")); err != nil {
+		t.Fatalf("current jar identity cache was removed: %v", err)
+	}
+	for _, dir := range stale {
+		if _, err := os.Stat(filepath.Join(kaaRoot, dir)); !os.IsNotExist(err) {
+			t.Fatalf("stale jar identity dir %s remains: %v", dir, err)
+		}
+	}
+	if _, err := os.Stat(strayFile); err != nil {
+		t.Fatalf("non-directory entry was removed: %v", err)
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatalf("directory outside kaa/ was removed: %v", err)
+	}
 }

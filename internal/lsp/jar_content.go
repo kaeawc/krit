@@ -64,7 +64,26 @@ func (s *Server) installDaemonDecompiler(d *oracle.Daemon) {
 	if ok {
 		jarIdentity = oracle.JarIdentity(indexer.JARPath)
 	}
-	s.jarCache = oracle.NewDecompileCache(filepath.Join(s.jarCacheRoot(), "kaa", jarIdentity), s.jarDecompilerLocked(d))
+	kaaRoot := filepath.Join(s.jarCacheRoot(), "kaa")
+	pruneStaleJarIdentityDirs(kaaRoot, jarIdentity)
+	s.jarCache = oracle.NewDecompileCache(filepath.Join(kaaRoot, jarIdentity), s.jarDecompilerLocked(d))
+}
+
+// pruneStaleJarIdentityDirs removes decompile caches under kaaRoot left by
+// previous krit-types jars, so one directory does not accumulate per upgrade.
+// Only direct child directories other than current are removed; a failed
+// removal just leaves the stale cache behind.
+func pruneStaleJarIdentityDirs(kaaRoot, current string) {
+	entries, err := os.ReadDir(kaaRoot)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Name() == current {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(kaaRoot, entry.Name()))
+	}
 }
 
 func (s *Server) refreshOracleDecompiler() {

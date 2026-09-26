@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 18, 26, 32, 41, 52, 62
+// go-lines: 18, 26, 32, 41, 52, 62, 70
 // Go findings FIR drops: each function below is not HostnameVerifier.verify,
 // or does not always return true, so the message is false of the code. Go
 // takes any function named verify with two parameters whose nearest enclosing
@@ -61,4 +61,13 @@ class AnonymousHelper : HostnameVerifier {
     val probe = object {
         fun verify(first: String, second: String): Boolean = true
     }
+}
+
+// Go reports the generic overload, the first two-parameter verify returning
+// true in the class. It is not HostnameVerifier.verify, and the real override
+// after it checks the host, so FIR reports nothing.
+class GenericOverloadFirst : HostnameVerifier {
+    fun <T> verify(first: T, session: SSLSession): Boolean = true
+
+    override fun verify(hostname: String, session: SSLSession): Boolean = hostname == session.peerHost
 }

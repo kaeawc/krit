@@ -71,3 +71,9 @@ class TrailingComma : HostnameVerifier {
         session: SSLSession,
     ): Boolean = true
 }
+
+class ParenthesizedReturn : HostnameVerifier {
+    <!AllowAllHostnameVerifier!>override<!> fun verify(hostname: String, session: SSLSession): Boolean {
+        return (true)
+    }
+}

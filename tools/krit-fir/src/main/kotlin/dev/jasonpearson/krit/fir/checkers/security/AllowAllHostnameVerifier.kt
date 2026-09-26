@@ -53,11 +53,15 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  * - Go takes any function named `verify` with two parameters whose nearest
  *   enclosing class declaration has `HostnameVerifier` in its header text, and
  *   reports only the first one per class. So it reports a `verify(Int, Int)`
- *   overload (instead of the real override after it), a local function named
+ *   or generic `verify(T, SSLSession)` overload (instead of the real override
+ *   after it), a local function named
  *   `verify`, a companion's or a nested anonymous object's `verify`, and the
  *   `verify` of a class that only takes a `HostnameVerifier` constructor
  *   parameter. None of those is `HostnameVerifier.verify`, so none is
  *   reported here.
+ * - Go only exempts a `HostnameVerifier` lookalike declared in the same file,
+ *   so it reports a class implementing one imported from another file or
+ *   package. That is not the JDK interface, so it is not reported here.
  * - Go reads an expression body as the text after its last `=`, so it reports
  *   `= hostname.isEmpty() == true`, which does not always return true.
  * - Resolution sees verifiers Go misses: an object or companion object
@@ -67,7 +71,8 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  *   in a file that declares its own `HostnameVerifier` (Go then skips the
  *   whole file), a second verifier nested in a verifier class (Go reports one
  *   per class), a parameter list with a trailing comma (Go counts three
- *   parameters), `return@verify true`, `= (true)`, and a backticked
+ *   parameters), `return@verify true`, `= (true)`, `return (true)`, and a
+ *   backticked
  *   `` `verify` ``.
  * Lambdas (`HostnameVerifier { _, _ -> true }`) are not declarations, and Go
  * does not report them either.

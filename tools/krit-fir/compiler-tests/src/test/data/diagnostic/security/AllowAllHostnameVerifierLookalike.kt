@@ -3,6 +3,10 @@
 // A local HostnameVerifier lookalike: its verify accepting everything is not
 // a TLS hostname check, so neither Go nor FIR reports it. This comment
 // mentions javax.net.ssl.HostnameVerifier, which is enough for Go's file gate.
+// Go only looks for a lookalike declared in the same file, so it still reports
+// a class implementing a HostnameVerifier imported from another file or
+// package. FIR reports nothing there, for the same reason as here (pinned in
+// AllowAllHostnameVerifierCrossFileTest).
 package test
 
 import javax.net.ssl.SSLSession

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 14, 17, 20, 24, 25, 26, 27, 28, 29, 30, 31, 33, 45, 52, 58, 64, 120, 140, 143, 146, 149, 152, 153, 157, 166, 167, 169, 172, 178, 183, 204, 207
+// go-lines: 14, 17, 20, 24, 25, 26, 27, 28, 29, 30, 31, 33, 45, 52, 58, 64, 120, 140, 143, 146, 149, 152, 153, 157, 163, 173, 174, 176, 179, 185, 190, 211, 214
 package test.logconditional
 
 import android.util.Log
@@ -155,6 +155,13 @@ fun notGuards(verbose: Boolean, level: Int) {
     val enabled = BuildConfig.DEBUG
     if (enabled) {
         <!LogConditional!>Log.d(TAG, "local copy of the flag")<!>
+    }
+    // Go needs the condition text `BuildConfig.DEBUG`; an implicit receiver
+    // spells it `DEBUG`, so Go reports this, and FIR matches.
+    with(BuildConfig) {
+        if (DEBUG) {
+            <!LogConditional!>Log.d(TAG, "DEBUG through an implicit receiver")<!>
+        }
     }
 }
 

@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -18,6 +19,8 @@ import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
+import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
 import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.expressions.unwrapSmartcastExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
@@ -40,7 +43,11 @@ import org.jetbrains.kotlin.name.Name
  * either
  * - has the bare condition `BuildConfig.DEBUG` (parentheses allowed, not
  *   negated, not combined with `&&`/`||`), checked on the `if` whose branch
- *   holds the call and on every earlier `if` of an `else if` chain; or
+ *   holds the call and on every earlier `if` of an `else if` chain. Any DEBUG
+ *   written through a receiver spelled BuildConfig counts, whatever it
+ *   resolves to (a companion, a typealias, an inherited member, a local
+ *   value), as Go matches the condition text; DEBUG read through an instance
+ *   or an implicit `with`/`this` receiver does not (LogConditionalBuildConfig*); or
  * - contains a `Log.isLoggable(...)` call anywhere in the whole `if` (its
  *   condition, either branch, or a nested scope inside them), as Go walks the
  *   whole `if_expression` subtree. A `when` is not a guard.
@@ -59,9 +66,9 @@ import org.jetbrains.kotlin.name.Name
  *   (LogConditionalLookalike); Go only checks that the file imports
  *   android.util.Log. A guard is recognized by resolution too: a statically
  *   imported or aliased `isLoggable(...)`, and a `DEBUG` field of a class
- *   named BuildConfig read through a static import or an import alias, guard
- *   the call (LogConditionalDivergence); Go needs the text `Log.isLoggable`
- *   and `BuildConfig.DEBUG`.
+ *   named BuildConfig read through a static import, an import alias, or a
+ *   typealias, guard the call (LogConditionalDivergence); Go needs the text
+ *   `Log.isLoggable` and `BuildConfig.DEBUG`.
  */
 internal object LogConditional : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "LogConditional"
@@ -123,22 +130,54 @@ internal object LogConditional : FirFunctionCallChecker(MppCheckerKind.Common), 
         return containsIsLoggable(expression)
     }
 
-    // The bare condition `BuildConfig.DEBUG`: a read of a field or property
-    // named DEBUG declared in a class named BuildConfig (the app's generated
-    // class, in any package), or read through a receiver spelled BuildConfig.
+    // The bare condition `BuildConfig.DEBUG`, a read of a property or field
+    // named DEBUG that is either
+    // - written through a receiver spelled BuildConfig (`BuildConfig.DEBUG`,
+    //   `pkg.BuildConfig.DEBUG`), whatever it resolves to: an object, a
+    //   companion, a typealias, a supertype's member, or a local value. This
+    //   is Go's condition-text match; or
+    // - BuildConfig's own static flag under another spelling: read through a
+    //   type (an import alias or typealias of a class named BuildConfig), or
+    //   statically imported, with no instance receiver.
+    // DEBUG read through an instance, a `with` receiver, or `this` is not the
+    // static flag, and Go does not match its text either.
     private fun isBuildConfigDebug(condition: FirExpression): Boolean {
         val access = condition.unwrapSmartcastExpression() as? FirQualifiedAccessExpression ?: return false
         if (access is FirFunctionCall) return false
         val symbol = access.calleeReference.toResolvedCallableSymbol() ?: return false
         if (symbol.name != debugName) return false
-        if (symbol.callableId?.classId?.shortClassName == buildConfigName) return true
-        // A local variable has no callable id, so read the receiver's name
-        // from its symbol.
-        val receiver = access.explicitReceiver?.unwrapSmartcastExpression() as? FirQualifiedAccessExpression
-            ?: return false
-        return receiver !is FirFunctionCall &&
-            receiver.calleeReference.toResolvedCallableSymbol()?.name == buildConfigName
+        val owner = symbol.callableId?.classId
+        return when (val receiver = access.explicitReceiver?.unwrapSmartcastExpression()) {
+            null -> access.dispatchReceiver?.unwrapSmartcastExpression() !is FirThisReceiverExpression &&
+                owner?.shortClassName == buildConfigName
+            is FirResolvedQualifier -> spelledBuildConfig(receiver) || isBuildConfigClass(owner, receiver)
+            is FirFunctionCall -> false
+            is FirQualifiedAccessExpression -> spelledBuildConfig(receiver)
+            else -> false
+        }
     }
+
+    // A qualifier resolved to a class named BuildConfig, or to the companion
+    // object of one, that declares the DEBUG being read.
+    private fun isBuildConfigClass(owner: ClassId?, qualifier: FirResolvedQualifier): Boolean {
+        if (owner == null) return false
+        if (owner.shortClassName == buildConfigName) return true
+        return qualifier.resolvedToCompanionObject && owner.outerClassId?.shortClassName == buildConfigName
+    }
+
+    // The receiver as written ends in the simple name BuildConfig: a bare
+    // reference or the last selector of a dotted path.
+    private fun spelledBuildConfig(receiver: FirExpression): Boolean {
+        val source = receiver.source?.takeIf { it.kind is KtRealSourceElementKind } ?: return false
+        var node = source.lighterASTNode
+        while (node.tokenType == KtNodeTypes.DOT_QUALIFIED_EXPRESSION) {
+            node = lightChildren(source, node).lastOrNull { it.tokenType in receiverPathTypes } ?: return false
+        }
+        return node.tokenType == KtNodeTypes.REFERENCE_EXPRESSION &&
+            source.treeStructure.toString(node).toString() == buildConfigName.asString()
+    }
+
+    private val receiverPathTypes = setOf(KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.REFERENCE_EXPRESSION)
 
     private fun containsIsLoggable(root: FirElement): Boolean {
         var found = false

@@ -1,7 +1,8 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 24, 30, 36, 42
+// go-lines: 25, 31, 37, 43, 51
 // Divergence (precision): each call below is wrapped in Log.isLoggable() or
-// BuildConfig.DEBUG, so the message ("Unconditional logging call. Wrap in
+// BuildConfig.DEBUG (spelled through a static import, an import alias, or a
+// typealias), so the message ("Unconditional logging call. Wrap in
 // Log.isLoggable() or BuildConfig.DEBUG") is false of it and FIR does not
 // report it. Go recognizes a guard by its spelling only: `Log.isLoggable`
 // with the receiver spelled `Log`, and the condition text `BuildConfig.DEBUG`,
@@ -40,5 +41,13 @@ fun staticallyImportedDebug() {
 fun aliasedBuildConfig() {
     if (Config.DEBUG) {
         Log.d("Tag", "guarded by an aliased BuildConfig")
+    }
+}
+
+typealias GeneratedConfig = test.logconditional.divergence.BuildConfig
+
+fun typeAliasedBuildConfig() {
+    if (GeneratedConfig.DEBUG) {
+        Log.d("Tag", "guarded by a typealias of BuildConfig")
     }
 }

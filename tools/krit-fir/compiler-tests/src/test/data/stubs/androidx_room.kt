@@ -201,9 +201,10 @@ abstract class RoomDatabase {
 
         open fun allowMainThreadQueries(): Builder<T> = TODO()
 
-        // The Boolean overloads of fallbackToDestructiveMigration and
-        // fallbackToDestructiveMigrationOnDowngrade are final (`actual fun`
-        // in the KMP source); the deprecated no-argument forms are open.
+        // The Boolean overloads of fallbackToDestructiveMigration,
+        // fallbackToDestructiveMigrationOnDowngrade and
+        // fallbackToDestructiveMigrationFrom are final (`actual fun` in the
+        // KMP source); the deprecated forms without the Boolean are open.
         @Deprecated(
             "Replace by overloaded version with parameter to indicate if all tables should be dropped or not.",
             ReplaceWith("fallbackToDestructiveMigration(false)"),
@@ -226,8 +227,7 @@ abstract class RoomDatabase {
         )
         open fun fallbackToDestructiveMigrationFrom(vararg startVersions: Int): Builder<T> = TODO()
 
-        open fun fallbackToDestructiveMigrationFrom(dropAllTables: Boolean, vararg startVersions: Int): Builder<T> =
-            TODO()
+        fun fallbackToDestructiveMigrationFrom(dropAllTables: Boolean, vararg startVersions: Int): Builder<T> = TODO()
 
         open fun createFromAsset(databaseFilePath: String): Builder<T> = TODO()
 
@@ -242,7 +242,7 @@ object Room {
     inline fun <reified T : RoomDatabase> databaseBuilder(
         context: Context,
         name: String,
-        noinline factory: () -> T = { TODO() },
+        noinline factory: (() -> T)? = null,
     ): RoomDatabase.Builder<T> = TODO()
 
     fun <T : RoomDatabase> inMemoryDatabaseBuilder(context: Context, klass: Class<T>): RoomDatabase.Builder<T> =

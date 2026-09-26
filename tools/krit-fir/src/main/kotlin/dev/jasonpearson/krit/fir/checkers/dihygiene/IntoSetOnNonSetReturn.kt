@@ -139,7 +139,7 @@ internal object IntoSetOnNonSetReturn :
         val name = identifierText(source) ?: declaration.name.asString()
         report(
             source,
-            "@IntoSet function '$name' returns '$typeText', a collection wrapper; Dagger collects by return type, " +
+            "@IntoSet function '$name' returns '$typeText', a collection wrapper; the DI framework collects it by return type, " +
                 "so the contribution will be a Set<$wrapper> entry rather than the intended elements.",
         )
     }

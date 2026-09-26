@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 12, 14, 16, 19, 21, 23, 26, 29, 31, 35, 39, 44, 52, 63
+// go-lines: 12, 14, 16, 19, 21, 23, 26, 29, 31, 35, 39, 44, 52, 63, 71
 // The flags value reaches getPackageInfo through a lambda's result, a Kotlin
 // library call that returns its receiver, an operand, or an element, a named
 // `flags` argument after another named one, or a vararg's second element. Go
@@ -64,3 +64,8 @@ fun varargWrapper(repository: VarargRepository) =
 
 fun varargWrapperNeutral(repository: VarargRepository) =
     repository.getPackageInfo("com.example", PackageManager.GET_META_DATA)
+
+// A call as the vararg wrapper's second element: the argument is still the
+// second one written, and its operand carries the 0x40 bit.
+fun varargWrapperCall(repository: VarargRepository) =
+    <!GetSignatures!>repository.getPackageInfo("com.example", maxOf(64, 0))<!>

@@ -48,7 +48,7 @@ class ServiceStore<T> @Inject constructor()
 
 // Two scopes: one finding, naming the scope that comes first in Go's list
 // (Singleton), as Go does.
-<!ScopeOnParameterizedClass!>@Reusable @Singleton<!>
+<!ScopeOnParameterizedClass!>@Reusable<!> @Singleton
 class DoublyScoped<T>
 
 // Other annotations and modifiers before the scope: the modifier list's first
@@ -57,7 +57,7 @@ class DoublyScoped<T>
 @Singleton
 internal class Stacked<T>
 
-<!ScopeOnParameterizedClass!>@Named("cache") @Singleton<!> class Qualified<T>
+<!ScopeOnParameterizedClass!>@Named("cache")<!> @Singleton class Qualified<T>
 
 /** KDoc is not part of the declaration's first line, in Go or here. */
 <!ScopeOnParameterizedClass!>@Singleton<!>

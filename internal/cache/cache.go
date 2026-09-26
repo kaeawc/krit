@@ -96,7 +96,9 @@ const CacheFileName = "incremental.cache"
 // v17: version catalogs are parsed as spec-compliant TOML, so catalog-derived
 // findings change for unchanged source.
 // v18: Java semantic facts with unresolved types fall back to AST heuristics.
-const cachePayloadVersion = "v18"
+// v19: IntoSetOnNonSetReturn's message no longer names Dagger for every DI
+// framework, so its findings change for unchanged source.
+const cachePayloadVersion = "v19"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

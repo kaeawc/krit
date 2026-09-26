@@ -222,9 +222,11 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
         val source = argument.source?.takeIf { it.kind == KtRealSourceElementKind } ?: return null
         val tree = source.treeStructure
         var node = source.lighterASTNode
+        // The argument itself may be a call; only an enclosing call, lambda or
+        // argument list between it and its VALUE_ARGUMENT ends the climb.
         while (node.tokenType != KtNodeTypes.VALUE_ARGUMENT) {
-            if (node.tokenType in argumentBoundaries) return null
             node = tree.getParent(node) ?: return null
+            if (node.tokenType in argumentBoundaries) return null
         }
         val list = tree.getParent(node)?.takeIf { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_LIST } ?: return null
         val unlabeled = lightChildren(source, list).filter {

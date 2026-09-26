@@ -2,8 +2,8 @@ package dev.jasonpearson.krit.fir.checkers.dihygiene
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.firstModifierAnchor
 import dev.jasonpearson.krit.fir.support.identifierText
-import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirSession
@@ -11,7 +11,6 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirRegularClassChecker
-import org.jetbrains.kotlin.fir.analysis.getChild
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.declarations.FirTypeParameter
 import org.jetbrains.kotlin.fir.declarations.toAnnotationClassIdSafe
@@ -139,7 +138,7 @@ internal object ScopeOnParameterizedClass :
         // Go reports the declaration's first line, where its modifier list
         // (the scope annotation included) starts.
         report(
-            source.getChild(KtNodeTypes.MODIFIER_LIST, depth = 1) ?: source,
+            firstModifierAnchor(source) ?: source,
             "@$scope on generic class '$name' shares one instance across all type " +
                 "arguments because the type parameter is erased at runtime.",
         )

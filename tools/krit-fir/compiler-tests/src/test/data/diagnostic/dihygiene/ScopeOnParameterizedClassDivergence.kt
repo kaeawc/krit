@@ -36,12 +36,12 @@ class InStringArgument<T>
 class InComment<T>
 
 // A real scope next to the lookalike is still reported, like Go.
-<!ScopeOnParameterizedClass!>@SingletonHolder @Singleton<!>
+<!ScopeOnParameterizedClass!>@SingletonHolder<!> @Singleton
 class LookalikeAndScope<T>
 
 // Both report this line, but Go's message names `@Singleton`, the first list
 // entry the modifier text starts with (from `@SingletonHolder`), while FIR's
 // names `@ActivityScoped`, the scope the class actually carries. Go's message
 // is false of the class (it is not a singleton), so the messages differ.
-<!ScopeOnParameterizedClass!>@SingletonHolder @ActivityScoped<!>
+<!ScopeOnParameterizedClass!>@SingletonHolder<!> @ActivityScoped
 class Mixed<T>

@@ -61,8 +61,14 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *   `java.util.Random` import, or the literal `java.util.Random` qualifier.
  * - Recall: a setSeed receiver is proved by its type, so a SecureRandom
  *   parameter, a `SecureRandom.getInstance(...)` result, a member chain
- *   (`this.rng`), a nullable property, a subclass, and an implicit receiver
- *   (`with(rng) { setSeed(1L) }`) are reported. Go only accepts a
+ *   (`this.rng`), a nullable property, a not-null assertion
+ *   (`rng!!.setSeed(1L)`), a smart cast from java.util.Random
+ *   (`if (r is SecureRandom) r.setSeed(1L)`), a subclass (including one that
+ *   overrides setSeed and a member of an `object : SecureRandom() { ... }`
+ *   expression), and an implicit receiver (`with(rng) { setSeed(1L) }`, a
+ *   subclass's own `init { setSeed(1L) }`) are reported. Each is still a
+ *   deterministic seed on a SecureRandom, which is what the message says and
+ *   what the rule is for. Go only accepts an explicit receiver that is a
  *   SecureRandom constructor call or a name declared by a property whose type
  *   is spelled `SecureRandom` or whose initializer constructs one. A negative
  *   literal seed (`-1L`) and a qualified `java.lang.System.nanoTime()` are

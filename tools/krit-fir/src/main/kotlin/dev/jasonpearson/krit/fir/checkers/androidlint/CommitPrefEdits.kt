@@ -61,7 +61,8 @@ import org.jetbrains.kotlin.name.Name
 // - A no-argument, no-lambda call named commit or apply that encloses the
 //   edit call, up to the enclosing function, finalizes it: the chain
 //   `prefs.edit().putString(k, v).apply()`, and (like Go, by name) any other
-//   enclosing `x.commit()` / `x.apply()`.
+//   enclosing `x.commit()` / `x.apply()`, also across a lambda or anonymous
+//   function that holds the edit call (CommitPrefEditsAnonymous).
 // - An edit call in the initializer of `val editor = ...` is finalized by a
 //   later `editor.commit()` / `editor.apply()` anywhere in the enclosing
 //   function (nested lambdas included).
@@ -79,9 +80,11 @@ import org.jetbrains.kotlin.name.Name
 //   the Editor itself, so the message is false of it.
 // Where Go reads the finalizing call by name, the checker reads the resolved
 // tree, which also sees:
-// - a scope function whose lambda finalizes the Editor through its receiver or
-//   parameter: `prefs.edit().apply { putString(k, v); apply() }`,
-//   `with(prefs.edit()) { commit() }`, `.also { it.apply() }`;
+// - a scope function whose lambda (or anonymous function) finalizes the Editor
+//   through its receiver or parameter:
+//   `prefs.edit().apply { putString(k, v); apply() }`,
+//   `with(prefs.edit()) { commit() }`, `.also { it.apply() }`,
+//   `.also(fun(e: Editor) { e.apply() })`;
 // - a finalizing chain on the variable: `editor.putString(k, v).apply()`
 //   (Go only reads a call written `editor.apply()`);
 // - an assignment to an existing variable, `editor = prefs.edit()`, followed

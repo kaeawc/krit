@@ -9,18 +9,14 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
-import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
-import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirTryExpression
-import org.jetbrains.kotlin.fir.expressions.arguments
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
 import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.types.classId
-import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
@@ -51,9 +47,11 @@ import org.jetbrains.kotlin.name.Name
 //   its receiver (`d.await().runCatching { }`), and not a runCatching outside
 //   the finally block, which catches the await's exception only after it has
 //   replaced the original one. Go exempts both.
-// - An await in the block of a coroutine started by kotlinx.coroutines
-//   `launch` or `async` runs outside the finally block and cannot replace
-//   its exception, so it is not reported (Go reports it).
+// Like Go, an await in a `launch` or `async` block started in the finally
+// block is reported: a scope builder in the finally block (coroutineScope,
+// withContext, runBlocking, withTimeout) waits for that child and rethrows its
+// failure, and a parent scope a child fails into can surface that failure in
+// place of the original one, so the checker cannot prove the block is safe.
 internal object DeferredAwaitInFinally : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "DeferredAwaitInFinally"
     override val expressionCheckers = object : ExpressionCheckers() {
@@ -66,11 +64,6 @@ internal object DeferredAwaitInFinally : FirFunctionCallChecker(MppCheckerKind.C
     private val AWAIT = Name.identifier("await")
     private const val RUN_CATCHING = "runCatching"
     private val deferredClassId = ClassId.topLevel(FqName("kotlinx.coroutines.Deferred"))
-    private val coroutinesPackage = FqName("kotlinx.coroutines")
-    private val coroutineStarters = setOf(
-        CallableId(coroutinesPackage, Name.identifier("launch")),
-        CallableId(coroutinesPackage, Name.identifier("async")),
-    )
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
@@ -94,18 +87,17 @@ internal object DeferredAwaitInFinally : FirFunctionCallChecker(MppCheckerKind.C
         if (path.lastOrNull() === expression) start--
         // Go's runCatching lookup stops at the nearest function_declaration.
         var runCatchingCounts = true
-        // The lambdas passed on the way out.
-        val lambdas = mutableSetOf<FirAnonymousFunction>()
         for (i in start downTo 0) {
             val parent = path[i]
             when (parent) {
                 is FirTryExpression -> if (parent.finallyBlock === child) return true
                 is FirNamedFunction -> runCatchingCounts = false
-                is FirAnonymousFunction -> lambdas += parent
-                is FirFunctionCall -> if (!isReceiverOf(parent, child)) {
-                    val symbol = parent.calleeReference.toResolvedCallableSymbol()
-                    if (symbol?.callableId in coroutineStarters && passesLambda(parent, lambdas)) return false
-                    if (runCatchingCounts && parent.calleeReference.name.asString() == RUN_CATCHING) return false
+                is FirFunctionCall -> if (
+                    runCatchingCounts &&
+                    !isReceiverOf(parent, child) &&
+                    parent.calleeReference.name.asString() == RUN_CATCHING
+                ) {
+                    return false
                 }
                 else -> {}
             }
@@ -113,10 +105,6 @@ internal object DeferredAwaitInFinally : FirFunctionCallChecker(MppCheckerKind.C
         }
         return false
     }
-
-    // Whether one of [call]'s arguments is a lambda in [lambdas].
-    private fun passesLambda(call: FirFunctionCall, lambdas: Set<FirAnonymousFunction>): Boolean =
-        call.arguments.any { (it as? FirAnonymousFunctionExpression)?.anonymousFunction in lambdas }
 
     private fun isReceiverOf(call: FirFunctionCall, child: FirElement): Boolean =
         child === call.explicitReceiver || child === call.dispatchReceiver || child === call.extensionReceiver

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 26, 34, 87, 88, 89, 90
+// go-lines: 23, 31
 // Where the resolved call and the Go rule's syntax match disagree. Go reports
 // any call written `x.await()` under a finally block unless a call named
 // runCatching encloses it; FIR reports an await declared by
@@ -7,10 +7,7 @@
 package test
 
 import java.util.concurrent.CountDownLatch
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.async
-import kotlinx.coroutines.launch
 
 class Gate {
     suspend fun await() {}
@@ -73,21 +70,6 @@ suspend fun runCatchingOutsideFinally(cleanup: Deferred<Unit>) {
         } finally {
             <!DeferredAwaitInFinally!>cleanup.await()<!>
         }
-    }
-}
-
-// Go reports these because the await is under the finally block; FIR is
-// correct to drop them because the await runs in a coroutine launch or async
-// starts, outside the finally block, so its exception cannot replace the try
-// block's.
-suspend fun launched(scope: CoroutineScope, cleanup: Deferred<Unit>) {
-    try {
-        println("working")
-    } finally {
-        scope.launch { cleanup.await() }
-        scope.async { cleanup.await() }
-        scope.launch(block = { cleanup.await() })
-        scope.launch { listOf(cleanup).forEach { it.await() } }
     }
 }
 

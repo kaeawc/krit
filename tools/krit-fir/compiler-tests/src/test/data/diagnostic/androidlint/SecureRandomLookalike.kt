@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 9, 18, 30, 45, 46, 61, 78
+// go-lines: 9, 18, 30, 45, 46, 61, 78, 87, 96, 97, 104, 105
 package test
 
 import java.security.SecureRandom
@@ -76,4 +76,32 @@ fun extension(seeder: Seeder) {
 // receiver is not known to be a SecureRandom, so FIR does not report it.
 fun parameterShadow(shared: Random) {
     shared.setSeed(4L)
+}
+
+// Divergence (precision): a local lambda named Random shadows the
+// java.util.Random import. Go reports `Random()` because the file imports
+// java.util.Random; the call invokes the lambda and constructs nothing, so
+// FIR does not report it.
+fun invokeLookalike(): Int {
+    val Random = { 1 }
+    return Random()
+}
+
+// Divergence (precision): the local var is reassigned to a plain
+// java.util.Random before the call. Go reports the setSeed through the
+// declaration's SecureRandom() initializer; at the call the variable holds the
+// java.util.Random, not a SecureRandom, so FIR reports only the constructor.
+fun reassignedBefore() {
+    var swapped: Random = SecureRandom()
+    swapped = <!SecureRandom!>Random(5L)<!>
+    swapped.setSeed(6L)
+}
+
+// Reassigned only after the call: at the call the variable still holds the
+// SecureRandom, so both Go and FIR report the setSeed.
+fun reassignedAfter() {
+    var later: Random = SecureRandom()
+    <!SecureRandom!>later.setSeed(7L)<!>
+    later = <!SecureRandom!>Random(8L)<!>
+    println(later.nextInt())
 }

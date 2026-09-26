@@ -81,29 +81,35 @@ fun notNullAssertion(rng: SecureRandom?) {
     <!SecureRandom!>rng!!.setSeed(11L)<!>
 }
 
-// A subclass that overrides setSeed: the resolved member is the override, and
-// the class is still a SecureRandom.
-class OverridingSubclass : SecureRandom() {
-    override fun setSeed(seed: Long) {
-        super.setSeed(seed)
-    }
+// A lazy delegate: the property's type is inferred from the lazy
+// initializer. Go misses it: the declaration has no SecureRandom type and no
+// constructor call of its own.
+fun lazyDelegate() {
+    val lazyRng by lazy { SecureRandom() }
+    <!SecureRandom!>lazyRng.setSeed(8L)<!>
 }
 
-fun overridingSubclass() {
-    <!SecureRandom!>OverridingSubclass().setSeed(12L)<!>
+// A java.util.Random-typed variable initialized through a typealias of
+// SecureRandom, or with a local SecureRandom subclass: it holds a SecureRandom.
+// Go misses both: the constructor is not spelled `SecureRandom`.
+typealias SR = SecureRandom
+
+fun aliasInitializer() {
+    val viaAlias: java.util.Random = SR()
+    <!SecureRandom!>viaAlias.setSeed(15L)<!>
 }
 
-// A member of an object expression: the override's owner is the anonymous
-// object, whose supertype is SecureRandom.
-fun objectExpression() {
-    val anonymous = object : SecureRandom() {
-        override fun setSeed(seed: Long) {
-            super.setSeed(seed)
-        }
+fun localSubclassInitializer() {
+    class LocalSecure : SecureRandom()
+    val viaLocal: java.util.Random = LocalSecure()
+    <!SecureRandom!>viaLocal.setSeed(16L)<!>
+}
 
-        fun reseedFixed() {
-            <!SecureRandom!>setSeed(13L)<!>
-        }
+// A member of an object expression whose initializer constructs a
+// SecureRandom. Go misses it: it does not prove a member chain receiver.
+fun anonymousMember() {
+    val anon = object {
+        val inner: java.util.Random = SecureRandom()
     }
-    <!SecureRandom!>anonymous.setSeed(14L)<!>
+    <!SecureRandom!>anon.inner.setSeed(17L)<!>
 }

@@ -1,11 +1,13 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 23, 31
+// go-lines: 28, 36, 44
 // Where the resolved call and the Go rule's syntax match disagree. Go reports
 // any call written `x.await()` under a finally block unless a call named
 // runCatching encloses it; FIR reports an await declared by
-// kotlinx.coroutines.Deferred that runs in the finally block unguarded.
+// kotlinx.coroutines.Deferred (or a kotlinx.coroutines await extension) that
+// runs in the finally block unguarded.
 package test
 
+import java.util.concurrent.CompletionStage
 import java.util.concurrent.CountDownLatch
 import kotlinx.coroutines.Deferred
 
@@ -13,9 +15,12 @@ class Gate {
     suspend fun await() {}
 }
 
+// A project's own await extension, not kotlinx.coroutines.future.await.
+suspend fun <T> CompletionStage<T>.await(): T = TODO()
+
 // Go reports these because the call is written `.await()`; FIR is correct to
-// drop them because neither is Deferred.await(): a Java CountDownLatch and a
-// local class.
+// drop them because none is Deferred.await() or a kotlinx.coroutines await: a
+// Java CountDownLatch, a local class, and a local extension on a JDK future.
 fun javaLatch(latch: CountDownLatch) {
     try {
         println("working")
@@ -29,6 +34,14 @@ suspend fun lookalike(gate: Gate) {
         println("working")
     } finally {
         gate.await()
+    }
+}
+
+suspend fun localExtension(stage: CompletionStage<Unit>) {
+    try {
+        println("working")
+    } finally {
+        stage.await()
     }
 }
 

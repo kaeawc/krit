@@ -6,9 +6,9 @@ import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.lightText
+import dev.jasonpearson.krit.fir.support.qualifiedCall
 import dev.jasonpearson.krit.fir.support.significantChildren
 import org.jetbrains.kotlin.KtNodeTypes
-import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirSession
@@ -48,7 +48,6 @@ import org.jetbrains.kotlin.fir.types.constructClassLikeType
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
-import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
@@ -164,7 +163,8 @@ internal object UnicodeNormalizationMissing : FirFunctionCallChecker(MppCheckerK
         if (!mayCompareText(expression, context.session)) return
         if (callsNormalize(function)) return
         val source = expression.source ?: return
-        report(callExpressionSource(source), MESSAGE)
+        // Go's call_expression starts on the receiver's first line.
+        report(qualifiedCall(source)?.let { lightSourceOf(it, source) } ?: source, MESSAGE)
     }
 
     // A call written as a call expression, `f(x)` or `r.f(x)`, which is what
@@ -331,19 +331,5 @@ internal object UnicodeNormalizationMissing : FirFunctionCallChecker(MppCheckerK
             pending.addAll(lightChildren(source, node))
         }
         return false
-    }
-
-    // The qualified expression (`r.contains(x)` / `r?.contains(x)`) whose
-    // selector is this call, so the finding lands on the receiver's first
-    // line, where Go's call_expression starts. K2 gives a dot call the whole
-    // qualified expression as its source; a safe call keeps the selector call
-    // expression, so step up to its parent.
-    private fun callExpressionSource(source: KtSourceElement): KtSourceElement {
-        val node = source.lighterASTNode
-        if (node.tokenType in qualifiedTypes || node.tokenType != KtNodeTypes.CALL_EXPRESSION) return source
-        val parent = source.treeStructure.getParent(node) ?: return source
-        if (parent.tokenType !in qualifiedTypes) return source
-        val parts = significantChildren(source, parent, setOf(KtTokens.DOT, KtTokens.SAFE_ACCESS))
-        return if (parts.size > 1 && parts.last() == node) lightSourceOf(parent, source) else source
     }
 }

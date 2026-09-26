@@ -1,14 +1,11 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
-import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.security.assignedLocalValues
 import dev.jasonpearson.krit.fir.checkers.security.isLocalVar
 import dev.jasonpearson.krit.fir.report
-import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
-import org.jetbrains.kotlin.KtNodeTypes
-import org.jetbrains.kotlin.KtSourceElement
+import dev.jasonpearson.krit.fir.support.qualifiedCall
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -33,7 +30,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
-import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
@@ -119,7 +115,6 @@ internal object SecureRandom : FirFunctionCallChecker(MppCheckerKind.Common), Fi
     private val signCalls = listOf(StandardClassIds.Long, StandardClassIds.Int).flatMapTo(HashSet()) { owner ->
         listOf("unaryMinus", "unaryPlus").map { CallableId(owner, Name.identifier(it)) }
     }
-    private val qualifiedTypes = setOf(KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION)
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
@@ -215,22 +210,4 @@ internal object SecureRandom : FirFunctionCallChecker(MppCheckerKind.Common), Fi
         symbol.classId == classId ||
             lookupSuperTypes(symbol, lookupInterfaces = false, deep = true, useSiteSession = context.session)
                 .any { it.lookupTag.classId == classId }
-
-    // The qualified expression (`r.f()` / `r?.f()`) whose selector is this
-    // call. K2 gives a dot call the whole qualified expression as its source;
-    // a safe call keeps the selector call expression, so step up to its parent.
-    private fun qualifiedCall(source: KtSourceElement): LighterASTNode? {
-        val node = source.lighterASTNode
-        if (node.tokenType in qualifiedTypes) return node
-        if (node.tokenType != KtNodeTypes.CALL_EXPRESSION) return null
-        val parent = source.treeStructure.getParent(node) ?: return null
-        if (parent.tokenType !in qualifiedTypes) return null
-        val parts = lightChildren(source, parent).filter {
-            it.tokenType != KtTokens.WHITE_SPACE &&
-                it.tokenType !in KtTokens.COMMENTS &&
-                it.tokenType != KtTokens.DOT &&
-                it.tokenType != KtTokens.SAFE_ACCESS
-        }
-        return parent.takeIf { parts.size > 1 && parts.last() == node }
-    }
 }

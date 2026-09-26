@@ -6,7 +6,12 @@ import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.lightText
+import dev.jasonpearson.krit.fir.support.scanSqlOutsideStrings
 import dev.jasonpearson.krit.fir.support.significantChildren
+import dev.jasonpearson.krit.fir.support.splitSqlConcatOperands
+import dev.jasonpearson.krit.fir.support.sqlInterpolationUsesOnlySchemaConstants
+import dev.jasonpearson.krit.fir.support.sqlLastIdentifierSegment
+import dev.jasonpearson.krit.fir.support.sqlSchemaConstantName
 import dev.jasonpearson.krit.fir.support.unwrapLightParens
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -141,7 +146,7 @@ internal object RuntimeExecUnsafeShape : FirFunctionCallChecker(MppCheckerKind.C
     private fun looksLikeStringCommand(text: String, interpolated: Boolean): Boolean {
         if (text.isEmpty()) return false
         if (text.startsWith("arrayOf(") || text.startsWith("new String[]") || text.startsWith("String[]")) return false
-        return text.startsWith("\"") || interpolated || splitConcatOperands(text).size > 1
+        return text.startsWith("\"") || interpolated || splitSqlConcatOperands(text).size > 1
     }
 
     // Go's argumentIsUntrustedShape, with the two recall fixes described on
@@ -150,8 +155,8 @@ internal object RuntimeExecUnsafeShape : FirFunctionCallChecker(MppCheckerKind.C
     // own operands.
     private fun shape(text: String, interpolated: Boolean): Shape {
         if (text.isEmpty() || text == "null") return Shape.STATIC
-        if (interpolated && !interpolationUsesOnlyConstants(text)) return Shape.INTERPOLATED
-        val operands = splitConcatOperands(text)
+        if (interpolated && !sqlInterpolationUsesOnlySchemaConstants(text)) return Shape.INTERPOLATED
+        val operands = splitSqlConcatOperands(text)
         // Go calls any constant-only interpolation static; only a
         // concatenation beside it can make the command computed.
         if (operands.size <= 1 && interpolated) return Shape.STATIC
@@ -189,14 +194,14 @@ internal object RuntimeExecUnsafeShape : FirFunctionCallChecker(MppCheckerKind.C
             text = inner
         }
         if (group) {
-            val inner = splitConcatOperands(text)
+            val inner = splitSqlConcatOperands(text)
             if (inner.size > 1) return operandsVerdict(inner)
         }
         if (text == "null") return Verdict(goStatic = true, constant = true)
         if (text.startsWith("\"")) {
             return Verdict(goStatic = !text.contains('$'), constant = isSingleStringLiteral(text))
         }
-        val constant = constantName(lastIdentifierSegment(text))
+        val constant = sqlSchemaConstantName(sqlLastIdentifierSegment(text))
         return Verdict(constant, constant)
     }
 
@@ -257,27 +262,10 @@ internal object RuntimeExecUnsafeShape : FirFunctionCallChecker(MppCheckerKind.C
         return -1
     }
 
-    // Go's splitSQLConcatOperands: split on `+` outside string literals and
-    // parentheses. Returns an empty list when there is no top-level `+`.
-    private fun splitConcatOperands(text: String): List<String> {
-        val out = mutableListOf<String>()
-        var start = 0
-        scanOutsideStrings(text) { i, ch, depth ->
-            if (ch == '+' && depth == 0) {
-                out += text.substring(start, i).trim()
-                start = i + 1
-            }
-            false
-        }
-        if (out.isEmpty()) return emptyList()
-        out += text.substring(start).trim()
-        return out
-    }
-
     // The index of the `)` closing the `(` that starts [text], or -1.
     private fun closingParen(text: String): Int {
         var closing = -1
-        scanOutsideStrings(text) { i, ch, depth ->
+        scanSqlOutsideStrings(text) { i, ch, depth ->
             if (ch == ')' && depth == 0) {
                 closing = i
                 true
@@ -286,75 +274,5 @@ internal object RuntimeExecUnsafeShape : FirFunctionCallChecker(MppCheckerKind.C
             }
         }
         return closing
-    }
-
-    // Walks [text] the way Go's splitSQLConcatOperands does, calling [visit]
-    // with each character outside string literals and the parenthesis depth
-    // after it; stops when [visit] returns true.
-    private inline fun scanOutsideStrings(text: String, visit: (Int, Char, Int) -> Boolean) {
-        var depth = 0
-        var inString = false
-        var raw = false
-        var escaped = false
-        var i = 0
-        while (i < text.length) {
-            val ch = text[i]
-            if (inString) {
-                if (raw) {
-                    if (text.startsWith("\"\"\"", i)) {
-                        inString = false
-                        raw = false
-                        i += 2
-                    }
-                } else if (escaped) {
-                    escaped = false
-                } else if (ch == '\\') {
-                    escaped = true
-                } else if (ch == '"') {
-                    inString = false
-                }
-                i++
-                continue
-            }
-            when (ch) {
-                '"' -> {
-                    inString = true
-                    if (text.startsWith("\"\"\"", i)) {
-                        raw = true
-                        i += 2
-                    }
-                }
-                '(' -> depth++
-                ')' -> if (depth > 0) depth--
-            }
-            if (ch != '"' && visit(i, ch, depth)) return
-            i++
-        }
-    }
-
-    private val interpolationIdentifier = Regex("""\$\{?\s*([A-Za-z_][A-Za-z0-9_.]*)""")
-
-    // Go's sqlInterpolationUsesOnlyStaticSchemaConstants, over the argument's
-    // source text.
-    private fun interpolationUsesOnlyConstants(text: String): Boolean {
-        val matches = interpolationIdentifier.findAll(text).toList()
-        if (matches.isEmpty()) return false
-        return matches.all { constantName(lastIdentifierSegment(it.groupValues[1])) }
-    }
-
-    // Go's sqlLastIdentifierSegment.
-    private fun lastIdentifierSegment(value: String): String {
-        var text = value.trim().removeSuffix(")")
-        val dot = text.lastIndexOf('.')
-        if (dot >= 0) text = text.substring(dot + 1)
-        return text.trim('`', ' ')
-    }
-
-    // Go's sqlSchemaConstantName.
-    private fun constantName(name: String): Boolean {
-        if (name.isEmpty()) return false
-        if (name.startsWith("TABLE_") || name.startsWith("COLUMN_")) return true
-        if (name.endsWith("_TABLE") || name.endsWith("_COLUMN") || name.endsWith("_KEY")) return true
-        return name.uppercase() == name && name.contains('_')
     }
 }

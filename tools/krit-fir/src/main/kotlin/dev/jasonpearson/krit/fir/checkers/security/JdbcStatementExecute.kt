@@ -7,6 +7,11 @@ import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.lightText
 import dev.jasonpearson.krit.fir.support.significantChildren
+import dev.jasonpearson.krit.fir.support.splitSqlConcatOperands
+import dev.jasonpearson.krit.fir.support.sqlInterpolationUsesOnlySchemaConstants
+import dev.jasonpearson.krit.fir.support.sqlLastIdentifierSegment
+import dev.jasonpearson.krit.fir.support.sqlSchemaConstantName
+import dev.jasonpearson.krit.fir.support.sqlStaticOperand
 import dev.jasonpearson.krit.fir.support.unwrapLightParens
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -356,13 +361,13 @@ internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Com
         val text = lightText(anchor, inner).trim()
         if (text.isEmpty() || text == "null") return Shape.STATIC
         if (containsTemplateEntry(anchor, inner)) {
-            return if (interpolationUsesOnlySchemaConstants(text)) Shape.STATIC else Shape.INTERPOLATED
+            return if (sqlInterpolationUsesOnlySchemaConstants(text)) Shape.STATIC else Shape.INTERPOLATED
         }
-        val operands = splitConcatOperands(text)
+        val operands = splitSqlConcatOperands(text)
         if (operands.size > 1) {
-            return if (operands.all(::staticOperand)) Shape.STATIC else Shape.COMPUTED
+            return if (operands.all(::sqlStaticOperand)) Shape.STATIC else Shape.COMPUTED
         }
-        return if (staticOperand(text)) Shape.STATIC else Shape.COMPUTED
+        return if (sqlStaticOperand(text)) Shape.STATIC else Shape.COMPUTED
     }
 
     private val templateEntries = setOf(KtNodeTypes.SHORT_STRING_TEMPLATE_ENTRY, KtNodeTypes.LONG_STRING_TEMPLATE_ENTRY)
@@ -370,94 +375,5 @@ internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Com
     private fun containsTemplateEntry(anchor: KtSourceElement, node: LighterASTNode): Boolean {
         if (node.tokenType in templateEntries) return true
         return lightChildren(anchor, node).any { containsTemplateEntry(anchor, it) }
-    }
-
-    // Go's sqlStaticOperand.
-    private fun staticOperand(operand: String): Boolean {
-        var text = operand.trim()
-        while (text.startsWith("(") && text.endsWith(")")) {
-            val inner = text.substring(1, text.length - 1).trim()
-            if (inner.isEmpty()) break
-            text = inner
-        }
-        if (text == "null") return true
-        if (text.startsWith("\"")) return !text.contains('$')
-        return schemaConstantName(lastIdentifierSegment(text))
-    }
-
-    // Go's splitSQLConcatOperands: split on `+` outside strings and outside
-    // parentheses; a single operand yields an empty list.
-    private fun splitConcatOperands(text: String): List<String> {
-        val out = mutableListOf<String>()
-        var start = 0
-        var depth = 0
-        var inString = false
-        var raw = false
-        var escaped = false
-        var i = 0
-        while (i < text.length) {
-            val ch = text[i]
-            if (inString) {
-                if (raw) {
-                    if (i + 2 < text.length && text.startsWith("\"\"\"", i)) {
-                        inString = false
-                        raw = false
-                        i += 2
-                    }
-                } else if (escaped) {
-                    escaped = false
-                } else if (ch == '\\') {
-                    escaped = true
-                } else if (ch == '"') {
-                    inString = false
-                }
-                i++
-                continue
-            }
-            when (ch) {
-                '"' -> {
-                    inString = true
-                    if (i + 2 < text.length && text.startsWith("\"\"\"", i)) {
-                        raw = true
-                        i += 2
-                    }
-                }
-                '(' -> depth++
-                ')' -> if (depth > 0) depth--
-                '+' -> if (depth == 0) {
-                    out += text.substring(start, i).trim()
-                    start = i + 1
-                }
-            }
-            i++
-        }
-        if (out.isEmpty()) return emptyList()
-        out += text.substring(start).trim()
-        return out
-    }
-
-    private val interpolatedName = Regex("""\$\{?[\t\n\u000C\r ]*([A-Za-z_][A-Za-z0-9_.]*)""")
-
-    // Go's sqlInterpolationUsesOnlyStaticSchemaConstants.
-    private fun interpolationUsesOnlySchemaConstants(text: String): Boolean {
-        val matches = interpolatedName.findAll(text).toList()
-        if (matches.isEmpty()) return false
-        return matches.all { schemaConstantName(lastIdentifierSegment(it.groupValues[1])) }
-    }
-
-    // Go's sqlLastIdentifierSegment.
-    private fun lastIdentifierSegment(value: String): String {
-        var text = value.trim().removeSuffix(")")
-        val dot = text.lastIndexOf('.')
-        if (dot >= 0) text = text.substring(dot + 1)
-        return text.trim('`', ' ')
-    }
-
-    // Go's sqlSchemaConstantName.
-    private fun schemaConstantName(name: String): Boolean {
-        if (name.isEmpty()) return false
-        if (name.startsWith("TABLE_") || name.startsWith("COLUMN_")) return true
-        if (name.endsWith("_TABLE") || name.endsWith("_COLUMN") || name.endsWith("_KEY")) return true
-        return name.map { it.uppercaseChar() }.joinToString("") == name && name.contains('_')
     }
 }

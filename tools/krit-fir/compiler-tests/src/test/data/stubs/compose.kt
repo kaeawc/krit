@@ -224,6 +224,17 @@ fun DisposableEffect(vararg keys: Any?, effect: DisposableEffectScope.() -> Disp
     TODO()
 }
 
+// The keyless overload exists only to turn `LaunchedEffect { }` into a
+// compile error instead of resolving to the vararg overload with no keys.
+private const val LaunchedEffectNoParamError =
+    "LaunchedEffect must provide one or more 'key' parameters that define the identity of " +
+        "the LaunchedEffect and determine when its previous effect coroutine should be cancelled " +
+        "and a new effect launched for the new key."
+
+@Deprecated(LaunchedEffectNoParamError, level = DeprecationLevel.ERROR)
+@Composable
+fun LaunchedEffect(block: suspend CoroutineScope.() -> Unit): Unit = error(LaunchedEffectNoParamError)
+
 @Composable
 @NonRestartableComposable
 fun LaunchedEffect(key1: Any?, block: suspend CoroutineScope.() -> Unit) {
@@ -233,6 +244,12 @@ fun LaunchedEffect(key1: Any?, block: suspend CoroutineScope.() -> Unit) {
 @Composable
 @NonRestartableComposable
 fun LaunchedEffect(key1: Any?, key2: Any?, block: suspend CoroutineScope.() -> Unit) {
+    TODO()
+}
+
+@Composable
+@NonRestartableComposable
+fun LaunchedEffect(key1: Any?, key2: Any?, key3: Any?, block: suspend CoroutineScope.() -> Unit) {
     TODO()
 }
 

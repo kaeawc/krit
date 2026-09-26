@@ -56,3 +56,6 @@ sealed class Screen : JavaSerializable {
         private const val serialVersionUID = 2L
     }
 }
+
+// Go misses this because it compares the name's text, backticks included.
+<!SerialVersionUIDInSerializableClass!>class<!> BacktickSuper : java.io.`Serializable`

@@ -1,15 +1,18 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
 // True positives Go misses. Go proves the receiver is a Throwable only when its
-// last identifier is the nearest enclosing catch's variable; each of these is
-// printStackTrace() on a Throwable all the same.
+// last identifier is the nearest enclosing catch's variable; each marked call
+// is printStackTrace() on a Throwable all the same. The unmarked `super` calls
+// inside printStackTrace() overrides are negatives Go and FIR agree on.
 package test
 
 class AppFailure(message: String) : RuntimeException(message) {
-    // Go misses this because `super` is not the caught variable.
+    // Not reported, as in Go: a `super` call inside an override delegates to
+    // the inherited implementation; the call site that prints is the one that
+    // calls this override.
     override fun printStackTrace() {
         println("app failure")
-        <!PrintStackTrace!>super.printStackTrace()<!>
+        super.printStackTrace()
     }
 
     // Go misses this because an implicit receiver has no identifier to match.
@@ -95,12 +98,13 @@ fun <T : Throwable> bounded(failure: T) {
 
 // Members of an object expression and of a local class that extend Exception
 // and override printStackTrace(): the owner comes from the symbol, with no
-// class-id lookup. Go misses these because the receivers are not caught
-// variables.
+// class-id lookup. Go misses the two outer calls because the receivers are not
+// caught variables. The `super` call inside the override is delegation, not
+// reported, as in Go.
 fun localOwners() {
     val anonymous = object : Exception("anonymous") {
         override fun printStackTrace() {
-            <!PrintStackTrace!>super.printStackTrace()<!>
+            super.printStackTrace()
         }
     }
     <!PrintStackTrace!>anonymous.printStackTrace()<!>

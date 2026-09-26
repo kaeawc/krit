@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 19, 34, 40, 48, 55, 71, 72
+// go-lines: 19, 34, 40, 48, 56, 69, 91, 92
 // Go findings FIR drops. Go takes any function named checkServerTrusted or
 // checkClientTrusted whose nearest enclosing class declaration or object
 // expression mentions the word TrustManager anywhere in its text, and treats
@@ -50,12 +50,32 @@ class TrustHolder(private val manager: X509TrustManager) {
 
 class ExpressionBodies(private val verify: (Array<X509Certificate>?, () -> Unit) -> Unit) : X509TrustManager {
     // Go reports this because the first brace block after the name is the
-    // empty lambda; FIR is correct to drop it because the body calls the
-    // verifier with the chain.
+    // empty lambda. FIR drops it as delegation, like the Delegating negative
+    // Go also leaves alone: the body hands the chain to a callee that is not a
+    // do-nothing stdlib function, so nothing shows it accepts every chain.
     override fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) = verify(chain) {}
 
     override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {
         throw CertificateException("no servers")
+    }
+
+    override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+}
+
+class DefaultLambda : X509TrustManager {
+    // Go reports this because the first brace block after the name is the
+    // default argument `{}`; FIR is correct to drop it because the body
+    // throws on an empty chain.
+    fun checkServerTrusted(chain: List<X509Certificate>, onFail: () -> Unit = {}) {
+        if (chain.isEmpty()) throw CertificateException("empty")
+    }
+
+    override fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {
+        throw CertificateException("no clients")
+    }
+
+    override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {
+        checkServerTrusted(chain.orEmpty().asList())
     }
 
     override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()

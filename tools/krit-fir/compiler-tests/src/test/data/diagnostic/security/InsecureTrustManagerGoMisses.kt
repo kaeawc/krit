@@ -103,9 +103,33 @@ class SafeCallBody : X509TrustManager {
     <!InsecureTrustManager!>override<!> fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {
         chain?.let {}
     }
-    // A computed receiver may validate: not a do-nothing body.
-    override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {
+    // A null check rejects no real certificate chain, so this body validates
+    // nothing either.
+    <!InsecureTrustManager!>override<!> fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {
         requireNotNull(chain).also {}
+    }
+    override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+}
+
+// Go accepts only empty body text or `return`; a lone `;` and a labeled
+// return do nothing either.
+class LabeledReturn : X509TrustManager {
+    <!InsecureTrustManager!>override<!> fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) { ; }
+    <!InsecureTrustManager!>override<!> fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {
+        return@checkServerTrusted
+    }
+    override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+}
+
+// Go finds an empty lambda only in an expression body; in a block body the
+// same do-nothing call is non-empty body text, so Go misses it.
+class BlockForEach : X509TrustManager {
+    <!InsecureTrustManager!>override<!> fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {
+        chain?.forEach {}
+    }
+    // A null check only: it rejects no real chain.
+    <!InsecureTrustManager!>override<!> fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {
+        if (chain == null) return
     }
     override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
 }

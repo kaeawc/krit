@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 14, 17
 // Negative: a call spelled ObjectInputStream(...) that does not create a
 // java.io.ObjectInputStream. This comment mentions java.io.ObjectInputStream,
 // which is enough for Go's file gate.

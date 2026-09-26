@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 19
 // Nested declarations named `Cipher` in backticks do not shadow the imported
 // javax.crypto.Cipher outside their owners, so the bare call is a real finding.
 // Go reports it too, because its same-file guard compares the backticked source

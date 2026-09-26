@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 17, 21, 27, 32, 38, 41, 45, 50, 52, 58
 // Divergence (precision): the file imports java.text.SimpleDateFormat, but each
 // call below resolves to something else named SimpleDateFormat: a local class,
 // a nested class, a local function, a member function, a lambda-typed

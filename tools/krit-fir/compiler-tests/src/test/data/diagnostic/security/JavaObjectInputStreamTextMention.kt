@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Go's safe-scope check is a text match: it skips a call when the text of the
 // nearest class_declaration contains ObjectInputStream and resolveClass. The
 // call itself always supplies the ObjectInputStream mention, so Go skips any

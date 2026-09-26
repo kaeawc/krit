@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 18
 // Positive: Flow.collect() launched from onCreate() without repeatOnLifecycle — should trigger CollectInOnCreateWithoutLifecycle
 package test
 

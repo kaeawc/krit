@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 15, 16, 17, 18, 19, 24, 25, 26, 27, 28, 33, 34, 35, 42, 43
 // Positive: a hardcoded fallback or default key. The decoded value is the
 // literal whenever the lookup misses (first launch, cleared prefs), so the key
 // is hardcoded on that path, as Go reports.

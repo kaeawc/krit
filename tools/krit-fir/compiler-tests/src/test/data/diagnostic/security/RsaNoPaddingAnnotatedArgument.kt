@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Deliberate improvement: an annotation or a label on the literal argument does
 // not change its value, so these calls are real findings. Go misses them because
 // it sees an annotated_expression or labeled_expression instead of a

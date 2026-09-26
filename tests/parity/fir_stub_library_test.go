@@ -1,6 +1,7 @@
 package parity_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +32,10 @@ var javaStubs struct {
 }
 
 func TestMain(m *testing.M) {
+	if err := applyShippedRuleDefaults(); err != nil {
+		fmt.Fprintf(os.Stderr, "parity tests need the shipped rule defaults: %v\n", err)
+		os.Exit(1)
+	}
 	code := m.Run()
 	if javaStubs.dir != "" {
 		_ = os.RemoveAll(javaStubs.dir)

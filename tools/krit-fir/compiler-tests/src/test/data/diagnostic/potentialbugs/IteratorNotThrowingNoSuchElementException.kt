@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 13, 23, 34, 43, 59, 67, 72, 81, 94, 106, 117, 124, 133, 142, 147, 158, 171, 180, 190
 // Positive: an iterator's next() whose body never throws
 // NoSuchElementException. Each is reported on the function's first line
 // (its modifier list, else `fun`), the line the Go rule reports.

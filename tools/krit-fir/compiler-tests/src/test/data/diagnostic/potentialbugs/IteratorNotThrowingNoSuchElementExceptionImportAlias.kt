@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // An import alias of kotlin.collections.Iterator. The alias hides the name
 // Iterator in this file, so it needs a file of its own.
 package importalias

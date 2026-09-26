@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Deliberate improvement: a comment on the Cipher import line and a KDoc after
 // the last import do not change what `Cipher` resolves to, so the calls are
 // real findings. Go misses them because tree-sitter attaches the trailing

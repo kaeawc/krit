@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 33
 // Deliberate improvement: the file declares a top-level class, a nested class,
 // a nested object, and a local class named Mac, but none of them shadows the
 // javax.crypto.Mac import where the calls are made. The explicit import wins

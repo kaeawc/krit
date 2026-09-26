@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 16, 21, 26, 33, 37
 // Lookalikes from nearer scopes: a member extension, a local extension and a
 // local function-typed value named uppercase / lowercase all beat the
 // default-imported kotlin.text functions. None is the stdlib case conversion

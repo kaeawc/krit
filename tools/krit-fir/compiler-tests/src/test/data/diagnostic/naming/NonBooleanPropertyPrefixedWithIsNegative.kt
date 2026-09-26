@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negative: Boolean properties, names without the is prefix, and variables
 // that are not property declarations. Go reports none of these either.
 package test

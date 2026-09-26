@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negative: Flow.collect() in a regular method (not a lifecycle callback) is
 // out of scope — must NOT trigger CollectInOnCreateWithoutLifecycle.
 package test

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 18, 20, 22, 30
 // Local lookalikes. Go reports every call below by name (toLowerCase /
 // toUpperCase on any receiver, format on the receiver text `String`); FIR
 // does not, because each resolves to a project declaration, not to a JDK or

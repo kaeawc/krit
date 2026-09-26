@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 23, 24, 25, 26, 27, 28, 29, 30, 35, 49, 54, 60, 63, 67, 76, 81, 90, 99, 107, 117
 // Positive: synchronized() whose lock is a bare name of a `var` declared in
 // the enclosing class or object (a member, or a local in one of its
 // functions) should trigger SynchronizedOnNonFinal, as Go reports it.

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 23, 26, 30, 34, 37, 40, 47, 56, 62, 64, 73
 // Reads Go reports and FIR does not: Go reports any call named `read` whose
 // receiver text contains a call named FileInputStream (and no call named
 // buffered / BufferedInputStream). None of these reads a FileInputStream

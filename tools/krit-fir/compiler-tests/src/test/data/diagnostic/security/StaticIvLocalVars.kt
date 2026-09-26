@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 22, 29, 35, 41, 51, 57, 65, 74, 80, 87
 // An IV template over a local var holds literal bytes only when the var's
 // initializer and every value its function assigns to it are literal: any
 // assignment (before the read, after it, or inside a lambda or local

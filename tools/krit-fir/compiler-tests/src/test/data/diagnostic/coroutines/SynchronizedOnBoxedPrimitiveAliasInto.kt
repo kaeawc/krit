@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 17, 18
 // Positive: an import alias INTO the name synchronized. The Go rule matches
 // the call by its written name, and the aliased function is a monitor lock
 // (its first parameter is Any), so this is a real boxed-primitive lock and

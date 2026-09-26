@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // True positives Go misses: each property below is named is* and is not a
 // Boolean, so Go's message is true of it, but Go does not report it.
 package test

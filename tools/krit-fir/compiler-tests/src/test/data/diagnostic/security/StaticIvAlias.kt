@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Deliberate improvements: an import alias or a typealias still constructs
 // javax.crypto.spec.IvParameterSpec / GCMParameterSpec, so these are real
 // findings. Go misses them because it requires the call's simple name to be

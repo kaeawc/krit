@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 46, 47, 48, 49, 50, 51, 52, 56, 58, 61, 65, 71, 76, 84, 87, 97, 107
 // Positive: synchronized() whose lock is a boxed primitive literal or a
 // property declared with a primitive type in the enclosing class/object
 // should trigger SynchronizedOnBoxedPrimitive.

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // True positives Go misses: each call is the static String.format without a
 // Locale, so it formats with the default locale. Go needs the receiver text to
 // be exactly `String`, the call name `format`, and an unlabeled first argument

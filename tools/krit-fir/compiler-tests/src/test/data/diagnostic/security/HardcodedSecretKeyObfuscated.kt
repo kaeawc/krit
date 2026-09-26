@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 16, 17, 18, 19, 20, 24, 25, 26, 34, 35, 36
 // Positive: a decode input built only from source literals, through calls
 // whose intermediate values are not Strings, casts, and String or
 // StringBuilder constructors and charArrayOf with hardcoded arguments. Every

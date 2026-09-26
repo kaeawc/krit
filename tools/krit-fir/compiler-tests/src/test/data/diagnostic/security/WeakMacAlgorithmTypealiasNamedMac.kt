@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 15
 // Deliberate improvement: a top-level typealias named Mac that expands to
 // javax.crypto.Mac, with no import. Go misses the bare `Mac` call because it
 // skips a bare receiver whenever the file declares a class, object, or

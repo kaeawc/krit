@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 20, 21, 22, 23, 27, 28, 29, 30, 31, 32, 33, 36, 40, 41, 49, 56, 57, 58
 // Receiver chains through scope functions and extensions. Go reports every
 // withLocale(Locale.getDefault()) whose receiver text starts with
 // `DateTimeFormatter.ISO_`; FIR follows the chain only through calls whose

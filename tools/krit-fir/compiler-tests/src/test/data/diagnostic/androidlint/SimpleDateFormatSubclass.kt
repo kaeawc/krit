@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 22, 28, 31, 33, 37, 43
 // Positives for SimpleDateFormat: a project class named SimpleDateFormat that
 // extends a SimpleDateFormat, directly or through another class, as a
 // top-level, nested, or local class. Each call builds a SimpleDateFormat and

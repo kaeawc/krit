@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negatives Go also leaves alone: a key that is not Int, Integer, or Long, a
 // nullable key, map types that are not HashMap (LinkedHashMap, a subclass), a
 // superclass delegation, a constructor reference, and factory functions.

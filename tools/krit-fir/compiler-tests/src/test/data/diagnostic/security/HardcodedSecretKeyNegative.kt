@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 53, 54, 55, 56, 57, 64, 65, 79, 80, 81, 82
 // Negative: key bytes that are not hardcoded, and shapes the Go rule does not
 // recognize, must NOT trigger HardcodedSecretKey.
 package test

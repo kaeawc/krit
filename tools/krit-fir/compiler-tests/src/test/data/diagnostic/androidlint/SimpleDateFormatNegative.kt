@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negatives for SimpleDateFormat: every call with two or more arguments, a
 // subclass constructor, superclass delegation, and a constructor reference.
 // Go reports none of these either: it accepts any second argument, and

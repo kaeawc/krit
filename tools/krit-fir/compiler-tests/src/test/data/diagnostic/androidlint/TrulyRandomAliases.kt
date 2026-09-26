@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Divergence (recall): each call below constructs java.security.SecureRandom
 // with a seed, and FIR reports it. Go misses all of them: it needs the literal
 // spelling `SecureRandom` with an explicit java.security.SecureRandom import

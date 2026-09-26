@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negatives the Go rule also leaves alone: functions without a body, a
 // ResultSet consumed through a block, a ResultSet only nested in the return
 // type, a type parameter bounded by ResultSet, and ResultSets returned from

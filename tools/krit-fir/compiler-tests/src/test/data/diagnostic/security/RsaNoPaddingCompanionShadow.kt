@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 16
 // Negative: a companion object named `Cipher` in the calling class wins over the
 // javax.crypto star import, so the call is not javax.crypto.Cipher.getInstance.
 package test

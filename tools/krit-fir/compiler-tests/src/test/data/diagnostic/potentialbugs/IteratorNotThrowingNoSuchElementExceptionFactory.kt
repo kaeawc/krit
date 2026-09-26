@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 20, 34
 // A factory function named NoSuchElementException that returns the stdlib
 // exception. Go rejects every throw of NoSuchElementException in a file that
 // declares anything with that name, so it reports both iterators below; both

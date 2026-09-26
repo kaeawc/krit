@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 24
 // Negative: a file-local Mac class with a getInstance factory is not
 // javax.crypto.Mac, so a weak algorithm name passed to it must NOT trigger
 // WeakMacAlgorithm (Go is silent too). The fully qualified JDK call still

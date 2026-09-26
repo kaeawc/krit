@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // True positives Go misses. Go matches only a direct supertype named
 // Throwable, Exception, Error, or RuntimeException, and never visits a
 // companion object. Each of these is a singleton that is a Throwable.

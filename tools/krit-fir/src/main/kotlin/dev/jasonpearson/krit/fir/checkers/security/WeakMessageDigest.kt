@@ -6,25 +6,17 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
-import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
-import org.jetbrains.kotlin.fir.declarations.FirFile
-import org.jetbrains.kotlin.fir.declarations.FirRegularClass
-import org.jetbrains.kotlin.fir.declarations.FirTypeAlias
-import org.jetbrains.kotlin.fir.declarations.utils.isCompanion
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
-import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
-import org.jetbrains.kotlin.fir.symbols.SymbolInternals
-import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.lexer.KtTokens
+import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.text
 import org.jetbrains.kotlin.util.getChildren
 
 // Flags `MessageDigest.getInstance("<weak algorithm>")` on the JDK's
@@ -33,12 +25,8 @@ import org.jetbrains.kotlin.util.getChildren
 // whitespace ignored). Every getInstance overload counts; only the first
 // argument is read.
 //
-// Mirrors the Go rule's evidence on top of FIR resolution:
-// - the call must have an explicit receiver spelled `MessageDigest` or
-//   `java.security.MessageDigest` (an import alias or typealias spelling, or a
-//   static import of getInstance, is not flagged);
-// - a bare `MessageDigest` receiver is not flagged when the file declares any
-//   class, object, or typealias named MessageDigest;
+// Mirrors the Go rule's argument evidence on top of FIR resolution:
+// - the call must resolve to java.security.MessageDigest.getInstance;
 // - the first argument is read from the call's syntax tree: it must be a
 //   string template (optionally parenthesized) with no `$` entries, and the
 //   algorithm is the raw text of its entries, so a literal containing an
@@ -46,17 +34,23 @@ import org.jetbrains.kotlin.util.getChildren
 // - surrounding whitespace is trimmed with Go's unicode.IsSpace set and the
 //   text is uppercased code point by code point, as the Go rule does.
 //
-// Deliberate differences from Go, pinned by goldens:
-// - Precision: the receiver must resolve to java.security.MessageDigest. Go
-//   accepts a bare `MessageDigest` whenever the file imports or mentions
-//   java.security.MessageDigest (a `java.security.*` star import counts) and
-//   declares no MessageDigest itself, so it also reports when that name
-//   resolves to another class: an explicit import of another class as or
+// Deliberate differences from Go, pinned by goldens. Go cannot resolve the
+// receiver, so it accepts only the spellings `MessageDigest` and
+// `java.security.MessageDigest` and guesses what a bare `MessageDigest` means
+// from the file's imports and declarations; FIR reads the resolved call:
+// - Precision: Go accepts a bare `MessageDigest` whenever the file imports or
+//   mentions java.security.MessageDigest (a `java.security.*` star import
+//   counts) and declares no MessageDigest itself, so it also reports when that
+//   name resolves to another class: an explicit import of another class as or
 //   named MessageDigest, or a same-package MessageDigest declared in another
 //   file (which wins over a star import).
-// - Recall: an annotated or labeled literal (`@A "MD5"`, `l@ "MD5"`) is still
-//   that literal. Go reads the annotation or label node as the argument and
-//   misses it.
+// - Recall (Go misses these true positives): an import alias, typealias,
+//   parenthesized, or backticked spelling of java.security.MessageDigest, and
+//   a statically imported getInstance (WeakMessageDigest); a bare
+//   `MessageDigest` in a file that also declares an unrelated, non-shadowing
+//   class named MessageDigest (WeakMessageDigestDeclaredName); an annotated or
+//   labeled literal (`@A "MD5"`, `l@ "MD5"`), which Go reads as the
+//   annotation or label node instead of the literal.
 internal object WeakMessageDigest : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "WeakMessageDigest"
     override val expressionCheckers = object : ExpressionCheckers() {
@@ -67,30 +61,17 @@ internal object WeakMessageDigest : FirFunctionCallChecker(MppCheckerKind.Common
         "MessageDigest.getInstance uses a weak digest algorithm. Use SHA-256, SHA-384, SHA-512, or SHA-3 for security-sensitive hashing."
 
     private val messageDigestClassId = ClassId(FqName("java.security"), Name.identifier("MessageDigest"))
-    private const val SIMPLE_NAME = "MessageDigest"
-    private const val QUALIFIED_NAME = "java.security.MessageDigest"
+    private val getInstanceId = CallableId(messageDigestClassId, Name.identifier("getInstance"))
     private val weakAlgorithms = setOf("MD2", "MD4", "MD5", "SHA-1", "SHA1")
 
-    @OptIn(SymbolInternals::class)
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
         val callee = expression.calleeReference.toResolvedCallableSymbol() ?: return
-        val callableId = callee.callableId ?: return
-        if (callableId.classId != messageDigestClassId || callableId.callableName.asString() != "getInstance") return
-
-        val receiver = expression.explicitReceiver as? FirResolvedQualifier ?: return
-        if (receiver.classId != messageDigestClassId) return
-        val receiverText = receiver.source?.text?.toString()?.trim() ?: return
-        if (receiverText != SIMPLE_NAME && receiverText != QUALIFIED_NAME) return
+        if (callee.callableId != getInstanceId) return
 
         if (expression.argumentList.arguments.isEmpty()) return
         val algorithm = firstArgumentLiteralContent(expression) ?: return
         if (upperCodePoints(trimGoSpace(algorithm)) !in weakAlgorithms) return
-
-        if (receiverText == SIMPLE_NAME) {
-            val file = context.containingFileSymbol?.fir ?: return
-            if (fileDeclaresMessageDigest(file)) return
-        }
 
         report(expression.source, MESSAGE)
     }
@@ -178,28 +159,5 @@ internal object WeakMessageDigest : FirFunctionCallChecker(MppCheckerKind.Common
             i += Character.charCount(cp)
         }
         return out.toString()
-    }
-
-    // Go skips a bare `MessageDigest` receiver when any class, interface,
-    // object, or typealias named MessageDigest is declared anywhere in the file,
-    // including nested and local declarations. Companion objects do not count.
-    private fun fileDeclaresMessageDigest(file: FirFile): Boolean {
-        var found = false
-        file.accept(object : FirVisitorVoid() {
-            override fun visitElement(element: FirElement) {
-                if (found) return
-                val declares = when (element) {
-                    is FirRegularClass -> !element.status.isCompanion && element.name.asString() == SIMPLE_NAME
-                    is FirTypeAlias -> element.name.asString() == SIMPLE_NAME
-                    else -> false
-                }
-                if (declares) {
-                    found = true
-                    return
-                }
-                element.acceptChildren(this)
-            }
-        })
-        return found
     }
 }

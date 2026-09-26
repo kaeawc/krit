@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negative: catch clauses ordered from specific to general, unrelated types,
 // and clauses of different try expressions must NOT trigger
 // UnreachableCatchBlock.

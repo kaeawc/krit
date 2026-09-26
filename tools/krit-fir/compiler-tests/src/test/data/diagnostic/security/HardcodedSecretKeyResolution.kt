@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Positive: the constructor resolves to javax.crypto.spec.SecretKeySpec under
 // spellings the Go rule does not recognize.
 package test

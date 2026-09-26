@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 38, 39, 46, 47, 48, 49, 50, 51, 52, 53, 54, 56, 63, 64, 65, 66, 75, 76, 77
 // Positive: the key is read from a value the source fixes: a const val, a
 // property (val or var, final or open) whose initializer is a hardcoded
 // string, or a Java compile-time constant field.

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 12, 16, 22, 27, 35, 44, 52, 61
 // Divergence (precision): the file imports java.security.SecureRandom, but a
 // local class, a nested class, and a parameter named SecureRandom shadow the
 // import inside their scopes. Go reports every `SecureRandom(seed)` call in a

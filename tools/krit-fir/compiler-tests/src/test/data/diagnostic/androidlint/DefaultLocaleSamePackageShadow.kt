@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 13, 15
 // Same-package extensions beat the default import of kotlin.text, so these
 // calls are the project functions, which take no Locale. Go reports both by
 // name; FIR does not.

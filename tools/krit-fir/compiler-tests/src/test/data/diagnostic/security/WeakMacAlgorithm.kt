@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 27, 31, 32, 34, 36, 38, 41, 46
 // Positives and negatives for WeakMacAlgorithm: javax.crypto.Mac getInstance
 // with a plain string literal naming an HMAC over a broken digest.
 package test

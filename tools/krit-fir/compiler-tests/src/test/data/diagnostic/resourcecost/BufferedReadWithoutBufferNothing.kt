@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Reads Go and FIR both leave alone: a Nothing-typed value (`return`,
 // `throw`, `error()`, `TODO()`, `null`) is a subtype of every stream type but
 // never is a FileInputStream.

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 16, 18, 22, 24
+// go-lines: 17, 19, 23, 25
 // Deliberate precision differences from the Go rule, which substring-matches
 // the declaration text instead of resolving the MutableSharedFlow call.
 package test
@@ -10,9 +10,10 @@ import kotlinx.coroutines.flow.MutableSharedFlow as EventFlow
 fun <T> makeFlow(): MutableSharedFlow<T> = MutableSharedFlow(replay = 1)
 
 class EventBus {
-    // Go reports these because the text contains "MutableSharedFlow<" and an
-    // unrelated ">()" call; FIR is correct because the only MutableSharedFlow
-    // created passes replay.
+    // Go reports these because the text contains "MutableSharedFlow<" and a
+    // ">()" call it does not look into. FIR follows the source factory's body
+    // (SharedFlowWithoutReplayFactory.kt) and the other call: here the only
+    // MutableSharedFlow created passes replay, so no lossy flow is created.
     val factoryMade: MutableSharedFlow<Int> = makeFlow<Int>()
 
     val tagged = MutableSharedFlow<Int>(replay = 1).also { listOf<Int>() }
@@ -39,4 +40,14 @@ class EventBus {
     <!SharedFlowWithoutReplay!>val<!> aliased = EventFlow<Int>()
 
     <!SharedFlowWithoutReplay!>val<!> spaced = MutableSharedFlow<Int>( )
+
+    // Go misses these: the empty argument list spans two lines, so the text
+    // holds "MutableSharedFlow(" plus a line break, which Go treats as a
+    // configured call, or "MutableSharedFlow<Int>(" with no ">()". FIR
+    // reports them because the calls pass no arguments.
+    <!SharedFlowWithoutReplay!>val<!> newline: MutableSharedFlow<Int> = MutableSharedFlow(
+    )
+
+    <!SharedFlowWithoutReplay!>val<!> newlineTyped = MutableSharedFlow<Int>(
+    )
 }

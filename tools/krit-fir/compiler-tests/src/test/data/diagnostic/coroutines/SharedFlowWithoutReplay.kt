@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 14, 17, 19, 21, 23, 28, 32, 34, 36, 38, 47, 48, 53, 54, 58, 62, 66, 72, 83
+// go-lines: 14, 17, 19, 21, 23, 28, 32, 34, 36, 38, 54, 61, 62, 67, 68, 72, 76, 80, 86, 97
 // Positive: a val/var declaration that creates MutableSharedFlow with no
 // arguments, reported once per declaration on its first line (modifier list,
 // else val/var), the line the Go rule reports.
@@ -41,6 +41,20 @@ class EventBus {
     // sibling of the property_declaration, so the declaration text Go matches
     // lacks the call; FIR reports it because every read creates a new lossy flow.
     <!SharedFlowWithoutReplay!>val<!> getterBacked: MutableSharedFlow<Int>
+        get() = MutableSharedFlow()
+
+    // Go misses this for the same reason: a setter on the next line is a
+    // sibling of the property_declaration in tree-sitter. FIR reports it
+    // because every write creates a new lossy flow.
+    <!SharedFlowWithoutReplay!>var<!> setterNext: Int = 0
+        set(value) { MutableSharedFlow<Int>(); field = value }
+
+    // The message names a backticked declaration as written, backticks
+    // included, like Go.
+    <!SharedFlowWithoutReplay!>val<!> `back tick` = MutableSharedFlow<Int>()
+
+    // Go misses this next-line getter too; FIR names it `a b` with backticks.
+    <!SharedFlowWithoutReplay!>val<!> `a b`: MutableSharedFlow<Int>
         get() = MutableSharedFlow()
 
     // Both the enclosing declaration and the local one inside its lambda.

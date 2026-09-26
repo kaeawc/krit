@@ -4,6 +4,7 @@ import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.significantChildren
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.descriptors.Modality
@@ -660,9 +661,6 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
         }
         return content.toString()
     }
-
-    private fun significantChildren(source: KtSourceElement, node: LighterASTNode): List<LighterASTNode> =
-        lightChildren(source, node).filter { it.tokenType != KtTokens.WHITE_SPACE && it.tokenType !in KtTokens.COMMENTS }
 
     // Go's weakKeySizeThreshold.
     private fun threshold(algorithm: String): Int? {

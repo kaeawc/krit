@@ -1,10 +1,9 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import com.intellij.lang.LighterASTNode
-import com.intellij.util.diff.FlyweightCapableTreeStructure
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
-import org.jetbrains.kotlin.KtNodeTypes
+import dev.jasonpearson.krit.fir.support.qualifiedCall
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -19,12 +18,10 @@ import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
 import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
-import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.toKtLightSourceElement
-import org.jetbrains.kotlin.util.getChildren
 
 /**
  * Flags a direct call of a View's `onDraw`, `onMeasure`, or `onLayout` on an
@@ -86,7 +83,6 @@ internal object WrongCall : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
         Name.identifier("onLayout"),
     )
     private val view = ClassId(FqName("android.view"), Name.identifier("View"))
-    private val qualifiedTypes = setOf(KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION)
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
@@ -117,20 +113,6 @@ internal object WrongCall : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
             lookupSuperTypes(symbol, lookupInterfaces = false, deep = true, useSiteSession = context.session)
                 .any { it.lookupTag.classId == view }
 
-    // The qualified expression (`r.f()` / `r?.f()`) whose selector is this
-    // call. K2 gives a dot call the whole qualified expression as its source;
-    // a safe call keeps the selector call expression, so step up to its parent.
-    private fun qualifiedCall(source: KtSourceElement): LighterASTNode? {
-        val tree = source.treeStructure
-        val node = source.lighterASTNode
-        if (node.tokenType in qualifiedTypes) return node
-        if (node.tokenType != KtNodeTypes.CALL_EXPRESSION) return null
-        val parent = tree.getParent(node) ?: return null
-        if (parent.tokenType !in qualifiedTypes) return null
-        val parts = significantChildren(parent, tree)
-        return parent.takeIf { parts.size > 1 && parts.last() == node }
-    }
-
     // A source element for [node], a node in [anchor]'s tree, keeping the
     // anchor's offset shift between tree offsets and file offsets.
     private fun sourceOf(node: LighterASTNode, anchor: KtSourceElement): KtSourceElement {
@@ -142,15 +124,4 @@ internal object WrongCall : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
             endOffset = node.endOffset + shift,
         )
     }
-
-    private fun significantChildren(
-        node: LighterASTNode,
-        tree: FlyweightCapableTreeStructure<LighterASTNode>,
-    ): List<LighterASTNode> =
-        node.getChildren(tree).filter {
-            it.tokenType != KtTokens.WHITE_SPACE &&
-                it.tokenType !in KtTokens.COMMENTS &&
-                it.tokenType != KtTokens.DOT &&
-                it.tokenType != KtTokens.SAFE_ACCESS
-        }
 }

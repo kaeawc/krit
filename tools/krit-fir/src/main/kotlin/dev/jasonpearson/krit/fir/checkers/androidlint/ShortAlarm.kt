@@ -1,12 +1,9 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
-import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
-import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
-import org.jetbrains.kotlin.KtNodeTypes
-import org.jetbrains.kotlin.KtSourceElement
+import dev.jasonpearson.krit.fir.support.qualifiedCall
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -46,7 +43,6 @@ import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
-import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
@@ -104,7 +100,6 @@ internal object ShortAlarm : FirFunctionCallChecker(MppCheckerKind.Common), FirR
     private val alarmManager = ClassId(FqName("android.app"), Name.identifier("AlarmManager"))
     private val alarmManagerType = alarmManager.constructClassLikeType(emptyArray(), isMarkedNullable = true)
     private val repeatingSetters = setOf(Name.identifier("setRepeating"), Name.identifier("setInexactRepeating"))
-    private val qualifiedTypes = setOf(KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION)
     private val integralKinds = setOf(
         ConstantValueKind.Int,
         ConstantValueKind.Long,
@@ -366,23 +361,5 @@ internal object ShortAlarm : FirFunctionCallChecker(MppCheckerKind.Common), FirR
             }
         }
         else -> null
-    }
-
-    // The qualified expression (`r.f()` / `r?.f()`) whose selector is this
-    // call. K2 gives a dot call the whole qualified expression as its source;
-    // a safe call keeps the selector call expression, so step up to its parent.
-    private fun qualifiedCall(source: KtSourceElement): LighterASTNode? {
-        val node = source.lighterASTNode
-        if (node.tokenType in qualifiedTypes) return node
-        if (node.tokenType != KtNodeTypes.CALL_EXPRESSION) return null
-        val parent = source.treeStructure.getParent(node) ?: return null
-        if (parent.tokenType !in qualifiedTypes) return null
-        val parts = lightChildren(source, parent).filter {
-            it.tokenType != KtTokens.WHITE_SPACE &&
-                it.tokenType !in KtTokens.COMMENTS &&
-                it.tokenType != KtTokens.DOT &&
-                it.tokenType != KtTokens.SAFE_ACCESS
-        }
-        return parent.takeIf { parts.size > 1 && parts.last() == node }
     }
 }

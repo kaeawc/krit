@@ -1,10 +1,9 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
-import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
-import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
+import dev.jasonpearson.krit.fir.support.qualifiedCall
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -42,7 +41,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
-import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
@@ -127,7 +125,6 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
     // Scope functions that return their receiver (or null).
     private val returningScopeFunctions = setOf("also", "apply", "takeIf", "takeUnless").map(Name::identifier).toSet()
 
-    private val qualifiedTypes = setOf(KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION)
     private const val MAX_ALIAS_STEPS = 32
 
     // What the function's scope-function lambdas bind (see [check]), the
@@ -257,19 +254,6 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
         return Candidate(call, lightSourceOf(qualified, source), explicit, function)
     }
 
-    // The qualified expression (`r.f()` / `r?.f()`) whose selector is this
-    // call: the call's own source (a dot call's, or a safe call's desugared
-    // one), or the parent of a selector call expression.
-    private fun qualifiedCall(source: KtSourceElement): LighterASTNode? {
-        val node = source.lighterASTNode
-        if (node.tokenType in qualifiedTypes) return node
-        if (node.tokenType != KtNodeTypes.CALL_EXPRESSION) return null
-        val parent = source.treeStructure.getParent(node) ?: return null
-        if (parent.tokenType !in qualifiedTypes) return null
-        val parts = significantChildren(source, parent)
-        return parent.takeIf { parts.size > 1 && parts.last() == node }
-    }
-
     // The identities a receiver goes by, each the variable it reads as a path
     // from a root (a local, a parameter, a `this`, a qualifier) through the
     // properties and calls of its receiver chain: `lock` in a class and
@@ -387,17 +371,6 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
 
     private fun unwrapArgument(argument: FirExpression): FirExpression =
         if (argument is FirWrappedArgumentExpression) unwrapArgument(argument.expression) else argument
-
-    private fun significantChildren(anchor: KtSourceElement, node: LighterASTNode): List<LighterASTNode> =
-        lightChildren(anchor, node).filter {
-            it.tokenType != KtTokens.WHITE_SPACE &&
-                it.tokenType !in KtTokens.COMMENTS &&
-                it.tokenType != KtTokens.DOT &&
-                it.tokenType != KtTokens.SAFE_ACCESS &&
-                it.tokenType != KtTokens.LPAR &&
-                it.tokenType != KtTokens.RPAR &&
-                it.tokenType != KtNodeTypes.OPERATION_REFERENCE
-        }
 
     private fun isWakeLockReceiver(candidate: Candidate, session: FirSession): Boolean {
         // The receiver's type as used here, smart casts included.

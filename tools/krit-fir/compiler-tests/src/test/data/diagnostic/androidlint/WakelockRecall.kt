@@ -81,3 +81,16 @@ fun releasedQualified(holder: Holder) {
     holder.lock.acquire()
     holder.lock.release()
 }
+
+// Go misses these: it cannot type a constructor call or an object expression.
+// Each is a subtype of a local class named WakeLock, acquired and never
+// released.
+fun localClassInstances() {
+    open class WakeLock {
+        fun acquire() {}
+        fun release() {}
+    }
+    class Child : WakeLock()
+    <!Wakelock!>Child().acquire()<!>
+    <!Wakelock!>object : WakeLock() {}.acquire()<!>
+}

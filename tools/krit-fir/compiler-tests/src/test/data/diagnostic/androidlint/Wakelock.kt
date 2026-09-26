@@ -106,10 +106,11 @@ class SyncService(private val powerManager: PowerManager) {
 
     fun expressionBody() = <!Wakelock!>lock.acquire()<!>
 
-    // Like Go, a release matches by the receiver's last identifier, so the
-    // same property reached through another chain counts.
+    // Go misses this: it matches a release by the receiver's last identifier,
+    // so `second.lock` clears `first.lock`. They are different objects, and
+    // `first.lock` is never released.
     fun releasedByName(first: SyncService, second: SyncService) {
-        first.lock.acquire()
+        <!Wakelock!>first.lock.acquire()<!>
         second.lock.release()
     }
 

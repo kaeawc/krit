@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 45, 55
+// go-lines: 54, 64
 // Lookalikes for Wakelock: `acquire` on receivers that are not WakeLocks is
 // not reported. A third-party class named WakeLock, and a variable a call
 // written `newWakeLock` initializes, count as WakeLocks, as in Go.
@@ -35,8 +35,17 @@ fun bareCall() {
     acquire()
 }
 
+// Go misses this: it needs a written receiver. The implicit receiver is a
+// WakeLock that is never released.
 fun implicitReceiver(lock: android.os.PowerManager.WakeLock) {
     with(lock) {
+        <!Wakelock!>acquire()<!>
+    }
+}
+
+// The implicit receiver of `acquire()` here is the Semaphore.
+fun implicitSemaphore(permits: Semaphore) {
+    with(permits) {
         acquire()
     }
 }

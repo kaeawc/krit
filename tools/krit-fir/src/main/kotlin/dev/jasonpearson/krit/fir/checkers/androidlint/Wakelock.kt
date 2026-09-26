@@ -24,6 +24,7 @@ import org.jetbrains.kotlin.fir.expressions.FirElvisExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
@@ -36,6 +37,7 @@ import org.jetbrains.kotlin.fir.resolve.toClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
@@ -66,32 +68,33 @@ import org.jetbrains.kotlin.name.Name
  * local functions, and local classes included, before or after the acquire)
  * has a call written `release` whose receiver is a WakeLock by the same test
  * (the variable fallback is read in the release's own nearest named
- * function) and names the same thing as the acquire's receiver. Like Go, the
- * name is the last identifier of the receiver as written (`wl`, `this.wl`,
- * `holder.wl`, and `getLock()` name `wl`, `wl`, `wl`, and `getLock`), so a
- * release through another chain with the same last segment counts. The
- * finding sits on the acquire call's first line, which is the receiver's
- * first line, with Go's message.
+ * function) and is the same object as the acquire's receiver: the same
+ * variable reached through the same receiver chain (`wl` and `this.wl` in a
+ * class are the same, `holder.wl` is not), or an alias of it. The finding
+ * sits on the acquire call's first line, which is the receiver's first line,
+ * with Go's message.
  *
  * Deliberate differences from Go, each pinned in the golden data:
- * - Go reads no name through parentheses or `!!`, so it reports
- *   `(wl).acquire()` even when `wl` is released, and cannot type `wl!!`.
- *   This checker reads the name through both.
- * - A receiver also names the variables it aliases: a local variable names
- *   the variable it holds where it is read (its last assignment before the
- *   read in source order, else its initializer: `val lock = wakeLock`,
+ * - Go matches a release by the last identifier of its receiver as written,
+ *   so `second.wl.release()` clears `first.wl.acquire()`, and Go reads no
+ *   name through parentheses or `!!` (it reports `(wl).acquire()` even when
+ *   `wl` is released, and cannot type `wl!!`). This checker matches by
+ *   receiver identity, through parentheses and `!!`.
+ * - A receiver is also the variable it aliases: a local variable is the
+ *   variable it holds where it is read (its last assignment before the read
+ *   in source order, else its initializer: `val lock = wakeLock`,
  *   `val lock = wakeLock ?: return`), and the parameter of a `let`, `also`,
  *   `takeIf`, or `takeUnless` lambda, like the receiver of an `apply`,
- *   `run`, or `with` lambda, names that call's receiver (looking through
+ *   `run`, or `with` lambda, is that call's receiver (looking through
  *   `also`, `apply`, `takeIf`, and `takeUnless` calls, which return their
  *   receiver). So `wakeLock?.let { it.release() }` releases `wakeLock`,
- *   which Go does not see. A call result is not an alias, as each call may
- *   return a different lock (Go's name match does not relate `val a = f()`
- *   to `f()` either).
- * - A release on an implicit receiver (`with(lock) { release() }`,
- *   `release()` in a WakeLock extension) counts, and `this` names the
- *   declaration or lambda it is bound to. Go needs a written receiver for a
- *   release and reads no name from `this`.
+ *   which Go does not see, and `other.wakeLock.let { it.release() }` does
+ *   not. A call result is not an alias of a local, as each call may return a
+ *   different lock.
+ * - An acquire or release on an implicit receiver (`with(lock) {
+ *   release() }`, `acquire()` in a WakeLock extension) counts, and `this` is
+ *   the declaration or lambda receiver it is bound to. Go needs a written
+ *   receiver and reads no name from `this`.
  * - Resolution types receivers Go's source inference cannot: a
  *   `PowerManager.WakeLock` annotation (Go reads it as `PowerManager`), a
  *   property or local initialized from `newWakeLock`, a call result, a type
@@ -127,21 +130,21 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
     private val qualifiedTypes = setOf(KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION)
     private const val MAX_ALIAS_STEPS = 32
 
-    // What the function's scope-function lambdas bind (see [check]) and the
-    // assignments to its local vars.
+    // What the function's scope-function lambdas bind (see [check]), the
+    // assignments to its local vars, and the other properties it assigns.
     private class Bindings(
         val scopes: Map<FirBasedSymbol<*>, FirExpression>,
         val assignments: Map<FirBasedSymbol<*>, List<FirVariableAssignment>>,
+        val reassigned: Set<FirBasedSymbol<*>>,
     )
 
     // A call written `acquire` or `release` on a WakeLock receiver: the call,
-    // its source (for a written receiver, the qualified expression, which is
-    // the finding's anchor), the written receiver's light-tree node, the
-    // receiver, and the named function whose body Go searches for it.
+    // its source (for a written receiver, the qualified expression), which is
+    // the finding's anchor, the receiver, and the named function whose body Go
+    // searches for it.
     private class Candidate(
         val call: FirFunctionCall,
         val anchor: KtSourceElement,
-        val written: LighterASTNode?,
         val receiver: FirExpression,
         val function: FirNamedFunction,
     )
@@ -158,6 +161,8 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
         val aliases = HashMap<FirBasedSymbol<*>, FirExpression>()
         // The assignments to each local var after its declaration.
         val assignments = HashMap<FirBasedSymbol<*>, MutableList<FirVariableAssignment>>()
+        // The properties other than locals that the body assigns.
+        val reassigned = HashSet<FirBasedSymbol<*>>()
         val functions = ArrayDeque<FirNamedFunction>()
         declaration.accept(object : FirVisitorVoid() {
             override fun visitElement(element: FirElement) {
@@ -170,13 +175,17 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
                 if (element is FirVariableAssignment) {
                     val target = element.lValue as? FirQualifiedAccessExpression
                     val symbol = target?.calleeReference?.toResolvedCallableSymbol() as? FirPropertySymbol
-                    if (symbol != null && symbol.isLocal) assignments.getOrPut(symbol) { ArrayList() } += element
+                    if (symbol != null && symbol.isLocal) {
+                        assignments.getOrPut(symbol) { ArrayList() } += element
+                    } else if (symbol != null) {
+                        reassigned += symbol
+                    }
                 }
                 if (element is FirFunctionCall) {
                     val name = element.calleeReference.name
                     recordScopeLambda(element, aliases)
                     if (name == acquire || name == release) {
-                        val candidate = candidate(element, functions.last(), implicit = name == release)
+                        val candidate = candidate(element, functions.last())
                         if (candidate != null && isWakeLockReceiver(candidate, session)) {
                             // An acquire inside a nested named function belongs
                             // to that function's own check; a release anywhere
@@ -193,10 +202,10 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
             }
         })
         if (acquires.isEmpty()) return
-        val bindings = Bindings(aliases, assignments)
-        val released = releases.flatMapTo(HashSet()) { names(it, bindings) }
+        val bindings = Bindings(aliases, assignments, reassigned)
+        val released = releases.flatMapTo(HashSet()) { identities(it.receiver, bindings) }
         for (acquired in acquires) {
-            if (names(acquired, bindings).none { it in released }) report(acquired.anchor, MESSAGE)
+            if (identities(acquired.receiver, bindings).none { it in released }) report(acquired.anchor, MESSAGE)
         }
     }
 
@@ -205,8 +214,12 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
         if (name !in lambdaScopeFunctions && name !in receiverScopeFunctions) return
         if (!isStdlib(call)) return
         val arguments = call.argumentList.arguments.map(::unwrapArgument)
-        // `with(lock) { ... }` takes its receiver as the first argument.
-        val subject = call.explicitReceiver ?: arguments.firstOrNull()?.takeIf { name == with } ?: return
+        // `with(lock) { ... }` takes its receiver as the first argument, and
+        // `run { ... }` in a class runs on the implicit `this`.
+        val subject = call.explicitReceiver
+            ?: arguments.firstOrNull()?.takeIf { name == with }
+            ?: call.extensionReceiver
+            ?: return
         for (argument in arguments) {
             val lambda = (argument as? FirAnonymousFunctionExpression)?.anonymousFunction ?: continue
             if (name in lambdaScopeFunctions) {
@@ -223,10 +236,10 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
     private fun isStdlib(call: FirFunctionCall): Boolean =
         call.calleeReference.toResolvedCallableSymbol()?.callableId?.packageName == kotlinPackage
 
-    // Go takes an acquire or release only with a written receiver. A release
-    // on an implicit receiver (`with(lock) { release() }`, `release()` in a
-    // WakeLock extension) also counts here, when [implicit] is set.
-    private fun candidate(call: FirFunctionCall, function: FirNamedFunction, implicit: Boolean): Candidate? {
+    // Go takes an acquire or release only with a written receiver. One on an
+    // implicit receiver (`with(lock) { release() }`, `acquire()` in a
+    // WakeLock extension) also counts here.
+    private fun candidate(call: FirFunctionCall, function: FirNamedFunction): Candidate? {
         val source = call.source ?: return null
         // A safe call's selector carries the whole `r?.f()` as a desugared
         // source; any other fake source is not a call in the code.
@@ -235,15 +248,13 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
         }
         val explicit = call.explicitReceiver
         if (explicit == null) {
-            if (!implicit) return null
             val receiver = listOfNotNull(call.dispatchReceiver, call.extensionReceiver)
                 .firstOrNull { it is FirThisReceiverExpression && it.isImplicit }
                 ?: return null
-            return Candidate(call, source, null, receiver, function)
+            return Candidate(call, source, receiver, function)
         }
         val qualified = qualifiedCall(source) ?: return null
-        val written = significantChildren(source, qualified).firstOrNull() ?: return null
-        return Candidate(call, lightSourceOf(qualified, source), written, explicit, function)
+        return Candidate(call, lightSourceOf(qualified, source), explicit, function)
     }
 
     // The qualified expression (`r.f()` / `r?.f()`) whose selector is this
@@ -259,56 +270,90 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
         return parent.takeIf { parts.size > 1 && parts.last() == node }
     }
 
-    // The names a receiver goes by: its own last identifier as Go reads it,
-    // then the variables it may alias, and for `this`, the declaration it is
-    // bound to. Empty names never match.
-    private fun names(candidate: Candidate, bindings: Bindings): Set<String> {
-        val out = HashSet<String>()
-        candidate.written?.let { referenceName(candidate.anchor, it) }?.takeIf { it.isNotEmpty() }?.let(out::add)
-        val queue = ArrayDeque(listOf(candidate.receiver))
-        val seen = HashSet<FirExpression>()
-        var steps = 0
-        while (queue.isNotEmpty() && steps++ < MAX_ALIAS_STEPS) {
-            val current = queue.removeFirst()
-            thisName(current, bindings)?.let(out::add)
-            for (target in aliasTargets(current, bindings)) {
-                if (!seen.add(target)) continue
-                val source = target.source ?: continue
-                referenceName(source, source.lighterASTNode).takeIf { it.isNotEmpty() }?.let(out::add)
-                queue += target
+    // The identities a receiver goes by, each the variable it reads as a path
+    // from a root (a local, a parameter, a `this`, a qualifier) through the
+    // properties and calls of its receiver chain: `lock` in a class and
+    // `this.lock` are both [this@Class, lock], and `other.lock` is
+    // [other, lock]. A local variable also goes by the variable it holds
+    // where it is read (its last assignment before the read in source order,
+    // else its initializer: `val lock = wakeLock`, `val lock = wakeLock ?:
+    // return`), and the parameter of a let / also / takeIf / takeUnless
+    // lambda, like the receiver of an apply / run / with lambda, by that
+    // call's receiver. A call result is not an alias of a local, as each call
+    // may return a different lock. Empty for a receiver with no such path (a
+    // cast, an index, a literal), which never matches.
+    private fun identities(expression: FirExpression, bindings: Bindings, depth: Int = 0): Set<List<Any>> {
+        if (depth > MAX_ALIAS_STEPS) return emptySet()
+        val next = depth + 1
+        return when (val current = unwrap(expression)) {
+            is FirSafeCallExpression ->
+                (current.selector as? FirExpression)?.let { identities(it, bindings, next) }.orEmpty()
+            is FirThisReceiverExpression -> {
+                val bound = current.calleeReference.boundSymbol ?: return emptySet()
+                val subject = bindings.scopes[bound]
+                setOf(listOf<Any>(bound)) + subject?.let { identities(it, bindings, next) }.orEmpty()
             }
+            is FirResolvedQualifier -> {
+                val symbol = current.symbol ?: return emptySet()
+                val companion = (symbol as? FirRegularClassSymbol)?.resolvedCompanionObjectSymbol
+                setOf(listOf<Any>(if (current.resolvedToCompanionObject && companion != null) companion else symbol))
+            }
+            is FirFunctionCall -> {
+                val symbol = current.calleeReference.toResolvedCallableSymbol() ?: return emptySet()
+                when {
+                    // also / apply / takeIf / takeUnless return their receiver.
+                    current.calleeReference.name in returningScopeFunctions && isStdlib(current) ->
+                        current.explicitReceiver?.let { identities(it, bindings, next) }.orEmpty()
+                    // Only a call written as one; an operator (an index, `+`) has no path.
+                    !isWrittenCall(current) -> emptySet()
+                    else -> chain(current, symbol, bindings, next)
+                }
+            }
+            is FirQualifiedAccessExpression -> {
+                when (val symbol = current.calleeReference.toResolvedCallableSymbol()) {
+                    null -> emptySet()
+                    is FirPropertySymbol -> if (symbol.isLocal) {
+                        // A local holds the value its alias had when assigned,
+                        // so a property the function assigns may have changed
+                        // since: `val old = this.lock; this.lock = new` does
+                        // not make `old` the new lock.
+                        val held = valueAt(symbol, current, bindings)
+                            ?.let(::variableOf)?.let { identities(it, bindings, next) }.orEmpty()
+                            .filterTo(HashSet()) { path -> path.none { it in bindings.reassigned } }
+                        setOf(listOf<Any>(symbol)) + held
+                    } else {
+                        chain(current, symbol, bindings, next)
+                    }
+                    is FirValueParameterSymbol -> setOf(listOf<Any>(symbol)) +
+                        bindings.scopes[symbol]?.let { identities(it, bindings, next) }.orEmpty()
+                    else -> chain(current, symbol, bindings, next)
+                }
+            }
+            else -> emptySet()
         }
-        return out
     }
 
-    // A `this` bound to a declaration (a class, or a function's extension
-    // receiver) is named by that declaration; one bound to a scope lambda is
-    // an alias instead.
-    private fun thisName(expression: FirExpression, bindings: Bindings): String? {
-        val receiver = unwrap(expression) as? FirThisReceiverExpression ?: return null
-        val bound = receiver.calleeReference.boundSymbol ?: return null
-        if (bound in bindings.scopes) return null
-        return "this@" + System.identityHashCode(bound)
+    // A member reached through its receiver: each identity of the receiver
+    // (explicit, else the implicit dispatch or extension receiver) followed by
+    // the member; the member alone when it has no receiver (a top-level
+    // property or function).
+    private fun chain(
+        access: FirQualifiedAccessExpression,
+        symbol: FirBasedSymbol<*>,
+        bindings: Bindings,
+        depth: Int,
+    ): Set<List<Any>> {
+        val receiver = access.explicitReceiver ?: access.dispatchReceiver ?: access.extensionReceiver
+            ?: return setOf(listOf<Any>(symbol))
+        return identities(receiver, bindings, depth).mapTo(HashSet()) { it + symbol }
     }
 
-    // The variable an expression aliases: the value of a local variable where
-    // it is read (its last assignment before the read, else its initializer;
-    // the left side of an elvis), or the receiver of the scope function whose
-    // lambda parameter or receiver it is. Only a variable counts, not a call,
-    // whose every evaluation may return a different lock.
-    private fun aliasTargets(expression: FirExpression, bindings: Bindings): List<FirExpression> {
-        val access = unwrap(expression) as? FirQualifiedAccessExpression ?: return emptyList()
-        if (access is FirFunctionCall) return emptyList()
-        val value = if (access is FirThisReceiverExpression) {
-            access.calleeReference.boundSymbol?.let(bindings.scopes::get)
-        } else {
-            when (val symbol = access.calleeReference.toResolvedCallableSymbol()) {
-                is FirPropertySymbol -> if (symbol.isLocal) valueAt(symbol, access, bindings) else null
-                is FirValueParameterSymbol -> bindings.scopes[symbol]
-                else -> null
-            }
+    private fun isWrittenCall(call: FirFunctionCall): Boolean {
+        val source = call.source ?: return false
+        if (source.kind !is KtRealSourceElementKind && source.kind != KtFakeSourceElementKind.DesugaredSafeCallExpression) {
+            return false
         }
-        return listOfNotNull(value?.let(::variableOf))
+        return source.lighterASTNode.tokenType == KtNodeTypes.CALL_EXPRESSION || qualifiedCall(source) != null
     }
 
     // The value a local variable holds where [read] reads it, going by source
@@ -342,32 +387,6 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
 
     private fun unwrapArgument(argument: FirExpression): FirExpression =
         if (argument is FirWrappedArgumentExpression) unwrapArgument(argument.expression) else argument
-
-    // The last identifier of a receiver as Go reads it: a name, the selector
-    // of a qualified expression, or a call's callee. This checker also reads
-    // through `!!` and parentheses, where Go reads no name. Empty otherwise
-    // (`this`, an index, a cast, a literal), which never matches a release.
-    private fun referenceName(anchor: KtSourceElement, node: LighterASTNode): String {
-        val children = significantChildren(anchor, node)
-        return when (node.tokenType) {
-            KtNodeTypes.REFERENCE_EXPRESSION -> anchor.treeStructure.toString(node).toString()
-            KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION ->
-                children.lastOrNull()?.takeIf { children.size > 1 }?.let { referenceName(anchor, it) }.orEmpty()
-            KtNodeTypes.CALL_EXPRESSION -> children.firstOrNull()
-                ?.takeIf { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION || it.tokenType == KtNodeTypes.CALL_EXPRESSION }
-                ?.let { referenceName(anchor, it) }
-                .orEmpty()
-            KtNodeTypes.POSTFIX_EXPRESSION -> {
-                val notNull = lightChildren(anchor, node).any { child ->
-                    child.tokenType == KtNodeTypes.OPERATION_REFERENCE &&
-                        lightChildren(anchor, child).any { it.tokenType == KtTokens.EXCLEXCL }
-                }
-                if (notNull) children.firstOrNull()?.let { referenceName(anchor, it) }.orEmpty() else ""
-            }
-            KtNodeTypes.PARENTHESIZED -> children.firstOrNull()?.let { referenceName(anchor, it) }.orEmpty()
-            else -> ""
-        }
-    }
 
     private fun significantChildren(anchor: KtSourceElement, node: LighterASTNode): List<LighterASTNode> =
         lightChildren(anchor, node).filter {

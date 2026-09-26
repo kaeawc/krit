@@ -45,9 +45,13 @@ import org.jetbrains.kotlin.types.ConstantValueKind
 //   `fun check`, a function-typed value named `check`).
 // - Precision: an operand whose type is not nullable is skipped even when
 //   Go cannot resolve it by name (a call, a property chain, an inferred
-//   local), because there is no nullable value to pass to checkNotNull.
+//   local, a lambda or loop parameter) or does not narrow it (a contract,
+//   `!!`, `as`, `when`, an equality), because there is no nullable value to
+//   pass to checkNotNull.
 // - Recall: an import alias of kotlin.check and a backticked `check` still
-//   call kotlin.check; Go compares the raw callee text and misses them.
+//   call kotlin.check; Go compares the raw callee text and misses them. A
+//   parenthesized `(null)` is still a null literal, and a mutable property
+//   keeps its nullable type after an early return, where Go narrows it.
 internal object UseCheckNotNull : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "UseCheckNotNull"
     override val expressionCheckers = object : ExpressionCheckers() {

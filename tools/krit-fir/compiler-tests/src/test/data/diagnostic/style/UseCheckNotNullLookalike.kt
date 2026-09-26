@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 17, 21, 22, 27, 35, 41
+// go-lines: 17, 21, 22, 27, 35, 41, 51, 56
 // Lookalikes: calls named `check` that do not resolve to kotlin.check, so
 // checkNotNull is not a replacement for them. Go matches the callee name alone
 // and reports every call below; the checker requires kotlin.check.
@@ -39,4 +39,20 @@ class Subclass {
 fun functionTypedValue(x: Any?) {
     val check: (Boolean) -> Unit = {}
     check(x != null)
+}
+
+class Guard
+
+fun Guard.check(value: Boolean) {}
+
+// An extension `check` on the implicit receiver takes priority over the
+// default import of kotlin.check.
+fun Guard.extensionReceiver(x: Any?) {
+    check(x != null)
+}
+
+fun extensionInScope(guard: Guard, x: Any?) {
+    with(guard) {
+        check(x != null)
+    }
 }

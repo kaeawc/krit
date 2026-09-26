@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 34
+// go-lines: 35
 // Divergence (recall): platform SmsManager sends to a non-E.164 literal that
 // Go misses, each a true positive FIR resolves. Go needs the receiver's
 // identifiers to start with `SmsManager`, the receiver's simple name to be
@@ -11,6 +11,7 @@
 //   which has no declaration Go can find.
 // - A property inherited from a base class declared in another class.
 // - Implicit receivers of scope functions (`with`, `apply`).
+// - A receiver typed through a type alias, and an annotated destination.
 // The one Go finding here is the unaliased `SmsManager.getDefault()` chain.
 package test
 
@@ -48,4 +49,18 @@ fun implicitReceivers(manager: SmsManager) {
     manager.apply {
         <!NonInternationalizedSms!>sendMultipartTextMessage("5551234567", null, arrayListOf("Hi"), null, null)<!>
     }
+}
+
+// A receiver typed through a type alias: Go looks for `SmsManager` in the
+// declaration, which spells `SmsAlias`.
+typealias SmsAlias = SmsManager
+
+fun typeAlias(s: SmsAlias) {
+    <!NonInternationalizedSms!>s.sendTextMessage("5551234567", null, "Hi", null, null)<!>
+}
+
+// An annotated destination literal: Go needs the argument to be a bare
+// string literal; the annotation does not change the value FIR reads.
+fun annotatedDestination(sms: SmsManager) {
+    <!NonInternationalizedSms!>sms.sendTextMessage(@Suppress("X") "5551234567", null, "Hi", null, null)<!>
 }

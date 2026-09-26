@@ -1,11 +1,14 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 30, 32, 36, 37, 42
-// Divergence (precision): calls Go reports that do not reach the platform
-// android.telephony.SmsManager, so no SMS destination is involved. Go cannot
-// resolve the receiver and accepts one spelled starting with `SmsManager`,
-// one named `smsManager`, or a name whose declaration in an enclosing
-// function or class mentions `SmsManager`.
-// - A project class named SmsManager (this file imports no platform class).
+// go-lines: 33, 35, 39, 40, 45
+// A project class named SmsManager (this file imports no platform class) is
+// matched by its simple name in any package, as Go matches it, so both report
+// its sendTextMessage calls: an SmsManager sends to a destination that is not
+// E.164.
+// Divergence (precision): calls Go reports that reach no class named
+// SmsManager, so no SMS destination is involved. Go cannot resolve the
+// receiver and accepts one spelled starting with `SmsManager`, one named
+// `smsManager`, or a name whose declaration in an enclosing function or class
+// mentions `SmsManager`.
 // - A `smsManager` receiver of a project messenger type.
 // - A variable whose initializer mentions SmsManager but holds a project
 //   messenger.
@@ -27,9 +30,9 @@ class Messenger(val backend: Any?) {
 }
 
 fun projectClass() {
-    SmsManager.getDefault().sendTextMessage("5551234567", null, "Hi", null, null)
+    <!NonInternationalizedSms!>SmsManager.getDefault().sendTextMessage("5551234567", null, "Hi", null, null)<!>
     val sms = SmsManager()
-    sms.sendTextMessage("5551234567", null, "Hi", null, null)
+    <!NonInternationalizedSms!>sms.sendTextMessage("5551234567", null, "Hi", null, null)<!>
 }
 
 fun namedLikeTheManager(smsManager: Messenger) {

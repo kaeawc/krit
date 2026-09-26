@@ -106,7 +106,10 @@ internal object SuspendFunInFinallySection : FirExpressionChecker<FirTryExpressi
         if (callableId == runBlocking) return false
         if (callableId in contextTakingBuilders && holdsNonCancellable(call)) return false
         val source = call.source ?: return true
-        if (source.kind is KtFakeSourceElementKind) return true
+        // Compiler-generated calls (a for loop's hasNext, a destructuring
+        // componentN) are not written in the finally block. The selector of a
+        // safe call (`job?.join()`) carries a fake kind but is the written call.
+        if (source.kind is KtFakeSourceElementKind && source.kind != KtFakeSourceElementKind.DesugaredSafeCallExpression) return true
         val reported = symbol.isSuspend ||
             ((callableId == launch || callableId == async) && call.explicitReceiver == null)
         if (reported) {

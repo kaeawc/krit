@@ -34,9 +34,10 @@ import org.jetbrains.kotlin.name.Name
 // with a parenthesized argument list that holds no value argument. FIR decides
 // on resolution instead, with the Go message and the finding on the callee's
 // line:
-// - the call must resolve to the stdlib factory, so a same-package, local or
-//   member function named `listOf` is not flagged (Go reports any callee with
-//   that name);
+// - the call must resolve to the stdlib factory, so a same-package, imported,
+//   local or member function named `listOf`, the invoke of a property or
+//   object named `listOf`, and another function imported under the alias
+//   `listOf` are not flagged (Go reports any callee with that name);
 // - the call must pass no element at all, so a trailing lambda, which Kotlin
 //   passes as the single vararg element (`listOf() { 1 }` is a one-element
 //   list), is not flagged (Go only counts the arguments inside the
@@ -94,14 +95,22 @@ internal object UseEmptyCounterpart : FirFunctionCallChecker(MppCheckerKind.Comm
     // the literal no longer names its function. Only the stdlib array
     // factories (`arrayOf`, `emptyArray`, `intArrayOf`, ...) are allowed there,
     // and `[]` has a collection-literal source, so the callee's written name,
-    // mapped through an import alias, tells which factory it was.
+    // mapped through an import alias when the call is unqualified, tells which
+    // factory it was.
     private object AnnotationArrayOf : FirExpressionChecker<FirCollectionLiteral>(MppCheckerKind.Common) {
         context(context: CheckerContext, reporter: DiagnosticReporter)
         override fun check(expression: FirCollectionLiteral) {
             if (passesElement(expression.argumentList)) return
             val source = expression.source ?: return
-            val callee = calleeNode(source, source.lighterASTNode) ?: return
-            if (factoryName(lightText(source, callee).removeSurrounding("`")) != ARRAY_OF) return
+            val node = source.lighterASTNode
+            val callee = calleeNode(source, node) ?: return
+            val written = lightText(source, callee).removeSurrounding("`")
+            // An import alias renames only unqualified references: with
+            // `import kotlin.emptyArray as arrayOf`, `kotlin.arrayOf()` is
+            // still the stdlib arrayOf.
+            val qualified = node.tokenType == KtNodeTypes.DOT_QUALIFIED_EXPRESSION
+            val name = if (qualified) Name.identifier(written) else factoryName(written)
+            if (name != ARRAY_OF) return
             report(lightSourceOf(callee, source), message(ARRAY_OF, "emptyArray"))
         }
 
@@ -115,8 +124,8 @@ internal object UseEmptyCounterpart : FirFunctionCallChecker(MppCheckerKind.Comm
             else -> null
         }
 
-        // The name of the function a written callee name stands for: the
-        // imported name when the file imports it under that alias.
+        // The name of the function an unqualified written callee name stands
+        // for: the imported name when the file imports it under that alias.
         @OptIn(SymbolInternals::class)
         context(context: CheckerContext)
         private fun factoryName(written: String): Name {

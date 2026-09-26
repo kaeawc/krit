@@ -201,10 +201,33 @@ abstract class RoomDatabase {
 
         open fun allowMainThreadQueries(): Builder<T> = TODO()
 
-        @Deprecated("Replace by overloaded version with parameter to indicate if all tables should be dropped or not.")
+        // The Boolean overloads of fallbackToDestructiveMigration,
+        // fallbackToDestructiveMigrationOnDowngrade and
+        // fallbackToDestructiveMigrationFrom are final (`actual fun` in the
+        // KMP source); the deprecated forms without the Boolean are open.
+        @Deprecated(
+            "Replace by overloaded version with parameter to indicate if all tables should be dropped or not.",
+            ReplaceWith("fallbackToDestructiveMigration(false)"),
+        )
         open fun fallbackToDestructiveMigration(): Builder<T> = TODO()
 
-        open fun fallbackToDestructiveMigration(dropAllTables: Boolean): Builder<T> = TODO()
+        fun fallbackToDestructiveMigration(dropAllTables: Boolean): Builder<T> = TODO()
+
+        @Deprecated(
+            "Replace by overloaded version with parameter to indicate if all tables should be dropped or not.",
+            ReplaceWith("fallbackToDestructiveMigrationOnDowngrade(false)"),
+        )
+        open fun fallbackToDestructiveMigrationOnDowngrade(): Builder<T> = TODO()
+
+        fun fallbackToDestructiveMigrationOnDowngrade(dropAllTables: Boolean): Builder<T> = TODO()
+
+        @Deprecated(
+            "Replace by overloaded version with parameter to indicate if all tables should be dropped or not.",
+            ReplaceWith("fallbackToDestructiveMigrationFrom(false, startVersions)"),
+        )
+        open fun fallbackToDestructiveMigrationFrom(vararg startVersions: Int): Builder<T> = TODO()
+
+        fun fallbackToDestructiveMigrationFrom(dropAllTables: Boolean, vararg startVersions: Int): Builder<T> = TODO()
 
         open fun createFromAsset(databaseFilePath: String): Builder<T> = TODO()
 
@@ -216,8 +239,11 @@ object Room {
     fun <T : RoomDatabase> databaseBuilder(context: Context, klass: Class<T>, name: String?): RoomDatabase.Builder<T> =
         TODO()
 
-    inline fun <reified T : RoomDatabase> databaseBuilder(context: Context, name: String): RoomDatabase.Builder<T> =
-        TODO()
+    inline fun <reified T : RoomDatabase> databaseBuilder(
+        context: Context,
+        name: String,
+        noinline factory: () -> T = { TODO() },
+    ): RoomDatabase.Builder<T> = TODO()
 
     fun <T : RoomDatabase> inMemoryDatabaseBuilder(context: Context, klass: Class<T>): RoomDatabase.Builder<T> =
         TODO()

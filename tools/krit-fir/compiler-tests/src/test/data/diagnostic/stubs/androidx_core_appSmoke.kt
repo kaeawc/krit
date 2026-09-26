@@ -28,6 +28,7 @@ fun postCompat(context: Context) {
         .setSmallIcon(android.R.drawable.ic_menu_add)
         .setContentTitle("Title")
         .setContentText("Body")
+        .setSubText("Summary")
         .setPriority(NotificationCompat.PRIORITY_DEFAULT)
         .setAutoCancel(true)
         .build()

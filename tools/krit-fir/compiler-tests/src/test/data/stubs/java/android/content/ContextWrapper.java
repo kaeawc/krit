@@ -3,7 +3,11 @@ package android.content;
 
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
+import android.net.Uri;
 import android.os.Looper;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 
 public class ContextWrapper extends Context {
     public ContextWrapper(Context base) {
@@ -49,6 +53,14 @@ public class ContextWrapper extends Context {
         throw new RuntimeException("Stub!");
     }
 
+    public FileInputStream openFileInput(String name) throws FileNotFoundException {
+        throw new RuntimeException("Stub!");
+    }
+
+    public FileOutputStream openFileOutput(String name, int mode) throws FileNotFoundException {
+        throw new RuntimeException("Stub!");
+    }
+
     public void startActivity(Intent intent) {
         throw new RuntimeException("Stub!");
     }
@@ -82,6 +94,14 @@ public class ContextWrapper extends Context {
     }
 
     public int checkSelfPermission(String permission) {
+        throw new RuntimeException("Stub!");
+    }
+
+    public void grantUriPermission(String toPackage, Uri uri, int modeFlags) {
+        throw new RuntimeException("Stub!");
+    }
+
+    public void revokeUriPermission(Uri uri, int modeFlags) {
         throw new RuntimeException("Stub!");
     }
 

@@ -52,3 +52,39 @@ fun subtypeKey(byName: Map<CharSequence, Int>, name: String): Int = <!MapGetWith
 // The stdlib `Map<out K, V>.get(key)` extension: a String-keyed map looked up
 // with a CharSequence key.
 fun stdlibExtension(byName: Map<String, Int>, name: CharSequence): Int = <!MapGetWithNotNullAssertionOperator!>byName.get(name)!!<!>
+
+// A lookup that is the target of an assignment: tree-sitter parses the left
+// side of an assignment as a directly assignable expression, not the
+// postfix `!!` expression Go's rule visits.
+class Counter(var count: Int, var items: Int)
+
+fun assignmentTargets(counters: Map<String, Counter>, arrays: Map<String, IntArray>, key: String) {
+    <!MapGetWithNotNullAssertionOperator!>counters[key]!!<!>.count += 1
+    <!MapGetWithNotNullAssertionOperator!>counters[key]!!<!>.items += 1
+    <!MapGetWithNotNullAssertionOperator!>counters[key]!!<!>.count = 0
+    <!MapGetWithNotNullAssertionOperator!>arrays[key]!!<!>[0] = 1
+    <!MapGetWithNotNullAssertionOperator!>arrays[key]!!<!>[0] += 1
+}
+
+// Receivers typed by an anonymous object: Go does not type an object
+// expression.
+fun anonymousHashMap(key: String): Int {
+    val o = object : HashMap<String, Int>() {}
+    return <!MapGetWithNotNullAssertionOperator!>o[key]!!<!>
+}
+
+fun anonymousDelegated(m: Map<String, Int>): Int {
+    val o = object : Map<String, Int> by m {}
+    return <!MapGetWithNotNullAssertionOperator!>o["a"]!!<!>
+}
+
+fun anonymousOverride(): Int {
+    val o = object : HashMap<String, Int>() {
+        override fun get(key: String): Int? = 1
+    }
+    return <!MapGetWithNotNullAssertionOperator!>o["a"]!!<!>
+}
+
+fun anonymousThis(): Any = object : HashMap<String, Int>() {
+    fun first(): Int = <!MapGetWithNotNullAssertionOperator!>this.get("a")!!<!>
+}

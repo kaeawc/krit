@@ -72,6 +72,53 @@ fun earlyConjunction(map: Map<String, Int>, key: String, enabled: Boolean): Int 
     return <!MapGetWithNotNullAssertionOperator!>map[key]!!<!>
 }
 
+// Go skips this: it does not check the condition's own `&&` for an else
+// branch either. The else branch runs whenever `enabled` is false, key or no
+// key.
+fun conjunctionElseExpression(map: Map<String, Int>, key: String, enabled: Boolean): Int =
+    if (enabled && !map.containsKey(key)) 0 else <!MapGetWithNotNullAssertionOperator!>map[key]!!<!>
+
+fun conjunctionElseBlock(map: Map<String, Int>, key: String, enabled: Boolean): Int {
+    if (enabled && !map.containsKey(key)) {
+        return 0
+    } else {
+        return <!MapGetWithNotNullAssertionOperator!>map[key]!!<!>
+    }
+}
+
+// Go skips these: the infix `or` / `and` are not a disjunction or a
+// conjunction to Go, so it never rejects them. The then branch runs whenever
+// `enabled` is true, and execution continues past the early return whenever
+// `enabled` is false, key or no key.
+fun infixOrThen(map: Map<String, Int>, key: String, enabled: Boolean): Int {
+    if (enabled or map.containsKey(key)) {
+        return <!MapGetWithNotNullAssertionOperator!>map[key]!!<!>
+    }
+    return 0
+}
+
+fun nestedInfixOrThen(map: Map<String, Int>, key: String, enabled: Boolean, strict: Boolean): Int {
+    if (strict && (enabled or map.containsKey(key))) {
+        return <!MapGetWithNotNullAssertionOperator!>map[key]!!<!>
+    }
+    return 0
+}
+
+fun infixAndEarly(map: Map<String, Int>, key: String, enabled: Boolean): Int {
+    if (enabled and !map.containsKey(key)) return 0
+    return <!MapGetWithNotNullAssertionOperator!>map[key]!!<!>
+}
+
+// Go skips this: the call is the receiver of `let`, which returns its
+// lambda's result, here the negation. FIR looks through `also` and `apply`
+// only, which return their receiver.
+fun receiverOfLet(map: Map<String, Int>, key: String): Int {
+    if (map.containsKey(key).let { !it }) {
+        return <!MapGetWithNotNullAssertionOperator!>map[key]!!<!>
+    }
+    return 0
+}
+
 // Both skip this sound early return: `!(c == true)` leaves when c is false.
 fun earlyNegatedComparison(map: Map<String, Int>, key: String): Int {
     if (!(map.containsKey(key) == true)) return 0

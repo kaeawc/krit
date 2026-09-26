@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 123, 130, 139, 145, 152, 158, 163, 169, 173, 180, 188, 195, 200, 204, 212, 219, 226, 234
+// go-lines: 171, 178, 187, 193, 200, 206, 211, 217, 221, 228, 236, 243, 248, 252, 260, 267, 274, 282, 288, 297, 304, 311
 // containsKey guards: the accesses Go and FIR both skip because a
 // `map.containsKey(key)` check proves the key is present, and the look-alike
 // guards both still report.
@@ -114,6 +114,54 @@ fun parenthesizedReceiver(map: Map<String, Int>, key: String): Int {
         return (map)[key]!!
     }
     return 0
+}
+
+// The infix `and` / `or` on Boolean prove the key as `&&` / `||` do. Go does
+// not treat them as a conjunction or a disjunction, so it accepts them too.
+fun infixAnd(map: Map<String, Int>, key: String, enabled: Boolean): Int {
+    if (map.containsKey(key) and enabled) {
+        return map[key]!!
+    }
+    return 0
+}
+
+fun infixOrEarly(map: Map<String, Int>, key: String, disabled: Boolean): Int {
+    if (!map.containsKey(key) or disabled) return 0
+    return map[key]!!
+}
+
+fun infixOrElse(map: Map<String, Int>, key: String, disabled: Boolean): Int =
+    if (disabled or !map.containsKey(key)) 0 else map[key]!!
+
+fun negatedInfixAndElse(map: Map<String, Int>, key: String, enabled: Boolean): Int =
+    if (!(map.containsKey(key) and enabled)) 0 else map[key]!!
+
+// A true `||` whose operands both prove the key proves it. Go does not check
+// the condition's own top-level `||`.
+fun disjunctionOfGuards(map: Map<String, Int>, key: String, a: Boolean, b: Boolean): Int {
+    if ((map.containsKey(key) && a) || (map.containsKey(key) && b)) {
+        return map[key]!!
+    }
+    return 0
+}
+
+// A false `&&` whose operands both prove the key proves it.
+fun earlyConjunctionOfGuards(map: Map<String, Int>, key: String, a: Boolean, b: Boolean): Int {
+    if ((!map.containsKey(key) || a) && (!map.containsKey(key) || b)) return 0
+    return map[key]!!
+}
+
+// `also` and `apply` return their receiver.
+fun alsoGuard(map: Map<String, Int>, key: String): Int {
+    if (map.containsKey(key).also { println(it) }) {
+        return map[key]!!
+    }
+    return 0
+}
+
+fun applyEarly(map: Map<String, Int>, key: String): Int {
+    if (!map.containsKey(key).apply { println(this) }) return 0
+    return map[key]!!
 }
 
 // Still reported: the guard does not cover the access.
@@ -231,5 +279,34 @@ fun earlyCommentOnOwnLine(map: Map<String, Int>, key: String): Int {
         return 0
         // missing
     }
+    return <!MapGetWithNotNullAssertionOperator!>map[key]!!<!>
+}
+
+// A nested `||` proves nothing to Go, even when both operands prove the key.
+fun nestedDisjunctionOfGuards(map: Map<String, Int>, key: String, a: Boolean, b: Boolean, strict: Boolean): Int {
+    if (strict && ((map.containsKey(key) && a) || (map.containsKey(key) && b))) {
+        return <!MapGetWithNotNullAssertionOperator!>map[key]!!<!>
+    }
+    return 0
+}
+
+// A comment ahead of the condition hides it from Go, which takes the first
+// named child of the `if` as its condition.
+fun commentBeforeParen(map: Map<String, Int>, key: String): Int {
+    if /* present */ (map.containsKey(key)) {
+        return <!MapGetWithNotNullAssertionOperator!>map[key]!!<!>
+    }
+    return 0
+}
+
+fun commentInsideParen(map: Map<String, Int>, key: String): Int {
+    if (/* present */ map.containsKey(key)) {
+        return <!MapGetWithNotNullAssertionOperator!>map[key]!!<!>
+    }
+    return 0
+}
+
+fun commentBeforeParenEarly(map: Map<String, Int>, key: String): Int {
+    if /* absent */ (!map.containsKey(key)) return 0
     return <!MapGetWithNotNullAssertionOperator!>map[key]!!<!>
 }

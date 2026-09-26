@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 17, 18, 19, 20, 21, 31, 32, 33, 34, 37, 39, 42x2, 46, 52, 54, 56, 62, 67, 73, 81, 87, 88, 90, 91, 92, 93
+// go-lines: 17, 18, 19, 20, 21, 31, 32, 33, 34, 37, 39, 42, 45x2, 49, 55, 57, 59, 65, 70, 76, 84, 90, 91, 93, 94, 95, 96
 // Map lookups asserted with `!!`, which Go and FIR both report, and the
 // lookalikes both leave alone.
 package test
@@ -37,6 +37,9 @@ fun mapKinds(
 fun safeCall(map: Map<String, Int>?): Int = <!MapGetWithNotNullAssertionOperator!>map?.get("key")!!<!>
 
 fun intKeys(map: Map<Int, String>): String = <!MapGetWithNotNullAssertionOperator!>map[1]!!<!>
+
+// Explicit type arguments: the stdlib `Map<out K, V>.get(key)` extension.
+fun typeArguments(map: Map<String, Int>, key: String): Int = <!MapGetWithNotNullAssertionOperator!>map.get<String, Int>(key)!!<!>
 
 // Two findings on one line (MapGetWithNotNullAssertionOperatorCountsTest).
 fun sum(map: Map<String, Int>): Int = <!MapGetWithNotNullAssertionOperator!>map["a"]!!<!> + <!MapGetWithNotNullAssertionOperator!>map.get("b")!!<!>

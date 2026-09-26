@@ -65,21 +65,25 @@ import org.jetbrains.kotlin.name.Name
  *   overload with another parameter type are not map lookups, so they are
  *   not reported.
  * - Guards: a containsKey guard only exempts an access when the condition
- *   proves the key is present through `!`, `&&`, `||` and comparisons with
- *   a boolean literal, each step sound, and Go also accepts it. Go also
- *   accepts a `containsKey` call anywhere in the condition
- *   (`containsKey(k) == false`, an argument of another call, inside a
- *   lambda or an if expression), a negated conjunction
- *   (`!(a && !containsKey(k))`), and a top-level `a || containsKey(k)` (then
- *   branch) or `a && !containsKey(k)` (early return), none of which proves
- *   the key is present, so those accesses are reported.
+ *   proves the key is present through `!`, `&&` / `and`, `||` / `or`,
+ *   comparisons with a boolean literal and `also` / `apply`, each step
+ *   sound, and Go also accepts it. Go also accepts a `containsKey` call
+ *   anywhere in the condition (`containsKey(k) == false`, an argument of
+ *   another call, inside a lambda or an if expression, the receiver of
+ *   `let`), a negated conjunction (`!(a && !containsKey(k))`), a top-level
+ *   `a || containsKey(k)` (then branch) or `a && !containsKey(k)` (else
+ *   branch, early return), and the infix `a or containsKey(k)` /
+ *   `a and !containsKey(k)` at any depth, none of which proves the key is
+ *   present, so those accesses are reported.
  * - Recall: resolution sees map receivers Go cannot type (a `super`
  *   receiver, a companion object's property, a scope-function `it`, a type
  *   parameter bounded by Map, a Java method's result, the receiver
  *   `a[k]!!` of a second lookup, a JDK map such as `Properties` or
- *   `ConcurrentHashMap`) and keys whose type Go cannot prove equal to the
- *   map's key type (a subtype), plus the stdlib `Map<out K, V>.get(key)`
- *   extension.
+ *   `ConcurrentHashMap`, an anonymous object) and keys whose type Go cannot
+ *   prove equal to the map's key type (a subtype), plus the stdlib
+ *   `Map<out K, V>.get(key)` extension, and lookups that are the target of
+ *   an assignment (`map[k]!!.count += 1`), which Go's tree-sitter view does
+ *   not parse as a `!!` expression.
  */
 internal object MapGetWithNotNullAssertionOperator : FirCheckNotNullCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "MapGetWithNotNullAssertionOperator"
@@ -172,8 +176,10 @@ internal object MapGetWithNotNullAssertionOperator : FirCheckNotNullCallChecker(
         val parts = significant(source, call)
         val name = parts.firstOrNull()?.takeIf { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION } ?: return null
         if (text(source, name) != "get") return null
-        val args = parts.getOrNull(1)?.takeIf { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_LIST } ?: return null
-        if (parts.size != 2) return null
+        // `get<K, V>(key)`: explicit type arguments select the stdlib extension.
+        val arguments = if (parts.getOrNull(1)?.tokenType == KtNodeTypes.TYPE_ARGUMENT_LIST) 2 else 1
+        if (parts.size != arguments + 1) return null
+        val args = parts[arguments].takeIf { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_LIST } ?: return null
         val argument = lightChildren(source, args).singleOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT } ?: return null
         return significant(source, argument).lastOrNull()
     }
@@ -269,28 +275,39 @@ internal object MapGetWithNotNullAssertionOperator : FirCheckNotNullCallChecker(
      * Whether [condition] evaluating to [whenTrue] proves
      * `receiver.containsKey(key)` is true, both soundly and by Go's test.
      *
-     * Sound: only parentheses, `!`, `&&`, `||` and a comparison with a
-     * boolean literal (`== true`, `!= false`, ...) are looked through, and an
-     * `&&` proves its operands only when it is true, an `||` only when it is
-     * false.
+     * Sound: only parentheses, `!`, `&&` / `and`, `||` / `or`, a comparison
+     * with a boolean literal (`== true`, `!= false`, ...) and the receiver of
+     * `also` / `apply` (which return it) are looked through. A conjunction
+     * proves the key when it is true and either operand proves it, or when it
+     * is false and both do; a disjunction when it is false and either operand
+     * proves it, or when it is true and both do.
      *
      * Go: Go accepts a `containsKey` call anywhere in the condition when the
      * number of `!` operators above it is even (then branch) or odd (else
      * branch, early return), and no `||` (then branch) or `&&` (otherwise)
      * is nested between it and the condition (the condition's own top-level
-     * operator is not checked). It ignores `== false`, so the two tests are
-     * applied together and an access is skipped only when both hold; where
-     * Go's test alone is unsound, the sound test rejects it.
+     * operator is not checked, and the infix `and` / `or` never are). It
+     * ignores `== false`, so the two tests are applied together and an
+     * access is skipped only when both hold; where Go's test alone is
+     * unsound, the sound test rejects it.
      */
     private fun proves(source: KtSourceElement, condition: LighterASTNode, access: Access, whenTrue: Boolean): Boolean =
-        provesAt(source, condition, access, Proof(value = whenTrue, rootValue = whenTrue, negations = 0))
+        provesAt(source, condition, access, Proof(condition, value = whenTrue, rootValue = whenTrue, negations = 0, goAccepts = true))
 
     /**
-     * [value]: what the current node must evaluate to. [rootValue]: what the
-     * whole condition evaluates to. [negations]: the `!` operators crossed,
-     * Go's parity count.
+     * [root]: the whole condition. [value]: what the current node must
+     * evaluate to. [rootValue]: what the whole condition evaluates to.
+     * [negations]: the `!` operators crossed, Go's parity count.
+     * [goAccepts]: no `||` (then branch) or `&&` (otherwise) that Go rejects
+     * has been crossed.
      */
-    private data class Proof(val value: Boolean, val rootValue: Boolean, val negations: Int)
+    private data class Proof(
+        val root: LighterASTNode,
+        val value: Boolean,
+        val rootValue: Boolean,
+        val negations: Int,
+        val goAccepts: Boolean,
+    )
 
     private fun provesAt(source: KtSourceElement, node: LighterASTNode, access: Access, proof: Proof): Boolean =
         when (node.tokenType) {
@@ -304,45 +321,67 @@ internal object MapGetWithNotNullAssertionOperator : FirCheckNotNullCallChecker(
                     false
                 }
             }
-            KtNodeTypes.BINARY_EXPRESSION -> provesThroughBinary(source, significant(source, node), access, proof)
+            KtNodeTypes.BINARY_EXPRESSION -> provesThroughBinary(source, node, access, proof)
             KtNodeTypes.DOT_QUALIFIED_EXPRESSION -> {
                 val goParity = if (proof.rootValue) proof.negations % 2 == 0 else proof.negations % 2 == 1
-                proof.value && goParity && isContainsKeyCall(source, node, access)
+                if (proof.value && proof.goAccepts && goParity && isContainsKeyCall(source, node, access)) {
+                    true
+                } else {
+                    val receiver = receiverOfSelfReturningCall(source, node)
+                    receiver != null && provesAt(source, receiver, access, proof)
+                }
             }
             else -> false
         }
 
-    private fun provesThroughBinary(
-        source: KtSourceElement,
-        parts: List<LighterASTNode>,
-        access: Access,
-        proof: Proof,
-    ): Boolean {
+    private fun provesThroughBinary(source: KtSourceElement, node: LighterASTNode, access: Access, proof: Proof): Boolean {
+        val parts = significant(source, node)
         if (parts.size != 3) return false
         val (left, operation, right) = parts
-        return when (operationToken(source, operation)) {
-            // A true `&&` proves both operands true; Go rejects an `&&` when
-            // the condition is false.
-            KtTokens.ANDAND -> proof.value && proof.rootValue &&
-                (provesAt(source, left, access, proof) || provesAt(source, right, access, proof))
-            // A false `||` proves both operands false; Go rejects an `||` when
-            // the condition is true.
-            KtTokens.OROR -> !proof.value && !proof.rootValue &&
-                (provesAt(source, left, access, proof) || provesAt(source, right, access, proof))
-            KtTokens.EQEQ, KtTokens.EXCLEQ -> {
-                val equal = operationToken(source, operation) == KtTokens.EQEQ
-                val (literal, operand) = when {
-                    booleanLiteral(source, right) != null -> booleanLiteral(source, right) to left
-                    booleanLiteral(source, left) != null -> booleanLiteral(source, left) to right
-                    else -> return false
-                }
-                // `c == true` / `c != false` keep the value, `c == false` /
-                // `c != true` flip it. Go's parity ignores them.
-                val keeps = (literal == true) == equal
-                provesAt(source, operand, access, proof.copy(value = if (keeps) proof.value else !proof.value))
+        val token = operationToken(source, operation)
+        val infix = if (token == KtTokens.IDENTIFIER) text(source, operation) else null
+        val conjunction = token == KtTokens.ANDAND || infix == "and"
+        val disjunction = token == KtTokens.OROR || infix == "or"
+        if (conjunction || disjunction) {
+            // Go rejects an `&&` / `||` nested below the condition: an `||`
+            // for a then branch, an `&&` for an else branch or early return.
+            // It never rejects the infix `and` / `or`.
+            val nested = node != proof.root
+            val goRejects = nested &&
+                ((token == KtTokens.OROR && proof.rootValue) || (token == KtTokens.ANDAND && !proof.rootValue))
+            val next = proof.copy(goAccepts = proof.goAccepts && !goRejects)
+            // A true conjunction or a false disjunction fixes both operands,
+            // so either one proving the key is enough; otherwise only one
+            // operand is known to hold the value, so both must prove it.
+            return if (conjunction == proof.value) {
+                provesAt(source, left, access, next) || provesAt(source, right, access, next)
+            } else {
+                provesAt(source, left, access, next) && provesAt(source, right, access, next)
             }
-            else -> false
         }
+        if (token != KtTokens.EQEQ && token != KtTokens.EXCLEQ) return false
+        val (literal, operand) = when {
+            booleanLiteral(source, right) != null -> booleanLiteral(source, right) to left
+            booleanLiteral(source, left) != null -> booleanLiteral(source, left) to right
+            else -> return false
+        }
+        // `c == true` / `c != false` keep the value, `c == false` /
+        // `c != true` flip it. Go's parity ignores them.
+        val keeps = (literal == true) == (token == KtTokens.EQEQ)
+        return provesAt(source, operand, access, proof.copy(value = if (keeps) proof.value else !proof.value))
+    }
+
+    // The receiver of `receiver.also { ... }` / `receiver.apply { ... }`,
+    // which evaluate to their receiver. Go walks into it like any other
+    // subexpression of the condition.
+    private fun receiverOfSelfReturningCall(source: KtSourceElement, node: LighterASTNode): LighterASTNode? {
+        val parts = significant(source, node)
+        if (parts.size != 2) return null
+        val (receiver, selector) = parts
+        if (selector.tokenType != KtNodeTypes.CALL_EXPRESSION) return null
+        val name = significant(source, selector).firstOrNull()
+            ?.takeIf { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION } ?: return null
+        return receiver.takeIf { text(source, name) == "also" || text(source, name) == "apply" }
     }
 
     private fun booleanLiteral(source: KtSourceElement, node: LighterASTNode): Boolean? {
@@ -387,12 +426,14 @@ internal object MapGetWithNotNullAssertionOperator : FirCheckNotNullCallChecker(
         return unwrapParens(source, inner)
     }
 
-    // The condition expression of an `if`. Go takes the first named child
-    // after `if (`, so a comment ahead of the condition hides it from Go and
-    // the `if` proves nothing.
+    // The condition expression of an `if`. Go takes the first named child of
+    // the `if` as its condition, so a comment ahead of the condition, before
+    // or after `(`, hides it from Go and the `if` proves nothing.
     private fun conditionOf(source: KtSourceElement, ifNode: LighterASTNode): LighterASTNode? {
-        val afterParen = lightChildren(source, ifNode)
-            .dropWhile { it.tokenType != KtTokens.LPAR }.drop(1)
+        val children = lightChildren(source, ifNode)
+        val lpar = children.indexOfFirst { it.tokenType == KtTokens.LPAR }
+        if (lpar < 0 || children.take(lpar).any { it.tokenType in KtTokens.COMMENTS }) return null
+        val afterParen = children.drop(lpar + 1)
             .firstOrNull { it.tokenType != KtTokens.WHITE_SPACE } ?: return null
         if (afterParen.tokenType != KtNodeTypes.CONDITION) return null
         val first = lightChildren(source, afterParen).firstOrNull { it.tokenType != KtTokens.WHITE_SPACE } ?: return null

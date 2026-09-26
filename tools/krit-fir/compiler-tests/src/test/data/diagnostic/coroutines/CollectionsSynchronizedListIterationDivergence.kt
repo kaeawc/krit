@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 15, 19, 29, 30, 84, 85, 86
+// go-lines: 18, 22, 26, 34, 43, 48, 59, 60, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130
 // Where the checker and the Go rule's text match of the whole `for`
 // statement disagree. Go reports a loop whose text (header, body, comments,
 // and strings) contains `Collections.synchronizedList`, `...Set`, or
@@ -10,7 +10,10 @@ package test
 import java.util.Collections
 
 // Go reports these because the loop body mentions the wrapper; FIR is
-// correct to drop them because the loop iterates `items`, not a wrapper.
+// correct to drop them because the loop iterates `items`, and its body only
+// creates, passes, or reads the wrapper under its own lock, never iterating
+// it. (A body that iterates the wrapper is reported: see bodyIteration in
+// CollectionsSynchronizedListIteration.kt.)
 fun bodyOnly(items: List<Int>) {
     for (item in items) {
         val wrapped = Collections.synchronizedList(mutableListOf(item))
@@ -19,6 +22,33 @@ fun bodyOnly(items: List<Int>) {
     for (item in items) {
         // Collections.synchronizedList is not used here.
         consume("Collections.synchronizedMap $item")
+    }
+    for (item in items) {
+        val wrapped = Collections.synchronizedMap(mutableMapOf(item to 1))
+        wrapped[item] = 2
+        consume(wrapped.getValue(item) + wrapped.size)
+        consume(Collections.synchronizedList(mutableListOf(item)).also { consume(it) }.toString())
+    }
+    // Map.forEach with a two-parameter lambda is the Java member, which
+    // java.util.Collections runs under the wrapper's lock.
+    for (item in items) {
+        Collections.synchronizedMap(mutableMapOf(item to 1)).forEach { key, value -> consume(key + value) }
+    }
+}
+
+// Go reports the outer loop because its body iterates the wrapper; FIR is
+// correct to drop it because that iteration runs inside a synchronized call,
+// the lock Go's own rule accepts for a loop.
+fun bodyIterationUnderLock(items: List<Int>, lists: List<MutableList<Int>>, lock: Any) {
+    for (item in items) {
+        synchronized(lock) {
+            Collections.synchronizedList(mutableListOf(item)).forEach { consume(it) }
+        }
+    }
+    for (list in lists) {
+        synchronized(lock) {
+            for (item in Collections.synchronizedList(list)) consume(item)
+        }
     }
 }
 
@@ -77,13 +107,37 @@ fun otherWrappers(values: MutableCollection<Int>) {
 }
 
 // Go reports these because the header spells the wrapper call; FIR is
-// correct to drop them because the loop iterates indices, the filtered
-// elements, or a string's characters, and the wrapper only yields a scalar
-// (its size, a contains() result, an element's text) read under its own lock.
-fun scalarUses(list: MutableList<Int>) {
+// correct to drop them because the loop iterates indices, other elements, a
+// snapshot, a String, or one element's value, and the wrapper is only read
+// through a member that java.util.Collections runs under the wrapper's own
+// lock (size, contains, get, toArray, toString, a view's size) or a stdlib
+// call built only on such members (first() of a List, indices, getValue,
+// toTypedArray, and toList() or sorted() of a List): no iterator of the
+// wrapper is used.
+fun guardedReads(list: MutableList<Int>, map: MutableMap<String, List<Int>>, nested: MutableList<List<Int>>) {
     for (index in 0 until Collections.synchronizedList(list).size) consume(index)
     for (item in list.filter { Collections.synchronizedList(list).contains(it) }) consume(item)
     for (char in Collections.synchronizedList(list).first().toString()) consume(char)
+    for (item in Collections.synchronizedList(list).toTypedArray()) consume(item)
+    for (item in Collections.synchronizedList(list).toList()) consume(item)
+    for (item in Collections.synchronizedList(list).sorted()) consume(item)
+    for (index in Collections.synchronizedList(list).indices) consume(index)
+    for (item in Collections.synchronizedMap(map)["k"]!!) consume(item)
+    for (item in Collections.synchronizedMap(map).getValue("k")) consume(item)
+    for (item in Collections.synchronizedMap(map)["k"].orEmpty()) consume(item)
+    for (item in Collections.synchronizedList(nested).first()) consume(item)
+    for (char in Collections.synchronizedList(list).toString()) consume(char)
+    for (index in 0 until Collections.synchronizedMap(map).keys.size) consume(index)
+}
+
+// Go misses these because the header text splits the qualifier from the
+// call (a line break or a comment between `Collections` and
+// `.synchronizedList`), so its substring match fails; FIR reports them
+// because the loop iterates the wrapper.
+fun splitQualifier(nums: MutableList<Int>) {
+    <!CollectionsSynchronizedListIteration!>for<!> (item in Collections
+        .synchronizedList(nums)) consume(item)
+    <!CollectionsSynchronizedListIteration!>for<!> (item in Collections /* shared */ .synchronizedList(nums)) consume(item)
 }
 
 // A call named synchronized after the loop's expression does not guard it:

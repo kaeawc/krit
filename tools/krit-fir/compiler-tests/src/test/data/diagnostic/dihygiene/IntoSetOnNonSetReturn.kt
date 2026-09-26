@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 19, 23, 27, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93, 99, 103, 107, 114, 119, 123, 127, 131, 135, 139, 143, 148, 156, 163, 170, 175, 180, 185, 192, 203, 207
+// go-lines: 19, 23, 27, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93, 99, 103, 107, 114, 119, 123, 127, 131, 135, 139, 143, 148, 156, 163, 170, 175, 185, 190, 197, 208, 212
 // Positive: an @IntoSet @Provides / @Binds function whose declared return type
 // is a collection wrapper. Each is reported on the function's first line (its
 // modifier list), the line the Go rule reports. Every case here is also a Go
@@ -176,6 +176,11 @@ object ObjectModule {
 @IntoSet
 fun topLevel(): List<Plugin> = emptyList()
 
+// Local and anonymous-object scopes match Go. No DI processor sees these
+// declarations, but the rule does not model processor visibility (nor that
+// Dagger rejects a generic provider, as in `generic` above): the message's
+// claim is that an @IntoSet binding returns a collection wrapper, which is
+// true of each of them.
 fun host(): Plugin {
     <!IntoSetOnNonSetReturn!>@Provides<!>
     @IntoSet

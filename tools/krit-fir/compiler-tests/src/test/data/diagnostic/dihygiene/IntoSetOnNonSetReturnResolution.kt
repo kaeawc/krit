@@ -43,3 +43,15 @@ class PluginModule {
     @IntoMultibinding
     fun aliasedAnnotations(): List<Plugin> = emptyList()
 }
+
+// Go misses the `@[...]` multi-annotation form: its text match looks for
+// `@IntoSet` / `@Provides`, which the modifier text does not contain. These
+// are real Dagger @IntoSet bindings of a collection wrapper.
+@Module
+class MultiAnnotationModule {
+    <!IntoSetOnNonSetReturn!>@[Provides IntoSet]<!>
+    fun multiAnno(): List<Plugin> = emptyList()
+
+    <!IntoSetOnNonSetReturn!>@Provides<!> @[IntoSet]
+    fun multiAnno2(): List<Plugin> = emptyList()
+}

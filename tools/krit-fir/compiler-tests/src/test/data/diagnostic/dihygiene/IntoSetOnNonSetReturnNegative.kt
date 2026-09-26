@@ -116,3 +116,14 @@ abstract class BindsModule {
     @BindsInstance
     fun instance(plugins: List<Plugin>) {}
 }
+
+// A collection whose name is not in Go's wrapper list: Go and FIR both match
+// the wrapper names, not every Iterable.
+class PluginBag(items: List<Plugin>) : List<Plugin> by items
+
+@Module
+class PluginBagModule {
+    @Provides
+    @IntoSet
+    fun bag(): PluginBag = PluginBag(emptyList())
+}

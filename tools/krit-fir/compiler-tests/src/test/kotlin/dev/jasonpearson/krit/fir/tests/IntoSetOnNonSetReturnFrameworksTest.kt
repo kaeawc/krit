@@ -92,4 +92,93 @@ class IntoSetOnNonSetReturnFrameworksTest {
         )
         assertEquals(listOf("Component.kt" to 12), findings(sources))
     }
+
+    // Third-party Java collections whose simple names are in Go's wrapper
+    // list: Eclipse Collections' MutableList (a java.util.List) and Vavr's
+    // HashMap and List (java.lang.Iterable through Traversable). Go reports
+    // all three by name, and each is a collection, so FIR keeps them. A
+    // golden cannot declare Java, so the Java shapes live here, in their real
+    // packages.
+    @Test fun thirdPartyJavaCollections() {
+        val sources = mapOf(
+            "org/eclipse/collections/api/list/MutableList.java" to """
+                package org.eclipse.collections.api.list;
+
+                public interface MutableList<T> extends java.util.List<T> {
+                }
+            """.trimIndent(),
+            "io/vavr/Tuple2.java" to """
+                package io.vavr;
+
+                public final class Tuple2<T1, T2> {
+                }
+            """.trimIndent(),
+            "io/vavr/collection/Traversable.java" to """
+                package io.vavr.collection;
+
+                public interface Traversable<T> extends Iterable<T> {
+                }
+            """.trimIndent(),
+            "io/vavr/collection/Map.java" to """
+                package io.vavr.collection;
+
+                import io.vavr.Tuple2;
+
+                public interface Map<K, V> extends Traversable<Tuple2<K, V>> {
+                }
+            """.trimIndent(),
+            "io/vavr/collection/HashMap.java" to """
+                package io.vavr.collection;
+
+                import io.vavr.Tuple2;
+                import java.util.Iterator;
+
+                public final class HashMap<K, V> implements Map<K, V> {
+                    @Override
+                    public Iterator<Tuple2<K, V>> iterator() {
+                        throw new RuntimeException("Stub!");
+                    }
+                }
+            """.trimIndent(),
+            "io/vavr/collection/List.java" to """
+                package io.vavr.collection;
+
+                public interface List<T> extends Traversable<T> {
+                }
+            """.trimIndent(),
+            "Module.kt" to """
+                package demo
+
+                import dagger.Provides
+                import dagger.multibindings.IntoSet
+                import io.vavr.collection.HashMap
+                import org.eclipse.collections.api.list.MutableList
+
+                interface Plugin
+
+                class PluginModule {
+                    @Provides
+                    @IntoSet
+                    fun eclipse(list: MutableList<Plugin>): MutableList<Plugin> = list
+
+                    @Provides
+                    @IntoSet
+                    fun vavr(map: HashMap<String, Plugin>): HashMap<String, Plugin> = map
+
+                    @Provides
+                    @IntoSet
+                    fun vavrList(list: io.vavr.collection.List<Plugin>): io.vavr.collection.List<Plugin> = list
+
+                    // Vavr's Tuple2 is not a collection, and not in the list.
+                    @Provides
+                    @IntoSet
+                    fun tuple(pair: io.vavr.Tuple2<String, Plugin>): io.vavr.Tuple2<String, Plugin> = pair
+                }
+            """.trimIndent(),
+        )
+        assertEquals(
+            listOf("Module.kt" to 11, "Module.kt" to 15, "Module.kt" to 19),
+            findings(sources),
+        )
+    }
 }

@@ -187,7 +187,6 @@ negative ScrollViewCountResource
 negative ScrollViewSizeResource
 negative ServiceExportedManifest
 negative ShiftFlags
-negative ShortAlarm
 negative SmallSpResource
 negative SpUsageResource
 negative SpdxIdentifierMismatchWithProject
@@ -418,7 +417,6 @@ positive ScrollViewCountResource
 positive ScrollViewSizeResource
 positive ServiceExportedManifest
 positive ShiftFlags
-positive ShortAlarm
 positive SmallSpResource
 positive SpUsageResource
 positive SpdxIdentifierMismatchWithProject

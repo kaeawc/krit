@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 15, 17, 18, 20, 22, 24, 26, 28, 30, 32, 34, 35, 38, 40, 42, 44, 47, 50, 53, 57, 67, 119
+// go-lines: 15, 17, 18, 20, 22, 24, 26, 28, 30, 32, 34, 35, 38, 40, 42, 44, 47, 50, 53, 57, 69, 121
 // Positives and negatives for WeakKeySize: KeyGenerator.init and
 // KeyPairGenerator.initialize with a literal size below the minimum for the
 // algorithm the generator variable was created with.
@@ -60,12 +60,14 @@ class Crypto {
         inObject.weak()
     }
 
-    // A destructuring declaration gives every entry the first getInstance
-    // algorithm in its value, as Go reads it: `second` is taken as AES.
+    // Each destructuring entry takes its own Pair operand. Go misses the
+    // second call: it gives every entry the first getInstance algorithm in
+    // the value (AES, whose minimum 1024 meets), but `second` is the RSA
+    // generator and 1024 is below RSA's minimum.
     fun destructuring() {
         val (first, second) = Pair(KeyGenerator.getInstance("AES"), KeyPairGenerator.getInstance("RSA"))
         <!WeakKeySize!>first.init(64)<!>
-        second.initialize(1024)
+        <!WeakKeySize!>second.initialize(1024)<!>
     }
 
     fun strong(size: Int) {

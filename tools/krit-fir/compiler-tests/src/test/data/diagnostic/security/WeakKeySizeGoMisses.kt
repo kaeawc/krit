@@ -125,4 +125,41 @@ class GoMisses {
             else -> <!WeakKeySize!>gen.init(64)<!>
         }
     }
+
+    // Go misses: Go searches only the anonymous object's `run` method; the
+    // local is the AES generator.
+    fun anonymousObjectMethod() {
+        val gen = KeyGenerator.getInstance("AES")
+        val task = object : Runnable {
+            override fun run() {
+                <!WeakKeySize!>gen.init(64)<!>
+            }
+        }
+        task.run()
+    }
+
+    // Go misses: no function_declaration encloses a property getter.
+    val bits: Int
+        get() {
+            val gen = KeyGenerator.getInstance("AES")
+            <!WeakKeySize!>gen.init(64)<!>
+            return 64
+        }
+
+    // Go misses: Go reads only a string literal algorithm; RSA_NAME is the
+    // const val "RSA".
+    fun constAlgorithm() {
+        val kpg = KeyPairGenerator.getInstance(RSA_NAME)
+        <!WeakKeySize!>kpg.initialize(1024)<!>
+    }
 }
+
+const val RSA_NAME = "RSA"
+
+// Go misses: no function_declaration encloses a constructor parameter's
+// default value.
+class ConstructorDefault(val x: Int = run {
+    val gen = KeyGenerator.getInstance("AES")
+    <!WeakKeySize!>gen.init(64)<!>
+    1
+})

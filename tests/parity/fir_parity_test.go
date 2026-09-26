@@ -129,7 +129,13 @@ func TestFirFixtureParity(t *testing.T) {
 // golden data. Key: rule ID + "|" + repo-relative fixture path. Keep it
 // minimal: an entry must name the golden case, and an entry whose pair
 // agrees fails as stale.
-var firCrossRuleAllowlist = map[string]string{}
+var firCrossRuleAllowlist = map[string]string{
+	// await() is a suspend call that won't complete normally if the coroutine
+	// is cancelled, so the message is true; Go only matches call text that
+	// starts with a listed name and misses receiver-qualified calls.
+	"SuspendFunInFinallySection|tests/fixtures/positive/coroutines/DeferredAwaitInFinally.kt": "qualified cleanup.await() in finally; Go misses qualified suspend calls (SuspendFunInFinallySectionDivergence.kt qualifiedAndUnlisted)",
+	"SuspendFunInFinallySection|tests/fixtures/negative/coroutines/DeferredAwaitInFinally.kt": "qualified cleanup.await() inside runCatching in finally; Go misses qualified suspend calls (SuspendFunInFinallySectionDivergence.kt qualifiedAndUnlisted)",
+}
 
 // checkCrossRuleParity holds every FIR rule to its Go rule on every fixture
 // of the batch, not only the rule's own: runParityBatch compiles all

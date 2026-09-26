@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 39x2, 40, 42x2, 43, 48, 63x3, 64x3, 65x3, 66x3, 68x3, 70, 81, 82, 122, 137x2, 138x2, 152x2
+// go-lines: 39x2, 40, 42x2, 43, 48, 56x3, 57x2, 72x3, 73x3, 74x3, 75x3, 77x3, 79, 92, 93, 135, 152x2, 153x2, 155x3, 168x2
 // Where FIR resolution and the Go rule's call-text match disagree. Go reports
 // an unqualified call whose name is on its fixed list of suspend functions and
 // coroutine builders; FIR reports every call that resolves to a suspend
@@ -47,6 +47,15 @@ suspend fun nonCancellable(scope: CoroutineScope) {
         scope.launch(NonCancellable) {
             delay(3)
         }
+        // Unqualified, Go also reports launch and async (each twice, see
+        // trailingLambdas) besides the delay; FIR drops them with their
+        // bodies: neither builder is a suspend function, and a child whose
+        // parent is NonCancellable runs its body even when the scope is
+        // cancelled.
+        with(scope) {
+            launch(NonCancellable) { delay(4) }
+            async(NonCancellable) { 1 }
+        }
     }
 }
 
@@ -72,8 +81,10 @@ suspend fun nonCancellableShapes(context: CoroutineContext) {
 }
 
 // Go reports runBlocking and the delay inside it; FIR is correct to drop both:
-// runBlocking is not a suspend function and starts a fresh coroutine that is
-// not cancelled with the caller, so its block runs.
+// runBlocking is not a suspend function, and without a context argument it
+// starts a fresh coroutine that is not cancelled with the caller, so its block
+// runs (blockingWithContext in SuspendFunInFinallySectionContext.kt covers a
+// context that joins the caller's Job).
 fun blockingCleanup() {
     try {
         println("working")
@@ -109,8 +120,10 @@ suspend fun qualifiedAndUnlisted(job: Job, deferred: Deferred<Int>, channel: Cha
 }
 
 // Go misses `async<Int>` (its text match expects `async(`, `async {` or
-// `async{`) and the call of a local suspend function; FIR reports both. The
-// delay inside the local function is reported by both.
+// `async{`) and the call of a local suspend function; FIR reports both. Go
+// reports the delay inside the local function, where it is declared; FIR
+// reports the call instead, where the finally block runs it (see
+// localDeclarations in SuspendFunInFinallySectionScopes.kt).
 suspend fun genericAndLocal(scope: CoroutineScope) {
     try {
         println("working")
@@ -119,7 +132,7 @@ suspend fun genericAndLocal(scope: CoroutineScope) {
             <!SuspendFunInFinallySection!>async<Int> { 1 }<!>
         }
         suspend fun local() {
-            <!SuspendFunInFinallySection!>delay(4)<!>
+            delay(4)
         }
         <!SuspendFunInFinallySection!>local()<!>
     }
@@ -127,7 +140,9 @@ suspend fun genericAndLocal(scope: CoroutineScope) {
 
 // Go reports a call written with parenthesized arguments and a trailing lambda
 // twice, because tree-sitter nests the lambda's call around the argument
-// call and both start with the name; FIR reports each call once. Go misses
+// call and both start with the name; FIR reports each call once. A call
+// chained after it (`.also { }`) is a third call_expression whose text starts
+// with the name, so Go reports that line three times. Go misses
 // `suspendCoroutine<Unit>` (its text match expects `suspendCoroutine(`,
 // `suspendCoroutine {` or `suspendCoroutine{`); FIR reports it.
 suspend fun trailingLambdas() {
@@ -137,6 +152,7 @@ suspend fun trailingLambdas() {
         <!SuspendFunInFinallySection!>withContext(Dispatchers.IO) { }<!>
         <!SuspendFunInFinallySection!>withTimeout(10) { }<!>
         <!SuspendFunInFinallySection!>suspendCoroutine<Unit> { }<!>
+        <!SuspendFunInFinallySection!>withContext(Dispatchers.IO) { 1 }<!>.also { println(it) }
     }
 }
 

@@ -1,15 +1,15 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 34, 42, 43, 45, 46, 47, 49, 50, 51, 61, 62, 64, 65, 74, 75, 76, 84, 93, 103, 114, 122, 124, 126, 130
+// go-lines: 34, 42, 43, 45, 46, 47, 49, 50, 51, 61, 62, 64, 65, 74, 75, 76, 84, 93, 101, 103, 105
 // Positives Go and FIR agree on: an unqualified call of a well-known suspend
 // function or coroutine builder inside a finally block, including inside
-// lambdas, local functions and object members declared there.
+// lambdas that run there (inline calls, suspend builders, an unqualified
+// launch / async).
 package test
 
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -85,27 +85,6 @@ fun flowCleanup(): Flow<Int> = flow {
     }
 }
 
-// yield of a sequence builder is a restricted suspend function.
-val numbers = sequence {
-    try {
-        yield(1)
-    } finally {
-        <!SuspendFunInFinallySection!>yield(2)<!>
-    }
-}
-
-// A non-suspend function can still start coroutines from its finally block.
-fun blockingOwner() {
-    try {
-        println("working")
-    } finally {
-        GlobalScope.launch {
-            <!SuspendFunInFinallySection!>delay(1)<!>
-        }
-        runCatching { println("done") }
-    }
-}
-
 class Worker(override val coroutineContext: CoroutineContext) : CoroutineScope {
     fun stop() {
         try {
@@ -125,12 +104,6 @@ class Worker(override val coroutineContext: CoroutineContext) : CoroutineScope {
             } catch (e: Exception) {
                 <!SuspendFunInFinallySection!>delay(3)<!>
             }
-            val cleanup = object {
-                suspend fun run() {
-                    <!SuspendFunInFinallySection!>delay(5)<!>
-                }
-            }
-            println(cleanup)
         }
     }
 }

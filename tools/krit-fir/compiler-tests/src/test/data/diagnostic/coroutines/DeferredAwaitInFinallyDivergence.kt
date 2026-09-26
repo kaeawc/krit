@@ -1,26 +1,32 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 28, 36, 44
+// go-lines: 34, 42, 53, 61, 71
 // Where the resolved call and the Go rule's syntax match disagree. Go reports
 // any call written `x.await()` under a finally block unless a call named
-// runCatching encloses it; FIR reports an await declared by
-// kotlinx.coroutines.Deferred (or a kotlinx.coroutines await extension) that
-// runs in the finally block unguarded.
+// runCatching encloses it; FIR reports an await that awaits a Deferred or
+// bridges a future into a coroutine (a member of Deferred, an await extension
+// on a Deferred, any suspend await extension, or an await declared in
+// kotlinx.coroutines) and runs in the finally block unguarded.
 package test
 
 import java.util.concurrent.CompletionStage
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Deferred
 
 class Gate {
     suspend fun await() {}
 }
 
-// A project's own await extension, not kotlinx.coroutines.future.await.
+// A project's own suspend await bridge, not kotlinx.coroutines.future.await.
 suspend fun <T> CompletionStage<T>.await(): T = TODO()
 
+// A blocking await extension on a type that is not a Deferred.
+fun CountDownLatch.await(timeoutMs: Long): Boolean = await(timeoutMs, TimeUnit.MILLISECONDS)
+
 // Go reports these because the call is written `.await()`; FIR is correct to
-// drop them because none is Deferred.await() or a kotlinx.coroutines await: a
-// Java CountDownLatch, a local class, and a local extension on a JDK future.
+// drop them because none awaits a Deferred or bridges a future into a
+// coroutine: a Java CountDownLatch member, a local class member, a member of
+// an object expression, and a blocking extension on a CountDownLatch.
 fun javaLatch(latch: CountDownLatch) {
     try {
         println("working")
@@ -37,11 +43,32 @@ suspend fun lookalike(gate: Gate) {
     }
 }
 
+suspend fun anonymousLookalike() {
+    val barrier = object {
+        suspend fun await() {}
+    }
+    try {
+        println("working")
+    } finally {
+        barrier.await()
+    }
+}
+
+fun blockingExtension(latch: CountDownLatch) {
+    try {
+        println("working")
+    } finally {
+        latch.await(100L)
+    }
+}
+
+// Go reports this and so does FIR: a project's suspend await extension on a
+// future rethrows the future's failure like kotlinx.coroutines.future.await.
 suspend fun localExtension(stage: CompletionStage<Unit>) {
     try {
         println("working")
     } finally {
-        stage.await()
+        <!DeferredAwaitInFinally!>stage.await()<!>
     }
 }
 
@@ -64,15 +91,16 @@ suspend fun Deferred<Unit>.implicitExtensionReceiver() {
 }
 
 // Go exempts these because a call named runCatching encloses the await; FIR
-// reports them because the runCatching does not guard it. The await is the
-// receiver of runCatching, so it runs (and throws) first; or the runCatching
-// is outside the finally block and only catches the await's exception after
-// it has replaced the try block's.
+// reports them because the runCatching does not guard it. The await is (or is
+// inside) the receiver of runCatching, so it runs (and throws) first; or the
+// runCatching is outside the finally block and only catches the await's
+// exception after it has replaced the try block's.
 suspend fun awaitIsReceiver(cleanup: Deferred<Unit>) {
     try {
         println("working")
     } finally {
         <!DeferredAwaitInFinally!>cleanup.await()<!>.runCatching { println(this) }
+        listOf(<!DeferredAwaitInFinally!>cleanup.await()<!>).runCatching { println(this) }
     }
 }
 

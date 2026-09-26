@@ -10,13 +10,18 @@ import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
+import org.jetbrains.kotlin.fir.declarations.utils.isSuspend
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirTryExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
 import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
+import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
+import org.jetbrains.kotlin.fir.types.ConeStarProjection
 import org.jetbrains.kotlin.fir.types.classId
+import org.jetbrains.kotlin.fir.types.constructClassLikeType
+import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
@@ -36,11 +41,19 @@ import org.jetbrains.kotlin.name.Name
 //   receiver, for a chain split across lines).
 //
 // Where Go matches any call written `x.await()`, the checker requires the
-// called function to be `await` declared by kotlinx.coroutines.Deferred or a
-// subtype, or an `await` declared in kotlinx.coroutines or a subpackage (the
-// kotlinx.coroutines.future / .tasks / .guava extensions on futures), so:
-// - `await()` on a type that is not a Deferred (a CountDownLatch, a local
-//   class, a project's own future extension) is not reported (Go reports it).
+// called function to await a Deferred or bridge a future into a coroutine:
+// - a member `await` of kotlinx.coroutines.Deferred or a subtype;
+// - an `await` extension whose receiver is a Deferred or a subtype, in any
+//   package (a project's own `Deferred<T>.await(timeoutMs)`);
+// - any suspend `await` extension, in any package: the future bridges of
+//   kotlinx.coroutines.future / .tasks / .guava, androidx.concurrent.futures,
+//   androidx.work, retrofit2, or a project's own, which rethrow the awaited
+//   failure like Deferred.await();
+// - any `await` declared in kotlinx.coroutines or a subpackage.
+// So:
+// - A member `await()` of a type that is not a Deferred (a CountDownLatch, a
+//   local class, an object expression), or a blocking `await` extension on
+//   one, is not reported (Go reports it).
 // - An implicit-receiver `await()` (inside `with(deferred)` or a Deferred
 //   extension) or an import-aliased await is reported (Go needs a `.await`
 //   navigation).
@@ -67,24 +80,34 @@ internal object DeferredAwaitInFinally : FirFunctionCallChecker(MppCheckerKind.C
     private const val RUN_CATCHING = "runCatching"
     private const val COROUTINES_PACKAGE = "kotlinx.coroutines"
     private val deferredClassId = ClassId.topLevel(FqName("kotlinx.coroutines.Deferred"))
+    private val nullableDeferredType =
+        deferredClassId.constructClassLikeType(arrayOf(ConeStarProjection), isMarkedNullable = true)
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
         val callee = expression.calleeReference.toResolvedCallableSymbol() ?: return
         if (callee.name != AWAIT) return
-        if (!isCoroutinesAwait(callee.callableId?.packageName)) {
-            // A member of Deferred or of a class implementing it. The owner comes
-            // from the symbol's lookup tag, bound for local and anonymous classes.
-            val owner = callee.getContainingClassSymbol() as? FirClassSymbol<*> ?: return
-            if (!isDeferred(owner, context.session)) return
-        }
+        if (!isAwaitingCall(callee, context.session)) return
         if (!inFinallyBlock(expression)) return
         report(expression.source, MESSAGE)
     }
 
-    // An await declared in kotlinx.coroutines or a subpackage: the future,
-    // tasks, guava (and rx) await extensions, which rethrow the awaited
-    // failure like Deferred.await().
+    private fun isAwaitingCall(callee: FirCallableSymbol<*>, session: FirSession): Boolean {
+        if (isCoroutinesAwait(callee.callableId?.packageName)) return true
+        val receiverType = callee.resolvedReceiverType
+        if (receiverType != null) {
+            // An extension: a suspend await bridge, or an await on a Deferred.
+            // The subtype check walks the type's supertypes; it never resolves
+            // a class id through the symbol provider.
+            return callee.isSuspend || receiverType.isSubtypeOf(nullableDeferredType, session)
+        }
+        // A member of Deferred or of a class implementing it. The owner comes
+        // from the symbol's lookup tag, bound for local and anonymous classes.
+        val owner = callee.getContainingClassSymbol() as? FirClassSymbol<*> ?: return false
+        return isDeferred(owner, session)
+    }
+
+    // An await declared in kotlinx.coroutines or a subpackage.
     private fun isCoroutinesAwait(packageName: FqName?): Boolean {
         val name = packageName?.asString() ?: return false
         return name == COROUTINES_PACKAGE || name.startsWith("$COROUTINES_PACKAGE.")

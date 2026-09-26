@@ -53,8 +53,10 @@ var (
 // enabled and its claims about its own rule would go unchecked. The stubs/
 // smoke files and goldens of FIR-only checkers (no Go rule) are exempt and
 // must not carry the header. The Go rule runs alone, in-process,
-// with source inference and no oracle, like TestFirFixtureParity's Go side,
-// on a production (non-test) path.
+// with source inference, no oracle, and the shipped rule options
+// (config/default-krit.yml, applied by TestMain), like TestFirFixtureParity's
+// Go side, on a production (non-test) path. With -v, each golden logs its
+// divergences as rows for a PR's Divergences table.
 //
 // Regenerate the headers with
 //
@@ -121,6 +123,7 @@ func TestFirGoldenGoLines(t *testing.T) {
 					"Fix any golden comment that claims otherwise about Go, then regenerate the header (%s=1).",
 					rel, rule.ID, headerIdx+1, formatGoLines(header), formatGoLines(actual), updateGoLinesEnv)
 			}
+			logDivergences(t, rel, rule.ID, lines, header)
 		})
 		if rule != nil {
 			checked++
@@ -310,17 +313,66 @@ func updateGoLinesHeader(t *testing.T, path, rel, category string, rule *api.Rul
 	}
 	// The header is a comment, but run to a fixed point in case a rule reads
 	// comment text.
-	for i := 0; i < 3; i++ {
+	converged := false
+	for i := 0; i < 3 && !converged; i++ {
 		want := "// go-lines: " + formatGoLines(goLineCountsOnGolden(t, category, name, rule, lines))
-		if lines[headerIdx] == want {
-			break
-		}
+		converged = lines[headerIdx] == want
 		lines[headerIdx] = want
+	}
+	if !converged {
+		t.Fatalf("%s: the go-lines header did not converge (the Go rule's findings change with the header text, now %q); "+
+			"the rule reads comment text, so move or reword the comment it matches", rel, lines[headerIdx])
 	}
 	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("%s: %s", rel, lines[headerIdx])
+}
+
+// logDivergences logs, under -v, every line where the golden's markers and
+// its go-lines header disagree: a marker the header does not list is a
+// finding Go misses, and a listed line without a marker is a Go finding FIR
+// drops. Each row is a line of the PR's Divergences table (code shape, Go,
+// FIR, golden case). Lines where Go reports more than once are listed too,
+// since markers record lines, not counts.
+func logDivergences(t *testing.T, rel, ruleID string, lines []string, goLines map[int]int) {
+	t.Helper()
+	fir := map[int]bool{}
+	for i, line := range lines {
+		for _, m := range goldenMarkerRe.FindAllStringSubmatch(line, -1) {
+			if m[1] == ruleID {
+				fir[i+1] = true
+			}
+		}
+	}
+	all := map[int]bool{}
+	for line := range fir {
+		all[line] = true
+	}
+	for line := range goLines {
+		all[line] = true
+	}
+	var rows []int
+	for line := range all {
+		if !fir[line] || goLines[line] != 1 {
+			rows = append(rows, line)
+		}
+	}
+	sort.Ints(rows)
+	for _, line := range rows {
+		goCol := "no finding"
+		if n := goLines[line]; n == 1 {
+			goCol = "reports"
+		} else if n > 1 {
+			goCol = fmt.Sprintf("reports x%d", n)
+		}
+		firCol := "no finding"
+		if fir[line] {
+			firCol = "reports"
+		}
+		code := strings.TrimSpace(stripGoldenMarkers([]string{lines[line-1]}))
+		t.Logf("divergence | `%s` | %s | %s | %s:%d", code, goCol, firCol, filepath.Base(rel), line)
+	}
 }
 
 func TestParseGoLines(t *testing.T) {

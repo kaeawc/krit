@@ -181,8 +181,13 @@ All tests live under `tools/krit-fir/compiler-tests/src/test/`.
   `// RENDER_DIAGNOSTICS_FULL_TEXT` (the generator puts it there).
   `TestFirGoldenGoLines` in `tests/parity` checks every header: it strips the
   markers, runs the Go rule alone in-process (source inference, no oracle, a
-  production source path), and requires the reported lines and per-line
-  counts to equal the header. It needs no jar, so it runs in every
+  production source path, and the rule options from
+  `config/default-krit.yml`, as krit applies them), and requires the reported
+  lines and per-line counts to equal the header. A golden therefore pins the
+  default config: a Go struct default that differs from the YAML does not
+  count (`InjectDispatcherMain.kt`). With `-v` it logs each golden's
+  divergences as `divergence | code | Go | FIR | file:line` rows, ready for
+  the PR's `Divergences` table. It needs no jar, so it runs in every
   `go test ./...`. The golden's rule is picked as the compiler test picks it,
   the longest checker ID its file name starts with. A golden whose name
   starts with no checker ID fails (only the stub smoke files may), and
@@ -210,7 +215,8 @@ All tests live under `tools/krit-fir/compiler-tests/src/test/`.
      `krit-fir --list-rules` and compiles every rule's fixtures through the
      jar against the same stubs. For each line, the number of FIR findings
      must equal the number of findings from the in-process Go rule, which runs
-     with source inference and no oracle. `api.Registry` decides whether the
+     with source inference, no oracle, and the default config
+     (`config/default-krit.yml`). `api.Registry` decides whether the
      Go rule exists. Its `CrossRule` subtest applies the same line-for-line
      check to every FIR rule on every other rule's fixtures, since the batch
      runs every rule on every fixture: a checker that fires on code another

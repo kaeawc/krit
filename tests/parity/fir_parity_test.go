@@ -430,7 +430,8 @@ func findKotlinStdlib() string {
 }
 
 // runGoRule runs one Go rule in-process on a repo fixture: single-file
-// dispatch, source inference when the rule needs a resolver, no oracle.
+// dispatch, source inference when the rule needs a resolver, no oracle, and
+// the rule options from config/default-krit.yml (TestMain applies them).
 func runGoRule(t *testing.T, root, ruleName, fixture string) []scanner.Finding {
 	t.Helper()
 	file, err := scanner.ParseFile(context.Background(), filepath.Join(root, fixture))

@@ -66,3 +66,21 @@ fun lookalike(fake: FakeStatement, id: String) {
     fake.execute("DELETE FROM users WHERE id = $id")
     fake.executeQuery("SELECT " + id)
 }
+
+// A Statement checked to be a PreparedStatement is a prepared statement too:
+// the skip reads the enclosing `is` check, not only the declared type (K2
+// keeps no smart cast here, since execute(String) resolves on Statement).
+fun smartCastPrepared(s: Statement, other: Statement, id: String) {
+    if (s is PreparedStatement) {
+        s.execute("DELETE FROM users WHERE id = $id")
+    }
+    if (id.isNotEmpty() && other is PreparedStatement) {
+        other.executeQuery("SELECT * FROM users WHERE id = " + id)
+    }
+    when (s) {
+        is PreparedStatement -> s.executeUpdate("DELETE FROM users WHERE id = $id")
+        else -> Unit
+    }
+    if (s !is PreparedStatement) return
+    s.executeLargeUpdate("DELETE FROM users WHERE id = $id")
+}

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 20, 21, 22, 24, 26, 28, 35, 38, 39, 40, 51, 57
+// go-lines: 20, 21, 22, 24, 26, 28, 35, 38, 39, 40, 51, 59, 84, 85, 86, 87, 88, 93, 94, 98, 99, 100, 118, 119, 120
 // Go artifacts FIR drops: each Go finding here asserts something the code
 // does not have.
 package test
@@ -51,8 +51,10 @@ class PrecisionDao {
         stmt.execute("DELETE FROM users WHERE id = $id")
     }
 
-    // A project extension named like the JDBC method takes a query object,
-    // not SQL text.
+    // A project extension named like the JDBC method whose first parameter
+    // is a query object, not SQL text (Go reports the argument as computed
+    // SQL); the extension's own inner call is where the SQL runs. A wrapper
+    // that takes SQL text is reported (JdbcStatementExecuteWrappers.kt).
     fun extension(stmt: Statement, query: UserQuery) {
         stmt.executeQuery(query)
     }
@@ -67,3 +69,54 @@ class SqlRunner {
 class UserQuery(val sql: String)
 
 fun Statement.executeQuery(query: UserQuery): Boolean = execute(query.sql)
+
+private const val pageSize = 10
+
+// Go reports "built with non-static concatenation" on these too: it reads a
+// non-String literal operand (an Int, Long, Boolean, or Char), a lower-case
+// const, a name holding an if or when over literals, and a final val
+// initialized with a literal as runtime data. Every value here is fixed in
+// the source, so nothing in the SQL is non-static.
+class StaticValueDao(private val admin: Boolean) {
+    private val selectAll = "SELECT * FROM users"
+
+    fun literals(stmt: Statement) {
+        stmt.executeQuery("SELECT * FROM users LIMIT " + 10)
+        stmt.executeQuery("SELECT * FROM users LIMIT " + 10L)
+        stmt.executeQuery("SELECT * FROM users WHERE active = " + true)
+        stmt.executeQuery("SELECT * FROM users WHERE grade = " + 'A')
+        stmt.executeQuery("SELECT * FROM users LIMIT " + pageSize)
+    }
+
+    fun branches(stmt: Statement) {
+        val sql = if (admin) "SELECT * FROM users" else "SELECT id FROM users"
+        stmt.executeQuery(sql)
+        stmt.executeQuery(when { admin -> "SELECT * FROM users"; else -> "SELECT id FROM users" })
+    }
+
+    fun finalVals(stmt: Statement) {
+        stmt.executeQuery(selectAll)
+        stmt.executeQuery(fromCompanion)
+        stmt.executeQuery(topLevelQuery)
+    }
+
+    companion object {
+        val fromCompanion = "SELECT * FROM users"
+    }
+}
+
+val topLevelQuery = "SELECT * FROM users"
+
+// Still reported: a branch holding runtime data, an open val (an override
+// may compute it), and a val with a custom getter are not proven static.
+open class NotStaticDao(private val admin: Boolean, private val id: String) {
+    open val overridable = "SELECT * FROM users"
+    val computedGetter: String get() = "SELECT * FROM users WHERE id = " + id
+
+    fun notStatic(stmt: Statement) {
+        val sql = if (admin) "SELECT * FROM users" else "SELECT * FROM users WHERE id = " + id
+        stmt.executeQuery(<!JdbcStatementExecute!>sql<!>)
+        stmt.executeQuery(<!JdbcStatementExecute!>overridable<!>)
+        stmt.executeQuery(<!JdbcStatementExecute!>computedGetter<!>)
+    }
+}

@@ -63,3 +63,12 @@ class GoMissesDao(private val stmt: Statement) {
         s.execute(<!JdbcStatementExecute!>"CREATE TABLE " + System.getenv("TABLE")<!>)
     }
 }
+
+// A not-null assertion, a parenthesized receiver, and a receiver typed by a
+// type parameter bounded by Statement: Go reads only a bare receiver name
+// and cannot type the type parameter.
+fun <T : Statement> assertedAndGeneric(s: Statement?, p: Statement, t: T, id: String) {
+    s!!.execute(<!JdbcStatementExecute!>"DELETE FROM users WHERE id = $id"<!>)
+    (p).execute(<!JdbcStatementExecute!>"DELETE FROM users WHERE id = $id"<!>)
+    t.execute(<!JdbcStatementExecute!>"DELETE FROM users WHERE id = $id"<!>)
+}

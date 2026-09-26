@@ -7,6 +7,7 @@
 // one.
 package test
 
+import java.lang.Integer
 import java.lang.Integer as JInt
 import java.lang.Integer.parseInt
 import java.lang.Integer.valueOf
@@ -25,3 +26,10 @@ fun typeAlias(x: Int): String = <!UnnecessaryTemporaryInstantiation!>Boxed.value
 
 // A parenthesized conversion.
 fun parenthesized(x: Int): String = <!UnnecessaryTemporaryInstantiation!>(java.lang.Integer.valueOf(x)).toString()<!>
+
+// A backtick-quoted wrapper name. (The explicit `import java.lang.Integer`
+// keeps the name visible next to the JInt alias import.)
+fun backticked(x: Int): String = <!UnnecessaryTemporaryInstantiation!>`Integer`.valueOf(x).toString()<!>
+
+// A comment inside the qualifier.
+fun commentedQualifier(x: Int): String = <!UnnecessaryTemporaryInstantiation!>java.lang./*c*/Integer.valueOf(x).toString()<!>

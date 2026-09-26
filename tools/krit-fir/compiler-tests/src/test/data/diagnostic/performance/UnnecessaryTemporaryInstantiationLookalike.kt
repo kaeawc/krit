@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 21, 23, 25, 28
+// go-lines: 21, 23, 25, 28, 35
 // Divergence (precision): each receiver below is only named like a JDK
 // wrapper. The same-package object Integer shadows java.lang.Integer, and its
 // valueOf returns the Int it is given, so no wrapper is instantiated and the
@@ -26,3 +26,11 @@ fun nestedObject(x: kotlin.Long): String = Holder.Long.valueOf(x).toString()
 
 // A real java.lang.Integer conversion still reports next to the lookalikes.
 fun real(x: Int): String = <!UnnecessaryTemporaryInstantiation!>java.lang.Integer.valueOf(x).toString()<!>
+
+// A local val named Integer holding an anonymous object shadows the wrapper.
+// Its valueOf is a member of the anonymous object and returns the Int it is
+// given, so no wrapper is instantiated and the message is false.
+fun localAnonymousObject(x: Int): String {
+    val Integer = object { fun valueOf(y: Int) = y }
+    return Integer.valueOf(x).toString()
+}

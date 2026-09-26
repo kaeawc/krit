@@ -6,6 +6,9 @@ import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
+import dev.jasonpearson.krit.fir.support.lightText
+import dev.jasonpearson.krit.fir.support.significantChildren
+import dev.jasonpearson.krit.fir.support.unwrapLightParens
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -110,11 +113,10 @@ internal object ImplicitDefaultLocale : FirFunctionCallChecker(MppCheckerKind.Co
         if (path != null && skippedPathSuffixes.any { path.endsWith(it) }) return
 
         val source = expression.source ?: return
-        val tree = source.treeStructure
         val qualified = qualifiedCall(source) ?: return
         val parts = significantChildren(source, qualified)
         val receiver = parts.firstOrNull() ?: return
-        val receiverText = tree.toString(receiver).toString()
+        val receiverText = lightText(source, receiver)
         val anchor = lightSourceOf(qualified, source)
 
         when (shape) {
@@ -171,7 +173,6 @@ internal object ImplicitDefaultLocale : FirFunctionCallChecker(MppCheckerKind.Co
     // locale-independent, or a reference whose simple name is that of a
     // property initialized with such a literal.
     private fun firstArgumentIsLocaleInsensitive(source: KtSourceElement, call: LighterASTNode): Boolean {
-        val tree = source.treeStructure
         val arguments = lightChildren(source, call).firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_LIST }
             ?: return false
         val first = lightChildren(source, arguments).firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT }
@@ -181,7 +182,7 @@ internal object ImplicitDefaultLocale : FirFunctionCallChecker(MppCheckerKind.Co
             val value = constStringPropertyValue(source, name)
             if (value != null && isLocaleInsensitiveFormat(value)) return true
         }
-        val text = tree.toString(first).toString().trim()
+        val text = lightText(source, first).trim()
         return text.startsWith("\"") && isLocaleInsensitiveFormat(text)
     }
 
@@ -197,17 +198,12 @@ internal object ImplicitDefaultLocale : FirFunctionCallChecker(MppCheckerKind.Co
     // Go's flatReferenceSimpleName: the identifier of a simple name, or the
     // last selector of a qualified expression that ends in a property read.
     private fun referenceSimpleName(source: KtSourceElement, expression: LighterASTNode?): String? {
-        var node = expression ?: return null
-        while (node.tokenType == KtNodeTypes.PARENTHESIZED) {
-            node = significantChildren(source, node).firstOrNull {
-                it.tokenType != KtTokens.LPAR && it.tokenType != KtTokens.RPAR
-            } ?: return null
-        }
+        var node = unwrapLightParens(source, expression ?: return null)
         if (node.tokenType in qualifiedTypes) {
             node = significantChildren(source, node).lastOrNull() ?: return null
         }
         if (node.tokenType != KtNodeTypes.REFERENCE_EXPRESSION) return null
-        return source.treeStructure.toString(node).toString()
+        return lightText(source, node)
     }
 
     // Go's findConstStringPropertyValue: the first property declared anywhere
@@ -221,7 +217,7 @@ internal object ImplicitDefaultLocale : FirFunctionCallChecker(MppCheckerKind.Co
             if (node.tokenType == KtNodeTypes.PROPERTY) {
                 val children = significantChildren(source, node)
                 val identifier = children.firstOrNull { it.tokenType == KtTokens.IDENTIFIER }
-                if (identifier != null && tree.toString(identifier).toString() == name) {
+                if (identifier != null && lightText(source, identifier) == name) {
                     val equals = children.indexOfFirst { it.tokenType == KtTokens.EQ }
                     val initializer = if (equals >= 0) children.getOrNull(equals + 1) else null
                     if (initializer != null) plainStringContent(source, initializer)?.let { result = it; return }
@@ -298,11 +294,10 @@ internal object ImplicitDefaultLocale : FirFunctionCallChecker(MppCheckerKind.Co
         return parent.takeIf { parts.size > 1 && parts.last() == node }
     }
 
+    // Children other than whitespace, comments, and the `.` / `?.` of a
+    // qualified expression.
     private fun significantChildren(source: KtSourceElement, node: LighterASTNode): List<LighterASTNode> =
-        lightChildren(source, node).filter {
-            it.tokenType != KtTokens.WHITE_SPACE &&
-                it.tokenType !in KtTokens.COMMENTS &&
-                it.tokenType != KtTokens.DOT &&
-                it.tokenType != KtTokens.SAFE_ACCESS
-        }
+        significantChildren(source, node, accessTokens)
+
+    private val accessTokens = setOf(KtTokens.DOT, KtTokens.SAFE_ACCESS)
 }

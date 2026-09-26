@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.support
 
 import com.intellij.lang.LighterASTNode
 import com.intellij.openapi.util.Ref
+import com.intellij.psi.tree.IElementType
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.lexer.KtTokens
@@ -17,6 +18,36 @@ fun lightChildren(source: KtSourceElement, node: LighterASTNode): List<LighterAS
     source.treeStructure.getChildren(node, ref)
     return ref.get()?.filterNotNull().orEmpty()
 }
+
+/**
+ * The direct children of [node], a node in [source]'s tree, other than
+ * whitespace, comments, and any token type in [skip] (punctuation the caller
+ * reads past, such as `.` or parentheses).
+ */
+fun significantChildren(
+    source: KtSourceElement,
+    node: LighterASTNode,
+    skip: Set<IElementType> = emptySet(),
+): List<LighterASTNode> =
+    lightChildren(source, node).filter {
+        it.tokenType != KtTokens.WHITE_SPACE && it.tokenType !in KtTokens.COMMENTS && it.tokenType !in skip
+    }
+
+/** The source text of [node], a node in [source]'s tree, as written. */
+fun lightText(source: KtSourceElement, node: LighterASTNode): String =
+    source.treeStructure.toString(node).toString()
+
+/**
+ * [node] with every enclosing pair of parentheses removed, skipping comments
+ * inside them. A pair with nothing inside is returned as it is.
+ */
+tailrec fun unwrapLightParens(source: KtSourceElement, node: LighterASTNode): LighterASTNode {
+    if (node.tokenType != KtNodeTypes.PARENTHESIZED) return node
+    val inner = significantChildren(source, node, parenTokens).firstOrNull() ?: return node
+    return unwrapLightParens(source, inner)
+}
+
+private val parenTokens = setOf(KtTokens.LPAR, KtTokens.RPAR)
 
 /**
  * A source element for [node], a node in [anchor]'s tree, keeping the anchor's

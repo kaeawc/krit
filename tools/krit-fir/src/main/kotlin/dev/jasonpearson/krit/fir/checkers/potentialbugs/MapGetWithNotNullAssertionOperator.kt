@@ -6,6 +6,9 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.lightText
+import dev.jasonpearson.krit.fir.support.significantChildren
+import dev.jasonpearson.krit.fir.support.unwrapLightParens
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -140,7 +143,7 @@ internal object MapGetWithNotNullAssertionOperator : FirCheckNotNullCallChecker(
         val postfix = source.lighterASTNode
         if (postfix.tokenType != KtNodeTypes.POSTFIX_EXPRESSION) return null
         val operand = significant(source, postfix).firstOrNull() ?: return null
-        val access = unwrapParens(source, operand)
+        val access = unwrapLightParens(source, operand)
         return when (access.tokenType) {
             KtNodeTypes.ARRAY_ACCESS_EXPRESSION -> indexAccess(source, access)
             KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION -> getCallAccess(source, access)
@@ -175,7 +178,7 @@ internal object MapGetWithNotNullAssertionOperator : FirCheckNotNullCallChecker(
     private fun getCallKey(source: KtSourceElement, call: LighterASTNode): LighterASTNode? {
         val parts = significant(source, call)
         val name = parts.firstOrNull()?.takeIf { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION } ?: return null
-        if (text(source, name) != "get") return null
+        if (lightText(source, name) != "get") return null
         // `get<K, V>(key)`: explicit type arguments select the stdlib extension.
         val arguments = if (parts.getOrNull(1)?.tokenType == KtNodeTypes.TYPE_ARGUMENT_LIST) 2 else 1
         if (parts.size != arguments + 1) return null
@@ -339,7 +342,7 @@ internal object MapGetWithNotNullAssertionOperator : FirCheckNotNullCallChecker(
         if (parts.size != 3) return false
         val (left, operation, right) = parts
         val token = operationToken(source, operation)
-        val infix = if (token == KtTokens.IDENTIFIER) text(source, operation) else null
+        val infix = if (token == KtTokens.IDENTIFIER) lightText(source, operation) else null
         val conjunction = token == KtTokens.ANDAND || infix == "and"
         val disjunction = token == KtTokens.OROR || infix == "or"
         if (conjunction || disjunction) {
@@ -381,13 +384,13 @@ internal object MapGetWithNotNullAssertionOperator : FirCheckNotNullCallChecker(
         if (selector.tokenType != KtNodeTypes.CALL_EXPRESSION) return null
         val name = significant(source, selector).firstOrNull()
             ?.takeIf { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION } ?: return null
-        return receiver.takeIf { text(source, name) == "also" || text(source, name) == "apply" }
+        return receiver.takeIf { lightText(source, name) == "also" || lightText(source, name) == "apply" }
     }
 
     private fun booleanLiteral(source: KtSourceElement, node: LighterASTNode): Boolean? {
-        val literal = unwrapParens(source, node)
+        val literal = unwrapLightParens(source, node)
         if (literal.tokenType != KtNodeTypes.BOOLEAN_CONSTANT) return null
-        return when (text(source, literal)) {
+        return when (lightText(source, literal)) {
             "true" -> true
             "false" -> false
             else -> null
@@ -403,7 +406,7 @@ internal object MapGetWithNotNullAssertionOperator : FirCheckNotNullCallChecker(
         if (selector.tokenType != KtNodeTypes.CALL_EXPRESSION) return false
         val callParts = significant(source, selector)
         val name = callParts.firstOrNull()?.takeIf { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION } ?: return false
-        if (text(source, name) != "containsKey" || callParts.size != 2) return false
+        if (lightText(source, name) != "containsKey" || callParts.size != 2) return false
         val args = callParts[1].takeIf { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_LIST } ?: return false
         val argument = lightChildren(source, args).singleOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT } ?: return false
         val key = significant(source, argument).lastOrNull() ?: return false
@@ -413,17 +416,10 @@ internal object MapGetWithNotNullAssertionOperator : FirCheckNotNullCallChecker(
     // ---- Light-tree helpers -----------------------------------------------
 
     private fun equivalent(source: KtSourceElement, a: LighterASTNode, b: LighterASTNode): Boolean {
-        val left = unwrapParens(source, a)
-        val right = unwrapParens(source, b)
+        val left = unwrapLightParens(source, a)
+        val right = unwrapLightParens(source, b)
         if (left == right) return true
-        return left.tokenType == right.tokenType && text(source, left).trim() == text(source, right).trim()
-    }
-
-    private tailrec fun unwrapParens(source: KtSourceElement, node: LighterASTNode): LighterASTNode {
-        if (node.tokenType != KtNodeTypes.PARENTHESIZED) return node
-        val inner = significant(source, node).firstOrNull { it.tokenType != KtTokens.LPAR && it.tokenType != KtTokens.RPAR }
-            ?: return node
-        return unwrapParens(source, inner)
+        return left.tokenType == right.tokenType && lightText(source, left).trim() == lightText(source, right).trim()
     }
 
     // The condition expression of an `if`. Go takes the first named child of
@@ -445,12 +441,9 @@ internal object MapGetWithNotNullAssertionOperator : FirCheckNotNullCallChecker(
         return lightChildren(source, operation).firstOrNull()?.tokenType
     }
 
-    private fun text(source: KtSourceElement, node: LighterASTNode): String =
-        source.treeStructure.toString(node).toString()
-
     // Children other than whitespace, comments and punctuation.
     private fun significant(source: KtSourceElement, node: LighterASTNode): List<LighterASTNode> =
-        lightChildren(source, node).filter { it.tokenType !in trivia && it.tokenType !in KtTokens.COMMENTS }
+        significantChildren(source, node, trivia)
 
     // Children other than whitespace and punctuation; comments are kept.
     private fun significantWithComments(source: KtSourceElement, node: LighterASTNode): List<LighterASTNode> =

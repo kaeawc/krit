@@ -4,6 +4,9 @@ import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.lightText
+import dev.jasonpearson.krit.fir.support.significantChildren
+import dev.jasonpearson.krit.fir.support.unwrapLightParens
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -95,25 +98,25 @@ internal object UseRequireNotNull : FirFunctionCallChecker(MppCheckerKind.Common
     // `null`. Returns null when the shape does not match.
     private fun writtenNonNullOperandIndex(source: KtSourceElement): Int? {
         val call = callExpressionNode(source, source.lighterASTNode) ?: return null
-        val argumentList = meaningfulChildren(source, call)
+        val argumentList = significantChildren(source, call)
             .firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_LIST } ?: return null
         val argument = lightChildren(source, argumentList)
             .filter { it.tokenType == KtNodeTypes.VALUE_ARGUMENT }
             .singleOrNull() ?: return null
-        val value = meaningfulChildren(source, argument).firstOrNull {
+        val value = significantChildren(source, argument).firstOrNull {
             it.tokenType != KtNodeTypes.VALUE_ARGUMENT_NAME &&
                 it.tokenType != KtTokens.EQ &&
                 it.tokenType != KtTokens.MUL
-        }?.let { unwrapParens(source, it) } ?: return null
+        }?.let { unwrapLightParens(source, it) } ?: return null
         if (value.tokenType != KtNodeTypes.BINARY_EXPRESSION) return null
         // Comments are skipped too: `x != /* c */ null` still compares x with
         // null. Go reads the operator as the second child and the operand as
         // the last, so it also reports a comment after the operator, and
         // misses one before it (golden UseRequireNotNullComments).
-        val parts = meaningfulChildren(source, value)
+        val parts = significantChildren(source, value)
         if (parts.size != 3) return null
         val (left, operator, right) = parts
-        if (operator.tokenType != KtNodeTypes.OPERATION_REFERENCE || text(source, operator) != "!=") return null
+        if (operator.tokenType != KtNodeTypes.OPERATION_REFERENCE || lightText(source, operator) != "!=") return null
         // A parenthesized `(null)` is still the null literal, as
         // UseCheckNotNull reads it; Go compares the raw text and misses it
         // (golden UseRequireNotNullParenthesizedNull).
@@ -125,29 +128,14 @@ internal object UseRequireNotNull : FirFunctionCallChecker(MppCheckerKind.Common
     }
 
     private fun isNullLiteral(source: KtSourceElement, node: LighterASTNode): Boolean =
-        text(source, unwrapParens(source, node)) == "null"
-
-    // [node] with any enclosing parentheses removed; an empty pair stays as
-    // it is.
-    private tailrec fun unwrapParens(source: KtSourceElement, node: LighterASTNode): LighterASTNode {
-        if (node.tokenType != KtNodeTypes.PARENTHESIZED) return node
-        val inner = meaningfulChildren(source, node)
-            .firstOrNull { it.tokenType != KtTokens.LPAR && it.tokenType != KtTokens.RPAR } ?: return node
-        return unwrapParens(source, inner)
-    }
+        lightText(source, unwrapLightParens(source, node)) == "null"
 
     // The CALL_EXPRESSION of a call's source: the source itself, or the
     // selector of a qualified call (`kotlin.require(...)`).
     private fun callExpressionNode(source: KtSourceElement, node: LighterASTNode): LighterASTNode? = when (node.tokenType) {
         KtNodeTypes.CALL_EXPRESSION -> node
         KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION ->
-            meaningfulChildren(source, node).lastOrNull()?.let { callExpressionNode(source, it) }
+            significantChildren(source, node).lastOrNull()?.let { callExpressionNode(source, it) }
         else -> null
     }
-
-    private fun meaningfulChildren(source: KtSourceElement, node: LighterASTNode): List<LighterASTNode> =
-        lightChildren(source, node).filter { it.tokenType != KtTokens.WHITE_SPACE && it.tokenType !in KtTokens.COMMENTS }
-
-    private fun text(source: KtSourceElement, node: LighterASTNode): String =
-        source.treeStructure.toString(node).toString()
 }

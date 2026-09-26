@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 18, 22, 26, 34, 43, 48, 59, 60, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130
+// go-lines: 18, 22, 26, 34, 41, 46, 57, 58, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128
 // Where the checker and the Go rule's text match of the whole `for`
 // statement disagree. Go reports a loop whose text (header, body, comments,
 // and strings) contains `Collections.synchronizedList`, `...Set`, or
@@ -36,18 +36,16 @@ fun bodyOnly(items: List<Int>) {
     }
 }
 
-// Go reports the outer loop because its body iterates the wrapper; FIR is
-// correct to drop it because that iteration runs inside a synchronized call,
-// the lock Go's own rule accepts for a loop.
+// The other lock does not protect a newly created wrapper's iterator.
 fun bodyIterationUnderLock(items: List<Int>, lists: List<MutableList<Int>>, lock: Any) {
-    for (item in items) {
+    <!CollectionsSynchronizedListIteration!>for<!> (item in items) {
         synchronized(lock) {
             Collections.synchronizedList(mutableListOf(item)).forEach { consume(it) }
         }
     }
     for (list in lists) {
         synchronized(lock) {
-            for (item in Collections.synchronizedList(list)) consume(item)
+            <!CollectionsSynchronizedListIteration!>for<!> (item in Collections.synchronizedList(list)) consume(item)
         }
     }
 }

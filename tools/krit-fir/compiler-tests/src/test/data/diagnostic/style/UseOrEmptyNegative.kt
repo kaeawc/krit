@@ -1,6 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
-// Negatives the Go rule also leaves alone.
+// go-lines: 14, 17
+// Cases where `.orEmpty()` is invalid or changes the fallback's collection kind.
 package test
 
 fun orEmpty(x: List<String>?): List<String> = x.orEmpty()
@@ -10,6 +10,11 @@ fun nonEmpty(x: List<String>?): List<String> = x ?: listOf("default")
 fun nonEmptyVararg(x: Array<String>?, rest: Array<String>): Array<out String> = x ?: arrayOf(*rest)
 
 fun mutable(x: MutableList<String>?): MutableList<String> = x ?: mutableListOf()
+
+fun crossCollection(x: Set<String>?): Collection<String> = x ?: emptyList()
+
+fun mutableJdkFallback(x: MutableList<String>?): MutableList<String> =
+    x ?: java.util.Collections.emptyList()
 
 fun primitiveArray(x: IntArray?): IntArray = x ?: intArrayOf()
 

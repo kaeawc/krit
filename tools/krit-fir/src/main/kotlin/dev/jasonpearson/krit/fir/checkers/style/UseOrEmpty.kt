@@ -71,6 +71,9 @@ import org.jetbrains.kotlin.name.StandardClassIds
 //   Array, a Sequence, or a String. Go reports `value ?: ""` on an `Any?` or
 //   `CharSequence?` and `values ?: emptyList()` on an `Iterable?`, where no
 //   `.orEmpty()` replaces the Elvis.
+// - Precision: a Set with an emptyList fallback (or a List with emptySet)
+//   changes the null result's kind. A JDK fallback can also give an Elvis a
+//   mutable result type that the read-only `.orEmpty()` cannot replace.
 // - Precision: `listOf { ... }` passes the lambda as an element, so the list
 //   is not empty; Go counts a call without a value-argument list as empty.
 // - Recall: Go skips any left side whose text contains `?.`, so it also
@@ -148,6 +151,21 @@ internal object UseOrEmpty : FirExpressionChecker<FirElvisExpression>(MppChecker
         if (insideStringTemplate(source)) return
         if (readsThroughSafeCall(expression.lhs)) return
         if (!expression.lhs.resolvedType.isSubtypeOf(family.receiverType(), context.session)) return
+        val fallback = expression.rhs as? FirFunctionCall
+        val fallbackName = fallback?.calleeReference?.toResolvedCallableSymbol()?.callableId?.callableName?.asString()
+        val leftType = expression.lhs.resolvedType
+        val nullableSet = StandardClassIds.Set.constructClassLikeType(arrayOf(ConeStarProjection), isMarkedNullable = true)
+        val nullableList = StandardClassIds.List.constructClassLikeType(arrayOf(ConeStarProjection), isMarkedNullable = true)
+        if (fallbackName in setOf("emptyList", "listOf") && leftType.isSubtypeOf(nullableSet, context.session)) return
+        if (fallbackName in setOf("emptySet", "setOf") && leftType.isSubtypeOf(nullableList, context.session)) return
+        if (family == Family.COLLECTION || family == Family.MAP) {
+            val mutable = if (family == Family.MAP) StandardClassIds.MutableMap else StandardClassIds.MutableCollection
+            val mutableType = mutable.constructClassLikeType(
+                Array(family.typeArguments) { ConeStarProjection },
+                isMarkedNullable = true,
+            )
+            if (expression.resolvedType.isSubtypeOf(mutableType, context.session)) return
+        }
 
         report(source, "Use '.orEmpty()' instead of '?: $rightText'.")
     }

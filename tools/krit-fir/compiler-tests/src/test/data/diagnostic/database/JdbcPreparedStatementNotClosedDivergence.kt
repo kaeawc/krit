@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 13, 18, 23, 28, 35, 36, 37, 44, 54, 55, 68, 105, 111, 117, 128, 136, 137
+// go-lines: 13, 18, 23, 28, 35, 36, 37, 42, 43, 50, 60, 61, 74, 111, 117, 123, 134, 142, 143
 // Divergences from Go, each decided by the message ("PreparedStatement '<name>'
 // should be wrapped in use { } or explicitly closed with .close().").
 package test
@@ -36,6 +36,12 @@ fun closedOnTheSpot(conn: Connection) {
     val done = conn.prepareStatement("SELECT 1")?.close()
     val rows = conn.prepareStatement("SELECT 1")!!.use { it.executeQuery().next() }
     println(listOf(count, done, rows))
+}
+
+fun nullableClosedOnTheSpot(conn: Connection?) {
+    val done = conn?.prepareStatement("SELECT 1")?.close()
+    val used = conn?.prepareStatement("SELECT 1")?.use { it.execute() }
+    println(listOf(done, used))
 }
 
 // Go reports `result` too: the statement is made by the nested `stmt`, which

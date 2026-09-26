@@ -203,6 +203,7 @@ internal object JdbcPreparedStatementNotClosed :
     private tailrec fun unwrap(expression: FirExpression): FirExpression = when (expression) {
         is FirCheckNotNullCall -> unwrap(expression.arguments.firstOrNull() ?: return expression)
         is FirSmartCastExpression -> unwrap(expression.originalExpression)
+        is FirSafeCallExpression -> unwrap(expression.selector as? FirExpression ?: return expression)
         else -> expression
     }
 

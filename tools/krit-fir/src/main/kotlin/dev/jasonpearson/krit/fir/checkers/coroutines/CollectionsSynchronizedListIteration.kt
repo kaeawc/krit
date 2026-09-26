@@ -5,8 +5,6 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
-import dev.jasonpearson.krit.fir.support.lightText
-import dev.jasonpearson.krit.fir.support.significantChildren
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -38,27 +36,27 @@ import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
+import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
+import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
 
 // Flags a `for` loop over a `java.util.Collections.synchronized*` wrapper that
-// is not inside a `synchronized(...)` call: the wrapper's iterator is not
-// thread-safe, so iteration must hold the wrapper's lock.
+// is not protected by the wrapper's own monitor: its iterator is not
+// thread-safe, so iteration must hold that monitor.
 //
 // Mirrors the Go CollectionsSynchronizedListIteration rule, which reports a
 // `for` statement (on its `for` line) whose text contains
 // `Collections.synchronizedList`, `Collections.synchronizedSet`, or
-// `Collections.synchronizedMap`, unless an enclosing call written
-// `synchronized` (any lock, any owner) sits between the loop and the nearest
-// named function. Lambdas, anonymous functions, and classes are not
-// boundaries for that walk, and the checker walks the same light tree.
+// `Collections.synchronizedMap`. An arbitrary enclosing synchronized call
+// does not establish that the wrapper's monitor is held.
 //
 // The checker reads what the loop's code does with the wrapper instead of its
 // text:
@@ -85,9 +83,8 @@ import org.jetbrains.kotlin.name.StandardClassIds
 //   (`keys`, `values`, `entries`, `withIndex()`, `asSequence()`,
 //   `iterator()`): that is the wrapper being iterated, which Go cannot see
 //   from the loop's text. That loop is left alone when the code around it
-//   holds a lock: a `@Synchronized` or `@GuardedBy` function, a `withLock`,
-//   `read`, or `write` block, or a private function every caller in the file
-//   calls under a lock.
+//   holds the wrapper's monitor, directly or through a private function
+//   whose every caller in the file acquires that monitor.
 // - It does not report a lookalike `Collections` class: the loop does not
 //   iterate a `java.util.Collections` wrapper there.
 internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
@@ -100,6 +97,7 @@ internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(Mp
         "Iterating over a Collections.synchronized* wrapper without external synchronization. The iterator is not thread-safe."
 
     private val collections = ClassId(FqName("java.util"), Name.identifier("Collections"))
+    private val lazyId = CallableId(FqName("kotlin"), Name.identifier("lazy"))
     private val wrapperFactories = names(
         "synchronizedCollection",
         "synchronizedList",
@@ -187,12 +185,6 @@ internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(Mp
     private val listOnlyExtensions =
         names("toList", "sorted", "sortedDescending", "sortedWith", "sortedBy", "sortedByDescending", "reversed")
 
-    private val lockPackage = FqName("kotlin.concurrent")
-    private val lockFunctions = names("withLock", "read", "write")
-    private val synchronizedAnnotation = Name.identifier("Synchronized")
-    private val synchronizedAnnotationPackages = setOf(FqName("kotlin.jvm"), FqName("kotlin.concurrent"))
-    private val guardedByAnnotation = Name.identifier("GuardedBy")
-
     private fun names(vararg names: String): Set<Name> = names.mapTo(HashSet(), Name::identifier)
 
     // What an operation on the wrapper does with it.
@@ -221,11 +213,11 @@ internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(Mp
         val loop = enclosingFor(source) ?: return
         val path = context.containingElements
 
-        val inline = containsWrapperCall(iterable) || iteratesWrapperInBody(expression, path, loop)
+        val inline = containsWrapperCall(iterable) || iteratesWrapperInBody(expression, path)
         val held = !inline && iteratesWrapperValue(iterable)
         if (!inline && !held) return
-        if (insideSynchronizedCall(source, loop)) return
-        if (held && lockHeld(path)) return
+        val wrapper = if (held) heldWrapperSymbol(iterable) else null
+        if (wrapper != null && lockHeld(path, wrapper)) return
         // Go reports the `for` statement's first line; the keyword is on it.
         val keyword = lightChildren(source, loop).firstOrNull { it.tokenType == KtTokens.FOR_KEYWORD } ?: loop
         report(lightSourceOf(keyword, source), MESSAGE)
@@ -339,11 +331,10 @@ internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(Mp
     // The loop's body iterates a wrapper call written in the loop, as Go's
     // text match of the whole statement sees it: an operation that walks the
     // wrapper's iterator, on the call, on a view of it, or on a local the
-    // body initializes with it, outside a synchronized call inside the loop.
+    // body initializes with it.
     // An inner loop over such a value counts only when it does not report
     // the wrapper itself.
-    context(context: CheckerContext)
-    private fun iteratesWrapperInBody(iteratorCall: FirFunctionCall, path: List<FirElement>, loop: LighterASTNode): Boolean {
+    private fun iteratesWrapperInBody(iteratorCall: FirFunctionCall, path: List<FirElement>): Boolean {
         val index = path.indexOfLast { it === iteratorCall }
         val variable = path.getOrNull(index - 1) as? FirVariable ?: return false
         val block = path.getOrNull(index - 2) as? FirBlock ?: return false
@@ -373,29 +364,22 @@ internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(Mp
             return value.explicitReceiver?.let(::holdsWrapperInBody) ?: false
         }
 
-        val stack = ArrayList(path.subList(0, index - 1))
         var found = false
         whileLoop.block.accept(object : FirVisitorVoid() {
             override fun visitElement(element: FirElement) {
                 if (found) return
-                stack += element
-                if (element is FirQualifiedAccessExpression && iteratesInBody(element, stack, ::holdsWrapperInBody) &&
-                    !synchronizedInsideLoop(element, loop)
-                ) {
+                if (element is FirQualifiedAccessExpression && iteratesInBody(element, ::holdsWrapperInBody)) {
                     found = true
                 } else {
                     element.acceptChildren(this)
                 }
-                stack.removeAt(stack.lastIndex)
             }
         })
         return found
     }
 
-    context(context: CheckerContext)
     private fun iteratesInBody(
         access: FirQualifiedAccessExpression,
-        path: List<FirElement>,
         holdsWrapper: (FirExpression) -> Boolean,
     ): Boolean {
         val receiver = access.explicitReceiver ?: return false
@@ -404,24 +388,18 @@ internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(Mp
         if (access is FirFunctionCall && source?.kind == KtFakeSourceElementKind.DesugaredForLoop &&
             access.calleeReference.name == iteratorName
         ) {
-            // An inner loop over an inline wrapper, or over a local val that
-            // holds one without a lock, reports itself.
-            if (containsWrapperCall(receiver)) return false
-            if (iteratesWrapperValue(receiver)) return lockHeld(path)
-            return true
+            // An inner loop over a held wrapper checks its own monitor. A
+            // mutable local is not tracked as held, so its outer loop reports.
+            return !containsWrapperCall(receiver) && !iteratesWrapperValue(receiver)
         }
         return use(access) == Use.Iterates
     }
 
-    // A call written `synchronized` between [element] and [loop].
-    private fun synchronizedInsideLoop(element: FirElement, loop: LighterASTNode): Boolean {
-        val source = element.source ?: return false
-        return insideSynchronizedCall(source, source.lighterASTNode, stopAt = loop)
-    }
-
     // The iterable is a `val` holding a wrapper, directly or through a view or
     // adapter that iterates it lazily.
-    private fun iteratesWrapperValue(iterable: FirExpression): Boolean {
+    private fun iteratesWrapperValue(iterable: FirExpression): Boolean = heldWrapperSymbol(iterable) != null
+
+    private fun heldWrapperSymbol(iterable: FirExpression): FirPropertySymbol? {
         var current = unwrapValue(iterable)
         while (current is FirQualifiedAccessExpression) {
             val symbol = current.calleeReference.toResolvedCallableSymbol()
@@ -430,45 +408,58 @@ internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(Mp
                 Use.Iterates -> symbol?.name in iteratorMembers
                 else -> false
             }
-            if (!adapts) return symbol is FirPropertySymbol && holdsWrapper(symbol)
-            current = unwrapValue(current.explicitReceiver ?: return false)
+            if (!adapts) return (symbol as? FirPropertySymbol)?.takeIf(::holdsWrapper)
+            current = unwrapValue(current.explicitReceiver ?: return null)
         }
-        return false
+        return null
     }
 
     // A read-only property whose value is the wrapper its initializer
     // creates: a `val` that is not open and has no explicit getter.
+    @OptIn(SymbolInternals::class)
     private fun holdsWrapper(symbol: FirPropertySymbol): Boolean {
         if (symbol.isVar) return false
         if (symbol.resolvedStatus.modality == Modality.OPEN || symbol.resolvedStatus.modality == Modality.ABSTRACT) {
             return false
         }
-        if (symbol.getterSymbol?.isDefault == false) return false
-        val initializer = symbol.resolvedInitializer ?: return false
-        return isWrapperCall(unwrapValue(initializer))
+        if (symbol.getterSymbol?.isDefault == false && !symbol.hasDelegate) return false
+        val initializer = symbol.resolvedInitializer
+        if (initializer != null && isWrapperCall(unwrapValue(initializer))) return true
+        val delegate = symbol.delegate ?: return false
+        var lazy = false
+        var wrapper = false
+        delegate.accept(object : FirVisitorVoid() {
+            override fun visitElement(element: FirElement) {
+                if (element is FirFunctionCall) {
+                    if (element.calleeReference.toResolvedCallableSymbol()?.callableId == lazyId) lazy = true
+                    if (isWrapperCall(element)) wrapper = true
+                }
+                element.acceptChildren(this)
+            }
+        })
+        return lazy && wrapper
     }
 
-    // The code around a loop over a held wrapper holds a lock, other than
-    // the synchronized calls Go's walk sees: a @Synchronized or @GuardedBy
-    // function (or accessor), a withLock/read/write block, or a private or
-    // local function every caller in the file calls under a lock. Like Go's
-    // walk, this passes lambdas and stops at the nearest named function.
+    // Only the wrapper's own monitor protects iteration. A method annotation
+    // or a separate lock does not; a private helper is safe only if every
+    // caller holds the wrapper's monitor.
     context(context: CheckerContext)
-    private fun lockHeld(path: List<FirElement>): Boolean {
-        if (lockHeldAround(path)) return true
+    private fun lockHeld(path: List<FirElement>, wrapper: FirPropertySymbol): Boolean {
+        if (lockHeldAround(path, wrapper)) return true
         val function = enclosingFunction(path) ?: return false
-        return callersHoldLock(function, path.firstOrNull() as? FirFile ?: return false)
+        return callersHoldLock(function, path.firstOrNull() as? FirFile ?: return false, wrapper)
     }
 
-    private fun lockHeldAround(path: List<FirElement>): Boolean {
+    private fun lockHeldAround(path: List<FirElement>, wrapper: FirPropertySymbol): Boolean {
         for (i in path.indices.reversed()) {
             when (val element = path[i]) {
                 is FirFunctionCall -> {
                     val child = path.getOrNull(i + 1)
-                    if (child != null && child !== element.explicitReceiver && isLockBlock(element)) return true
+                    if (child != null && child !== element.argumentList.arguments.firstOrNull() &&
+                        isWrapperSynchronizedCall(element, wrapper)
+                    ) return true
                 }
-                is FirNamedFunction -> return hasLockAnnotation(element.symbol)
-                is FirPropertyAccessor -> return hasLockAnnotation(element.symbol)
+                is FirNamedFunction, is FirPropertyAccessor -> return false
                 else -> {}
             }
         }
@@ -486,19 +477,18 @@ internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(Mp
         return null
     }
 
-    private fun isLockBlock(call: FirFunctionCall): Boolean {
+    private fun isWrapperSynchronizedCall(call: FirFunctionCall, wrapper: FirPropertySymbol): Boolean {
         val callableId = call.calleeReference.toResolvedCallableSymbol()?.callableId ?: return false
-        return callableId.classId == null && callableId.packageName == lockPackage && callableId.callableName in lockFunctions
-    }
-
-    private fun hasLockAnnotation(symbol: FirBasedSymbol<*>): Boolean = symbol.resolvedAnnotationClassIds.any {
-        (it.shortClassName == synchronizedAnnotation && it.packageFqName in synchronizedAnnotationPackages) ||
-            it.shortClassName == guardedByAnnotation
+        if (callableId.classId != null || callableId.packageName != FqName("kotlin") ||
+            callableId.callableName.asString() != SYNCHRONIZED
+        ) return false
+        val lock = unwrapValue(call.argumentList.arguments.firstOrNull() ?: return false)
+        return (lock as? FirQualifiedAccessExpression)?.calleeReference?.toResolvedCallableSymbol() == wrapper
     }
 
     // Every call of the private or local [function] in [file] holds a lock,
     // and there is at least one; a function reference may run anywhere.
-    private fun callersHoldLock(function: FirNamedFunction, file: FirFile): Boolean {
+    private fun callersHoldLock(function: FirNamedFunction, file: FirFile, wrapper: FirPropertySymbol): Boolean {
         val visibility = function.symbol.resolvedStatus.visibility
         if (visibility != Visibilities.Private && visibility != Visibilities.Local) return false
         val target = function.symbol
@@ -514,9 +504,7 @@ internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(Mp
                     is FirCallableReferenceAccess ->
                         if (element.calleeReference.toResolvedCallableSymbol() == target) unguarded = true
                     is FirFunctionCall -> if (element.calleeReference.toResolvedCallableSymbol() == target) {
-                        val source = element.source
-                        val locked = (source != null && insideSynchronizedCall(source, source.lighterASTNode)) ||
-                            lockHeldAround(stack)
+                        val locked = lockHeldAround(stack, wrapper)
                         if (locked) guarded++ else unguarded = true
                     }
                     else -> {}
@@ -540,32 +528,4 @@ internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(Mp
         return null
     }
 
-    // Go's hasAncestorCallNamedFlat(for, "synchronized"): an enclosing call
-    // of [from] whose callee is written `synchronized`, bare or after a
-    // qualifier, up to the nearest named function (or [stopAt]).
-    private fun insideSynchronizedCall(
-        source: KtSourceElement,
-        from: LighterASTNode,
-        stopAt: LighterASTNode? = null,
-    ): Boolean {
-        val tree = source.treeStructure
-        var node = tree.getParent(from)
-        while (node != null && node != stopAt) {
-            when (node.tokenType) {
-                KtNodeTypes.FUN -> if (significantChildren(source, node).any { it.tokenType == KtTokens.IDENTIFIER }) {
-                    return false
-                }
-                KtNodeTypes.CALL_EXPRESSION -> {
-                    val callee = significantChildren(source, node).firstOrNull()
-                    if (callee?.tokenType == KtNodeTypes.REFERENCE_EXPRESSION &&
-                        lightText(source, callee) == SYNCHRONIZED
-                    ) {
-                        return true
-                    }
-                }
-            }
-            node = tree.getParent(node)
-        }
-        return false
-    }
 }

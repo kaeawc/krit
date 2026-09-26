@@ -1,7 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
-// Negative: loops Go leaves alone, and loops under an enclosing call written
-// `synchronized`, whatever the lock, up to the nearest named function.
+// Only the held wrapper under its own monitor is safe. Inline wrappers are
+// created after an enclosing lock is taken and cannot share its identity.
 package test
 
 import java.util.Collections
@@ -11,20 +11,20 @@ fun externallySynchronized() {
     val list = Collections.synchronizedList(mutableListOf(1, 2, 3))
     synchronized(list) {
         for (item in list) consume(item)
-        for (item in Collections.synchronizedList(mutableListOf(1))) consume(item)
+        <!CollectionsSynchronizedListIteration!>for<!> (item in Collections.synchronizedList(mutableListOf(1))) consume(item)
     }
 }
 
 fun otherLock(lock: Any) {
-    // Go accepts any lock, so this does too.
+    // This lock does not protect the newly created wrapper's iterator.
     synchronized(lock) {
-        for (item in Collections.synchronizedList(mutableListOf(1))) consume(item)
+        <!CollectionsSynchronizedListIteration!>for<!> (item in Collections.synchronizedList(mutableListOf(1))) consume(item)
     }
 }
 
 fun qualifiedSynchronized(lock: Any) {
     kotlin.synchronized(lock) {
-        for (item in Collections.synchronizedList(mutableListOf(1))) consume(item)
+        <!CollectionsSynchronizedListIteration!>for<!> (item in Collections.synchronizedList(mutableListOf(1))) consume(item)
     }
 }
 
@@ -33,15 +33,15 @@ fun lambdaInsideSynchronized(lock: Any) {
     // expressions: the enclosing synchronized call counts.
     synchronized(lock) {
         listOf(1).forEach {
-            for (item in Collections.synchronizedList(mutableListOf(it))) consume(item)
+            <!CollectionsSynchronizedListIteration!>for<!> (item in Collections.synchronizedList(mutableListOf(it))) consume(item)
         }
         val block = fun() {
-            for (item in Collections.synchronizedList(mutableListOf(1))) consume(item)
+            <!CollectionsSynchronizedListIteration!>for<!> (item in Collections.synchronizedList(mutableListOf(1))) consume(item)
         }
         block()
         object {
             init {
-                for (item in Collections.synchronizedList(mutableListOf(1))) consume(item)
+                <!CollectionsSynchronizedListIteration!>for<!> (item in Collections.synchronizedList(mutableListOf(1))) consume(item)
             }
         }
     }
@@ -54,8 +54,8 @@ fun plainCollections(list: List<Int>) {
     for (item in Collections.unmodifiableList(list)) consume(item)
 }
 
-// A var may no longer hold the wrapper; a getter or delegate computes the
-// value elsewhere.
+// A var may no longer hold the wrapper; a getter recomputes its value. A lazy
+// delegate retains the same wrapper across reads.
 var reassignable: MutableList<Int> = Collections.synchronizedList(mutableListOf(1))
 val computed: MutableList<Int> get() = Collections.synchronizedList(mutableListOf(1))
 val lazyHeld: MutableList<Int> by lazy { Collections.synchronizedList(mutableListOf(1)) }
@@ -63,7 +63,7 @@ val lazyHeld: MutableList<Int> by lazy { Collections.synchronizedList(mutableLis
 fun notHeld() {
     for (item in reassignable) consume(item)
     for (item in computed) consume(item)
-    for (item in lazyHeld) consume(item)
+    <!CollectionsSynchronizedListIteration!>for<!> (item in lazyHeld) consume(item)
     // A snapshot copy iterates a new list, not the wrapper, and indices do
     // not iterate it at all.
     val wrapped = Collections.synchronizedList(mutableListOf(1))

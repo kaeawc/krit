@@ -1,12 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 114, 119, 124
-// A loop over a val-held wrapper, which Go never reports, is left alone when
-// the code around it holds a lock, as Go's rule accepts any enclosing
-// synchronized call: a @Synchronized or @GuardedBy function, a
-// withLock/read/write block, or a private function whose every caller holds
-// a lock. "Without external synchronization" is false there. An inline
-// wrapper keeps Go's rule, which only counts calls written synchronized up to
-// the nearest named function.
+// go-lines: 109, 114, 119
+// Only the wrapper's own monitor protects its iterator. Method annotations,
+// other locks, and callers using another lock still leave these loops unsafe.
 package test
 
 import java.util.Collections
@@ -23,33 +18,33 @@ class Dispatcher {
     private val rwLock = ReentrantReadWriteLock()
     private val listeners = Collections.synchronizedList(mutableListOf<Runnable>())
 
-    // @Synchronized holds this object's monitor, as synchronized(this) does.
+    // @Synchronized holds this object's monitor, not listeners' monitor.
     @Synchronized
     fun annotated() {
-        for (listener in listeners) listener.run()
+        <!CollectionsSynchronizedListIteration!>for<!> (listener in listeners) listener.run()
     }
 
-    // @GuardedBy says every caller holds the lock.
+    // @GuardedBy names a different lock.
     @GuardedBy("lock")
     fun guardedBy() {
-        for (listener in listeners) listener.run()
+        <!CollectionsSynchronizedListIteration!>for<!> (listener in listeners) listener.run()
     }
 
     val count: Int
         @Synchronized get() {
-            for (listener in listeners) listener.run()
+            <!CollectionsSynchronizedListIteration!>for<!> (listener in listeners) listener.run()
             return listeners.size
         }
 
     fun lockBlocks() {
-        lock.withLock { for (listener in listeners) listener.run() }
-        rwLock.read { for (listener in listeners) listener.run() }
-        rwLock.write { for (listener in listeners) listener.run() }
+        lock.withLock { <!CollectionsSynchronizedListIteration!>for<!> (listener in listeners) listener.run() }
+        rwLock.read { <!CollectionsSynchronizedListIteration!>for<!> (listener in listeners) listener.run() }
+        rwLock.write { <!CollectionsSynchronizedListIteration!>for<!> (listener in listeners) listener.run() }
     }
 
-    // Every caller holds a lock.
+    // Some callers hold a different lock.
     private fun dispatchLocked() {
-        for (listener in listeners) listener.run()
+        <!CollectionsSynchronizedListIteration!>for<!> (listener in listeners) listener.run()
     }
 
     fun dispatch() {
@@ -133,7 +128,7 @@ class Dispatcher {
 private val topLevelListeners = Collections.synchronizedSet(mutableSetOf<Runnable>())
 
 private fun notifyLocked() {
-    for (listener in topLevelListeners) listener.run()
+    <!CollectionsSynchronizedListIteration!>for<!> (listener in topLevelListeners) listener.run()
 }
 
 fun notifyListeners(lock: Any) {

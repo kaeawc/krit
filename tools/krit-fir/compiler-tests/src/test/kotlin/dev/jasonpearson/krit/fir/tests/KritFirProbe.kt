@@ -16,7 +16,7 @@ import java.io.File
 // (golden marker tests) and the property tests, so both exercise one compile path.
 object KritFirProbe {
 
-    data class Diag(val file: String, val line: Int, val name: String)
+    data class Diag(val file: String, val line: Int, val name: String, val message: String)
 
     private val stubsDir: File get() = File("src/test/data/stubs")
 
@@ -131,7 +131,7 @@ object KritFirProbe {
                     val fileName = File(location.path).name
                     val match = pluginDiagnosticRe.find(message)
                     if (match != null) {
-                        if (severity in reportable) diags.add(Diag(fileName, location.line, match.groupValues[1]))
+                        if (severity in reportable) diags.add(Diag(fileName, location.line, match.groupValues[1], message))
                         return
                     }
                     if (severity == CompilerMessageSeverity.ERROR) {

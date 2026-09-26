@@ -1,11 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 20, 25, 27, 29, 54, 68, 76, 84, 93, 109
-// A `filter` that is not the stdlib function, called on an Iterable (or a
-// Sequence or CharSequence), followed by a stdlib terminal. The stdlib
-// `.first { pred }` the message suggests exists on the receiver and does the
-// same thing, so these are reported like the stdlib filter. Go matches the
-// names and reports each chain whose receiver it cannot resolve to a type
-// outside its list.
+// go-lines: 16, 21, 23, 25, 50, 64, 72, 80, 89, 105
+// A custom filter may return a different type or behave differently from the
+// standard-library function. These chains cannot safely suggest a rewrite.
 package test
 
 import java.io.File
@@ -17,19 +13,19 @@ class Files(private val items: List<String>) : Iterable<String> {
     fun filter(predicate: (String) -> Boolean): Files = Files(items.filter(predicate))
 
     // An implicit receiver.
-    fun firstJar(): String = <!UnnecessaryFilter!>filter<!> { it.endsWith(".jar") }.first()
+    fun firstJar(): String = filter { it.endsWith(".jar") }.first()
 }
 
 fun files(): Files = Files(listOf("a.jar"))
 
-fun jar(): String = <!UnnecessaryFilter!>files<!>().filter { it.endsWith(".jar") }.first()
+fun jar(): String = files().filter { it.endsWith(".jar") }.first()
 
-fun jarCount(): Int = <!UnnecessaryFilter!>files<!>().filter { it.endsWith(".jar") }.count()
+fun jarCount(): Int = files().filter { it.endsWith(".jar") }.count()
 
-fun jarAny(): Boolean = <!UnnecessaryFilter!>files<!>().filter { it.endsWith(".jar") }.any()
+fun jarAny(): Boolean = files().filter { it.endsWith(".jar") }.any()
 
 // Recall: Go resolves the parameter's type to Files and skips it.
-fun jarParameter(files: Files): String? = <!UnnecessaryFilter!>files<!>.filter { it.endsWith(".jar") }.lastOrNull()
+fun jarParameter(files: Files): String? = files.filter { it.endsWith(".jar") }.lastOrNull()
 
 // A filter that takes a SAM interface, like Gradle's FileCollection.filter(Spec).
 fun interface Spec<T> {
@@ -51,10 +47,10 @@ interface Project {
 }
 
 fun runtimeJar(project: Project): File =
-    <!UnnecessaryFilter!>project<!>.configurations.getByName("runtimeClasspath").filter { it.name.endsWith(".jar") }.first()
+    project.configurations.getByName("runtimeClasspath").filter { it.name.endsWith(".jar") }.first()
 
 // Recall: Go resolves the parameter's type to FileCollection and skips it.
-fun collectionJar(collection: FileCollection): Boolean = <!UnnecessaryFilter!>collection<!>.filter { it.name.endsWith(".jar") }.none()
+fun collectionJar(collection: FileCollection): Boolean = collection.filter { it.name.endsWith(".jar") }.none()
 
 // A Sequence and a CharSequence with their own filter.
 class Lines(private val lines: List<String>) : Sequence<String> {
@@ -65,7 +61,7 @@ class Lines(private val lines: List<String>) : Sequence<String> {
 
 fun lines(): Lines = Lines(listOf("a"))
 
-fun firstLine(): String = <!UnnecessaryFilter!>lines<!>().filter { it.isNotEmpty() }.first()
+fun firstLine(): String = lines().filter { it.isNotEmpty() }.first()
 
 abstract class Text : CharSequence {
     fun filter(predicate: (Char) -> Boolean): String = toString().filter(predicate)
@@ -73,7 +69,7 @@ abstract class Text : CharSequence {
 
 fun text(): Text = TODO()
 
-fun digits(): Int = <!UnnecessaryFilter!>text<!>().filter { it.isDigit() }.count()
+fun digits(): Int = text().filter { it.isDigit() }.count()
 
 // An Iterable object expression and a local class.
 val anonymousFiles = object : Iterable<Int> {
@@ -81,7 +77,7 @@ val anonymousFiles = object : Iterable<Int> {
 
     fun filter(predicate: (Int) -> Boolean): List<Int> = listOf(1).filter(predicate)
 
-    fun firstPositive(): Int = <!UnnecessaryFilter!>filter<!> { it > 0 }.first()
+    fun firstPositive(): Int = filter { it > 0 }.first()
 }
 
 fun localClass(): Int {
@@ -90,7 +86,7 @@ fun localClass(): Int {
 
         fun filter(predicate: (Int) -> Boolean): List<Int> = listOf(1).filter(predicate)
     }
-    return <!UnnecessaryFilter!>Local<!>().filter { it > 0 }.single()
+    return Local().filter { it > 0 }.single()
 }
 
 // Precision: a member filter on an Iterable followed by a member terminal. The

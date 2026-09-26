@@ -33,6 +33,25 @@ fun significantChildren(
         it.tokenType != KtTokens.WHITE_SPACE && it.tokenType !in KtTokens.COMMENTS && it.tokenType !in skip
     }
 
+/**
+ * The qualified expression (`r.f()` / `r?.f()`) whose selector is the call
+ * whose source is [source]; null when the call has no explicit receiver. K2
+ * gives a dot call the whole qualified expression as its source; a safe call
+ * keeps the selector call expression, so step up to its parent.
+ */
+fun qualifiedCall(source: KtSourceElement): LighterASTNode? {
+    val node = source.lighterASTNode
+    if (node.tokenType in qualifiedExpressionTypes) return node
+    if (node.tokenType != KtNodeTypes.CALL_EXPRESSION) return null
+    val parent = source.treeStructure.getParent(node) ?: return null
+    if (parent.tokenType !in qualifiedExpressionTypes) return null
+    val parts = significantChildren(source, parent, accessTokens)
+    return parent.takeIf { parts.size > 1 && parts.last() == node }
+}
+
+private val qualifiedExpressionTypes = setOf(KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION)
+private val accessTokens = setOf(KtTokens.DOT, KtTokens.SAFE_ACCESS)
+
 /** The source text of [node], a node in [source]'s tree, as written. */
 fun lightText(source: KtSourceElement, node: LighterASTNode): String =
     source.treeStructure.toString(node).toString()

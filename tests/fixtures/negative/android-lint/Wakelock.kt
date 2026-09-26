@@ -12,4 +12,6 @@ class SyncService {
             wakeLock.release()
         }
     }
+
+    private fun doWork() {}
 }

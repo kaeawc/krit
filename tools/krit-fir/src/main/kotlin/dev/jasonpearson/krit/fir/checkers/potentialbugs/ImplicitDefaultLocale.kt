@@ -7,6 +7,7 @@ import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.lightText
+import dev.jasonpearson.krit.fir.support.qualifiedCall
 import dev.jasonpearson.krit.fir.support.significantChildren
 import dev.jasonpearson.krit.fir.support.unwrapLightParens
 import org.jetbrains.kotlin.KtNodeTypes
@@ -278,20 +279,6 @@ internal object ImplicitDefaultLocale : FirFunctionCallChecker(MppCheckerKind.Co
             i = j + 1
         }
         return true
-    }
-
-    // The qualified expression (`r.f()` / `r?.f()`) whose selector is this
-    // call, or null when the call has no explicit receiver. K2 gives a dot call
-    // the whole qualified expression as its source; a safe call keeps the
-    // selector call expression, so step up to its parent.
-    private fun qualifiedCall(source: KtSourceElement): LighterASTNode? {
-        val node = source.lighterASTNode
-        if (node.tokenType in qualifiedTypes) return node
-        if (node.tokenType != KtNodeTypes.CALL_EXPRESSION) return null
-        val parent = source.treeStructure.getParent(node) ?: return null
-        if (parent.tokenType !in qualifiedTypes) return null
-        val parts = significantChildren(source, parent)
-        return parent.takeIf { parts.size > 1 && parts.last() == node }
     }
 
     // Children other than whitespace, comments, and the `.` / `?.` of a

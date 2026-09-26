@@ -41,4 +41,25 @@ abstract class RecallModule {
     // `x` as a second parameter of the binding.
     <!BindsReturnTypeMatchesParam!>@Binds<!>
     abstract fun functionType(block: (x: Foo) -> Unit): (x: Foo) -> Unit
+
+    // Go misses this because `List<out Foo>` and `List<Foo>` differ as text;
+    // List is covariant, so the `out` projection is redundant and the types
+    // are the same.
+    <!BindsReturnTypeMatchesParam!>@Binds<!>
+    abstract fun listOut(foo: List<Foo>): List<out Foo>
+
+    // Go misses this because `Box<*>` and `Box<out Any?>` differ as text; a
+    // star projection of an unbounded parameter is `out Any?`, the same type.
+    <!BindsReturnTypeMatchesParam!>@Binds<!>
+    abstract fun starVsOutAny(foo: Box<*>): Box<out Any?>
 }
+
+// Go misses this because it also counts the parameter `x` of the method in the
+// default value's object expression, so it sees two parameters.
+<!BindsReturnTypeMatchesParam!>@Binds<!>
+fun defaultObject(foo: Foo = object : Foo { fun g(x: Int) {} }): Foo = foo
+
+// Go misses this because it reads no type text for the definitely non-null
+// type `T & Any`.
+<!BindsReturnTypeMatchesParam!>@Binds<!>
+fun <T> definitelyNonNull(t: T & Any): T & Any = t

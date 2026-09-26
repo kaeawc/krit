@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 28, 33, 39, 45, 50, 56, 62, 68, 75, 81, 87
+// go-lines: 28, 33, 39, 45, 50, 56, 62, 68, 75, 81, 87, 93, 99
 // Go findings FIR drops. Go matches `@Binds` as a substring of the modifier
 // text and compares the parameter and return type text alone. None of these
 // functions is a no-op binding.
@@ -86,4 +86,19 @@ abstract class DivergenceModule {
     // function type.
     @Binds
     abstract fun suspendType(block: suspend () -> Unit): () -> Unit
+
+    // Go reports this because it drops `suspend` from the return type text;
+    // FIR is correct to drop it because the plain function type is not a
+    // suspend function type.
+    @Binds
+    abstract fun suspendReturn(block: () -> Unit): suspend () -> Unit
+
+    // Go reports this because the type text matches and it does not know the
+    // alias names a qualifier; FIR is correct to drop it because `@N("a")` is
+    // `@Named("a")`, so the return is a different key.
+    @Binds
+    @N("a")
+    abstract fun aliasedQualifier(foo: Foo): Foo
 }
+
+typealias N = Named

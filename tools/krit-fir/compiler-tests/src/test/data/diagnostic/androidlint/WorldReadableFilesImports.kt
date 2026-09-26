@@ -8,8 +8,8 @@
 package test
 
 import android.content.Context
-<!WorldReadableFiles!>import android.content.Context.MODE_WORLD_READABLE<!>
-<!WorldReadableFiles!>import android.content.Context.MODE_WORLD_READABLE as WR<!>
+import android.content.Context.<!WorldReadableFiles!>MODE_WORLD_READABLE<!>
+import android.content.Context.<!WorldReadableFiles!>MODE_WORLD_READABLE<!> as WR
 
 fun imported(context: Context) = context.getSharedPreferences("data", <!WorldReadableFiles!>MODE_WORLD_READABLE<!>)
 

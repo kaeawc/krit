@@ -2,6 +2,8 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import org.jetbrains.kotlin.KtNodeTypes
+import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -23,6 +25,8 @@ import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.toKtLightSourceElement
+import org.jetbrains.kotlin.util.getChildren
 
 /**
  * Flags the platform's deprecated world-readable file mode:
@@ -34,20 +38,25 @@ import org.jetbrains.kotlin.name.Name
  * such as `Activity.MODE_WORLD_READABLE`, a typealias, or an import alias), a
  * callable reference, and an import directive that names it (directly or
  * through a subclass). The finding sits on the MODE_WORLD_READABLE name, the
- * identifier Go reports, or on the import directive.
+ * identifier Go reports, including on an import directive (the imported name,
+ * so a directive split across lines reports on the name's line like Go).
  *
  * Deliberate differences from Go, each pinned in the golden data:
  * - Precision: Go reports every identifier spelled MODE_WORLD_READABLE that is
  *   not a property or variable name, so it also reports project declarations
- *   of that name (object and companion constants, enum entries, parameters and
- *   named-argument labels, locals and members that shadow the constant) and
- *   their imports. None of them is the platform's file mode, so FIR does not
- *   report them (WorldReadableFilesLookalike.kt,
- *   WorldReadableFilesLookalikeImport.kt, and a Java lookalike in
- *   WorldReadableFilesTest).
+ *   of that name (object and companion constants, enum entries, functions,
+ *   nested classes, parameters, lambda and loop variables, named-argument
+ *   labels, extension properties, locals and members that shadow the
+ *   constant, another constant imported under that alias) and their imports.
+ *   None of them is the platform's file mode, so FIR does not report them
+ *   (the WorldReadableFilesLookalike*.kt and WorldReadableFilesLocalShadow.kt
+ *   goldens, and a Java lookalike in WorldReadableFilesTest).
  * - Recall: an import alias of the constant (`import ...MODE_WORLD_READABLE
  *   as WR`) is still the constant where it is used; Go matches the name's
- *   text and misses it (WorldReadableFilesImports.kt).
+ *   text and misses it (WorldReadableFilesImports.kt). Go also misses a
+ *   backticked name (its node text includes the backticks), in a qualified
+ *   use or an import, and a simple string template `"$MODE_WORLD_READABLE"`
+ *   (WorldReadableFilesGoMisses.kt).
  */
 internal object WorldReadableFiles : FirQualifiedAccessExpressionChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "WorldReadableFiles"
@@ -82,10 +91,32 @@ internal object WorldReadableFiles : FirQualifiedAccessExpressionChecker(MppChec
                 if (resolved.importedName != NAME) continue
                 val owner = resolved.resolvedParentClassId ?: continue
                 if (!importsPlatformConstant(owner)) continue
-                report(import.source, MESSAGE)
+                val source = import.source ?: continue
+                report(importedNameSource(source), MESSAGE)
             }
         }
     }
+
+    // The imported name's segment of an import directive: the last selector of
+    // its dotted path, which precedes any `as` alias. Go reports that
+    // identifier, so `import android.content.Context\n    .MODE_WORLD_READABLE`
+    // reports on the name's line, not on the `import` keyword's.
+    private fun importedNameSource(directive: KtSourceElement): KtSourceElement {
+        val tree = directive.treeStructure
+        var node = directive.lighterASTNode.getChildren(tree).firstOrNull { it.tokenType in pathTypes }
+            ?: return directive
+        while (node.tokenType == KtNodeTypes.DOT_QUALIFIED_EXPRESSION) {
+            node = node.getChildren(tree).lastOrNull { it.tokenType in pathTypes } ?: return directive
+        }
+        val shift = directive.startOffset - directive.lighterASTNode.startOffset
+        return node.toKtLightSourceElement(
+            tree,
+            startOffset = node.startOffset + shift,
+            endOffset = node.endOffset + shift,
+        )
+    }
+
+    private val pathTypes = setOf(KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.REFERENCE_EXPRESSION)
 
     // Whether `import <owner>.MODE_WORLD_READABLE` names a platform constant:
     // the owner declares it, or the owner's static scope (which holds the

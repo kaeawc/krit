@@ -115,6 +115,29 @@ class WorldReadableFilesTest {
         )
     }
 
+    // The goldens compare lines only, so pin the counts behind two declared
+    // divergences: a line using both the imported name and an import alias
+    // reports each (Go misses the alias, so it reports that line once), and a
+    // directive split across lines reports once, on the imported name's line.
+    @Test fun aliasUseAndSplitImportCounts() {
+        val sources = mapOf(
+            "Alias.kt" to """
+                package demo
+
+                import android.app.Service.MODE_WORLD_READABLE as SW
+                import android.content.Context
+                import android.content.Context
+                    .MODE_WORLD_READABLE
+
+                fun both(context: Context) = context.getSharedPreferences("data", MODE_WORLD_READABLE or SW)
+            """.trimIndent(),
+        )
+        assertEquals(
+            listOf("Alias.kt" to 3, "Alias.kt" to 6, "Alias.kt" to 8, "Alias.kt" to 8),
+            findings(sources).sortedBy { it.second },
+        )
+    }
+
     @Test fun javaLookalikeConstantDoesNotReport() {
         val sources = mapOf(
             "Lookalike.kt" to """

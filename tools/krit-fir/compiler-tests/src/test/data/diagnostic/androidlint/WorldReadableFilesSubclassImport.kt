@@ -6,7 +6,7 @@
 // import through Activity's static scope.
 package test
 
-<!WorldReadableFiles!>import android.app.Activity.MODE_WORLD_READABLE<!>
+import android.app.Activity.<!WorldReadableFiles!>MODE_WORLD_READABLE<!>
 import android.content.Context
 
 fun viaSubclassImport(context: Context) = context.getSharedPreferences("data", <!WorldReadableFiles!>MODE_WORLD_READABLE<!>)

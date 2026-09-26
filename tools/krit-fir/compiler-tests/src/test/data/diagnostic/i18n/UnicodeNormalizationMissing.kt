@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 11, 14, 17, 19, 22, 24, 27, 31, 36x2, 39, 41, 44, 46, 49, 51, 54, 60, 63, 67, 70, 75, 81, 87, 89, 96, 100
+// go-lines: 11, 14, 17, 19, 22, 24, 27, 31, 36x2, 39, 41, 44, 46, 49, 51, 54, 60, 63, 67, 70, 75, 81, 87, 89, 96, 100, 104, 106, 114, 118, 120, 122, 124, 129, 134, 143, 147, 150
 // Positive: contains() over text inside a function whose name starts with
 // search / find (any case) that never calls normalize, in every container Go
 // visits. Go and FIR both report on the line where the call expression starts.
@@ -98,3 +98,53 @@ fun other(query: String): Any = object {
 
 // A contains in a default value of a search function's parameter.
 fun findDefault(title: String, query: String, hit: Boolean = <!UnicodeNormalizationMissing!>title.contains(query)<!>): Boolean = hit
+
+// A type parameter with a CharSequence bound is text, whatever its other
+// bounds: a value of T is a CharSequence.
+fun <T> T.findSub(other: T): Boolean where T : CharSequence, T : Comparable<T> = <!UnicodeNormalizationMissing!>contains(other)<!>
+
+fun <T> findSorted(items: List<T>, query: T): Boolean where T : CharSequence, T : Comparable<T> = <!UnicodeNormalizationMissing!>items.contains(query)<!>
+
+// Values that wrap text compare it: a value class, a data class with a String
+// property, a Pair, a list of strings, and a File (whose equality compares its
+// path string).
+@JvmInline
+value class Tag(val value: String)
+
+fun findTag(tags: Set<Tag>, query: String): Boolean = <!UnicodeNormalizationMissing!>tags.contains(Tag(query))<!>
+
+data class Account(val id: Long, val name: String)
+
+fun findAccount(accounts: List<Account>, account: Account): Boolean = <!UnicodeNormalizationMissing!>accounts.contains(account)<!>
+
+fun findPair(pairs: List<Pair<String, String>>, a: String, b: String): Boolean = <!UnicodeNormalizationMissing!>pairs.contains(a to b)<!>
+
+fun findPhrase(phrases: Set<List<String>>, words: List<String>): Boolean = <!UnicodeNormalizationMissing!>phrases.contains(words)<!>
+
+fun findFile(files: List<java.io.File>, name: String): Boolean = <!UnicodeNormalizationMissing!>files.contains(java.io.File(name))<!>
+
+// A search inside text compares characters whatever the argument's type.
+fun CharSequence.contains(codePoint: Int): Boolean = toString().codePoints().anyMatch { it == codePoint }
+
+fun findCodePoint(title: String, codePoint: Int): Boolean = <!UnicodeNormalizationMissing!>title.contains(codePoint)<!>
+
+// A spread array passes its strings.
+fun contains(vararg words: String): Boolean = words.isNotEmpty()
+
+fun findSpread(words: Array<String>): Boolean = <!UnicodeNormalizationMissing!>contains(*words)<!>
+
+// Only a call expression whose callee is written as the plain identifier
+// normalize counts as normalizing, as in Go: an infix call, a parenthesized
+// function value, and a backticked name do not.
+infix fun String.normalize(form: java.text.Normalizer.Form): String = java.text.Normalizer.normalize(this, form)
+
+fun findInfixNormalized(title: String, query: String): Boolean {
+    val t = title normalize java.text.Normalizer.Form.NFC
+    return <!UnicodeNormalizationMissing!>t.contains(query)<!>
+}
+
+fun findParenthesizedNormalizer(title: String, query: String, normalize: (String) -> String): Boolean =
+    <!UnicodeNormalizationMissing!>title.contains((normalize)(query))<!>
+
+fun findQuotedNormalize(title: String, query: String): Boolean =
+    <!UnicodeNormalizationMissing!>title.`normalize`(java.text.Normalizer.Form.NFC).contains(query)<!>

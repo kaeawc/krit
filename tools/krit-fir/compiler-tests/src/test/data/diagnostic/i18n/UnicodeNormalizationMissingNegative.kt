@@ -49,9 +49,6 @@ fun lookup(title: String, query: String): Boolean = title.contains(query)
 
 fun researchTitles(title: String, query: String): Boolean = title.contains(query)
 
-// Backticks are part of the name as Go reads it, so it does not start with find.
-fun `find by title`(title: String, query: String): Boolean = title.contains(query)
-
 // The nearest named function decides: a local function nested in a search
 // function is not a search function.
 fun searchOuter(titles: List<String>, query: String): Int {

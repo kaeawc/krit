@@ -242,7 +242,7 @@ object Room {
     inline fun <reified T : RoomDatabase> databaseBuilder(
         context: Context,
         name: String,
-        noinline factory: (() -> T)? = null,
+        noinline factory: () -> T = { TODO() },
     ): RoomDatabase.Builder<T> = TODO()
 
     fun <T : RoomDatabase> inMemoryDatabaseBuilder(context: Context, klass: Class<T>): RoomDatabase.Builder<T> =

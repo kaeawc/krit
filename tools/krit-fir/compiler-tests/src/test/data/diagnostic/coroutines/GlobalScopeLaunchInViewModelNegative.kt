@@ -15,7 +15,8 @@ class UserViewModel(private val viewModelScope: CoroutineScope) {
         viewModelScope.launch { }
         scope.async { }
         MainScope().launch { }
-        // An implicit GlobalScope receiver is not reported, as in Go.
+        // An implicit GlobalScope receiver is not reported, as in Go. An
+        // explicit `this.launch` is (GlobalScopeLaunchInViewModelReceivers.kt).
         with(GlobalScope) { launch { } }
     }
 

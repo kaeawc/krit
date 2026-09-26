@@ -11,10 +11,13 @@ import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.expressions.unwrapSmartcastExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
+import org.jetbrains.kotlin.fir.symbols.SymbolInternals
+import org.jetbrains.kotlin.fir.symbols.impl.FirBackingFieldSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.name.ClassId
@@ -52,7 +55,10 @@ import org.jetbrains.kotlin.text
 //   the file whose initializer is a literal; FIR reads the property the
 //   reference resolves to, so a parameter, a shadowing local, a same-named
 //   property in another class, or a property with a custom getter does not
-//   borrow another declaration's literal (LongLogTagDivergence). The limit is
+//   borrow another declaration's literal (LongLogTagDivergence), and a tag
+//   Go misses because an earlier same-named property is short is reported
+//   (LongLogTagRecall). A custom getter other than `get() = field` makes the
+//   value unknown. The limit is
 //   counted in characters of the runtime value (UTF-16, as Android counts
 //   it); Go counts UTF-8 bytes of the source spelling, so a short non-ASCII
 //   tag or a tag spelled with escape sequences can exceed 23 for Go only
@@ -71,7 +77,7 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
         val callee = expression.calleeReference.toResolvedCallableSymbol() as? FirFunctionSymbol<*> ?: return
-        val callableId = callee.callableId ?: return
+        val callableId = callee.callableId
         if (callableId.classId != logClassId || callableId.callableName !in levelNames) return
         // Every level overload takes the tag first.
         val tagParameter = callee.valueParameterSymbols.firstOrNull() ?: return
@@ -94,8 +100,20 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
         if (expression is FirLiteralExpression) return expression
         if (expression !is FirPropertyAccessExpression) return null
         val symbol = expression.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol ?: return null
-        if (symbol.hasDelegate || symbol.getterSymbol?.isDefault == false) return null
+        if (symbol.hasDelegate) return null
+        val getter = symbol.getterSymbol
+        if (getter != null && !getter.isDefault && !returnsField(getter)) return null
         return symbol.resolvedInitializer as? FirLiteralExpression
+    }
+
+    // A custom getter that only returns the backing field (`get() = field`)
+    // still yields the initializer's value, so it keeps the finding.
+    @OptIn(SymbolInternals::class)
+    private fun returnsField(getter: FirFunctionSymbol<*>): Boolean {
+        val statement = getter.fir.body?.statements?.singleOrNull()
+        val result = if (statement is FirReturnExpression) statement.result else statement
+        val access = result as? FirPropertyAccessExpression ?: return false
+        return access.calleeReference.toResolvedCallableSymbol() is FirBackingFieldSymbol
     }
 
     private fun unwrap(argument: FirExpression): FirExpression =

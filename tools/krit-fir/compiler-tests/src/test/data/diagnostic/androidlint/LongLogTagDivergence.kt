@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 24, 32, 37, 47, 53, 55, 57
+// go-lines: 24, 32, 37, 52, 53, 59, 62, 64
 // Divergences (precision) where the tag Go measures is not the tag the call
 // passes. FIR reads the property the reference resolves to and counts the
 // runtime value's characters.
@@ -43,16 +43,23 @@ class Getter {
     val getterTag: String = "GetterBackedTagThatIsTooLong"
         get() = field.take(10)
 
+    // A getter that only returns the field keeps the initializer's value,
+    // so both report this one.
+    val fieldTag: String = "FieldGetterTagThatIsTooLong"
+        get() = field
+
     fun log() {
         Log.d(getterTag, "m")
+        <!LongLogTag!>Log.d(fieldTag, "m")<!>
     }
 }
 
 fun characters() {
     // 20 characters of non-ASCII text: 40 UTF-8 bytes, which Go counts.
     Log.d("ÄÖÜäöüÄÖÜäöüÄÖÜäöüÄÖ", "m")
-    // 21 characters at runtime; Go counts the 28-character escaped spelling.
-    Log.d("Tab\tSeparated\tTagéNam", "m")
+    // 23 characters at runtime; Go counts the 25-character escaped spelling,
+    // where each `\t` is two characters.
+    Log.d("Tab\tSeparated\tTagNameXX", "m")
     // Both count this one: 25 characters at runtime.
     <!LongLogTag!>Log.d("TagWithEscapedTab\tTooLong", "m")<!>
 }

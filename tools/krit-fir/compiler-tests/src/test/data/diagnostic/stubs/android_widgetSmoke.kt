@@ -1,4 +1,4 @@
-// Smoke: widget subclasses, property setters, and the Toast.makeText().show() idiom.
+// Smoke: widget subclasses, property setters, RemoteViews, and the Toast.makeText().show() idiom.
 package stubs
 
 import android.content.Context
@@ -11,6 +11,7 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.RemoteViews
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -48,4 +49,10 @@ fun buildLayout(context: Context) {
     progress.progress = 50
     progress.isIndeterminate = false
     Toast.makeText(context, android.R.string.ok, Toast.LENGTH_LONG).show()
+}
+
+fun buildRemoteViews(context: Context, layoutId: Int, viewId: Int): RemoteViews {
+    val views = RemoteViews(context.packageName, layoutId)
+    views.setTextViewText(viewId, context.getText(android.R.string.ok))
+    return views
 }

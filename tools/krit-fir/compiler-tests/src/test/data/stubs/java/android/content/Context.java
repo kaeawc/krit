@@ -4,11 +4,21 @@ package android.content;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
+import android.net.Uri;
 import android.os.Looper;
 import android.util.AttributeSet;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 
 public abstract class Context {
     public static final int MODE_PRIVATE = 0;
+
+    @Deprecated
+    public static final int MODE_WORLD_READABLE = 1;
+
+    @Deprecated
+    public static final int MODE_WORLD_WRITEABLE = 2;
 
     public static final int RECEIVER_EXPORTED = 2;
 
@@ -73,6 +83,10 @@ public abstract class Context {
 
     public abstract SharedPreferences getSharedPreferences(String name, int mode);
 
+    public abstract FileInputStream openFileInput(String name) throws FileNotFoundException;
+
+    public abstract FileOutputStream openFileOutput(String name, int mode) throws FileNotFoundException;
+
     public abstract void startActivity(Intent intent);
 
     public abstract ComponentName startService(Intent service);
@@ -90,6 +104,10 @@ public abstract class Context {
     public abstract int checkCallingOrSelfPermission(String permission);
 
     public abstract int checkSelfPermission(String permission);
+
+    public abstract void grantUriPermission(String toPackage, Uri uri, int modeFlags);
+
+    public abstract void revokeUriPermission(Uri uri, int modeFlags);
 
     public abstract Object getSystemService(String name);
 

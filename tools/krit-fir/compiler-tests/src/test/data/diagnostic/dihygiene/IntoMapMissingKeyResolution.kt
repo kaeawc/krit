@@ -2,9 +2,10 @@
 // go-lines: none
 // Divergence (recall): Go matches the written annotation text "@IntoMap",
 // "@Provides", and "@Binds", so it misses Dagger's annotations when they are
-// fully qualified, import-aliased, or written in the bracketed @[...] form.
-// Each function below is still a Dagger map contribution without a key, so
-// FIR reports it.
+// fully qualified, import-aliased, or written in the bracketed @[...] form
+// (a group of several annotations or a single one: @[IntoMap], @[Provides],
+// @[Binds]). Each function below is still a Dagger map contribution without a
+// key, so FIR reports it.
 package test
 
 import dagger.Binds
@@ -34,4 +35,12 @@ abstract class ResolutionModule {
 
     <!IntoMapMissingKey!>@[Binds]<!> @IntoMap
     abstract fun bindBracketed(impl: HandlerImpl): Handler
+
+    <!IntoMapMissingKey!>@Provides<!>
+    @[IntoMap]
+    fun provideBracketedIntoMap(): Handler = HandlerImpl()
+
+    companion object Named {
+        <!IntoMapMissingKey!>@[Provides]<!> @IntoMap @JvmStatic fun provideInNamedCompanion(): Handler = HandlerImpl()
+    }
 }

@@ -34,13 +34,15 @@ import org.jetbrains.kotlin.name.Name
  * functions all count, as every Go `function_declaration` does.
  *
  * Go's binding test is the text `@Provides` or `@Binds` at the start of an
- * annotation, so a binding annotation here is any annotation whose class (or
- * type alias) name starts with `Provides` or `Binds`: Dagger's and Metro's
- * `@Provides` and `@Binds`, Dagger's `@BindsInstance` and `@BindsOptionalOf`,
- * and project annotations named that way. A map key annotation is one whose
- * class (or type alias) name ends in `Key` (other than `Key` and `MapKey`),
- * the name test Go applies, or one whose class is meta-annotated with
- * Dagger's or Metro's `@MapKey`, the annotation Dagger itself requires.
+ * annotation, so a binding annotation here is any annotation whose written
+ * name (an import alias's own name included), type alias name, or class name
+ * starts with `Provides` or `Binds`: Dagger's and Metro's `@Provides` and
+ * `@Binds`, Dagger's `@BindsInstance` and `@BindsOptionalOf`, and project
+ * annotations named or import-aliased that way. A map key annotation is one
+ * whose written, type alias, or class name ends in `Key` (other than `Key`
+ * and `MapKey`), the name test Go applies, or one whose class is
+ * meta-annotated with Dagger's or Metro's `@MapKey`, the annotation Dagger
+ * itself requires.
  *
  * Deliberate differences from Go, each pinned in the golden data
  * (`IntoMapMissingKey*.kt`):
@@ -52,15 +54,18 @@ import org.jetbrains.kotlin.name.Name
  *   string argument. None of those is a Dagger map contribution, so none is
  *   reported here.
  * - Go reads the written key name, so it reports a function whose key is an
- *   import alias (`@SK("x")` for `StringKey`) or a `@MapKey` annotation whose
- *   name does not end in `Key`. Those functions have a map key, so they are
- *   not reported here.
+ *   import or type alias (`@SK("x")` for `StringKey`), a `@MapKey` annotation
+ *   whose name does not end in `Key` or is exactly `Key`, or a key inside a
+ *   bracketed group that starts with another annotation
+ *   (`@[Named("x") StringKey("a")]`, whose name Go reads as `[Named`). Those
+ *   functions have a map key, so they are not reported here.
  * - Go also finds `@Provides` or `@Binds` inside another annotation's string
  *   argument (`@Named("@Provides")`), so it reports a Dagger `@IntoMap`
  *   function that has no binding annotation. That function is not a map
  *   contribution, so it is not reported here.
  * - Go misses a fully qualified, import-aliased, or type-aliased `@IntoMap`,
- *   `@Provides`, or `@Binds`, and the bracketed `@[Provides IntoMap]` form.
+ *   `@Provides`, or `@Binds`, and the bracketed `@[Provides IntoMap]` and
+ *   `@[IntoMap]` forms.
  *   Those are map contributions without a key, so they are reported here.
  */
 internal object IntoMapMissingKey : FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common), FirRule {
@@ -106,13 +111,39 @@ internal object IntoMapMissingKey : FirDeclarationChecker<FirNamedFunction>(MppC
     private fun isBindingAnnotation(annotation: FirAnnotation, session: FirSession): Boolean =
         annotationNames(annotation, session).any { it.startsWith("Provides") || it.startsWith("Binds") }
 
-    // The annotation's class name, and the type alias name when it is written
-    // through one.
+    // The names Go's name tests see and the resolved names: the short name
+    // written in the source (an import alias's own name, which the resolved
+    // type does not keep), the type alias name when it is written through one,
+    // and the annotation's class name.
     private fun annotationNames(annotation: FirAnnotation, session: FirSession): List<String> {
-        val written = annotation.annotationTypeRef.coneType as? ConeClassLikeType ?: return emptyList()
+        val names = mutableListOf<String>()
+        writtenShortName(annotation)?.let(names::add)
+        val written = annotation.annotationTypeRef.coneType as? ConeClassLikeType ?: return names
         val expanded = expandedType(annotation, session) ?: written
-        return listOf(written.lookupTag.name.asString(), expanded.lookupTag.name.asString())
+        names += written.lookupTag.name.asString()
+        names += expanded.lookupTag.name.asString()
+        return names
     }
+
+    // The last identifier of the annotation's user type as written, `BarKey`
+    // for `@BarKey` under `import p.Bar as BarKey` and `StringKey` for
+    // `@dagger.multibindings.StringKey`: the name Go reads.
+    private fun writtenShortName(annotation: FirAnnotation): String? {
+        val source = annotation.source ?: return null
+        if (source.kind !is KtRealSourceElementKind) return null
+        var node = source.lighterASTNode
+        if (node.tokenType != KtNodeTypes.ANNOTATION_ENTRY) return null
+        for (type in writtenTypePath) {
+            node = lightChildren(source, node).firstOrNull { it.tokenType == type } ?: return null
+        }
+        val reference = lightChildren(source, node).lastOrNull { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION }
+            ?: return null
+        val identifier = lightChildren(source, reference).firstOrNull { it.tokenType == KtTokens.IDENTIFIER }
+            ?: return null
+        return source.treeStructure.toString(identifier).toString().removeSurrounding("`")
+    }
+
+    private val writtenTypePath = listOf(KtNodeTypes.CONSTRUCTOR_CALLEE, KtNodeTypes.TYPE_REFERENCE, KtNodeTypes.USER_TYPE)
 
     // The annotation's class type, through any type alias.
     private fun expandedType(annotation: FirAnnotation, session: FirSession): ConeClassLikeType? =

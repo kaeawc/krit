@@ -6,6 +6,11 @@ public class PackageInfo {
 
     public String versionName;
 
+    @Deprecated
+    public Signature[] signatures;
+
+    public SigningInfo signingInfo;
+
     public PackageInfo() {
     }
 

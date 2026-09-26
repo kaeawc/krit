@@ -23,7 +23,6 @@ import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.text
 import org.jetbrains.kotlin.toKtLightSourceElement
 import org.jetbrains.kotlin.util.getChildren
 
@@ -33,7 +32,7 @@ import org.jetbrains.kotlin.util.getChildren
  * meant `draw`, `measure`, or `layout`.
  *
  * Like the Go rule, the call must have an explicit receiver (a bare
- * `onDraw(canvas)` is not reported), a plain `super` receiver is allowed, and a
+ * `onDraw(canvas)` is not reported), a `super` receiver is allowed, and a
  * call anywhere inside an `override` function (the nearest enclosing named
  * function, looking through lambdas, anonymous functions, and local classes)
  * is not reported. The finding sits on the first line of the call expression
@@ -52,17 +51,28 @@ import org.jetbrains.kotlin.util.getChildren
  * Deliberate differences from Go, each pinned in the golden data:
  * - Precision: Go proves the receiver is a View by the simple name `View` or
  *   its source hierarchy, and when it cannot type the receiver it falls back to
- *   "the enclosing class extends View". This checker does not report a project
- *   class named `View` (not android.view.View), or a non-View receiver that
- *   Go cannot type (`x!!`, `x.let { it }`, `run { x }`, `map[k]?.`) inside a
- *   View subclass: neither calls a View callback.
+ *   "the enclosing class extends View". It also matches the callee by name
+ *   alone. This checker does not report a project class named `View` (not
+ *   android.view.View), a non-View receiver that Go cannot type (`x!!`,
+ *   `x.let { it }`, `run { x }`, `map[k]?.`) inside a View subclass, or a
+ *   View receiver whose call resolves to something other than a View member:
+ *   a project extension named `onDraw` (including one with the callback's
+ *   exact signature, which K2 picks over the invisible protected member), a
+ *   function-typed property named like a callback, or an interface method a
+ *   View subclass inherits. None of them calls a View callback.
+ * - Super: Go skips only a receiver spelled exactly `super`. This checker
+ *   skips every super receiver, including `super<View>` and `super@Outer`:
+ *   a super call deliberately runs the superclass implementation, which
+ *   draw / measure / layout cannot do.
  * - Recall: resolution sees receivers Go misses: `this@Outer` from an inner
  *   class (Go's fallback reads only the nearest class), an object expression
  *   extending View (Go's fallback needs a class or object declaration), a View
  *   receiver whose chain starts with a name Go treats as a known non-View
  *   builder root (`Tab`, `Preference`, ...), and receivers Go cannot type
- *   outside a View subclass (a local inferred from a generic call, a type
- *   parameter bounded by a View subclass).
+ *   outside a View subclass (a local inferred from a generic call or holding
+ *   an object expression, a type parameter with a View-subclass or
+ *   intersection bound, a scope-function `this` / `it`, a cast, a
+ *   parenthesized receiver split over lines, a `?.let { it }` chain).
  */
 internal object WrongCall : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "WrongCall"
@@ -83,9 +93,10 @@ internal object WrongCall : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
         val callee = expression.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol ?: return
         if (callee.name !in callbacks) return
         val receiver = expression.explicitReceiver ?: return
-        // Go skips only the receiver spelled `super`; a qualified
-        // `super<View>` or labeled `super@Outer` is still checked.
-        if (receiver is FirSuperReceiverExpression && receiver.source?.text?.toString() == "super") return
+        // A super call runs the superclass implementation on purpose, which
+        // draw / measure / layout cannot do. Go allows the plain `super`
+        // spelling; the qualified and labeled spellings are the same dispatch.
+        if (receiver is FirSuperReceiverExpression) return
         if (callee.receiverParameterSymbol != null) return
         val owner = callee.getContainingClassSymbol() ?: return
         if (!isView(owner)) return

@@ -148,6 +148,17 @@ internal object LogConditional : FirFunctionCallChecker(MppCheckerKind.Common), 
         if (symbol.name != debugName) return false
         val owner = symbol.callableId?.classId
         return when (val receiver = access.explicitReceiver?.unwrapSmartcastExpression()) {
+            // A bare DEBUG. The dispatch-receiver test here is not the
+            // origin-dependent check the authoring contract rules out: a Java
+            // static field (no dispatch receiver) and a Kotlin object's
+            // property (an object qualifier) both pass, so a Java stub, a
+            // Kotlin stub, and the real binary of the same BuildConfig agree.
+            // Only an implicit `this` (an enclosing class or object, or a
+            // `with` / `apply` receiver) is rejected, and that comes from the
+            // code as written, which no callableId or classId test can see:
+            // `with(BuildConfig) { DEBUG }` (not a guard, LogConditional) and
+            // an imported DEBUG (a guard, LogConditionalDivergence) resolve to
+            // the same BuildConfig.DEBUG.
             null -> access.dispatchReceiver?.unwrapSmartcastExpression() !is FirThisReceiverExpression &&
                 owner?.shortClassName == buildConfigName
             is FirResolvedQualifier -> spelledBuildConfig(receiver) || isBuildConfigClass(owner, receiver)

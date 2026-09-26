@@ -109,9 +109,11 @@ internal object UseRequireNotNull : FirFunctionCallChecker(MppCheckerKind.Common
                 .firstOrNull { it.tokenType != KtTokens.LPAR && it.tokenType != KtTokens.RPAR } ?: return null
         }
         if (value.tokenType != KtNodeTypes.BINARY_EXPRESSION) return null
-        // Only whitespace is skipped here: Go reads the operator as the second
-        // child, so a comment between the operands defeats the match there too.
-        val parts = lightChildren(source, value).filter { it.tokenType != KtTokens.WHITE_SPACE }
+        // Comments are skipped too: `x != /* c */ null` still compares x with
+        // null. Go reads the operator as the second child and the operand as
+        // the last, so it also reports a comment after the operator, and
+        // misses one before it (golden UseRequireNotNullComments).
+        val parts = meaningfulChildren(source, value)
         if (parts.size != 3) return null
         val (left, operator, right) = parts
         if (operator.tokenType != KtNodeTypes.OPERATION_REFERENCE || text(source, operator) != "!=") return null

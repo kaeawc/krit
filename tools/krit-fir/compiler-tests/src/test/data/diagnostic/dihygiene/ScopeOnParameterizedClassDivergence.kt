@@ -1,10 +1,11 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 17, 22, 27, 32, 38
+// go-lines: 18, 23, 28, 33, 39, 46
 // Go matches `@<ScopeName>` as text anywhere in the class's modifier list.
 // These generic classes carry no DI scope, so the message ("@Singleton on
 // generic class ... shares one instance") is false of them.
 package test
 
+import dagger.hilt.android.scopes.ActivityScoped
 import javax.inject.Named
 import javax.inject.Singleton
 
@@ -37,3 +38,10 @@ class InComment<T>
 // A real scope next to the lookalike is still reported, like Go.
 <!ScopeOnParameterizedClass!>@SingletonHolder @Singleton<!>
 class LookalikeAndScope<T>
+
+// Both report this line, but Go's message names `@Singleton`, the first list
+// entry the modifier text starts with (from `@SingletonHolder`), while FIR's
+// names `@ActivityScoped`, the scope the class actually carries. Go's message
+// is false of the class (it is not a singleton), so the messages differ.
+<!ScopeOnParameterizedClass!>@SingletonHolder @ActivityScoped<!>
+class Mixed<T>

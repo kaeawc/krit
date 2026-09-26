@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 18, 28, 31, 34, 37, 40, 43, 46, 51, 56, 60, 63, 66, 70, 73, 76, 79, 83, 87, 91, 95, 101, 106
+// go-lines: 18, 28, 31, 34, 37, 40, 43, 46, 51, 56, 60, 63, 66, 70, 73, 76, 79, 83, 87, 91, 95, 101, 106, 111
 // Scoped generic classes, the shapes Go reports: the finding sits on the
 // declaration's first line (its modifier list), like Go.
 package test
@@ -107,6 +107,10 @@ val anonymous = object {
     inner class InAnonymous<T>
 }
 
+// A backticked class name: the message quotes it with its backticks, like Go.
+<!ScopeOnParameterizedClass!>@Singleton<!>
+class `Back Tick`<T>
+
 // --- Negatives ---
 
 // Generic but unscoped.
@@ -137,3 +141,13 @@ class QualifiedOnly<T>
 // A scope on a generic function or property is not a class.
 @Singleton
 fun <T> scopedFunction(): T? = null
+
+// A local class in a generic function: the function's type parameter is not
+// the class's own, so the class is not generic, in Go or here.
+fun <T> genericFunction(value: T): Any {
+    @Singleton
+    class LocalInGeneric {
+        val held: Any? = value
+    }
+    return LocalInGeneric()
+}

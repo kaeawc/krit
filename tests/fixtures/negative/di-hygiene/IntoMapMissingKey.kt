@@ -1,9 +1,9 @@
 package dihygiene
 
-annotation class Provides
-annotation class IntoMap
-annotation class StringKey(val value: String)
-annotation class ClassKey(val value: kotlin.reflect.KClass<*>)
+import dagger.Provides
+import dagger.multibindings.ClassKey
+import dagger.multibindings.IntoMap
+import dagger.multibindings.StringKey
 
 interface Handler
 class HandlerImpl : Handler

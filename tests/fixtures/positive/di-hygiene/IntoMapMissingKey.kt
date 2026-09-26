@@ -1,7 +1,7 @@
 package dihygiene
 
-annotation class Provides
-annotation class IntoMap
+import dagger.Provides
+import dagger.multibindings.IntoMap
 
 interface Handler
 class HandlerImpl : Handler

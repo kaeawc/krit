@@ -64,3 +64,19 @@ fun loop(lists: List<MutableList<String>>): Int {
     for (list in lists) total += list.size
     return total
 }
+
+// A Java method returning java.util.List / Set / Map has the platform type
+// `(Mutable)List<T>!`, whose read-only upper bound says the collection may not
+// be mutable (an immutable Collections.emptyList(), an unmodifiable
+// System.getenv()). Go reports none of these either.
+class PlatformTypes {
+    var keys = java.util.Collections.emptyList<String>()
+
+    var env = System.getenv()
+
+    var flexList = java.util.Arrays.asList("a", "b")
+
+    var threads = Thread.getAllStackTraces()
+
+    var names = System.getProperties().stringPropertyNames()
+}

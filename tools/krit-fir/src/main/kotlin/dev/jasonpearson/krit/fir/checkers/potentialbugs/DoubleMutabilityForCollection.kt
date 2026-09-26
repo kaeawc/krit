@@ -17,9 +17,10 @@ import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
-import org.jetbrains.kotlin.fir.resolve.toRegularClassSymbol
+import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
+import org.jetbrains.kotlin.fir.types.abbreviatedType
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.upperBoundIfFlexible
@@ -37,11 +38,15 @@ import org.jetbrains.kotlin.name.StandardClassIds
  * failing that, when its initializer is a call named like a mutable
  * collection factory (`mutableListOf`, `hashMapOf`, `ArrayList`, ...). The
  * checker decides both from resolution:
- * - the property's type (declared or inferred, type aliases expanded) is a
- *   configured mutable type: a built-in name (`MutableList`, `ArrayList`,
- *   ...) means the `kotlin.collections` / `java.util` class of that name,
+ * - every bound of the property's type (declared or inferred; a Java platform
+ *   type has two) is a configured mutable type, by its name as written or
+ *   after type-alias expansion: a built-in name (`MutableList`, `ArrayList`,
+ *   ...) means the `kotlin.collections` / `java.util` class of that name, or
+ *   any other class or type alias of that simple name that is a mutable
+ *   collection (Go only sees a shadowing declaration in the same file);
  *   another qualified name means that class, and an unqualified one any class
- *   with that simple name;
+ *   or type alias with that simple name. A `(Mutable)List<T>!` from a Java
+ *   `java.util.List` return is not reported: its upper bound is read-only;
  * - or the initializer is a call named like one of Go's factories and the
  *   property's type is itself a mutable collection (a `MutableIterable` or
  *   `MutableMap`), which keeps Go's factory findings on mutable types the
@@ -59,11 +64,14 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *   (`mutableListOf<T>().apply { }`, `list.toMutableList()`), a type alias or
  *   import alias of a mutable collection, a built-in name in a file with an
  *   unrelated star import or a same-named declaration elsewhere in the file,
- *   and a primary-constructor `var` parameter;
+ *   a same-named mutable collection declared in the file, a parenthesized
+ *   type or initializer, a Java `java.util.ArrayList` return
+ *   (`Collections.list(e)`), and a primary-constructor `var` parameter;
  * - Go's factory-name findings whose property is not a mutable collection are
  *   dropped: a read-only declared type (`var xs: List<T> = mutableListOf()`)
  *   and a same-named function or class that builds no mutable collection
- *   (`fun mutableListOf(): Int`).
+ *   (`fun mutableListOf(): Int`), and a built-in name that resolves to a
+ *   non-collection declared in another file of the package;
  * - a qualified non-built-in `mutableTypes` entry matches that class only; Go
  *   matches any class with its simple name.
  */
@@ -125,17 +133,34 @@ internal object DoubleMutabilityForCollection : FirPropertyChecker(MppCheckerKin
 
     private val mutableRoots = setOf(StandardClassIds.MutableIterable, StandardClassIds.MutableMap)
 
-    /** One `mutableTypes` entry, resolved to what it matches. */
+    /**
+     * One `mutableTypes` entry, resolved to what it matches. [matches] gets the
+     * names of one bound of the property's type (as written and after
+     * type-alias expansion) and whether that bound is a mutable collection.
+     */
     private sealed interface TypeMatcher {
-        fun matches(fqName: FqName): Boolean
+        fun matches(names: List<FqName>, isMutable: () -> Boolean): Boolean
     }
 
-    private class FqNames(val names: Set<FqName>) : TypeMatcher {
-        override fun matches(fqName: FqName) = fqName in names
+    // A built-in collection name: the kotlin.collections / java.util classes
+    // of that name, or any other class or type alias of that simple name that
+    // is a mutable collection. Go matches the written simple name and only
+    // treats it as shadowed by a declaration in the same file, so a
+    // same-package `class LinkedHashMap<K, V> : java.util.LinkedHashMap<K, V>()`
+    // declared in another file is still a Go finding, and a true one.
+    private class BuiltIn(val simpleName: String, val fqNames: Set<FqName>) : TypeMatcher {
+        override fun matches(names: List<FqName>, isMutable: () -> Boolean) =
+            names.any { it in fqNames } ||
+                (names.any { it.shortName().asString() == simpleName } && isMutable())
+    }
+
+    private class FqNames(val fqNames: Set<FqName>) : TypeMatcher {
+        override fun matches(names: List<FqName>, isMutable: () -> Boolean) = names.any { it in fqNames }
     }
 
     private class SimpleName(val name: String) : TypeMatcher {
-        override fun matches(fqName: FqName) = fqName.shortName().asString() == name
+        override fun matches(names: List<FqName>, isMutable: () -> Boolean) =
+            names.any { it.shortName().asString() == name }
     }
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
@@ -179,37 +204,52 @@ internal object DoubleMutabilityForCollection : FirPropertyChecker(MppCheckerKin
         if (text.isEmpty()) return null
         val simple = text.substringAfterLast('.').trim()
         if (simple.isEmpty()) return null
-        knownMutableCollections[simple]?.let { return FqNames(it) }
+        knownMutableCollections[simple]?.let { return BuiltIn(simple, it) }
         return if ('.' in text) FqNames(setOf(FqName(text))) else SimpleName(simple)
     }
 
     // Every bound of the type (a flexible Java type has two) names a
-    // configured class, before or after type-alias expansion.
+    // configured class, as written (a type alias K2 expanded keeps the alias as
+    // its abbreviation) or after type-alias expansion. Each bound is judged by
+    // its own names: the platform type `(Mutable)List<T>!` of a Java
+    // `java.util.List` return (`Collections.emptyList()`, `System.getenv()`)
+    // has the read-only upper bound `List<T>?`, so it is not reported.
     private fun isConfiguredMutableType(type: ConeKotlinType, matchers: List<TypeMatcher>, session: FirSession): Boolean {
-        val written = type.lowerBoundIfFlexible() as? ConeClassLikeType
-        val writtenName = written?.lookupTag?.classId?.asSingleFqName()
-        val bounds = expandedBounds(type, session) ?: return false
+        val bounds = bounds(type, session) ?: return false
         return bounds.all { bound ->
-            val name = bound.lookupTag.classId.asSingleFqName()
-            matchers.any { it.matches(name) || (writtenName != null && it.matches(writtenName)) }
+            matchers.any { it.matches(bound.names) { isMutableBound(bound.expanded, session) } }
         }
     }
 
     private fun isMutableCollection(type: ConeKotlinType, session: FirSession): Boolean {
-        val bounds = expandedBounds(type, session) ?: return false
-        return bounds.all { bound ->
-            val classId = bound.lookupTag.classId
-            if (classId in mutableRoots) return@all true
-            val symbol = bound.lookupTag.toRegularClassSymbol(session) ?: return@all false
-            lookupSuperTypes(symbol, lookupInterfaces = true, deep = true, useSiteSession = session)
-                .any { it.lookupTag.classId in mutableRoots }
-        }
+        val bounds = bounds(type, session) ?: return false
+        return bounds.all { isMutableBound(it.expanded, session) }
     }
 
-    private fun expandedBounds(type: ConeKotlinType, session: FirSession): List<ConeClassLikeType>? {
-        val expanded = type.fullyExpandedType(session)
-        val bounds = listOf(expanded.lowerBoundIfFlexible(), expanded.upperBoundIfFlexible()).distinct()
-        return bounds.map { it as? ConeClassLikeType ?: return null }
+    // A `MutableIterable` or `MutableMap`, or a subtype. The class symbol comes
+    // from the lookup tag, which is bound to local classes and anonymous
+    // objects (`object : java.util.HashSet<String>() {}`), so no class id is
+    // resolved through the symbol provider.
+    private fun isMutableBound(bound: ConeClassLikeType, session: FirSession): Boolean {
+        if (bound.lookupTag.classId in mutableRoots) return true
+        val symbol = bound.lookupTag.toClassSymbol(session) ?: return false
+        return lookupSuperTypes(symbol, lookupInterfaces = true, deep = true, useSiteSession = session)
+            .any { it.lookupTag.classId in mutableRoots }
+    }
+
+    /** One bound of a type: its class names as written, and its expansion. */
+    private class Bound(val names: List<FqName>, val expanded: ConeClassLikeType)
+
+    // The type's bounds (one, or a flexible type's lower and upper bound).
+    private fun bounds(type: ConeKotlinType, session: FirSession): List<Bound>? {
+        val bounds = listOf(type.lowerBoundIfFlexible(), type.upperBoundIfFlexible()).distinct()
+        return bounds.map { bound ->
+            val written = bound as? ConeClassLikeType ?: return null
+            val expanded = written.fullyExpandedType(session) as? ConeClassLikeType ?: return null
+            val alias = written.abbreviatedType as? ConeClassLikeType
+            val names = listOfNotNull(alias, written, expanded).map { it.lookupTag.classId }.distinct()
+            Bound(names.map { it.asSingleFqName() }, expanded)
+        }
     }
 
     // The initializer is a call named like a mutable collection factory,

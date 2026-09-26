@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 32, 34, 36, 38, 40, 42, 44, 46, 50, 55, 58, 60, 62, 66, 71, 75, 76, 80, 83, 85, 95, 99, 103, 106, 109, 114, 121
+// go-lines: 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 32, 34, 36, 38, 40, 42, 44, 46, 50, 55, 58, 60, 62, 66, 71, 75, 76, 80, 83, 85, 95, 99, 103, 106, 109, 114, 121, 130
 // Positive: `var` properties whose type is a mutable collection. Each is
 // reported on the property's first line (modifier list, else `var`), the line
 // the Go rule reports. Every case here is also a Go finding.
@@ -120,4 +120,14 @@ enum class Kind {
     A {
         <!DoubleMutabilityForCollection!>var<!> member = mutableListOf<String>()
     },
+}
+
+// A local function named like a factory that returns an anonymous
+// java.util.HashSet subclass: the type is an anonymous object, still a mutable
+// set. Go reports it by the call name.
+fun anonymousSubclass(): Int {
+    fun hashSetOf() = object : java.util.HashSet<String>() {}
+    <!DoubleMutabilityForCollection!>var<!> s = hashSetOf()
+    s = hashSetOf()
+    return s.size
 }

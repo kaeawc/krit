@@ -35,3 +35,18 @@ class Constructor(<!DoubleMutabilityForCollection!>var<!> items: MutableList<Str
 data class State(
     <!DoubleMutabilityForCollection!>var<!> tags: HashSet<String>,
 )
+
+class Parenthesized {
+    // A parenthesized declared type or initializer: Go reads neither a
+    // `user_type` nor a `call_expression`.
+    <!DoubleMutabilityForCollection!>var<!> parenthesized: (MutableList<String>) = build()
+
+    <!DoubleMutabilityForCollection!>var<!> parenInit = (mutableListOf<String>())
+}
+
+class JavaArrayList {
+    // Collections.list returns java.util.ArrayList, the platform type
+    // `ArrayList<T>!`: both bounds are java.util.ArrayList. Go misses it (no
+    // declared type, and the call is not named like a factory).
+    <!DoubleMutabilityForCollection!>var<!> fromJava = java.util.Collections.list(java.util.Collections.emptyEnumeration<String>())
+}

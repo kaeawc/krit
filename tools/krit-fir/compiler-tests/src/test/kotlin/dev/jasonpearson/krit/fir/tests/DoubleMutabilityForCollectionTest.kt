@@ -104,6 +104,25 @@ class DoubleMutabilityForCollectionTest {
         )
     }
 
+    // Like Go, which matches the written simple name `Names`: K2 keeps the
+    // alias in the declared type, and the checker matches the written name as
+    // well as the expansion.
+    @Test fun customTypeAliasEntryMatchesTheWrittenAlias() {
+        val use = """
+            package use
+
+            typealias Names = MutableList<String>
+
+            fun names(): Names = mutableListOf()
+
+            var aliased: Names = names()
+        """
+        assertEquals(
+            mapOf("Use.kt" to mapOf(7 to 1)),
+            findings(use, mapOf("mutableTypes" to listOf("Names"))),
+        )
+    }
+
     @Test fun requestListedTestFileIsSkipped() {
         val use = """
             package use

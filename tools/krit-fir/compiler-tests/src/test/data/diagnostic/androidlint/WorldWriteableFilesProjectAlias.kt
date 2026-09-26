@@ -8,7 +8,7 @@
 package test
 
 import android.content.Context
-<!WorldWriteableFiles!>import test.MODE_WORLD_WRITABLE<!>
+import test.<!WorldWriteableFiles!>MODE_WORLD_WRITABLE<!>
 import java.io.FileOutputStream
 
 const val MODE_WORLD_WRITABLE = Context.<!WorldWriteableFiles!>MODE_WORLD_WRITEABLE<!>

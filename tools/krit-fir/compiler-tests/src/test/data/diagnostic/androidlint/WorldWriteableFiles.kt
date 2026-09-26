@@ -8,7 +8,7 @@ package test
 
 import android.app.Activity
 import android.content.Context
-<!WorldWriteableFiles!>import android.content.Context.MODE_WORLD_WRITEABLE<!>
+import android.content.Context.<!WorldWriteableFiles!>MODE_WORLD_WRITEABLE<!>
 import android.content.SharedPreferences
 import java.io.FileOutputStream
 

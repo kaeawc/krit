@@ -10,7 +10,7 @@
 package test
 
 import android.content.Context
-<!WorldWriteableFiles!>import test.SharedModes.MODE_WORLD_WRITEABLE<!>
+import test.SharedModes.<!WorldWriteableFiles!>MODE_WORLD_WRITEABLE<!>
 import java.io.FileOutputStream
 
 open class Base<T> {

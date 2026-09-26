@@ -5,7 +5,7 @@
 package test
 
 import android.content.Context
-<!WorldWriteableFiles!>import test.Other.MODE_WORLD_WRITABLE as WW<!>
+import test.Other.<!WorldWriteableFiles!>MODE_WORLD_WRITABLE<!> as WW
 import java.io.FileOutputStream
 
 object Other {

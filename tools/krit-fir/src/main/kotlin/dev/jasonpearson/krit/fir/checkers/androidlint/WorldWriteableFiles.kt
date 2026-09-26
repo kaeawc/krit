@@ -1,9 +1,10 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
-import com.intellij.lang.LighterASTNode
-import com.intellij.openapi.util.Ref
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.importedNameSource
+import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.lightSourceOf
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -61,7 +62,6 @@ import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
-import org.jetbrains.kotlin.toKtLightSourceElement
 
 // Flags every use of Android's `Context.MODE_WORLD_WRITEABLE` file mode,
 // reported on the line of the name. Mirrors the Go rule, which reports every
@@ -162,7 +162,8 @@ internal object WorldWriteableFiles : FirQualifiedAccessExpressionChecker(MppChe
                 if (resolved.isAllUnder) continue
                 val name = resolved.importedName ?: continue
                 if (name !in goNames) continue
-                if (importsWorldWriteable(resolved, name)) WorldWriteableFiles.report(resolved.source, MESSAGE)
+                val source = resolved.source ?: continue
+                if (importsWorldWriteable(resolved, name)) WorldWriteableFiles.report(importedNameSource(source), MESSAGE)
             }
         }
     }
@@ -180,8 +181,8 @@ internal object WorldWriteableFiles : FirQualifiedAccessExpressionChecker(MppChe
             if (declaration.name !in goNames) return
             if ((declaration.symbol.containingDeclarationSymbol as? FirAnonymousFunctionSymbol)?.isLambda == true) return
             if (parameterValue(declaration.symbol, HashSet()).isProvablyNotWorldWriteable()) return
-            val name = children(source, source.lighterASTNode).firstOrNull { it.tokenType == KtTokens.IDENTIFIER }
-            WorldWriteableFiles.report(name?.let { sourceOf(it, source) } ?: source, MESSAGE)
+            val name = lightChildren(source, source.lighterASTNode).firstOrNull { it.tokenType == KtTokens.IDENTIFIER }
+            WorldWriteableFiles.report(name?.let { lightSourceOf(it, source) } ?: source, MESSAGE)
         }
     }
 
@@ -213,10 +214,10 @@ internal object WorldWriteableFiles : FirQualifiedAccessExpressionChecker(MppChe
             } else {
                 tree.getParent(node)?.takeIf { it.tokenType == KtNodeTypes.VALUE_ARGUMENT } ?: return null
             }
-            val label = children(source, valueArgument).firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_NAME }
+            val label = lightChildren(source, valueArgument).firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_NAME }
                 ?: return null
             if (tree.toString(label).toString().trim().removeSurrounding("`") !in goNameStrings) return null
-            return sourceOf(label, source)
+            return lightSourceOf(label, source)
         }
     }
 
@@ -513,23 +514,5 @@ internal object WorldWriteableFiles : FirQualifiedAccessExpressionChecker(MppChe
             }
         })
         return found
-    }
-
-    private fun children(source: KtSourceElement, node: LighterASTNode): List<LighterASTNode> {
-        val ref = Ref<Array<LighterASTNode?>>()
-        source.treeStructure.getChildren(node, ref)
-        return ref.get()?.filterNotNull().orEmpty()
-    }
-
-    // A source element for [node], a node in [anchor]'s tree, keeping the
-    // anchor's offset shift between tree offsets and file offsets.
-    private fun sourceOf(node: LighterASTNode, anchor: KtSourceElement): KtSourceElement {
-        if (node == anchor.lighterASTNode) return anchor
-        val shift = anchor.startOffset - anchor.lighterASTNode.startOffset
-        return node.toKtLightSourceElement(
-            anchor.treeStructure,
-            startOffset = node.startOffset + shift,
-            endOffset = node.endOffset + shift,
-        )
     }
 }

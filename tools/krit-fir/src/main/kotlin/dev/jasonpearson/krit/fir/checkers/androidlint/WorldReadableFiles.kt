@@ -2,8 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
-import org.jetbrains.kotlin.KtNodeTypes
-import org.jetbrains.kotlin.KtSourceElement
+import dev.jasonpearson.krit.fir.support.importedNameSource
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -25,8 +24,6 @@ import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.toKtLightSourceElement
-import org.jetbrains.kotlin.util.getChildren
 
 /**
  * Flags the platform's deprecated world-readable file mode:
@@ -96,27 +93,6 @@ internal object WorldReadableFiles : FirQualifiedAccessExpressionChecker(MppChec
             }
         }
     }
-
-    // The imported name's segment of an import directive: the last selector of
-    // its dotted path, which precedes any `as` alias. Go reports that
-    // identifier, so `import android.content.Context\n    .MODE_WORLD_READABLE`
-    // reports on the name's line, not on the `import` keyword's.
-    private fun importedNameSource(directive: KtSourceElement): KtSourceElement {
-        val tree = directive.treeStructure
-        var node = directive.lighterASTNode.getChildren(tree).firstOrNull { it.tokenType in pathTypes }
-            ?: return directive
-        while (node.tokenType == KtNodeTypes.DOT_QUALIFIED_EXPRESSION) {
-            node = node.getChildren(tree).lastOrNull { it.tokenType in pathTypes } ?: return directive
-        }
-        val shift = directive.startOffset - directive.lighterASTNode.startOffset
-        return node.toKtLightSourceElement(
-            tree,
-            startOffset = node.startOffset + shift,
-            endOffset = node.endOffset + shift,
-        )
-    }
-
-    private val pathTypes = setOf(KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.REFERENCE_EXPRESSION)
 
     // Whether `import <owner>.MODE_WORLD_READABLE` names a platform constant:
     // the owner declares it, or the owner's static scope (which holds the

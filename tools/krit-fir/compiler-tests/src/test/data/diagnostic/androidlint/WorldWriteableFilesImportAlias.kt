@@ -5,7 +5,7 @@
 package test
 
 import android.content.Context
-<!WorldWriteableFiles!>import android.content.Context.MODE_WORLD_WRITEABLE as SHARED_WRITE<!>
+import android.content.Context.<!WorldWriteableFiles!>MODE_WORLD_WRITEABLE<!> as SHARED_WRITE
 import java.io.FileOutputStream
 
 class AliasedFiles(private val context: Context) {

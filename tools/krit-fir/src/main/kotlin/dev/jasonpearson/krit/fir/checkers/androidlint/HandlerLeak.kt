@@ -46,8 +46,10 @@ import org.jetbrains.kotlin.name.Name
  * parameter counts when a type named `Looper` is written anywhere in it, the
  * superclass call counts when it is written as `Handler(...)` (last name
  * segment), and the parameter is passed when an identifier spelled like it
- * appears in that call's arguments. Secondary constructors are not
- * considered.
+ * appears in that call's arguments (outside a short `$name` template
+ * entry). A class without a primary constructor takes the Looper parameters
+ * of every primary constructor in the file, because Go walks the whole file
+ * when it finds none. Secondary constructors are not considered.
  *
  * A class or object is a Handler when `android.os.Handler` is in its
  * superclass closure.
@@ -62,6 +64,10 @@ import org.jetbrains.kotlin.name.Name
  *   imports, so it misses a fully qualified `android.os.Handler` supertype, a
  *   type alias, and a subclass of a Handler base class (top-level, nested, or
  *   local). Those are inner or anonymous Handlers and are reported here.
+ * - Go resolves the supertype's last name segment through an explicit
+ *   `import android.os.Handler` even when a nested class named `Handler`
+ *   shadows the import or the supertype is qualified (`Foo.Handler()`).
+ *   Those supertypes are not android.os.Handler and are not reported here.
  */
 internal object HandlerLeak : FirClassChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "HandlerLeak"
@@ -116,16 +122,17 @@ internal object HandlerLeak : FirClassChecker(MppCheckerKind.Common), FirRule {
     // name appears among the arguments of a superclass call written as
     // `Handler(...)` (its last type name segment).
     private fun passesLooperToHandler(source: KtSourceElement): Boolean {
-        val tree = source.treeStructure
         val root = source.lighterASTNode
-        val params = lightChildren(source, root).firstOrNull { it.tokenType == KtNodeTypes.PRIMARY_CONSTRUCTOR }
-            ?.let { ctor -> lightChildren(source, ctor).firstOrNull { it.tokenType == KtNodeTypes.VALUE_PARAMETER_LIST } }
-            ?: return false
         val looperParams = HashSet<String>()
-        for (param in lightChildren(source, params)) {
-            if (param.tokenType != KtNodeTypes.VALUE_PARAMETER) continue
-            val name = lightChildren(source, param).firstOrNull { it.tokenType == KtTokens.IDENTIFIER } ?: continue
-            if (containsLooperType(source, param)) looperParams += tree.toString(name).toString()
+        val ctor = lightChildren(source, root).firstOrNull { it.tokenType == KtNodeTypes.PRIMARY_CONSTRUCTOR }
+        if (ctor != null) {
+            collectLooperParams(source, ctor, looperParams)
+        } else {
+            // Go looks the primary constructor up as a child of the class and
+            // walks from the file root when there is none, so a class without
+            // one takes the Looper parameters of every primary constructor in
+            // the file (an outer class's `looper: Looper` included).
+            collectFileLooperParams(source, source.treeStructure.root, looperParams)
         }
         if (looperParams.isEmpty()) return false
         val superTypes = lightChildren(source, root).firstOrNull { it.tokenType == KtNodeTypes.SUPER_TYPE_LIST }
@@ -137,6 +144,22 @@ internal object HandlerLeak : FirClassChecker(MppCheckerKind.Common), FirRule {
                     it.tokenType == KtNodeTypes.VALUE_ARGUMENT_LIST && usesAnyName(source, it, looperParams)
                 }
         }
+    }
+
+    // The Looper-typed parameters of the primary constructor [ctor].
+    private fun collectLooperParams(source: KtSourceElement, ctor: LighterASTNode, into: MutableSet<String>) {
+        val params = lightChildren(source, ctor).firstOrNull { it.tokenType == KtNodeTypes.VALUE_PARAMETER_LIST } ?: return
+        for (param in lightChildren(source, params)) {
+            if (param.tokenType != KtNodeTypes.VALUE_PARAMETER) continue
+            val name = lightChildren(source, param).firstOrNull { it.tokenType == KtTokens.IDENTIFIER } ?: continue
+            if (containsLooperType(source, param)) into += source.treeStructure.toString(name).toString()
+        }
+    }
+
+    // The Looper-typed parameters of every primary constructor under [node].
+    private fun collectFileLooperParams(source: KtSourceElement, node: LighterASTNode, into: MutableSet<String>) {
+        if (node.tokenType == KtNodeTypes.PRIMARY_CONSTRUCTOR) collectLooperParams(source, node, into)
+        for (child in lightChildren(source, node)) collectFileLooperParams(source, child, into)
     }
 
     // A type name segment `Looper` anywhere in [node]'s subtree.
@@ -162,8 +185,12 @@ internal object HandlerLeak : FirClassChecker(MppCheckerKind.Common), FirRule {
     }
 
     // An identifier spelled like one of [names] anywhere in [node]'s subtree.
+    // Go's tree-sitter reads a short template entry (`"$looper"`) as an
+    // interpolated identifier, which it does not count; `"${looper}"` holds an
+    // ordinary identifier and counts in both.
     private fun usesAnyName(source: KtSourceElement, node: LighterASTNode, names: Set<String>): Boolean {
         if (node.tokenType == KtTokens.IDENTIFIER) return source.treeStructure.toString(node).toString() in names
+        if (node.tokenType == KtNodeTypes.SHORT_STRING_TEMPLATE_ENTRY) return false
         return lightChildren(source, node).any { usesAnyName(source, it, names) }
     }
 }

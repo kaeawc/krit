@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 25, 28, 33, 36, 48
+// go-lines: 25, 28, 33, 36, 48, 52
 // The Looper exemption for inner Handler classes, as Go applies it: a primary
 // constructor parameter whose type names Looper, referenced in the arguments
 // of the `Handler(...)` superclass call.
@@ -46,4 +46,11 @@ class Screen {
 
     // Anonymous Handlers are reported even with a Looper, as in Go.
     fun create(looper: Looper): Handler = <!HandlerLeak!>object<!> : Handler(looper) {}
+
+    // Go's tree-sitter reads `$looper` as an interpolated identifier, which it
+    // does not count, so the Looper parameter is not passed to Handler.
+    <!HandlerLeak!>inner<!> class ShortTemplate(looper: Looper) : Handler(Looper.getMainLooper().also { println("$looper") })
+
+    // `${looper}` holds an ordinary identifier: exempt, as in Go.
+    inner class BlockTemplate(looper: Looper) : Handler(Looper.getMainLooper().also { println("${looper}") })
 }

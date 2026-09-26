@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 8, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 32, 35, 38, 40, 42, 44, 46, 49, 52, 55, 57, 59, 64, 70, 73, 78, 81
+// go-lines: 8, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 32, 35, 39, 42, 44, 46, 48, 50, 53, 56, 59, 61, 63, 68, 74, 77, 82, 85
 // Positives: an Elvis whose fallback is the stdlib empty value of the left
 // side's type, which `.orEmpty()` returns.
 package test
@@ -33,6 +33,10 @@ fun qualified(x: List<String>?): List<String> = <!UseOrEmpty!>x ?: kotlin.collec
 
 // Go only skips a fallback whose text starts with `emptyArray(`.
 fun qualifiedEmptyArray(x: Array<Int>?): Array<out Int> = <!UseOrEmpty!>x ?: kotlin.emptyArray()<!>
+
+// Go only skips a fallback whose text starts with `emptyArray(`, so it
+// reports one with whitespace before the parentheses.
+fun spacedEmptyArray(x: Array<Int>?): Array<out Int> = <!UseOrEmpty!>x ?: emptyArray ()<!>
 
 // Collection subtypes and supertypes that `.orEmpty()` accepts.
 fun mutable(x: MutableList<String>?): List<String> = <!UseOrEmpty!>x ?: emptyList()<!>

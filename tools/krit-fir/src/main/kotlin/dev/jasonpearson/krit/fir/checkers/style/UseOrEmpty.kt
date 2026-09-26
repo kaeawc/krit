@@ -13,13 +13,17 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirExpressionChecker
+import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
 import org.jetbrains.kotlin.fir.expressions.FirElvisExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
+import org.jetbrains.kotlin.fir.expressions.FirStatement
+import org.jetbrains.kotlin.fir.expressions.FirTryExpression
 import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
 import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
@@ -44,10 +48,14 @@ import org.jetbrains.kotlin.name.StandardClassIds
 //   emptySequence()` call, a `listOf/setOf/mapOf/arrayOf/sequenceOf()` call
 //   with no arguments, or the empty string literal `""` / `""""""`, as
 //   written (a parenthesized fallback does not count);
-// - an unqualified `emptyArray()` fallback is skipped, the way Go skips a
-//   fallback whose text starts with `emptyArray(` (and never sees
-//   `emptyArray<T>()`, see below); `arrayOf()` and a qualified
-//   `kotlin.emptyArray()` still count;
+// - an array fallback (`arrayOf()`, `emptyArray()`) counts only in the
+//   shapes Go sees: the callee written with its stdlib name (no import
+//   alias) and no type arguments, and, like Go, not a fallback whose text
+//   starts with `emptyArray(`. So `arrayOf()`, `kotlin.emptyArray()`, and
+//   `emptyArray ()` count. Widening past these would add false positives:
+//   `.orEmpty()` returns `Array<out T>`, which an invariant `Array<T>`
+//   expected type rejects, and Go's `emptyArray(` skip is what keeps its
+//   most common shape out;
 // - an Elvis anywhere inside a string template is skipped;
 // - a left side that reads through a safe call (`a?.b ?: emptyList()`) is
 //   skipped;
@@ -66,10 +74,13 @@ import org.jetbrains.kotlin.name.StandardClassIds
 // - Precision: `listOf { ... }` passes the lambda as an element, so the list
 //   is not empty; Go counts a call without a value-argument list as empty.
 // - Recall: Go skips any left side whose text contains `?.`, so it also
-//   misses safe calls inside an argument, a lambda, or a string literal of
-//   the left side (`names[items.indexOfFirst { it?.ok == true }] ?: ""`).
-//   The checker only skips a left side whose value reads through a safe
-//   call (see readsThroughSafeCall).
+//   misses safe calls inside an argument, a lambda, a `when` subject, a
+//   string literal, or a comment of the left side
+//   (`names[items.indexOfFirst { it?.ok == true }] ?: ""`). The checker only
+//   skips a left side whose value reads through a safe call (see
+//   readsThroughSafeCall).
+// - Recall: Go reads a comment after `?:` as the right side, and counts a
+//   comment in `listOf(/* none */)` as an argument.
 // - Recall: an import alias of a stdlib fallback still names the empty
 //   value; Go compares the callee name and misses it.
 // - Recall: tree-sitter parses `x ?: emptyList<String>()` as the call
@@ -133,7 +144,7 @@ internal object UseOrEmpty : FirExpressionChecker<FirElvisExpression>(MppChecker
         val rightText = lightText(source, rightNode).trim()
 
         val family = fallbackFamily(expression.rhs, rightNode, rightText) ?: return
-        if (rightText.startsWith("emptyArray")) return
+        if (family == Family.ARRAY && !goSeesArrayFallback(source, expression.rhs, rightNode, rightText)) return
         if (insideStringTemplate(source)) return
         if (readsThroughSafeCall(expression.lhs)) return
         if (!expression.lhs.resolvedType.isSubtypeOf(family.receiverType(), context.session)) return
@@ -157,6 +168,29 @@ internal object UseOrEmpty : FirExpressionChecker<FirElvisExpression>(MppChecker
         return family.takeIf { noArguments }
     }
 
+    // Go only sees an array fallback written as `arrayOf(...)` or
+    // `emptyArray(...)` (qualified or not) without type arguments, and skips
+    // one whose text starts with `emptyArray(`.
+    private fun goSeesArrayFallback(
+        source: KtSourceElement,
+        rhs: FirExpression,
+        rightNode: LighterASTNode,
+        rightText: String,
+    ): Boolean {
+        if (rightText.startsWith("emptyArray(")) return false
+        val stdlibName = (rhs as? FirFunctionCall)?.calleeReference?.toResolvedCallableSymbol()
+            ?.callableId?.callableName?.asString() ?: return false
+        val call = when (rightNode.tokenType) {
+            KtNodeTypes.CALL_EXPRESSION -> rightNode
+            else -> significantChildren(source, rightNode).lastOrNull()
+                ?.takeIf { it.tokenType == KtNodeTypes.CALL_EXPRESSION } ?: return false
+        }
+        val parts = significantChildren(source, call)
+        if (parts.any { it.tokenType == KtNodeTypes.TYPE_ARGUMENT_LIST }) return false
+        val callee = parts.firstOrNull()?.takeIf { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION } ?: return false
+        return lightText(source, callee) == stdlibName
+    }
+
     private fun insideStringTemplate(source: KtSourceElement): Boolean {
         val tree = source.treeStructure
         var node = source.lighterASTNode
@@ -166,9 +200,13 @@ internal object UseOrEmpty : FirExpressionChecker<FirElvisExpression>(MppChecker
         }
     }
 
+    // Stdlib scope functions whose value is their in-place lambda's result.
+    private val lambdaResultFunctions = setOf(id(kotlin, "run"), id(kotlin, "let"), id(kotlin, "with"))
+
     // The left side's value flows through a safe call: the safe call itself,
-    // or a receiver, `!!` operand, cast operand, nested Elvis operand, or
-    // `if`/`when` branch result that reads through one.
+    // or a receiver, `!!` operand, cast operand, nested Elvis operand,
+    // `if`/`when` branch result, `try` block or `catch` result, or the result
+    // of a `run`/`let`/`with` lambda that reads through one.
     private fun readsThroughSafeCall(expression: FirExpression?): Boolean = when (expression) {
         null -> false
         is FirSafeCallExpression -> true
@@ -176,10 +214,28 @@ internal object UseOrEmpty : FirExpressionChecker<FirElvisExpression>(MppChecker
         is FirCheckNotNullCall -> readsThroughSafeCall(expression.argumentList.arguments.firstOrNull())
         is FirTypeOperatorCall -> readsThroughSafeCall(expression.argumentList.arguments.firstOrNull())
         is FirElvisExpression -> readsThroughSafeCall(expression.lhs) || readsThroughSafeCall(expression.rhs)
-        is FirWhenExpression -> expression.branches.any {
-            readsThroughSafeCall(it.result.statements.lastOrNull() as? FirExpression)
-        }
+        is FirWhenExpression -> expression.branches.any { resultReadsThroughSafeCall(it.result.statements.lastOrNull()) }
+        is FirTryExpression ->
+            resultReadsThroughSafeCall(expression.tryBlock.statements.lastOrNull()) ||
+                expression.catches.any { resultReadsThroughSafeCall(it.block.statements.lastOrNull()) }
+        is FirFunctionCall ->
+            readsThroughSafeCall(expression.explicitReceiver) || lambdaResultReadsThroughSafeCall(expression)
         is FirQualifiedAccessExpression -> readsThroughSafeCall(expression.explicitReceiver)
         else -> false
+    }
+
+    // A `return` in a branch leaves the function, so its operand is not the
+    // branch's value.
+    private fun resultReadsThroughSafeCall(statement: FirStatement?): Boolean =
+        statement !is FirReturnExpression && readsThroughSafeCall(statement as? FirExpression)
+
+    private fun lambdaResultReadsThroughSafeCall(call: FirFunctionCall): Boolean {
+        val callableId = call.calleeReference.toResolvedCallableSymbol()?.callableId ?: return false
+        if (callableId !in lambdaResultFunctions) return false
+        // The lambda's last expression is its implicit return.
+        return call.arguments.any { argument ->
+            val last = (argument as? FirAnonymousFunctionExpression)?.anonymousFunction?.body?.statements?.lastOrNull()
+            readsThroughSafeCall((last as? FirReturnExpression)?.result ?: last as? FirExpression)
+        }
     }
 }

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 9, 11, 13, 15, 17, 25, 30, 34
+// go-lines: 9, 11, 13, 16, 18, 20, 28, 33, 37
 // Go reports every Elvis below; `.orEmpty()` does not replace any of them.
 package test
 
@@ -11,6 +11,9 @@ fun any(value: Any?): Any = value ?: ""
 fun anyLookup(json: Map<String, Any?>): Any = json["key"] ?: ""
 
 fun charSequence(value: CharSequence?): CharSequence = value ?: ""
+
+// `x.orEmpty()` on a list returns an empty list, not "".
+fun listWithString(x: List<String>?): Any = x ?: ""
 
 fun iterable(values: Iterable<String>?): Iterable<String> = values ?: emptyList()
 

@@ -27,6 +27,13 @@ fun emptyArrayFallback(x: Array<Int>?): Array<Int> = x ?: emptyArray()
 
 fun emptyArrayTypeArguments(x: Array<Int>?): Array<Int> = x ?: emptyArray<Int>()
 
+// Go does not see other array fallbacks with type arguments either, and
+// `.orEmpty()` returns `Array<out Int>`, which does not compile against the
+// invariant `Array<Int>` these functions return.
+fun arrayOfTypeArguments(x: Array<Int>?): Array<Int> = x ?: arrayOf<Int>()
+
+fun qualifiedEmptyArrayTypeArguments(x: Array<Int>?): Array<Int> = x ?: kotlin.emptyArray<Int>()
+
 // A fallback of another kind than the left side has no `.orEmpty()`
 // replacement. (Go does not see these either: they need explicit type
 // arguments, which tree-sitter parses as a call on the Elvis.)
@@ -59,6 +66,24 @@ fun safeCallNestedElvis(box: Box?, fallback: String?): String = (fallback ?: box
 fun safeCallBranch(box: Box?, flag: Boolean): String = (if (flag) box?.name else null) ?: ""
 
 fun safeCallNotNullAssertion(box: Box?): String = box?.name!!.trim().takeIf { it.isNotEmpty() } ?: ""
+
+// The value of a `try` or of a scope function's lambda reads through a safe
+// call.
+fun safeCallTry(box: Box?): List<Int> = try { box?.items } catch (e: Exception) { null } ?: emptyList()
+
+fun safeCallCatch(box: Box?, fallback: Box?): List<Int> =
+    try { box!!.items } catch (e: Exception) { fallback?.items } ?: emptyList()
+
+fun safeCallRun(box: Box?): List<Int> = run { box?.items } ?: emptyList()
+
+fun safeCallLetLambda(box: Box): String = box.let { it.inner?.name } ?: ""
+
+fun safeCallWith(box: Box): String = with(box) { inner?.name } ?: ""
+
+fun safeCallRunBlock(box: Box?): List<Int> = run {
+    val unused = 1
+    box?.items
+} ?: emptyList()
 
 // An Elvis inside a string template.
 fun template(x: String?): String = "value ${x ?: ""}"

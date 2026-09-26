@@ -4,8 +4,9 @@
 package test
 
 // Go skips any left side whose text contains `?.`; these left sides use a
-// safe call only inside an argument, a lambda, a string literal, or an `if`
-// condition, and their value does not read through it.
+// safe call only inside an argument, a lambda, a string literal, an `if`
+// condition, a `when` subject, or a comment, and their value does not read
+// through it.
 class Item(val tag: String?)
 
 fun argument(items: Map<String?, List<Int>>, item: Item?): List<Int> = <!UseOrEmpty!>items[item?.tag] ?: emptyList()<!>
@@ -16,6 +17,21 @@ fun literal(names: Map<String, String>): String = <!UseOrEmpty!>names["a?.b"] ?:
 
 fun condition(item: Item?, name: String?, other: String?): String = <!UseOrEmpty!>(if (item?.tag == null) name else other) ?: ""<!>
 
+// A `return` in a branch leaves the function; the branch has no value.
+fun returnBranch(item: Item?, flag: Boolean, name: String?): String =
+    <!UseOrEmpty!>(if (flag) return item?.tag.orEmpty() else name) ?: ""<!>
+
+fun whenSubject(item: Item?, name: String?, other: String?): String =
+    <!UseOrEmpty!>when (item?.tag) { null -> name; else -> other } ?: ""<!>
+
+fun comment(x: String?): String = <!UseOrEmpty!>x /* a?.b */ ?: ""<!>
+
+// Go reads a comment after `?:` as the right side, and counts a comment in
+// the argument list as an argument.
+fun commentBeforeFallback(x: List<String>?): List<String> = <!UseOrEmpty!>x ?: /* none */ emptyList()<!>
+
+fun commentArgument(x: List<String>?): List<String> = <!UseOrEmpty!>x ?: listOf(/* none */)<!>
+
 // Explicit type arguments on the fallback: tree-sitter parses
 // `x ?: emptyList<String>()` as the call `(x ?: emptyList)<String>()`, so Go
 // never sees an Elvis with a call on its right.
@@ -25,3 +41,5 @@ fun factoryTypeArguments(x: Set<Int>?): Set<Int> = <!UseOrEmpty!>x ?: setOf<Int>
 
 fun qualifiedTypeArguments(x: Map<String, Int>?): Map<String, Int> =
     <!UseOrEmpty!>x ?: kotlin.collections.emptyMap<String, Int>()<!>
+
+fun jdkTypeArguments(x: List<String>?): List<String> = <!UseOrEmpty!>x ?: java.util.Collections.emptyList<String>()<!>

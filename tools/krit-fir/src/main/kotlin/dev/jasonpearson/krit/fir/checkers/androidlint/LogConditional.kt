@@ -130,13 +130,14 @@ internal object LogConditional : FirFunctionCallChecker(MppCheckerKind.Common), 
         val access = condition.unwrapSmartcastExpression() as? FirQualifiedAccessExpression ?: return false
         if (access is FirFunctionCall) return false
         val symbol = access.calleeReference.toResolvedCallableSymbol() ?: return false
-        val callableId = symbol.callableId ?: return false
-        if (callableId.callableName != debugName) return false
-        if (callableId.classId?.shortClassName == buildConfigName) return true
+        if (symbol.name != debugName) return false
+        if (symbol.callableId?.classId?.shortClassName == buildConfigName) return true
+        // A local variable has no callable id, so read the receiver's name
+        // from its symbol.
         val receiver = access.explicitReceiver?.unwrapSmartcastExpression() as? FirQualifiedAccessExpression
             ?: return false
         return receiver !is FirFunctionCall &&
-            receiver.calleeReference.toResolvedCallableSymbol()?.callableId?.callableName == buildConfigName
+            receiver.calleeReference.toResolvedCallableSymbol()?.name == buildConfigName
     }
 
     private fun containsIsLoggable(root: FirElement): Boolean {

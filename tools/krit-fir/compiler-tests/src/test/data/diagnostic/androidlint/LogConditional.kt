@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 14, 17, 20, 24, 25, 26, 27, 28, 29, 30, 31, 33, 45, 52, 58, 64, 120, 140, 143, 146, 149, 152, 153, 157, 166, 167, 169, 172, 178, 183
+// go-lines: 14, 17, 20, 24, 25, 26, 27, 28, 29, 30, 31, 33, 45, 52, 58, 64, 120, 140, 143, 146, 149, 152, 153, 157, 166, 167, 169, 172, 178, 183, 204, 207
 package test.logconditional
 
 import android.util.Log
@@ -184,5 +184,26 @@ fun scopeBoundaries(items: List<String>) {
     }
     if (items.any { Log.isLoggable(it, Log.DEBUG) }) {
         Log.d(TAG, "isLoggable inside a lambda in the condition")
+    }
+}
+
+class Flags {
+    val DEBUG: Boolean = false
+    val VERBOSE: Boolean = false
+}
+
+// Go matches the condition text `BuildConfig.DEBUG`, so a DEBUG flag read
+// through a receiver spelled BuildConfig guards the call whatever its type.
+// FIR matches; another flag, or DEBUG through another receiver, does not.
+fun buildConfigSpelledReceiver(flags: Flags) {
+    val BuildConfig = flags
+    if (BuildConfig.DEBUG) {
+        Log.d(TAG, "DEBUG through a receiver spelled BuildConfig")
+    }
+    if (BuildConfig.VERBOSE) {
+        <!LogConditional!>Log.d(TAG, "another flag")<!>
+    }
+    if (flags.DEBUG) {
+        <!LogConditional!>Log.d(TAG, "DEBUG through another receiver")<!>
     }
 }

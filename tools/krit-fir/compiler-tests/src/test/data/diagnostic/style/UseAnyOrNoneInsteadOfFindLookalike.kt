@@ -1,9 +1,11 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 25, 27, 29, 31, 33, 41
-// Lookalikes: functions named find / firstOrNull / lastOrNull that are not the
-// standard library's, so the receiver has no `any` / `none` to use instead.
+// go-lines: 27, 29, 31, 33, 35, 43, 56, 58
+// Lookalikes: functions named find / firstOrNull / lastOrNull on receivers
+// with no `any` / `none` taking a predicate, as a member or as an extension.
 // Go matches the callee name alone and reports the explicit-receiver
-// comparisons below; the checker requires the stdlib function.
+// comparisons below, but the message is false: there is no `any {}` or
+// `none {}` to use instead, so the checker drops them. (A find on a receiver
+// that does have any / none is kept: UseAnyOrNoneInsteadOfFindUserCounterpart.)
 package test
 
 class Repository {
@@ -40,3 +42,17 @@ val anonymousFinder = object {
 
     fun viaThis(): Boolean = this.find { it > 0 } != null
 }
+
+// any / none without a predicate do not count: `counter.any { ... }` does not
+// compile.
+class Counter {
+    fun find(predicate: (Int) -> Boolean): Int? = null
+    fun any(): Boolean = false
+    fun none(): Boolean = true
+}
+
+fun Counter.any(threshold: Int): Boolean = threshold > 0
+
+fun noPredicateCounterpart(counter: Counter): Boolean = counter.find { it > 0 } != null
+
+fun noPredicateCounterpartIsNull(counter: Counter): Boolean = counter.find { it > 0 } == null

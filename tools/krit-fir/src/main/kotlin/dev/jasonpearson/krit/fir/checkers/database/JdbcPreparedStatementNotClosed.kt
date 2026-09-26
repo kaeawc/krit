@@ -31,15 +31,21 @@ import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.scopes.getFunctions
+import org.jetbrains.kotlin.fir.symbols.ConeTypeParameterLookupTag
+import org.jetbrains.kotlin.fir.types.ConeCapturedType
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeDefinitelyNotNullType
 import org.jetbrains.kotlin.fir.types.ConeIntersectionType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
+import org.jetbrains.kotlin.fir.types.ConeKotlinTypeProjection
 import org.jetbrains.kotlin.fir.types.ConeTypeParameterType
+import org.jetbrains.kotlin.fir.types.ProjectionKind
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneType
+import org.jetbrains.kotlin.fir.types.isSomeFunctionType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
+import org.jetbrains.kotlin.fir.types.returnType
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
@@ -48,8 +54,8 @@ import org.jetbrains.kotlin.name.Name
 
 /**
  * Port of the Go JdbcPreparedStatementNotClosed rule: a named property
- * (local, member, or top-level) whose initializer, delegate, or accessor
- * bodies call `prepareStatement(...)`, with no `<name>.close(...)` or
+ * (local, member, or top-level) whose initializer, delegate, or getter body
+ * calls `prepareStatement(...)`, with no `<name>.close(...)` or
  * `<name>.use ...` in the rest of its scope. Reported on the property's first
  * line (its first modifier or annotation, else `val`/`var`), like Go.
  *
@@ -70,11 +76,20 @@ import org.jetbrains.kotlin.name.Name
  *   type parameter bounded by one of those); a lookalike returning anything
  *   else makes no statement to close.
  * - A call closed on the spot (`prepareStatement(sql).use { }`,
- *   `?.close()`, `!!.use { }`) is not a leak, and neither is a statement made
- *   by a local property nested in the initializer: that property is checked
- *   (and reported) on its own line.
+ *   `?.close()`, `!!.use { }`) is not a leak. A statement made by a property
+ *   nested in the initializer or getter (a local, or a member of an
+ *   `object { }`) is checked and reported on that property's own line, so it
+ *   does not count for an outer property whose value is not closeable (a
+ *   `Boolean` result). It still counts when the outer value is closeable, or a
+ *   function returning one, since the nested statement may be returned into it
+ *   (`val stmt = run { val s = conn.prepareStatement(sql); s }`). A
+ *   destructuring declaration is not checked on its own, so its statement
+ *   always counts.
+ * - A setter body is not searched: what it makes is not the property's value
+ *   (Go never sees a setter body either).
  * - The cleanup is read from the syntax tree, not the text: a safe call or
- *   `!!` receiver (`stmt?.close()`, `stmt!!.use { }`) and a backticked name
+ *   `!!` receiver (`stmt?.close()`, `stmt!!.use { }`), a backticked name,
+ *   and a line break or comment before the call (`stmt\n    .close()`)
  *   count; a `stmt.close()` in a comment or a string literal does not, and
  *   neither does a call merely starting with `use` (`stmt.useless()`).
  * - A member or top-level property also counts a close in an earlier member
@@ -115,23 +130,29 @@ internal object JdbcPreparedStatementNotClosed :
 
     // The property's initializer, delegate, or written accessor bodies make a
     // closeable `prepareStatement(...)` call that is not closed on the spot.
+    // A setter body is not searched: what the setter makes is not the
+    // property's value (and Go never sees a setter either).
     context(context: CheckerContext)
     private fun preparesStatement(declaration: FirProperty): Boolean {
         val roots = buildList<FirElement> {
             declaration.initializer?.let(::add)
             declaration.delegate?.let(::add)
-            for (accessor in listOfNotNull(declaration.getter, declaration.setter)) {
-                if (accessor.source?.kind !is KtRealSourceElementKind) continue
-                accessor.body?.let(::add)
+            val getter = declaration.getter
+            if (getter != null && getter.source?.kind is KtRealSourceElementKind) {
+                getter.body?.let(::add)
             }
         }
+        // A nested property is checked (and reported) on its own line, so its
+        // statement is not counted again here, unless this property holds a
+        // closeable value too: the nested statement may be returned into it
+        // (`val stmt = run { val s = conn.prepareStatement(sql); s }`).
+        val skipNested = !holdsCloseable(declaration.returnTypeRef.coneType)
         var found = false
         val closedOnTheSpot = HashSet<FirExpression>()
         val visitor = object : FirVisitorVoid() {
             override fun visitElement(element: FirElement) {
                 if (found) return
-                // A nested local property is checked on its own.
-                if (element is FirProperty && element.source?.kind is KtRealSourceElementKind) return
+                if (skipNested && element is FirProperty && isCheckedOnItsOwn(element)) return
                 when (element) {
                     is FirSafeCallExpression -> {
                         val selector = element.selector as? FirFunctionCall
@@ -163,6 +184,22 @@ internal object JdbcPreparedStatementNotClosed :
         return false
     }
 
+    // The properties this checker checks by itself: a real `val`/`var`, not a
+    // destructuring declaration or its entries.
+    private fun isCheckedOnItsOwn(property: FirProperty): Boolean {
+        val source = property.source ?: return false
+        return source.kind is KtRealSourceElementKind && source.elementType == KtNodeTypes.PROPERTY
+    }
+
+    // A closeable value, or a function returning one (every call makes one).
+    context(context: CheckerContext)
+    private fun holdsCloseable(type: ConeKotlinType): Boolean {
+        if (isCloseable(type, depth = 0)) return true
+        val function = type.fullyExpandedType().lowerBoundIfFlexible() as? ConeClassLikeType ?: return false
+        if (!function.isSomeFunctionType(context.session)) return false
+        return isCloseable(function.returnType(context.session), depth = 0)
+    }
+
     private tailrec fun unwrap(expression: FirExpression): FirExpression = when (expression) {
         is FirCheckNotNullCall -> unwrap(expression.arguments.firstOrNull() ?: return expression)
         is FirSmartCastExpression -> unwrap(expression.originalExpression)
@@ -181,6 +218,20 @@ internal object JdbcPreparedStatementNotClosed :
             is ConeIntersectionType -> bound.intersectedTypes.any { isCloseable(it, depth + 1) }
             is ConeTypeParameterType -> bound.lookupTag.typeParameterSymbol.resolvedBounds.any {
                 isCloseable(it.coneType, depth + 1)
+            }
+            // `Factory<out PreparedStatement>` or `BoundedFactory<*>`: the
+            // captured type's upper bounds. An `in` projection bounds it only
+            // from below, which proves nothing closeable.
+            is ConeCapturedType -> {
+                val constructor = bound.constructor
+                val projected = (constructor.projection as? ConeKotlinTypeProjection)
+                    ?.takeIf { it.kind == ProjectionKind.OUT || it.kind == ProjectionKind.INVARIANT }
+                    ?.type
+                (projected != null && isCloseable(projected, depth + 1)) ||
+                    constructor.supertypes.orEmpty().any { isCloseable(it, depth + 1) } ||
+                    (constructor.typeParameterMarker as? ConeTypeParameterLookupTag)
+                        ?.typeParameterSymbol?.resolvedBounds.orEmpty()
+                        .any { isCloseable(it.coneType, depth + 1) }
             }
             is ConeClassLikeType -> {
                 if (bound.classId in autoCloseable) return true

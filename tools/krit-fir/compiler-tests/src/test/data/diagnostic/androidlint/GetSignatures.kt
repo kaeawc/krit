@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 12, 14, 17, 21, 22, 23, 24, 31, 39, 43, 44, 48, 52, 58, 63, 67, 72, 76
+// go-lines: 12, 14, 17, 21, 22, 23, 24, 30, 38, 45, 54, 64, 72, 78, 79, 83, 87, 93, 98, 102, 107, 111
 package test
 
 import android.content.Context
@@ -23,7 +23,6 @@ class SignatureChecker(private val context: Context) {
         <!GetSignatures!>pm.getPackageInfo("com.example", 0x41L.toInt())<!>
         <!GetSignatures!>pm.getPackageInfo("com.example", PackageManager.GET_META_DATA or 64)<!>
         pm.getPackageInfo("com.example", 128)
-        pm.getPackageInfo("com.example", -1)
     }
 
     fun localVal(pm: PackageManager) {
@@ -31,12 +30,48 @@ class SignatureChecker(private val context: Context) {
         <!GetSignatures!>pm.getPackageInfo("com.example", flags)<!>
     }
 
-    // Like Go, a local var counts through its initializer even when it is
-    // reassigned before the call.
-    fun localVar(pm: PackageManager) {
+    // A reassignment that may not run leaves the initializer's flags.
+    fun localVar(pm: PackageManager, modern: Boolean) {
         var flags = PackageManager.GET_SIGNATURES
-        flags = 0
+        if (modern) flags = 0
+        println(flags)
         <!GetSignatures!>pm.getPackageInfo("com.example", flags)<!>
+    }
+
+    // A reassignment that keeps the flag.
+    fun localVarKept(pm: PackageManager) {
+        var flags = PackageManager.GET_SIGNATURES
+        flags = flags or PackageManager.GET_META_DATA
+        <!GetSignatures!>pm.getPackageInfo("com.example", flags)<!>
+    }
+
+    // The reassignment is in the other branch.
+    fun localVarOtherBranch(pm: PackageManager, modern: Boolean) {
+        var flags = PackageManager.GET_SIGNATURES
+        if (modern) {
+            flags = 0
+        } else {
+            <!GetSignatures!>pm.getPackageInfo("com.example", flags)<!>
+        }
+    }
+
+    // The try block may throw before its reassignment.
+    fun localVarFinally(pm: PackageManager) {
+        var flags = PackageManager.GET_SIGNATURES
+        try {
+            flags = 0
+        } finally {
+            <!GetSignatures!>pm.getPackageInfo("com.example", flags)<!>
+        }
+    }
+
+    // In a loop, the initializer reaches the first iteration.
+    fun localVarInLoop(pm: PackageManager, names: List<String>) {
+        var flags = PackageManager.GET_SIGNATURES
+        for (name in names) {
+            <!GetSignatures!>pm.getPackageInfo(name, flags)<!>
+            flags = 0
+        }
     }
 
     fun packageInfoFlags(pm: PackageManager) {

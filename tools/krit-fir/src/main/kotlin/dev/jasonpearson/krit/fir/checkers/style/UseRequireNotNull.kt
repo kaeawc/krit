@@ -34,8 +34,9 @@ import org.jetbrains.kotlin.name.Name
 // parentheses (a trailing lambda is not a value argument) whose expression,
 // after unwrapping parentheses, is `a != b` with one operand spelled exactly
 // `null`. Go skips the call when source inference resolves the other operand
-// as a known non-nullable type. FIR keeps the written-shape match, and
-// decides the rest semantically:
+// as a known non-nullable type. FIR keeps the written-shape match, except that
+// a parenthesized `(null)` still counts as `null` (Go misses it; UseCheckNotNull
+// reports the same shape), and decides the rest semantically:
 // - the call must resolve to `kotlin.require`, so a local, member or
 //   same-package `require` lookalike is not flagged (Go reports any callee
 //   named `require`), while an import alias of `kotlin.require` is (Go
@@ -99,15 +100,11 @@ internal object UseRequireNotNull : FirFunctionCallChecker(MppCheckerKind.Common
         val argument = lightChildren(source, argumentList)
             .filter { it.tokenType == KtNodeTypes.VALUE_ARGUMENT }
             .singleOrNull() ?: return null
-        var value = meaningfulChildren(source, argument).firstOrNull {
+        val value = meaningfulChildren(source, argument).firstOrNull {
             it.tokenType != KtNodeTypes.VALUE_ARGUMENT_NAME &&
                 it.tokenType != KtTokens.EQ &&
                 it.tokenType != KtTokens.MUL
-        } ?: return null
-        while (value.tokenType == KtNodeTypes.PARENTHESIZED) {
-            value = meaningfulChildren(source, value)
-                .firstOrNull { it.tokenType != KtTokens.LPAR && it.tokenType != KtTokens.RPAR } ?: return null
-        }
+        }?.let { unwrapParens(source, it) } ?: return null
         if (value.tokenType != KtNodeTypes.BINARY_EXPRESSION) return null
         // Comments are skipped too: `x != /* c */ null` still compares x with
         // null. Go reads the operator as the second child and the operand as
@@ -117,11 +114,26 @@ internal object UseRequireNotNull : FirFunctionCallChecker(MppCheckerKind.Common
         if (parts.size != 3) return null
         val (left, operator, right) = parts
         if (operator.tokenType != KtNodeTypes.OPERATION_REFERENCE || text(source, operator) != "!=") return null
+        // A parenthesized `(null)` is still the null literal, as
+        // UseCheckNotNull reads it; Go compares the raw text and misses it
+        // (golden UseRequireNotNullParenthesizedNull).
         return when {
-            text(source, left) == "null" -> 1
-            text(source, right) == "null" -> 0
+            isNullLiteral(source, left) -> 1
+            isNullLiteral(source, right) -> 0
             else -> null
         }
+    }
+
+    private fun isNullLiteral(source: KtSourceElement, node: LighterASTNode): Boolean =
+        text(source, unwrapParens(source, node)) == "null"
+
+    // [node] with any enclosing parentheses removed; an empty pair stays as
+    // it is.
+    private tailrec fun unwrapParens(source: KtSourceElement, node: LighterASTNode): LighterASTNode {
+        if (node.tokenType != KtNodeTypes.PARENTHESIZED) return node
+        val inner = meaningfulChildren(source, node)
+            .firstOrNull { it.tokenType != KtTokens.LPAR && it.tokenType != KtTokens.RPAR } ?: return node
+        return unwrapParens(source, inner)
     }
 
     // The CALL_EXPRESSION of a call's source: the source itself, or the

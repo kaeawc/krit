@@ -10,15 +10,20 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
+import org.jetbrains.kotlin.fir.declarations.FirAnonymousInitializer
+import org.jetbrains.kotlin.fir.declarations.FirClass
 import org.jetbrains.kotlin.fir.declarations.FirFunction
+import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirBooleanOperatorExpression
 import org.jetbrains.kotlin.fir.expressions.FirDesugaredAssignmentValueReferenceExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirLoop
 import org.jetbrains.kotlin.fir.expressions.FirOperation
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
 import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
@@ -66,35 +71,52 @@ import org.jetbrains.kotlin.name.StandardClassIds
 // one); its type counts as CharArray through type aliases, platform
 // (`CharArray!`) types, `CharArray?`, and smart casts.
 //
-// K2 drops a smart cast the call does not need, and Any.toString() applies to
-// the original type, so `if (x is CharArray) x.toString()` reaches the checker
-// with `x` typed as declared. The is-check that proves the value is a
-// CharArray is recovered from the enclosing code, in the shapes Go's resolver
-// narrows: the body of an `if`/`when` branch whose condition (or one of its
-// `&&` operands) is `x is CharArray`, a `when (x) { is CharArray -> }`
-// branch, and the statements after `if (x !is CharArray) return`, plus the
-// right operand of `x is CharArray && ...`. `x` must be a value K2 can
-// smart-cast: a parameter, a local `val`, a local `var` not assigned after
-// the check or inside a lambda or local function, or a final member or
-// top-level `val` without a custom getter or delegate.
+// K2 drops a stable smart cast the call does not need, and Any.toString()
+// applies to the original type, so `if (x is CharArray) x.toString()` reaches
+// the checker with `x` typed as declared. The is-check that proves the value
+// is a CharArray is recovered from the enclosing code, in the shapes Go's
+// resolver narrows: the body of an `if`/`when` branch whose condition (or one
+// of its `&&` operands) is `x is CharArray`, a `when (x) { is CharArray -> }`
+// branch, and the statements after `if (x !is CharArray [|| ...]) <exit>`,
+// plus the right operand of `x is CharArray && ...`. `x` is a bare name or
+// `this.x`, and the check must still hold at the call:
+// - a parameter, a local `val`, or a final member or top-level `val` without
+//   a custom getter or delegate cannot change;
+// - a local `var` must not be assigned where the assignment can run between
+//   the check and the call: in the function, lambda, or initializer that
+//   runs the check, between them in the source or in a loop around the call
+//   but not the check; elsewhere in the var's scope, in a lambda, local
+//   function, or local class created before the call or in a loop around it;
+// - any other value (a member `var`, an `open` val, a val with a custom
+//   getter, a delegate) is one K2 cannot smart-cast, and K2 then keeps the
+//   unstable smart cast on the receiver; it must still be to CharArray, so a
+//   reassignment in between drops the finding. Go reports all of these.
 //
 // Deliberate differences from Go, pinned by goldens:
-// - Precision: Go types the receiver by looking its text up by name in scope,
-//   then falls back to any same-named parameter or property anywhere in the
-//   file declared `CharArray` or initialized with a `charArrayOf` call, and it
-//   matches the type by its simple name. A receiver that is not a
-//   kotlin.CharArray (a lambda parameter that shares a name with such a
-//   declaration, a project class named `CharArray`, the `else` branch of an
-//   `is CharArray` check, a check under `||`, a statement before
-//   `if (x !is CharArray) return`, a var reassigned after the check, another
-//   object's property with the checked name) is not reported, nor is a call to a
-//   project `CharArray?.toString()` extension, which does not render the
-//   array's identity.
+// - Precision: Go types the receiver by looking its text up by name in scope
+//   (the text after the last `.`), then falls back to any same-named
+//   parameter or property anywhere in the file declared `CharArray` or
+//   initialized with a `charArrayOf` call, and it matches the type by its
+//   simple name. A receiver that is not a kotlin.CharArray (a lambda parameter
+//   that shares a name with such a declaration, a project class named
+//   `CharArray`, another object's property that shares a name with a CharArray
+//   parameter, the `else` branch of an `is CharArray` check, a check under
+//   `||`, an `if (x !is CharArray && ...) return` guard, a `when` branch with
+//   several is-checks, a statement before `if (x !is CharArray) return` or
+//   after an `if` that does not always exit, a var reassigned after the check,
+//   another object's property with the checked name) is not reported, nor is
+//   a call to a project `CharArray?.toString()` extension, which does not
+//   render the array's identity.
 // - Recall: a CharArray receiver Go cannot type by name is reported: a call
-//   result (`"a".toCharArray()`, a Java `char[]`), `x!!`, a parenthesized
-//   receiver, `this`, an implicit receiver (`toString()` inside a `CharArray`
-//   extension or `with(chars) { ... }`), a subject-less `when { x is
-//   CharArray -> }` branch, and the right operand of `x is CharArray && ...`.
+//   result (`"a".toCharArray()`, a Java `char[]`), `x!!` (also on a map
+//   value), an indexed element, a parenthesized receiver, `this`, an implicit
+//   receiver (`toString()` inside a `CharArray` extension or
+//   `with(chars) { ... }`), a val bound from `as? CharArray ?: return`. So is
+//   a value proven a CharArray where Go does not narrow: a subject-less
+//   `when { x is CharArray -> }` branch, the right operand of
+//   `x is CharArray && ...`, `this.x`, the statements after
+//   `if (x !is CharArray) continue`, the branches of `return if (...)`, and a
+//   local var in a getter of an `object {}` member.
 internal object CharArrayToStringCall : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "CharArrayToStringCall"
     override val expressionCheckers = object : ExpressionCheckers() {
@@ -123,7 +145,7 @@ internal object CharArrayToStringCall : FirFunctionCallChecker(MppCheckerKind.Co
             ?: expression.extensionReceiver
             ?: expression.dispatchReceiver
             ?: return
-        if (!isCharArray(receiver.resolvedType, 0) && !provenByIsCheck(receiver)) return
+        if (!isCharArray(receiver.resolvedType, 0) && !provenByIsCheck(expression, receiver)) return
         report(expression.source, MESSAGE)
     }
 
@@ -142,6 +164,11 @@ internal object CharArrayToStringCall : FirFunctionCallChecker(MppCheckerKind.Co
     // (null for locals, parameters, and top-level properties).
     private data class ValueKey(val variable: FirVariableSymbol<*>, val owner: FirBasedSymbol<*>?)
 
+    // The is-check that proves the value, found at [index] in the containing
+    // elements; [exitBranch] is the result of an early-exit `if`, which never
+    // reaches the call.
+    private class Proof(val check: FirTypeOperatorCall, val index: Int, val exitBranch: FirElement?)
+
     // The value [expression] reads, when it is a plain read of a variable,
     // bare or through `this`; null for any other expression.
     private fun valueKey(expression: FirExpression): ValueKey? {
@@ -158,33 +185,41 @@ internal object CharArrayToStringCall : FirFunctionCallChecker(MppCheckerKind.Co
         return ValueKey(variable, owner)
     }
 
-    // Whether an enclosing is-check proves [receiver] is a CharArray.
+    // Whether an enclosing is-check proves [receiver] of [call] is a
+    // CharArray.
     context(context: CheckerContext)
-    private fun provenByIsCheck(receiver: FirExpression): Boolean {
+    private fun provenByIsCheck(call: FirFunctionCall, receiver: FirExpression): Boolean {
         val key = valueKey(receiver) ?: return false
-        if (!isSmartCastable(key.variable)) return false
+        val proof = findProof(key) ?: return false
+        return when {
+            isLocalVar(key.variable) -> !assignedBetween(key.variable, proof, call)
+            isStable(key.variable) -> true
+            // K2 keeps a smart cast it cannot rely on, so the receiver shows
+            // whether the value is still known to be a CharArray here.
+            else -> receiver is FirSmartCastExpression && isCharArray(receiver.smartcastType.coneType, 0)
+        }
+    }
+
+    context(context: CheckerContext)
+    private fun findProof(key: ValueKey): Proof? {
         val path = context.containingElements
         for (i in path.indices.reversed()) {
             val child = path.getOrNull(i + 1) ?: continue
-            val check = when (val element = path[i]) {
+            when (val element = path[i]) {
                 is FirWhenBranch ->
                     if (child === element.result) {
                         provingCheck(element.condition, key, path.getOrNull(i - 1) as? FirWhenExpression)
-                    } else {
-                        null
+                            ?.let { return Proof(it, i, null) }
                     }
                 is FirBooleanOperatorExpression ->
                     if (element.kind == LogicOperationKind.AND && child === element.rightOperand) {
-                        provingCheck(element.leftOperand, key, null)
-                    } else {
-                        null
+                        provingCheck(element.leftOperand, key, null)?.let { return Proof(it, i, null) }
                     }
-                is FirBlock -> earlyExitCheck(element, child, key)
-                else -> null
-            } ?: continue
-            return !isLocalVar(key.variable) || !assignedAfter(key.variable, check)
+                is FirBlock -> earlyExitCheck(element, child, key, i)?.let { return it }
+                else -> {}
+            }
         }
-        return false
+        return null
     }
 
     // The `x is CharArray` that [condition] asserts, directly or as an `&&`
@@ -203,6 +238,22 @@ internal object CharArrayToStringCall : FirFunctionCallChecker(MppCheckerKind.Co
             else -> null
         }
 
+    // The `x !is CharArray` that [condition] refutes when it is false,
+    // directly or as an `||` operand: an exit guarded by it leaves `x` a
+    // CharArray.
+    context(context: CheckerContext)
+    private fun guardCheck(condition: FirExpression, key: ValueKey): FirTypeOperatorCall? =
+        when (condition) {
+            is FirBooleanOperatorExpression ->
+                if (condition.kind == LogicOperationKind.OR) {
+                    guardCheck(condition.leftOperand, key) ?: guardCheck(condition.rightOperand, key)
+                } else {
+                    null
+                }
+            is FirTypeOperatorCall -> condition.takeIf { typeCheck(it, FirOperation.NOT_IS, key, null) }
+            else -> null
+        }
+
     // A `x is CharArray` (or `!is`, per [operation]) check of the value
     // [key], read directly or as the subject of [owner].
     context(context: CheckerContext)
@@ -218,63 +269,142 @@ internal object CharArrayToStringCall : FirFunctionCallChecker(MppCheckerKind.Co
         return subject.initializer?.let(::valueKey) == key
     }
 
-    // An `if (x !is CharArray) <exit>` statement in [block] before [child].
+    // An `if (x !is CharArray [|| ...]) <exit>` statement in [block] before
+    // [child], the element at [index + 1] in the containing elements.
     context(context: CheckerContext)
-    private fun earlyExitCheck(block: FirBlock, child: FirElement, key: ValueKey): FirTypeOperatorCall? {
+    private fun earlyExitCheck(block: FirBlock, child: FirElement, key: ValueKey, index: Int): Proof? {
         for (statement in block.statements) {
             if (statement === child) return null
             val exit = statement as? FirWhenExpression ?: continue
             val first = exit.branches.firstOrNull() ?: continue
-            val check = first.condition as? FirTypeOperatorCall ?: continue
-            if (!typeCheck(check, FirOperation.NOT_IS, key, null)) continue
-            if (first.result.resolvedType.isNothing) return check
+            val check = guardCheck(first.condition, key) ?: continue
+            if (first.result.resolvedType.isNothing) return Proof(check, index, first.result)
         }
         return null
     }
 
     private fun isLocalVar(variable: FirVariableSymbol<*>): Boolean =
-        variable is FirPropertySymbol && variable.isLocal && !variable.isVal
+        variable is FirPropertySymbol && variable.isLocal && !variable.isVal && !variable.hasDelegate
 
-    // Values K2 smart-casts: parameters, local vals and vars (vars are
-    // checked for assignments separately), and final vals read through their
-    // own field.
-    private fun isSmartCastable(variable: FirVariableSymbol<*>): Boolean = when (variable) {
+    // Values that cannot change after the check: parameters, local vals, and
+    // final vals read through their own field.
+    private fun isStable(variable: FirVariableSymbol<*>): Boolean = when (variable) {
         is FirValueParameterSymbol -> true
         is FirPropertySymbol -> when {
-            variable.isLocal -> !variable.hasDelegate
             !variable.isVal || variable.hasDelegate -> false
+            variable.isLocal -> true
             variable.resolvedStatus.modality != Modality.FINAL -> false
             else -> variable.getterSymbol.let { it == null || it.isDefault }
         }
         else -> false
     }
 
-    // Whether the local var [variable] is assigned after [check] or inside a
-    // lambda or local function, which can run between the check and the call.
+    // Whether the local var [variable] is assigned where the assignment can
+    // run between the check of [proof] and [call].
+    //
+    // The check and the call run in one flow, the innermost function, lambda,
+    // or initializer that holds the check. An assignment in that flow runs
+    // between them when it lies between them in the source, or in a loop
+    // around the call but not the check. An assignment in any other function,
+    // lambda, or local class of the declaring scope runs when that code is
+    // invoked, which can happen between the check and the call if the code
+    // was created before the call or in a loop around it. The code of the
+    // declaring scope and of the functions between it and the checking flow
+    // is suspended while the flow runs, so it cannot run in between.
     context(context: CheckerContext)
-    private fun assignedAfter(variable: FirVariableSymbol<*>, check: FirTypeOperatorCall): Boolean {
-        val checkOffset = check.source?.startOffset ?: return true
-        val root = context.containingElements.firstOrNull { it is FirFunction } ?: return true
+    private fun assignedBetween(variable: FirVariableSymbol<*>, proof: Proof, call: FirFunctionCall): Boolean {
+        val checkStart = proof.check.source?.startOffset ?: return true
+        val callStart = call.source?.startOffset ?: return true
+        val path = context.containingElements
+        val rootIndex = declaringScope(variable, path) ?: return true
+        val root = path[rootIndex]
+        val flowIndex = (proof.index downTo rootIndex).firstOrNull { isFlow(path[it]) } ?: return true
+        val flow = path[flowIndex]
+        val enclosing = path.subList(rootIndex, flowIndex + 1)
+        // Loops around the call inside the declaring scope; those deeper
+        // than the proof do not contain the check.
+        val callLoops = (rootIndex + 1 until path.size).filter { path[it] is FirLoop }
+        val loopsAroundCall = callLoops.map { path[it] }
+        val loopsAroundCallOnly = callLoops.filter { it > proof.index }.map { path[it] }
         var assigned = false
         root.accept(object : FirVisitorVoid() {
-            private var nested = 0
+            // Start of the outermost function, lambda, or local class being
+            // visited that does not enclose the checking flow; null outside
+            // such code.
+            private var nestedStart: Int? = null
+            private var inFlow = root === flow
+            private var inLoopAroundCall = 0
+            private var inLoopAroundCallOnly = 0
+            private var inExitBranch = 0
 
             override fun visitElement(element: FirElement) {
                 if (assigned) return
-                if (element is FirVariableAssignment &&
-                    assignedVariable(element) == variable &&
-                    (nested > 0 || (element.source?.startOffset ?: Int.MAX_VALUE) > checkOffset)
-                ) {
+                if (element is FirVariableAssignment && assignedVariable(element) == variable && invalidates(element)) {
                     assigned = true
                     return
                 }
-                val boundary = element is FirFunction && element !== root
-                if (boundary) nested++
+                val enclosingStart = nestedStart
+                val enclosingInFlow = inFlow
+                if (element === flow) {
+                    inFlow = true
+                } else if (nestedStart == null && (isFlow(element) || element is FirClass) &&
+                    enclosing.none { it === element }
+                ) {
+                    nestedStart = element.source?.startOffset ?: -1
+                }
+                val aroundCall = loopsAroundCall.any { it === element }
+                val aroundCallOnly = loopsAroundCallOnly.any { it === element }
+                val exitBranch = element === proof.exitBranch
+                if (aroundCall) inLoopAroundCall++
+                if (aroundCallOnly) inLoopAroundCallOnly++
+                if (exitBranch) inExitBranch++
                 element.acceptChildren(this)
-                if (boundary) nested--
+                if (exitBranch) inExitBranch--
+                if (aroundCallOnly) inLoopAroundCallOnly--
+                if (aroundCall) inLoopAroundCall--
+                nestedStart = enclosingStart
+                inFlow = enclosingInFlow
+            }
+
+            private fun invalidates(assignment: FirVariableAssignment): Boolean {
+                // Code created before the call, or in a loop around it, may be
+                // invoked between the check and the call.
+                nestedStart?.let { return it < callStart || inLoopAroundCall > 0 }
+                if (!inFlow) return false
+                if (inLoopAroundCallOnly > 0) return true
+                val at = assignment.source?.startOffset ?: return true
+                return inExitBranch == 0 && at > checkStart && at < callStart
             }
         })
         return assigned
+    }
+
+    private fun isFlow(element: FirElement): Boolean = element is FirFunction || element is FirAnonymousInitializer
+
+    // The index in [path] of the innermost function, lambda, or initializer
+    // that declares the local [variable].
+    private fun declaringScope(variable: FirVariableSymbol<*>, path: List<FirElement>): Int? {
+        for (i in path.indices.reversed()) {
+            val scope = path[i]
+            if (!isFlow(scope)) continue
+            if (declares(scope, variable)) return i
+        }
+        return null
+    }
+
+    private fun declares(scope: FirElement, variable: FirVariableSymbol<*>): Boolean {
+        var found = false
+        scope.accept(object : FirVisitorVoid() {
+            override fun visitElement(element: FirElement) {
+                if (found) return
+                if (element is FirProperty && element.symbol == variable) {
+                    found = true
+                    return
+                }
+                element.acceptChildren(this)
+            }
+        })
+        return found
     }
 
     private fun assignedVariable(assignment: FirVariableAssignment): FirVariableSymbol<*>? {

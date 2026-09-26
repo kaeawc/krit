@@ -1,0 +1,428 @@
+package dev.jasonpearson.krit.fir.checkers.potentialbugs
+
+import com.intellij.lang.LighterASTNode
+import com.intellij.psi.tree.IElementType
+import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.isInTestFile
+import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.lightChildren
+import org.jetbrains.kotlin.KtFakeSourceElementKind
+import org.jetbrains.kotlin.KtNodeTypes
+import org.jetbrains.kotlin.KtSourceElement
+import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
+import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
+import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
+import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
+import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirCheckNotNullCallChecker
+import org.jetbrains.kotlin.fir.analysis.checkers.processOverriddenFunctionsSafe
+import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
+import org.jetbrains.kotlin.fir.expressions.FirExpression
+import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
+import org.jetbrains.kotlin.fir.expressions.argument
+import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
+import org.jetbrains.kotlin.fir.unwrapFakeOverrides
+import org.jetbrains.kotlin.lexer.KtTokens
+import org.jetbrains.kotlin.name.CallableId
+import org.jetbrains.kotlin.name.ClassId
+import org.jetbrains.kotlin.name.FqName
+import org.jetbrains.kotlin.name.Name
+
+/**
+ * Flags a not-null assertion on a map lookup: `map[key]!!`,
+ * `map.get(key)!!` or `map?.get(key)!!`, where `getValue()` or
+ * `getOrDefault()` states the intent and fails with a useful message.
+ *
+ * Mirrors the Go rule's scope and exemptions:
+ * - the operand of `!!` (through parentheses) must be written as an index
+ *   access with one index or as a qualified `get` call with one argument on
+ *   an explicit receiver; a bare `get(key)!!` on an implicit receiver is not
+ *   reported, as Go does not report it;
+ * - files krit classifies as test files are skipped;
+ * - an access guarded by `receiver.containsKey(key)` is skipped: the access
+ *   sits in the then branch of an `if` whose condition proves the key is
+ *   present (or in the else branch of one proving it absent), or it follows,
+ *   in the same block, an `if` without else whose condition proves the key
+ *   absent and whose body always leaves (its last statement is a
+ *   `return`/`throw`/`break`/`continue`, or an if/else whose both branches
+ *   do). The receiver and key are matched by their source text, as Go
+ *   matches them. The if-walk stops at the nearest named function or lambda,
+ *   the block search at the nearest block, exactly where Go stops.
+ *
+ * The map proof comes from resolution instead of Go's source type inference:
+ * the call must resolve to `kotlin.collections.Map.get`, to a member that
+ * overrides it (`HashMap.get`, `TreeMap.get`, a project `Map`
+ * implementation, a delegated `Map`), or to the stdlib
+ * `Map<out K, V>.get(key)` extension.
+ *
+ * Deliberate differences from Go, each pinned in the golden data:
+ * - Precision: Go accepts any receiver whose type name is `Map`, `HashMap`,
+ *   `LinkedHashMap`, `TreeMap` (or `Mutable`/qualified spellings), and
+ *   does not check which `get` the call resolves to. A project class that
+ *   reuses one of those names, a project `get` extension on a map whose key
+ *   type Go does not compare (`Map<*, *>`), and a map subclass's own `get`
+ *   overload with another parameter type are not map lookups, so they are
+ *   not reported.
+ * - Guards: a containsKey guard only exempts an access when the condition
+ *   proves the key is present through `!`, `&&`, `||` and comparisons with
+ *   a boolean literal, each step sound, and Go also accepts it. Go also
+ *   accepts a `containsKey` call anywhere in the condition
+ *   (`containsKey(k) == false`, an argument of another call, inside a
+ *   lambda or an if expression), a negated conjunction
+ *   (`!(a && !containsKey(k))`), and a top-level `a || containsKey(k)` (then
+ *   branch) or `a && !containsKey(k)` (early return), none of which proves
+ *   the key is present, so those accesses are reported.
+ * - Recall: resolution sees map receivers Go cannot type (a `super`
+ *   receiver, a companion object's property, a scope-function `it`, a type
+ *   parameter bounded by Map, a Java method's result, the receiver
+ *   `a[k]!!` of a second lookup, a JDK map such as `Properties` or
+ *   `ConcurrentHashMap`) and keys whose type Go cannot prove equal to the
+ *   map's key type (a subtype), plus the stdlib `Map<out K, V>.get(key)`
+ *   extension.
+ */
+internal object MapGetWithNotNullAssertionOperator : FirCheckNotNullCallChecker(MppCheckerKind.Common), FirRule {
+    override val ruleId = "MapGetWithNotNullAssertionOperator"
+    override val expressionCheckers = object : ExpressionCheckers() {
+        override val checkNotNullCallCheckers = setOf(MapGetWithNotNullAssertionOperator)
+    }
+
+    private const val MESSAGE = "Map access with not-null assertion operator (!!). Use getValue() or getOrDefault() instead."
+    private val GET = Name.identifier("get")
+    private val COLLECTIONS = FqName("kotlin.collections")
+    private val MAP_GET = CallableId(ClassId(COLLECTIONS, Name.identifier("Map")), GET)
+    private val STDLIB_MAP_GET_EXTENSION = CallableId(COLLECTIONS, GET)
+
+    context(context: CheckerContext, reporter: DiagnosticReporter)
+    override fun check(expression: FirCheckNotNullCall) {
+        val source = expression.source ?: return
+        if (source.kind is KtFakeSourceElementKind) return
+        val call = lookupCall(expression.argument) ?: return
+        val callee = call.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol ?: return
+        if (callee.name != GET || !isMapGet(callee)) return
+        val access = writtenAccess(source) ?: return
+        if (isInTestFile()) return
+        if (isContainsKeyGuarded(source, access) || isEarlyReturnGuarded(source, access)) return
+        report(source, MESSAGE)
+    }
+
+    private fun lookupCall(argument: FirExpression): FirFunctionCall? = when (argument) {
+        is FirFunctionCall -> argument
+        is FirSafeCallExpression -> argument.selector as? FirFunctionCall
+        else -> null
+    }
+
+    // Map.get itself, a member overriding it, or the stdlib extension that
+    // forwards to it.
+    context(context: CheckerContext)
+    private fun isMapGet(callee: FirNamedFunctionSymbol): Boolean {
+        val original = callee.unwrapFakeOverrides()
+        val id = original.callableId
+        if (id == MAP_GET || id == STDLIB_MAP_GET_EXTENSION) return true
+        if (original.receiverParameterSymbol != null) return false
+        var overridesMapGet = false
+        original.processOverriddenFunctionsSafe {
+            if (it.unwrapFakeOverrides().callableId == MAP_GET) overridesMapGet = true
+        }
+        return overridesMapGet
+    }
+
+    // ---- Written shape (the Go rule's tree-sitter view) -------------------
+
+    /** The access `receiver[key]` / `receiver.get(key)` under the `!!`. */
+    private class Access(val receiver: LighterASTNode, val key: LighterASTNode)
+
+    private fun writtenAccess(source: KtSourceElement): Access? {
+        val postfix = source.lighterASTNode
+        if (postfix.tokenType != KtNodeTypes.POSTFIX_EXPRESSION) return null
+        val operand = significant(source, postfix).firstOrNull() ?: return null
+        val access = unwrapParens(source, operand)
+        return when (access.tokenType) {
+            KtNodeTypes.ARRAY_ACCESS_EXPRESSION -> indexAccess(source, access)
+            KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION -> getCallAccess(source, access)
+            else -> null
+        }
+    }
+
+    // `receiver[key]`: Go takes the indexing suffix's only named child, so a
+    // comment inside the brackets makes it give up, as it does here.
+    private fun indexAccess(source: KtSourceElement, access: LighterASTNode): Access? {
+        val parts = significant(source, access)
+        val receiver = parts.firstOrNull() ?: return null
+        val indices = parts.lastOrNull()?.takeIf { it.tokenType == KtNodeTypes.INDICES } ?: return null
+        val keys = lightChildren(source, indices).filter {
+            it.tokenType != KtTokens.WHITE_SPACE && it.tokenType != KtTokens.LBRACKET &&
+                it.tokenType != KtTokens.RBRACKET && it.tokenType != KtTokens.COMMA
+        }
+        return keys.singleOrNull()?.let { Access(receiver, it) }
+    }
+
+    // `receiver.get(key)` / `receiver?.get(key)` with one (possibly named)
+    // argument.
+    private fun getCallAccess(source: KtSourceElement, access: LighterASTNode): Access? {
+        val parts = significant(source, access)
+        if (parts.size != 2) return null
+        val (receiver, selector) = parts
+        if (selector.tokenType != KtNodeTypes.CALL_EXPRESSION) return null
+        val key = getCallKey(source, selector) ?: return null
+        return Access(receiver, key)
+    }
+
+    private fun getCallKey(source: KtSourceElement, call: LighterASTNode): LighterASTNode? {
+        val parts = significant(source, call)
+        val name = parts.firstOrNull()?.takeIf { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION } ?: return null
+        if (text(source, name) != "get") return null
+        val args = parts.getOrNull(1)?.takeIf { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_LIST } ?: return null
+        if (parts.size != 2) return null
+        val argument = lightChildren(source, args).singleOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT } ?: return null
+        return significant(source, argument).lastOrNull()
+    }
+
+    // ---- containsKey guards (Go: nullflow.IsMapContainsKeyGuarded) --------
+
+    // The access sits in a branch of an enclosing `if` whose condition proves
+    // the key is present in that branch. Go walks up to the nearest named
+    // function or lambda.
+    private fun isContainsKeyGuarded(source: KtSourceElement, access: Access): Boolean {
+        val tree = source.treeStructure
+        var node = source.lighterASTNode
+        while (true) {
+            val parent = tree.getParent(node) ?: return false
+            if (isWalkBoundary(source, parent)) return false
+            if (parent.tokenType == KtNodeTypes.IF) {
+                val condition = conditionOf(source, parent)
+                when (node.tokenType) {
+                    KtNodeTypes.THEN -> if (condition != null && proves(source, condition, access, whenTrue = true)) return true
+                    KtNodeTypes.ELSE -> if (condition != null && proves(source, condition, access, whenTrue = false)) return true
+                }
+            }
+            node = parent
+        }
+    }
+
+    // Go stops at a `function_declaration` (a named function; an anonymous
+    // `fun() {}` is not one) and at a `lambda_literal`.
+    private fun isWalkBoundary(source: KtSourceElement, node: LighterASTNode): Boolean = when (node.tokenType) {
+        KtNodeTypes.FUNCTION_LITERAL, KtNodeTypes.LAMBDA_EXPRESSION -> true
+        KtNodeTypes.FUN -> lightChildren(source, node).any { it.tokenType == KtTokens.IDENTIFIER }
+        else -> false
+    }
+
+    // ---- Early-return guards (Go: nullflow.IsEarlyReturnMapContainsKeyGuarded)
+
+    // An earlier statement of the nearest enclosing block is
+    // `if (!receiver.containsKey(key)) <leave>` without an else branch.
+    private fun isEarlyReturnGuarded(source: KtSourceElement, access: Access): Boolean {
+        val tree = source.treeStructure
+        var anchor = source.lighterASTNode
+        var block: LighterASTNode? = null
+        while (true) {
+            val parent = tree.getParent(anchor) ?: return false
+            if (isWalkBoundary(source, parent)) return false
+            if (parent.tokenType == KtNodeTypes.BLOCK) {
+                block = parent
+                break
+            }
+            anchor = parent
+        }
+        for (statement in significant(source, block ?: return false)) {
+            if (statement == anchor || statement.startOffset >= anchor.startOffset) return false
+            if (statement.tokenType != KtNodeTypes.IF) continue
+            val parts = lightChildren(source, statement)
+            if (parts.any { it.tokenType == KtNodeTypes.ELSE }) continue
+            val condition = conditionOf(source, statement) ?: continue
+            val then = parts.firstOrNull { it.tokenType == KtNodeTypes.THEN } ?: continue
+            if (!bodyAlwaysLeaves(source, then)) continue
+            if (proves(source, condition, access, whenTrue = false)) return true
+        }
+        return false
+    }
+
+    // Go's bodyAlwaysExitsFlat: the body's last statement is a jump, or an
+    // if/else whose both branches always leave. A trailing comment is the
+    // last statement to Go, so it ends the body without leaving.
+    private fun bodyAlwaysLeaves(source: KtSourceElement, body: LighterASTNode): Boolean {
+        val statement = significantWithComments(source, body).lastOrNull() ?: return false
+        return statementAlwaysLeaves(source, statement)
+    }
+
+    private fun statementAlwaysLeaves(source: KtSourceElement, statement: LighterASTNode): Boolean =
+        when (statement.tokenType) {
+            KtNodeTypes.BLOCK -> {
+                val last = significantWithComments(source, statement)
+                    .lastOrNull { it.tokenType != KtTokens.LBRACE && it.tokenType != KtTokens.RBRACE }
+                last != null && statementAlwaysLeaves(source, last)
+            }
+            KtNodeTypes.RETURN, KtNodeTypes.THROW, KtNodeTypes.BREAK, KtNodeTypes.CONTINUE -> true
+            KtNodeTypes.IF -> {
+                val parts = lightChildren(source, statement)
+                val then = parts.firstOrNull { it.tokenType == KtNodeTypes.THEN }
+                val otherwise = parts.firstOrNull { it.tokenType == KtNodeTypes.ELSE }
+                then != null && otherwise != null && bodyAlwaysLeaves(source, then) && bodyAlwaysLeaves(source, otherwise)
+            }
+            else -> false
+        }
+
+    // ---- Condition proofs (Go: mapContainsKeyConditionProves) -------------
+
+    /**
+     * Whether [condition] evaluating to [whenTrue] proves
+     * `receiver.containsKey(key)` is true, both soundly and by Go's test.
+     *
+     * Sound: only parentheses, `!`, `&&`, `||` and a comparison with a
+     * boolean literal (`== true`, `!= false`, ...) are looked through, and an
+     * `&&` proves its operands only when it is true, an `||` only when it is
+     * false.
+     *
+     * Go: Go accepts a `containsKey` call anywhere in the condition when the
+     * number of `!` operators above it is even (then branch) or odd (else
+     * branch, early return), and no `||` (then branch) or `&&` (otherwise)
+     * is nested between it and the condition (the condition's own top-level
+     * operator is not checked). It ignores `== false`, so the two tests are
+     * applied together and an access is skipped only when both hold; where
+     * Go's test alone is unsound, the sound test rejects it.
+     */
+    private fun proves(source: KtSourceElement, condition: LighterASTNode, access: Access, whenTrue: Boolean): Boolean =
+        provesAt(source, condition, access, Proof(value = whenTrue, rootValue = whenTrue, negations = 0))
+
+    /**
+     * [value]: what the current node must evaluate to. [rootValue]: what the
+     * whole condition evaluates to. [negations]: the `!` operators crossed,
+     * Go's parity count.
+     */
+    private data class Proof(val value: Boolean, val rootValue: Boolean, val negations: Int)
+
+    private fun provesAt(source: KtSourceElement, node: LighterASTNode, access: Access, proof: Proof): Boolean =
+        when (node.tokenType) {
+            KtNodeTypes.PARENTHESIZED -> significant(source, node).singleOrNull()
+                ?.let { provesAt(source, it, access, proof) } ?: false
+            KtNodeTypes.PREFIX_EXPRESSION -> {
+                val parts = significant(source, node)
+                if (parts.size == 2 && operationToken(source, parts[0]) == KtTokens.EXCL) {
+                    provesAt(source, parts[1], access, proof.copy(value = !proof.value, negations = proof.negations + 1))
+                } else {
+                    false
+                }
+            }
+            KtNodeTypes.BINARY_EXPRESSION -> provesThroughBinary(source, significant(source, node), access, proof)
+            KtNodeTypes.DOT_QUALIFIED_EXPRESSION -> {
+                val goParity = if (proof.rootValue) proof.negations % 2 == 0 else proof.negations % 2 == 1
+                proof.value && goParity && isContainsKeyCall(source, node, access)
+            }
+            else -> false
+        }
+
+    private fun provesThroughBinary(
+        source: KtSourceElement,
+        parts: List<LighterASTNode>,
+        access: Access,
+        proof: Proof,
+    ): Boolean {
+        if (parts.size != 3) return false
+        val (left, operation, right) = parts
+        return when (operationToken(source, operation)) {
+            // A true `&&` proves both operands true; Go rejects an `&&` when
+            // the condition is false.
+            KtTokens.ANDAND -> proof.value && proof.rootValue &&
+                (provesAt(source, left, access, proof) || provesAt(source, right, access, proof))
+            // A false `||` proves both operands false; Go rejects an `||` when
+            // the condition is true.
+            KtTokens.OROR -> !proof.value && !proof.rootValue &&
+                (provesAt(source, left, access, proof) || provesAt(source, right, access, proof))
+            KtTokens.EQEQ, KtTokens.EXCLEQ -> {
+                val equal = operationToken(source, operation) == KtTokens.EQEQ
+                val (literal, operand) = when {
+                    booleanLiteral(source, right) != null -> booleanLiteral(source, right) to left
+                    booleanLiteral(source, left) != null -> booleanLiteral(source, left) to right
+                    else -> return false
+                }
+                // `c == true` / `c != false` keep the value, `c == false` /
+                // `c != true` flip it. Go's parity ignores them.
+                val keeps = (literal == true) == equal
+                provesAt(source, operand, access, proof.copy(value = if (keeps) proof.value else !proof.value))
+            }
+            else -> false
+        }
+    }
+
+    private fun booleanLiteral(source: KtSourceElement, node: LighterASTNode): Boolean? {
+        val literal = unwrapParens(source, node)
+        if (literal.tokenType != KtNodeTypes.BOOLEAN_CONSTANT) return null
+        return when (text(source, literal)) {
+            "true" -> true
+            "false" -> false
+            else -> null
+        }
+    }
+
+    // `receiver.containsKey(key)` (not a safe call), matched on the source
+    // text of the receiver and the key, as Go matches them.
+    private fun isContainsKeyCall(source: KtSourceElement, node: LighterASTNode, access: Access): Boolean {
+        val parts = significant(source, node)
+        if (parts.size != 2) return false
+        val (receiver, selector) = parts
+        if (selector.tokenType != KtNodeTypes.CALL_EXPRESSION) return false
+        val callParts = significant(source, selector)
+        val name = callParts.firstOrNull()?.takeIf { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION } ?: return false
+        if (text(source, name) != "containsKey" || callParts.size != 2) return false
+        val args = callParts[1].takeIf { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_LIST } ?: return false
+        val argument = lightChildren(source, args).singleOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT } ?: return false
+        val key = significant(source, argument).lastOrNull() ?: return false
+        return equivalent(source, receiver, access.receiver) && equivalent(source, key, access.key)
+    }
+
+    // ---- Light-tree helpers -----------------------------------------------
+
+    private fun equivalent(source: KtSourceElement, a: LighterASTNode, b: LighterASTNode): Boolean {
+        val left = unwrapParens(source, a)
+        val right = unwrapParens(source, b)
+        if (left == right) return true
+        return left.tokenType == right.tokenType && text(source, left).trim() == text(source, right).trim()
+    }
+
+    private tailrec fun unwrapParens(source: KtSourceElement, node: LighterASTNode): LighterASTNode {
+        if (node.tokenType != KtNodeTypes.PARENTHESIZED) return node
+        val inner = significant(source, node).firstOrNull { it.tokenType != KtTokens.LPAR && it.tokenType != KtTokens.RPAR }
+            ?: return node
+        return unwrapParens(source, inner)
+    }
+
+    // The condition expression of an `if`. Go takes the first named child
+    // after `if (`, so a comment ahead of the condition hides it from Go and
+    // the `if` proves nothing.
+    private fun conditionOf(source: KtSourceElement, ifNode: LighterASTNode): LighterASTNode? {
+        val afterParen = lightChildren(source, ifNode)
+            .dropWhile { it.tokenType != KtTokens.LPAR }.drop(1)
+            .firstOrNull { it.tokenType != KtTokens.WHITE_SPACE } ?: return null
+        if (afterParen.tokenType != KtNodeTypes.CONDITION) return null
+        val first = lightChildren(source, afterParen).firstOrNull { it.tokenType != KtTokens.WHITE_SPACE } ?: return null
+        return first.takeIf { it.tokenType !in KtTokens.COMMENTS }
+    }
+
+    private fun operationToken(source: KtSourceElement, operation: LighterASTNode): IElementType? {
+        if (operation.tokenType != KtNodeTypes.OPERATION_REFERENCE) return null
+        return lightChildren(source, operation).firstOrNull()?.tokenType
+    }
+
+    private fun text(source: KtSourceElement, node: LighterASTNode): String =
+        source.treeStructure.toString(node).toString()
+
+    // Children other than whitespace, comments and punctuation.
+    private fun significant(source: KtSourceElement, node: LighterASTNode): List<LighterASTNode> =
+        lightChildren(source, node).filter { it.tokenType !in trivia && it.tokenType !in KtTokens.COMMENTS }
+
+    // Children other than whitespace and punctuation; comments are kept.
+    private fun significantWithComments(source: KtSourceElement, node: LighterASTNode): List<LighterASTNode> =
+        lightChildren(source, node).filter { it.tokenType !in trivia }
+
+    private val trivia = setOf(
+        KtTokens.WHITE_SPACE,
+        KtTokens.LPAR,
+        KtTokens.RPAR,
+        KtTokens.DOT,
+        KtTokens.SAFE_ACCESS,
+        KtTokens.EXCLEXCL,
+        KtTokens.SEMICOLON,
+        KtTokens.EQ,
+    )
+}

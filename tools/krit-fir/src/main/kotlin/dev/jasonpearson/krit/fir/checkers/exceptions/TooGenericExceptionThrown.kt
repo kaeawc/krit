@@ -30,6 +30,7 @@ import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.references.toResolvedVariableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
+import org.jetbrains.kotlin.fir.resolve.toRegularClassSymbol
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
@@ -52,20 +53,28 @@ import org.jetbrains.kotlin.name.Name
  * `kotlin.RuntimeException` are aliases of the `java.lang` classes, and
  * `kotlin.Throwable` is the Kotlin class. A call of a function named like the
  * class it returns (`fun Error(code: Int): Error`) counts too: Go reads the
- * call's name. The class must be one of those four; a configured name outside
- * them counts for the class of that name in `java.lang` or `kotlin` (the
- * implicitly imported packages, which Go's resolver leaves unresolved and so
- * reports). A project class with a listed name is not a generic exception.
+ * call's name.
+ *
+ * The four default names always mean those classes (Go's FQN table). Any other
+ * configured name counts for every library class of that name, however it is
+ * written or imported (`java.io.IOException(..)`, a star import, or a
+ * `kotlin.*` alias of a `java.util` class such as `NoSuchElementException`):
+ * Go's resolver cannot resolve those and reports them. A class declared in the
+ * compiled sources is a project class, which Go finds in its class index and
+ * skips, so it is never generic.
  *
  * Exemptions mirrored from Go: test files and `.gradle.kts` scripts, and a
- * constructor that passes the parameter of the nearest enclosing `catch`
+ * constructor that passes the parameter of the nearest `catch` enclosing it
  * directly as an argument (`throw RuntimeException("context", e)`), which
- * wraps the caught exception instead of hiding it.
+ * wraps the caught exception instead of hiding it. For a value produced by the
+ * catch block of a thrown `try` expression, that catch is the nearest one.
  *
  * Deliberate differences from Go, each pinned in the golden data
- * (`TooGenericExceptionThrown*.kt`):
+ * (`TooGenericExceptionThrown*.kt`) or in `TooGenericExceptionThrownFilesTest`:
  * - Go's dispatch node is any jump expression, so it also reports
- *   `return Exception(...)`, which throws nothing. Not reported here.
+ *   `return Exception(...)`, which throws nothing, and reports
+ *   `return x ?: throw Exception(...)` a second time on the `return` line.
+ *   Each throw is reported once, on the `throw` line, here.
  * - Go reads only the first call inside the `throw` (`throw if (c)
  *   IllegalStateException() else Exception()` names IllegalStateException),
  *   the name as written (an import alias or type alias hides the class), and
@@ -74,6 +83,14 @@ import org.jetbrains.kotlin.name.Name
  *   declares a class for anywhere, even a nested class the throw does not
  *   resolve to. Each of those throws a generic exception, so each is reported
  *   here.
+ * - Go resolves a name without an explicit import or a same-file class to
+ *   `java.lang`, so it reports throws that construct a project class or a
+ *   type alias of another class: a same-package or star-imported class named
+ *   `Exception`, a nested class of a supertype, a same-package or same-file
+ *   `typealias Error = ...`. None of them throws a generic exception.
+ * - With a configured extra name, Go skips a library class that is imported
+ *   explicitly (it resolves the import to an FQN outside its table); that
+ *   class is still reported here.
  * - Go matches the caught exception by name, so a lambda parameter shadowing
  *   the catch parameter exempts the throw there; here the argument must be
  *   the catch parameter itself.
@@ -108,12 +125,13 @@ internal object TooGenericExceptionThrown :
         val names = exceptionNames()
         val caught = (context.containingElements.lastOrNull { it is FirCatch } as? FirCatch)?.parameter?.symbol
 
-        val candidates = mutableListOf<FirExpression>()
-        collectResults(expression.exception, candidates, depth = 0)
+        val candidates = mutableListOf<Candidate>()
+        collectResults(expression.exception, caught, candidates, depth = 0)
         for (candidate in candidates) {
-            val call = candidate as? FirFunctionCall ?: continue
+            val call = candidate.value as? FirFunctionCall ?: continue
             val name = genericClassName(call, names) ?: continue
-            if (caught != null && passesCaught(call, caught)) continue
+            val nearestCatch = candidate.caught
+            if (nearestCatch != null && passesCaught(call, nearestCatch)) continue
             report(throwKeyword(source), "Too-generic exception type '$name' thrown.")
             return
         }
@@ -125,50 +143,67 @@ internal object TooGenericExceptionThrown :
         return configured.ifEmpty { defaultNames }.toSet()
     }
 
+    // A value the thrown expression can evaluate to, with the parameter of the
+    // nearest catch enclosing that value.
+    private class Candidate(val value: FirExpression, val caught: FirBasedSymbol<*>?)
+
     // The thrown expression and every value it can evaluate to, in source
-    // order.
-    private fun collectResults(expression: FirExpression, into: MutableList<FirExpression>, depth: Int) {
-        into += expression
+    // order. A value in the catch block of a thrown `try` has that catch as
+    // its nearest one; every other value has the throw's.
+    private fun collectResults(
+        expression: FirExpression,
+        caught: FirBasedSymbol<*>?,
+        into: MutableList<Candidate>,
+        depth: Int,
+    ) {
+        into += Candidate(expression, caught)
         if (depth > MAX_DEPTH) return
+        val next = depth + 1
         when (expression) {
-            is FirWhenExpression -> expression.branches.forEach { collectResults(it.result, into, depth + 1) }
+            is FirWhenExpression -> expression.branches.forEach { collectResults(it.result, caught, into, next) }
             is FirElvisExpression -> {
-                collectResults(expression.lhs, into, depth + 1)
-                collectResults(expression.rhs, into, depth + 1)
+                collectResults(expression.lhs, caught, into, next)
+                collectResults(expression.rhs, caught, into, next)
             }
             is FirTryExpression -> {
-                collectResults(expression.tryBlock, into, depth + 1)
-                expression.catches.forEach { collectResults(it.block, into, depth + 1) }
+                collectResults(expression.tryBlock, caught, into, next)
+                expression.catches.forEach { collectResults(it.block, it.parameter.symbol, into, next) }
             }
             is FirBlock -> (expression.statements.lastOrNull() as? FirExpression)?.let {
-                collectResults(it, into, depth + 1)
+                collectResults(it, caught, into, next)
             }
             is FirTypeOperatorCall -> if (expression.operation == FirOperation.AS || expression.operation == FirOperation.SAFE_AS) {
-                expression.argumentList.arguments.singleOrNull()?.let { collectResults(it, into, depth + 1) }
+                expression.argumentList.arguments.singleOrNull()?.let { collectResults(it, caught, into, next) }
             }
             is FirCheckNotNullCall -> expression.argumentList.arguments.singleOrNull()?.let {
-                collectResults(it, into, depth + 1)
+                collectResults(it, caught, into, next)
             }
-            is FirSmartCastExpression -> collectResults(expression.originalExpression, into, depth + 1)
+            is FirSmartCastExpression -> collectResults(expression.originalExpression, caught, into, next)
             else -> Unit
         }
     }
 
     // The simple name of the generic exception class [call] constructs, or
-    // null. The class id comes from the call's type's lookup tag and is only
-    // compared, never resolved, so a local class is safe.
+    // null. The class id comes from the call's type's lookup tag; the class is
+    // only resolved once its id is known not to be local.
     context(context: CheckerContext)
     private fun genericClassName(call: FirFunctionCall, names: Set<String>): String? {
         val callee = call.calleeReference.toResolvedCallableSymbol() ?: return null
         val type = call.resolvedType.fullyExpandedType().lowerBoundIfFlexible() as? ConeClassLikeType
             ?: return null
         val classId = type.lookupTag.classId
-        if (classId.isLocal || classId.isNestedClass) return null
+        if (classId.isLocal) return null
         val name = classId.shortClassName.asString()
         if (callee !is FirConstructorSymbol && callee.callableId?.callableName?.asString() != name) return null
         if (name !in names) return null
         if (classId in genericClassIds) return name
-        return name.takeIf { classId.packageFqName == javaLang || classId.packageFqName == kotlinPackage }
+        // Go binds the four default names to its java.lang FQN table.
+        if (name in defaultNames) return null
+        // Any other configured name counts for a library class of that name,
+        // however it is written or imported (Go reports it unresolved), and
+        // never for a project class (Go finds it in its class index).
+        val symbol = type.lookupTag.toRegularClassSymbol(context.session) ?: return null
+        return name.takeUnless { symbol.origin.fromSource }
     }
 
     // Whether [call] passes the catch parameter itself as an argument.

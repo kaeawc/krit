@@ -30,3 +30,17 @@ fun doesNotWrapCaught(outside: Throwable) {
     // Outside any catch, a Throwable argument is no exemption.
     <!TooGenericExceptionThrown!>throw<!> RuntimeException(outside)
 }
+
+fun failing(): Nothing = error("failing")
+
+// The value of a thrown try expression. Its catch block is the nearest catch
+// of the value it produces: wrapping that catch's parameter is exempt, as in
+// `catch (e) { throw RuntimeException(e) }`. Go reads only the first call
+// inside the throw, failing(), and reports neither.
+fun thrownTryWrapsCaught(): Nothing =
+    throw try { failing() } catch (e: IllegalStateException) { RuntimeException(e) }
+
+// Divergence (recall): this catch block's value drops the caught exception,
+// and Go, reading only failing(), misses it.
+fun thrownTryDropsCaught(): Nothing =
+    <!TooGenericExceptionThrown!>throw<!> try { failing() } catch (e: IllegalStateException) { RuntimeException("dropped") }

@@ -3,8 +3,9 @@ package dev.jasonpearson.krit.fir.checkers.dihygiene
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.firstModifierAnchor
+import dev.jasonpearson.krit.fir.support.identifierText
 import dev.jasonpearson.krit.fir.support.lightChildren
-import dev.jasonpearson.krit.fir.support.lightSourceOf
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
@@ -16,7 +17,6 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirDeclarationChecker
-import org.jetbrains.kotlin.fir.analysis.getChild
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.toAnnotationClassId
 import org.jetbrains.kotlin.fir.declarations.toAnnotationClassLikeSymbol
@@ -48,7 +48,6 @@ import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.text
-import org.jetbrains.kotlin.util.getChildren
 
 /**
  * Port of the Go BindsReturnTypeMatchesParam rule: a named function annotated
@@ -144,23 +143,12 @@ internal object BindsReturnTypeMatchesParam :
         if (!parameterType.isSubtypeOf(returnType, session) || !returnType.isSubtypeOf(parameterType, session)) return
         if (qualifiersDiffer(qualifiers(declaration.annotations, session), qualifiers(parameter.annotations, session))) return
 
-        val name = functionNameText(source) ?: declaration.name.asString()
+        val name = identifierText(source) ?: declaration.name.asString()
         report(
-            firstLineAnchor(source),
+            firstModifierAnchor(source) ?: source,
             "@Binds function '$name' has matching parameter and return type " +
                 "'${typeText(parameterSource)}'; the binding is a no-op.",
         )
-    }
-
-    // Go reports the declaration's first line, where its modifier list starts
-    // (a KDoc belongs to the function in the light tree, but not in Go's).
-    // Anchor on the list's first annotation or modifier, which stays on that
-    // line even when the list spans several.
-    private fun firstLineAnchor(source: KtSourceElement): KtSourceElement {
-        val modifiers = source.getChild(KtNodeTypes.MODIFIER_LIST, depth = 1) ?: return source
-        val first = lightChildren(modifiers, modifiers.lighterASTNode).firstOrNull { it.isCode() }
-            ?: return modifiers
-        return lightSourceOf(first, modifiers)
     }
 
     private fun LighterASTNode.isCode(): Boolean =
@@ -286,13 +274,5 @@ internal object BindsReturnTypeMatchesParam :
         val text = source.text?.toString() ?: return tree.toString(node).toString().trim()
         if (first == null || first == children.firstOrNull()) return text.trim()
         return text.substring(first.startOffset - node.startOffset).trim()
-    }
-
-    // The name as written, backticks included, which is what Go interpolates.
-    private fun functionNameText(source: KtSourceElement): String? {
-        val tree = source.treeStructure
-        val identifier = source.lighterASTNode.getChildren(tree)
-            .firstOrNull { it.tokenType == KtTokens.IDENTIFIER } ?: return null
-        return tree.toString(identifier).toString()
     }
 }

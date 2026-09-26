@@ -2,6 +2,8 @@ package dev.jasonpearson.krit.fir.checkers.dihygiene
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.identifierText
+import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
@@ -21,12 +23,10 @@ import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.ConeTypeParameterType
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
-import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.text
-import org.jetbrains.kotlin.util.getChildren
 
 /**
  * Port of the Go IntoSetOnNonSetReturn rule: a named function annotated
@@ -136,7 +136,7 @@ internal object IntoSetOnNonSetReturn :
         val typeText = writtenTypeText(typeSource)
         val wrapper = collectionWrapper(typeRef.coneType, typeText, context.session) ?: return
 
-        val name = functionNameText(source) ?: declaration.name.asString()
+        val name = identifierText(source) ?: declaration.name.asString()
         report(
             source,
             "@IntoSet function '$name' returns '$typeText', a collection wrapper; Dagger collects by return type, " +
@@ -201,19 +201,10 @@ internal object IntoSetOnNonSetReturn :
     // is quoted as `List<T>`).
     private fun writtenTypeText(typeSource: KtSourceElement): String {
         val text = typeSource.text?.toString() ?: return ""
-        val tree = typeSource.treeStructure
         val node = typeSource.lighterASTNode
-        val modifiers = node.getChildren(tree).firstOrNull { it.tokenType == KtNodeTypes.MODIFIER_LIST }
+        val modifiers = lightChildren(typeSource, node).firstOrNull { it.tokenType == KtNodeTypes.MODIFIER_LIST }
             ?: return text.trim()
         val cut = (modifiers.endOffset - node.startOffset).coerceIn(0, text.length)
         return text.substring(cut).trim()
-    }
-
-    // The name as written, backticks included, which is what Go interpolates.
-    private fun functionNameText(source: KtSourceElement): String? {
-        val tree = source.treeStructure
-        val identifier = source.lighterASTNode.getChildren(tree)
-            .firstOrNull { it.tokenType == KtTokens.IDENTIFIER } ?: return null
-        return tree.toString(identifier).toString()
     }
 }

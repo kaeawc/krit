@@ -2,10 +2,9 @@ package dev.jasonpearson.krit.fir.checkers.dihygiene
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
-import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.identifierText
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
-import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -21,7 +20,6 @@ import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.coneType
-import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
@@ -136,20 +134,15 @@ internal object ScopeOnParameterizedClass :
         val scopes = declaration.annotations.mapNotNull { scopeName(it, context.session) }
         if (scopes.isEmpty()) return
         val scope = scopes.minBy { goScopeNames.indexOf(it).let { index -> if (index < 0) Int.MAX_VALUE else index } }
+        // The class name as written, backticks included, like Go's identifier text.
+        val name = identifierText(source) ?: declaration.name.asString()
         // Go reports the declaration's first line, where its modifier list
         // (the scope annotation included) starts.
         report(
             source.getChild(KtNodeTypes.MODIFIER_LIST, depth = 1) ?: source,
-            "@$scope on generic class '${className(declaration, source)}' shares one instance across all type " +
+            "@$scope on generic class '$name' shares one instance across all type " +
                 "arguments because the type parameter is erased at runtime.",
         )
-    }
-
-    // The class name as written, like Go's identifier text: a backticked name
-    // keeps its backticks.
-    private fun className(declaration: FirRegularClass, source: KtSourceElement): String {
-        val identifier = lightChildren(source, source.lighterASTNode).firstOrNull { it.tokenType == KtTokens.IDENTIFIER }
-        return identifier?.let { source.treeStructure.toString(it).toString() } ?: declaration.name.asString()
     }
 
     // The simple name of the annotation's class when it is a DI scope, else

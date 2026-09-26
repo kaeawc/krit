@@ -2,18 +2,17 @@ package dev.jasonpearson.krit.fir.checkers.dihygiene
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.firstModifierAnchor
+import dev.jasonpearson.krit.fir.support.identifierText
 import dev.jasonpearson.krit.fir.support.lightChildren
-import dev.jasonpearson.krit.fir.support.lightSourceOf
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
-import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirDeclarationChecker
-import org.jetbrains.kotlin.fir.analysis.getChild
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.expressions.FirAnnotation
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
@@ -97,9 +96,9 @@ internal object IntoMapMissingKey : FirDeclarationChecker<FirNamedFunction>(MppC
         if (annotations.none { expandedType(it, session)?.lookupTag?.classId in intoMap }) return
         if (annotations.none { isBindingAnnotation(it, session) }) return
         if (annotations.any { isMapKey(it, session) }) return
-        val name = functionNameText(source) ?: declaration.name.asString()
+        val name = identifierText(source) ?: declaration.name.asString()
         report(
-            firstLineAnchor(source),
+            firstModifierAnchor(source) ?: source,
             "@IntoMap function '$name' is missing a @*Key annotation; " +
                 "Dagger requires a key annotation on every map contribution.",
         )
@@ -160,21 +159,4 @@ internal object IntoMapMissingKey : FirDeclarationChecker<FirNamedFunction>(MppC
     }
 
     private fun isKeyName(name: String): Boolean = name != "Key" && name != "MapKey" && name.endsWith("Key")
-
-    // Go reports the declaration's first line: its first annotation, where
-    // the modifier list starts (a preceding KDoc is not part of Go's node).
-    private fun firstLineAnchor(source: KtSourceElement): KtSourceElement {
-        val modifiers = source.getChild(KtNodeTypes.MODIFIER_LIST, depth = 1) ?: return source
-        val first = lightChildren(modifiers, modifiers.lighterASTNode).firstOrNull {
-            it.tokenType != KtTokens.WHITE_SPACE && it.tokenType !in KtTokens.COMMENTS
-        } ?: return modifiers
-        return lightSourceOf(first, modifiers)
-    }
-
-    // The function name as written (backticks included), as Go reads it.
-    private fun functionNameText(source: KtSourceElement): String? {
-        val identifier = lightChildren(source, source.lighterASTNode)
-            .firstOrNull { it.tokenType == KtTokens.IDENTIFIER } ?: return null
-        return source.treeStructure.toString(identifier).toString()
-    }
 }

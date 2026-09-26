@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.firstModifierAnchor
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import org.jetbrains.kotlin.KtNodeTypes
@@ -168,15 +169,10 @@ internal object Instantiatable : FirRegularClassChecker(MppCheckerKind.Common), 
     // modifier list (an annotation or a modifier keyword) when it has one,
     // else the `class` / `interface` keyword.
     private fun firstLine(source: KtSourceElement): KtSourceElement {
-        val children = lightChildren(source, source.lighterASTNode)
-        val modifiers = children.firstOrNull { it.tokenType == KtNodeTypes.MODIFIER_LIST }
-        val anchor = modifiers?.let { list ->
-            lightChildren(source, list).firstOrNull {
-                it.tokenType !in KtTokens.WHITESPACES && it.tokenType !in KtTokens.COMMENTS
-            }
-        } ?: modifiers
-            ?: children.firstOrNull { it.tokenType == KtTokens.CLASS_KEYWORD || it.tokenType == KtTokens.INTERFACE_KEYWORD }
+        firstModifierAnchor(source)?.let { return it }
+        val keyword = lightChildren(source, source.lighterASTNode)
+            .firstOrNull { it.tokenType == KtTokens.CLASS_KEYWORD || it.tokenType == KtTokens.INTERFACE_KEYWORD }
             ?: return source
-        return lightSourceOf(anchor, source)
+        return lightSourceOf(keyword, source)
     }
 }

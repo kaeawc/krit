@@ -4,6 +4,7 @@ import com.intellij.lang.LighterASTNode
 import com.intellij.openapi.util.Ref
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
+import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.toKtLightSourceElement
 
 // Light-tree helpers for anchoring a finding on a sub-node of a FIR element's
@@ -29,6 +30,32 @@ fun lightSourceOf(node: LighterASTNode, anchor: KtSourceElement): KtSourceElemen
         startOffset = node.startOffset + shift,
         endOffset = node.endOffset + shift,
     )
+}
+
+/**
+ * The text of [source]'s first direct IDENTIFIER child as written (backticks
+ * included), which is how Go reads a declaration's name; null when absent.
+ */
+fun identifierText(source: KtSourceElement): String? {
+    val identifier = lightChildren(source, source.lighterASTNode)
+        .firstOrNull { it.tokenType == KtTokens.IDENTIFIER } ?: return null
+    return source.treeStructure.toString(identifier).toString()
+}
+
+/**
+ * The first annotation or modifier of [declaration]'s direct MODIFIER_LIST
+ * child (the modifier list itself when it holds only trivia); null when the
+ * declaration has no modifier list. Go reports a declaration on its first
+ * line, where the modifier list starts: a preceding KDoc belongs to the
+ * declaration in the light tree but not in Go's node, and the first entry
+ * stays on that line even when the list spans several.
+ */
+fun firstModifierAnchor(declaration: KtSourceElement): KtSourceElement? {
+    val modifiers = lightChildren(declaration, declaration.lighterASTNode)
+        .firstOrNull { it.tokenType == KtNodeTypes.MODIFIER_LIST } ?: return null
+    val first = lightChildren(declaration, modifiers)
+        .firstOrNull { it.tokenType !in KtTokens.WHITESPACES && it.tokenType !in KtTokens.COMMENTS }
+    return lightSourceOf(first ?: modifiers, declaration)
 }
 
 /**

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 36, 42
+// go-lines: 54, 60
 // Unfinalized SharedPreferences.edit() calls Go misses: it only searches
 // function bodies, and it matches the editor variable by name.
 package test
@@ -26,6 +26,24 @@ class Shadowed(private val prefs: SharedPreferences) {
         val editor = <!CommitPrefEdits!>prefs.edit()<!>
         editor.putString("k", "v")
         others.forEach { editor -> editor.apply() }
+    }
+}
+
+class MemberNamed(private val prefs: SharedPreferences, private val other: MemberNamed) {
+    val editor: SharedPreferences.Editor = other.prefs.edit()
+
+    // Go matches `x.editor.apply()` by its last name; that call applies a
+    // member editor, not the local one this edit call returned.
+    fun otherMember() {
+        val editor = <!CommitPrefEdits!>prefs.edit()<!>
+        editor.putString("k", "v")
+        other.editor.apply()
+    }
+
+    fun thisMember() {
+        val editor = <!CommitPrefEdits!>prefs.edit()<!>
+        editor.remove("k")
+        this.editor.apply()
     }
 }
 

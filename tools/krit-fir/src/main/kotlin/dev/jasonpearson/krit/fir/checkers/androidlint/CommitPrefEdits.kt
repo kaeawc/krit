@@ -18,16 +18,21 @@ import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.FirPropertyAccessor
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
+import org.jetbrains.kotlin.fir.declarations.FirValueParameter
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirArgumentList
+import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
 import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
+import org.jetbrains.kotlin.fir.expressions.FirDelegatedConstructorCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirOperation
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
+import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.expressions.arguments
@@ -38,6 +43,7 @@ import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.constructClassLikeType
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
@@ -82,9 +88,18 @@ import org.jetbrains.kotlin.name.Name
 //   by `editor.apply()` (Go only reads `val`/`var` initializers).
 // Those are not reported (Go reports them). The variable is matched by symbol,
 // not by name, so a finalizing call on another variable with the same name
-// does not finalize it (Go takes it). The checker also reports an unfinalized
-// edit in an init block or a secondary constructor body, which Go misses (it
-// only searches function bodies).
+// does not finalize it (Go takes it), and neither does a call on a member with
+// the same name (`this.editor.apply()`, Go matches the last name). A cast of
+// the variable (`(editor as? Editor)?.apply()`) still finalizes it.
+// The checker also reports an unfinalized edit in an init block or a secondary
+// constructor body outside any function, which Go misses (it only searches
+// function bodies), but only where the Editor stays local: a bare statement or
+// chain, or a local variable. An Editor stored in a member property, passed to
+// a call, or handed to a scope function there may be committed by any member,
+// and an edit call in a secondary constructor's delegation call or parameter
+// defaults is handed to another constructor; none of those is reported (nor by
+// Go). In a class declared inside a function, Go reports all of them, and so
+// does the checker.
 internal object CommitPrefEdits : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "CommitPrefEdits"
     override val expressionCheckers = object : ExpressionCheckers() {
@@ -115,6 +130,12 @@ internal object CommitPrefEdits : FirFunctionCallChecker(MppCheckerKind.Common),
         if (path.lastOrNull() === expression) start--
         val scopeIndex = scopeIndex(path, start)
         if (scopeIndex < 0) return
+        val scope = path[scopeIndex]
+        // Go's recall region: an init block or a secondary constructor with
+        // no function around it.
+        val outsideFunctions = (scope is FirAnonymousInitializer || scope is FirConstructor) &&
+            (0 until scopeIndex).none { isFunctionScope(path[it]) }
+        if (outsideFunctions && scope is FirConstructor && inConstructorHeader(path, start, scopeIndex)) return
         if (ancestorFinalizes(path, start, expression)) return
         if (flowsToFinalizingScope(path, start, scopeIndex, expression, context.session)) return
         val variable = assignedVariable(path, start, scopeIndex, expression)
@@ -123,8 +144,62 @@ internal object CommitPrefEdits : FirFunctionCallChecker(MppCheckerKind.Common),
         ) {
             return
         }
+        if (outsideFunctions && !staysLocal(path, start, scopeIndex, expression, context.session)) return
         report(expression.source, MESSAGE)
     }
+
+    // A secondary constructor's delegation call (`: this(p.edit())`) or a
+    // parameter default: the Editor is handed to a constructor, as in the
+    // class header forms Go leaves alone.
+    private fun inConstructorHeader(path: List<FirElement>, start: Int, scopeIndex: Int): Boolean =
+        (scopeIndex + 1..start).any { path[it] is FirDelegatedConstructorCall || path[it] is FirValueParameter }
+
+    // In an init block or a secondary constructor body, whether the Editor
+    // stays in the block: a statement (through Editor-returning calls, `!!`,
+    // and casts), a call on it that does not hand it on, or a local
+    // variable. Anything else (a member property, an argument, a scope
+    // function) may reach a member that commits it.
+    private fun staysLocal(
+        path: List<FirElement>,
+        start: Int,
+        scopeIndex: Int,
+        expression: FirFunctionCall,
+        session: FirSession,
+    ): Boolean {
+        var current: FirElement = expression
+        for (i in start downTo scopeIndex + 1) {
+            when (val parent = path[i]) {
+                is FirBlock -> return true
+                is FirProperty -> return parent.initializer === current && parent.symbol.isLocal
+                is FirVariableAssignment -> {
+                    if (parent.rValue !== current) return false
+                    val symbol = (parent.lValue as? FirQualifiedAccessExpression)
+                        ?.calleeReference?.toResolvedBaseSymbol()
+                    return symbol is FirPropertySymbol && symbol.isLocal
+                }
+                is FirSafeCallExpression -> when {
+                    parent.selector === current -> {}
+                    parent.receiver === current -> {
+                        val selector = parent.selector as? FirFunctionCall ?: return false
+                        if (!returnsEditor(selector, session)) return !isScopeFunction(selector)
+                    }
+                    else -> return false
+                }
+                is FirFunctionCall -> {
+                    if (parent.explicitReceiver !== current) return false
+                    if (!returnsEditor(parent, session)) return !isScopeFunction(parent)
+                }
+                is FirCheckNotNullCall, is FirSmartCastExpression, is FirArgumentList -> {}
+                is FirTypeOperatorCall -> if (!isCast(parent)) return false
+                else -> return false
+            }
+            current = path[i]
+        }
+        return false
+    }
+
+    private fun isCast(call: FirTypeOperatorCall): Boolean =
+        call.operation == FirOperation.AS || call.operation == FirOperation.SAFE_AS
 
     // `SharedPreferences.edit()` or an override of it in a SharedPreferences
     // implementation. The owner comes from the symbol's lookup tag, bound for
@@ -148,15 +223,16 @@ internal object CommitPrefEdits : FirFunctionCallChecker(MppCheckerKind.Common),
     // is in a property initializer outside any of them.
     private fun scopeIndex(path: List<FirElement>, start: Int): Int {
         for (i in start downTo 0) {
-            when (val element = path[i]) {
-                is FirNamedFunction, is FirPropertyAccessor, is FirAnonymousInitializer -> return i
-                is FirAnonymousFunction -> if (!element.isLambda) return i
-                is FirConstructor -> if (!element.isPrimary) return i
-                else -> {}
-            }
+            val element = path[i]
+            if (isFunctionScope(element) || element is FirAnonymousInitializer) return i
+            if (element is FirConstructor && !element.isPrimary) return i
         }
         return -1
     }
+
+    private fun isFunctionScope(element: FirElement): Boolean =
+        element is FirNamedFunction || element is FirPropertyAccessor ||
+            (element is FirAnonymousFunction && !element.isLambda)
 
     private fun childOf(path: List<FirElement>, index: Int, expression: FirFunctionCall): FirElement =
         if (index + 1 <= path.lastIndex) path[index + 1] else expression
@@ -310,7 +386,7 @@ internal object CommitPrefEdits : FirFunctionCallChecker(MppCheckerKind.Common),
     }
 
     // The expression a finalizing call's receiver starts from, through safe
-    // calls, `!!`, smart casts, and Editor-returning calls
+    // calls, `!!`, casts, smart casts, and Editor-returning calls
     // (`editor.putString(k, v).apply()`).
     private fun editorRoot(receiver: FirExpression?, session: FirSession): FirExpression? {
         var current = receiver ?: return null
@@ -320,6 +396,10 @@ internal object CommitPrefEdits : FirFunctionCallChecker(MppCheckerKind.Common),
                 is FirSafeCallExpression -> c.selector as? FirExpression ?: return c
                 is FirCheckNotNullCall -> c.argumentList.arguments.firstOrNull() ?: return c
                 is FirSmartCastExpression -> c.originalExpression
+                is FirTypeOperatorCall -> {
+                    if (!isCast(c)) return c
+                    c.argumentList.arguments.singleOrNull() ?: return c
+                }
                 is FirWrappedArgumentExpression -> c.expression
                 is FirFunctionCall -> {
                     val forwards = when {

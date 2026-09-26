@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 24, 25, 30, 35, 41, 47, 53, 57, 66, 71, 79, 89
+// go-lines: 28, 29, 34, 39, 45, 51, 57, 61, 70, 75, 83, 93, 101, 106, 111, 116, 121
 // Go findings the checker drops because the message is false of the code: the
 // call is not SharedPreferences.edit(), or the Editor it returns is committed
 // or applied. Go reports every one of these.
@@ -17,7 +17,11 @@ object Settings {
     fun edit() {}
 }
 
-class Divergence(private val prefs: SharedPreferences, private val doc: Document) {
+class Divergence(
+    private val prefs: SharedPreferences,
+    private val nullable: SharedPreferences?,
+    private val doc: Document,
+) {
     // Go matches any zero-argument call named edit; neither is a
     // SharedPreferences, so no editor is left open.
     fun localLookalikes() {
@@ -89,5 +93,32 @@ class Divergence(private val prefs: SharedPreferences, private val doc: Document
         editor = prefs.edit()
         editor.remove(key)
         editor.apply()
+    }
+
+    // Go only reads a call written `editor.apply()`, not one through `!!` or
+    // a scope function on the variable.
+    fun variableNotNullApplies(key: String) {
+        val editor: SharedPreferences.Editor? = nullable?.edit()
+        editor!!.apply()
+    }
+
+    fun variableRunApplies(key: String) {
+        val editor = prefs.edit()
+        editor.run { apply() }
+    }
+
+    fun variableLetCommits(key: String) {
+        val editor = prefs.edit()
+        editor.let { it.commit() }
+    }
+
+    fun variableAlsoCommits(key: String) {
+        val editor = prefs.edit()
+        editor.also { it.commit() }
+    }
+
+    fun variableSafeLetApplies(key: String) {
+        val editor = nullable?.edit()
+        editor?.let { it.apply() }
     }
 }

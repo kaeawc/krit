@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 16, 21, 25, 29, 34, 40, 47, 54, 58, 62, 66, 71, 77, 80, 83, 87, 92, 97, 106
+// go-lines: 16, 21, 25, 29, 34, 40, 47, 54, 58, 62, 66, 71, 77, 80, 83, 87, 92, 97, 106, 112, 305, 311
 // SharedPreferences.edit() calls whose Editor is never committed or applied,
 // the shape the Go rule reports, in every kind of function container, and the
 // finalized forms Go leaves alone.
@@ -105,6 +105,14 @@ interface PrefsOwner {
     fun reset() {
         <!CommitPrefEdits!>prefs.edit()<!>.clear()
     }
+
+    // The finding is on the line where the call starts, its receiver's (the
+    // marker only spans that line).
+    fun splitChainUnfinished(key: String) {
+        <!CommitPrefEdits!>prefs<!>
+            .edit()
+            .remove(key)
+    }
 }
 
 class Finalized(private val prefs: SharedPreferences, private val nullable: SharedPreferences?) {
@@ -190,6 +198,17 @@ class Finalized(private val prefs: SharedPreferences, private val nullable: Shar
     fun ktxWithCommit(key: String) {
         prefs.edit(commit = true) { putString(key, "v") }
     }
+
+    // Like Go, a cast of the variable still names the Editor it holds.
+    fun safeCastApplied() {
+        val editor: Any = prefs.edit()
+        (editor as? SharedPreferences.Editor)?.apply()
+    }
+
+    fun castCommitted() {
+        val editor: Any = prefs.edit()
+        (editor as SharedPreferences.Editor).commit()
+    }
 }
 
 class Transaction(private val editor: SharedPreferences.Editor) {
@@ -206,3 +225,90 @@ class Held(prefs: SharedPreferences) {
 }
 
 val topLevelEditor = EncryptedSharedPreferences.edit()
+
+// Go reports nothing in an init block or a secondary constructor. An Editor
+// stored there in a member property may be committed by any member.
+class InitHeld(prefs: SharedPreferences) {
+    private val editor: SharedPreferences.Editor
+
+    init {
+        editor = prefs.edit()
+    }
+
+    fun save() {
+        editor.apply()
+    }
+}
+
+class LateinitHeld(prefs: SharedPreferences) {
+    private lateinit var editor: SharedPreferences.Editor
+
+    init {
+        this.editor = prefs.edit().clear()
+    }
+
+    fun save() {
+        editor.commit()
+    }
+}
+
+class ConstructorHeld {
+    private val editor: SharedPreferences.Editor
+
+    constructor(prefs: SharedPreferences) {
+        this.editor = prefs.edit()
+    }
+
+    fun save() {
+        editor.apply()
+    }
+}
+
+// Handed on from an init block, the Editor may be stored and committed later.
+class InitHandedOn(prefs: SharedPreferences) {
+    private var holder: SharedPreferences.Editor? = null
+
+    init {
+        consume(prefs.edit())
+        prefs.edit().remove("k").also { holder = it }
+    }
+}
+
+// An Editor handed to another constructor, through a delegation call or a
+// constructor parameter default, is typically stored there, as in the class
+// header forms (Go reports none of these).
+open class EditorHolder(val editor: SharedPreferences.Editor) {
+    constructor(prefs: SharedPreferences) : this(prefs.edit())
+
+    constructor(
+        prefs: SharedPreferences,
+        editor: SharedPreferences.Editor = prefs.edit(),
+        tag: String,
+    ) : this(editor)
+}
+
+class SubHolder : EditorHolder {
+    constructor(prefs: SharedPreferences) : super(prefs.edit())
+}
+
+class HeaderHolder(prefs: SharedPreferences) : EditorHolder(prefs.edit())
+
+class HeaderDefault(prefs: SharedPreferences, val editor: SharedPreferences.Editor = prefs.edit())
+
+// Inside a function, Go reports an edit call in a nested class's init block or
+// secondary constructor like any other in the function, and so does the
+// checker.
+fun localInitHeld(prefs: SharedPreferences): Any = object {
+    private val editor: SharedPreferences.Editor
+
+    init {
+        editor = <!CommitPrefEdits!>prefs.edit()<!>
+    }
+}
+
+fun localHolder(prefs: SharedPreferences): EditorHolder {
+    class Local : EditorHolder {
+        constructor(p: SharedPreferences) : super(<!CommitPrefEdits!>p.edit()<!>)
+    }
+    return Local(prefs)
+}

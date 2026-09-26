@@ -1,8 +1,11 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
+import com.intellij.lang.LighterASTNode
+import com.intellij.openapi.util.Ref
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.KtNodeTypes
+import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -12,6 +15,7 @@ import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirStringConcatenationCall
+import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
@@ -46,20 +50,22 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  *   with source inference and otherwise falls back to its name (`...TextView`,
  *   `...Button`, `...Text`, `tv`, `btn`); for a bare or `this.`/`super.` call
  *   it reads only the direct supertypes of the nearest enclosing class. So FIR
- *   also reports calls on the implicit receiver of a scope function
+ *   also reports calls on the implicit or `this` receiver of a scope function
  *   (`tv.apply { setText("x") }`), in an extension on TextView, in an inner
- *   class or a local of a TextView subclass, on a lambda parameter or a
- *   `findViewById` result, on an indirect subclass, and on a TextView-bounded
- *   type parameter.
- * - Recall: the text is the argument bound to the first parameter, so a
- *   parenthesized or named literal still counts. Go needs a bare literal as
- *   the first unlabeled argument.
+ *   class (bare or `this@Outer.`) or a local of a TextView subclass, on a
+ *   lambda parameter or a `findViewById` result, on an indirect subclass, on a
+ *   TextView-bounded type parameter, and on a TextView chain rooted at a name
+ *   Go treats as a non-View root (`AlertDialog`, `MenuItem`, ...).
+ * - Recall: the text is the first argument not named in source, as in Go,
+ *   and also the argument bound to the first parameter (a vararg's first
+ *   element), so a parenthesized, annotated, labeled, or named literal still
+ *   counts. Go needs a bare literal as the first unlabeled argument.
  * - Precision: a call Go accepts by name or by the enclosing class, where the
  *   receiver is not a TextView, is not reported: a variable whose name looks
  *   like a view (`titleText`, `button`) but whose type is not a TextView, a
- *   project class that is only named like a TextView, and a bare call that
- *   resolves to another receiver's `setText` (inside `with(builder) { ... }`
- *   in a TextView subclass).
+ *   project class that is only named like a TextView, and a bare or `this.`
+ *   call that resolves to another receiver's `setText` (inside
+ *   `with(builder) { ... }` or an `object : Builder()` in a TextView subclass).
  */
 internal object SetTextI18n : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "SetTextI18n"
@@ -79,13 +85,18 @@ internal object SetTextI18n : FirFunctionCallChecker(MppCheckerKind.Common), Fir
     override fun check(expression: FirFunctionCall) {
         val callee = expression.calleeReference.toResolvedCallableSymbol() as? FirFunctionSymbol<*> ?: return
         if (callee.name != SET_TEXT) return
+        val mapping = expression.resolvedArgumentMapping ?: return
         val firstParameter = callee.valueParameterSymbols.firstOrNull() ?: return
-        val text = expression.resolvedArgumentMapping
-            ?.entries
-            ?.firstOrNull { it.value.symbol == firstParameter }
-            ?.key
-            ?: return
-        if (!isStringLiteral(text)) return
+        // The text is the argument bound to the first parameter (a vararg's
+        // first element), or, as Go picks it, the first argument not named in
+        // source: `setText(bold = true, "x")` passes "x" positionally.
+        val bound = mapping.entries.firstOrNull { it.value.symbol == firstParameter }?.key
+        val boundText = if (bound is FirVarargArgumentsExpression) bound.arguments.firstOrNull() else bound
+        val hardcoded = (boundText != null && isStringLiteral(boundText)) ||
+            mapping.keys
+                .flatMap { if (it is FirVarargArgumentsExpression) it.arguments else listOf(it) }
+                .any { isStringLiteral(it) && isFirstUnnamedArgument(it) }
+        if (!hardcoded) return
         // The receiver whose text is set: the written receiver, else the
         // implicit one (an extension's receiver before a member's owner).
         val receiver = expression.explicitReceiver
@@ -104,5 +115,36 @@ internal object SetTextI18n : FirFunctionCallChecker(MppCheckerKind.Common), Fir
         is FirLiteralExpression -> expression.kind == ConstantValueKind.String
         is FirStringConcatenationCall -> expression.source?.elementType == KtNodeTypes.STRING_TEMPLATE
         else -> false
+    }
+
+    // The argument is the first value argument in the parentheses without a
+    // `name =` label, as Go's flatPositionalValueArgument(args, 0) picks it.
+    // Parentheses, annotations, and labels around the literal are skipped.
+    private fun isFirstUnnamedArgument(argument: FirExpression): Boolean {
+        val source = argument.source ?: return false
+        val tree = source.treeStructure
+        var node = source.lighterASTNode
+        while (node.tokenType in argumentWrappers) node = tree.getParent(node) ?: return false
+        if (node.tokenType != KtNodeTypes.VALUE_ARGUMENT) return false
+        val list = tree.getParent(node) ?: return false
+        if (list.tokenType != KtNodeTypes.VALUE_ARGUMENT_LIST) return false
+        val first = children(source, list).firstOrNull {
+            it.tokenType == KtNodeTypes.VALUE_ARGUMENT &&
+                children(source, it).none { child -> child.tokenType == KtNodeTypes.VALUE_ARGUMENT_NAME }
+        }
+        return first != null && first.startOffset == node.startOffset && first.endOffset == node.endOffset
+    }
+
+    private val argumentWrappers = setOf(
+        KtNodeTypes.STRING_TEMPLATE,
+        KtNodeTypes.PARENTHESIZED,
+        KtNodeTypes.ANNOTATED_EXPRESSION,
+        KtNodeTypes.LABELED_EXPRESSION,
+    )
+
+    private fun children(source: KtSourceElement, node: LighterASTNode): List<LighterASTNode> {
+        val ref = Ref<Array<LighterASTNode?>>()
+        source.treeStructure.getChildren(node, ref)
+        return ref.get()?.filterNotNull().orEmpty()
     }
 }

@@ -38,6 +38,14 @@ typealias Page = androidx.fragment.app.Fragment
     constructor(id: Int, name: String) : super()
 }
 
+// Go misses this because, with no primary constructor, it never looks for a
+// no-arg one. Without @JvmOverloads a defaulted secondary constructor has no
+// no-arg JVM overload, so the framework's reflective instantiation fails even
+// though Kotlin callers can write SecondaryDefaultOnly().
+<!FragmentConstructor!>class<!> SecondaryDefaultOnly : AndroidFragment {
+    constructor(a: Int = 0) : super()
+}
+
 // Go misses this because it takes the no-arg constructor of the nested class
 // for the Fragment's own.
 <!FragmentConstructor!>class<!> NestedMasks(val id: Int) : AndroidFragment() {
@@ -63,6 +71,15 @@ fun localBase(): AndroidFragment {
     // Go misses this because it reads only the direct supertype's name.
     <!FragmentConstructor!>class<!> LocalChild(val id: Int) : LocalBase()
     return LocalChild(1)
+}
+
+// Classes declared inside an object expression resolve through the same
+// supertype lookup without crashing.
+private val holder = object {
+    open inner class Base : AndroidFragment()
+
+    // Go misses this because it reads only the direct supertype's name.
+    <!FragmentConstructor!>inner<!> class Child(val a: Int) : Base()
 }
 
 // --- Negatives: the same shapes with a no-arg constructor ---

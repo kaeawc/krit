@@ -18,6 +18,17 @@ class OtherSpellings {
 
     fun typeAlias(value: Int): String = <!ImplicitDefaultLocale!>Text.format("%d", value)<!>
 
+    // The companion spelled out, `this` bound to it, or held in a variable:
+    // each still calls the stdlib `String.Companion.format` without a Locale.
+    fun companion(value: Int): String = <!ImplicitDefaultLocale!>String.Companion.format("%d", value)<!>
+
+    fun companionThis(value: Int): String = with(String) { <!ImplicitDefaultLocale!>this.format("%d", value)<!> }
+
+    fun companionVariable(value: Int): String {
+        val c = String
+        return <!ImplicitDefaultLocale!>c.format("%d", value)<!>
+    }
+
     // Go matches the method name as written.
     @Suppress("DEPRECATION_ERROR")
     fun importAlias(s: String): String = <!ImplicitDefaultLocale!>s.lower()<!>

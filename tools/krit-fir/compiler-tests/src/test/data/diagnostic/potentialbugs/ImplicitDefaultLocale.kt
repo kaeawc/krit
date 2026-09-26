@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 15, 17, 19, 21, 23, 25, 27, 30, 36, 39, 43, 45, 48, 56, 58, 60, 62, 64, 66, 68, 71, 74, 77, 82, 86, 88, 90, 92, 94, 96, 99x2
+// go-lines: 15, 17, 19, 21, 23, 25, 27, 30, 36, 39, 43, 45, 48, 61, 63, 65, 67, 69, 71, 73, 76, 79, 82, 87, 92, 94, 98, 100, 102, 104, 106, 108, 111x2
 // Positives for ImplicitDefaultLocale, each reported by the Go rule too: the
 // no-argument String case conversions, String.format without a Locale, and
 // "pattern".format(...) on a string literal, with a locale-sensitive pattern.
@@ -51,6 +51,11 @@ class CaseConversions {
 
 const val NUMBER_FORMAT = "%d"
 val TEMPLATE_FORMAT = "${NUMBER_FORMAT}!"
+const val POSITIONAL = "%1\$s"
+
+object Fmt {
+    const val PAIR = "%1\$s=%2\$s"
+}
 
 class StaticFormat {
     fun decimal(value: Double): String = <!ImplicitDefaultLocale!>String.format("%.2f", value)<!>
@@ -80,6 +85,13 @@ class StaticFormat {
     }
 
     fun nested(value: Int): String = <!ImplicitDefaultLocale!>String.format("%s", String.format("%d", value))<!>
+
+    // A constant's pattern is read as written, escapes included, as Go reads
+    // it: `%1\$s` is positional, which Go treats as locale-sensitive, the same
+    // as the literal in `positional` above.
+    fun positionalConstant(value: String): String = <!ImplicitDefaultLocale!>String.format(POSITIONAL, value)<!>
+
+    fun positionalQualifiedConstant(a: String, b: String): String = <!ImplicitDefaultLocale!>String.format(Fmt.PAIR, a, b)<!>
 }
 
 class InstanceFormat {

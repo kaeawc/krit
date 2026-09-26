@@ -52,13 +52,16 @@ import org.jetbrains.kotlin.name.StandardClassIds
 //
 // Deliberate differences from Go, each pinned in the golden data:
 // - Precision: Go matches the call by name and does not resolve it. FIR does
-//   not report a project function or member of the same name, the
+//   not report a project function, member or extension of the same name
+//   (including a same-package `String.capitalize()` shim), the
 //   locale-independent `Char.toLowerCase()` / `Char.toUpperCase()`, or a call
-//   that resolves to a Locale overload with a Locale held in a variable or
-//   passed as null (Go only recognises an argument spelled `Locale.` /
+//   that resolves to a Locale overload with a Locale held in a variable,
+//   passed as null, fully qualified (`java.util.Locale.US`) or passed by name
+//   after the pattern (Go only recognises a first argument spelled `Locale.` /
 //   `Locale(`).
 // - Recall: FIR reports the static format however its receiver is spelled
-//   (`kotlin.String.format`, `java.lang.String.format`, a typealias), calls
+//   (`kotlin.String.format`, `java.lang.String.format`, a typealias,
+//   `String.Companion`, the companion as `this` or in a variable), calls
 //   through an import alias, and calls whose first argument merely mentions
 //   `Locale.` but is the pattern or a format argument
 //   (`String.format(Locale.US.toString(), x)`), which still format with the
@@ -209,7 +212,7 @@ internal object ImplicitDefaultLocale : FirFunctionCallChecker(MppCheckerKind.Co
 
     // Go's findConstStringPropertyValue: the first property declared anywhere
     // in the file, in source order, named [name] and initialized with a string
-    // literal without templates; the literal's text without its escapes.
+    // literal without templates; the literal's text with its escapes as written.
     private fun constStringPropertyValue(source: KtSourceElement, name: String): String? {
         val tree = source.treeStructure
         var result: String? = null
@@ -230,7 +233,10 @@ internal object ImplicitDefaultLocale : FirFunctionCallChecker(MppCheckerKind.Co
         return result
     }
 
-    // The content of a string literal with no template entries, or null.
+    // The content of a string literal with no template entries, or null: the
+    // source text between the quotes, escapes kept as written. Go's
+    // stringLiteralContent keeps them verbatim too, so `"%1\$s"` reads as
+    // `%1\$s` (a positional, locale-sensitive pattern), not `%1s`.
     private fun plainStringContent(source: KtSourceElement, node: LighterASTNode): String? {
         if (node.tokenType != KtNodeTypes.STRING_TEMPLATE) return null
         val tree = source.treeStructure
@@ -238,7 +244,8 @@ internal object ImplicitDefaultLocale : FirFunctionCallChecker(MppCheckerKind.Co
         for (child in lightChildren(source, node)) {
             when (child.tokenType) {
                 KtNodeTypes.SHORT_STRING_TEMPLATE_ENTRY, KtNodeTypes.LONG_STRING_TEMPLATE_ENTRY -> return null
-                KtNodeTypes.LITERAL_STRING_TEMPLATE_ENTRY -> content.append(tree.toString(child))
+                KtNodeTypes.LITERAL_STRING_TEMPLATE_ENTRY, KtNodeTypes.ESCAPE_STRING_TEMPLATE_ENTRY ->
+                    content.append(tree.toString(child))
             }
         }
         return content.toString()

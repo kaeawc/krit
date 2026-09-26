@@ -26,6 +26,8 @@ public abstract class Context {
 
     public static final String ACTIVITY_SERVICE = "activity";
 
+    public static final String ALARM_SERVICE = "alarm";
+
     public static final String BLUETOOTH_SERVICE = "bluetooth";
 
     public static final String CAMERA_SERVICE = "camera";

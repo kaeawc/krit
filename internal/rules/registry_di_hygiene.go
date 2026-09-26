@@ -373,7 +373,7 @@ func registerDiHygieneRules() {
 				if name == "" {
 					name = "binding"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("@IntoSet function '%s' returns '%s', a collection wrapper; Dagger collects by return type, so the contribution will be a Set<%s> entry rather than the intended elements.", name, retText, wrapper))
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("@IntoSet function '%s' returns '%s', a collection wrapper; the DI framework collects it by return type, so the contribution will be a Set<%s> entry rather than the intended elements.", name, retText, wrapper))
 			},
 		})
 	}

@@ -1,5 +1,9 @@
 package com.example
 
+import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.ViewGroup
+import androidx.core.os.bundleOf
 import androidx.fragment.app.Fragment
 
 class MyFragment : Fragment() {
@@ -18,5 +22,5 @@ class LoginFragment : Fragment() {
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
-    ) = inflater.inflate(R.layout.fragment_login, container, false)
+    ) = inflater.inflate(android.R.layout.simple_list_item_1, container, false)
 }

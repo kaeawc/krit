@@ -1,7 +1,7 @@
 package dihygiene
 
-annotation class Singleton
-annotation class Inject
+import javax.inject.Inject
+import javax.inject.Singleton
 
 @Singleton
 class Cache<K, V> @Inject constructor() {

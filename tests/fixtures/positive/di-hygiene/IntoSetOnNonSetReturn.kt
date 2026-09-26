@@ -1,7 +1,7 @@
 package dihygiene
 
-annotation class Provides
-annotation class IntoSet
+import dagger.Provides
+import dagger.multibindings.IntoSet
 
 interface Plugin
 

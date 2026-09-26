@@ -5,17 +5,24 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.app.Application
 import android.app.Dialog
+import android.app.DialogFragment
+import android.app.Fragment
 import android.app.IntentService
 import android.app.Notification
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.app.TabActivity
 import android.content.Context
+import android.content.DialogInterface
 import android.content.Intent
 import android.os.Bundle
 import android.os.IBinder
+import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
+import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
 
 class SmokeApplication : Application() {
@@ -83,4 +90,28 @@ class SmokeTabActivity : TabActivity()
 
 fun postNotification(manager: NotificationManager, notification: Notification) {
     manager.notify(7, notification)
+}
+
+fun openAppIntent(context: Context): PendingIntent {
+    val intent = Intent(context, SmokeActivity::class.java)
+    return PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+}
+
+// Framework fragments (deprecated in API 28) keep their no-arg constructors.
+@Suppress("DEPRECATION")
+class SmokePlatformFragment : Fragment() {
+    @Deprecated("Deprecated in Java")
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? =
+        inflater.inflate(android.R.layout.simple_list_item_1, container, false)
+}
+
+@Suppress("DEPRECATION")
+class SmokePlatformDialogFragment : DialogFragment() {
+    @Deprecated("Deprecated in Java")
+    override fun onCreateDialog(savedInstanceState: Bundle?): Dialog = Dialog(activity)
+
+    @Deprecated("Deprecated in Java")
+    override fun onDismiss(dialog: DialogInterface) {
+        super.onDismiss(dialog)
+    }
 }

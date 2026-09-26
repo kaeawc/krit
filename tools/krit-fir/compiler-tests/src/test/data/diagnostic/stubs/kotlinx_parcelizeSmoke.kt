@@ -15,7 +15,7 @@ data class ParcelUser(val id: Long, val name: String, val extra: @RawValue Any?)
 }
 
 object ParcelUserParceler : Parceler<ParcelUser> {
-    override fun create(parcel: Parcel): ParcelUser = ParcelUser(parcel.readLong(), parcel.readString() ?: "", null)
+    override fun create(parcel: Parcel): ParcelUser = ParcelUser(parcel.readLong(), parcel.readString().orEmpty(), null)
 
     override fun ParcelUser.write(parcel: Parcel, flags: Int) {
         parcel.writeLong(id)

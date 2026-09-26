@@ -40,6 +40,14 @@ fun postToMain(block: Runnable) {
     if (Looper.myLooper() == Looper.getMainLooper()) handler.removeCallbacksAndMessages(null)
 }
 
+// The deprecated implicit-looper constructors, as pre-API-30 code calls them.
+@Suppress("DEPRECATION")
+fun implicitLooperHandler(callback: Handler.Callback): Handler {
+    val handler = Handler(callback)
+    handler.sendEmptyMessage(0)
+    return handler
+}
+
 class SmokeHandler(looper: Looper) : Handler(looper) {
     override fun handleMessage(msg: Message) {
         <!PrintlnInProduction!>println<!>(msg.obj)
@@ -51,6 +59,15 @@ fun wakeLock(context: Context) {
     val lock: PowerManager.WakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "smoke:tag")
     lock.acquire(10_000L)
     if (lock.isHeld) lock.release()
+}
+
+fun proximityWakeLock(pm: PowerManager, lock: PowerManager.WakeLock) {
+    lock.acquire(5_000L)
+    try {
+        <!PrintlnInProduction!>println<!>(pm.isInteractive)
+    } finally {
+        lock.release(PowerManager.RELEASE_FLAG_WAIT_FOR_NO_PROXIMITY)
+    }
 }
 
 class ManualParcelable(val id: Int) : Parcelable {

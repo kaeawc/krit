@@ -6,6 +6,10 @@ public class Handler {
     public Handler() {
     }
 
+    @Deprecated
+    public Handler(Callback callback) {
+    }
+
     public Handler(Looper looper) {
     }
 

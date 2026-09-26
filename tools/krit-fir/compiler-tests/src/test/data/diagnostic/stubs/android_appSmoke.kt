@@ -3,6 +3,7 @@ package stubs
 
 import android.app.Activity
 import android.app.ActivityManager
+import android.app.AlarmManager
 import android.app.Application
 import android.app.Dialog
 import android.app.DialogFragment
@@ -95,6 +96,31 @@ fun postNotification(manager: NotificationManager, notification: Notification) {
 fun openAppIntent(context: Context): PendingIntent {
     val intent = Intent(context, SmokeActivity::class.java)
     return PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+}
+
+fun backStackIntent(context: Context, options: Bundle?): PendingIntent {
+    val intents = arrayOf(Intent(context, SmokeActivity::class.java), Intent(Intent.ACTION_VIEW))
+    val single = PendingIntent.getActivity(context, 1, intents[0], PendingIntent.FLAG_IMMUTABLE, options)
+    single.cancel()
+    PendingIntent.getActivities(context, 2, intents, PendingIntent.FLAG_IMMUTABLE, options)
+    return PendingIntent.getActivities(context, 3, intents, PendingIntent.FLAG_IMMUTABLE)
+}
+
+// Repeating alarms at the platform's inexact intervals; exact alarms gated on
+// the API 31 permission check.
+fun scheduleSync(context: Context) {
+    val alarms = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    val intent = Intent(context, SmokeService::class.java)
+    val operation = PendingIntent.getForegroundService(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+    val start = System.currentTimeMillis() + AlarmManager.INTERVAL_HOUR
+    alarms.setInexactRepeating(AlarmManager.RTC_WAKEUP, start, AlarmManager.INTERVAL_FIFTEEN_MINUTES, operation)
+    alarms.setRepeating(AlarmManager.ELAPSED_REALTIME, start, AlarmManager.INTERVAL_DAY, operation)
+    if (alarms.canScheduleExactAlarms()) {
+        alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, start, operation)
+    } else {
+        alarms.setWindow(AlarmManager.RTC, start, AlarmManager.INTERVAL_HALF_HOUR, operation)
+    }
+    alarms.cancel(operation)
 }
 
 // Framework fragments (deprecated in API 28) keep their no-arg constructors.

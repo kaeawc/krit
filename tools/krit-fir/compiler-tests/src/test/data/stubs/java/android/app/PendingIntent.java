@@ -3,6 +3,7 @@ package android.app;
 
 import android.content.Context;
 import android.content.Intent;
+import android.os.Bundle;
 import android.os.Parcelable;
 
 public final class PendingIntent implements Parcelable {
@@ -25,11 +26,27 @@ public final class PendingIntent implements Parcelable {
         throw new RuntimeException("Stub!");
     }
 
+    public static PendingIntent getActivity(Context context, int requestCode, Intent intent, int flags, Bundle options) {
+        throw new RuntimeException("Stub!");
+    }
+
+    public static PendingIntent getActivities(Context context, int requestCode, Intent[] intents, int flags) {
+        throw new RuntimeException("Stub!");
+    }
+
+    public static PendingIntent getActivities(Context context, int requestCode, Intent[] intents, int flags, Bundle options) {
+        throw new RuntimeException("Stub!");
+    }
+
     public static PendingIntent getBroadcast(Context context, int requestCode, Intent intent, int flags) {
         throw new RuntimeException("Stub!");
     }
 
     public static PendingIntent getService(Context context, int requestCode, Intent intent, int flags) {
+        throw new RuntimeException("Stub!");
+    }
+
+    public static PendingIntent getForegroundService(Context context, int requestCode, Intent intent, int flags) {
         throw new RuntimeException("Stub!");
     }
 

@@ -8,6 +8,7 @@ import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.descriptors.ClassKind
+import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirSession
@@ -35,8 +36,9 @@ import org.jetbrains.kotlin.name.Name
  * Activity, Service, BroadcastReceiver, ContentProvider, or Application) that
  * the framework cannot instantiate because the class is `private` or its
  * primary constructor is `private`. Like Go, only class-like declarations are
- * visited (classes at any nesting, including local classes; not `object`s),
- * a private class is reported whatever its constructors, and the finding sits
+ * visited (classes at any nesting, including local classes and members of
+ * object expressions; not `object`s), a class carrying the `private` modifier
+ * is reported whatever its constructors, and the finding sits
  * on the declaration's first line (its modifier list, else the `class`
  * keyword) with Go's message.
  *
@@ -56,7 +58,11 @@ import org.jetbrains.kotlin.name.Name
  * - Precision: Go reports a private primary constructor even when the class
  *   also declares a public (or internal, public in bytecode) secondary
  *   constructor the framework can call with no arguments. That class can be
- *   instantiated, so it is not reported here.
+ *   instantiated, so it is not reported here. The exemption covers concrete,
+ *   non-inner, non-local classes only: an abstract class cannot be
+ *   instantiated at all, and an inner or local class's constructors take the
+ *   outer instance or captured values in bytecode, so those keep Go's
+ *   finding.
  * - Recall: Go reads only the direct supertype's written name, so it misses a
  *   component reached through a project base class, another framework
  *   subclass (`ListActivity`, a third-party Application subclass), a type
@@ -98,11 +104,32 @@ internal object Instantiatable : FirRegularClassChecker(MppCheckerKind.Common), 
         val constructors = declaration.constructors(session)
         val privateConstructor = constructors.any { it.isExplicitPrivatePrimary() } ||
             (constructors.none { it.isPrimary } && constructors.isNotEmpty() && constructors.all { it.isPrivate() })
-        val notInstantiatable = declaration.status.visibility == Visibilities.Private ||
-            (privateConstructor && constructors.none { it.isPublicNoArg(session) })
+        val notInstantiatable = isPrivateClass(declaration, source) ||
+            (privateConstructor && !(noArgExemptionApplies(declaration) && constructors.any { it.isPublicNoArg(session) }))
         if (!notInstantiatable) return
         report(firstLine(source), MESSAGE)
     }
+
+    // Go reads the class's own `private` modifier. FIR gives a class declared
+    // `private` inside an object expression or a local class Local
+    // visibility, so the modifier keyword is read from source as well.
+    private fun isPrivateClass(declaration: FirRegularClass, source: KtSourceElement): Boolean {
+        if (declaration.status.visibility == Visibilities.Private) return true
+        val modifiers = lightChildren(source, source.lighterASTNode)
+            .firstOrNull { it.tokenType == KtNodeTypes.MODIFIER_LIST } ?: return false
+        return lightChildren(source, modifiers).any { it.tokenType == KtTokens.PRIVATE_KEYWORD }
+    }
+
+    // A public no-arg secondary constructor makes the class instantiable only
+    // for a concrete, non-inner, non-local class. An abstract class cannot be
+    // instantiated whatever its constructors; an inner class's constructors
+    // take the outer instance and a local class's take its captured values in
+    // bytecode, so the framework cannot call them with no arguments. Those
+    // keep Go's finding.
+    private fun noArgExemptionApplies(declaration: FirRegularClass): Boolean =
+        declaration.status.modality != Modality.ABSTRACT &&
+            !declaration.status.isInner &&
+            !declaration.symbol.classId.isLocal
 
     // Supertypes are read from their own lookup tags, so no class id is
     // resolved from a symbol that may be local.

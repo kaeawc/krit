@@ -57,3 +57,11 @@ class MixedSecondaries : Activity {
 class ArgumentSecondary : Activity {
     constructor(id: Int) : super()
 }
+
+fun localBase() {
+    abstract class LocalBase : Activity()
+
+    // Go misses this because it reads only the direct supertype's name: the
+    // component is reached through a local base class.
+    <!Instantiatable!>class<!> LocalChild private constructor() : LocalBase()
+}

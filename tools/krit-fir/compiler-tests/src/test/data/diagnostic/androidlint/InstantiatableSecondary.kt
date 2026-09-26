@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 16, 21, 29, 37, 41, 45
+// go-lines: 16, 21, 29, 37, 41, 45, 53, 60, 67
 // A private primary constructor next to a secondary constructor the
 // framework can call with no arguments. These classes can be instantiated,
 // so the message ("cannot be instantiated") is not true of them and FIR
@@ -44,4 +44,27 @@ class OverloadsActivity private constructor(val id: Int, val tag: String) : Acti
 
 <!Instantiatable!>open<!> class ProtectedSecondaryActivity private constructor(val id: Int) : Activity() {
     protected constructor() : this(0)
+}
+
+// Still reported, as by Go: an inner class's public no-arg secondary
+// constructor takes the outer instance in bytecode, so the framework cannot
+// call it.
+class Outer {
+    <!Instantiatable!>inner<!> class InnerSecondary private constructor(val id: Int) : Activity() {
+        constructor() : this(0)
+    }
+}
+
+// Still reported, as by Go: an abstract class cannot be instantiated whatever
+// its constructors.
+<!Instantiatable!>abstract<!> class AbstractSecondary private constructor(val id: Int) : Activity() {
+    constructor() : this(0)
+}
+
+// Still reported, as by Go: a local class's constructors take its captured
+// values, so a public no-arg secondary constructor is not exempt.
+fun host(tag: String) {
+    <!Instantiatable!>class<!> LocalSecondary private constructor(val id: Int) : Activity() {
+        constructor() : this(tag.length)
+    }
 }

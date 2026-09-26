@@ -6,6 +6,7 @@ import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
+import org.jetbrains.kotlin.KtPsiSourceElement
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -33,6 +34,7 @@ import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.toRegularClassSymbol
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
@@ -40,6 +42,7 @@ import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.psi.KtElement
 
 /**
  * Port of the Go TooGenericExceptionThrown rule: a `throw` of a newly
@@ -59,9 +62,10 @@ import org.jetbrains.kotlin.name.Name
  * configured name counts for every library class of that name, however it is
  * written or imported (`java.io.IOException(..)`, a star import, or a
  * `kotlin.*` alias of a `java.util` class such as `NoSuchElementException`):
- * Go's resolver cannot resolve those and reports them. A class declared in the
- * compiled sources is a project class, which Go finds in its class index and
- * skips, so it is never generic.
+ * Go's resolver cannot resolve those and reports them. A class declared in a
+ * Kotlin source of the compilation is a project class, which Go finds in its
+ * class index and skips, so it is never generic. Go's index holds no Java
+ * declarations, so a Java class counts even when it is compiled from source.
  *
  * Exemptions mirrored from Go: test files and `.gradle.kts` scripts, and a
  * constructor that passes the parameter of the nearest `catch` enclosing it
@@ -199,11 +203,22 @@ internal object TooGenericExceptionThrown :
         if (classId in genericClassIds) return name
         // Go binds the four default names to its java.lang FQN table.
         if (name in defaultNames) return null
-        // Any other configured name counts for a library class of that name,
-        // however it is written or imported (Go reports it unresolved), and
-        // never for a project class (Go finds it in its class index).
+        // Any other configured name counts for a library or Java class of
+        // that name, however it is written or imported (Go reports it
+        // unresolved), and never for a class declared in Kotlin source (Go
+        // finds it in its class index, which holds Kotlin declarations only).
         val symbol = type.lookupTag.toRegularClassSymbol(context.session) ?: return null
-        return name.takeUnless { symbol.origin.fromSource }
+        return name.takeUnless { declaredInKotlinSource(symbol) }
+    }
+
+    // Whether [symbol] is declared in a Kotlin file of this compilation: its
+    // source is a real element of the Kotlin light tree (how the compiler
+    // parses Kotlin sources) or of Kotlin PSI. A library class has no source,
+    // and a Java class compiled from a source root has a Java PSI element.
+    private fun declaredInKotlinSource(symbol: FirRegularClassSymbol): Boolean {
+        val source = symbol.source ?: return false
+        if (source.kind !is KtRealSourceElementKind) return false
+        return source !is KtPsiSourceElement || source.psi is KtElement
     }
 
     // Whether [call] passes the catch parameter itself as an argument.

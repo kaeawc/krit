@@ -144,6 +144,26 @@ class TooGenericExceptionThrownFilesTest {
         assertEquals(mapOf("Star.kt" to listOf(6), "Explicit.kt" to listOf(5)), lines(sources, configuredNames))
     }
 
+    // Go's class index holds Kotlin declarations only, so a configured name
+    // that resolves to a Java class counts even when that class is compiled
+    // from source (here the Java stub layer, a Java source root like a
+    // project's own Java code): Go reports the throw. Only a class declared in
+    // a Kotlin source of the compilation is a project class.
+    @Test fun javaSourceClassesWithAConfiguredNameAreReported() {
+        val sources = mapOf(
+            "JavaSource.kt" to """
+                package javasource
+
+                import android.database.*
+
+                fun sql(): Nothing = throw SQLException("Java source class")
+                fun qualified(): Nothing = throw android.database.SQLException("qualified")
+            """.trimIndent(),
+        )
+        val options = mapOf("exceptionNames" to listOf("SQLException"))
+        assertEquals(mapOf("JavaSource.kt" to listOf(5, 6)), lines(sources, options))
+    }
+
     // An empty list falls back to the defaults, as in Go.
     @Test fun emptyExceptionNamesUseTheDefaults() {
         val sources = mapOf("Empty.kt" to thrower("empty"))

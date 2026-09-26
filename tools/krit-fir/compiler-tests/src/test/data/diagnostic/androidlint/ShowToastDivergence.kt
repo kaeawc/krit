@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 20, 27, 31, 35, 39, 43, 47, 54, 58, 63, 77, 82, 88, 99, 111, 119, 123, 131, 137, 145
+// go-lines: 20, 27, 31, 35, 39, 43, 47, 54, 58, 63, 77, 82, 88, 99, 111, 119, 123, 131, 137, 145, 154, 156, 163, 170, 178, 187, 193
 // Divergence (precision): every toast below is shown, so the message ("called
 // without .show()") is false of the code and FIR does not report it. Go
 // reports each one: it only sees a `show` call that encloses the makeText
@@ -8,8 +8,8 @@
 // function (or class, for a member without an enclosing function). A toast
 // shown in the lambda of another scope function, through `!!` or a cast,
 // through another variable, after an assignment (also of an `if` or elvis
-// holding the call), as a parameter's default value, or from outside that
-// function or class is shown all the same.
+// holding the call), as a parameter's default value, from outside that
+// function or class, or in a getter or top-level lambda is shown all the same.
 package test.showtoast.divergence
 
 import android.content.Context
@@ -143,5 +143,53 @@ fun whenSubject(context: Context) {
 fun assignedFromElvis(context: Context, cached: Toast?) {
     var toast: Toast? = null
     toast = cached ?: Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)
+    toast.show()
+}
+
+// A toast stored again after it is shown is shown too, and so is one stored
+// in a branch that falls through to the `show`, or in a loop body that shows
+// it before the next store.
+fun overwrittenAfterShow(context: Context) {
+    var toast: Toast
+    toast = Toast.makeText(context, "a", Toast.LENGTH_SHORT)
+    toast.show()
+    toast = Toast.makeText(context, "b", Toast.LENGTH_SHORT)
+    toast.show()
+}
+
+fun shownAfterBranch(context: Context, c: Boolean) {
+    var toast: Toast? = null
+    if (c) {
+        toast = Toast.makeText(context, "a", Toast.LENGTH_SHORT)
+    }
+    toast?.show()
+}
+
+fun shownAfterLambda(context: Context, items: List<String>) {
+    var toast: Toast? = null
+    toast = Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)
+    items.forEach { if (it.isEmpty()) return@forEach }
+    toast.show()
+}
+
+fun shownInLoop(context: Context, items: List<String>) {
+    var toast: Toast
+    for (item in items) {
+        toast = Toast.makeText(context, item, Toast.LENGTH_SHORT)
+        toast.show()
+    }
+}
+
+// Go reads a variable's `show` only in an enclosing named function or class,
+// so it reports a local shown in a property getter or in a top-level lambda.
+val getterToast: Toast
+    get() {
+        val toast = Toast.makeText(appContext, "Hello", Toast.LENGTH_SHORT)
+        toast.show()
+        return toast
+    }
+
+val handler = { context: Context ->
+    val toast = Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)
     toast.show()
 }

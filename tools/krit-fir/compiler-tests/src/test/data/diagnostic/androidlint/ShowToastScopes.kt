@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 43, 53, 73, 87, 124, 130
+// go-lines: 43, 53, 73, 87, 124, 139, 144, 149, 163, 171
 // Go's evidence, kept as Go reads it. Any enclosing call named `show` counts,
 // up to the nearest named function (not across it), whatever it shows; a
 // receiverless `show()` anywhere in an enclosing `apply` lambda counts; and a
@@ -122,6 +122,47 @@ fun wrappedSafeApply(context: Context) {
 
 fun wrappedSafeApplyWithoutShow(context: Context) {
     wrap(<!ShowToast!>Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)<!>)?.apply { cancel() }
+}
+
+class Marquee {
+    fun show(count: Int, block: () -> Any) {}
+    fun show(toast: Toast, block: () -> Any) {}
+    fun show(block: () -> Any) {}
+    fun show() {}
+    fun apply(count: Int, block: Marquee.() -> Unit) {}
+}
+
+// Go's tree nests `show(args) { .. }`: the lambda belongs to an outer call
+// with no name, so a toast in that lambda does not count as shown. A toast
+// in the parentheses is under the inner `show(..)` call and does.
+fun inShowLambdaWithArguments(context: Context, marquee: Marquee) {
+    marquee.show(1) { <!ShowToast!>Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)<!> }
+}
+
+fun inShowLambdaWithNamedArgument(context: Context, marquee: Marquee) {
+    marquee.show(count = 2) {
+        <!ShowToast!>Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)<!>
+    }
+}
+
+fun inShowLambdaWithEmptyParentheses(context: Context, marquee: Marquee) {
+    marquee.show() { <!ShowToast!>Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)<!> }
+}
+
+fun inShowArgumentsWithLambda(context: Context, marquee: Marquee) {
+    marquee.show(Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)) { 1 }
+}
+
+fun inShowParenthesizedLambda(context: Context, marquee: Marquee) {
+    marquee.show(1, { Toast.makeText(context, "Hello", Toast.LENGTH_SHORT) })
+}
+
+// Likewise the lambda of `apply(args) { .. }` is not an `apply` lambda to Go.
+fun inApplyLambdaWithArguments(context: Context, marquee: Marquee) {
+    marquee.apply(1) {
+        <!ShowToast!>Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)<!>
+        show()
+    }
 }
 
 // A `show` on the name before the call does not count.

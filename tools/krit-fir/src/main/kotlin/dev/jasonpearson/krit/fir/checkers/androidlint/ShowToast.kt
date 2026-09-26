@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
+import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -14,7 +15,9 @@ import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
 import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
+import org.jetbrains.kotlin.fir.declarations.FirAnonymousInitializer
 import org.jetbrains.kotlin.fir.declarations.FirFile
+import org.jetbrains.kotlin.fir.declarations.FirFunction
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
@@ -29,11 +32,16 @@ import org.jetbrains.kotlin.fir.expressions.FirElvisExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirImplicitInvokeCall
+import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
+import org.jetbrains.kotlin.fir.expressions.FirLoop
+import org.jetbrains.kotlin.fir.expressions.FirLoopJump
 import org.jetbrains.kotlin.fir.expressions.FirOperation
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
+import org.jetbrains.kotlin.fir.expressions.FirThrowExpression
 import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.expressions.FirWhenBranch
@@ -45,7 +53,10 @@ import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirReceiverParameterSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirVariableSymbol
+import org.jetbrains.kotlin.fir.types.isNothing
+import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.lexer.KtToken
@@ -59,10 +70,13 @@ import org.jetbrains.kotlin.name.Name
 // - an enclosing call named `show` (on any receiver, the toast as its
 //   receiver or anywhere in its arguments or lambda) sits between the call
 //   and the nearest enclosing named function (`Toast.makeText(..).show()`,
-//   `Toast.makeText(..)?.apply { .. }.show()`);
+//   `Toast.makeText(..)?.apply { .. }.show()`), except that a toast in the
+//   lambda of `show(args) { .. }` does not count (Go's tree hangs that lambda
+//   off an outer call with no name);
 // - an enclosing call named `apply`, in the same range, has a trailing lambda
 //   holding a `show()` call whose receiver is not a name (`show()`,
-//   `this.show()`);
+//   `this.show()`), and no parentheses before it (to Go, `apply(args) { .. }`
+//   has no lambda);
 // - the call is in the initializer of a property (at any depth, but not
 //   across a named function, class, or object), and a call named `show` on a
 //   receiver spelled with that property's name (its last identifier:
@@ -88,9 +102,13 @@ import org.jetbrains.kotlin.name.Name
 //   `(t as Toast).show()`); through a copy into another variable; through a
 //   variable assigned rather than initialized (`t = Toast.makeText(..)`, or
 //   an `if` or elvis holding the call, then `t.show()`); through a
-//   parameter's default value or a `when` subject variable; or through a
+//   parameter's default value or a `when` subject variable; through a local
+//   shown in a property getter or a top-level lambda; or through a
 //   top-level or member property shown from elsewhere in the file. A
-//   variable is followed by the declaration its reads resolve to.
+//   variable is followed by the declaration its reads resolve to, and only
+//   to reads the stored value reaches (Flow.variableShown): a toast
+//   overwritten, skipped by a jump or branch, or stored on another instance
+//   before the only `show` is still reported, as in Go (ShowToastOverwrite).
 internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "ShowToast"
     override val expressionCheckers = object : ExpressionCheckers() {
@@ -158,12 +176,22 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
 
     private fun goShown(call: FirFunctionCall, path: List<FirElement>): Boolean {
         // Go walks the ancestors up to the nearest named function.
+        val callStart = call.source?.startOffset ?: return false
         for (element in path.asReversed()) {
             if (element is FirNamedFunction) break
             for (ancestor in ancestorCalls(element)) {
                 val name = goName(ancestor) ?: continue
-                if (name == show) return true
-                if (name == apply && trailingLambda(ancestor)?.let(::hasUnnamedShow) == true) return true
+                if (name != show && name != apply) continue
+                // Go's tree nests `name(args) { .. }`: the lambda hangs off an
+                // outer call with no name, and the inner `name(args)` call has
+                // no lambda. So a toast in that lambda is under no `show` or
+                // `apply` call, and such an `apply` has no lambda to read.
+                val lambda = lambdaAfterArguments(ancestor)
+                if (name == show) {
+                    if (lambda != null && callStart >= lambda.startOffset && callStart < lambda.endOffset) continue
+                    return true
+                }
+                if (lambda == null && trailingLambda(ancestor)?.let(::hasUnnamedShow) == true) return true
             }
         }
         val variable = goAssignedName(call, path) ?: return false
@@ -252,15 +280,30 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
     private fun textOf(anchor: KtSourceElement, node: LighterASTNode): String =
         anchor.treeStructure.toString(node).toString().removeSurrounding("`")
 
+    // The call's own CALL_EXPRESSION node: the source itself, or the selector
+    // of a qualified call.
+    private fun callNode(source: KtSourceElement): LighterASTNode? = when (source.elementType) {
+        KtNodeTypes.CALL_EXPRESSION -> source.lighterASTNode
+        in qualifiedTypes -> lightChildren(source, source.lighterASTNode)
+            .lastOrNull { it.tokenType == KtNodeTypes.CALL_EXPRESSION }
+        else -> null
+    }
+
+    // The lambda written after the call's parentheses, when the call has both
+    // (`show(1) { .. }`, `show() { .. }`).
+    private fun lambdaAfterArguments(call: FirFunctionCall): KtSourceElement? {
+        val source = call.source ?: return null
+        val node = callNode(source) ?: return null
+        val children = lightChildren(source, node)
+        if (children.none { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_LIST }) return null
+        val lambdaNode = children.firstOrNull { it.tokenType == KtNodeTypes.LAMBDA_ARGUMENT } ?: return null
+        return lightSourceOf(lambdaNode, source)
+    }
+
     // The lambda written after the call's parentheses (Go's trailing lambda).
     private fun trailingLambda(call: FirFunctionCall): FirAnonymousFunction? {
         val source = call.source ?: return null
-        val callNode = when (source.elementType) {
-            KtNodeTypes.CALL_EXPRESSION -> source.lighterASTNode
-            in qualifiedTypes -> lightChildren(source, source.lighterASTNode)
-                .lastOrNull { it.tokenType == KtNodeTypes.CALL_EXPRESSION }
-            else -> null
-        } ?: return null
+        val callNode = callNode(source) ?: return null
         val lambdaNode = lightChildren(source, callNode).firstOrNull { it.tokenType == KtNodeTypes.LAMBDA_ARGUMENT }
             ?: return null
         val range = lightSourceOf(lambdaNode, source)
@@ -343,13 +386,12 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
                         parent.argumentList.arguments.firstOrNull() === current ->
                         return lambdaOf(parent)?.let { receiverShown(it, budget) } == true
                     parent is FirProperty && parent.initializer === current ->
-                        return variableShown(parent.symbol, occurrence, budget)
+                        return variableShown(parent.symbol, parent, budget)
                     parent is FirValueParameter && parent.defaultValue === current ->
-                        return variableShown(parent.symbol, occurrence, budget)
+                        return variableShown(parent.symbol, parent, budget)
                     parent is FirVariableAssignment && parent.rValue === current -> {
-                        val target = (parent.lValue as? FirQualifiedAccessExpression)
-                            ?.calleeReference?.toResolvedCallableSymbol() as? FirVariableSymbol<*> ?: return false
-                        return variableShown(target, occurrence, budget)
+                        val target = storedSymbol(parent) ?: return false
+                        return variableShown(target, parent, budget)
                     }
                     else -> return false
                 }
@@ -409,34 +451,145 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
             }
         }
 
-        // A read of [variable] whose value is shown: for a local variable, a
-        // read after [from]; for a member or top-level property or a
-        // parameter (its default value is computed before the body runs), any
-        // read in the file.
-        private fun variableShown(variable: FirVariableSymbol<*>, from: FirElement, budget: Int): Boolean {
-            val start = from.source?.startOffset ?: return false
-            val local = variable is FirPropertySymbol && variable.isLocal
-            return anyRead(file, { read ->
-                readSymbol(read) == variable && (!local || (read.source?.startOffset ?: -1) > start)
-            }) { read, path -> shown(read, path, budget - 1) }
+        // A read of [variable] holding the value [store] puts there, whose
+        // value is shown.
+        // - A parameter is never reassigned, and its default value is
+        //   computed before the body runs: any read in the file.
+        // - A member or top-level property: any read in the file, but only
+        //   when [store] is on `this` (or no receiver) and is the property's
+        //   only write in the file (a `null` initializer aside). Otherwise
+        //   the property is not followed: another write may replace the
+        //   toast before any read, or the read may be on another instance.
+        // - A local variable: a read the stored value reaches (readReached).
+        private fun variableShown(variable: FirVariableSymbol<*>, store: FirElement, budget: Int): Boolean {
+            val follow = { read: FirExpression, path: List<FirElement> -> shown(read, path, budget - 1) }
+            return when {
+                variable is FirValueParameterSymbol -> anyRead(file, { readSymbol(it) == variable }, follow)
+                variable is FirPropertySymbol && !variable.isLocal ->
+                    onlyStore(variable, store) && anyRead(file, { readSymbol(it) == variable }, follow)
+                else -> readReachedShown(variable, store, follow)
+            }
         }
+
+        private fun onlyStore(variable: FirPropertySymbol, store: FirElement): Boolean {
+            if (store is FirVariableAssignment) {
+                val receiver = (store.lValue as? FirQualifiedAccessExpression)?.explicitReceiver
+                if (receiver != null && receiver !is FirThisReceiverExpression) return false
+            }
+            if (store !is FirProperty) {
+                val initializer = variable.resolvedInitializer
+                if (initializer != null && !(initializer is FirLiteralExpression && initializer.value == null)) return false
+            }
+            return !visit(file) { element, _ ->
+                element is FirVariableAssignment && element !== store && storedSymbol(element) == variable
+            }
+        }
+
+        // A read of the local [variable] that the value [store] puts there
+        // reaches, whose value is shown. The read must come after the store,
+        // inside the function, lambda, accessor, or initializer holding the
+        // store (a lambda may run later or repeatedly), inside every loop
+        // holding the store (the next iteration stores again), and not in
+        // another branch of an `if`/`when` whose branch holds the store. No
+        // other write of the variable may lie between them, nor a jump
+        // (`return`, `throw`, a `break`/`continue` of a loop holding the
+        // store, a call returning Nothing) that may skip the read. A write
+        // in a lambda or local function may run at any point, so then the
+        // variable is not followed at all.
+        private fun readReachedShown(
+            variable: FirVariableSymbol<*>,
+            store: FirElement,
+            follow: (FirExpression, List<FirElement>) -> Boolean,
+        ): Boolean {
+            val storePath = pathTo(file, store) ?: return false
+            val scopeIndex = storePath.indexOfLast(::isBody)
+            if (scopeIndex < 0) return false
+            val scope = storePath[scopeIndex]
+            val storeEnd = store.source?.endOffset ?: return false
+            val storeChain = storePath + store
+            val barriers = ArrayList<KtSourceElement>()
+            val capturedWrite = visit(file) { element, path ->
+                if (element !is FirVariableAssignment || element === store || storedSymbol(element) != variable) {
+                    return@visit false
+                }
+                element.source?.let(barriers::add)
+                path.lastOrNull(::isBody) !== scope
+            }
+            if (capturedWrite) return false
+            visit(scope) { element, path ->
+                if (isJump(element, path, storeChain)) element.source?.let(barriers::add)
+                false
+            }
+            val loops = storePath.subList(scopeIndex + 1, storePath.size).filterIsInstance<FirLoop>()
+            return anyRead(scope, { readSymbol(it) == variable && (it.source?.startOffset ?: -1) >= storeEnd }) { read, path ->
+                val readStart = read.source?.startOffset ?: return@anyRead false
+                val readChain = path + read
+                loops.all { loop -> path.any { it === loop } } &&
+                    !inOtherBranch(storeChain, readChain) &&
+                    barriers.none { it.startOffset >= storeEnd && it.endOffset <= readStart } &&
+                    follow(read, path)
+            }
+        }
+
+        private fun isBody(element: FirElement): Boolean = element is FirFunction || element is FirAnonymousInitializer
+
+        // A jump that may leave the code between a store and a read: an
+        // explicit `return` from the store's function or an enclosing one (a
+        // lambda's own `return@label` only ends the lambda), a `throw`, a call
+        // returning Nothing, or a `break`/`continue` of a loop holding the
+        // store (other loops' jumps continue after the loop).
+        private fun isJump(element: FirElement, path: List<FirElement>, storeChain: List<FirElement>): Boolean =
+            when (element) {
+                is FirReturnExpression -> element.source?.kind !is KtFakeSourceElementKind &&
+                    path.drop(1).none { it === element.target.labeledElement }
+                is FirLoopJump -> storeChain.any { it === element.target.labeledElement }
+                is FirThrowExpression -> true
+                is FirFunctionCall -> element.resolvedType.isNothing
+                else -> false
+            }
+
+        // The store and the read sit in different branches of one `if`/`when`,
+        // the store in its branch's body: taking the store's branch skips the
+        // read's.
+        private fun inOtherBranch(storeChain: List<FirElement>, readChain: List<FirElement>): Boolean {
+            for (index in storeChain.indices) {
+                val expression = storeChain[index] as? FirWhenExpression ?: continue
+                val storeBranch = storeChain.getOrNull(index + 1) as? FirWhenBranch ?: continue
+                if (storeChain.getOrNull(index + 2) !== storeBranch.result) continue
+                val readIndex = readChain.indexOfFirst { it === expression }
+                if (readIndex < 0) continue
+                val readBranch = readChain.getOrNull(readIndex + 1) as? FirWhenBranch ?: continue
+                if (readBranch !== storeBranch) return true
+            }
+            return false
+        }
+
+        private fun storedSymbol(assignment: FirVariableAssignment): FirVariableSymbol<*>? =
+            (assignment.lValue as? FirQualifiedAccessExpression)?.calleeReference?.toResolvedCallableSymbol()
+                ?.unwrapFakeOverrides() as? FirVariableSymbol<*>
 
         private fun readSymbol(read: FirExpression): FirBasedSymbol<*>? =
             (read as? FirQualifiedAccessExpression)?.calleeReference?.toResolvedCallableSymbol()?.unwrapFakeOverrides()
 
         // Visits [root] and calls [onRead] with each expression matching
-        // [matches] and its ancestors below [root]; true when one returns true.
+        // [matches] and its ancestors from [root] down; true when one returns
+        // true.
         private fun anyRead(
             root: FirElement,
             matches: (FirExpression) -> Boolean,
             onRead: (FirExpression, List<FirElement>) -> Boolean,
-        ): Boolean {
+        ): Boolean = visit(root) { element, path -> element is FirExpression && matches(element) && onRead(element, path) }
+
+        // Visits [root] and calls [onElement] with each element and its
+        // ancestors from [root] down, stopping when it returns true; true when
+        // one did. The ancestor list is only valid during the call.
+        private fun visit(root: FirElement, onElement: (FirElement, List<FirElement>) -> Boolean): Boolean {
             var found = false
             root.accept(object : FirVisitorVoid() {
                 private val ancestors = ArrayList<FirElement>()
                 override fun visitElement(element: FirElement) {
                     if (found) return
-                    if (element is FirExpression && matches(element) && onRead(element, ancestors.toList())) {
+                    if (onElement(element, ancestors)) {
                         found = true
                         return
                     }

@@ -110,3 +110,20 @@ fun localOwners() {
     }
     <!PrintStackTrace!>LocalFailure().printStackTrace()<!>
 }
+
+// The caught variable wrapped in parentheses, `!!`, or a cast, and the
+// implicit extension receiver: each receiver is the Throwable. Go misses them
+// because the receiver is not the bare catch variable.
+fun wrappedReceivers(work: () -> Unit) {
+    try {
+        work()
+    } catch (e: Exception) {
+        <!PrintStackTrace!>(e).printStackTrace()<!>
+        <!PrintStackTrace!>e!!.printStackTrace()<!>
+        <!PrintStackTrace!>(e as Throwable).printStackTrace()<!>
+    }
+}
+
+fun Throwable.dump() {
+    <!PrintStackTrace!>printStackTrace()<!>
+}

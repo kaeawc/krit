@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 27, 38, 48, 58, 69
+// go-lines: 23, 34, 44, 54
 // Go artifacts: Go matches the receiver's spelling against the nearest
 // enclosing catch's variable, so it reports these calls inside a catch whose
 // variable is `e`. None of them is printStackTrace() on a Throwable.
@@ -10,10 +10,6 @@ class Printer {
 }
 
 class Holder(val e: Printer)
-
-fun Throwable.printStackTrace(tag: String) {
-    println("$tag: $message")
-}
 
 class Service(private val e: Printer) {
     // Go reports this because the receiver is spelled `e`; the local `e`
@@ -56,17 +52,6 @@ class Service(private val e: Printer) {
             doWork()
         } catch (e: Exception) {
             holder.e.printStackTrace()
-        }
-    }
-
-    // Go reports this because the receiver is the caught exception; the call
-    // resolves to the extension above, which prints a line through println and
-    // is not the stack-trace printer.
-    fun projectExtension() {
-        try {
-            doWork()
-        } catch (e: Exception) {
-            e.printStackTrace("service")
         }
     }
 

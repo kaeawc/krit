@@ -11,6 +11,7 @@ import dev.jasonpearson.krit.fir.plugins.PluginRuleRunner
 import dev.jasonpearson.krit.fir.plugins.ProjectPayloads
 import dev.jasonpearson.krit.fir.runner.AnalysisSession
 import dev.jasonpearson.krit.fir.runner.BatchResult
+import dev.jasonpearson.krit.fir.runner.ModuleSpec
 import java.io.File as JavaFile
 import dev.jasonpearson.krit.fir.runner.FileRef
 import dev.jasonpearson.krit.fir.runner.Finding
@@ -26,6 +27,19 @@ fun main(args: Array<String>) {
     if (args.contains("--list-rules")) {
         print(listRulesOutput())
         System.out.flush()
+        exitProcess(0)
+    }
+    extractCliValue(args, "--modules-file")?.let { path ->
+        val request = requireNotNull(parseModuleRequest(JavaFile(path).readText(), oneShot = true)) { "Missing modules" }
+        val session = AnalysisSession(request.sourceDirs, request.classpath)
+        try {
+            val response = buildCheckResponse(session.analyzeModules(request.id, request.modules,
+                request.files.map { it.path }, request.rules.toSet(), request.ruleConfigs, request.testFiles, request.scanPaths))
+            val output = extractCliValue(args, "--output", "-o")
+            if (output == null) println(response) else JavaFile(output).writeText(response)
+        } finally {
+            session.dispose()
+        }
         exitProcess(0)
     }
     val daemon = args.contains("--daemon")
@@ -102,6 +116,7 @@ private fun printOneShotUsage() {
         """
         |Usage:
         |  krit-fir --daemon [--port N]
+        |  krit-fir --modules-file JSON [--output FILE]
         |  krit-fir --sources DIR[,DIR...] --output FILE
         |           [--files LIST_FILE] [--classpath JAR[${java.io.File.pathSeparatorChar}JAR...]]
         |           [--cache-deps-out FILE]
@@ -241,11 +256,14 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
 
     return try {
         when (request.command) {
-            "check" -> {
+            "check", "analyzeModules" -> {
+                if (request.modules.isNotEmpty()) {
+                    return RequestResult.Response(buildCheckResponse(session.analyzeModules(request.id, request.modules,
+                        request.files.map { it.path }, request.rules.toSet(), request.ruleConfigs, request.testFiles, request.scanPaths)))
+                }
                 val needsRebuild = sessionNeedsRebuild(request, session)
                 val activeSession = if (needsRebuild) {
-                    session.dispose()
-                    AnalysisSession(request.sourceDirs, request.classpath)
+                    session.rebuild(request.sourceDirs, request.classpath)
                 } else {
                     session
                 }
@@ -261,8 +279,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
             }
             "rebuild" -> {
                 val start = System.currentTimeMillis()
-                session.dispose()
-                val newSession = AnalysisSession(request.sourceDirs, request.classpath)
+                val newSession = session.rebuild(request.sourceDirs, request.classpath)
                 val elapsed = System.currentTimeMillis() - start
                 RequestResult.SessionRebuilt(
                     """{"id":${request.id},"result":{"ok":true,"sessionRebuildMs":$elapsed}}""",
@@ -277,8 +294,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
             "analyze", "analyzeAll", "analyzeFiles", "analyzeWithDeps" -> {
                 val needsRebuild = sessionNeedsRebuild(request, session)
                 val activeSession = if (needsRebuild) {
-                    session.dispose()
-                    AnalysisSession(request.sourceDirs, request.classpath)
+                    session.rebuild(request.sourceDirs, request.classpath)
                 } else {
                     session
                 }
@@ -316,8 +332,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
             "analyzeFile" -> {
                 val needsRebuild = sessionNeedsRebuild(request, session)
                 val activeSession = if (needsRebuild) {
-                    session.dispose()
-                    AnalysisSession(request.sourceDirs, request.classpath)
+                    session.rebuild(request.sourceDirs, request.classpath)
                 } else {
                     session
                 }
@@ -388,9 +403,11 @@ data class CheckRequest(
     // it's available and null when the project doesn't have any
     // (e.g. NEEDS_MANIFEST on a pure-Kotlin library).
     val projectPayloads: ProjectPayloads = ProjectPayloads.EMPTY,
+    val modules: List<ModuleSpec> = emptyList(),
 )
 
 fun parseRequest(request: String): CheckRequest {
+    if ("\"modules\"" in request) parseModuleRequest(request)?.let { return it }
     val ruleConfigs = parseFirRuleConfigs(request)
     val testFiles = parseFirTestFiles(request)
     val scanPaths = parseFirScanPaths(request)
@@ -513,7 +530,14 @@ fun buildCheckResponse(result: BatchResult): String {
     }
 
     val rulesJson = result.rules.joinToString(",", "[", "]") { jsonStr(it) }
-    return """{"id":${result.id},"succeeded":${result.succeeded},"skipped":${result.skipped},"findings":[$findingsJson],"rules":$rulesJson,"crashed":$crashedJson,"errorFiles":$errorFilesJson,"ruleErrors":$ruleErrorsJson}"""
+    val moduleJson = if (result.modules.isEmpty()) "" else {
+        val statuses = result.modules.joinToString(",", "[", "]") {
+            """{"id":${jsonStr(it.id)},"mode":${jsonStr(it.mode)},"firstError":${it.firstError?.let(::jsonStr) ?: "null"}}"""
+        }
+        val deciding = result.decidingModules.entries.joinToString(",", "{", "}") { (path, module) -> "${jsonStr(path)}:${jsonStr(module)}" }
+        """, "modules":$statuses,"decidingModules":$deciding"""
+    }
+    return """{"id":${result.id},"succeeded":${result.succeeded},"skipped":${result.skipped},"findings":[$findingsJson],"rules":$rulesJson,"crashed":$crashedJson,"errorFiles":$errorFilesJson,"ruleErrors":$ruleErrorsJson$moduleJson}"""
 }
 
 // ── Minimal JSON parsing (no external deps) ───────────────────────────────────

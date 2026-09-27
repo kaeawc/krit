@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.FirRuleContext
 import dev.jasonpearson.krit.fir.FirRuleDiscovery
 import dev.jasonpearson.krit.fir.FirRuleErrorRecorder
 import dev.jasonpearson.krit.fir.FirRuleErrors
+import dev.jasonpearson.krit.fir.isIsolatable
 import dev.jasonpearson.krit.fir.oracle.AnalyzeResult
 import dev.jasonpearson.krit.fir.oracle.OracleCollector
 import dev.jasonpearson.krit.fir.oracle.OracleCollectorRegistry
@@ -12,6 +13,9 @@ import dev.jasonpearson.krit.fir.oracle.OracleDiagnosticMessageCollector
 import dev.jasonpearson.krit.fir.oracle.OracleResponse
 import org.jetbrains.kotlin.cli.common.ExitCode
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
+import org.jetbrains.kotlin.cli.common.messages.MessageCollector
+import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
+import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSourceLocation
 import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 import org.jetbrains.kotlin.config.Services
 import java.io.File
@@ -45,6 +49,12 @@ data class BatchResult(
     // there. The compile went on; only that rule's verdict for that file is
     // not authoritative.
     val ruleErrors: Map<String, Map<String, String>> = emptyMap(),
+    val modules: List<ModuleStatus> = emptyList(),
+    val decidingModules: Map<String, String> = emptyMap(),
+    // Includes diagnostics outside the requested subset, for output validity.
+    val firstCompilerError: String? = null,
+    internal val ownedCompilerError: String? = null,
+    internal val compilerCrashed: Boolean = false,
 )
 
 // Holds the current session config. When sourceDirs or classpath change the Go side sends a
@@ -111,11 +121,23 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         testFiles: Set<String> = emptySet(),
         scanPaths: Map<String, String> = emptyMap(),
     ): BatchResult {
-        val (excluded, compiled) = files.partition { isScript(it.path) || excludedFromJvmCompilation(it.path) }
+        return checkCompilation(id, files, enabledRules, ruleConfigs, testFiles, scanPaths)
+    }
+
+    internal fun checkCompilation(
+        id: Long, files: List<FileRef>, enabledRules: Set<String>,
+        ruleConfigs: Map<String, Map<String, Any?>>,
+        testFiles: Set<String>, scanPaths: Map<String, String>,
+        module: ModuleCompilation? = null,
+        ownedSources: Set<String> = emptySet(),
+    ): BatchResult {
+        val (excluded, compiled) = files.partition {
+            isScript(it.path) || (module == null && excludedFromJvmCompilation(it.path))
+        }
         val errorFiles = linkedMapOf<String, String>()
         for (ref in excluded) errorFiles[ref.path] = if (isScript(ref.path)) SCRIPT_NOT_COMPILED else NOT_IN_JVM_COMPILATION
         val enabled = FirRuleDiscovery.enabled(FirRuleCompileContext(enabledRules))
-        if (compiled.isEmpty()) {
+        if (compiled.isEmpty() && module == null) {
             return BatchResult(
                 id = id, succeeded = 0, skipped = excluded.size, findings = emptyList(),
                 crashed = emptyMap(), rules = enabled.map { it.ruleId }, errorFiles = errorFiles,
@@ -124,44 +146,26 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         val requestedPaths = compiled.associateBy { File(it.path).canonicalPath }
             .mapValues { it.value.path }
 
-        val collector = FindingCollector(requestedPaths, enabledRules)
-        val ruleErrorRecorder = FirRuleErrorRecorder()
-        val outDir = Files.createTempDirectory("krit-fir-out-").toFile()
+        val collector = FindingCollector(requestedPaths, enabledRules, ownedSources)
+        val ruleErrorRecorder = FirRuleErrorRecorder(if (module == null) null else compiled.mapTo(HashSet()) { it.path })
+        val outDir = module?.output ?: Files.createTempDirectory("krit-fir-out-").toFile()
 
-        FirRuleContext.begin(
-            FirRuleCompileContext(
-                enabledRules, ruleConfigs, testFiles = testFiles,
-                files = compiled.mapTo(LinkedHashSet()) { it.path }, scanPaths = scanPaths,
-            ),
+        val ruleContext = FirRuleCompileContext(
+            enabledRules, ruleConfigs, testFiles = testFiles,
+            files = compiled.mapTo(LinkedHashSet()) { it.path }, scanPaths = scanPaths,
         )
         val exitCode = try {
-            FirRuleErrors.begin(ruleErrorRecorder)
-            val args = K2JVMCompilerArguments().apply {
-                freeArgs = compilationFiles(compiled.map { it.path })
-                // Go sends the JVM-scoped source roots (non-JVM KMP sets dropped,
-                // oracle.FindSourceDirs) and never requests files from dropped
-                // roots, and excludedFromJvmCompilation drops any that still
-                // arrive, so this compiles common + JVM sources the way the
-                // oracle's analyzeFull does.
-                MultiplatformSources.configure(this, this@AnalysisSession.sourceDirs, freeArgs)
-                this.classpath = effectiveClasspath(this@AnalysisSession.classpath).joinToString(File.pathSeparator)
-                destination = outDir.absolutePath
-                noStdlib = true
-                noReflect = true
-                suppressWarnings = false
-                // Without this K2 drops every warning, rule findings included,
-                // once any file in the module has an error. Go would then read
-                // the error-free files as checked and clean.
-                reportAllWarnings = true
-                if (selfJar != null) {
-                    pluginClasspaths = arrayOf(selfJar)
-                }
-            }
-            K2JVMCompiler().exec(collector, Services.EMPTY, args)
+            val args = compilationArguments(module?.sources ?: compilationFiles(compiled.map { it.path }), outDir, module)
+            compileModule(args, listOf(collector), listOf(
+                CompilationContext({ FirRuleContext.begin(ruleContext) }, { FirRuleContext.end() }),
+                CompilationContext({ FirRuleErrors.begin(ruleErrorRecorder) }, { FirRuleErrors.end() }),
+            ), skipEmptySources = true)
+        } catch (e: Exception) {
+            if (module == null || !isIsolatable(e)) throw e
+            collector.exceptions += (e.message ?: e.javaClass.name)
+            ExitCode.INTERNAL_ERROR
         } finally {
-            outDir.deleteRecursively()
-            FirRuleErrors.end()
-            FirRuleContext.end()
+            if (module == null) outDir.deleteRecursively()
         }
 
         val crashMessage = collector.exceptions.firstOrNull()
@@ -181,6 +185,10 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
             rules = enabled.map { it.ruleId },
             errorFiles = errorFiles,
             ruleErrors = requestedRuleErrors(ruleErrorRecorder.snapshot(), requestedPaths, compiled),
+            ownedCompilerError = crashMessage ?: collector.globalErrors.firstOrNull() ?: collector.ownedError,
+            compilerCrashed = crashMessage != null,
+            firstCompilerError = crashMessage ?: collector.firstError
+                ?: if (exitCode != ExitCode.OK) "Compiler exited with $exitCode" else null,
         )
     }
 
@@ -257,39 +265,16 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
     fun analyzeFull(files: List<String>): AnalyzeOutcome {
         val collector = OracleCollector()
         val outDir = Files.createTempDirectory("krit-fir-oracle-out-").toFile()
-        OracleCollectorRegistry.begin(collector)
-        FirRuleContext.begin(FirRuleCompileContext(noneEnabled = true))
         try {
-            val args = K2JVMCompilerArguments().apply {
-                freeArgs = compilationFiles(files)
-                MultiplatformSources.configure(this, this@AnalysisSession.sourceDirs, freeArgs)
-                this.classpath = effectiveClasspath(this@AnalysisSession.classpath).joinToString(File.pathSeparator)
-                destination = outDir.absolutePath
-                noStdlib = true
-                noReflect = true
-                // `suppressWarnings = false` + `reportAllWarnings = true`
-                // so K2 emits warning-level diagnostics through the message
-                // collector even when compilation also finds an error. The
-                // plugin's `KritFirCheckers` adds K2's `UnreachableCodeChecker`
-                // to its own control-flow checker set so UNREACHABLE_CODE lands
-                // here too — the checker lives in the experimental package by
-                // default and is not on the standard pipeline. The retained
-                // factories are all standard-pipeline warnings, so K2's extended
-                // checkers stay off (they would only add USELESS_CALL_ON_NOT_NULL,
-                // which no rule consumes yet).
-                suppressWarnings = false
-                reportAllWarnings = true
-                if (selfJar != null) {
-                    pluginClasspaths = arrayOf(selfJar)
-                }
-            }
+            val args = compilationArguments(compilationFiles(files), outDir)
             val pathByCanonical = args.freeArgs.associateBy { File(it).canonicalPath }
                 .mapValues { it.value }
-            K2JVMCompiler().exec(OracleDiagnosticMessageCollector(collector, pathByCanonical), Services.EMPTY, args)
+            compileModule(args, listOf(OracleDiagnosticMessageCollector(collector, pathByCanonical)), listOf(
+                CompilationContext({ OracleCollectorRegistry.begin(collector) }, { OracleCollectorRegistry.end() }),
+                CompilationContext({ FirRuleContext.begin(FirRuleCompileContext(noneEnabled = true)) }, { FirRuleContext.end() }),
+            ))
         } finally {
             outDir.deleteRecursively()
-            OracleCollectorRegistry.end()
-            FirRuleContext.end()
         }
         val tracker = collector.depTracker
         return AnalyzeOutcome(
@@ -302,7 +287,82 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         )
     }
 
-    fun dispose() {} // No long-lived JVM resources.
+    /** Shared defaults for legacy oracle/checker and module compiles. Output ownership stays with the caller. */
+    private fun compilationArguments(
+        sources: List<String>, output: File, module: ModuleCompilation? = null,
+    ): K2JVMCompilerArguments = K2JVMCompilerArguments().apply {
+        freeArgs = sources
+        if (module == null) MultiplatformSources.configure(this, sourceDirs, freeArgs)
+        classpath = effectiveClasspath(this@AnalysisSession.classpath).joinToString(File.pathSeparator)
+        destination = output.absolutePath
+        noStdlib = true
+        noReflect = true
+        // Keep warning diagnostics (including rule findings) even when another file has errors.
+        // Extended compiler checkers remain off, preserving the oracle's diagnostic subset.
+        suppressWarnings = false
+        reportAllWarnings = true
+        if (selfJar != null) pluginClasspaths = arrayOf(selfJar)
+        module?.configure(this)
+    }
+
+    /** A caller-supplied registry scope; the execution seam knows nothing about its payload. */
+    private class CompilationContext(val begin: () -> Unit, val end: () -> Unit)
+
+    /**
+     * The single embedded-compiler execution seam. Arguments carry destination and backend
+     * options; this function never clears/deletes outputs. Callers can supply several message
+     * collectors and registry contexts together without changing the execution lifecycle.
+     * A future frontend-only backend can be selected here without changing either caller.
+     */
+    private fun compileModule(
+        args: K2JVMCompilerArguments,
+        collectors: List<MessageCollector>,
+        contexts: List<CompilationContext>,
+        skipEmptySources: Boolean = false,
+    ): ExitCode {
+        val messages = object : MessageCollector {
+            override fun clear() = collectors.forEach { it.clear() }
+            override fun hasErrors() = collectors.any { it.hasErrors() }
+            override fun report(severity: CompilerMessageSeverity, message: String, location: CompilerMessageSourceLocation?) =
+                collectors.forEach { it.report(severity, message, location) }
+        }
+        fun execute(index: Int): ExitCode {
+            if (index == contexts.size) {
+                // Module/check requests with no sources must not enter the compiler REPL.
+                return if (skipEmptySources && args.freeArgs.isEmpty()) ExitCode.OK
+                else K2JVMCompiler().exec(messages, Services.EMPTY, args)
+            }
+            val context = contexts[index]
+            context.begin()
+            return try { execute(index + 1) } finally { context.end() }
+        }
+        return execute(0)
+    }
+
+    private var retainedModuleRunner: ModuleRunner? = null
+    internal val moduleRunner: ModuleRunner get() = retainedModuleRunner ?: ModuleRunner().also { retainedModuleRunner = it }
+
+    internal fun rebuild(sourceDirs: List<String>, classpath: List<String>): AnalysisSession =
+        AnalysisSession(sourceDirs, classpath).also {
+            it.retainedModuleRunner = retainedModuleRunner
+            retainedModuleRunner = null
+        }
+
+    fun analyzeModules(
+        id: Long, modules: List<ModuleSpec>, checkFiles: List<String>, enabledRules: Set<String>,
+        ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),
+        testFiles: Set<String> = emptySet(), scanPaths: Map<String, String> = emptyMap(),
+    ): BatchResult = if (modules.isEmpty()) {
+        check(id, checkFiles.map { FileRef(it) }, enabledRules, ruleConfigs, testFiles, scanPaths)
+    } else {
+        moduleRunner.check(id, modules, checkFiles, enabledRules, ruleConfigs, testFiles, scanPaths)
+    }
+
+    internal val moduleCompilationCounts: Map<String, Int> get() = moduleRunner.compilationCounts
+
+    internal val moduleOutputDirectories: Map<String, File> get() = moduleRunner.outputDirectories
+
+    fun dispose() { retainedModuleRunner?.dispose(); retainedModuleRunner = null }
 
     companion object {
         internal const val SCRIPT_NOT_COMPILED =

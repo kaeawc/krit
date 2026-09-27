@@ -488,6 +488,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	in := pipeline.ProjectInput{
 		Args: pipeline.ProjectArgs{
 			Config:           cfg,
+			OracleClasspath:  args.OracleClasspath,
 			Paths:            paths,
 			KotlinPaths:      kotlinPaths,
 			JavaPaths:        javaPaths,
@@ -581,6 +582,7 @@ func firFindingsPostPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *co
 	}
 	return func(parsed pipeline.ParseResult, findings []scanner.Finding) []scanner.Finding {
 		checker := scan.NewFIRChecker(paths, cfg, !args.NoFirDaemon, false)
+		checker.Classpath = args.OracleClasspath
 		return firchecks.RunPass(firchecks.PassOptions{
 			Enabled:          true,
 			Checker:          checker,

@@ -695,6 +695,7 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		IncludeColumns:   includeColumns,
 		OracleBackend:    *f.OracleBackend,
 		Fir:              *f.Fir && !*f.NoFir,
+		OracleClasspath:  effectiveOracleClasspath(f.modelClasspath, loadScanConfig(f)),
 		NoFirDaemon:      *f.NoFirDaemon,
 		ClientBinaryHash: daemonclient.CurrentBinaryHash(),
 	}

@@ -1180,7 +1180,7 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		in.reportMissingOracleJar(jarErr)
 		return ""
 	}
-	storeScope := oracle.NewStoreScope(backend, jarPath)
+	storeScope := oracle.NewStoreScope(backend, jarPath, in.OracleClasspath)
 	perf.AddEntryDetails(jvmTracker, "sourceDirsFound", 0, map[string]int64{"sourceDirs": int64(len(sourceDirs))}, nil)
 	var cacheDest string
 	jvmTracker.TrackVoid("resolveOracleCachePath", func() {
@@ -1230,7 +1230,7 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		DeclarationProfile: &declarationProfileSummary,
 		DisableDiagnostics: !oracleDiagnosticsRequired(in, oracleRules),
 		ForcedMisses:       in.StaleOraclePaths,
-		// Forwards `oracle.classpath` + CLASSPATH env to the spawned
+		// Forwards the model, config, and environment classpath to the spawned
 		// JVM. Both krit-types and krit-fir parse `--classpath` on
 		// their one-shot CLI, so the same args vector drives either
 		// backend. Empty preserves source-tree discovery.
@@ -1278,7 +1278,7 @@ func cachedTypesJSONSatisfies(in IndexInput, oracleRules []*api.Rule, path strin
 	if err != nil || jarPath == "" {
 		return false
 	}
-	scope := oracle.NewStoreScope(used, jarPath)
+	scope := oracle.NewStoreScope(used, jarPath, in.OracleClasspath)
 	return oracle.TypesJSONSatisfies(path, oracleDiagnosticsRequired(in, oracleRules), scope, buildid.Token())
 }
 

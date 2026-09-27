@@ -24,6 +24,7 @@ type typesFactsRecord struct {
 	TypesModNanos      int64  `json:"typesModNanos"`
 	Backend            string `json:"backend"`
 	JarToken           string `json:"jarToken"`
+	ClasspathToken     string `json:"classpathToken"`
 	BuildToken         string `json:"buildToken"`
 }
 
@@ -45,6 +46,7 @@ func RecordTypesFacts(typesPath string, diagnosticsOmitted bool, scope ...StoreS
 	if len(scope) > 0 {
 		rec.Backend = scope[0].Backend.String()
 		rec.JarToken = scope[0].JarToken
+		rec.ClasspathToken = scope[0].ClasspathToken
 	}
 	body, err := json.Marshal(rec)
 	if err != nil {
@@ -66,7 +68,7 @@ func TypesJSONHasDiagnostics(typesPath string) bool {
 // jar, and Krit build that produced a cached types.json.
 func TypesJSONSatisfies(typesPath string, diagnosticsRequired bool, scope StoreScope, buildToken string) bool {
 	rec, ok := readTypesFacts(typesPath)
-	return ok && rec.Backend == scope.Backend.String() && rec.JarToken == scope.JarToken &&
+	return ok && rec.Backend == scope.Backend.String() && rec.JarToken == scope.JarToken && rec.ClasspathToken == scope.ClasspathToken &&
 		rec.BuildToken == buildToken && (!diagnosticsRequired || !rec.DiagnosticsOmitted)
 }
 

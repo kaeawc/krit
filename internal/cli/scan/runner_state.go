@@ -486,7 +486,7 @@ func (r *runner) runOracleIndex() (int, error) {
 			err = oracleBackendErr
 			return
 		}
-		oracleClasspath := resolveOracleClasspath(r.cfg)
+		oracleClasspath := effectiveOracleClasspath(r.f.modelClasspath, r.cfg)
 		in := pipeline.IndexInput{
 			ParseResult:       pipeline.ParseResult{ActiveRules: r.activeRules},
 			Reporter:          r.reporter,
@@ -634,6 +634,7 @@ func (r *runner) firCheckAndCollect() {
 		}
 		if enabled {
 			checker := NewFIRChecker(r.paths, r.cfg, !*r.f.NoFirDaemon, *r.f.Verbose)
+			checker.Classpath = effectiveOracleClasspath(r.f.modelClasspath, r.cfg)
 			opts.Checker, opts.SourceDirs, opts.Classpath = checker, checker.SourceDirs, checker.Classpath
 		}
 		r.allFindings = runFIRCheckerPass(opts, r.allFindings)

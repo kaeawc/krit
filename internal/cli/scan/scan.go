@@ -246,6 +246,14 @@ func Run() int {
 	if tryDaemonClearMatrixCache(f, repoDir) {
 		return 0
 	}
+	if !*f.Init && !*f.Version && *f.Completions == "" {
+		model, err := loadGradleClasspath(flag.Args(), *f.GradleModel, *f.NoGradleModel, *f.Verbose, os.Stderr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 2
+		}
+		f.modelClasspath = model
+	}
 	if handled, code := tryDaemonDelegate(f, flag.Args(), repoDir); handled {
 		return code
 	}

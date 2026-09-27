@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/kaeawc/krit/internal/buildid"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/store"
 )
@@ -12,13 +13,21 @@ import (
 // StoreScope fixes the backend identity for one oracle invocation. In
 // particular, queued writes retain this value if the jar changes on disk.
 type StoreScope struct {
-	Backend  Backend
-	JarToken string
-	version  [16]byte
+	Backend        Backend
+	JarToken       string
+	ClasspathToken string
+	version        [16]byte
 }
 
-func NewStoreScope(backend Backend, jarPath string) StoreScope {
-	return storeScopeForToken(backend, buildid.JarToken(jarPath))
+func NewStoreScope(backend Backend, jarPath string, classpath ...[]string) StoreScope {
+	scope := storeScopeForToken(backend, buildid.JarToken(jarPath))
+	if len(classpath) == 0 || len(classpath[0]) == 0 {
+		return scope
+	}
+	scope.ClasspathToken = gradlemodel.ClasspathFingerprint(classpath[0])
+	h := hashutil.HashBytes([]byte(fmt.Sprintf("oracle-v%d|%s:%s:%s", CacheVersion, backend.String(), scope.JarToken, scope.ClasspathToken)))
+	copy(scope.version[:], h[:])
+	return scope
 }
 
 func storeScopeForToken(backend Backend, jarToken string) StoreScope {

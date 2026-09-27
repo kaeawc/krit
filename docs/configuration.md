@@ -161,3 +161,14 @@ krit --config detekt.yml .
 ```
 
 Overlapping rules keep the same names and compatible keys, but behavior isn't guaranteed identical in every edge case — sanity-check a few files after migration.
+
+## Gradle model
+
+`./gradlew kritExportModel` writes `.krit/gradle-model/` with each Gradle
+project's source sets and compiler classpaths. Krit discovers this directory
+from the nearest Gradle settings root when scanning a project. Use
+`--gradle-model DIR` to select a directory explicitly, or `--no-gradle-model`
+to disable discovery. An explicit directory takes precedence when both flags
+are set. Existing boot classpath entries come first, then model classpath
+entries, `oracle.classpath` from `krit.yml`, and finally the `CLASSPATH`
+environment variable. Duplicate paths keep their first position.

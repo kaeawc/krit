@@ -40,6 +40,8 @@ type LibraryFactsCache = XFileCache[*librarymodel.Facts]
 type ProjectArgs struct {
 	// Config is the loaded krit.yml / .krit.yml. Required.
 	Config *config.Config
+	// OracleClasspath is the caller-resolved compile classpath.
+	OracleClasspath []string
 	// Paths are the scan target paths (files or directories). Required.
 	Paths []string
 	// KotlinPaths, when non-nil, are the already-collected Kotlin
@@ -986,6 +988,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		ModuleJobsFlag:      args.Workers,
 		ModuleHasAwareRule:  hasModuleAwareRule,
 		InputTypesPath:      args.InputTypesPath,
+		OracleClasspath:     args.OracleClasspath,
 		Thorough:            args.TargetedResolution,
 	}
 	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)

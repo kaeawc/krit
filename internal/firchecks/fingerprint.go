@@ -10,6 +10,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/buildid"
 	"github.com/kaeawc/krit/internal/cache"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/oracle"
 )
@@ -106,7 +107,7 @@ func FirInvocationFingerprint(classpath []string, jarPath string, rules []string
 	if err != nil {
 		testsJSON = []byte(fmt.Sprintf("unencodable:%v", err))
 	}
-	fingerprint := cache.ComputeCacheKeyHash(nil, nil, false) + "\x00" + ClasspathFingerprint(classpath) + "\x00" + jarIdentity + "\x00" +
+	fingerprint := cache.ComputeCacheKeyHash(nil, nil, false) + "\x00" + ClasspathFingerprint(classpath) + "\x00" + gradlemodel.ClasspathFingerprint(classpath) + "\x00" + jarIdentity + "\x00" +
 		strings.Join(ids, "\x00") + "\x00" + string(options) + "\x00" + string(testsJSON)
 	if len(facts.ScanPaths) > 0 {
 		// encoding/json sorts the keys. Appended only when present, so a

@@ -46,6 +46,18 @@ class NetworkClient {
         }
     }
 
+    // Checking the unwrapped cause for a specific exception is a legitimate
+    // cause-chain branch and is not the catch-parameter narrowing smell.
+    fun causeUnwrap() {
+        try {
+            loadFromNetwork()
+        } catch (e: Exception) {
+            if (e.cause is IOException) {
+                println("network cause")
+            }
+        }
+    }
+
     fun classify(): String {
         try {
             return loadFromNetwork()

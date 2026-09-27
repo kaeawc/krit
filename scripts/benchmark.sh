@@ -19,7 +19,7 @@ echo "  Project: $PROJECT"
 echo "  Source files: $SOURCE_FILES"
 echo ""
 
-ARGS="-f json -no-cache -no-type-inference -no-type-oracle -q"
+ARGS="--no-fir -f json -no-cache -no-type-inference -no-type-oracle -q"
 if [ -n "$CONFIG" ]; then
     ARGS="$ARGS -config $CONFIG"
 fi

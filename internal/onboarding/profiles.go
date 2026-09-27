@@ -164,6 +164,7 @@ func ScanProfile(ctx context.Context, opts ScanOptions, profile string) (*ScanRe
 	}
 
 	cmd := exec.CommandContext(ctx, opts.KritBin,
+		"--no-fir",
 		"--config", configPath,
 		"-f", "json",
 		opts.Target,
@@ -219,6 +220,7 @@ func ScanProfileWithProgress(
 	}
 
 	cmd := exec.CommandContext(ctx, opts.KritBin,
+		"--no-fir",
 		"-v",
 		"--config", configPath,
 		"-f", "json",

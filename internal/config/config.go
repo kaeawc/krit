@@ -63,6 +63,24 @@ type OracleConfig struct {
 	Classpath []string
 }
 
+// FIRConfig controls which Go findings retain authority after a FIR pass.
+type FIRConfig struct {
+	GoAuthoritativeRules []string
+}
+
+// HasTopLevelOption distinguishes a declared empty list from an absent key.
+func (c *Config) HasTopLevelOption(section, key string) bool {
+	if c == nil {
+		return false
+	}
+	_, ok := lookupValue(c.data, section, key)
+	return ok
+}
+
+func (c *Config) FIR() FIRConfig {
+	return FIRConfig{GoAuthoritativeRules: c.GetTopLevelStringList("fir", "goAuthoritativeRules")}
+}
+
 // NewConfig creates an empty Config.
 func NewConfig() *Config {
 	return &Config{data: make(map[string]interface{})}

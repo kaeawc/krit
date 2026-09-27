@@ -40,3 +40,15 @@ func TestBuildDaemonAnalyzeArgs_ForwardsFir(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildDaemonAnalyzeArgs_ForwardsGradlePreflight(t *testing.T) {
+	f := freshScanFlags(t)
+	*f.GradleModel = "/tmp/explicit-model"
+	*f.NoGradleModel = true
+	f.firPreflightPassed = true
+	f.modelClasspath = []string{"/tmp/model.jar"}
+	args := buildDaemonAnalyzeArgs(f, []string{"/tmp"})
+	if args.GradleModel != *f.GradleModel || !args.NoGradleModel || !args.FirPreflightPassed || len(args.OracleClasspath) == 0 {
+		t.Fatalf("forwarded args: %+v", args)
+	}
+}

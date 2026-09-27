@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -18,6 +19,22 @@ import (
 )
 
 const verdictRule = "InjectDispatcher"
+
+func TestRunPassGoAuthoritativeRulesKeepGoFinding(t *testing.T) {
+	p := newVerdictProject(t, map[string]string{"A.kt": "fun f() = run(Dispatchers.IO)\n"}, nil)
+	base := []scanner.Finding{p.at("A.kt", "Dispatchers.IO", verdictRule, "Go finding")}
+	checker := NewFakeFirChecker() // An empty FIR verdict would suppress this Go finding.
+	cfg := config.NewConfigFromData(map[string]interface{}{
+		"fir": map[string]interface{}{"goAuthoritativeRules": []interface{}{verdictRule}},
+	})
+	got := RunPass(PassOptions{
+		Enabled: true, Checker: checker, ActiveRules: []*api.Rule{{ID: verdictRule}},
+		Config: cfg, ParsedFiles: p.files(), KotlinPaths: []string{"A.kt"},
+	}, base)
+	if !reflect.DeepEqual(got, base) {
+		t.Fatalf("Go finding changed: got %v, want %v", got, base)
+	}
+}
 
 // verdictProject is a scan fixture: parsed Kotlin files spelled relative to
 // the working directory (as a `krit .` scan spells them), plus helpers to

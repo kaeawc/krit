@@ -252,7 +252,7 @@ func runKrit(root string, c availableCorpus) (snapshotFile, error) {
 		return snapshotFile{}, fmt.Errorf("error: corpus %s path is not a directory: %s", c.Name, c.ScanPath)
 	}
 
-	args := []string{"-f", "json", "--no-cache", "--no-daemon", "--base-path", c.ScanPath}
+	args := []string{"-f", "json", "--no-cache", "--no-daemon", "--no-fir", "--base-path", c.ScanPath}
 	args = append(args, c.Flags...)
 	args = append(args, c.ScanPath)
 	cmd := exec.CommandContext(context.Background(), krit, args...)

@@ -72,6 +72,7 @@ class KritPlugin : Plugin<Project> {
         // Set conventions (defaults)
         extension.ignoreFailures.convention(false)
         extension.exportModel.convention(true)
+        extension.fir.convention(true)
         extension.exportGenerated.convention(false)
         extension.androidVariant.convention("debug")
         extension.advanced.toolVersion.convention(KRIT_DEFAULT_VERSION)
@@ -137,6 +138,7 @@ class KritPlugin : Plugin<Project> {
             parallel.convention(advanced.parallel)
             noCache.convention(advanced.noCache)
             typeInference.convention(advanced.typeInference)
+            fir.convention(extension.fir)
             customRuleJars.from(extension.customRuleJars)
             // Wire reports from extension
             sarifRequired.convention(extension.reports.sarif.required)
@@ -294,6 +296,13 @@ class KritPlugin : Plugin<Project> {
                 }
                 if (dirs.isNotEmpty()) {
                     project.tasks.register("kritCheck${candidate.replaceFirstChar(Char::uppercase)}", KritCheckTask::class.java) {
+                        dependsOn(extension.exportModel.map { enabled ->
+                            if (enabled) listOf(project.tasks.named("kritExportModel")) else emptyList<Any>()
+                        })
+                        modelFile.from(project.provider {
+                            if (extension.exportModel.get()) project.tasks.named("kritExportModel", KritExportModelTask::class.java).flatMap { it.outputFile }
+                            else emptyList<Any>()
+                        })
                         setSource(project.files(dirs))
                         sourceRoots.from(dirs)
                         description = "Run krit analysis on the '$candidate' variant sources"
@@ -608,6 +617,13 @@ class KritPlugin : Plugin<Project> {
             dependsOn(extension.exportModel.map { enabled ->
                 if (enabled) listOf(export) else emptyList<Any>()
             })
+            // A whole-directory input would read other projects' outputs and break
+            // isolated configuration. Cache invalidation is project-local here;
+            // export all models first when relying on cross-project model changes.
+            (this as KritCheckTask).modelFile.from(project.provider {
+                if (extension.exportModel.get()) export.flatMap { it.outputFile }
+                else emptyList<Any>()
+            })
         }
     }
 
@@ -651,6 +667,13 @@ class KritPlugin : Plugin<Project> {
                             val taskName = "kritCheck${name.replaceFirstChar { it.uppercase() }}"
                             if (project.tasks.findByName(taskName) == null) {
                                 project.tasks.register(taskName, KritCheckTask::class.java) {
+                                    dependsOn(extension.exportModel.map { enabled ->
+                                        if (enabled) listOf(project.tasks.named("kritExportModel")) else emptyList<Any>()
+                                    })
+                                    modelFile.from(project.provider {
+                                        if (extension.exportModel.get()) project.tasks.named("kritExportModel", KritExportModelTask::class.java).flatMap { it.outputFile }
+                                        else emptyList<Any>()
+                                    })
                                     setSource(project.files(kotlinDirs))
                                     sourceRoots.from(kotlinDirs)
                                     description = "Run krit analysis on the '$name' source set"

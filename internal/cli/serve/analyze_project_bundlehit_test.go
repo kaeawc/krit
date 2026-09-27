@@ -20,7 +20,7 @@ func TestAnalyzeProject_BundleHitOnIdenticalSecondCall(t *testing.T) {
 
 	var first daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &first); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &first); err != nil {
 		t.Fatalf("first call: %v", err)
 	}
 	if first.Stats.FindingsBundleHit {
@@ -29,7 +29,7 @@ func TestAnalyzeProject_BundleHitOnIdenticalSecondCall(t *testing.T) {
 
 	var second daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &second); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &second); err != nil {
 		t.Fatalf("second call: %v", err)
 	}
 	if !second.Stats.FindingsBundleHit {
@@ -50,7 +50,7 @@ func TestAnalyzeProject_BodyOnlyEditReusesFindingsBundle(t *testing.T) {
 
 	var first daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &first); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &first); err != nil {
 		t.Fatalf("first call: %v", err)
 	}
 	if first.Stats.FindingsBundleHit {
@@ -62,7 +62,7 @@ func TestAnalyzeProject_BodyOnlyEditReusesFindingsBundle(t *testing.T) {
 
 	var second daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &second); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &second); err != nil {
 		t.Fatalf("second call: %v", err)
 	}
 	if !second.Stats.FindingsBundleHit {

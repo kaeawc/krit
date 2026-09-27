@@ -243,9 +243,16 @@ func TestDiagnosticsOnOpen(t *testing.T) {
 	}
 
 	// Read publishDiagnostics notification
-	raw, err := readLSPMessage(reader)
-	if err != nil {
-		t.Fatalf("read diagnostics notification: %v", err)
+	var raw []byte
+	for i := 0; i < 3; i++ {
+		var err error
+		raw, err = readLSPMessage(reader)
+		if err != nil {
+			t.Fatalf("read diagnostics notification: %v", err)
+		}
+		if strings.Contains(string(raw), "textDocument/publishDiagnostics") {
+			break
+		}
 	}
 
 	var notif struct {

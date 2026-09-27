@@ -72,6 +72,7 @@ func TestConnectOrStartFirDaemonReplacedJarIsNotReused(t *testing.T) {
 	if d.MatchesRepo(jar, sources) {
 		t.Fatal("replaced jar still matches")
 	}
+	t.Setenv("JAVA_HOME", "")
 	t.Setenv("PATH", t.TempDir())
 	d, err = ConnectOrStartFirDaemon(jar, sources, nil, false)
 	if d != nil || err == nil || !strings.Contains(err.Error(), "java") {
@@ -172,6 +173,7 @@ func TestFirDaemonRetiresLegacyAndPreservesOtherEntries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	t.Setenv("JAVA_HOME", "")
 	t.Setenv("PATH", t.TempDir())
 	_, _ = ConnectOrStartFirDaemon(jar, sources, nil, false)
 	if err := cmd.Process.Signal(os.Interrupt); err == nil {
@@ -229,6 +231,7 @@ exec sleep 60
 	if err := os.WriteFile(filepath.Join(javaDir, "java"), []byte(script), 0755); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("JAVA_HOME", "")
 	t.Setenv("PATH", javaDir)
 	preStartKey := firRegistryKey(jar, sources)
 

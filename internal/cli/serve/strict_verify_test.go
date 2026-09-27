@@ -33,7 +33,7 @@ func TestAnalyzeProject_StrictVerifyHappyPath(t *testing.T) {
 
 	var got daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &got); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &got); err != nil {
 		t.Fatalf("strict-verify analyze call: %v", err)
 	}
 	if len(got.Findings) == 0 {
@@ -115,7 +115,7 @@ func TestRunStrictVerify_DetectsAddedRow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	logPath, err := state.runStrictVerify(ctx, daemon.AnalyzeProjectArgs{}, &daemonCols)
+	logPath, err := state.runStrictVerify(ctx, daemon.AnalyzeProjectArgs{NoFir: true}, &daemonCols)
 	if err == nil {
 		t.Fatalf("expected divergence error; got logPath=%q err=nil", logPath)
 	}
@@ -146,7 +146,7 @@ func TestRunStrictVerify_RejectsBogusBackend(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	args := daemon.AnalyzeProjectArgs{OracleBackend: "not-a-backend"}
+	args := daemon.AnalyzeProjectArgs{NoFir: true, OracleBackend: "not-a-backend"}
 	_, err := state.runStrictVerify(ctx, args, &daemonCols)
 	if err == nil {
 		t.Fatal("expected error for bogus baseline oracle backend")
@@ -192,7 +192,7 @@ func TestRunStrictVerify_KAABaselineSharesOracleDaemon(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	// Use OracleBackend="" which parses to DefaultBackend (KAA).
-	_, _ = state.runStrictVerify(ctx, daemon.AnalyzeProjectArgs{}, &daemonCols)
+	_, _ = state.runStrictVerify(ctx, daemon.AnalyzeProjectArgs{NoFir: true}, &daemonCols)
 	newCalls := state.oracleDaemonStarter.(*fakeOracleDaemonStarter).calls.Load()
 	if newCalls != prevCalls {
 		t.Errorf("baseline spawned a fresh starter call (%d → %d); expected to reuse the daemon's resident KAA slot", prevCalls, newCalls)
@@ -223,7 +223,7 @@ func TestRunStrictVerify_FIRBaselineSharesOracleDaemon(t *testing.T) {
 	daemonCols := scanner.FindingColumns{}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	_, _ = state.runStrictVerify(ctx, daemon.AnalyzeProjectArgs{OracleBackend: "fir"}, &daemonCols)
+	_, _ = state.runStrictVerify(ctx, daemon.AnalyzeProjectArgs{NoFir: true, OracleBackend: "fir"}, &daemonCols)
 	newCalls := state.oracleDaemonStarter.(*fakeOracleDaemonStarter).calls.Load()
 	if newCalls != prevCalls {
 		t.Errorf("FIR baseline spawned a fresh starter call (%d → %d); expected to reuse the daemon's resident FIR slot", prevCalls, newCalls)

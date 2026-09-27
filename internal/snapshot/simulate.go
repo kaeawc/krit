@@ -270,7 +270,7 @@ func collectSidecarPoints(repoRoot, rule string, commits []commitMeta, workers i
 // code is non-zero when findings exist, so we keep the run error only
 // to surface if stdout failed to parse.
 func runKritForRule(kritBin, rule, worktreePath string) (int, error) {
-	cmd := exec.CommandContext(context.Background(), kritBin, "-f", "json", "-enable-rules", rule, ".")
+	cmd := exec.CommandContext(context.Background(), kritBin, "--no-fir", "-f", "json", "-enable-rules", rule, ".")
 	cmd.Dir = worktreePath
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out

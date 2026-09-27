@@ -1,6 +1,6 @@
 package firchecks
 
-// pass.go — the --fir pass: pick the files, run the checkers in the
+// pass.go — the FIR pass: pick the files, run the checkers in the
 // project's compile context, and apply the FIR-authoritative verdict.
 
 import (
@@ -58,8 +58,8 @@ type PassOptions struct {
 // FIR-authoritative verdict applied (see ApplyVerdict). No-op when
 // opts.Enabled is false or no checker is configured.
 //
-// A checker error leaves base unchanged: FIR is opt-in, so a daemon failure
-// must never break the scan. Verbose mode reports the error, the timing, the
+// A checker error leaves base unchanged after preflight: runtime checker
+// failures retain Go findings. Verbose mode reports the error, the timing, the
 // file gating, and per-rule verdict counts.
 func RunPass(opts PassOptions, base []scanner.Finding) []scanner.Finding {
 	if !opts.Enabled || opts.Checker == nil {
@@ -95,6 +95,21 @@ func RunPass(opts PassOptions, base []scanner.Finding) []scanner.Finding {
 			fmt.Fprintf(opts.VerboseOut, "verbose: FIR checker error: %v\n", err)
 		}
 		return base
+	}
+	if opts.Config != nil && len(opts.Config.FIR().GoAuthoritativeRules) > 0 {
+		goAuthoritative := make(map[string]bool)
+		for _, rule := range opts.Config.FIR().GoAuthoritativeRules {
+			goAuthoritative[rule] = true
+		}
+		filtered := make([]string, 0, len(result.Rules))
+		for _, rule := range result.Rules {
+			if !goAuthoritative[rule] {
+				filtered = append(filtered, rule)
+			}
+		}
+		copyResult := *result
+		copyResult.Rules = filtered
+		result = &copyResult
 	}
 
 	merged, stats := ApplyVerdict(VerdictInput{

@@ -275,18 +275,36 @@ func SettingsAncestors(scanRoot string) []string {
 	}
 }
 
-// Discover finds the nearest Gradle root above scanRoot and returns its model
-// directory, if present. The .git boundary is shared with SettingsAncestors.
+// Discover returns the nearest .krit/gradle-model directory at or above scanRoot,
+// searching up to and including the nearest settings.gradle(.kts) root and
+// stopping at a .git directory or worktree pointer file.
 func Discover(scanRoot string) string {
-	roots := SettingsAncestors(scanRoot)
-	if len(roots) == 0 {
+	dir, err := filepath.Abs(scanRoot)
+	if err != nil {
 		return ""
 	}
-	model := filepath.Join(roots[0], ".krit", "gradle-model")
-	if info, err := os.Stat(model); err == nil && info.IsDir() {
-		return model
+	if info, err := os.Stat(dir); err == nil && !info.IsDir() {
+		dir = filepath.Dir(dir)
 	}
-	return ""
+	for {
+		model := filepath.Join(dir, ".krit", "gradle-model")
+		if info, err := os.Stat(model); err == nil && info.IsDir() {
+			return model
+		}
+		for _, settings := range []string{"settings.gradle", "settings.gradle.kts"} {
+			if info, err := os.Stat(filepath.Join(dir, settings)); err == nil && !info.IsDir() {
+				return ""
+			}
+		}
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return ""
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
 
 // Fingerprint hashes resolved classpath paths, file sizes, and modification

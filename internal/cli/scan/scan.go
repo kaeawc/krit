@@ -246,7 +246,19 @@ func Run() int {
 	if tryDaemonClearMatrixCache(f, repoDir) {
 		return 0
 	}
-	if !*f.Init && !*f.Version && *f.Completions == "" {
+	if shouldPreflightFIR(f) {
+		paths := flag.Args()
+		if len(paths) == 0 {
+			paths = []string{"."}
+		}
+		model, err := PreflightFIR(ctx, paths, loadScanConfig(f), *f.GradleModel, *f.NoGradleModel, os.Stderr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 2
+		}
+		f.modelClasspath = model
+		f.firPreflightPassed = true
+	} else if !*f.Init && !*f.Version && *f.Completions == "" {
 		model, err := loadGradleClasspath(flag.Args(), *f.GradleModel, *f.NoGradleModel, *f.Verbose, os.Stderr)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -273,6 +285,13 @@ func Run() int {
 
 	exitCode, _ := r.run(ctx)
 	return exitCode
+}
+
+func shouldPreflightFIR(f *scanFlags) bool {
+	if !*f.Fir || *f.NoFir {
+		return false
+	}
+	return !*f.Init && !*f.Version && *f.Completions == "" && !*f.List && !*f.GenerateSchema && !*f.ValidateConfig && !*f.Doctor && !*f.ClearCache && !*f.ClearMatrixCache && !*f.ListExperiments && *f.PromoteExperiment == "" && *f.DeprecateExperiment == "" && *f.ExperimentMatrix == "" && *f.NewExperiment == "" && !*f.OracleFilterFingerprint && *f.OutputTypes == "" && !*f.DumpOracleDiagnostics
 }
 
 // run executes the scan phases against r.sess. Long-lived caches, the

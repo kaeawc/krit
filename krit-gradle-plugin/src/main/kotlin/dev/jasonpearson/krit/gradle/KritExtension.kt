@@ -58,6 +58,9 @@ abstract class KritExtension @Inject constructor(objects: ObjectFactory) {
     /** Run this project's model export before this project's kritCheck. */
     abstract val exportModel: Property<Boolean>
 
+    /** Run the FIR checker pass during kritCheck. Default: true. */
+    abstract val fir: Property<Boolean>
+
     /** Run registered code generation tasks before model export. Default: false. */
     abstract val exportGenerated: Property<Boolean>
 

@@ -169,7 +169,7 @@ func writeVerdictProject(t *testing.T, extra map[string]string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files := map[string]string{}
+	files := map[string]string{"krit.yml": "oracle:\n  classpath: []\n"}
 	for name, body := range verdictFixtures {
 		files["src/main/kotlin/"+name] = body
 	}
@@ -201,9 +201,10 @@ func buildVerdictKrit(t *testing.T, root string) string {
 
 func runVerdictKrit(t *testing.T, bin, jar, project string, fir bool) ([]verdictFinding, string) {
 	t.Helper()
-	args := []string{"--no-daemon", "--no-cache", "--no-type-oracle", "-f", "json", "-q", "--enable-rules", "InjectDispatcher"}
+	args := []string{"--no-fir", "--no-daemon", "--no-cache", "--no-type-oracle", "-f", "json", "-q", "--enable-rules", "InjectDispatcher"}
 	if fir {
-		args = append(args, "--fir", "--no-fir-daemon", "-v")
+		args[0] = "--fir"
+		args = append(args, "--no-fir-daemon", "-v")
 	}
 	cmd := exec.Command(bin, append(args, project)...)
 	// FindFirJar also looks next to the binary; point it at the jar under test.

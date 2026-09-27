@@ -320,6 +320,13 @@ type AnalyzeProjectArgs struct {
 	// Fir mirrors --fir (after --no-fir): run the FIR checker pass and
 	// apply its authoritative verdict, like an in-process scan does.
 	Fir bool `json:"fir,omitempty"`
+	// NoFir explicitly opts a daemon scan out of the default FIR pass.
+	NoFir         bool   `json:"no_fir,omitempty"`
+	GradleModel   string `json:"gradle_model,omitempty"`
+	NoGradleModel bool   `json:"no_gradle_model,omitempty"`
+	// FirPreflightPassed means the CLI checked the FIR requirements and
+	// supplied the resolved OracleClasspath for this request.
+	FirPreflightPassed bool `json:"fir_preflight_passed,omitempty"`
 	// OracleClasspath is the caller-resolved model, config, and environment classpath.
 	OracleClasspath           []string `json:"oracle_classpath,omitempty"`
 	OracleSourceDirs          []string `json:"oracle_source_dirs,omitempty"`

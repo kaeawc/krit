@@ -103,6 +103,7 @@ func runRegressionScan(t *testing.T, projectPath string) []normalizedFinding {
 	}
 
 	out, err := exec.Command(binPath,
+		"--no-fir",
 		"--no-daemon",
 		"-f", "json",
 		"-no-cache",

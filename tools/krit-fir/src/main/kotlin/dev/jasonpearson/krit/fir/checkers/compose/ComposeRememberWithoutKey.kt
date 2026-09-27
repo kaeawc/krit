@@ -13,8 +13,8 @@ import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
-import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.FqName
 
@@ -52,9 +52,10 @@ internal object ComposeRememberWithoutKey : FirFunctionCallChecker(MppCheckerKin
         // also covers a bound callable reference (`remember(model::toString)`),
         // whose receiver captures the enclosing parameter just as a lambda
         // capture would.
-        if (!capturesEnclosingParam(unwrapArgument(argument), enclosingParams)) return
+        val capturedParam = firstCapturedEnclosingParam(unwrapArgument(argument), enclosingParams) ?: return
+        val name = capturedParam.name.asString()
 
-        report(source, "remember { ${callee.name.asString()} } is missing an explicit key argument.")
+        report(source, "remember { } reads enclosing parameter $name but has no keys; the cached value won't update when $name changes. Pass remember($name) { ... }.")
     }
 
     private fun unwrapArgument(argument: FirExpression): FirExpression =
@@ -69,27 +70,27 @@ internal object ComposeRememberWithoutKey : FirFunctionCallChecker(MppCheckerKin
     // "function_declaration" anchor. Returns null when there is no enclosing
     // named function.
     context(context: CheckerContext)
-    private fun nearestEnclosingFunctionParameters(): Set<FirBasedSymbol<*>>? {
+    private fun nearestEnclosingFunctionParameters(): Set<FirValueParameterSymbol>? {
         val enclosing = context.containingDeclarations
             .filterIsInstance<FirNamedFunctionSymbol>()
             .lastOrNull() ?: return null
         return enclosing.valueParameterSymbols.toSet()
     }
 
-    // True when any resolved reference inside the calculation argument resolves
-    // to one of the captured symbols. For a callable reference the referenced
+    // Return the first parameter resolved by the existing depth-first walk of
+    // the calculation argument. For a callable reference the referenced
     // callee is not a capture, but its receiver expression is walked as a child
     // and matches. Symbol identity handles shadowing: a nested lambda parameter
     // with the same name is a different symbol and does not match.
-    private fun capturesEnclosingParam(argument: FirElement, captured: Set<FirBasedSymbol<*>>): Boolean {
-        var found = false
+    private fun firstCapturedEnclosingParam(argument: FirElement, captured: Set<FirValueParameterSymbol>): FirValueParameterSymbol? {
+        var found: FirValueParameterSymbol? = null
         argument.accept(object : FirVisitorVoid() {
             override fun visitElement(element: FirElement) {
-                if (found) return
+                if (found != null) return
                 if (element is FirQualifiedAccessExpression) {
                     val symbol = element.calleeReference.toResolvedCallableSymbol()
-                    if (symbol != null && symbol in captured) {
-                        found = true
+                    if (symbol is FirValueParameterSymbol && symbol in captured) {
+                        found = symbol
                         return
                     }
                 }

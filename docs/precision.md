@@ -94,3 +94,18 @@ go run ./internal/devtools/corpusprecision --compiler-parity --corpus kotlin-web
 ```
 
 The mode requires a built `krit-fir` jar and fails loudly when it is unavailable. `agree` means a Go finding matched the compiler diagnostic, `go-only` is a likely false positive relative to the compiler, and `compiler-only` is a likely false negative. Agreement is `agree / (agree + go-only + compiler-only)`.
+
+## FIR vs Go validation
+
+Build the FIR checker jar with `cd tools/krit-fir && ./gradlew shadowJar`, then prepare each Gradle corpus with:
+
+```sh
+scripts/corpus-gradle-model.sh playground/kotlin-webservice
+# For a corpus that needs another JDK:
+scripts/corpus-gradle-model.sh "$KRIT_CORPUS_METRO" --java-home "$JDK_HOME"
+make fir-validate
+```
+
+The model script builds the local Gradle plugin and applies it through a temporary init script. It writes classpaths to the corpus's `.krit/gradle-model/` and fails if Gradle cannot export them or tracked corpus files change. The Make target skips corpora without an exported model and external corpora whose `KRIT_CORPUS_<NAME>` variable is unset. Direct `go run ./internal/devtools/corpusprecision --fir-compare` also permits scans without a model; they use `--no-gradle-model` and have limited classpath coverage. Optional external variables are `KRIT_CORPUS_METRO`, `KRIT_CORPUS_SQLDELIGHT`, `KRIT_CORPUS_COIL`, and `KRIT_CORPUS_SIGNAL_ANDROID`.
+
+Each `.krit/corpus-fir/<corpus>.json` records whether it used a Gradle model, the verbose FIR verdict, source-file coverage, and an independent join of the Go and FIR JSON findings by rule and location. `discrepancy` flags counts that differ. The merge uses range and same-line matching and leaves Go findings on gated or excluded files intact, so an exact location join can disagree. Up to 25 go-dropped and fir-added examples per rule carry the existing `(rule, relPath, lineHash, col)` label signature. `docs/fir-validation.md` aggregates verdict counts across corpora and shows gated and excluded coverage. `gated%` divides compiler-error, crash, and generated-source gated files by authoritative plus gated files. `excluded%` divides excluded files by all authoritative, gated, and excluded files. Per-rule `files-gated` in Krit's current verbose output is the **global** gated-file count, repeated for every rule; the harness records it as reported. A high agreement rate with low file coverage is not evidence that the Go implementation can be removed.

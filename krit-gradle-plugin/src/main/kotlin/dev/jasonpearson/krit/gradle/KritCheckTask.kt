@@ -21,6 +21,7 @@ import org.gradle.api.tasks.SourceTask
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
 import java.io.File
+import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 
 /**
@@ -64,6 +65,9 @@ abstract class KritCheckTask @Inject constructor(
     @get:Input
     abstract val typeInference: Property<Boolean>
 
+    @get:Input
+    abstract val fir: Property<Boolean>
+
     @get:InputFiles
     @get:Optional
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -79,6 +83,12 @@ abstract class KritCheckTask @Inject constructor(
     @get:Optional
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val sourceRoots: org.gradle.api.file.ConfigurableFileCollection
+
+    // Only the JSON content affects analysis; absolute model paths vary by machine.
+    @get:InputFiles
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val modelFile: org.gradle.api.file.ConfigurableFileCollection
 
     @get:Internal
     abstract val cacheDir: DirectoryProperty
@@ -159,16 +169,23 @@ abstract class KritCheckTask @Inject constructor(
             if (baseline.isPresent) { add("--baseline"); add(baseline.get().asFile.absolutePath) }
             if (noCache.get()) add("--no-cache")
             if (!typeInference.get()) add("--no-type-inference")
+            if (!fir.get()) add("--no-fir")
             if (cacheDir.isPresent) { add("--cache-dir"); add(cacheDir.get().asFile.absolutePath) }
             addCustomRuleJarArgs()
             add("-q")
             appendScanPaths()
         }
 
+        val stderr = ByteArrayOutputStream()
         val result = execOps.exec {
             executable = kritBinary.get().asFile.absolutePath
             args(args)
+            errorOutput = stderr
             isIgnoreExitValue = true
+        }
+
+        if (result.exitValue == 2) {
+            throw GradleException("krit configuration/preflight error: ${stderr.toString().trim()}")
         }
 
         // Run additional report formats if more than one is enabled
@@ -183,16 +200,22 @@ abstract class KritCheckTask @Inject constructor(
                 if (baseline.isPresent) { add("--baseline"); add(baseline.get().asFile.absolutePath) }
                 if (noCache.get()) add("--no-cache")
                 if (!typeInference.get()) add("--no-type-inference")
+                if (!fir.get()) add("--no-fir")
                 if (cacheDir.isPresent) { add("--cache-dir"); add(cacheDir.get().asFile.absolutePath) }
                 addCustomRuleJarArgs()
                 add("-q")
                 appendScanPaths()
             }
 
-            execOps.exec {
+            val extraStderr = ByteArrayOutputStream()
+            val extraResult = execOps.exec {
                 executable = kritBinary.get().asFile.absolutePath
                 args(extraArgs)
+                errorOutput = extraStderr
                 isIgnoreExitValue = true
+            }
+            if (extraResult.exitValue == 2) {
+                throw GradleException("krit configuration/preflight error: ${extraStderr.toString().trim()}")
             }
         }
 

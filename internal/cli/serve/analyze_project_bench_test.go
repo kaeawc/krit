@@ -52,7 +52,7 @@ func BenchmarkAnalyzeProjectCold(b *testing.B) {
 		var got daemon.AnalyzeProjectResult
 		b.StartTimer()
 		if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-			daemon.AnalyzeProjectArgs{}, &got); err != nil {
+			daemon.AnalyzeProjectArgs{NoFir: true}, &got); err != nil {
 			b.Fatalf("call: %v", err)
 		}
 		b.StopTimer()
@@ -73,7 +73,7 @@ func BenchmarkAnalyzeProjectWarm(b *testing.B) {
 
 	// Warm-up: one untimed call.
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &daemon.AnalyzeProjectResult{}); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &daemon.AnalyzeProjectResult{}); err != nil {
 		b.Fatalf("warmup: %v", err)
 	}
 
@@ -81,7 +81,7 @@ func BenchmarkAnalyzeProjectWarm(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var got daemon.AnalyzeProjectResult
 		if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-			daemon.AnalyzeProjectArgs{}, &got); err != nil {
+			daemon.AnalyzeProjectArgs{NoFir: true}, &got); err != nil {
 			b.Fatalf("iter %d: %v", i, err)
 		}
 		if i == b.N-1 {
@@ -124,7 +124,7 @@ func BenchmarkAnalyzeProjectLeak(b *testing.B) {
 	// Warm: bring the parse cache into RAM and stabilize the JIT.
 	for i := 0; i < 3; i++ {
 		if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-			daemon.AnalyzeProjectArgs{}, &daemon.AnalyzeProjectResult{}); err != nil {
+			daemon.AnalyzeProjectArgs{NoFir: true}, &daemon.AnalyzeProjectResult{}); err != nil {
 			b.Fatalf("warm %d: %v", i, err)
 		}
 	}
@@ -136,7 +136,7 @@ func BenchmarkAnalyzeProjectLeak(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-			daemon.AnalyzeProjectArgs{}, &daemon.AnalyzeProjectResult{}); err != nil {
+			daemon.AnalyzeProjectArgs{NoFir: true}, &daemon.AnalyzeProjectResult{}); err != nil {
 			b.Fatalf("iter %d: %v", i, err)
 		}
 	}

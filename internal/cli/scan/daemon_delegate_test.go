@@ -309,7 +309,9 @@ func TestTryDaemonDelegate_HappyPathReturnsExitFromFindings(t *testing.T) {
 func freshScanFlags(t *testing.T) *scanFlags {
 	t.Helper()
 	fs := flag.NewFlagSet("scan-test", flag.ContinueOnError)
-	return registerScanFlags(fs)
+	f := registerScanFlags(fs)
+	*f.NoFir = true // ordinary daemon tests exercise the pre-existing Go-only path
+	return f
 }
 
 func stubEnsureDaemonForScan(t *testing.T, fn func(string, daemonclient.SpawnOptions) (*daemonclient.Client, bool, error)) {

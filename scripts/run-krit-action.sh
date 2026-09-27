@@ -11,10 +11,14 @@ set -euo pipefail
 #   KRIT_PATHS          - space-separated paths to scan
 #   KRIT_SARIF_UPLOAD   - "true" to generate SARIF for upload
 #   KRIT_FAIL_ON_FINDINGS - "true" to exit 1 when findings exist
+#   KRIT_FIR            - "false" to disable FIR
 
 set +e
 
 ARGS=""
+if [ "${KRIT_FIR:-true}" = "false" ]; then
+  ARGS="$ARGS --no-fir"
+fi
 
 # Config
 if [ -n "${KRIT_CONFIG:-}" ]; then
@@ -53,6 +57,10 @@ if [ "$REPORTER" = "sarif" ]; then
     echo "exit-code=$EXIT_CODE"
   } >> "$GITHUB_OUTPUT"
 
+  if [ "$EXIT_CODE" -eq 2 ]; then
+    exit 2
+  fi
+
   if [ "${KRIT_FAIL_ON_FINDINGS:-}" = "true" ] && [ "$COUNT" -gt 0 ]; then
     exit 1
   fi
@@ -80,6 +88,10 @@ elif [ "$REPORTER" = "github-annotations" ]; then
     echo "exit-code=$PLAIN_EXIT"
   } >> "$GITHUB_OUTPUT"
 
+  if [ "$PLAIN_EXIT" -eq 2 ]; then
+    exit 2
+  fi
+
   if [ "${KRIT_FAIL_ON_FINDINGS:-}" = "true" ] && [ "$COUNT" -gt 0 ]; then
     exit 1
   fi
@@ -91,6 +103,9 @@ else
   EXIT_CODE=$?
   echo "findings-count=0" >> "$GITHUB_OUTPUT"
   echo "exit-code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+  if [ "$EXIT_CODE" -eq 2 ]; then
+    exit 2
+  fi
   if [ "${KRIT_FAIL_ON_FINDINGS:-}" = "true" ] && [ "$EXIT_CODE" -ne 0 ]; then
     exit 1
   fi

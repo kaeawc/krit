@@ -136,6 +136,7 @@ are empty lists or an empty `jvmTarget` string.
 ```kotlin
 krit {
     exportModel = true       // default: this project's kritCheck depends on its kritExportModel
+    fir = true               // default: run the FIR checker pass during kritCheck
     exportGenerated = false  // default: export declared paths without running code generation
     androidVariant = "debug" // default; choose another Android variant if needed
 }
@@ -143,6 +144,7 @@ krit {
 
 Set `exportModel = false` to run `kritCheck` without generating the model.
 The task can still be run explicitly.
+Set `fir = false` to pass `--no-fir` to `kritCheck` when FIR is unavailable.
 Set `exportGenerated = true` to depend on available Android source/resource generation
 and KSP/kapt stub tasks. This makes generated sources and R-class jars more likely
 to exist on disk after export, but makes model export slower.
@@ -186,4 +188,4 @@ The plugin downloads the correct platform-specific krit binary from GitHub Relea
 ## Requirements
 
 - Gradle 8.0+
-- JDK 17+
+- JDK 17+ for the plugin's JVM 17 bytecode. Default FIR-enabled `kritCheck` scans need Java 21+ at runtime; set `fir = false` in the `krit` extension for Go-only analysis on JDK 17.

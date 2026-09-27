@@ -5,7 +5,7 @@ set -euo pipefail
 # Used by the self-lint GitHub Actions workflow.
 
 go build -o krit ./cmd/krit/
-./krit --format sarif . > results.sarif || true
+./krit --no-fir --format sarif . > results.sarif || true
 
 python3 - <<'PY'
 import json

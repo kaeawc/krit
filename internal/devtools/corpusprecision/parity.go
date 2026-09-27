@@ -97,7 +97,7 @@ func runKritForParity(root string, c availableCorpus) ([]parityGoFinding, error)
 	}
 	// --all-rules: some mapped rules (Deprecation) are opt-in, and the report
 	// reads only mapped rules' findings, so enabling the rest is harmless.
-	args := []string{"-f", "json", "--no-cache", "--no-daemon", "--all-rules", "--base-path", c.ScanPath}
+	args := []string{"-f", "json", "--no-cache", "--no-daemon", "--no-fir", "--all-rules", "--base-path", c.ScanPath}
 	args = append(args, c.Flags...)
 	args = append(args, c.ScanPath)
 	cmd := exec.CommandContext(context.Background(), krit, args...)

@@ -49,7 +49,7 @@ func TestAnalyzeProject_RepeatedABIEditFindingsStable_KotlinCorpus(t *testing.T)
 
 	var baseline daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &baseline); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &baseline); err != nil {
 		t.Fatalf("warm baseline analyze: %v", err)
 	}
 	baselineCount := baseline.Stats.FindingsCount
@@ -87,7 +87,7 @@ func TestAnalyzeProject_RepeatedABIEditFindingsStable_KotlinCorpus(t *testing.T)
 		}
 		var got daemon.AnalyzeProjectResult
 		if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-			daemon.AnalyzeProjectArgs{}, &got); err != nil {
+			daemon.AnalyzeProjectArgs{NoFir: true}, &got); err != nil {
 			t.Fatalf("run %d analyze: %v", i, err)
 		}
 		t.Logf("run %d: %d findings (Δ vs baseline = %d, bundleHit=%v, dirty=%d)",

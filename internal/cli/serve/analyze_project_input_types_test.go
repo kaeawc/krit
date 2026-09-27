@@ -34,7 +34,7 @@ func TestAnalyzeProject_InputTypesPathHonoured(t *testing.T) {
 
 	var got daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{
+		daemon.AnalyzeProjectArgs{NoFir: true,
 			InputTypesPath: oraclePath,
 		}, &got); err != nil {
 		t.Fatalf("call: %v", err)
@@ -56,7 +56,7 @@ func TestAnalyzeProject_InputTypesPathInvalidStillReturnsFindings(t *testing.T) 
 
 	var got daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{
+		daemon.AnalyzeProjectArgs{NoFir: true,
 			InputTypesPath: bogusPath,
 		}, &got); err != nil {
 		t.Fatalf("call: %v", err)

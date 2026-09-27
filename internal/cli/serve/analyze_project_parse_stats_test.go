@@ -28,7 +28,7 @@ func TestAnalyzeProject_ParseCacheStatsReportPerCallDelta(t *testing.T) {
 
 	var first daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &first); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &first); err != nil {
 		t.Fatalf("first call: %v", err)
 	}
 	if first.Stats.ParseMisses == 0 {
@@ -37,7 +37,7 @@ func TestAnalyzeProject_ParseCacheStatsReportPerCallDelta(t *testing.T) {
 
 	var second daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &second); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &second); err != nil {
 		t.Fatalf("second call: %v", err)
 	}
 	if !second.Stats.FindingsBundleHit {

@@ -20,7 +20,7 @@ func TestAnalyzeProject_RoundTrip(t *testing.T) {
 
 	var got daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &got); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &got); err != nil {
 		t.Fatalf("call: %v", err)
 	}
 
@@ -51,7 +51,7 @@ func TestAnalyzeProject_SecondCallNotCold(t *testing.T) {
 
 	var first daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &first); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &first); err != nil {
 		t.Fatalf("first call: %v", err)
 	}
 	if !first.Stats.Cold {
@@ -60,7 +60,7 @@ func TestAnalyzeProject_SecondCallNotCold(t *testing.T) {
 
 	var second daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &second); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &second); err != nil {
 		t.Fatalf("second call: %v", err)
 	}
 	if second.Stats.Cold {
@@ -77,7 +77,7 @@ func TestAnalyzeProject_RequireWarmRejectsCold(t *testing.T) {
 
 	var got daemon.AnalyzeProjectResult
 	err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{RequireWarm: true}, &got)
+		daemon.AnalyzeProjectArgs{NoFir: true, RequireWarm: true}, &got)
 	if err == nil {
 		t.Fatalf("expected error on cold daemon, got result=%+v", got)
 	}
@@ -95,13 +95,13 @@ func TestAnalyzeProject_RequireWarmSucceedsAfterFirstCall(t *testing.T) {
 
 	// First call (warming).
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &daemon.AnalyzeProjectResult{}); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &daemon.AnalyzeProjectResult{}); err != nil {
 		t.Fatalf("warm call: %v", err)
 	}
 	// Second call (RequireWarm) should now pass.
 	var got daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{RequireWarm: true}, &got); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true, RequireWarm: true}, &got); err != nil {
 		t.Fatalf("RequireWarm call after warming: %v", err)
 	}
 	if got.Stats.Cold {
@@ -121,7 +121,7 @@ func TestAnalyzeProject_DirtyFilesReportedFromWatcherTouch(t *testing.T) {
 
 	// First call drains any dirty marks left from setup.
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &daemon.AnalyzeProjectResult{}); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &daemon.AnalyzeProjectResult{}); err != nil {
 		t.Fatalf("first call: %v", err)
 	}
 
@@ -130,7 +130,7 @@ func TestAnalyzeProject_DirtyFilesReportedFromWatcherTouch(t *testing.T) {
 
 	var got daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &got); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &got); err != nil {
 		t.Fatalf("second call: %v", err)
 	}
 	if got.Stats.DirtyFiles != 1 {

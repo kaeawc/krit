@@ -20,7 +20,7 @@ import (
 // the scan.
 func TestHandleAnalyzeProject_RejectsUnknownOracleBackend(t *testing.T) {
 	state := newDaemonState(t.TempDir())
-	args := daemon.AnalyzeProjectArgs{OracleBackend: "totally-not-a-backend"}
+	args := daemon.AnalyzeProjectArgs{NoFir: true, OracleBackend: "totally-not-a-backend"}
 	raw, err := json.Marshal(args)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)

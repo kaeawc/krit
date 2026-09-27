@@ -101,6 +101,58 @@ Krit XML baselines use the `SmellBaseline` document shape with `ManuallySuppress
 
 Generated repo-local state lives under `.krit/` by default. The incremental analysis cache uses `.krit/cache/`; parse, resource, type, file-walk, and library-profile indexes use sibling directories under the same root. `--cache-dir DIR` only overrides the incremental analysis cache.
 
+## FIR scan requirements
+
+CLI scans run the FIR checker by default, including `krit --daemon`. Before
+analyzing files, Krit requires Java 21 or newer, a resolvable `krit-fir.jar`,
+and a declared classpath source. If any requirement is missing, the scan exits
+with code `2` and one actionable `error: FIR requires ...` message on stderr.
+Pass `--no-fir` to run the previous Go-only checker path.
+
+For Gradle projects, run `kritExportModel` (the Gradle plugin's `kritCheck`
+task already depends on it). Krit discovers `.krit/gradle-model/`; a stale
+model or missing classpath jars produces a warning and analysis continues.
+For an explicit model location use `--gradle-model DIR`. An empty exported
+classpath is valid.
+
+For Maven, generate the classpath with
+`mvn dependency:build-classpath -Dmdep.outputFile=classpath.txt`, then split
+the file's platform-separated paths into a YAML list:
+
+```yaml
+oracle:
+  classpath:
+    - /absolute/path/to/dependency-one.jar
+    - /absolute/path/to/dependency-two.jar
+```
+
+For Bazel, inspect the compile action for your `java_library` or
+`kt_jvm_library` target with `bazel aquery --include_commandline
+'deps(//app:lib)'`. Copy its resolved compile-classpath jars into Krit's
+configuration, for example:
+
+```yaml
+oracle:
+  classpath:
+    - /absolute/path/to/bazel-out/.../libdependency.jar
+```
+
+For a stdlib-only project, declare `oracle.classpath: []` explicitly.
+
+Air-gapped installations can point `KRIT_FIR_JAR` at a local `krit-fir.jar`.
+That override is checked before any download. Tagged releases otherwise
+download the matching jar and verify its published SHA-256 checksum.
+
+To retain Go findings for selected rules even after FIR checks, configure:
+
+```yaml
+fir:
+  goAuthoritativeRules:
+    - InjectDispatcher
+```
+
+FIR verdicts for the listed rule IDs are ignored; other FIR rules still apply.
+
 ## Analysis depth
 
 Krit exposes a single `analysis.depth` dial that selects how much
@@ -117,7 +169,7 @@ analysis:
 |-----------|-------------------------------------------------------------------------------------------------------|
 | `fast`    | Skips the JVM type oracle. Source-level inference still runs. Best for low-latency local checks.      |
 | `balanced`| (Default) Source inference + JVM type oracle.                                                         |
-| `thorough`| Balanced plus a targeted-resolution pre-pass (opt-in rules batch expression-position queries to KAA) and the FIR checker pass (krit-fir JVM subprocess). Improves precision on lambda-param nullsafety, properties with externally-typed initializers, and FIR-only diagnostics. Pass `--no-fir` to keep the JVM dependency off. |
+| `thorough`| Balanced plus a targeted-resolution pre-pass for compiler facts. The FIR checker also runs, as it does for every CLI depth by default. |
 
 Precedence, highest first: explicit individual flag (e.g.
 `--no-type-oracle`, `--no-fir`) → `--depth=<preset>` → `analysis.depth` → `balanced`.

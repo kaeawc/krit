@@ -8,7 +8,7 @@ fi
 
 echo "Running krit on staged Kotlin files..."
 if command -v krit &>/dev/null; then
-    echo "$STAGED" | xargs krit -q -no-type-inference -no-type-oracle
+    echo "$STAGED" | xargs krit -q --no-fir -no-type-inference -no-type-oracle
     exit $?
 else
     echo "krit not found — skipping lint (install: go install github.com/kaeawc/krit/cmd/krit@latest)"

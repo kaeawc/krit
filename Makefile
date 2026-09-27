@@ -32,10 +32,10 @@ lint-rules:
 	go test ./internal/rules/ -run 'TestRulesWithTypeInfoDeclareExplicitJavaSupport|TestRegistryFixModeIsValid|TestRegistryFixModeIsObservable' -count=1
 
 lint: build
-	./krit .
+	./krit --no-fir .
 
 fix: build
-	./krit --fix .
+	./krit --no-fir --fix .
 
 schema: build
 	./krit --generate-schema > schemas/krit-config.schema.json
@@ -50,8 +50,8 @@ integration: build
 	bash scripts/integration-test.sh
 
 playground: build
-	./krit -f json playground/kotlin-webservice/ | head -20
-	./krit -f json playground/android-app/ | head -20
+	./krit --no-fir -f json playground/kotlin-webservice/ | head -20
+	./krit --no-fir -f json playground/android-app/ | head -20
 
 regression: build
 	bash scripts/regression-check.sh

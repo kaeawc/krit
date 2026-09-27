@@ -42,7 +42,7 @@ func TestAnalyzeProject_WatcherInvalidationFlowsToNextCall(t *testing.T) {
 
 	// First call drains anything from setup.
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &daemon.AnalyzeProjectResult{}); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &daemon.AnalyzeProjectResult{}); err != nil {
 		t.Fatalf("warming call: %v", err)
 	}
 
@@ -64,7 +64,7 @@ func TestAnalyzeProject_WatcherInvalidationFlowsToNextCall(t *testing.T) {
 
 	var second daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &second); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &second); err != nil {
 		t.Fatalf("second call: %v", err)
 	}
 	if second.Stats.DirtyFiles != 1 {
@@ -97,7 +97,7 @@ func TestAnalyzeProject_MultiFileBehaviour(t *testing.T) {
 
 	var cold daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &cold); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &cold); err != nil {
 		t.Fatalf("cold call: %v", err)
 	}
 	if !cold.Stats.Cold {
@@ -109,7 +109,7 @@ func TestAnalyzeProject_MultiFileBehaviour(t *testing.T) {
 
 	var warm daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &warm); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &warm); err != nil {
 		t.Fatalf("warm call: %v", err)
 	}
 	if warm.Stats.Cold {
@@ -138,7 +138,7 @@ func TestAnalyzeProject_DirtySetCountsTouchesNotInvalidations(t *testing.T) {
 
 	// First call drains setup dirties.
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &daemon.AnalyzeProjectResult{}); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &daemon.AnalyzeProjectResult{}); err != nil {
 		t.Fatalf("warm call: %v", err)
 	}
 
@@ -149,7 +149,7 @@ func TestAnalyzeProject_DirtySetCountsTouchesNotInvalidations(t *testing.T) {
 
 	var got daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &got); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &got); err != nil {
 		t.Fatalf("call after Invalidate: %v", err)
 	}
 	if got.Stats.DirtyFiles != 0 {
@@ -160,7 +160,7 @@ func TestAnalyzeProject_DirtySetCountsTouchesNotInvalidations(t *testing.T) {
 	state.workspace.Touch(filepath.Join(state.root, "T.kt"))
 	var got2 daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &got2); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &got2); err != nil {
 		t.Fatalf("call after Touch: %v", err)
 	}
 	if got2.Stats.DirtyFiles != 1 {

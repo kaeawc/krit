@@ -25,7 +25,7 @@ builder=$repo/krit-settings-plugin/gradlew
 # Its main source has no external runtime dependencies: Kotlin DSL and Groovy
 # JSON classes come from the corpus Gradle distribution.
 echo "Building local krit-gradle-plugin jar..." >&2
-"$builder" -p "$repo/krit-settings-plugin" :krit-gradle-plugin:jar --no-daemon --no-watch-fs || fail "krit-gradle-plugin jar build failed"
+"$builder" -p "$repo/krit-settings-plugin" :krit-gradle-plugin:clean :krit-gradle-plugin:jar --no-daemon --no-watch-fs || fail "krit-gradle-plugin jar build failed"
 shopt -s nullglob
 jars=("$repo"/krit-gradle-plugin/build/libs/*.jar)
 [[ ${#jars[@]} -eq 1 ]] || fail "expected one krit-gradle-plugin jar; found ${#jars[@]}"
@@ -33,7 +33,7 @@ plugin_jar=${jars[0]}
 
 init_dir=$(mktemp -d "${TMPDIR:-/tmp}/krit-corpus-init.XXXXXX")
 init_script=$init_dir/init.gradle.kts
-trap 'rm -rf "$init_dir"' EXIT
+trap 'rm -r -- "$init_dir"' EXIT
 cat > "$init_script" <<'KOTLIN'
 import dev.jasonpearson.krit.gradle.KritPlugin
 import org.gradle.api.Action

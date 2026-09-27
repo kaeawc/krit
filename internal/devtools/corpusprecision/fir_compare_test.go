@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,6 +9,51 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestCompareFIRNoReadyCorporaPreservesReport(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		name := "missing report"
+		if existing {
+			name = "existing report"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			corpusRoot := filepath.Join(root, "corpus")
+			if err := os.MkdirAll(corpusRoot, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			reportPath := filepath.Join(root, "docs", "fir-validation.md")
+			original := []byte("existing FIR validation report\n")
+			if existing {
+				if err := os.MkdirAll(filepath.Dir(reportPath), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(reportPath, original, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			selected := []availableCorpus{{corpus: corpus{Name: "test"}, ScanPath: corpusRoot}}
+			var out bytes.Buffer
+			if err := compareFIR(root, selected, true, &out); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), "No corpora with exported Gradle models were available.") {
+				t.Fatalf("missing skip message: %q", out.String())
+			}
+			got, err := os.ReadFile(reportPath)
+			if !existing {
+				if !os.IsNotExist(err) {
+					t.Fatalf("report was created: contents=%q, err=%v", got, err)
+				}
+				return
+			}
+			if err != nil || !bytes.Equal(got, original) {
+				t.Fatalf("report changed: contents=%q, err=%v", got, err)
+			}
+		})
+	}
+}
 
 func TestParseFIRVerdict(t *testing.T) {
 	const summary = "verbose: FIR verdict: 3 authoritative files, 2 gated (compiler error or crash), 1 excluded (scripts or not in a JVM source set), 1 rule errors (checker threw; Go kept for that rule and file), 1 gated (generated sources)\n"

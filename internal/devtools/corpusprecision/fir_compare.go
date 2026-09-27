@@ -227,7 +227,7 @@ func compareFIR(root string, selected []availableCorpus, requireModel bool, out 
 	}
 	if len(ready) == 0 {
 		fmt.Fprintln(out, "No corpora with exported Gradle models were available.")
-		return writeFIRMarkdown(root, nil)
+		return nil
 	}
 	ported, jar, err := firCheckerRules(root)
 	if err != nil {
@@ -271,7 +271,11 @@ func compareFIRCorpus(root string, c availableCorpus, modelDir, jar string, port
 	if err != nil {
 		return firSnapshot{}, err
 	}
-	return firSnapshot{Comment: "FIR versus Go verdict and coverage. Regenerate via `make fir-validate`.", CorpusName: c.Name, CommitSHA: corpusCommitSHA(corpusRoot), GradleModel: modelDir != "", LabelsAvailable: labelsAvailable, Summary: summary, Rules: rows}, nil
+	comment := "FIR versus Go verdict and coverage. Regenerate via `make fir-validate`."
+	if modelDir == "" {
+		comment = fmt.Sprintf("FIR versus Go verdict and coverage. Regenerate via `go run ./internal/devtools/corpusprecision --fir-compare --corpus %s`.", c.Name)
+	}
+	return firSnapshot{Comment: comment, CorpusName: c.Name, CommitSHA: corpusCommitSHA(corpusRoot), GradleModel: modelDir != "", LabelsAvailable: labelsAvailable, Summary: summary, Rules: rows}, nil
 }
 
 func populateFIRRows(rows []firRuleRow, joined map[string]firJoin, labels []label, labelsAvailable bool) {

@@ -1,7 +1,7 @@
 {
-  "_comment": "FIR versus Go verdict and coverage. Regenerate via `make fir-validate`.",
+  "_comment": "FIR versus Go verdict and coverage. Regenerate via `go run ./internal/devtools/corpusprecision --fir-compare --corpus android-app`.",
   "corpusName": "android-app",
-  "commitSHA": "027823d5da85dfb1559ff1e93254059d9fa700b1",
+  "commitSHA": "0ab75f805bb9fc35373075aa608343b82495ff38",
   "gradleModel": false,
   "labelsAvailable": false,
   "summary": {

@@ -9,6 +9,7 @@ package rules_test
 // appears once an oracle fact is consulted.
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/oracle"
@@ -140,6 +141,130 @@ func TestRegression_UnnecessaryNotNullOperator_MapIndexNotFlagged(t *testing.T) 
 	findings := runRuleOnFileWithFakeOracle(t, "UnnecessaryNotNullOperator", file, fake)
 	if len(findings) != 0 {
 		t.Fatalf("`!!` on a Map indexed access must not be flagged; got %d: %v", len(findings), findings)
+	}
+}
+
+func TestRegression_UnnecessaryNotNullOperator_SafeCastAssertionNotFlagged(t *testing.T) {
+	findings := runRuleByName(t, "UnnecessaryNotNullOperator", `
+fun check(value: Any) {
+    val result = (value as? String)!!
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("`!!` after a safe cast is necessary and must not be flagged; got %v", findings)
+	}
+}
+
+// TestRegression_NullSafety_ErrorTypeDoesNotProveNonNull runs a registered
+// rule through the dispatcher with a compiler <error> type fact. Error types
+// have unknown nullability and must not produce a redundant-null-safety claim.
+func TestRegression_NullSafety_ErrorTypeDoesNotProveNonNull(t *testing.T) {
+	file := parseInline(t, `fun check() { listOf("x").forEach { item -> item!! } }`)
+	postfix, ok := findFlatNodeOf(t, file, "postfix_expression", "item!!")
+	if !ok {
+		t.Fatal("could not locate the item!! postfix expression")
+	}
+	var item uint32
+	file.FlatWalkNodes(postfix, "simple_identifier", func(idx uint32) {
+		if item == 0 {
+			item = idx
+		}
+	})
+	if item == 0 {
+		t.Fatal("could not locate the item expression")
+	}
+	o, err := oracle.LoadFromData(&oracle.Data{
+		Version: 1, KotlinVersion: "2.1.0",
+		Files: map[string]*oracle.File{file.Path: {Expressions: map[string]*oracle.ExpressionType{
+			positionKey(file, item): {
+				Type: "<error>", Nullable: false,
+				StartByte: int(file.FlatStartByte(item)), EndByte: int(file.FlatEndByte(item)),
+			},
+		}}},
+		Dependencies: map[string]*oracle.Class{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	composite := oracle.NewCompositeResolver(o, resolver)
+	var rule *api.Rule
+	for _, candidate := range api.Registry {
+		if candidate.ID == "UnnecessaryNotNullOperator" {
+			rule = candidate
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("UnnecessaryNotNullOperator not registered")
+	}
+	cols := rules.NewDispatcher([]*api.Rule{rule}, composite).Run(file)
+	findings := cols.Findings()
+	if len(findings) != 0 {
+		t.Fatalf("oracle <error> expression type must not prove non-nullability; got %v", findings)
+	}
+}
+
+// TestRegression_UnnecessaryNotNullOperator_LargestContainedOracleRange is a
+// dispatcher-level regression for getX(arg)!!: the nullable call fact must
+// win over the smaller non-null argument fact contained within it.
+func TestRegression_UnnecessaryNotNullOperator_LargestContainedOracleRange(t *testing.T) {
+	file := parseInline(t, `fun check(arg: Int) { val value = getX(arg)!! }`)
+	postfix, ok := findFlatNodeOf(t, file, "postfix_expression", "getX(arg)!!")
+	if !ok {
+		t.Fatal("could not locate getX(arg)!!")
+	}
+	call, ok := findFlatNodeOf(t, file, "call_expression", "getX(arg)")
+	if !ok {
+		t.Fatal("could not locate getX(arg)")
+	}
+	var arg uint32
+	file.FlatWalkNodes(call, "simple_identifier", func(idx uint32) {
+		if arg == 0 && file.FlatNodeText(idx) == "arg" {
+			arg = idx
+		}
+	})
+	if arg == 0 || file.FlatStartByte(arg) < file.FlatStartByte(call) || file.FlatEndByte(arg) > file.FlatEndByte(call) {
+		t.Fatal("could not locate arg")
+	}
+	o, err := oracle.LoadFromData(&oracle.Data{
+		Version: 1, KotlinVersion: "2.1.0",
+		Files: map[string]*oracle.File{file.Path: {Expressions: map[string]*oracle.ExpressionType{
+			fmt.Sprintf("%d:%d", file.FlatRow(call)+1, file.FlatCol(call)+1): {
+				Type: "com.example.Value", Nullable: true,
+				StartByte: int(file.FlatStartByte(call)), EndByte: int(file.FlatEndByte(call)),
+			},
+			fmt.Sprintf("%d:%d", file.FlatRow(arg)+1, file.FlatCol(arg)+1): {
+				Type: "kotlin.Int", Nullable: false,
+				StartByte: int(file.FlatStartByte(arg)), EndByte: int(file.FlatEndByte(arg)),
+			},
+		}}},
+		Dependencies: map[string]*oracle.Class{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	composite := oracle.NewCompositeResolver(o, resolver)
+	var rule *api.Rule
+	for _, candidate := range api.Registry {
+		if candidate.ID == "UnnecessaryNotNullOperator" {
+			rule = candidate
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("UnnecessaryNotNullOperator not registered")
+	}
+	cols := rules.NewDispatcher([]*api.Rule{rule}, composite).Run(file)
+	findings := cols.Findings()
+	if len(findings) != 0 {
+		t.Fatalf("nullable getX(arg) call result must suppress a redundant !! finding; got %v", findings)
+	}
+	if file.FlatStartByte(postfix) > file.FlatStartByte(call) || file.FlatEndByte(call) > file.FlatEndByte(postfix) {
+		t.Fatal("expected the call expression to be contained in the postfix assertion")
 	}
 }
 

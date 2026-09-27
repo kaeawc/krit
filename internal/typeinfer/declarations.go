@@ -256,17 +256,18 @@ func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it 
 	fqn = scanner.InternString(fqn)
 
 	info := &ClassInfo{
-		Name:       name,
-		FQN:        fqn,
-		Kind:       kind,
-		Supertypes: supertypes,
-		IsSealed:   mods.sealed,
-		IsData:     mods.data,
-		IsInner:    mods.inner,
-		IsAbstract: mods.abstract,
-		IsOpen:     mods.open,
-		File:       file.Path,
-		Line:       declarationLine(file, flatIdx),
+		Name:             name,
+		FQN:              fqn,
+		Kind:             kind,
+		Supertypes:       supertypes,
+		DirectSupertypes: flatDeclarationDirectSupertypes(file, flatIdx),
+		IsSealed:         mods.sealed,
+		IsData:           mods.data,
+		IsInner:          mods.inner,
+		IsAbstract:       mods.abstract,
+		IsOpen:           mods.open,
+		File:             file.Path,
+		Line:             declarationLine(file, flatIdx),
 	}
 
 	if bodyIdx := flatFindNamedChildOfType(file, flatIdx, "class_body"); bodyIdx != 0 {
@@ -332,17 +333,18 @@ func (r *defaultResolver) indexObjectFlat(flatIdx uint32, file *scanner.File, it
 	mods := flatReadModifierFlags(file, flatIdx)
 
 	info := &ClassInfo{
-		Name:       name,
-		FQN:        fqn,
-		Kind:       "object",
-		Supertypes: supertypes,
-		IsSealed:   mods.sealed,
-		IsData:     mods.data,
-		IsInner:    mods.inner,
-		IsAbstract: mods.abstract,
-		IsOpen:     mods.open,
-		File:       file.Path,
-		Line:       declarationLine(file, flatIdx),
+		Name:             name,
+		FQN:              fqn,
+		Kind:             "object",
+		Supertypes:       supertypes,
+		DirectSupertypes: flatDeclarationDirectSupertypes(file, flatIdx),
+		IsSealed:         mods.sealed,
+		IsData:           mods.data,
+		IsInner:          mods.inner,
+		IsAbstract:       mods.abstract,
+		IsOpen:           mods.open,
+		File:             file.Path,
+		Line:             declarationLine(file, flatIdx),
 	}
 
 	if bodyIdx := flatFindNamedChildOfType(file, flatIdx, "class_body"); bodyIdx != 0 {
@@ -417,6 +419,48 @@ func flatExtractSupertypes(file *scanner.File, idx uint32) []string {
 		}
 	})
 	return supertypes
+}
+
+func flatDeclarationDirectSupertypes(file *scanner.File, idx uint32) []string {
+	var supertypes []string
+	for i := 0; i < file.FlatNamedChildCount(idx); i++ {
+		child := file.FlatNamedChild(idx, i)
+		switch file.FlatType(child) {
+		case "delegation_specifier", "delegation_specifiers":
+			supertypes = append(supertypes, flatExtractDirectSupertypes(file, child)...)
+		}
+	}
+	return supertypes
+}
+
+func flatExtractDirectSupertypes(file *scanner.File, idx uint32) []string {
+	if file.FlatType(idx) == "delegation_specifiers" {
+		var supertypes []string
+		for spec := file.FlatFirstChild(idx); spec != 0; spec = file.FlatNextSib(spec) {
+			if file.FlatType(spec) == "delegation_specifier" {
+				supertypes = append(supertypes, flatExtractDirectSupertypes(file, spec)...)
+			}
+		}
+		return supertypes
+	}
+	userType := flatFindNamedChildOfType(file, idx, "user_type")
+	if userType == 0 {
+		if call := flatFindNamedChildOfType(file, idx, "constructor_invocation"); call != 0 {
+			userType = flatFindNamedChildOfType(file, call, "user_type")
+		}
+	}
+	if userType == 0 {
+		return nil
+	}
+	name := file.FlatNodeText(userType)
+	if cut := strings.Index(name, "<"); cut >= 0 {
+		name = name[:cut]
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	return []string{scanner.InternString(name)}
 }
 
 func flatExtractEnumEntries(file *scanner.File, idx uint32) []string {

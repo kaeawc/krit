@@ -586,6 +586,33 @@ fun test() {
 	}
 }
 
+func TestExc_SwallowedException_UppercaseCallResultMustBeConsumed(t *testing.T) {
+	t.Run("discarded wrapper result is swallowed", func(t *testing.T) {
+		findings := runRuleByName(t, "SwallowedException", `
+fun test() {
+    try { work() } catch (e: Exception) {
+        Analytics(e)
+    }
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected a bare uppercase call receiving the exception to be flagged")
+		}
+	})
+
+	for name, code := range map[string]string{
+		"thrown wrapper":             `fun test() { try { work() } catch (e: Exception) { throw Wrapper(e) } }`,
+		"assigned and used wrapper":  `fun test() { try { work() } catch (e: Exception) { val x = Wrapper(e); log(x) } }`,
+		"wrapper passed as argument": `fun test() { try { work() } catch (e: Exception) { log(Wrapper(e)) } }`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if findings := runRuleByName(t, "SwallowedException", code); len(findings) != 0 {
+				t.Fatalf("consumed wrapper result should count as handling, got %v", findings)
+			}
+		})
+	}
+}
+
 func TestExc_SwallowedException_LoggingCountsAsHandlingConfig(t *testing.T) {
 	rule := buildRuleIndex()["SwallowedException"]
 	impl, ok := rule.Implementation.(*rules.SwallowedExceptionRule)

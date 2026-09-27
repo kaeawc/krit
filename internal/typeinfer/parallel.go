@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/scanner"
 	"golang.org/x/sync/errgroup"
@@ -30,6 +31,16 @@ type FileTypeInfo struct {
 // touching any shared state. Returns a FileTypeInfo that can be
 // merged later.
 func IndexFileParallel(file *scanner.File) *FileTypeInfo {
+	if file != nil && file.Language == scanner.LangJava {
+		facts := javafacts.SourceFactsForFile(file)
+		classes := make([]*ClassInfo, 0, len(facts.Classes))
+		for _, class := range facts.Classes {
+			classes = append(classes, &ClassInfo{
+				Name: class.Name, FQN: class.FQN, Supertypes: class.Supertypes, File: file.Path,
+			})
+		}
+		return &FileTypeInfo{Path: file.Path, Classes: classes}
+	}
 	if file == nil || file.FlatTree == nil || file.FlatTree.Len() == 0 || file.FlatType(0) != "source_file" {
 		return nil
 	}

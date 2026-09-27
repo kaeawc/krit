@@ -56,7 +56,7 @@ internal object CollectInOnCreateWithoutLifecycle : FirFunctionCallChecker(MppCh
             .lastOrNull() ?: return
         if (enclosingFunction.name.asString() !in lifecycleCallbacks) return
 
-        report(source, "Flow.collect() called directly in onCreate(). Use lifecycleScope.launch { repeatOnLifecycle(Lifecycle.State.STARTED) { collect() } }.")
+        report(source, "Flow.collect inside onCreate/onStart/onViewCreated should be wrapped in repeatOnLifecycle to stop collecting when the lifecycle is stopped.")
     }
 
     private fun callName(call: FirFunctionCall): String? =

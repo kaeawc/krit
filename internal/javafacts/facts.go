@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sync"
 
 	"github.com/kaeawc/krit/internal/hashutil"
 )
@@ -14,6 +15,18 @@ type Facts struct {
 	Version int         `json:"version"`
 	Calls   []CallFact  `json:"calls"`
 	Classes []ClassFact `json:"classes"`
+
+	// index maps a normalized (file, line, col) position to the first
+	// matching fact. It is built on the first lookup, so Calls and Classes
+	// must not change after that.
+	indexOnce sync.Once
+	calls     map[factKey]int
+	classes   map[factKey]int
+}
+
+type factKey struct {
+	file      string
+	line, col int
 }
 
 type CallFact struct {
@@ -116,10 +129,9 @@ func (f *Facts) CallAt(file string, line, col int) (CallFact, bool) {
 	if f == nil {
 		return CallFact{}, false
 	}
-	for _, call := range f.Calls {
-		if sameFilePath(call.File, file) && call.Line == line && call.Col == col {
-			return call, true
-		}
+	f.buildIndex()
+	if i, ok := f.calls[factKey{normalizePath(file), line, col}]; ok {
+		return f.Calls[i], true
 	}
 	return CallFact{}, false
 }
@@ -128,26 +140,52 @@ func (f *Facts) ClassSupertypes(file string, line, col int) []string {
 	if f == nil {
 		return nil
 	}
-	for _, class := range f.Classes {
-		if sameFilePath(class.File, file) && class.Line == line && class.Col == col {
-			return append([]string{}, class.Supertypes...)
-		}
+	f.buildIndex()
+	if i, ok := f.classes[factKey{normalizePath(file), line, col}]; ok {
+		return append([]string{}, f.Classes[i].Supertypes...)
 	}
 	return nil
 }
 
-func sameFilePath(a, b string) bool {
-	if a == b {
-		return true
+// buildIndex indexes Calls and Classes by normalized position. Rules look
+// up a fact per Java call node, so a linear scan here is quadratic in the
+// project's Java call count.
+func (f *Facts) buildIndex() {
+	f.indexOnce.Do(func() {
+		norm := map[string]string{}
+		normalized := func(path string) string {
+			n, ok := norm[path]
+			if !ok {
+				n = normalizePath(path)
+				norm[path] = n
+			}
+			return n
+		}
+		f.calls = make(map[factKey]int, len(f.Calls))
+		for i, call := range f.Calls {
+			key := factKey{normalized(call.File), call.Line, call.Col}
+			if _, dup := f.calls[key]; !dup {
+				f.calls[key] = i
+			}
+		}
+		f.classes = make(map[factKey]int, len(f.Classes))
+		for i, class := range f.Classes {
+			key := factKey{normalized(class.File), class.Line, class.Col}
+			if _, dup := f.classes[key]; !dup {
+				f.classes[key] = i
+			}
+		}
+	})
+}
+
+// normalizePath returns the absolute, cleaned spelling of path so relative
+// and absolute spellings of the same file compare equal.
+func normalizePath(path string) string {
+	clean := filepath.Clean(path)
+	if abs, err := filepath.Abs(clean); err == nil {
+		return abs
 	}
-	cleanA := filepath.Clean(a)
-	cleanB := filepath.Clean(b)
-	if cleanA == cleanB {
-		return true
-	}
-	absA, errA := filepath.Abs(cleanA)
-	absB, errB := filepath.Abs(cleanB)
-	return errA == nil && errB == nil && absA == absB
+	return clean
 }
 
 func simpleName(value string) string {

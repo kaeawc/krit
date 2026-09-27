@@ -62,6 +62,8 @@ benchmarks/
 !/.krit/corpus-snapshots/*.json
 !/.krit/corpus-labels/
 !/.krit/corpus-labels/*.json
+!/.krit/corpus-fir/
+!/.krit/corpus-fir/*.json
 
 # Android lint catalog (fetched, not committed)
 android-lint-checks/

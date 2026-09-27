@@ -28,6 +28,8 @@ func prepareJavaArgs(args []string) ([]string, func(), error) {
 	for _, arg := range args {
 		if strings.ContainsAny(arg, " \t\r\n\f\"'#\\") {
 			arg = strings.ReplaceAll(arg, "\\", "\\\\")
+			arg = strings.ReplaceAll(arg, "\n", `\n`)
+			arg = strings.ReplaceAll(arg, "\r", `\r`)
 			arg = "\"" + strings.ReplaceAll(arg, "\"", "\\\"") + "\""
 		}
 		if _, err := fmt.Fprintln(file, arg); err != nil {

@@ -518,7 +518,10 @@ type SimpleDateFormatRule struct {
 // Classified per roadmap/17.
 func (r *SimpleDateFormatRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// SetTextI18nRule detects setText() with hardcoded text.
+// SetTextI18nRule detects setText() string literals or template literal-text
+// segments containing two consecutive ASCII word characters, matching
+// Android Lint's default Java `\w{2,}` check. Interpolated expressions are
+// ignored; each literal segment is checked independently.
 type SetTextI18nRule struct {
 	FlatDispatchBase
 	AndroidRule

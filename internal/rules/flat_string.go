@@ -1,11 +1,14 @@
 package rules
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
+
+var setTextI18nWordRun = regexp.MustCompile(`\w{2,}`)
 
 // stripKotlinComments removes Kotlin line and block comments from text
 // while preserving string-literal content. Triple-quoted raw strings
@@ -125,6 +128,39 @@ func flatContainsStringInterpolation(file *scanner.File, idx uint32) bool {
 		}
 	})
 	return found
+}
+
+// setTextI18nLiteralHasWordRun reports whether any contiguous literal-text
+// segment in a Kotlin string literal contains two consecutive ASCII word
+// characters, matching Android Lint's default Java `\w{2,}` behavior.
+// Interpolation expressions split segments and are never inspected.
+func setTextI18nLiteralHasWordRun(file *scanner.File, literal uint32) bool {
+	if file == nil || literal == 0 {
+		return false
+	}
+	switch file.FlatType(literal) {
+	case "string_literal", "line_string_literal", "multi_line_string_literal":
+	default:
+		return false
+	}
+
+	var segment strings.Builder
+	flush := func() bool {
+		matched := setTextI18nWordRun.MatchString(segment.String())
+		segment.Reset()
+		return matched
+	}
+	for child := file.FlatFirstChild(literal); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "string_content", "string_fragment":
+			segment.WriteString(file.FlatNodeText(child))
+		default:
+			if flush() {
+				return true
+			}
+		}
+	}
+	return flush()
 }
 
 // stringLiteralContent returns the concatenated text of every

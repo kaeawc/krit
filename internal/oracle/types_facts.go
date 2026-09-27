@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 
+	"github.com/kaeawc/krit/internal/buildid"
 	"github.com/kaeawc/krit/internal/fsutil"
 )
 
@@ -18,25 +19,34 @@ import (
 // record to the exact file it describes: if any other writer replaces
 // types.json, the record no longer matches and is ignored.
 type typesFactsRecord struct {
-	DiagnosticsOmitted bool  `json:"diagnosticsOmitted"`
-	TypesSize          int64 `json:"typesSize"`
-	TypesModNanos      int64 `json:"typesModNanos"`
+	DiagnosticsOmitted bool   `json:"diagnosticsOmitted"`
+	TypesSize          int64  `json:"typesSize"`
+	TypesModNanos      int64  `json:"typesModNanos"`
+	Backend            string `json:"backend"`
+	JarToken           string `json:"jarToken"`
+	BuildToken         string `json:"buildToken"`
 }
 
 func typesFactsPath(typesPath string) string { return typesPath + ".facts" }
 
 // RecordTypesFacts notes whether the types.json at typesPath was produced
 // with compiler diagnostics omitted. Call it after the oracle wrote the file.
-func RecordTypesFacts(typesPath string, diagnosticsOmitted bool) error {
+func RecordTypesFacts(typesPath string, diagnosticsOmitted bool, scope ...StoreScope) error {
 	info, err := os.Stat(typesPath)
 	if err != nil {
 		return err
 	}
-	body, err := json.Marshal(typesFactsRecord{
+	rec := typesFactsRecord{
 		DiagnosticsOmitted: diagnosticsOmitted,
 		TypesSize:          info.Size(),
 		TypesModNanos:      info.ModTime().UnixNano(),
-	})
+		BuildToken:         buildid.Token(),
+	}
+	if len(scope) > 0 {
+		rec.Backend = scope[0].Backend.String()
+		rec.JarToken = scope[0].JarToken
+	}
+	body, err := json.Marshal(rec)
 	if err != nil {
 		return err
 	}
@@ -48,20 +58,33 @@ func RecordTypesFacts(typesPath string, diagnosticsOmitted bool) error {
 // record (types.json replaced since it was written) reports false, so the
 // caller re-runs the oracle rather than trusting facts it cannot vouch for.
 func TypesJSONHasDiagnostics(typesPath string) bool {
+	rec, ok := readTypesFacts(typesPath)
+	return ok && !rec.DiagnosticsOmitted
+}
+
+// TypesJSONSatisfies checks both optional diagnostics and the exact backend,
+// jar, and Krit build that produced a cached types.json.
+func TypesJSONSatisfies(typesPath string, diagnosticsRequired bool, scope StoreScope, buildToken string) bool {
+	rec, ok := readTypesFacts(typesPath)
+	return ok && rec.Backend == scope.Backend.String() && rec.JarToken == scope.JarToken &&
+		rec.BuildToken == buildToken && (!diagnosticsRequired || !rec.DiagnosticsOmitted)
+}
+
+func readTypesFacts(typesPath string) (typesFactsRecord, bool) {
 	info, err := os.Stat(typesPath)
 	if err != nil {
-		return false
+		return typesFactsRecord{}, false
 	}
 	body, err := os.ReadFile(typesFactsPath(typesPath))
 	if err != nil {
-		return false
+		return typesFactsRecord{}, false
 	}
 	var rec typesFactsRecord
 	if json.Unmarshal(body, &rec) != nil {
-		return false
+		return typesFactsRecord{}, false
 	}
 	if rec.TypesSize != info.Size() || rec.TypesModNanos != info.ModTime().UnixNano() {
-		return false
+		return typesFactsRecord{}, false
 	}
-	return !rec.DiagnosticsOmitted
+	return rec, true
 }

@@ -180,9 +180,10 @@ func collectFindings(cols *scanner.FindingColumns, repoRoot string, dst *Finding
 	}
 }
 
-// ruleSetHash computes the same fingerprint the cache layer uses so a
-// findings sidecar can be cross-checked against a fresh active set.
-// ComputeConfigHash sorts its input, so we don't need to here.
+// ruleSetHash deliberately excludes the running build token by using
+// ComputeConfigHash rather than ComputeCacheKeyHash, so snapshot rule-set
+// identity compares stably across builds and commits. ComputeConfigHash sorts
+// its input, so we don't need to here.
 func ruleSetHash(activeRules []*api.Rule, cfg *config.Config) string {
 	names := make([]string, 0, len(activeRules))
 	for _, r := range activeRules {

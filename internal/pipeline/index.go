@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/buildid"
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
@@ -257,7 +258,7 @@ type IndexInput struct {
 	// When nil, derived from ActiveRules.
 	CacheRuleNames []string
 	// CacheEditorConfigEnabled is the --editorconfig flag value used by
-	// ComputeConfigHash.
+	// ComputeCacheKeyHash.
 	CacheEditorConfigEnabled bool
 
 	// PreloadedAnalysisCache, when non-nil, is used in place of cache.Load
@@ -666,7 +667,7 @@ func (IndexPhase) computeRuleHash(in IndexInput, result *IndexResult) {
 			}
 		}
 	}
-	result.RuleHash = cache.ComputeConfigHash(ruleNames, in.CacheConfig, in.CacheEditorConfigEnabled)
+	result.RuleHash = cache.ComputeCacheKeyHash(ruleNames, in.CacheConfig, in.CacheEditorConfigEnabled)
 }
 
 // beginIndexPhaseSpan buckets every IndexPhase-internal perf span under
@@ -800,7 +801,7 @@ func (p IndexPhase) runCacheLoad(in IndexInput, result *IndexResult) {
 			}
 		}
 	}
-	ruleHash := cache.ComputeConfigHash(ruleNames, in.CacheConfig, in.CacheEditorConfigEnabled)
+	ruleHash := cache.ComputeCacheKeyHash(ruleNames, in.CacheConfig, in.CacheEditorConfigEnabled)
 
 	var loadStart time.Time
 	var analysisCache *cache.Cache
@@ -1179,6 +1180,7 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		in.reportMissingOracleJar(jarErr)
 		return ""
 	}
+	storeScope := oracle.NewStoreScope(backend, jarPath)
 	perf.AddEntryDetails(jvmTracker, "sourceDirsFound", 0, map[string]int64{"sourceDirs": int64(len(sourceDirs))}, nil)
 	var cacheDest string
 	jvmTracker.TrackVoid("resolveOracleCachePath", func() {
@@ -1235,6 +1237,12 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		Classpath: in.OracleClasspath,
 		Backend:   backend,
 	}
+	invocationStore := in.Store
+	if invocationStore != nil {
+		invocationStore = invocationStore.Clone()
+	}
+	releaseStoreScope := oracle.BindStoreScope(invocationStore, storeScope)
+	defer releaseStoreScope()
 	var res string
 	var err error
 	if in.NoCacheOracle {
@@ -1244,13 +1252,13 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		jvmTracker.TrackVoid("findRepoDir", func() {
 			repoDir = oracle.FindRepoDir(scanPaths)
 		})
-		res, err = oracle.InvokeCachedWithOptions(jarPath, sourceDirs, repoDir, cacheDest, filterListPath, in.Verbose, in.Store, invokeOpts)
+		res, err = oracle.InvokeCachedWithOptions(jarPath, sourceDirs, repoDir, cacheDest, filterListPath, in.Verbose, invocationStore, invokeOpts)
 	}
 	if err != nil {
 		in.warnf("warning: krit-types: %v\n", err)
 		return ""
 	}
-	if err := oracle.RecordTypesFacts(res, invokeOpts.DisableDiagnostics); err != nil && in.Verbose {
+	if err := oracle.RecordTypesFacts(res, invokeOpts.DisableDiagnostics, storeScope); err != nil && in.Verbose {
 		in.logf("verbose: oracle facts record not written: %v\n", err)
 	}
 	return res
@@ -1258,11 +1266,20 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 
 // cachedTypesJSONSatisfies reports whether the cached types.json at path
 // holds the facts this run needs, so the freshness gate may reuse it.
-func cachedTypesJSONSatisfies(in IndexInput, oracleRules []*api.Rule, path string) bool {
+func cachedTypesJSONSatisfies(in IndexInput, oracleRules []*api.Rule, path string, scanPaths []string) bool {
 	if in.NoCacheOracle {
 		return false
 	}
-	return !oracleDiagnosticsRequired(in, oracleRules) || oracle.TypesJSONHasDiagnostics(path)
+	backend := in.OracleBackend
+	if backend == "" {
+		backend = oracle.DefaultBackend
+	}
+	jarPath, used, _, err := oracle.ResolveOracleJar(context.Background(), backend, scanPaths, false)
+	if err != nil || jarPath == "" {
+		return false
+	}
+	scope := oracle.NewStoreScope(used, jarPath)
+	return oracle.TypesJSONSatisfies(path, oracleDiagnosticsRequired(in, oracleRules), scope, buildid.Token())
 }
 
 // oracleDiagnosticsRequired reports whether this run needs compiler
@@ -1326,7 +1343,7 @@ func (p IndexPhase) runAutoDetectOracle(in IndexInput, oracleRules []*api.Rule, 
 	// diagnostic-consuming rule disabled writes types.json without compiler
 	// diagnostics, and reusing it would silently drop every projected
 	// finding. --no-cache-oracle promises a full JVM run, so it never reuses.
-	factScopeStale := cachedTypesJSONExists && !cachedTypesJSONSatisfies(in, oracleRules, oraclePath)
+	factScopeStale := cachedTypesJSONExists && !cachedTypesJSONSatisfies(in, oracleRules, oraclePath, scanPaths)
 	if factScopeStale {
 		perf.AddEntryDetails(oracleTracker, "freshnessGateFactScope", 0, map[string]int64{
 			"noCacheOracle": boolMetric(in.NoCacheOracle),

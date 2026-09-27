@@ -312,6 +312,11 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	if verbose {
 		reporter().Verbosef("verbose: Running krit-types: %s %s\n", javaPath, strings.Join(args, " "))
 	}
+	args, cleanupArgs, err := prepareJavaArgs(args)
+	if err != nil {
+		return "", err
+	}
+	defer cleanupArgs()
 
 	timeout := invokeTimeout()
 	graceExit := invokeGraceExit()

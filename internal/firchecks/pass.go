@@ -346,9 +346,12 @@ func generatedSymbolError(message string) bool {
 	if !strings.Contains(lower, "unresolved reference") {
 		return false
 	}
+	if strings.Contains(message, "Unresolved reference 'R'") || strings.Contains(message, "Unresolved reference: 'R'") {
+		return true
+	}
 	for _, field := range strings.Fields(message) {
 		symbol := strings.Trim(field, "'\"`:,.;()[]")
-		if symbol == "R" || symbol == "BuildConfig" || strings.HasSuffix(symbol, "Binding") {
+		if symbol == "BuildConfig" || strings.HasSuffix(symbol, "Binding") {
 			return true
 		}
 	}

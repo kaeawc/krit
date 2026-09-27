@@ -46,4 +46,27 @@ func TestEnsureKritIgnored(t *testing.T) {
 			t.Fatalf("duplicate rule: %q", body)
 		}
 	}
+	if err := os.WriteFile(path, []byte("build/\r\nout/"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureKritIgnored(path); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(path)
+	if err != nil || string(body) != "build/\r\nout/\r\n.krit/\r\n" {
+		t.Fatalf("CRLF gitignore: %q %v", body, err)
+	}
+	for _, rule := range []string{".krit", ".krit/", "/.krit", "/.krit/"} {
+		original := "build/\r\n" + rule + "\r\n"
+		if err := os.WriteFile(path, []byte(original), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := ensureKritIgnored(path); err != nil {
+			t.Fatal(err)
+		}
+		body, err = os.ReadFile(path)
+		if err != nil || string(body) != original {
+			t.Fatalf("duplicated CRLF rule: %q %v", body, err)
+		}
+	}
 }

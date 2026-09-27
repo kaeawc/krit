@@ -37,10 +37,13 @@ func TestFirFingerprintChangesWhenClasspathJarChanges(t *testing.T) {
 }
 
 func TestGeneratedSymbolGatedCount(t *testing.T) {
-	stats := VerdictStats{GatedFiles: map[string]string{"a.kt": "Unresolved reference: R", "b.kt": "Unresolved reference: Other", "c.kt": "unresolved reference: ViewBinding"}}
+	stats := VerdictStats{GatedFiles: map[string]string{"a.kt": "Unresolved reference 'R'", "b.kt": "Unresolved reference: Other", "c.kt": "unresolved reference: ViewBinding", "d.kt": "Unresolved reference 'foo' while inferring <R> fun <R> foo(): R"}}
 	var out bytes.Buffer
 	writeVerdictSummary(&out, stats)
-	if !strings.Contains(out.String(), "1 gated (compiler error or crash), 0 excluded (scripts or not in a JVM source set), 0 rule errors (checker threw; Go kept for that rule and file), 2 gated (generated sources)") {
+	if !strings.Contains(out.String(), "2 gated (compiler error or crash), 0 excluded (scripts or not in a JVM source set), 0 rule errors (checker threw; Go kept for that rule and file), 2 gated (generated sources)") {
 		t.Fatalf("summary: %s", out.String())
+	}
+	if generatedSymbolError("Unresolved reference 'foo' while inferring <R> fun <R> foo(): R") || !generatedSymbolError("Unresolved reference 'R'") {
+		t.Fatal("R should count only when it is the unresolved symbol")
 	}
 }

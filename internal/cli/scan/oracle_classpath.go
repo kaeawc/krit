@@ -67,33 +67,41 @@ func dedupePreservingOrder(in []string) []string {
 // loadGradleClasspath loads an explicit or discovered model. An explicit
 // directory failure is fatal; discovery remains best effort.
 func loadGradleClasspath(paths []string, explicit string, disabled, verbose bool, out io.Writer) ([]string, error) {
-	dir := explicit
-	if dir == "" && !disabled {
-		root := "."
-		if len(paths) > 0 {
-			root = paths[0]
+	var dirs []string
+	if explicit != "" {
+		dirs = append(dirs, explicit)
+	} else if !disabled {
+		if len(paths) == 0 {
+			paths = []string{"."}
 		}
-		dir = gradlemodel.Discover(root)
-	}
-	if dir == "" {
-		return nil, nil
-	}
-	model, warnings, err := gradlemodel.Load(dir)
-	if err != nil {
-		if explicit != "" {
-			return nil, err
-		}
-		fmt.Fprintf(out, "warning: gradle model: %v\n", err)
-		return nil, nil
-	}
-	cp, missing := model.Classpath()
-	if verbose {
-		fmt.Fprintf(out, "gradle model: %s (%d projects, %d classpath entries, %d missing dropped)\n", dir, len(model.Projects), len(cp), missing)
-		for _, warning := range warnings {
-			fmt.Fprintf(out, "warning: gradle model: %s\n", warning)
+		seen := map[string]bool{}
+		for _, path := range paths {
+			if dir := gradlemodel.Discover(path); dir != "" && !seen[dir] {
+				seen[dir] = true
+				dirs = append(dirs, dir)
+			}
 		}
 	}
-	return cp, nil
+	var entries []string
+	for _, dir := range dirs {
+		model, warnings, err := gradlemodel.Load(dir)
+		if err != nil {
+			if explicit != "" {
+				return nil, err
+			}
+			fmt.Fprintf(out, "warning: gradle model: %v\n", err)
+			continue
+		}
+		cp, missing := model.Classpath()
+		entries = append(entries, cp...)
+		if verbose {
+			fmt.Fprintf(out, "gradle model: %s (%d projects, %d classpath entries, %d missing dropped)\n", dir, len(model.Projects), len(cp), missing)
+			for _, warning := range warnings {
+				fmt.Fprintf(out, "warning: gradle model: %s\n", warning)
+			}
+		}
+	}
+	return dedupePreservingOrder(entries), nil
 }
 
 // effectiveOracleClasspath puts exported Gradle entries before config and env.

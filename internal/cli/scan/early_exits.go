@@ -579,14 +579,18 @@ func ensureKritIgnored(path string) error {
 		}
 	}
 	prefix := ""
+	newline := "\n"
+	if strings.Contains(string(body), "\r\n") {
+		newline = "\r\n"
+	}
 	if len(body) > 0 && body[len(body)-1] != '\n' {
-		prefix = "\n"
+		prefix = newline
 	}
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
-	_, err = file.WriteString(prefix + ".krit/\n")
+	_, err = file.WriteString(prefix + ".krit/" + newline)
 	return err
 }

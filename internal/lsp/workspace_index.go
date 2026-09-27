@@ -35,7 +35,7 @@ func (s *Server) configureWorkspaceIndexer() {
 		s.indexMu.Unlock()
 		return
 	}
-	classpath := lspClasspath(root, s.cfg, s.initClasspath)
+	classpath := lspClasspath(root, s.cfg, s.initClasspath, s.log)
 	s.indexMu.Lock()
 	s.indexer = OracleWorkspaceIndexer{
 		JARPath:   jar,

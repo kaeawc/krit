@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/oracle"
 )
@@ -280,7 +281,7 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 		d.role = role
 		return d, nil
 	}
-	retireSupersededFirDaemons(firRegistryPrefix(role, jarPath, sourceDirs, classpath), sourceDirs, srcHash, verbose)
+	retireSupersededFirDaemons(firRegistryFamilyPrefix(role, jarPath, sourceDirs, classpath), sourceDirs, srcHash, len(classpath) > 0, verbose)
 	stopFirDaemon(srcHash, verbose)
 	d, err := StartFirDaemonWithPort(jarPath, verbose)
 	if err != nil {
@@ -653,20 +654,20 @@ func stopFirDaemon(hash string, verbose bool) {
 	removeFirPIDFile(hash)
 }
 
-// Retiring an old daemon can interrupt another krit mid-request, but the jar
-// that daemon was started from has already been replaced on disk. prefix is
-// firRegistryPrefix for the caller's role, jar path, sourceDirs, and classpath.
-func retireSupersededFirDaemons(prefix string, sourceDirs []string, current string, verbose bool) {
+// Retiring an old daemon can interrupt another krit mid-request, but a jar
+// used by that daemon has already been replaced on disk. family is the
+// path-only prefix for the caller's role, jar, sources, and classpath.
+func retireSupersededFirDaemons(family string, sourceDirs []string, current string, hasClasspath, verbose bool) {
 	dir, err := firDaemonsDir()
 	if err != nil {
 		return
 	}
-	paths, err := filepath.Glob(filepath.Join(dir, prefix+"*.krit-fir.pid"))
+	paths, err := filepath.Glob(filepath.Join(dir, family+"*.krit-fir.pid"))
 	if err == nil {
 		for _, path := range paths {
 			stem := strings.TrimSuffix(filepath.Base(path), ".krit-fir.pid")
-			identity := strings.TrimPrefix(stem, prefix)
-			if !strings.HasPrefix(stem, prefix) || !validFirIdentity(identity) || stem == current {
+			candidatePrefix, identity, found := strings.Cut(stem, "@")
+			if !found || candidatePrefix != family && (!hasClasspath || !strings.HasPrefix(candidatePrefix, family+"-")) || !validFirIdentity(identity) || stem == current {
 				continue
 			}
 			stopFirDaemon(stem, verbose)
@@ -708,15 +709,24 @@ func firRegistryKeyFor(role, jarPath string, sourceDirs, classpath []string) str
 }
 
 func firRegistryPrefix(role, jarPath string, sourceDirs, classpath []string) string {
+	key := firRegistryFamilyPrefix(role, jarPath, sourceDirs, classpath)
+	if len(classpath) > 0 {
+		key += "-" + gradlemodel.ClasspathFingerprint(oracle.AbsolutePaths(classpath))[:8]
+	}
+	return key + "@"
+}
+
+func firRegistryFamilyPrefix(role, jarPath string, sourceDirs, classpath []string) string {
 	key := hashFirSources(sourceDirs)
 	if len(classpath) > 0 {
 		// Order matters on a classpath, so hash it in the given order.
-		key += "-" + hashutil.HashHex([]byte(strings.Join(oracle.AbsolutePaths(classpath), "\n")))[:8]
+		absolute := oracle.AbsolutePaths(classpath)
+		key += "-" + hashutil.HashHex([]byte(strings.Join(absolute, "\n")))[:8]
 	}
 	if role != "" {
 		key = role + "-" + key
 	}
-	return key + "-" + oracle.JarPathTag(jarPath) + "@"
+	return key + "-" + oracle.JarPathTag(jarPath)
 }
 
 // hashFirSources returns a 16-hex-char fingerprint of sorted sourceDirs in

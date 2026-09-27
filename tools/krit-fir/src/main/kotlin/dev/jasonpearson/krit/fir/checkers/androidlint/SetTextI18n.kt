@@ -36,9 +36,12 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  * - the call must be named `setText` and its receiver must be a TextView. That
  *   covers TextView's own setters, a subclass's overload, and an extension
  *   `setText` on a TextView, whichever `setText` the call resolves to;
- * - the text argument must be a string literal or a string template
- *   (`"Hello"`, `""`, `"Count: $n"`). A resource id, a variable, a constant,
- *   a concatenation (`"a" + b`), or a call result is not reported;
+ * - the text argument must be a string literal or a string template whose
+ *   literal-text segment contains a run matching Java's default ASCII
+ *   `\w{2,}` (`"Hello"`, `"Count: $n"`). Template segments are checked
+ *   independently and interpolated expressions are ignored. Empty or short
+ *   strings without such a run, a resource id, a variable, a constant, a
+ *   concatenation (`"a" + b`), or a call result are not reported;
  * - only calls count; assigning the synthetic property (`view.text = "x"`) is
  *   not a `setText` call and is not reported;
  * - a `setText` on something that is not a TextView (`Toast`, `RemoteViews`,
@@ -75,6 +78,7 @@ internal object SetTextI18n : FirFunctionCallChecker(MppCheckerKind.Common), Fir
 
     private const val MESSAGE = "Do not pass hardcoded text to setText. Use resource strings with placeholders."
     private val SET_TEXT = Name.identifier("setText")
+    private val WORD_RUN = Regex("\\w{2,}")
 
     // Nullable, so a nullable or platform-typed receiver (`tv?.setText`,
     // `findViewById<TextView>(id)`) is a subtype too.
@@ -107,13 +111,21 @@ internal object SetTextI18n : FirFunctionCallChecker(MppCheckerKind.Common), Fir
         report(expression.source, MESSAGE)
     }
 
-    // A plain literal, a raw string, or a template. FIR drops the parentheses
+    // A plain literal, a raw string, or a template with a matching literal
+    // text segment. FIR drops the parentheses
     // around a literal, so a parenthesized one counts too. The raw FIR builder
     // also turns a `+` chain that starts with a string (`"a" + b`) into a
     // string concatenation, so only one whose source is a template counts.
     private fun isStringLiteral(expression: FirExpression): Boolean = when (expression) {
-        is FirLiteralExpression -> expression.kind == ConstantValueKind.String
-        is FirStringConcatenationCall -> expression.source?.elementType == KtNodeTypes.STRING_TEMPLATE
+        is FirLiteralExpression -> expression.kind == ConstantValueKind.String &&
+            (expression.value as? String)?.let(WORD_RUN::containsMatchIn) == true
+        is FirStringConcatenationCall ->
+            expression.source?.elementType == KtNodeTypes.STRING_TEMPLATE &&
+                expression.argumentList.arguments.any { segment ->
+                    segment is FirLiteralExpression &&
+                        segment.kind == ConstantValueKind.String &&
+                        (segment.value as? String)?.let(WORD_RUN::containsMatchIn) == true
+                }
         else -> false
     }
 

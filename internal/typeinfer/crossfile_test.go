@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/scanner"
@@ -54,6 +55,22 @@ class Child : Parent()
 	}
 	if !found {
 		t.Errorf("expected Child supertypes to contain 'com.example.Parent', got %v", info.Supertypes)
+	}
+}
+
+func TestCrossFile_DirectSupertypesExcludeGenericArguments(t *testing.T) {
+	file := parseTempFile(t, t.TempDir(), "Base.kt", `package test
+interface Callback<T>
+abstract class Base : Callback<X509TrustManager>
+`)
+	resolver := NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	info := resolver.ClassHierarchy("Base")
+	if info == nil {
+		t.Fatal("expected ClassInfo for Base")
+	}
+	if want := []string{"Callback"}; !reflect.DeepEqual(info.DirectSupertypes, want) {
+		t.Fatalf("direct supertypes = %v, want %v", info.DirectSupertypes, want)
 	}
 }
 

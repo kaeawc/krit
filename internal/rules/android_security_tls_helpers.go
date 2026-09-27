@@ -17,8 +17,10 @@ package rules
 import (
 	"strings"
 
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/strutil"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 func okHTTPDisableSslValidationChainText(file *scanner.File, idx uint32) string {
@@ -238,7 +240,7 @@ func matchingParenIndex(text string, open int) int {
 	return -1
 }
 
-func insecureTrustManagerDecl(file *scanner.File, idx uint32) bool {
+func insecureTrustManagerDecl(ctx *api.Context, file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 {
 		return false
 	}
@@ -246,19 +248,126 @@ func insecureTrustManagerDecl(file *scanner.File, idx uint32) bool {
 	if typ != "class_declaration" && typ != "object_literal" && typ != "object_creation_expression" {
 		return false
 	}
-	if !sourceImportsOrMentions(file, "javax.net.ssl.X509TrustManager") &&
-		!sourceImportsOrMentions(file, "javax.net.ssl.TrustManager") {
+	if sourceImportsOrMentions(file, "javax.net.ssl.X509TrustManager") ||
+		sourceImportsOrMentions(file, "javax.net.ssl.TrustManager") {
+		text := file.FlatNodeText(idx)
+		if strings.Contains(text, " by ") {
+			return false
+		}
+		if typ == "class_declaration" && file.Language == scanner.LangJava {
+			for _, super := range insecureTrustManagerDirectSupertypes(file, idx) {
+				if insecureTrustManagerType(super.name) ||
+					(!super.qualified && insecureTrustManagerSimpleType(super.name)) {
+					return true
+				}
+			}
+		} else {
+			if insecureTrustManagerTextHasTypeToken(text, "X509TrustManager") ||
+				insecureTrustManagerTextHasTypeToken(text, "TrustManager") {
+				return true
+			}
+		}
+	}
+	if ctx == nil || ctx.Resolver == nil || strings.Contains(file.FlatNodeText(idx), " by ") {
 		return false
 	}
-	text := file.FlatNodeText(idx)
-	if !insecureTrustManagerTextHasTypeToken(text, "X509TrustManager") &&
-		!insecureTrustManagerTextHasTypeToken(text, "TrustManager") {
+	return insecureTrustManagerHierarchy(file, idx, ctx.Resolver)
+}
+
+func insecureTrustManagerHierarchy(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver) bool {
+	const maxDepth = 8
+	seen := make(map[string]uint8)
+	var visit func(string, int, bool) bool
+	visit = func(name string, depth int, crossedFile bool) bool {
+		if name == "" || depth > maxDepth {
+			return false
+		}
+		info := resolver.ClassHierarchy(name)
+		if info != nil && info.FQN != "" {
+			name = info.FQN
+			crossedFile = crossedFile || (info.File != "" && info.File != file.Path)
+		}
+		state := uint8(1)
+		if crossedFile {
+			state = 2
+		}
+		if seen[name]&state != 0 {
+			return false
+		}
+		seen[name] |= state
+		if crossedFile && insecureTrustManagerType(name) {
+			return true
+		}
+		if info == nil {
+			return crossedFile && !strings.Contains(name, ".") && insecureTrustManagerSimpleType(name)
+		}
+		parents := info.Supertypes
+		if crossedFile && len(info.DirectSupertypes) > 0 {
+			parents = info.DirectSupertypes
+		}
+		for _, parent := range parents {
+			if visit(parent, depth+1, crossedFile) {
+				return true
+			}
+		}
 		return false
 	}
-	if strings.Contains(text, " by ") {
-		return false
+	for _, super := range insecureTrustManagerDirectSupertypes(file, idx) {
+		name := super.name
+		if !super.qualified {
+			if imported := resolver.ResolveImport(super.simple, file); imported != "" {
+				name = imported
+			}
+		}
+		if visit(name, 0, false) {
+			return true
+		}
 	}
-	return true
+	return false
+}
+
+func insecureTrustManagerDirectSupertypes(file *scanner.File, idx uint32) []androidSupertypeRef {
+	if file.Language != scanner.LangJava {
+		return androidDirectSupertypesFlat(file, idx)
+	}
+	var out []androidSupertypeRef
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "superclass" && file.FlatType(child) != "super_interfaces" {
+			continue
+		}
+		var walk func(uint32)
+		walk = func(node uint32) {
+			switch file.FlatType(node) {
+			case "type_arguments", "annotation", "marker_annotation":
+				return
+			case "type_identifier", "scoped_type_identifier":
+				name := file.FlatNodeText(node)
+				out = append(out, androidSupertypeRef{name: name, simple: androidSimpleName(name), qualified: strings.Contains(name, ".")})
+				return
+			}
+			for nested := file.FlatFirstChild(node); nested != 0; nested = file.FlatNextSib(nested) {
+				walk(nested)
+			}
+		}
+		walk(child)
+	}
+	return out
+}
+
+func insecureTrustManagerType(name string) bool {
+	switch name {
+	case "javax.net.ssl.X509TrustManager", "javax.net.ssl.TrustManager", "javax.net.ssl.X509ExtendedTrustManager":
+		return true
+	}
+	return false
+}
+
+func insecureTrustManagerSimpleType(name string) bool {
+	switch name {
+	case "X509TrustManager", "TrustManager", "X509ExtendedTrustManager":
+		return true
+	}
+	return false
 }
 
 func insecureTrustManagerTextHasTypeToken(text, token string) bool {

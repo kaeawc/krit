@@ -1011,7 +1011,218 @@ class LocalVerifier implements HostnameVerifier {
 	})
 }
 
+func runRuleByNameMultiFile(t *testing.T, ruleName string, sources map[string]string) []scanner.Finding {
+	t.Helper()
+	root := t.TempDir()
+	files := make([]*scanner.File, 0, len(sources))
+	for name, source := range sources {
+		path := filepath.Join(root, name)
+		if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+			t.Fatal(err)
+		}
+		var file *scanner.File
+		var err error
+		if filepath.Ext(name) == ".java" {
+			file, err = scanner.ParseJavaFile(context.Background(), path)
+		} else {
+			file, err = scanner.ParseFile(context.Background(), path)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, file)
+	}
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel(files, 1)
+	for _, rule := range api.Registry {
+		if rule.ID != ruleName {
+			continue
+		}
+		dispatcher := rules.NewDispatcher([]*api.Rule{rule}, resolver)
+		var findings []scanner.Finding
+		for _, file := range files {
+			cols := dispatcher.Run(file)
+			findings = append(findings, cols.Findings()...)
+		}
+		return findings
+	}
+	t.Fatalf("rule %q not found in registry", ruleName)
+	return nil
+}
+
 func TestInsecureTrustManager(t *testing.T) {
+	t.Run("Java cross-file generic interface argument", func(t *testing.T) {
+		findings := runRuleByNameMultiFile(t, "InsecureTrustManager", map[string]string{
+			"BaseTm.java": `package test;
+import java.security.cert.X509Certificate;
+import javax.net.ssl.X509TrustManager;
+interface TriFunc<A, B, C> {}
+abstract class BaseTm implements TriFunc<String, X509TrustManager, String> {
+    abstract void checkServerTrusted(X509Certificate[] chain, String authType);
+    abstract void checkClientTrusted(X509Certificate[] chain, String authType);
+}`,
+			"LaxTm.java": `package test;
+import java.security.cert.X509Certificate;
+class LaxTm extends BaseTm {
+    @Override void checkServerTrusted(X509Certificate[] chain, String authType) {}
+    @Override void checkClientTrusted(X509Certificate[] chain, String authType) {}
+}`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected no generic-argument findings, got %d: %v", len(findings), findings)
+		}
+	})
+	t.Run("Java cross-file generic superclass argument", func(t *testing.T) {
+		findings := runRuleByNameMultiFile(t, "InsecureTrustManager", map[string]string{
+			"BaseTm.java": `package test;
+import java.security.cert.X509Certificate;
+import javax.net.ssl.X509TrustManager;
+class AsyncTask<A, B, C> {}
+abstract class BaseTm extends AsyncTask<Void, Integer, X509TrustManager> {
+    abstract void checkServerTrusted(X509Certificate[] chain, String authType);
+    abstract void checkClientTrusted(X509Certificate[] chain, String authType);
+}`,
+			"LaxTm.java": `package test;
+import java.security.cert.X509Certificate;
+class LaxTm extends BaseTm {
+    @Override void checkServerTrusted(X509Certificate[] chain, String authType) {}
+    @Override void checkClientTrusted(X509Certificate[] chain, String authType) {}
+}`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected no generic-argument findings, got %d: %v", len(findings), findings)
+		}
+	})
+	t.Run("Java cross-file middle generic superclass argument", func(t *testing.T) {
+		findings := runRuleByNameMultiFile(t, "InsecureTrustManager", map[string]string{
+			"BaseTm.java": `package test;
+import java.security.cert.X509Certificate;
+import javax.net.ssl.X509TrustManager;
+class AsyncTask<A, B, C> {}
+abstract class BaseTm extends AsyncTask<Void, X509TrustManager, Integer> {
+    abstract void checkServerTrusted(X509Certificate[] chain, String authType);
+    abstract void checkClientTrusted(X509Certificate[] chain, String authType);
+}`,
+			"LaxTm.java": `package test;
+import java.security.cert.X509Certificate;
+class LaxTm extends BaseTm {
+    @Override void checkServerTrusted(X509Certificate[] chain, String authType) {}
+    @Override void checkClientTrusted(X509Certificate[] chain, String authType) {}
+}`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected no middle generic-argument findings, got %d: %v", len(findings), findings)
+		}
+	})
+	t.Run("Java same-file generic interface argument", func(t *testing.T) {
+		findings := runRuleByNameMultiFile(t, "InsecureTrustManager", map[string]string{
+			"Foo.java": `package test;
+import java.security.cert.X509Certificate;
+import javax.net.ssl.X509TrustManager;
+interface TriFunc<A, B, C> {}
+class Foo implements TriFunc<String, X509TrustManager, String> {
+    void checkServerTrusted(X509Certificate[] chain, String authType) {}
+    void checkClientTrusted(X509Certificate[] chain, String authType) {}
+}`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected no same-file generic-argument findings, got %d: %v", len(findings), findings)
+		}
+	})
+	t.Run("Kotlin cross-file generic supertype argument", func(t *testing.T) {
+		findings := runRuleByNameMultiFile(t, "InsecureTrustManager", map[string]string{
+			"Base.kt": `package test
+import java.security.cert.X509Certificate
+import javax.net.ssl.X509TrustManager
+interface Callback<T>
+abstract class BaseTm : Callback<X509TrustManager> {
+    abstract fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?)
+    abstract fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?)
+}`,
+			"Lax.kt": `package test
+import java.security.cert.X509Certificate
+class LaxTm : BaseTm() {
+    override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {}
+    override fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {}
+}`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected no Kotlin generic-argument findings, got %d: %v", len(findings), findings)
+		}
+	})
+	t.Run("Kotlin cross-file trust manager", func(t *testing.T) {
+		findings := runRuleByNameMultiFile(t, "InsecureTrustManager", map[string]string{
+			"Base.kt": `package test
+import java.security.cert.X509Certificate
+import javax.net.ssl.X509TrustManager
+abstract class BaseTm : X509TrustManager {
+    override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+}`,
+			"Lax.kt": `package test
+import java.security.cert.X509Certificate
+class LaxTm : BaseTm() {
+    override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {}
+    override fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {}
+}`,
+		})
+		if len(findings) != 2 {
+			t.Fatalf("expected 2 findings, got %d: %v", len(findings), findings)
+		}
+		for _, finding := range findings {
+			if filepath.Base(finding.File) != "Lax.kt" {
+				t.Errorf("expected Lax.kt finding, got %s", finding.File)
+			}
+		}
+	})
+	t.Run("Java cross-file trust manager", func(t *testing.T) {
+		findings := runRuleByNameMultiFile(t, "InsecureTrustManager", map[string]string{
+			"BaseTm.java": `package test;
+import java.security.cert.X509Certificate;
+import javax.net.ssl.X509TrustManager;
+abstract class BaseTm implements X509TrustManager {
+    public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+}`,
+			"LaxTm.java": `package test;
+import java.security.cert.X509Certificate;
+class LaxTm extends BaseTm {
+    @Override public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+    @Override public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+}`,
+		})
+		if len(findings) < 1 || filepath.Base(findings[0].File) != "LaxTm.java" {
+			t.Fatalf("expected Java subclass finding, got %v", findings)
+		}
+	})
+	t.Run("Kotlin cross-file unrelated base", func(t *testing.T) {
+		findings := runRuleByNameMultiFile(t, "InsecureTrustManager", map[string]string{
+			"Base.kt": `package test
+import java.security.cert.X509Certificate
+abstract class BaseTm {
+    abstract fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?)
+}`,
+			"Lax.kt": `package test
+import java.security.cert.X509Certificate
+class LaxTm : BaseTm() {
+    override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {}
+}`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected no unrelated-base findings, got %v", findings)
+		}
+	})
+	t.Run("Java cross-file local lookalike", func(t *testing.T) {
+		findings := runRuleByNameMultiFile(t, "InsecureTrustManager", map[string]string{
+			"BaseTm.java": `package test;
+abstract class BaseTm { abstract void checkServerTrusted(); }`,
+			"LaxTm.java": `package test;
+class LaxTm extends BaseTm {
+    @Override void checkServerTrusted() {}
+}`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected no local-lookalike findings, got %v", findings)
+		}
+	})
 	t.Run("Kotlin flags empty and bare-return trust checks", func(t *testing.T) {
 		findings := runRuleByName(t, "InsecureTrustManager", `
 package test

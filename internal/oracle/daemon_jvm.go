@@ -13,6 +13,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/jvmaot"
 )
 
 // cacheKeyHashLen keeps 12 hex chars = 48 bits, collision-safe for per-repo cache keys.
@@ -82,6 +83,10 @@ func cachedJDKMajorVersion() int {
 	})
 	return jdkVersionCache
 }
+
+// CachedJDKMajorVersion exposes the oracle's java -version probe to other JVM
+// launchers so they use the same Leyden support detection.
+func CachedJDKMajorVersion() int { return cachedJDKMajorVersion() }
 
 // jdkMajorVersion parses the major version from the output of "java -version".
 // Returns 0 on any error; callers should treat 0 as "unknown, fall back to
@@ -158,47 +163,6 @@ func PreflightJavaMajorVersion(path string) int {
 	major := JavaMajorVersion(path)
 	preflightJavaVersions.Store(key, major)
 	return major
-}
-
-// buildLeydenAOTCache runs the Leyden AOT create step: it compiles the AOT
-// cache from an existing configuration file and exits immediately without
-// running the application. Fast (seconds) when it works; ~30s when it
-// hits the JDK 26 + Kotlin shadow JAR crash path described below.
-//
-// On JVM crashes during create (seen on some JDK 26 builds with Kotlin
-// shadow JARs that exercise IntelliJ verification paths) the JVM leaves
-// behind a zero-byte or partial cache file. Removing it here keeps the
-// next daemon launch from picking it up and aborting VM init with
-// "Unable to read generic CDS file map header from AOT cache".
-//
-// Repeated failures are absorbed by a sibling `.aot.skip` sentinel
-// — see leydenAOTSkipPath and the call site in appendLeydenAOTArgs.
-// Without that gate every cold krit run would pay the full ~30s
-// failing-create cost.
-func buildLeydenAOTCache(javaPath, jarPath, configPath, cachePath string, verbose bool) error {
-	args := []string{
-		"-XX:AOTMode=create",
-		"-XX:AOTConfiguration=" + configPath,
-		"-XX:AOTCache=" + cachePath,
-		"-jar", jarPath,
-	}
-	if verbose {
-		reporter().Verbosef("verbose: Leyden AOT: building cache %s → %s\n", configPath, cachePath)
-	}
-	cmd := exec.CommandContext(context.Background(), javaPath, args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		_ = os.Remove(cachePath)
-		return fmt.Errorf("leyden AOT create: %w (output: %s)", err, strings.TrimSpace(string(out)))
-	}
-	// Sanity-check the produced cache. Some JVM error paths exit
-	// non-zero but only after touching the cache file, so cmd.Run
-	// might still return nil on certain builds. Drop the file if it
-	// looks empty so the use-branch fallback path stays correct.
-	if info, statErr := os.Stat(cachePath); statErr != nil || info.Size() == 0 {
-		_ = os.Remove(cachePath)
-		return fmt.Errorf("leyden AOT create: produced empty cache %s", cachePath)
-	}
-	return nil
 }
 
 // leydenAOTSkipPath returns the sentinel-file path that records a
@@ -296,60 +260,11 @@ func appendAppCDSArgs(args []string, jarPath string, verbose bool) []string {
 // reject the unknown tag with an `[error][logging] Invalid tag 'aot'`
 // line on stdout, which itself corrupts the daemon handshake.
 func appendLeydenAOTArgs(args []string, javaPath, jarPath string, verbose bool) ([]string, bool) {
-	if cachedJDKMajorVersion() < 25 {
-		return args, false
+	token, err := hashutil.HashFile(jarPath)
+	if err != nil {
+		token = ""
 	}
-	args = append(args, "-Xlog:aot=off")
-	leydenConfig, configErr := aotConfigPath(jarPath)
-	leydenCache, cacheErr := aotCachePath(jarPath)
-	if configErr != nil || cacheErr != nil {
-		return args, false
-	}
-	if info, statErr := os.Stat(leydenCache); statErr == nil && info.Size() > 0 {
-		args = append(args, "-XX:AOTCache="+leydenCache)
-		if verbose {
-			reporter().Verbosef("verbose: Leyden AOT: using cache %s\n", leydenCache)
-		}
-		return args, true
-	} else if statErr == nil {
-		// Empty or unreadable cache from a previous crash — discard
-		// so we don't poison the daemon launch with an invalid cache.
-		_ = os.Remove(leydenCache)
-		if verbose {
-			reporter().Verbosef("verbose: Leyden AOT: discarded empty cache %s\n", leydenCache)
-		}
-	}
-	if _, statErr := os.Stat(leydenConfig); statErr == nil {
-		// Don't re-pay the ~30s failing-create cycle on every cold
-		// run — `.aot.skip` records "Leyden create failed against
-		// this JDK version on this jar; route straight to AppCDS".
-		skipPath, skipPathErr := leydenAOTSkipPath(jarPath)
-		jdkVersion := cachedJDKMajorVersion()
-		if skipPathErr == nil && leydenAOTCreateSkipped(skipPath, jdkVersion) {
-			if verbose {
-				reporter().Verbosef("verbose: Leyden AOT: skip sentinel set (JDK %d); falling back to AppCDS\n", jdkVersion)
-			}
-			return args, false
-		}
-		if err := buildLeydenAOTCache(javaPath, jarPath, leydenConfig, leydenCache, verbose); err == nil {
-			args = append(args, "-XX:AOTCache="+leydenCache)
-			if verbose {
-				reporter().Verbosef("verbose: Leyden AOT: built and using cache %s\n", leydenCache)
-			}
-			return args, true
-		} else if verbose {
-			reporter().Verbosef("verbose: Leyden AOT: cache build failed (%v), starting without AOT\n", err)
-		}
-		if skipPathErr == nil {
-			markLeydenAOTCreateFailed(skipPath, jdkVersion, verbose)
-		}
-		return args, false
-	}
-	args = append(args, "-XX:AOTMode=record", "-XX:AOTConfiguration="+leydenConfig)
-	if verbose {
-		reporter().Verbosef("verbose: Leyden AOT: recording class profile → %s\n", leydenConfig)
-	}
-	return args, true
+	return jvmaot.AppendArgsWithToken(args, javaPath, jarPath, token, "", cachedJDKMajorVersion(), verbose, reporter().Verbosef)
 }
 
 // appendStartupCacheArgs prefers Project Leyden AOT (JDK 25+) and falls
@@ -381,17 +296,19 @@ var jvmCacheSuffixes = []string{".jsa", ".crac", ".aotconf", ".aot", ".aot.skip"
 // gone there is nothing to do, and if it's locked the retraining write
 // will overwrite it anyway.
 func purgeJVMCachesForJar(jarPath string, verbose bool) {
-	// Hash the jar once and append each suffix, instead of calling four
-	// separate path-derivation helpers that each re-hash the file.
+	// Hash the jar once and append every established oracle cache suffix.
 	base, err := jarCachePath(jarPath, "")
 	if err != nil {
 		return
 	}
 	for _, suffix := range jvmCacheSuffixes {
-		p := base + suffix
-		if rmErr := os.Remove(p); rmErr == nil && verbose {
-			reporter().Verbosef("verbose: purged stale JVM cache %s\n", p)
-		}
+		removeJVMCachesForPath(base+suffix, verbose)
+	}
+}
+
+func removeJVMCachesForPath(p string, verbose bool) {
+	if rmErr := os.Remove(p); rmErr == nil && verbose {
+		reporter().Verbosef("verbose: purged stale JVM cache %s\n", p)
 	}
 }
 

@@ -14,6 +14,9 @@ class HardcodedTextActivity {
         textView.setText("Hello, world")
         // Button is a TextView subtype — also flagged.
         button.setText("Click me")
+        textView.setText("ok")
+        val v = 1
+        textView.setText("id: $v")
     }
 }
 

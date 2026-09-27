@@ -302,7 +302,7 @@ func (r *BroadcastReceiverExportedFlagMissingRule) check(ctx *api.Context) {
 
 func (r *InsecureTrustManagerRule) check(ctx *api.Context) {
 	file := ctx.File
-	if !insecureTrustManagerDecl(file, ctx.Idx) {
+	if !insecureTrustManagerDecl(ctx, file, ctx.Idx) {
 		return
 	}
 	for _, method := range insecureTrustManagerTrivialChecks(file, ctx.Idx) {

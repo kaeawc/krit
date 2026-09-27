@@ -252,8 +252,7 @@ func (r *defaultResolver) ResolveImport(simpleName string, file *scanner.File) s
 	if it := r.imports[file.Path]; it != nil {
 		return it.Resolve(simpleName)
 	}
-	// Files the indexer skipped (e.g. Java, whose tree-sitter root is
-	// not source_file) still get the fallback auto-import lookup so
+	// Files without an import table still get the fallback auto-import lookup so
 	// rules that only need java.lang.* type names can resolve them.
 	if fqn, ok := KotlinAutoImports[simpleName]; ok {
 		// A same-file class/interface declaration of simpleName

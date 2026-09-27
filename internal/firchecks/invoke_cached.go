@@ -85,6 +85,10 @@ func (r *Result) addRules(rules []string) {
 	r.Rules = slices.Compact(r.Rules)
 }
 
+// runMissesForCache allows the cache boundary to be exercised without a JVM
+// in tests. Production always uses runMisses.
+var runMissesForCache = runMisses
+
 // InvokeCached is the cache-aware entry point for running FIR checks.
 //
 // jarPath is the krit-fir.jar (required when misses need JVM analysis).
@@ -139,7 +143,7 @@ func InvokeCached(
 	}
 
 	// Slow path: analyze misses via daemon or one-shot.
-	resp, err := runMisses(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
+	resp, err := runMissesForCache(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +172,7 @@ func runUncached(
 	verbose bool,
 	jvmTarget ...string,
 ) (*Result, error) {
-	resp, err := runMisses(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
+	resp, err := runMissesForCache(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
 	if err != nil {
 		return nil, err
 	}

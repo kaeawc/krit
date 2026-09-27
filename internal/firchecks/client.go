@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -27,6 +28,7 @@ import (
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/jvmaot"
 	"github.com/kaeawc/krit/internal/oracle"
 )
 
@@ -154,13 +156,7 @@ func StartFirDaemonWithPort(jarPath string, verbose bool, jvmTarget ...string) (
 		return nil, fmt.Errorf("java not found in PATH: %w", err)
 	}
 
-	args := []string{
-		"-XX:+UseG1GC",
-		"-XX:+UseStringDeduplication",
-		"-Xms512m",
-		"-jar", oracle.AbsolutePath(jarPath),
-		"--daemon", "--port", "0",
-	}
+	args := buildFirJVMArgs(jarPath, javaPath, oracle.CachedJDKMajorVersion(), verbose)
 	if len(jvmTarget) > 0 && jvmTarget[0] != "" {
 		args = append(args, "--jvm-target", jvmTarget[0])
 	}
@@ -189,47 +185,24 @@ func StartFirDaemonWithPort(jarPath string, verbose bool, jvmTarget ...string) (
 		return nil, fmt.Errorf("start fir daemon: %w", err)
 	}
 
-	type scanResult struct {
-		line string
-		err  error
-	}
-	readyCh := make(chan scanResult, 1)
+	readyCh := make(chan firReadyResult, 1)
 	go func() {
-		sc := bufio.NewScanner(stdoutPipe)
-		sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-		if sc.Scan() {
-			readyCh <- scanResult{line: sc.Text()}
-		} else {
-			readyCh <- scanResult{err: sc.Err()}
-		}
+		ready, err := readFirReady(stdoutPipe, verbose)
+		readyCh <- firReadyResult{ready: ready, err: err}
 	}()
 
 	const startupTimeout = 30 * time.Second
-	var line string
+	var ready firReadyMessage
 	select {
 	case res := <-readyCh:
 		if res.err != nil {
 			cmd.Process.Kill()
-			return nil, fmt.Errorf("fir daemon startup: %w", res.err)
+			return nil, res.err
 		}
-		if res.line == "" {
-			cmd.Process.Kill()
-			return nil, fmt.Errorf("fir daemon closed stdout before ready")
-		}
-		line = res.line
+		ready = res.ready
 	case <-time.After(startupTimeout):
 		cmd.Process.Kill()
 		return nil, fmt.Errorf("fir daemon startup timed out after %s", startupTimeout)
-	}
-
-	var ready firReadyMessage
-	if err := json.Unmarshal([]byte(line), &ready); err != nil {
-		cmd.Process.Kill()
-		return nil, fmt.Errorf("fir daemon ready message: invalid JSON: %w (got: %s)", err, line)
-	}
-	if !ready.Ready || ready.Port == 0 {
-		cmd.Process.Kill()
-		return nil, fmt.Errorf("fir daemon did not report ready with port (got: %s)", line)
 	}
 
 	if verbose {
@@ -257,6 +230,61 @@ func StartFirDaemonWithPort(jarPath string, verbose bool, jvmTarget ...string) (
 		slot:    0,
 	}
 	return d, nil
+}
+
+func buildFirJVMArgs(jarPath, javaPath string, jdkMajor int, verbose bool) []string {
+	args := []string{
+		"-XX:+UseG1GC",
+		"-XX:+UseStringDeduplication",
+		"-Xms512m",
+		"-Xmx1g",
+	}
+	args, _ = jvmaot.AppendArgs(args, javaPath, oracle.AbsolutePath(jarPath), "fir", jdkMajor, verbose, reporter().Verbosef)
+	return append(args, "-jar", oracle.AbsolutePath(jarPath), "--daemon", "--port", "0")
+}
+
+type firReadyResult struct {
+	ready firReadyMessage
+	err   error
+}
+
+const (
+	firReadyMaxSkippedLines = 50
+	firReadyMaxSkippedBytes = 64 * 1024
+)
+
+func readFirReady(r io.Reader, verbose bool) (firReadyMessage, error) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), firReadyMaxSkippedBytes+1)
+	skippedLines, skippedBytes := 0, 0
+	for sc.Scan() {
+		line := sc.Text()
+		var ready firReadyMessage
+		if err := json.Unmarshal([]byte(line), &ready); err == nil {
+			if !ready.Ready || ready.Port == 0 {
+				return firReadyMessage{}, fmt.Errorf("fir daemon did not report ready with port (got: %s)", line)
+			}
+			return ready, nil
+		}
+		if skippedLines >= firReadyMaxSkippedLines || skippedBytes+len(line)+1 > firReadyMaxSkippedBytes {
+			return firReadyMessage{}, fmt.Errorf("fir daemon ready message not found within stdout noise limit (%d lines or %d bytes)", firReadyMaxSkippedLines, firReadyMaxSkippedBytes)
+		}
+		skippedLines++
+		skippedBytes += len(line) + 1
+		if verbose {
+			reporter().Verbosef("verbose: skipped fir daemon stdout before ready (%d): %s\n", skippedLines, line)
+		}
+	}
+	if err := sc.Err(); err != nil {
+		if strings.Contains(err.Error(), "token too long") {
+			return firReadyMessage{}, fmt.Errorf("fir daemon ready message not found within stdout noise limit (%d lines or %d bytes)", firReadyMaxSkippedLines, firReadyMaxSkippedBytes)
+		}
+		return firReadyMessage{}, fmt.Errorf("fir daemon startup: %w", err)
+	}
+	if skippedLines > 0 {
+		return firReadyMessage{}, fmt.Errorf("fir daemon closed stdout before ready after %d non-JSON lines", skippedLines)
+	}
+	return firReadyMessage{}, fmt.Errorf("fir daemon closed stdout before ready")
 }
 
 // firCheckRole namespaces the daemon that serves `check` requests (the --fir

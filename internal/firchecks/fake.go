@@ -90,6 +90,7 @@ type ProductionFirChecker struct {
 	SourceDirs []string
 	Classpath  []string
 	RepoDir    string
+	NoCache    bool
 	UseDaemon  bool
 	Verbose    bool
 }
@@ -104,7 +105,11 @@ func (p *ProductionFirChecker) Check(files []string, sourceDirs, classpath, rule
 	if len(classpath) > 0 {
 		cl = classpath
 	}
-	return InvokeCached(p.JarPath, files, sd, cl, rules, ruleConfigs, facts, p.RepoDir, p.UseDaemon, p.Verbose, p.JvmTarget)
+	repoDir := p.RepoDir
+	if p.NoCache {
+		repoDir = ""
+	}
+	return InvokeCached(p.JarPath, files, sd, cl, rules, ruleConfigs, facts, repoDir, p.UseDaemon, p.Verbose, p.JvmTarget)
 }
 
 // Compile-time check.

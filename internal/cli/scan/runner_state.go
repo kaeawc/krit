@@ -639,6 +639,7 @@ func (r *runner) firCheckAndCollect() {
 		}
 		if enabled {
 			checker := NewFIRChecker(r.paths, r.cfg, !*r.f.NoFirDaemon, *r.f.Verbose)
+			checker.NoCache = *r.f.NoCache
 			checker.Classpath = effectiveOracleClasspath(r.f.modelClasspath, r.cfg)
 			checker.SourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(checker.SourceDirs, r.f.modelSourceDirs))
 			checker.JvmTarget = r.f.modelJvmTarget

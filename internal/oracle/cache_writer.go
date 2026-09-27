@@ -99,12 +99,24 @@ func (w *CacheWriter) QueueFreshEntriesToStoreScopedV2(s *store.FileStore, cache
 	if w == nil || w.writer == nil {
 		return WriteFreshEntriesToStoreWithTrackerScopedV2(s, cacheDir, fresh, deps, nil, callFilterFingerprint, declarationProfileFingerprint)
 	}
+	approximation := ""
+	if deps != nil {
+		approximation = deps.Approximation
+	}
+	releaseScope := bindFallbackStoreScope(s, cacheDir, approximation)
+	defer releaseScope()
 	jobs := freshOracleEntryJobs(fresh, deps)
 	if len(jobs) == 0 {
 		return 0, nil
 	}
+	var fixed *StoreScope
 	if deps != nil {
-		load := closureEntryLoader(s, cacheDir)
+		if bound, ok := scopeForStore(s, backendForApproximation(deps.Approximation)); ok {
+			fixed = &bound
+		}
+	}
+	if deps != nil {
+		load := closureEntryLoader(s, cacheDir, deps.Approximation)
 		for i := range jobs {
 			if !jobs[i].crashed {
 				jobs[i].depPaths = transitiveDepPaths(jobs[i].path, jobs[i].depPaths, deps, load)
@@ -130,9 +142,9 @@ func (w *CacheWriter) QueueFreshEntriesToStoreScopedV2(s *store.FileStore, cache
 		}
 		batch := append([]freshOracleEntryJob(nil), jobs[start:end]...)
 		if !w.writer.Submit(func() (int64, error) {
-			return w.writeBatch(s, cacheDir, memo, batch, callFilterFingerprint, declarationProfileFingerprint), nil
+			return w.writeBatch(s, cacheDir, memo, batch, callFilterFingerprint, declarationProfileFingerprint, fixed), nil
 		}) {
-			w.writeBatch(s, cacheDir, memo, batch, callFilterFingerprint, declarationProfileFingerprint)
+			w.writeBatch(s, cacheDir, memo, batch, callFilterFingerprint, declarationProfileFingerprint, fixed)
 		}
 	}
 	return len(jobs), nil
@@ -223,10 +235,10 @@ func (w *CacheWriter) AddPerfEntries(t perf.Tracker, storeBacked bool) {
 	}, nil)
 }
 
-func (w *CacheWriter) writeBatch(s *store.FileStore, cacheDir string, memo *oracleCacheHashMemo, batch []freshOracleEntryJob, callFilterFingerprint, declarationProfileFingerprint string) int64 {
+func (w *CacheWriter) writeBatch(s *store.FileStore, cacheDir string, memo *oracleCacheHashMemo, batch []freshOracleEntryJob, callFilterFingerprint, declarationProfileFingerprint string, fixed *StoreScope) int64 {
 	var bytes int64
 	for _, job := range batch {
-		if n, ok := w.writeOne(s, cacheDir, memo, job, callFilterFingerprint, declarationProfileFingerprint); ok {
+		if n, ok := w.writeOne(s, cacheDir, memo, job, callFilterFingerprint, declarationProfileFingerprint, fixed); ok {
 			bytes += n
 		}
 	}
@@ -265,7 +277,7 @@ func (w *CacheWriter) writePackedBatch(cacheDir string, memo *oracleCacheHashMem
 	return bytes
 }
 
-func (w *CacheWriter) writeOne(s *store.FileStore, cacheDir string, memo *oracleCacheHashMemo, job freshOracleEntryJob, callFilterFingerprint, declarationProfileFingerprint string) (int64, bool) {
+func (w *CacheWriter) writeOne(s *store.FileStore, cacheDir string, memo *oracleCacheHashMemo, job freshOracleEntryJob, callFilterFingerprint, declarationProfileFingerprint string, fixed *StoreScope) (int64, bool) {
 	entry, data, poison, ok := w.buildEntryData(memo, job, callFilterFingerprint, declarationProfileFingerprint)
 	if !ok {
 		return 0, false
@@ -274,7 +286,7 @@ func (w *CacheWriter) writeOne(s *store.FileStore, cacheDir string, memo *oracle
 	writeStart := time.Now()
 	var err error
 	if s != nil {
-		err = writeEntryDataToStore(s, entry, data)
+		err = writeEntryDataToStoreScoped(s, entry, data, cacheDir, fixed)
 		w.storePutNs.Add(time.Since(writeStart).Nanoseconds())
 	} else {
 		err = writeEntryData(cacheDir, entry, data)

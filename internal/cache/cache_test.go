@@ -330,6 +330,19 @@ func TestComputeConfigHash_DeterministicWithSameInput(t *testing.T) {
 	}
 }
 
+func TestComputeCacheKeyHashBuildToken(t *testing.T) {
+	rules := []string{"R1", "R2"}
+	identity := ComputeConfigHash(rules, nil, false)
+	first := computeCacheKeyHashWithToken(rules, nil, false, "rev:first")
+	second := computeCacheKeyHashWithToken(rules, nil, false, "rev:second")
+	if first == second {
+		t.Fatal("build token change did not invalidate cache key")
+	}
+	if got := ComputeConfigHash(rules, nil, false); got != identity {
+		t.Fatalf("snapshot identity changed: %q != %q", got, identity)
+	}
+}
+
 func TestComputeConfigHash_DifferentWithDifferentInput(t *testing.T) {
 	rulesA := []string{"MaxLineLength", "FunctionNaming"}
 	rulesB := []string{"MaxLineLength", "WildcardImport"}

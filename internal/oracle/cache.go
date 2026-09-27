@@ -30,6 +30,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/kaeawc/krit/internal/buildid"
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/iterutil"
@@ -61,13 +62,9 @@ func recordOracleDir(cacheDir string) {
 	oracleCacheDirSeen.Store(&c)
 }
 
-// CacheVersion is bumped whenever the on-disk entry layout changes in a
-// way that invalidates previously-written entries — OR whenever the oracle
-// backend starts emitting different facts for the same source (the on-disk
-// oracle cache keys on file content + CacheVersion, not on the krit-fir /
-// krit-types jar identity, so a backend behavior change is invisible to it
-// without a bump). A version mismatch on read is treated as a miss and the
-// offending entry is deleted.
+// CacheVersion is bumped for incompatible on-disk entry changes. Logic-only
+// backend changes are covered by the jar tokens in the cache identity.
+// A version mismatch on read is treated as a miss and the entry is deleted.
 //
 // v3: krit-fir now records smart-cast-refined nullability for stable
 // references (OracleSmartCastChecker), so previously-cached declared-type
@@ -181,6 +178,9 @@ func CacheDir(repoDir string) (string, error) {
 	tokens := []cacheutil.SchemaToken{
 		{Name: "version", Value: fmt.Sprintf("%d", CacheVersion)},
 		{Name: "hash", Value: hashutil.HasherName()},
+		// CacheDir has no selected backend; both tokens guard the shared
+		// legacy pack directory. The repository path is available here.
+		{Name: "backend", Value: oracleJarTokens([]string{repoDir})},
 	}
 	if oracleCacheTokenMismatch(dir, tokens) {
 		_ = os.RemoveAll(filepath.Join(dir, oraclePackSubdir))
@@ -742,7 +742,7 @@ func closureOverCap(approximation string, depPaths []string) bool {
 	return approximation == ApproximationKAATaggedReferences && len(depPaths) > maxPersistedClosure
 }
 
-func closureEntryLoader(s *store.FileStore, cacheDir string) func(string) *CacheEntry {
+func closureEntryLoader(s *store.FileStore, cacheDir string, approximation ...string) func(string) *CacheEntry {
 	loaded := make(map[string]*CacheEntry)
 	missing := make(map[string]bool)
 	return func(path string) *CacheEntry {
@@ -759,7 +759,11 @@ func closureEntryLoader(s *store.FileStore, cacheDir string) func(string) *Cache
 		}
 		var entry *CacheEntry
 		if s != nil {
-			entry, err = LoadEntryFromStore(s, hash)
+			scope := []string{cacheDir}
+			if len(approximation) > 0 {
+				scope = append(scope, approximation[0])
+			}
+			entry, err = LoadEntryFromStore(s, hash, scope...)
 		} else {
 			entry, err = LoadEntry(cacheDir, hash)
 		}
@@ -1253,29 +1257,67 @@ func WriteFreshEntriesWithTrackerScopedV2(
 // oracleVersionHash returns the 16-byte RuleSetHash used for oracle store
 // keys.  It encodes CacheVersion so that a version bump automatically
 // produces a different key prefix, invalidating all prior oracle entries.
-func oracleVersionHash() [16]byte {
-	h := hashutil.HashBytes([]byte(fmt.Sprintf("oracle-v%d", CacheVersion)))
+func oracleVersionHash(backend Backend, scanPaths []string) [16]byte {
+	var token string
+	if backend != "" {
+		token = backend.String() + ":" + buildid.JarToken(FindBackendJar(backend, scanPaths))
+	} else {
+		// A few legacy helpers have no selected backend in scope, so their
+		// shared cache identity must track both installed jars.
+		token = oracleJarTokens(scanPaths)
+	}
+	h := hashutil.HashBytes([]byte(fmt.Sprintf("oracle-v%d|%s", CacheVersion, token)))
 	var out [16]byte
 	copy(out[:], h[:])
 	return out
 }
 
+func oracleJarTokens(scanPaths []string) string {
+	fir := FindBackendJar(BackendFIR, scanPaths)
+	kaa := FindBackendJar(BackendKAA, scanPaths)
+	return "fir:" + buildid.JarToken(fir) + "|kaa:" + buildid.JarToken(kaa)
+}
+
 // oracleStoreKey builds the store.Key for a given content hash (hex string).
-func oracleStoreKey(contentHash string) store.Key {
+func oracleStoreKey(contentHash string, backend Backend, scanPaths []string) store.Key {
+	return oracleStoreKeyWithHash(contentHash, oracleVersionHash(backend, scanPaths))
+}
+
+func oracleStoreKeyScoped(contentHash string, scope StoreScope) store.Key {
+	return oracleStoreKeyWithHash(contentHash, scope.version)
+}
+
+func oracleStoreKeyWithHash(contentHash string, version [16]byte) store.Key {
 	b, _ := hex.DecodeString(contentHash)
 	var fh [32]byte
 	copy(fh[:], b)
 	return store.Key{
 		FileHash:    fh,
-		RuleSetHash: oracleVersionHash(),
+		RuleSetHash: version,
 		Kind:        store.KindOracle,
 	}
 }
 
 // LoadEntryFromStore retrieves a CacheEntry from s by content hash.
 // Returns (nil, nil) on a miss.  Treats any malformed value as a miss.
-func LoadEntryFromStore(s *store.FileStore, contentHash string) (*CacheEntry, error) {
-	data, ok := s.Get(oracleStoreKey(contentHash))
+func LoadEntryFromStore(s *store.FileStore, contentHash string, scope ...string) (*CacheEntry, error) {
+	backend, scanPaths := storeScope(scope)
+	var key store.Key
+	if fixed, ok := scopeForStore(s, backend); ok {
+		key = oracleStoreKeyScoped(contentHash, fixed)
+	} else {
+		key = oracleStoreKey(contentHash, backend, scanPaths)
+	}
+	data, ok := s.Get(key)
+	if !ok && backend == "" && len(scope) > 0 {
+		// Callers without a selected backend (for example reverse-closure
+		// expansion) probe both independent backend namespaces.
+		for _, candidate := range []Backend{BackendFIR, BackendKAA} {
+			if data, ok = s.Get(oracleStoreKey(contentHash, candidate, scanPaths)); ok {
+				break
+			}
+		}
+	}
 	if !ok {
 		return nil, nil
 	}
@@ -1296,11 +1338,57 @@ func WriteEntryToStore(s *store.FileStore, entry *CacheEntry) error {
 	if err != nil {
 		return err
 	}
-	return writeEntryDataToStore(s, entry, data)
+	return writeEntryDataToStore(s, entry, data, "")
 }
 
-func writeEntryDataToStore(s *store.FileStore, entry *CacheEntry, data []byte) error {
-	return s.Put(oracleStoreKey(entry.ContentHash), data)
+func writeEntryDataToStore(s *store.FileStore, entry *CacheEntry, data []byte, cacheDir string) error {
+	return writeEntryDataToStoreScoped(s, entry, data, cacheDir, nil)
+}
+
+func writeEntryDataToStoreScoped(s *store.FileStore, entry *CacheEntry, data []byte, cacheDir string, fixed *StoreScope) error {
+	backend := backendForApproximation(entry.Approximation)
+	if fixed == nil {
+		if bound, ok := scopeForStore(s, backend); ok {
+			fixed = &bound
+		}
+	}
+	if fixed != nil && fixed.Backend == backend {
+		return s.Put(oracleStoreKeyScoped(entry.ContentHash, *fixed), data)
+	}
+	scanPaths := storeScanPaths(cacheDir, entry.FilePath)
+	return s.Put(oracleStoreKey(entry.ContentHash, backend, scanPaths), data)
+}
+
+func backendForApproximation(approximation string) Backend {
+	switch approximation {
+	case ApproximationFIRWholeCompilation:
+		return BackendFIR
+	case ApproximationKAATaggedReferences, ApproximationSymbolResolvedSources:
+		return BackendKAA
+	default:
+		return ""
+	}
+}
+
+func storeScanPaths(cacheDir, filePath string) []string {
+	if cacheDir != "" {
+		return []string{filepath.Dir(filepath.Dir(cacheDir))}
+	}
+	if filePath != "" {
+		return []string{projectroot.Find([]string{filePath})}
+	}
+	return nil
+}
+
+func storeScope(scope []string) (Backend, []string) {
+	if len(scope) == 0 {
+		return "", nil
+	}
+	approximation := ""
+	if len(scope) > 1 {
+		approximation = scope[1]
+	}
+	return backendForApproximation(approximation), storeScanPaths(scope[0], "")
 }
 
 // ClassifyFilesWithStore is like ClassifyFiles but reads from s instead of
@@ -1329,6 +1417,8 @@ func ClassifyFilesWithStoreScopedV3(s *store.FileStore, cacheDir string, paths [
 	if s == nil {
 		return ClassifyFilesScopedV3(cacheDir, paths, callFilterFingerprint, declarationProfileFingerprint, approximation)
 	}
+	releaseScope := bindFallbackStoreScope(s, cacheDir, approximation)
+	defer releaseScope()
 	recordOracleDir(cacheDir)
 	hits = make([]*CacheEntry, 0, len(paths))
 	misses = make([]string, 0)
@@ -1345,7 +1435,7 @@ func ClassifyFilesWithStoreScopedV3(s *store.FileStore, cacheDir string, paths [
 		}
 		hashCache[p] = hash
 
-		entry, err := LoadEntryFromStore(s, hash)
+		entry, err := LoadEntryFromStore(s, hash, cacheDir, approximation)
 		if err != nil || entry == nil {
 			misses = append(misses, p)
 			continue
@@ -1416,15 +1506,21 @@ func WriteFreshEntriesToStoreWithTrackerScopedV2(
 	if fresh == nil {
 		return 0, nil
 	}
+	approximation := ""
+	if deps != nil {
+		approximation = deps.Approximation
+	}
+	releaseScope := bindFallbackStoreScope(s, cacheDir, approximation)
+	defer releaseScope()
 	written := 0
 	stats := newFreshEntryWriteStats(fresh, deps)
 	defer stats.emit(tracker, true)
 	hashCache := make(map[string]string, len(fresh.Files))
-	loadClosure := closureEntryLoader(s, cacheDir)
 	approx := ""
 	if deps != nil {
 		approx = deps.Approximation
 	}
+	loadClosure := closureEntryLoader(s, cacheDir, approx)
 	for path, fr := range fresh.Files {
 		hashStart := time.Now()
 		hash, err := ContentHash(path)
@@ -1482,7 +1578,7 @@ func WriteFreshEntriesToStoreWithTrackerScopedV2(
 			continue
 		}
 		putStart := time.Now()
-		if err := writeEntryDataToStore(s, entry, data); err != nil {
+		if err := writeEntryDataToStore(s, entry, data, cacheDir); err != nil {
 			stats.storePutNs += time.Since(putStart).Nanoseconds()
 			stats.skipped++
 			continue
@@ -1522,7 +1618,7 @@ func WriteFreshEntriesToStoreWithTrackerScopedV2(
 				continue
 			}
 			putStart := time.Now()
-			if err := writeEntryDataToStore(s, entry, data); err != nil {
+			if err := writeEntryDataToStore(s, entry, data, cacheDir); err != nil {
 				stats.storePutNs += time.Since(putStart).Nanoseconds()
 				stats.skipped++
 				continue

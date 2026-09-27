@@ -84,7 +84,8 @@ func ClearCrossFindingsCache(dir string) error {
 }
 
 // CrossFindingsKey composes the cache lookup key from the
-// codeIndex/parsed-files fingerprint and the cross-rule ruleHash. The
+// codeIndex/parsed-files fingerprint and the cross-rule ruleHash (provided by
+// cache.ComputeCacheKeyHash, including the running build token). The
 // returned hex digest covers both inputs plus the cache version, so
 // changing any one of them produces a new entry.
 func CrossFindingsKey(indexFingerprint, ruleHash string) string {

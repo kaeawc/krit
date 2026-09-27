@@ -25,7 +25,8 @@ import (
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
-// FirCacheVersion is bumped when the entry layout changes incompatibly.
+// FirCacheVersion is bumped when the on-disk entry layout changes incompatibly.
+// Logic-only changes are covered by the build and jar tokens in the fingerprint.
 // 4: entries record the advertised rules and compiler-error gating, are keyed
 // by path and content, and the fingerprint covers the whole compilation.
 // 5: the fingerprint covers the request's test-file classification.

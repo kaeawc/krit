@@ -1,6 +1,7 @@
 package gradlemodel
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -60,7 +61,21 @@ func TestLoadClasspathAndWarnings(t *testing.T) {
 	write(t, filepath.Join(dir, "bad.json"), "{")
 	write(t, filepath.Join(dir, "schema.json"), `{"schema":2}`)
 	write(t, filepath.Join(dir, "missing.json"), `{"schema":1,"projects":[{"path":":missing","dir":"/definitely/not/here"}]}`)
-	write(t, filepath.Join(dir, "root.json"), `{"schema":1,"projects":[{"path":":z","dir":"`+root+`","sourceSets":[]},{"path":":a","dir":"`+root+`","sourceSets":[{"name":"debug","bootClasspath":["`+boot+`","`+boot+`"],"classpath":["`+lib+`","`+boot+`","`+filepath.Join(root, "gone.jar")+`"]}]}]}`)
+	body, err := json.Marshal(map[string]interface{}{
+		"schema": 1,
+		"projects": []interface{}{
+			map[string]interface{}{"path": ":z", "dir": root, "sourceSets": []interface{}{}},
+			map[string]interface{}{"path": ":a", "dir": root, "sourceSets": []interface{}{map[string]interface{}{
+				"name":          "debug",
+				"bootClasspath": []string{boot, boot},
+				"classpath":     []string{lib, boot, filepath.Join(root, "gone.jar")},
+			}}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, "root.json"), string(body))
 	write(t, filepath.Join(dir, "ignored.txt"), "ignored")
 	m, warnings, err := Load(dir)
 	if err != nil {
@@ -75,6 +90,12 @@ func TestLoadClasspathAndWarnings(t *testing.T) {
 	cp, missing := m.Classpath()
 	if !reflect.DeepEqual(cp, []string{boot, lib}) || missing != 1 {
 		t.Fatalf("classpath=%v missing=%d", cp, missing)
+	}
+	if got := m.BootClasspath(); !reflect.DeepEqual(got, []string{boot}) {
+		t.Fatalf("boot classpath=%v", got)
+	}
+	if got := m.CompileClasspath(); !reflect.DeepEqual(got, []string{lib, boot}) {
+		t.Fatalf("compile classpath=%v", got)
 	}
 	before := m.Fingerprint()
 	time.Sleep(time.Millisecond)

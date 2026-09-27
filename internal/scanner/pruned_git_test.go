@@ -8,7 +8,16 @@ import (
 	"testing"
 )
 
+func scannerGitAvailable(t *testing.T) bool {
+	t.Helper()
+	_, err := exec.LookPath("git")
+	return err == nil
+}
+
 func TestTrackedIdeaTemplateExcludedFromSourceCollection(t *testing.T) {
+	if !scannerGitAvailable(t) {
+		t.Skip("git not on PATH")
+	}
 	root := filepath.Join(t.TempDir(), ".claude", "worktrees", "repo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)

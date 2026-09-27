@@ -493,9 +493,6 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	in := pipeline.ProjectInput{
 		Args: pipeline.ProjectArgs{
 			Config:              cfg,
-			OracleClasspath:     args.OracleClasspath,
-			OracleSourceDirs:    args.OracleSourceDirs,
-			OracleJvmTarget:     args.OracleJvmTarget,
 			Paths:               paths,
 			KotlinPaths:         kotlinPaths,
 			JavaPaths:           javaPaths,
@@ -576,8 +573,19 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 			PriorFileStats:               priorManifest.FileStats,
 		},
 	}
+	applyOracleModelArgs(args, &in.Args)
 	in.Host.FindingsPostPass = firFindingsPostPass(args, paths, cfg)
 	return in, nil
+}
+
+// applyOracleModelArgs copies the caller's Gradle-derived oracle model into
+// the project arguments. Both the daemon analysis and strict-verify baseline
+// use this mapping so their oracle inputs stay identical.
+func applyOracleModelArgs(args daemon.AnalyzeProjectArgs, projectArgs *pipeline.ProjectArgs) {
+	projectArgs.OracleClasspath = args.OracleClasspath
+	projectArgs.OracleSourceDirs = args.OracleSourceDirs
+	projectArgs.OracleJvmTarget = args.OracleJvmTarget
+	projectArgs.GeneratedSourceDirs = args.OracleGeneratedSourceDirs
 }
 
 // firFindingsPostPass returns the pipeline hook that runs the --fir pass

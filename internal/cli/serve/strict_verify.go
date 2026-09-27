@@ -229,24 +229,25 @@ func (s *daemonState) runStrictVerify(ctx context.Context, args daemon.AnalyzePr
 	}
 	defer pc.Close() //nolint:errcheck // best effort
 
+	baselineArgs := pipeline.ProjectArgs{
+		Config:           cfg,
+		Paths:            paths,
+		ActiveRules:      activeRules,
+		Format:           args.Format,
+		BaselinePath:     args.BaselinePath,
+		DiffRef:          args.DiffRef,
+		MinConfidence:    args.MinConfidence,
+		WarningsAsErrors: args.WarningsAsErrors,
+		IncludeGenerated: args.IncludeGenerated,
+		Version:          kritVersion(),
+		// Enabling oracle keys the baseline to the same backend the
+		// daemon call used; wireOracleHandles consumes host.OracleDaemon
+		// from the matching ensureOracleDaemon slot.
+		OracleEnabled: oracleDaemon != nil,
+	}
+	applyOracleModelArgs(args, &baselineArgs)
 	baseline, err := pipeline.RunProjectAnalysis(ctx, pipeline.ProjectInput{
-		Args: pipeline.ProjectArgs{
-			Config:              cfg,
-			Paths:               paths,
-			ActiveRules:         activeRules,
-			Format:              args.Format,
-			BaselinePath:        args.BaselinePath,
-			DiffRef:             args.DiffRef,
-			MinConfidence:       args.MinConfidence,
-			WarningsAsErrors:    args.WarningsAsErrors,
-			IncludeGenerated:    args.IncludeGenerated,
-			GeneratedSourceDirs: args.OracleGeneratedSourceDirs,
-			Version:             kritVersion(),
-			// Enabling oracle keys the baseline to the same backend the
-			// daemon call used; wireOracleHandles consumes host.OracleDaemon
-			// from the matching ensureOracleDaemon slot.
-			OracleEnabled: oracleDaemon != nil,
-		},
+		Args: baselineArgs,
 		Host: pipeline.ProjectHostState{
 			ParseCache:   pc,
 			OracleDaemon: oracleDaemon,

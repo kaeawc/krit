@@ -172,4 +172,4 @@ The plugin downloads the correct platform-specific krit binary from GitHub Relea
 ## Requirements
 
 - Gradle 8.0+
-- JDK 17+
+- JDK 17+ for the plugin's JVM 17 bytecode. Default FIR-enabled `kritCheck` scans need Java 21+ at runtime; set `fir = false` in the `krit` extension for Go-only analysis on JDK 17.

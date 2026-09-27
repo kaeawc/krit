@@ -8,10 +8,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/kaeawc/krit/internal/cli/scan"
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/jsonrpc"
 	"github.com/kaeawc/krit/internal/logger"
 	"github.com/kaeawc/krit/internal/pipeline"
@@ -76,28 +80,63 @@ type Server struct {
 	// log routes lifecycle/error messages. NewServer sets a stderr
 	// text-handler at Info level; SetLogger lets tests inject a
 	// logger.Capture to assert on emitted records.
-	log              logger.Logger
-	firPreflightOnce sync.Once
-	firNotice        string
-	firNoticeSent    bool
+	log            logger.Logger
+	firNoticeMu    sync.Mutex
+	firNoticeKeys  map[string]struct{}
+	firNoticeCheck func(context.Context, []string, *config.Config) error
 }
 
-func (s *Server) firNoticeFor(paths []string) {
-	s.firPreflightOnce.Do(func() {
-		if len(paths) == 0 {
-			paths = []string{"."}
+func (s *Server) firNoticeFor(paths []string, configPath string) {
+	if len(paths) == 0 {
+		paths = []string{"."}
+	}
+	root := paths[0]
+	if modelDir := gradlemodel.Discover(root); modelDir != "" {
+		root = filepath.Dir(filepath.Dir(modelDir))
+	}
+	root, _ = filepath.Abs(root)
+	if configPath != "" {
+		configPath, _ = filepath.Abs(configPath)
+	} else {
+		for dir := root; ; dir = filepath.Dir(dir) {
+			for _, name := range []string{"krit.yml", ".krit.yml"} {
+				candidate := filepath.Join(dir, name)
+				if _, err := os.Stat(candidate); err == nil {
+					configPath = candidate
+					break
+				}
+			}
+			if configPath != "" || filepath.Dir(dir) == dir {
+				break
+			}
 		}
-		cfg, _ := config.LoadAndMergeDefaults("", paths...)
-		_, err := scan.PreflightFIR(context.Background(), paths, cfg, "", false, io.Discard)
-		if err != nil {
-			s.firNotice = "FIR unavailable; using Go-only analysis: " + err.Error()
-		}
-	})
-	if s.firNoticeSent || s.firNotice == "" {
+	}
+	key := root + "\x00" + configPath
+	s.firNoticeMu.Lock()
+	if s.firNoticeKeys == nil {
+		s.firNoticeKeys = make(map[string]struct{})
+	}
+	if _, ok := s.firNoticeKeys[key]; ok {
+		s.firNoticeMu.Unlock()
 		return
 	}
-	s.firNoticeSent = true
-	s.log.Warn(s.firNotice)
+	s.firNoticeKeys[key] = struct{}{}
+	s.firNoticeMu.Unlock()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		cfg, err := config.LoadAndMergeDefaults(configPath, paths...)
+		if err == nil {
+			check := s.firNoticeCheck
+			if check == nil {
+				check = scan.NoticeFIRPreflight
+			}
+			err = check(ctx, paths, cfg)
+		}
+		if err != nil && ctx.Err() == nil {
+			s.log.Warn("FIR unavailable; using Go-only analysis: " + err.Error())
+		}
+	}()
 }
 
 // logInfo logs an informational message gated behind s.Verbose. Preserves

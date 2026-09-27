@@ -84,6 +84,12 @@ abstract class KritCheckTask @Inject constructor(
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val sourceRoots: org.gradle.api.file.ConfigurableFileCollection
 
+    // Only the JSON content affects analysis; absolute model paths vary by machine.
+    @get:InputFiles
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val modelFile: org.gradle.api.file.ConfigurableFileCollection
+
     @get:Internal
     abstract val cacheDir: DirectoryProperty
 

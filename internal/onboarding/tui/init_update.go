@@ -152,6 +152,8 @@ func (m Model) handleAutofixDone(msg autofixDoneMsg) (tea.Model, tea.Cmd) {
 		m.fixedCount = 0
 	}
 	m.topFixedRules = msg.top
+	m.firChecked = true
+	m.firEnabled = msg.firEnabled
 	if m.acceptAll {
 		m.phase = baselineRunningPhaseModel{}
 		return m, m.baselineCmd()
@@ -177,6 +179,8 @@ func (m Model) handleBaselineDone(msg baselineDoneMsg) (tea.Model, tea.Cmd) {
 	}
 	m.baselinePath = msg.path
 	m.baselineWritten = true
+	m.firEnabled = msg.firEnabled
+	m.firChecked = true
 	m.phase = m.newDonePhase()
 	if m.acceptAll {
 		return m, tea.Quit
@@ -197,5 +201,6 @@ func (m Model) newDonePhase() donePhaseModel {
 		baselineSkipped: m.baselineSkipped,
 		baselinePath:    m.baselinePath,
 		baselineWritten: m.baselineWritten,
+		goOnlyBaseline:  m.baselineWritten && m.firChecked && !m.firEnabled,
 	}
 }

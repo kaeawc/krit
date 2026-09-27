@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.gradle
 
 import groovy.json.JsonSlurper
 import org.gradle.testkit.runner.GradleRunner
+import org.gradle.testkit.runner.TaskOutcome
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.util.jar.JarOutputStream
+import java.util.jar.JarEntry
 
 class KritExportModelTest {
     @TempDir lateinit var directory: File
@@ -42,6 +44,51 @@ class KritExportModelTest {
         .withPluginClasspath()
         .withArguments(*args, "--offline", "--stacktrace")
         .build()
+
+    @Test
+    fun `kritCheck reruns when exported dependency model changes`() {
+        val root = fixture()
+        val app = File(root, "app")
+        val source = File(app, "src/main/kotlin/Example.kt")
+        source.parentFile.mkdirs()
+        source.writeText("class Example\n")
+        val binary = File(root, "fake-krit")
+        binary.writeText("""#!/bin/sh
+            previous=""
+            for arg in "${'$'}@"; do
+              if [ "${'$'}previous" = "-o" ]; then printf '{}\n' > "${'$'}arg"; fi
+              previous="${'$'}arg"
+            done
+        """.trimIndent() + "\n")
+        binary.setExecutable(true)
+        val buildFile = File(app, "build.gradle.kts")
+        buildFile.appendText("\nkrit { advanced { binary.set(file(\"../fake-krit\")) }; fir = false }\n")
+
+        val first = run(root, ":app:kritCheck")
+        assertEquals(TaskOutcome.SUCCESS, first.task(":app:kritCheck")?.outcome)
+        val second = run(root, ":app:kritCheck")
+        assertEquals(TaskOutcome.UP_TO_DATE, second.task(":app:kritCheck")?.outcome)
+        val before = File(root, ".krit/gradle-model/app.json").readText()
+
+        val artifact = File(root, "repo/com/example/testlib/2.0/testlib-2.0.jar")
+        artifact.parentFile.mkdirs()
+        JarOutputStream(artifact.outputStream()).use { jar ->
+            jar.putNextEntry(JarEntry("com/example/Marker.class"))
+            jar.write(byteArrayOf(1, 2, 3))
+            jar.closeEntry()
+        }
+        artifact.resolveSibling("testlib-2.0.pom").writeText("""
+            <project><modelVersion>4.0.0</modelVersion><groupId>com.example</groupId>
+            <artifactId>testlib</artifactId><version>2.0</version></project>
+        """.trimIndent())
+        buildFile.writeText(buildFile.readText().replace("testlib:1.0", "testlib:2.0"))
+
+        val third = run(root, ":app:kritCheck")
+        assertEquals(TaskOutcome.SUCCESS, third.task(":app:kritCheck")?.outcome, third.output)
+        val after = File(root, ".krit/gradle-model/app.json").readText()
+        assertFalse(before == after)
+        assertTrue(after.contains("testlib-2.0.jar"))
+    }
 
     private fun runWithFakeAndroid(root: File, vararg args: String): org.gradle.testkit.runner.BuildResult {
         val runner = GradleRunner.create().withPluginClasspath()

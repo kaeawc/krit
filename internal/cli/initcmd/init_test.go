@@ -1,13 +1,88 @@
 package initcmd
 
 import (
+	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/onboarding"
 )
+
+func TestHeadlessBaselineFIRMode(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		ready bool
+	}{{"fir", true}, {"go-only", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			old := preflightFIR
+			preflightFIR = func(context.Context, []string, *config.Config, string, bool, io.Writer) ([]string, error) {
+				if tc.ready {
+					return nil, nil
+				}
+				return nil, errors.New("missing FIR requirements")
+			}
+			defer func() { preflightFIR = old }()
+			target := t.TempDir()
+			logPath := filepath.Join(target, "args.log")
+			t.Setenv("KRIT_TEST_ARGS", logPath)
+			bin := filepath.Join(target, "fake-krit")
+			script := `#!/bin/sh
+printf '%s\n' "$*" >> "$KRIT_TEST_ARGS"
+case " $* " in
+  *" -f json "*) printf '{"summary":{"total":0,"fixable":0,"byRule":{}},"findings":[]}\n';;
+esac
+previous=""
+for arg in "$@"; do
+  if [ "$previous" = "--create-baseline" ]; then printf '<baseline/>\n' > "$arg"; fi
+  previous="$arg"
+done
+`
+			if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+			if err != nil {
+				t.Fatal(err)
+			}
+			reg, err := onboarding.LoadRegistry(filepath.Join(repoRoot, "config", "onboarding", "controversial-rules.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			r, w, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			oldOut := os.Stdout
+			os.Stdout = w
+			code := runHeadlessInit(onboarding.ScanOptions{KritBin: bin, RepoRoot: repoRoot, Target: target}, reg, "balanced")
+			_ = w.Close()
+			os.Stdout = oldOut
+			out, _ := io.ReadAll(r)
+			_ = r.Close()
+			if code != 0 {
+				t.Fatalf("exit %d: %s", code, out)
+			}
+			args, err := os.ReadFile(logPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.TrimSpace(string(args)), "\n")
+			for _, line := range lines[1:] { // profile comparison deliberately remains Go-only
+				if strings.Contains(line, "--no-fir") == tc.ready {
+					t.Errorf("unexpected mode: %s", line)
+				}
+			}
+			if strings.Contains(string(out), onboarding.GoOnlyBaselineNotice) == tc.ready {
+				t.Errorf("unexpected notice: %s", out)
+			}
+		})
+	}
+}
 
 // TestRunHeadlessInitInProcess calls runHeadlessInit directly
 // instead of via exec, so Go coverage can see everything under it.

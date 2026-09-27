@@ -287,6 +287,10 @@ class KritPlugin : Plugin<Project> {
                                     dependsOn(extension.exportModel.map { enabled ->
                                         if (enabled) listOf(project.tasks.named("kritExportModel")) else emptyList<Any>()
                                     })
+                                    modelFile.from(project.provider {
+                                        if (extension.exportModel.get()) project.tasks.named("kritExportModel", KritExportModelTask::class.java).flatMap { it.outputFile }
+                                        else emptyList<Any>()
+                                    })
                                     setSource(project.files(checkDirs))
                                     sourceRoots.from(checkDirs)
                                     description = "Run krit analysis on the '$candidate' variant sources"
@@ -399,6 +403,13 @@ class KritPlugin : Plugin<Project> {
             dependsOn(extension.exportModel.map { enabled ->
                 if (enabled) listOf(export) else emptyList<Any>()
             })
+            // A whole-directory input would read other projects' outputs and break
+            // isolated configuration. Cache invalidation is project-local here;
+            // export all models first when relying on cross-project model changes.
+            (this as KritCheckTask).modelFile.from(project.provider {
+                if (extension.exportModel.get()) export.flatMap { it.outputFile }
+                else emptyList<Any>()
+            })
         }
     }
 
@@ -444,6 +455,10 @@ class KritPlugin : Plugin<Project> {
                                 project.tasks.register(taskName, KritCheckTask::class.java) {
                                     dependsOn(extension.exportModel.map { enabled ->
                                         if (enabled) listOf(project.tasks.named("kritExportModel")) else emptyList<Any>()
+                                    })
+                                    modelFile.from(project.provider {
+                                        if (extension.exportModel.get()) project.tasks.named("kritExportModel", KritExportModelTask::class.java).flatMap { it.outputFile }
+                                        else emptyList<Any>()
                                     })
                                     setSource(project.files(kotlinDirs))
                                     sourceRoots.from(kotlinDirs)

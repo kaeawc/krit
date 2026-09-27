@@ -695,15 +695,19 @@ func (s *Server) analyzeAndPublish(uri string, content []byte) {
 
 func (s *Server) noticeFIRPreflight(path string) {
 	s.firPreflightOnce.Do(func() {
-		_, err := scan.PreflightFIR(context.Background(), []string{path}, s.cfg, "", false, io.Discard)
-		if err == nil {
-			return
-		}
-		msg := err.Error()
-		s.log.Warn("FIR unavailable; using Go-only analysis", "reason", msg)
-		s.sendNotification("window/showMessage", ShowMessageParams{Type: MessageTypeWarning, Message: msg})
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := noticeFIRPreflightCheck(ctx, []string{path}, s.cfg); err != nil && ctx.Err() == nil {
+				msg := err.Error()
+				s.log.Warn("FIR unavailable; using Go-only analysis", "reason", msg)
+				s.sendNotification("window/showMessage", ShowMessageParams{Type: MessageTypeWarning, Message: msg})
+			}
+		}()
 	})
 }
+
+var noticeFIRPreflightCheck = scan.NoticeFIRPreflight
 
 // publishDiagnostics sends a textDocument/publishDiagnostics notification.
 func (s *Server) publishDiagnostics(uri string, diagnostics []Diagnostic) {

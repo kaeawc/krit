@@ -1,6 +1,8 @@
 package oracle
 
 import (
+	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -52,6 +54,8 @@ func TestPrepareJavaArgsQuotesTokens(t *testing.T) {
 		{`C:\work\lib.jar`, `"C:\\work\\lib.jar"`},
 		{`C:\work dir\lib.jar`, `"C:\\work dir\\lib.jar"`},
 		{`a"b.jar`, `"a\"b.jar"`},
+		{"line\nbreak.jar", `"line\nbreak.jar"`},
+		{"carriage\rreturn.jar", `"carriage\rreturn.jar"`},
 		{"it's.jar", `"it's.jar"`},
 		{`a"b'c`, `"a\"b'c"`},
 		{"a\fb.jar", "\"a\fb.jar\""},
@@ -95,7 +99,7 @@ func TestPrepareJavaArgsJavaRoundTrip(t *testing.T) {
 	source := filepath.Join(dir, "ArgDump.java")
 	if err := os.WriteFile(source, []byte(`public class ArgDump {
     public static void main(String[] args) {
-        for (String arg : args) System.out.println(arg);
+		for (String arg : args) System.out.println(java.util.Base64.getEncoder().encodeToString(arg.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
     }
 }
 `), 0644); err != nil {
@@ -104,7 +108,7 @@ func TestPrepareJavaArgsJavaRoundTrip(t *testing.T) {
 	if output, err := exec.Command(javac, "-d", dir, source).CombinedOutput(); err != nil {
 		t.Fatalf("compile ArgDump: %v\n%s", err, output)
 	}
-	want := []string{"/work/project#1/lib.jar", "#lead.jar", `C:\work dir\lib.jar`, `a"b.jar`, "it's.jar", "plain.jar"}
+	want := []string{"/work/project#1/lib.jar", "#lead.jar", `C:\work dir\lib.jar`, `a"b.jar`, "line\nbreak.jar", "carriage\rreturn.jar", "it's.jar", "plain.jar"}
 	args := []string{"-Dkrit.argfile.padding=" + strings.Repeat("x", javaArgfileThreshold), "-cp", dir, "ArgDump"}
 	args = append(args, want...)
 	got, cleanup, err := prepareJavaArgs(args)
@@ -123,7 +127,17 @@ func TestPrepareJavaArgsJavaRoundTrip(t *testing.T) {
 		}
 		t.Fatalf("run ArgDump: %v", err)
 	}
-	if wantOutput := strings.Join(want, "\n") + "\n"; string(output) != wantOutput {
-		t.Fatalf("Java arguments differ:\n got %q\nwant %q", output, wantOutput)
+	lines := strings.Split(strings.TrimSuffix(string(output), "\n"), "\n")
+	if len(lines) != len(want) {
+		t.Fatalf("Java returned %d arguments, want %d: %q", len(lines), len(want), output)
+	}
+	for i, line := range lines {
+		got, err := base64.StdEncoding.DecodeString(line)
+		if err != nil {
+			t.Fatalf("decode Java argument %d: %v", i, err)
+		}
+		if !bytes.Equal(got, []byte(want[i])) {
+			t.Fatalf("Java argument %d differs: got %q, want %q", i, got, want[i])
+		}
 	}
 }

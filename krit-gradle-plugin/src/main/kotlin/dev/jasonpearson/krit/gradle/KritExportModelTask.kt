@@ -9,6 +9,7 @@ import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Classpath
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.Nested
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
 import java.io.File
@@ -26,37 +27,54 @@ private fun writeJson(file: File, value: Map<String, Any>) {
     file.writeText(JsonOutput.prettyPrint(JsonOutput.toJson(value)) + "\n")
 }
 
-@DisableCachingByDefault(because = "Output contains absolute artifact paths")
-abstract class KritExportModelTask : DefaultTask() {
-    @get:Classpath abstract val classpath: ConfigurableFileCollection
-    @get:Input abstract val bootClasspath: ListProperty<String>
-    @get:Input abstract val projectDeps: ListProperty<String>
-    @get:Input abstract val sourceDirs: ListProperty<String>
-    @get:Input abstract val projectPath: Property<String>
-    @get:Input abstract val projectDir: Property<String>
+abstract class KritModelSourceSet {
+    @get:Input abstract val name: Property<String>
+    @get:Input abstract val kind: Property<String>
     @get:Input abstract val platform: Property<String>
     @get:Input abstract val variant: Property<String>
-    @get:Input abstract val sourceSetName: Property<String>
+    @get:Input abstract val sourceDirs: ListProperty<String>
+    @get:Classpath abstract val classpath: ConfigurableFileCollection
+    @get:Input abstract val generatedClasspath: ListProperty<String>
+    @get:Input abstract val bootClasspath: ListProperty<String>
+    @get:Input abstract val projectDeps: ListProperty<String>
+    @get:Input abstract val jvmTarget: Property<String>
+}
+
+@DisableCachingByDefault(because = "Output contains absolute artifact paths")
+abstract class KritExportModelTask : DefaultTask() {
+    @get:Nested abstract val sourceSets: ListProperty<KritModelSourceSet>
+    @get:Input abstract val buildDir: Property<String>
+    @get:Input abstract val projectPath: Property<String>
+    @get:Input abstract val projectDir: Property<String>
     @get:Input abstract val generatedBy: Property<String>
     @get:Input abstract val rootDir: Property<String>
-    @get:Input abstract val hasModel: Property<Boolean>
     @get:OutputFile abstract val outputFile: RegularFileProperty
 
     @TaskAction
     fun export() {
-        val sourceSet = linkedMapOf<String, Any>(
-            "name" to sourceSetName.get(),
-            "platform" to platform.get(),
-            "variant" to variant.get(),
-            "sourceDirs" to sourceDirs.get().distinct().sorted(),
-            "classpath" to classpath.files.map(::modelPath).distinct().sorted(),
-            "bootClasspath" to bootClasspath.get().distinct().sorted(),
-            "projectDeps" to projectDeps.get().distinct().sorted(),
-        )
+        val build = File(buildDir.get()).absoluteFile.normalize().toPath()
+        val entries = sourceSets.get().map { sourceSet ->
+            val (generated, ordinary) = sourceSet.sourceDirs.get().distinct().sorted().partition {
+                File(it).absoluteFile.normalize().toPath().startsWith(build)
+            }
+            linkedMapOf<String, Any>(
+                "name" to sourceSet.name.get(),
+                "kind" to sourceSet.kind.get(),
+                "platform" to sourceSet.platform.get(),
+                "variant" to sourceSet.variant.get(),
+                "sourceDirs" to ordinary,
+                "generatedSourceDirs" to generated,
+                "classpath" to sourceSet.classpath.files.map(::modelPath).distinct().sorted(),
+                "generatedClasspath" to sourceSet.generatedClasspath.get().distinct().sorted(),
+                "bootClasspath" to sourceSet.bootClasspath.get().distinct().sorted(),
+                "projectDeps" to sourceSet.projectDeps.get().distinct().sorted(),
+                "jvmTarget" to sourceSet.jvmTarget.get(),
+            )
+        }
         val entry = linkedMapOf<String, Any>(
             "path" to projectPath.get(),
             "dir" to projectDir.get(),
-            "sourceSets" to if (hasModel.get()) listOf(sourceSet) else emptyList<Any>(),
+            "sourceSets" to entries,
         )
         writeJson(outputFile.get().asFile, linkedMapOf(
             "schema" to 1,

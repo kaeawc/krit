@@ -55,6 +55,12 @@ abstract class KritExtension @Inject constructor(objects: ObjectFactory) {
     /** Kotlin custom-rule jars to load through krit-types. Populated by `kritCustomRules` deps. */
     abstract val customRuleJars: ConfigurableFileCollection
 
+    /** Run this project's model export before this project's kritCheck. */
+    abstract val exportModel: Property<Boolean>
+
+    /** Android variant exported to the Gradle model. Defaults to debug. */
+    abstract val androidVariant: Property<String>
+
     /** Report format configuration. */
     val reports: KritReports = objects.newInstance(DefaultKritReports::class.java)
 

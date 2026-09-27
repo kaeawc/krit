@@ -45,3 +45,24 @@ func TestTypesJSONHasDiagnostics(t *testing.T) {
 		t.Fatal("record for a replaced types.json must not vouch for the new file")
 	}
 }
+
+func TestTypesJSONSatisfiesBuildAndBackend(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "types.json")
+	if err := os.WriteFile(path, []byte(`{"version":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scope := storeScopeForToken(BackendFIR, "jar-x")
+	if err := RecordTypesFacts(path, false, scope); err != nil {
+		t.Fatal(err)
+	}
+	rec, ok := readTypesFacts(path)
+	if !ok || !TypesJSONSatisfies(path, true, scope, rec.BuildToken) {
+		t.Fatal("matching facts record was not reusable")
+	}
+	if TypesJSONSatisfies(path, true, scope, "different-build") {
+		t.Fatal("different build reused types.json")
+	}
+	if TypesJSONSatisfies(path, true, storeScopeForToken(BackendKAA, "jar-x"), rec.BuildToken) {
+		t.Fatal("different backend reused types.json")
+	}
+}

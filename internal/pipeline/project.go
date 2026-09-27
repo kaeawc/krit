@@ -1432,7 +1432,7 @@ func projectRuleHashWithEditorConfig(activeRules []*api.Rule, cfg *config.Config
 			ruleNames = append(ruleNames, r.ID)
 		}
 	}
-	return cache.ComputeConfigHash(ruleNames, cfg, editorConfigEnabled)
+	return cache.ComputeCacheKeyHash(ruleNames, cfg, editorConfigEnabled)
 }
 
 // wireAnalysisCacheLookup turns on IndexPhase.runCacheLoad when the
@@ -3265,7 +3265,7 @@ func tryAffectedSetDispatch(
 //
 //   - Version: args.Version (the binary's release identifier; bumps
 //     after the wire format / output shape changes).
-//   - Rules: cache.ComputeConfigHash over the active rule IDs + Config.
+//   - Rules: cache.ComputeCacheKeyHash over the active rule IDs + Config.
 //     Drift in either invalidates the bundle.
 //   - Config: same hash as Rules today; kept separate so a future
 //     split (e.g. rule-set hash vs. user-tunable knobs) doesn't

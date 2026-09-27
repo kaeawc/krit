@@ -52,6 +52,12 @@ func New(dir string) *FileStore {
 	return &FileStore{root: dir}
 }
 
+// Clone returns an independent handle to the same on-disk store. Callers can
+// attach invocation-local metadata to the handle without affecting other scans.
+func (s *FileStore) Clone() *FileStore {
+	return &FileStore{root: s.root}
+}
+
 // entryPath maps a Key to an absolute file path inside the store root.
 func (s *FileStore) entryPath(key Key) string {
 	fh := hex.EncodeToString(key.FileHash[:])

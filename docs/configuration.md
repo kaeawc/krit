@@ -60,6 +60,7 @@ Source-file collection always skips built-in test data directories (`/test/data/
 `/compilerTests/`) and test source-set resource directories under
 `src/<set>/resources/` when `<set>` is `test`, `androidTest`, `testFixtures`,
 or ends in `Test` (for example, `src/commonTest/resources/`).
+Built-in skips apply only to directory scans, so files named explicitly on the command line are analyzed unless a user exclude pattern matches them.
 
 ```yaml
 naming:

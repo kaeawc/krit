@@ -703,6 +703,60 @@ func TestIsExcludedTestResourcePaths(t *testing.T) {
 	}
 }
 
+func TestCollectionBuiltinSkipsOnlyDirectoryScans(t *testing.T) {
+	dir := t.TempDir()
+	resources := filepath.Join(dir, "src", "test", "resources", "Foo.kt")
+	testData := filepath.Join(dir, "src", "test", "data", "Bar.kt")
+	for _, path := range []string{resources, testData} {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("failed to create parent dir for %s: %v", path, err)
+		}
+		if err := os.WriteFile(path, []byte("package test"), 0644); err != nil {
+			t.Fatalf("failed to write %s: %v", path, err)
+		}
+	}
+
+	collectors := []struct {
+		name    string
+		collect func([]string, []string) ([]string, error)
+	}{
+		{name: "Kotlin", collect: CollectKotlinFiles},
+		{name: "Kotlin and Java", collect: func(paths []string, excludes []string) ([]string, error) {
+			kotlin, _, err := CollectKotlinAndJavaFiles(context.Background(), paths, excludes)
+			return kotlin, err
+		}},
+	}
+	for _, collector := range collectors {
+		t.Run(collector.name, func(t *testing.T) {
+			files, err := collector.collect([]string{dir}, nil)
+			if err != nil {
+				t.Fatalf("directory collection returned error: %v", err)
+			}
+			if len(files) != 0 {
+				t.Fatalf("expected built-in directories to be skipped, got %#v", files)
+			}
+
+			for _, path := range []string{resources, testData} {
+				files, err := collector.collect([]string{path}, nil)
+				if err != nil {
+					t.Fatalf("explicit collection of %s returned error: %v", path, err)
+				}
+				if len(files) != 1 || files[0] != path {
+					t.Fatalf("expected explicit file %q, got %#v", path, files)
+				}
+			}
+
+			files, err = collector.collect([]string{resources}, []string{"Foo.kt"})
+			if err != nil {
+				t.Fatalf("excluded explicit collection returned error: %v", err)
+			}
+			if len(files) != 0 {
+				t.Fatalf("expected user exclude to skip explicit file, got %#v", files)
+			}
+		})
+	}
+}
+
 func TestCollectKotlinFilesRespectsGitignore(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, ".git"), 0755); err != nil {

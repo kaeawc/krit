@@ -392,7 +392,7 @@ func CollectKotlinAndJavaFiles(ctx context.Context, paths []string, excludes []s
 		}
 		matcher := fileignore.MatcherForPath(p, info, ignoreMatchers)
 		if !info.IsDir() {
-			if isExcluded(p, excludes) {
+			if isExcludedByPattern(p, excludes) {
 				continue
 			}
 			if matcher.Ignored(p, false) {
@@ -520,7 +520,7 @@ func collectSourceFiles(paths []string, excludes []string, isSourceFile func(str
 		}
 		matcher := fileignore.MatcherForPath(p, info, ignoreMatchers)
 		if !info.IsDir() {
-			if isSourceFile(p) && !matcher.Ignored(p, false) && !isExcluded(p, excludes) {
+			if isSourceFile(p) && !matcher.Ignored(p, false) && !isExcludedByPattern(p, excludes) {
 				addFile(p)
 			}
 			continue
@@ -810,6 +810,10 @@ func partitionIndexedPaths(paths []string, workers int) [][]indexedPath {
 }
 
 func isExcluded(path string, excludes []string) bool {
+	return isExcludedBuiltinDir(path) || isExcludedByPattern(path, excludes)
+}
+
+func isExcludedBuiltinDir(path string) bool {
 	path = filepath.ToSlash(path)
 	// filepath.ToSlash only replaces the current platform's separator. Also
 	// normalize Windows paths when running on Unix so path checks are stable.
@@ -828,6 +832,12 @@ func isExcluded(path string, excludes []string) bool {
 		strings.Contains(path, "/compilerTests/") {
 		return true
 	}
+	return false
+}
+
+func isExcludedByPattern(path string, excludes []string) bool {
+	path = filepath.ToSlash(path)
+	path = strings.ReplaceAll(path, `\`, "/")
 	for _, pattern := range excludes {
 		if matched, _ := filepath.Match(pattern, filepath.Base(path)); matched {
 			return true

@@ -38,6 +38,14 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
+tasks.withType<JavaCompile>().configureEach {
+    options.release.set(17)
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+}
+
 // Codegen so the default krit binary version tracks `version` rather than
 // drifting from a hand-edited constant in KritPlugin.
 val generateKritVersion = tasks.register("generateKritVersion") {

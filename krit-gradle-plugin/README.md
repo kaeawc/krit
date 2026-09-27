@@ -109,6 +109,28 @@ When the Kotlin JVM plugin or Android Gradle Plugin is applied, krit automatical
 
 ## Tasks
 
+### `kritExportModel`
+
+Exports resolved compile classpaths for krit. Each applied JVM or Android project
+registers one `kritExportModel` task and writes one file under the build root's
+`.krit/gradle-model/` directory. The root project's file is `_root.json`;
+`:feature:login` writes `feature__login.json`. Running `gradle kritExportModel`
+selects the task in every project where it exists through ordinary Gradle task-name
+selection. No separate aggregate step is needed. Each file contains that project's
+entry, with external artifacts and project dependencies recorded separately. JVM
+exports use the `main` source set; Android exports use `debug` or the alphabetically
+first available production variant if it is absent.
+
+```kotlin
+krit {
+    exportModel = true       // default: this project's kritCheck depends on its kritExportModel
+    androidVariant = "debug" // default; choose another Android variant if needed
+}
+```
+
+Set `exportModel = false` to run `kritCheck` without generating the model.
+The task can still be run explicitly.
+
 ### `kritCheck`
 
 Runs krit analysis on all configured Kotlin sources. Produces a SARIF report at `build/reports/krit/krit.sarif`. Wired into the `check` lifecycle automatically.

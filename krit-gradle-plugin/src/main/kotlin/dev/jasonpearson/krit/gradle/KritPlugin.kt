@@ -3,7 +3,15 @@ package dev.jasonpearson.krit.gradle
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.attributes.Category
-import org.gradle.api.plugins.ReportingBasePlugin
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+import org.gradle.api.artifacts.result.ResolvedDependencyResult
+import org.gradle.api.artifacts.type.ArtifactTypeDefinition
+import org.gradle.api.plugins.JavaPlugin
+import org.gradle.api.tasks.SourceSetContainer
+import org.gradle.api.provider.Provider
+import org.gradle.api.file.RegularFile
+import org.gradle.api.artifacts.Configuration
+import org.gradle.api.tasks.TaskProvider
 import java.io.File
 
 /**
@@ -62,6 +70,8 @@ class KritPlugin : Plugin<Project> {
 
         // Set conventions (defaults)
         extension.ignoreFailures.convention(false)
+        extension.exportModel.convention(true)
+        extension.androidVariant.convention("debug")
         extension.advanced.toolVersion.convention(KRIT_DEFAULT_VERSION)
         extension.advanced.allRules.convention(false)
         extension.advanced.fixLevel.convention("idiomatic")
@@ -165,6 +175,8 @@ class KritPlugin : Plugin<Project> {
             description = "Run krit analysis on all Kotlin sources"
         }
 
+        registerModelExport(project, extension)
+
         // Register the kritFormat task
         project.tasks.register("kritFormat", KritFormatTask::class.java) {
             source.setFrom(advanced.source)
@@ -188,8 +200,176 @@ class KritPlugin : Plugin<Project> {
         // Register per-source-set tasks for Kotlin JVM projects
         registerKotlinJvmSourceSetTasks(project, extension)
 
-        // Register per-variant tasks for Android projects
-        registerAndroidVariantTasks(project, extension)
+    }
+
+    private fun registerModelExport(project: Project, extension: KritExtension) {
+        project.plugins.withId("java") {
+            project.afterEvaluate {
+                // AGP's compile classpath is authoritative if both plugins are present.
+                if (!project.plugins.hasPlugin(ANDROID_APPLICATION_PLUGIN_ID) &&
+                    !project.plugins.hasPlugin(ANDROID_LIBRARY_PLUGIN_ID)) {
+                    val sourceSets = project.extensions.getByType(SourceSetContainer::class.java)
+                    val configuration = project.configurations.getByName(JavaPlugin.COMPILE_CLASSPATH_CONFIGURATION_NAME)
+                    registerProjectModel(
+                        project, extension, "jvm", "main", "",
+                        project.provider { sourceSets.getByName("main").allSource.srcDirs.map(::modelPath).sorted() },
+                        project.provider { emptyList() }, configuration,
+                    )
+                }
+            }
+        }
+
+        listOf(ANDROID_APPLICATION_PLUGIN_ID, ANDROID_LIBRARY_PLUGIN_ID).forEach { pluginId ->
+            project.plugins.withId(pluginId) {
+                project.afterEvaluate {
+                    val candidates = project.configurations.map { it.name }
+                        .filter { it.endsWith("CompileClasspath") }
+                        .map { it.removeSuffix("CompileClasspath") }
+                        .filterNot { it.endsWith("UnitTest") || it.endsWith("AndroidTest") ||
+                            it.endsWith("TestFixtures") }
+                        .sorted()
+                    val variant = pickAndroidVariant(candidates, extension.androidVariant.orNull ?: "debug")
+                    val configuration = variant?.let { project.configurations.findByName("${it}CompileClasspath") }
+                    val android = project.extensions.findByName("android")
+                    val components = project.extensions.findByName("androidComponents")
+                    var reason: String? = when {
+                        variant == null -> "no *CompileClasspath configuration found"
+                        android == null -> "no android extension found"
+                        components == null -> "no androidComponents extension found"
+                        else -> null
+                    }
+                    var dirs = emptyList<String>()
+                    var boot: Provider<List<String>> = project.provider { emptyList() }
+                    if (reason == null) {
+                        try {
+                            dirs = androidSourceDirs(android!!, variant!!)
+                        } catch (error: ReflectiveOperationException) {
+                            reason = "android.sourceSets reflection failed: ${error.message}"
+                        } catch (error: ClassCastException) {
+                            reason = "android.sourceSets reflection failed: ${error.message}"
+                        }
+                    }
+                    if (reason == null) {
+                        try {
+                            val sdk = components!!.javaClass.getMethod("getSdkComponents").invoke(components)
+                            @Suppress("UNCHECKED_CAST")
+                            val provider = sdk.javaClass.getMethod("getBootClasspath").invoke(sdk)
+                                as Provider<List<RegularFile>>
+                            boot = provider.map { files -> bootClasspathPaths(files.map { it.asFile }) }
+                        } catch (error: ReflectiveOperationException) {
+                            reason = "sdkComponents.bootClasspath reflection failed: ${error.message}"
+                        } catch (error: ClassCastException) {
+                            reason = "sdkComponents.bootClasspath reflection failed: ${error.message}"
+                        }
+                    }
+                    if (reason != null) {
+                        project.logger.warn("krit: kritExportModel skipped Android model for ${project.path}: ${reason}")
+                    }
+                    registerProjectModel(
+                        project, extension, "android", variant ?: "", variant ?: "",
+                        project.provider { dirs }, boot, if (reason == null) configuration else null,
+                    )
+                    if (android != null) {
+                        candidates.forEach { candidate ->
+                            val checkDirs = try {
+                                androidSourceDirs(android, candidate)
+                            } catch (error: ReflectiveOperationException) {
+                                project.logger.warn("krit: Android source set reflection failed for ${project.path} $candidate: ${error.message}")
+                                emptyList()
+                            } catch (error: ClassCastException) {
+                                project.logger.warn("krit: Android source set reflection failed for ${project.path} $candidate: ${error.message}")
+                                emptyList()
+                            }
+                            if (checkDirs.isNotEmpty()) {
+                                project.tasks.register("kritCheck${candidate.replaceFirstChar(Char::uppercase)}", KritCheckTask::class.java) {
+                                    setSource(project.files(checkDirs))
+                                    sourceRoots.from(checkDirs)
+                                    description = "Run krit analysis on the '$candidate' variant sources"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun androidSourceDirs(android: Any, variant: String): List<String> {
+        val sourceSets = android.javaClass.getMethod("getSourceSets").invoke(android)
+        val getByName = sourceSets.javaClass.getMethod("getByName", String::class.java)
+        val names = mutableListOf("main", variant)
+        // For a flavored variant such as stagingDebug, also try the build type DSL source set.
+        Regex("([A-Z][a-z0-9]*)$").find(variant)?.value
+            ?.replaceFirstChar(Char::lowercase)?.let(names::add)
+        return names.distinct().flatMap { name ->
+            val sourceSet = try {
+                getByName.invoke(sourceSets, name)
+            } catch (error: java.lang.reflect.InvocationTargetException) {
+                if (name != "main" && name != variant &&
+                    (error.targetException is org.gradle.api.UnknownDomainObjectException ||
+                        error.targetException is IllegalArgumentException ||
+                        error.targetException is NoSuchElementException)) return@flatMap emptyList()
+                throw error
+            }
+            listOf("Java", "Kotlin").flatMap { language ->
+                val source = try {
+                    sourceSet.javaClass.getMethod("get${language}").invoke(sourceSet)
+                } catch (error: NoSuchMethodException) {
+                    if (language == "Kotlin") return@flatMap emptyList()
+                    throw error
+                }
+                @Suppress("UNCHECKED_CAST")
+                (source.javaClass.getMethod("getSrcDirs").invoke(source) as Collection<File>)
+                    .map(::modelPath)
+            }
+        }.distinct().sorted()
+    }
+
+    private fun registerProjectModel(
+        project: Project,
+        extension: KritExtension,
+        platform: String,
+        sourceSetName: String,
+        variant: String,
+        sources: Provider<List<String>>,
+        boot: Provider<List<String>>,
+        configuration: Configuration?,
+    ) {
+        val externalArtifacts = configuration?.incoming?.artifactView {
+            if (platform == "android") {
+                attributes.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "android-classes-jar")
+            }
+            componentFilter { id -> id !is ProjectComponentIdentifier }
+        }?.files
+        val dependencies = configuration?.incoming?.resolutionResult?.rootComponent?.map { root ->
+            root.dependencies.filterIsInstance<ResolvedDependencyResult>()
+                .mapNotNull { (it.selected.id as? ProjectComponentIdentifier)?.projectPath }
+                .distinct().sorted()
+        }
+        val path = project.path
+        val fileName = if (path == ":") "_root" else path.removePrefix(":").replace(":", "__")
+        val rootPath = modelPath(project.rootDir)
+        val export = project.tasks.register("kritExportModel", KritExportModelTask::class.java) {
+            description = "Export this project's resolved compile classpath for krit"
+            if (externalArtifacts != null) classpath.from(externalArtifacts)
+            projectDeps.set(dependencies ?: project.provider { emptyList() })
+            sourceDirs.set(if (configuration == null) project.provider { emptyList() } else sources)
+            bootClasspath.set(if (configuration == null) project.provider { emptyList() } else boot)
+            projectPath.set(path)
+            projectDir.set(modelPath(project.projectDir))
+            this.platform.set(platform)
+            this.variant.set(variant)
+            this.sourceSetName.set(sourceSetName)
+            hasModel.set(configuration != null)
+            generatedBy.set("krit-gradle-plugin ${KritVersion.VERSION}")
+            rootDir.set(rootPath)
+            outputFile.set(File(rootPath, ".krit/gradle-model/${fileName}.json"))
+        }
+        project.tasks.named("kritCheck") {
+            dependsOn(extension.exportModel.map { enabled ->
+                if (enabled) listOf(export) else emptyList<Any>()
+            })
+        }
     }
 
     /**
@@ -235,88 +415,6 @@ class KritPlugin : Plugin<Project> {
                                     setSource(project.files(kotlinDirs))
                                     sourceRoots.from(kotlinDirs)
                                     description = "Run krit analysis on the '$name' source set"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * When the Android Gradle Plugin is applied (application or library),
-     * register kritCheck<Variant> tasks (e.g., kritCheckDebug, kritCheckRelease).
-     */
-    private fun registerAndroidVariantTasks(project: Project, extension: KritExtension) {
-        val androidPluginIds = listOf(
-            ANDROID_APPLICATION_PLUGIN_ID,
-            ANDROID_LIBRARY_PLUGIN_ID,
-        )
-
-        androidPluginIds.forEach { pluginId ->
-            project.plugins.withId(pluginId) {
-                project.afterEvaluate {
-                    val androidExtension = project.extensions.findByName("android") ?: return@afterEvaluate
-
-                    // Access applicationVariants or libraryVariants via reflection to avoid
-                    // a compile-time dependency on the Android Gradle Plugin
-                    val variantsPropertyName = when (pluginId) {
-                        ANDROID_APPLICATION_PLUGIN_ID -> "getApplicationVariants"
-                        ANDROID_LIBRARY_PLUGIN_ID -> "getLibraryVariants"
-                        else -> return@afterEvaluate
-                    }
-
-                    val variants = try {
-                        val method = androidExtension.javaClass.getMethod(variantsPropertyName)
-                        @Suppress("UNCHECKED_CAST")
-                        method.invoke(androidExtension) as? Iterable<Any>
-                    } catch (_: Exception) {
-                        null
-                    }
-
-                    variants?.forEach { variant ->
-                        val variantName = try {
-                            variant.javaClass.getMethod("getName").invoke(variant) as String
-                        } catch (_: Exception) {
-                            return@forEach
-                        }
-
-                        // Collect Kotlin source directories for this variant
-                        val sourceDirs = try {
-                            val sourceSets = variant.javaClass.getMethod("getSourceSets")
-                            @Suppress("UNCHECKED_CAST")
-                            val sets = sourceSets.invoke(variant) as? Iterable<Any>
-                            sets?.flatMap { sourceProvider ->
-                                try {
-                                    val kotlinDirs = sourceProvider.javaClass
-                                        .getMethod("getKotlinDirectories")
-                                    @Suppress("UNCHECKED_CAST")
-                                    (kotlinDirs.invoke(sourceProvider) as? Iterable<File>)?.toList().orEmpty()
-                                } catch (_: Exception) {
-                                    // Fall back to Java directories for older AGP
-                                    try {
-                                        val javaDirs = sourceProvider.javaClass
-                                            .getMethod("getJavaDirectories")
-                                        @Suppress("UNCHECKED_CAST")
-                                        (javaDirs.invoke(sourceProvider) as? Iterable<File>)?.toList().orEmpty()
-                                    } catch (_: Exception) {
-                                        emptyList()
-                                    }
-                                }
-                            } ?: emptyList()
-                        } catch (_: Exception) {
-                            emptyList<File>()
-                        }
-
-                        if (sourceDirs.isNotEmpty()) {
-                            val taskName = "kritCheck${variantName.replaceFirstChar { it.uppercase() }}"
-                            if (project.tasks.findByName(taskName) == null) {
-                                project.tasks.register(taskName, KritCheckTask::class.java) {
-                                    setSource(project.files(sourceDirs))
-                                    sourceRoots.from(sourceDirs)
-                                    description =
-                                        "Run krit analysis on the '$variantName' variant sources"
                                 }
                             }
                         }

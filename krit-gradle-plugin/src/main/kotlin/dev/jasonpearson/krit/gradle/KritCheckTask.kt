@@ -65,6 +65,9 @@ abstract class KritCheckTask @Inject constructor(
     @get:Input
     abstract val typeInference: Property<Boolean>
 
+    @get:Input
+    abstract val fir: Property<Boolean>
+
     @get:InputFiles
     @get:Optional
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -160,6 +163,7 @@ abstract class KritCheckTask @Inject constructor(
             if (baseline.isPresent) { add("--baseline"); add(baseline.get().asFile.absolutePath) }
             if (noCache.get()) add("--no-cache")
             if (!typeInference.get()) add("--no-type-inference")
+            if (!fir.get()) add("--no-fir")
             if (cacheDir.isPresent) { add("--cache-dir"); add(cacheDir.get().asFile.absolutePath) }
             addCustomRuleJarArgs()
             add("-q")
@@ -190,6 +194,7 @@ abstract class KritCheckTask @Inject constructor(
                 if (baseline.isPresent) { add("--baseline"); add(baseline.get().asFile.absolutePath) }
                 if (noCache.get()) add("--no-cache")
                 if (!typeInference.get()) add("--no-type-inference")
+                if (!fir.get()) add("--no-fir")
                 if (cacheDir.isPresent) { add("--cache-dir"); add(cacheDir.get().asFile.absolutePath) }
                 addCustomRuleJarArgs()
                 add("-q")

@@ -9,7 +9,7 @@ if [[ ! -x "$krit_bin" ]]; then
   go build -o "$krit_bin" ./cmd/krit/
 fi
 
-"$krit_bin" -no-cache -no-type-inference -no-type-oracle -perf -perf-rules -all-rules -f json -q -o "$out" "$target" || true
+"$krit_bin" --no-fir -no-cache -no-type-inference -no-type-oracle -perf -perf-rules -all-rules -f json -q -o "$out" "$target" || true
 
 python3 - "$target" "$out" <<'PY'
 import json

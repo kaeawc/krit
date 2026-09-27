@@ -58,6 +58,9 @@ abstract class KritExtension @Inject constructor(objects: ObjectFactory) {
     /** Run this project's model export before this project's kritCheck. */
     abstract val exportModel: Property<Boolean>
 
+    /** Run the FIR checker pass during kritCheck. Default: true. */
+    abstract val fir: Property<Boolean>
+
     /** Android variant exported to the Gradle model. Defaults to debug. */
     abstract val androidVariant: Property<String>
 

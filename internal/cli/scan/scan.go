@@ -290,7 +290,7 @@ func shouldPreflightFIR(f *scanFlags) bool {
 	if !*f.Fir || *f.NoFir {
 		return false
 	}
-	return !*f.Init && !*f.Version && *f.Completions == "" && !*f.List && !*f.GenerateSchema && !*f.ValidateConfig && !*f.Doctor && !*f.ClearCache && !*f.ClearMatrixCache && !*f.ListExperiments && *f.PromoteExperiment == "" && *f.DeprecateExperiment == "" && *f.ExperimentMatrix == ""
+	return !*f.Init && !*f.Version && *f.Completions == "" && !*f.List && !*f.GenerateSchema && !*f.ValidateConfig && !*f.Doctor && !*f.ClearCache && !*f.ClearMatrixCache && !*f.ListExperiments && *f.PromoteExperiment == "" && *f.DeprecateExperiment == "" && *f.ExperimentMatrix == "" && *f.NewExperiment == "" && !*f.OracleFilterFingerprint && *f.OutputTypes == "" && !*f.DumpOracleDiagnostics
 }
 
 // run executes the scan phases against r.sess. Long-lived caches, the

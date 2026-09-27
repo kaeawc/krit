@@ -71,6 +71,7 @@ class KritPlugin : Plugin<Project> {
         // Set conventions (defaults)
         extension.ignoreFailures.convention(false)
         extension.exportModel.convention(true)
+        extension.fir.convention(true)
         extension.androidVariant.convention("debug")
         extension.advanced.toolVersion.convention(KRIT_DEFAULT_VERSION)
         extension.advanced.allRules.convention(false)
@@ -135,6 +136,7 @@ class KritPlugin : Plugin<Project> {
             parallel.convention(advanced.parallel)
             noCache.convention(advanced.noCache)
             typeInference.convention(advanced.typeInference)
+            fir.convention(extension.fir)
             customRuleJars.from(extension.customRuleJars)
             // Wire reports from extension
             sarifRequired.convention(extension.reports.sarif.required)

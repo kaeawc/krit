@@ -343,7 +343,7 @@ func buildExampleRuleJar(t *testing.T, exampleDir, kritRuleApiVersion string) st
 
 func runKrit(t *testing.T, bin, repoRoot string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command(bin, args...)
+	cmd := exec.Command(bin, append([]string{"--no-fir"}, args...)...)
 	cmd.Dir = repoRoot
 	cmd.Env = os.Environ()
 	var stderr bytes.Buffer

@@ -124,12 +124,14 @@ first available production variant if it is absent.
 ```kotlin
 krit {
     exportModel = true       // default: this project's kritCheck depends on its kritExportModel
+    fir = true               // default: run the FIR checker pass during kritCheck
     androidVariant = "debug" // default; choose another Android variant if needed
 }
 ```
 
 Set `exportModel = false` to run `kritCheck` without generating the model.
 The task can still be run explicitly.
+Set `fir = false` to pass `--no-fir` to `kritCheck` when FIR is unavailable.
 
 ### `kritCheck`
 

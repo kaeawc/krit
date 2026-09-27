@@ -32,7 +32,7 @@ func jarCachePath(jarPath, suffix string) (string, error) {
 	cacheDir := filepath.Join(os.TempDir(), "krit-cache")
 	if home, err := os.UserHomeDir(); err == nil {
 		candidate := filepath.Join(home, ".krit", "cache")
-		if err := os.MkdirAll(candidate, 0755); err == nil {
+		if err := os.MkdirAll(candidate, 0755); err == nil && cacheDirWritable(candidate) {
 			cacheDir = candidate
 		}
 	}
@@ -40,6 +40,19 @@ func jarCachePath(jarPath, suffix string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(cacheDir, "krit-types-"+hash+suffix), nil
+}
+
+// A pre-existing home cache may be readable but not writable (for example in
+// a sandbox). ArchiveClassesAtExit otherwise makes an otherwise successful
+// JVM process exit nonzero after it has already written its oracle output.
+func cacheDirWritable(dir string) bool {
+	probe, err := os.CreateTemp(dir, ".krit-write-")
+	if err != nil {
+		return false
+	}
+	_ = probe.Close()
+	_ = os.Remove(probe.Name())
+	return true
 }
 
 // cdsArchivePath returns the path for an AppCDS shared archive keyed by the

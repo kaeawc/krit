@@ -36,6 +36,14 @@ func TestFirFingerprintChangesWhenClasspathJarChanges(t *testing.T) {
 	}
 }
 
+func TestFirFingerprintChangesWithJvmTarget(t *testing.T) {
+	a := FirInvocationFingerprint(nil, "", nil, nil, FileFacts{}, "11")
+	b := FirInvocationFingerprint(nil, "", nil, nil, FileFacts{}, "17")
+	if a == b {
+		t.Fatal("JVM target did not affect invocation fingerprint")
+	}
+}
+
 func TestGeneratedSymbolGatedCount(t *testing.T) {
 	stats := VerdictStats{GatedFiles: map[string]string{"a.kt": "Unresolved reference 'R'", "b.kt": "Unresolved reference: Other", "c.kt": "unresolved reference: ViewBinding", "d.kt": "Unresolved reference 'foo' while inferring <R> fun <R> foo(): R"}}
 	var out bytes.Buffer

@@ -64,6 +64,9 @@ type scanFlags struct {
 	GradleModel              *string
 	NoGradleModel            *bool
 	modelClasspath           []string
+	modelSourceDirs          []string
+	modelGeneratedSourceDirs []string
+	modelJvmTarget           string
 	firPreflightPassed       bool
 	NoCrossFileCache         *bool
 	CustomRuleJars           *string

@@ -59,11 +59,13 @@ fun main(args: Array<String>) {
         exitProcess(2)
     }
     val classpath = extractCliClasspath(args)
+    val jvmTarget = extractCliValue(args, "--jvm-target").orEmpty()
     runOneShot(
         sources = sources,
         outputPath = output,
         filesListPath = extractCliValue(args, "--files"),
         classpath = classpath,
+        jvmTarget = jvmTarget,
         cacheDepsOutPath = extractCliValue(args, "--cache-deps-out"),
     )
     exitProcess(0)
@@ -95,7 +97,7 @@ internal fun extractCliClasspath(args: Array<String>): List<String> =
         .orEmpty()
 
 internal fun createDaemonSession(args: Array<String>): AnalysisSession =
-    AnalysisSession(extractCliSources(args).orEmpty(), extractCliClasspath(args))
+    AnalysisSession(extractCliSources(args).orEmpty(), extractCliClasspath(args), extractCliValue(args, "--jvm-target").orEmpty())
 
 private fun printOneShotUsage() {
     System.err.println(
@@ -104,6 +106,7 @@ private fun printOneShotUsage() {
         |  krit-fir --daemon [--port N]
         |  krit-fir --sources DIR[,DIR...] --output FILE
         |           [--files LIST_FILE] [--classpath JAR[${java.io.File.pathSeparatorChar}JAR...]]
+        |           [--jvm-target VERSION]
         |           [--cache-deps-out FILE]
         """.trimMargin(),
     )
@@ -114,9 +117,10 @@ internal fun runOneShot(
     outputPath: String,
     filesListPath: String?,
     classpath: List<String>,
+    jvmTarget: String = "",
     cacheDepsOutPath: String?,
 ) {
-    val session = AnalysisSession(sources, classpath)
+    val session = AnalysisSession(sources, classpath, jvmTarget)
     val files = if (filesListPath.isNullOrBlank()) {
         emptyList()
     } else {
@@ -231,6 +235,12 @@ sealed class RequestResult {
     data class Shutdown(val json: String) : RequestResult()
 }
 
+private fun withJvmTargetWarning(json: String, session: AnalysisSession, declared: String): String {
+    val warning = session.jvmTargetWarning ?: return json
+    if (declared.isBlank()) return json
+    return json.dropLast(1) + ",\"warning\":" + jsonStr(warning) + "}"
+}
+
 fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long): RequestResult {
     val request = try {
         parseRequest(trimmed)
@@ -244,16 +254,16 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
             "check" -> {
                 val needsRebuild = sessionNeedsRebuild(request, session)
                 val activeSession = if (needsRebuild) {
-                    session.dispose()
-                    AnalysisSession(request.sourceDirs, request.classpath)
+                    AnalysisSession(request.sourceDirs, request.classpath, request.jvmTarget.ifEmpty { session.jvmTarget })
                 } else {
                     session
                 }
                 val result = activeSession.check(
                     request.id, request.files, request.rules.toSet(), request.ruleConfigs, request.testFiles, request.scanPaths,
                 )
-                val response = buildCheckResponse(result)
+                val response = withJvmTargetWarning(buildCheckResponse(result), activeSession, request.jvmTarget)
                 if (needsRebuild) {
+                    session.dispose()
                     RequestResult.SessionRebuilt(response, activeSession)
                 } else {
                     RequestResult.Response(response)
@@ -261,11 +271,11 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
             }
             "rebuild" -> {
                 val start = System.currentTimeMillis()
+                val newSession = AnalysisSession(request.sourceDirs, request.classpath, request.jvmTarget.ifEmpty { session.jvmTarget })
                 session.dispose()
-                val newSession = AnalysisSession(request.sourceDirs, request.classpath)
                 val elapsed = System.currentTimeMillis() - start
                 RequestResult.SessionRebuilt(
-                    """{"id":${request.id},"result":{"ok":true,"sessionRebuildMs":$elapsed}}""",
+                    withJvmTargetWarning("""{"id":${request.id},"result":{"ok":true,"sessionRebuildMs":$elapsed}}""", newSession, request.jvmTarget),
                     newSession,
                 )
             }
@@ -277,8 +287,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
             "analyze", "analyzeAll", "analyzeFiles", "analyzeWithDeps" -> {
                 val needsRebuild = sessionNeedsRebuild(request, session)
                 val activeSession = if (needsRebuild) {
-                    session.dispose()
-                    AnalysisSession(request.sourceDirs, request.classpath)
+                    AnalysisSession(request.sourceDirs, request.classpath, request.jvmTarget.ifEmpty { session.jvmTarget })
                 } else {
                     session
                 }
@@ -294,10 +303,12 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                     val result = activeSession.analyze(analyzeFiles)
                     OracleResponse.buildAnalyze(request.id, result)
                 }
+                val warnedResponse = withJvmTargetWarning(response, activeSession, request.jvmTarget)
                 if (needsRebuild) {
-                    RequestResult.SessionRebuilt(response, activeSession)
+                    session.dispose()
+                    RequestResult.SessionRebuilt(warnedResponse, activeSession)
                 } else {
-                    RequestResult.Response(response)
+                    RequestResult.Response(warnedResponse)
                 }
             }
             "listPlugins" -> {
@@ -316,13 +327,13 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
             "analyzeFile" -> {
                 val needsRebuild = sessionNeedsRebuild(request, session)
                 val activeSession = if (needsRebuild) {
-                    session.dispose()
-                    AnalysisSession(request.sourceDirs, request.classpath)
+                    AnalysisSession(request.sourceDirs, request.classpath, request.jvmTarget.ifEmpty { session.jvmTarget })
                 } else {
                     session
                 }
-                val response = handleAnalyzeFile(request, activeSession)
+                val response = withJvmTargetWarning(handleAnalyzeFile(request, activeSession), activeSession, request.jvmTarget)
                 if (needsRebuild) {
+                    session.dispose()
                     RequestResult.SessionRebuilt(response, activeSession)
                 } else {
                     RequestResult.Response(response)
@@ -355,7 +366,8 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
 internal fun sessionNeedsRebuild(request: CheckRequest, session: AnalysisSession): Boolean {
     val sourceDirsMismatch = request.sourceDirs.isNotEmpty() && request.sourceDirs != session.sourceDirs
     val classpathMismatch = request.classpath.isNotEmpty() && request.classpath != session.classpath
-    return sourceDirsMismatch || classpathMismatch
+    val jvmTargetMismatch = request.jvmTarget.isNotEmpty() && request.jvmTarget != session.jvmTarget
+    return sourceDirsMismatch || classpathMismatch || jvmTargetMismatch
 }
 
 // ── Request model ─────────────────────────────────────────────────────────────
@@ -366,6 +378,7 @@ data class CheckRequest(
     val files: List<FileRef> = emptyList(),
     val sourceDirs: List<String> = emptyList(),
     val classpath: List<String> = emptyList(),
+    val jvmTarget: String = "",
     val rules: List<String> = emptyList(),
     val ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),
     // Requested files krit classifies as test files (scanner.IsTestFile on the
@@ -413,6 +426,7 @@ fun parseRequest(request: String): CheckRequest {
         ?: throw IllegalArgumentException("Missing 'command' / 'method' field")
     val sourceDirs = extractStringArray(json, "sourceDirs") ?: emptyList()
     val classpath = extractStringArray(json, "classpath") ?: emptyList()
+    val jvmTarget = extractString(json, "jvmTarget").orEmpty()
     val rules = extractStringArray(json, "rules") ?: emptyList()
     val pluginJars = extractStringArray(json, "jars") ?: emptyList()
     val ruleIds = extractStringArray(json, "ruleIds")
@@ -421,8 +435,10 @@ fun parseRequest(request: String): CheckRequest {
     val files = extractFileRefs(json)
     val payloads = if (command == "analyzeFile") ProjectPayloads.parse(json) else ProjectPayloads.EMPTY
     return CheckRequest(
-        id, command, files, sourceDirs, classpath, rules, ruleConfigs, testFiles, scanPaths,
-        pluginJars, path, source, ruleIds, payloads,
+        id = id, command = command, files = files, sourceDirs = sourceDirs, classpath = classpath,
+        jvmTarget = jvmTarget, rules = rules, ruleConfigs = ruleConfigs, testFiles = testFiles,
+        scanPaths = scanPaths, pluginJars = pluginJars, path = path, source = source,
+        ruleIds = ruleIds, projectPayloads = payloads,
     )
 }
 

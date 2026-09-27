@@ -122,6 +122,66 @@ func describe(findings []scanner.Finding) []string {
 	return out
 }
 
+func TestPartitionJVMFilesExcludesBuildLogic(t *testing.T) {
+	root := t.TempDir()
+	for _, settings := range []string{"settings.gradle.kts", "gradle/plugins/settings.gradle.kts", "sample-app/settings.gradle.kts"} {
+		path := filepath.Join(root, settings)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		body := []byte(nil)
+		if settings == "settings.gradle.kts" {
+			body = []byte(`pluginManagement { includeBuild("gradle/plugins") }`)
+		}
+		if err := os.WriteFile(path, body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	main := filepath.Join(root, "app/src/main/kotlin/A.kt")
+	buildSrc := filepath.Join(root, "buildSrc/src/main/kotlin/B.kt")
+	plugins := filepath.Join(root, "gradle/plugins/src/main/kotlin/C.kt")
+	builders := filepath.Join(root, "builders/src/main/kotlin/D.kt")
+	sample := filepath.Join(root, "sample-app/src/main/kotlin/E.kt")
+	jvm, excluded := partitionJVMFiles([]string{main, buildSrc, plugins, builders, sample})
+	if !reflect.DeepEqual(jvm, []string{main, builders, sample}) || !reflect.DeepEqual(excluded, []string{buildSrc, plugins}) {
+		t.Fatalf("jvm=%v excluded=%v", jvm, excluded)
+	}
+}
+
+func TestPassTargetsNeverChecksModelGeneratedSources(t *testing.T) {
+	root := t.TempDir()
+	generated := filepath.Join(root, "build", "parser")
+	path := filepath.Join(generated, "ParserUtil.kt")
+	set := passTargets(nil, []string{path}, true)
+	set.excludeRoots([]string{generated})
+	if len(set.paths) != 0 {
+		t.Fatalf("generated target was retained: %v", set.paths)
+	}
+}
+
+func TestRunPassDoesNotReportGeneratedSourceFinding(t *testing.T) {
+	p := newVerdictProject(t, map[string]string{
+		"src/main/kotlin/App.kt":               "class App\n",
+		"build/generated/parser/ParserUtil.kt": "class ParserUtil\n",
+	}, nil)
+	generated := "build/generated/parser/ParserUtil.kt"
+	checker := NewFakeFirChecker()
+	checker.Findings = []scanner.Finding{p.fir(generated, "ParserUtil", verdictRule)}
+	got := RunPass(PassOptions{
+		Enabled: true, Checker: checker,
+		ActiveRules:         []*api.Rule{{ID: verdictRule, Category: "coroutines"}},
+		KotlinPaths:         []string{"src/main/kotlin/App.kt", generated},
+		IncludeGenerated:    true,
+		GeneratedSourceDirs: []string{filepath.Dir(p.abs(generated))},
+	}, []scanner.Finding{p.at(generated, "ParserUtil", verdictRule, "go finding")})
+	if len(got) != 0 {
+		t.Fatalf("generated finding escaped verdict: %v", got)
+	}
+	if len(checker.Called) != 1 || !reflect.DeepEqual(checker.Called[0], []string{p.abs("src/main/kotlin/App.kt")}) {
+		t.Fatalf("checker requested %v", checker.Called)
+	}
+}
+
 func TestRunPassAppliesFIRAuthoritativeVerdict(t *testing.T) {
 	files := map[string]string{
 		"A.kt": `package a

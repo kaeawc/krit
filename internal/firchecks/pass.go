@@ -42,6 +42,8 @@ type PassOptions struct {
 	// IncludeGenerated mirrors --include-generated: without it, paths under
 	// */generated/* are not checked (the parse phase drops them too).
 	IncludeGenerated bool
+	// GeneratedSourceDirs are compilation inputs, never checker targets.
+	GeneratedSourceDirs []string
 	// SourceDirs and Classpath are the compile context: the JVM-scoped
 	// source roots (oracle.FindSourceDirs) and the configured classpath.
 	SourceDirs []string
@@ -63,13 +65,21 @@ func RunPass(opts PassOptions, base []scanner.Finding) []scanner.Finding {
 	if !opts.Enabled || opts.Checker == nil {
 		return base
 	}
+	base = excludeGeneratedFindings(base, opts.GeneratedSourceDirs)
 	active := ActiveFirRules(activeRuleIDs(opts.ActiveRules), opts.Thorough)
 	if len(active.Names) == 0 {
 		return base
 	}
 	start := time.Now()
 	targets := passTargets(opts.ParsedFiles, opts.KotlinPaths, opts.IncludeGenerated)
+	targets.excludeRoots(opts.GeneratedSourceDirs)
 	requested, excluded := partitionJVMFiles(targets.paths)
+	buildLogicExcluded := 0
+	for _, path := range excluded {
+		if oracle.IsBuildLogicPath(path) {
+			buildLogicExcluded++
+		}
+	}
 
 	tracker := opts.Tracker
 	if tracker == nil {
@@ -115,7 +125,7 @@ func RunPass(opts PassOptions, base []scanner.Finding) []scanner.Finding {
 		fmt.Fprintf(opts.VerboseOut,
 			"verbose: FIR checker in %v (%d findings, %d files requested, cache hits=%d misses=%d)\n",
 			time.Since(start).Round(time.Millisecond), len(result.Findings), len(requested), cache.Hits, cache.Misses)
-		writeVerdictSummary(opts.VerboseOut, stats)
+		writeVerdictSummary(opts.VerboseOut, stats, buildLogicExcluded)
 	}
 	return merged
 }
@@ -123,15 +133,19 @@ func RunPass(opts PassOptions, base []scanner.Finding) []scanner.Finding {
 // maxGatedFilesListed caps the per-file gating lines in verbose output.
 const maxGatedFilesListed = 10
 
-func writeVerdictSummary(w io.Writer, stats VerdictStats) {
+func writeVerdictSummary(w io.Writer, stats VerdictStats, buildLogicExcluded ...int) {
 	generated := 0
 	for _, message := range stats.GatedFiles {
 		if generatedSymbolError(firstLine(message)) {
 			generated++
 		}
 	}
-	fmt.Fprintf(w, "verbose: FIR verdict: %d authoritative files, %d gated (compiler error or crash), %d excluded (scripts or not in a JVM source set), %d rule errors (checker threw; Go kept for that rule and file), %d gated (generated sources)\n",
-		stats.AuthoritativeFiles, len(stats.GatedFiles)-generated, stats.ExcludedFiles, len(stats.RuleErrors), generated)
+	buildLogic := 0
+	if len(buildLogicExcluded) > 0 {
+		buildLogic = buildLogicExcluded[0]
+	}
+	fmt.Fprintf(w, "verbose: FIR verdict: %d authoritative files, %d gated (compiler error or crash), %d excluded (scripts or not in a JVM source set), %d rule errors (checker threw; Go kept for that rule and file), %d gated (generated sources), %d excluded (build logic)\n",
+		stats.AuthoritativeFiles, len(stats.GatedFiles)-generated, stats.ExcludedFiles-buildLogic, len(stats.RuleErrors), generated, buildLogic)
 	for i, e := range stats.RuleErrors {
 		if i == maxGatedFilesListed {
 			fmt.Fprintf(w, "verbose: FIR rule error: ... and %d more\n", len(stats.RuleErrors)-maxGatedFilesListed)
@@ -180,6 +194,65 @@ type passTargetSet struct {
 	files map[string]*scanner.File
 }
 
+func (set *passTargetSet) excludeRoots(roots []string) {
+	if len(roots) == 0 {
+		return
+	}
+	kept := set.paths[:0]
+	for _, path := range set.paths {
+		generated := false
+		for _, root := range roots {
+			if root == "" {
+				continue
+			}
+			abs, err := filepath.Abs(root)
+			if err != nil {
+				continue
+			}
+			if isUnderRoot(path, abs) {
+				generated = true
+				break
+			}
+		}
+		if generated {
+			delete(set.display, path)
+			delete(set.files, path)
+		} else {
+			kept = append(kept, path)
+		}
+	}
+	set.paths = kept
+}
+
+func excludeGeneratedFindings(findings []scanner.Finding, roots []string) []scanner.Finding {
+	if len(roots) == 0 {
+		return findings
+	}
+	var out []scanner.Finding
+	for _, finding := range findings {
+		path, err := filepath.Abs(finding.File)
+		if err != nil {
+			path = finding.File
+		}
+		generated := false
+		for _, root := range roots {
+			abs, err := filepath.Abs(root)
+			if root != "" && err == nil && isUnderRoot(path, abs) {
+				generated = true
+				break
+			}
+		}
+		if !generated {
+			out = append(out, finding)
+		}
+	}
+	return out
+}
+
+func isUnderRoot(path, root string) bool {
+	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
+}
+
 // passTargets chooses the files to check: every parsed Kotlin file plus
 // every collected Kotlin path, minus */generated/* paths unless
 // includeGenerated (parsed files already had that filter applied).
@@ -223,7 +296,7 @@ func passTargets(parsed []*scanner.File, kotlinPaths []string, includeGenerated 
 // non-JVM Kotlin Multiplatform source set (jsMain, iosMain, ...).
 func partitionJVMFiles(files []string) (jvm, excluded []string) {
 	for _, path := range files {
-		if strings.HasSuffix(path, ".kt") && oracle.InJVMCompilableSourceSet(path) {
+		if strings.HasSuffix(path, ".kt") && oracle.InJVMCompilableSourceSet(path) && !oracle.IsBuildLogicPath(path) {
 			jvm = append(jvm, path)
 		} else {
 			excluded = append(excluded, path)

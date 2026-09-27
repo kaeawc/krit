@@ -50,7 +50,7 @@ func TestProductionFirCheckerNoCacheBypassesReadsAndWrites(t *testing.T) {
 	old := runMissesForCache
 	defer func() { runMissesForCache = old }()
 	calls := 0
-	runMissesForCache = func(_ string, files, _, _, _ []string, _ RuleConfigs, _ FileFacts, _, _ bool) (*CheckResponse, error) {
+	runMissesForCache = func(_ string, files, _, _, _ []string, _ RuleConfigs, _ FileFacts, _, _ bool, _ ...string) (*CheckResponse, error) {
 		calls++
 		if !reflect.DeepEqual(files, []string{file}) {
 			t.Fatalf("checker files = %v, want [%s]", files, file)

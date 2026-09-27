@@ -265,6 +265,7 @@ func Run() int {
 			return 2
 		}
 		f.modelClasspath = model
+		f.modelSourceDirs, f.modelGeneratedSourceDirs, f.modelJvmTarget = loadGradleCompileContext(flag.Args(), *f.GradleModel, *f.NoGradleModel)
 	}
 	if handled, code := tryDaemonDelegate(f, flag.Args(), repoDir); handled {
 		return code
@@ -594,7 +595,7 @@ func countActiveV2(registry []*api.Rule) int {
 	return count
 }
 
-func filterGeneratedPathStrings(paths []string) []string {
+func filterGeneratedPathStrings(paths []string, generatedDirs ...string) []string {
 	// Allocate a fresh slice — callers (runner_state.go) alias the
 	// input via `r.javaPathsForDispatch = r.allJavaPaths` before
 	// filtering, so a paths[:0] in-place rewrite would corrupt the
@@ -603,7 +604,7 @@ func filterGeneratedPathStrings(paths []string) []string {
 	// downstream parse/dispatch to process the same files multiple times.
 	filtered := make([]string, 0, len(paths))
 	for _, p := range paths {
-		if strings.Contains(filepath.ToSlash(p), "/generated/") {
+		if pipeline.IsGeneratedSourcePath(p, generatedDirs) {
 			continue
 		}
 		filtered = append(filtered, p)

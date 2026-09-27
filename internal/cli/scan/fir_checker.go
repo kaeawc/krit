@@ -25,7 +25,7 @@ func runFIRCheckerPass(opts firCheckerOpts, base []scanner.Finding) []scanner.Fi
 // source sets dropped) and the configured oracle classpath, so the checkers
 // resolve cross-file and library references the way the oracle does.
 func FIRCompileContext(paths []string, cfg *config.Config) (sourceDirs, classpath []string) {
-	return oracle.FindSourceDirs(paths), resolveOracleClasspath(cfg)
+	return oracle.FilterFIRSourceDirs(oracle.FindSourceDirs(paths)), resolveOracleClasspath(cfg)
 }
 
 // NewFIRChecker builds the production checker for a scan of paths.

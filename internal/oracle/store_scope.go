@@ -16,7 +16,20 @@ type StoreScope struct {
 	Backend        Backend
 	JarToken       string
 	ClasspathToken string
+	JvmTarget      string
 	version        [16]byte
+}
+
+// NewStoreScopeWithTarget includes the FIR compilation target in cache identity.
+func NewStoreScopeWithTarget(backend Backend, jarPath string, classpath []string, jvmTarget string) StoreScope {
+	scope := NewStoreScope(backend, jarPath, classpath)
+	if backend != BackendFIR || jvmTarget == "" {
+		return scope
+	}
+	scope.JvmTarget = jvmTarget
+	h := hashutil.HashBytes([]byte(fmt.Sprintf("oracle-v%d|%s:%s:%s:jvmTarget:%s", CacheVersion, backend.String(), scope.JarToken, scope.ClasspathToken, jvmTarget)))
+	copy(scope.version[:], h[:])
+	return scope
 }
 
 func NewStoreScope(backend Backend, jarPath string, classpath ...[]string) StoreScope {

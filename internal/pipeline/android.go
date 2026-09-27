@@ -52,7 +52,7 @@ type AndroidInput struct {
 	Tracker perf.Tracker
 
 	// RuleHash is the active-rule + config fingerprint produced by
-	// cache.ComputeConfigHash. Reserved for the upcoming
+	// cache.ComputeCacheKeyHash. Reserved for the upcoming
 	// android-findings-cache: any change in active rules or their config
 	// must invalidate cached project-level findings, so we plumb it now
 	// even though Run does not yet read it.

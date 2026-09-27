@@ -19,24 +19,30 @@ func TestCachedTypesJSONSatisfies(t *testing.T) {
 	}
 	needsDiagnostics := IndexInput{OracleDiagnostics: true}
 	noDiagnostics := IndexInput{}
-
-	if err := oracle.RecordTypesFacts(path, true); err != nil {
+	jar := filepath.Join(t.TempDir(), "krit-fir.jar")
+	if err := os.WriteFile(jar, []byte("jar version X"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if cachedTypesJSONSatisfies(needsDiagnostics, nil, path) {
+	t.Setenv("KRIT_FIR_JAR", jar)
+	scope := oracle.NewStoreScope(oracle.BackendFIR, jar)
+
+	if err := oracle.RecordTypesFacts(path, true, scope); err != nil {
+		t.Fatal(err)
+	}
+	if cachedTypesJSONSatisfies(needsDiagnostics, nil, path, nil) {
 		t.Error("diagnostics run reused a types.json written without diagnostics")
 	}
-	if !cachedTypesJSONSatisfies(noDiagnostics, nil, path) {
+	if !cachedTypesJSONSatisfies(noDiagnostics, nil, path, nil) {
 		t.Error("run without diagnostic rules should reuse a diagnostics-less types.json")
 	}
 
-	if err := oracle.RecordTypesFacts(path, false); err != nil {
+	if err := oracle.RecordTypesFacts(path, false, scope); err != nil {
 		t.Fatal(err)
 	}
-	if !cachedTypesJSONSatisfies(needsDiagnostics, nil, path) {
+	if !cachedTypesJSONSatisfies(needsDiagnostics, nil, path, nil) {
 		t.Error("diagnostics run should reuse a types.json that holds diagnostics")
 	}
-	if cachedTypesJSONSatisfies(IndexInput{NoCacheOracle: true}, nil, path) {
+	if cachedTypesJSONSatisfies(IndexInput{NoCacheOracle: true}, nil, path, nil) {
 		t.Error("--no-cache-oracle must never reuse the cached types.json")
 	}
 
@@ -44,7 +50,13 @@ func TestCachedTypesJSONSatisfies(t *testing.T) {
 	if err := os.WriteFile(unrecorded, []byte(`{"version":1}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if cachedTypesJSONSatisfies(needsDiagnostics, nil, unrecorded) {
+	if cachedTypesJSONSatisfies(noDiagnostics, nil, unrecorded, nil) {
 		t.Error("diagnostics run trusted a types.json with no facts record")
+	}
+	if err := os.WriteFile(jar, []byte("jar version Y with different bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if cachedTypesJSONSatisfies(noDiagnostics, nil, path, nil) {
+		t.Error("reused types.json after jar changed")
 	}
 }

@@ -99,7 +99,7 @@ type AndroidFindingsKeyInputs struct {
 	// icons, and per-source resource lookups never share entries.
 	Kind AndroidFindingsKind
 	// RuleHash covers active rule IDs and their config (from
-	// cache.ComputeConfigHash).
+	// cache.ComputeCacheKeyHash).
 	RuleHash string
 	// LibraryFactsFP is librarymodel.Facts.Fingerprint().
 	LibraryFactsFP string

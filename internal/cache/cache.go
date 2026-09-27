@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/kaeawc/krit/internal/buildid"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
@@ -29,13 +30,9 @@ const CacheFileName = "incremental.cache"
 // columnar binary format, etc.) automatically invalidates older entries
 // instead of silently failing to deserialize at read time.
 //
-// Bump when the cached payload schema changes in a non-backwards-compatible
-// way — OR when the oracle backend or a built-in rule's logic starts producing
-// different findings for the same source, since cached findings were computed
-// against the old behavior and the findings-cache key (rule IDs + config) is
-// otherwise blind to a krit-fir / krit-types backend change or a rule-logic
-// change. Old entries become unreachable (different RuleSetHash) and will be
-// garbage-collected by the next `krit cache clean` or LRU pass.
+// Bump only for incompatible on-disk payload changes. Logic-only changes are
+// covered by the build token in ComputeCacheKeyHash; oracle backend changes
+// are covered by the jar token in the oracle cache.
 //
 // v2: paired with oracle.CacheVersion 3 — krit-fir now emits smart-cast
 // nullability (OracleSmartCastChecker), so previously-cached findings (and
@@ -382,7 +379,7 @@ func ClearSharedCache(cacheDir string) error {
 
 // ComputeRuleHash computes a hash from the sorted list of active rule names.
 // This ensures cache invalidation when rules change.
-// Deprecated: Use ComputeConfigHash for config-aware cache invalidation.
+// Deprecated: Use ComputeCacheKeyHash for config-aware cache invalidation.
 func ComputeRuleHash(ruleNames []string) string {
 	sorted := make([]string, len(ruleNames))
 	copy(sorted, ruleNames)
@@ -390,9 +387,9 @@ func ComputeRuleHash(ruleNames []string) string {
 	return hashutil.HashHex([]byte(strings.Join(sorted, ",")))[:16]
 }
 
-// ComputeConfigHash computes a hash from active rule names, the resolved config,
-// and whether editorconfig is enabled. This ensures the cache is invalidated
-// when config-derived thresholds change (e.g., MaxLineLength from editorconfig).
+// ComputeConfigHash computes the stable rule-set identity from active rule
+// names, resolved config, and editorconfig enablement. Snapshots compare this
+// across builds, so the running build token must not be included here.
 func ComputeConfigHash(ruleNames []string, cfg *config.Config, editorConfigEnabled bool) string {
 	sorted := make([]string, len(ruleNames))
 	copy(sorted, ruleNames)
@@ -415,6 +412,16 @@ func ComputeConfigHash(ruleNames []string, cfg *config.Config, editorConfigEnabl
 	}
 
 	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// ComputeCacheKeyHash adds the running build identity to the stable config
+// identity. Use it for cache reuse, never for snapshot rule-set identity.
+func ComputeCacheKeyHash(ruleNames []string, cfg *config.Config, editorConfigEnabled bool) string {
+	return computeCacheKeyHashWithToken(ruleNames, cfg, editorConfigEnabled, buildid.Token())
+}
+
+func computeCacheKeyHashWithToken(ruleNames []string, cfg *config.Config, editorConfigEnabled bool, token string) string {
+	return hashutil.HashHex([]byte(ComputeConfigHash(ruleNames, cfg, editorConfigEnabled) + "|build=" + token))[:16]
 }
 
 // mixConfigData mixes the resolved config map into h. On marshal
@@ -486,7 +493,7 @@ func foldOracleBlobHash(contentHash [32]byte, blobHash string) [32]byte {
 }
 
 // ParseRuleSetHash converts a 32-hex-char config hash string (from
-// ComputeConfigHash) into the 16-byte form used in store.Key.
+// ComputeCacheKeyHash) into the 16-byte form used in store.Key.
 func ParseRuleSetHash(hexStr string) [16]byte {
 	b, _ := hex.DecodeString(hexStr)
 	var out [16]byte
@@ -496,7 +503,7 @@ func ParseRuleSetHash(hexStr string) [16]byte {
 
 // AttachStore configures c to read and write all incremental cache entries
 // through s instead of the in-memory Files map.  ruleSetHash must be the
-// parsed form of ComputeConfigHash (use ParseRuleSetHash).
+// parsed form of ComputeCacheKeyHash (use ParseRuleSetHash).
 //
 // Once attached, CheckFiles consults the store; UpdateEntryColumns writes to
 // the store; Save becomes a no-op.  The existing JSON file is no longer read

@@ -242,7 +242,7 @@ class KritPlugin : Plugin<Project> {
                     var boot: Provider<List<String>> = project.provider { emptyList() }
                     if (reason == null) {
                         try {
-                            dirs = androidSourceDirs(android!!, variant!!)
+                            dirs = androidSourceDirs(project, android!!, variant!!)
                         } catch (error: ReflectiveOperationException) {
                             reason = "android.sourceSets reflection failed: ${error.message}"
                         } catch (error: ClassCastException) {
@@ -272,7 +272,7 @@ class KritPlugin : Plugin<Project> {
                     if (android != null) {
                         candidates.forEach { candidate ->
                             val checkDirs = try {
-                                androidSourceDirs(android, candidate)
+                                androidSourceDirs(project, android, candidate)
                             } catch (error: ReflectiveOperationException) {
                                 project.logger.warn("krit: Android source set reflection failed for ${project.path} $candidate: ${error.message}")
                                 emptyList()
@@ -294,22 +294,47 @@ class KritPlugin : Plugin<Project> {
         }
     }
 
-    private fun androidSourceDirs(android: Any, variant: String): List<String> {
+    private fun androidSourceDirs(project: Project, android: Any, variant: String): List<String> {
         val sourceSets = android.javaClass.getMethod("getSourceSets").invoke(android)
-        val getByName = sourceSets.javaClass.getMethod("getByName", String::class.java)
+        // AGP's source-set container supports findByName; retain getByName for
+        // Android-shaped extensions that expose only the older lookup method.
+        val findByName = try {
+            sourceSets.javaClass.getMethod("findByName", String::class.java)
+        } catch (_: NoSuchMethodException) {
+            null
+        }
+        val getByName = if (findByName == null) {
+            sourceSets.javaClass.getMethod("getByName", String::class.java)
+        } else null
         val names = mutableListOf("main", variant)
-        // For a flavored variant such as stagingDebug, also try the build type DSL source set.
-        Regex("([A-Z][a-z0-9]*)$").find(variant)?.value
-            ?.replaceFirstChar(Char::lowercase)?.let(names::add)
+        // A trailing capitalized segment is usually the build type; the
+        // preceding prefix is often a flavor (or a combined flavor source set).
+        Regex("([A-Z][a-z0-9]*)$").find(variant)?.let { match ->
+            names.add(match.value.replaceFirstChar(Char::lowercase))
+            if (match.range.first > 0) {
+                names.add(variant.substring(0, match.range.first).replaceFirstChar(Char::lowercase))
+            }
+        }
         return names.distinct().flatMap { name ->
-            val sourceSet = try {
-                getByName.invoke(sourceSets, name)
-            } catch (error: java.lang.reflect.InvocationTargetException) {
-                if (name != "main" && name != variant &&
-                    (error.targetException is org.gradle.api.UnknownDomainObjectException ||
-                        error.targetException is IllegalArgumentException ||
-                        error.targetException is NoSuchElementException)) return@flatMap emptyList()
-                throw error
+            val sourceSet = if (findByName != null) {
+                findByName.invoke(sourceSets, name)
+            } else {
+                try {
+                    getByName!!.invoke(sourceSets, name)
+                } catch (error: java.lang.reflect.InvocationTargetException) {
+                    if (name == "main" ||
+                        (error.targetException !is org.gradle.api.UnknownDomainObjectException &&
+                            error.targetException !is IllegalArgumentException &&
+                            error.targetException !is NoSuchElementException)) throw error
+                    null
+                }
+            }
+            if (sourceSet == null) {
+                // Only main is required. Variant, build-type, and flavor source
+                // sets exist only when declared in the Android DSL.
+                if (name == "main") throw ReflectiveOperationException("android.sourceSets has no main source set")
+                project.logger.debug("krit: optional Android source set '$name' is absent for ${project.path} $variant")
+                return@flatMap emptyList()
             }
             listOf("Java", "Kotlin").flatMap { language ->
                 val source = try {

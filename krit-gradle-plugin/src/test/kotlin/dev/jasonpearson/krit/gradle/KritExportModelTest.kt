@@ -158,4 +158,38 @@ class KritExportModelTest {
         assertTrue(missing.output.contains("kritExportModel skipped Android model for :app"), missing.output)
         assertTrue(model.isFile)
     }
+
+    @Test
+    fun `missing optional flavored variant source set preserves Android model`() {
+        val root = File(directory, "flavored-android").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"flavored-android\"\ninclude(\"app\")\n")
+        File(root, "build.gradle.kts").writeText("")
+        File(root, "app").mkdirs()
+        File(root, "app/build.gradle.kts").writeText("""
+            plugins { id("com.android.library"); id("dev.jasonpearson.krit") }
+            krit { androidVariant = "stagingDebug" }
+        """.trimIndent())
+        File(root, "app/android.jar").writeBytes(byteArrayOf())
+
+        runWithFakeAndroid(root, "kritExportModel")
+        val model = File(root, ".krit/gradle-model/app.json")
+        @Suppress("UNCHECKED_CAST")
+        val projects = (JsonSlurper().parse(model) as Map<String, Any>)["projects"] as List<Map<String, Any>>
+        @Suppress("UNCHECKED_CAST")
+        val sourceSets = projects.single()["sourceSets"] as List<Map<String, Any>>
+        val sourceSet = sourceSets.single()
+        assertEquals("stagingDebug", sourceSet["variant"])
+        assertTrue(sourceSet.containsKey("classpath"), sourceSet.toString())
+        @Suppress("UNCHECKED_CAST")
+        val bootClasspath = sourceSet["bootClasspath"] as List<String>
+        assertTrue(bootClasspath.any { it.endsWith("android.jar") }, bootClasspath.toString())
+        @Suppress("UNCHECKED_CAST")
+        val sourceDirs = sourceSet["sourceDirs"] as List<String>
+        for (name in listOf("main", "debug")) {
+            for (language in listOf("java", "kotlin")) {
+                assertTrue(sourceDirs.any { it.endsWith("src/$name/$language") }, sourceDirs.toString())
+            }
+        }
+        assertFalse(sourceDirs.any { it.contains("src/stagingDebug/") }, sourceDirs.toString())
+    }
 }

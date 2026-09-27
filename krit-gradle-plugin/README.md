@@ -170,4 +170,4 @@ The plugin downloads the correct platform-specific krit binary from GitHub Relea
 ## Requirements
 
 - Gradle 8.0+
-- JDK 11+
+- JDK 17+

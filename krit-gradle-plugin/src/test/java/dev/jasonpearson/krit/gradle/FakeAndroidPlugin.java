@@ -30,10 +30,13 @@ public class FakeAndroidPlugin implements Plugin<Project> {
     public static class Sources {
         private final File root;
         public Sources(File root) { this.root = root; }
+        public Source findByName(String name) {
+            return Set.of("main", "debug", "release").contains(name) ? new Source(root, name) : null;
+        }
         public Source getByName(String name) {
-            if (!Set.of("main", "debug", "release").contains(name))
-                throw new IllegalArgumentException(name);
-            return new Source(root, name);
+            Source source = findByName(name);
+            if (source == null) throw new IllegalArgumentException(name);
+            return source;
         }
     }
 
@@ -62,6 +65,7 @@ public class FakeAndroidPlugin implements Plugin<Project> {
         if (!project.hasProperty("omitComponents"))
             project.getExtensions().add("androidComponents", new Components(project));
         for (String name : List.of("debugCompileClasspath", "releaseCompileClasspath",
+                "stagingDebugCompileClasspath",
                 "debugUnitTestCompileClasspath")) {
             project.getConfigurations().create(name).setCanBeResolved(true);
         }

@@ -1,4 +1,4 @@
-.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression daemon-verify corpus-snapshot corpus-precision test-fanotify all install install-completions watch
+.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression daemon-verify corpus-snapshot corpus-precision fir-validate test-fanotify all install install-completions watch
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
@@ -70,6 +70,11 @@ corpus-snapshot: build
 # corpus-precision reports triaged precision and label coverage by rule.
 corpus-precision: build
 	go run ./internal/devtools/corpusprecision --precision
+
+# Opt-in external corpora and prepared Gradle models are discovered by the harness.
+fir-validate:
+	go build -o krit ./cmd/krit/
+	go run ./internal/devtools/corpusprecision --fir-compare --fir-require-model
 
 ci: build vet test integration regression daemon-verify
 

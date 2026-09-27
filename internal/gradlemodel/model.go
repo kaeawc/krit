@@ -116,6 +116,54 @@ func (m *Model) Classpath() ([]string, int) {
 	return out, missing
 }
 
+// BootClasspath returns existing boot entries, deduplicated in project-path
+// and source-set order. Missing entries are dropped.
+func (m *Model) BootClasspath() []string {
+	if m == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range m.Projects {
+		for _, s := range p.SourceSets {
+			for _, entry := range s.BootClasspath {
+				if entry == "" || seen[entry] {
+					continue
+				}
+				seen[entry] = true
+				if _, err := os.Stat(entry); err == nil {
+					out = append(out, entry)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// CompileClasspath returns existing ordinary entries, deduplicated in
+// project-path and source-set order. Missing entries are dropped.
+func (m *Model) CompileClasspath() []string {
+	if m == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range m.Projects {
+		for _, s := range p.SourceSets {
+			for _, entry := range s.ClasspathEntries {
+				if entry == "" || seen[entry] {
+					continue
+				}
+				seen[entry] = true
+				if _, err := os.Stat(entry); err == nil {
+					out = append(out, entry)
+				}
+			}
+		}
+	}
+	return out
+}
+
 // Discover finds the nearest Gradle root above scanRoot and returns its model
 // directory, if present. A .git directory stops the search after that ancestor.
 func Discover(scanRoot string) string {

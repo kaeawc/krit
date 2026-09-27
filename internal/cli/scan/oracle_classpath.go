@@ -82,7 +82,7 @@ func loadGradleClasspath(paths []string, explicit string, disabled, verbose bool
 			}
 		}
 	}
-	var entries []string
+	var bootEntries, compileEntries []string
 	for _, dir := range dirs {
 		model, warnings, err := gradlemodel.Load(dir)
 		if err != nil {
@@ -93,7 +93,8 @@ func loadGradleClasspath(paths []string, explicit string, disabled, verbose bool
 			continue
 		}
 		cp, missing := model.Classpath()
-		entries = append(entries, cp...)
+		bootEntries = append(bootEntries, model.BootClasspath()...)
+		compileEntries = append(compileEntries, model.CompileClasspath()...)
 		if verbose {
 			fmt.Fprintf(out, "gradle model: %s (%d projects, %d classpath entries, %d missing dropped)\n", dir, len(model.Projects), len(cp), missing)
 		}
@@ -101,6 +102,7 @@ func loadGradleClasspath(paths []string, explicit string, disabled, verbose bool
 			fmt.Fprintf(out, "warning: gradle model: %s\n", warning)
 		}
 	}
+	entries := append(bootEntries, compileEntries...)
 	return dedupePreservingOrder(entries), nil
 }
 

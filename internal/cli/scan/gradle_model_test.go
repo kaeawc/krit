@@ -2,6 +2,7 @@ package scan
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -24,8 +25,17 @@ func TestGradleClasspathPrecedenceAndDisable(t *testing.T) {
 	if err := os.WriteFile(jar, []byte("jar"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"schema":1,"projects":[{"path":":","dir":"` + root + `","sourceSets":[{"classpath":["` + jar + `"]}]}]}`
-	if err := os.WriteFile(filepath.Join(dir, "_root.json"), []byte(body), 0644); err != nil {
+	body, err := json.Marshal(map[string]interface{}{
+		"schema": 1,
+		"projects": []interface{}{map[string]interface{}{
+			"path": ":", "dir": root,
+			"sourceSets": []interface{}{map[string]interface{}{"classpath": []string{jar}}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "_root.json"), body, 0644); err != nil {
 		t.Fatal(err)
 	}
 	model, err := loadGradleClasspath([]string{root}, "", false, true, &bytes.Buffer{})
@@ -57,8 +67,8 @@ func TestDaemonForwardsResolvedClasspath(t *testing.T) {
 }
 
 func TestGradleClasspathFromMultipleRoots(t *testing.T) {
-	var roots, modelDirs, jars []string
-	for _, name := range []string{"first", "second"} {
+	var roots, modelDirs, bootJars, compileJars []string
+	for i, name := range []string{"first", "second"} {
 		root := filepath.Join(t.TempDir(), name)
 		modelDir := filepath.Join(root, ".krit", "gradle-model")
 		child := filepath.Join(root, "app")
@@ -71,29 +81,48 @@ func TestGradleClasspathFromMultipleRoots(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "settings.gradle.kts"), nil, 0644); err != nil {
 			t.Fatal(err)
 		}
-		jar := filepath.Join(root, name+".jar")
-		if err := os.WriteFile(jar, []byte("jar"), 0644); err != nil {
+		bootJar := filepath.Join(root, name+"-boot.jar")
+		compileJar := filepath.Join(root, name+"-compile.jar")
+		for _, jar := range []string{bootJar, compileJar} {
+			if err := os.WriteFile(jar, []byte("jar"), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		bootClasspath := []string{bootJar}
+		compileClasspath := []string{compileJar}
+		if i > 0 {
+			bootClasspath = append(bootClasspath, bootJars[0])
+			compileClasspath = append(compileClasspath, compileJars[0])
+		}
+		body, err := json.Marshal(map[string]interface{}{
+			"schema": 1,
+			"projects": []interface{}{map[string]interface{}{
+				"path": ":", "dir": root,
+				"sourceSets": []interface{}{map[string]interface{}{
+					"bootClasspath": bootClasspath,
+					"classpath":     compileClasspath,
+				}},
+			}},
+		})
+		if err != nil {
 			t.Fatal(err)
 		}
-		classpath := `"` + jar + `"`
-		if len(jars) > 0 {
-			classpath = `"` + jars[0] + `","` + jar + `"`
-		}
-		body := `{"schema":1,"projects":[{"path":":","dir":"` + root + `","sourceSets":[{"classpath":[` + classpath + `]}]}]}`
-		if err := os.WriteFile(filepath.Join(modelDir, "root.json"), []byte(body), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(modelDir, "root.json"), body, 0644); err != nil {
 			t.Fatal(err)
 		}
 		roots = append(roots, child)
 		modelDirs = append(modelDirs, modelDir)
-		jars = append(jars, jar)
+		bootJars = append(bootJars, bootJar)
+		compileJars = append(compileJars, compileJar)
 	}
 	var out bytes.Buffer
 	got, err := loadGradleClasspath([]string{roots[0], filepath.Dir(roots[0]), roots[1]}, "", false, true, &out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(got, jars) {
-		t.Fatalf("classpath order = %v, want %v", got, jars)
+	want := []string{bootJars[0], bootJars[1], compileJars[0], compileJars[1]}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("classpath order = %v, want %v", got, want)
 	}
 	for _, dir := range modelDirs {
 		if count := strings.Count(out.String(), "gradle model: "+dir+" ("); count != 1 {

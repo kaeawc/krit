@@ -107,6 +107,7 @@ func InvokeCached(
 	repoDir string,
 	useDaemon bool,
 	verbose bool,
+	jvmTarget ...string,
 ) (*Result, error) {
 	if len(files) == 0 {
 		return newResult(), nil
@@ -114,7 +115,7 @@ func InvokeCached(
 
 	// If no repo dir, skip cache and go straight to JVM.
 	if repoDir == "" {
-		return runUncached(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose)
+		return runUncached(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
 	}
 
 	cacheDir, err := CacheDir(repoDir)
@@ -122,10 +123,10 @@ func InvokeCached(
 		if verbose {
 			reporter().Verbosef("verbose: fir cache dir init failed (%v), falling back to uncached\n", err)
 		}
-		return runUncached(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose)
+		return runUncached(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
 	}
 
-	cacheFingerprint := CheckCacheFingerprint(sourceDirs, files, classpath, jarPath, rules, ruleConfigs, facts)
+	cacheFingerprint := CheckCacheFingerprint(sourceDirs, files, classpath, jarPath, rules, ruleConfigs, facts, jvmTarget...)
 	hits, misses := ClassifyFilesForFingerprint(cacheDir, files, cacheFingerprint)
 	if verbose {
 		reporter().Verbosef("verbose: fir cache: %d hits, %d misses (%d files)\n",
@@ -138,7 +139,7 @@ func InvokeCached(
 	}
 
 	// Slow path: analyze misses via daemon or one-shot.
-	resp, err := runMisses(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose)
+	resp, err := runMisses(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
 	if err != nil {
 		return nil, err
 	}
@@ -165,8 +166,9 @@ func runUncached(
 	facts FileFacts,
 	useDaemon bool,
 	verbose bool,
+	jvmTarget ...string,
 ) (*Result, error) {
-	resp, err := runMisses(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose)
+	resp, err := runMisses(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
 	if err != nil {
 		return nil, err
 	}
@@ -185,15 +187,16 @@ func runMisses(
 	facts FileFacts,
 	useDaemon bool,
 	verbose bool,
+	jvmTarget ...string,
 ) (*CheckResponse, error) {
 	facts = facts.forFiles(misses)
 	// Try persistent daemon.
 	if useDaemon && jarPath != "" {
-		d, err := connectOrStartFirCheckDaemon(jarPath, sourceDirs, classpath, verbose)
+		d, err := connectOrStartFirCheckDaemon(jarPath, sourceDirs, classpath, verbose, jvmTarget...)
 		if err == nil {
 			defer func() { _ = d.Release() }()
 			refs := buildFileRefs(misses)
-			resp, err := d.Check(refs, sourceDirs, classpath, rules, ruleConfigs, facts)
+			resp, err := d.Check(refs, sourceDirs, classpath, rules, ruleConfigs, facts, jvmTarget...)
 			if err == nil {
 				return resp, nil
 			}
@@ -209,7 +212,7 @@ func runMisses(
 	if jarPath == "" {
 		return nil, fmt.Errorf("krit-fir.jar not found; build with: cd tools/krit-fir && ./gradlew shadowJar")
 	}
-	return InvokeOneShot(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, facts, verbose)
+	return InvokeOneShot(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, facts, verbose, jvmTarget...)
 }
 
 func buildFileRefs(files []string) []fileRef {

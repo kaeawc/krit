@@ -49,6 +49,9 @@ type ParseInput struct {
 	ActiveRules []*api.Rule
 	// IncludeGenerated, when true, retains files under /generated/.
 	IncludeGenerated bool
+	// GeneratedSourceDirs are Gradle-model source roots that must receive the
+	// same generated-file treatment as conventional /generated/ paths.
+	GeneratedSourceDirs []string
 	// IncludeGeneratedAllowlist is a list of path substrings that select
 	// known-safe generated source directories (Hilt, KSP, Kapt,
 	// ViewBinding, DataBinding, BuildConfig). When IncludeGenerated is

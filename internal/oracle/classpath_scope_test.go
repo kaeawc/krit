@@ -38,3 +38,11 @@ func TestClasspathChangesStoreScopeAndTypesFreshness(t *testing.T) {
 		t.Fatal("stale types accepted")
 	}
 }
+
+func TestJvmTargetChangesFIRStoreScope(t *testing.T) {
+	a := NewStoreScopeWithTarget(BackendFIR, "", nil, "11")
+	b := NewStoreScopeWithTarget(BackendFIR, "", nil, "17")
+	if a.version == b.version {
+		t.Fatal("JVM target did not affect FIR store scope")
+	}
+}

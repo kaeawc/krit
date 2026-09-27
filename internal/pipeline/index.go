@@ -200,7 +200,9 @@ type IndexInput struct {
 	// daemon falls back to source-tree dependency discovery when this
 	// is empty. The KAA backend ignores this field today; classpath
 	// threading for krit-types is a separate effort.
-	OracleClasspath []string
+	OracleClasspath  []string
+	OracleSourceDirs []string
+	OracleJvmTarget  string
 	// PrebuiltOracleDaemon, when non-nil, is reused by runDaemonOracle
 	// instead of calling oracle.InvokeDaemon. The serve daemon's
 	// ensureOracleDaemon supplies a *oracle.Daemon kept alive across
@@ -332,6 +334,9 @@ type IndexInput struct {
 	// list for cross-file indexing. Supplying it avoids a second tree walk
 	// after the CLI has already collected Kotlin and Java files together.
 	CrossFileJavaPaths []string
+	// Model-declared generated roots use the same exclusion as ParsePhase.
+	GeneratedSourceDirs []string
+	IncludeGenerated    bool
 	// ParseCache, when non-nil, is consulted during the Java parse step
 	// inside the javaIndexing tracker. Cache hits skip tree-sitter
 	// entirely; misses parse and populate the cache. Shared with the
@@ -1036,7 +1041,7 @@ func (p IndexPhase) runDaemonOracleFir(in IndexInput, scanPaths []string, oracle
 	}
 	var sourceDirs []string
 	oracleTracker.TrackVoid("findSourceDirs", func() {
-		sourceDirs = oracle.FindSourceDirs(scanPaths)
+		sourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(oracle.FindSourceDirs(scanPaths), in.OracleSourceDirs))
 	})
 	if len(sourceDirs) == 0 {
 		return base
@@ -1045,7 +1050,7 @@ func (p IndexPhase) runDaemonOracleFir(in IndexInput, scanPaths []string, oracle
 	var d *firchecks.FirDaemon
 	var daemonErr error
 	oracleTracker.TrackVoid("firDaemonStart", func() {
-		d, daemonErr = firchecks.ConnectOrStartFirDaemon(jarPath, sourceDirs, in.OracleClasspath, in.Verbose)
+		d, daemonErr = firchecks.ConnectOrStartFirDaemon(jarPath, sourceDirs, in.OracleClasspath, in.Verbose, in.OracleJvmTarget)
 	})
 	if daemonErr != nil {
 		in.warnf("warning: --daemon: %v\n", daemonErr)
@@ -1157,7 +1162,10 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 	}
 	var sourceDirs []string
 	jvmTracker.TrackVoid("findSourceDirs", func() {
-		sourceDirs = oracle.FindSourceDirs(scanPaths)
+		sourceDirs = oracle.UnionSourceDirs(oracle.FindSourceDirs(scanPaths), in.OracleSourceDirs)
+		if backend == oracle.BackendFIR {
+			sourceDirs = oracle.FilterFIRSourceDirs(sourceDirs)
+		}
 	})
 	if len(sourceDirs) == 0 {
 		return ""
@@ -1180,7 +1188,7 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		in.reportMissingOracleJar(jarErr)
 		return ""
 	}
-	storeScope := oracle.NewStoreScope(backend, jarPath, in.OracleClasspath)
+	storeScope := oracle.NewStoreScopeWithTarget(backend, jarPath, in.OracleClasspath, in.OracleJvmTarget)
 	perf.AddEntryDetails(jvmTracker, "sourceDirsFound", 0, map[string]int64{"sourceDirs": int64(len(sourceDirs))}, nil)
 	var cacheDest string
 	jvmTracker.TrackVoid("resolveOracleCachePath", func() {
@@ -1235,6 +1243,7 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		// their one-shot CLI, so the same args vector drives either
 		// backend. Empty preserves source-tree discovery.
 		Classpath: in.OracleClasspath,
+		JvmTarget: in.OracleJvmTarget,
 		Backend:   backend,
 	}
 	invocationStore := in.Store
@@ -1278,7 +1287,7 @@ func cachedTypesJSONSatisfies(in IndexInput, oracleRules []*api.Rule, path strin
 	if err != nil || jarPath == "" {
 		return false
 	}
-	scope := oracle.NewStoreScope(used, jarPath, in.OracleClasspath)
+	scope := oracle.NewStoreScopeWithTarget(used, jarPath, in.OracleClasspath, in.OracleJvmTarget)
 	return oracle.TypesJSONSatisfies(path, oracleDiagnosticsRequired(in, oracleRules), scope, buildid.Token())
 }
 
@@ -1477,6 +1486,7 @@ func (p IndexPhase) runCodeIndexBuild(ctx context.Context, in IndexInput, result
 		} else {
 			javaFilePaths, err = scanner.CollectJavaFiles(paths, nil) // err non-fatal: Java indexing is best-effort
 		}
+		javaFilePaths = filterGeneratedSourcePaths(javaFilePaths, in.IncludeGenerated, in.GeneratedSourceDirs...)
 		perf.AddEntry(javaTracker, "collectJavaFiles", time.Since(collectStart))
 		if err != nil && in.Verbose {
 			in.logf("verbose: Java file collection: %v\n", err)

@@ -86,6 +86,7 @@ var _ FirChecker = (*FakeFirChecker)(nil)
 // ProductionFirChecker wraps InvokeCached to satisfy FirChecker.
 type ProductionFirChecker struct {
 	JarPath    string
+	JvmTarget  string
 	SourceDirs []string
 	Classpath  []string
 	RepoDir    string
@@ -103,7 +104,7 @@ func (p *ProductionFirChecker) Check(files []string, sourceDirs, classpath, rule
 	if len(classpath) > 0 {
 		cl = classpath
 	}
-	return InvokeCached(p.JarPath, files, sd, cl, rules, ruleConfigs, facts, p.RepoDir, p.UseDaemon, p.Verbose)
+	return InvokeCached(p.JarPath, files, sd, cl, rules, ruleConfigs, facts, p.RepoDir, p.UseDaemon, p.Verbose, p.JvmTarget)
 }
 
 // Compile-time check.

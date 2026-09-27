@@ -487,28 +487,31 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	baselinePath, basePath, maxFixLevel := resolveBaselineDryRunArgs(args, paths)
 	in := pipeline.ProjectInput{
 		Args: pipeline.ProjectArgs{
-			Config:           cfg,
-			OracleClasspath:  args.OracleClasspath,
-			Paths:            paths,
-			KotlinPaths:      kotlinPaths,
-			JavaPaths:        javaPaths,
-			ActiveRules:      activeRules,
-			Format:           args.Format,
-			BaselinePath:     baselinePath,
-			DiffRef:          args.DiffRef,
-			MinConfidence:    args.MinConfidence,
-			WarningsAsErrors: args.WarningsAsErrors,
-			IncludeGenerated: args.IncludeGenerated,
-			Version:          kritVersion(),
-			OracleEnabled:    oracleDaemon != nil || args.InputTypesPath != "",
-			ShowPerf:         args.ShowPerf || args.PerfRules,
-			PerfRules:        args.PerfRules,
-			ProfileDispatch:  args.ProfileDispatch,
-			CustomRuleJars:   args.CustomRuleJars,
-			InputTypesPath:   args.InputTypesPath,
-			DryRun:           args.DryRun,
-			MaxFixLevel:      maxFixLevel,
-			BasePath:         basePath,
+			Config:              cfg,
+			OracleClasspath:     args.OracleClasspath,
+			OracleSourceDirs:    args.OracleSourceDirs,
+			OracleJvmTarget:     args.OracleJvmTarget,
+			Paths:               paths,
+			KotlinPaths:         kotlinPaths,
+			JavaPaths:           javaPaths,
+			ActiveRules:         activeRules,
+			Format:              args.Format,
+			BaselinePath:        baselinePath,
+			DiffRef:             args.DiffRef,
+			MinConfidence:       args.MinConfidence,
+			WarningsAsErrors:    args.WarningsAsErrors,
+			IncludeGenerated:    args.IncludeGenerated,
+			GeneratedSourceDirs: args.OracleGeneratedSourceDirs,
+			Version:             kritVersion(),
+			OracleEnabled:       oracleDaemon != nil || args.InputTypesPath != "",
+			ShowPerf:            args.ShowPerf || args.PerfRules,
+			PerfRules:           args.PerfRules,
+			ProfileDispatch:     args.ProfileDispatch,
+			CustomRuleJars:      args.CustomRuleJars,
+			InputTypesPath:      args.InputTypesPath,
+			DryRun:              args.DryRun,
+			MaxFixLevel:         maxFixLevel,
+			BasePath:            basePath,
 			// Wire is line-delimited; compact JSON keeps the body
 			// free of internal newlines.
 			JSONCompact: true,
@@ -583,16 +586,19 @@ func firFindingsPostPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *co
 	return func(parsed pipeline.ParseResult, findings []scanner.Finding) []scanner.Finding {
 		checker := scan.NewFIRChecker(paths, cfg, !args.NoFirDaemon, false)
 		checker.Classpath = args.OracleClasspath
+		checker.SourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(checker.SourceDirs, args.OracleSourceDirs))
+		checker.JvmTarget = args.OracleJvmTarget
 		return firchecks.RunPass(firchecks.PassOptions{
-			Enabled:          true,
-			Checker:          checker,
-			ActiveRules:      parsed.ActiveRules,
-			Config:           cfg,
-			ParsedFiles:      parsed.KotlinFiles,
-			KotlinPaths:      parsed.KotlinPaths,
-			IncludeGenerated: args.IncludeGenerated,
-			SourceDirs:       checker.SourceDirs,
-			Classpath:        checker.Classpath,
+			Enabled:             true,
+			Checker:             checker,
+			ActiveRules:         parsed.ActiveRules,
+			Config:              cfg,
+			ParsedFiles:         parsed.KotlinFiles,
+			KotlinPaths:         parsed.KotlinPaths,
+			IncludeGenerated:    args.IncludeGenerated,
+			GeneratedSourceDirs: args.OracleGeneratedSourceDirs,
+			SourceDirs:          checker.SourceDirs,
+			Classpath:           checker.Classpath,
 		}, findings)
 	}
 }

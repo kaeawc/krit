@@ -321,7 +321,10 @@ type AnalyzeProjectArgs struct {
 	// apply its authoritative verdict, like an in-process scan does.
 	Fir bool `json:"fir,omitempty"`
 	// OracleClasspath is the caller-resolved model, config, and environment classpath.
-	OracleClasspath []string `json:"oracle_classpath,omitempty"`
+	OracleClasspath           []string `json:"oracle_classpath,omitempty"`
+	OracleSourceDirs          []string `json:"oracle_source_dirs,omitempty"`
+	OracleGeneratedSourceDirs []string `json:"oracle_generated_source_dirs,omitempty"`
+	OracleJvmTarget           string   `json:"oracle_jvm_target,omitempty"`
 	// NoFirDaemon mirrors --no-fir-daemon: run the FIR checkers one-shot
 	// instead of through the persistent krit-fir daemon.
 	NoFirDaemon bool `json:"no_fir_daemon,omitempty"`

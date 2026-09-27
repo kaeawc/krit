@@ -345,6 +345,9 @@ func collectKotlinJavaFromGit(ctx context.Context, dir string, excludes []string
 		return false
 	}
 	for _, rel := range files {
+		if fileignore.DefaultPrunedPath(rel) {
+			continue
+		}
 		path := filepath.Join(dir, rel)
 		if matcher.Ignored(path, false) || isExcluded(path, excludes) {
 			continue
@@ -392,6 +395,9 @@ func CollectKotlinAndJavaFiles(ctx context.Context, paths []string, excludes []s
 		}
 		matcher := fileignore.MatcherForPath(p, info, ignoreMatchers)
 		if !info.IsDir() {
+			if fileignore.DefaultPrunedWithinRepo(p) {
+				continue
+			}
 			if isExcludedByPattern(p, excludes) {
 				continue
 			}
@@ -520,7 +526,7 @@ func collectSourceFiles(paths []string, excludes []string, isSourceFile func(str
 		}
 		matcher := fileignore.MatcherForPath(p, info, ignoreMatchers)
 		if !info.IsDir() {
-			if isSourceFile(p) && !matcher.Ignored(p, false) && !isExcludedByPattern(p, excludes) {
+			if isSourceFile(p) && !fileignore.DefaultPrunedWithinRepo(p) && !matcher.Ignored(p, false) && !isExcludedByPattern(p, excludes) {
 				addFile(p)
 			}
 			continue

@@ -25,13 +25,17 @@ type Project struct {
 
 // SourceSet contains compiler paths exported for one source set.
 type SourceSet struct {
-	Name             string   `json:"name"`
-	Platform         string   `json:"platform"`
-	Variant          string   `json:"variant"`
-	SourceDirs       []string `json:"sourceDirs"`
-	ClasspathEntries []string `json:"classpath"`
-	BootClasspath    []string `json:"bootClasspath"`
-	ProjectDeps      []string `json:"projectDeps"`
+	Name                string   `json:"name"`
+	Kind                string   `json:"kind"`
+	Platform            string   `json:"platform"`
+	Variant             string   `json:"variant"`
+	SourceDirs          []string `json:"sourceDirs"`
+	GeneratedSourceDirs []string `json:"generatedSourceDirs"`
+	ClasspathEntries    []string `json:"classpath"`
+	GeneratedClasspath  []string `json:"generatedClasspath"`
+	BootClasspath       []string `json:"bootClasspath"`
+	ProjectDeps         []string `json:"projectDeps"`
+	JvmTarget           string   `json:"jvmTarget"`
 }
 
 // Load reads JSON files directly in dir. Invalid files and projects with
@@ -113,7 +117,62 @@ func (m *Model) Classpath() ([]string, int) {
 			}
 		}
 	}
+	for _, p := range m.Projects {
+		for _, s := range p.SourceSets {
+			for _, entry := range s.GeneratedClasspath {
+				add(entry)
+			}
+		}
+	}
 	return out, missing
+}
+
+// SourceDirs returns existing source and generated source roots in model order.
+func (m *Model) SourceDirs() []string {
+	if m == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range m.Projects {
+		for _, s := range p.SourceSets {
+			for _, dir := range append(append([]string(nil), s.SourceDirs...), s.GeneratedSourceDirs...) {
+				if dir == "" || seen[dir] {
+					continue
+				}
+				seen[dir] = true
+				if info, err := os.Stat(dir); err == nil && info.IsDir() {
+					out = append(out, dir)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// MaxJvmTarget returns the highest numeric JVM target declared by the model.
+// Whole-repo FIR compilation uses this one target; per-module targets require
+// a separate compilation design.
+func (m *Model) MaxJvmTarget() string {
+	if m == nil {
+		return ""
+	}
+	best, version := "", -1
+	for _, p := range m.Projects {
+		for _, s := range p.SourceSets {
+			n, ok := parseJvmTarget(s.JvmTarget)
+			if ok && n > version {
+				best, version = s.JvmTarget, n
+			}
+		}
+	}
+	return best
+}
+
+func parseJvmTarget(target string) (int, bool) {
+	target = strings.TrimPrefix(target, "1.")
+	n, err := strconv.Atoi(target)
+	return n, err == nil && n > 0
 }
 
 // BootClasspath returns existing boot entries, deduplicated in project-path
@@ -164,35 +223,70 @@ func (m *Model) CompileClasspath() []string {
 	return out
 }
 
-// Discover finds the nearest Gradle root above scanRoot and returns its model
-// directory, if present. A .git directory stops the search after that ancestor.
-func Discover(scanRoot string) string {
+// GeneratedClasspath returns existing generated class jars in model order.
+func (m *Model) GeneratedClasspath() []string {
+	if m == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range m.Projects {
+		for _, s := range p.SourceSets {
+			for _, entry := range s.GeneratedClasspath {
+				if entry == "" || seen[entry] {
+					continue
+				}
+				seen[entry] = true
+				if _, err := os.Stat(entry); err == nil {
+					out = append(out, entry)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// SettingsAncestors returns settings roots from nearest to outermost, stopping
+// at the nearest .git directory or worktree pointer file (inclusive).
+func SettingsAncestors(scanRoot string) []string {
 	dir, err := filepath.Abs(scanRoot)
 	if err != nil {
-		return ""
+		return nil
 	}
 	if info, err := os.Stat(dir); err == nil && !info.IsDir() {
 		dir = filepath.Dir(dir)
 	}
+	var roots []string
 	for {
 		for _, settings := range []string{"settings.gradle", "settings.gradle.kts"} {
-			if _, err := os.Stat(filepath.Join(dir, settings)); err == nil {
-				model := filepath.Join(dir, ".krit", "gradle-model")
-				if info, err := os.Stat(model); err == nil && info.IsDir() {
-					return model
-				}
-				return ""
+			if info, err := os.Stat(filepath.Join(dir, settings)); err == nil && !info.IsDir() {
+				roots = append(roots, dir)
+				break
 			}
 		}
-		if info, err := os.Stat(filepath.Join(dir, ".git")); err == nil && info.IsDir() {
-			return ""
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return roots
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return ""
+			return roots
 		}
 		dir = parent
 	}
+}
+
+// Discover finds the nearest Gradle root above scanRoot and returns its model
+// directory, if present. The .git boundary is shared with SettingsAncestors.
+func Discover(scanRoot string) string {
+	roots := SettingsAncestors(scanRoot)
+	if len(roots) == 0 {
+		return ""
+	}
+	model := filepath.Join(roots[0], ".krit", "gradle-model")
+	if info, err := os.Stat(model); err == nil && info.IsDir() {
+		return model
+	}
+	return ""
 }
 
 // Fingerprint hashes resolved classpath paths, file sizes, and modification

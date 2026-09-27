@@ -283,6 +283,9 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 		// consistent with the env var convention.
 		args = append(args, "--classpath", strings.Join(opts.Classpath, string(os.PathListSeparator)))
 	}
+	if opts.Backend == BackendFIR && opts.JvmTarget != "" {
+		args = append(args, "--jvm-target", opts.JvmTarget)
+	}
 	callFilterPath, cleanupCallFilter, err := writeCallFilterArg(opts, tracker)
 	if err != nil {
 		return "", fmt.Errorf("call filter: %w", err)

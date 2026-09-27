@@ -18,6 +18,7 @@ import (
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/firchecks"
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/pipeline"
@@ -66,6 +67,10 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 	}
 
 	state.analyzeMu.Lock()
+	// The shared memo is valid for one scan, not the daemon's lifetime. A
+	// rewrite between requests can preserve both size and mtime; clearing
+	// here prevents its old digest from validating on-disk caches.
+	hashutil.ResetDefault()
 	cold := !state.coldDone.Load()
 	if args.RequireWarm && cold {
 		state.analyzeMu.Unlock()
@@ -582,6 +587,7 @@ func firFindingsPostPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *co
 	}
 	return func(parsed pipeline.ParseResult, findings []scanner.Finding) []scanner.Finding {
 		checker := scan.NewFIRChecker(paths, cfg, !args.NoFirDaemon, false)
+		checker.NoCache = args.NoCache
 		checker.Classpath = args.OracleClasspath
 		return firchecks.RunPass(firchecks.PassOptions{
 			Enabled:          true,

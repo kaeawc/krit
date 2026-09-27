@@ -634,6 +634,7 @@ func (r *runner) firCheckAndCollect() {
 		}
 		if enabled {
 			checker := NewFIRChecker(r.paths, r.cfg, !*r.f.NoFirDaemon, *r.f.Verbose)
+			checker.NoCache = *r.f.NoCache
 			checker.Classpath = effectiveOracleClasspath(r.f.modelClasspath, r.cfg)
 			opts.Checker, opts.SourceDirs, opts.Classpath = checker, checker.SourceDirs, checker.Classpath
 		}

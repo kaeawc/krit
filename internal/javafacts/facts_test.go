@@ -2,6 +2,7 @@ package javafacts
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -51,3 +52,35 @@ func TestInvokeMissingJavaFallsBackWithWarning(t *testing.T) {
 type assertErr string
 
 func (e assertErr) Error() string { return string(e) }
+
+func TestLookupMatchesRelativeAndAbsoluteSpellings(t *testing.T) {
+	abs, err := filepath.Abs(filepath.Join("src", "T.java"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := &Facts{
+		Version: Version,
+		Calls: []CallFact{
+			{File: "src/./T.java", Line: 3, Col: 7, ReceiverType: "first"},
+			{File: abs, Line: 3, Col: 7, ReceiverType: "second"},
+			{File: abs, Line: 3, Col: 8, ReceiverType: "other"},
+		},
+		Classes: []ClassFact{{File: "src/T.java", Line: 1, Col: 1, Supertypes: []string{"Base"}}},
+	}
+	if got := facts.ReceiverType(abs, 3, 7); got != "first" {
+		t.Fatalf("ReceiverType(abs) = %q, want the first matching fact", got)
+	}
+	if got := facts.ReceiverType("src/T.java", 3, 8); got != "other" {
+		t.Fatalf("ReceiverType(relative) = %q", got)
+	}
+	if _, ok := facts.CallAt(abs, 3, 9); ok {
+		t.Fatal("CallAt matched a column with no fact")
+	}
+	if got := facts.ClassSupertypes(abs, 1, 1); len(got) != 1 || got[0] != "Base" {
+		t.Fatalf("ClassSupertypes = %#v", got)
+	}
+	var nilFacts *Facts
+	if _, ok := nilFacts.CallAt(abs, 3, 7); ok {
+		t.Fatal("nil Facts returned a call")
+	}
+}

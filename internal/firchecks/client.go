@@ -147,7 +147,7 @@ func daemonRequestTimeout() time.Duration {
 // serve krit runs from other directories, so every path it is sent is
 // absolute (see Check) and nothing may resolve against its working directory.
 func StartFirDaemonWithPort(jarPath string, verbose bool) (*FirDaemon, error) {
-	javaPath, err := exec.LookPath("java")
+	javaPath, err := oracle.JavaPath()
 	if err != nil {
 		return nil, fmt.Errorf("java not found in PATH: %w", err)
 	}

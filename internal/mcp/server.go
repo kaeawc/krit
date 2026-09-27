@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/kaeawc/krit/internal/cli/scan"
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/jsonrpc"
 	"github.com/kaeawc/krit/internal/logger"
 	"github.com/kaeawc/krit/internal/pipeline"
@@ -74,7 +76,28 @@ type Server struct {
 	// log routes lifecycle/error messages. NewServer sets a stderr
 	// text-handler at Info level; SetLogger lets tests inject a
 	// logger.Capture to assert on emitted records.
-	log logger.Logger
+	log              logger.Logger
+	firPreflightOnce sync.Once
+	firNotice        string
+	firNoticeSent    bool
+}
+
+func (s *Server) firNoticeFor(paths []string) {
+	s.firPreflightOnce.Do(func() {
+		if len(paths) == 0 {
+			paths = []string{"."}
+		}
+		cfg, _ := config.LoadAndMergeDefaults("", paths...)
+		_, err := scan.PreflightFIR(context.Background(), paths, cfg, "", false, io.Discard)
+		if err != nil {
+			s.firNotice = "FIR unavailable; using Go-only analysis: " + err.Error()
+		}
+	})
+	if s.firNoticeSent || s.firNotice == "" {
+		return
+	}
+	s.firNoticeSent = true
+	s.log.Warn(s.firNotice)
 }
 
 // logInfo logs an informational message gated behind s.Verbose. Preserves

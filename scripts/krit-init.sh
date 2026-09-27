@@ -108,7 +108,7 @@ echo
 # finds issues and we want every profile scanned regardless.
 for p in "${profiles[@]}"; do
     gum spin --title "Scanning with $p profile..." -- \
-        sh -c "\"$krit_bin\" --config \"$profiles_dir/$p.yml\" -f json \"$target\" >\"$tmpdir/$p.json\" 2>\"$tmpdir/$p.log\" || true"
+        sh -c "\"$krit_bin\" --no-fir --config \"$profiles_dir/$p.yml\" -f json \"$target\" >\"$tmpdir/$p.json\" 2>\"$tmpdir/$p.log\" || true"
 done
 
 # Fail if any profile produced no parseable output.
@@ -380,15 +380,15 @@ if [[ $accept_defaults -eq 1 ]] || gum confirm "Apply safe autofixes now?" --def
     # the pre-fix baseline. Re-scan with the merged config first so the
     # "before" number reflects the actual overrides the user chose.
     gum spin --title "Scanning with your new config..." -- \
-        sh -c "\"$krit_bin\" --config \"$target_config\" -f json \"$target\" >\"$tmpdir/prefix.json\" 2>\"$tmpdir/prefix.log\" || true"
+        sh -c "\"$krit_bin\" --no-fir --config \"$target_config\" -f json \"$target\" >\"$tmpdir/prefix.json\" 2>\"$tmpdir/prefix.log\" || true"
     prefix_total=$(jq -r '.summary.total // 0' "$tmpdir/prefix.json")
 
     # krit --fix mutates files in place and does not emit JSON, so we
     # invoke it for its side effect then re-scan to count remainders.
     gum spin --title "Applying safe autofixes..." -- \
-        sh -c "\"$krit_bin\" --config \"$target_config\" --fix \"$target\" >/dev/null 2>\"$tmpdir/fix.log\" || true"
+        sh -c "\"$krit_bin\" --no-fir --config \"$target_config\" --fix \"$target\" >/dev/null 2>\"$tmpdir/fix.log\" || true"
     gum spin --title "Counting remaining findings..." -- \
-        sh -c "\"$krit_bin\" --config \"$target_config\" -f json \"$target\" >\"$tmpdir/postfix.json\" 2>\"$tmpdir/postfix.log\" || true"
+        sh -c "\"$krit_bin\" --no-fir --config \"$target_config\" -f json \"$target\" >\"$tmpdir/postfix.json\" 2>\"$tmpdir/postfix.log\" || true"
 
     if ! jq -e '.summary.total' "$tmpdir/postfix.json" >/dev/null 2>&1; then
         echo "error: post-fix scan produced no valid JSON output" >&2
@@ -432,7 +432,7 @@ baseline_file="$baseline_dir/baseline.xml"
 if [[ $accept_defaults -eq 1 ]] || gum confirm "Write a baseline so only new findings are flagged going forward?" --default=yes; then
     mkdir -p "$baseline_dir"
     gum spin --title "Writing baseline..." -- \
-        sh -c "\"$krit_bin\" --config \"$target_config\" --create-baseline \"$baseline_file\" \"$target\" >/dev/null 2>\"$tmpdir/baseline.log\" || true"
+        sh -c "\"$krit_bin\" --no-fir --config \"$target_config\" --create-baseline \"$baseline_file\" \"$target\" >/dev/null 2>\"$tmpdir/baseline.log\" || true"
 
     if [[ ! -f "$baseline_file" ]]; then
         echo "error: baseline was not written to $baseline_file" >&2

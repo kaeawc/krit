@@ -35,8 +35,8 @@ check "all tests" go test ./... -count=1 -timeout 120s
 
 echo ""
 echo "Integration:"
-check "playground webservice" bash -c './krit -f json -no-cache -no-type-inference -no-type-oracle -q playground/kotlin-webservice/ > /dev/null 2>&1; [ $? -le 1 ]'
-check "playground android-app" bash -c './krit -f json -no-cache -no-type-inference -no-type-oracle -q playground/android-app/ > /dev/null 2>&1; [ $? -le 1 ]'
+check "playground webservice" bash -c './krit --no-fir -f json -no-cache -no-type-inference -no-type-oracle -q playground/kotlin-webservice/ > /dev/null 2>&1; [ $? -le 1 ]'
+check "playground android-app" bash -c './krit --no-fir -f json -no-cache -no-type-inference -no-type-oracle -q playground/android-app/ > /dev/null 2>&1; [ $? -le 1 ]'
 
 echo ""
 echo "CLI:"
@@ -50,7 +50,7 @@ check "krit-mcp --version" ./krit-mcp --version
 echo ""
 echo "Output formats:"
 for fmt in json sarif plain checkstyle; do
-    check "$fmt output" bash -c "./krit -f $fmt -no-cache -no-type-inference -no-type-oracle -q playground/kotlin-webservice/ > /dev/null 2>&1; [ \$? -le 1 ]"
+    check "$fmt output" bash -c "./krit --no-fir -f $fmt -no-cache -no-type-inference -no-type-oracle -q playground/kotlin-webservice/ > /dev/null 2>&1; [ \$? -le 1 ]"
 done
 
 echo ""

@@ -81,7 +81,7 @@ func TestAnalyzeProject_OutputMatchesDirectRunProject(t *testing.T) {
 	// --- Verb path -------------------------------------------------
 	var verbResult daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{Format: "json"}, &verbResult); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true, Format: "json"}, &verbResult); err != nil {
 		t.Fatalf("verb call: %v", err)
 	}
 

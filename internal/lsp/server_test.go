@@ -284,10 +284,14 @@ func TestDidOpenPublishesDiagnostics(t *testing.T) {
 		t.Fatalf("expected at least 2 messages, got %d", len(msgs))
 	}
 
-	// The second message should be a publishDiagnostics notification
 	var notif Notification
-	if err := json.Unmarshal(msgs[1], &notif); err != nil {
-		t.Fatalf("unmarshal notification: %v", err)
+	for _, msg := range msgs[1:] {
+		if err := json.Unmarshal(msg, &notif); err != nil {
+			t.Fatalf("unmarshal notification: %v", err)
+		}
+		if notif.Method == "textDocument/publishDiagnostics" {
+			break
+		}
 	}
 	if notif.Method != "textDocument/publishDiagnostics" {
 		t.Errorf("expected publishDiagnostics, got %s", notif.Method)

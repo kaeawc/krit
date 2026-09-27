@@ -383,6 +383,17 @@ jobs:
         if: steps.cache-krit-fir.outputs.cache-hit != 'true'
         working-directory: tools/krit-fir
         run: ./gradlew --no-daemon shadowJar
+      - name: CLI default FIR scan
+        run: |
+          go build -o krit ./cmd/krit/
+          project="$(mktemp -d)"
+          printf 'fun answer() = 42\n' > "$project/Answer.kt"
+          printf 'oracle:\n  classpath: []\n' > "$project/krit.yml"
+          set +e
+          KRIT_FIR_JAR="$PWD/tools/krit-fir/build/libs/krit-fir.jar" ./krit --no-type-oracle "$project"
+          result=$?
+          set -e
+          test "$result" -le 1
       # TestFirPilotParity compiles the FIR pilot fixtures through krit-fir,
       # so it needs a standalone kotlin-stdlib on the classpath. The jar is
       # normally in the Gradle module cache after the shadowJar build above,

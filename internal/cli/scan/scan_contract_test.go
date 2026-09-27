@@ -80,6 +80,15 @@ func runScanCLI(t *testing.T, argv []string) []byte {
 		BaselineAuditVerb = savedBaselineVerb
 	})
 
+	hasFIRChoice := false
+	for _, arg := range argv {
+		if arg == "--fir" || arg == "--no-fir" {
+			hasFIRChoice = true
+		}
+	}
+	if !hasFIRChoice {
+		argv = append(argv[:1:1], append([]string{"--no-fir"}, argv[1:]...)...)
+	}
 	os.Args = argv
 	flag.CommandLine = flag.NewFlagSet(argv[0], flag.ContinueOnError)
 	BaselineAuditVerb = false

@@ -19,7 +19,7 @@ func TestAnalyzeProject_BinaryHashMismatchRejected(t *testing.T) {
 
 	var got daemon.AnalyzeProjectResult
 	err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{ClientBinaryHash: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"},
+		daemon.AnalyzeProjectArgs{NoFir: true, ClientBinaryHash: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"},
 		&got)
 	if err == nil {
 		t.Fatalf("expected mismatch rejection, got result=%+v", got)
@@ -39,7 +39,7 @@ func TestAnalyzeProject_EmptyClientHashSkipsHandshake(t *testing.T) {
 
 	var got daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &got); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &got); err != nil {
 		t.Fatalf("call: %v", err)
 	}
 	if len(got.Findings) == 0 {

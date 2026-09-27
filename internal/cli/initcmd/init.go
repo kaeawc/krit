@@ -159,7 +159,7 @@ func runHeadlessInit(opts onboarding.ScanOptions, reg *onboarding.Registry, prof
 
 	// Autofix pass: run krit --fix for its side effect, no output.
 	// Non-zero exit from krit when unfixable findings remain is expected.
-	fixCmd := exec.CommandContext(ctx, opts.KritBin, "--config", configPath, "--fix", opts.Target)
+	fixCmd := exec.CommandContext(ctx, opts.KritBin, "--no-fir", "--config", configPath, "--fix", opts.Target)
 	fixCmd.Env = noDaemonEnv
 	_ = fixCmd.Run()
 
@@ -171,7 +171,7 @@ func runHeadlessInit(opts onboarding.ScanOptions, reg *onboarding.Registry, prof
 	}
 	baselinePath := filepath.Join(baselineDir, "baseline.xml")
 	baselineCmd := exec.CommandContext(ctx, opts.KritBin,
-		"--config", configPath, "--create-baseline", baselinePath, opts.Target)
+		"--no-fir", "--config", configPath, "--create-baseline", baselinePath, opts.Target)
 	baselineCmd.Env = noDaemonEnv
 	_ = baselineCmd.Run()
 	if _, err := os.Stat(baselinePath); err != nil {

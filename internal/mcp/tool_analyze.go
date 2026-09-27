@@ -69,6 +69,7 @@ func (s *Server) analyzeCode(args analyzeArgs) ToolResult {
 	if args.Code == "" {
 		return errorResult("'code' argument is required for mode=code")
 	}
+	s.firNoticeFor([]string{args.Path})
 
 	columns, err := s.parseAndAnalyzeColumns(args.Code, args.Path)
 	if err != nil {
@@ -100,6 +101,7 @@ func (s *Server) analyzeProject(args analyzeArgs) ToolResult {
 	if len(args.Paths) == 0 {
 		return errorResult("'paths' argument is required for mode=project")
 	}
+	s.firNoticeFor(args.Paths)
 
 	format := args.Format
 	if format == "" {

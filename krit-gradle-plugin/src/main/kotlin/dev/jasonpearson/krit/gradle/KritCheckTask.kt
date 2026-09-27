@@ -21,6 +21,7 @@ import org.gradle.api.tasks.SourceTask
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
 import java.io.File
+import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 
 /**
@@ -165,10 +166,16 @@ abstract class KritCheckTask @Inject constructor(
             appendScanPaths()
         }
 
+        val stderr = ByteArrayOutputStream()
         val result = execOps.exec {
             executable = kritBinary.get().asFile.absolutePath
             args(args)
+            errorOutput = stderr
             isIgnoreExitValue = true
+        }
+
+        if (result.exitValue == 2) {
+            throw GradleException("krit configuration/preflight error: ${stderr.toString().trim()}")
         }
 
         // Run additional report formats if more than one is enabled
@@ -189,10 +196,15 @@ abstract class KritCheckTask @Inject constructor(
                 appendScanPaths()
             }
 
-            execOps.exec {
+            val extraStderr = ByteArrayOutputStream()
+            val extraResult = execOps.exec {
                 executable = kritBinary.get().asFile.absolutePath
                 args(extraArgs)
+                errorOutput = extraStderr
                 isIgnoreExitValue = true
+            }
+            if (extraResult.exitValue == 2) {
+                throw GradleException("krit configuration/preflight error: ${extraStderr.toString().trim()}")
             }
         }
 

@@ -85,6 +85,19 @@ func TestFindBackendJar_FIREnvOverride(t *testing.T) {
 	}
 }
 
+func TestEnsureBackendJar_FIREnvOverrideNeedsNoNetwork(t *testing.T) {
+	jar := filepath.Join(t.TempDir(), "offline.jar")
+	if err := os.WriteFile(jar, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KRIT_FIR_JAR", jar)
+	t.Setenv(NoJarDownloadEnv, "1")
+	got, err := EnsureBackendJar(context.Background(), BackendFIR, nil, false)
+	if err != nil || got != jar {
+		t.Fatalf("offline override = %q, %v", got, err)
+	}
+}
+
 func TestFindBackendJar_FIRInstalledUnderKritJars(t *testing.T) {
 	home := isolateJarLookup(t)
 	Version = "1.2.3"

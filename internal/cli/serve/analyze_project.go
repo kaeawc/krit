@@ -49,6 +49,7 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 			return nil, fmt.Errorf("decode args: %w", err)
 		}
 	}
+	args.Fir = !args.NoFir
 
 	if daemonHash := daemonBinaryHash(); args.ClientBinaryHash != "" && daemonHash != "" && args.ClientBinaryHash != daemonHash {
 		return nil, fmt.Errorf("%s (daemon=%s client=%s)", daemon.ErrBinaryHashMismatchPrefix, daemonHash, args.ClientBinaryHash)
@@ -66,6 +67,25 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 	}
 
 	state.analyzeMu.Lock()
+	if args.Fir {
+		if !args.FirPreflightPassed {
+			paths := args.Paths
+			if len(paths) == 0 {
+				paths = []string{state.root}
+			}
+			cfg, cfgErr := state.ensureConfig()
+			if cfgErr != nil {
+				state.analyzeMu.Unlock()
+				return nil, cfgErr
+			}
+			model, preflightErr := scan.PreflightFIR(context.Background(), paths, cfg, args.GradleModel, args.NoGradleModel, os.Stderr)
+			if preflightErr != nil {
+				state.analyzeMu.Unlock()
+				return nil, preflightErr
+			}
+			args.OracleClasspath = append(model, args.OracleClasspath...)
+		}
+	}
 	cold := !state.coldDone.Load()
 	if args.RequireWarm && cold {
 		state.analyzeMu.Unlock()

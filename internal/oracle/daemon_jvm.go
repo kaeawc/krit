@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
@@ -111,6 +112,51 @@ func jdkMajorVersion(javaPath string) int {
 			return minor
 		}
 	}
+	return major
+}
+
+// JavaPath selects the launcher used by krit-fir. JAVA_HOME takes precedence
+// when it is set, so preflight and the actual subprocess use the same JVM.
+func JavaPath() (string, error) {
+	if home := os.Getenv("JAVA_HOME"); home != "" {
+		path := filepath.Join(home, "bin", "java")
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return path, nil
+		}
+		return "", fmt.Errorf("JAVA_HOME does not contain bin/java: %s", home)
+	}
+	return exec.LookPath("java")
+}
+
+// JavaMajorVersion reads the launcher version without the process-wide cache:
+// tests and long-lived servers may change JAVA_HOME between scans.
+func JavaMajorVersion(path string) int { return jdkMajorVersion(path) }
+
+type preflightJavaKey struct {
+	path  string
+	size  int64
+	mtime time.Time
+}
+
+var preflightJavaVersions sync.Map
+
+// PreflightJavaMajorVersion caches only preflight probes. Other callers of
+// JavaMajorVersion continue to get a fresh result.
+func PreflightJavaMajorVersion(path string) int {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return JavaMajorVersion(path)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return JavaMajorVersion(path)
+	}
+	key := preflightJavaKey{resolved, info.Size(), info.ModTime()}
+	if major, ok := preflightJavaVersions.Load(key); ok {
+		return major.(int)
+	}
+	major := JavaMajorVersion(path)
+	preflightJavaVersions.Store(key, major)
 	return major
 }
 

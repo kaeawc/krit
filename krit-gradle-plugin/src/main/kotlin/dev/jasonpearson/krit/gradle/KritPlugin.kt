@@ -282,6 +282,9 @@ class KritPlugin : Plugin<Project> {
                             }
                             if (checkDirs.isNotEmpty()) {
                                 project.tasks.register("kritCheck${candidate.replaceFirstChar(Char::uppercase)}", KritCheckTask::class.java) {
+                                    dependsOn(extension.exportModel.map { enabled ->
+                                        if (enabled) listOf(project.tasks.named("kritExportModel")) else emptyList<Any>()
+                                    })
                                     setSource(project.files(checkDirs))
                                     sourceRoots.from(checkDirs)
                                     description = "Run krit analysis on the '$candidate' variant sources"
@@ -437,6 +440,9 @@ class KritPlugin : Plugin<Project> {
                             val taskName = "kritCheck${name.replaceFirstChar { it.uppercase() }}"
                             if (project.tasks.findByName(taskName) == null) {
                                 project.tasks.register(taskName, KritCheckTask::class.java) {
+                                    dependsOn(extension.exportModel.map { enabled ->
+                                        if (enabled) listOf(project.tasks.named("kritExportModel")) else emptyList<Any>()
+                                    })
                                     setSource(project.files(kotlinDirs))
                                     sourceRoots.from(kotlinDirs)
                                     description = "Run krit analysis on the '$name' source set"

@@ -127,12 +127,12 @@ func Discover(scanRoot string) string {
 		dir = filepath.Dir(dir)
 	}
 	for {
+		model := filepath.Join(dir, ".krit", "gradle-model")
+		if info, err := os.Stat(model); err == nil && info.IsDir() {
+			return model
+		}
 		for _, settings := range []string{"settings.gradle", "settings.gradle.kts"} {
 			if _, err := os.Stat(filepath.Join(dir, settings)); err == nil {
-				model := filepath.Join(dir, ".krit", "gradle-model")
-				if info, err := os.Stat(model); err == nil && info.IsDir() {
-					return model
-				}
 				return ""
 			}
 		}

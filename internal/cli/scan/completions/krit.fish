@@ -16,6 +16,8 @@ complete -c krit -l cache-dir -d 'Override incremental cache directory' -xa '(__
 complete -c krit -l no-type-inference -d 'Disable type inference'
 complete -c krit -l no-type-oracle -d 'Disable type oracle'
 complete -c krit -l daemon -d 'Enable persistent type oracle daemon'
+complete -c krit -l gradle-model -d 'Exported Gradle model directory' -xa '(__fish_complete_directories)'
+complete -c krit -l no-gradle-model -d 'Disable Gradle model discovery'
 complete -c krit -l oracle-diagnostics -d 'Collect Kotlin compiler diagnostics in the type oracle'
 complete -c krit -l input-types -d 'Load pre-built type oracle JSON' -rF
 complete -c krit -l output-types -d 'Output type oracle JSON' -rF

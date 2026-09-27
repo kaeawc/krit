@@ -109,8 +109,14 @@ func RunPass(opts PassOptions, base []scanner.Finding) []scanner.Finding {
 const maxGatedFilesListed = 10
 
 func writeVerdictSummary(w io.Writer, stats VerdictStats) {
-	fmt.Fprintf(w, "verbose: FIR verdict: %d authoritative files, %d gated (compiler error or crash), %d excluded (scripts or not in a JVM source set), %d rule errors (checker threw; Go kept for that rule and file)\n",
-		stats.AuthoritativeFiles, len(stats.GatedFiles), stats.ExcludedFiles, len(stats.RuleErrors))
+	generated := 0
+	for _, message := range stats.GatedFiles {
+		if generatedSymbolError(firstLine(message)) {
+			generated++
+		}
+	}
+	fmt.Fprintf(w, "verbose: FIR verdict: %d authoritative files, %d gated (compiler error or crash), %d excluded (scripts or not in a JVM source set), %d rule errors (checker threw; Go kept for that rule and file), %d gated (generated sources)\n",
+		stats.AuthoritativeFiles, len(stats.GatedFiles)-generated, stats.ExcludedFiles, len(stats.RuleErrors), generated)
 	for i, e := range stats.RuleErrors {
 		if i == maxGatedFilesListed {
 			fmt.Fprintf(w, "verbose: FIR rule error: ... and %d more\n", len(stats.RuleErrors)-maxGatedFilesListed)
@@ -332,4 +338,22 @@ func firRuleConfigs(cfg *config.Config, active []*api.Rule) RuleConfigs {
 		out[r.ID] = opts
 	}
 	return out
+}
+
+// generatedSymbolError recognizes the first unresolved generated Android symbol.
+func generatedSymbolError(message string) bool {
+	lower := strings.ToLower(message)
+	if !strings.Contains(lower, "unresolved reference") {
+		return false
+	}
+	if strings.Contains(message, "Unresolved reference 'R'") || strings.Contains(message, "Unresolved reference: 'R'") {
+		return true
+	}
+	for _, field := range strings.Fields(message) {
+		symbol := strings.Trim(field, "'\"`:,.;()[]")
+		if symbol == "BuildConfig" || strings.HasSuffix(symbol, "Binding") {
+			return true
+		}
+	}
+	return false
 }

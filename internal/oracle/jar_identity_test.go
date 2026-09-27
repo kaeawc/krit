@@ -87,6 +87,32 @@ func TestConnectOrStartDaemon_ReplacedJarIsNotReused(t *testing.T) {
 	}
 }
 
+func TestDaemonRegistryKeyAndRetirementTrackClasspathJar(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	jar := testJar(t)
+	sources := []string{t.TempDir()}
+	dep := filepath.Join(t.TempDir(), "dep.jar")
+	if err := os.WriteFile(dep, []byte("before"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	oldKey := daemonRegistryKey(jar, sources, dep)
+	if err := writePIDFile(99999999, 1, oldKey); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().Add(5 * time.Second)
+	if err := os.Chtimes(dep, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	newKey := daemonRegistryKey(jar, sources, dep)
+	if oldKey == newKey {
+		t.Fatal("classpath mtime change kept daemon registry key")
+	}
+	retireSupersededDaemons(jar, sources, []string{dep}, false)
+	if _, err := os.Stat(daemonPIDPathForSlot(oldKey, 0)); !os.IsNotExist(err) {
+		t.Fatalf("old classpath daemon was not retired: %v", err)
+	}
+}
+
 func TestDaemonRetiresLegacyAndPreservesOtherInputs(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	jar := testJar(t)

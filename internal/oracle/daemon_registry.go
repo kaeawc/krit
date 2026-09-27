@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
@@ -115,6 +116,16 @@ func daemonLegacyKey(jarPath string, sourceDirs []string, classpath ...string) s
 }
 
 func daemonLegacySuffix(sourceDirs []string, classpath ...string) string {
+	key := daemonClasspathPathPrefix(sourceDirs, classpath...)
+	if len(classpath) > 0 {
+		key += "-" + gradlemodel.ClasspathFingerprint(AbsolutePaths(classpath))[:8]
+	}
+	return key
+}
+
+// The path-only prefix lets retirement find daemons whose classpath jars
+// changed in place, while keeping unrelated classpaths separate.
+func daemonClasspathPathPrefix(sourceDirs []string, classpath ...string) string {
 	key := hashSources(sourceDirs)
 	if len(classpath) > 0 {
 		// Order matters on a classpath, so hash it in the given order.
@@ -321,6 +332,11 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 	if verbose {
 		reporter().Verbosef("verbose: Starting krit-types daemon: %s %s\n", javaPath, strings.Join(args, " "))
 	}
+	args, cleanupArgs, err := prepareJavaArgs(args)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanupArgs()
 
 	cmd := exec.CommandContext(context.Background(), javaPath, args...)
 	cmd.Dir = DaemonWorkDir()
@@ -505,12 +521,17 @@ func retireSupersededDaemons(jarPath string, sourceDirs []string, classpath []st
 	if err != nil {
 		return
 	}
-	prefix := daemonRegistryPrefix(jarPath, sourceDirs, classpath...)
 	current := daemonRegistryKey(jarPath, sourceDirs, classpath...)
-	paths, err := filepath.Glob(filepath.Join(dir, prefix+"@*.pid"))
+	family := jarTag(jarPath) + "-" + JarPathTag(jarPath) + "-" + daemonClasspathPathPrefix(sourceDirs, classpath...)
+	paths, err := filepath.Glob(filepath.Join(dir, family+"*.pid"))
 	if err == nil {
 		for _, path := range paths {
-			key, slot, ok := parseDaemonPIDName(strings.TrimSuffix(filepath.Base(path), ".pid"), prefix+"@")
+			stem := strings.TrimSuffix(filepath.Base(path), ".pid")
+			candidatePrefix, _, found := strings.Cut(stem, "@")
+			if !found || candidatePrefix != family && (len(classpath) == 0 || !strings.HasPrefix(candidatePrefix, family+"-")) {
+				continue
+			}
+			key, slot, ok := parseDaemonPIDName(stem, candidatePrefix+"@")
 			if ok && key != current {
 				stopDaemonSlot(key, slot, verbose)
 			}
@@ -617,6 +638,11 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 	if verbose {
 		reporter().Verbosef("verbose: Starting persistent krit-types daemon slot %d: %s %s\n", slot, javaPath, strings.Join(args, " "))
 	}
+	args, cleanupArgs, err := prepareJavaArgs(args)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanupArgs()
 
 	cmd := exec.CommandContext(context.Background(), javaPath, args...)
 	cmd.Dir = DaemonWorkDir()

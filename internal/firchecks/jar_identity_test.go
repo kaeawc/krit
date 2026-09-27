@@ -94,6 +94,35 @@ func TestConnectOrStartFirDaemonReplacedJarIsNotReused(t *testing.T) {
 	}
 }
 
+func TestFirRegistryKeyAndRetirementTrackClasspathJar(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	jar := filepath.Join(t.TempDir(), "krit-fir.jar")
+	dep := filepath.Join(t.TempDir(), "dep.jar")
+	for _, path := range []string{jar, dep} {
+		if err := os.WriteFile(path, []byte("before"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sources := []string{t.TempDir()}
+	classpath := []string{dep}
+	oldKey := firRegistryKeyFor(firCheckRole, jar, sources, classpath)
+	if err := writeFirPIDFile(99999999, 1, oldKey); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().Add(5 * time.Second)
+	if err := os.Chtimes(dep, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	newKey := firRegistryKeyFor(firCheckRole, jar, sources, classpath)
+	if oldKey == newKey {
+		t.Fatal("classpath mtime change kept FIR registry key")
+	}
+	retireSupersededFirDaemons(firRegistryFamilyPrefix(firCheckRole, jar, sources, classpath), sources, newKey, true, false)
+	if _, err := os.Stat(firPIDPath(oldKey)); !os.IsNotExist(err) {
+		t.Fatalf("old classpath FIR daemon was not retired: %v", err)
+	}
+}
+
 func TestFirDaemonRetiresLegacyAndPreservesOtherEntries(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	jar := filepath.Join(t.TempDir(), "krit-fir.jar")

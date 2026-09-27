@@ -31,7 +31,7 @@ _krit_completions() {
             COMPREPLY=($(compgen -f -X '!*.json' -- "$cur"))
             return
             ;;
-        --cache-dir|--base-path)
+        --cache-dir|--base-path|--gradle-model)
             COMPREPLY=($(compgen -d -- "$cur"))
             return
             ;;
@@ -45,7 +45,7 @@ _krit_completions() {
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "--help --version -f --report --config --fix --fix-level --fix-suffix --fix-binary --dry-run --all-rules --no-cache --clear-cache --cache-dir --no-type-inference --no-type-oracle --daemon --input-types --output-types --baseline --create-baseline --base-path --enable-editorconfig --validate-config --list-rules --generate-schema --perf -v -q -j -o --warnings-as-errors --init --doctor --remove-dead-code --diff --completions --disable-rules --enable-rules" -- "$cur"))
+        COMPREPLY=($(compgen -W "--help --version -f --report --config --fix --fix-level --fix-suffix --fix-binary --dry-run --all-rules --no-cache --clear-cache --cache-dir --no-type-inference --no-type-oracle --daemon --gradle-model --no-gradle-model --input-types --output-types --baseline --create-baseline --base-path --enable-editorconfig --validate-config --list-rules --generate-schema --perf -v -q -j -o --warnings-as-errors --init --doctor --remove-dead-code --diff --completions --disable-rules --enable-rules" -- "$cur"))
         return
     fi
 

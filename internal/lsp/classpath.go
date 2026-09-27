@@ -8,11 +8,33 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/gradlemodel"
+	"github.com/kaeawc/krit/internal/logger"
 )
 
-func lspClasspath(root string, cfg *config.Config, initClasspath []string) []string {
+func lspClasspath(root string, cfg *config.Config, initClasspath []string, log logger.Logger) []string {
 	var out []string
 	out = append(out, initClasspath...)
+	modelDir := gradlemodel.Discover(root)
+	modelUsed := false
+	if modelDir != "" {
+		model, _, err := gradlemodel.Load(modelDir)
+		if err == nil {
+			if cp, _ := model.Classpath(); len(cp) > 0 {
+				out = append(out, cp...)
+				modelUsed = true
+				if log != nil {
+					log.Info("LSP classpath: gradle model", "dir", modelDir, "entries", len(cp))
+				}
+			}
+		}
+	}
+	if !modelUsed {
+		out = append(out, discoverGradleClasspath(root)...)
+		if log != nil {
+			log.Info("LSP classpath: heuristic discovery")
+		}
+	}
 	if cfg != nil {
 		out = append(out, cfg.LSP().Classpath...)
 		out = append(out, cfg.Oracle().Classpath...)
@@ -20,7 +42,6 @@ func lspClasspath(root string, cfg *config.Config, initClasspath []string) []str
 	if env := os.Getenv("CLASSPATH"); env != "" {
 		out = append(out, filepath.SplitList(env)...)
 	}
-	out = append(out, discoverGradleClasspath(root)...)
 	return existingUniquePaths(out)
 }
 

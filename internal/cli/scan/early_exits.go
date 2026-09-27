@@ -151,6 +151,10 @@ func runInitFlag(initFlag bool) {
 	if !initFlag {
 		return
 	}
+	if err := ensureKritIgnored(".gitignore"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error updating .gitignore: %v\n", err)
+		os.Exit(2)
+	}
 	for _, name := range config.Filenames {
 		if _, err := os.Stat(name); err == nil {
 			fmt.Fprintf(os.Stderr, "Config already exists: %s\n", name)
@@ -557,4 +561,36 @@ func runClearCacheFlag(clearCacheFlag bool, cacheDirFlag, cacheFilePath string, 
 	}
 	fmt.Fprintln(os.Stderr, "info: Cache cleared.")
 	os.Exit(0)
+}
+
+// ensureKritIgnored appends an ignore rule only to an existing .gitignore.
+func ensureKritIgnored(path string) error {
+	body, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		rule := strings.TrimSpace(line)
+		if rule == ".krit" || rule == ".krit/" || rule == "/.krit" || rule == "/.krit/" {
+			return nil
+		}
+	}
+	prefix := ""
+	newline := "\n"
+	if strings.Contains(string(body), "\r\n") {
+		newline = "\r\n"
+	}
+	if len(body) > 0 && body[len(body)-1] != '\n' {
+		prefix = newline
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.WriteString(prefix + ".krit/" + newline)
+	return err
 }

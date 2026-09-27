@@ -26,7 +26,8 @@ func prepareJavaArgs(args []string) ([]string, func(), error) {
 	}
 	cleanup := func() { _ = os.Remove(file.Name()) }
 	for _, arg := range args {
-		if strings.ContainsAny(arg, " \t\r\n\"'") {
+		if strings.ContainsAny(arg, " \t\r\n\f\"'#\\") {
+			arg = strings.ReplaceAll(arg, "\\", "\\\\")
 			arg = "\"" + strings.ReplaceAll(arg, "\"", "\\\"") + "\""
 		}
 		if _, err := fmt.Fprintln(file, arg); err != nil {

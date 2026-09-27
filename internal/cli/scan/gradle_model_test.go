@@ -101,3 +101,26 @@ func TestGradleClasspathFromMultipleRoots(t *testing.T) {
 		}
 	}
 }
+
+func TestGradleClasspathWarningsRegardlessOfVerbose(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "broken.json")
+	if err := os.WriteFile(path, []byte("{"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, verbose := range []bool{false, true} {
+		t.Run(map[bool]string{false: "quiet", true: "verbose"}[verbose], func(t *testing.T) {
+			var out bytes.Buffer
+			if _, err := loadGradleClasspath(nil, dir, false, verbose, &out); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), "warning: gradle model: "+path+": malformed JSON:") {
+				t.Fatalf("missing warning: %q", out.String())
+			}
+			summary := "gradle model: " + dir + " (0 projects, 0 classpath entries, 0 missing dropped)\n"
+			if strings.Contains(out.String(), summary) != verbose {
+				t.Fatalf("summary presence for verbose=%t: %q", verbose, out.String())
+			}
+		})
+	}
+}

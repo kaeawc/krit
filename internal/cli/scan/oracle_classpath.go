@@ -96,9 +96,9 @@ func loadGradleClasspath(paths []string, explicit string, disabled, verbose bool
 		entries = append(entries, cp...)
 		if verbose {
 			fmt.Fprintf(out, "gradle model: %s (%d projects, %d classpath entries, %d missing dropped)\n", dir, len(model.Projects), len(cp), missing)
-			for _, warning := range warnings {
-				fmt.Fprintf(out, "warning: gradle model: %s\n", warning)
-			}
+		}
+		for _, warning := range warnings {
+			fmt.Fprintf(out, "warning: gradle model: %s\n", warning)
 		}
 	}
 	return dedupePreservingOrder(entries), nil

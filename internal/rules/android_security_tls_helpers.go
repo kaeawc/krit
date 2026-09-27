@@ -251,10 +251,21 @@ func insecureTrustManagerDecl(ctx *api.Context, file *scanner.File, idx uint32) 
 	if sourceImportsOrMentions(file, "javax.net.ssl.X509TrustManager") ||
 		sourceImportsOrMentions(file, "javax.net.ssl.TrustManager") {
 		text := file.FlatNodeText(idx)
-		if (insecureTrustManagerTextHasTypeToken(text, "X509TrustManager") ||
-			insecureTrustManagerTextHasTypeToken(text, "TrustManager")) &&
-			!strings.Contains(text, " by ") {
-			return true
+		if strings.Contains(text, " by ") {
+			return false
+		}
+		if typ == "class_declaration" && file.Language == scanner.LangJava {
+			for _, super := range insecureTrustManagerDirectSupertypes(file, idx) {
+				if insecureTrustManagerType(super.name) ||
+					(!super.qualified && insecureTrustManagerSimpleType(super.name)) {
+					return true
+				}
+			}
+		} else {
+			if insecureTrustManagerTextHasTypeToken(text, "X509TrustManager") ||
+				insecureTrustManagerTextHasTypeToken(text, "TrustManager") {
+				return true
+			}
 		}
 	}
 	if ctx == nil || ctx.Resolver == nil || strings.Contains(file.FlatNodeText(idx), " by ") {
@@ -290,7 +301,11 @@ func insecureTrustManagerHierarchy(file *scanner.File, idx uint32, resolver type
 		if info == nil {
 			return crossedFile && !strings.Contains(name, ".") && insecureTrustManagerSimpleType(name)
 		}
-		for _, parent := range info.Supertypes {
+		parents := info.Supertypes
+		if crossedFile && len(info.DirectSupertypes) > 0 {
+			parents = info.DirectSupertypes
+		}
+		for _, parent := range parents {
 			if visit(parent, depth+1, crossedFile) {
 				return true
 			}
@@ -320,13 +335,21 @@ func insecureTrustManagerDirectSupertypes(file *scanner.File, idx uint32) []andr
 		if file.FlatType(child) != "superclass" && file.FlatType(child) != "super_interfaces" {
 			continue
 		}
-		file.FlatWalkAllNodes(child, func(node uint32) {
-			if file.FlatType(node) != "type_identifier" && file.FlatType(node) != "scoped_type_identifier" {
+		var walk func(uint32)
+		walk = func(node uint32) {
+			switch file.FlatType(node) {
+			case "type_arguments", "annotation", "marker_annotation":
+				return
+			case "type_identifier", "scoped_type_identifier":
+				name := file.FlatNodeText(node)
+				out = append(out, androidSupertypeRef{name: name, simple: androidSimpleName(name), qualified: strings.Contains(name, ".")})
 				return
 			}
-			name := file.FlatNodeText(node)
-			out = append(out, androidSupertypeRef{name: name, simple: androidSimpleName(name), qualified: strings.Contains(name, ".")})
-		})
+			for nested := file.FlatFirstChild(node); nested != 0; nested = file.FlatNextSib(nested) {
+				walk(nested)
+			}
+		}
+		walk(child)
 	}
 	return out
 }

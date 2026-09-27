@@ -1,8 +1,13 @@
 package rules
 
 import (
+	"context"
+	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func TestAncestorDirs(t *testing.T) {
@@ -387,6 +392,28 @@ func TestInsecureTrustManagerTextHasTypeToken(t *testing.T) {
 	}
 	if insecureTrustManagerTextHasTypeToken("X509TrustManagerExt", "X509TrustManager") {
 		t.Error("expected no match when token is a prefix of identifier")
+	}
+}
+
+func TestInsecureTrustManagerDirectSupertypes_JavaGenericArguments(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "Foo.java")
+	source := `package test;
+class Foo extends AsyncTask<Void, Integer, X509TrustManager> implements TriFunc<String, X509TrustManager, String> {}`
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseJavaFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	file.FlatWalkNodes(0, "class_declaration", func(node uint32) {
+		for _, super := range insecureTrustManagerDirectSupertypes(file, node) {
+			got = append(got, super.name)
+		}
+	})
+	if want := []string{"AsyncTask", "TriFunc"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Java direct supertypes = %v, want %v", got, want)
 	}
 }
 

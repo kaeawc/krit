@@ -810,6 +810,13 @@ func partitionIndexedPaths(paths []string, workers int) [][]indexedPath {
 }
 
 func isExcluded(path string, excludes []string) bool {
+	path = filepath.ToSlash(path)
+	// filepath.ToSlash only replaces the current platform's separator. Also
+	// normalize Windows paths when running on Unix so path checks are stable.
+	path = strings.ReplaceAll(path, `\`, "/")
+	if isTestResourcePath(path) {
+		return true
+	}
 	// Test-data directories contain deliberately malformed Kotlin used to
 	// exercise compiler/IDE behavior — not user code and not subject to
 	// style rules. Skip common paths.
@@ -826,6 +833,22 @@ func isExcluded(path string, excludes []string) bool {
 			return true
 		}
 		if strings.Contains(path, strings.Trim(pattern, "*")) {
+			return true
+		}
+	}
+	return false
+}
+
+// isTestResourcePath reports whether path is inside the resources directory
+// of a test source set (src/test/resources, src/commonTest/resources, etc.).
+func isTestResourcePath(path string) bool {
+	segments := strings.Split(filepath.ToSlash(path), "/")
+	for i := 0; i+3 < len(segments); i++ {
+		if segments[i] != "src" || segments[i+2] != "resources" {
+			continue
+		}
+		set := segments[i+1]
+		if set == "test" || set == "androidTest" || set == "testFixtures" || strings.HasSuffix(set, "Test") {
 			return true
 		}
 	}

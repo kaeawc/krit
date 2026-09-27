@@ -55,6 +55,12 @@ krit --all-rules .
 
 ## Ignore patterns
 
+Source-file collection always skips built-in test data directories (`/test/data/`,
+`/testData/`, `/testdata/`, `/test-data/`, `/compiler-tests/`, and
+`/compilerTests/`) and test source-set resource directories under
+`src/<set>/resources/` when `<set>` is `test`, `androidTest`, `testFixtures`,
+or ends in `Test` (for example, `src/commonTest/resources/`).
+
 ```yaml
 naming:
   FunctionNaming:

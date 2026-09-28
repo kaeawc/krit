@@ -269,6 +269,7 @@ func TestWritePIDFileSlot_RollsBackPIDOnPortFailure(t *testing.T) {
 		t.Skip("running as root; chmod 0500 won't block writes")
 	}
 	tmpHome := t.TempDir()
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	t.Setenv("HOME", tmpHome)
 
 	srcHash := hashSources([]string{"/fake/repo/rollback"})
@@ -309,6 +310,7 @@ func TestWritePIDFileSlot_NoOrphanAfterRollback(t *testing.T) {
 		t.Skip("running as root; chmod 0500 won't block writes")
 	}
 	tmpHome := t.TempDir()
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	t.Setenv("HOME", tmpHome)
 
 	srcHash := hashSources([]string{"/fake/repo/orphan"})
@@ -346,6 +348,7 @@ func TestStartupCachePathHelperUnchanged(t *testing.T) {
 // rollback addition didn't accidentally break the success path.
 func TestWritePIDFileSlot_HappyPathStillWorks(t *testing.T) {
 	tmpHome := t.TempDir()
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	t.Setenv("HOME", tmpHome)
 
 	srcHash := hashSources([]string{"/fake/repo/happy"})

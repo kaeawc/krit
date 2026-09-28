@@ -32,6 +32,11 @@ can opt into JVM-backed Kotlin Analysis API/FIR helper facts (`tools/krit-types/
   just costs a round-trip.
 - Run `go test ./... -count=1` for full test validation; use focused
   package tests while iterating.
+- For local JVM helpers, run `make fir-jar` or `make types-jar` from the
+  repository root. These build a shadow jar once per source hash under
+  `~/.krit/jars/dev/<hash>/`, shared by worktrees. The Go jar locator uses
+  that cache before a worktree-local `build/libs` jar; explicit `KRIT_FIR_JAR`
+  and `KRIT_TYPES_JAR` overrides still take precedence.
 - Use tree-sitter AST/flat nodes for structural analysis and regex only for
   line-oriented checks.
 - New rules use the v2 pipeline: implement the local rule struct with the

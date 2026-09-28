@@ -46,13 +46,20 @@ fun main(args: Array<String>) {
     val daemon = args.contains("--daemon")
     val portIdx = args.indexOf("--port")
     val port = if (portIdx >= 0 && portIdx + 1 < args.size) args[portIdx + 1].toIntOrNull() ?: -1 else -1
+	val parentValue = extractCliValue(args, "--parent-pid")
+	val parentPid = parentValue?.toLongOrNull()
+	if (("--parent-pid" in args && (parentPid == null || parentPid <= 0))) {
+		System.err.println("--parent-pid requires a positive process ID")
+		exitProcess(2)
+	}
 
     if (daemon) {
+        startParentWatch(parentPid)
         System.err.println("krit-fir daemon starting...")
         val session = createDaemonSession(args)
         val startTime = System.currentTimeMillis()
         if (port >= 0) {
-            runDaemonTcp(port, session, startTime)
+            runDaemonTcp(port, session, startTime, parentPid)
         } else {
             runDaemonStdio(session, startTime)
         }
@@ -193,7 +200,7 @@ fun runDaemonStdio(initialSession: AnalysisSession, startTime: Long) {
     System.err.println("Daemon exiting (stdin closed).")
 }
 
-fun runDaemonTcp(port: Int, initialSession: AnalysisSession, startTime: Long) {
+fun runDaemonTcp(port: Int, initialSession: AnalysisSession, startTime: Long, parentPid: Long? = null) {
     var session = initialSession
     val serverSocket = ServerSocket(port)
     val actualPort = serverSocket.localPort
@@ -201,7 +208,7 @@ fun runDaemonTcp(port: Int, initialSession: AnalysisSession, startTime: Long) {
     println("""{"ready":true,"port":$actualPort}""")
     System.out.flush()
 
-    serverSocket.soTimeout = 30 * 60 * 1000 // 30-minute idle timeout
+    serverSocket.soTimeout = daemonIdleMillis(parentPid)
 
     while (true) {
         val client = try {

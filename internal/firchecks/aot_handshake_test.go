@@ -14,7 +14,7 @@ import (
 	"github.com/kaeawc/krit/internal/jvmaot"
 )
 
-func TestFirJVMArgsUseLeydenCacheWhenSupported(t *testing.T) {
+func TestFirJVMArgsIgnoreLeydenCacheWhenSupported(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	jar := filepath.Join(t.TempDir(), "krit-fir.jar")
 	if err := os.WriteFile(jar, []byte("jar bytes"), 0o644); err != nil {
@@ -41,11 +41,33 @@ func TestFirJVMArgsUseLeydenCacheWhenSupported(t *testing.T) {
 	}
 
 	args := buildFirJVMArgs(jar, "missing-java", 25)
-	if !containsJVMArg(args, "-XX:AOTCache="+cachePath) {
-		t.Fatalf("supported JDK args missing AOT cache %q: %v", cachePath, args)
+	if containsJVMArg(args, "-XX:AOTCache="+cachePath) {
+		t.Fatalf("FIR launcher used a cache with unverified verdicts: %v", args)
+	}
+	for _, arg := range args {
+		if strings.Contains(arg, "AOT") || strings.Contains(arg, "aot") {
+			t.Fatalf("FIR launcher used Leyden option %q: %v", arg, args)
+		}
 	}
 	if !containsJVMArg(args, "-Xmx1g") {
 		t.Fatalf("checker args missing oracle-aligned heap cap: %v", args)
+	}
+}
+
+// A structurally valid Leyden cache can restore FIR with registered rules but
+// silently suppress all their findings. A cold daemon must not record or use
+// such a cache; the ordinary parity tests exercise the resulting verdicts.
+func TestFirJVMArgsDoNotRecordLeydenOnSupportedJDK(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	jar := filepath.Join(t.TempDir(), "krit-fir.jar")
+	if err := os.WriteFile(jar, []byte("jar bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args := buildFirJVMArgs(jar, "missing-java", 27)
+	for _, arg := range args {
+		if strings.Contains(arg, "AOT") || strings.Contains(arg, "aot") {
+			t.Fatalf("FIR launcher records or uses Leyden cache: %v", args)
+		}
 	}
 }
 

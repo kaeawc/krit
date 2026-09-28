@@ -1,8 +1,8 @@
 import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
 
 plugins {
-    kotlin("jvm") version "2.3.21"
-    id("com.gradleup.shadow") version "9.4.1"
+    kotlin("jvm") version "2.4.20"
+    id("com.gradleup.shadow") version "9.6.1"
     `maven-publish`
     signing
 }
@@ -53,7 +53,7 @@ dependencies {
     // types against the daemon's compatible SDK version.
     implementation(project(":krit-rule-api"))
 
-    testImplementation("org.junit.jupiter:junit-jupiter:6.0.3")
+    testImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
     testImplementation(kotlin("test"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

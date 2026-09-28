@@ -1,7 +1,7 @@
 import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
 
 plugins {
-    kotlin("jvm") version "2.3.21"
+    kotlin("jvm") version "2.4.20"
     `java-library`
     `maven-publish`
     signing

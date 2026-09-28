@@ -1,8 +1,8 @@
 import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
 
 plugins {
-    kotlin("jvm") version "2.3.21"
-    id("com.gradleup.shadow") version "9.4.2"
+    kotlin("jvm") version "2.4.20"
+    id("com.gradleup.shadow") version "9.6.1"
     `maven-publish`
     signing
 }
@@ -53,7 +53,7 @@ dependencies {
     implementation("org.jetbrains.kotlin:symbol-light-classes-for-ide:$kotlinVersion") { isTransitive = false }
 
     // Required runtime deps
-    implementation("com.github.ben-manes.caffeine:caffeine:3.2.4")
+    implementation("com.github.ben-manes.caffeine:caffeine:3.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.11.0")
     runtimeOnly("org.jetbrains.intellij.deps.kotlinx:kotlinx-coroutines-core:1.10.2-intellij-1")
 

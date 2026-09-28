@@ -86,7 +86,7 @@ func InvokeOneShot(jarPath string, files []string, sourceDirs, classpath, rules 
 		refs = append(refs, fileRef{Path: p, ContentHash: hash})
 	}
 
-	resp, err := d.Check(refs, sourceDirs, classpath, rules, ruleConfigs, facts, jvmTarget...)
+	resp, err := checkFirWithRecovery(d, jarPath, refs, sourceDirs, classpath, rules, ruleConfigs, facts, verbose, jvmTarget...)
 	if err != nil {
 		return nil, fmt.Errorf("fir one-shot check: %w", err)
 	}

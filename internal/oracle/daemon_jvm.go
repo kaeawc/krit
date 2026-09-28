@@ -297,7 +297,7 @@ func appendStartupCacheArgs(args []string, javaPath, jarPath string, verbose boo
 // removes. Keep in sync with the suffix arguments passed to jarCachePath
 // elsewhere in this file (cdsArchivePath, cracCheckpointPath,
 // aotConfigPath, aotCachePath).
-var jvmCacheSuffixes = []string{".jsa", ".crac", ".aotconf", ".aot", ".aot.skip"}
+var jvmCacheSuffixes = []string{".jsa", ".crac", ".aotconf", ".aot", ".aot.meta.json", ".aot.skip"}
 
 // purgeJVMCachesForJar deletes the AppCDS/CRaC/Leyden cache files keyed by
 // `jarPath`'s content hash. Used as a self-heal after the daemon hands us

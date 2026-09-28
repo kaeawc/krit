@@ -95,6 +95,7 @@ type runner struct {
 
 	// Parse phase
 	parseResult       pipeline.ParseResult
+	pendingFIR        pipeline.PendingFindingsPass
 	parsedFiles       []*scanner.File
 	sourceFiles       []*scanner.File
 	javaSemanticFacts *javafacts.Facts
@@ -623,29 +624,17 @@ func (r *runner) setupParseCaches() {
 // and finalizes findings into the columnar form used by output.
 func (r *runner) firCheckAndCollect() {
 	r.tracker.TrackVoid("firCheckAndCollect", func() {
-		enabled := *r.f.Fir && !*r.f.NoFir
-		opts := firCheckerOpts{
-			Enabled:             enabled,
-			Verbose:             *r.f.Verbose,
-			ActiveRules:         r.activeRules,
-			Config:              r.cfg,
-			ParsedFiles:         r.parsedFiles,
-			KotlinPaths:         r.parseResult.KotlinPaths,
-			IncludeGenerated:    *r.f.IncludeGenerated,
-			GeneratedSourceDirs: r.f.modelGeneratedSourceDirs,
-			Tracker:             r.tracker,
-			VerboseOut:          os.Stderr,
-			Thorough:            r.depthPreset == DepthThorough,
+		if r.pendingFIR != nil {
+			defer r.pendingFIR.Cancel()
+			var err error
+			r.allFindings, err = r.pendingFIR.Finish(r.allFindings)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error: FIR pass: %v\n", err)
+			}
+			r.pendingFIR = nil
+		} else {
+			r.allFindings = runFIRCheckerPass(r.firPassOptions(r.parseResult), r.allFindings)
 		}
-		if enabled {
-			checker := NewFIRChecker(r.paths, r.cfg, !*r.f.NoFirDaemon, *r.f.Verbose)
-			checker.NoCache = *r.f.NoCache
-			checker.Classpath = effectiveOracleClasspath(r.f.modelClasspath, r.cfg)
-			checker.SourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(checker.SourceDirs, r.f.modelSourceDirs))
-			checker.JvmTarget = r.f.modelJvmTarget
-			opts.Checker, opts.SourceDirs, opts.Classpath = checker, checker.SourceDirs, checker.Classpath
-		}
-		r.allFindings = runFIRCheckerPass(opts, r.allFindings)
 
 		r.applySLOs()
 
@@ -657,6 +646,32 @@ func (r *runner) firCheckAndCollect() {
 			r.basePath, _ = filepath.Abs(r.paths[0]) // best-effort: error means relative path used
 		}
 	})
+}
+
+func (r *runner) firPassOptions(parsed pipeline.ParseResult) firCheckerOpts {
+	enabled := *r.f.Fir && !*r.f.NoFir
+	opts := firCheckerOpts{
+		Enabled:             enabled,
+		Verbose:             *r.f.Verbose,
+		ActiveRules:         r.activeRules,
+		Config:              r.cfg,
+		ParsedFiles:         parsed.KotlinFiles,
+		KotlinPaths:         parsed.KotlinPaths,
+		IncludeGenerated:    *r.f.IncludeGenerated,
+		GeneratedSourceDirs: r.f.modelGeneratedSourceDirs,
+		Tracker:             r.tracker,
+		VerboseOut:          os.Stderr,
+		Thorough:            r.depthPreset == DepthThorough,
+	}
+	if enabled {
+		checker := NewFIRChecker(r.paths, r.cfg, !*r.f.NoFirDaemon, *r.f.Verbose)
+		checker.NoCache = *r.f.NoCache
+		checker.Classpath = effectiveOracleClasspath(r.f.modelClasspath, r.cfg)
+		checker.SourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(checker.SourceDirs, r.f.modelSourceDirs))
+		checker.JvmTarget = r.f.modelJvmTarget
+		opts.Checker, opts.SourceDirs, opts.Classpath = checker, checker.SourceDirs, checker.Classpath
+	}
+	return opts
 }
 
 // applyBaselinesAndDiff handles --create-baseline, --baseline-audit,

@@ -299,7 +299,11 @@ func shouldPreflightFIR(f *scanFlags) bool {
 // daemon callers reuse them across requests; one-shot CLI builds a
 // fresh Session and Close drains it on exit.
 func (r *runner) run(ctx context.Context) (int, error) {
-	_ = ctx
+	defer func() {
+		if r.pendingFIR != nil {
+			r.pendingFIR.Cancel()
+		}
+	}()
 	if code, err := r.collectFiles(); err != nil {
 		return code, err
 	}
@@ -314,7 +318,7 @@ func (r *runner) run(ctx context.Context) (int, error) {
 	r.setupAndroidProviders()
 	r.setupParseCaches()
 
-	if code, err := r.runProjectAnalysis(); err != nil {
+	if code, err := r.runProjectAnalysis(ctx); err != nil {
 		return code, err
 	}
 	r.firCheckAndCollect()

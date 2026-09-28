@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/experiment"
+	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
@@ -15,14 +16,15 @@ import (
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
-func (r *runner) runProjectAnalysis() (int, error) {
+func (r *runner) runProjectAnalysis(ctx context.Context) (int, error) {
 	r.ruleStart = r.start
-	analysis, err := pipeline.RunProjectAnalysis(context.Background(), r.projectInput())
+	analysis, err := pipeline.RunProjectAnalysis(ctx, r.projectInput())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 2, err
 	}
 	r.applyProjectAnalysis(analysis)
+	r.pendingFIR = analysis.PendingFindingsPass
 	return 0, nil
 }
 
@@ -66,6 +68,11 @@ func (r *runner) projectInput() pipeline.ProjectInput {
 		if repoDir := oracle.FindRepoDir(r.paths); repoDir != "" {
 			host.FindingsBundleStore = scanner.DiskFindingsBundleStore{}
 			host.FindingsBundleCacheRoot = repoDir
+		}
+	}
+	if *r.f.Fir && !*r.f.NoFir {
+		host.StartFindingsPass = func(ctx context.Context, parsed pipeline.ParseResult) (pipeline.PendingFindingsPass, error) {
+			return firchecks.StartPass(ctx, r.firPassOptions(parsed)), nil
 		}
 	}
 	return pipeline.ProjectInput{

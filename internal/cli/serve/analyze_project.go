@@ -594,7 +594,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 		},
 	}
 	applyOracleModelArgs(args, &in.Args)
-	in.Host.FindingsPostPass = firFindingsPostPass(args, paths, cfg)
+	in.Host.StartFindingsPass = firStartFindingsPass(args, paths, cfg)
 	return in, nil
 }
 
@@ -608,21 +608,21 @@ func applyOracleModelArgs(args daemon.AnalyzeProjectArgs, projectArgs *pipeline.
 	projectArgs.GeneratedSourceDirs = args.OracleGeneratedSourceDirs
 }
 
-// firFindingsPostPass returns the pipeline hook that runs the --fir pass
+// firStartFindingsPass returns the pipeline hook that starts the --fir pass
 // for a delegated `krit --fir` scan, or nil when FIR is off. It is the same
 // pass (and compile context) the in-process scan runs in firCheckAndCollect.
 // Verbose output stays off: the daemon's stderr is not the caller's.
-func firFindingsPostPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *config.Config) func(pipeline.ParseResult, []scanner.Finding) []scanner.Finding {
+func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *config.Config) func(context.Context, pipeline.ParseResult) (pipeline.PendingFindingsPass, error) {
 	if !args.Fir {
 		return nil
 	}
-	return func(parsed pipeline.ParseResult, findings []scanner.Finding) []scanner.Finding {
+	return func(ctx context.Context, parsed pipeline.ParseResult) (pipeline.PendingFindingsPass, error) {
 		checker := scan.NewFIRChecker(paths, cfg, !args.NoFirDaemon, false)
 		checker.NoCache = args.NoCache
 		checker.Classpath = args.OracleClasspath
 		checker.SourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(checker.SourceDirs, args.OracleSourceDirs))
 		checker.JvmTarget = args.OracleJvmTarget
-		return firchecks.RunPass(firchecks.PassOptions{
+		return firchecks.StartPass(ctx, firchecks.PassOptions{
 			Enabled:             true,
 			Checker:             checker,
 			ActiveRules:         parsed.ActiveRules,
@@ -633,7 +633,7 @@ func firFindingsPostPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *co
 			GeneratedSourceDirs: args.OracleGeneratedSourceDirs,
 			SourceDirs:          checker.SourceDirs,
 			Classpath:           checker.Classpath,
-		}, findings)
+		}), nil
 	}
 }
 

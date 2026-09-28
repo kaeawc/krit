@@ -11,6 +11,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/kaeawc/krit/internal/cli/scan"
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/onboarding"
 )
 
@@ -57,6 +59,8 @@ type Model struct {
 	baselinePath    string
 	baselineWritten bool
 	baselineSkipped bool
+	firChecked      bool
+	firEnabled      bool
 
 	err error
 
@@ -128,16 +132,18 @@ type writeDoneMsg struct {
 
 // autofixDoneMsg signals that autofixCmd completed.
 type autofixDoneMsg struct {
-	prefix  int
-	postfix int
-	top     []onboarding.RuleCount
-	err     error
+	prefix     int
+	postfix    int
+	top        []onboarding.RuleCount
+	err        error
+	firEnabled bool
 }
 
 // baselineDoneMsg signals that baselineCmd completed.
 type baselineDoneMsg struct {
-	path string
-	err  error
+	path       string
+	err        error
+	firEnabled bool
 }
 
 // ---------- Init + command factories ----------------------------------------
@@ -208,17 +214,22 @@ func (m Model) autofixCmd() tea.Cmd {
 	target := m.target
 	return func() tea.Msg {
 		ctx := context.Background()
-		pre, err := runKritJSON(ctx, kritBin, "--config", configPath, "-f", "json", target)
+		firEnabled, err := onboardingFIRReady(ctx, configPath, target)
+		if err != nil {
+			return autofixDoneMsg{err: err}
+		}
+		firArgs := onboardingFIRArgs(firEnabled)
+		pre, err := runKritJSON(ctx, kritBin, append(firArgs, "--config", configPath, "-f", "json", target)...)
 		if err != nil {
 			return autofixDoneMsg{err: fmt.Errorf("pre-fix scan: %w", err)}
 		}
 		prefixTotal := pre.Summary.Total
 		preByRule := pre.Summary.ByRule
 		// krit --fix returns non-zero when unfixed findings remain; expected.
-		fixCmd := exec.CommandContext(ctx, kritBin, "--config", configPath, "--fix", target)
+		fixCmd := exec.CommandContext(ctx, kritBin, append(firArgs, "--config", configPath, "--fix", target)...)
 		fixCmd.Env = onboarding.NoDaemonAutostartEnv()
 		_ = fixCmd.Run()
-		post, err := runKritJSON(ctx, kritBin, "--config", configPath, "-f", "json", target)
+		post, err := runKritJSON(ctx, kritBin, append(firArgs, "--config", configPath, "-f", "json", target)...)
 		if err != nil {
 			return autofixDoneMsg{err: fmt.Errorf("post-fix scan: %w", err)}
 		}
@@ -247,7 +258,7 @@ func (m Model) autofixCmd() tea.Cmd {
 		for _, d := range deltas {
 			top = append(top, onboarding.RuleCount{Name: d.name, Count: d.count})
 		}
-		return autofixDoneMsg{prefix: prefixTotal, postfix: post.Summary.Total, top: top}
+		return autofixDoneMsg{prefix: prefixTotal, postfix: post.Summary.Total, top: top, firEnabled: firEnabled}
 	}
 }
 
@@ -256,22 +267,48 @@ func (m Model) baselineCmd() tea.Cmd {
 	kritBin := m.opts.KritBin
 	configPath := m.configPath
 	target := m.target
+	firChecked, firEnabled := m.firChecked, m.firEnabled
 	return func() tea.Msg {
+		if !firChecked {
+			var err error
+			firEnabled, err = onboardingFIRReady(context.Background(), configPath, target)
+			if err != nil {
+				return baselineDoneMsg{err: err}
+			}
+		}
 		baselineDir := filepath.Join(target, ".krit")
 		if err := os.MkdirAll(baselineDir, 0o755); err != nil {
 			return baselineDoneMsg{err: fmt.Errorf("mkdir %s: %w", baselineDir, err)}
 		}
 		baselinePath := filepath.Join(baselineDir, "baseline.xml")
 		cmd := exec.CommandContext(context.Background(), kritBin,
-			"--config", configPath, "--create-baseline", baselinePath, target)
+			append(onboardingFIRArgs(firEnabled), "--config", configPath, "--create-baseline", baselinePath, target)...)
 		cmd.Env = onboarding.NoDaemonAutostartEnv()
 		if err := cmd.Run(); err != nil {
 			if _, statErr := os.Stat(baselinePath); statErr != nil {
 				return baselineDoneMsg{err: fmt.Errorf("baseline not written: %w (run err: %w)", statErr, err)}
 			}
 		}
-		return baselineDoneMsg{path: baselinePath}
+		return baselineDoneMsg{path: baselinePath, firEnabled: firEnabled}
 	}
+}
+
+var tuiPreflightFIR = scan.PreflightFIR
+
+func onboardingFIRReady(ctx context.Context, configPath, target string) (bool, error) {
+	cfg, err := config.LoadAndMergeDefaults(configPath, target)
+	if err != nil {
+		return false, err
+	}
+	_, err = tuiPreflightFIR(ctx, []string{target}, cfg, "", false, os.Stderr)
+	return err == nil, nil
+}
+
+func onboardingFIRArgs(enabled bool) []string {
+	if enabled {
+		return nil
+	}
+	return []string{"--no-fir"}
 }
 
 // ---------- helpers ---------------------------------------------------------

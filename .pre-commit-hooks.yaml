@@ -1,6 +1,6 @@
 - id: krit
   name: krit
-  description: Run krit Kotlin static analysis
+  description: "Run krit Kotlin static analysis. FIR needs Java 21+ and a classpath source: ./gradlew kritExportModel or oracle.classpath in krit.yml. Opt out with args: [--no-fir]."
   entry: krit
   language: golang
   types: [kotlin]
@@ -8,7 +8,7 @@
   
 - id: krit-fix
   name: krit-fix
-  description: Run krit auto-fix on Kotlin files
+  description: "Run krit auto-fix on Kotlin files. FIR needs Java 21+ and a classpath source: ./gradlew kritExportModel or oracle.classpath in krit.yml. Opt out with args: [--no-fir]."
   entry: krit --fix
   language: golang
   types: [kotlin]

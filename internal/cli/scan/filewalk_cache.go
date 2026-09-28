@@ -181,9 +181,12 @@ func CollectFilesCachedWithIndex(roots []string, filters FilewalkFilters, cacheD
 			return nil, err
 		}
 		if !info.IsDir() {
-			if filters.Match(filepath.Base(root)) && !filters.isExcluded(root) {
+			if filters.Match(filepath.Base(root)) && !fileignore.DefaultPrunedWithinRepo(root) && !filters.isExcluded(root) {
 				out = append(out, root)
 			}
+			continue
+		}
+		if fileignore.DefaultPrunedWithinRepo(root) {
 			continue
 		}
 		// git ls-files already respects .gitignore; krit's matcher
@@ -193,7 +196,7 @@ func CollectFilesCachedWithIndex(roots []string, filters FilewalkFilters, cacheD
 		if index != nil {
 			if files, ok := index.Files(root); ok {
 				for _, rel := range files {
-					if !filters.Match(filepath.Base(rel)) {
+					if fileignore.DefaultPrunedPath(rel) || !filters.Match(filepath.Base(rel)) {
 						continue
 					}
 					full := filepath.Join(root, rel)

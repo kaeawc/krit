@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.runner
 
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
 import org.jetbrains.kotlin.cli.common.arguments.parseCommandLineArguments
+import org.jetbrains.kotlin.config.JvmTarget
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -28,6 +29,14 @@ data class ModuleSpec(
 
 data class ModuleStatus(val id: String, val mode: String, val firstError: String? = null)
 
+internal data class ResolvedModuleJvmTarget(val value: String, val warning: String? = null)
+
+internal fun resolveModuleJvmTarget(declared: String, fallback: String): ResolvedModuleJvmTarget = when {
+    declared.isBlank() -> ResolvedModuleJvmTarget(fallback)
+    JvmTarget.fromString(declared) != null -> ResolvedModuleJvmTarget(declared)
+    else -> ResolvedModuleJvmTarget(fallback, "Unsupported JVM target '$declared'; using $fallback")
+}
+
 /** Only the module driver supplies these; legacy compiles retain their existing defaults. */
 internal data class ModuleCompilation(
     val sources: List<String>,
@@ -38,10 +47,10 @@ internal data class ModuleCompilation(
     val extraArgs: List<String>,
     val legacy: Boolean = false,
 ) {
-    fun configure(args: K2JVMCompilerArguments) {
+    fun configure(args: K2JVMCompilerArguments, sessionJvmTarget: String = resolveJvmTarget("")) {
         args.classpath = effectiveClasspath(classpath).joinToString(File.pathSeparator)
         args.friendPaths = friends.toTypedArray()
-        args.jvmTarget = spec.jvmTarget
+        args.jvmTarget = resolveModuleJvmTarget(spec.jvmTarget, sessionJvmTarget).value
         // Module IDs can contain ':' and other filesystem-unsafe characters.
         args.moduleName = "krit_" + digest(spec.id)
         if (legacy || spec.fragments.isEmpty()) {
@@ -101,7 +110,8 @@ internal fun inRoots(path: String, roots: List<String>): Boolean {
 }
 
 internal fun moduleSources(spec: ModuleSpec): List<String> = spec.roots.flatMap { root ->
-    File(root).walkTopDown().filter { it.isFile && it.extension in setOf("kt", "java") }
+    File(root).walkTopDown().onEnter { it.name !in prunedSourceDirectoryNames }
+        .filter { it.isFile && it.extension in setOf("kt", "java") }
         .map { it.canonicalPath }.toList()
 }.distinct().sorted()
 
@@ -194,6 +204,7 @@ internal class ModuleRunner(
     fun check(
         id: Long, modules: List<ModuleSpec>, checkFiles: List<String>, rules: Set<String>,
         configs: Map<String, Map<String, Any?>>, testFiles: Set<String>, scanPaths: Map<String, String>,
+        sessionJvmTarget: String,
     ): BatchResult {
         val components = moduleComponents(modules)
         val byId = modules.associateBy { it.id }
@@ -229,7 +240,7 @@ internal class ModuleRunner(
             val capped = merged.sumOf { sources.getValue(it.id).size } > mergeFileLimit
             val ownFiles = requested.filter { owners[it] in ids }
             val key = digest(component.joinToString("|") { digest(it.id) })
-            val hash = digest(inputHash(component, sources, args) +
+            val hash = digest(sessionJvmTarget + inputHash(component, sources, args) +
                 orderedIds.filter { it in reachable }.joinToString("") { cache.getValue(it).hash })
             val relevant = ownFiles.map { File(it).canonicalPath }.toSet()
             val findingsKey = digest(hash + "legacy=$cycle,$capped" + contextHash(ownFiles, rules, configs,
@@ -262,7 +273,7 @@ internal class ModuleRunner(
                         spec, args.getValue(component.first().id), legacy = cycle || capped)
                     ids.forEach { compiledSources[it] = paths.toList() }
                     beforeCompile(invocation)
-                    val session = AnalysisSession(spec.roots, cp)
+                    val session = AnalysisSession(spec.roots, cp, sessionJvmTarget)
                     val ownedSources = component.flatMap { sources.getValue(it.id) }.filter { owner(it) in ids }.toSet()
                     val result = session.checkCompilation(id, ownFiles.map { FileRef(it) }, rules, configs, testFiles, scanPaths,
                         invocation, ownedSources)
@@ -294,7 +305,11 @@ internal class ModuleRunner(
                     merged.isNotEmpty() -> "merged-fallback"
                     else -> "module"
                 }
-                statuses += ModuleStatus(module.id, mode, reason)
+                // Module target warnings describe a fallback, not an invalid checker verdict.
+                // Reuse the existing status reason without adding a wire field.
+                val targetWarning = resolveModuleJvmTarget(module.jvmTarget, sessionJvmTarget).warning
+                statuses += ModuleStatus(module.id, mode, listOfNotNull(reason, targetWarning)
+                    .joinToString("; ").ifEmpty { null })
                 ownFiles.filter { owners[it] == module.id }.forEach { deciding[it] = module.id }
             }
         }

@@ -165,6 +165,12 @@ func EnsureJar(ctx context.Context, scanPaths []string, verbose bool) (string, e
 // not available (dev builds, KRIT_NO_JAR_DOWNLOAD=1, no java on PATH, missing
 // HOME, no network, or a checksum mismatch).
 func EnsureBackendJar(ctx context.Context, b Backend, scanPaths []string, verbose bool) (string, error) {
+	if override := strings.TrimSpace(os.Getenv(b.JarEnvVar())); override != "" {
+		if info, err := os.Stat(override); err == nil && !info.IsDir() {
+			return override, nil
+		}
+		return "", fmt.Errorf("%s points to a missing jar: %s", b.JarEnvVar(), override)
+	}
 	if path := FindBackendJar(b, scanPaths); path != "" {
 		return path, nil
 	}

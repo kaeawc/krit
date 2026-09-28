@@ -19,7 +19,7 @@ func TestAnalyzeProject_ProfileDispatchSurfacesTimings(t *testing.T) {
 
 	var got daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{ProfileDispatch: true}, &got); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true, ProfileDispatch: true}, &got); err != nil {
 		t.Fatalf("call: %v", err)
 	}
 
@@ -53,7 +53,7 @@ func TestAnalyzeProject_ProfileDispatchOmittedByDefault(t *testing.T) {
 
 	var got daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &got); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &got); err != nil {
 		t.Fatalf("call: %v", err)
 	}
 	if got.DispatchProfile != nil {
@@ -73,7 +73,7 @@ func TestAnalyzeProject_CPUProfileWritesFile(t *testing.T) {
 
 	var got daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{CPUProfilePath: cpuPath}, &got); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true, CPUProfilePath: cpuPath}, &got); err != nil {
 		t.Fatalf("call: %v", err)
 	}
 	if len(got.Stats.ProfileWarnings) != 0 {
@@ -97,7 +97,7 @@ func TestAnalyzeProject_MemProfileWritesFile(t *testing.T) {
 
 	var got daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{MemProfilePath: memPath}, &got); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true, MemProfilePath: memPath}, &got); err != nil {
 		t.Fatalf("call: %v", err)
 	}
 	if len(got.Stats.ProfileWarnings) != 0 {
@@ -124,7 +124,7 @@ func TestAnalyzeProject_CPUProfileBadPathSurfacesWarning(t *testing.T) {
 
 	var got daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{CPUProfilePath: badPath}, &got); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true, CPUProfilePath: badPath}, &got); err != nil {
 		t.Fatalf("call (verb must succeed despite bad profile path): %v", err)
 	}
 	if len(got.Stats.ProfileWarnings) == 0 {

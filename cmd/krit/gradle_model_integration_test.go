@@ -13,7 +13,7 @@ func TestExplicitGradleModelMissingFailsAtStartup(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "A.kt"), []byte("fun a() = 1\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(binPath, "--no-daemon", "--gradle-model", filepath.Join(root, "missing"), root)
+	cmd := exec.Command(binPath, "--no-fir", "--no-daemon", "--gradle-model", filepath.Join(root, "missing"), root)
 	out, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "read gradle model") {
 		t.Fatalf("expected startup error; err=%v output=%s", err, out)

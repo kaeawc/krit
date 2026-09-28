@@ -18,10 +18,27 @@ import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSourceLocation
 import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 import org.jetbrains.kotlin.config.Services
+import org.jetbrains.kotlin.config.JvmTarget
 import java.io.File
 import java.nio.file.Files
 
 data class FileRef(val path: String, val contentHash: String = "")
+
+internal val prunedSourceDirectoryNames = setOf(
+    ".git", ".krit", ".krit-cache", ".krit-types", ".gradle", ".idea", ".kotlin", ".claude", ".codex", ".grit",
+)
+
+// Prefer the highest target this embedded compiler knows that the current JDK
+// can run. A supported exported Gradle target is authoritative when supplied.
+internal fun resolveJvmTarget(declared: String, jdkFeature: Int = Runtime.version().feature()): String {
+    if (declared.isNotBlank() && JvmTarget.fromString(declared) != null) {
+        return declared
+    }
+    return JvmTarget.entries
+        .filter { target -> target.description.removePrefix("1.").toIntOrNull()?.let { it <= jdkFeature } == true }
+        .maxByOrNull { it.description.removePrefix("1.").toInt() }
+        ?.description ?: JvmTarget.DEFAULT.description
+}
 
 /**
  * Bundle of an analyze run's structured result and per-file
@@ -60,7 +77,12 @@ data class BatchResult(
 // Holds the current session config. When sourceDirs or classpath change the Go side sends a
 // "rebuild" command which disposes this session and creates a new one.
 // Analysis runs via K2JVMCompiler with krit-fir registered as a plugin via the fat JAR itself.
-class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>) {
+class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>, val jvmTarget: String = "") {
+
+    private val compilationJvmTarget: String = resolveJvmTarget(jvmTarget)
+    val jvmTargetWarning: String? = if (jvmTarget.isNotBlank() && JvmTarget.fromString(jvmTarget) == null) {
+        "Unsupported JVM target '$jvmTarget'; using $compilationJvmTarget"
+    } else null
 
     // Path to the running fat JAR — used to register our FIR plugin with the embedded compiler.
     private val selfJar: String? = resolveSelfJar()
@@ -70,10 +92,11 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
     // persistent daemon outlives edits: a file added after startup would otherwise stay
     // invisible to resolution, and a deleted one would linger in freeArgs as a
     // missing-source error. The walk is negligible next to the compile itself.
-    private fun currentSourceFiles(): List<String> =
+    internal fun currentSourceFiles(): List<String> =
         sourceDirs.flatMap { dir ->
             val canonicalRoot = File(dir).canonicalFile.toPath()
             File(dir).walkTopDown()
+                .onEnter { directory -> directory.name !in prunedSourceDirectoryNames }
                 .filter { it.isFile && it.extension == "kt" }
                 .map { file ->
                     val relative = canonicalRoot.relativize(file.canonicalFile.toPath())
@@ -294,6 +317,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         freeArgs = sources
         if (module == null) MultiplatformSources.configure(this, sourceDirs, freeArgs)
         classpath = effectiveClasspath(this@AnalysisSession.classpath).joinToString(File.pathSeparator)
+        jvmTarget = compilationJvmTarget
         destination = output.absolutePath
         noStdlib = true
         noReflect = true
@@ -302,7 +326,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         suppressWarnings = false
         reportAllWarnings = true
         if (selfJar != null) pluginClasspaths = arrayOf(selfJar)
-        module?.configure(this)
+        module?.configure(this, compilationJvmTarget)
     }
 
     /** A caller-supplied registry scope; the execution seam knows nothing about its payload. */
@@ -342,8 +366,8 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
     private var retainedModuleRunner: ModuleRunner? = null
     internal val moduleRunner: ModuleRunner get() = retainedModuleRunner ?: ModuleRunner().also { retainedModuleRunner = it }
 
-    internal fun rebuild(sourceDirs: List<String>, classpath: List<String>): AnalysisSession =
-        AnalysisSession(sourceDirs, classpath).also {
+    internal fun rebuild(sourceDirs: List<String>, classpath: List<String>, jvmTarget: String): AnalysisSession =
+        AnalysisSession(sourceDirs, classpath, jvmTarget).also {
             it.retainedModuleRunner = retainedModuleRunner
             retainedModuleRunner = null
         }
@@ -355,7 +379,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
     ): BatchResult = if (modules.isEmpty()) {
         check(id, checkFiles.map { FileRef(it) }, enabledRules, ruleConfigs, testFiles, scanPaths)
     } else {
-        moduleRunner.check(id, modules, checkFiles, enabledRules, ruleConfigs, testFiles, scanPaths)
+        moduleRunner.check(id, modules, checkFiles, enabledRules, ruleConfigs, testFiles, scanPaths, compilationJvmTarget)
     }
 
     internal val moduleCompilationCounts: Map<String, Int> get() = moduleRunner.compilationCounts

@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -87,7 +88,7 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 	// via File.Generated.
 	if !in.IncludeGenerated {
 		var droppedGenerated int
-		kotlinFiles, droppedGenerated = filterGeneratedSourceFilesWithAllowlist(kotlinFiles, in.IncludeGeneratedAllowlist)
+		kotlinFiles, droppedGenerated = filterGeneratedSourceFilesWithAllowlist(kotlinFiles, in.IncludeGeneratedAllowlist, in.GeneratedSourceDirs...)
 		if droppedGenerated > 0 {
 			in.logf("verbose: Skipped %d files in */generated/* dirs (pass --include-generated to re-enable)\n", droppedGenerated)
 		}
@@ -134,7 +135,7 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 			javaFiles, javaParseErrs, _ = scanWithResident(ctx, javaPaths, workers, in.ParseCache, in.ResidentFiles, scanner.ScanJavaFilesCached)
 			parseErrs = append(parseErrs, javaParseErrs...)
 			if !in.IncludeGenerated {
-				javaFiles, _ = filterGeneratedSourceFilesWithAllowlist(javaFiles, in.IncludeGeneratedAllowlist)
+				javaFiles, _ = filterGeneratedSourceFilesWithAllowlist(javaFiles, in.IncludeGeneratedAllowlist, in.GeneratedSourceDirs...)
 			}
 			for _, f := range javaFiles {
 				installSourceSuppression(f, ruleExcludes, ruleAliases)
@@ -174,7 +175,7 @@ func DefaultKnownSafeGenerators() []string {
 	}
 }
 
-func filterGeneratedSourceFilesWithAllowlist(files []*scanner.File, allowlist []string) ([]*scanner.File, int) {
+func filterGeneratedSourceFilesWithAllowlist(files []*scanner.File, allowlist []string, generatedDirs ...string) ([]*scanner.File, int) {
 	// Allocate a fresh slice — sibling [:0] filters in the path
 	// pipeline (filterGeneratedSourcePaths, filterGeneratedPathStrings)
 	// already cause caller-slice corruption when input is aliased. Match
@@ -183,7 +184,7 @@ func filterGeneratedSourceFilesWithAllowlist(files []*scanner.File, allowlist []
 	filtered := make([]*scanner.File, 0, len(files))
 	var droppedGenerated int
 	for _, f := range files {
-		if f == nil || !strings.Contains(f.Path, "/generated/") {
+		if f == nil || !IsGeneratedSourcePath(f.Path, generatedDirs) {
 			filtered = append(filtered, f)
 			continue
 		}
@@ -195,6 +196,32 @@ func filterGeneratedSourceFilesWithAllowlist(files []*scanner.File, allowlist []
 		droppedGenerated++
 	}
 	return filtered, droppedGenerated
+}
+
+// IsGeneratedSourcePath recognizes conventional and Gradle-model generated
+// roots. filepath.Rel enforces directory boundaries (e.g. parser vs parser2).
+func IsGeneratedSourcePath(path string, generatedDirs []string) bool {
+	if strings.Contains(filepath.ToSlash(path), "/generated/") {
+		return true
+	}
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	for _, dir := range generatedDirs {
+		if dir == "" {
+			continue
+		}
+		absoluteDir, err := filepath.Abs(dir)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(absoluteDir, absolutePath)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 func pathMatchesAnySubstring(path string, substrings []string) bool {

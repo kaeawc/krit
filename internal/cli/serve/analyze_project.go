@@ -18,6 +18,7 @@ import (
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/firchecks"
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/pipeline"
@@ -49,6 +50,7 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 			return nil, fmt.Errorf("decode args: %w", err)
 		}
 	}
+	args.Fir = !args.NoFir
 
 	if daemonHash := daemonBinaryHash(); args.ClientBinaryHash != "" && daemonHash != "" && args.ClientBinaryHash != daemonHash {
 		return nil, fmt.Errorf("%s (daemon=%s client=%s)", daemon.ErrBinaryHashMismatchPrefix, daemonHash, args.ClientBinaryHash)
@@ -66,6 +68,29 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 	}
 
 	state.analyzeMu.Lock()
+	// The shared memo is valid for one scan, not the daemon's lifetime. A
+	// rewrite between requests can preserve both size and mtime; clearing
+	// here prevents its old digest from validating on-disk caches.
+	hashutil.ResetDefault()
+	if args.Fir {
+		if !args.FirPreflightPassed {
+			paths := args.Paths
+			if len(paths) == 0 {
+				paths = []string{state.root}
+			}
+			cfg, cfgErr := state.ensureConfig()
+			if cfgErr != nil {
+				state.analyzeMu.Unlock()
+				return nil, cfgErr
+			}
+			model, preflightErr := scan.PreflightFIR(context.Background(), paths, cfg, args.GradleModel, args.NoGradleModel, os.Stderr)
+			if preflightErr != nil {
+				state.analyzeMu.Unlock()
+				return nil, preflightErr
+			}
+			args.OracleClasspath = append(model, args.OracleClasspath...)
+		}
+	}
 	cold := !state.coldDone.Load()
 	if args.RequireWarm && cold {
 		state.analyzeMu.Unlock()
@@ -487,28 +512,28 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	baselinePath, basePath, maxFixLevel := resolveBaselineDryRunArgs(args, paths)
 	in := pipeline.ProjectInput{
 		Args: pipeline.ProjectArgs{
-			Config:           cfg,
-			OracleClasspath:  args.OracleClasspath,
-			Paths:            paths,
-			KotlinPaths:      kotlinPaths,
-			JavaPaths:        javaPaths,
-			ActiveRules:      activeRules,
-			Format:           args.Format,
-			BaselinePath:     baselinePath,
-			DiffRef:          args.DiffRef,
-			MinConfidence:    args.MinConfidence,
-			WarningsAsErrors: args.WarningsAsErrors,
-			IncludeGenerated: args.IncludeGenerated,
-			Version:          kritVersion(),
-			OracleEnabled:    oracleDaemon != nil || args.InputTypesPath != "",
-			ShowPerf:         args.ShowPerf || args.PerfRules,
-			PerfRules:        args.PerfRules,
-			ProfileDispatch:  args.ProfileDispatch,
-			CustomRuleJars:   args.CustomRuleJars,
-			InputTypesPath:   args.InputTypesPath,
-			DryRun:           args.DryRun,
-			MaxFixLevel:      maxFixLevel,
-			BasePath:         basePath,
+			Config:              cfg,
+			Paths:               paths,
+			KotlinPaths:         kotlinPaths,
+			JavaPaths:           javaPaths,
+			ActiveRules:         activeRules,
+			Format:              args.Format,
+			BaselinePath:        baselinePath,
+			DiffRef:             args.DiffRef,
+			MinConfidence:       args.MinConfidence,
+			WarningsAsErrors:    args.WarningsAsErrors,
+			IncludeGenerated:    args.IncludeGenerated,
+			GeneratedSourceDirs: args.OracleGeneratedSourceDirs,
+			Version:             kritVersion(),
+			OracleEnabled:       oracleDaemon != nil || args.InputTypesPath != "",
+			ShowPerf:            args.ShowPerf || args.PerfRules,
+			PerfRules:           args.PerfRules,
+			ProfileDispatch:     args.ProfileDispatch,
+			CustomRuleJars:      args.CustomRuleJars,
+			InputTypesPath:      args.InputTypesPath,
+			DryRun:              args.DryRun,
+			MaxFixLevel:         maxFixLevel,
+			BasePath:            basePath,
 			// Wire is line-delimited; compact JSON keeps the body
 			// free of internal newlines.
 			JSONCompact: true,
@@ -568,8 +593,19 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 			PriorFileStats:               priorManifest.FileStats,
 		},
 	}
+	applyOracleModelArgs(args, &in.Args)
 	in.Host.FindingsPostPass = firFindingsPostPass(args, paths, cfg)
 	return in, nil
+}
+
+// applyOracleModelArgs copies the caller's Gradle-derived oracle model into
+// the project arguments. Both the daemon analysis and strict-verify baseline
+// use this mapping so their oracle inputs stay identical.
+func applyOracleModelArgs(args daemon.AnalyzeProjectArgs, projectArgs *pipeline.ProjectArgs) {
+	projectArgs.OracleClasspath = args.OracleClasspath
+	projectArgs.OracleSourceDirs = args.OracleSourceDirs
+	projectArgs.OracleJvmTarget = args.OracleJvmTarget
+	projectArgs.GeneratedSourceDirs = args.OracleGeneratedSourceDirs
 }
 
 // firFindingsPostPass returns the pipeline hook that runs the --fir pass
@@ -582,17 +618,21 @@ func firFindingsPostPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *co
 	}
 	return func(parsed pipeline.ParseResult, findings []scanner.Finding) []scanner.Finding {
 		checker := scan.NewFIRChecker(paths, cfg, !args.NoFirDaemon, false)
+		checker.NoCache = args.NoCache
 		checker.Classpath = args.OracleClasspath
+		checker.SourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(checker.SourceDirs, args.OracleSourceDirs))
+		checker.JvmTarget = args.OracleJvmTarget
 		return firchecks.RunPass(firchecks.PassOptions{
-			Enabled:          true,
-			Checker:          checker,
-			ActiveRules:      parsed.ActiveRules,
-			Config:           cfg,
-			ParsedFiles:      parsed.KotlinFiles,
-			KotlinPaths:      parsed.KotlinPaths,
-			IncludeGenerated: args.IncludeGenerated,
-			SourceDirs:       checker.SourceDirs,
-			Classpath:        checker.Classpath,
+			Enabled:             true,
+			Checker:             checker,
+			ActiveRules:         parsed.ActiveRules,
+			Config:              cfg,
+			ParsedFiles:         parsed.KotlinFiles,
+			KotlinPaths:         parsed.KotlinPaths,
+			IncludeGenerated:    args.IncludeGenerated,
+			GeneratedSourceDirs: args.OracleGeneratedSourceDirs,
+			SourceDirs:          checker.SourceDirs,
+			Classpath:           checker.Classpath,
 		}, findings)
 	}
 }

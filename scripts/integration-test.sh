@@ -51,20 +51,20 @@ go build -o krit-mcp ./cmd/krit-mcp/
 
 echo ""
 echo "=== Playground Analysis ==="
-run_lint_test "kotlin-webservice lint" ./krit -f json -no-type-inference -no-type-oracle -q playground/kotlin-webservice/
-run_lint_test "android-app lint" ./krit -f json -no-type-inference -no-type-oracle -q playground/android-app/
-run_lint_test "kotlin-webservice fix (dry-run)" ./krit --fix --dry-run -q playground/kotlin-webservice/
-run_lint_test "android-app fix (dry-run)" ./krit --fix --dry-run -q playground/android-app/
-run_lint_test "android-app binary fix (dry-run)" ./krit --fix-binary --dry-run -q playground/android-app/
+run_lint_test "kotlin-webservice lint" ./krit --no-fir -f json -no-type-inference -no-type-oracle -q playground/kotlin-webservice/
+run_lint_test "android-app lint" ./krit --no-fir -f json -no-type-inference -no-type-oracle -q playground/android-app/
+run_lint_test "kotlin-webservice fix (dry-run)" ./krit --no-fir --fix --dry-run -q playground/kotlin-webservice/
+run_lint_test "android-app fix (dry-run)" ./krit --no-fir --fix --dry-run -q playground/android-app/
+run_lint_test "android-app binary fix (dry-run)" ./krit --no-fir --fix-binary --dry-run -q playground/android-app/
 
 echo ""
 echo "=== Diff Mode ==="
 FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
-run_lint_test "diff vs initial commit" ./krit --diff "$FIRST_COMMIT" -f json -no-type-inference -no-type-oracle -q playground/kotlin-webservice/
+run_lint_test "diff vs initial commit" ./krit --no-fir --diff "$FIRST_COMMIT" -f json -no-type-inference -no-type-oracle -q playground/kotlin-webservice/
 
 echo ""
 echo "=== SARIF Output ==="
-run_lint_test "SARIF generation" ./krit -f sarif -no-type-inference -no-type-oracle -q -o /tmp/krit-test.sarif playground/kotlin-webservice/
+run_lint_test "SARIF generation" ./krit --no-fir -f sarif -no-type-inference -no-type-oracle -q -o /tmp/krit-test.sarif playground/kotlin-webservice/
 
 echo ""
 echo "=== Go Integration Tests ==="

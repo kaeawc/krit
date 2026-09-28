@@ -41,7 +41,9 @@ type ProjectArgs struct {
 	// Config is the loaded krit.yml / .krit.yml. Required.
 	Config *config.Config
 	// OracleClasspath is the caller-resolved compile classpath.
-	OracleClasspath []string
+	OracleClasspath  []string
+	OracleSourceDirs []string
+	OracleJvmTarget  string
 	// Paths are the scan target paths (files or directories). Required.
 	Paths []string
 	// KotlinPaths, when non-nil, are the already-collected Kotlin
@@ -69,7 +71,8 @@ type ProjectArgs struct {
 	// before format dispatch.
 	WarningsAsErrors bool
 	// IncludeGenerated retains files under */generated/* during parse.
-	IncludeGenerated bool
+	IncludeGenerated    bool
+	GeneratedSourceDirs []string
 	// EditorConfigEnabled participates in the analysis-cache rule hash.
 	// CLI callers set this from --editorconfig; false preserves the
 	// daemon's existing hash contract.
@@ -975,6 +978,8 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		CrossFileParentTracker:   crossTracker,
 		CrossFileJobsFlag:        args.Workers,
 		CrossFileJavaPaths:       args.JavaPaths,
+		GeneratedSourceDirs:      args.GeneratedSourceDirs,
+		IncludeGenerated:         args.IncludeGenerated,
 		ParseCache:               host.ParseCache,
 		BuildModuleIndex:         buildModuleIndex,
 		// Skip buildBaseResolver on bundle-hit candidates: the early
@@ -989,6 +994,8 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		ModuleHasAwareRule:  hasModuleAwareRule,
 		InputTypesPath:      args.InputTypesPath,
 		OracleClasspath:     args.OracleClasspath,
+		OracleSourceDirs:    args.OracleSourceDirs,
+		OracleJvmTarget:     args.OracleJvmTarget,
 		Thorough:            args.TargetedResolution,
 	}
 	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)
@@ -1150,18 +1157,19 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 	}
 	skipJavaCollection := len(javaPaths) == 0 && allowCrossFile
 	return ParsePhase{Workers: args.Workers}.Run(ctx, ParseInput{
-		Config:             args.Config,
-		Paths:              args.Paths,
-		ActiveRules:        args.ActiveRules,
-		IncludeGenerated:   args.IncludeGenerated,
-		KotlinPaths:        kotlinPaths,
-		JavaPaths:          javaPaths,
-		Workers:            args.Workers,
-		SkipJavaCollection: skipJavaCollection,
-		Reporter:           host.Reporter,
-		Tracker:            host.Tracker,
-		ParseCache:         host.ParseCache,
-		ResidentFiles:      host.ResidentFiles,
+		Config:              args.Config,
+		Paths:               args.Paths,
+		ActiveRules:         args.ActiveRules,
+		IncludeGenerated:    args.IncludeGenerated,
+		GeneratedSourceDirs: args.GeneratedSourceDirs,
+		KotlinPaths:         kotlinPaths,
+		JavaPaths:           javaPaths,
+		Workers:             args.Workers,
+		SkipJavaCollection:  skipJavaCollection,
+		Reporter:            host.Reporter,
+		Tracker:             host.Tracker,
+		ParseCache:          host.ParseCache,
+		ResidentFiles:       host.ResidentFiles,
 	})
 }
 
@@ -1287,14 +1295,14 @@ func warmSourcePaths(args ProjectArgs) ([]string, []string) {
 			kotlinPaths = collected
 		}
 	}
-	kotlinPaths = filterGeneratedSourcePaths(kotlinPaths, args.IncludeGenerated)
+	kotlinPaths = filterGeneratedSourcePaths(kotlinPaths, args.IncludeGenerated, args.GeneratedSourceDirs...)
 	javaPaths := args.JavaPaths
 	if javaPaths == nil && NeedsJavaBeforeDispatch(args.ActiveRules) {
 		if collected, err := scanner.CollectJavaFiles(args.Paths, nil); err == nil {
 			javaPaths = collected
 		}
 	}
-	javaPaths = filterGeneratedSourcePaths(javaPaths, args.IncludeGenerated)
+	javaPaths = filterGeneratedSourcePaths(javaPaths, args.IncludeGenerated, args.GeneratedSourceDirs...)
 	return kotlinPaths, javaPaths
 }
 
@@ -2572,18 +2580,19 @@ func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, t
 func preparseSourcePaths(args ProjectArgs, host ProjectHostState, prior scanner.FindingsBundleManifest) ([]string, []string, bool) {
 	if host.SourceSetClean || dirtyPathsAllInManifest(host.SourceSetDirty, prior.ContentHashes, args.Paths) {
 		kotlinPaths, javaPaths := pathsFromManifest(prior.ContentHashes)
-		return kotlinPaths, javaPaths, true
+		return filterGeneratedSourcePaths(kotlinPaths, args.IncludeGenerated, args.GeneratedSourceDirs...),
+			filterGeneratedSourcePaths(javaPaths, args.IncludeGenerated, args.GeneratedSourceDirs...), true
 	}
 	kotlinPaths, err := scanner.CollectKotlinFiles(args.Paths, nil)
 	if err != nil {
 		return nil, nil, false
 	}
-	kotlinPaths = filterGeneratedSourcePaths(kotlinPaths, args.IncludeGenerated)
+	kotlinPaths = filterGeneratedSourcePaths(kotlinPaths, args.IncludeGenerated, args.GeneratedSourceDirs...)
 	javaPaths, err := collectJavaPathsForFingerprint(args)
 	if err != nil {
 		return nil, nil, false
 	}
-	javaPaths = filterGeneratedSourcePaths(javaPaths, args.IncludeGenerated)
+	javaPaths = filterGeneratedSourcePaths(javaPaths, args.IncludeGenerated, args.GeneratedSourceDirs...)
 	return kotlinPaths, javaPaths, true
 }
 
@@ -2686,7 +2695,7 @@ func collectJavaPathsForFingerprint(args ProjectArgs) ([]string, error) {
 	return scanner.CollectJavaFiles(args.Paths, nil)
 }
 
-func filterGeneratedSourcePaths(paths []string, includeGenerated bool) []string {
+func filterGeneratedSourcePaths(paths []string, includeGenerated bool, generatedDirs ...string) []string {
 	if includeGenerated {
 		return paths
 	}
@@ -2697,7 +2706,7 @@ func filterGeneratedSourcePaths(paths []string, includeGenerated bool) []string 
 	// dispatch to process the same files multiple times.
 	filtered := make([]string, 0, len(paths))
 	for _, path := range paths {
-		if !strings.Contains(filepath.ToSlash(path), "/generated/") {
+		if !IsGeneratedSourcePath(path, generatedDirs) {
 			filtered = append(filtered, path)
 		}
 	}

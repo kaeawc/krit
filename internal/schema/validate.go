@@ -59,6 +59,10 @@ func ValidateConfig(cfg *config.Config) []ValidationError {
 			errs = append(errs, validateAnalysis(val)...)
 			continue
 		}
+		if key == "fir" {
+			errs = append(errs, validateFIR(val)...)
+			continue
+		}
 		if key == "module_template" {
 			section, ok := val.(map[string]interface{})
 			if !ok {
@@ -76,7 +80,7 @@ func ValidateConfig(cfg *config.Config) []ValidationError {
 			errs = append(errs, validateSLOs(val)...)
 			continue
 		}
-		if key == "testSourcePaths" || key == "testSourcePathsOverride" {
+		if isTestSourcePathsKey(key) {
 			if err := checkType(key, val, OptionTypeStringSlice); err != nil {
 				errs = append(errs, *err)
 			}
@@ -127,6 +131,33 @@ func ValidateConfig(cfg *config.Config) []ValidationError {
 		}
 	}
 
+	return errs
+}
+
+func isTestSourcePathsKey(key string) bool {
+	return key == "testSourcePaths" || key == "testSourcePathsOverride"
+}
+
+func validateFIR(raw interface{}) []ValidationError {
+	section, ok := raw.(map[string]interface{})
+	if !ok {
+		return []ValidationError{{Path: "fir", Message: fmt.Sprintf("expected object, got %T", raw), Level: "error"}}
+	}
+	var errs []ValidationError
+	keys := make([]string, 0, len(section))
+	for option := range section {
+		keys = append(keys, option)
+	}
+	sort.Strings(keys)
+	for _, option := range keys {
+		value := section[option]
+		path := "fir." + option
+		if option != "goAuthoritativeRules" {
+			errs = append(errs, ValidationError{Path: path, Message: fmt.Sprintf("unknown config key '%s' in fir", option), Level: "error"})
+		} else if typeErr := checkType(path, value, OptionTypeStringSlice); typeErr != nil {
+			errs = append(errs, *typeErr)
+		}
+	}
 	return errs
 }
 

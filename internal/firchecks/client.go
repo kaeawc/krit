@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -27,6 +28,7 @@ import (
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/jvmaot"
 	"github.com/kaeawc/krit/internal/oracle"
 )
 
@@ -47,7 +49,8 @@ type FirDaemon struct {
 	sourcesHash string
 	// role separates the checker daemon from the oracle-backend daemon; see
 	// firCheckRole.
-	role string
+	role      string
+	jvmTarget string
 }
 
 // MatchesRepo returns true if this daemon uses the current jar, sourceDirs,
@@ -56,7 +59,7 @@ func (d *FirDaemon) MatchesRepo(jarPath string, sourceDirs []string, classpath .
 	if d.sourcesHash == "" {
 		return false
 	}
-	return d.sourcesHash == firRegistryKeyFor(d.role, jarPath, sourceDirs, classpath)
+	return d.sourcesHash == firRegistryKeyFor(d.role, jarPath, sourceDirs, classpath, d.jvmTarget)
 }
 
 // firDaemonRequest is the JSON shape sent to the krit-fir daemon.
@@ -66,6 +69,7 @@ type firDaemonRequest struct {
 	Files      []fileRef `json:"files,omitempty"`
 	SourceDirs []string  `json:"sourceDirs,omitempty"`
 	Classpath  []string  `json:"classpath,omitempty"`
+	JvmTarget  string    `json:"jvmTarget,omitempty"`
 	Rules      []string  `json:"rules,omitempty"`
 	// TestFiles is the subset of Files (spelled exactly as in Files) that
 	// krit classifies as test sources (scanner.IsTestFile, honoring the
@@ -146,18 +150,15 @@ func daemonRequestTimeout() time.Duration {
 // daemon runs in oracle.DaemonWorkDir: it may outlive this invocation and
 // serve krit runs from other directories, so every path it is sent is
 // absolute (see Check) and nothing may resolve against its working directory.
-func StartFirDaemonWithPort(jarPath string, verbose bool) (*FirDaemon, error) {
-	javaPath, err := exec.LookPath("java")
+func StartFirDaemonWithPort(jarPath string, verbose bool, jvmTarget ...string) (*FirDaemon, error) {
+	javaPath, err := oracle.JavaPath()
 	if err != nil {
 		return nil, fmt.Errorf("java not found in PATH: %w", err)
 	}
 
-	args := []string{
-		"-XX:+UseG1GC",
-		"-XX:+UseStringDeduplication",
-		"-Xms512m",
-		"-jar", oracle.AbsolutePath(jarPath),
-		"--daemon", "--port", "0",
+	args := buildFirJVMArgs(jarPath, javaPath, oracle.CachedJDKMajorVersion(), verbose)
+	if len(jvmTarget) > 0 && jvmTarget[0] != "" {
+		args = append(args, "--jvm-target", jvmTarget[0])
 	}
 
 	if verbose {
@@ -184,47 +185,24 @@ func StartFirDaemonWithPort(jarPath string, verbose bool) (*FirDaemon, error) {
 		return nil, fmt.Errorf("start fir daemon: %w", err)
 	}
 
-	type scanResult struct {
-		line string
-		err  error
-	}
-	readyCh := make(chan scanResult, 1)
+	readyCh := make(chan firReadyResult, 1)
 	go func() {
-		sc := bufio.NewScanner(stdoutPipe)
-		sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-		if sc.Scan() {
-			readyCh <- scanResult{line: sc.Text()}
-		} else {
-			readyCh <- scanResult{err: sc.Err()}
-		}
+		ready, err := readFirReady(stdoutPipe, verbose)
+		readyCh <- firReadyResult{ready: ready, err: err}
 	}()
 
 	const startupTimeout = 30 * time.Second
-	var line string
+	var ready firReadyMessage
 	select {
 	case res := <-readyCh:
 		if res.err != nil {
 			cmd.Process.Kill()
-			return nil, fmt.Errorf("fir daemon startup: %w", res.err)
+			return nil, res.err
 		}
-		if res.line == "" {
-			cmd.Process.Kill()
-			return nil, fmt.Errorf("fir daemon closed stdout before ready")
-		}
-		line = res.line
+		ready = res.ready
 	case <-time.After(startupTimeout):
 		cmd.Process.Kill()
 		return nil, fmt.Errorf("fir daemon startup timed out after %s", startupTimeout)
-	}
-
-	var ready firReadyMessage
-	if err := json.Unmarshal([]byte(line), &ready); err != nil {
-		cmd.Process.Kill()
-		return nil, fmt.Errorf("fir daemon ready message: invalid JSON: %w (got: %s)", err, line)
-	}
-	if !ready.Ready || ready.Port == 0 {
-		cmd.Process.Kill()
-		return nil, fmt.Errorf("fir daemon did not report ready with port (got: %s)", line)
 	}
 
 	if verbose {
@@ -254,6 +232,61 @@ func StartFirDaemonWithPort(jarPath string, verbose bool) (*FirDaemon, error) {
 	return d, nil
 }
 
+func buildFirJVMArgs(jarPath, javaPath string, jdkMajor int, verbose bool) []string {
+	args := []string{
+		"-XX:+UseG1GC",
+		"-XX:+UseStringDeduplication",
+		"-Xms512m",
+		"-Xmx1g",
+	}
+	args, _ = jvmaot.AppendArgs(args, javaPath, oracle.AbsolutePath(jarPath), "fir", jdkMajor, verbose, reporter().Verbosef)
+	return append(args, "-jar", oracle.AbsolutePath(jarPath), "--daemon", "--port", "0")
+}
+
+type firReadyResult struct {
+	ready firReadyMessage
+	err   error
+}
+
+const (
+	firReadyMaxSkippedLines = 50
+	firReadyMaxSkippedBytes = 64 * 1024
+)
+
+func readFirReady(r io.Reader, verbose bool) (firReadyMessage, error) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), firReadyMaxSkippedBytes+1)
+	skippedLines, skippedBytes := 0, 0
+	for sc.Scan() {
+		line := sc.Text()
+		var ready firReadyMessage
+		if err := json.Unmarshal([]byte(line), &ready); err == nil {
+			if !ready.Ready || ready.Port == 0 {
+				return firReadyMessage{}, fmt.Errorf("fir daemon did not report ready with port (got: %s)", line)
+			}
+			return ready, nil
+		}
+		if skippedLines >= firReadyMaxSkippedLines || skippedBytes+len(line)+1 > firReadyMaxSkippedBytes {
+			return firReadyMessage{}, fmt.Errorf("fir daemon ready message not found within stdout noise limit (%d lines or %d bytes)", firReadyMaxSkippedLines, firReadyMaxSkippedBytes)
+		}
+		skippedLines++
+		skippedBytes += len(line) + 1
+		if verbose {
+			reporter().Verbosef("verbose: skipped fir daemon stdout before ready (%d): %s\n", skippedLines, line)
+		}
+	}
+	if err := sc.Err(); err != nil {
+		if strings.Contains(err.Error(), "token too long") {
+			return firReadyMessage{}, fmt.Errorf("fir daemon ready message not found within stdout noise limit (%d lines or %d bytes)", firReadyMaxSkippedLines, firReadyMaxSkippedBytes)
+		}
+		return firReadyMessage{}, fmt.Errorf("fir daemon startup: %w", err)
+	}
+	if skippedLines > 0 {
+		return firReadyMessage{}, fmt.Errorf("fir daemon closed stdout before ready after %d non-JSON lines", skippedLines)
+	}
+	return firReadyMessage{}, fmt.Errorf("fir daemon closed stdout before ready")
+}
+
 // firCheckRole namespaces the daemon that serves `check` requests (the --fir
 // pass) apart from the oracle-backend daemon. Both can serve the same
 // sourceDirs and classpath, but the oracle path keeps its connection open for
@@ -263,32 +296,38 @@ const firCheckRole = "check"
 
 // ConnectOrStartFirDaemon tries to reuse an existing daemon for the given
 // sourceDirs and classpath (via PID file), or starts a new one.
-func ConnectOrStartFirDaemon(jarPath string, sourceDirs, classpath []string, verbose bool) (*FirDaemon, error) {
-	return connectOrStartFirDaemon("", jarPath, sourceDirs, classpath, verbose)
+func ConnectOrStartFirDaemon(jarPath string, sourceDirs, classpath []string, verbose bool, jvmTarget ...string) (*FirDaemon, error) {
+	return connectOrStartFirDaemon("", jarPath, sourceDirs, classpath, verbose, jvmTarget...)
 }
 
-func connectOrStartFirCheckDaemon(jarPath string, sourceDirs, classpath []string, verbose bool) (*FirDaemon, error) {
-	return connectOrStartFirDaemon(firCheckRole, jarPath, sourceDirs, classpath, verbose)
+func connectOrStartFirCheckDaemon(jarPath string, sourceDirs, classpath []string, verbose bool, jvmTarget ...string) (*FirDaemon, error) {
+	return connectOrStartFirDaemon(firCheckRole, jarPath, sourceDirs, classpath, verbose, jvmTarget...)
 }
 
-func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []string, verbose bool) (*FirDaemon, error) {
+func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []string, verbose bool, jvmTarget ...string) (*FirDaemon, error) {
 	// Capture the jar identity once, before any JVM opens the jar. If the jar
 	// is replaced while a new daemon starts, it stays registered under the
 	// identity observed first, so the next caller restarts it instead of
 	// trusting a daemon that may be running the old artifact.
-	srcHash := firRegistryKeyFor(role, jarPath, sourceDirs, classpath)
+	target := ""
+	if len(jvmTarget) > 0 {
+		target = jvmTarget[0]
+	}
+	srcHash := firRegistryKeyFor(role, jarPath, sourceDirs, classpath, target)
 	if d, err := connectExistingFirDaemon(srcHash, verbose); err == nil {
 		d.role = role
+		d.jvmTarget = target
 		return d, nil
 	}
-	retireSupersededFirDaemons(firRegistryFamilyPrefix(role, jarPath, sourceDirs, classpath), sourceDirs, srcHash, len(classpath) > 0, verbose)
+	retireSupersededFirDaemons(firRegistryFamilyPrefix(role, jarPath, sourceDirs, classpath, target), sourceDirs, srcHash, len(classpath) > 0, verbose)
 	stopFirDaemon(srcHash, verbose)
-	d, err := StartFirDaemonWithPort(jarPath, verbose)
+	d, err := StartFirDaemonWithPort(jarPath, verbose, target)
 	if err != nil {
 		return nil, fmt.Errorf("start persistent fir daemon: %w", err)
 	}
 	d.sourcesHash = srcHash
 	d.role = role
+	d.jvmTarget = target
 	if err := writeFirPIDFile(d.cmd.Process.Pid, d.port, srcHash); err != nil {
 		d.conn.Close()
 		d.cmd.Process.Kill()
@@ -311,7 +350,7 @@ func absoluteScanPaths(scanPaths map[string]string) map[string]string {
 }
 
 // Check sends a check request to the daemon and returns the response.
-func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, facts FileFacts) (*CheckResponse, error) {
+func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, facts FileFacts, jvmTarget ...string) (*CheckResponse, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -331,10 +370,14 @@ func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string
 		Files:       requested,
 		SourceDirs:  oracle.AbsolutePaths(sourceDirs),
 		Classpath:   oracle.AbsolutePaths(classpath),
+		JvmTarget:   d.jvmTarget,
 		Rules:       rules,
 		TestFiles:   oracle.AbsolutePaths(facts.TestFiles),
 		ScanPaths:   absoluteScanPaths(facts.ScanPaths),
 		RuleConfigs: wireRuleConfigs(ruleConfigs),
+	}
+	if len(jvmTarget) > 0 {
+		req.JvmTarget = jvmTarget[0]
 	}
 	data, err := json.Marshal(req)
 	if err != nil {
@@ -704,20 +747,23 @@ func firRegistryKey(jarPath string, sourceDirs []string) string {
 // path, and jar identity, mirroring the oracle daemon key: a daemon started
 // for one classpath never answers for another, since its checker verdicts
 // would be computed against the wrong libraries.
-func firRegistryKeyFor(role, jarPath string, sourceDirs, classpath []string) string {
-	return firRegistryPrefix(role, jarPath, sourceDirs, classpath) + oracle.JarIdentity(jarPath)
+func firRegistryKeyFor(role, jarPath string, sourceDirs, classpath []string, jvmTarget ...string) string {
+	return firRegistryPrefix(role, jarPath, sourceDirs, classpath, jvmTarget...) + oracle.JarIdentity(jarPath)
 }
 
-func firRegistryPrefix(role, jarPath string, sourceDirs, classpath []string) string {
-	key := firRegistryFamilyPrefix(role, jarPath, sourceDirs, classpath)
+func firRegistryPrefix(role, jarPath string, sourceDirs, classpath []string, jvmTarget ...string) string {
+	key := firRegistryFamilyPrefix(role, jarPath, sourceDirs, classpath, jvmTarget...)
 	if len(classpath) > 0 {
 		key += "-" + gradlemodel.ClasspathFingerprint(oracle.AbsolutePaths(classpath))[:8]
 	}
 	return key + "@"
 }
 
-func firRegistryFamilyPrefix(role, jarPath string, sourceDirs, classpath []string) string {
+func firRegistryFamilyPrefix(role, jarPath string, sourceDirs, classpath []string, jvmTarget ...string) string {
 	key := hashFirSources(sourceDirs)
+	if len(jvmTarget) > 0 && jvmTarget[0] != "" {
+		key += "-jvm" + jvmTarget[0]
+	}
 	if len(classpath) > 0 {
 		// Order matters on a classpath, so hash it in the given order.
 		absolute := oracle.AbsolutePaths(classpath)

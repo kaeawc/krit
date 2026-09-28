@@ -8976,6 +8976,21 @@
         }
       }
     },
+    "fir": {
+      "description": "FIR verdict settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "goAuthoritativeRules": {
+          "description": "Rules for which FIR verdicts are ignored.",
+          "type": "array",
+          "items": {
+            "description": "Rule ID whose Go findings remain authoritative after FIR checks.",
+            "type": "string"
+          }
+        }
+      }
+    },
     "i18n": {
       "description": "Configuration for the i18n ruleset.",
       "type": "object",
@@ -13404,7 +13419,7 @@
           }
         },
         "InsecureTrustManager": {
-          "description": "Trust manager accepts all certificates [precision: ast-backed] [noisiness: normal]",
+          "description": "Trust manager accepts all certificates [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

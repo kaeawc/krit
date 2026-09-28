@@ -663,7 +663,8 @@ func registerAndroidCorrectnessSetTextI18n() {
 			if flatCallExpressionName(file, idx) != "setText" {
 				return
 			}
-			// Only flag when the first argument is a raw string literal (hardcoded text).
+			// Lint only flags literal text with a run of at least two ASCII word
+			// characters; interpolation expressions are excluded from the check.
 			_, args := flatCallExpressionParts(file, idx)
 			if args == 0 {
 				return
@@ -672,18 +673,15 @@ func registerAndroidCorrectnessSetTextI18n() {
 			if firstArg == 0 {
 				return
 			}
-			hasLiteral := false
+			hasLiteralText := false
 			for expr := file.FlatFirstChild(firstArg); expr != 0; expr = file.FlatNextSib(expr) {
 				if !file.FlatIsNamed(expr) {
 					continue
 				}
-				t := file.FlatType(expr)
-				if t == "line_string_literal" || t == "string_literal" {
-					hasLiteral = true
-				}
+				hasLiteralText = setTextI18nLiteralHasWordRun(file, expr)
 				break
 			}
-			if !hasLiteral {
+			if !hasLiteralText {
 				return
 			}
 			if !setTextI18nReceiverIsTextView(ctx, idx) {

@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -31,7 +33,7 @@ func TestAnalyzeProject_StrictVerifyHappyPath(t *testing.T) {
 
 	var got daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &got); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &got); err != nil {
 		t.Fatalf("strict-verify analyze call: %v", err)
 	}
 	if len(got.Findings) == 0 {
@@ -40,6 +42,42 @@ func TestAnalyzeProject_StrictVerifyHappyPath(t *testing.T) {
 	var probe map[string]any
 	if err := json.Unmarshal(got.Findings, &probe); err != nil {
 		t.Fatalf("findings JSON does not parse: %v\n%s", err, got.Findings)
+	}
+}
+
+// TestOracleModelArgsMatchAcrossStrictVerifyPaths pins the shared mapping
+// from daemon Gradle model data to the pipeline arguments used by both the
+// daemon analysis and its strict-verify baseline.
+func TestOracleModelArgsMatchAcrossStrictVerifyPaths(t *testing.T) {
+	args := daemon.AnalyzeProjectArgs{
+		OracleClasspath:           []string{"model/classes", "model/dependencies.jar"},
+		OracleSourceDirs:          []string{"module/src/main/kotlin", "module/src/main/java"},
+		OracleJvmTarget:           "17",
+		OracleGeneratedSourceDirs: []string{"module/build/generated/source"},
+	}
+	current := pipeline.ProjectArgs{}
+	baseline := pipeline.ProjectArgs{}
+
+	applyOracleModelArgs(args, &current)
+	applyOracleModelArgs(args, &baseline)
+
+	if !reflect.DeepEqual(current.OracleClasspath, baseline.OracleClasspath) {
+		t.Errorf("OracleClasspath differs: current=%v baseline=%v", current.OracleClasspath, baseline.OracleClasspath)
+	}
+	if !reflect.DeepEqual(current.OracleSourceDirs, baseline.OracleSourceDirs) {
+		t.Errorf("OracleSourceDirs differs: current=%v baseline=%v", current.OracleSourceDirs, baseline.OracleSourceDirs)
+	}
+	if current.OracleJvmTarget != baseline.OracleJvmTarget {
+		t.Errorf("OracleJvmTarget differs: current=%q baseline=%q", current.OracleJvmTarget, baseline.OracleJvmTarget)
+	}
+	if !reflect.DeepEqual(current.GeneratedSourceDirs, baseline.GeneratedSourceDirs) {
+		t.Errorf("GeneratedSourceDirs differs: current=%v baseline=%v", current.GeneratedSourceDirs, baseline.GeneratedSourceDirs)
+	}
+	if !reflect.DeepEqual(current.OracleClasspath, args.OracleClasspath) ||
+		!reflect.DeepEqual(current.OracleSourceDirs, args.OracleSourceDirs) ||
+		current.OracleJvmTarget != args.OracleJvmTarget ||
+		!reflect.DeepEqual(current.GeneratedSourceDirs, args.OracleGeneratedSourceDirs) {
+		t.Fatal("oracle model fields were not copied into pipeline.ProjectArgs")
 	}
 }
 
@@ -77,7 +115,7 @@ func TestRunStrictVerify_DetectsAddedRow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	logPath, err := state.runStrictVerify(ctx, daemon.AnalyzeProjectArgs{}, &daemonCols)
+	logPath, err := state.runStrictVerify(ctx, daemon.AnalyzeProjectArgs{NoFir: true}, &daemonCols)
 	if err == nil {
 		t.Fatalf("expected divergence error; got logPath=%q err=nil", logPath)
 	}
@@ -108,7 +146,7 @@ func TestRunStrictVerify_RejectsBogusBackend(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	args := daemon.AnalyzeProjectArgs{OracleBackend: "not-a-backend"}
+	args := daemon.AnalyzeProjectArgs{NoFir: true, OracleBackend: "not-a-backend"}
 	_, err := state.runStrictVerify(ctx, args, &daemonCols)
 	if err == nil {
 		t.Fatal("expected error for bogus baseline oracle backend")
@@ -154,7 +192,7 @@ func TestRunStrictVerify_KAABaselineSharesOracleDaemon(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	// Use OracleBackend="" which parses to DefaultBackend (KAA).
-	_, _ = state.runStrictVerify(ctx, daemon.AnalyzeProjectArgs{}, &daemonCols)
+	_, _ = state.runStrictVerify(ctx, daemon.AnalyzeProjectArgs{NoFir: true}, &daemonCols)
 	newCalls := state.oracleDaemonStarter.(*fakeOracleDaemonStarter).calls.Load()
 	if newCalls != prevCalls {
 		t.Errorf("baseline spawned a fresh starter call (%d → %d); expected to reuse the daemon's resident KAA slot", prevCalls, newCalls)
@@ -185,7 +223,7 @@ func TestRunStrictVerify_FIRBaselineSharesOracleDaemon(t *testing.T) {
 	daemonCols := scanner.FindingColumns{}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	_, _ = state.runStrictVerify(ctx, daemon.AnalyzeProjectArgs{OracleBackend: "fir"}, &daemonCols)
+	_, _ = state.runStrictVerify(ctx, daemon.AnalyzeProjectArgs{NoFir: true, OracleBackend: "fir"}, &daemonCols)
 	newCalls := state.oracleDaemonStarter.(*fakeOracleDaemonStarter).calls.Load()
 	if newCalls != prevCalls {
 		t.Errorf("FIR baseline spawned a fresh starter call (%d → %d); expected to reuse the daemon's resident FIR slot", prevCalls, newCalls)

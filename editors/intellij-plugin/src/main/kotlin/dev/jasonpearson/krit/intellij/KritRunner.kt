@@ -1,7 +1,14 @@
 package dev.jasonpearson.krit.intellij
 
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.ModuleRootManager
+import com.intellij.openapi.roots.ProjectRootManager
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.TimeUnit
@@ -80,8 +87,8 @@ object KritRunner {
             )
             // krit exits non-zero when it reports findings; trust the output
             // file as long as it exists rather than the exit code.
-            val result = runKrit(projectDir, command, classpath, ANALYZE_TIMEOUT_SECONDS, label) { exit, _ ->
-                exit == 0 || output.isFile
+            val result = runKrit(project, projectDir, command, classpath, ANALYZE_TIMEOUT_SECONDS, label) { exit, _ ->
+                exit == 0 || (exit == 1 && output.isFile)
             }
             when (result) {
                 is RunOutcome.Ok -> {
@@ -115,7 +122,7 @@ object KritRunner {
             "-q",
             projectDir.absolutePath,
         )
-        return runKrit(projectDir, command, classpath, FIX_TIMEOUT_SECONDS, "fix") { exit, _ -> exit == 0 } is RunOutcome.Ok
+        return runKrit(project, projectDir, command, classpath, FIX_TIMEOUT_SECONDS, "fix") { exit, _ -> exit == 0 } is RunOutcome.Ok
     }
 
     fun applySuggestion(
@@ -145,7 +152,7 @@ object KritRunner {
                 projectDir.absolutePath,
                 reportFile.absolutePath,
             )
-            runKrit(projectDir, command, classpath, APPLY_SUGGESTION_TIMEOUT_SECONDS, "apply-suggestion") { exit, _ ->
+            runKrit(project, projectDir, command, classpath, APPLY_SUGGESTION_TIMEOUT_SECONDS, "apply-suggestion") { exit, _ ->
                 exit == 0
             } is RunOutcome.Ok
         } finally {
@@ -160,6 +167,7 @@ object KritRunner {
     }
 
     private fun runKrit(
+        project: Project,
         projectDir: File,
         command: List<String>,
         classpath: List<File>,
@@ -180,6 +188,13 @@ object KritRunner {
                 // krit-gradle-plugin runs.
                 builder.environment()["CLASSPATH"] = KritClasspathResolver.toClasspathString(classpath)
             }
+            val javaHome = ReadAction.compute<String?, RuntimeException> {
+                ProjectRootManager.getInstance(project).projectSdk?.homePath
+                    ?: ModuleManager.getInstance(project).modules.firstNotNullOfOrNull { module ->
+                        ModuleRootManager.getInstance(module).sdk?.homePath
+                    }
+            }
+            if (!javaHome.isNullOrBlank()) builder.environment()["JAVA_HOME"] = javaHome
             val process = builder.start()
 
             if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
@@ -191,6 +206,17 @@ object KritRunner {
 
             val stderr = process.errorStream.bufferedReader().readText()
             val exit = process.exitValue()
+            if (exit == 2) {
+                val msg = stderr.trim().ifBlank { "krit preflight failed (exit code 2)" }
+                ApplicationManager.getApplication().invokeLater {
+                    if (!project.isDisposed) {
+                        NotificationGroupManager.getInstance().getNotificationGroup("Krit")
+                            .createNotification("Krit configuration error", msg, NotificationType.ERROR)
+                            .notify(project)
+                    }
+                }
+                return RunOutcome.Failed(msg)
+            }
             if (!isSuccess(exit, stderr)) {
                 val msg = "krit $label exited $exit: ${stderr.lineSequence().firstOrNull().orEmpty()}"
                 log.warn("$msg for ${projectDir.path}")

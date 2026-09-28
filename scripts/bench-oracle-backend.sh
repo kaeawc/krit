@@ -93,7 +93,7 @@ if command -v hyperfine >/dev/null 2>&1; then
     HYPER_ARGS+=( --export-json /tmp/krit-oracle-bench.json )
     CMDS=()
     for backend in "${BACKENDS[@]}"; do
-        CMDS+=( --command-name "$backend" "$KRIT --oracle-backend=$backend -q -f json $PROJECT/" )
+        CMDS+=( --command-name "$backend" "$KRIT --no-fir --oracle-backend=$backend -q -f json $PROJECT/" )
     done
     hyperfine "${HYPER_ARGS[@]}" "${CMDS[@]}"
     echo ""
@@ -116,7 +116,7 @@ now_ms() {
 run_once() {
     local backend="$1"
     if [ "$COLD" = 1 ]; then eval "$COLD_CMD"; fi
-    "$KRIT" --oracle-backend="$backend" -q -f json "$PROJECT/" >/dev/null 2>&1 || true
+    "$KRIT" --no-fir --oracle-backend="$backend" -q -f json "$PROJECT/" >/dev/null 2>&1 || true
 }
 
 for backend in "${BACKENDS[@]}"; do

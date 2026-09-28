@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 20, 21, 22, 29, 30, 31, 35, 36, 37, 41, 48, 58x2, 67, 77, 95, 101, 102, 103, 110, 125, 136, 142, 172, 173, 194, 206, 208
+// go-lines: 20, 21, 29, 30, 31, 35, 36, 37, 42, 44, 49, 56, 66x2, 75, 85, 103, 109, 110, 111, 118, 133, 144, 150, 180, 181, 202, 214, 216
 // Positive: a string literal or template passed as the text of setText on an
 // android.widget.TextView or a subtype (Button, EditText, project
 // subclasses). Findings sit on the first line of the call expression. Go
@@ -19,7 +19,7 @@ class HardcodedScreen(private val title: TextView, private val submit: Button) {
     fun onProperties() {
         <!SetTextI18n!>title.setText("Hello, world")<!>
         <!SetTextI18n!>submit.setText("Click me")<!>
-        <!SetTextI18n!>field.setText("")<!>
+        field.setText("")
         // Deliberate improvement: Go misses this; it does not type the
         // `this.title` receiver, and its name fallback does not match `title`.
         <!SetTextI18n!>this.title.setText("Qualified")<!>
@@ -35,6 +35,14 @@ class HardcodedScreen(private val title: TextView, private val submit: Button) {
         <!SetTextI18n!>label.setText("Count: $count")<!>
         <!SetTextI18n!>label.setText("${count} items")<!>
         <!SetTextI18n!>label.setText("""Raw text""")<!>
+        label.setText(":")
+        label.setText(" ")
+        label.setText("-")
+        label.setText("a")
+        <!SetTextI18n!>label.setText("ok")<!>
+        label.setText("x: $count")
+        <!SetTextI18n!>label.setText("id: $count")<!>
+        label.setText("$count")
     }
 
     fun nullableReceivers(label: TextView?) {

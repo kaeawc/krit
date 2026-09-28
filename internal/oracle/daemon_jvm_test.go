@@ -32,6 +32,20 @@ func writeTempJar(t *testing.T) string {
 	return jar
 }
 
+func TestCacheDirWritableRejectsReadOnlyHomeCache(t *testing.T) {
+	dir := t.TempDir()
+	if !cacheDirWritable(dir) {
+		t.Fatal("writable cache directory was rejected")
+	}
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	if cacheDirWritable(dir) {
+		t.Fatal("read-only cache directory was accepted")
+	}
+}
+
 // TestAppendStartupCacheArgs_NoMixedCDSAndAOT is the regression for the
 // JDK 25+ daemon-spawn failure: combining `-Xshare:auto`/CDS flags with
 // `-XX:AOTCache=` or `-XX:AOTMode=record` aborts VM init with

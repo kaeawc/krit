@@ -73,7 +73,7 @@ func TestAnalyzeProject_CreateBaselineMatchesInProcess(t *testing.T) {
 	// --- Daemon path: ship baseline IDs back, write locally -------
 	var verbResult daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{
+		daemon.AnalyzeProjectArgs{NoFir: true,
 			Format:         "json",
 			BasePath:       basePath,
 			CreateBaseline: true,
@@ -162,7 +162,7 @@ func TestAnalyzeProject_DryRunMatchesInProcess(t *testing.T) {
 
 			var verbResult daemon.AnalyzeProjectResult
 			if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-				daemon.AnalyzeProjectArgs{
+				daemon.AnalyzeProjectArgs{NoFir: true,
 					Format:   "json",
 					DryRun:   true,
 					FixLevel: fixLevel,
@@ -233,7 +233,7 @@ func TestAnalyzeProject_IncludeColumnsMatchesInProcess(t *testing.T) {
 
 	var verbResult daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{
+		daemon.AnalyzeProjectArgs{NoFir: true,
 			Format:         "json",
 			BasePath:       basePath,
 			IncludeColumns: true,
@@ -281,7 +281,7 @@ func TestAnalyzeProject_IncludeColumnsAbsentByDefault(t *testing.T) {
 
 	var verbResult daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{Format: "json"}, &verbResult); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true, Format: "json"}, &verbResult); err != nil {
 		t.Fatalf("verb call: %v", err)
 	}
 	if len(verbResult.Columns) != 0 {

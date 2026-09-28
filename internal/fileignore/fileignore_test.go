@@ -32,6 +32,26 @@ func TestDefaultPrunedDir(t *testing.T) {
 	}
 }
 
+func TestDefaultPrunedWithinRepoChecksAllSegments(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".claude", "worktrees", "repo")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: /tmp/worktree"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if DefaultPrunedWithinRepo(filepath.Join(root, "src", "App.kt")) {
+		t.Fatal("parent .claude above Git root pruned source")
+	}
+	if !DefaultPrunedWithinRepo(filepath.Join(root, ".idea", "fileTemplates", "Template.kt")) {
+		t.Fatal("nested .idea segment was not pruned")
+	}
+	noGit := filepath.Join(t.TempDir(), ".idea", "fileTemplates", "Template.kt")
+	if !DefaultPrunedWithinRepo(noGit) {
+		t.Fatal("metadata segment was not pruned without a Git root")
+	}
+}
+
 func TestMatcherRespectsRootAndNestedGitignore(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, ".git"), 0755); err != nil {

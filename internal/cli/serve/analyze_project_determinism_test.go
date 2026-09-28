@@ -31,7 +31,7 @@ func TestAnalyzeProject_DeterministicAcrossRuns(t *testing.T) {
 	for i := 0; i < N; i++ {
 		var got daemon.AnalyzeProjectResult
 		if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-			daemon.AnalyzeProjectArgs{}, &got); err != nil {
+			daemon.AnalyzeProjectArgs{NoFir: true}, &got); err != nil {
 			t.Fatalf("iter %d: %v", i, err)
 		}
 		stripped := stripTimingFields(t, got.Findings)
@@ -73,7 +73,7 @@ func TestAnalyzeProject_ConcurrentRequestsAllSucceed(t *testing.T) {
 			defer wg.Done()
 			var got daemon.AnalyzeProjectResult
 			if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-				daemon.AnalyzeProjectArgs{}, &got); err != nil {
+				daemon.AnalyzeProjectArgs{NoFir: true}, &got); err != nil {
 				results[i] = slot{err: err}
 				return
 			}
@@ -118,7 +118,7 @@ func TestAnalyzeProject_ConcurrentRequestsRaceFreeUnderRace(t *testing.T) {
 			defer wg.Done()
 			var got daemon.AnalyzeProjectResult
 			_ = daemon.Call(socket, daemon.VerbAnalyzeProject,
-				daemon.AnalyzeProjectArgs{}, &got)
+				daemon.AnalyzeProjectArgs{NoFir: true}, &got)
 		}()
 	}
 	wg.Wait()

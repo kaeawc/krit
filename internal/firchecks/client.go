@@ -44,6 +44,9 @@ type FirDaemon struct {
 	started bool
 	shared  bool
 	slot    int
+	// aotCachePath is persisted with the PID registry for reconnecting clients.
+	aotCachePath string
+	aotCheckOnce sync.Once
 	// sourcesHash is the registry key (role, jar, sourceDirs, classpath)
 	// this daemon serves.
 	sourcesHash string
@@ -151,12 +154,16 @@ func daemonRequestTimeout() time.Duration {
 // serve krit runs from other directories, so every path it is sent is
 // absolute (see Check) and nothing may resolve against its working directory.
 func StartFirDaemonWithPort(jarPath string, verbose bool, jvmTarget ...string) (*FirDaemon, error) {
+	return startFirDaemonWithAOT(jarPath, verbose, true, jvmTarget...)
+}
+
+func startFirDaemonWithAOT(jarPath string, verbose, allowAOT bool, jvmTarget ...string) (*FirDaemon, error) {
 	javaPath, err := oracle.JavaPath()
 	if err != nil {
 		return nil, fmt.Errorf("java not found in PATH: %w", err)
 	}
 
-	args := buildFirJVMArgs(jarPath, javaPath, oracle.CachedJDKMajorVersion(), verbose)
+	args := buildFirJVMArgsWithAOT(jarPath, javaPath, oracle.CachedJDKMajorVersion(), verbose, allowAOT)
 	if len(jvmTarget) > 0 && jvmTarget[0] != "" {
 		args = append(args, "--jvm-target", jvmTarget[0])
 	}
@@ -219,27 +226,43 @@ func StartFirDaemonWithPort(jarPath string, verbose bool, jvmTarget ...string) (
 	reader.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 
 	d := &FirDaemon{
-		cmd:     cmd,
-		conn:    conn,
-		reader:  reader,
-		logFile: logFile,
-		port:    ready.Port,
-		nextID:  1,
-		started: true,
-		shared:  false,
-		slot:    0,
+		cmd:          cmd,
+		conn:         conn,
+		reader:       reader,
+		logFile:      logFile,
+		port:         ready.Port,
+		nextID:       1,
+		started:      true,
+		shared:       false,
+		slot:         0,
+		aotCachePath: firAOTCacheArg(args),
 	}
 	return d, nil
 }
 
-func buildFirJVMArgs(jarPath, javaPath string, jdkMajor int, verbose bool) []string {
+func firAOTCacheArg(args []string) string {
+	for _, arg := range args {
+		if path, ok := strings.CutPrefix(arg, "-XX:AOTCache="); ok {
+			return path
+		}
+	}
+	return ""
+}
+
+func buildFirJVMArgs(jarPath, javaPath string, jdkMajor int) []string {
+	return buildFirJVMArgsWithAOT(jarPath, javaPath, jdkMajor, false, true)
+}
+
+func buildFirJVMArgsWithAOT(jarPath, javaPath string, jdkMajor int, verbose, allowAOT bool) []string {
 	args := []string{
 		"-XX:+UseG1GC",
 		"-XX:+UseStringDeduplication",
 		"-Xms512m",
 		"-Xmx1g",
 	}
-	args, _ = jvmaot.AppendArgs(args, javaPath, oracle.AbsolutePath(jarPath), "fir", jdkMajor, verbose, reporter().Verbosef)
+	if allowAOT {
+		args, _ = jvmaot.AppendArgs(args, javaPath, oracle.AbsolutePath(jarPath), "fir", jdkMajor, verbose, reporter().Verbosef)
+	}
 	return append(args, "-jar", oracle.AbsolutePath(jarPath), "--daemon", "--port", "0")
 }
 
@@ -328,7 +351,7 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 	d.sourcesHash = srcHash
 	d.role = role
 	d.jvmTarget = target
-	if err := writeFirPIDFile(d.cmd.Process.Pid, d.port, srcHash); err != nil {
+	if err := writeFirPIDFile(d.cmd.Process.Pid, d.port, srcHash, d.aotCachePath); err != nil {
 		d.conn.Close()
 		d.cmd.Process.Kill()
 		return nil, fmt.Errorf("write fir PID file: %w", err)
@@ -425,6 +448,11 @@ func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string
 	if err := json.Unmarshal([]byte(line), &resp); err != nil {
 		return nil, fmt.Errorf("unmarshal fir response: %w (got: %s)", err, line)
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(line), &fields); err != nil {
+		return nil, fmt.Errorf("inspect fir response fields: %w", err)
+	}
+	_, resp.rulesPresent = fields["rules"]
 	if resp.ID != id {
 		return nil, fmt.Errorf("fir response ID mismatch: expected %d, got %d", id, resp.ID)
 	}
@@ -504,6 +532,9 @@ func (d *FirDaemon) Ping() error {
 
 // Release drops this Go-side handle but leaves the daemon process alive.
 func (d *FirDaemon) Release() error {
+	if d.cmd != nil && !d.shared && jvmaot.IsRecording(d.cmd.Args) {
+		return d.Close()
+	}
 	d.mu.Lock()
 	d.started = false
 	d.mu.Unlock()
@@ -543,11 +574,14 @@ func (d *FirDaemon) Close() error {
 		done := make(chan error, 1)
 		go func() { done <- d.cmd.Wait() }()
 		select {
-		case <-done:
+		case err := <-done:
+			jvmaot.FinalizeRecording(d.cmd.Args, err == nil)
 		case <-time.After(10 * time.Second):
 			if d.cmd != nil && d.cmd.Process != nil {
 				d.cmd.Process.Kill()
 			}
+			<-done
+			jvmaot.FinalizeRecording(d.cmd.Args, false)
 		}
 	}
 	if d.port != 0 && d.sourcesHash != "" {
@@ -594,7 +628,30 @@ func firPortPath(sourcesHash string) string {
 	return filepath.Join(dir, sourcesHash+".krit-fir.port")
 }
 
-func writeFirPIDFile(pid, port int, sourcesHash string) error {
+func firAOTPath(sourcesHash string) string {
+	dir, err := firDaemonsDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), "krit-fir-"+sourcesHash+".aot")
+	}
+	return filepath.Join(dir, sourcesHash+".krit-fir.aot")
+}
+
+func writeFirPIDFile(pid, port int, sourcesHash string, aotPath ...string) error {
+	// Store the launch PID with the cache path so stale metadata cannot be
+	// attributed to a newer daemon registered under the same key.
+	_ = os.Remove(firAOTPath(sourcesHash))
+	if len(aotPath) > 0 && aotPath[0] != "" {
+		data, err := json.Marshal(struct {
+			PID   int    `json:"pid"`
+			Cache string `json:"cache"`
+		}{pid, aotPath[0]})
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(firAOTPath(sourcesHash), data, 0o644); err != nil {
+			return fmt.Errorf("write fir AOT metadata: %w", err)
+		}
+	}
 	if err := os.WriteFile(firPIDPath(sourcesHash), []byte(strconv.Itoa(pid)+"\n"), 0644); err != nil {
 		return fmt.Errorf("write fir pid: %w", err)
 	}
@@ -607,6 +664,7 @@ func writeFirPIDFile(pid, port int, sourcesHash string) error {
 func removeFirPIDFile(sourcesHash string) {
 	os.Remove(firPIDPath(sourcesHash))
 	os.Remove(firPortPath(sourcesHash))
+	os.Remove(firAOTPath(sourcesHash))
 }
 
 // connectExistingFirDaemon reuses the daemon registered under hash, a
@@ -649,6 +707,13 @@ func connectExistingFirDaemon(hash string, verbose bool) (*FirDaemon, error) {
 		started:     true,
 		shared:      true,
 		sourcesHash: hash,
+	}
+	var aotMeta struct {
+		PID   int    `json:"pid"`
+		Cache string `json:"cache"`
+	}
+	if data, err := os.ReadFile(firAOTPath(hash)); err == nil && json.Unmarshal(data, &aotMeta) == nil && aotMeta.PID == pid {
+		d.aotCachePath = aotMeta.Cache
 	}
 	if err := d.Ping(); err != nil {
 		conn.Close()

@@ -28,6 +28,8 @@ type CheckResponse struct {
 	Findings  []FirFinding      `json:"findings"`
 	Crashed   map[string]string `json:"crashed"`
 	Rules     []string          `json:"rules"`
+	// Set by the transport's raw JSON presence check; older jars omit rules.
+	rulesPresent bool
 	// ErrorFiles maps each requested file whose checker verdict is not
 	// authoritative to the first reason: an ERROR-severity compiler
 	// diagnostic in (or affecting) the file, or the file not being part of

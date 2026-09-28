@@ -1,6 +1,9 @@
 package firchecks
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,8 +27,20 @@ func TestFirJVMArgsUseLeydenCacheWhenSupported(t *testing.T) {
 	if err := os.WriteFile(cachePath, []byte("trained cache"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	sum := sha256.Sum256([]byte("trained cache"))
+	data, err := json.Marshal(map[string]any{
+		"schema": 1, "jdkVersion": "major:25", "jarToken": buildid.JarToken(jar),
+		"workload": "fir", "exitStatus": 0, "size": len("trained cache"),
+		"sha256": hex.EncodeToString(sum[:]),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cachePath+".meta.json", data, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-	args := buildFirJVMArgs(jar, "java", 25, false)
+	args := buildFirJVMArgs(jar, "missing-java", 25)
 	if !containsJVMArg(args, "-XX:AOTCache="+cachePath) {
 		t.Fatalf("supported JDK args missing AOT cache %q: %v", cachePath, args)
 	}
@@ -47,7 +62,7 @@ func TestFirJVMArgsSkipLeydenOnUnsupportedJDK(t *testing.T) {
 	if err := os.WriteFile(cachePath, []byte("trained cache"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	args := buildFirJVMArgs(jar, "java", 24, false)
+	args := buildFirJVMArgs(jar, "java", 24)
 	for _, arg := range args {
 		if strings.Contains(arg, "AOT") || strings.Contains(arg, "aot") {
 			t.Fatalf("unsupported JDK args unexpectedly include AOT option %q: %v", arg, args)

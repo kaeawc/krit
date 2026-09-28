@@ -11,11 +11,14 @@ package firchecks
 //   5. Assembles and returns all findings as []scanner.Finding.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
+	"sync"
 	"unicode/utf8"
 
+	"github.com/kaeawc/krit/internal/jvmaot"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -200,9 +203,12 @@ func runMisses(
 		if err == nil {
 			defer func() { _ = d.Release() }()
 			refs := buildFileRefs(misses)
-			resp, err := d.Check(refs, sourceDirs, classpath, rules, ruleConfigs, facts, jvmTarget...)
+			resp, err := checkFirWithRecovery(d, jarPath, refs, sourceDirs, classpath, rules, ruleConfigs, facts, verbose, jvmTarget...)
 			if err == nil {
 				return resp, nil
+			}
+			if errors.Is(err, errFIRDegraded) {
+				return nil, err
 			}
 			if verbose {
 				reporter().Verbosef("verbose: fir daemon check failed (%v), falling back to one-shot\n", err)
@@ -217,6 +223,70 @@ func runMisses(
 		return nil, fmt.Errorf("krit-fir.jar not found; build with: cd tools/krit-fir && ./gradlew shadowJar")
 	}
 	return InvokeOneShot(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, facts, verbose, jvmTarget...)
+}
+
+var aotWarningOnce sync.Once
+var errFIRDegraded = errors.New("FIR registered zero requested checkers after AOT-free retry")
+
+// The seam lets package tests use a fake TCP daemon for the AOT-free retry.
+var startFirWithoutAOT = func(jarPath string, verbose bool, target ...string) (*FirDaemon, error) {
+	return startFirDaemonWithAOT(jarPath, verbose, false, target...)
+}
+
+func checkFirWithRecovery(d *FirDaemon, jarPath string, refs []fileRef, sourceDirs, classpath, rules []string, configs RuleConfigs, facts FileFacts, verbose bool, target ...string) (*CheckResponse, error) {
+	first := false
+	d.aotCheckOnce.Do(func() { first = true })
+	cachePath := d.aotCachePath
+	if !first {
+		cachePath = ""
+	}
+	resp, err := d.Check(refs, sourceDirs, classpath, rules, configs, facts, target...)
+	if err == nil && cachePath != "" && !resp.rulesPresent && verbose {
+		reporter().Verbosef("verbose: krit-fir jar predates the rules response field; skipping FIR AOT self-check\n")
+	}
+	if err != nil || cachePath == "" || !missingKnownFIRRules(rules, resp) {
+		return resp, err
+	}
+
+	if verbose {
+		reporter().Verbosef("verbose: FIR AOT cache returned zero registered rules; discarding %s and retrying without AOT\n", cachePath)
+	}
+	aotWarningOnce.Do(func() {
+		fmt.Fprintln(os.Stderr, "warning: FIR AOT cache produced no registered checkers; retrying without AOT")
+	})
+	if d.shared && d.sourcesHash != "" {
+		// Release() normally leaves shared daemons running. A poisoned JVM
+		// must instead be retired and removed from the registry.
+		stopFirDaemon(d.sourcesHash, verbose)
+	}
+	_ = d.Close()
+	jvmaot.DisableForProcess(cachePath)
+	jvmaot.DiscardCache(cachePath)
+	retryDaemon, err := startFirWithoutAOT(jarPath, verbose, target...)
+	if err != nil {
+		return nil, fmt.Errorf("%w: restart FIR without AOT: %w", errFIRDegraded, err)
+	}
+	defer retryDaemon.Close()
+	resp, err = retryDaemon.Check(refs, sourceDirs, classpath, rules, configs, facts, target...)
+	if err != nil {
+		return nil, fmt.Errorf("%w: retry check: %w", errFIRDegraded, err)
+	}
+	if missingKnownFIRRules(rules, resp) {
+		return nil, errFIRDegraded
+	}
+	return resp, nil
+}
+
+func missingKnownFIRRules(requested []string, resp *CheckResponse) bool {
+	if resp == nil || !resp.rulesPresent || len(resp.Rules) != 0 {
+		return false
+	}
+	for _, rule := range requested {
+		if knownFIRRules[rule] {
+			return true
+		}
+	}
+	return false
 }
 
 func buildFileRefs(files []string) []fileRef {

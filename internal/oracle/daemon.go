@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kaeawc/krit/internal/jvmaot"
 	"github.com/kaeawc/krit/internal/perf"
 )
 
@@ -635,7 +636,11 @@ func (d *Daemon) Shutdown() error {
 	_, _ = d.sendOnce("shutdown", nil)
 	d.mu.Unlock()
 
-	return waitForCmdExit(cmd)
+	err := waitForCmdExit(cmd)
+	if cmd != nil {
+		jvmaot.FinalizeRecording(cmd.Args, err == nil)
+	}
+	return err
 }
 
 // waitForCmdExit waits for cmd to exit. On grace-period expiry it
@@ -700,6 +705,9 @@ func (d *Daemon) Checkpoint() error {
 // shuts the daemon down on exit (losing all the warmup benefit),
 // Release() leaves it alive.
 func (d *Daemon) Release() error {
+	if d.cmd != nil && !d.shared && jvmaot.IsRecording(d.cmd.Args) {
+		return d.Close()
+	}
 	d.mu.Lock()
 	d.started = false
 	conn := d.conn
@@ -755,6 +763,9 @@ func (d *Daemon) Close() error {
 
 	if claimedShutdown {
 		if err := waitForCmdExit(cmd); err != nil {
+			if cmd != nil {
+				jvmaot.FinalizeRecording(cmd.Args, false)
+			}
 			// waitForCmdExit already issued Kill on the grace-period
 			// path; this is the belt-and-suspenders fallback for a
 			// non-timeout error (e.g., Wait returned immediately with
@@ -762,6 +773,8 @@ func (d *Daemon) Close() error {
 			if cmd != nil && cmd.Process != nil {
 				_ = cmd.Process.Kill()
 			}
+		} else if cmd != nil {
+			jvmaot.FinalizeRecording(cmd.Args, true)
 		}
 	}
 	// Clean up PID files if this was a persistent daemon we started.

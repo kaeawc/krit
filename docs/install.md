@@ -100,6 +100,11 @@ download; `make build` and `go build` binaries use the in-tree jars. If the `kri
 `krit-types` jar is installed, the oracle falls back to the KAA
 backend with a warning. `krit --doctor` reports which jars are found.
 
+For local development, `make fir-jar` and `make types-jar` build and install
+content-addressed shadow jars under `~/.krit/jars/dev/<source-hash>/`.
+Worktrees with the same JVM sources share these jars. Development lookups use
+the shared jar before a worktree-local `tools/<helper>/build/libs/` jar.
+
 If GitHub fails, krit tries Maven Central. Set `KRIT_JAR_REPOSITORY` to a
 corporate Maven repository base URL to use only that mirror; the URL must use
 HTTPS, with plain HTTP accepted only for loopback hosts such as local mirrors and tests. The coordinates

@@ -26,6 +26,7 @@ var testDaemonKey = daemonRegistryKey(testJarPath, testSourceDirs)
 func TestWritePIDFile_CreatesFile(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -65,6 +66,7 @@ func TestWritePIDFile_CreatesFile(t *testing.T) {
 func TestReadPIDFile_ValidFormat(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -91,6 +93,7 @@ func TestReadPIDFile_ValidFormat(t *testing.T) {
 func TestReadPIDFile_InvalidFormat(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -113,6 +116,7 @@ func TestReadPIDFile_InvalidFormat(t *testing.T) {
 func TestReadPIDFile_InvalidPortFormat(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -133,6 +137,7 @@ func TestReadPIDFile_InvalidPortFormat(t *testing.T) {
 func TestReadPIDFile_MissingFile(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -149,6 +154,7 @@ func TestReadPIDFile_MissingFile(t *testing.T) {
 func TestReadPIDFile_MissingPortFile(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -169,6 +175,7 @@ func TestReadPIDFile_MissingPortFile(t *testing.T) {
 func TestRemovePIDFile_Cleanup(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -192,6 +199,7 @@ func TestRemovePIDFile_Cleanup(t *testing.T) {
 func TestRemovePIDFile_NoopWhenMissing(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -202,6 +210,7 @@ func TestRemovePIDFile_NoopWhenMissing(t *testing.T) {
 func TestPIDFiles_MultipleReposCoexist(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -259,6 +268,7 @@ func TestIsProcessAlive_DeadProcess(t *testing.T) {
 func TestWritePIDFile_OverwritesExisting(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -914,6 +924,7 @@ func TestConnectOrStartDaemon_NoPIDFile_StartsNew(t *testing.T) {
 
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -930,6 +941,7 @@ func TestConnectOrStartDaemon_NoPIDFile_StartsNew(t *testing.T) {
 func TestConnectOrStartDaemon_StalePIDFile_StartsNew(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -960,6 +972,7 @@ func TestConnectOrStartDaemon_StalePIDFile_StartsNew(t *testing.T) {
 func TestConnectOrStartDaemon_LiveDaemon_Reuses(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -1001,6 +1014,7 @@ func TestConnectOrStartDaemon_LiveDaemon_Reuses(t *testing.T) {
 func TestConnectOrStartDaemon_LiveDaemon_MultipleClients(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -1067,6 +1081,7 @@ func TestConnectOrStartDaemon_SharedDaemonClose_DoesNotKillProcess(t *testing.T)
 func TestCleanStaleDaemon_WithLivePIDButBrokenPort(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -1142,6 +1157,7 @@ func TestIntegration_RealDaemonWithPort(t *testing.T) {
 
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -1176,6 +1192,7 @@ func TestIntegration_ConnectOrStartDaemon(t *testing.T) {
 
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 

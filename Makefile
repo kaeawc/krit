@@ -1,4 +1,4 @@
-.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression daemon-verify corpus-snapshot corpus-precision fir-validate test-fanotify all install install-completions watch
+.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression daemon-verify corpus-snapshot corpus-precision fir-validate fir-jar types-jar test-fanotify all install install-completions watch
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
@@ -12,6 +12,12 @@ build:
 
 test:
 	go test ./... -count=1
+
+fir-jar:
+	bash scripts/build-dev-jar.sh krit-fir
+
+types-jar:
+	bash scripts/build-dev-jar.sh krit-types
 
 vet:
 	go vet ./...

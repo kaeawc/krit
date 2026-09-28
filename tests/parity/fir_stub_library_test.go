@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/firchecks"
+	"github.com/kaeawc/krit/internal/testutil"
 )
 
 // The FIR parity tests compile against the same stub library as the krit-fir
@@ -32,13 +33,23 @@ var javaStubs struct {
 }
 
 func TestMain(m *testing.M) {
+	cleanup, err := testutil.IsolateDaemons()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	if err := applyShippedRuleDefaults(); err != nil {
+		_ = cleanup()
 		fmt.Fprintf(os.Stderr, "parity tests need the shipped rule defaults: %v\n", err)
 		os.Exit(1)
 	}
 	code := m.Run()
 	if javaStubs.dir != "" {
 		_ = os.RemoveAll(javaStubs.dir)
+	}
+	if err := cleanup(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		code = 1
 	}
 	os.Exit(code)
 }

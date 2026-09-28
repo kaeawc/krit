@@ -392,6 +392,7 @@ cd tools/krit-fir
 ./gradlew --no-daemon test        # all projects, including :compiler-tests
 ./gradlew --no-daemon shadowJar   # last: `test` leaves a thin jar in build/libs
 cd ../..
+make fir-jar                    # cache this source build across worktrees
 KRIT_UPDATE_GO_LINES=1 go test ./tests/parity/ -count=1 -run TestFirGoldenGoLines   # after editing goldens
 go build -o krit ./cmd/krit/ && go vet ./... && golangci-lint run ./... && go test ./... -count=1
 go test ./tests/parity/ -count=1 -run TestFirFixtureParity -v   # needs the shadow jar and a JDK

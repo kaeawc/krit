@@ -49,6 +49,7 @@ func TestShouldUseDaemonPoolThreshold(t *testing.T) {
 
 func TestDaemonPIDFileSlotsKeepLegacySlotZero(t *testing.T) {
 	tmpHome := t.TempDir()
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	t.Setenv("HOME", tmpHome)
 
 	srcHash := hashSources([]string{"/pool/repo"})
@@ -78,6 +79,7 @@ func TestDaemonPIDFileSlotsKeepLegacySlotZero(t *testing.T) {
 
 func TestCleanStaleDaemonSlotRemovesOnlyDeadSlot(t *testing.T) {
 	tmpHome := t.TempDir()
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	t.Setenv("HOME", tmpHome)
 
 	key := daemonRegistryKey(testJarPath, testSourceDirs)
@@ -99,6 +101,7 @@ func TestCleanStaleDaemonSlotRemovesOnlyDeadSlot(t *testing.T) {
 
 func TestConnectOrStartDaemonPoolReusesLiveMembers(t *testing.T) {
 	tmpHome := t.TempDir()
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	t.Setenv("HOME", tmpHome)
 
 	fake0 := NewFakeDaemon(t)

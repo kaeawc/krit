@@ -154,7 +154,10 @@ func daemonRequestTimeout() time.Duration {
 // serve krit runs from other directories, so every path it is sent is
 // absolute (see Check) and nothing may resolve against its working directory.
 func StartFirDaemonWithPort(jarPath string, verbose bool, jvmTarget ...string) (*FirDaemon, error) {
-	return startFirDaemonWithAOT(jarPath, verbose, true, jvmTarget...)
+	// A valid Leyden cache can restore FIR with registered checkers that emit
+	// zero findings. Until cached verdicts can be verified, launch FIR without
+	// AOT for both one-shot and shared daemons.
+	return startFirDaemonWithAOT(jarPath, verbose, false, jvmTarget...)
 }
 
 func startFirDaemonWithAOT(jarPath string, verbose, allowAOT bool, jvmTarget ...string) (*FirDaemon, error) {
@@ -167,6 +170,7 @@ func startFirDaemonWithAOT(jarPath string, verbose, allowAOT bool, jvmTarget ...
 	if len(jvmTarget) > 0 && jvmTarget[0] != "" {
 		args = append(args, "--jvm-target", jvmTarget[0])
 	}
+	args = oracle.EphemeralDaemonArgs(args...)
 
 	if verbose {
 		reporter().Verbosef("verbose: Starting krit-fir daemon: %s %s\n", javaPath, strings.Join(args, " "))
@@ -191,6 +195,7 @@ func startFirDaemonWithAOT(jarPath string, verbose, allowAOT bool, jvmTarget ...
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start fir daemon: %w", err)
 	}
+	oracle.RecordTestDaemonPID(cmd.Process.Pid)
 
 	readyCh := make(chan firReadyResult, 1)
 	go func() {
@@ -250,7 +255,7 @@ func firAOTCacheArg(args []string) string {
 }
 
 func buildFirJVMArgs(jarPath, javaPath string, jdkMajor int) []string {
-	return buildFirJVMArgsWithAOT(jarPath, javaPath, jdkMajor, false, true)
+	return buildFirJVMArgsWithAOT(jarPath, javaPath, jdkMajor, false, false)
 }
 
 func buildFirJVMArgsWithAOT(jarPath, javaPath string, jdkMajor int, verbose, allowAOT bool) []string {
@@ -338,9 +343,14 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 	}
 	srcHash := firRegistryKeyFor(role, jarPath, sourceDirs, classpath, target)
 	if d, err := connectExistingFirDaemon(srcHash, verbose); err == nil {
-		d.role = role
-		d.jvmTarget = target
-		return d, nil
+		if d.aotCachePath == "" {
+			d.role = role
+			d.jvmTarget = target
+			return d, nil
+		}
+		// A daemon launched before FIR AOT was disabled may still be serving
+		// silent false negatives. Retire it before sending any analysis request.
+		_ = d.conn.Close()
 	}
 	retireSupersededFirDaemons(firRegistryFamilyPrefix(role, jarPath, sourceDirs, classpath, target), sourceDirs, srcHash, len(classpath) > 0, verbose)
 	stopFirDaemon(srcHash, verbose)
@@ -601,6 +611,12 @@ func (d *FirDaemon) Close() error {
 // ---------------------------------------------------------------------------
 
 func firDaemonsDir() (string, error) {
+	if dir := os.Getenv("KRIT_DAEMON_REGISTRY_DIR"); dir != "" {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return "", fmt.Errorf("create daemon registry dir: %w", err)
+		}
+		return dir, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("home dir: %w", err)

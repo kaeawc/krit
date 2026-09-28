@@ -85,6 +85,7 @@ fun runOneShot(parsed: ParsedArgs) {
 }
 
 fun runDaemon(parsed: ParsedArgs) {
+    startParentWatch(parsed.parentPid)
     System.err.println("krit-types daemon starting...")
     var session = DaemonSession.build(parsed)
     val startTime = System.currentTimeMillis()
@@ -132,7 +133,7 @@ fun runDaemonTcp(parsed: ParsedArgs, initialSession: DaemonSession, startTime: L
     System.out.flush()
 
     // Idle timeout: 30 minutes with no client connection
-    serverSocket.soTimeout = 30 * 60 * 1000
+    serverSocket.soTimeout = daemonIdleMillis(parsed.parentPid)
 
     while (true) {
         val client = try {
@@ -3277,6 +3278,7 @@ data class ParsedArgs(
     val output: String?,
     val expressions: Boolean = true,
     val daemon: Boolean = false,
+    val parentPid: Long? = null,
     val port: Int = -1,  // -1 = stdin/stdout mode, 0 = auto-assign TCP, >0 = specific port
     val exclude: List<String> = DEFAULT_EXCLUDE_GLOBS,
     val filesList: String? = null,      // --files LISTFILE: restrict analyze to these paths
@@ -3360,6 +3362,7 @@ fun parseArgs(args: Array<String>): ParsedArgs? {
     var output: String? = null
     var expressions = true
     var daemon = false
+    var parentPid: Long? = null
     var port = -1
     var exclude: List<String> = DEFAULT_EXCLUDE_GLOBS
     var filesList: String? = null
@@ -3380,6 +3383,12 @@ fun parseArgs(args: Array<String>): ParsedArgs? {
             "--no-expressions" -> { expressions = false }
             "--no-diagnostics" -> { diagnostics = false }
             "--daemon" -> { daemon = true }
+            "--parent-pid" -> {
+                i++
+                if (i >= args.size) return null
+                parentPid = args[i].toLongOrNull()?.takeIf { it > 0 }
+                    ?: run { System.err.println("Error: --parent-pid requires a positive process ID"); return null }
+            }
             "--port" -> { i++; if (i >= args.size) return null; port = args[i].toIntOrNull() ?: run { System.err.println("Error: --port requires an integer"); return null } }
             "--exclude" -> {
                 i++
@@ -3414,7 +3423,7 @@ fun parseArgs(args: Array<String>): ParsedArgs? {
         i++
     }
     if (sources.isEmpty()) { System.err.println("Error: --sources is required"); return null }
-    return ParsedArgs(sources, classpath, jdkHome, output, expressions, daemon, port, exclude, filesList, cacheDepsOut, timingsOut, loadCallFilter(callFilterPath), declarationProfile, diagnostics, parallelFiles)
+    return ParsedArgs(sources, classpath, jdkHome, output, expressions, daemon, parentPid, port, exclude, filesList, cacheDepsOut, timingsOut, loadCallFilter(callFilterPath), declarationProfile, diagnostics, parallelFiles)
 }
 
 fun printUsage() {
@@ -3429,6 +3438,7 @@ fun printUsage() {
         |  --no-expressions        Skip expression-level type export
         |  --no-diagnostics        Skip compiler diagnostic export
         |  --daemon                Run in daemon mode (JSON-RPC over stdin/stdout)
+        |  --parent-pid PID        Stop daemon when this process exits (2-minute idle timeout)
         |  --port N                TCP port for daemon (-1=stdin/stdout, 0=auto-assign, >0=specific port)
         |  --exclude GLOB[,GLOB]   Skip files whose paths match any glob (default: **/testData/**,**/test-resources/**; pass "" to disable)
         |  --files LISTFILE        Restrict analysis to absolute paths in LISTFILE (one per line)

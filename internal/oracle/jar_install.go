@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kaeawc/krit/internal/devjar"
 	"github.com/kaeawc/krit/internal/fsutil"
 )
 
@@ -114,6 +115,11 @@ func FindBackendJar(b Backend, scanPaths []string) string {
 			filepath.Join(jarsDir, name),
 			filepath.Join(home, ".krit", name),
 		)
+	}
+	// Development builds share a content-addressed jar across worktrees.
+	// Keep release-installed candidates ahead of this additive lookup.
+	if devPath := devjar.CachePath(base, scanPaths); devPath != "" {
+		candidates = append(candidates, devPath)
 	}
 
 	if exe, err := os.Executable(); err == nil {

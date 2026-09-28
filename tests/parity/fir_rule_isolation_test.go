@@ -189,7 +189,7 @@ func runIsolationKrit(t *testing.T, bin, project string, fir bool) ([]string, st
 	}
 	cmd := exec.Command(bin, append(args, project)...)
 	cmd.Dir = project
-	cmd.Env = append(os.Environ(), "JAVA_TOOL_OPTIONS=-Dkrit.fir.test.throwingProbeRuleId="+isolationProbeRule)
+	cmd.Env = append(os.Environ(), "KRIT_FIR_JAR=", "JAVA_TOOL_OPTIONS=-Dkrit.fir.test.throwingProbeRuleId="+isolationProbeRule)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()

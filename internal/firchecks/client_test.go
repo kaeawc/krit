@@ -6,6 +6,7 @@ import (
 )
 
 func TestFindFirJar_NoJarReturnsEmpty(t *testing.T) {
+	t.Setenv("KRIT_FIR_JAR", "")
 	tmp := t.TempDir()
 	result := FindFirJar([]string{tmp})
 	if result != "" {

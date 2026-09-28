@@ -43,6 +43,7 @@ func testLivePID(t *testing.T) int {
 }
 
 func TestConnectOrStartDaemon_ReplacedJarIsNotReused(t *testing.T) {
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	t.Setenv("HOME", t.TempDir())
 	jar := testJar(t)
 	sources := []string{t.TempDir()}
@@ -88,6 +89,7 @@ func TestConnectOrStartDaemon_ReplacedJarIsNotReused(t *testing.T) {
 }
 
 func TestDaemonRegistryKeyAndRetirementTrackClasspathJar(t *testing.T) {
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	t.Setenv("HOME", t.TempDir())
 	jar := testJar(t)
 	sources := []string{t.TempDir()}
@@ -114,6 +116,7 @@ func TestDaemonRegistryKeyAndRetirementTrackClasspathJar(t *testing.T) {
 }
 
 func TestDaemonRetiresLegacyAndPreservesOtherInputs(t *testing.T) {
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	t.Setenv("HOME", t.TempDir())
 	jar := testJar(t)
 	sources := []string{t.TempDir()}
@@ -150,6 +153,7 @@ func TestDaemonRetiresLegacyAndPreservesOtherInputs(t *testing.T) {
 }
 
 func TestConnectOrStartDaemonPoolRetiresSupersededSlot(t *testing.T) {
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	t.Setenv("HOME", t.TempDir())
 	jar := testJar(t)
 	sources := []string{t.TempDir()}
@@ -221,6 +225,7 @@ exec sleep 60
 }
 
 func TestStartDaemonRegistersJarIdentityObservedBeforeStartup(t *testing.T) {
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	t.Setenv("HOME", t.TempDir())
 	jar := testJar(t)
 	sources := []string{t.TempDir()}

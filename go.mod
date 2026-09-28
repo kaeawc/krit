@@ -8,7 +8,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/klauspost/compress v1.20.0
+	github.com/klauspost/compress v1.20.1
 	github.com/muesli/reflow v0.3.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06

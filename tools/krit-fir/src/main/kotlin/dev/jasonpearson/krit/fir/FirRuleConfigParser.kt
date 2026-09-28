@@ -45,7 +45,7 @@ internal fun parseFirScanPaths(json: String): Map<String, String> {
     }.toMap()
 }
 
-private class ConfigJsonReader(private val text: String, private val what: String) {
+internal class ConfigJsonReader(private val text: String, private val what: String) {
     private var pos = 0
     fun value(): Any? {
         space()

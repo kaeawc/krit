@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,9 @@ import (
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/pipeline"
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func TestAnalyzeProjectPreflightUsesForwardedModelAndMarker(t *testing.T) {
@@ -94,10 +98,14 @@ func TestHandleAnalyzeProjectResetsHashMemoBetweenRequests(t *testing.T) {
 	}
 }
 
-// A delegated `krit --fir` scan gets the FIR pass installed as the
-// pipeline's findings post pass; without --fir the daemon path is unchanged.
-func TestBuildProjectInput_InstallsFirPostPassOnlyForFir(t *testing.T) {
+// A delegated `krit --fir` scan starts FIR through the pipeline hook.
+func TestBuildProjectInput_InstallsAndRunsFirStartPassOnlyForFir(t *testing.T) {
 	root := t.TempDir()
+	jar := filepath.Join(root, "krit-fir.jar")
+	if err := os.WriteFile(jar, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KRIT_FIR_JAR", jar)
 	state := newDaemonState(root)
 	cfg := config.NewConfig()
 	state.cachedConfig = cfg
@@ -106,16 +114,37 @@ func TestBuildProjectInput_InstallsFirPostPassOnlyForFir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if off.Host.FindingsPostPass != nil {
-		t.Fatal("no --fir: the daemon must not install a findings post pass")
+	if off.Host.StartFindingsPass != nil || off.Host.FindingsPostPass != nil {
+		t.Fatal("no --fir: the daemon must not install a FIR findings pass")
 	}
 
 	on, err := state.buildProjectInput(daemon.AnalyzeProjectArgs{Paths: []string{root}, NoCache: true, Fir: true}, oracle.BackendKAA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if on.Host.FindingsPostPass == nil {
-		t.Fatal("--fir: the daemon must install the FIR pass as the findings post pass")
+	if on.Host.StartFindingsPass == nil || on.Host.FindingsPostPass != nil {
+		t.Fatal("--fir: the daemon must install the asynchronous FIR start hook")
+	}
+	// Exercise the installed hook and its join boundary. A missing JVM can
+	// make Check fail; that must preserve the Go finding, as before.
+	base := []scanner.Finding{{File: filepath.Join(root, "A.kt"), Line: 1, Rule: "InjectDispatcher"}}
+	pending, err := on.Host.StartFindingsPass(context.Background(), pipeline.ParseResult{
+		KotlinPaths: []string{base[0].File},
+		ActiveRules: []*api.Rule{{ID: "InjectDispatcher"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending == nil {
+		t.Fatal("FIR start hook returned no pending pass")
+	}
+	defer pending.Cancel()
+	got, err := pending.Finish(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, base) {
+		t.Fatalf("checker failure changed Go findings: %v", got)
 	}
 }
 

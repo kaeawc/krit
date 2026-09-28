@@ -1,15 +1,19 @@
 package firchecks
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/perf"
@@ -19,6 +23,116 @@ import (
 )
 
 const verdictRule = "InjectDispatcher"
+
+type checkerFunc func([]string, []string, []string, []string, RuleConfigs, FileFacts) (*Result, error)
+
+func (f checkerFunc) Check(files, sources, classpath, rules []string, configs RuleConfigs, facts FileFacts) (*Result, error) {
+	return f(files, sources, classpath, rules, configs, facts)
+}
+
+func TestStartPassOverlapsGoAnalysis(t *testing.T) {
+	entered := make(chan struct{})
+	goDone := make(chan struct{})
+	checker := checkerFunc(func(_ []string, _, _, _ []string, _ RuleConfigs, _ FileFacts) (*Result, error) {
+		close(entered)
+		<-goDone
+		return &Result{Rules: []string{verdictRule}}, nil
+	})
+	pass := StartPass(context.Background(), PassOptions{
+		Enabled: true, Checker: checker, ActiveRules: []*api.Rule{{ID: verdictRule}},
+		KotlinPaths: []string{"A.kt"},
+	})
+	t.Cleanup(func() {
+		pass.Cancel()
+		select {
+		case <-goDone:
+		default:
+			close(goDone)
+		}
+	})
+	select {
+	case <-entered: // Check is in flight before Go analysis finishes.
+	case <-time.After(5 * time.Second):
+		t.Fatal("FIR check did not start before Go analysis completed")
+	}
+	close(goDone)
+	if _, err := pass.Finish(nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStartPassFinishMatchesRunPass(t *testing.T) {
+	p := newVerdictProject(t, map[string]string{"A.kt": "fun f() = run(Dispatchers.IO)\n"}, nil)
+	base := []scanner.Finding{p.at("A.kt", "Dispatchers.IO", verdictRule, "Go finding")}
+	newOptions := func() PassOptions {
+		checker := NewFakeFirChecker()
+		checker.Findings = []scanner.Finding{p.fir("A.kt", "Dispatchers.IO", verdictRule)}
+		return PassOptions{Enabled: true, Checker: checker, ActiveRules: []*api.Rule{{ID: verdictRule}},
+			Config: config.NewConfig(), ParsedFiles: p.files(), KotlinPaths: []string{"A.kt"}}
+	}
+	want := RunPass(newOptions(), base)
+	got, err := StartPass(context.Background(), newOptions()).Finish(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("async verdict = %v, RunPass = %v", got, want)
+	}
+}
+
+func TestStartPassCheckerErrorKeepsGoAndReportsVerbose(t *testing.T) {
+	var output bytes.Buffer
+	base := []scanner.Finding{{File: "A.kt", Line: 1, Rule: verdictRule}}
+	checker := NewFakeFirChecker()
+	checker.Err = errors.New("daemon gone")
+	got, err := StartPass(context.Background(), PassOptions{
+		Enabled: true, Checker: checker, ActiveRules: []*api.Rule{{ID: verdictRule}},
+		KotlinPaths: []string{"A.kt"}, Verbose: true, VerboseOut: &output,
+	}).Finish(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, base) {
+		t.Fatalf("checker failure changed Go findings: %v", got)
+	}
+	if !strings.Contains(output.String(), "verbose: FIR checker error: daemon gone") {
+		t.Fatalf("missing verbose error: %s", output.String())
+	}
+}
+
+func TestStartPassCancelReleasesCheckerGoroutine(t *testing.T) {
+	before := runtime.NumGoroutine()
+	entered, release, exited := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	checker := checkerFunc(func(_ []string, _, _, _ []string, _ RuleConfigs, _ FileFacts) (*Result, error) {
+		defer close(exited)
+		close(entered)
+		<-release // FirChecker.Check itself has no cancellation argument.
+		return &Result{}, nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	pass := StartPass(ctx, PassOptions{Enabled: true, Checker: checker,
+		ActiveRules: []*api.Rule{{ID: verdictRule}}, KotlinPaths: []string{"A.kt"}})
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("checker did not start")
+	}
+	cancel()
+	pass.Cancel() // Abort without Finish.
+	close(release)
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("checker goroutine did not exit")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for runtime.NumGoroutine() > before && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if after := runtime.NumGoroutine(); after > before {
+		t.Fatalf("goroutines before=%d after=%d", before, after)
+	}
+}
 
 func TestRunPassGoAuthoritativeRulesKeepGoFinding(t *testing.T) {
 	p := newVerdictProject(t, map[string]string{"A.kt": "fun f() = run(Dispatchers.IO)\n"}, nil)

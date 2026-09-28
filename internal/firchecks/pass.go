@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -54,6 +55,98 @@ type PassOptions struct {
 	Thorough bool
 }
 
+// PendingPass owns an in-flight check. Check is not interruptible through the
+// FirChecker interface; Cancel releases callers immediately, and the buffered
+// result lets the checker goroutine exit as soon as Check returns.
+type PendingPass struct {
+	opts                PassOptions
+	targets             passTargetSet
+	requested, excluded []string
+	buildLogicExcluded  int
+	done                chan checkOutcome
+	ctx                 context.Context
+	cancel              context.CancelFunc
+}
+
+type checkOutcome struct {
+	result   *Result
+	err      error
+	duration time.Duration
+}
+
+// Cancel abandons a pending verdict without waiting for a JVM check.
+func (p *PendingPass) Cancel() {
+	if p != nil && p.cancel != nil {
+		p.cancel()
+	}
+}
+
+// StartPass starts the checker after snapshotting every input it reads.
+func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
+	p := &PendingPass{opts: opts}
+	if !opts.Enabled || opts.Checker == nil {
+		return p
+	}
+	active := ActiveFirRules(activeRuleIDs(opts.ActiveRules), opts.Thorough)
+	if len(active.Names) == 0 {
+		return p
+	}
+	p.targets = passTargets(opts.ParsedFiles, opts.KotlinPaths, opts.IncludeGenerated)
+	p.targets.excludeRoots(opts.GeneratedSourceDirs)
+	p.requested, p.excluded = partitionJVMFiles(p.targets.paths)
+	for _, path := range p.excluded {
+		if oracle.IsBuildLogicPath(path) {
+			p.buildLogicExcluded++
+		}
+	}
+	requested := slices.Clone(p.requested)
+	sourceDirs, classpath, ruleNames := slices.Clone(opts.SourceDirs), slices.Clone(opts.Classpath), slices.Clone(active.Names)
+	configs := firRuleConfigs(opts.Config, opts.ActiveRules)
+	for rule, values := range configs {
+		copyValues := make(map[string]any, len(values))
+		for key, value := range values {
+			copyValues[key] = cloneRuleConfigValue(value)
+		}
+		configs[rule] = copyValues
+	}
+	facts := fileFactsOf(requested, p.targets.display)
+	p.opts.GeneratedSourceDirs = slices.Clone(opts.GeneratedSourceDirs)
+	p.ctx, p.cancel = context.WithCancel(ctx)
+	p.done = make(chan checkOutcome, 1)
+	tracker := opts.Tracker
+	if tracker == nil {
+		tracker = perf.New(false)
+	}
+	go func() {
+		sub := tracker.Serial("firCheck")
+		checkStart := time.Now()
+		result, err := opts.Checker.Check(requested, sourceDirs, classpath, ruleNames, configs, facts)
+		duration := time.Since(checkStart)
+		sub.End()
+		p.done <- checkOutcome{result: result, err: err, duration: duration}
+	}()
+	return p
+}
+
+func cloneRuleConfigValue(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		copyMap := make(map[string]any, len(v))
+		for key, item := range v {
+			copyMap[key] = cloneRuleConfigValue(item)
+		}
+		return copyMap
+	case []any:
+		copySlice := make([]any, len(v))
+		for i, item := range v {
+			copySlice[i] = cloneRuleConfigValue(item)
+		}
+		return copySlice
+	default:
+		return value
+	}
+}
+
 // RunPass invokes the FIR checkers and returns base with the
 // FIR-authoritative verdict applied (see ApplyVerdict). No-op when
 // opts.Enabled is false or no checker is configured.
@@ -62,39 +155,39 @@ type PassOptions struct {
 // failures retain Go findings. Verbose mode reports the error, the timing, the
 // file gating, and per-rule verdict counts.
 func RunPass(opts PassOptions, base []scanner.Finding) []scanner.Finding {
+	p := StartPass(context.Background(), opts)
+	merged, _ := p.Finish(base)
+	return merged
+}
+
+// Finish waits for the checker and applies its verdict to completed Go findings.
+// Checker errors retain those findings, as RunPass always has.
+func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) {
+	if p == nil {
+		return base, nil
+	}
+	opts := p.opts
 	if !opts.Enabled || opts.Checker == nil {
-		return base
+		return base, nil
 	}
 	base = excludeGeneratedFindings(base, opts.GeneratedSourceDirs)
-	active := ActiveFirRules(activeRuleIDs(opts.ActiveRules), opts.Thorough)
-	if len(active.Names) == 0 {
-		return base
+	if p.done == nil {
+		return base, nil
 	}
-	start := time.Now()
-	targets := passTargets(opts.ParsedFiles, opts.KotlinPaths, opts.IncludeGenerated)
-	targets.excludeRoots(opts.GeneratedSourceDirs)
-	requested, excluded := partitionJVMFiles(targets.paths)
-	buildLogicExcluded := 0
-	for _, path := range excluded {
-		if oracle.IsBuildLogicPath(path) {
-			buildLogicExcluded++
-		}
+	var outcome checkOutcome
+	select {
+	case outcome = <-p.done:
+	case <-p.ctx.Done():
+		return base, p.ctx.Err()
 	}
-
-	tracker := opts.Tracker
-	if tracker == nil {
-		tracker = perf.New(false)
-	}
-	sub := tracker.Serial("firCheck")
-	result, err := opts.Checker.Check(requested, opts.SourceDirs, opts.Classpath, active.Names,
-		firRuleConfigs(opts.Config, opts.ActiveRules), fileFactsOf(requested, targets.display))
-	sub.End()
+	p.Cancel()
+	result, err := outcome.result, outcome.err
 	verbose := opts.Verbose && opts.VerboseOut != nil
 	if err != nil {
 		if verbose {
 			fmt.Fprintf(opts.VerboseOut, "verbose: FIR checker error: %v\n", err)
 		}
-		return base
+		return base, nil
 	}
 	if opts.Config != nil && len(opts.Config.FIR().GoAuthoritativeRules) > 0 {
 		goAuthoritative := make(map[string]bool)
@@ -115,19 +208,19 @@ func RunPass(opts PassOptions, base []scanner.Finding) []scanner.Finding {
 	merged, stats := ApplyVerdict(VerdictInput{
 		Go:          base,
 		FIR:         result,
-		Requested:   requested,
-		Excluded:    excluded,
-		DisplayPath: targets.display,
-		Suppressed:  newSuppressor(targets.files).suppressed,
+		Requested:   p.requested,
+		Excluded:    p.excluded,
+		DisplayPath: p.targets.display,
+		Suppressed:  newSuppressor(p.targets.files).suppressed,
 	})
 	if verbose {
 		cache := Stats()
 		fmt.Fprintf(opts.VerboseOut,
 			"verbose: FIR checker in %v (%d findings, %d files requested, cache hits=%d misses=%d)\n",
-			time.Since(start).Round(time.Millisecond), len(result.Findings), len(requested), cache.Hits, cache.Misses)
-		writeVerdictSummary(opts.VerboseOut, stats, buildLogicExcluded)
+			outcome.duration.Round(time.Millisecond), len(result.Findings), len(p.requested), cache.Hits, cache.Misses)
+		writeVerdictSummary(opts.VerboseOut, stats, p.buildLogicExcluded)
 	}
-	return merged
+	return merged, nil
 }
 
 // maxGatedFilesListed caps the per-file gating lines in verbose output.

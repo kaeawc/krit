@@ -70,7 +70,7 @@ import org.jetbrains.kotlin.name.Name
 internal object IntoMapMissingKey : FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common), FirRule {
     override val ruleId = "IntoMapMissingKey"
     override val declarationCheckers = object : DeclarationCheckers() {
-        override val simpleFunctionCheckers = setOf(IntoMapMissingKey)
+        override val namedFunctionCheckers = setOf(IntoMapMissingKey)
     }
 
     private val dagger = FqName("dagger")

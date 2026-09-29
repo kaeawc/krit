@@ -72,7 +72,7 @@ internal object IntoSetOnNonSetReturn :
     FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common), FirRule {
     override val ruleId = "IntoSetOnNonSetReturn"
     override val declarationCheckers = object : DeclarationCheckers() {
-        override val simpleFunctionCheckers = setOf(IntoSetOnNonSetReturn)
+        override val namedFunctionCheckers = setOf(IntoSetOnNonSetReturn)
     }
 
     private val dagger = FqName("dagger")

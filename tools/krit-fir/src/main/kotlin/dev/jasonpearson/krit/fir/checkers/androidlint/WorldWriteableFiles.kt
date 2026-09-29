@@ -135,9 +135,9 @@ internal object WorldWriteableFiles : FirQualifiedAccessExpressionChecker(MppChe
 
     private fun isGeneratedRead(kind: KtSourceElementKind?): Boolean =
         kind == KtFakeSourceElementKind.PropertyFromParameter ||
-            kind == KtFakeSourceElementKind.DelegatedPropertyAccessor ||
-            kind == KtFakeSourceElementKind.DataClassGeneratedMembers ||
-            kind is KtFakeSourceElementKind.DesugaredPrefixSecondGetReference
+            kind is KtFakeSourceElementKind.DelegatedPropertyAccessor ||
+            kind is KtFakeSourceElementKind.DataClassGeneratedMembers ||
+            (kind is KtFakeSourceElementKind.DesugaredIncrementOrDecrement && kind.isSecondGetReference)
 
     // `MODE_WORLD_WRITEABLE = value`: Go reports the assigned name, so FIR
     // does unless the value written is provably not world-writeable. A

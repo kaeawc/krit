@@ -1,7 +1,7 @@
 import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
 
 plugins {
-    kotlin("jvm") version "2.3.21"
+    kotlin("jvm") version "2.4.20"
     id("com.gradleup.shadow") version "9.4.2"
     `maven-publish`
     signing
@@ -15,9 +15,14 @@ version = (findProperty("kritVersion") as String?)
 
 val isSnapshot = version.toString().endsWith("-SNAPSHOT")
 
-val kotlinVersion = "2.3.21"
+val kotlinVersion = "2.4.20"
 
 val bundledKotlinStdlib by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
+val standaloneIntellijCore by configurations.creating {
     isCanBeConsumed = false
     isCanBeResolved = true
 }
@@ -40,6 +45,11 @@ dependencies {
     add(bundledKotlinStdlib.name, "org.jetbrains.kotlin:kotlin-stdlib:$kotlinVersion") { isTransitive = false }
     implementation(project(":krit-rule-api"))
 
+    // Match Kotlin 2.4.20 gradle/versions.properties. The compiler jar shrinks
+    // IntelliJ APIs that standalone decompiler services still call, so the
+    // complete core must precede it on both test and shadow classpaths.
+    add(standaloneIntellijCore.name, "com.jetbrains.intellij.platform:core:251.27812.49") { isTransitive = false }
+
     // Kotlin compiler (non-embeddable, full APIs)
     implementation("org.jetbrains.kotlin:kotlin-compiler:$kotlinVersion")
 
@@ -52,8 +62,12 @@ dependencies {
     implementation("org.jetbrains.kotlin:low-level-api-fir-for-ide:$kotlinVersion") { isTransitive = false }
     implementation("org.jetbrains.kotlin:symbol-light-classes-for-ide:$kotlinVersion") { isTransitive = false }
 
+    // Kotlin 2.4 moved the decompiler services used by standalone analysis
+    // out of kotlin-compiler and into the IDE common bundle.
+    runtimeOnly("org.jetbrains.kotlin:kotlin-compiler-common-for-ide:$kotlinVersion") { isTransitive = false }
+
     // Required runtime deps
-    implementation("com.github.ben-manes.caffeine:caffeine:3.2.4")
+    implementation("com.github.ben-manes.caffeine:caffeine:3.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.11.0")
     runtimeOnly("org.jetbrains.intellij.deps.kotlinx:kotlinx-coroutines-core:1.10.2-intellij-1")
 
@@ -65,6 +79,8 @@ kotlin {
 }
 
 tasks.shadowJar {
+    // Explicit inputs precede dependency jars, retaining the unshrunk API.
+    from(standaloneIntellijCore.map { zipTree(it) })
     archiveClassifier.set("")
     // Keep the launcher path stable while project version drives publication coordinates.
     archiveFileName.set("krit-types.jar")
@@ -86,6 +102,7 @@ tasks.shadowJar {
     minimize {
         // Keep deps accessed via reflection/service loading
         exclude(dependency("org.jetbrains.kotlin:kotlin-compiler:.*"))
+        exclude(dependency("org.jetbrains.kotlin:kotlin-compiler-common-for-ide:.*"))
         exclude(dependency("org.jetbrains.kotlin:analysis-api.*"))
         exclude(dependency("org.jetbrains.kotlin:low-level-api.*"))
         exclude(dependency("org.jetbrains.kotlin:symbol-light-classes.*"))
@@ -96,6 +113,7 @@ tasks.shadowJar {
 }
 
 tasks.test {
+    classpath = standaloneIntellijCore + classpath
     useJUnitPlatform()
 }
 

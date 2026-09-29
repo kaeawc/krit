@@ -12,7 +12,7 @@ import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
-import org.jetbrains.kotlin.fir.expressions.FirSamConversionExpression
+import org.jetbrains.kotlin.fir.expressions.FirFunctionTypeConversionExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.name.CallableId
@@ -123,7 +123,7 @@ internal object UnnecessaryFilter : FirFunctionCallChecker(MppCheckerKind.Common
     // is converted to a SAM interface (FileCollection.filter(Spec)).
     private fun trailingLambdaOf(filterCall: FirFunctionCall): FirAnonymousFunctionExpression? {
         var argument = filterCall.argumentList.arguments.singleOrNull() ?: return null
-        if (argument is FirSamConversionExpression) argument = argument.expression
+        if (argument is FirFunctionTypeConversionExpression) argument = argument.expression
         val lambda = argument as? FirAnonymousFunctionExpression ?: return null
         return if (lambda.isTrailingLambda) lambda else null
     }

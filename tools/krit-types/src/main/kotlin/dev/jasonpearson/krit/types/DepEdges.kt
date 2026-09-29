@@ -4,6 +4,7 @@ import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.impl.source.tree.LeafPsiElement
+import com.intellij.psi.tree.IElementType
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.symbols.*
@@ -225,7 +226,8 @@ internal fun KaSession.recordResolvedDependencyEdges(file: KtFile, tracker: DepT
     }
 }
 
-private val nonOverloadableOperators = setOf(
+// Kotlin 2.4 exposes a nullable operation token; null is not a built-in operator.
+private val nonOverloadableOperators = setOf<IElementType?>(
     KtTokens.ANDAND, KtTokens.OROR, KtTokens.EQEQEQ, KtTokens.EXCLEQEQEQ, KtTokens.ELVIS,
     KtTokens.EQ, KtTokens.AS_KEYWORD, KtTokens.AS_SAFE, KtTokens.IS_KEYWORD, KtTokens.NOT_IS,
     KtTokens.EXCLEXCL,

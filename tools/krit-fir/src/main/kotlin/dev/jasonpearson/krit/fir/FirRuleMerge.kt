@@ -18,7 +18,7 @@ internal data class MergedFirCheckers(
     val type: TypeCheckers,
 )
 
-// K2 2.3.21 checker-set surface: 36 expression, 24 declaration and 4 type
+// K2 2.4.20 checker-set surface: 39 expression, 24 declaration and 4 type
 // properties. New rules contribute checker sets; only a K2 API change requires
 // updating this file, and FirCheckerSurfaceTest fails when one is missed.
 //
@@ -89,12 +89,15 @@ internal fun mergeFirRules(
         override val collectionLiteralCheckers = ex { it.collectionLiteralCheckers }
         override val classReferenceExpressionCheckers = ex { it.classReferenceExpressionCheckers }
         override val inaccessibleReceiverCheckers = ex { it.inaccessibleReceiverCheckers }
+        override val replExpressionReferenceCheckers = ex { it.replExpressionReferenceCheckers }
+        override val replPropertyDelegateCheckers = ex { it.replPropertyDelegateCheckers }
+        override val replPropertyInitializerCheckers = ex { it.replPropertyInitializerCheckers }
     }
     val declaration = object : DeclarationCheckers() {
         override val basicDeclarationCheckers = de { it.basicDeclarationCheckers }
         override val callableDeclarationCheckers = de { it.callableDeclarationCheckers }
         override val functionCheckers = de { it.functionCheckers }
-        override val simpleFunctionCheckers = de { it.simpleFunctionCheckers }
+        override val namedFunctionCheckers = de { it.namedFunctionCheckers }
         override val propertyCheckers = de { it.propertyCheckers }
         override val classLikeCheckers = de { it.classLikeCheckers }
         override val classCheckers = de { it.classCheckers }

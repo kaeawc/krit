@@ -105,7 +105,7 @@ import org.jetbrains.kotlin.name.Name
 internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common), FirRule {
     override val ruleId = "Wakelock"
     override val declarationCheckers = object : DeclarationCheckers() {
-        override val simpleFunctionCheckers = setOf(Wakelock)
+        override val namedFunctionCheckers = setOf(Wakelock)
     }
 
     private const val MESSAGE = "WakeLock acquired without release. Ensure WakeLock.release() is called."
@@ -278,7 +278,7 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
                 setOf(listOf<Any>(bound)) + subject?.let { identities(it, bindings, next) }.orEmpty()
             }
             is FirResolvedQualifier -> {
-                val symbol = current.symbol ?: return emptySet()
+                val symbol = current.qualifierSymbol ?: return emptySet()
                 val companion = (symbol as? FirRegularClassSymbol)?.resolvedCompanionObjectSymbol
                 setOf(listOf<Any>(if (current.resolvedToCompanionObject && companion != null) companion else symbol))
             }

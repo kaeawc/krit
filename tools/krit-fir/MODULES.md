@@ -43,10 +43,10 @@ and changed components. Legacy session rebuilds transfer module cache ownership.
 Session directory names encode the process ID; startup sweeps directories older
 than 24 hours only when their owning process is no longer alive.
 
-## Verified HMPP arguments (Kotlin 2.3.21)
+## Verified HMPP arguments (Kotlin 2.4.20)
 
 The embedded compiler's `CommonCompilerArguments` field annotations, inspected
-with `javap -v -p -classpath kotlin-compiler-2.3.21.jar`, declare:
+with `javap -v -p -classpath kotlin-compiler-2.4.20.jar`, declare:
 
 ```
 -Xmulti-platform

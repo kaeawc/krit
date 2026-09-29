@@ -361,15 +361,16 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
                     when (val bound = value.calleeReference.boundSymbol) {
                         is FirClassLikeSymbol<*> -> bound
                         is FirReceiverParameterSymbol -> {
+                            // Kotlin 2.4 binds lambda `this` to its receiver parameter,
+                            // not directly to the anonymous function symbol.
                             val owner = bound.containingDeclarationSymbol
                             if (owner is FirAnonymousFunctionSymbol) lambdaKey(owner, depth) else owner
                         }
-                        is FirAnonymousFunctionSymbol -> lambdaKey(bound, depth)
                         null -> value
                         else -> bound
                     }
                 }
-                is FirResolvedQualifier -> value.symbol ?: value
+                is FirResolvedQualifier -> value.qualifierSymbol ?: value
                 is FirPropertyAccessExpression -> {
                     val symbol = value.calleeReference.toResolvedCallableSymbol() as? FirVariableSymbol<*>
                     if (symbol == null || value.explicitReceiver != null) return value

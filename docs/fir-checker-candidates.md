@@ -29,7 +29,7 @@ at level 1 or 2.
 
 Only **warnings** can be projected. The oracle's message collectors drop
 error-severity diagnostics, and code that compiles never contains them anyway.
-The inventory below was verified against kotlinc 2.3.21 (the compiler embedded
+The inventory below was verified against kotlinc 2.4.20 (the compiler embedded
 in `krit-fir.jar`) with the same checker set the oracle runs. To re-verify
 after a compiler upgrade, compile a probe file with the embedded compiler:
 
@@ -186,7 +186,7 @@ A built-in checker is a Kotlin singleton object implementing `FirRule` in
 Its `ruleId` is the exact Go catalog ID; it contributes an `ExpressionCheckers`
 and/or `DeclarationCheckers` set and calls `report(source, message)` for findings.
 The plugin discovers these objects recursively from its jar or classes directory
-and merges every K2 2.3.21 checker-set property. A new checker needs only its
+and merges every K2 2.4.20 checker-set property. A new checker needs only its
 own file and test data: no registry, diagnostic factory, or Go mapping edit.
 The `check` request selects rule IDs and may pass per-rule `ruleConfigs` options;
 `config()` reads the current compile's options. Oracle analysis explicitly

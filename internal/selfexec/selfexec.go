@@ -17,11 +17,22 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"testing"
 )
 
 // ErrTestBinary reports that the running executable is a Go test
 // binary and must not be re-launched as krit.
 var ErrTestBinary = errors.New("selfexec: running executable is a Go test binary, not krit")
+
+// Go's linker marks test binaries even when -o gives them a custom name.
+// Keep the path so IsTestBinary still distinguishes other executables.
+var currentTestBinary = func() string {
+	if !testing.Testing() {
+		return ""
+	}
+	exe, _ := os.Executable()
+	return exe
+}()
 
 // Executable returns the path of the running krit binary, or an error
 // wrapping ErrTestBinary when running inside a Go test binary.
@@ -36,9 +47,11 @@ func Executable() (string, error) {
 	return exe, nil
 }
 
-// IsTestBinary reports whether path names a Go test binary. `go test`
-// always names them `<pkg>.test` (`<pkg>.test.exe` on Windows).
+// IsTestBinary reports whether path names a Go test binary. It recognizes
+// the conventional .test suffix and the currently running test binary,
+// including a custom name supplied with go test -c -o.
 func IsTestBinary(path string) bool {
 	base := strings.TrimSuffix(filepath.Base(path), ".exe")
-	return strings.HasSuffix(base, ".test")
+	return strings.HasSuffix(base, ".test") ||
+		currentTestBinary != "" && (path == currentTestBinary || path == os.Args[0])
 }

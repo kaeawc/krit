@@ -34,7 +34,9 @@ can opt into JVM-backed Kotlin Analysis API/FIR helper facts (`tools/krit-types/
   while iterating. **Never run a bare `go test ./...`.** `make test` goes
   through `scripts/go-test.sh`, which caps the process count
   (`ulimit -u`: current processes + 2048) and package parallelism
-  (`-p 4`); use that script for any other multi-package run. An
+  (`-p 4`); privileged Linux runs use systemd `TasksMax` or cgroup v2,
+  warning and continuing without a cap if neither is usable; use that script
+  for any other multi-package run. An
   uncapped run once filled the machine's process table.
 - Code that re-launches krit (daemon autostart, score, metrics,
   `--delta`, experiment matrices, snapshot simulate) must resolve the

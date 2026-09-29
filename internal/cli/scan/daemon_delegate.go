@@ -12,6 +12,7 @@ import (
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/selfexec"
 )
 
 var ensureDaemonForScan = daemonclient.EnsureCompatible
@@ -496,7 +497,7 @@ func emitDaemonDispatchProfile(p *daemon.DispatchProfile) {
 }
 
 func daemonBinaryForScan() string {
-	exe, err := os.Executable()
+	exe, err := selfexec.Executable()
 	if err != nil {
 		return ""
 	}

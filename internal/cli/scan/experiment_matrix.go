@@ -14,6 +14,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/experiment"
 	"github.com/kaeawc/krit/internal/perf"
+	"github.com/kaeawc/krit/internal/selfexec"
 	"github.com/kaeawc/krit/internal/store"
 )
 
@@ -221,7 +222,7 @@ func RunExperimentMatrix(opts MatrixRunOptions) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 2
 	}
-	exe, err := os.Executable()
+	exe, err := selfexec.Executable()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: determine executable: %v\n", err)
 		return 2

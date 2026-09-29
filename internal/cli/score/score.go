@@ -14,6 +14,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/selfexec"
 )
 
 func Run(args []string) int {
@@ -62,7 +63,7 @@ type scanJSONReport struct {
 }
 
 func scanReport(targets []string, configPath string) (scanJSONReport, int, error) {
-	exe, err := os.Executable()
+	exe, err := selfexec.Executable()
 	if err != nil {
 		return scanJSONReport{}, 1, err
 	}

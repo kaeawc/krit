@@ -11,7 +11,7 @@ go build -o krit ./cmd/krit/
 go vet ./...
 golangci-lint run ./...
 make lint-rules
-go test ./... -count=1
+make test
 ```
 
 If any step fails:

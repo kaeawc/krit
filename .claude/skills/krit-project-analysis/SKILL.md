@@ -78,5 +78,5 @@ After changing a rule or project model behavior:
 ```bash
 go build -o krit ./cmd/krit/
 go vet ./...
-go test ./... -count=1
+make test
 ```

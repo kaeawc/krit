@@ -21,6 +21,9 @@ run_test() {
         echo -e "${RED}FAIL${NC}"
         FAIL=$((FAIL + 1))
         echo "    --- output ---"
+        # The tail alone can hide which package failed in a long run.
+        grep -E '^(--- FAIL|FAIL|panic:)' "$log" | sed 's/^/    /' | head -40
+        echo "    ..."
         sed 's/^/    /' "$log" | tail -30
         echo "    --- end ---"
         rm -f "$log"
@@ -74,7 +77,7 @@ run_test "MCP tests" go test ./cmd/krit-mcp/ -count=1 -timeout 60s
 
 echo ""
 echo "=== Unit Tests ==="
-run_test "All packages" go test ./... -count=1 -timeout 600s
+run_test "All packages" bash scripts/go-test.sh ./... -count=1 -timeout 600s
 
 echo ""
 echo "================================"

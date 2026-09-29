@@ -22,7 +22,7 @@ run_test() {
         FAIL=$((FAIL + 1))
         echo "    --- output ---"
         # The tail alone can hide which package failed in a long run.
-        grep -E '^(--- FAIL|FAIL|panic:)' "$log" | sed 's/^/    /' | head -40
+        grep -E '^(--- FAIL|FAIL|panic:)' "$log" | sed 's/^/    /' | head -40 || true
         echo "    ..."
         sed 's/^/    /' "$log" | tail -30
         echo "    --- end ---"

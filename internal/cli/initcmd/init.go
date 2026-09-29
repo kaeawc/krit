@@ -17,6 +17,7 @@ import (
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/onboarding"
 	"github.com/kaeawc/krit/internal/onboarding/tui"
+	"github.com/kaeawc/krit/internal/selfexec"
 )
 
 // runInitSubcommand is the entry point for `krit init [dir]`. It
@@ -269,7 +270,7 @@ func resolveKritBin() (string, error) {
 			return env, nil
 		}
 	}
-	exe, err := os.Executable()
+	exe, err := selfexec.Executable()
 	if err == nil {
 		if _, err := os.Stat(exe); err == nil {
 			return exe, nil

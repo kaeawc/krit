@@ -110,7 +110,7 @@ go build -o krit ./cmd/krit/
 go vet ./...
 golangci-lint run ./...
 make lint-rules
-go test ./... -count=1
+make test
 ```
 
 `golangci-lint run ./...` and `make lint-rules` are both required — `go vet` alone misses gofmt drift, unused helpers, and the capability-declaration gate. Run `make integration` before pushing if the change touches dispatch, pipeline, output, or daemon code.

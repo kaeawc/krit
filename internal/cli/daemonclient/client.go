@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/selfexec"
 )
 
 // Client is a lightweight wrapper that remembers a socket path and
@@ -246,11 +247,16 @@ func EnsureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
 	}
 	binary := opts.Binary
 	if binary == "" {
-		exe, err := os.Executable()
+		exe, err := selfexec.Executable()
 		if err != nil {
 			return nil, fmt.Errorf("daemonclient: locate krit binary: %w", err)
 		}
 		binary = exe
+	}
+	// A test binary ignores `serve` and reruns its whole suite, which
+	// reaches this spawn again: an unbounded, detached process chain.
+	if selfexec.IsTestBinary(binary) {
+		return nil, fmt.Errorf("daemonclient: refusing to spawn %s as a daemon: %w", binary, selfexec.ErrTestBinary)
 	}
 	socket := daemon.DefaultSocketPath(repoRoot)
 	if err := os.MkdirAll(filepath.Dir(socket), 0o755); err != nil {

@@ -394,7 +394,7 @@ cd tools/krit-fir
 cd ../..
 make fir-jar                    # cache this source build across worktrees
 KRIT_UPDATE_GO_LINES=1 go test ./tests/parity/ -count=1 -run TestFirGoldenGoLines   # after editing goldens
-go build -o krit ./cmd/krit/ && go vet ./... && golangci-lint run ./... && go test ./... -count=1
+go build -o krit ./cmd/krit/ && go vet ./... && golangci-lint run ./... && make test
 go test ./tests/parity/ -count=1 -run TestFirFixtureParity -v   # needs the shadow jar and a JDK
 make integration
 ```

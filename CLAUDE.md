@@ -16,7 +16,7 @@ can opt into JVM-backed Kotlin Analysis API/FIR helper facts (`tools/krit-types/
 - Keep analyzer and rule work in Go. Edit Kotlin/Gradle only for
   `krit-gradle-plugin/` or `tools/krit-*/`.
 - After implementation changes, run all four:
-  `go build -o krit ./cmd/krit/ && go vet ./... && golangci-lint run ./... && go test ./... -count=1`.
+  `go build -o krit ./cmd/krit/ && go vet ./... && golangci-lint run ./... && make test`.
 - **`golangci-lint run ./...` is required** — `go vet` does not catch
   gofmt drift, unused functions/imports, or many other lint classes that
   CI enforces. Skipping it just causes a CI round-trip. It's especially
@@ -30,8 +30,18 @@ can opt into JVM-backed Kotlin Analysis API/FIR helper facts (`tools/krit-types/
   the workflow to fail to load with **zero checks scheduled** on the PR.
   The `actionlint` CI job runs the same check, so a missed local run
   just costs a round-trip.
-- Run `go test ./... -count=1` for full test validation; use focused
-  package tests while iterating.
+- Run `make test` for full test validation; use focused package tests
+  while iterating. **Never run a bare `go test ./...`.** `make test` goes
+  through `scripts/go-test.sh`, which caps the process count
+  (`ulimit -u`: current processes + 2048) and package parallelism
+  (`-p 4`); use that script for any other multi-package run. An
+  uncapped run once filled the machine's process table.
+- Code that re-launches krit (daemon autostart, score, metrics,
+  `--delta`, experiment matrices, snapshot simulate) must resolve the
+  binary with `selfexec.Executable()`, never `os.Executable()`. Under
+  `go test` the executable is the package's `.test` binary; it ignores
+  verbs like `serve`, reruns its whole suite, reaches the same spawn,
+  and launches another copy without bound.
 - For local JVM helpers, run `make fir-jar` or `make types-jar` from the
   repository root. These build a shadow jar once per source hash under
   `~/.krit/jars/dev/<hash>/`, shared by worktrees. The Go jar locator uses
@@ -133,7 +143,7 @@ The Makefile is the canonical entry point — `make ci` mirrors what CI runs.
 
 ```bash
 make build          # Builds krit, krit-lsp, krit-mcp with version ldflags
-make test           # go test ./... -count=1
+make test           # go test ./... -count=1 under a process cap (scripts/go-test.sh)
 make vet            # go vet ./...
 make lint-rules     # Enforce NeedsResolver/NeedsOracle capability declarations
 make integration    # Full integration suite (build + playground + CLI/LSP/MCP)
@@ -149,7 +159,7 @@ Manual equivalents (use during iteration):
 go build -o krit ./cmd/krit/
 go vet ./...
 golangci-lint run ./...
-go test ./... -count=1
+make test
 ```
 
 Focused package tests:

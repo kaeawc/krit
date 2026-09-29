@@ -26,7 +26,7 @@ Invoke the `krit-tighten-rule` skill for the rule named in ARGUMENTS.
    go vet ./...
    golangci-lint run ./...
    make lint-rules
-   go test ./... -count=1
+   make test
    ```
 
 Report: rule name, FP bucket, fixture(s) added, evidence change, before/after finding counts if a corpus was involved.

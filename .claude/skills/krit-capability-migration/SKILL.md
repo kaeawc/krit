@@ -60,5 +60,5 @@ Use focused tests while iterating, then run:
 ```bash
 go build -o krit ./cmd/krit/
 go vet ./...
-go test ./... -count=1
+make test
 ```

@@ -89,6 +89,9 @@ func runScanCLI(t *testing.T, argv []string) []byte {
 	if !hasFIRChoice {
 		argv = append(argv[:1:1], append([]string{"--no-fir"}, argv[1:]...)...)
 	}
+	// This helper compares the in-process path; never autostart a
+	// daemon from inside the test binary.
+	argv = append(argv[:1:1], append([]string{"--no-daemon"}, argv[1:]...)...)
 	os.Args = argv
 	flag.CommandLine = flag.NewFlagSet(argv[0], flag.ContinueOnError)
 	BaselineAuditVerb = false

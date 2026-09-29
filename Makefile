@@ -11,7 +11,7 @@ build:
 	go build -ldflags "$(LDFLAGS)" -o krit-changelog ./cmd/krit-changelog/
 
 test:
-	go test ./... -count=1
+	bash scripts/go-test.sh ./... -count=1
 
 fir-jar:
 	bash scripts/build-dev-jar.sh krit-fir

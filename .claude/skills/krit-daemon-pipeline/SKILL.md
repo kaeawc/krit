@@ -72,7 +72,7 @@ If any of those fails, prefer rebuilding per scan. Daemon state with unclear inv
 go build -o krit ./cmd/krit/
 go vet ./...
 golangci-lint run ./...
-go test ./... -count=1
+make test
 make integration
 make regression
 ```

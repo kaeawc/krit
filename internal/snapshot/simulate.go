@@ -13,6 +13,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/kaeawc/krit/internal/selfexec"
 )
 
 // defaultSimulateCommits caps a Simulate call when neither Since nor
@@ -305,7 +307,11 @@ func parseRuleFindingCount(payload []byte, rule string) (int, error) {
 }
 
 func resolveKritBin() (string, error) {
-	if exe, err := os.Executable(); err == nil {
+	exe, err := selfexec.Executable()
+	if errors.Is(err, selfexec.ErrTestBinary) {
+		return "", fmt.Errorf("snapshot: set KritBin in tests: %w", err)
+	}
+	if err == nil {
 		if abs, err := filepath.Abs(exe); err == nil {
 			return abs, nil
 		}

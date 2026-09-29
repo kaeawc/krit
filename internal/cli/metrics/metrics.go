@@ -16,6 +16,7 @@ import (
 	"github.com/kaeawc/krit/internal/metrics"
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/perf"
+	"github.com/kaeawc/krit/internal/selfexec"
 )
 
 const defaultMetricsPath = ".krit/metrics.jsonl"
@@ -90,7 +91,7 @@ type scanReport struct {
 }
 
 func scanJSONReport(targets []string, configPath string) (scanReport, int, error) {
-	exe, err := os.Executable()
+	exe, err := selfexec.Executable()
 	if err != nil {
 		return scanReport{}, 1, err
 	}

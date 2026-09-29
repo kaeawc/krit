@@ -21,11 +21,13 @@ Krit is a Go-first static analyzer for Kotlin, Java, and Android projects. It pa
 go build -o krit ./cmd/krit/   # Build CLI
 go vet ./...                    # Lint Go code
 golangci-lint run ./...         # Lint (gofmt, unused, etc.) — REQUIRED, easy to forget
-go test ./... -count=1          # Full Go test suite
+make test                       # Full Go test suite (process-capped)
 scripts/lint-actions.sh         # actionlint — REQUIRED after `.github/workflows/*.yml` edits
 ```
 
-After implementation changes, run all four Go steps: `go build -o krit ./cmd/krit/`, `go vet ./...`, `golangci-lint run ./...`, and `go test ./... -count=1`. CI runs `golangci-lint`, so missing a gofmt/unused/lint issue locally just causes a CI round-trip — always run it before pushing. Use focused package tests while iterating.
+After implementation changes, run all four Go steps: `go build -o krit ./cmd/krit/`, `go vet ./...`, `golangci-lint run ./...`, and `make test`. CI runs `golangci-lint`, so missing a gofmt/unused/lint issue locally just causes a CI round-trip — always run it before pushing. Use focused package tests while iterating.
+
+Never run a bare `go test ./...`: `make test` runs it through `scripts/go-test.sh`, which caps the process count (`ulimit -u`) and package parallelism (`-p 4`) so a runaway spawn fails fast instead of filling the machine's process table. Use `scripts/go-test.sh` for other multi-package runs too. Code that re-launches krit must resolve its binary with `selfexec.Executable()`, never `os.Executable()`: under `go test` that is the test binary, and re-launching it reruns the suite, which spawns again.
 
 After editing any GitHub Actions workflow (`.github/workflows/*.yml`), also run `scripts/lint-actions.sh`. `actionlint` catches semantic errors that plain YAML parsers accept — e.g. `${{ hashFiles(...) }}` at workflow-`env` scope, which is syntactically valid YAML but illegal in GitHub Actions and causes the workflow to fail to load with **zero checks scheduled** on the PR. The dedicated `actionlint` CI job runs the same check.
 

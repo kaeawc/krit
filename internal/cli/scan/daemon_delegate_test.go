@@ -879,3 +879,12 @@ func TestBuildDaemonAnalyzeArgs_ForwardsPerfFlags(t *testing.T) {
 		})
 	}
 }
+
+// TestDaemonBinaryForScanRefusesTestBinary guards the autostart path:
+// under go test the running executable is scan.test, and spawning it
+// as `serve` reruns the suite, which spawns again without bound.
+func TestDaemonBinaryForScanRefusesTestBinary(t *testing.T) {
+	if got := daemonBinaryForScan(); got != "" {
+		t.Fatalf("daemonBinaryForScan() = %q, want empty inside go test", got)
+	}
+}

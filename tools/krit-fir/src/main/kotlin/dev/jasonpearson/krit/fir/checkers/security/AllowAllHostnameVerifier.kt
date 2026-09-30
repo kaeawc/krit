@@ -81,7 +81,7 @@ internal object AllowAllHostnameVerifier :
     FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common), FirRule {
     override val ruleId = "AllowAllHostnameVerifier"
     override val declarationCheckers = object : DeclarationCheckers() {
-        override val simpleFunctionCheckers = setOf(AllowAllHostnameVerifier)
+        override val namedFunctionCheckers = setOf(AllowAllHostnameVerifier)
     }
 
     private val verify = Name.identifier("verify")

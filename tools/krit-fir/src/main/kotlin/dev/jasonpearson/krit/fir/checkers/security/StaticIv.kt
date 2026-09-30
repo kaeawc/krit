@@ -268,11 +268,11 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
     private fun goDecodeForm(call: FirFunctionCall): Boolean {
         val receiver = call.explicitReceiver?.let(::unwrap) ?: return false
         return when (receiver) {
-            is FirResolvedQualifier -> receiver.classId?.shortClassName == base64
+            is FirResolvedQualifier -> receiver.qualifierSymbol?.classId?.shortClassName == base64
             is FirFunctionCall -> {
                 val owner = receiver.explicitReceiver?.let(::unwrap)
                 receiver.calleeReference.name == getDecoder &&
-                    owner is FirResolvedQualifier && owner.classId?.shortClassName == base64
+                    owner is FirResolvedQualifier && owner.qualifierSymbol?.classId?.shortClassName == base64
             }
             else -> false
         }

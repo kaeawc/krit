@@ -126,7 +126,7 @@ import org.jetbrains.kotlin.types.ConstantValueKind
 internal object InsecureTrustManager : FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common), FirRule {
     override val ruleId = "InsecureTrustManager"
     override val declarationCheckers = object : DeclarationCheckers() {
-        override val simpleFunctionCheckers = setOf(InsecureTrustManager)
+        override val namedFunctionCheckers = setOf(InsecureTrustManager)
     }
 
     private const val MESSAGE =
@@ -194,7 +194,7 @@ internal object InsecureTrustManager : FirDeclarationChecker<FirNamedFunction>(M
         if (expression.source?.kind is KtFakeSourceElementKind.ImplicitUnit) return true
         return when (expression) {
             is FirLiteralExpression -> true
-            is FirResolvedQualifier -> expression.classId == unitClassId
+            is FirResolvedQualifier -> expression.qualifierSymbol?.classId == unitClassId
             is FirThisReceiverExpression, is FirCheckedSafeCallSubject -> true
             is FirSmartCastExpression -> isInert(expression.originalExpression)
             is FirWrappedArgumentExpression -> isInert(expression.expression)

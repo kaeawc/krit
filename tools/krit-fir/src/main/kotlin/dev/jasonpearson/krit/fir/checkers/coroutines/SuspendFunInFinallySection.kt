@@ -22,7 +22,7 @@ import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirImplicitInvokeCall
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
-import org.jetbrains.kotlin.fir.expressions.FirSamConversionExpression
+import org.jetbrains.kotlin.fir.expressions.FirFunctionTypeConversionExpression
 import org.jetbrains.kotlin.fir.expressions.FirTryExpression
 import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.expressions.unwrapArgument
@@ -226,7 +226,7 @@ internal object SuspendFunInFinallySection : FirExpressionChecker<FirTryExpressi
 
     private fun lambdaOf(argument: FirExpression): FirAnonymousFunction? {
         var unwrapped = argument.unwrapArgument()
-        if (unwrapped is FirSamConversionExpression) unwrapped = unwrapped.expression.unwrapArgument()
+        if (unwrapped is FirFunctionTypeConversionExpression) unwrapped = unwrapped.expression.unwrapArgument()
         return (unwrapped as? FirAnonymousFunctionExpression)?.anonymousFunction
     }
 

@@ -98,7 +98,7 @@ internal object BindsReturnTypeMatchesParam :
     FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common), FirRule {
     override val ruleId = "BindsReturnTypeMatchesParam"
     override val declarationCheckers = object : DeclarationCheckers() {
-        override val simpleFunctionCheckers = setOf(BindsReturnTypeMatchesParam)
+        override val namedFunctionCheckers = setOf(BindsReturnTypeMatchesParam)
     }
 
     private val binds = setOf(

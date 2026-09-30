@@ -142,7 +142,7 @@ class OracleCollectorTest {
             "Unnecessary safe call on a non-null receiver of type 'String'." to
                 "UNNECESSARY_SAFE_CALL",
             "Condition is always 'true'." to "SENSELESS_COMPARISON",
-            "No cast needed." to "USELESS_CAST",
+            "Cast is redundant." to "USELESS_CAST",
         )
 
         for ((message, expectedFactory) in messages) {

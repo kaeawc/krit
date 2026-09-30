@@ -100,7 +100,7 @@ internal object IteratorNotThrowingNoSuchElementException :
     FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common), FirRule {
     override val ruleId = "IteratorNotThrowingNoSuchElementException"
     override val declarationCheckers = object : DeclarationCheckers() {
-        override val simpleFunctionCheckers = setOf(IteratorNotThrowingNoSuchElementException)
+        override val namedFunctionCheckers = setOf(IteratorNotThrowingNoSuchElementException)
     }
 
     private val next = Name.identifier("next")

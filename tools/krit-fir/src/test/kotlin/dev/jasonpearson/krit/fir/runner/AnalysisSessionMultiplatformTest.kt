@@ -181,7 +181,7 @@ class AnalysisSessionMultiplatformTest {
         val untouched = K2JVMCompilerArguments()
         assertFalse(args.multiPlatform)
         assertFalse(args.expectActualClasses)
-        assertNull(args.commonSources)
+        assertEquals(untouched.commonSources?.toList(), args.commonSources?.toList())
         assertEquals(untouched.multiPlatform, args.multiPlatform)
         assertEquals(untouched.expectActualClasses, args.expectActualClasses)
 

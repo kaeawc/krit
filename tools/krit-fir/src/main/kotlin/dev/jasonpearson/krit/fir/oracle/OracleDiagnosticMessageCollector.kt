@@ -94,7 +94,7 @@ internal class OracleDiagnosticMessageCollector(
             CompilerMessageSeverity.STRONG_WARNING,
         )
 
-        // FirErrorsDefaultMessages templates as of Kotlin 2.3.21. The
+        // FirErrorsDefaultMessages templates as of Kotlin 2.4.20. The
         // entries below match the literal message-text prefixes K2 emits
         // through the CLI MessageCollector — see the message templates in
         // `org.jetbrains.kotlin.fir.analysis.diagnostics.FirErrorsDefaultMessages`.
@@ -116,7 +116,7 @@ internal class OracleDiagnosticMessageCollector(
                 "UNNECESSARY_NOT_NULL_ASSERTION",
             "Unnecessary safe call on a non-null receiver" to "UNNECESSARY_SAFE_CALL",
             "Condition is always" to "SENSELESS_COMPARISON",
-            "No cast needed." to "USELESS_CAST",
+            "Cast is redundant." to "USELESS_CAST",
         )
 
         // Templates whose variable part comes first, so a fixed prefix cannot

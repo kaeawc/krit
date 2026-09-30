@@ -6,6 +6,9 @@ project(":krit-rule-api").projectDir = file("../krit-rule-api")
 dependencyResolutionManagement {
     repositories {
         mavenCentral()
+        maven("https://www.jetbrains.com/intellij-repository/releases") {
+            content { includeModule("com.jetbrains.intellij.platform", "core") }
+        }
         exclusiveContent {
             forRepository {
                 maven("https://redirector.kotlinlang.org/maven/intellij-dependencies")

@@ -17,7 +17,7 @@ import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirImplicitInvokeCall
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
-import org.jetbrains.kotlin.fir.expressions.FirSamConversionExpression
+import org.jetbrains.kotlin.fir.expressions.FirFunctionTypeConversionExpression
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
@@ -104,7 +104,7 @@ internal object SynchronizedOnNonFinal : FirFunctionCallChecker(MppCheckerKind.C
         while (true) {
             current = when (current) {
                 is FirSmartCastExpression -> current.originalExpression
-                is FirSamConversionExpression -> current.expression
+                is FirFunctionTypeConversionExpression -> current.expression
                 else -> return current
             }
         }

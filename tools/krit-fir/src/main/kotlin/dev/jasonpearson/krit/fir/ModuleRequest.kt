@@ -46,6 +46,6 @@ internal fun parseModuleRequest(json: String, oneShot: Boolean = false): CheckRe
         command = root["command"] as? String ?: root["method"] as? String ?: if (oneShot) "analyzeModules" else error("Missing command"),
         files = files, sourceDirs = payload.strings("sourceDirs"), classpath = payload.strings("classpath"),
         rules = payload.strings("rules"), ruleConfigs = configs, testFiles = payload.strings("testFiles").toSet(),
-        scanPaths = scanPaths, modules = modules,
+        scanPaths = scanPaths, sdkLevels = sdkLevelsOf(payload["sdkLevels"]), modules = modules,
     )
 }

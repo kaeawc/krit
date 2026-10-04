@@ -4,6 +4,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -37,6 +38,8 @@ type FakeFirChecker struct {
 	CalledTestFiles [][]string
 	// CalledScanPaths is the facts.ScanPaths passed to each Check call.
 	CalledScanPaths []map[string]string
+	// CalledSDKLevels is the facts.SDKLevels passed to each Check call.
+	CalledSDKLevels []map[string]android.SDKLevels
 }
 
 // NewFakeFirChecker returns a FakeFirChecker with all maps initialized.
@@ -56,6 +59,7 @@ func (f *FakeFirChecker) Check(files []string, sourceDirs, classpath, rules []st
 	f.CalledRuleConfigs = append(f.CalledRuleConfigs, ruleConfigs)
 	f.CalledTestFiles = append(f.CalledTestFiles, slices.Clone(facts.TestFiles))
 	f.CalledScanPaths = append(f.CalledScanPaths, maps.Clone(facts.ScanPaths))
+	f.CalledSDKLevels = append(f.CalledSDKLevels, maps.Clone(facts.SDKLevels))
 	if f.Err != nil {
 		return nil, f.Err
 	}

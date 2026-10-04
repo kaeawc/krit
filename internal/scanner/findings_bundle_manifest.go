@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
 
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
@@ -78,41 +77,32 @@ type FileStat struct {
 }
 
 // FindingsBundleManifestKey derives a stable manifest identifier from
-// a project root + sorted scan paths. The repoDir is included so
-// daemons running against multiple projects don't collide.
+// a project root + scan paths. The repoDir is included so daemons
+// running against multiple projects don't collide.
 //
-// Each scan path contributes both its absolute form and the spelling it
-// was passed in. The manifest and its bundle record file paths the way
-// the walk spells them, which follows the scan path's spelling: `krit
-// proj` from the parent records "proj/src/A.kt" while `krit .` from
-// inside records "src/A.kt". Keying on the absolute form alone would
-// hand one invocation the other's path list, which names files that do
-// not exist from its working directory.
+// Each scan path contributes both its absolute form and its spelling
+// as passed. The manifest's per-file maps are keyed by file paths in
+// the caller's spelling (a relative scan yields relative file paths),
+// and the daemon reuses those paths as the scan's source set. Keying
+// on the absolute form alone let `krit ../../playground/app/` from
+// cmd/krit and `krit playground/app/` from the repo root share one
+// manifest, so the second scan was handed file paths that don't
+// resolve from its working directory and analyzed no sources.
 func FindingsBundleManifestKey(repoDir string, scanPaths []string) string {
 	if repoDir == "" {
 		return ""
 	}
-	type scanPath struct{ abs, spelling string }
-	sorted := make([]scanPath, len(scanPaths))
-	for i, p := range scanPaths {
-		sorted[i] = scanPath{abs: p, spelling: p}
-		if abs, err := filepath.Abs(p); err == nil {
-			sorted[i].abs = abs
-		}
-	}
-	sort.Slice(sorted, func(i, j int) bool {
-		if sorted[i].abs != sorted[j].abs {
-			return sorted[i].abs < sorted[j].abs
-		}
-		return sorted[i].spelling < sorted[j].spelling
-	})
 	h := hashutil.Hasher().New()
 	_, _ = h.Write([]byte(repoDir))
 	_, _ = h.Write([]byte{0})
-	for _, p := range sorted {
-		_, _ = h.Write([]byte(p.abs))
+	for _, p := range scanPaths {
+		abs := p
+		if a, err := filepath.Abs(p); err == nil {
+			abs = a
+		}
+		_, _ = h.Write([]byte(abs))
 		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(p.spelling))
+		_, _ = h.Write([]byte(p))
 		_, _ = h.Write([]byte{0})
 	}
 	return hashutil.HashHex(h.Sum(nil))

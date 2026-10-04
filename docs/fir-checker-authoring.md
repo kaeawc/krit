@@ -144,6 +144,38 @@ rule does, with no normalization. To test it, pass `scanPaths` to
 `KritFirProbe.compile` (see `PrintlnInProductionFilesTest`). The scan
 spellings are part of the FIR cache fingerprint.
 
+### Android SDK levels
+
+If the Go rule depends on the module's `minSdk` or `targetSdk`, read them with
+`containingMinSdk()` / `containingTargetSdk()` inside `check`, or with
+`minSdkFor(path)` / `targetSdkFor(path)` when you already have the file path:
+
+```kotlin
+val targetSdk = containingTargetSdk()
+if (targetSdk in 1..30) return   // 0 means unknown
+```
+
+Never read `build.gradle(.kts)` or `AndroidManifest.xml` in the checker. The Go
+FIR pass resolves each requested file's levels with
+`android.ResolveSDKLevels`, the lookup the Go rules run on `file.Path`: the
+nearest directory above the file whose `build.gradle.kts`, `build.gradle`,
+`src/main/AndroidManifest.xml` or `AndroidManifest.xml` declares a level. It
+sends them in the check request as `sdkLevels` (requested file ->
+`{"minSdk": n, "targetSdk": n}`), only for files with a known level.
+krit-fir stores them in `FirRuleContext`, and the accessors map the compiler's
+spelling back to the requested file like `scanPath` does.
+
+A level is `0` when it is unknown: the build file declares only the other
+level, the file sits under no Android module, or there is no check request
+(oracle compiles, a bare compiler run, the golden tests). Go uses the same
+zero, so port the Go rule's comparisons unchanged, including how it treats an
+unknown level (`sdk.targetSdk > 0 && sdk.targetSdk < 31` stays
+`targetSdk in 1..30`). To test it, pass `sdkLevels` to `KritFirProbe.compile`.
+
+Those build files and manifests are not compiled sources, so the resolved
+levels themselves are part of the FIR cache fingerprint: editing a `minSdk` or
+`targetSdk` invalidates the cached FIR verdicts.
+
 ## 5. Options
 
 - Read options with `config()`. It returns the Go rule's options keyed by the Go

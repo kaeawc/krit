@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
@@ -404,15 +405,28 @@ func partitionJVMFiles(files []string) (jvm, excluded []string) {
 // absolute path. The scan spelling is the path string the Go rules test (a
 // relative `samples/proj/src/X.kt` for `krit samples/proj`), so a checker
 // that applies a Go path heuristic reads it through FirRule.scanPath instead
-// of guessing from the absolute path.
+// of guessing from the absolute path. The facts also carry each file's
+// minSdk / targetSdk, resolved from the scan spelling with
+// android.ResolveSDKLevels, the lookup the Go rules run on file.Path, so a
+// checker reading FirRule.minSdkFor / targetSdkFor sees the levels the Go
+// rule sees.
 func fileFactsOf(requested []string, display map[string]string) FileFacts {
 	facts := FileFacts{TestFiles: testFilesOf(requested, display)}
+	var sdk android.SDKLevelResolver
 	for _, path := range requested {
+		spelling := path
 		if d, ok := display[path]; ok && d != path {
+			spelling = d
 			if facts.ScanPaths == nil {
 				facts.ScanPaths = map[string]string{}
 			}
 			facts.ScanPaths[path] = d
+		}
+		if levels := sdk.Resolve(spelling); !levels.IsZero() {
+			if facts.SDKLevels == nil {
+				facts.SDKLevels = map[string]android.SDKLevels{}
+			}
+			facts.SDKLevels[path] = levels
 		}
 	}
 	return facts

@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.runner
 
 import dev.jasonpearson.krit.fir.FirRuleCompileContext
+import dev.jasonpearson.krit.fir.SdkLevels
 import dev.jasonpearson.krit.fir.FirRuleContext
 import dev.jasonpearson.krit.fir.FirRuleDiscovery
 import dev.jasonpearson.krit.fir.FirRuleErrorRecorder
@@ -122,8 +123,9 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
      * the whole module: every `.kt` under [sourceDirs] plus the requested files,
      * against [classpath] (plus the bundled stdlib), the same compilation
      * [analyzeFull] runs for oracle facts. [ruleConfigs], [testFiles] (the
-     * requested files krit classifies as test files) and [scanPaths] (the
-     * scan's own spelling of each requested file) reach the checkers through
+     * requested files krit classifies as test files), [scanPaths] (the
+     * scan's own spelling of each requested file) and [sdkLevels] (each
+     * requested file's resolved minSdk / targetSdk) reach the checkers through
      * [FirRuleContext] with the requested paths; the oracle compile sends
      * none of them.
      *
@@ -143,14 +145,15 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
         ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),
         testFiles: Set<String> = emptySet(),
         scanPaths: Map<String, String> = emptyMap(),
+        sdkLevels: Map<String, SdkLevels> = emptyMap(),
     ): BatchResult {
-        return checkCompilation(id, files, enabledRules, ruleConfigs, testFiles, scanPaths)
+        return checkCompilation(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels)
     }
 
     internal fun checkCompilation(
         id: Long, files: List<FileRef>, enabledRules: Set<String>,
         ruleConfigs: Map<String, Map<String, Any?>>,
-        testFiles: Set<String>, scanPaths: Map<String, String>,
+        testFiles: Set<String>, scanPaths: Map<String, String>, sdkLevels: Map<String, SdkLevels>,
         module: ModuleCompilation? = null,
         ownedSources: Set<String> = emptySet(),
     ): BatchResult {
@@ -176,6 +179,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
         val ruleContext = FirRuleCompileContext(
             enabledRules, ruleConfigs, testFiles = testFiles,
             files = compiled.mapTo(LinkedHashSet()) { it.path }, scanPaths = scanPaths,
+            sdkLevels = sdkLevels,
         )
         val exitCode = try {
             val args = compilationArguments(module?.sources ?: compilationFiles(compiled.map { it.path }), outDir, module)
@@ -376,10 +380,12 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
         id: Long, modules: List<ModuleSpec>, checkFiles: List<String>, enabledRules: Set<String>,
         ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),
         testFiles: Set<String> = emptySet(), scanPaths: Map<String, String> = emptyMap(),
+        sdkLevels: Map<String, SdkLevels> = emptyMap(),
     ): BatchResult = if (modules.isEmpty()) {
-        check(id, checkFiles.map { FileRef(it) }, enabledRules, ruleConfigs, testFiles, scanPaths)
+        check(id, checkFiles.map { FileRef(it) }, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels)
     } else {
-        moduleRunner.check(id, modules, checkFiles, enabledRules, ruleConfigs, testFiles, scanPaths, compilationJvmTarget)
+        moduleRunner.check(id, modules, checkFiles, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels,
+            compilationJvmTarget)
     }
 
     internal val moduleCompilationCounts: Map<String, Int> get() = moduleRunner.compilationCounts

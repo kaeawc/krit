@@ -325,6 +325,11 @@ type daemonState struct {
 	// follow-up benchmark notes.
 	manifestMu    sync.Mutex
 	manifestCache map[string]scanner.FindingsBundleManifest
+
+	// analysisCwd identifies the working directory the last
+	// path-resolving verb ran in; see enterCallerCwd. Guarded by
+	// analyzeMu.
+	analysisCwd os.FileInfo
 }
 
 func newDaemonState(root string) *daemonState {

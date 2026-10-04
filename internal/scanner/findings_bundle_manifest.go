@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
@@ -79,21 +80,39 @@ type FileStat struct {
 // FindingsBundleManifestKey derives a stable manifest identifier from
 // a project root + sorted scan paths. The repoDir is included so
 // daemons running against multiple projects don't collide.
+//
+// Each scan path contributes both its absolute form and the spelling it
+// was passed in. The manifest and its bundle record file paths the way
+// the walk spells them, which follows the scan path's spelling: `krit
+// proj` from the parent records "proj/src/A.kt" while `krit .` from
+// inside records "src/A.kt". Keying on the absolute form alone would
+// hand one invocation the other's path list, which names files that do
+// not exist from its working directory.
 func FindingsBundleManifestKey(repoDir string, scanPaths []string) string {
 	if repoDir == "" {
 		return ""
 	}
-	sorted := append([]string(nil), scanPaths...)
-	for i, p := range sorted {
+	type scanPath struct{ abs, spelling string }
+	sorted := make([]scanPath, len(scanPaths))
+	for i, p := range scanPaths {
+		sorted[i] = scanPath{abs: p, spelling: p}
 		if abs, err := filepath.Abs(p); err == nil {
-			sorted[i] = abs
+			sorted[i].abs = abs
 		}
 	}
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].abs != sorted[j].abs {
+			return sorted[i].abs < sorted[j].abs
+		}
+		return sorted[i].spelling < sorted[j].spelling
+	})
 	h := hashutil.Hasher().New()
 	_, _ = h.Write([]byte(repoDir))
 	_, _ = h.Write([]byte{0})
 	for _, p := range sorted {
-		_, _ = h.Write([]byte(p))
+		_, _ = h.Write([]byte(p.abs))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(p.spelling))
 		_, _ = h.Write([]byte{0})
 	}
 	return hashutil.HashHex(h.Sum(nil))

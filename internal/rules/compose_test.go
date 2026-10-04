@@ -1,7 +1,10 @@
 package rules_test
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -746,6 +749,72 @@ func runComposeRememberWithCallTarget(t *testing.T, code string, callText string
 	}
 	t.Fatalf("rule not found in registry")
 	return nil
+}
+
+// A scan of a relative root parses files under relative paths while the
+// oracle holds its facts under absolute ones. The call-target gate must still
+// find the resolved `remember`: when the lookup missed, the gate read the
+// call as unresolved and the rule was silent for every relative scan.
+func TestComposeRememberWithoutKey_RelativeScanPathReachesOracleFacts(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	const rel = "Chart.kt"
+	code := `package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Chart(dataset: List<Int>) {
+    val series = remember { buildSeries(dataset) }
+}
+`
+	if err := os.WriteFile(rel, []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseFile(context.Background(), rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expressions := map[string]*oracle.ExpressionType{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if !strings.HasPrefix(file.FlatNodeText(idx), "remember") {
+			return
+		}
+		expressions[fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)] = &oracle.ExpressionType{
+			Type:               "kotlin.collections.List<kotlin.Int>",
+			StartByte:          int(file.FlatStartByte(idx)),
+			EndByte:            int(file.FlatEndByte(idx)),
+			CallTarget:         "androidx.compose.runtime.remember",
+			CallTargetResolved: true,
+		}
+	})
+	if len(expressions) != 1 {
+		t.Fatalf("expected one remember call, got %d", len(expressions))
+	}
+	facts, err := oracle.LoadFromData(&oracle.Data{Version: 1, Files: map[string]*oracle.File{
+		filepath.Join(dir, rel): {Package: "test", Expressions: expressions},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	composite := oracle.NewCompositeResolver(facts, resolver)
+	for _, r := range api.Registry {
+		if r.ID != "ComposeRememberWithoutKey" {
+			continue
+		}
+		cols := rules.NewDispatcher([]*api.Rule{r}, composite).Run(file)
+		findings := cols.Findings()
+		if len(findings) != 1 || findings[0].Line != 7 {
+			t.Fatalf("expected 1 finding on line 7, got %v", findings)
+		}
+		return
+	}
+	t.Fatal("rule not found in registry")
 }
 
 func TestComposeRememberWithoutKey_OracleUnresolvedStaysSilent(t *testing.T) {

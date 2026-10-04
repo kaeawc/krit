@@ -130,6 +130,48 @@ class ExampleActivity {
 	}
 }
 
+// The call-target spellings the oracle backends produce for a Flow-family
+// `collect`: krit-fir names the package-level extension without a facade
+// class and a member by its declaring type, krit-types adds the FlowKt
+// facade. All of them are the collect the rule reports, as the krit-fir
+// checker (any callable or receiver in kotlinx.coroutines.flow) does.
+func TestCollectInOnCreateWithoutLifecycle_OracleConfirmsFlowPackageTargets(t *testing.T) {
+	for _, target := range []string{
+		"kotlinx.coroutines.flow.collect",
+		"kotlinx.coroutines.flow.FlowKt.collect",
+		"kotlinx.coroutines.flow.Flow.collect",
+		"kotlinx.coroutines.flow.MutableStateFlow.collect",
+		"kotlinx.coroutines.flow.ChannelFlow.collect",
+	} {
+		findings := runCollectInOnCreateWithCallTarget(t, `
+package test
+class ExampleActivity {
+    fun onCreate() {
+        vm.state.collect { render(it) }
+    }
+}
+`, "vm.state.collect", target)
+		if len(findings) != 1 {
+			t.Errorf("target %s: expected 1 finding, got %d: %v", target, len(findings), findings)
+		}
+	}
+}
+
+// A package that merely starts with the same letters is not the Flow package.
+func TestCollectInOnCreateWithoutLifecycle_OracleSuppressesLookalikePackage(t *testing.T) {
+	findings := runCollectInOnCreateWithCallTarget(t, `
+package test
+class ExampleActivity {
+    fun onCreate() {
+        vm.state.collect { render(it) }
+    }
+}
+`, "vm.state.collect", "kotlinx.coroutines.flowlike.Stream.collect")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
 // Pins NeedsOracleCallTargets + OracleCallTargets filter on the rule.
 func TestCollectInOnCreateWithoutLifecycle_DeclaresOracleCallTargets(t *testing.T) {
 	var rule *api.Rule
@@ -472,6 +514,107 @@ class Repo {
 	if len(findings) == 0 {
 		t.Error("expected InjectDispatcher to flag hardcoded Dispatchers.IO")
 	}
+}
+
+// A dispatcher combined with other context elements through `+` is as
+// hardcoded as a lone argument, on either side of the operator.
+func TestInjectDispatcher_PositiveContextPlusChain(t *testing.T) {
+	findings := runRuleByName(t, "InjectDispatcher", `
+package test
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+class Repo(private val handler: CoroutineExceptionHandler) {
+    suspend fun right() = withContext(CoroutineName("load") + Dispatchers.IO) { fetch() }
+    suspend fun left() = withContext(Dispatchers.Default + CoroutineName("load")) { fetch() }
+    suspend fun nested() = withContext((handler + Dispatchers.Unconfined) + CoroutineName("load")) { fetch() }
+}
+`)
+	want := map[int]string{
+		7: "Hardcoded Dispatchers.IO. Inject dispatchers for better testability.",
+		8: "Hardcoded Dispatchers.Default. Inject dispatchers for better testability.",
+		9: "Hardcoded Dispatchers.Unconfined. Inject dispatchers for better testability.",
+	}
+	if len(findings) != len(want) {
+		t.Fatalf("expected %d findings, got %d: %v", len(want), len(findings), findings)
+	}
+	for _, f := range findings {
+		if want[f.Line] != f.Message {
+			t.Errorf("line %d: got %q, want %q", f.Line, f.Message, want[f.Line])
+		}
+	}
+}
+
+// The idiomatic-host and top-level exemptions hold for a combined context
+// too, a `+` chain that is not passed to a call is out of the rule's scope,
+// and a chain with another operator is not a context combination.
+func TestInjectDispatcher_NegativeContextPlusChain(t *testing.T) {
+	findings := runRuleByName(t, "InjectDispatcher", `
+package test
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+class ImageCache : ViewModel() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val named = CoroutineScope(Dispatchers.Default + CoroutineName("cache"))
+    private val context = SupervisorJob() + Dispatchers.IO
+    fun load() {
+        viewModelScope.launch(Dispatchers.IO + CoroutineName("load")) { fetch() }
+    }
+    suspend fun main() = withContext(Dispatchers.Main + CoroutineName("ui")) { render() }
+    suspend fun minus() = withContext(base - Dispatchers.IO) { fetch() }
+}
+suspend fun topLevel() = withContext(CoroutineName("load") + Dispatchers.IO) { fetch() }
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+// A dispatcher that leads a `+` chain starts at the same position as the
+// chain, so the oracle's position lookup answers with the chain's target
+// (CoroutineContext.plus). That is not evidence of a lookalike Dispatchers
+// object and must not suppress the finding.
+func TestInjectDispatcher_OracleKeepsDispatcherLeadingPlusChain(t *testing.T) {
+	file := parseInline(t, `
+package test
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+class Repo {
+    suspend fun left() = withContext(Dispatchers.Default + CoroutineName("load")) { fetch() }
+    suspend fun lookalike() = withContext(Dispatchers.IO) { fetch() }
+}
+`)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "navigation_expression", func(idx uint32) {
+		key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+		switch file.FlatNodeText(idx) {
+		case "Dispatchers.Default":
+			fake.CallTargets[file.Path][key] = "kotlin.coroutines.CoroutineContext.plus"
+		case "Dispatchers.IO":
+			fake.CallTargets[file.Path][key] = "com.acme.local.Dispatchers.IO"
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range api.Registry {
+		if r.ID != "InjectDispatcher" {
+			continue
+		}
+		cols := rules.NewDispatcher([]*api.Rule{r}, composite).Run(file)
+		findings := cols.Findings()
+		if len(findings) != 1 || findings[0].Line != 7 {
+			t.Fatalf("expected 1 finding on line 7 (and the lookalike on line 8 suppressed), got %v", findings)
+		}
+		return
+	}
+	t.Fatal("rule not found in registry")
 }
 
 func TestInjectDispatcher_PositiveBareLaunch(t *testing.T) {

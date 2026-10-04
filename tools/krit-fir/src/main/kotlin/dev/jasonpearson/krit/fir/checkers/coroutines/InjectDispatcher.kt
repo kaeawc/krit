@@ -28,15 +28,22 @@ internal object InjectDispatcher : FirFunctionCallChecker(MppCheckerKind.Common)
         FqName("kotlinx.coroutines.Dispatchers.Main") to "Main",
     )
 
+    private val contextPackages = setOf(FqName("kotlin.coroutines"), FqName("kotlinx.coroutines"))
+
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
+        // `job + Dispatchers.IO` is itself a call (CoroutineContext.plus). Its
+        // operands are judged at the call the combined context is passed to,
+        // so the host exemptions below see the real host and not `plus`.
+        if (isContextPlus(expression)) return
         if (isIdiomaticDispatcherHost(expression)) return
         if (!hasDispatchableOwner()) return
 
         for (argument in expression.argumentList.arguments) {
-            val dispatcher = hardcodedDispatcherArgument(argument) ?: continue
-            if (dispatcher.name == "Main") continue
-            report(dispatcher.source, "Hardcoded Dispatchers.${dispatcher.name}. Inject dispatchers for better testability.")
+            for (dispatcher in hardcodedDispatchers(unwrapArgument(argument))) {
+                if (dispatcher.name == "Main") continue
+                report(dispatcher.source, "Hardcoded Dispatchers.${dispatcher.name}. Inject dispatchers for better testability.")
+            }
         }
     }
 
@@ -61,14 +68,30 @@ internal object InjectDispatcher : FirFunctionCallChecker(MppCheckerKind.Common)
         return enclosingFunction.dispatchReceiverType != null
     }
 
-    private fun hardcodedDispatcherArgument(argument: FirExpression): DispatcherArgument? {
-        val unwrapped = unwrapArgument(argument)
-        val access = unwrapped as? FirPropertyAccessExpression ?: return null
-        val symbol = access.calleeReference.toResolvedCallableSymbol() ?: return null
-        val fqName = symbol.callableId?.asSingleFqName() ?: return null
-        val dispatcherName = dispatcherProperties[fqName] ?: return null
-        val source = access.source ?: argument.source ?: return null
-        return DispatcherArgument(dispatcherName, source)
+    // The hardcoded dispatchers an argument value passes: the value itself,
+    // or the operands of a `+` chain combining it with other context elements
+    // (`SupervisorJob() + Dispatchers.IO`, `Dispatchers.IO + handler`), in
+    // source order.
+    private fun hardcodedDispatchers(value: FirExpression): List<DispatcherArgument> {
+        if (value is FirFunctionCall && isContextPlus(value)) {
+            val receiver = value.explicitReceiver ?: value.dispatchReceiver ?: value.extensionReceiver
+            return listOfNotNull(receiver).flatMap { hardcodedDispatchers(it) } +
+                value.argumentList.arguments.flatMap { hardcodedDispatchers(unwrapArgument(it)) }
+        }
+        val access = value as? FirPropertyAccessExpression ?: return emptyList()
+        val symbol = access.calleeReference.toResolvedCallableSymbol() ?: return emptyList()
+        val fqName = symbol.callableId?.asSingleFqName() ?: return emptyList()
+        val dispatcherName = dispatcherProperties[fqName] ?: return emptyList()
+        val source = access.source ?: return emptyList()
+        return listOf(DispatcherArgument(dispatcherName, source))
+    }
+
+    // `plus` on a coroutine context or scope: CoroutineContext.plus and its
+    // overrides (kotlin.coroutines), CoroutineScope.plus (kotlinx.coroutines).
+    private fun isContextPlus(expression: FirFunctionCall): Boolean {
+        val callee = expression.calleeReference.toResolvedCallableSymbol() ?: return false
+        if (callee.name.asString() != "plus") return false
+        return callee.callableId?.packageName in contextPackages
     }
 
     private fun unwrapArgument(argument: FirExpression): FirExpression =

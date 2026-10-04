@@ -45,6 +45,31 @@ internal fun parseFirScanPaths(json: String): Map<String, String> {
     }.toMap()
 }
 
+/**
+ * check.sdkLevels: requested file (spelled as in `files`) -> its
+ * `{"minSdk": n, "targetSdk": n}`, sent for the files with a known level; an
+ * absent level is 0. Read like [parseFirTestFiles], as a key of the top-level
+ * request object.
+ */
+internal fun parseFirSdkLevels(json: String): Map<String, SdkLevels> {
+    if ("\"sdkLevels\"" !in json) return emptyMap()
+    val request = ConfigJsonReader(json, "request").value() as? Map<*, *> ?: return emptyMap()
+    return sdkLevelsOf(request["sdkLevels"])
+}
+
+/** The parsed `sdkLevels` object as typed levels; entries of another shape are dropped. */
+internal fun sdkLevelsOf(value: Any?): Map<String, SdkLevels> {
+    val levels = value as? Map<*, *> ?: return emptyMap()
+    return levels.entries.mapNotNull { (file, level) ->
+        val key = file as? String ?: return@mapNotNull null
+        val fields = level as? Map<*, *> ?: return@mapNotNull null
+        key to SdkLevels(
+            minSdk = (fields["minSdk"] as? Number)?.toInt() ?: 0,
+            targetSdk = (fields["targetSdk"] as? Number)?.toInt() ?: 0,
+        )
+    }.toMap()
+}
+
 internal class ConfigJsonReader(private val text: String, private val what: String) {
     private var pos = 0
     fun value(): Any? {

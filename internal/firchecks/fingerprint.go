@@ -83,7 +83,11 @@ func jsonSafe(v any) any {
 // configured test paths, changes verdicts without changing any source) and
 // the scan's spelling of each file (checkers apply Go's path heuristics to it
 // through FirRule.scanPath, so scanning the same files from another working
-// directory can change verdicts). Stat avoids
+// directory can change verdicts), and each file's resolved SDK levels
+// (checkers read them through FirRule.minSdkFor / targetSdkFor, and they come
+// from build.gradle(.kts) / AndroidManifest.xml files that are not part of the
+// compilation, so editing a targetSdk changes verdicts without changing any
+// hashed source). Stat avoids
 // hashing the large fat jar. encoding/json sorts map keys, so the options
 // encoding is deterministic regardless of map iteration order.
 func FirInvocationFingerprint(classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, facts FileFacts, jvmTarget ...string) string {
@@ -120,6 +124,15 @@ func FirInvocationFingerprint(classpath []string, jarPath string, rules []string
 			scanJSON = []byte(fmt.Sprintf("unencodable:%v", err))
 		}
 		fingerprint += "\x00scanPaths:" + string(scanJSON)
+	}
+	if len(facts.SDKLevels) > 0 {
+		// Appended only when present, so a project with no Android SDK
+		// levels keeps its fingerprint shape.
+		sdkJSON, err := json.Marshal(facts.SDKLevels)
+		if err != nil {
+			sdkJSON = []byte(fmt.Sprintf("unencodable:%v", err))
+		}
+		fingerprint += "\x00sdkLevels:" + string(sdkJSON)
 	}
 	return hashutil.HashHex([]byte(fingerprint))
 }

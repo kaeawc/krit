@@ -4,6 +4,7 @@ import dev.jasonpearson.krit.fir.RequestResult
 import dev.jasonpearson.krit.fir.FirRuleErrorRecorder
 import dev.jasonpearson.krit.fir.isolateRule
 import dev.jasonpearson.krit.fir.handleRequestLine
+import dev.jasonpearson.krit.fir.SdkLevels
 import dev.jasonpearson.krit.fir.parseRequest
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -239,6 +240,23 @@ class AnalysisSessionModulesTest {
             // An upstream findings-only change cannot dirty an unchanged downstream verdict.
             check(listOf(lib), setOf(lib))
             assertEquals(mapOf("lib" to 2, "app" to 3), session.moduleCompilationCounts)
+        } finally { session.dispose() }
+    }
+
+    @Test fun sdkLevelChangeRechecksOnlyTheOwningModule() {
+        val lib = source("lib", "Lib", "package lib; fun api() = 1")
+        val app = source("app", "App", "fun app() { println(lib.api()) }")
+        val session = AnalysisSession(emptyList(), emptyList())
+        val modules = listOf(module("lib"), module("app", listOf("lib")))
+        try {
+            fun check(levels: Map<String, SdkLevels>) =
+                session.analyzeModules(1, modules, listOf(lib, app), setOf("PrintlnInProduction"), sdkLevels = levels)
+            check(mapOf(app to SdkLevels(21, 33)))
+            check(mapOf(app to SdkLevels(21, 33)))
+            assertEquals(mapOf("lib" to 1, "app" to 1), session.moduleCompilationCounts)
+            // A checker can read the levels, so a targetSdk change must not replay the old verdict.
+            check(mapOf(app to SdkLevels(21, 34)))
+            assertEquals(mapOf("lib" to 1, "app" to 2), session.moduleCompilationCounts)
         } finally { session.dispose() }
     }
 

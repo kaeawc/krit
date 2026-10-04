@@ -77,22 +77,31 @@ type FileStat struct {
 }
 
 // FindingsBundleManifestKey derives a stable manifest identifier from
-// a project root + sorted scan paths. The repoDir is included so
-// daemons running against multiple projects don't collide.
+// a project root + scan paths. The repoDir is included so daemons
+// running against multiple projects don't collide.
+//
+// Each scan path contributes both its absolute form and its spelling
+// as passed. The manifest's per-file maps are keyed by file paths in
+// the caller's spelling (a relative scan yields relative file paths),
+// and the daemon reuses those paths as the scan's source set. Keying
+// on the absolute form alone let `krit ../../playground/app/` from
+// cmd/krit and `krit playground/app/` from the repo root share one
+// manifest, so the second scan was handed file paths that don't
+// resolve from its working directory and analyzed no sources.
 func FindingsBundleManifestKey(repoDir string, scanPaths []string) string {
 	if repoDir == "" {
 		return ""
 	}
-	sorted := append([]string(nil), scanPaths...)
-	for i, p := range sorted {
-		if abs, err := filepath.Abs(p); err == nil {
-			sorted[i] = abs
-		}
-	}
 	h := hashutil.Hasher().New()
 	_, _ = h.Write([]byte(repoDir))
 	_, _ = h.Write([]byte{0})
-	for _, p := range sorted {
+	for _, p := range scanPaths {
+		abs := p
+		if a, err := filepath.Abs(p); err == nil {
+			abs = a
+		}
+		_, _ = h.Write([]byte(abs))
+		_, _ = h.Write([]byte{0})
 		_, _ = h.Write([]byte(p))
 		_, _ = h.Write([]byte{0})
 	}

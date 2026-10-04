@@ -115,10 +115,26 @@ func findDirectDispatcherArgumentFlat(file *scanner.File, args uint32, names map
 		if arg == 0 || file.FlatType(arg) != "value_argument" || file.FlatNamedChildCount(arg) == 0 {
 			continue
 		}
-		value := file.FlatNamedChild(arg, 0)
-		if value == 0 || file.FlatType(value) != "navigation_expression" {
-			continue
+		if node, member := injectDispatcherOperandFlat(file, file.FlatNamedChild(arg, 0), names); node != 0 {
+			return node, member
 		}
+	}
+	return 0, ""
+}
+
+// injectDispatcherOperandFlat returns the first `Dispatchers.<name>`
+// reference an argument value passes: the value itself, or an operand of a
+// `+` chain that combines it with other context elements
+// (`SupervisorJob() + Dispatchers.IO`, `Dispatchers.IO + handler`). The
+// combined context goes to the same call, so the dispatcher is as hardcoded
+// there as a lone argument. A chain with any other operator is not a context
+// combination and is left alone.
+func injectDispatcherOperandFlat(file *scanner.File, value uint32, names map[string]bool) (uint32, string) {
+	if value == 0 {
+		return 0, ""
+	}
+	switch file.FlatType(value) {
+	case "navigation_expression":
 		receiver := ""
 		if file.FlatNamedChildCount(value) > 0 {
 			first := file.FlatNamedChild(value, 0)
@@ -129,6 +145,21 @@ func findDirectDispatcherArgumentFlat(file *scanner.File, args uint32, names map
 		member := flatNavigationExpressionLastIdentifier(file, value)
 		if receiver == "Dispatchers" && names[member] {
 			return value, member
+		}
+	case "parenthesized_expression":
+		if file.FlatNamedChildCount(value) == 1 {
+			return injectDispatcherOperandFlat(file, file.FlatNamedChild(value, 0), names)
+		}
+	case "additive_expression":
+		for child := file.FlatFirstChild(value); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "-" {
+				return 0, ""
+			}
+		}
+		for i := 0; i < file.FlatNamedChildCount(value); i++ {
+			if node, member := injectDispatcherOperandFlat(file, file.FlatNamedChild(value, i), names); node != 0 {
+				return node, member
+			}
 		}
 	}
 	return 0, ""

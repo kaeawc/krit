@@ -7,6 +7,9 @@ import (
 
 func TestFindFirJar_NoJarReturnsEmpty(t *testing.T) {
 	t.Setenv("KRIT_FIR_JAR", "")
+	// The locator also searches the per-user dev jar cache that
+	// `make fir-jar` fills; point it at an empty home.
+	t.Setenv("HOME", t.TempDir())
 	tmp := t.TempDir()
 	result := FindFirJar([]string{tmp})
 	if result != "" {

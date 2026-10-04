@@ -886,6 +886,76 @@ class Crypto {
         Cipher.getInstance("RSA/ECB/NoPadding");
     }
 }`,
+			"local in a constructor body": `
+class Crypto {
+    Crypto() {
+        KeyCipher Cipher = new KeyCipher();
+        Cipher.getInstance("RSA/ECB/NoPadding");
+    }
+}`,
+			"local in a switch group": `
+class Crypto {
+    void cipher(int kind) {
+        switch (kind) {
+            case 1:
+                KeyCipher Cipher = new KeyCipher();
+                Cipher.getInstance("RSA/ECB/NoPadding");
+                break;
+        }
+    }
+}`,
+			"bare lambda parameter": `
+class Crypto {
+    void cipher(java.util.List<KeyCipher> ciphers) {
+        ciphers.forEach(Cipher -> Cipher.getInstance("RSA/ECB/NoPadding"));
+    }
+}`,
+			"inferred lambda parameter": `
+class Crypto {
+    void cipher(java.util.List<KeyCipher> ciphers) {
+        ciphers.forEach((Cipher) -> Cipher.getInstance("RSA/ECB/NoPadding"));
+    }
+}`,
+			"typed lambda parameter": `
+class Crypto {
+    void cipher(java.util.List<KeyCipher> ciphers) {
+        ciphers.forEach((KeyCipher Cipher) -> { Cipher.getInstance("RSA/ECB/NoPadding"); });
+    }
+}`,
+			"enhanced for variable": `
+class Crypto {
+    void cipher(java.util.List<KeyCipher> ciphers) {
+        for (KeyCipher Cipher : ciphers) {
+            Cipher.getInstance("RSA/ECB/NoPadding");
+        }
+    }
+}`,
+			"for initializer": `
+class Crypto {
+    void cipher() {
+        for (KeyCipher Cipher = new KeyCipher(); ; ) {
+            Cipher.getInstance("RSA/ECB/NoPadding");
+        }
+    }
+}`,
+			"try resource": `
+class Crypto {
+    void cipher() throws Exception {
+        try (KeyCipher Cipher = new KeyCipher()) {
+            Cipher.getInstance("RSA/ECB/NoPadding");
+        }
+    }
+}`,
+			"catch parameter": `
+class Crypto {
+    void cipher() {
+        try {
+            run();
+        } catch (KeyCipherException Cipher) {
+            Cipher.getInstance("RSA/ECB/NoPadding");
+        }
+    }
+}`,
 			"class nested in an enclosing class": `
 class Owner {
     static class Cipher {
@@ -910,6 +980,26 @@ class KeyCipher {
 			if len(findings) != 0 {
 				t.Errorf("%s: expected 0 Java findings, got %d: %v", name, len(findings), findings)
 			}
+		}
+	})
+	t.Run("Java lambda body and loop iterable are not read as declarations", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "RsaNoPadding", `
+package test;
+import javax.crypto.Cipher;
+import java.util.function.Supplier;
+
+class Crypto {
+    Object cipher() throws Exception {
+        Supplier<Class<?>> type = () -> Cipher.class;
+        for (Object provider : java.security.Security.getProviders()) {
+            Cipher.getInstance("RSA/ECB/NoPadding");
+        }
+        return type;
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 Java finding, got %d: %v", len(findings), findings)
 		}
 	})
 	t.Run("Java single-type import of another Cipher wins", func(t *testing.T) {

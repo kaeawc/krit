@@ -1444,47 +1444,127 @@ func getInstanceDeclarationName(file *scanner.File, idx uint32) string {
 func getInstanceJavaCipherNameShadowedAt(file *scanner.File, idx uint32) bool {
 	start := file.FlatStartByte(idx)
 	for scope, ok := file.FlatParent(idx); ok; scope, ok = file.FlatParent(scope) {
-		switch file.FlatType(scope) {
-		case "program":
-			if getInstanceJavaMembersDeclareCipher(file, scope) || getInstanceJavaImportsOtherCipher(file, scope) {
+		if getInstanceJavaTypeScopeDeclaresCipher(file, scope) ||
+			getInstanceJavaLocalScopeDeclaresCipher(file, scope, start) {
+			return true
+		}
+	}
+	return false
+}
+
+// getInstanceJavaTypeScopeDeclaresCipher covers the scopes that declare
+// types and fields: the compilation unit and class-like bodies.
+func getInstanceJavaTypeScopeDeclaresCipher(file *scanner.File, scope uint32) bool {
+	switch file.FlatType(scope) {
+	case "program":
+		return getInstanceJavaMembersDeclareCipher(file, scope) || getInstanceJavaImportsOtherCipher(file, scope)
+	case "class_declaration", "interface_declaration", "enum_declaration", "record_declaration":
+		for body := file.FlatFirstChild(scope); body != 0; body = file.FlatNextSib(body) {
+			switch file.FlatType(body) {
+			case "class_body", "interface_body", "enum_body", "enum_body_declarations":
+				if getInstanceJavaMembersDeclareCipher(file, body) {
+					return true
+				}
+			case "formal_parameters":
+				if getInstanceJavaParametersDeclareCipher(file, body) {
+					return true
+				}
+			}
+		}
+	case "class_body", "enum_body_declarations":
+		// Anonymous class and enum bodies have no declaration node.
+		return getInstanceJavaMembersDeclareCipher(file, scope)
+	}
+	return false
+}
+
+// getInstanceJavaLocalScopeDeclaresCipher covers the scopes that bind
+// parameters and locals: methods, lambdas, loops, catch and
+// try-with-resources clauses, and statement lists.
+func getInstanceJavaLocalScopeDeclaresCipher(file *scanner.File, scope, start uint32) bool {
+	switch file.FlatType(scope) {
+	case "method_declaration", "constructor_declaration":
+		params, found := file.FlatFindChild(scope, "formal_parameters")
+		return found && getInstanceJavaParametersDeclareCipher(file, params)
+	case "lambda_expression":
+		return getInstanceJavaLambdaDeclaresCipher(file, scope)
+	case "enhanced_for_statement":
+		// The loop variable is the identifier before the colon.
+		return getInstanceJavaIdentifierBeforeTokenIsCipher(file, scope, ":")
+	case "catch_clause":
+		param, found := file.FlatFindChild(scope, "catch_formal_parameter")
+		return found && getInstanceJavaIdentifierBeforeTokenIsCipher(file, param, "")
+	case "try_with_resources_statement":
+		resources, _ := file.FlatFindChild(scope, "resource_specification")
+		for resource := file.FlatFirstChild(resources); resources != 0 && resource != 0; resource = file.FlatNextSib(resource) {
+			// A resource's name follows its type and precedes the `=`.
+			if file.FlatType(resource) == "resource" &&
+				getInstanceJavaIdentifierBeforeTokenIsCipher(file, resource, "=") {
+				return true
+			}
+		}
+	case "block", "constructor_body", "switch_block_statement_group", "for_statement":
+		return getInstanceJavaEarlierLocalDeclaresCipher(file, scope, start)
+	}
+	return false
+}
+
+// getInstanceJavaEarlierLocalDeclaresCipher reports whether a statement
+// list (or a for statement's initializer) declares a local variable or
+// local class named `Cipher` in a statement that ends before start.
+func getInstanceJavaEarlierLocalDeclaresCipher(file *scanner.File, scope, start uint32) bool {
+	for stmt := file.FlatFirstChild(scope); stmt != 0 && file.FlatEndByte(stmt) <= start; stmt = file.FlatNextSib(stmt) {
+		switch file.FlatType(stmt) {
+		case "local_variable_declaration":
+			if getInstanceChildrenDeclareCipher(file, stmt, "variable_declarator") {
 				return true
 			}
 		case "class_declaration", "interface_declaration", "enum_declaration", "record_declaration":
-			for body := file.FlatFirstChild(scope); body != 0; body = file.FlatNextSib(body) {
-				switch file.FlatType(body) {
-				case "class_body", "interface_body", "enum_body", "enum_body_declarations":
-					if getInstanceJavaMembersDeclareCipher(file, body) {
-						return true
-					}
-				case "formal_parameters":
-					if getInstanceJavaParametersDeclareCipher(file, body) {
-						return true
-					}
-				}
-			}
-		case "class_body", "enum_body_declarations":
-			// Anonymous class and enum bodies have no declaration node.
-			if getInstanceJavaMembersDeclareCipher(file, scope) {
+			if getInstanceDeclarationName(file, stmt) == "Cipher" {
 				return true
 			}
-		case "method_declaration", "constructor_declaration", "lambda_expression":
-			if params, found := file.FlatFindChild(scope, "formal_parameters"); found &&
-				getInstanceJavaParametersDeclareCipher(file, params) {
+		}
+	}
+	return false
+}
+
+// getInstanceJavaLambdaDeclaresCipher reads a lambda's parameters in
+// each of their spellings: `Cipher -> ...`, `(Cipher) -> ...`, and
+// `(KeyCipher Cipher) -> ...`. It stops at the arrow, so an identifier
+// that is the lambda's body is not read as a parameter.
+func getInstanceJavaLambdaDeclaresCipher(file *scanner.File, lambda uint32) bool {
+	for child := file.FlatFirstChild(lambda); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "->":
+			return false
+		case "identifier":
+			if file.FlatNodeTextEquals(child, "Cipher") {
 				return true
 			}
-		case "block":
-			for stmt := file.FlatFirstChild(scope); stmt != 0 && file.FlatEndByte(stmt) <= start; stmt = file.FlatNextSib(stmt) {
-				switch file.FlatType(stmt) {
-				case "local_variable_declaration":
-					if getInstanceChildrenDeclareCipher(file, stmt, "variable_declarator") {
-						return true
-					}
-				case "class_declaration", "interface_declaration", "enum_declaration", "record_declaration":
-					if getInstanceDeclarationName(file, stmt) == "Cipher" {
-						return true
-					}
-				}
+		case "inferred_parameters":
+			if getInstanceJavaIdentifierBeforeTokenIsCipher(file, child, "") {
+				return true
 			}
+		case "formal_parameters":
+			if getInstanceJavaParametersDeclareCipher(file, child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// getInstanceJavaIdentifierBeforeTokenIsCipher reports whether owner has
+// a direct identifier child spelled `Cipher` before its first stop token;
+// an empty stop reads every direct child.
+func getInstanceJavaIdentifierBeforeTokenIsCipher(file *scanner.File, owner uint32, stop string) bool {
+	for child := file.FlatFirstChild(owner); child != 0; child = file.FlatNextSib(child) {
+		childType := file.FlatType(child)
+		if stop != "" && childType == stop {
+			return false
+		}
+		if childType == "identifier" && file.FlatNodeTextEquals(child, "Cipher") {
+			return true
 		}
 	}
 	return false

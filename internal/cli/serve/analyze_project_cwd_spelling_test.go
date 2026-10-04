@@ -39,7 +39,7 @@ func TestAnalyzeProject_ManifestFromOtherCwdSpellingKeepsSourceSet(t *testing.T)
 	writer, writerState := startServerWith(t, project, time.Second)
 	var first daemon.AnalyzeProjectResult
 	if err := daemon.Call(writer, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{Paths: []string{"../../proj/"}}, &first); err != nil {
+		daemon.AnalyzeProjectArgs{Paths: []string{"../../proj/"}, NoFir: true}, &first); err != nil {
 		t.Fatalf("nested-cwd call: %v", err)
 	}
 	if first.Stats.FilesScanned != 2 {
@@ -65,7 +65,7 @@ func TestAnalyzeProject_ManifestFromOtherCwdSpellingKeepsSourceSet(t *testing.T)
 	for _, noCache := range []bool{true, false} {
 		var got daemon.AnalyzeProjectResult
 		if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-			daemon.AnalyzeProjectArgs{Paths: []string{"proj/"}, NoCache: noCache}, &got); err != nil {
+			daemon.AnalyzeProjectArgs{Paths: []string{"proj/"}, NoCache: noCache, NoFir: true}, &got); err != nil {
 			t.Fatalf("repo-root call (NoCache=%v): %v", noCache, err)
 		}
 		if got.Stats.FilesScanned != 2 {

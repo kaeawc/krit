@@ -1,10 +1,10 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 23
-// Deliberate improvement: declarations named `Cipher` nested in other classes do
-// not shadow the imported javax.crypto.Cipher in `Crypto`, so the bare call is a
-// real finding. Go misses it because its same-file guard gives up on a bare
-// `Cipher` when any class, object, or type alias in the file is named Cipher;
-// FIR is correct because it reads the resolved receiver.
+// go-lines: 21, 23
+// Positive: declarations named `Cipher` nested in other classes do not shadow
+// the imported javax.crypto.Cipher in `Crypto`, so the bare call is a real
+// finding. Go agrees: its same-file guard only counts a `Cipher` declared at
+// top level or in a class that encloses the call; FIR reads the resolved
+// receiver.
 package test
 
 import javax.crypto.Cipher

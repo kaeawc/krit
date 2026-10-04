@@ -668,6 +668,268 @@ class Crypto {
 			t.Fatalf("expected 0 Java findings, got %d: %v", len(findings), findings)
 		}
 	})
+	// tree-sitter-kotlin attaches a comment that trails the import line, or
+	// a KDoc after the last import, to the import_header node.
+	t.Run("Kotlin reads the import path, not the import header text", func(t *testing.T) {
+		for name, imports := range map[string]string{
+			"KDoc after the last import":  "import javax.crypto.Cipher\n\n/** Crypto helper. */",
+			"KDoc after the star import":  "import javax.crypto.*\n\n/** Crypto helper. */",
+			"line comment on the import":  "import javax.crypto.Cipher // RSA helper\nimport java.security.Provider",
+			"block comment in the import": "import javax /* jce */ .crypto.Cipher",
+			"backticked import":           "import javax.crypto.`Cipher`",
+			"spaced import":               "import javax . crypto . Cipher",
+			"aliased to its own name":     "import javax.crypto.Cipher as Cipher",
+		} {
+			findings := runRuleByName(t, "RsaNoPadding", "package test\n\n"+imports+`
+class Crypto {
+    fun cipher() {
+        Cipher.getInstance("RSA/ECB/NoPadding")
+    }
+}
+`)
+			if len(findings) != 1 {
+				t.Errorf("%s: expected 1 finding, got %d: %v", name, len(findings), findings)
+			}
+		}
+	})
+	t.Run("Kotlin ignores imports that do not bind Cipher to javax.crypto", func(t *testing.T) {
+		for name, imports := range map[string]string{
+			"mention only in a comment":   "import java.security.Provider // not javax.crypto.Cipher",
+			"aliased to another name":     "import javax.crypto.Cipher as JCipher",
+			"other Cipher under the star": "import javax.crypto.*\nimport test.KeyCipher as Cipher",
+			"other Cipher by its name":    "import javax.crypto.*\nimport org.example.Cipher",
+		} {
+			findings := runRuleByName(t, "RsaNoPadding", "package test\n\n"+imports+`
+
+class Crypto {
+    fun cipher() {
+        Cipher.getInstance("RSA/ECB/NoPadding")
+    }
+}
+`)
+			if len(findings) != 0 {
+				t.Errorf("%s: expected 0 findings, got %d: %v", name, len(findings), findings)
+			}
+		}
+	})
+	t.Run("Kotlin Cipher nested in an unrelated class does not shadow the import", func(t *testing.T) {
+		findings := runRuleByName(t, "RsaNoPadding", `
+package test
+import javax.crypto.Cipher
+
+class Holder {
+    class Cipher
+}
+
+class Other {
+    object Cipher
+}
+
+class Keys {
+    companion object Cipher
+}
+
+fun unrelated() {
+    val Cipher = 1
+    listOf(1).forEach { Cipher -> println(Cipher) }
+}
+
+class Crypto {
+    fun cipher() {
+        Cipher.getInstance("RSA/ECB/NoPadding")
+    }
+
+    fun beforeLocal() {
+        val cipher = Cipher.getInstance("RSA/ECB/NoPadding")
+        val Cipher = cipher
+    }
+}
+`)
+		if len(findings) != 2 {
+			t.Fatalf("expected 2 findings, got %d: %v", len(findings), findings)
+		}
+	})
+	t.Run("Kotlin declarations in scope shadow the imported Cipher", func(t *testing.T) {
+		for name, code := range map[string]string{
+			"parameter": `
+class Crypto {
+    fun cipher(Cipher: KeyCipher) = Cipher.getInstance("RSA/ECB/NoPadding")
+}`,
+			"local val": `
+class Crypto {
+    fun cipher(): String {
+        val Cipher = KeyCipher
+        return Cipher.getInstance("RSA/ECB/NoPadding")
+    }
+}`,
+			"local val in an outer block": `
+fun cipher() {
+    val Cipher = KeyCipher
+    if (true) {
+        run { Cipher.getInstance("RSA/ECB/NoPadding") }
+    }
+}`,
+			"destructured local": `
+fun cipher(pair: Pair<Int, KeyCipher>) {
+    val (_, Cipher) = pair
+    Cipher.getInstance("RSA/ECB/NoPadding")
+}`,
+			"lambda parameter": `
+fun cipher(ciphers: List<KeyCipher>) {
+    ciphers.forEach { Cipher -> Cipher.getInstance("RSA/ECB/NoPadding") }
+}`,
+			"loop variable": `
+fun cipher(ciphers: List<KeyCipher>) {
+    for (Cipher in ciphers) {
+        Cipher.getInstance("RSA/ECB/NoPadding")
+    }
+}`,
+			"companion object of the calling class": `
+class Crypto {
+    companion object Cipher {
+        fun getInstance(transformation: String): String = transformation
+    }
+
+    fun cipher() = Cipher.getInstance("RSA/ECB/NoPadding")
+}`,
+			"member of the companion object": `
+class Crypto {
+    companion object {
+        val Cipher = KeyCipher
+    }
+
+    fun cipher() = Cipher.getInstance("RSA/ECB/NoPadding")
+}`,
+			"property of the calling class": `
+class Crypto(val Cipher: KeyCipher) {
+    fun cipher() = Cipher.getInstance("RSA/ECB/NoPadding")
+}`,
+			"class nested in an enclosing class": `
+class Owner {
+    class Cipher {
+        companion object {
+            fun getInstance(transformation: String): String = transformation
+        }
+    }
+
+    inner class Crypto {
+        fun cipher() = Cipher.getInstance("RSA/ECB/NoPadding")
+    }
+}`,
+			"backticked top-level class": `
+class ` + "`Cipher`" + ` {
+    companion object {
+        fun getInstance(transformation: String): String = transformation
+    }
+}
+
+fun cipher() = Cipher.getInstance("RSA/ECB/NoPadding")`,
+			"top-level type alias": `
+typealias Cipher = KeyCipher
+
+fun cipher() = Cipher.getInstance("RSA/ECB/NoPadding")`,
+		} {
+			findings := runRuleByName(t, "RsaNoPadding", `
+package test
+import javax.crypto.*
+
+object KeyCipher {
+    fun getInstance(transformation: String): String = transformation
+}
+`+code+"\n")
+			if len(findings) != 0 {
+				t.Errorf("%s: expected 0 findings, got %d: %v", name, len(findings), findings)
+			}
+		}
+	})
+	t.Run("Java Cipher nested in an unrelated class does not shadow the import", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "RsaNoPadding", `
+package test;
+import javax.crypto.Cipher;
+
+class Holder {
+    static class Cipher {}
+
+    void unrelated(String Cipher) {}
+}
+
+class Crypto {
+    void cipher() throws Exception {
+        Cipher.getInstance("RSA/ECB/NoPadding");
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 Java finding, got %d: %v", len(findings), findings)
+		}
+	})
+	t.Run("Java declarations in scope shadow the imported Cipher", func(t *testing.T) {
+		for name, code := range map[string]string{
+			"parameter": `
+class Crypto {
+    void cipher(KeyCipher Cipher) {
+        Cipher.getInstance("RSA/ECB/NoPadding");
+    }
+}`,
+			"local variable": `
+class Crypto {
+    void cipher() {
+        KeyCipher Cipher = new KeyCipher();
+        Cipher.getInstance("RSA/ECB/NoPadding");
+    }
+}`,
+			"field": `
+class Crypto {
+    private final KeyCipher Cipher = new KeyCipher();
+
+    void cipher() {
+        Cipher.getInstance("RSA/ECB/NoPadding");
+    }
+}`,
+			"class nested in an enclosing class": `
+class Owner {
+    static class Cipher {
+        static String getInstance(String transformation) { return transformation; }
+    }
+
+    static class Crypto {
+        void cipher() {
+            Cipher.getInstance("RSA/ECB/NoPadding");
+        }
+    }
+}`,
+		} {
+			findings := runRuleByNameOnJava(t, "RsaNoPadding", `
+package test;
+import javax.crypto.Cipher;
+
+class KeyCipher {
+    String getInstance(String transformation) { return transformation; }
+}
+`+code+"\n")
+			if len(findings) != 0 {
+				t.Errorf("%s: expected 0 Java findings, got %d: %v", name, len(findings), findings)
+			}
+		}
+	})
+	t.Run("Java single-type import of another Cipher wins", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "RsaNoPadding", `
+package test;
+import org.example.Cipher;
+
+class Crypto {
+    private javax.crypto.Cipher real;
+
+    void cipher() throws Exception {
+        Cipher.getInstance("RSA/ECB/NoPadding");
+        real = javax.crypto.Cipher.getInstance("RSA/ECB/NoPadding");
+    }
+}
+`)
+		if len(findings) != 1 || findings[0].Line != 10 {
+			t.Fatalf("expected 1 Java finding on line 10, got %d: %v", len(findings), findings)
+		}
+	})
 }
 
 func TestPrngFromSystemTime(t *testing.T) {

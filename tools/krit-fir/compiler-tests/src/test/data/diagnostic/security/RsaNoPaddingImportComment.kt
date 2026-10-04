@@ -1,10 +1,10 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
-// Deliberate improvement: a comment on the Cipher import line and a KDoc after
-// the last import do not change what `Cipher` resolves to, so the calls are
-// real findings. Go misses them because tree-sitter attaches the trailing
-// comment to the import_header and Go compares the whole header text; FIR is
-// correct because it reads the resolved import.
+// go-lines: 15, 17
+// Positive: a comment on the Cipher import line and a KDoc after the last
+// import do not change what `Cipher` resolves to, so the calls are real
+// findings. Go agrees: tree-sitter attaches the trailing comment to the
+// import_header, and Go reads the import's identifier path, not the header
+// text; FIR reads the resolved import.
 package test
 
 import java.security.Provider

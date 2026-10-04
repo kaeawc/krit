@@ -309,12 +309,13 @@ func callMetaVerb(client *daemonclient.Client, f *scanFlags, paths []string, ver
 	case metaVerbOracleFilterFingerprint:
 		return client.OracleFilterFingerprint(daemon.OracleFilterFingerprintArgs{
 			Paths:    paths,
+			Cwd:      callerCwd(),
 			AllRules: *f.AllRules,
 		})
 	case metaVerbDumpTypes:
-		// Absolutise the output path: the daemon runs from the
-		// project root and would otherwise resolve a caller-relative
-		// path against the wrong directory. filepath.Abs only fails
+		// Absolutise the output path so the dump lands where the
+		// caller asked even if the daemon cannot enter the caller's
+		// working directory. filepath.Abs only fails
 		// when CWD is unreadable; fall back to the raw value so the
 		// daemon surfaces a clean create-file error rather than
 		// silently writing somewhere unexpected.
@@ -324,6 +325,7 @@ func callMetaVerb(client *daemonclient.Client, f *scanFlags, paths []string, ver
 		}
 		return client.DumpTypes(daemon.DumpTypesArgs{
 			Paths:         paths,
+			Cwd:           callerCwd(),
 			OutputPath:    outputPath,
 			NoCacheOracle: *f.NoCacheOracle,
 			Verbose:       *f.Verbose,
@@ -671,6 +673,7 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 	}
 	return daemon.AnalyzeProjectArgs{
 		Paths:                     paths,
+		Cwd:                       callerCwd(),
 		Format:                    wireFormat,
 		BaselinePath:              baselinePath,
 		DiffRef:                   *f.Diff,
@@ -707,6 +710,20 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		NoFirDaemon:               *f.NoFirDaemon,
 		ClientBinaryHash:          daemonclient.CurrentBinaryHash(),
 	}
+}
+
+// callerCwd returns the working directory the daemon must resolve this
+// invocation's relative paths against. The daemon is found by repo
+// directory, not by working directory, so it may have been started from
+// anywhere; without this it would resolve `krit sub/` against the
+// directory of whichever invocation spawned it. Empty when the working
+// directory is unreadable, which leaves the daemon on its own.
+func callerCwd() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return cwd
 }
 
 // absoluteProfilePath converts a CLI-supplied profile path into an

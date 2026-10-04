@@ -72,6 +72,13 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 	// rewrite between requests can preserve both size and mtime; clearing
 	// here prevents its old digest from validating on-disk caches.
 	hashutil.ResetDefault()
+	// Before anything resolves a path: the preflight, the config-driven
+	// walks and the pipeline all read args.Paths relative to the working
+	// directory.
+	if err := state.enterCallerCwd(args.Cwd); err != nil {
+		state.analyzeMu.Unlock()
+		return nil, err
+	}
 	if args.Fir {
 		if !args.FirPreflightPassed {
 			paths := args.Paths

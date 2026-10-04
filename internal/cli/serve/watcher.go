@@ -362,7 +362,8 @@ func (fw *fileWatcher) scheduleKotlinInvalidate(path string) {
 }
 
 // invalidateBothForms drops the WorkspaceState parse-cache entry for
-// path under BOTH the absolute and the relative-to-root forms.
+// path under BOTH the absolute and the relative forms (relative to the
+// working directory and to the root).
 // fsnotify hands us absolute paths, but the parse-phase resident
 // cache (WorkspaceState.parsed, queried by scanWithResident via
 // LookupParsedByPath) is keyed under whatever form callers used at
@@ -384,10 +385,23 @@ func (fw *fileWatcher) scheduleKotlinInvalidate(path string) {
 // instead of 84630 (cold + 7 probe-triggered findings).
 func (fw *fileWatcher) invalidateBothForms(absPath string) {
 	fw.state.Invalidate(absPath)
+	// A relative scan path is spelled against the caller's working
+	// directory, which the daemon enters for the scan (enterCallerCwd)
+	// and which need not be the root: `krit ../lib` keys its files as
+	// "../lib/...", so a path outside the working directory is still a
+	// live key.
+	cwdRel := ""
+	if cwd, err := os.Getwd(); err == nil {
+		if rel, err := filepath.Rel(cwd, absPath); err == nil {
+			cwdRel = rel
+			fw.state.Invalidate(rel)
+		}
+	}
 	if fw.root == "" {
 		return
 	}
-	if rel, err := filepath.Rel(fw.root, absPath); err == nil && !strings.HasPrefix(rel, "..") {
+	// Same spelling as above when the daemon runs at the root.
+	if rel, err := filepath.Rel(fw.root, absPath); err == nil && !strings.HasPrefix(rel, "..") && rel != cwdRel {
 		fw.state.Invalidate(rel)
 	}
 }

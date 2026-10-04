@@ -10,6 +10,29 @@ silently route them through the daemon and break user-visible behavior. Each
 section also notes what would have to change for daemon routing to become a
 sensible option.
 
+## Working directory
+
+A daemon is found by repo directory, not by working directory, so one daemon
+serves `krit` invocations from any directory under its root and starts in
+whichever directory first spawned it. Scan paths go on the wire exactly as
+typed, together with the caller's working directory (`Cwd` on
+`AnalyzeProjectArgs`, `OracleFilterFingerprintArgs` and `DumpTypesArgs`). The
+daemon enters that directory before resolving anything (`enterCallerCwd` in
+`internal/cli/serve/caller_cwd.go`), so relative paths mean what they meant to
+the caller and findings come back in the caller's spelling, identical to the
+in-process run.
+
+Consequences worth knowing when adding a verb or resident state:
+
+- The working directory is process-wide. Every verb that resolves a
+  caller-relative path must hold `analyzeMu` and call `enterCallerCwd`.
+- Resident state keyed by relative path spellings is dropped when the caller's
+  directory changes, and the next scan runs cold. On-disk caches are shared
+  with in-process runs and must not assume one spelling per location; the
+  findings-bundle manifest key covers both the absolute path and the spelling.
+- A request whose directory the daemon cannot enter fails, and the CLI falls
+  back to the in-process path.
+
 ## Meta / non-analysis flags
 
 These flags do not run an analysis at all. The daemon's only client verb is

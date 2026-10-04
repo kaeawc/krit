@@ -16,4 +16,19 @@ public final class Bitmap {
     public void recycle() {
         throw new RuntimeException("Stub!");
     }
+
+    public final Config getConfig() {
+        throw new RuntimeException("Stub!");
+    }
+
+    public enum Config {
+        ALPHA_8,
+        RGB_565,
+        @Deprecated
+        ARGB_4444,
+        ARGB_8888,
+        RGBA_F16,
+        HARDWARE,
+        RGBA_1010102
+    }
 }

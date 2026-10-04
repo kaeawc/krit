@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 19, 21, 23, 25, 27, 29, 31, 40, 42, 44, 46, 48, 51, 53, 55, 57, 61
 // Positive: literal sources behind null-safety and cast wrappers, a String
 // transform, a harmless lambda, or a template of literal-initialized vals. Go
 // reports every call here: the argument text starts with a string literal and

@@ -309,7 +309,9 @@ func TestTryDaemonDelegate_HappyPathReturnsExitFromFindings(t *testing.T) {
 func freshScanFlags(t *testing.T) *scanFlags {
 	t.Helper()
 	fs := flag.NewFlagSet("scan-test", flag.ContinueOnError)
-	return registerScanFlags(fs)
+	f := registerScanFlags(fs)
+	*f.NoFir = true // ordinary daemon tests exercise the pre-existing Go-only path
+	return f
 }
 
 func stubEnsureDaemonForScan(t *testing.T, fn func(string, daemonclient.SpawnOptions) (*daemonclient.Client, bool, error)) {
@@ -875,5 +877,14 @@ func TestBuildDaemonAnalyzeArgs_ForwardsPerfFlags(t *testing.T) {
 				t.Errorf("PerfRules = %v, want %v", args.PerfRules, tt.wantPerfRule)
 			}
 		})
+	}
+}
+
+// TestDaemonBinaryForScanRefusesTestBinary guards the autostart path:
+// under go test the running executable is scan.test, and spawning it
+// as `serve` reruns the suite, which spawns again without bound.
+func TestDaemonBinaryForScanRefusesTestBinary(t *testing.T) {
+	if got := daemonBinaryForScan(); got != "" {
+		t.Fatalf("daemonBinaryForScan() = %q, want empty inside go test", got)
 	}
 }

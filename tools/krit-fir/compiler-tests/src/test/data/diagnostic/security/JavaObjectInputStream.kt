@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 13, 15, 18, 21, 24, 26, 30, 34, 37, 38, 43, 50, 56, 61, 65, 70, 95
 // Positives and negatives for JavaObjectInputStream: a constructor call that
 // creates a java.io.ObjectInputStream, reported on the call like Go.
 package test

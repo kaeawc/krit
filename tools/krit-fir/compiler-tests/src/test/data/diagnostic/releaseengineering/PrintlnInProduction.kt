@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 10, 11, 12, 17, 22, 29, 35, 40, 41, 42, 43, 44, 48, 51, 58, 59, 67, 72, 78, 84, 92, 95, 100, 105
 // Positive: console output in production code, the shapes the Go rule
 // reports. The finding sits on the first line of the call, as Go reports the
 // start of the call_expression.

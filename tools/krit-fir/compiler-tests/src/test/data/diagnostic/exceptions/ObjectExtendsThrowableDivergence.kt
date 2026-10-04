@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 14, 20, 24, 28, 33, 40, 56
 // Go findings FIR drops. Go takes every type name written anywhere in an
 // object's delegation specifiers and matches Throwable, Exception, Error, or
 // RuntimeException by simple name. These objects only mention an exception

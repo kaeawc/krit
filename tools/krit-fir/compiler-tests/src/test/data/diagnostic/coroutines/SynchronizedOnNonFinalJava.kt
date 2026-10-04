@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 22, 34, 71
 // Java-interop: a lock that is a non-final Java field, or a synthetic property
 // over a Java getter/setter pair, is a non-final property just like a Kotlin
 // `var`: it can be reassigned, which swaps the monitor object. FIR reports

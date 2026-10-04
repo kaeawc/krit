@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Console output Go misses and FIR reports. Each call resolves to
 // kotlin.io.println / print or to print / println on System.out / System.err.
 package test

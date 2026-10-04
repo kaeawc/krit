@@ -109,6 +109,46 @@ When the Kotlin JVM plugin or Android Gradle Plugin is applied, krit automatical
 
 ## Tasks
 
+### `kritExportModel`
+
+Exports resolved compile classpaths for krit. Each applied JVM, Android, or Kotlin
+Multiplatform project
+registers one `kritExportModel` task and writes one file under the build root's
+`.krit/gradle-model/` directory. The root project's file is `_root.json`;
+`:feature:login` writes `feature__login.json`. Running `gradle kritExportModel`
+selects the task in every project where it exists through ordinary Gradle task-name
+selection. No separate aggregate step is needed. Each file contains that project's
+entry, with external artifacts and project dependencies recorded separately. Schema 1
+contains a `sourceSets` list. JVM exports `main`, `test`, and (when enabled)
+`testFixtures`. Android exports the selected production variant plus available unit
+and instrumented test variants. Kotlin Multiplatform exports the `main` and `test`
+compilations of JVM and Android JVM targets; other targets are skipped. Android uses
+`debug` or the alphabetically first available production variant if it is absent.
+
+Each source-set entry retains `name`, `platform`, `variant`, `sourceDirs`, `classpath`,
+`bootClasspath`, and `projectDeps`, and adds `kind` (`main`, `test`, `testFixtures`, or
+`androidTest`), `generatedSourceDirs`, `generatedClasspath`, and `jvmTarget`.
+`sourceDirs` excludes paths beneath the project's build directory; those registered
+paths appear in `generatedSourceDirs` even before files exist. Android generated
+class jars are discovered best-effort from compile artifact views. Missing values
+are empty lists or an empty `jvmTarget` string.
+
+```kotlin
+krit {
+    exportModel = true       // default: this project's kritCheck depends on its kritExportModel
+    fir = true               // default: run the FIR checker pass during kritCheck
+    exportGenerated = false  // default: export declared paths without running code generation
+    androidVariant = "debug" // default; choose another Android variant if needed
+}
+```
+
+Set `exportModel = false` to run `kritCheck` without generating the model.
+The task can still be run explicitly.
+Set `fir = false` to pass `--no-fir` to `kritCheck` when FIR is unavailable.
+Set `exportGenerated = true` to depend on available Android source/resource generation
+and KSP/kapt stub tasks. This makes generated sources and R-class jars more likely
+to exist on disk after export, but makes model export slower.
+
 ### `kritCheck`
 
 Runs krit analysis on all configured Kotlin sources. Produces a SARIF report at `build/reports/krit/krit.sarif`. Wired into the `check` lifecycle automatically.
@@ -148,4 +188,4 @@ The plugin downloads the correct platform-specific krit binary from GitHub Relea
 ## Requirements
 
 - Gradle 8.0+
-- JDK 11+
+- JDK 17+ for the plugin's JVM 17 bytecode. Default FIR-enabled `kritCheck` scans need Java 21+ at runtime; set `fir = false` in the `krit` extension for Go-only analysis on JDK 17.

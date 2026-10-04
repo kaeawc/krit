@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,8 +13,74 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/muesli/reflow/wordwrap"
 
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/onboarding"
 )
+
+func TestAutofixAndBaselineFIRMode(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		ready bool
+	}{{"fir", true}, {"go-only", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			old := tuiPreflightFIR
+			tuiPreflightFIR = func(context.Context, []string, *config.Config, string, bool, io.Writer) ([]string, error) {
+				if tc.ready {
+					return nil, nil
+				}
+				return nil, errors.New("missing FIR requirements")
+			}
+			defer func() { tuiPreflightFIR = old }()
+			target := t.TempDir()
+			configPath := filepath.Join(target, "krit.yml")
+			if err := os.WriteFile(configPath, []byte("oracle:\n  classpath: []\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			logPath := filepath.Join(target, "args.log")
+			t.Setenv("KRIT_TEST_ARGS", logPath)
+			bin := filepath.Join(target, "fake-krit")
+			script := `#!/bin/sh
+printf '%s\n' "$*" >> "$KRIT_TEST_ARGS"
+case " $* " in
+  *" -f json "*) printf '{"summary":{"total":0,"fixable":0,"byRule":{}}}\n';;
+esac
+previous=""
+for arg in "$@"; do
+  if [ "$previous" = "--create-baseline" ]; then printf '<baseline/>\n' > "$arg"; fi
+  previous="$arg"
+done
+`
+			if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			m := newTestModel(t)
+			m.opts.KritBin, m.target, m.configPath = bin, target, configPath
+			auto := m.autofixCmd()().(autofixDoneMsg)
+			if auto.err != nil {
+				t.Fatal(auto.err)
+			}
+			m.firChecked, m.firEnabled = true, auto.firEnabled
+			base := m.baselineCmd()().(baselineDoneMsg)
+			if base.err != nil {
+				t.Fatal(base.err)
+			}
+			m.baselineWritten, m.baselinePath, m.firEnabled = true, base.path, base.firEnabled
+			args, err := os.ReadFile(logPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, line := range strings.Split(strings.TrimSpace(string(args)), "\n") {
+				if strings.Contains(line, "--no-fir") == tc.ready {
+					t.Errorf("unexpected mode: %s", line)
+				}
+			}
+			view := m.newDonePhase().View()
+			if strings.Contains(view, onboarding.GoOnlyBaselineNotice) == tc.ready {
+				t.Errorf("unexpected notice: %s", view)
+			}
+		})
+	}
+}
 
 // newTestModel builds a minimal initModel the TUI tests can drive
 // directly without running the bubbletea program. Tests set m.phase

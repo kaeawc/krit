@@ -61,6 +61,13 @@ type scanFlags struct {
 	NoTypeOracle             *bool
 	OracleBackend            *string
 	NoCacheOracle            *bool
+	GradleModel              *string
+	NoGradleModel            *bool
+	modelClasspath           []string
+	modelSourceDirs          []string
+	modelGeneratedSourceDirs []string
+	modelJvmTarget           string
+	firPreflightPassed       bool
 	NoCrossFileCache         *bool
 	CustomRuleJars           *string
 	Daemon                   *bool
@@ -171,13 +178,15 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.NoTypeOracle = fs.Bool("no-type-oracle", false, "Skip the JVM type oracle entirely (faster, less precise)")
 	f.OracleBackend = fs.String("oracle-backend", "", "Pick the JVM daemon for the type oracle: 'fir' (krit-fir, default) or 'kaa' (krit-types). Overrides the oracle.backend value in krit.yml.")
 	f.NoCacheOracle = fs.Bool("no-cache-oracle", false, "Disable the on-disk incremental oracle cache (forces a full JVM run)")
+	f.GradleModel = fs.String("gradle-model", "", "Read exported Gradle model from DIR (overrides --no-gradle-model)")
+	f.NoGradleModel = fs.Bool("no-gradle-model", false, "Disable automatic Gradle model discovery")
 	f.NoCrossFileCache = fs.Bool("no-cross-file-cache", false, "Disable the on-disk cross-file index cache (forces a full crossFileAnalysis rebuild)")
 	f.CustomRuleJars = fs.String("custom-rule-jars", "", "Comma-separated Kotlin custom-rule jars to load through the krit-types daemon (experimental)")
 	f.Daemon = fs.Bool("daemon", false, "Use long-lived krit-types daemon instead of one-shot invocation")
 	f.NoOracleFilter = fs.Bool("no-oracle-filter", false, "Disable the rule-classification oracle filter (feeds every file to krit-types, matching the pre-filter baseline; used to validate findings-equivalence)")
 	f.OracleDiagnostics = fs.Bool("oracle-diagnostics", false, "Force-collect Kotlin compiler diagnostics in the type oracle even when no active rule needs them (diagnostic-backed projections are collected automatically for rules that consume them)")
 	f.OracleFilterFingerprint = fs.Bool("oracle-filter-fingerprint", false, "Compute the oracle filter input-set fingerprint for the given paths and print JSON to stdout; exits without running rules. Used by the CI drift gate.")
-	f.Fir = fs.Bool("fir", false, "Enable FIR checker pass (krit-fir JVM subprocess); default off during pilot phase")
+	f.Fir = fs.Bool("fir", true, "Enable FIR checker pass (krit-fir JVM subprocess; default on)")
 	f.NoFir = fs.Bool("no-fir", false, "Disable FIR checker pass even when enabled by config")
 	f.NoFirDaemon = fs.Bool("no-fir-daemon", false, "Force one-shot mode for FIR checker (no persistent daemon; useful for hermetic CI runners)")
 	f.FixBinary = fs.Bool("fix-binary", false, "Apply binary file fixes (image conversion, optimization, file operations)")

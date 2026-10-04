@@ -66,7 +66,7 @@ internal object JdbcResultSetLeakedFromFunction :
     FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common), FirRule {
     override val ruleId = "JdbcResultSetLeakedFromFunction"
     override val declarationCheckers = object : DeclarationCheckers() {
-        override val simpleFunctionCheckers = setOf(JdbcResultSetLeakedFromFunction)
+        override val namedFunctionCheckers = setOf(JdbcResultSetLeakedFromFunction)
     }
 
     private const val RESULT_SET = "ResultSet"

@@ -10,7 +10,6 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChec
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
-import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.name.CallableId
@@ -22,10 +21,7 @@ import org.jetbrains.kotlin.text
 /**
  * Flags `javax.crypto.Cipher.getInstance("RSA/<mode>/NoPadding")`: textbook RSA
  * without padding. Mirrors the Go RsaNoPadding rule on Kotlin code:
- *  - the call resolves to `javax.crypto.Cipher.getInstance` through an explicit
- *    receiver that resolves to `javax.crypto.Cipher` and is spelled `Cipher` or
- *    `javax.crypto.Cipher`, as Go's receiver-text check requires (an aliased
- *    import or a statically imported `getInstance` does not fire, as in Go);
+ *  - the call resolves to `javax.crypto.Cipher.getInstance`;
  *  - the first argument is a string literal without interpolation whose trimmed,
  *    upper-cased source content (escape sequences undecoded, as Go reads it)
  *    splits on `/` into exactly `RSA`, a non-empty mode, and `NOPADDING`.
@@ -35,8 +31,13 @@ import org.jetbrains.kotlin.text
  * Deliberate differences from Go, pinned by golden tests. Go cannot resolve a
  * bare `Cipher`, so it guesses from the file's import headers and declarations;
  * FIR reads the resolved receiver instead:
- *  - Go false negatives FIR reports: a class or object named `Cipher` nested
- *    in another class of the file (RsaNoPaddingFileDeclaresCipher). A nested
+ *  - Go false negatives FIR reports: any spelling of the receiver other than
+ *    `Cipher` or `javax.crypto.Cipher`: an import alias, a typealias, a
+ *    parenthesized or backticked receiver, or a statically imported
+ *    `getInstance`, plain or aliased (RsaNoPaddingSpellings), and a qualified
+ *    receiver split across lines (RsaNoPaddingNoImport); a class or object
+ *    named `Cipher` nested in another class of the file
+ *    (RsaNoPaddingFileDeclaresCipher). A nested
  *    `fun interface Cipher` or backticked `Cipher` also never suppresses, and
  *    Go reports those too because its guard misses them
  *    (RsaNoPaddingFunInterface, RsaNoPaddingBacktickedDeclaration);
@@ -68,13 +69,9 @@ internal object RsaNoPadding : FirFunctionCallChecker(MppCheckerKind.Common), Fi
         val callee = expression.calleeReference.toResolvedCallableSymbol() ?: return
         if (callee.callableId != getInstanceId) return
 
-        // The resolved classId already rules out a shadowing `Cipher`, so Go's
-        // import and same-file declaration guesses are not needed.
-        val receiver = expression.explicitReceiver as? FirResolvedQualifier ?: return
-        if (receiver.classId != cipherClassId) return
-        val receiverText = receiver.source?.text?.toString()?.trim() ?: return
-        if (receiverText != "Cipher" && receiverText != "javax.crypto.Cipher") return
-
+        // The resolved callable already rules out a shadowing `Cipher`, so Go's
+        // receiver spelling, import, and same-file declaration guesses are not
+        // needed.
         val algorithm = firstStringLiteral(expression) ?: return
         if (!isRsaNoPadding(algorithm)) return
 

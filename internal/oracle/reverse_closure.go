@@ -19,6 +19,14 @@ import (
 // unanalyzed, keeping its stale facts in types.json. Directly changed paths
 // always remain in the result.
 func ExpandStaleOraclePaths(s *store.FileStore, cacheDir string, allPaths, changed []string) []string {
+	var scopes map[string]StoreScope
+	if s != nil {
+		scanPaths := storeScanPaths(cacheDir, "")
+		scopes = map[string]StoreScope{
+			ApproximationFIRWholeCompilation: NewStoreScope(BackendFIR, FindBackendJar(BackendFIR, scanPaths)),
+			ApproximationKAATaggedReferences: NewStoreScope(BackendKAA, FindBackendJar(BackendKAA, scanPaths)),
+		}
+	}
 	paths := append([]string(nil), allPaths...)
 	sort.Strings(paths)
 	reverse := make(map[string][]string)
@@ -29,19 +37,42 @@ func ExpandStaleOraclePaths(s *store.FileStore, cacheDir string, allPaths, chang
 			unresolved = append(unresolved, path)
 			continue
 		}
-		var entry *CacheEntry
+		var entries []*CacheEntry
 		if s != nil {
-			entry, err = LoadEntryFromStore(s, hash)
+			// The freshness gate has no selected backend yet. Union both
+			// namespaces so neither backend's dependents are lost.
+			for _, approximation := range []string{ApproximationFIRWholeCompilation, ApproximationKAATaggedReferences} {
+				release := BindStoreScope(s, scopes[approximation])
+				entry, loadErr := LoadEntryFromStore(s, hash, cacheDir, approximation)
+				release()
+				if loadErr != nil {
+					err = loadErr
+					break
+				}
+				if entry != nil {
+					entries = append(entries, entry)
+				}
+			}
 		} else {
-			entry, err = LoadEntry(cacheDir, hash)
+			entry, loadErr := LoadEntry(cacheDir, hash)
+			err = loadErr
+			if entry != nil {
+				entries = append(entries, entry)
+			}
 		}
-		if err != nil || entry == nil || entry.Crashed {
+		if err != nil || len(entries) == 0 {
 			unresolved = append(unresolved, path)
 			continue
 		}
-		for _, dependency := range entry.Closure.DepPaths {
-			if dependency != "" {
-				reverse[dependency] = append(reverse[dependency], path)
+		for _, entry := range entries {
+			if entry.Crashed {
+				unresolved = append(unresolved, path)
+				continue
+			}
+			for _, dependency := range entry.Closure.DepPaths {
+				if dependency != "" {
+					reverse[dependency] = append(reverse[dependency], path)
+				}
 			}
 		}
 	}

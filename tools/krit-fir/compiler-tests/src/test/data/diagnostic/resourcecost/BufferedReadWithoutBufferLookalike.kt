@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 18, 22, 26
 // A class of this package named FileInputStream: not a java.io.FileInputStream.
 package test
 

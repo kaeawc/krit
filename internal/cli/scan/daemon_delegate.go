@@ -12,6 +12,7 @@ import (
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/selfexec"
 )
 
 var ensureDaemonForScan = daemonclient.EnsureCompatible
@@ -496,7 +497,7 @@ func emitDaemonDispatchProfile(p *daemon.DispatchProfile) {
 }
 
 func daemonBinaryForScan() string {
-	exe, err := os.Executable()
+	exe, err := selfexec.Executable()
 	if err != nil {
 		return ""
 	}
@@ -669,34 +670,42 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		wireFormat = "json"
 	}
 	return daemon.AnalyzeProjectArgs{
-		Paths:            paths,
-		Format:           wireFormat,
-		BaselinePath:     baselinePath,
-		DiffRef:          *f.Diff,
-		MinConfidence:    *f.MinConfidence,
-		WarningsAsErrors: *f.WarningsAsErrors,
-		IncludeGenerated: *f.IncludeGenerated,
-		AllRules:         *f.AllRules,
-		Experimental:     *f.Experimental,
-		EnableRules:      *f.EnableRules,
-		DisableRules:     *f.DisableRules,
-		CustomRuleJars:   parseCustomRuleJars(*f.CustomRuleJars),
-		ShowPerf:         *f.Perf || *f.PerfRules,
-		PerfRules:        *f.PerfRules,
-		InputTypesPath:   inputTypesPath,
-		NoCache:          *f.NoCache,
-		ProfileDispatch:  *f.ProfileDispatch,
-		CPUProfilePath:   absoluteProfilePath(*f.CPUProfile),
-		MemProfilePath:   absoluteProfilePath(*f.MemProfile),
-		BasePath:         resolveBasePath(*f.BasePath, paths),
-		CreateBaseline:   *f.CreateBaseline != "",
-		DryRun:           *f.DryRun,
-		FixLevel:         *f.FixLevel,
-		IncludeColumns:   includeColumns,
-		OracleBackend:    *f.OracleBackend,
-		Fir:              *f.Fir && !*f.NoFir,
-		NoFirDaemon:      *f.NoFirDaemon,
-		ClientBinaryHash: daemonclient.CurrentBinaryHash(),
+		Paths:                     paths,
+		Format:                    wireFormat,
+		BaselinePath:              baselinePath,
+		DiffRef:                   *f.Diff,
+		MinConfidence:             *f.MinConfidence,
+		WarningsAsErrors:          *f.WarningsAsErrors,
+		IncludeGenerated:          *f.IncludeGenerated,
+		AllRules:                  *f.AllRules,
+		Experimental:              *f.Experimental,
+		EnableRules:               *f.EnableRules,
+		DisableRules:              *f.DisableRules,
+		CustomRuleJars:            parseCustomRuleJars(*f.CustomRuleJars),
+		ShowPerf:                  *f.Perf || *f.PerfRules,
+		PerfRules:                 *f.PerfRules,
+		InputTypesPath:            inputTypesPath,
+		NoCache:                   *f.NoCache,
+		ProfileDispatch:           *f.ProfileDispatch,
+		CPUProfilePath:            absoluteProfilePath(*f.CPUProfile),
+		MemProfilePath:            absoluteProfilePath(*f.MemProfile),
+		BasePath:                  resolveBasePath(*f.BasePath, paths),
+		CreateBaseline:            *f.CreateBaseline != "",
+		DryRun:                    *f.DryRun,
+		FixLevel:                  *f.FixLevel,
+		IncludeColumns:            includeColumns,
+		OracleBackend:             *f.OracleBackend,
+		Fir:                       *f.Fir && !*f.NoFir,
+		NoFir:                     *f.NoFir || !*f.Fir,
+		GradleModel:               *f.GradleModel,
+		NoGradleModel:             *f.NoGradleModel,
+		FirPreflightPassed:        f.firPreflightPassed,
+		OracleClasspath:           effectiveOracleClasspath(f.modelClasspath, loadScanConfig(f)),
+		OracleSourceDirs:          f.modelSourceDirs,
+		OracleGeneratedSourceDirs: f.modelGeneratedSourceDirs,
+		OracleJvmTarget:           f.modelJvmTarget,
+		NoFirDaemon:               *f.NoFirDaemon,
+		ClientBinaryHash:          daemonclient.CurrentBinaryHash(),
 	}
 }
 

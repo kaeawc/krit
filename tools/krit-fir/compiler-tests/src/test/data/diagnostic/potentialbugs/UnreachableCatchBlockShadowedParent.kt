@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 27, 39
 // A project class that reuses the name of a well-known exception on the
 // parent side of the comparison. Go looks the written simple names up in its
 // table of well-known exceptions, so it reads this Exception as

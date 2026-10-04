@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 31
 // Where FIR's resolved exception hierarchy and the Go rule disagree. Go
 // compares the catch types as written: equal text is a duplicate, otherwise it
 // looks both simple names up in a fixed table of well-known exceptions. FIR

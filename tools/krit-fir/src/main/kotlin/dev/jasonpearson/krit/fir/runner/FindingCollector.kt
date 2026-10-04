@@ -32,11 +32,18 @@ data class Finding(
 class FindingCollector(
     private val requestedPaths: Map<String, String>,
     private val enabledRules: Set<String> = emptySet(),
+    private val ownedSources: Set<String> = emptySet(),
 ) : MessageCollector {
     val findings = mutableListOf<Finding>()
     val errorFiles = linkedMapOf<String, String>()
     val globalErrors = mutableListOf<String>()
     val exceptions = mutableListOf<String>()
+
+    internal var ownedError: String? = null
+        private set
+
+    var firstError: String? = null
+        private set
 
     private var _hasErrors = false
 
@@ -49,16 +56,20 @@ class FindingCollector(
         location: CompilerMessageSourceLocation?,
     ) {
         if (severity == CompilerMessageSeverity.EXCEPTION) {
+            if (firstError == null) firstError = message
             _hasErrors = true
             exceptions += message
             return
         }
         if (severity == CompilerMessageSeverity.ERROR && !pluginDiagnosticRe.containsMatchIn(message)) {
+            if (firstError == null) firstError = message
             _hasErrors = true
             if (location == null) {
                 globalErrors += message
             } else {
-                requestedPaths[canonical(location.path)]?.let { errorFiles.putIfAbsent(it, message) }
+                val path = canonical(location.path)
+                if (path in ownedSources && ownedError == null) ownedError = message
+                requestedPaths[path]?.let { errorFiles.putIfAbsent(it, message) }
             }
         }
 

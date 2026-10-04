@@ -89,7 +89,7 @@ for i in $(seq 1 "$RUNS"); do
     fi
 
     START_TS=$(go run ./internal/devtools/jsonstat -mode unix-ms)
-    "$KRIT" -no-cache -no-cache-oracle -perf -f json -q "$PROJECT/" \
+    "$KRIT" --no-fir -no-cache -no-cache-oracle -perf -f json -q "$PROJECT/" \
         > "$TMPOUT" 2>/dev/null || true
     END_TS=$(go run ./internal/devtools/jsonstat -mode unix-ms)
     WALL_MS=$(( END_TS - START_TS ))

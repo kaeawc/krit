@@ -1,6 +1,7 @@
 package com.example
 
 import android.content.Context
+import android.widget.TextView
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 
@@ -45,5 +46,21 @@ class PlainHolder {
         // Method named setText on a non-TextView class. Bare call has
         // no receiver evidence, must not fire.
         setText("recurse")
+    }
+}
+
+class ShortHardcodedText {
+    private val label: TextView = TODO()
+
+    fun setShortText() {
+        val a = 1
+        val v = 2
+        label.setText("")
+        label.setText(":")
+        label.setText(" ")
+        label.setText("-")
+        label.setText("$a")
+        label.setText("a")
+        label.setText("x: $v")
     }
 }

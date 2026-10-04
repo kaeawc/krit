@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Spellings of the ObjectInputStream constructor that Go's name match misses.
 package test
 

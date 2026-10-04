@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 33, 45, 51, 53, 55, 66, 91, 101, 117, 126
 // Negative: error() with a message, a non-Throwable value, or a call that does
 // not resolve to kotlin.error must NOT trigger ErrorUsageWithThrowable.
 package test
@@ -19,7 +20,10 @@ fun nothingArgument(): Nothing = error(TODO())
 // Go only matches the bare `error(...)` form; the qualified call is left alone.
 fun qualified(e: Exception): Nothing = kotlin.error(e)
 
-// Local lookalikes: a member and a local function named `error`.
+// Local lookalikes: a member and a local function named `error`. Go reports
+// the two bare `error(t)` calls because it matches the name `error`; FIR is
+// correct because they call the member and the local function, not
+// kotlin.error.
 class Logger {
     fun error(t: Throwable) {
         <!PrintlnInProduction!>println<!>(t)
@@ -101,7 +105,9 @@ fun capturedVarElseBranch(initial: Any) {
 fun rethrow(e: Exception): Nothing = throw IllegalStateException("wrapped", e)
 
 // Reassigned after the check: the value passed is no longer the checked
-// Throwable, so neither the early exit nor the `is` branch proves it.
+// Throwable, so neither the early exit nor the `is` branch proves it. Go
+// reports both calls, narrowing from the `is` check past the reassignment;
+// FIR is correct because the value passed is `replacement`, an Any.
 fun capturedVarReassignedAfterGuard(initial: Any, replacement: Any) {
     var value = initial
     val reset = { value = "reset" }

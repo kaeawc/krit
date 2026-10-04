@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 23
 // Deliberate improvement: declarations named `Cipher` nested in other classes do
 // not shadow the imported javax.crypto.Cipher in `Crypto`, so the bare call is a
 // real finding. Go misses it because its same-file guard gives up on a bare

@@ -4,7 +4,7 @@ import com.intellij.lang.LighterASTNode
 import com.intellij.util.diff.FlyweightCapableTreeStructure
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
-import org.jetbrains.kotlin.KtNodeTypes
+import dev.jasonpearson.krit.fir.support.qualifiedCall
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -90,7 +90,6 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
         "verb", "httpMethod", "method", "requestMethod",
     )
 
-    private val qualifiedTypes = setOf(KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION)
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
@@ -163,21 +162,6 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
 
     private fun message(name: String) =
         "'$name()' called without explicit Locale. Pass 'Locale.ROOT' for case-insensitive comparison or use a display-locale variant for user-facing text."
-
-    // The qualified expression (`r.f()` / `r?.f()`) whose selector is this
-    // call, or null when the call has no explicit receiver. K2 gives a dot call
-    // the whole qualified expression as its source; a safe call keeps the
-    // selector call expression, so step up to its parent.
-    private fun qualifiedCall(source: KtSourceElement): LighterASTNode? {
-        val tree = source.treeStructure
-        val node = source.lighterASTNode
-        if (node.tokenType in qualifiedTypes) return node
-        if (node.tokenType != KtNodeTypes.CALL_EXPRESSION) return null
-        val parent = tree.getParent(node) ?: return null
-        if (parent.tokenType !in qualifiedTypes) return null
-        val parts = significantChildren(parent, tree)
-        return parent.takeIf { parts.size > 1 && parts.last() == node }
-    }
 
     // A source element for [node], a node in [anchor]'s tree, keeping the
     // anchor's offset shift between tree offsets and file offsets.

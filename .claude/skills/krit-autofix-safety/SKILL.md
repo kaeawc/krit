@@ -63,7 +63,7 @@ go build -o krit ./cmd/krit/
 go vet ./...
 golangci-lint run ./...
 make lint-rules
-go test ./... -count=1
+make test
 ```
 
 Run `make integration` if the fix changes how the fixer writes output paths or coordinates with the snapshot sidecar.

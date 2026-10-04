@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 20, 28
 // A `synchronized` lookalike whose parameter is a Kotlin `fun interface`: the
 // function-typed `var` argument reaches FIR wrapped in a SAM conversion. Go
 // reports the bare name when the class declares it as a `var`, and the lock

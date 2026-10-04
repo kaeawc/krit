@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 11, 14, 18, 22, 26, 30, 35, 39, 42, 46, 51, 55, 58, 62, 67, 74, 80, 88, 95, 101
 // Positives: kotlin.system.exitProcess and java.lang.System.exit called where
 // the nearest enclosing named function is not `main`, or where there is no
 // enclosing function at all. Every shape here is reported by Go as well.

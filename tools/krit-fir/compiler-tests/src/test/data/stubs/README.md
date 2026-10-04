@@ -28,7 +28,8 @@ Match the language the real library is written in, because FIR symbols differ
 by origin and no harness check can detect the mismatch:
 
 - **Java libraries go in `java/`.** The Android platform (`android.*`) and
-  the Apache HTTP client it bundles (`org.apache.http.*`) are Java stubs.
+  the Apache HTTP client it bundles (`org.apache.http.*`) are Java stubs, as
+  are Play services `Task` and Guava's `ListenableFuture`.
   Only Java gives the real symbol shapes: a static member has no dispatch
   receiver and a callable id without a `Companion` segment
   (`android/view/View.VISIBLE`); getter/setter pairs become synthetic
@@ -158,4 +159,5 @@ output.
   `Counter.Companion.builder` for Micrometer's Java interface static). See the
   matching rule above.
 - Some SDK supertypes are not modeled (`CursorLoader`'s loader chain,
-  `Settings.NameValueTable`, ICU `UFormat`); each is noted in its stub.
+  `Settings.NameValueTable`, ICU `UFormat`, `RemoteViews`'
+  `LayoutInflater.Filter`); each is noted in its stub.

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Positive (deliberate improvement over Go): a typed when-subject variable
 // used as the lock. Kept in its own file because tree-sitter does not parse
 // the when-subject declaration, which would hide the rest of a shared file

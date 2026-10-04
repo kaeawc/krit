@@ -1131,7 +1131,7 @@ func runMissAnalysis(
 	}
 
 	poolSize := configuredDaemonPoolSize(len(misses))
-	if useOneShot, reason := shouldUseOneShotMissAnalysis(poolSize, len(misses)); useOneShot {
+	if useOneShot, reason := oneShotMissAnalysisReason(poolSize, len(misses), opts); useOneShot {
 		return fallback(reason)
 	}
 
@@ -1219,6 +1219,15 @@ func runMissAnalysis(
 	// cost that was doubling cold-run wall time on large repos.
 
 	return fresh, deps, true, nil
+}
+
+func oneShotMissAnalysisReason(poolSize, misses int, opts InvocationOptions) (bool, string) {
+	// The generic oracle daemon registry does not key JVM target. An
+	// explicit FIR target uses the one-shot runner and its scoped cache.
+	if opts.Backend == BackendFIR && opts.JvmTarget != "" {
+		return true, "FIR JVM target requires target-scoped compilation"
+	}
+	return shouldUseOneShotMissAnalysis(poolSize, misses)
 }
 
 func reconnectMismatchedDaemonPool(pool *DaemonPool, jarPath string, sourceDirs, classpath []string, size int, verbose bool, misses int, tracker perf.Tracker) (*DaemonPool, error) {

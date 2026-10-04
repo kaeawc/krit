@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 12, 14
 // Divergence (precision): a same-package class named HashMap is not
 // java.util.HashMap. Go reports the unqualified call because it matches the
 // call name alone, but the message ("Use SparseArray instead of

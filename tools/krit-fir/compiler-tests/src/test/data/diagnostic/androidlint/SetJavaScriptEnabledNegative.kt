@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 49
 // Negative: JavaScript left disabled, a value that is not the literal `true`
 // (Go reads only a boolean literal), other WebSettings setters, and an
 // unrelated property reached through `settings`. None of these report

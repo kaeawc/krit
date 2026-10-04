@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 14, 16
 // Go finding FIR drops: the property IS a Boolean, so Go's message
 // ("Non-Boolean property ...") is false of the code. Kept apart from
 // NonBooleanPropertyPrefixedWithIsDivergence.kt because aliasing the import

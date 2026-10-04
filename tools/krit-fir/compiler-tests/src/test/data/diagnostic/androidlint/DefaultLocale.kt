@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 14, 16, 18, 22, 24x2, 27, 33, 40, 43, 48, 52, 56, 60, 62, 64, 66, 68, 71, 79, 81, 83
 // Positives for DefaultLocale, each reported by the Go rule too: the static
 // String.format without a Locale, and the no-argument String.toLowerCase() /
 // toUpperCase(). K2 rejects the stdlib toLowerCase() / toUpperCase() as

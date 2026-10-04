@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 19, 22, 27, 30, 38
 // Divergence (precision): each map below is a java.util.HashMap, but its key
 // is not kotlin.Int or kotlin.Long, so the message ("Use SparseArray instead of
 // HashMap<Int, ...>") is false for this code and FIR does not report it. Go

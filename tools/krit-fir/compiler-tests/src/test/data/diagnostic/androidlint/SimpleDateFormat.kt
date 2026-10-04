@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 33, 37, 45, 52, 59, 63, 67, 69
 // Positives for SimpleDateFormat: a java.text or android.icu.text
 // SimpleDateFormat constructor call with fewer than two arguments formats with
 // the default locale. Go reports each of these on the first line of the call.

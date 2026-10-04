@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 10, 12, 14, 16, 18, 20, 22, 24, 28, 30, 34, 36, 41, 45, 50, 53
 // Named objects that extend Throwable directly, the shapes Go reports: the
 // finding sits on the declaration's first line (its modifier list, else
 // `object`), like Go.

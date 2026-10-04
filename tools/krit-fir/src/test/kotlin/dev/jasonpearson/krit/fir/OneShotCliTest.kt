@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import dev.jasonpearson.krit.fir.runner.resolveJvmTarget
 
 /**
  * Pins the krit-fir one-shot CLI argv parser. The parser is small
@@ -12,6 +13,17 @@ import kotlin.test.assertNull
  * relies on a non-default classpath.
  */
 class OneShotCliTest {
+
+    @Test
+    fun jvmTargetIsParsedAndDefaultsToHighestSupportedForJdk() {
+        val args = arrayOf("--sources", "/a", "--jvm-target", "17")
+        assertEquals("17", extractCliValue(args, "--jvm-target"))
+        assertEquals("17", createDaemonSession(args).jvmTarget)
+        assertEquals("17", resolveJvmTarget("17", 21))
+        assertEquals("21", resolveJvmTarget("", 21))
+        assertEquals("1.8", resolveJvmTarget("", 8))
+        assertEquals(resolveJvmTarget("", 21), resolveJvmTarget("unsupported", 21))
+    }
 
     @Test
     fun extractCliValueReturnsFirstMatchingFlag() {

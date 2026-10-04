@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 10, 12, 14, 16, 18, 20, 23, 32
 // Positive, like Go: a return type that is a type parameter named ResultSet
 // whose bounds make it closeable. Go reports it by name; the returned value is
 // closeable and the caller has to close it, so the message holds.

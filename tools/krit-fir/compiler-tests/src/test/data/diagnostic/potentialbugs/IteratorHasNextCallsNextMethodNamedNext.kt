@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 32, 41, 50
 // Calls written `next(...)` that do not resolve to a function declared as
 // next: the invocation of an object named next, the constructor of a class
 // named next, and a function imported under the alias next. Go reports any

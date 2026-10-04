@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 17, 23, 29, 32
 // Negative: a nested class and a function named ObjectInputStream win over the
 // java.io import inside their scope, so those calls do not create a
 // java.io.ObjectInputStream.

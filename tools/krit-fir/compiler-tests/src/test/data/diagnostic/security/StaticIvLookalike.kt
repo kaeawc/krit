@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 15, 17
 // Deliberate precision difference from the Go rule: a same-package
 // `String.toByteArray()` wins over the kotlin.text default import, and this one
 // returns random bytes. Go reports the call because it matches the method name

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 17
 // Negative: an explicit import of another `Cipher` wins over the javax.crypto
 // star import, so the bare call is not javax.crypto.Cipher.getInstance.
 package test

@@ -45,6 +45,19 @@ func TestMain(m *testing.M) {
 // Returns stdout, stderr, and the exit code.
 func runKrit(t *testing.T, args ...string) (string, string, int) {
 	t.Helper()
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		explicit := false
+		for _, arg := range args {
+			if arg == "--fir" || arg == "--no-fir" {
+				explicit = true
+			}
+		}
+		if !explicit {
+			args = append([]string{"--no-fir"}, args...)
+		}
+	} else if args[0] == "baseline-audit" {
+		args = append([]string{"baseline-audit", "--no-fir"}, args[1:]...)
+	}
 	cmd := exec.Command(binPath, args...)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -73,6 +86,27 @@ func writeTempKt(t *testing.T, filename, content string) string {
 }
 
 // --- Tests ---
+
+func TestFIRPreflightExit2BeforeAnalysis(t *testing.T) {
+	root := writeTempKt(t, "A.kt", "fun answer() = 42\n")
+	t.Setenv("JAVA_HOME", filepath.Join(t.TempDir(), "missing"))
+	stdout, stderr, code := runKrit(t, "--fir", root)
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "Java 21") || !strings.Contains(stderr, "JAVA_HOME") || !strings.Contains(stderr, "--no-fir") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if strings.Count(strings.TrimSpace(stderr), "\n") != 0 {
+		t.Fatalf("expected one stderr message: %q", stderr)
+	}
+}
+
+func TestNoFIRBypassesPreflight(t *testing.T) {
+	root := writeTempKt(t, "A.kt", "fun answer() = 42\n")
+	t.Setenv("JAVA_HOME", filepath.Join(t.TempDir(), "missing"))
+	_, stderr, code := runKrit(t, "--no-fir", root)
+	if code == 2 || strings.Contains(stderr, "FIR requires") {
+		t.Fatalf("Go-only scan: code=%d stderr=%q", code, stderr)
+	}
+}
 
 func TestVersion(t *testing.T) {
 	stdout, _, code := runKrit(t, "--version")
@@ -259,7 +293,7 @@ func TestConfigAutoDetectFromAnalyzedRoot(t *testing.T) {
 	// Run from a CWD that does not contain a krit.yml so the buggy
 	// CWD-relative autoDetect would silently fall back to defaults.
 	foreignCwd := t.TempDir()
-	cmd := exec.Command(binPath, "--no-cache", "--no-type-inference", "--no-type-oracle", "-q", "-f", "json", analyzed)
+	cmd := exec.Command(binPath, "--no-fir", "--no-cache", "--no-type-inference", "--no-type-oracle", "-q", "-f", "json", analyzed)
 	cmd.Dir = foreignCwd
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -302,7 +336,7 @@ func TestConfigExplicitOverridesAnalyzedRoot(t *testing.T) {
 	}
 
 	foreignCwd := t.TempDir()
-	cmd := exec.Command(binPath, "--no-cache", "--no-type-inference", "--no-type-oracle", "-q", "-f", "json", "--config", explicitCfg, analyzed)
+	cmd := exec.Command(binPath, "--no-fir", "--no-cache", "--no-type-inference", "--no-type-oracle", "-q", "-f", "json", "--config", explicitCfg, analyzed)
 	cmd.Dir = foreignCwd
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -342,7 +376,7 @@ func TestConfigAutoDetectFromCwdNoArgs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command(binPath, "--no-cache", "--no-type-inference", "--no-type-oracle", "-q", "-f", "json", ".")
+	cmd := exec.Command(binPath, "--no-fir", "--no-cache", "--no-type-inference", "--no-type-oracle", "-q", "-f", "json", ".")
 	cmd.Dir = dir
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -649,7 +683,7 @@ func keysOf(m map[string]interface{}) []string {
 }
 
 func TestPlaygroundWebService(t *testing.T) {
-	out, err := exec.Command(binPath, "--no-daemon", "-f", "json", "-no-type-inference", "-no-type-oracle", "-q", "../../playground/kotlin-webservice/").CombinedOutput()
+	out, err := exec.Command(binPath, "--no-fir", "--no-daemon", "-f", "json", "-no-type-inference", "-no-type-oracle", "-q", "../../playground/kotlin-webservice/").CombinedOutput()
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
@@ -672,7 +706,7 @@ func TestPlaygroundWebService(t *testing.T) {
 }
 
 func TestPlaygroundAndroidApp(t *testing.T) {
-	out, err := exec.Command(binPath, "--no-daemon", "-f", "json", "-no-type-inference", "-no-type-oracle", "-q", "../../playground/android-app/").CombinedOutput()
+	out, err := exec.Command(binPath, "--no-fir", "--no-daemon", "-f", "json", "-no-type-inference", "-no-type-oracle", "-q", "../../playground/android-app/").CombinedOutput()
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Divergence: functions that return a java.sql.ResultSet the Go rule misses,
 // because Go reads only an explicit return type's text and needs it to end in
 // `ResultSet`. Each returns a JDBC ResultSet the caller has to close, so each

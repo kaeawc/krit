@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 15, 17
 // Divergence (precision): a project class named SimpleDateFormat in the same
 // package, with no java.text import, is not a SimpleDateFormat: it is neither
 // java.text, android.icu.text, nor ICU4J's com.ibm.icu.text SimpleDateFormat,

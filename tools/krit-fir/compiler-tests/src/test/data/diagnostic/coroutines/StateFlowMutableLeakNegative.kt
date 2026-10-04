@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negative: hidden, overriding, constructor, and function-local MutableStateFlow
 // properties, none of which the Go rule reports.
 package test

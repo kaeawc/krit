@@ -1,9 +1,9 @@
 package com.example
-
 import android.content.Context
-
-class MyProvider {
-    fun share(context: Context) {
+import android.content.Intent
+import android.net.Uri
+class MyProvider(base: Context) : android.content.ContextWrapper(base) {
+    fun share(context: Context, uri: Uri) {
         context.grantUriPermission("com.other", uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
 

@@ -12,9 +12,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	shippedconfig "github.com/kaeawc/krit/config"
+	"github.com/kaeawc/krit/internal/cli/scan"
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/onboarding"
 	"github.com/kaeawc/krit/internal/onboarding/tui"
+	"github.com/kaeawc/krit/internal/selfexec"
 )
 
 // runInitSubcommand is the entry point for `krit init [dir]`. It
@@ -156,10 +159,20 @@ func runHeadlessInit(opts onboarding.ScanOptions, reg *onboarding.Registry, prof
 	// outlives the command and keeps background writers alive in the
 	// target's .krit/ directory after init returns.
 	noDaemonEnv := onboarding.NoDaemonAutostartEnv()
+	cfg, err := config.LoadAndMergeDefaults(configPath, opts.Target)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: reading config: %v\n", err)
+		return 1
+	}
+	firArgs := []string{}
+	if _, err := preflightFIR(ctx, []string{opts.Target}, cfg, "", false, os.Stderr); err != nil {
+		firArgs = append(firArgs, "--no-fir")
+		fmt.Println(onboarding.GoOnlyBaselineNotice)
+	}
 
 	// Autofix pass: run krit --fix for its side effect, no output.
 	// Non-zero exit from krit when unfixable findings remain is expected.
-	fixCmd := exec.CommandContext(ctx, opts.KritBin, "--config", configPath, "--fix", opts.Target)
+	fixCmd := exec.CommandContext(ctx, opts.KritBin, append(firArgs, "--config", configPath, "--fix", opts.Target)...)
 	fixCmd.Env = noDaemonEnv
 	_ = fixCmd.Run()
 
@@ -171,7 +184,7 @@ func runHeadlessInit(opts onboarding.ScanOptions, reg *onboarding.Registry, prof
 	}
 	baselinePath := filepath.Join(baselineDir, "baseline.xml")
 	baselineCmd := exec.CommandContext(ctx, opts.KritBin,
-		"--config", configPath, "--create-baseline", baselinePath, opts.Target)
+		append(firArgs, "--config", configPath, "--create-baseline", baselinePath, opts.Target)...)
 	baselineCmd.Env = noDaemonEnv
 	_ = baselineCmd.Run()
 	if _, err := os.Stat(baselinePath); err != nil {
@@ -181,6 +194,8 @@ func runHeadlessInit(opts onboarding.ScanOptions, reg *onboarding.Registry, prof
 	fmt.Printf("baseline written to %s\n", baselinePath)
 	return 0
 }
+
+var preflightFIR = scan.PreflightFIR
 
 // resolveOnboardingRoot returns a directory holding config/default-krit.yml,
 // config/profiles/, and config/onboarding/: the krit repo root when one is
@@ -255,7 +270,7 @@ func resolveKritBin() (string, error) {
 			return env, nil
 		}
 	}
-	exe, err := os.Executable()
+	exe, err := selfexec.Executable()
 	if err == nil {
 		if _, err := os.Stat(exe); err == nil {
 			return exe, nil

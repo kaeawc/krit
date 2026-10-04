@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/devjar"
 )
 
 func TestEnsureJar_DevBuildReturnsHelpfulError(t *testing.T) {
@@ -85,6 +87,19 @@ func TestFindBackendJar_FIREnvOverride(t *testing.T) {
 	}
 }
 
+func TestEnsureBackendJar_FIREnvOverrideNeedsNoNetwork(t *testing.T) {
+	jar := filepath.Join(t.TempDir(), "offline.jar")
+	if err := os.WriteFile(jar, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KRIT_FIR_JAR", jar)
+	t.Setenv(NoJarDownloadEnv, "1")
+	got, err := EnsureBackendJar(context.Background(), BackendFIR, nil, false)
+	if err != nil || got != jar {
+		t.Fatalf("offline override = %q, %v", got, err)
+	}
+}
+
 func TestFindBackendJar_FIRInstalledUnderKritJars(t *testing.T) {
 	home := isolateJarLookup(t)
 	Version = "1.2.3"
@@ -112,6 +127,39 @@ func TestFindBackendJar_FIRInProjectDir(t *testing.T) {
 	}
 	if got := FindBackendJar(BackendFIR, []string{project}); got != jarPath {
 		t.Errorf("got %q, want %q", got, jarPath)
+	}
+}
+
+func TestFindBackendJar_DevCacheThenLocalBuild(t *testing.T) {
+	for _, backend := range []Backend{BackendFIR, BackendKAA} {
+		t.Run(backend.String(), func(t *testing.T) {
+			isolateJarLookup(t)
+			project := t.TempDir()
+			tool := backend.jarBaseName()
+			local := filepath.Join(project, "tools", tool, "build", "libs", backend.JarName())
+			if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(local, []byte("local"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			shared := devjar.CachePath(tool, nil)
+			if shared == "" {
+				t.Fatal("expected checkout source hash")
+			}
+			if got := FindBackendJar(backend, []string{project}); got != local {
+				t.Fatalf("missing cache: got %q, want local jar %q", got, local)
+			}
+			if err := os.MkdirAll(filepath.Dir(shared), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(shared, []byte("shared"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if got := FindBackendJar(backend, []string{project}); got != shared {
+				t.Fatalf("populated cache: got %q, want shared jar %q", got, shared)
+			}
+		})
 	}
 }
 

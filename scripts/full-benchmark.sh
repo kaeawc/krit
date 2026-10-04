@@ -37,7 +37,7 @@ for entry in "${PROJECTS[@]}"; do
     source_files=$(find "$path" \( -name "*.kt" -o -name "*.java" -o -name "*.xml" -o -name "*.gradle" -o -name "*.gradle.kts" \) -not -path "*/build/*" 2>/dev/null | wc -l | tr -d ' ')
     
     start=$(go run ./internal/devtools/jsonstat -mode unix-ms)
-    result=$(./krit -f json -no-cache -no-type-inference -no-type-oracle -q "$path/" 2>/dev/null || true)
+    result=$(./krit --no-fir -f json -no-cache -no-type-inference -no-type-oracle -q "$path/" 2>/dev/null || true)
     end=$(go run ./internal/devtools/jsonstat -mode unix-ms)
     duration="$((end - start))ms"
 

@@ -23,7 +23,7 @@ func TestAnalyzeProject_NoCacheBypassesDiskCache(t *testing.T) {
 	// Warm the daemon with a normal call so on-disk caches exist.
 	var warm daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &warm); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &warm); err != nil {
 		t.Fatalf("warm call: %v", err)
 	}
 
@@ -31,7 +31,7 @@ func TestAnalyzeProject_NoCacheBypassesDiskCache(t *testing.T) {
 	// findings — nil-cache wiring shouldn't change the rule output.
 	var noCache daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{NoCache: true}, &noCache); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true, NoCache: true}, &noCache); err != nil {
 		t.Fatalf("no-cache call: %v", err)
 	}
 	if !jsonEq(warm.Findings, noCache.Findings) {
@@ -43,7 +43,7 @@ func TestAnalyzeProject_NoCacheBypassesDiskCache(t *testing.T) {
 	// request.
 	var followUp daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &followUp); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &followUp); err != nil {
 		t.Fatalf("follow-up call: %v", err)
 	}
 	if !jsonEq(warm.Findings, followUp.Findings) {
@@ -62,7 +62,7 @@ func TestClearCache_DropsResidentAndDiskState(t *testing.T) {
 	// the resident workspace state.
 	var first daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &first); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &first); err != nil {
 		t.Fatalf("prime call: %v", err)
 	}
 	if !first.Stats.Cold {
@@ -97,7 +97,7 @@ func TestClearCache_DropsResidentAndDiskState(t *testing.T) {
 	// because coldDone was reset and resident slots were dropped.
 	var afterClear daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &afterClear); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &afterClear); err != nil {
 		t.Fatalf("post-clear analyze: %v", err)
 	}
 	if !afterClear.Stats.Cold {

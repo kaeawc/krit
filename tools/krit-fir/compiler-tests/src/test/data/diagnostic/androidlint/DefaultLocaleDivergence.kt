@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 13, 17, 19, 24, 28, 30, 35, 37, 44, 46
 // Go reports every call in this file; FIR reports none. Go matches the call by
 // name and skips it only when an argument mentions the identifier `Locale`.
 // None of these calls uses the default locale, so the message ("Implicitly

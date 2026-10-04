@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 30, 31
 // Lookalikes of WebSettings/WebView. A class named WebSettings in any package
 // is web settings to Go (it matches the simple name), and
 // `javaScriptEnabled = true` on one is the finding the message describes, so

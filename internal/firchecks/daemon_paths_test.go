@@ -106,6 +106,7 @@ func TestConnectOrStartFirCheckDaemonDoesNotReuseAnotherProjectsDaemon(t *testin
 	// From project B the same spelling must miss the registry; with no java
 	// on PATH, starting B's own daemon then fails.
 	t.Chdir(b)
+	t.Setenv("JAVA_HOME", "")
 	t.Setenv("PATH", t.TempDir())
 	d, err = connectOrStartFirCheckDaemon(jar, rel, nil, false)
 	if err == nil {

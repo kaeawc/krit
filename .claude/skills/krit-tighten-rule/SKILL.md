@@ -67,7 +67,7 @@ go build -o krit ./cmd/krit/
 go vet ./...
 golangci-lint run ./...
 make lint-rules
-go test ./... -count=1
+make test
 ```
 
 Run `make integration` before pushing if the fix touches dispatch, suppression, or pipeline behavior.

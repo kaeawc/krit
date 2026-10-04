@@ -25,7 +25,20 @@ import java.util.concurrent.CancellationException
  * Thread-safe: the recorder is captured when the checker extension is built,
  * so it does not depend on which thread K2 runs checkers on.
  */
-class FirRuleErrorRecorder {
+class FirRuleErrorRecorder(requestedFiles: Set<String>? = null) {
+    // Module mode scopes execution as well as findings. Null preserves legacy
+    // and direct-test behavior; an empty set runs no rule checkers.
+    private val requested = requestedFiles?.mapTo(HashSet()) { java.io.File(it).canonicalPath }
+    private val includedPaths = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+    internal val scopesFiles: Boolean get() = requested != null
+
+    fun shouldCheck(path: String?): Boolean {
+        val files = requested ?: return true
+        if (path == null) return false
+        return includedPaths.computeIfAbsent(path) { java.io.File(it).canonicalPath in files }
+    }
+
     private val errors = LinkedHashMap<String, LinkedHashMap<String, String>>()
 
     @Synchronized
@@ -59,6 +72,7 @@ internal inline fun isolateRule(
     recorder: FirRuleErrorRecorder, ruleId: String, path: () -> String?, body: () -> Unit,
 ) {
     try {
+        if (recorder.scopesFiles && !recorder.shouldCheck(path())) return
         body()
     } catch (t: Throwable) {
         if (!isIsolatable(t)) throw t

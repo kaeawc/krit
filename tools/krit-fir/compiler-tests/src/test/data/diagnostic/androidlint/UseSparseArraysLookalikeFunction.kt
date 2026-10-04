@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 11, 13
 // Divergence (precision): a same-package function named HashMap wins over the
 // default-imported HashMap class, so the unqualified call is not a
 // java.util.HashMap constructor call. Go reports it because it matches the

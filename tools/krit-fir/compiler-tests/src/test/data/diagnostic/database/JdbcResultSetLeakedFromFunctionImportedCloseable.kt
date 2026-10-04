@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Divergence: Go misses it. Go reads the declared type's text, `DriverCursor`;
 // the import alias names a closeable class called ResultSet, which the caller
 // has to close, so it is reported here.

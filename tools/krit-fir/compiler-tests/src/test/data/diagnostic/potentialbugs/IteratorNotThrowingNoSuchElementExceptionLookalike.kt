@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Local lookalike: this package declares its own Iterator, which shadows
 // kotlin.collections.Iterator in this file. Its next() has no
 // NoSuchElementException contract, so neither Go (which skips an Iterator

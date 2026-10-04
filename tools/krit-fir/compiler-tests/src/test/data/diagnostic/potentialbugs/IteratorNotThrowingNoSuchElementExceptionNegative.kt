@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negative: iterators whose next() throws NoSuchElementException somewhere in
 // its body, and next() functions that do not belong to an iterator. The Go
 // rule reports none of these either.

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 24, 25, 29, 30, 38, 39, 49, 50, 56
 // Deliberate precision fix: a local val, a parameter, a member property, and a
 // companion object named Mac shadow the javax.crypto.Mac import, so
 // `Mac.getInstance(...)` below calls the lookalike's getInstance, not

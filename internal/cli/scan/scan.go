@@ -246,6 +246,27 @@ func Run() int {
 	if tryDaemonClearMatrixCache(f, repoDir) {
 		return 0
 	}
+	if shouldPreflightFIR(f) {
+		paths := flag.Args()
+		if len(paths) == 0 {
+			paths = []string{"."}
+		}
+		model, err := PreflightFIR(ctx, paths, loadScanConfig(f), *f.GradleModel, *f.NoGradleModel, os.Stderr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 2
+		}
+		f.modelClasspath = model
+		f.firPreflightPassed = true
+	} else if !*f.Init && !*f.Version && *f.Completions == "" {
+		model, err := loadGradleClasspath(flag.Args(), *f.GradleModel, *f.NoGradleModel, *f.Verbose, os.Stderr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 2
+		}
+		f.modelClasspath = model
+		f.modelSourceDirs, f.modelGeneratedSourceDirs, f.modelJvmTarget = loadGradleCompileContext(flag.Args(), *f.GradleModel, *f.NoGradleModel)
+	}
 	if handled, code := tryDaemonDelegate(f, flag.Args(), repoDir); handled {
 		return code
 	}
@@ -266,12 +287,23 @@ func Run() int {
 	return exitCode
 }
 
+func shouldPreflightFIR(f *scanFlags) bool {
+	if !*f.Fir || *f.NoFir {
+		return false
+	}
+	return !*f.Init && !*f.Version && *f.Completions == "" && !*f.List && !*f.GenerateSchema && !*f.ValidateConfig && !*f.Doctor && !*f.ClearCache && !*f.ClearMatrixCache && !*f.ListExperiments && *f.PromoteExperiment == "" && *f.DeprecateExperiment == "" && *f.ExperimentMatrix == "" && *f.NewExperiment == "" && !*f.OracleFilterFingerprint && *f.OutputTypes == "" && !*f.DumpOracleDiagnostics
+}
+
 // run executes the scan phases against r.sess. Long-lived caches, the
 // project model, and the oracle daemon flow through the session so
 // daemon callers reuse them across requests; one-shot CLI builds a
 // fresh Session and Close drains it on exit.
 func (r *runner) run(ctx context.Context) (int, error) {
-	_ = ctx
+	defer func() {
+		if r.pendingFIR != nil {
+			r.pendingFIR.Cancel()
+		}
+	}()
 	if code, err := r.collectFiles(); err != nil {
 		return code, err
 	}
@@ -286,7 +318,7 @@ func (r *runner) run(ctx context.Context) (int, error) {
 	r.setupAndroidProviders()
 	r.setupParseCaches()
 
-	if code, err := r.runProjectAnalysis(); err != nil {
+	if code, err := r.runProjectAnalysis(ctx); err != nil {
 		return code, err
 	}
 	r.firCheckAndCollect()
@@ -567,7 +599,7 @@ func countActiveV2(registry []*api.Rule) int {
 	return count
 }
 
-func filterGeneratedPathStrings(paths []string) []string {
+func filterGeneratedPathStrings(paths []string, generatedDirs ...string) []string {
 	// Allocate a fresh slice — callers (runner_state.go) alias the
 	// input via `r.javaPathsForDispatch = r.allJavaPaths` before
 	// filtering, so a paths[:0] in-place rewrite would corrupt the
@@ -576,7 +608,7 @@ func filterGeneratedPathStrings(paths []string) []string {
 	// downstream parse/dispatch to process the same files multiple times.
 	filtered := make([]string, 0, len(paths))
 	for _, p := range paths {
-		if strings.Contains(filepath.ToSlash(p), "/generated/") {
+		if pipeline.IsGeneratedSourcePath(p, generatedDirs) {
 			continue
 		}
 		filtered = append(filtered, p)

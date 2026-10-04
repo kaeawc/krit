@@ -132,7 +132,9 @@ func registerAndroidSecurityRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes:  []string{"class_declaration", "object_literal", "object_creation_expression"},
+			Needs:      api.NeedsResolver,
 			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			TypeInfo:   api.TypeInfoHint{PreferBackend: api.PreferResolver, Required: true},
 			Confidence: r.Confidence(), Implementation: r, Check: r.check,
 		})
 	}

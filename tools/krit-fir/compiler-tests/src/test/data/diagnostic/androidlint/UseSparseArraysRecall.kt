@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 38
 // Divergence (recall): each call below constructs a java.util.HashMap with an
 // Int or Long key, and FIR reports it. Go misses all of them: it reads only the
 // type arguments written on the call, by the last identifier of a plain user

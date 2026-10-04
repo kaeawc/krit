@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Positive Go misses: with the star static import `java.lang.System.*`, the
 // bare `exit(1)` resolves to java.lang.System.exit and terminates the process
 // outside main. Go reports System.exit only with a receiver spelled `System`

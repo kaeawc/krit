@@ -345,6 +345,9 @@ func collectKotlinJavaFromGit(ctx context.Context, dir string, excludes []string
 		return false
 	}
 	for _, rel := range files {
+		if fileignore.DefaultPrunedPath(rel) {
+			continue
+		}
 		path := filepath.Join(dir, rel)
 		if matcher.Ignored(path, false) || isExcluded(path, excludes) {
 			continue
@@ -392,7 +395,10 @@ func CollectKotlinAndJavaFiles(ctx context.Context, paths []string, excludes []s
 		}
 		matcher := fileignore.MatcherForPath(p, info, ignoreMatchers)
 		if !info.IsDir() {
-			if isExcluded(p, excludes) {
+			if fileignore.DefaultPrunedWithinRepo(p) {
+				continue
+			}
+			if isExcludedByPattern(p, excludes) {
 				continue
 			}
 			if matcher.Ignored(p, false) {
@@ -520,7 +526,7 @@ func collectSourceFiles(paths []string, excludes []string, isSourceFile func(str
 		}
 		matcher := fileignore.MatcherForPath(p, info, ignoreMatchers)
 		if !info.IsDir() {
-			if isSourceFile(p) && !matcher.Ignored(p, false) && !isExcluded(p, excludes) {
+			if isSourceFile(p) && !fileignore.DefaultPrunedWithinRepo(p) && !matcher.Ignored(p, false) && !isExcludedByPattern(p, excludes) {
 				addFile(p)
 			}
 			continue
@@ -810,6 +816,17 @@ func partitionIndexedPaths(paths []string, workers int) [][]indexedPath {
 }
 
 func isExcluded(path string, excludes []string) bool {
+	return isExcludedBuiltinDir(path) || isExcludedByPattern(path, excludes)
+}
+
+func isExcludedBuiltinDir(path string) bool {
+	path = filepath.ToSlash(path)
+	// filepath.ToSlash only replaces the current platform's separator. Also
+	// normalize Windows paths when running on Unix so path checks are stable.
+	path = strings.ReplaceAll(path, `\`, "/")
+	if isTestResourcePath(path) {
+		return true
+	}
 	// Test-data directories contain deliberately malformed Kotlin used to
 	// exercise compiler/IDE behavior — not user code and not subject to
 	// style rules. Skip common paths.
@@ -821,11 +838,33 @@ func isExcluded(path string, excludes []string) bool {
 		strings.Contains(path, "/compilerTests/") {
 		return true
 	}
+	return false
+}
+
+func isExcludedByPattern(path string, excludes []string) bool {
+	path = filepath.ToSlash(path)
+	path = strings.ReplaceAll(path, `\`, "/")
 	for _, pattern := range excludes {
 		if matched, _ := filepath.Match(pattern, filepath.Base(path)); matched {
 			return true
 		}
 		if strings.Contains(path, strings.Trim(pattern, "*")) {
+			return true
+		}
+	}
+	return false
+}
+
+// isTestResourcePath reports whether path is inside the resources directory
+// of a test source set (src/test/resources, src/commonTest/resources, etc.).
+func isTestResourcePath(path string) bool {
+	segments := strings.Split(filepath.ToSlash(path), "/")
+	for i := 0; i+3 < len(segments); i++ {
+		if segments[i] != "src" || segments[i+2] != "resources" {
+			continue
+		}
+		set := segments[i+1]
+		if set == "test" || set == "androidTest" || set == "testFixtures" || strings.HasSuffix(set, "Test") {
 			return true
 		}
 	}

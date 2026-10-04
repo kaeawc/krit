@@ -197,8 +197,8 @@ func TestApplyDepthPresetBalancedLeavesFirAlone(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	applyDepthPreset(DepthBalanced, f, fs)
-	if *f.Fir {
-		t.Errorf("DepthBalanced should leave Fir=false; got true")
+	if !*f.Fir {
+		t.Errorf("DepthBalanced should leave Fir=true; got false")
 	}
 }
 
@@ -209,8 +209,8 @@ func TestApplyDepthPresetFastLeavesFirAlone(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	applyDepthPreset(DepthFast, f, fs)
-	if *f.Fir {
-		t.Errorf("DepthFast should leave Fir=false; got true")
+	if !*f.Fir {
+		t.Errorf("DepthFast should leave Fir=true; got false")
 	}
 }
 
@@ -221,8 +221,8 @@ func TestApplyDepthPresetThoroughExplicitNoFirWins(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	applyDepthPreset(DepthThorough, f, fs)
-	if *f.Fir {
-		t.Errorf("explicit --no-fir should suppress thorough's Fir default; got Fir=true")
+	if !*f.Fir {
+		t.Errorf("--no-fir should leave the default Fir flag true; got false")
 	}
 	if !*f.NoFir {
 		t.Errorf("explicit --no-fir should remain set; got false")

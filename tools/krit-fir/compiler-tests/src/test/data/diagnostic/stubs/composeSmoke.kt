@@ -57,6 +57,7 @@ fun Counter(label: String, onDone: () -> Unit, flow: StateFlow<Int>, events: Flo
         snapshotFlow { count }.collect { <!PrintlnInProduction!>println<!>(it) }
     }
     LaunchedEffect(Unit, label) {}
+    LaunchedEffect(label, flow, events) { latestOnDone() }
     DisposableEffect(label) {
         val job = scope.launch {}
         onDispose { job.cancel() }

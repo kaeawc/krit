@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 11, 14
 // A same-package String.uppercase() wins over the default-imported
 // kotlin.text.uppercase(), so the call is the project function.
 package ulimshadow

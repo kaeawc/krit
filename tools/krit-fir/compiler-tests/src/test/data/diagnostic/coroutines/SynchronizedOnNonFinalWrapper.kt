@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 20, 26, 34, 46
 // Go matches the call by its written name, so any call written
 // `synchronized(...)` counts: a same-package wrapper that shadows
 // kotlin.synchronized, a member function, and a value named synchronized

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 21, 23, 25, 34, 59, 61, 73
 // Positive, like Go: a return type named ResultSet that is not
 // java.sql.ResultSet but is closeable (a wrapper, another driver's cursor).
 // Go reports it by name; the message holds, since the caller must close it and

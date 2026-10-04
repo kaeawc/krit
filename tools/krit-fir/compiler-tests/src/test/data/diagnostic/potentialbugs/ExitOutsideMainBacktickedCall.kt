@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Positives Go misses: backticks around an identifier do not change the name,
 // so each call below resolves to kotlin.system.exitProcess or
 // java.lang.System.exit and terminates the process outside main. Go reports

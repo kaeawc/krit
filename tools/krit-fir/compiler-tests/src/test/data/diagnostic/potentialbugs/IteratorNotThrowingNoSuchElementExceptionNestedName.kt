@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 23
 // A nested class named NoSuchElementException does not shadow the stdlib
 // exception outside its own class. Go rejects every throw of
 // NoSuchElementException in a file that declares anything with that name,

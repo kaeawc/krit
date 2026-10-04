@@ -1,6 +1,6 @@
 package firchecks
 
-// pass.go — the --fir pass: pick the files, run the checkers in the
+// pass.go — the FIR pass: pick the files, run the checkers in the
 // project's compile context, and apply the FIR-authoritative verdict.
 
 import (
@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -42,6 +43,8 @@ type PassOptions struct {
 	// IncludeGenerated mirrors --include-generated: without it, paths under
 	// */generated/* are not checked (the parse phase drops them too).
 	IncludeGenerated bool
+	// GeneratedSourceDirs are compilation inputs, never checker targets.
+	GeneratedSourceDirs []string
 	// SourceDirs and Classpath are the compile context: the JVM-scoped
 	// source roots (oracle.FindSourceDirs) and the configured classpath.
 	SourceDirs []string
@@ -52,65 +55,190 @@ type PassOptions struct {
 	Thorough bool
 }
 
-// RunPass invokes the FIR checkers and returns base with the
-// FIR-authoritative verdict applied (see ApplyVerdict). No-op when
-// opts.Enabled is false or no checker is configured.
-//
-// A checker error leaves base unchanged: FIR is opt-in, so a daemon failure
-// must never break the scan. Verbose mode reports the error, the timing, the
-// file gating, and per-rule verdict counts.
-func RunPass(opts PassOptions, base []scanner.Finding) []scanner.Finding {
+// PendingPass owns an in-flight check. Check is not interruptible through the
+// FirChecker interface; Cancel releases callers immediately, and the buffered
+// result lets the checker goroutine exit as soon as Check returns.
+type PendingPass struct {
+	opts                PassOptions
+	targets             passTargetSet
+	requested, excluded []string
+	buildLogicExcluded  int
+	done                chan checkOutcome
+	ctx                 context.Context
+	cancel              context.CancelFunc
+}
+
+type checkOutcome struct {
+	result   *Result
+	err      error
+	duration time.Duration
+}
+
+// Cancel abandons a pending verdict without waiting for a JVM check.
+func (p *PendingPass) Cancel() {
+	if p != nil && p.cancel != nil {
+		p.cancel()
+	}
+}
+
+// StartPass starts the checker after snapshotting every input it reads.
+func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
+	p := &PendingPass{opts: opts}
 	if !opts.Enabled || opts.Checker == nil {
-		return base
+		return p
 	}
 	active := ActiveFirRules(activeRuleIDs(opts.ActiveRules), opts.Thorough)
 	if len(active.Names) == 0 {
-		return base
+		return p
 	}
-	start := time.Now()
-	targets := passTargets(opts.ParsedFiles, opts.KotlinPaths, opts.IncludeGenerated)
-	requested, excluded := partitionJVMFiles(targets.paths)
-
+	p.targets = passTargets(opts.ParsedFiles, opts.KotlinPaths, opts.IncludeGenerated)
+	p.targets.excludeRoots(opts.GeneratedSourceDirs)
+	p.requested, p.excluded = partitionJVMFiles(p.targets.paths)
+	for _, path := range p.excluded {
+		if oracle.IsBuildLogicPath(path) {
+			p.buildLogicExcluded++
+		}
+	}
+	requested := slices.Clone(p.requested)
+	sourceDirs, classpath, ruleNames := slices.Clone(opts.SourceDirs), slices.Clone(opts.Classpath), slices.Clone(active.Names)
+	configs := firRuleConfigs(opts.Config, opts.ActiveRules)
+	for rule, values := range configs {
+		copyValues := make(map[string]any, len(values))
+		for key, value := range values {
+			copyValues[key] = cloneRuleConfigValue(value)
+		}
+		configs[rule] = copyValues
+	}
+	facts := fileFactsOf(requested, p.targets.display)
+	p.opts.GeneratedSourceDirs = slices.Clone(opts.GeneratedSourceDirs)
+	p.ctx, p.cancel = context.WithCancel(ctx)
+	p.done = make(chan checkOutcome, 1)
 	tracker := opts.Tracker
 	if tracker == nil {
 		tracker = perf.New(false)
 	}
-	sub := tracker.Serial("firCheck")
-	result, err := opts.Checker.Check(requested, opts.SourceDirs, opts.Classpath, active.Names,
-		firRuleConfigs(opts.Config, opts.ActiveRules), fileFactsOf(requested, targets.display))
-	sub.End()
+	go func() {
+		sub := tracker.Serial("firCheck")
+		checkStart := time.Now()
+		result, err := opts.Checker.Check(requested, sourceDirs, classpath, ruleNames, configs, facts)
+		duration := time.Since(checkStart)
+		sub.End()
+		p.done <- checkOutcome{result: result, err: err, duration: duration}
+	}()
+	return p
+}
+
+func cloneRuleConfigValue(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		copyMap := make(map[string]any, len(v))
+		for key, item := range v {
+			copyMap[key] = cloneRuleConfigValue(item)
+		}
+		return copyMap
+	case []any:
+		copySlice := make([]any, len(v))
+		for i, item := range v {
+			copySlice[i] = cloneRuleConfigValue(item)
+		}
+		return copySlice
+	default:
+		return value
+	}
+}
+
+// RunPass invokes the FIR checkers and returns base with the
+// FIR-authoritative verdict applied (see ApplyVerdict). No-op when
+// opts.Enabled is false or no checker is configured.
+//
+// A checker error leaves base unchanged after preflight: runtime checker
+// failures retain Go findings. Verbose mode reports the error, the timing, the
+// file gating, and per-rule verdict counts.
+func RunPass(opts PassOptions, base []scanner.Finding) []scanner.Finding {
+	p := StartPass(context.Background(), opts)
+	merged, _ := p.Finish(base)
+	return merged
+}
+
+// Finish waits for the checker and applies its verdict to completed Go findings.
+// Checker errors retain those findings, as RunPass always has.
+func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) {
+	if p == nil {
+		return base, nil
+	}
+	opts := p.opts
+	if !opts.Enabled || opts.Checker == nil {
+		return base, nil
+	}
+	base = excludeGeneratedFindings(base, opts.GeneratedSourceDirs)
+	if p.done == nil {
+		return base, nil
+	}
+	var outcome checkOutcome
+	select {
+	case outcome = <-p.done:
+	case <-p.ctx.Done():
+		return base, p.ctx.Err()
+	}
+	p.Cancel()
+	result, err := outcome.result, outcome.err
 	verbose := opts.Verbose && opts.VerboseOut != nil
 	if err != nil {
 		if verbose {
 			fmt.Fprintf(opts.VerboseOut, "verbose: FIR checker error: %v\n", err)
 		}
-		return base
+		return base, nil
+	}
+	if opts.Config != nil && len(opts.Config.FIR().GoAuthoritativeRules) > 0 {
+		goAuthoritative := make(map[string]bool)
+		for _, rule := range opts.Config.FIR().GoAuthoritativeRules {
+			goAuthoritative[rule] = true
+		}
+		filtered := make([]string, 0, len(result.Rules))
+		for _, rule := range result.Rules {
+			if !goAuthoritative[rule] {
+				filtered = append(filtered, rule)
+			}
+		}
+		copyResult := *result
+		copyResult.Rules = filtered
+		result = &copyResult
 	}
 
 	merged, stats := ApplyVerdict(VerdictInput{
 		Go:          base,
 		FIR:         result,
-		Requested:   requested,
-		Excluded:    excluded,
-		DisplayPath: targets.display,
-		Suppressed:  newSuppressor(targets.files).suppressed,
+		Requested:   p.requested,
+		Excluded:    p.excluded,
+		DisplayPath: p.targets.display,
+		Suppressed:  newSuppressor(p.targets.files).suppressed,
 	})
 	if verbose {
 		cache := Stats()
 		fmt.Fprintf(opts.VerboseOut,
 			"verbose: FIR checker in %v (%d findings, %d files requested, cache hits=%d misses=%d)\n",
-			time.Since(start).Round(time.Millisecond), len(result.Findings), len(requested), cache.Hits, cache.Misses)
-		writeVerdictSummary(opts.VerboseOut, stats)
+			outcome.duration.Round(time.Millisecond), len(result.Findings), len(p.requested), cache.Hits, cache.Misses)
+		writeVerdictSummary(opts.VerboseOut, stats, p.buildLogicExcluded)
 	}
-	return merged
+	return merged, nil
 }
 
 // maxGatedFilesListed caps the per-file gating lines in verbose output.
 const maxGatedFilesListed = 10
 
-func writeVerdictSummary(w io.Writer, stats VerdictStats) {
-	fmt.Fprintf(w, "verbose: FIR verdict: %d authoritative files, %d gated (compiler error or crash), %d excluded (scripts or not in a JVM source set), %d rule errors (checker threw; Go kept for that rule and file)\n",
-		stats.AuthoritativeFiles, len(stats.GatedFiles), stats.ExcludedFiles, len(stats.RuleErrors))
+func writeVerdictSummary(w io.Writer, stats VerdictStats, buildLogicExcluded ...int) {
+	generated := 0
+	for _, message := range stats.GatedFiles {
+		if generatedSymbolError(firstLine(message)) {
+			generated++
+		}
+	}
+	buildLogic := 0
+	if len(buildLogicExcluded) > 0 {
+		buildLogic = buildLogicExcluded[0]
+	}
+	fmt.Fprintf(w, "verbose: FIR verdict: %d authoritative files, %d gated (compiler error or crash), %d excluded (scripts or not in a JVM source set), %d rule errors (checker threw; Go kept for that rule and file), %d gated (generated sources), %d excluded (build logic)\n",
+		stats.AuthoritativeFiles, len(stats.GatedFiles)-generated, stats.ExcludedFiles-buildLogic, len(stats.RuleErrors), generated, buildLogic)
 	for i, e := range stats.RuleErrors {
 		if i == maxGatedFilesListed {
 			fmt.Fprintf(w, "verbose: FIR rule error: ... and %d more\n", len(stats.RuleErrors)-maxGatedFilesListed)
@@ -159,6 +287,65 @@ type passTargetSet struct {
 	files map[string]*scanner.File
 }
 
+func (set *passTargetSet) excludeRoots(roots []string) {
+	if len(roots) == 0 {
+		return
+	}
+	kept := set.paths[:0]
+	for _, path := range set.paths {
+		generated := false
+		for _, root := range roots {
+			if root == "" {
+				continue
+			}
+			abs, err := filepath.Abs(root)
+			if err != nil {
+				continue
+			}
+			if isUnderRoot(path, abs) {
+				generated = true
+				break
+			}
+		}
+		if generated {
+			delete(set.display, path)
+			delete(set.files, path)
+		} else {
+			kept = append(kept, path)
+		}
+	}
+	set.paths = kept
+}
+
+func excludeGeneratedFindings(findings []scanner.Finding, roots []string) []scanner.Finding {
+	if len(roots) == 0 {
+		return findings
+	}
+	var out []scanner.Finding
+	for _, finding := range findings {
+		path, err := filepath.Abs(finding.File)
+		if err != nil {
+			path = finding.File
+		}
+		generated := false
+		for _, root := range roots {
+			abs, err := filepath.Abs(root)
+			if root != "" && err == nil && isUnderRoot(path, abs) {
+				generated = true
+				break
+			}
+		}
+		if !generated {
+			out = append(out, finding)
+		}
+	}
+	return out
+}
+
+func isUnderRoot(path, root string) bool {
+	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
+}
+
 // passTargets chooses the files to check: every parsed Kotlin file plus
 // every collected Kotlin path, minus */generated/* paths unless
 // includeGenerated (parsed files already had that filter applied).
@@ -202,7 +389,7 @@ func passTargets(parsed []*scanner.File, kotlinPaths []string, includeGenerated 
 // non-JVM Kotlin Multiplatform source set (jsMain, iosMain, ...).
 func partitionJVMFiles(files []string) (jvm, excluded []string) {
 	for _, path := range files {
-		if strings.HasSuffix(path, ".kt") && oracle.InJVMCompilableSourceSet(path) {
+		if strings.HasSuffix(path, ".kt") && oracle.InJVMCompilableSourceSet(path) && !oracle.IsBuildLogicPath(path) {
 			jvm = append(jvm, path)
 		} else {
 			excluded = append(excluded, path)
@@ -332,4 +519,22 @@ func firRuleConfigs(cfg *config.Config, active []*api.Rule) RuleConfigs {
 		out[r.ID] = opts
 	}
 	return out
+}
+
+// generatedSymbolError recognizes the first unresolved generated Android symbol.
+func generatedSymbolError(message string) bool {
+	lower := strings.ToLower(message)
+	if !strings.Contains(lower, "unresolved reference") {
+		return false
+	}
+	if strings.Contains(message, "Unresolved reference 'R'") || strings.Contains(message, "Unresolved reference: 'R'") {
+		return true
+	}
+	for _, field := range strings.Fields(message) {
+		symbol := strings.Trim(field, "'\"`:,.;()[]")
+		if symbol == "BuildConfig" || strings.HasSuffix(symbol, "Binding") {
+			return true
+		}
+	}
+	return false
 }

@@ -551,6 +551,7 @@ func TestDaemon_MatchesRepo_EmptyHash(t *testing.T) {
 func TestWriteReadPIDFile_RoundTripWithSources(t *testing.T) {
 	// Use a temp cache dir so we don't clobber a real daemon.
 	tmp := t.TempDir()
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	t.Setenv("HOME", tmp)
 
 	srcHash := hashSources([]string{"/fake/repo"})
@@ -1378,6 +1379,7 @@ func TestConnectExistingDaemon_NoFiles(t *testing.T) {
 	// Ensure no PID file exists by using a custom HOME
 	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -1390,6 +1392,7 @@ func TestConnectExistingDaemon_NoFiles(t *testing.T) {
 func TestConnectExistingDaemon_DeadPID(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -1412,6 +1415,7 @@ func TestConnectExistingDaemon_DeadPID(t *testing.T) {
 func TestCleanStaleDaemon_NoFiles(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
@@ -1422,6 +1426,7 @@ func TestCleanStaleDaemon_NoFiles(t *testing.T) {
 func TestCleanStaleDaemon_DeadPID(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
+	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 

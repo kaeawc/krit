@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 23, 45, 101, 102, 105
 // A local var holds a hardcoded key only when its initializer and every value
 // its function assigns to it are hardcoded: any assignment (before the read,
 // after it in a loop, or inside a lambda or local function that captures the

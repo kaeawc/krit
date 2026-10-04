@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 22, 32, 42, 52, 63, 79x2, 81, 92, 103, 117, 129, 144, 158
 // Positive: a catch clause whose type an earlier clause of the same try
 // already catches (the same class, or a supertype) triggers
 // UnreachableCatchBlock on the later clause's `catch` line.
@@ -64,8 +65,10 @@ fun transitive() {
     }
 }
 
-// Every earlier clause is compared, not only the one directly above; Go
-// reports the IOException clause twice (once per shadowing clause).
+// Every earlier clause is compared, not only the one directly above. Go
+// reports once per shadowing clause: the IllegalArgumentException clause
+// twice (RuntimeException and Exception both catch it) and the IOException
+// clause once (only Exception does).
 fun shadowedByTwo() {
     try {
         risky()

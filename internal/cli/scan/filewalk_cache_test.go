@@ -371,6 +371,36 @@ func TestCollectFilesCached_GitFastPath(t *testing.T) {
 	}
 }
 
+func TestCollectFilesCachedGitFastPathPrunesTrackedIdeaTemplates(t *testing.T) {
+	if !gitAvailable(t) {
+		t.Skip("git not on PATH")
+	}
+	root := filepath.Join(t.TempDir(), ".claude", "worktrees", "repo")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	keep := filepath.Join(root, "src", "App.kt")
+	template := filepath.Join(root, ".idea", "fileTemplates", "internal", "Kotlin Class.kt")
+	writeFile(t, keep, "class App")
+	writeFile(t, template, "${NAME}")
+	gitInit(t, root)
+	gitAdd(t, root, "src/App.kt", ".idea/fileTemplates/internal/Kotlin Class.kt")
+	files, err := CollectFilesCached([]string{root}, ktFilters, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0] != keep {
+		t.Fatalf("tracked source files = %v, want only %s", files, keep)
+	}
+	explicit, err := CollectFilesCached([]string{template}, ktFilters, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(explicit) != 0 {
+		t.Fatalf("explicit template source files = %v", explicit)
+	}
+}
+
 type fakeTrackedFileIndex struct {
 	files []string
 	ok    bool

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 12, 16, 20, 25, 29, 33, 37, 39, 42, 43, 44
 // Scope coverage: Go visits every call expression in the file, so a spec built
 // from literal bytes is reported wherever it appears.
 package test

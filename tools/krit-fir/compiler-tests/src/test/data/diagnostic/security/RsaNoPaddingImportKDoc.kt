@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Deliberate improvement: a KDoc right after the last import, the Cipher star
 // import, does not change what `Cipher` resolves to, so the call is a real
 // finding. Go misses it because tree-sitter attaches the KDoc to the

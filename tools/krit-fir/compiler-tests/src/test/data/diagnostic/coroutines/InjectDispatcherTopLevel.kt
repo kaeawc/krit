@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negative: hardcoded dispatchers inside a top-level function and an extension
 // function have no class/constructor to inject into, so they must NOT trigger
 // InjectDispatcher.

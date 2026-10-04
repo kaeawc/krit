@@ -2,6 +2,8 @@ package dev.jasonpearson.krit.fir.plugins
 
 import com.intellij.openapi.util.Disposer
 import org.jetbrains.kotlin.K1Deprecation
+import org.jetbrains.kotlin.CoreEnvironmentDeprecation
+import org.jetbrains.kotlin.cli.create
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
@@ -33,14 +35,13 @@ internal object KtFileParser {
         Disposer.newDisposable("KtFileParser-root")
     }
 
-    @OptIn(K1Deprecation::class)
+    @OptIn(K1Deprecation::class, CoreEnvironmentDeprecation::class)
     private val sharedEnvironment: KotlinCoreEnvironment by lazy {
-        val config = CompilerConfiguration().apply {
-            put(CommonConfigurationKeys.MESSAGE_COLLECTOR_KEY, MessageCollector.NONE)
+        val config = CompilerConfiguration.create(messageCollector = MessageCollector.NONE).apply {
             put(CommonConfigurationKeys.MODULE_NAME, "krit-fir-analyzeFile")
         }
-        // `createForProduction` carries the @DeprecatedCompilerApi
-        // marker in 2.3.x — that signals K2 migration is in flight,
+        // `createForProduction` carries the @CoreEnvironmentDeprecation
+        // marker in 2.4.x — that signals K2 migration is in flight,
         // not removal. We opt in deliberately and continue using the
         // K1 environment because the daemon only needs PSI parsing,
         // which the K2 successor doesn't yet expose as a stable

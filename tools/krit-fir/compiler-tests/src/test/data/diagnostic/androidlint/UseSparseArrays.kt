@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25, 27, 31, 35, 38
 // Positives: a java.util.HashMap constructor call with an Int, Integer, or Long
 // key, however HashMap is spelled and whatever the constructor arguments. Go
 // reports each of these too.

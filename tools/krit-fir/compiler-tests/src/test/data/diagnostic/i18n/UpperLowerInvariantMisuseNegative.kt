@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negative: explicit Locale arguments, Go's ASCII-invariant receiver
 // exemption, and shapes that are not a call of the stdlib conversion.
 package ulimnegative

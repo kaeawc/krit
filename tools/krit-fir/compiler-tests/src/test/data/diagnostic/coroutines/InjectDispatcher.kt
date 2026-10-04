@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 12
 // Positive: hardcoded Dispatchers.IO inside a class member (injectable via the
 // constructor) should trigger InjectDispatcher
 package test

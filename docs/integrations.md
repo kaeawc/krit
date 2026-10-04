@@ -25,7 +25,16 @@ repos:
 `krit --fix` over the staged files — use one or the other, not both in
 the same hook stage.
 
+FIR runs by default and needs Java 21+ plus a declared classpath source.
+Run `./gradlew kritExportModel` before the hook, or set `oracle.classpath`
+in `krit.yml`. To use Go analysis only, add `args: [--no-fir]` to the hook.
+
 ## Output formats for CI
+
+The GitHub Action's `fir` input defaults to `true` and sets up Temurin
+Java 21. Before the action runs, export a Gradle model with
+`./gradlew kritExportModel` or set `oracle.classpath` in `krit.yml`.
+Set `fir: 'false'` to run with `--no-fir`.
 
 | Format     | Use case                    | Flag |
 |------------|-----------------------------|------|

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 12, 14, 16, 18, 20, 22, 24, 26, 30, 35, 37, 40
 // Positive: javax.crypto.Cipher.getInstance with an RSA/<mode>/NoPadding
 // transformation literal, through an imported `Cipher` or the fully qualified
 // name, triggers RsaNoPadding on the line where the call expression starts.

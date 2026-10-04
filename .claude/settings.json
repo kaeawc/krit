@@ -2,8 +2,25 @@
   "mcpServers": {
     "krit": {
       "command": "go",
-      "args": ["run", "./cmd/krit-mcp/"],
+      "args": [
+        "run",
+        "./cmd/krit-mcp/"
+      ],
       "cwd": "."
     }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/claude-hooks/require-capped-go-test.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }

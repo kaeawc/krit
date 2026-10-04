@@ -13,6 +13,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/selfexec"
 )
 
 func (r *runner) filterColumnsByDelta(ref string) (scanner.FindingColumns, error) {
@@ -44,7 +45,7 @@ func deltaBaseFindingIDsForFlags(ref string, f *scanFlags, paths []string) (map[
 		_ = exec.CommandContext(context.Background(), "git", "-C", repoRoot, "worktree", "remove", "--force", tmp).Run()
 	}()
 
-	exe, err := os.Executable()
+	exe, err := selfexec.Executable()
 	if err != nil {
 		return nil, err
 	}

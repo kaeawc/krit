@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47, 49, 51, 54, 62, 65, 67, 69, 72, 76, 80
 // Positive: IvParameterSpec / GCMParameterSpec built from inline literal
 // bytes. Go reports every call here on the line the call starts.
 package test

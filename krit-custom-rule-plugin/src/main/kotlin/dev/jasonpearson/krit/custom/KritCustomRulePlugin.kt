@@ -127,6 +127,6 @@ class KritCustomRulePlugin : Plugin<Project> {
 
         // Must track the krit-types daemon's bundled compiler so PSI
         // classes resolve at runtime.
-        internal const val KOTLIN_COMPILER_VERSION = "2.3.21"
+        internal const val KOTLIN_COMPILER_VERSION = "2.4.20"
     }
 }

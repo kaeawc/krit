@@ -283,6 +283,9 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 		// consistent with the env var convention.
 		args = append(args, "--classpath", strings.Join(opts.Classpath, string(os.PathListSeparator)))
 	}
+	if opts.Backend == BackendFIR && opts.JvmTarget != "" {
+		args = append(args, "--jvm-target", opts.JvmTarget)
+	}
 	callFilterPath, cleanupCallFilter, err := writeCallFilterArg(opts, tracker)
 	if err != nil {
 		return "", fmt.Errorf("call filter: %w", err)
@@ -312,6 +315,11 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	if verbose {
 		reporter().Verbosef("verbose: Running krit-types: %s %s\n", javaPath, strings.Join(args, " "))
 	}
+	args, cleanupArgs, err := prepareJavaArgs(args)
+	if err != nil {
+		return "", err
+	}
+	defer cleanupArgs()
 
 	timeout := invokeTimeout()
 	graceExit := invokeGraceExit()

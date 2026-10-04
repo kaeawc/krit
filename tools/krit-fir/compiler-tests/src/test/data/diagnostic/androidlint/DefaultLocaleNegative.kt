@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negatives for DefaultLocale that Go leaves alone too: an explicit Locale
 // argument, the locale-invariant lowercase() / uppercase(), the instance
 // form "%d".format(x) (not the static String.format call this rule targets;

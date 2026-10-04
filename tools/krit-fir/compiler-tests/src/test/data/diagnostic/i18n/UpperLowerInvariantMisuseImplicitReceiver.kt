@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Go's ASCII-invariant exemption is a user opt-out: `currencyCode.uppercase()`
 // is not reported because the receiver text names an ASCII-only value. Go
 // never sees these implicit-receiver calls; FIR applies the same exemption to

@@ -369,10 +369,26 @@ func javaHeaderSupertypes(text string) []string {
 		if next := strings.Index(rest, " implements "); next >= 0 {
 			rest = rest[:next]
 		}
-		for _, part := range strings.Split(rest, ",") {
-			if typ := normalizeJavaTypeName(part); typ != "" {
-				out = append(out, typ)
+		start, depth := 0, 0
+		for i := 0; i < len(rest); i++ {
+			switch rest[i] {
+			case '<':
+				depth++
+			case '>':
+				if depth > 0 {
+					depth--
+				}
+			case ',':
+				if depth == 0 {
+					if typ := normalizeJavaTypeName(rest[start:i]); typ != "" {
+						out = append(out, typ)
+					}
+					start = i + 1
+				}
 			}
+		}
+		if typ := normalizeJavaTypeName(rest[start:]); typ != "" {
+			out = append(out, typ)
 		}
 	}
 	return uniqueStrings(out)

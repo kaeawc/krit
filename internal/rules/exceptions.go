@@ -698,11 +698,34 @@ func swallowedCallResultIsConsumed(file *scanner.File, node uint32) bool {
 		// branch whose body is `Result.Failure(e)` used as a `when`/return
 		// arm). Only the *last* named statement can be such a tail.
 		if file.FlatType(parent) == "statements" && swallowedIsLastNamedStatement(file, parent, node) {
-			return swallowedCatchTryIsConsumed(file, parent)
+			if swallowedCatchTryIsConsumed(file, parent) {
+				return true
+			}
+			// A lambda's last expression supplies its value. Count it only
+			// when the lambda expression itself is consumed by its caller.
+			owner, ok := file.FlatParent(parent)
+			if ok && file.FlatType(owner) == "lambda_literal" {
+				return swallowedCallResultIsConsumed(file, owner)
+			}
 		}
 		return false
+	case "function_body":
+		// Kotlin expression-body functions return their body expression. A
+		// block-bodied function_body is a statement scope and is not value use.
+		if !flatFunctionBodyHasBlock(file, parent) {
+			return true
+		}
 	}
 	return true
+}
+
+func flatFunctionBodyHasBlock(file *scanner.File, body uint32) bool {
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "block" || file.FlatType(child) == "statements" {
+			return true
+		}
+	}
+	return false
 }
 
 // swallowedIsLastNamedStatement reports whether node is the final named child
@@ -928,21 +951,6 @@ func swallowedAnalyzeReturn(file *scanner.File, node uint32, directAliases, deri
 	return swallowedEvidence{}
 }
 
-// swallowedCalleeLooksLikeWrapper reports whether a callee's simple name has
-// the shape of a constructor or factory — an initial uppercase letter, as in
-// `ApplicationError`, `Failure`, `IOException`. Passing the caught exception to
-// such a call packages it into a value (a wrapper / error result), which is
-// meaningful handling even when that value is locally discarded. Lowercase
-// callees (`ignored`, `recover`, `warn`) are ordinary functions whose
-// fire-and-forget invocation does not by itself prove the exception is handled.
-func swallowedCalleeLooksLikeWrapper(callee string) bool {
-	if callee == "" {
-		return false
-	}
-	r := rune(callee[0])
-	return r >= 'A' && r <= 'Z'
-}
-
 func swallowedIsThrowExpression(file *scanner.File, node uint32) bool {
 	if file.FlatType(node) != "jump_expression" {
 		return false
@@ -1000,19 +1008,15 @@ func (r *SwallowedExceptionRule) swallowedAnalyzeCall(ctx *api.Context, catchNod
 		// exception is treated as handled when EITHER:
 		//   * the call's result is consumed (argument, return/throw value,
 		//     assignment RHS, navigation receiver, expression-position catch
-		//     tail), OR
-		//   * the callee is a constructor / factory shape (an uppercase final
-		//     name, e.g. `ApplicationError`, `Failure`) — a wrapper that
-		//     packages the exception into a value even when that value is
-		//     (locally) discarded.
+		//     tail). Uppercase constructor/factory names do not make a discarded
+		//     result meaningful on their own.
 		// Two shapes are deliberately excluded so genuine swallows still fire:
 		//   * a logging-shaped callee on an unrecognized receiver
 		//     (`localLog.warn(e)`) — a logger lookalike that drops the cause;
 		//   * a bare lowercase call whose result is discarded (`ignored(e)`,
 		//     `recover(e)`) — a fire-and-forget callback that may still swallow.
 		callee, _ := swallowedCallTarget(file, node)
-		if callee != "" && !swallowedLoggingCallee(callee) &&
-			(swallowedCallResultIsConsumed(file, node) || swallowedCalleeLooksLikeWrapper(callee)) {
+		if callee != "" && !swallowedLoggingCallee(callee) && swallowedCallResultIsConsumed(file, node) {
 			args := flatCallKeyArguments(file, node)
 			if swallowedAnalyzeArguments(file, args, directAliases, derivedAliases).handled {
 				return swallowedEvidence{handled: true}

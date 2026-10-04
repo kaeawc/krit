@@ -160,6 +160,7 @@ type donePhaseModel struct {
 	baselineSkipped bool
 	baselinePath    string
 	baselineWritten bool
+	goOnlyBaseline  bool
 }
 
 func (p donePhaseModel) Update(msg tea.Msg) (phaseModel, tea.Cmd) {
@@ -197,6 +198,9 @@ func (p donePhaseModel) View() string {
 		b.WriteString(accentStyle.Render("✓ baseline written"))
 		b.WriteString("\n")
 		fmt.Fprintf(&b, "  %s\n", p.baselinePath)
+		if p.goOnlyBaseline {
+			fmt.Fprintf(&b, "  %s\n", onboarding.GoOnlyBaselineNotice)
+		}
 	}
 
 	b.WriteString("\n")

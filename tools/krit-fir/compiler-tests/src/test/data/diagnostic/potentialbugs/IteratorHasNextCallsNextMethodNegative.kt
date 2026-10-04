@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negative: hasNext() implementations the Go rule and FIR both leave alone.
 package test
 
@@ -72,8 +73,8 @@ class Cursor : Iterator<Int> {
 // FIR rewrites each for-loop into iterator()/hasNext()/next() calls on a fresh
 // local iterator. That generated next() is not a call in the source, and it
 // advances the loop's own iterator, not this one, so neither Go nor FIR
-// reports it. (A for-loop over an iterator does advance it:
-// `ForOverIterator` in IteratorHasNextCallsNextMethodDivergence.kt.)
+// reports it. (A for-loop over an iterator does advance it: `ForOverThis`
+// and the cases after it in IteratorHasNextCallsNextMethodDivergence.kt.)
 
 class Flattening(private val lists: List<List<Int>>) : Iterator<Int> {
     private var outer = 0

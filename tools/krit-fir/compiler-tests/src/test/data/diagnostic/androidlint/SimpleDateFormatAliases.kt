@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Divergence (recall): each call below constructs java.text.SimpleDateFormat
 // with the default locale, and FIR reports it. Go misses all of them: it needs
 // a call whose callee is spelled SimpleDateFormat, and an import alias, a

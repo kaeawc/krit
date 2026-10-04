@@ -25,6 +25,30 @@ func DefaultPrunedDir(base string) bool {
 	return false
 }
 
+// DefaultPrunedPath checks every segment of a path relative to a scan root.
+// An absolute path may include metadata directories above the repository, so
+// callers should first make it relative to the repository boundary.
+func DefaultPrunedPath(relative string) bool {
+	for _, segment := range strings.Split(filepath.ToSlash(filepath.Clean(relative)), "/") {
+		if DefaultPrunedDir(segment) {
+			return true
+		}
+	}
+	return false
+}
+
+// DefaultPrunedWithinRepo checks an explicit path against its nearest Git
+// root, excluding metadata inside the repo without excluding a checkout
+// merely because an ancestor directory happens to be named .claude.
+func DefaultPrunedWithinRepo(path string) bool {
+	root := FindGitRoot(path)
+	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+		return DefaultPrunedPath(path)
+	}
+	rel, err := filepath.Rel(root, path)
+	return err == nil && DefaultPrunedPath(rel)
+}
+
 // Matcher applies .gitignore files from the Git root down to a candidate path.
 type Matcher struct {
 	root     string

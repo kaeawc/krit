@@ -40,6 +40,10 @@ type LibraryFactsCache = XFileCache[*librarymodel.Facts]
 type ProjectArgs struct {
 	// Config is the loaded krit.yml / .krit.yml. Required.
 	Config *config.Config
+	// OracleClasspath is the caller-resolved compile classpath.
+	OracleClasspath  []string
+	OracleSourceDirs []string
+	OracleJvmTarget  string
 	// Paths are the scan target paths (files or directories). Required.
 	Paths []string
 	// KotlinPaths, when non-nil, are the already-collected Kotlin
@@ -67,7 +71,8 @@ type ProjectArgs struct {
 	// before format dispatch.
 	WarningsAsErrors bool
 	// IncludeGenerated retains files under */generated/* during parse.
-	IncludeGenerated bool
+	IncludeGenerated    bool
+	GeneratedSourceDirs []string
 	// EditorConfigEnabled participates in the analysis-cache rule hash.
 	// CLI callers set this from --editorconfig; false preserves the
 	// daemon's existing hash contract.
@@ -166,6 +171,9 @@ type ProjectHostState struct {
 	// applies the same verdict as the in-process scan. Setting it turns off
 	// the bundle-output shortcuts, which would replay pre-pass bytes.
 	FindingsPostPass func(ParseResult, []scanner.Finding) []scanner.Finding
+	// StartFindingsPass starts work after parsing, before Go dispatch. The
+	// returned pass is finished at the FindingsPostPass boundary.
+	StartFindingsPass func(context.Context, ParseResult) (PendingFindingsPass, error)
 	// Tracker, when non-nil, wraps expensive sub-phases for --perf.
 	Tracker perf.Tracker
 	// ParseCache, when non-nil, is consulted by ParsePhase to skip
@@ -506,15 +514,16 @@ type ProjectResult struct {
 // report formatting. CLI callers use this boundary to keep CLI-only FIR,
 // baseline verbs, profile handling, and exit-code policy outside pipeline.
 type ProjectAnalysisResult struct {
-	ParseResult     ParseResult
-	IndexResult     IndexResult
-	DispatchResult  DispatchResult
-	CrossFileResult CrossFileResult
-	FilesScanned    int
-	ParseErrors     []error
-	Stats           rules.RunStats
-	ParseHits       int64
-	ParseMisses     int64
+	ParseResult         ParseResult
+	PendingFindingsPass PendingFindingsPass
+	IndexResult         IndexResult
+	DispatchResult      DispatchResult
+	CrossFileResult     CrossFileResult
+	FilesScanned        int
+	ParseErrors         []error
+	Stats               rules.RunStats
+	ParseHits           int64
+	ParseMisses         int64
 	// RunFP is the canonical RunFingerprint computeRunFingerprint
 	// produced for this analyze — exposed so RunProjectStreaming can
 	// key BundleOutput-cache lookups on it after a post-parse bundle
@@ -523,6 +532,12 @@ type ProjectAnalysisResult struct {
 	RunFP             scanner.RunFingerprint
 	FindingsBundleHit bool
 	PhaseTimingsMs    PhaseTimingsMs
+}
+
+// PendingFindingsPass joins asynchronous analysis after Go findings exist.
+type PendingFindingsPass interface {
+	Finish([]scanner.Finding) ([]scanner.Finding, error)
+	Cancel()
 }
 
 // PhaseTimingsMs carries per-phase wall-time deltas captured around
@@ -588,6 +603,9 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	if err != nil {
 		return ProjectResult{}, err
 	}
+	if analysis.PendingFindingsPass != nil {
+		defer analysis.PendingFindingsPass.Cancel()
+	}
 	phaseTimings = analysis.PhaseTimingsMs
 
 	// Post-parse BundleOutput cache shortcut. When the dispatch path
@@ -630,6 +648,15 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		// correctness.
 	}
 
+	if analysis.PendingFindingsPass != nil {
+		postStart := time.Now()
+		post, err := analysis.PendingFindingsPass.Finish(analysis.CrossFileResult.Findings.Findings())
+		if err != nil {
+			return ProjectResult{}, err
+		}
+		analysis.CrossFileResult.Findings = scanner.CollectFindings(post)
+		perf.AddEntry(host.Tracker, "findingsPostPass", time.Since(postStart))
+	}
 	if host.FindingsPostPass != nil {
 		postStart := time.Now()
 		post := host.FindingsPostPass(analysis.ParseResult, analysis.CrossFileResult.Findings.Findings())
@@ -724,6 +751,12 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	if err != nil {
 		return ProjectAnalysisResult{}, fmt.Errorf("parse: %w", err)
 	}
+	pending, err := startPendingFindingsPass(ctx, host.StartFindingsPass, parseResult)
+	if err != nil {
+		return ProjectAnalysisResult{}, err
+	}
+	completed := false
+	defer cancelPendingUnlessComplete(pending, &completed)
 
 	// Augment the watcher's dirty set with paths whose on-disk stat has
 	// drifted from the prior manifest's recorded FileStats. Moved ahead
@@ -848,20 +881,42 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	}
 
 	hits1, misses1 := parseCacheCounters(host.ParseCache)
+	completed = true
 	return ProjectAnalysisResult{
-		ParseResult:       parseResult,
-		IndexResult:       indexResult,
-		DispatchResult:    dispatchResult,
-		CrossFileResult:   crossFileResult,
-		FilesScanned:      len(parseResult.KotlinFiles) + len(parseResult.JavaFiles),
-		ParseErrors:       parseResult.ParseErrors,
-		Stats:             crossFileResult.Stats,
-		ParseHits:         hits1 - hits0,
-		ParseMisses:       misses1 - misses0,
-		RunFP:             runFP,
-		FindingsBundleHit: bundleHit,
-		PhaseTimingsMs:    phaseTimings,
+		ParseResult:         parseResult,
+		PendingFindingsPass: pending,
+		IndexResult:         indexResult,
+		DispatchResult:      dispatchResult,
+		CrossFileResult:     crossFileResult,
+		FilesScanned:        len(parseResult.KotlinFiles) + len(parseResult.JavaFiles),
+		ParseErrors:         parseResult.ParseErrors,
+		Stats:               crossFileResult.Stats,
+		ParseHits:           hits1 - hits0,
+		ParseMisses:         misses1 - misses0,
+		RunFP:               runFP,
+		FindingsBundleHit:   bundleHit,
+		PhaseTimingsMs:      phaseTimings,
 	}, nil
+}
+
+func startPendingFindingsPass(ctx context.Context, start func(context.Context, ParseResult) (PendingFindingsPass, error), parsed ParseResult) (PendingFindingsPass, error) {
+	if start == nil {
+		return nil, nil
+	}
+	pending, err := start(ctx, parsed)
+	if err != nil {
+		if pending != nil {
+			pending.Cancel()
+		}
+		return nil, fmt.Errorf("start findings pass: %w", err)
+	}
+	return pending, nil
+}
+
+func cancelPendingUnlessComplete(pending PendingFindingsPass, completed *bool) {
+	if !*completed && pending != nil {
+		pending.Cancel()
+	}
 }
 
 // capturePerfOutputs snapshots the host tracker plus the global
@@ -973,6 +1028,8 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		CrossFileParentTracker:   crossTracker,
 		CrossFileJobsFlag:        args.Workers,
 		CrossFileJavaPaths:       args.JavaPaths,
+		GeneratedSourceDirs:      args.GeneratedSourceDirs,
+		IncludeGenerated:         args.IncludeGenerated,
 		ParseCache:               host.ParseCache,
 		BuildModuleIndex:         buildModuleIndex,
 		// Skip buildBaseResolver on bundle-hit candidates: the early
@@ -986,6 +1043,9 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		ModuleJobsFlag:      args.Workers,
 		ModuleHasAwareRule:  hasModuleAwareRule,
 		InputTypesPath:      args.InputTypesPath,
+		OracleClasspath:     args.OracleClasspath,
+		OracleSourceDirs:    args.OracleSourceDirs,
+		OracleJvmTarget:     args.OracleJvmTarget,
 		Thorough:            args.TargetedResolution,
 	}
 	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)
@@ -1147,18 +1207,19 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 	}
 	skipJavaCollection := len(javaPaths) == 0 && allowCrossFile
 	return ParsePhase{Workers: args.Workers}.Run(ctx, ParseInput{
-		Config:             args.Config,
-		Paths:              args.Paths,
-		ActiveRules:        args.ActiveRules,
-		IncludeGenerated:   args.IncludeGenerated,
-		KotlinPaths:        kotlinPaths,
-		JavaPaths:          javaPaths,
-		Workers:            args.Workers,
-		SkipJavaCollection: skipJavaCollection,
-		Reporter:           host.Reporter,
-		Tracker:            host.Tracker,
-		ParseCache:         host.ParseCache,
-		ResidentFiles:      host.ResidentFiles,
+		Config:              args.Config,
+		Paths:               args.Paths,
+		ActiveRules:         args.ActiveRules,
+		IncludeGenerated:    args.IncludeGenerated,
+		GeneratedSourceDirs: args.GeneratedSourceDirs,
+		KotlinPaths:         kotlinPaths,
+		JavaPaths:           javaPaths,
+		Workers:             args.Workers,
+		SkipJavaCollection:  skipJavaCollection,
+		Reporter:            host.Reporter,
+		Tracker:             host.Tracker,
+		ParseCache:          host.ParseCache,
+		ResidentFiles:       host.ResidentFiles,
 	})
 }
 
@@ -1284,14 +1345,14 @@ func warmSourcePaths(args ProjectArgs) ([]string, []string) {
 			kotlinPaths = collected
 		}
 	}
-	kotlinPaths = filterGeneratedSourcePaths(kotlinPaths, args.IncludeGenerated)
+	kotlinPaths = filterGeneratedSourcePaths(kotlinPaths, args.IncludeGenerated, args.GeneratedSourceDirs...)
 	javaPaths := args.JavaPaths
 	if javaPaths == nil && NeedsJavaBeforeDispatch(args.ActiveRules) {
 		if collected, err := scanner.CollectJavaFiles(args.Paths, nil); err == nil {
 			javaPaths = collected
 		}
 	}
-	javaPaths = filterGeneratedSourcePaths(javaPaths, args.IncludeGenerated)
+	javaPaths = filterGeneratedSourcePaths(javaPaths, args.IncludeGenerated, args.GeneratedSourceDirs...)
 	return kotlinPaths, javaPaths
 }
 
@@ -1432,7 +1493,7 @@ func projectRuleHashWithEditorConfig(activeRules []*api.Rule, cfg *config.Config
 			ruleNames = append(ruleNames, r.ID)
 		}
 	}
-	return cache.ComputeConfigHash(ruleNames, cfg, editorConfigEnabled)
+	return cache.ComputeCacheKeyHash(ruleNames, cfg, editorConfigEnabled)
 }
 
 // wireAnalysisCacheLookup turns on IndexPhase.runCacheLoad when the
@@ -2124,7 +2185,7 @@ func runFingerprintDiffFields(prior, current scanner.RunFingerprint) []string {
 // serve the run. Fix / FixBinary / DryRun / CustomRuleJars / a findings post
 // pass all change the post-pipeline column set the bundle cannot replay.
 func preParseBundleShortcutAllowed(args ProjectArgs, host ProjectHostState) bool {
-	if args.Fix || args.FixBinary || args.DryRun || len(args.CustomRuleJars) > 0 || host.FindingsPostPass != nil {
+	if args.Fix || args.FixBinary || args.DryRun || len(args.CustomRuleJars) > 0 || host.FindingsPostPass != nil || host.StartFindingsPass != nil {
 		return false
 	}
 	return host.FindingsBundleStore != nil && host.FindingsBundleCacheRoot != ""
@@ -2312,7 +2373,7 @@ func canUsePostParseBundleOutputShortcut(args ProjectArgs, host ProjectHostState
 	if args.Fix || args.FixBinary || args.DryRun {
 		return false
 	}
-	if len(args.CustomRuleJars) > 0 || host.FindingsPostPass != nil {
+	if len(args.CustomRuleJars) > 0 || host.FindingsPostPass != nil || host.StartFindingsPass != nil {
 		return false
 	}
 	return canUseBundleOutputCache(args, host)
@@ -2569,18 +2630,19 @@ func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, t
 func preparseSourcePaths(args ProjectArgs, host ProjectHostState, prior scanner.FindingsBundleManifest) ([]string, []string, bool) {
 	if host.SourceSetClean || dirtyPathsAllInManifest(host.SourceSetDirty, prior.ContentHashes, args.Paths) {
 		kotlinPaths, javaPaths := pathsFromManifest(prior.ContentHashes)
-		return kotlinPaths, javaPaths, true
+		return filterGeneratedSourcePaths(kotlinPaths, args.IncludeGenerated, args.GeneratedSourceDirs...),
+			filterGeneratedSourcePaths(javaPaths, args.IncludeGenerated, args.GeneratedSourceDirs...), true
 	}
 	kotlinPaths, err := scanner.CollectKotlinFiles(args.Paths, nil)
 	if err != nil {
 		return nil, nil, false
 	}
-	kotlinPaths = filterGeneratedSourcePaths(kotlinPaths, args.IncludeGenerated)
+	kotlinPaths = filterGeneratedSourcePaths(kotlinPaths, args.IncludeGenerated, args.GeneratedSourceDirs...)
 	javaPaths, err := collectJavaPathsForFingerprint(args)
 	if err != nil {
 		return nil, nil, false
 	}
-	javaPaths = filterGeneratedSourcePaths(javaPaths, args.IncludeGenerated)
+	javaPaths = filterGeneratedSourcePaths(javaPaths, args.IncludeGenerated, args.GeneratedSourceDirs...)
 	return kotlinPaths, javaPaths, true
 }
 
@@ -2683,7 +2745,7 @@ func collectJavaPathsForFingerprint(args ProjectArgs) ([]string, error) {
 	return scanner.CollectJavaFiles(args.Paths, nil)
 }
 
-func filterGeneratedSourcePaths(paths []string, includeGenerated bool) []string {
+func filterGeneratedSourcePaths(paths []string, includeGenerated bool, generatedDirs ...string) []string {
 	if includeGenerated {
 		return paths
 	}
@@ -2694,7 +2756,7 @@ func filterGeneratedSourcePaths(paths []string, includeGenerated bool) []string 
 	// dispatch to process the same files multiple times.
 	filtered := make([]string, 0, len(paths))
 	for _, path := range paths {
-		if !strings.Contains(filepath.ToSlash(path), "/generated/") {
+		if !IsGeneratedSourcePath(path, generatedDirs) {
 			filtered = append(filtered, path)
 		}
 	}
@@ -3265,7 +3327,7 @@ func tryAffectedSetDispatch(
 //
 //   - Version: args.Version (the binary's release identifier; bumps
 //     after the wire format / output shape changes).
-//   - Rules: cache.ComputeConfigHash over the active rule IDs + Config.
+//   - Rules: cache.ComputeCacheKeyHash over the active rule IDs + Config.
 //     Drift in either invalidates the bundle.
 //   - Config: same hash as Rules today; kept separate so a future
 //     split (e.g. rule-set hash vs. user-tunable knobs) doesn't

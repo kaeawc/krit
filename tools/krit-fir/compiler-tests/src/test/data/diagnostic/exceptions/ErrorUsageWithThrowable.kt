@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 18, 22, 25, 28, 31, 48, 54, 58, 68, 77, 85, 95, 104
 // Positive: kotlin.error() called directly with a Throwable argument should
 // trigger ErrorUsageWithThrowable.
 package test

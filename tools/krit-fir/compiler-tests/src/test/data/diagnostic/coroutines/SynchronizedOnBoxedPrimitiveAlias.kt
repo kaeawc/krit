@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negative: an import alias of a monitor-lock function is not a call named
 // synchronized(), which is how the Go rule recognizes the call, so it must
 // not trigger SynchronizedOnBoxedPrimitive.

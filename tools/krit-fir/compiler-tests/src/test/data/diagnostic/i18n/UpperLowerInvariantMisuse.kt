@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 8, 9, 14x2, 17, 21, 26, 32x2, 35, 37, 39, 42, 45, 47, 50, 55, 59, 63, 68, 70, 75, 78, 80, 83, 88, 92
 // Positive: the stdlib uppercase() / lowercase() called without a Locale
 // argument on an explicit receiver, in every container Go visits.
 package ulim

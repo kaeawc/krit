@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 16, 18
 // Positives for SimpleDateFormat: a typealias named SimpleDateFormat for a
 // project subclass of java.text.SimpleDateFormat. The call builds a
 // SimpleDateFormat and passes no locale; Go reports it by the call name, so

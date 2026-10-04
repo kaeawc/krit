@@ -13,6 +13,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/kaeawc/krit/internal/selfexec"
 )
 
 // defaultSimulateCommits caps a Simulate call when neither Since nor
@@ -270,7 +272,7 @@ func collectSidecarPoints(repoRoot, rule string, commits []commitMeta, workers i
 // code is non-zero when findings exist, so we keep the run error only
 // to surface if stdout failed to parse.
 func runKritForRule(kritBin, rule, worktreePath string) (int, error) {
-	cmd := exec.CommandContext(context.Background(), kritBin, "-f", "json", "-enable-rules", rule, ".")
+	cmd := exec.CommandContext(context.Background(), kritBin, "--no-fir", "-f", "json", "-enable-rules", rule, ".")
 	cmd.Dir = worktreePath
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
@@ -305,7 +307,11 @@ func parseRuleFindingCount(payload []byte, rule string) (int, error) {
 }
 
 func resolveKritBin() (string, error) {
-	if exe, err := os.Executable(); err == nil {
+	exe, err := selfexec.Executable()
+	if errors.Is(err, selfexec.ErrTestBinary) {
+		return "", fmt.Errorf("snapshot: set KritBin in tests: %w", err)
+	}
+	if err == nil {
 		if abs, err := filepath.Abs(exe); err == nil {
 			return abs, nil
 		}

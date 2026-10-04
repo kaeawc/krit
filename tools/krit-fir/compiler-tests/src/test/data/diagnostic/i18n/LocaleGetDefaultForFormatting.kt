@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 15, 18, 23, 24, 25, 28, 32, 35, 36, 37, 41x2, 44, 47, 52, 57, 61, 65, 66, 70
 // Positive: withLocale(Locale.getDefault()) on a formatter rooted at a
 // DateTimeFormatter ISO_* / RFC_* / BASIC_ISO_* constant, in every container
 // Go visits. Go and FIR both report each call on the line where the call's

@@ -8,4 +8,6 @@ class SyncService {
         wakeLock.acquire()
         doWork()
     }
+
+    private fun doWork() {}
 }

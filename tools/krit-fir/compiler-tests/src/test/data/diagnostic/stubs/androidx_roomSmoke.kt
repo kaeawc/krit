@@ -99,14 +99,31 @@ val MIGRATION_1_2: Migration = object : Migration(1, 2) {
     }
 }
 
-fun buildDb(context: Context): AppDatabase =
-    Room.databaseBuilder(context, AppDatabase::class.java, "app.db")
+// The app module's generated BuildConfig; AGP initializes DEBUG with
+// Boolean.parseBoolean(...) so it is not a compile-time constant.
+object BuildConfig {
+    @JvmField
+    val DEBUG: Boolean = "false".toBoolean()
+}
+
+// Built once per holder (a property initializer, not a function body), and
+// destructive fallbacks only behind a debug-build guard.
+class DatabaseHolder(context: Context) {
+    val db: AppDatabase = Room.databaseBuilder(context, AppDatabase::class.java, "app.db")
         .addMigrations(MIGRATION_1_2)
-        .fallbackToDestructiveMigration(dropAllTables = true)
         .addCallback(object : RoomDatabase.Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {}
         })
         .build()
+
+    val scratchDb: AppDatabase = Room.databaseBuilder<AppDatabase>(context, "scratch.db").apply {
+        if (BuildConfig.DEBUG) {
+            fallbackToDestructiveMigration(dropAllTables = true)
+            fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
+            fallbackToDestructiveMigrationFrom(true, 1, 2)
+        }
+    }.build()
+}
 
 fun inMemory(context: Context): AppDatabase =
     Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).allowMainThreadQueries().build()

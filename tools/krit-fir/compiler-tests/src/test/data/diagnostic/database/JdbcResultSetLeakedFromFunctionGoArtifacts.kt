@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 14, 16, 18, 20, 24, 26, 29
 // Divergence: Go reports every function below; none returns a closeable
 // ResultSet, so the message ("returns ResultSet; callers almost always forget
 // to close it") is not true of them. No finding here.

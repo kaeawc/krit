@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Go misses this: it matches the call by the name println / print, and here
 // kotlin.io.println is imported under another name. FIR reports it.
 package test

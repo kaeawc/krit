@@ -187,6 +187,10 @@ func GenerateSchema(metas []RuleMeta) *jsonschema.Schema {
 		),
 	}).WithDescription("Analysis depth settings.").AdditionalPropertiesFalse()
 
+	props["fir"] = jsonschema.Object(map[string]*jsonschema.Schema{
+		"goAuthoritativeRules": jsonschema.Array(jsonschema.String("Rule ID whose Go findings remain authoritative after FIR checks."), "Rules for which FIR verdicts are ignored."),
+	}).WithDescription("FIR verdict settings.").AdditionalPropertiesFalse()
+
 	props["maxCost"] = jsonschema.StringEnum(
 		[]string{"trivial", "line", "ast", "crossfile", "oracle", "fir", "fast", "balanced", "thorough"},
 		"Maximum rule weight class to run. Filters the active rule set so higher-cost rules are skipped. Presets: fast≡ast, balanced≡crossfile, thorough≡fir.",
@@ -318,6 +322,7 @@ func sortedKeys(m map[string][]RuleMeta) []string {
 func KnownRuleSets() map[string]bool {
 	sets := map[string]bool{
 		"analysis":                true,
+		"fir":                     true,
 		"config":                  true,
 		"module_template":         true,
 		"slos":                    true,

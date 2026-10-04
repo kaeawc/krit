@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negative: shapes neither Go nor FIR reports.
 package lgdffnegative
 

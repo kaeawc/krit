@@ -133,7 +133,7 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
         if (call.calleeReference.name.asString() != BYTE_ARRAY_OF) return false
         when (val receiver = call.explicitReceiver) {
             null -> Unit
-            is FirResolvedQualifier -> if (receiver.classId != null || receiver.packageFqName != kotlinPackage) return false
+            is FirResolvedQualifier -> if (receiver.qualifierSymbol != null || receiver.packageFqName != kotlinPackage) return false
             else -> return false
         }
         val items = call.argumentList.arguments.flatMap { argument ->

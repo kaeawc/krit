@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 54, 62
 // A raw ObjectInputStream built inside a filtering subclass written as an
 // object (an object literal, a named object, or a companion object). FIR skips
 // a call only when its nearest enclosing class (objects looked through, like

@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 37
 // Deliberate FIR recall additions: stdlib uppercase() / lowercase() calls
 // without a Locale that Go cannot see.
 package ulimrecall

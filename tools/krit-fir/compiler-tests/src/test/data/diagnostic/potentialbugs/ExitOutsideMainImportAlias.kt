@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Positives Go misses: the calls below resolve to kotlin.system.exitProcess or
 // java.lang.System.exit through an import alias or a static import, so they do
 // terminate the process outside main. Go matches only the literal spellings

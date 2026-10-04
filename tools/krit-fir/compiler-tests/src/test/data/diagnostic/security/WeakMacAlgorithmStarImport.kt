@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 16
 // Positive: a star import of javax.crypto resolves the bare Mac receiver, and
 // a companion object named Mac elsewhere in the file does not count as a
 // lookalike declaration (Go reports these too).

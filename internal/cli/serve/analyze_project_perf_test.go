@@ -23,14 +23,14 @@ func TestAnalyzeProject_ShowPerfEmitsPerfTiming(t *testing.T) {
 	// gated on ShowPerf, not on bundle-hit.
 	var warmup daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{ShowPerf: true}, &warmup); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true, ShowPerf: true}, &warmup); err != nil {
 		t.Fatalf("warmup call: %v", err)
 	}
 	requirePerfTiming(t, "warmup", warmup.Findings)
 
 	var second daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{ShowPerf: true}, &second); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true, ShowPerf: true}, &second); err != nil {
 		t.Fatalf("second call: %v", err)
 	}
 	requirePerfTiming(t, "bundle-hit", second.Findings)
@@ -47,7 +47,7 @@ func TestAnalyzeProject_ShowPerfFalseOmitsPerfTiming(t *testing.T) {
 
 	var res daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &res); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &res); err != nil {
 		t.Fatalf("call: %v", err)
 	}
 	if strings.Contains(string(res.Findings), `"perfTiming"`) {

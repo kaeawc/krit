@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 32, 35, 38, 41, 44, 47, 50, 53, 56, 59, 62, 65, 68, 71, 74, 77
 // Deliberate precision differences from the Go rule. Go matches the IV
 // argument by its source text: it reports any argument that starts with a
 // string literal followed by `.toByteArray(`, and any argument whose text

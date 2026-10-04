@@ -31,6 +31,7 @@ dependencies {
 // config search, so no `config = file(...)` line is needed. `ignoreFailures`
 // flows in from the root settings.
 krit {
+    fir = false // This dev example does not stage a krit-fir jar.
     reports {
         plain.required = true
         json.required = true

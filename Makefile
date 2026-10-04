@@ -1,4 +1,4 @@
-.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression daemon-verify corpus-snapshot corpus-precision test-fanotify all install install-completions watch
+.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression daemon-verify corpus-snapshot corpus-precision fir-validate fir-jar types-jar test-fanotify all install install-completions watch
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
@@ -11,7 +11,13 @@ build:
 	go build -ldflags "$(LDFLAGS)" -o krit-changelog ./cmd/krit-changelog/
 
 test:
-	go test ./... -count=1
+	bash scripts/go-test.sh ./... -count=1
+
+fir-jar:
+	bash scripts/build-dev-jar.sh krit-fir
+
+types-jar:
+	bash scripts/build-dev-jar.sh krit-types
 
 vet:
 	go vet ./...
@@ -32,10 +38,10 @@ lint-rules:
 	go test ./internal/rules/ -run 'TestRulesWithTypeInfoDeclareExplicitJavaSupport|TestRegistryFixModeIsValid|TestRegistryFixModeIsObservable' -count=1
 
 lint: build
-	./krit .
+	./krit --no-fir .
 
 fix: build
-	./krit --fix .
+	./krit --no-fir --fix .
 
 schema: build
 	./krit --generate-schema > schemas/krit-config.schema.json
@@ -50,8 +56,8 @@ integration: build
 	bash scripts/integration-test.sh
 
 playground: build
-	./krit -f json playground/kotlin-webservice/ | head -20
-	./krit -f json playground/android-app/ | head -20
+	./krit --no-fir -f json playground/kotlin-webservice/ | head -20
+	./krit --no-fir -f json playground/android-app/ | head -20
 
 regression: build
 	bash scripts/regression-check.sh
@@ -70,6 +76,11 @@ corpus-snapshot: build
 # corpus-precision reports triaged precision and label coverage by rule.
 corpus-precision: build
 	go run ./internal/devtools/corpusprecision --precision
+
+# Opt-in external corpora and prepared Gradle models are discovered by the harness.
+fir-validate:
+	go build -o krit ./cmd/krit/
+	go run ./internal/devtools/corpusprecision --fir-compare --fir-require-model
 
 ci: build vet test integration regression daemon-verify
 

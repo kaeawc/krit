@@ -61,7 +61,7 @@ krit --fix .    # apply safe fixes
 ```bash
 git clone https://github.com/kaeawc/krit.git && cd krit
 go build -o krit ./cmd/krit/
-go test ./... -count=1
+make test
 ```
 
 Rules live in `internal/rules/`. Fixtures live in `tests/fixtures/`. New rules

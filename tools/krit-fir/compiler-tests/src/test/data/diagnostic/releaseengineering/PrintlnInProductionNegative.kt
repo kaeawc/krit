@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negative: console output the Go rule exempts, and print-like calls that are
 // not console output.
 package test

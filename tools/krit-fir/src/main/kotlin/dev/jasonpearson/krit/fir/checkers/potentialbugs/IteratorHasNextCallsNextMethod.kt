@@ -97,7 +97,7 @@ internal object IteratorHasNextCallsNextMethod :
     FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common), FirRule {
     override val ruleId = "IteratorHasNextCallsNextMethod"
     override val declarationCheckers = object : DeclarationCheckers() {
-        override val simpleFunctionCheckers = setOf(IteratorHasNextCallsNextMethod)
+        override val namedFunctionCheckers = setOf(IteratorHasNextCallsNextMethod)
     }
 
     private val hasNext = Name.identifier("hasNext")

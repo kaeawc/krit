@@ -12,6 +12,7 @@ import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.database.Cursor
 import android.net.Uri
+import java.io.FileOutputStream
 
 class SmokeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -46,6 +47,13 @@ class SmokeContextWrapper(base: Context) : ContextWrapper(base) {
     override fun attachBaseContext(base: Context) {
         super.attachBaseContext(base)
     }
+
+    override fun openFileOutput(name: String, mode: Int): FileOutputStream = super.openFileOutput(name, mode)
+}
+
+fun copyPrivateFile(context: Context) {
+    val bytes = context.openFileInput("smoke.bin").use { it.readBytes() }
+    context.openFileOutput("smoke.copy", Context.MODE_PRIVATE).use { it.write(bytes) }
 }
 
 fun registerAndSave(context: Context, receiver: BroadcastReceiver, dialog: DialogInterface) {
@@ -69,5 +77,10 @@ fun registerAndSave(context: Context, receiver: BroadcastReceiver, dialog: Dialo
     context.contentResolver.query(Uri.parse("content://smoke"), null, null, null, null)?.close()
     context.applicationContext.getString(android.R.string.ok)
     dialog.dismiss()
+    val shared = Uri.parse("content://smoke/items/1")
+    val share = Intent(Intent.ACTION_SEND).setData(shared)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+    context.startActivity(Intent.createChooser(share, "Share"))
+    context.revokeUriPermission(shared, Intent.FLAG_GRANT_READ_URI_PERMISSION)
     <!PrintlnInProduction!>println<!>("$committed $stored $granted")
 }

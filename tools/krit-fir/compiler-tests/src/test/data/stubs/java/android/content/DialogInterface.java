@@ -13,4 +13,12 @@ public interface DialogInterface {
     public static interface OnClickListener {
         void onClick(DialogInterface dialog, int which);
     }
+
+    public static interface OnCancelListener {
+        void onCancel(DialogInterface dialog);
+    }
+
+    public static interface OnDismissListener {
+        void onDismiss(DialogInterface dialog);
+    }
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/scanner"
@@ -69,6 +71,47 @@ class Example extends Base implements Runnable, Closeable {
 	nested := facts.Classes["Nested"]
 	if nested.FQN != "com.example.Example.Nested" {
 		t.Fatalf("Nested FQN = %q", nested.FQN)
+	}
+}
+
+func TestJavaHeaderSupertypes_GenericArguments(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		header string
+		want   []string
+	}{
+		{"type argument is not a supertype", "class Foo implements TriFunc<String, X509TrustManager, String> {}", []string{"TriFunc"}},
+		{"nested type arguments", "class Foo extends Base implements Map<String, List<X509TrustManager>> {}", []string{"Base", "Map"}},
+		{"mixed supertypes", "class Foo implements A, B<C, D>, E {}", []string{"A", "B", "E"}},
+		{"plain supertypes unchanged", "class Foo extends Base implements Runnable, Closeable {}", []string{"Base", "Runnable", "Closeable"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := javaHeaderSupertypes(tc.header); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("javaHeaderSupertypes(%q) = %v, want %v", tc.header, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestJavaHeaderSupertypes_AnnotatedTypeArgument(t *testing.T) {
+	file := parseJavaSource(t, "Foo.java", `
+package test;
+@interface Marker { String value(); }
+interface TriFunc<A, B, C> {}
+class Foo implements TriFunc<@Marker(value = "a,b") String, X509TrustManager, String> {}
+`)
+	if file.FlatTree.Node(0).HasError() {
+		t.Fatal("tree-sitter rejected annotated type argument")
+	}
+	var header string
+	file.FlatWalkNodes(0, "class_declaration", func(node uint32) {
+		header = javaDeclarationHeader(file.FlatNodeText(node))
+	})
+	if !strings.Contains(header, `@Marker(value = "a,b") String`) {
+		t.Fatalf("annotated type argument absent from Java declaration header: %q", header)
+	}
+	if got, want := javaHeaderSupertypes(header), []string{"TriFunc"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("javaHeaderSupertypes(%q) = %v, want %v", header, got, want)
 	}
 }
 

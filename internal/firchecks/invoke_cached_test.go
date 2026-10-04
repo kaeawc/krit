@@ -38,6 +38,39 @@ func TestInvokeCached_EmptyFilesReturnsEmpty(t *testing.T) {
 	}
 }
 
+// --no-cache must reach the uncached path even when the scan has a repo dir.
+// Repeating identical input must invoke the checker twice and leave no disk
+// cache behind.
+func TestProductionFirCheckerNoCacheBypassesReadsAndWrites(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "Sample.kt")
+	if err := os.WriteFile(file, []byte("fun sample() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := runMissesForCache
+	defer func() { runMissesForCache = old }()
+	calls := 0
+	runMissesForCache = func(_ string, files, _, _, _ []string, _ RuleConfigs, _ FileFacts, _, _ bool, _ ...string) (*CheckResponse, error) {
+		calls++
+		if !reflect.DeepEqual(files, []string{file}) {
+			t.Fatalf("checker files = %v, want [%s]", files, file)
+		}
+		return &CheckResponse{}, nil
+	}
+	checker := &ProductionFirChecker{RepoDir: root, NoCache: true}
+	for i := 0; i < 2; i++ {
+		if _, err := checker.Check([]string{file}, nil, nil, nil, nil, FileFacts{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("checker invoked %d times, want 2", calls)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".krit", "fir-cache")); !os.IsNotExist(err) {
+		t.Fatalf("FIR cache directory created despite NoCache: %v", err)
+	}
+}
+
 func TestInvokeCached_AllCacheHits(t *testing.T) {
 	tmp := t.TempDir()
 

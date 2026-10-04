@@ -24,6 +24,21 @@ class OracleDispatchTest {
     lateinit var tmp: Path
 
     @Test
+    fun invalidJvmTargetWarnsAndDaemonSessionKeepsServing() {
+        val rebuilt = handleRequestLine(
+            """{"id":81,"command":"rebuild","jvmTarget":"not-a-target"}""",
+            session, startTime = 0L,
+        ) as RequestResult.SessionRebuilt
+        assertTrue(""""warning":"Unsupported JVM target 'not-a-target'; using """ in rebuilt.json, rebuilt.json)
+        assertTrue(""""ok":true""" in rebuilt.json, rebuilt.json)
+        val next = handleRequestLine("""{"id":82,"command":"analyzeAll"}""", rebuilt.newSession, startTime = 0L)
+        val response = (next as RequestResult.Response).json
+        assertTrue(response.startsWith("""{"id":82,"result":{"""), response)
+        assertTrue(""""files":{}""" in response, response)
+        rebuilt.newSession.dispose()
+    }
+
+    @Test
     fun analyzeCommandRoutesToOracleResponseBuilder() {
         val request = """{"id":11,"command":"analyze"}"""
         val result = handleRequestLine(request, session, startTime = 0L)

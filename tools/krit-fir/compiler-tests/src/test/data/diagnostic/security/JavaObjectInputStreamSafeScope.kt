@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Go skips every call whose nearest enclosing class mentions both
 // ObjectInputStream and resolveClass. FIR skips only a real filtering
 // subclass: one that extends java.io.ObjectInputStream and declares

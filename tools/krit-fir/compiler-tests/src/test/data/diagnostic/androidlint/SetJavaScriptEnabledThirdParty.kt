@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 23, 24
 // Positive: a third-party WebView engine with the platform's class names and
 // setter shape (for example Tencent X5, com.tencent.smtt.sdk). Enabling
 // JavaScript on its WebSettings is the same XSS surface the message warns

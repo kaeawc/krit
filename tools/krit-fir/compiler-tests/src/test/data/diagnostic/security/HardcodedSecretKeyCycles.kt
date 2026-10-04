@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Properties whose values branch and refer to each other in a cycle, and
 // properties that read a shared property more than once. Each property is
 // walked once per key and its verdict reused, and a property read again while

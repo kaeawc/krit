@@ -20,7 +20,7 @@ Invoke the `krit-add-rule` skill and walk it end to end for the rule named in AR
    go vet ./...
    golangci-lint run ./...
    make lint-rules
-   go test ./... -count=1
+   make test
    ```
 8. **Integration.** Run `make integration` before pushing if the rule touches dispatch, suppression, output, or daemon code.
 

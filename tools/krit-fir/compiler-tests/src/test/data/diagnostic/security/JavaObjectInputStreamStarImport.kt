@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 10
 // A java.io star import satisfies Go's file gate, so the bare call is reported
 // by both.
 package test

@@ -4,6 +4,8 @@ package android.os;
 public final class PowerManager {
     public static final int PARTIAL_WAKE_LOCK = 1;
 
+    public static final int RELEASE_FLAG_WAIT_FOR_NO_PROXIMITY = 1;
+
     PowerManager() {
     }
 
@@ -36,6 +38,10 @@ public final class PowerManager {
         }
 
         public void release() {
+            throw new RuntimeException("Stub!");
+        }
+
+        public void release(int flags) {
             throw new RuntimeException("Stub!");
         }
     }

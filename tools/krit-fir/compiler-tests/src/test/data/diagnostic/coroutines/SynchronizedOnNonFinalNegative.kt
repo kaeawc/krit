@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negative: locks that are not a bare name resolving to a `var` must not
 // trigger SynchronizedOnNonFinal. Go agrees on every case in this file.
 package test

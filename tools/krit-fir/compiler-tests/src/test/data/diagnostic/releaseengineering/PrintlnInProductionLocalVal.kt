@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 11
 // Go reports `println("x")` here: the file declares no *function* named
 // println, so Go takes the call for the built-in. It invokes the local val
 // `println`, a lambda that only records its argument, and prints nothing to

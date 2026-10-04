@@ -14,6 +14,9 @@ config:
 analysis:
   depth: balanced
 
+fir:
+  goAuthoritativeRules: []
+
 android-lint:
   active: true
   NegativeMarginResource:

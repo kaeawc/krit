@@ -2,6 +2,9 @@ package fixtures.negative.potentialbugs
 
 import java.util.Locale
 
+// The stdlib toLowerCase()/toUpperCase() are DEPRECATION_ERROR since Kotlin
+// 2.1; suppressing it keeps the fixture compiling for FIR parity.
+@Suppress("DEPRECATION_ERROR")
 class ImplicitDefaultLocale {
     fun convert(str: String): String {
         return str.toLowerCase(Locale.US)

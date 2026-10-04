@@ -21,6 +21,9 @@ var corpora = []corpus{
 	{Name: "kotlin-webservice", Path: "playground/kotlin-webservice"},
 	{Name: "android-app", Path: "playground/android-app"},
 	{Name: "metro", EnvVar: "KRIT_CORPUS_METRO"},
+	{Name: "sqldelight", EnvVar: "KRIT_CORPUS_SQLDELIGHT"},
+	{Name: "coil", EnvVar: "KRIT_CORPUS_COIL"},
+	{Name: "signal-android", EnvVar: "KRIT_CORPUS_SIGNAL_ANDROID"},
 }
 
 type corpus struct {
@@ -102,11 +105,13 @@ func main() {
 	update := flag.Bool("update", false, "rewrite corpus snapshots with current findings")
 	precision := flag.Bool("precision", false, "print precision from current findings and triage labels")
 	compilerParity := flag.Bool("compiler-parity", false, "compare current findings against compiler diagnostics per rule and print an agreement report")
+	firCompare := flag.Bool("fir-compare", false, "compare FIR and Go findings and write coverage reports")
+	firRequireModel := flag.Bool("fir-require-model", false, "with --fir-compare, skip corpora without exported Gradle models")
 	corpusName := flag.String("corpus", "", "restrict the run to one corpus name")
 	flag.Parse()
 
-	if (*update && *precision) || (*update && *compilerParity) || (*precision && *compilerParity) {
-		fmt.Fprintln(os.Stderr, "error: --update, --precision, and --compiler-parity are mutually exclusive")
+	if boolCount(*update, *precision, *compilerParity, *firCompare) > 1 {
+		fmt.Fprintln(os.Stderr, "error: --update, --precision, --compiler-parity, and --fir-compare are mutually exclusive")
 		os.Exit(2)
 	}
 
@@ -123,6 +128,12 @@ func main() {
 	}
 
 	switch {
+	case *firCompare:
+		if err := compareFIR(root, selected, *firRequireModel, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		return
 	case *compilerParity:
 		if err := printCompilerParity(root, selected, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -158,6 +169,16 @@ func main() {
 			fmt.Printf("Corpus precision snapshot gate: OK (%d corpora).\n", len(observed))
 		}
 	}
+}
+
+func boolCount(values ...bool) int {
+	n := 0
+	for _, value := range values {
+		if value {
+			n++
+		}
+	}
+	return n
 }
 
 func repoRoot() (string, error) {
@@ -231,7 +252,7 @@ func runKrit(root string, c availableCorpus) (snapshotFile, error) {
 		return snapshotFile{}, fmt.Errorf("error: corpus %s path is not a directory: %s", c.Name, c.ScanPath)
 	}
 
-	args := []string{"-f", "json", "--no-cache", "--no-daemon", "--base-path", c.ScanPath}
+	args := []string{"-f", "json", "--no-cache", "--no-daemon", "--no-fir", "--base-path", c.ScanPath}
 	args = append(args, c.Flags...)
 	args = append(args, c.ScanPath)
 	cmd := exec.CommandContext(context.Background(), krit, args...)

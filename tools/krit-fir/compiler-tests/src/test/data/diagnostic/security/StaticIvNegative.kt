@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Negative: IVs that are not inline literal bytes, other spec classes, and
 // local lookalikes. Neither Go nor FIR reports anything here.
 package test

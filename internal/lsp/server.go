@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kaeawc/krit/internal/cli/scan"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/jsonrpc"
 	"github.com/kaeawc/krit/internal/logger"
@@ -51,9 +52,10 @@ type Server struct {
 	docs   map[string]*Document // URI -> Document
 
 	// Analysis: pipeline-driven single-file analyzer shared with MCP + CLI.
-	analyzer *pipeline.SingleFileAnalyzer
-	resolver typeinfer.TypeResolver
-	cfg      *config.Config
+	analyzer         *pipeline.SingleFileAnalyzer
+	resolver         typeinfer.TypeResolver
+	cfg              *config.Config
+	firPreflightOnce sync.Once
 
 	// workspace is the content-addressed parse cache shared across LSP
 	// requests on the same buffer.
@@ -654,6 +656,7 @@ func (s *Server) analyzeAndPublish(uri string, content []byte) {
 	if !strings.HasSuffix(path, ".kt") && !strings.HasSuffix(path, ".kts") {
 		return
 	}
+	s.noticeFIRPreflight(path)
 
 	file, err := s.workspace.ParseFile(context.Background(), path, content)
 	if err != nil {
@@ -689,6 +692,22 @@ func (s *Server) analyzeAndPublish(uri string, content []byte) {
 
 	s.publishDiagnostics(uri, diagnostics)
 }
+
+func (s *Server) noticeFIRPreflight(path string) {
+	s.firPreflightOnce.Do(func() {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := noticeFIRPreflightCheck(ctx, []string{path}, s.cfg); err != nil && ctx.Err() == nil {
+				msg := err.Error()
+				s.log.Warn("FIR unavailable; using Go-only analysis", "reason", msg)
+				s.sendNotification("window/showMessage", ShowMessageParams{Type: MessageTypeWarning, Message: msg})
+			}
+		}()
+	})
+}
+
+var noticeFIRPreflightCheck = scan.NoticeFIRPreflight
 
 // publishDiagnostics sends a textDocument/publishDiagnostics notification.
 func (s *Server) publishDiagnostics(uri string, diagnostics []Diagnostic) {

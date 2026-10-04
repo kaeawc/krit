@@ -42,6 +42,8 @@ object NotificationCompat {
 
         open fun setContentText(text: CharSequence?): Builder = TODO()
 
+        open fun setSubText(text: CharSequence?): Builder = TODO()
+
         open fun setPriority(pri: Int): Builder = TODO()
 
         open fun setAutoCancel(autoCancel: Boolean): Builder = TODO()

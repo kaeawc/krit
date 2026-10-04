@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
@@ -31,17 +32,20 @@ func daemonCacheDir() (string, error) {
 	return dir, nil
 }
 
-// daemonsDir returns ~/.krit/cache/daemons/, creating it if needed.
-// This is the directory that holds one PID file pair per distinct
-// sourcesHash, enabling multiple daemons (one per repo) to coexist
-// under the same user cache hierarchy.
+// daemonsDir returns the base for source-hash-named PID and port files.
+// Tests can replace ~/.krit/cache/daemons with a private registry root.
 func daemonsDir() (string, error) {
-	base, err := daemonCacheDir()
-	if err != nil {
-		return "", err
+	dir := os.Getenv("KRIT_DAEMON_REGISTRY_DIR")
+	mode := os.FileMode(0700)
+	if dir == "" {
+		base, err := daemonCacheDir()
+		if err != nil {
+			return "", err
+		}
+		dir = filepath.Join(base, "daemons")
+		mode = 0755
 	}
-	dir := filepath.Join(base, "daemons")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, mode); err != nil {
 		return "", fmt.Errorf("create daemons dir: %w", err)
 	}
 	return dir, nil
@@ -115,6 +119,16 @@ func daemonLegacyKey(jarPath string, sourceDirs []string, classpath ...string) s
 }
 
 func daemonLegacySuffix(sourceDirs []string, classpath ...string) string {
+	key := daemonClasspathPathPrefix(sourceDirs, classpath...)
+	if len(classpath) > 0 {
+		key += "-" + gradlemodel.ClasspathFingerprint(AbsolutePaths(classpath))[:8]
+	}
+	return key
+}
+
+// The path-only prefix lets retirement find daemons whose classpath jars
+// changed in place, while keeping unrelated classpaths separate.
+func daemonClasspathPathPrefix(sourceDirs []string, classpath ...string) string {
 	key := hashSources(sourceDirs)
 	if len(classpath) > 0 {
 		// Order matters on a classpath, so hash it in the given order.
@@ -304,6 +318,15 @@ func appendDaemonJarArgs(args []string, jarPath string, sourceDirs, classpath []
 	return args
 }
 
+// EphemeralDaemonArgs scopes a newly spawned daemon to this client process.
+// Normal CLI invocations leave the switch unset and retain shareable daemons.
+func EphemeralDaemonArgs(args ...string) []string {
+	if os.Getenv("KRIT_EPHEMERAL_DAEMONS") == "1" {
+		return append(args, "--parent-pid", strconv.Itoa(os.Getpid()))
+	}
+	return args
+}
+
 func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, verbose bool) (*Daemon, error) {
 	// The daemon does not run in the caller's directory; the AOT/CDS
 	// startup-cache args and -jar must name the same absolute jar.
@@ -316,11 +339,16 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 	args := buildJVMBaseArgs()
 	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgsFromEnv())
-	args = appendDaemonJarArgs(args, jarPath, sourceDirs, classpath, "--daemon")
+	args = appendDaemonJarArgs(args, jarPath, sourceDirs, classpath, EphemeralDaemonArgs("--daemon")...)
 
 	if verbose {
 		reporter().Verbosef("verbose: Starting krit-types daemon: %s %s\n", javaPath, strings.Join(args, " "))
 	}
+	args, cleanupArgs, err := prepareJavaArgs(args)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanupArgs()
 
 	cmd := exec.CommandContext(context.Background(), javaPath, args...)
 	cmd.Dir = DaemonWorkDir()
@@ -341,6 +369,7 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 		stdinPipe.Close()
 		return nil, fmt.Errorf("start daemon: %w", err)
 	}
+	RecordTestDaemonPID(cmd.Process.Pid)
 
 	scanner := bufio.NewScanner(stdoutPipe)
 	scanner.Buffer(make([]byte, 0, 64*1024), 512*1024*1024)
@@ -505,12 +534,17 @@ func retireSupersededDaemons(jarPath string, sourceDirs []string, classpath []st
 	if err != nil {
 		return
 	}
-	prefix := daemonRegistryPrefix(jarPath, sourceDirs, classpath...)
 	current := daemonRegistryKey(jarPath, sourceDirs, classpath...)
-	paths, err := filepath.Glob(filepath.Join(dir, prefix+"@*.pid"))
+	family := jarTag(jarPath) + "-" + JarPathTag(jarPath) + "-" + daemonClasspathPathPrefix(sourceDirs, classpath...)
+	paths, err := filepath.Glob(filepath.Join(dir, family+"*.pid"))
 	if err == nil {
 		for _, path := range paths {
-			key, slot, ok := parseDaemonPIDName(strings.TrimSuffix(filepath.Base(path), ".pid"), prefix+"@")
+			stem := strings.TrimSuffix(filepath.Base(path), ".pid")
+			candidatePrefix, _, found := strings.Cut(stem, "@")
+			if !found || candidatePrefix != family && (len(classpath) == 0 || !strings.HasPrefix(candidatePrefix, family+"-")) {
+				continue
+			}
+			key, slot, ok := parseDaemonPIDName(stem, candidatePrefix+"@")
 			if ok && key != current {
 				stopDaemonSlot(key, slot, verbose)
 			}
@@ -612,11 +646,16 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 	args := buildJVMBaseArgs()
 	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgsFromEnv())
-	args = appendDaemonJarArgs(args, jarPath, sourceDirs, classpath, "--daemon", "--port", "0")
+	args = appendDaemonJarArgs(args, jarPath, sourceDirs, classpath, EphemeralDaemonArgs("--daemon", "--port", "0")...)
 
 	if verbose {
 		reporter().Verbosef("verbose: Starting persistent krit-types daemon slot %d: %s %s\n", slot, javaPath, strings.Join(args, " "))
 	}
+	args, cleanupArgs, err := prepareJavaArgs(args)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanupArgs()
 
 	cmd := exec.CommandContext(context.Background(), javaPath, args...)
 	cmd.Dir = DaemonWorkDir()
@@ -630,6 +669,7 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start daemon: %w", err)
 	}
+	RecordTestDaemonPID(cmd.Process.Pid)
 
 	ready, err := waitPortReady(cmd, stdoutPipe)
 	if err != nil {

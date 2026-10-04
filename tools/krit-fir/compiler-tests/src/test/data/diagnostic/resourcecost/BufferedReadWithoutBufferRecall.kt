@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: none
 // Unbuffered FileInputStream reads Go misses and FIR reports. Go runs this
 // rule without type information, so it only sees a FileInputStream(...) call
 // in the receiver text or a local initialized with one; each receiver below

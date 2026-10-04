@@ -14,6 +14,10 @@ inputs:
     description: "Additional arguments passed to the krit CLI"
     required: false
     default: ""
+  fir:
+    description: "Run FIR checkers (requires Java 21+ and a declared classpath source)"
+    required: false
+    default: "true"
   config:
     description: "Path to krit.yml configuration file"
     required: false
@@ -65,6 +69,12 @@ outputs:
 runs:
   using: "composite"
   steps:
+    - name: Set up Java for FIR
+      if: inputs.fir == 'true'
+      uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v5
+      with:
+        distribution: temurin
+        java-version: '21'
     - name: Resolve krit version
       id: resolve-version
       shell: bash
@@ -144,6 +154,7 @@ runs:
         KRIT_SARIF_UPLOAD: ${{ inputs.sarif-upload }}
         KRIT_FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
         KRIT_DIFF: ${{ inputs.diff }}
+        KRIT_FIR: ${{ inputs.fir }}
       run: bash ${{ github.action_path }}/../../../scripts/run-krit-action.sh
 
     - name: Upload SARIF to Code Scanning

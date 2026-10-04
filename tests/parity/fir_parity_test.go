@@ -87,6 +87,7 @@ func TestFirFixtureParity(t *testing.T) {
 	}
 
 	firByPath, crashed := runParityBatch(t, checked, fixtures)
+	matchedMessages := map[string]bool{}
 
 	for _, id := range ids {
 		t.Run(id, func(t *testing.T) {
@@ -107,7 +108,7 @@ func TestFirFixtureParity(t *testing.T) {
 				}
 				kinds[f.kind] = true
 				t.Run(f.kind+"/"+filepath.Base(filepath.Dir(f.rel)), func(t *testing.T) {
-					checkParityFixture(t, root, f, crashed, firByPath[f.tmp])
+					checkParityFixture(t, root, f, crashed, firByPath[f.tmp], matchedMessages)
 				})
 			}
 			for _, kind := range []string{"positive", "negative"} {
@@ -116,6 +117,11 @@ func TestFirFixtureParity(t *testing.T) {
 				}
 			}
 		})
+	}
+	for key, reason := range firMessageAllowlist {
+		if !matchedMessages[key] {
+			t.Errorf("firMessageAllowlist entry %q (%s) no longer differs; remove it", key, reason)
+		}
 	}
 
 	t.Run("CrossRule", func(t *testing.T) {
@@ -129,7 +135,19 @@ func TestFirFixtureParity(t *testing.T) {
 // golden data. Key: rule ID + "|" + repo-relative fixture path. Keep it
 // minimal: an entry must name the golden case, and an entry whose pair
 // agrees fails as stale.
-var firCrossRuleAllowlist = map[string]string{}
+var firCrossRuleAllowlist = map[string]string{
+	// await() is a suspend call that won't complete normally if the coroutine
+	// is cancelled, so the message is true; Go only matches call text that
+	// starts with a listed name and misses receiver-qualified calls.
+	"SuspendFunInFinallySection|tests/fixtures/positive/coroutines/DeferredAwaitInFinally.kt": "qualified cleanup.await() in finally; Go misses qualified suspend calls (SuspendFunInFinallySectionDivergence.kt qualifiedAndUnlisted)",
+	"SuspendFunInFinallySection|tests/fixtures/negative/coroutines/DeferredAwaitInFinally.kt": "qualified cleanup.await() inside runCatching in finally; Go misses qualified suspend calls (SuspendFunInFinallySectionDivergence.kt qualifiedAndUnlisted)",
+}
+
+// firMessageAllowlist lists reviewed message differences on a rule's own
+// fixture that cannot reasonably be aligned by wording alone. Key: rule ID
+// + "|" + repo-relative fixture path + "|" + original line number. An entry
+// whose messages agree fails as stale.
+var firMessageAllowlist = map[string]string{}
 
 // checkCrossRuleParity holds every FIR rule to its Go rule on every fixture
 // of the batch, not only the rule's own: runParityBatch compiles all
@@ -248,7 +266,7 @@ func brokenFixtures(res *firchecks.Result) map[string]string {
 	return broken
 }
 
-func checkParityFixture(t *testing.T, root string, f firFixture, crashed map[string]string, firFindings []scanner.Finding) {
+func checkParityFixture(t *testing.T, root string, f firFixture, crashed map[string]string, firFindings []scanner.Finding, matchedMessages map[string]bool) {
 	t.Helper()
 	compileErr, broken := crashed[f.tmp]
 	if f.hasSkip {
@@ -274,6 +292,26 @@ func checkParityFixture(t *testing.T, root string, f firFixture, crashed map[str
 	if !sameCounts(goCounts, firCounts) {
 		t.Fatalf("FIR/Go parity mismatch for %s on %s (line -> findings)\nGo:  %v\nFIR: %v\nGo findings:  %s\nFIR findings: %s",
 			f.rule, f.rel, goCounts, firCounts, summarizeFindings(goFindings), summarizeFindings(firFindings))
+	}
+	for _, goFinding := range goFindings {
+		line := goFinding.Line
+		if goFinding.Rule != f.rule || goCounts[line] != 1 {
+			continue
+		}
+		for _, firFinding := range firFindings {
+			if firFinding.Rule != f.rule || firFinding.Line-f.lineOffset != line {
+				continue
+			}
+			if goFinding.Message != firFinding.Message {
+				key := fmt.Sprintf("%s|%s|%d", f.rule, f.rel, line)
+				if _, ok := firMessageAllowlist[key]; ok {
+					matchedMessages[key] = true
+				} else {
+					t.Errorf("FIR/Go message mismatch for %s on %s:%d\nGo:  %q\nFIR: %q", f.rule, f.rel, line, goFinding.Message, firFinding.Message)
+				}
+			}
+			break
+		}
 	}
 	if f.kind == "positive" && len(goCounts) == 0 {
 		t.Errorf("positive fixture %s produces no %s finding on either side", f.rel, f.rule)
@@ -430,7 +468,8 @@ func findKotlinStdlib() string {
 }
 
 // runGoRule runs one Go rule in-process on a repo fixture: single-file
-// dispatch, source inference when the rule needs a resolver, no oracle.
+// dispatch, source inference when the rule needs a resolver, no oracle, and
+// the rule options from config/default-krit.yml (TestMain applies them).
 func runGoRule(t *testing.T, root, ruleName, fixture string) []scanner.Finding {
 	t.Helper()
 	file, err := scanner.ParseFile(context.Background(), filepath.Join(root, fixture))

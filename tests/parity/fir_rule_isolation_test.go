@@ -30,6 +30,7 @@ const probeClassDir = "tools/krit-fir/build/classes/kotlin/test"
 const probeClassPrefix = "dev/jasonpearson/krit/fir/checkers/protocol/ThrowingProbe"
 
 var isolationFixtures = map[string]string{
+	"krit.yml": "oracle:\n  classpath: []\n",
 	"src/main/kotlin/generated/kotlinx/coroutines/Stubs.kt": coroutineStubs,
 	"src/main/kotlin/app/Api.kt": `package app
 
@@ -180,14 +181,15 @@ func writeIsolationProject(t *testing.T) string {
 // "Rule file:line" for every finding, file relative to the source root.
 func runIsolationKrit(t *testing.T, bin, project string, fir bool) ([]string, string) {
 	t.Helper()
-	args := []string{"--no-daemon", "--no-cache", "--no-type-oracle", "-f", "json", "-q",
+	args := []string{"--no-fir", "--no-daemon", "--no-cache", "--no-type-oracle", "-f", "json", "-q",
 		"--enable-rules", "InjectDispatcher," + isolationProbeRule}
 	if fir {
-		args = append(args, "--fir", "--no-fir-daemon", "-v")
+		args[0] = "--fir"
+		args = append(args, "--no-fir-daemon", "-v")
 	}
 	cmd := exec.Command(bin, append(args, project)...)
 	cmd.Dir = project
-	cmd.Env = append(os.Environ(), "JAVA_TOOL_OPTIONS=-Dkrit.fir.test.throwingProbeRuleId="+isolationProbeRule)
+	cmd.Env = append(os.Environ(), "KRIT_FIR_JAR=", "JAVA_TOOL_OPTIONS=-Dkrit.fir.test.throwingProbeRuleId="+isolationProbeRule)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()

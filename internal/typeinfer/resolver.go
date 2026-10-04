@@ -40,14 +40,17 @@ type ClassInfo struct {
 	FQN        string   // Fully qualified name
 	Kind       string   // "class", "interface", "object", "enum", "sealed class", "sealed interface"
 	Supertypes []string // FQNs of direct supertypes
-	IsSealed   bool
-	IsData     bool
-	IsInner    bool
-	IsAbstract bool
-	IsOpen     bool
-	Members    []MemberInfo
-	File       string // Source file path
-	Line       int
+	// DirectSupertypes excludes generic arguments from Kotlin delegation specs.
+	// Supertypes retains its existing extraction for other resolver consumers.
+	DirectSupertypes []string
+	IsSealed         bool
+	IsData           bool
+	IsInner          bool
+	IsAbstract       bool
+	IsOpen           bool
+	Members          []MemberInfo
+	File             string // Source file path
+	Line             int
 }
 
 // MemberInfo holds information about a class member.

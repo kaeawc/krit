@@ -23,7 +23,7 @@ func TestAnalyzeProject_WarmCallSetsAnalysisCacheDirty(t *testing.T) {
 	// the incremental path (state.coldDone goes false→true here).
 	var first daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &first); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &first); err != nil {
 		t.Fatalf("first call: %v", err)
 	}
 	if first.Stats.Cold != true {
@@ -36,7 +36,7 @@ func TestAnalyzeProject_WarmCallSetsAnalysisCacheDirty(t *testing.T) {
 	// stats payload as DirtyFiles=0 on a clean run.
 	var second daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
-		daemon.AnalyzeProjectArgs{}, &second); err != nil {
+		daemon.AnalyzeProjectArgs{NoFir: true}, &second); err != nil {
 		t.Fatalf("second call: %v", err)
 	}
 	if second.Stats.Cold {

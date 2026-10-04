@@ -1,4 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
+// go-lines: 21, 22
 // Deliberate precision fix: a top-level property named Mac shadows the
 // javax.crypto.Mac import everywhere in the file, because a property named Mac
 // is found before the class name is tried as the call receiver. Go reports the

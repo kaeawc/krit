@@ -465,13 +465,13 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	// drift is caught at the bundle-fingerprint comparison, which
 	// runs whether or not we walk; bypassing the walk just saves the
 	// 30-40s cold-OS-dentry-cache cost on kotlin-corpus scale.
-	kotlinPaths, javaPaths := s.prepopulatedSourcePaths(repoDir, paths)
-	// Pull the prior content-hash and structural-fp maps off the
+	//
+	// Also pull the prior content-hash and structural-fp maps off the
 	// resident manifest so RunProjectAnalysis can short-circuit per-
 	// file fingerprint recomputation for the 16 k+ unchanged files of
 	// a kotlin-corpus scan. Returns nil maps when no prior is cached;
 	// in that case the pipeline falls back to recomputing per-file.
-	priorManifest, _ := s.priorManifest(repoDir, paths)
+	kotlinPaths, javaPaths, priorManifest := s.priorSourceState(args.NoCache, repoDir, paths)
 
 	// Build a perf.Tracker only when the caller asked for --perf or
 	// --perf-rules. A nil-interface (untyped) Tracker keeps every

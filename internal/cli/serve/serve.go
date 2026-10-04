@@ -404,6 +404,19 @@ func (s *daemonState) priorManifest(repoDir string, paths []string) (scanner.Fin
 	return s.loadManifest(manifestPath)
 }
 
+// priorSourceState returns the prior manifest for the request's scan
+// paths along with the source-path lists prepopulated from it. The
+// manifest is an on-disk cache, so --no-cache skips it the same way
+// resolveDiskCacheWiring drops the manifest loader and saver.
+func (s *daemonState) priorSourceState(noCache bool, repoDir string, paths []string) (kotlinPaths, javaPaths []string, prior scanner.FindingsBundleManifest) {
+	if noCache {
+		return nil, nil, scanner.FindingsBundleManifest{}
+	}
+	kotlinPaths, javaPaths = s.prepopulatedSourcePaths(repoDir, paths)
+	prior, _ = s.priorManifest(repoDir, paths)
+	return kotlinPaths, javaPaths, prior
+}
+
 // prepopulatedSourcePaths returns the resident manifest's kotlin/java
 // path lists when available so the daemon can hand them to
 // pipeline.ProjectArgs without forcing runProjectParsePhase to walk

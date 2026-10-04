@@ -390,15 +390,18 @@ func (fw *fileWatcher) invalidateBothForms(absPath string) {
 	// and which need not be the root: `krit ../lib` keys its files as
 	// "../lib/...", so a path outside the working directory is still a
 	// live key.
+	cwdRel := ""
 	if cwd, err := os.Getwd(); err == nil {
 		if rel, err := filepath.Rel(cwd, absPath); err == nil {
+			cwdRel = rel
 			fw.state.Invalidate(rel)
 		}
 	}
 	if fw.root == "" {
 		return
 	}
-	if rel, err := filepath.Rel(fw.root, absPath); err == nil && !strings.HasPrefix(rel, "..") {
+	// Same spelling as above when the daemon runs at the root.
+	if rel, err := filepath.Rel(fw.root, absPath); err == nil && !strings.HasPrefix(rel, "..") && rel != cwdRel {
 		fw.state.Invalidate(rel)
 	}
 }

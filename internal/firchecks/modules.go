@@ -1,5 +1,7 @@
 package firchecks
 
+import "github.com/kaeawc/krit/internal/android"
+
 // ModuleFragment describes one HMPP fragment and its refinement edges.
 type ModuleFragment struct {
 	Name        string   `json:"name"`
@@ -33,6 +35,8 @@ type AnalyzeModulesRequest struct {
 	RuleConfigs map[string]any    `json:"ruleConfigs,omitempty"`
 	TestFiles   []string          `json:"testFiles,omitempty"`
 	ScanPaths   map[string]string `json:"scanPaths,omitempty"`
+	// SDKLevels is firDaemonRequest.SDKLevels for the module request.
+	SDKLevels map[string]android.SDKLevels `json:"sdkLevels,omitempty"`
 }
 
 // ModuleStatus records the compilation mode, and first diagnostic if gated.

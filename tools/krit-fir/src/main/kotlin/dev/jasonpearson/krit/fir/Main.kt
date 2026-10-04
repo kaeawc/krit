@@ -35,7 +35,8 @@ fun main(args: Array<String>) {
             request.jvmTarget.ifEmpty { extractCliValue(args, "--jvm-target").orEmpty() })
         try {
             val response = buildCheckResponse(session.analyzeModules(request.id, request.modules,
-                request.files.map { it.path }, request.rules.toSet(), request.ruleConfigs, request.testFiles, request.scanPaths))
+                request.files.map { it.path }, request.rules.toSet(), request.ruleConfigs, request.testFiles, request.scanPaths,
+                request.sdkLevels))
             val output = extractCliValue(args, "--output", "-o")
             if (output == null) println(response) else JavaFile(output).writeText(response)
         } finally {
@@ -283,10 +284,11 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 }
                 val result = if (request.modules.isNotEmpty()) {
                     activeSession.analyzeModules(request.id, request.modules, request.files.map { it.path },
-                        request.rules.toSet(), request.ruleConfigs, request.testFiles, request.scanPaths)
+                        request.rules.toSet(), request.ruleConfigs, request.testFiles, request.scanPaths,
+                        request.sdkLevels)
                 } else {
                     activeSession.check(request.id, request.files, request.rules.toSet(), request.ruleConfigs,
-                        request.testFiles, request.scanPaths)
+                        request.testFiles, request.scanPaths, request.sdkLevels)
                 }
                 val response = withJvmTargetWarning(buildCheckResponse(result), activeSession, request.jvmTarget)
                 if (needsRebuild) {
@@ -414,6 +416,10 @@ data class CheckRequest(
     // Requested file (spelled as in `files`) -> the scan's own spelling of it,
     // when the two differ; exposed to checkers via FirRule.scanPath.
     val scanPaths: Map<String, String> = emptyMap(),
+    // Requested file (spelled as in `files`) -> the minSdk / targetSdk Go
+    // resolved for it, for the files with a known level; exposed to checkers
+    // via FirRule.minSdkFor / FirRule.targetSdkFor.
+    val sdkLevels: Map<String, SdkLevels> = emptyMap(),
     // Plugin-rule jar paths, matching krit-types' `"jars"` array in
     // `listPlugins` / `analyzeFile` requests.
     val pluginJars: List<String> = emptyList(),
@@ -436,11 +442,12 @@ fun parseRequest(request: String): CheckRequest {
     val ruleConfigs = parseFirRuleConfigs(request)
     val testFiles = parseFirTestFiles(request)
     val scanPaths = parseFirScanPaths(request)
+    val sdkLevels = parseFirSdkLevels(request)
     // Field extraction below is nest-blind, and rule option names are
     // user-chosen, so blank out the ruleConfigs object first: an option named
     // `classpath` or `path` must never be read as the request's own field.
-    // The scanPaths object holds nothing but paths; blank it too.
-    val json = withoutObjectBlock(withoutObjectBlock(request, "ruleConfigs"), "scanPaths")
+    // The scanPaths and sdkLevels objects are keyed by paths; blank them too.
+    val json = withoutObjectBlock(withoutObjectBlock(withoutObjectBlock(request, "ruleConfigs"), "scanPaths"), "sdkLevels")
     val id = extractLong(json, "id") ?: throw IllegalArgumentException("Missing 'id' field")
     // Accept either `command` (krit-fir's native shape) or `method` (the
     // oracle.Daemon shape used by internal/oracle/daemon.go when it routes
@@ -466,7 +473,7 @@ fun parseRequest(request: String): CheckRequest {
     return CheckRequest(
         id = id, command = command, files = files, sourceDirs = sourceDirs, classpath = classpath,
         jvmTarget = jvmTarget, rules = rules, ruleConfigs = ruleConfigs, testFiles = testFiles,
-        scanPaths = scanPaths, pluginJars = pluginJars, path = path, source = source,
+        scanPaths = scanPaths, sdkLevels = sdkLevels, pluginJars = pluginJars, path = path, source = source,
         ruleIds = ruleIds, projectPayloads = payloads,
     )
 }

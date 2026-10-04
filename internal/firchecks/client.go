@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
@@ -82,6 +83,10 @@ type firDaemonRequest struct {
 	// spelling of it, the path string the Go rules test, when the two
 	// differ; checkers read it through FirRule.scanPath.
 	ScanPaths map[string]string `json:"scanPaths,omitempty"`
+	// SDKLevels maps a file (spelled exactly as in Files) to the minSdk /
+	// targetSdk Go resolved for it, for the files with a known level;
+	// checkers read it through FirRule.minSdkFor / FirRule.targetSdkFor.
+	SDKLevels map[string]android.SDKLevels `json:"sdkLevels,omitempty"`
 	// RuleConfigs is rule ID -> options, read by FirRule.config(). It stays
 	// after the fixed fields; krit-fir also blanks it out before its
 	// nest-blind field extraction so option names cannot shadow them.
@@ -98,12 +103,16 @@ type FileFacts struct {
 	// (usually relative to the working directory), for files whose scan
 	// spelling differs from the requested (absolute) path.
 	ScanPaths map[string]string
+	// SDKLevels maps a requested file to its minSdk / targetSdk, resolved
+	// with android.ResolveSDKLevels (the lookup the Go rules use) from the
+	// scan's spelling of the file. Files with no known level have no entry.
+	SDKLevels map[string]android.SDKLevels
 }
 
 // forFiles keeps the facts about files, so a check request only describes
 // the files it actually asks krit-fir to check.
 func (f FileFacts) forFiles(files []string) FileFacts {
-	if len(f.TestFiles) == 0 && len(f.ScanPaths) == 0 {
+	if len(f.TestFiles) == 0 && len(f.ScanPaths) == 0 && len(f.SDKLevels) == 0 {
 		return FileFacts{}
 	}
 	want := make(map[string]bool, len(files))
@@ -122,6 +131,14 @@ func (f FileFacts) forFiles(files []string) FileFacts {
 				out.ScanPaths = map[string]string{}
 			}
 			out.ScanPaths[p] = spelling
+		}
+	}
+	for p, levels := range f.SDKLevels {
+		if want[p] {
+			if out.SDKLevels == nil {
+				out.SDKLevels = map[string]android.SDKLevels{}
+			}
+			out.SDKLevels[p] = levels
 		}
 	}
 	return out
@@ -369,15 +386,15 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 	return d, nil
 }
 
-// absoluteScanPaths keys ScanPaths by the absolute spelling Check sends in
-// Files, since krit-fir matches the two exactly.
-func absoluteScanPaths(scanPaths map[string]string) map[string]string {
-	if len(scanPaths) == 0 {
+// absoluteKeys keys a per-file fact (ScanPaths, SDKLevels) by the absolute
+// spelling Check sends in Files, since krit-fir matches the two exactly.
+func absoluteKeys[V any](byPath map[string]V) map[string]V {
+	if len(byPath) == 0 {
 		return nil
 	}
-	out := make(map[string]string, len(scanPaths))
-	for path, spelling := range scanPaths {
-		out[oracle.AbsolutePath(path)] = spelling
+	out := make(map[string]V, len(byPath))
+	for path, value := range byPath {
+		out[oracle.AbsolutePath(path)] = value
 	}
 	return out
 }
@@ -406,7 +423,8 @@ func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string
 		JvmTarget:   d.jvmTarget,
 		Rules:       rules,
 		TestFiles:   oracle.AbsolutePaths(facts.TestFiles),
-		ScanPaths:   absoluteScanPaths(facts.ScanPaths),
+		ScanPaths:   absoluteKeys(facts.ScanPaths),
+		SDKLevels:   absoluteKeys(facts.SDKLevels),
 		RuleConfigs: wireRuleConfigs(ruleConfigs),
 	}
 	if len(jvmTarget) > 0 {

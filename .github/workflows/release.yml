@@ -73,7 +73,7 @@ jobs:
       # GitHub-hosted runners ship syft preinstalled. anchore/sbom-action
       # downloads the right binary for the current OS/arch.
       - name: Install syft
-        uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
 
       # `goreleaser release` doesn't accept --id filters (build-only flag),
       # so we filter the config down to this matrix entry's ids before

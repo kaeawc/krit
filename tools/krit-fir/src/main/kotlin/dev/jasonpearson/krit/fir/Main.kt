@@ -73,8 +73,10 @@ fun main(args: Array<String>) {
     //   krit-fir --sources DIR[,DIR...] --output FILE
     //            [--files LIST_FILE] [--classpath JAR[:JAR...]]
     //            [--cache-deps-out FILE]
+    //            [--check-request JSON_FILE --check-out FILE]
     // Mirrors krit-types' one-shot surface so `oracle.InvokeWithFiles`
-    // can drive either backend with the same arg vector.
+    // can drive either backend with the same arg vector. The check flags
+    // run a `check` request on the same compilation (#739).
     val sources = extractCliSources(args)
     val output = extractCliValue(args, "--output", "-o")
     if (sources.isNullOrEmpty() || output.isNullOrBlank()) {
@@ -90,6 +92,8 @@ fun main(args: Array<String>) {
         classpath = classpath,
         jvmTarget = jvmTarget,
         cacheDepsOutPath = extractCliValue(args, "--cache-deps-out"),
+        checkRequestPath = extractCliValue(args, "--check-request"),
+        checkOutPath = extractCliValue(args, "--check-out"),
     )
     exitProcess(0)
 }
@@ -132,6 +136,7 @@ private fun printOneShotUsage() {
         |           [--files LIST_FILE] [--classpath JAR[${java.io.File.pathSeparatorChar}JAR...]]
         |           [--jvm-target VERSION]
         |           [--cache-deps-out FILE]
+        |           [--check-request JSON_FILE --check-out FILE]
         """.trimMargin(),
     )
 }
@@ -143,6 +148,8 @@ internal fun runOneShot(
     classpath: List<String>,
     jvmTarget: String = "",
     cacheDepsOutPath: String?,
+    checkRequestPath: String? = null,
+    checkOutPath: String? = null,
 ) {
     val session = AnalysisSession(sources, classpath, jvmTarget)
     val files = if (filesListPath.isNullOrBlank()) {
@@ -152,10 +159,25 @@ internal fun runOneShot(
         // restrict analysis to. Same shape krit-types accepts.
         java.io.File(filesListPath).readLines().map { it.trim() }.filter { it.isNotEmpty() }
     }
-    val outcome = session.analyzeFull(files)
-    // The cache-deps file is written first: the Go caller treats a non-empty
-    // --output as "done" and may stop waiting for the process after a grace
-    // period, so the deps must already be on disk by then.
+    // A check request rides on the oracle's compilation when both compile the
+    // same sources; otherwise --check-out is left empty and the caller checks
+    // on its own.
+    val checkRequest = if (checkRequestPath.isNullOrBlank() || checkOutPath.isNullOrBlank()) {
+        null
+    } else {
+        parseRequest(java.io.File(checkRequestPath).readText())
+    }
+    val (outcome, checked) = if (checkRequest == null) {
+        session.analyzeFull(files) to null
+    } else {
+        session.analyzeWithCheck(files, checkRequest)
+    }
+    // The cache-deps and check files are written first: the Go caller treats
+    // a non-empty --output as "done" and may stop waiting for the process
+    // after a grace period, so they must already be on disk by then.
+    if (checked != null && !checkOutPath.isNullOrBlank()) {
+        java.io.File(checkOutPath).writeText(buildCheckResponse(checked))
+    }
     if (!cacheDepsOutPath.isNullOrBlank()) {
         java.io.File(cacheDepsOutPath).writeText(
             dev.jasonpearson.krit.fir.oracle.OracleResponse.buildCacheDeps(outcome.cacheDeps),

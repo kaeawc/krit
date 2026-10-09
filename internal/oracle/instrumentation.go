@@ -48,6 +48,10 @@ type InvocationOptions struct {
 	// and a whole-compilation backend's entries are checked against the
 	// current compilation (see Backend.ReturnsWholeCompilation).
 	Backend Backend
+	// CheckRider, for the krit-fir backend, runs a FIR check request on
+	// the oracle's one-shot compilation (#739). Sharded and daemon miss
+	// analysis never carry it.
+	CheckRider *CheckRider
 }
 
 func (o InvocationOptions) tracker() perf.Tracker {

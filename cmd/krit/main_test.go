@@ -14,6 +14,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/pipeline"
+	"github.com/kaeawc/krit/internal/testutil"
 )
 
 var binPath string
@@ -35,8 +36,18 @@ func TestMain(m *testing.M) {
 		log.Fatalf("failed to set test env: %v", err)
 	}
 
-	code := m.Run()
+	// The spawned krit binaries inherit the isolated registry, so any FIR or
+	// oracle JVM they start is private to this package and stopped below.
+	cleanupDaemons, err := testutil.IsolateDaemons()
+	if err != nil {
+		log.Fatalf("failed to isolate test daemons: %v", err)
+	}
 
+	code := m.Run()
+	if err := cleanupDaemons(); err != nil {
+		log.Print(err)
+		code = 1
+	}
 	os.RemoveAll(tmp)
 	os.Exit(code)
 }

@@ -104,8 +104,26 @@ func CheckoutRoot(tool string, scanPaths []string) string {
 	return ""
 }
 
+// DirEnv overrides the shared development jar cache root, which otherwise
+// defaults to ~/.krit/jars/dev. Tests point it at a temp dir so a jar built
+// with `make fir-jar` or `make types-jar` can't leak into jar lookups.
+const DirEnv = "KRIT_DEV_JAR_DIR"
+
+// CacheDir returns the shared development jar cache root: $KRIT_DEV_JAR_DIR
+// when set, else ~/.krit/jars/dev. Returns "" when neither is available.
+func CacheDir() string {
+	if dir := os.Getenv(DirEnv); dir != "" {
+		return dir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".krit", "jars", "dev")
+}
+
 // CachePath returns a checkout-specific shared cache path. A missing checkout
-// or HOME simply disables the additive development lookup.
+// or cache root simply disables the additive development lookup.
 func CachePath(tool string, scanPaths []string) string {
 	root := CheckoutRoot(tool, scanPaths)
 	if root == "" {
@@ -115,9 +133,9 @@ func CachePath(tool string, scanPaths []string) string {
 	if err != nil {
 		return ""
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	dir := CacheDir()
+	if dir == "" {
 		return ""
 	}
-	return filepath.Join(home, ".krit", "jars", "dev", hash, tool+".jar")
+	return filepath.Join(dir, hash, tool+".jar")
 }

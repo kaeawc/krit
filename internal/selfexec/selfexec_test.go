@@ -3,6 +3,7 @@ package selfexec
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -66,5 +67,31 @@ func TestIsTestBinary(t *testing.T) {
 		if got := IsTestBinary(path); got != want {
 			t.Errorf("IsTestBinary(%q) = %v, want %v", path, got, want)
 		}
+	}
+}
+
+func TestDetectTestBinaryKeepsArgsCheckWhenLookupFails(t *testing.T) {
+	tb := detectTestBinary(true, func() (string, error) {
+		return "", errors.New("lookup failed")
+	})
+	if !tb.matches(os.Args[0]) {
+		t.Errorf("matches(os.Args[0]=%q) = false after a failed lookup, want true", os.Args[0])
+	}
+	if tb.matches("/usr/local/bin/krit") {
+		t.Error("matches(/usr/local/bin/krit) = true, want false")
+	}
+	link := filepath.Join(t.TempDir(), "krit")
+	if err := os.Symlink(os.Args[0], link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if !tb.matches(link) {
+		t.Errorf("matches(symlink to os.Args[0]) = false after a failed lookup, want true")
+	}
+}
+
+func TestDetectTestBinaryOutsideTests(t *testing.T) {
+	tb := detectTestBinary(false, os.Executable)
+	if tb.matches(os.Args[0]) {
+		t.Error("a non-test process must not match its own executable")
 	}
 }

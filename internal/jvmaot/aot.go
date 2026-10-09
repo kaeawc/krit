@@ -127,21 +127,31 @@ func AppendArgsWithToken(args []string, javaPath, jarPath, token, workload strin
 	args = append(args, "-Xlog:aot=off")
 	sweepTemps(filepath.Dir(cachePath))
 	version := jdkVersion(javaPath, jdkMajor)
-	checkedArgs, used, invalid, incomplete := useCache(args, cachePath, token, workload, version, verbose, logf)
+	checkedArgs, used, invalid, _ := useCache(args, cachePath, token, workload, version, verbose, logf)
 	if used {
 		return checkedArgs, true
 	}
-	if incomplete || !acquireBuildLock(cachePath) {
+	// A half-published pair is only skipped, never removed, without the lock:
+	// its publisher may still be between the sidecar and cache renames.
+	if !acquireBuildLock(cachePath) {
 		return args, false
 	}
 	// The lock only guards recording/building. Existing validated caches can
 	// always be used, including when another process holds the lock.
-	var invalidAfterLock bool
-	checkedArgs, used, invalidAfterLock, incomplete = useCache(args, cachePath, token, workload, version, verbose, logf)
+	checkedArgs, used, invalidAfterLock, incomplete := useCache(args, cachePath, token, workload, version, verbose, logf)
 	invalid = invalid || invalidAfterLock
-	if used || incomplete {
+	if used {
 		releaseBuildLock(cachePath)
 		return checkedArgs, used
+	}
+	if incomplete {
+		// Publishers hold the build lock, so a half pair seen under it was
+		// left by a crash between the two renames. Without removing it,
+		// every later run would skip it and never rebuild this key.
+		if verbose && logf != nil {
+			logf("verbose: Leyden AOT: removing half-published cache %s\n", cachePath)
+		}
+		DiscardCache(cachePath)
 	}
 	if invalid {
 		// A prior cache failed validation. Do not build from its existing
@@ -226,8 +236,12 @@ func acquireBuildLock(cachePath string) bool {
 		if statErr != nil || readErr != nil {
 			return false
 		}
+		// A recording holds the lock until FinalizeRecording at daemon exit,
+		// which can be hours later, so a live owner is never reclaimed by
+		// age. Only a malformed lock (possibly mid-write) waits on age.
 		owner, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
-		if !info.ModTime().Before(time.Now().Add(-2*time.Hour)) && (parseErr != nil || pidAlive(owner)) {
+		if parseErr == nil && pidAlive(owner) ||
+			parseErr != nil && !info.ModTime().Before(time.Now().Add(-2*time.Hour)) {
 			return false
 		}
 		if err := os.Remove(path); err != nil {

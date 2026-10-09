@@ -135,3 +135,25 @@ func TestSourceHashTracksKritVersion(t *testing.T) {
 		t.Fatal("KRIT_VERSION did not change the dev-jar cache key")
 	}
 }
+
+func TestCacheDirHonorsOverride(t *testing.T) {
+	override := t.TempDir()
+	t.Setenv(DirEnv, override)
+	if got := CacheDir(); got != override {
+		t.Fatalf("CacheDir() = %q, want override %q", got, override)
+	}
+	path := CachePath("krit-fir", nil)
+	if path == "" {
+		t.Fatal("expected a cache path inside the krit checkout")
+	}
+	if filepath.Dir(filepath.Dir(path)) != override || filepath.Base(path) != "krit-fir.jar" {
+		t.Fatalf("CachePath() = %q, want <override>/<hash>/krit-fir.jar", path)
+	}
+
+	home := t.TempDir()
+	t.Setenv(DirEnv, "")
+	t.Setenv("HOME", home)
+	if got, want := CacheDir(), filepath.Join(home, ".krit", "jars", "dev"); got != want {
+		t.Fatalf("CacheDir() without override = %q, want %q", got, want)
+	}
+}

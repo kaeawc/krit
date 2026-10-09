@@ -10,7 +10,7 @@ esac
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 source_hash="$(go run ./cmd/krit-dev-jar-hash "$tool")"
-target_dir="$HOME/.krit/jars/dev/$source_hash"
+target_dir="${KRIT_DEV_JAR_DIR:-$HOME/.krit/jars/dev}/$source_hash"
 target="$target_dir/$tool.jar"
 if [[ -f "$target" ]]; then
   echo "$target"

@@ -1189,6 +1189,12 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		return ""
 	}
 	storeScope := oracle.NewStoreScopeWithTarget(backend, jarPath, in.OracleClasspath, in.OracleJvmTarget)
+	// Record what actually serves the oracle (after any fallback), so
+	// benchmarks and --perf readers can verify the backend they asked for.
+	perf.AddEntryDetails(jvmTracker, "oracleBackend", 0, nil, map[string]string{
+		"backend": backend.String(),
+		"jar":     filepath.Base(jarPath),
+	})
 	perf.AddEntryDetails(jvmTracker, "sourceDirsFound", 0, map[string]int64{"sourceDirs": int64(len(sourceDirs))}, nil)
 	var cacheDest string
 	jvmTracker.TrackVoid("resolveOracleCachePath", func() {

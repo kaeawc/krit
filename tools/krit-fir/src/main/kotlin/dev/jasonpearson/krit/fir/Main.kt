@@ -265,6 +265,30 @@ private fun withJvmTargetWarning(json: String, session: AnalysisSession, declare
     return json.dropLast(1) + ",\"warning\":" + jsonStr(warning) + "}"
 }
 
+/**
+ * Runs [body] on [session], or on a rebuilt session when the request's inputs
+ * changed. The rebuilt session takes over the retained module state up front
+ * so module outputs are reused; if [body] throws, that state goes back to
+ * [session] (which the caller keeps) and the rebuilt session is disposed.
+ */
+internal inline fun withActiveSession(
+    request: CheckRequest,
+    session: AnalysisSession,
+    body: (AnalysisSession) -> String,
+): RequestResult {
+    if (!sessionNeedsRebuild(request, session)) return RequestResult.Response(body(session))
+    val rebuilt = session.rebuild(request.sourceDirs, request.classpath, request.jvmTarget.ifEmpty { session.jvmTarget })
+    val response = try {
+        body(rebuilt)
+    } catch (t: Throwable) {
+        session.reclaimRetainedState(rebuilt)
+        rebuilt.dispose()
+        throw t
+    }
+    session.dispose()
+    return RequestResult.SessionRebuilt(response, rebuilt)
+}
+
 fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long): RequestResult {
     val request = try {
         parseRequest(trimmed)
@@ -275,13 +299,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
 
     return try {
         when (request.command) {
-            "check", "analyzeModules" -> {
-                val needsRebuild = sessionNeedsRebuild(request, session)
-                val activeSession = if (needsRebuild) {
-                    session.rebuild(request.sourceDirs, request.classpath, request.jvmTarget.ifEmpty { session.jvmTarget })
-                } else {
-                    session
-                }
+            "check", "analyzeModules" -> withActiveSession(request, session) { activeSession ->
                 val result = if (request.modules.isNotEmpty()) {
                     activeSession.analyzeModules(request.id, request.modules, request.files.map { it.path },
                         request.rules.toSet(), request.ruleConfigs, request.testFiles, request.scanPaths,
@@ -290,13 +308,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                     activeSession.check(request.id, request.files, request.rules.toSet(), request.ruleConfigs,
                         request.testFiles, request.scanPaths, request.sdkLevels)
                 }
-                val response = withJvmTargetWarning(buildCheckResponse(result), activeSession, request.jvmTarget)
-                if (needsRebuild) {
-                    session.dispose()
-                    RequestResult.SessionRebuilt(response, activeSession)
-                } else {
-                    RequestResult.Response(response)
-                }
+                withJvmTargetWarning(buildCheckResponse(result), activeSession, request.jvmTarget)
             }
             "rebuild" -> {
                 val start = System.currentTimeMillis()
@@ -313,13 +325,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 RequestResult.Response("""{"id":${request.id},"result":{"ok":true,"uptime":$uptime}}""")
             }
             "shutdown" -> RequestResult.Shutdown("""{"id":${request.id},"result":{"ok":true}}""")
-            "analyze", "analyzeAll", "analyzeFiles", "analyzeWithDeps" -> {
-                val needsRebuild = sessionNeedsRebuild(request, session)
-                val activeSession = if (needsRebuild) {
-                    session.rebuild(request.sourceDirs, request.classpath, request.jvmTarget.ifEmpty { session.jvmTarget })
-                } else {
-                    session
-                }
+            "analyze", "analyzeAll", "analyzeFiles", "analyzeWithDeps" -> withActiveSession(request, session) { activeSession ->
                 val analyzeFiles = if (request.command == "analyzeAll") {
                     emptyList()
                 } else {
@@ -332,13 +338,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                     val result = activeSession.analyze(analyzeFiles)
                     OracleResponse.buildAnalyze(request.id, result)
                 }
-                val warnedResponse = withJvmTargetWarning(response, activeSession, request.jvmTarget)
-                if (needsRebuild) {
-                    session.dispose()
-                    RequestResult.SessionRebuilt(warnedResponse, activeSession)
-                } else {
-                    RequestResult.Response(warnedResponse)
-                }
+                withJvmTargetWarning(response, activeSession, request.jvmTarget)
             }
             "listPlugins" -> {
                 val response = try {
@@ -353,20 +353,8 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 }
                 RequestResult.Response(response)
             }
-            "analyzeFile" -> {
-                val needsRebuild = sessionNeedsRebuild(request, session)
-                val activeSession = if (needsRebuild) {
-                    session.rebuild(request.sourceDirs, request.classpath, request.jvmTarget.ifEmpty { session.jvmTarget })
-                } else {
-                    session
-                }
-                val response = withJvmTargetWarning(handleAnalyzeFile(request, activeSession), activeSession, request.jvmTarget)
-                if (needsRebuild) {
-                    session.dispose()
-                    RequestResult.SessionRebuilt(response, activeSession)
-                } else {
-                    RequestResult.Response(response)
-                }
+            "analyzeFile" -> withActiveSession(request, session) { activeSession ->
+                withJvmTargetWarning(handleAnalyzeFile(request, activeSession), activeSession, request.jvmTarget)
             }
             else -> RequestResult.Response("""{"id":${request.id},"error":"Unknown command: ${escJson(request.command)}"}""")
         }

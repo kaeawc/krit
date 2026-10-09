@@ -376,6 +376,15 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
             retainedModuleRunner = null
         }
 
+    /**
+     * Takes back the module state [rebuilt] received from [rebuild] when the
+     * request that triggered the rebuild failed and this session stays active.
+     */
+    internal fun reclaimRetainedState(rebuilt: AnalysisSession) {
+        retainedModuleRunner = rebuilt.retainedModuleRunner
+        rebuilt.retainedModuleRunner = null
+    }
+
     fun analyzeModules(
         id: Long, modules: List<ModuleSpec>, checkFiles: List<String>, enabledRules: Set<String>,
         ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),

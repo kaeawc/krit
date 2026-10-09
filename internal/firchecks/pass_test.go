@@ -499,3 +499,35 @@ func TestApplyVerdictMatchesOneToOneAndFallsBackToLine(t *testing.T) {
 		t.Fatalf("stats = %+v", *r)
 	}
 }
+
+// firCheckOutcome lets --perf readers (and the benchmark harness) confirm
+// the FIR pass ran and whether it succeeded.
+func TestPassRecordsFirCheckOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want string
+	}{{"ok", nil, "ok"}, {"error", fmt.Errorf("daemon gone"), "error"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			checker := NewFakeFirChecker()
+			checker.Err = tc.err
+			tracker := perf.New(true)
+			RunPass(PassOptions{Enabled: true, Checker: checker, Tracker: tracker,
+				ActiveRules: []*api.Rule{{ID: verdictRule}}, KotlinPaths: []string{"A.kt"}}, nil)
+			var outcome *perf.TimingEntry
+			for _, e := range tracker.GetTimings() {
+				for i := range e.Children {
+					if e.Name == "firCheck" && e.Children[i].Name == "firCheckOutcome" {
+						outcome = &e.Children[i]
+					}
+				}
+			}
+			if outcome == nil {
+				t.Fatalf("no firCheck/firCheckOutcome entry in %+v", tracker.GetTimings())
+			}
+			if outcome.Attributes["status"] != tc.want || outcome.Metrics["files"] != 1 || outcome.Metrics["rules"] != 1 {
+				t.Fatalf("outcome = %+v", outcome)
+			}
+		})
+	}
+}

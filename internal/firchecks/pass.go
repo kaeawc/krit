@@ -123,6 +123,14 @@ func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
 		checkStart := time.Now()
 		result, err := opts.Checker.Check(requested, sourceDirs, classpath, ruleNames, configs, facts)
 		duration := time.Since(checkStart)
+		status := "ok"
+		if err != nil {
+			status = "error"
+		}
+		perf.AddEntryDetails(sub, "firCheckOutcome", 0, map[string]int64{
+			"files": int64(len(requested)),
+			"rules": int64(len(ruleNames)),
+		}, map[string]string{"status": status})
 		sub.End()
 		p.done <- checkOutcome{result: result, err: err, duration: duration}
 	}()

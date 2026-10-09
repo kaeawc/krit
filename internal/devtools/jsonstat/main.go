@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	mode := flag.String("mode", "findings", "stat to print: findings, source-findings, rules, files, sarif-results, oracle-bench-env, unix-ms")
+	mode := flag.String("mode", "findings", "stat to print: findings, source-findings, rules, files, sarif-results, oracle-bench-env, oracle-backend, unix-ms")
 	file := flag.String("file", "", "input file; stdin when empty")
 	flag.Parse()
 
@@ -48,6 +48,8 @@ func main() {
 		fmt.Println(sarifResults(data))
 	case "oracle-bench-env":
 		printOracleBenchEnv(data)
+	case "oracle-backend":
+		fmt.Println(oracleBackend(data))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown mode %q\n", *mode)
 		os.Exit(2)
@@ -157,6 +159,35 @@ func printOracleBenchEnv(data map[string]any) {
 	fmt.Printf("lexical_skips=%v\n", metric(call, "lexicalSkips"))
 	fmt.Printf("kt_files_analyzed=%v\n", metric(analyze, "files"))
 	fmt.Printf("peak_rss_mb=%v\n", metric(rss, "peakRSSMB"))
+}
+
+// oracleBackend returns the backend recorded by the oracleBackend perf
+// entry, wherever it sits in the timing tree, or "" when no oracle ran.
+func oracleBackend(data map[string]any) string {
+	entries, _ := data["perfTiming"].([]any)
+	if e := findNamed(entries, "oracleBackend"); e != nil {
+		attrs, _ := e["attributes"].(map[string]any)
+		backend, _ := attrs["backend"].(string)
+		return backend
+	}
+	return ""
+}
+
+func findNamed(entries []any, name string) map[string]any {
+	for _, item := range entries {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if m["name"] == name {
+			return m
+		}
+		children, _ := m["children"].([]any)
+		if found := findNamed(children, name); found != nil {
+			return found
+		}
+	}
+	return nil
 }
 
 func timingMS(entries []any, path ...string) int {

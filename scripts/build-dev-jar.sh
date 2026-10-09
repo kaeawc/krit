@@ -19,7 +19,8 @@ fi
 
 (cd "tools/$tool" && ./gradlew shadowJar)
 mkdir -p "$target_dir"
-temp_jar="$(mktemp "$target_dir/.$tool.XXXXXXXX.jar")"
+# BSD mktemp only substitutes trailing X placeholders.
+temp_jar="$(mktemp "$target_dir/.$tool.jar.XXXXXXXX")"
 trap 'rm -f "$temp_jar"' EXIT
 cp "tools/$tool/build/libs/$tool.jar" "$temp_jar"
 mv "$temp_jar" "$target"

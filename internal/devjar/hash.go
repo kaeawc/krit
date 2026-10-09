@@ -3,8 +3,10 @@ package devjar
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -50,16 +52,29 @@ func SourceHash(root, tool string) (string, error) {
 	}
 	sort.Strings(paths)
 	h := sha256.New()
+	// KRIT_VERSION is baked into the jars' RuleApiVersion, so jars built for
+	// different versions must not share a cache key.
+	writeRecord(h, []byte("KRIT_VERSION"))
+	writeRecord(h, []byte(strings.TrimSpace(os.Getenv("KRIT_VERSION"))))
 	for _, rel := range paths {
 		data, err := os.ReadFile(filepath.Join(root, rel))
 		if err != nil {
 			return "", err
 		}
-		_, _ = h.Write([]byte(filepath.ToSlash(rel) + "\x00"))
-		_, _ = h.Write(data)
-		_, _ = h.Write([]byte{0})
+		// Length-prefixed path plus a fixed-size content digest keeps each
+		// record unambiguous, so no file's bytes can mimic a record boundary.
+		sum := sha256.Sum256(data)
+		writeRecord(h, []byte(filepath.ToSlash(rel)))
+		_, _ = h.Write(sum[:])
 	}
 	return hex.EncodeToString(h.Sum(nil))[:20], nil
+}
+
+func writeRecord(h hash.Hash, data []byte) {
+	var size [8]byte
+	binary.BigEndian.PutUint64(size[:], uint64(len(data)))
+	_, _ = h.Write(size[:])
+	_, _ = h.Write(data)
 }
 
 // CheckoutRoot finds a local source checkout, starting at the current working

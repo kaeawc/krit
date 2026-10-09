@@ -221,12 +221,18 @@ fun runDaemonTcp(port: Int, initialSession: AnalysisSession, startTime: Long, pa
 
         System.err.println("Client connected: ${client.remoteSocketAddress}")
         try {
+            // A client that connects but never sends a request would otherwise
+            // hold the single-client loop open past the idle shutdown. Bound
+            // only the first read: established clients (krit serve, the LSP)
+            // keep idle connections open on purpose between requests.
+            client.soTimeout = daemonIdleMillis(parentPid)
             val reader = BufferedReader(InputStreamReader(client.getInputStream()))
             val writer = PrintWriter(client.getOutputStream(), true)
             var shutdownRequested = false
 
             while (true) {
                 val line = reader.readLine() ?: break
+                client.soTimeout = 0
                 val trimmed = line.trim()
                 if (trimmed.isEmpty()) continue
 

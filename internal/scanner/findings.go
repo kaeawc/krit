@@ -570,8 +570,11 @@ func (c *FindingColumns) FilterRows(keep func(row int) bool) FindingColumns {
 	return *filtered.Columns()
 }
 
-// FilterColumnsByFilePaths keeps only rows whose file path resolves to an
-// absolute path present in allowedPaths.
+// FilterColumnsByFilePaths keeps only rows whose file path is in
+// allowedPaths, either as spelled or resolved to an absolute path. Callers
+// key allowedPaths by absolute paths (changed-file sets) or by the scan's own
+// spelling (affected sets from the code index), which is relative when the
+// scan root is.
 func FilterColumnsByFilePaths(columns *FindingColumns, allowedPaths map[string]bool) FindingColumns {
 	if columns == nil || columns.Len() == 0 || len(allowedPaths) == 0 {
 		return FindingColumns{}
@@ -579,6 +582,10 @@ func FilterColumnsByFilePaths(columns *FindingColumns, allowedPaths map[string]b
 
 	allowedFileIdx := make([]bool, len(columns.Files))
 	for i, file := range columns.Files {
+		if allowedPaths[file] {
+			allowedFileIdx[i] = true
+			continue
+		}
 		abs, err := filepath.Abs(file)
 		if err != nil {
 			abs = file

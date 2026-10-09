@@ -186,7 +186,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
             compileModule(args, listOf(collector), listOf(
                 CompilationContext({ FirRuleContext.begin(ruleContext) }, { FirRuleContext.end() }),
                 CompilationContext({ FirRuleErrors.begin(ruleErrorRecorder) }, { FirRuleErrors.end() }),
-            ), skipEmptySources = true)
+            ), skipEmptySources = true, frontendOnly = module == null)
         } catch (e: Exception) {
             if (module == null || !isIsolatable(e)) throw e
             collector.exceptions += (e.message ?: e.javaClass.name)
@@ -299,7 +299,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
             compileModule(args, listOf(OracleDiagnosticMessageCollector(collector, pathByCanonical)), listOf(
                 CompilationContext({ OracleCollectorRegistry.begin(collector) }, { OracleCollectorRegistry.end() }),
                 CompilationContext({ FirRuleContext.begin(FirRuleCompileContext(noneEnabled = true)) }, { FirRuleContext.end() }),
-            ))
+            ), frontendOnly = true)
         } finally {
             outDir.deleteRecursively()
         }
@@ -340,13 +340,19 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
      * The single embedded-compiler execution seam. Arguments carry destination and backend
      * options; this function never clears/deletes outputs. Callers can supply several message
      * collectors and registry contexts together without changing the execution lifecycle.
-     * A future frontend-only backend can be selected here without changing either caller.
+     *
+     * [frontendOnly] stops after the K2 frontend. FIR checkers (krit's and the
+     * compiler's) and all diagnostics run inside the frontend, so callers that
+     * only read findings or oracle facts skip fir2ir and the JVM backend, about
+     * 45% of a clean project's compile (#737). Module compiles keep the backend:
+     * downstream modules compile against their class output.
      */
     private fun compileModule(
         args: K2JVMCompilerArguments,
         collectors: List<MessageCollector>,
         contexts: List<CompilationContext>,
         skipEmptySources: Boolean = false,
+        frontendOnly: Boolean = false,
     ): ExitCode {
         val messages = object : MessageCollector {
             override fun clear() = collectors.forEach { it.clear() }
@@ -357,8 +363,11 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
         fun execute(index: Int): ExitCode {
             if (index == contexts.size) {
                 // Module/check requests with no sources must not enter the compiler REPL.
-                return if (skipEmptySources && args.freeArgs.isEmpty()) ExitCode.OK
-                else K2JVMCompiler().exec(messages, Services.EMPTY, args)
+                return when {
+                    skipEmptySources && args.freeArgs.isEmpty() -> ExitCode.OK
+                    frontendOnly -> FrontendOnlyJvmPipeline().execute(args, Services.EMPTY, messages)
+                    else -> K2JVMCompiler().exec(messages, Services.EMPTY, args)
+                }
             }
             val context = contexts[index]
             context.begin()

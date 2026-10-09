@@ -24,12 +24,13 @@ import org.jetbrains.kotlin.fir.types.resolvedType
  * redundant-null-safety family) ask the oracle "is this reference nullable
  * here?" — they need the smart-cast answer, not the declaration answer.
  *
- * Dedup: the FIR checker traversal is pre-order, so the wrapping
- * [`FirSmartCastExpression`] is visited before its inner access. Both map
- * to the same `"line:col"` key (the wrapper is source-transparent), and
- * [`OracleCollector.addExpression`] is first-wins, so the smart-cast entry
- * recorded here wins over the later declared-type entry. Call sites stay
- * authoritative because a smart cast wraps a stable reference, not a call.
+ * Dedup: the wrapping [`FirSmartCastExpression`] and its inner access map
+ * to the same `"line:col"` key (the wrapper is source-transparent). The
+ * entry is recorded with [`OracleCollector.addSmartCastExpression`], which
+ * replaces a declared-type entry already at that key and is never displaced
+ * by a later one, so the smart-cast type wins regardless of FIR traversal
+ * order. Call sites stay authoritative because a smart cast wraps a stable
+ * reference, not a call.
  *
  * Self-gates on `OracleCollectorRegistry.current() != null` like the other
  * oracle checkers.
@@ -48,13 +49,12 @@ internal object OracleSmartCastChecker :
         val startOffset = source.startOffset
         val (line, col) = offsets.lineColAt(startOffset)
         val key = "$line:$col"
-        if (collector.hasExpression(filePath, key)) return
 
         val resolvedType = runCatching { expression.resolvedType }.getOrNull() ?: return
         val typeFqn = resolvedType.renderFqn()
         if (typeFqn.isBlank()) return
 
-        collector.addExpression(
+        collector.addSmartCastExpression(
             filePath,
             key,
             ExpressionPayload(

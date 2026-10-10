@@ -84,12 +84,16 @@ internal data class ModuleCompilation(
 internal fun filterModuleArgs(input: List<String>): List<String> {
     val out = mutableListOf<String>()
     var i = 0
-    val valued = setOf("-d", "-classpath", "-cp", "-jvm-target", "-Xplugin")
+    val valued = setOf("-d", "-classpath", "-cp", "-jvm-target", "-Xplugin", "-module-name")
+    // ModuleCompilation.configure owns friend paths, the module name and the
+    // HMPP fragment layout; a Gradle-provided copy would break internal
+    // visibility for test modules or the fragment mapping.
+    val managedFlags = setOf("-Werror", "-Xfriend-paths")
     while (i < input.size) {
         val arg = input[i++]
         val key = arg.substringBefore('=')
         when {
-            key == "-Werror" || key in valued -> {
+            key in managedFlags || key in valued || key.startsWith("-Xfragment") -> {
                 System.err.println("krit-fir: ignoring managed compiler argument $arg")
                 if (arg == key && key in valued && i < input.size) i++
             }

@@ -3,8 +3,10 @@ package devjar
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -50,16 +52,29 @@ func SourceHash(root, tool string) (string, error) {
 	}
 	sort.Strings(paths)
 	h := sha256.New()
+	// KRIT_VERSION is baked into the jars' RuleApiVersion, so jars built for
+	// different versions must not share a cache key.
+	writeRecord(h, []byte("KRIT_VERSION"))
+	writeRecord(h, []byte(strings.TrimSpace(os.Getenv("KRIT_VERSION"))))
 	for _, rel := range paths {
 		data, err := os.ReadFile(filepath.Join(root, rel))
 		if err != nil {
 			return "", err
 		}
-		_, _ = h.Write([]byte(filepath.ToSlash(rel) + "\x00"))
-		_, _ = h.Write(data)
-		_, _ = h.Write([]byte{0})
+		// Length-prefixed path plus a fixed-size content digest keeps each
+		// record unambiguous, so no file's bytes can mimic a record boundary.
+		sum := sha256.Sum256(data)
+		writeRecord(h, []byte(filepath.ToSlash(rel)))
+		_, _ = h.Write(sum[:])
 	}
 	return hex.EncodeToString(h.Sum(nil))[:20], nil
+}
+
+func writeRecord(h hash.Hash, data []byte) {
+	var size [8]byte
+	binary.BigEndian.PutUint64(size[:], uint64(len(data)))
+	_, _ = h.Write(size[:])
+	_, _ = h.Write(data)
 }
 
 // CheckoutRoot finds a local source checkout, starting at the current working
@@ -89,8 +104,26 @@ func CheckoutRoot(tool string, scanPaths []string) string {
 	return ""
 }
 
+// DirEnv overrides the shared development jar cache root, which otherwise
+// defaults to ~/.krit/jars/dev. Tests point it at a temp dir so a jar built
+// with `make fir-jar` or `make types-jar` can't leak into jar lookups.
+const DirEnv = "KRIT_DEV_JAR_DIR"
+
+// CacheDir returns the shared development jar cache root: $KRIT_DEV_JAR_DIR
+// when set, else ~/.krit/jars/dev. Returns "" when neither is available.
+func CacheDir() string {
+	if dir := os.Getenv(DirEnv); dir != "" {
+		return dir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".krit", "jars", "dev")
+}
+
 // CachePath returns a checkout-specific shared cache path. A missing checkout
-// or HOME simply disables the additive development lookup.
+// or cache root simply disables the additive development lookup.
 func CachePath(tool string, scanPaths []string) string {
 	root := CheckoutRoot(tool, scanPaths)
 	if root == "" {
@@ -100,9 +133,9 @@ func CachePath(tool string, scanPaths []string) string {
 	if err != nil {
 		return ""
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	dir := CacheDir()
+	if dir == "" {
 		return ""
 	}
-	return filepath.Join(home, ".krit", "jars", "dev", hash, tool+".jar")
+	return filepath.Join(dir, hash, tool+".jar")
 }

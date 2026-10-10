@@ -1,5 +1,6 @@
 package dev.jasonpearson.krit.fir.runner
 
+import dev.jasonpearson.krit.fir.CheckRequest
 import dev.jasonpearson.krit.fir.FirRuleCompileContext
 import dev.jasonpearson.krit.fir.SdkLevels
 import dev.jasonpearson.krit.fir.FirRuleContext
@@ -111,9 +112,9 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
     // Choose one spelling per physical file. Explicit requests win because Go
     // indexes the response with those exact strings; walked files retain the
     // sourceDirs spelling so unrequested dependencies also match Go's walk.
-    private fun compilationFiles(files: List<String>): List<String> {
+    private fun compilationFiles(files: List<String>, walked: List<String> = currentSourceFiles()): List<String> {
         val byCanonical = LinkedHashMap<String, String>()
-        for (path in currentSourceFiles()) byCanonical.putIfAbsent(File(path).canonicalPath, path)
+        for (path in walked) byCanonical.putIfAbsent(File(path).canonicalPath, path)
         for (path in files) byCanonical[File(path).canonicalPath] = path
         return byCanonical.values.toList()
     }
@@ -157,66 +158,92 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
         module: ModuleCompilation? = null,
         ownedSources: Set<String> = emptySet(),
     ): BatchResult {
-        val (excluded, compiled) = files.partition {
-            isScript(it.path) || (module == null && excludedFromJvmCompilation(it.path))
-        }
-        val errorFiles = linkedMapOf<String, String>()
-        for (ref in excluded) errorFiles[ref.path] = if (isScript(ref.path)) SCRIPT_NOT_COMPILED else NOT_IN_JVM_COMPILATION
-        val enabled = FirRuleDiscovery.enabled(FirRuleCompileContext(enabledRules))
-        if (compiled.isEmpty() && module == null) {
-            return BatchResult(
-                id = id, succeeded = 0, skipped = excluded.size, findings = emptyList(),
-                crashed = emptyMap(), rules = enabled.map { it.ruleId }, errorFiles = errorFiles,
-            )
-        }
-        val requestedPaths = compiled.associateBy { File(it.path).canonicalPath }
-            .mapValues { it.value.path }
-
-        val collector = FindingCollector(requestedPaths, enabledRules, ownedSources)
-        val ruleErrorRecorder = FirRuleErrorRecorder(if (module == null) null else compiled.mapTo(HashSet()) { it.path })
+        val plan = CheckPlan(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, module, ownedSources)
+        if (plan.compiled.isEmpty() && module == null) return plan.emptyResult()
         val outDir = module?.output ?: Files.createTempDirectory("krit-fir-out-").toFile()
-
-        val ruleContext = FirRuleCompileContext(
-            enabledRules, ruleConfigs, testFiles = testFiles,
-            files = compiled.mapTo(LinkedHashSet()) { it.path }, scanPaths = scanPaths,
-            sdkLevels = sdkLevels,
-        )
         val exitCode = try {
-            val args = compilationArguments(module?.sources ?: compilationFiles(compiled.map { it.path }), outDir, module)
-            compileModule(args, listOf(collector), listOf(
-                CompilationContext({ FirRuleContext.begin(ruleContext) }, { FirRuleContext.end() }),
-                CompilationContext({ FirRuleErrors.begin(ruleErrorRecorder) }, { FirRuleErrors.end() }),
-            ), skipEmptySources = true)
+            val args = compilationArguments(module?.sources ?: compilationFiles(plan.compiled.map { it.path }), outDir, module)
+            compileModule(args, listOf(plan.collector), plan.contexts(), skipEmptySources = true, frontendOnly = module == null)
         } catch (e: Exception) {
             if (module == null || !isIsolatable(e)) throw e
-            collector.exceptions += (e.message ?: e.javaClass.name)
+            plan.collector.exceptions += (e.message ?: e.javaClass.name)
             ExitCode.INTERNAL_ERROR
         } finally {
             if (module == null) outDir.deleteRecursively()
         }
+        return plan.result(exitCode)
+    }
 
-        val crashMessage = collector.exceptions.firstOrNull()
-            ?: if (exitCode == ExitCode.INTERNAL_ERROR) "krit-fir: compiler exited with INTERNAL_ERROR" else null
-        val crashed = if (crashMessage != null) compiled.associate { it.path to crashMessage } else emptyMap()
-        errorFiles.putAll(collector.errorFiles)
-        collector.globalErrors.firstOrNull()?.let { global ->
-            for (ref in compiled) errorFiles.putIfAbsent(ref.path, global)
+    /**
+     * One check request's setup and verdict: which requested files are
+     * compiled, the collectors and registry contexts the checkers report
+     * through, and the [BatchResult] built from them after the compile.
+     * Shared by [checkCompilation] and [analyzeWithCheck], so the merged
+     * compile reaches the same verdict as a standalone check.
+     */
+    private inner class CheckPlan(
+        val id: Long, files: List<FileRef>, val enabledRules: Set<String>,
+        ruleConfigs: Map<String, Map<String, Any?>>,
+        testFiles: Set<String>, scanPaths: Map<String, String>, sdkLevels: Map<String, SdkLevels>,
+        module: ModuleCompilation?,
+        ownedSources: Set<String>,
+    ) {
+        val excluded: List<FileRef>
+        val compiled: List<FileRef>
+        init {
+            val (out, inside) = files.partition {
+                isScript(it.path) || (module == null && excludedFromJvmCompilation(it.path))
+            }
+            excluded = out
+            compiled = inside
         }
-        val gated = crashed.keys + errorFiles.keys
-        return BatchResult(
-            id = id,
-            succeeded = compiled.count { it.path !in gated },
-            skipped = excluded.size,
-            findings = collector.findings.toList(),
-            crashed = crashed,
-            rules = enabled.map { it.ruleId },
-            errorFiles = errorFiles,
-            ruleErrors = requestedRuleErrors(ruleErrorRecorder.snapshot(), requestedPaths, compiled),
-            ownedCompilerError = crashMessage ?: collector.globalErrors.firstOrNull() ?: collector.ownedError,
-            compilerCrashed = crashMessage != null,
-            firstCompilerError = crashMessage ?: collector.firstError
-                ?: if (exitCode != ExitCode.OK) "Compiler exited with $exitCode" else null,
+        private val errorFiles = linkedMapOf<String, String>().apply {
+            for (ref in excluded) put(ref.path, if (isScript(ref.path)) SCRIPT_NOT_COMPILED else NOT_IN_JVM_COMPILATION)
+        }
+        private val enabled = FirRuleDiscovery.enabled(FirRuleCompileContext(enabledRules))
+        private val requestedPaths = compiled.associateBy { File(it.path).canonicalPath }.mapValues { it.value.path }
+        val collector = FindingCollector(requestedPaths, enabledRules, ownedSources)
+        private val ruleErrorRecorder = FirRuleErrorRecorder(if (module == null) null else compiled.mapTo(HashSet()) { it.path })
+        private val ruleContext = FirRuleCompileContext(
+            enabledRules, ruleConfigs, testFiles = testFiles,
+            files = compiled.mapTo(LinkedHashSet()) { it.path }, scanPaths = scanPaths,
+            sdkLevels = sdkLevels,
         )
+
+        fun contexts(): List<CompilationContext> = listOf(
+            CompilationContext({ FirRuleContext.begin(ruleContext) }, { FirRuleContext.end() }),
+            CompilationContext({ FirRuleErrors.begin(ruleErrorRecorder) }, { FirRuleErrors.end() }),
+        )
+
+        fun emptyResult(): BatchResult = BatchResult(
+            id = id, succeeded = 0, skipped = excluded.size, findings = emptyList(),
+            crashed = emptyMap(), rules = enabled.map { it.ruleId }, errorFiles = errorFiles,
+        )
+
+        fun result(exitCode: ExitCode): BatchResult {
+            val crashMessage = collector.exceptions.firstOrNull()
+                ?: if (exitCode == ExitCode.INTERNAL_ERROR) "krit-fir: compiler exited with INTERNAL_ERROR" else null
+            val crashed = if (crashMessage != null) compiled.associate { it.path to crashMessage } else emptyMap()
+            errorFiles.putAll(collector.errorFiles)
+            collector.globalErrors.firstOrNull()?.let { global ->
+                for (ref in compiled) errorFiles.putIfAbsent(ref.path, global)
+            }
+            val gated = crashed.keys + errorFiles.keys
+            return BatchResult(
+                id = id,
+                succeeded = compiled.count { it.path !in gated },
+                skipped = excluded.size,
+                findings = collector.findings.toList(),
+                crashed = crashed,
+                rules = enabled.map { it.ruleId },
+                errorFiles = errorFiles,
+                ruleErrors = requestedRuleErrors(ruleErrorRecorder.snapshot(), requestedPaths, compiled),
+                ownedCompilerError = crashMessage ?: collector.globalErrors.firstOrNull() ?: collector.ownedError,
+                compilerCrashed = crashMessage != null,
+                firstCompilerError = crashMessage ?: collector.firstError
+                    ?: if (exitCode != ExitCode.OK) "Compiler exited with $exitCode" else null,
+            )
+        }
     }
 
     // Maps recorded rule errors onto request spellings. Errors in files that
@@ -289,17 +316,77 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
      * `analyzeWithDeps` RPC envelope can populate the per-file
      * dependency closure.
      */
-    fun analyzeFull(files: List<String>): AnalyzeOutcome {
+    fun analyzeFull(files: List<String>): AnalyzeOutcome = analyzeCompilation(compilationFiles(files), null)
+
+    /**
+     * [analyzeFull] for [files] and [check] for [checkRequest] from one K2
+     * compilation (#739): the oracle collector and the enabled rule checkers
+     * are registered on the same frontend run instead of each compiling the
+     * module. The rule context never reaches the oracle checkers, and the
+     * oracle message collector drops krit rule diagnostics, so each side sees
+     * what its own compile would have given it.
+     *
+     * The compile is shared only when both requests compile the same sources:
+     * the check's compiled files must already be part of the oracle's
+     * compilation and vice versa (compared canonically; the oracle's spelling
+     * is kept, and the check maps every path back to its request spelling),
+     * and the request's compile context, when it names one, must be this
+     * session's. Otherwise, or when the shared compile throws, the check
+     * result is null and the oracle compiles alone, so the caller checks on
+     * its own.
+     */
+    fun analyzeWithCheck(files: List<String>, checkRequest: CheckRequest): Pair<AnalyzeOutcome, BatchResult?> {
+        val walked = currentSourceFiles()
+        val oracleSources = compilationFiles(files, walked)
+        val plan = CheckPlan(
+            checkRequest.id, checkRequest.files, checkRequest.rules.toSet(), checkRequest.ruleConfigs,
+            checkRequest.testFiles, checkRequest.scanPaths, checkRequest.sdkLevels, module = null, ownedSources = emptySet(),
+        )
+        val shared = plan.compiled.isNotEmpty() &&
+            sharesCompileContext(checkRequest) &&
+            canonicalSet(oracleSources) == canonicalSet(compilationFiles(plan.compiled.map { it.path }, walked))
+        if (!shared) return analyzeFull(files) to null
+        var exitCode = ExitCode.OK
+        val outcome = try {
+            analyzeCompilation(oracleSources, plan) { exitCode = it }
+        } catch (e: Exception) {
+            // A checker failure the rule isolation does not absorb must not
+            // cost the oracle its facts: compile for the oracle alone, and
+            // let the caller's own check meet the failure as before.
+            System.err.println("krit-fir: shared oracle/check compile failed (${e.message}); compiling the oracle alone")
+            return analyzeFull(files) to null
+        }
+        return outcome to plan.result(exitCode)
+    }
+
+    private fun sharesCompileContext(request: CheckRequest): Boolean {
+        fun sameFiles(requested: List<String>, own: List<String>) =
+            requested.isEmpty() || requested.map { canonicalOrSelf(File(it)) } == own.map { canonicalOrSelf(File(it)) }
+        return sameFiles(request.sourceDirs, sourceDirs) && sameFiles(request.classpath, classpath) &&
+            (request.jvmTarget.isEmpty() || request.jvmTarget == jvmTarget)
+    }
+
+    private fun canonicalSet(paths: List<String>): Set<String> = paths.mapTo(HashSet()) { canonicalOrSelf(File(it)) }
+
+    private fun analyzeCompilation(
+        sources: List<String>, check: CheckPlan?, onExit: (ExitCode) -> Unit = {},
+    ): AnalyzeOutcome {
         val collector = OracleCollector()
         val outDir = Files.createTempDirectory("krit-fir-oracle-out-").toFile()
         try {
-            val args = compilationArguments(compilationFiles(files), outDir)
+            val args = compilationArguments(sources, outDir)
             val pathByCanonical = args.freeArgs.associateBy { File(it).canonicalPath }
                 .mapValues { it.value }
-            compileModule(args, listOf(OracleDiagnosticMessageCollector(collector, pathByCanonical)), listOf(
-                CompilationContext({ OracleCollectorRegistry.begin(collector) }, { OracleCollectorRegistry.end() }),
-                CompilationContext({ FirRuleContext.begin(FirRuleCompileContext(noneEnabled = true)) }, { FirRuleContext.end() }),
-            ))
+            val oracleMessages = OracleDiagnosticMessageCollector(collector, pathByCanonical)
+            val oracleContext = CompilationContext({ OracleCollectorRegistry.begin(collector) }, { OracleCollectorRegistry.end() })
+            onExit(if (check == null) {
+                compileModule(args, listOf(oracleMessages), listOf(
+                    oracleContext,
+                    CompilationContext({ FirRuleContext.begin(FirRuleCompileContext(noneEnabled = true)) }, { FirRuleContext.end() }),
+                ), frontendOnly = true)
+            } else {
+                compileModule(args, listOf(oracleMessages, check.collector), listOf(oracleContext) + check.contexts(), frontendOnly = true)
+            })
         } finally {
             outDir.deleteRecursively()
         }
@@ -340,13 +427,19 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
      * The single embedded-compiler execution seam. Arguments carry destination and backend
      * options; this function never clears/deletes outputs. Callers can supply several message
      * collectors and registry contexts together without changing the execution lifecycle.
-     * A future frontend-only backend can be selected here without changing either caller.
+     *
+     * [frontendOnly] stops after the K2 frontend. FIR checkers (krit's and the
+     * compiler's) and all diagnostics run inside the frontend, so callers that
+     * only read findings or oracle facts skip fir2ir and the JVM backend, about
+     * 45% of a clean project's compile (#737). Module compiles keep the backend:
+     * downstream modules compile against their class output.
      */
     private fun compileModule(
         args: K2JVMCompilerArguments,
         collectors: List<MessageCollector>,
         contexts: List<CompilationContext>,
         skipEmptySources: Boolean = false,
+        frontendOnly: Boolean = false,
     ): ExitCode {
         val messages = object : MessageCollector {
             override fun clear() = collectors.forEach { it.clear() }
@@ -357,8 +450,11 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
         fun execute(index: Int): ExitCode {
             if (index == contexts.size) {
                 // Module/check requests with no sources must not enter the compiler REPL.
-                return if (skipEmptySources && args.freeArgs.isEmpty()) ExitCode.OK
-                else K2JVMCompiler().exec(messages, Services.EMPTY, args)
+                return when {
+                    skipEmptySources && args.freeArgs.isEmpty() -> ExitCode.OK
+                    frontendOnly -> FrontendOnlyJvmPipeline().execute(args, Services.EMPTY, messages)
+                    else -> K2JVMCompiler().exec(messages, Services.EMPTY, args)
+                }
             }
             val context = contexts[index]
             context.begin()
@@ -375,6 +471,15 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
             it.retainedModuleRunner = retainedModuleRunner
             retainedModuleRunner = null
         }
+
+    /**
+     * Takes back the module state [rebuilt] received from [rebuild] when the
+     * request that triggered the rebuild failed and this session stays active.
+     */
+    internal fun reclaimRetainedState(rebuilt: AnalysisSession) {
+        retainedModuleRunner = rebuilt.retainedModuleRunner
+        rebuilt.retainedModuleRunner = null
+    }
 
     fun analyzeModules(
         id: Long, modules: List<ModuleSpec>, checkFiles: List<String>, enabledRules: Set<String>,

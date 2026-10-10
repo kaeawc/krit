@@ -73,8 +73,10 @@ fun main(args: Array<String>) {
     //   krit-fir --sources DIR[,DIR...] --output FILE
     //            [--files LIST_FILE] [--classpath JAR[:JAR...]]
     //            [--cache-deps-out FILE]
+    //            [--check-request JSON_FILE --check-out FILE]
     // Mirrors krit-types' one-shot surface so `oracle.InvokeWithFiles`
-    // can drive either backend with the same arg vector.
+    // can drive either backend with the same arg vector. The check flags
+    // run a `check` request on the same compilation (#739).
     val sources = extractCliSources(args)
     val output = extractCliValue(args, "--output", "-o")
     if (sources.isNullOrEmpty() || output.isNullOrBlank()) {
@@ -90,6 +92,8 @@ fun main(args: Array<String>) {
         classpath = classpath,
         jvmTarget = jvmTarget,
         cacheDepsOutPath = extractCliValue(args, "--cache-deps-out"),
+        checkRequestPath = extractCliValue(args, "--check-request"),
+        checkOutPath = extractCliValue(args, "--check-out"),
     )
     exitProcess(0)
 }
@@ -132,6 +136,7 @@ private fun printOneShotUsage() {
         |           [--files LIST_FILE] [--classpath JAR[${java.io.File.pathSeparatorChar}JAR...]]
         |           [--jvm-target VERSION]
         |           [--cache-deps-out FILE]
+        |           [--check-request JSON_FILE --check-out FILE]
         """.trimMargin(),
     )
 }
@@ -143,6 +148,8 @@ internal fun runOneShot(
     classpath: List<String>,
     jvmTarget: String = "",
     cacheDepsOutPath: String?,
+    checkRequestPath: String? = null,
+    checkOutPath: String? = null,
 ) {
     val session = AnalysisSession(sources, classpath, jvmTarget)
     val files = if (filesListPath.isNullOrBlank()) {
@@ -152,10 +159,25 @@ internal fun runOneShot(
         // restrict analysis to. Same shape krit-types accepts.
         java.io.File(filesListPath).readLines().map { it.trim() }.filter { it.isNotEmpty() }
     }
-    val outcome = session.analyzeFull(files)
-    // The cache-deps file is written first: the Go caller treats a non-empty
-    // --output as "done" and may stop waiting for the process after a grace
-    // period, so the deps must already be on disk by then.
+    // A check request rides on the oracle's compilation when both compile the
+    // same sources; otherwise --check-out is left empty and the caller checks
+    // on its own.
+    val checkRequest = if (checkRequestPath.isNullOrBlank() || checkOutPath.isNullOrBlank()) {
+        null
+    } else {
+        parseRequest(java.io.File(checkRequestPath).readText())
+    }
+    val (outcome, checked) = if (checkRequest == null) {
+        session.analyzeFull(files) to null
+    } else {
+        session.analyzeWithCheck(files, checkRequest)
+    }
+    // The cache-deps and check files are written first: the Go caller treats
+    // a non-empty --output as "done" and may stop waiting for the process
+    // after a grace period, so they must already be on disk by then.
+    if (checked != null && !checkOutPath.isNullOrBlank()) {
+        java.io.File(checkOutPath).writeText(buildCheckResponse(checked))
+    }
     if (!cacheDepsOutPath.isNullOrBlank()) {
         java.io.File(cacheDepsOutPath).writeText(
             dev.jasonpearson.krit.fir.oracle.OracleResponse.buildCacheDeps(outcome.cacheDeps),
@@ -221,12 +243,18 @@ fun runDaemonTcp(port: Int, initialSession: AnalysisSession, startTime: Long, pa
 
         System.err.println("Client connected: ${client.remoteSocketAddress}")
         try {
+            // A client that connects but never sends a request would otherwise
+            // hold the single-client loop open past the idle shutdown. Bound
+            // only the first read: established clients (krit serve, the LSP)
+            // keep idle connections open on purpose between requests.
+            client.soTimeout = daemonIdleMillis(parentPid)
             val reader = BufferedReader(InputStreamReader(client.getInputStream()))
             val writer = PrintWriter(client.getOutputStream(), true)
             var shutdownRequested = false
 
             while (true) {
                 val line = reader.readLine() ?: break
+                client.soTimeout = 0
                 val trimmed = line.trim()
                 if (trimmed.isEmpty()) continue
 
@@ -265,6 +293,30 @@ private fun withJvmTargetWarning(json: String, session: AnalysisSession, declare
     return json.dropLast(1) + ",\"warning\":" + jsonStr(warning) + "}"
 }
 
+/**
+ * Runs [body] on [session], or on a rebuilt session when the request's inputs
+ * changed. The rebuilt session takes over the retained module state up front
+ * so module outputs are reused; if [body] throws, that state goes back to
+ * [session] (which the caller keeps) and the rebuilt session is disposed.
+ */
+internal inline fun withActiveSession(
+    request: CheckRequest,
+    session: AnalysisSession,
+    body: (AnalysisSession) -> String,
+): RequestResult {
+    if (!sessionNeedsRebuild(request, session)) return RequestResult.Response(body(session))
+    val rebuilt = session.rebuild(request.sourceDirs, request.classpath, request.jvmTarget.ifEmpty { session.jvmTarget })
+    val response = try {
+        body(rebuilt)
+    } catch (t: Throwable) {
+        session.reclaimRetainedState(rebuilt)
+        rebuilt.dispose()
+        throw t
+    }
+    session.dispose()
+    return RequestResult.SessionRebuilt(response, rebuilt)
+}
+
 fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long): RequestResult {
     val request = try {
         parseRequest(trimmed)
@@ -275,13 +327,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
 
     return try {
         when (request.command) {
-            "check", "analyzeModules" -> {
-                val needsRebuild = sessionNeedsRebuild(request, session)
-                val activeSession = if (needsRebuild) {
-                    session.rebuild(request.sourceDirs, request.classpath, request.jvmTarget.ifEmpty { session.jvmTarget })
-                } else {
-                    session
-                }
+            "check", "analyzeModules" -> withActiveSession(request, session) { activeSession ->
                 val result = if (request.modules.isNotEmpty()) {
                     activeSession.analyzeModules(request.id, request.modules, request.files.map { it.path },
                         request.rules.toSet(), request.ruleConfigs, request.testFiles, request.scanPaths,
@@ -290,13 +336,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                     activeSession.check(request.id, request.files, request.rules.toSet(), request.ruleConfigs,
                         request.testFiles, request.scanPaths, request.sdkLevels)
                 }
-                val response = withJvmTargetWarning(buildCheckResponse(result), activeSession, request.jvmTarget)
-                if (needsRebuild) {
-                    session.dispose()
-                    RequestResult.SessionRebuilt(response, activeSession)
-                } else {
-                    RequestResult.Response(response)
-                }
+                withJvmTargetWarning(buildCheckResponse(result), activeSession, request.jvmTarget)
             }
             "rebuild" -> {
                 val start = System.currentTimeMillis()
@@ -313,13 +353,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 RequestResult.Response("""{"id":${request.id},"result":{"ok":true,"uptime":$uptime}}""")
             }
             "shutdown" -> RequestResult.Shutdown("""{"id":${request.id},"result":{"ok":true}}""")
-            "analyze", "analyzeAll", "analyzeFiles", "analyzeWithDeps" -> {
-                val needsRebuild = sessionNeedsRebuild(request, session)
-                val activeSession = if (needsRebuild) {
-                    session.rebuild(request.sourceDirs, request.classpath, request.jvmTarget.ifEmpty { session.jvmTarget })
-                } else {
-                    session
-                }
+            "analyze", "analyzeAll", "analyzeFiles", "analyzeWithDeps" -> withActiveSession(request, session) { activeSession ->
                 val analyzeFiles = if (request.command == "analyzeAll") {
                     emptyList()
                 } else {
@@ -332,13 +366,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                     val result = activeSession.analyze(analyzeFiles)
                     OracleResponse.buildAnalyze(request.id, result)
                 }
-                val warnedResponse = withJvmTargetWarning(response, activeSession, request.jvmTarget)
-                if (needsRebuild) {
-                    session.dispose()
-                    RequestResult.SessionRebuilt(warnedResponse, activeSession)
-                } else {
-                    RequestResult.Response(warnedResponse)
-                }
+                withJvmTargetWarning(response, activeSession, request.jvmTarget)
             }
             "listPlugins" -> {
                 val response = try {
@@ -353,20 +381,8 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 }
                 RequestResult.Response(response)
             }
-            "analyzeFile" -> {
-                val needsRebuild = sessionNeedsRebuild(request, session)
-                val activeSession = if (needsRebuild) {
-                    session.rebuild(request.sourceDirs, request.classpath, request.jvmTarget.ifEmpty { session.jvmTarget })
-                } else {
-                    session
-                }
-                val response = withJvmTargetWarning(handleAnalyzeFile(request, activeSession), activeSession, request.jvmTarget)
-                if (needsRebuild) {
-                    session.dispose()
-                    RequestResult.SessionRebuilt(response, activeSession)
-                } else {
-                    RequestResult.Response(response)
-                }
+            "analyzeFile" -> withActiveSession(request, session) { activeSession ->
+                withJvmTargetWarning(handleAnalyzeFile(request, activeSession), activeSession, request.jvmTarget)
             }
             else -> RequestResult.Response("""{"id":${request.id},"error":"Unknown command: ${escJson(request.command)}"}""")
         }

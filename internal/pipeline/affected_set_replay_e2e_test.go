@@ -125,3 +125,70 @@ func TestRunProject_AffectedSetReplay_RegeneratesDependent(t *testing.T) {
 		t.Errorf("warm replay findings = %d, want 0 (Helper renamed; B's finding must be regenerated away)", res2.FindingsCount)
 	}
 }
+
+// The warm+ABI replay must keep every finding when the scan root is relative
+// (krit scanned as `krit .`). Found by the benchmark harness (#787): after a
+// public-API edit, the replay dropped the prior rows of the edited file and
+// its dependents but regenerated none of them, because the affected set and
+// the parsed files spelled the same paths differently.
+func TestRunProject_AffectedSetReplay_RelativeScanRootKeepsFindings(t *testing.T) {
+	t.Setenv("KRIT_AFFECTED_SET_REPLAY", "on")
+	dir := t.TempDir()
+	bundleRoot := t.TempDir()
+	t.Chdir(dir)
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("A.kt", "package p\n\nclass Helper\n")
+	write("B.kt", "package p\n\nclass Client {\n  fun make(): Helper = Helper()\n}\n")
+	write("C.kt", "package p\n\nclass Unrelated1\n")
+	write("D.kt", "package p\n\nclass Unrelated2\n")
+	write("E.kt", "package p\n\nclass Unrelated3\n")
+
+	classRule := api.FakeRule("ClassDecl",
+		api.WithNodeTypes("class_declaration"),
+		api.WithSeverity(api.SeverityWarning),
+		api.WithCheck(func(ctx *api.Context) {
+			ctx.EmitAt(int(ctx.Node.StartRow)+1, 1, "class declared")
+		}),
+	)
+	run := func(t *testing.T, tracker perf.Tracker, cacheRoot string) ProjectResult {
+		t.Helper()
+		res, err := RunProject(context.Background(), ProjectInput{
+			Args: ProjectArgs{
+				Config:      config.NewConfig(),
+				Paths:       []string{"."},
+				ActiveRules: []*api.Rule{crossFileHelperRule(), classRule},
+				Format:      "json",
+				Version:     "test",
+			},
+			Host: ProjectHostState{
+				Tracker:                 tracker,
+				CrossFileCacheDir:       scanner.CrossFileCacheDir(cacheRoot),
+				FindingsBundleStore:     scanner.DiskFindingsBundleStore{},
+				FindingsBundleCacheRoot: bundleRoot,
+			},
+		})
+		if err != nil {
+			t.Fatalf("RunProject: %v", err)
+		}
+		return res
+	}
+
+	run(t, nil, dir)
+	// ABI edit: a new public declaration in A.kt.
+	write("A.kt", "package p\n\nclass Helper\n\nfun added(): Int = 1\n")
+	tracker := perf.New(true)
+	warm := run(t, tracker, dir)
+	if entry, found := findTiming(tracker.GetTimings(), "dispatchAffectedSetPath"); !found || entry.Attributes["reason"] != "hit" {
+		t.Fatalf("affected-set replay did not fire: %+v", entry.Attributes)
+	}
+
+	bundleRoot = t.TempDir()
+	clean := run(t, nil, t.TempDir())
+	if warm.FindingsCount != clean.FindingsCount {
+		t.Fatalf("warm replay findings = %d, clean scan = %d", warm.FindingsCount, clean.FindingsCount)
+	}
+}

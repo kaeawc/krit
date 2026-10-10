@@ -101,7 +101,8 @@ download; `make build` and `go build` binaries use the in-tree jars. If the `kri
 backend with a warning. `krit --doctor` reports which jars are found.
 
 For local development, `make fir-jar` and `make types-jar` build and install
-content-addressed shadow jars under `~/.krit/jars/dev/<source-hash>/`.
+content-addressed shadow jars under `~/.krit/jars/dev/<source-hash>/`
+(or `$KRIT_DEV_JAR_DIR/<source-hash>/` when that variable is set).
 Worktrees with the same JVM sources share these jars. Development lookups use
 the shared jar before a worktree-local `tools/<helper>/build/libs/` jar.
 

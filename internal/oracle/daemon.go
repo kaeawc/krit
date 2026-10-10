@@ -47,6 +47,12 @@ type Daemon struct {
 	breakerMu       sync.Mutex
 	breakerFailures int
 	breakerOpenedAt time.Time
+
+	// aotCachePath is the Leyden AOT cache this process launched the JVM
+	// with ("" for reused, recording, or non-AOT daemons). aotCheckOnce
+	// gates the first-response health check (see checkAOTHealthLocked).
+	aotCachePath string
+	aotCheckOnce sync.Once
 }
 
 // requestSpelling absolutizes request files and returns the mapping from
@@ -197,12 +203,20 @@ func (d *Daemon) AnalyzeFilesWithCallFilter(files []string, callFilter *CallTarg
 	requested, spelling := d.requestSpelling(files)
 	params["files"] = requested
 
-	result, err := d.sendResult("analyzeFiles", params)
+	resp, err := d.send("analyzeFiles", params)
 	if err != nil {
 		return nil, err
 	}
-
-	return unmarshalCallerOracleData(result, spelling)
+	data, err := unmarshalCallerOracleData(resp.Result, spelling)
+	if err != nil {
+		return nil, err
+	}
+	// analyzeFiles nests its per-file errors inside result.
+	reported := len(resp.Errors) + nestedResultErrorCount(resp.Result)
+	if err := d.checkAOTHealthLocked(len(requested), data, reported); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // callFilterParams packs a CallTargetFilterSummary into the wire
@@ -552,6 +566,10 @@ func (d *Daemon) AnalyzeWithDepsWithTimings(files []string, collectTimings bool,
 	var cacheDeps CacheDepsFile
 	if err := json.Unmarshal([]byte(*resp.CacheDeps), &cacheDeps); err != nil {
 		return nil, nil, nil, fmt.Errorf("unmarshal cacheDeps: %w", err)
+	}
+
+	if err := d.checkAOTHealthLocked(len(requested), oracleData, len(resp.Errors)+len(cacheDeps.Crashed)); err != nil {
+		return nil, nil, nil, err
 	}
 
 	var timings []perf.TimingEntry

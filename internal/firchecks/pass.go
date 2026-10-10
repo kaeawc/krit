@@ -82,35 +82,61 @@ func (p *PendingPass) Cancel() {
 	}
 }
 
-// StartPass starts the checker after snapshotting every input it reads.
-func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
-	p := &PendingPass{opts: opts}
+// passPlan is the check request a pass sends: the files it checks and the
+// rules, options, and file facts that go with them.
+type passPlan struct {
+	targets             passTargetSet
+	requested, excluded []string
+	buildLogicExcluded  int
+	rules               []string
+	configs             RuleConfigs
+	facts               FileFacts
+}
+
+// planPass computes the request a pass over opts sends, with every input
+// copied. False when the pass would not run the checker.
+func planPass(opts PassOptions) (passPlan, bool) {
 	if !opts.Enabled || opts.Checker == nil {
-		return p
+		return passPlan{}, false
 	}
 	active := ActiveFirRules(activeRuleIDs(opts.ActiveRules), opts.Thorough)
 	if len(active.Names) == 0 {
-		return p
+		return passPlan{}, false
 	}
-	p.targets = passTargets(opts.ParsedFiles, opts.KotlinPaths, opts.IncludeGenerated)
-	p.targets.excludeRoots(opts.GeneratedSourceDirs)
-	p.requested, p.excluded = partitionJVMFiles(p.targets.paths)
-	for _, path := range p.excluded {
+	plan := passPlan{
+		targets: passTargets(opts.ParsedFiles, opts.KotlinPaths, opts.IncludeGenerated),
+		rules:   slices.Clone(active.Names),
+		configs: firRuleConfigs(opts.Config, opts.ActiveRules),
+	}
+	plan.targets.excludeRoots(opts.GeneratedSourceDirs)
+	plan.requested, plan.excluded = partitionJVMFiles(plan.targets.paths)
+	for _, path := range plan.excluded {
 		if oracle.IsBuildLogicPath(path) {
-			p.buildLogicExcluded++
+			plan.buildLogicExcluded++
 		}
 	}
-	requested := slices.Clone(p.requested)
-	sourceDirs, classpath, ruleNames := slices.Clone(opts.SourceDirs), slices.Clone(opts.Classpath), slices.Clone(active.Names)
-	configs := firRuleConfigs(opts.Config, opts.ActiveRules)
-	for rule, values := range configs {
+	for rule, values := range plan.configs {
 		copyValues := make(map[string]any, len(values))
 		for key, value := range values {
 			copyValues[key] = cloneRuleConfigValue(value)
 		}
-		configs[rule] = copyValues
+		plan.configs[rule] = copyValues
 	}
-	facts := fileFactsOf(requested, p.targets.display)
+	plan.facts = fileFactsOf(plan.requested, plan.targets.display)
+	return plan, true
+}
+
+// StartPass starts the checker after snapshotting every input it reads.
+func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
+	p := &PendingPass{opts: opts}
+	plan, ok := planPass(opts)
+	if !ok {
+		return p
+	}
+	p.targets, p.requested, p.excluded, p.buildLogicExcluded = plan.targets, plan.requested, plan.excluded, plan.buildLogicExcluded
+	requested := slices.Clone(p.requested)
+	sourceDirs, classpath, ruleNames := slices.Clone(opts.SourceDirs), slices.Clone(opts.Classpath), plan.rules
+	configs, facts := plan.configs, plan.facts
 	p.opts.GeneratedSourceDirs = slices.Clone(opts.GeneratedSourceDirs)
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.done = make(chan checkOutcome, 1)
@@ -123,6 +149,14 @@ func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
 		checkStart := time.Now()
 		result, err := opts.Checker.Check(requested, sourceDirs, classpath, ruleNames, configs, facts)
 		duration := time.Since(checkStart)
+		status := "ok"
+		if err != nil {
+			status = "error"
+		}
+		perf.AddEntryDetails(sub, "firCheckOutcome", 0, map[string]int64{
+			"files": int64(len(requested)),
+			"rules": int64(len(ruleNames)),
+		}, map[string]string{"status": status})
 		sub.End()
 		p.done <- checkOutcome{result: result, err: err, duration: duration}
 	}()

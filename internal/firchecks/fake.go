@@ -97,6 +97,9 @@ type ProductionFirChecker struct {
 	NoCache    bool
 	UseDaemon  bool
 	Verbose    bool
+	// Prefetch, when set, may hold the check response the oracle's krit-fir
+	// compilation already produced for this request (#739).
+	Prefetch *Prefetch
 }
 
 // Check runs InvokeCached with the configured parameters.
@@ -113,7 +116,16 @@ func (p *ProductionFirChecker) Check(files []string, sourceDirs, classpath, rule
 	if p.NoCache {
 		repoDir = ""
 	}
-	return InvokeCached(p.JarPath, files, sd, cl, rules, ruleConfigs, facts, repoDir, p.UseDaemon, p.Verbose, p.JvmTarget)
+	run := runMissesForCache
+	if resp, ok := p.Prefetch.response(p.JarPath, p.JvmTarget, files, sd, cl, rules, ruleConfigs, facts); ok {
+		if p.Verbose {
+			reporter().Verbosef("verbose: fir check: reusing the oracle compilation's check of %d files\n", len(files))
+		}
+		run = func(_ string, misses []string, _, _, _ []string, _ RuleConfigs, _ FileFacts, _, _ bool, _ ...string) (*CheckResponse, error) {
+			return resp.forFiles(misses), nil
+		}
+	}
+	return invokeCachedWith(run, p.JarPath, files, sd, cl, rules, ruleConfigs, facts, repoDir, p.UseDaemon, p.Verbose, p.JvmTarget)
 }
 
 // Compile-time check.

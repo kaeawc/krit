@@ -864,16 +864,28 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 		// a not-yet-flushed disk write only costs a recompute on a daemon
 		// restart, never a stale read (the resident bundle is keyed by the
 		// content-addressed FindingsBundleKey).
+		//
+		// The resident mirror and the background save get their own
+		// sorted snapshot rather than &crossFileResult.Findings: the
+		// returned result shares that backing storage, and OutputPhase
+		// sorts it in place while the save goroutine is still gob-
+		// encoding it (#770). Pre-sorting makes the stable in-place sort
+		// a no-write identity pass when a later warm hit replays the
+		// resident snapshot.
+		var bundleSnapshot *scanner.FindingColumns
 		if !bundleHit && findingsCacheable {
-			residentBundleStash(host, bundleKey, &crossFileResult.Findings)
+			snapshot := crossFileResult.Findings.Clone()
+			snapshot.SortByFileLine()
+			bundleSnapshot = &snapshot
+			residentBundleStash(host, bundleKey, bundleSnapshot)
 		}
 		if !findingsCacheable && host.Reporter != nil {
 			host.Reporter.Verbosef("verbose: Findings bundle cache: save skipped after recovered rule panic\n")
 		}
 		storeDeltaManifestResident(host, manifestData, manifest)
 		runBackgroundSave(host, func() {
-			if !bundleHit && findingsCacheable {
-				_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, &crossFileResult.Findings)
+			if bundleSnapshot != nil {
+				_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, bundleSnapshot)
 			}
 			_ = saveDeltaManifestDisk(host, manifestData, manifest)
 		})

@@ -203,6 +203,10 @@ type IndexInput struct {
 	OracleClasspath  []string
 	OracleSourceDirs []string
 	OracleJvmTarget  string
+	// FIRCheckRider, when set, returns the FIR check request to run on the
+	// krit-fir oracle's one-shot compilation of jarPath over sourceDirs and
+	// classpath for jvmTarget, or nil (#739).
+	FIRCheckRider func(jarPath string, sourceDirs, classpath []string, jvmTarget string) *oracle.CheckRider
 	// PrebuiltOracleDaemon, when non-nil, is reused by runDaemonOracle
 	// instead of calling oracle.InvokeDaemon. The serve daemon's
 	// ensureOracleDaemon supplies a *oracle.Daemon kept alive across
@@ -1189,6 +1193,12 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		return ""
 	}
 	storeScope := oracle.NewStoreScopeWithTarget(backend, jarPath, in.OracleClasspath, in.OracleJvmTarget)
+	// Record what actually serves the oracle (after any fallback), so
+	// benchmarks and --perf readers can verify the backend they asked for.
+	perf.AddEntryDetails(jvmTracker, "oracleBackend", 0, nil, map[string]string{
+		"backend": backend.String(),
+		"jar":     filepath.Base(jarPath),
+	})
 	perf.AddEntryDetails(jvmTracker, "sourceDirsFound", 0, map[string]int64{"sourceDirs": int64(len(sourceDirs))}, nil)
 	var cacheDest string
 	jvmTracker.TrackVoid("resolveOracleCachePath", func() {
@@ -1245,6 +1255,9 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		Classpath: in.OracleClasspath,
 		JvmTarget: in.OracleJvmTarget,
 		Backend:   backend,
+	}
+	if backend == oracle.BackendFIR && in.FIRCheckRider != nil {
+		invokeOpts.CheckRider = in.FIRCheckRider(jarPath, sourceDirs, in.OracleClasspath, in.OracleJvmTarget)
 	}
 	invocationStore := in.Store
 	if invocationStore != nil {

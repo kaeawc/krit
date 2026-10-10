@@ -411,28 +411,13 @@ func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string
 	id := d.nextID
 	d.nextID++
 
-	// The daemon echoes request paths back; send them absolute and restore
-	// the caller's spelling in the response, which Go indexes by it.
-	requested, spelling := absoluteFileRefs(files)
-	req := firDaemonRequest{
-		ID:          id,
-		Command:     "check",
-		Files:       requested,
-		SourceDirs:  oracle.AbsolutePaths(sourceDirs),
-		Classpath:   oracle.AbsolutePaths(classpath),
-		JvmTarget:   d.jvmTarget,
-		Rules:       rules,
-		TestFiles:   oracle.AbsolutePaths(facts.TestFiles),
-		ScanPaths:   absoluteKeys(facts.ScanPaths),
-		SDKLevels:   absoluteKeys(facts.SDKLevels),
-		RuleConfigs: wireRuleConfigs(ruleConfigs),
-	}
+	target := d.jvmTarget
 	if len(jvmTarget) > 0 {
-		req.JvmTarget = jvmTarget[0]
+		target = jvmTarget[0]
 	}
-	data, err := json.Marshal(req)
+	data, spelling, err := encodeCheckRequest(id, files, sourceDirs, classpath, rules, ruleConfigs, facts, target)
 	if err != nil {
-		return nil, fmt.Errorf("marshal fir request: %w", err)
+		return nil, err
 	}
 	data = append(data, '\n')
 	if _, err := d.conn.Write(data); err != nil {
@@ -472,12 +457,44 @@ func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string
 		return nil, fmt.Errorf("fir daemon request timed out after %s; daemon killed", timeout)
 	}
 
+	return decodeCheckResponse([]byte(line), id, spelling)
+}
+
+// encodeCheckRequest returns the JSON check request for files and the
+// mapping back to the caller's spelling of each file. The daemon echoes
+// request paths back; they are sent absolute, and decodeCheckResponse
+// restores the caller's spelling, which Go indexes the response by.
+func encodeCheckRequest(id int64, files []fileRef, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, facts FileFacts, jvmTarget string) ([]byte, oracle.PathSpelling, error) {
+	requested, spelling := absoluteFileRefs(files)
+	req := firDaemonRequest{
+		ID:          id,
+		Command:     "check",
+		Files:       requested,
+		SourceDirs:  oracle.AbsolutePaths(sourceDirs),
+		Classpath:   oracle.AbsolutePaths(classpath),
+		JvmTarget:   jvmTarget,
+		Rules:       rules,
+		TestFiles:   oracle.AbsolutePaths(facts.TestFiles),
+		ScanPaths:   absoluteKeys(facts.ScanPaths),
+		SDKLevels:   absoluteKeys(facts.SDKLevels),
+		RuleConfigs: wireRuleConfigs(ruleConfigs),
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, oracle.PathSpelling{}, fmt.Errorf("marshal fir request: %w", err)
+	}
+	return data, spelling, nil
+}
+
+// decodeCheckResponse parses a check response to the request with id,
+// spelled back as the caller spelled the request (see encodeCheckRequest).
+func decodeCheckResponse(data []byte, id int64, spelling oracle.PathSpelling) (*CheckResponse, error) {
 	var resp CheckResponse
-	if err := json.Unmarshal([]byte(line), &resp); err != nil {
-		return nil, fmt.Errorf("unmarshal fir response: %w (got: %s)", err, line)
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("unmarshal fir response: %w (got: %s)", err, data)
 	}
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(line), &fields); err != nil {
+	if err := json.Unmarshal(data, &fields); err != nil {
 		return nil, fmt.Errorf("inspect fir response fields: %w", err)
 	}
 	_, resp.rulesPresent = fields["rules"]

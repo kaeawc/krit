@@ -35,7 +35,9 @@ missing jar, for example), is rejected rather than timed.
 
 Compare modes only where the workload is the same. `structural` doesn't run a
 JVM at all. `fir-oracle` and `kaa-oracle` produce the same facts with
-different engines, so they compare directly. `fir-checkers` adds a second
+different engines, so they compare directly. `fir-checkers` adds the rule
+checkers: on a cold run they share the oracle's compilation (the
+`firCheckRider` entry reads `shared`), and otherwise they add a second
 compile.
 
 ## Cache states

@@ -147,6 +147,13 @@ func FirInvocationFingerprint(classpath []string, jarPath string, rules []string
 // invalidate every cached FIR verdict (coarse but correct, the same trade-off
 // as krit-fir's oracle cache).
 func CheckCacheFingerprint(sourceDirs, files, classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, facts FileFacts, jvmTarget ...string) string {
+	compilation := checkCompilation(sourceDirs, files, classpath, jarPath)
+	return hashutil.HashHex([]byte(FirInvocationFingerprint(classpath, jarPath, rules, ruleConfigs, facts, jvmTarget...) + "\x00" + compilation))
+}
+
+// checkCompilation fingerprints the compilation a check of files runs:
+// every `.kt` under sourceDirs plus the requested files, by path and content.
+func checkCompilation(sourceDirs, files, classpath []string, jarPath string) string {
 	sources := oracle.CompilationSources(sourceDirs)
 	seen := make(map[string]bool, len(sources)+len(files))
 	for _, p := range sources {
@@ -158,6 +165,5 @@ func CheckCacheFingerprint(sourceDirs, files, classpath []string, jarPath string
 			sources = append(sources, p)
 		}
 	}
-	compilation := oracle.CompilationFingerprint(sources, classpath, jarPath)
-	return hashutil.HashHex([]byte(FirInvocationFingerprint(classpath, jarPath, rules, ruleConfigs, facts, jvmTarget...) + "\x00" + compilation))
+	return oracle.CompilationFingerprint(sources, classpath, jarPath)
 }

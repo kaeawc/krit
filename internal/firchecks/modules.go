@@ -10,17 +10,19 @@ type ModuleFragment struct {
 }
 
 // ModuleSpec is one JVM/Android compilation. Classpath order is significant.
+// Platform, Kind and JVMTarget are omitted when unset so krit-fir applies its
+// defaults (jvm, main, and the session's JVM target).
 type ModuleSpec struct {
 	ID                   string           `json:"id"`
-	Platform             string           `json:"platform"`
-	Kind                 string           `json:"kind"`
+	Platform             string           `json:"platform,omitempty"`
+	Kind                 string           `json:"kind,omitempty"`
 	SourceRoots          []string         `json:"sourceRoots"`
 	GeneratedSourceRoots []string         `json:"generatedSourceRoots"`
 	Classpath            []string         `json:"classpath"`
 	DependsOn            []string         `json:"dependsOn"`
 	Friends              []string         `json:"friends"`
 	CompilerArgs         []string         `json:"compilerArgs"`
-	JVMTarget            string           `json:"jvmTarget"`
+	JVMTarget            string           `json:"jvmTarget,omitempty"`
 	Fragments            []ModuleFragment `json:"fragments,omitempty"`
 }
 

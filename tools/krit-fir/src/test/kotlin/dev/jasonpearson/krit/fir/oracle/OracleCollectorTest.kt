@@ -212,4 +212,33 @@ class OracleCollectorTest {
         OracleCollectorRegistry.end()
         assertTrue(OracleCollectorRegistry.current() == null)
     }
+
+    @Test
+    fun smartCastTypeWinsRegardlessOfInsertionOrder() {
+        // #666: after `if (x == null) return`, the smart-cast (non-null) type
+        // must win over the declared `Any?` type at the same position, both
+        // when FIR visits the smart cast first and when it visits it last.
+        val declared = ExpressionPayload(type = "kotlin.Any", nullable = true)
+        val smartCast = ExpressionPayload(type = "kotlin.Any", nullable = false)
+
+        val smartFirst = OracleCollector()
+        smartFirst.addSmartCastExpression("/src/A.kt", "3:5", smartCast)
+        smartFirst.addExpression("/src/A.kt", "3:5", declared)
+        assertEquals(smartCast, smartFirst.toResult().files["/src/A.kt"]?.expressions?.get("3:5"))
+
+        val smartLast = OracleCollector()
+        smartLast.addExpression("/src/A.kt", "3:5", declared)
+        smartLast.addSmartCastExpression("/src/A.kt", "3:5", smartCast)
+        assertEquals(smartCast, smartLast.toResult().files["/src/A.kt"]?.expressions?.get("3:5"))
+    }
+
+    @Test
+    fun smartCastDoesNotReplaceCallSiteEntry() {
+        val call = ExpressionPayload(type = "kotlin.String", callTarget = "com.acme.name", callTargetResolved = true)
+        val smartCast = ExpressionPayload(type = "kotlin.String", nullable = false)
+        val c = OracleCollector()
+        c.addExpression("/src/A.kt", "4:9", call)
+        c.addSmartCastExpression("/src/A.kt", "4:9", smartCast)
+        assertEquals(call, c.toResult().files["/src/A.kt"]?.expressions?.get("4:9"))
+    }
 }

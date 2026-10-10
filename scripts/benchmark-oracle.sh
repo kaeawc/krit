@@ -89,10 +89,18 @@ for i in $(seq 1 "$RUNS"); do
     fi
 
     START_TS=$(go run ./internal/devtools/jsonstat -mode unix-ms)
-    "$KRIT" --no-fir -no-cache -no-cache-oracle -perf -f json -q "$PROJECT/" \
+    # FIR is the default oracle backend; this benchmark measures KAA.
+    "$KRIT" --no-fir --oracle-backend=kaa -no-cache -no-cache-oracle -perf -f json -q "$PROJECT/" \
         > "$TMPOUT" 2>/dev/null || true
     END_TS=$(go run ./internal/devtools/jsonstat -mode unix-ms)
     WALL_MS=$(( END_TS - START_TS ))
+
+    # Refuse to report a run that the KAA oracle didn't serve.
+    BACKEND=$(go run ./internal/devtools/jsonstat -mode oracle-backend -file "$TMPOUT" 2>/dev/null || true)
+    if [ "$BACKEND" != "kaa" ]; then
+        echo "error: run $i was served by oracle backend '${BACKEND:-none}', not kaa; aborting" >&2
+        exit 1
+    fi
 
     # Parse timing from JSON output into a sourceable temp file
     PARSED_VARS=$(portable_mktemp /tmp/krit-bench-vars-XXXXXX)

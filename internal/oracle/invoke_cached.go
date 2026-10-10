@@ -647,6 +647,13 @@ func runKritTypesCached(
 		"--files", missListPath,
 		"--cache-deps-out", depsOutPath,
 	)
+	args = append(args, compileContextArgs(opts)...)
+	rider, riderArgs, err := startCheckRider(opts)
+	if err != nil {
+		return err
+	}
+	defer rider.cleanup()
+	args = append(args, riderArgs...)
 	extraJVMArgs := configuredExtraJVMArgs(opts)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgs)
 	recordKritTypesJVMArgs(tracker, extraJVMArgs)
@@ -694,6 +701,7 @@ func runKritTypesCached(
 		return runErr
 	})
 	addOracleProcessResources(tracker, "kritTypesProcessResources", proc.PeakRSSMB)
+	rider.finish(tracker, trackErr)
 	if trackErr != nil {
 		return trackErr
 	}
@@ -1120,6 +1128,9 @@ func runMissAnalysis(
 			shardOpts := opts
 			shardOpts.Tracker = tracker
 			shardOpts.ExtraJVMArgs = shardArgs
+			// A shard compiles the whole module but answers for part of
+			// the misses; the checker pass compiles once on its own.
+			shardOpts.CheckRider = nil
 			return runKritTypesCached(jarPath, sourceDirs, missListPath, freshOutPath, depsOutPath, verbose, tracker, shardOpts)
 		}
 		fresh, deps, err := runKritTypesCachedShardedWithRunner(jarPath, sourceDirs, misses, shards, verbose, tracker, runner)

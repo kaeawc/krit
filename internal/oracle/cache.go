@@ -101,7 +101,11 @@ func recordOracleDir(cacheDir string) {
 // previously got facts under a different spelling than its misses, so the
 // analyzed files were written as jar-skipped poison entries (or were
 // analyzed against another project's sources sharing the relative key).
-const CacheVersion = 12
+// v13: the cached one-shot miss run now passes the configured classpath and,
+// for krit-fir, the JVM target; it compiled without them before, so entries
+// it wrote for a project with a configured classpath carry facts resolved
+// without it.
+const CacheVersion = 13
 
 // ApproximationFIRWholeCompilation marks entries written by krit-fir, whose
 // every run returns facts for the whole compilation.

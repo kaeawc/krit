@@ -110,11 +110,21 @@ func TestFileStructuralFingerprint_PropertyDeclaredType(t *testing.T) {
 	if fp("class R { val name:   String = \"a\" }") != fp("class R { val name: String = \"b\" }") {
 		t.Fatal("whitespace and initializer-only edits with an explicit type must be stable")
 	}
-	if fp("val Foo.bar: Int get() = 1") == fp("val Foo.bar: Long get() = 1") {
-		t.Fatal("extension property type must move the fingerprint")
+	// Cases below share simple names so reference names cannot mask them.
+	if fp("val Foo.bar: List<Int> get() = x") == fp("val Foo.bar: List<Int?> get() = x") {
+		t.Fatal("extension property type nullability must move the fingerprint")
 	}
-	if fp("val Foo.bar: Int get() = 1") == fp("val Baz.bar: Int get() = 1") {
-		t.Fatal("extension receiver must move the fingerprint")
+	if fp("val Foo.bar: Int get() = 1") == fp("val Foo?.bar: Int get() = 1") {
+		t.Fatal("extension receiver nullability must move the fingerprint")
+	}
+	if fp("val a.Foo.bar: Int get() = 1") == fp("val b.Foo.bar: Int get() = 1") {
+		t.Fatal("extension receiver qualifier must move the fingerprint")
+	}
+	if fp("class R { val f: () -> Unit = x }") == fp("class R { val f: suspend () -> Unit = x }") {
+		t.Fatal("suspend type modifier must move the fingerprint")
+	}
+	if fp("class R { val f: () -> Unit = x }") == fp("class R { val f: @Composable () -> Unit = x }") {
+		t.Fatal("type annotation must move the fingerprint")
 	}
 	// Inferred types are deliberately not tracked: the initializer is body-like.
 	if fp("class R { val name = 0 }") != fp("class R { val name = \"\" }") {
@@ -127,6 +137,8 @@ func TestKotlinPropertyDeclaredTypes(t *testing.T) {
 		{"val x: Int = 0", "", "Int"},
 		{"val x: Map<String,  Int?>? = null", "", "Map<String, Int?>?"},
 		{"val Foo<T>.bar: Int get() = 1", "Foo<T>", "Int"},
+		{"val f: suspend (Int) -> Unit = x", "", "suspend (Int) -> Unit"},
+		{"val f: @Composable () -> Unit = x", "", "@Composable () -> Unit"},
 		{"val x = 0", "", ""},
 		{"val x by lazy { 1 }", "", ""},
 	}

@@ -164,10 +164,15 @@ func KotlinPropertyDeclaredTypes(file *File, idx uint32) (receiver, declared str
 				receiver = strings.Join(strings.Fields(file.FlatNodeText(child)), " ")
 			}
 		case "variable_declaration":
+			mods := ""
 			for t := file.FlatFirstChild(child); t != 0; t = file.FlatNextSib(t) {
 				switch file.FlatType(t) {
+				case "type_modifiers":
+					// `suspend` / annotations such as @Composable are siblings
+					// of the type node and are part of the declared type.
+					mods = strings.Join(strings.Fields(file.FlatNodeText(t)), " ") + " "
 				case "user_type", "nullable_type", "function_type", "parenthesized_type":
-					declared = strings.Join(strings.Fields(file.FlatNodeText(t)), " ")
+					declared = mods + strings.Join(strings.Fields(file.FlatNodeText(t)), " ")
 					return receiver, declared
 				}
 			}

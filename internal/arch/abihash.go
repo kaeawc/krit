@@ -116,7 +116,10 @@ func sortSignatures(sigs []AbiSignature) {
 		if sigs[i].Kind != sigs[j].Kind {
 			return sigs[i].Kind < sigs[j].Kind
 		}
-		return canonicalParams(sigs[i].Params) < canonicalParams(sigs[j].Params)
+		if pa, pb := canonicalParams(sigs[i].Params), canonicalParams(sigs[j].Params); pa != pb {
+			return pa < pb
+		}
+		return sigs[i].ReturnType < sigs[j].ReturnType
 	})
 }
 

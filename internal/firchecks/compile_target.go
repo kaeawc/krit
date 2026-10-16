@@ -1,8 +1,6 @@
 package firchecks
 
 import (
-	"strings"
-
 	"github.com/kaeawc/krit/internal/gradlemodel"
 )
 
@@ -26,18 +24,6 @@ func firstTarget(targets []CompileTarget) CompileTarget {
 
 // kotlinArgs is the settings in the compiler-argument wire form.
 func (t CompileTarget) kotlinArgs() []string { return t.Kotlin.CompilerArgs() }
-
-// identity is a canonical string for the target, "" when it is the zero value.
-func (t CompileTarget) identity() string {
-	var parts []string
-	if t.JvmTarget != "" {
-		parts = append(parts, "jvmTarget:"+t.JvmTarget)
-	}
-	if id := t.Kotlin.Identity(); id != "" {
-		parts = append(parts, id)
-	}
-	return strings.Join(parts, "\x00")
-}
 
 // sameCompileTarget reports whether two targets compile identically: the same
 // JVM target and the same semantic Kotlin settings.

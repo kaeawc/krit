@@ -46,7 +46,7 @@ func TestLoadGradleKotlinSettings(t *testing.T) {
 	var out bytes.Buffer
 	got := loadGradleKotlinSettings([]string{root}, "", false, true, &out)
 	want := gradlemodel.KotlinSettings{
-		LanguageVersion: "1.9", ApiVersion: "1.9", OptIns: []string{"kotlin.RequiresOptIn"}, Flags: []string{"-Xcontext-receivers"},
+		LanguageVersion: "1.9", APIVersion: "1.9", OptIns: []string{"kotlin.RequiresOptIn"}, Flags: []string{"-Xcontext-receivers"},
 	}
 	gotCore := got
 	gotCore.Notes, gotCore.Rejected = nil, nil
@@ -81,7 +81,7 @@ func TestLoadGradleKotlinSettingsDoesNotMixSourceSets(t *testing.T) {
 	})
 	var out bytes.Buffer
 	got := loadGradleKotlinSettings([]string{root}, "", false, true, &out)
-	if got.LanguageVersion != "" || got.ApiVersion != "" || len(got.OptIns) != 0 {
+	if got.LanguageVersion != "" || got.APIVersion != "" || len(got.OptIns) != 0 {
 		t.Fatalf("source sets disagree, so none of their settings may be applied to the whole repo: %+v", got)
 	}
 	if !strings.Contains(out.String(), "languageVersion differs across source sets") || !strings.Contains(out.String(), ":test") {
@@ -106,7 +106,7 @@ func TestLoadGradleKotlinSettingsWithoutModelIsExplicitDefault(t *testing.T) {
 
 func TestDaemonForwardsKotlinSettings(t *testing.T) {
 	f := freshScanFlags(t)
-	f.modelKotlin = gradlemodel.KotlinSettings{LanguageVersion: "1.9", ApiVersion: "1.9", Flags: []string{"-Xcontext-receivers"}}
+	f.modelKotlin = gradlemodel.KotlinSettings{LanguageVersion: "1.9", APIVersion: "1.9", Flags: []string{"-Xcontext-receivers"}}
 	args := buildDaemonAnalyzeArgs(f, []string{t.TempDir()})
 	if args.OracleKotlin.Identity() != f.modelKotlin.Identity() || args.OracleKotlin.Identity() == "" {
 		t.Fatalf("daemon request lost the Kotlin settings: %+v", args.OracleKotlin)

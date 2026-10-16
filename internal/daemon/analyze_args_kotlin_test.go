@@ -17,7 +17,7 @@ func TestAnalyzeProjectArgsKotlinSettingsWire(t *testing.T) {
 		t.Fatalf("absent settings must not be sent: %s", empty)
 	}
 	in := AnalyzeProjectArgs{OracleKotlin: gradlemodel.KotlinSettings{
-		LanguageVersion: "1.9", ApiVersion: "1.8", OptIns: []string{"a.A"}, Progressive: true,
+		LanguageVersion: "1.9", APIVersion: "1.8", OptIns: []string{"a.A"}, Progressive: true,
 		Flags: []string{"-Xcontext-receivers"}, Notes: []string{"note"}, Rejected: []string{"-Werror (x)"},
 	}}
 	data, err := json.Marshal(in)

@@ -55,8 +55,8 @@ func TestRunProject_FindingsBundleCache_RefreshesOnKotlinSettingsOnlyChange(t *t
 		return scrubLines(res.JSON, []string{"\"durationMs\"", "\"timestamp\"", "\"wallSeconds\"", "\"startTime\"", "\"endTime\""})
 	}
 
-	old := gradlemodel.KotlinSettings{LanguageVersion: "1.9", ApiVersion: "1.9"}
-	modern := gradlemodel.KotlinSettings{LanguageVersion: "2.4", ApiVersion: "2.4", Flags: []string{"-Xexplicit-backing-fields"}}
+	old := gradlemodel.KotlinSettings{LanguageVersion: "1.9", APIVersion: "1.9"}
+	modern := gradlemodel.KotlinSettings{LanguageVersion: "2.4", APIVersion: "2.4", Flags: []string{"-Xexplicit-backing-fields"}}
 
 	coldOld := run(t, old)
 	if bundle.saveCalls != 1 {
@@ -95,7 +95,7 @@ func TestKotlinSettingsAttrsReportDefaultsAndRejections(t *testing.T) {
 	if attrs["source"] != "embedded-default" || attrs["applied"] != "embedded compiler defaults" || attrs["notes"] != "no model" || attrs["identity"] != "" {
 		t.Fatalf("defaults attrs = %v", attrs)
 	}
-	attrs = kotlinSettingsAttrs(gradlemodel.KotlinSettings{LanguageVersion: "2.0", ApiVersion: "2.0", Rejected: []string{"-Werror (not an analysis-semantic setting krit applies)"}})
+	attrs = kotlinSettingsAttrs(gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0", Rejected: []string{"-Werror (not an analysis-semantic setting krit applies)"}})
 	if attrs["source"] != "gradle-model" || attrs["identity"] == "" || !strings.Contains(attrs["applied"], "-language-version=2.0") || !strings.Contains(attrs["notApplied"], "-Werror") {
 		t.Fatalf("applied attrs = %v", attrs)
 	}

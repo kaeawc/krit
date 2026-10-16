@@ -46,13 +46,13 @@ func TestClasspathChangesStoreScopeAndTypesFreshness(t *testing.T) {
 // facts were computed under another language level or opt-in set, with no
 // source, classpath or jar change to show for it.
 func TestKotlinSettingsChangeStoreScope(t *testing.T) {
-	base := gradlemodel.KotlinSettings{LanguageVersion: "2.0", ApiVersion: "2.0", OptIns: []string{"a.A"}, Flags: []string{"-Xcontext-parameters"}}
+	base := gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0", OptIns: []string{"a.A"}, Flags: []string{"-Xcontext-parameters"}}
 	variants := map[string]gradlemodel.KotlinSettings{
-		"language":    {LanguageVersion: "1.9", ApiVersion: "2.0", OptIns: base.OptIns, Flags: base.Flags},
-		"api":         {LanguageVersion: "2.0", ApiVersion: "1.9", OptIns: base.OptIns, Flags: base.Flags},
-		"opt-in":      {LanguageVersion: "2.0", ApiVersion: "2.0", OptIns: []string{"a.A", "b.B"}, Flags: base.Flags},
-		"flag":        {LanguageVersion: "2.0", ApiVersion: "2.0", OptIns: base.OptIns, Flags: []string{"-Xexplicit-backing-fields"}},
-		"progressive": {LanguageVersion: "2.0", ApiVersion: "2.0", OptIns: base.OptIns, Flags: base.Flags, Progressive: true},
+		"language":    {LanguageVersion: "1.9", APIVersion: "2.0", OptIns: base.OptIns, Flags: base.Flags},
+		"api":         {LanguageVersion: "2.0", APIVersion: "1.9", OptIns: base.OptIns, Flags: base.Flags},
+		"opt-in":      {LanguageVersion: "2.0", APIVersion: "2.0", OptIns: []string{"a.A", "b.B"}, Flags: base.Flags},
+		"flag":        {LanguageVersion: "2.0", APIVersion: "2.0", OptIns: base.OptIns, Flags: []string{"-Xexplicit-backing-fields"}},
+		"progressive": {LanguageVersion: "2.0", APIVersion: "2.0", OptIns: base.OptIns, Flags: base.Flags, Progressive: true},
 		"none":        {},
 	}
 	for _, backend := range []Backend{BackendFIR, BackendKAA} {
@@ -106,7 +106,7 @@ func TestKotlinSettingsForceSettingsScopedOneShot(t *testing.T) {
 func TestCompileContextArgsCarryKotlinSettings(t *testing.T) {
 	opts := InvocationOptions{
 		Backend: BackendKAA, Classpath: []string{"/a.jar"}, JvmTarget: "17",
-		Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "1.9", ApiVersion: "1.8", OptIns: []string{"x.Y"}, Flags: []string{"-Xcontext-parameters"}},
+		Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "1.9", APIVersion: "1.8", OptIns: []string{"x.Y"}, Flags: []string{"-Xcontext-parameters"}},
 	}
 	got := compileContextArgs(opts)
 	want := []string{

@@ -34,7 +34,7 @@ func TestLoadParsesKotlinSettingsPerSourceSet(t *testing.T) {
 		t.Fatalf("schema versions: app=%d lib=%d", by[":app"].SchemaVersion, by[":lib"].SchemaVersion)
 	}
 	main := by[":app"].SourceSets[0].Kotlin
-	if main == nil || main.LanguageVersion != "1.9" || main.ApiVersion != "1.8" || !main.ProgressiveMode ||
+	if main == nil || main.LanguageVersion != "1.9" || main.APIVersion != "1.8" || !main.ProgressiveMode ||
 		!reflect.DeepEqual(main.OptIn, []string{"kotlin.RequiresOptIn"}) || main.PluginVersion != "2.1.20" {
 		t.Fatalf("main kotlin options = %+v", main)
 	}
@@ -51,13 +51,13 @@ func TestLoadParsesKotlinSettingsPerSourceSet(t *testing.T) {
 		got[e.Project+":"+e.SourceSet] = e.Settings
 	}
 	app := got[":app:main"]
-	if app.LanguageVersion != "1.9" || app.ApiVersion != "1.8" || !app.Progressive ||
+	if app.LanguageVersion != "1.9" || app.APIVersion != "1.8" || !app.Progressive ||
 		!reflect.DeepEqual(app.Flags, []string{"-Xcontext-receivers"}) {
 		t.Fatalf("app main = %+v", app)
 	}
 	// The test source set pins nothing: Gradle compiled it with the plugin's
 	// language version, so that is its effective setting, and it differs from main.
-	if test := got[":app:test"]; test.LanguageVersion != "2.1" || test.ApiVersion != "2.1" {
+	if test := got[":app:test"]; test.LanguageVersion != "2.1" || test.APIVersion != "2.1" {
 		t.Fatalf("app test = %+v", test)
 	}
 	if lib := got[":lib:main"]; !lib.IsZero() || len(lib.Notes) == 0 {
@@ -75,18 +75,18 @@ func TestResolveKotlinSettingsDefaults(t *testing.T) {
 		{"absent model", nil, KotlinSettings{}, "embedded compiler's defaults apply"},
 		{"nothing known", &KotlinOptions{}, KotlinSettings{}, "plugin version is unknown"},
 		{"derived from plugin", &KotlinOptions{PluginVersion: "2.0.21-RC"},
-			KotlinSettings{LanguageVersion: "2.0", ApiVersion: "2.0"}, "using 2.0 from Kotlin Gradle plugin"},
+			KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}, "using 2.0 from Kotlin Gradle plugin"},
 		{"api defaults to language", &KotlinOptions{LanguageVersion: "1.9"},
-			KotlinSettings{LanguageVersion: "1.9", ApiVersion: "1.9"}, "defaults to the language version"},
-		{"explicit wins over plugin", &KotlinOptions{LanguageVersion: "1.9", ApiVersion: "1.8", PluginVersion: "2.1.0"},
-			KotlinSettings{LanguageVersion: "1.9", ApiVersion: "1.8"}, ""},
+			KotlinSettings{LanguageVersion: "1.9", APIVersion: "1.9"}, "defaults to the language version"},
+		{"explicit wins over plugin", &KotlinOptions{LanguageVersion: "1.9", APIVersion: "1.8", PluginVersion: "2.1.0"},
+			KotlinSettings{LanguageVersion: "1.9", APIVersion: "1.8"}, ""},
 		{"free arg overrides DSL", &KotlinOptions{LanguageVersion: "1.9", FreeCompilerArgs: []string{"-language-version", "2.0", "-api-version=2.0"}},
-			KotlinSettings{LanguageVersion: "2.0", ApiVersion: "2.0"}, ""},
+			KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}, ""},
 		{"malformed version ignored", &KotlinOptions{LanguageVersion: "latest"},
 			KotlinSettings{}, `"latest" is not a major.minor version`},
 		{"opt-ins merged and sorted", &KotlinOptions{LanguageVersion: "2.0", OptIn: []string{"b.B", "a.A", "bad marker"},
 			FreeCompilerArgs: []string{"-opt-in=a.A", "-Xopt-in=c.C"}},
-			KotlinSettings{LanguageVersion: "2.0", ApiVersion: "2.0", OptIns: []string{"a.A", "b.B", "c.C"}}, ""},
+			KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0", OptIns: []string{"a.A", "b.B", "c.C"}}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -172,7 +172,7 @@ func TestKotlinFlagAllowlistAndProtectedArgs(t *testing.T) {
 
 func TestKotlinSettingsCompilerArgs(t *testing.T) {
 	s := KotlinSettings{
-		LanguageVersion: "2.0", ApiVersion: "1.9", OptIns: []string{"b.B", "a.A", "a.A"}, Progressive: true,
+		LanguageVersion: "2.0", APIVersion: "1.9", OptIns: []string{"b.B", "a.A", "a.A"}, Progressive: true,
 		Flags: []string{"-Xcontext-parameters"}, Notes: []string{"n"}, Rejected: []string{"r"},
 	}
 	want := []string{"-language-version=2.0", "-api-version=1.9", "-opt-in=a.A", "-opt-in=b.B", "-progressive", "-Xcontext-parameters"}
@@ -193,19 +193,19 @@ func TestKotlinSettingsCompilerArgs(t *testing.T) {
 }
 
 func TestKotlinSettingsIdentity(t *testing.T) {
-	base := KotlinSettings{LanguageVersion: "2.0", ApiVersion: "2.0", OptIns: []string{"a.A"}, Flags: []string{"-Xcontext-parameters"}}
+	base := KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0", OptIns: []string{"a.A"}, Flags: []string{"-Xcontext-parameters"}}
 	if (KotlinSettings{}).Identity() != "" || (KotlinSettings{Notes: []string{"x"}, Rejected: []string{"y"}}).Identity() != "" {
 		t.Fatal("zero settings must have an empty identity so existing cache keys are unchanged")
 	}
 	seen := map[string]string{base.Identity(): "base"}
 	variants := map[string]KotlinSettings{
-		"language":    {LanguageVersion: "1.9", ApiVersion: "2.0", OptIns: base.OptIns, Flags: base.Flags},
-		"api":         {LanguageVersion: "2.0", ApiVersion: "1.9", OptIns: base.OptIns, Flags: base.Flags},
-		"optin":       {LanguageVersion: "2.0", ApiVersion: "2.0", OptIns: []string{"a.A", "b.B"}, Flags: base.Flags},
-		"flag":        {LanguageVersion: "2.0", ApiVersion: "2.0", OptIns: base.OptIns, Flags: []string{"-Xexplicit-backing-fields"}},
-		"flag order":  {LanguageVersion: "2.0", ApiVersion: "2.0", OptIns: base.OptIns, Flags: []string{"-Xcontext-parameters", "-Xwhen-guards"}},
-		"progressive": {LanguageVersion: "2.0", ApiVersion: "2.0", OptIns: base.OptIns, Flags: base.Flags, Progressive: true},
-		"no flags":    {LanguageVersion: "2.0", ApiVersion: "2.0", OptIns: base.OptIns},
+		"language":    {LanguageVersion: "1.9", APIVersion: "2.0", OptIns: base.OptIns, Flags: base.Flags},
+		"api":         {LanguageVersion: "2.0", APIVersion: "1.9", OptIns: base.OptIns, Flags: base.Flags},
+		"optin":       {LanguageVersion: "2.0", APIVersion: "2.0", OptIns: []string{"a.A", "b.B"}, Flags: base.Flags},
+		"flag":        {LanguageVersion: "2.0", APIVersion: "2.0", OptIns: base.OptIns, Flags: []string{"-Xexplicit-backing-fields"}},
+		"flag order":  {LanguageVersion: "2.0", APIVersion: "2.0", OptIns: base.OptIns, Flags: []string{"-Xcontext-parameters", "-Xwhen-guards"}},
+		"progressive": {LanguageVersion: "2.0", APIVersion: "2.0", OptIns: base.OptIns, Flags: base.Flags, Progressive: true},
+		"no flags":    {LanguageVersion: "2.0", APIVersion: "2.0", OptIns: base.OptIns},
 	}
 	for name, v := range variants {
 		id := v.Identity()
@@ -215,7 +215,7 @@ func TestKotlinSettingsIdentity(t *testing.T) {
 		seen[id] = name
 	}
 	// Opt-in order and duplicates, notes and rejected arguments are not semantic.
-	same := KotlinSettings{LanguageVersion: "2.0", ApiVersion: "2.0", OptIns: []string{"a.A", "a.A"}, Flags: base.Flags,
+	same := KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0", OptIns: []string{"a.A", "a.A"}, Flags: base.Flags,
 		Notes: []string{"different note"}, Rejected: []string{"-Werror"}}
 	if same.Identity() != base.Identity() || same.IdentityHash() != base.IdentityHash() || base.IdentityHash() == "" {
 		t.Fatalf("non-semantic differences changed the identity: %q vs %q", same.Identity(), base.Identity())
@@ -223,16 +223,16 @@ func TestKotlinSettingsIdentity(t *testing.T) {
 }
 
 func TestMergeKotlinSettingsNeverImposesOneModuleOnAnother(t *testing.T) {
-	modern := KotlinSettings{LanguageVersion: "2.0", ApiVersion: "2.0", OptIns: []string{"a.A", "b.B"}, Flags: []string{"-Xcontext-parameters", "-Xwhen-guards"}}
-	old := KotlinSettings{LanguageVersion: "1.9", ApiVersion: "1.9", OptIns: []string{"a.A"}, Flags: []string{"-Xcontext-parameters"}}
+	modern := KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0", OptIns: []string{"a.A", "b.B"}, Flags: []string{"-Xcontext-parameters", "-Xwhen-guards"}}
+	old := KotlinSettings{LanguageVersion: "1.9", APIVersion: "1.9", OptIns: []string{"a.A"}, Flags: []string{"-Xcontext-parameters"}}
 
 	agree := MergeKotlinSettings([]KotlinSettings{modern, modern}, []string{":a:main", ":b:main"})
-	if agree.LanguageVersion != "2.0" || agree.ApiVersion != "2.0" || !reflect.DeepEqual(agree.OptIns, modern.OptIns) || !reflect.DeepEqual(agree.Flags, modern.Flags) {
+	if agree.LanguageVersion != "2.0" || agree.APIVersion != "2.0" || !reflect.DeepEqual(agree.OptIns, modern.OptIns) || !reflect.DeepEqual(agree.Flags, modern.Flags) {
 		t.Fatalf("agreeing sets must keep their settings: %+v", agree)
 	}
 
 	mixed := MergeKotlinSettings([]KotlinSettings{modern, old, modern}, []string{":a:main", ":legacy:main", ":c:main"})
-	if mixed.LanguageVersion != "" || mixed.ApiVersion != "" {
+	if mixed.LanguageVersion != "" || mixed.APIVersion != "" {
 		t.Fatalf("disagreeing versions must not be applied: %+v", mixed)
 	}
 	if !reflect.DeepEqual(mixed.OptIns, []string{"a.A"}) || !reflect.DeepEqual(mixed.Flags, []string{"-Xcontext-parameters"}) {

@@ -15,7 +15,7 @@ import (
 // ResolveKotlinSettings, never by the exporter.
 type KotlinOptions struct {
 	LanguageVersion  string   `json:"languageVersion"`
-	ApiVersion       string   `json:"apiVersion"`
+	APIVersion       string   `json:"apiVersion"`
 	OptIn            []string `json:"optIn"`
 	FreeCompilerArgs []string `json:"freeCompilerArgs"`
 	ProgressiveMode  bool     `json:"progressiveMode"`
@@ -33,7 +33,7 @@ type KotlinOptions struct {
 // schema 1, or incomplete Gradle model, and it is never silent: Notes says why.
 type KotlinSettings struct {
 	LanguageVersion string   `json:"languageVersion,omitempty"`
-	ApiVersion      string   `json:"apiVersion,omitempty"`
+	APIVersion      string   `json:"apiVersion,omitempty"`
 	OptIns          []string `json:"optIns,omitempty"`
 	Progressive     bool     `json:"progressive,omitempty"`
 	// Flags are the allowlisted -X / -XXLanguage: flags in application order
@@ -50,7 +50,7 @@ type KotlinSettings struct {
 
 // IsZero reports whether no setting would reach the compiler.
 func (s KotlinSettings) IsZero() bool {
-	return s.LanguageVersion == "" && s.ApiVersion == "" && len(s.OptIns) == 0 && !s.Progressive && len(s.Flags) == 0
+	return s.LanguageVersion == "" && s.APIVersion == "" && len(s.OptIns) == 0 && !s.Progressive && len(s.Flags) == 0
 }
 
 // kotlinSettingsIdentityVersion changes when the identity encoding or the
@@ -66,7 +66,7 @@ func (s KotlinSettings) Identity() string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "kotlin-settings-v%d", kotlinSettingsIdentityVersion)
-	fmt.Fprintf(&b, "|lang=%s|api=%s|progressive=%t", s.LanguageVersion, s.ApiVersion, s.Progressive)
+	fmt.Fprintf(&b, "|lang=%s|api=%s|progressive=%t", s.LanguageVersion, s.APIVersion, s.Progressive)
 	b.WriteString("|optin=")
 	b.WriteString(strings.Join(sortedUnique(s.OptIns), "\x1f"))
 	b.WriteString("|flags=")
@@ -92,8 +92,8 @@ func (s KotlinSettings) CompilerArgs() []string {
 	if s.LanguageVersion != "" {
 		args = append(args, "-language-version="+s.LanguageVersion)
 	}
-	if s.ApiVersion != "" {
-		args = append(args, "-api-version="+s.ApiVersion)
+	if s.APIVersion != "" {
+		args = append(args, "-api-version="+s.APIVersion)
 	}
 	for _, optIn := range sortedUnique(s.OptIns) {
 		args = append(args, "-opt-in="+optIn)
@@ -203,77 +203,107 @@ type parsedKotlinArgs struct {
 	rejected        []string
 }
 
+// kotlinArgParser walks one argument list, classifying each argument.
+type kotlinArgParser struct {
+	args     []string
+	i        int
+	out      parsedKotlinArgs
+	seenFlag map[string]int
+}
+
+func (p *kotlinArgParser) reject(arg, reason string) {
+	p.out.rejected = append(p.out.rejected, arg+" ("+reason+")")
+}
+
+// operand returns the value of a valued option in equals form (value) or split
+// form (the next token).
+func (p *kotlinArgParser) operand(value string, hasValue bool) (string, bool) {
+	if hasValue {
+		return value, true
+	}
+	if p.i+1 < len(p.args) {
+		p.i++
+		return strings.TrimSpace(p.args[p.i]), true
+	}
+	return "", false
+}
+
+func (p *kotlinArgParser) version(arg, name, value string, hasValue bool) {
+	v, ok := p.operand(value, hasValue)
+	if !ok || !versionRe.MatchString(v) {
+		p.reject(arg, "unsupported version value")
+		return
+	}
+	if name == "-language-version" {
+		p.out.languageVersion = v
+	} else {
+		p.out.apiVersion = v
+	}
+}
+
+func (p *kotlinArgParser) optIn(arg, value string, hasValue bool) {
+	v, ok := p.operand(value, hasValue)
+	if !ok || !optInRe.MatchString(v) {
+		p.reject(arg, "unsupported opt-in marker")
+		return
+	}
+	p.out.optIns = append(p.out.optIns, v)
+}
+
+func (p *kotlinArgParser) protected(arg, name string, hasValue bool) {
+	if protectedValued[name] && !hasValue && p.i+1 < len(p.args) {
+		p.i++
+		p.reject(arg+" "+p.args[p.i], "managed by krit")
+		return
+	}
+	p.reject(arg, "managed by krit")
+}
+
+func (p *kotlinArgParser) flag(arg, name, value string, hasValue bool) {
+	kind, ok := kotlinFlagAllowlist[name]
+	switch {
+	case !ok:
+		p.reject(arg, "not an analysis-semantic setting krit applies")
+	case kind == flagBoolean && hasValue:
+		p.reject(arg, "flag takes no value")
+	case kind == flagValued && (!hasValue || !flagValueRe.MatchString(value)):
+		p.reject(arg, "flag needs a simple value")
+	default:
+		// A repeated flag keeps its last position, so contradictory
+		// -XXLanguage toggles resolve the way the compiler would.
+		p.out.flags = appendFlag(p.out.flags, p.seenFlag, name, arg)
+	}
+}
+
+func (p *kotlinArgParser) one(arg string) {
+	name, value, hasValue := strings.Cut(arg, "=")
+	switch {
+	case name == "-language-version" || name == "-api-version":
+		p.version(arg, name, value, hasValue)
+	case name == "-opt-in" || name == "-Xopt-in":
+		p.optIn(arg, value, hasValue)
+	case name == "-progressive":
+		p.out.progressive = true
+	case IsProtectedKotlinArg(arg):
+		p.protected(arg, name, hasValue)
+	case languageRe.MatchString(arg):
+		p.out.flags = appendFlag(p.out.flags, p.seenFlag, arg, arg)
+	default:
+		p.flag(arg, name, value, hasValue)
+	}
+}
+
 // parseKotlinArgs classifies compiler arguments. Every argument ends up either
 // applied (language/api version, opt-in, progressive, an allowlisted flag) or in
 // rejected with a reason; none is dropped silently.
 func parseKotlinArgs(args []string) parsedKotlinArgs {
-	var out parsedKotlinArgs
-	reject := func(arg, reason string) { out.rejected = append(out.rejected, arg+" ("+reason+")") }
-	seenFlag := map[string]int{}
-	for i := 0; i < len(args); i++ {
-		arg := strings.TrimSpace(args[i])
-		if arg == "" {
-			continue
-		}
-		name, value, hasValue := strings.Cut(arg, "=")
-		// valueOf returns the operand of a valued option in equals or split form.
-		valueOf := func() (string, bool) {
-			if hasValue {
-				return value, true
-			}
-			if i+1 < len(args) {
-				i++
-				return strings.TrimSpace(args[i]), true
-			}
-			return "", false
-		}
-		switch {
-		case name == "-language-version" || name == "-api-version":
-			v, ok := valueOf()
-			if !ok || !versionRe.MatchString(v) {
-				reject(arg, "unsupported version value")
-				continue
-			}
-			if name == "-language-version" {
-				out.languageVersion = v
-			} else {
-				out.apiVersion = v
-			}
-		case name == "-opt-in" || name == "-Xopt-in":
-			v, ok := valueOf()
-			if !ok || !optInRe.MatchString(v) {
-				reject(arg, "unsupported opt-in marker")
-				continue
-			}
-			out.optIns = append(out.optIns, v)
-		case name == "-progressive":
-			out.progressive = true
-		case IsProtectedKotlinArg(arg):
-			if protectedValued[name] && !hasValue && i+1 < len(args) {
-				i++
-				reject(arg+" "+args[i], "managed by krit")
-				continue
-			}
-			reject(arg, "managed by krit")
-		case languageRe.MatchString(arg):
-			out.flags = appendFlag(out.flags, seenFlag, arg, arg)
-		default:
-			kind, ok := kotlinFlagAllowlist[name]
-			switch {
-			case !ok:
-				reject(arg, "not an analysis-semantic setting krit applies")
-			case kind == flagBoolean && hasValue:
-				reject(arg, "flag takes no value")
-			case kind == flagValued && (!hasValue || !flagValueRe.MatchString(value)):
-				reject(arg, "flag needs a simple value")
-			default:
-				// A repeated flag keeps its last position, so contradictory
-				// -XXLanguage toggles resolve the way the compiler would.
-				out.flags = appendFlag(out.flags, seenFlag, name, arg)
-			}
+	p := &kotlinArgParser{args: args, seenFlag: map[string]int{}}
+	for ; p.i < len(args); p.i++ {
+		if arg := strings.TrimSpace(args[p.i]); arg != "" {
+			p.one(arg)
 		}
 	}
-	return out
+	return p.out
 }
 
 // appendFlag adds arg, first removing an earlier flag with the same key (the
@@ -303,7 +333,7 @@ func ClassifyKotlinArgs(args []string) KotlinSettings {
 	p := parseKotlinArgs(args)
 	return KotlinSettings{
 		LanguageVersion: p.languageVersion,
-		ApiVersion:      p.apiVersion,
+		APIVersion:      p.apiVersion,
 		OptIns:          sortedUnique(p.optIns),
 		Progressive:     p.progressive,
 		Flags:           p.flags,
@@ -346,7 +376,7 @@ func ResolveKotlinSettings(opts *KotlinOptions) KotlinSettings {
 	}
 	s.LanguageVersion = language
 
-	api := firstNonEmpty(parsed.apiVersion, opts.ApiVersion)
+	api := firstNonEmpty(parsed.apiVersion, opts.APIVersion)
 	switch {
 	case api != "" && !versionRe.MatchString(api):
 		s.Notes = append(s.Notes, fmt.Sprintf("apiVersion %q is not a major.minor version; ignored", api))
@@ -355,7 +385,7 @@ func ResolveKotlinSettings(opts *KotlinOptions) KotlinSettings {
 		api = language
 		s.Notes = append(s.Notes, "apiVersion not configured; defaults to the language version "+language)
 	}
-	s.ApiVersion = api
+	s.APIVersion = api
 
 	var optIns []string
 	for _, v := range opts.OptIn {
@@ -418,7 +448,7 @@ func MergeKotlinSettings(sets []KotlinSettings, labels []string) KotlinSettings 
 		return first
 	}
 	out.LanguageVersion = uniform("languageVersion", func(s KotlinSettings) string { return s.LanguageVersion })
-	out.ApiVersion = uniform("apiVersion", func(s KotlinSettings) string { return s.ApiVersion })
+	out.APIVersion = uniform("apiVersion", func(s KotlinSettings) string { return s.APIVersion })
 	progressive := uniform("progressive", func(s KotlinSettings) string { return fmt.Sprint(s.Progressive) })
 	out.Progressive = progressive == "true"
 

@@ -13,7 +13,7 @@ import (
 )
 
 func settingsVariants() map[string]gradlemodel.KotlinSettings {
-	base := gradlemodel.KotlinSettings{LanguageVersion: "2.0", ApiVersion: "2.0", OptIns: []string{"a.A"}, Flags: []string{"-Xcontext-parameters"}}
+	base := gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0", OptIns: []string{"a.A"}, Flags: []string{"-Xcontext-parameters"}}
 	vary := func(f func(*gradlemodel.KotlinSettings)) gradlemodel.KotlinSettings {
 		s := base
 		s.OptIns = append([]string(nil), base.OptIns...)
@@ -24,7 +24,7 @@ func settingsVariants() map[string]gradlemodel.KotlinSettings {
 	return map[string]gradlemodel.KotlinSettings{
 		"base":     base,
 		"language": vary(func(s *gradlemodel.KotlinSettings) { s.LanguageVersion = "1.9" }),
-		"api":      vary(func(s *gradlemodel.KotlinSettings) { s.ApiVersion = "1.9" }),
+		"api":      vary(func(s *gradlemodel.KotlinSettings) { s.APIVersion = "1.9" }),
 		"optin":    vary(func(s *gradlemodel.KotlinSettings) { s.OptIns = append(s.OptIns, "b.B") }),
 		"flag":     vary(func(s *gradlemodel.KotlinSettings) { s.Flags = []string{"-Xexplicit-backing-fields"} }),
 		"progress": vary(func(s *gradlemodel.KotlinSettings) { s.Progressive = true }),
@@ -66,13 +66,15 @@ func TestSettingsOnlyChangeChangesFirIdentities(t *testing.T) {
 	if withTarget != legacyShape {
 		t.Fatal("notes and rejected arguments must not affect the fingerprint")
 	}
-	if firRegistryKeyFor("", jar, []string{src}, nil, CompileTarget{JvmTarget: "17"}) != firRegistryKeyFor("", jar, []string{src}, nil, CompileTarget{JvmTarget: "17"}) {
-		t.Fatal("registry key must be deterministic")
+	// Zero settings leave the registry key exactly as the JVM-target-only key was.
+	if got, want := firRegistryKeyFor("", jar, []string{src}, nil, CompileTarget{JvmTarget: "17", Kotlin: gradlemodel.KotlinSettings{Notes: []string{"n"}}}),
+		firRegistryKeyFor("", jar, []string{src}, nil, CompileTarget{JvmTarget: "17"}); got != want {
+		t.Fatal("notes must not change the registry key")
 	}
 }
 
 func TestCheckRequestCarriesKotlinSettings(t *testing.T) {
-	settings := gradlemodel.KotlinSettings{LanguageVersion: "1.9", ApiVersion: "1.8", OptIns: []string{"b.B", "a.A"}, Flags: []string{"-Xcontext-parameters"}}
+	settings := gradlemodel.KotlinSettings{LanguageVersion: "1.9", APIVersion: "1.8", OptIns: []string{"b.B", "a.A"}, Flags: []string{"-Xcontext-parameters"}}
 	data, _, err := encodeCheckRequest(7, []fileRef{{Path: "/p/A.kt"}}, []string{"/p"}, nil, []string{"R"}, nil, FileFacts{}, CompileTarget{JvmTarget: "17", Kotlin: settings})
 	if err != nil {
 		t.Fatal(err)
@@ -100,16 +102,16 @@ func TestCheckRequestCarriesKotlinSettings(t *testing.T) {
 func TestPrefetchRiderRequiresSameKotlinSettings(t *testing.T) {
 	p := newPrefetchProject(t)
 	checker := p.opts.Checker.(*ProductionFirChecker)
-	checker.Kotlin = gradlemodel.KotlinSettings{LanguageVersion: "2.0", ApiVersion: "2.0"}
+	checker.Kotlin = gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}
 	prefetch := NewPrefetch(p.opts)
-	same := CompileTarget{Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "2.0", ApiVersion: "2.0"}}
+	same := CompileTarget{Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}}
 	if fmt.Sprint(prefetch.Rider(p.jar, []string{p.src}, []string{p.jar}, same)) == "<nil>" {
 		t.Fatal("no rider for the checker's own compile context")
 	}
 	for name, other := range map[string]CompileTarget{
-		"older language": {Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "1.9", ApiVersion: "2.0"}},
+		"older language": {Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "1.9", APIVersion: "2.0"}},
 		"no settings":    {},
-		"extra flag":     {Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "2.0", ApiVersion: "2.0", Flags: []string{"-Xcontext-parameters"}}},
+		"extra flag":     {Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0", Flags: []string{"-Xcontext-parameters"}}},
 	} {
 		if fmt.Sprint(prefetch.Rider(p.jar, []string{p.src}, []string{p.jar}, other)) != "<nil>" {
 			t.Errorf("%s: oracle compiled another language level but the check rode on it", name)

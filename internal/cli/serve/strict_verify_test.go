@@ -54,7 +54,7 @@ func TestOracleModelArgsMatchAcrossStrictVerifyPaths(t *testing.T) {
 		OracleClasspath:           []string{"model/classes", "model/dependencies.jar"},
 		OracleSourceDirs:          []string{"module/src/main/kotlin", "module/src/main/java"},
 		OracleJvmTarget:           "17",
-		OracleKotlin:              gradlemodel.KotlinSettings{LanguageVersion: "1.9", ApiVersion: "1.9"},
+		OracleKotlin:              gradlemodel.KotlinSettings{LanguageVersion: "1.9", APIVersion: "1.9"},
 		OracleGeneratedSourceDirs: []string{"module/build/generated/source"},
 	}
 	current := pipeline.ProjectArgs{}

@@ -26,6 +26,10 @@ type typesFactsRecord struct {
 	JarToken           string `json:"jarToken"`
 	ClasspathToken     string `json:"classpathToken"`
 	BuildToken         string `json:"buildToken"`
+	// ScopeVersion is the store scope's identity hash: it covers the backend,
+	// jar, classpath, JVM target and Kotlin compiler settings, so a
+	// settings-only change cannot reuse a types.json computed under others.
+	ScopeVersion string `json:"scopeVersion,omitempty"`
 }
 
 func typesFactsPath(typesPath string) string { return typesPath + ".facts" }
@@ -47,6 +51,7 @@ func RecordTypesFacts(typesPath string, diagnosticsOmitted bool, scope ...StoreS
 		rec.Backend = scope[0].Backend.String()
 		rec.JarToken = scope[0].JarToken
 		rec.ClasspathToken = scope[0].ClasspathToken
+		rec.ScopeVersion = scope[0].versionHex()
 	}
 	body, err := json.Marshal(rec)
 	if err != nil {
@@ -69,7 +74,7 @@ func TypesJSONHasDiagnostics(typesPath string) bool {
 func TypesJSONSatisfies(typesPath string, diagnosticsRequired bool, scope StoreScope, buildToken string) bool {
 	rec, ok := readTypesFacts(typesPath)
 	return ok && rec.Backend == scope.Backend.String() && rec.JarToken == scope.JarToken && rec.ClasspathToken == scope.ClasspathToken &&
-		rec.BuildToken == buildToken && (!diagnosticsRequired || !rec.DiagnosticsOmitted)
+		rec.ScopeVersion == scope.versionHex() && rec.BuildToken == buildToken && (!diagnosticsRequired || !rec.DiagnosticsOmitted)
 }
 
 func readTypesFacts(typesPath string) (typesFactsRecord, bool) {

@@ -1,6 +1,7 @@
 package oracle
 
 import (
+	"encoding/hex"
 	"fmt"
 	"sync"
 
@@ -72,6 +73,9 @@ func storeScopeForToken(backend Backend, jarToken string) StoreScope {
 	copy(scope.version[:], h[:])
 	return scope
 }
+
+// versionHex is the scope identity as a string, for sidecar records.
+func (s StoreScope) versionHex() string { return hex.EncodeToString(s.version[:]) }
 
 var boundStoreScopes sync.Map // *store.FileStore -> StoreScope
 

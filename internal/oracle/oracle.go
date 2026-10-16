@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/kaeawc/krit/internal/scanner"
@@ -58,6 +60,9 @@ type Oracle struct {
 
 	// FQN reverse index, built once during Load.
 	index *Index
+
+	// absFileKeys memoizes fileKey's relative → absolute resolutions.
+	absFileKeys sync.Map
 
 	// Hit/miss counters, updated by LookupClass/LookupExpression/LookupFunction.
 	exprHits    atomic.Int64
@@ -149,13 +154,34 @@ func newOracleShell(raw *Data) *Oracle {
 	}
 }
 
+// fileKey returns the spelling of path that keys the per-file indexes. The
+// JVM helpers are sent absolute paths and report facts under them, while a
+// scan of a relative root (`krit .`, `krit samples/app`) hands rules relative
+// File.Path values. A path the oracle holds facts for is used as spelled;
+// any other relative path is resolved against the working directory, so the
+// two spellings of one file reach the same facts.
+func (o *Oracle) fileKey(path string) string {
+	if path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	if _, ok := o.blobHashes[path]; ok {
+		return path
+	}
+	if abs, ok := o.absFileKeys.Load(path); ok {
+		return abs.(string)
+	}
+	abs := AbsolutePath(path)
+	o.absFileKeys.Store(path, abs)
+	return abs
+}
+
 // BlobHash returns the canonical fact hash captured for path before the
 // Oracle releases its raw declaration/expression payloads after indexing.
 func (o *Oracle) BlobHash(path string) string {
 	if o == nil {
 		return ""
 	}
-	if hash, ok := o.blobHashes[path]; ok {
+	if hash, ok := o.blobHashes[o.fileKey(path)]; ok {
 		return hash
 	}
 	return BlobHash(nil)
@@ -538,7 +564,7 @@ func (o *Oracle) LookupFunction(key string) *typeinfer.ResolvedType {
 // LookupExpression returns the compiler-resolved type for an expression at a
 // specific source position (1-based line and column).
 func (o *Oracle) LookupExpression(filePath string, line, col int) *typeinfer.ResolvedType {
-	fileExprs := o.expressions[filePath]
+	fileExprs := o.expressions[o.fileKey(filePath)]
 	if fileExprs == nil {
 		o.exprMisses.Add(1)
 		return nil
@@ -575,7 +601,7 @@ func (o *Oracle) LookupAnnotations(key string) []string {
 // resolved call-target symbol at the given source position. These are captured
 // during krit-types call resolution and require no declaration extraction.
 func (o *Oracle) LookupCallTargetAnnotations(filePath string, line, col int) []string {
-	fileCTAs := o.callTargetAnnotations[filePath]
+	fileCTAs := o.callTargetAnnotations[o.fileKey(filePath)]
 	if fileCTAs == nil {
 		return nil
 	}
@@ -597,7 +623,7 @@ func (o *Oracle) LookupCallTargetAnnotationsFlat(file *scanner.File, idx uint32)
 // LookupCallTarget returns the FQN of the resolved call target for an
 // expression at a specific source position (1-based line and column).
 func (o *Oracle) LookupCallTarget(filePath string, line, col int) string {
-	fileCTs := o.callTargets[filePath]
+	fileCTs := o.callTargets[o.fileKey(filePath)]
 	if fileCTs == nil {
 		return ""
 	}
@@ -621,11 +647,11 @@ func (o *Oracle) LookupCallTargetFlat(file *scanner.File, idx uint32) string {
 // or came from lexical fallback rather than KAA resolution.
 func (o *Oracle) LookupCallTargetSuspend(filePath string, line, col int) (isSuspend bool, ok bool) {
 	key := packLineCol(line, col)
-	fileResolved := o.callTargetResolved[filePath]
+	fileResolved := o.callTargetResolved[o.fileKey(filePath)]
 	if fileResolved == nil || !fileResolved[key] {
 		return false, false
 	}
-	fileSuspend := o.callTargetSuspend[filePath]
+	fileSuspend := o.callTargetSuspend[o.fileKey(filePath)]
 	return fileSuspend != nil && fileSuspend[key], true
 }
 
@@ -645,7 +671,7 @@ func (o *Oracle) lookupRangeFact(file *scanner.File, idx uint32) *expressionRang
 	if file == nil {
 		return nil
 	}
-	ranges := o.expressionRanges[file.Path]
+	ranges := o.expressionRanges[o.fileKey(file.Path)]
 	if len(ranges) == 0 {
 		return nil
 	}
@@ -682,7 +708,7 @@ func (o *Oracle) lookupRangeFact(file *scanner.File, idx uint32) *expressionRang
 
 // LookupDiagnostics returns compiler diagnostics for a source file.
 func (o *Oracle) LookupDiagnostics(filePath string) []Diagnostic {
-	file := o.raw.Files[filePath]
+	file := o.raw.Files[o.fileKey(filePath)]
 	if file == nil || len(file.Diagnostics) == 0 {
 		return nil
 	}

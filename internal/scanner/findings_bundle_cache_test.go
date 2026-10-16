@@ -172,13 +172,14 @@ func TestSweepStalePackDirs(t *testing.T) {
 	old1, old2 := mk("packs-v1"), mk("packs-v5")
 	cur := mk(packSubdir)
 	other := mk("packs-foo")
+	newer := mk("packs-v99")
 	(&packStore{cacheDir: cacheDir}).sweepLegacyShardsDir()
 	for _, p := range []string{old1, old2} {
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
 			t.Errorf("%s should be removed", p)
 		}
 	}
-	for _, p := range []string{cur, other} {
+	for _, p := range []string{cur, other, newer} {
 		if _, err := os.Stat(p); err != nil {
 			t.Errorf("%s should be kept: %v", p, err)
 		}

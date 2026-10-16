@@ -569,7 +569,7 @@ func (ps *packStore) sweepLegacyShardsDir() {
 }
 
 // sweepStalePackDirs removes pack directories from older shard versions
-// (packs-v<N> where N differs from the current version). Nothing else evicts
+// (packs-v<N> with N below the current version). Nothing else evicts
 // shards, so without this every shard-version bump would leave a dead
 // generation behind. Best-effort like the legacy sweep: an older krit running
 // concurrently just recreates its own directory on its next write.
@@ -583,7 +583,10 @@ func sweepStalePackDirs(cacheDir string) {
 		if !e.IsDir() || name == packSubdir || !strings.HasPrefix(name, packDirPrefix) {
 			continue
 		}
-		if _, err := strconv.Atoi(strings.TrimPrefix(name, packDirPrefix)); err != nil {
+		// Only older generations: a newer krit's dir must survive so
+		// alternating builds do not delete each other's cache.
+		n, err := strconv.Atoi(strings.TrimPrefix(name, packDirPrefix))
+		if err != nil || n >= crossFileShardVersion {
 			continue
 		}
 		_ = os.RemoveAll(filepath.Join(cacheDir, name))

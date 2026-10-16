@@ -29,8 +29,8 @@ All notable changes to Krit will be documented in this file.
   microsoft/winget-pkgs when a `WINGET_TOKEN` secret is configured.
 
 ### Fixed
-- `--no-cache` now also bypasses the `.krit/fir-cache` FIR check cache (no reads, no
-  writes), in-process and daemon-delegated (#740).
+- `--no-cache` now also bypasses the `.krit/fir-cache` FIR check cache
+  (no reads, no writes), in-process and daemon-delegated (#745).
 - Gradle plugin binary download requested archives the release never
   published (`krit-<os>-<arch>.tar.gz`) and could not unpack the Windows
   zip. It now fetches `krit_<version>_<os>_<arch>` archives (including the

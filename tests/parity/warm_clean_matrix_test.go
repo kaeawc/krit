@@ -508,7 +508,7 @@ func wcBuildKnownStale() map[string]string {
 	// An analyze that arrives before the watcher has delivered an edit is
 	// served the old findings, and so is every later one: the daemon stays
 	// stale until the next edit.
-	both("structural/daemon", "annotation-deprecated-raced", "DAEMON-RACED-ANALYZE (issue to be filed): an analyze-project call racing the watcher event leaves the daemon serving the pre-edit findings after the event lands")
+	both("structural/daemon", "annotation-deprecated-raced", "#832 DAEMON-RACED-ANALYZE: an analyze-project call racing the watcher event leaves the daemon serving the pre-edit findings after the event lands")
 	// Deleting a file leaves its cross-file findings in the cross-file
 	// findings cache of the one-shot CLI.
 	both("structural/cli", "file-delete", "#825 STALE-CROSSFILE-DELETE: findings of a deleted file survive in the cross-file caches of the one-shot CLI")

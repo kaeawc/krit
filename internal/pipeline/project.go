@@ -609,8 +609,8 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	phaseTimings = analysis.PhaseTimingsMs
 
 	// Post-parse BundleOutput cache shortcut. When the dispatch path
-	// hit a bundle (cacheHitFullBundle, including the alias #599 and
-	// #602 produce on structural replay), the FindingColumns flowing
+	// hit a bundle (cacheHitFullBundle, including an alias saved
+	// under the current key), the FindingColumns flowing
 	// out of RunProjectAnalysis is byte-identical to what the prior
 	// run produced. If the host's BundleOutput cache already holds
 	// the formatted bytes for analysis.RunFP, we can emit them
@@ -2842,9 +2842,15 @@ func tryDeltaDispatch(
 	if !plan.ReusePrevious || len(plan.ChangedPaths) != 1 {
 		return DispatchResult{}, CrossFileResult{}, false, nil
 	}
-	priorBundle, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, prior.Fingerprint)
-	if !ok || priorBundle == nil {
-		return DispatchResult{}, CrossFileResult{}, false, nil
+	priorKey := scanner.FindingsBundleKey(prior.Fingerprint)
+	priorBundle := residentBundleLookup(host, priorKey)
+	if priorBundle == nil {
+		loaded, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, prior.Fingerprint)
+		if !ok || loaded == nil {
+			return DispatchResult{}, CrossFileResult{}, false, nil
+		}
+		priorBundle = loaded
+		residentBundleStash(host, priorKey, priorBundle)
 	}
 
 	changedPath := plan.ChangedPaths[0]
@@ -3316,12 +3322,9 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 	}
 	// Look up the prior manifest once — daemon callers wire
 	// FindingsBundleManifestLoader to an in-memory cache so this is
-	// effectively free (~0 ms). Reusing the result across both
-	// fingerprint branches saves a ~90 ms cacheHitFullBundle Load on
-	// warm+ABI: when fp != prior.Fingerprint the bundle CAN'T be
-	// stored under fp (no analyze ever produced it), so the Load
-	// would deterministically miss. Going straight to the
-	// delta path saves the wasted decode attempt.
+	// effectively free (~0 ms). When fp != prior.Fingerprint the bundle
+	// can't be stored under fp (no analyze ever produced it), so the
+	// full-bundle Load would deterministically miss and is skipped.
 	manifestKey := scanner.FindingsBundleManifestKey(host.FindingsBundleCacheRoot, args.Paths)
 	prior, priorOK := loadBundleManifest(host, manifestKey)
 

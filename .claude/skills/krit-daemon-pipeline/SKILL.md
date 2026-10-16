@@ -17,7 +17,7 @@ Each scan flows through phases the dispatcher schedules after the required index
 - Oracle (KAA) lifecycle — resident JVM, oracle call filter classification cache
 - Findings-bundle cache — full-hit short-circuit when a bundle has not changed
 
-The `ConservativeDeltaPlanner` decides which files genuinely need rework after an edit. "Body-only" edits should reuse the prior bundle rather than re-running cross-file.
+The `ConservativeDeltaPlanner` decides which files genuinely need rework after an edit. "Body-only" edits (structural fingerprint unchanged) take the delta path: the edited file is re-dispatched and its findings are merged into the prior bundle. Replaying the whole prior bundle is unsafe because the edited file's own findings can change (#823).
 
 ## Cold vs Warm Correctness
 
@@ -53,7 +53,7 @@ When a bundle misses, `diag(pipeline) report bundle miss components` (#144) emit
 
 The findings-bundle cache short-circuits scans whose inputs match a prior bundle. Two invariants:
 
-- **Body-only edits reuse the bundle.** See `fix(pipeline) reuse bundle for body-only edits` (#154). If a body-only edit forces a full scan, the planner has lost precision — diagnose at the planner, not at the rules.
+- **Body-only edits take the delta path, never a verbatim bundle replay.** The edited file is re-dispatched (`tryDeltaDispatch`) and merged against the prior bundle; other files' findings are reused. Replaying the whole prior bundle (the old #154 structural replay) dropped findings added inside the edited body (#823). If a body-only edit forces a full scan, the planner has lost precision — diagnose at the planner, not at the rules.
 - **Conservative delta planner pairs with structural cross-file.** A delta that touches structural API must invalidate cross-file dependents; a delta that does not, must not. See `feat(daemon) wire ConservativeDeltaPlanner with structural CrossFile` (#135).
 
 ## When To Add Daemon State

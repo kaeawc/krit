@@ -9,6 +9,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -123,14 +124,23 @@ func TestRunProject_BodyOnlyEditDoesNotReplayFindingsBundle(t *testing.T) {
 			ctx.EmitAt(int(ctx.Node.StartRow)+1, 1, "class declared")
 		}),
 	)
+	ifRule := api.FakeRule("IfExpr",
+		api.WithNodeTypes("if_expression"),
+		api.WithSeverity(api.SeverityWarning),
+		api.WithCheck(func(ctx *api.Context) {
+			ctx.EmitAt(int(ctx.Node.StartRow)+1, 1, "if expression")
+		}),
+	)
+	tracker := perf.New(true)
 	host := ProjectHostState{
+		Tracker:                 tracker,
 		FindingsBundleStore:     scanner.DiskFindingsBundleStore{},
 		FindingsBundleCacheRoot: root,
 	}
 	args := ProjectArgs{
 		Config:      config.NewConfig(),
 		Paths:       []string{root},
-		ActiveRules: []*api.Rule{rule},
+		ActiveRules: []*api.Rule{rule, ifRule},
 		Format:      "json",
 		Version:     "test",
 	}
@@ -147,10 +157,12 @@ func TestRunProject_BodyOnlyEditDoesNotReplayFindingsBundle(t *testing.T) {
 	}
 
 	if err := os.WriteFile(src,
-		[]byte("package demo\n\nclass Foo {\n    fun answer() = 22\n}\n"), 0o644); err != nil {
+		[]byte("package demo\n\nclass Foo {\n    fun answer() = if (true) 22 else 1\n}\n"), 0o644); err != nil {
 		t.Fatalf("write body edit: %v", err)
 	}
 
+	tracker = perf.New(true)
+	host.Tracker = tracker
 	second, err := RunProject(context.Background(), ProjectInput{Args: args, Host: host})
 	if err != nil {
 		t.Fatalf("second RunProject: %v", err)
@@ -158,8 +170,11 @@ func TestRunProject_BodyOnlyEditDoesNotReplayFindingsBundle(t *testing.T) {
 	if second.FindingsBundleHit {
 		t.Fatalf("body-only edit must re-dispatch the edited file, not replay the prior bundle")
 	}
-	if second.FindingsCount != first.FindingsCount {
-		t.Fatalf("body-only delta changed finding count: first=%d second=%d", first.FindingsCount, second.FindingsCount)
+	if second.FindingsCount != first.FindingsCount+1 {
+		t.Fatalf("body edit must add the if finding: first=%d second=%d", first.FindingsCount, second.FindingsCount)
+	}
+	if got := dispatchPathOf(tracker); got != "cacheHitDeltaBundle" {
+		t.Fatalf("dispatchPath = %q, want cacheHitDeltaBundle", got)
 	}
 }
 

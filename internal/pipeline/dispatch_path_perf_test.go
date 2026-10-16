@@ -44,7 +44,7 @@ func TestTryBundleLayer_HitEmitsOutcomeAttr(t *testing.T) {
 // presence isn't the only signal that this one was attempted.
 func TestTryBundleLayer_MissEmitsOutcomeAttr(t *testing.T) {
 	tracker := perf.New(true)
-	_, _, ok := tryBundleLayer(tracker, "dispatchStableBundleLoad", IndexResult{},
+	_, _, ok := tryBundleLayer(tracker, "dispatchDeltaBundleLoad", IndexResult{},
 		func() (*scanner.FindingColumns, bool) { return nil, false })
 	if ok {
 		t.Fatal("expected miss")
@@ -52,16 +52,16 @@ func TestTryBundleLayer_MissEmitsOutcomeAttr(t *testing.T) {
 	entries := tracker.GetTimings()
 	found := false
 	for _, e := range entries {
-		if e.Name != "dispatchStableBundleLoad" {
+		if e.Name != "dispatchDeltaBundleLoad" {
 			continue
 		}
 		found = true
 		if got := e.Attributes["outcome"]; got != "miss" {
-			t.Errorf("dispatchStableBundleLoad outcome = %q, want %q", got, "miss")
+			t.Errorf("dispatchDeltaBundleLoad outcome = %q, want %q", got, "miss")
 		}
 	}
 	if !found {
-		t.Errorf("dispatchStableBundleLoad entry missing on miss; got %v", entryNames(entries))
+		t.Errorf("dispatchDeltaBundleLoad entry missing on miss; got %v", entryNames(entries))
 	}
 }
 

@@ -129,8 +129,8 @@ func TestPreviewPostParseBundleHit_LoadHitReturnsColumns(t *testing.T) {
 		capturedFP = fp
 	}}
 	// Bootstrap: temporary manifest with any fingerprint — won't gate
-	// open, but it lets us peek at the cacheHitStructuralBundle's
-	// preview manifest pipeline. Easier path: construct the fp via
+	// open, but it lets us peek at the preview
+	// pipeline. Easier path: construct the fp via
 	// the exposed helper and use it directly.
 	rulesHash := projectRuleHash(args.ActiveRules, args.Config)
 	androidFP, libraryFactsFP := preparseProjectFingerprints(args, ProjectHostState{
@@ -228,8 +228,8 @@ func TestPreviewPostParseBundleHit_LoadMissReturnsNil(t *testing.T) {
 // Drives the preview with a manifestLoader that returns a prior
 // whose Fingerprint guarantees a mismatch. asserts the
 // FindingsBundleStore.Load count stays at zero for the
-// cacheHitFullBundle path (structural-replay still Loads exactly
-// once for the alias source).
+// cacheHitFullBundle path (the preview never replays a
+// structurally-stable prior).
 func TestPreviewPostParseBundleHit_SkipsFullBundleLoadWhenFpDiffers(t *testing.T) {
 	store := &recordingPreviewStore{} // Load always misses
 	priorWithDifferentFP := scanner.FindingsBundleManifest{
@@ -257,12 +257,9 @@ func TestPreviewPostParseBundleHit_SkipsFullBundleLoadWhenFpDiffers(t *testing.T
 
 	got := previewPostParseBundleHit(args, host, parseResult)
 	if got != nil {
-		t.Errorf("structural-replay shouldn't fire on multi-file structural change; got %v", got)
+		t.Errorf("preview must not hit on multi-file structural change; got %v", got)
 	}
 	// fp != prior.Fingerprint short-circuits the full-bundle Load.
-	// The structural-replay path may still attempt a Load — but on
-	// this fixture (no parsed files in priorContentHashes), the
-	// planner refuses before reaching Load. So loadCalls stays 0.
 	if store.loadCalls > 0 {
 		t.Errorf("fp != prior.Fingerprint must skip cacheHitFullBundle Load; got loadCalls=%d", store.loadCalls)
 	}

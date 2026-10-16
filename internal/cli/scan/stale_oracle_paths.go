@@ -38,10 +38,14 @@ import (
 // pointless krit-fir/krit-types one-shot JVM launches on files the
 // parse phase will discard anyway.
 func computeStaleOraclePaths(scanPaths []string, kotlinFilePaths []string, includeGenerated bool, tracker perf.Tracker, verbose bool) []string {
-	return computeStaleOraclePathsWithStore(scanPaths, kotlinFilePaths, includeGenerated, tracker, verbose, nil)
+	return computeStaleOraclePathsWithStore(scanPaths, kotlinFilePaths, includeGenerated, tracker, verbose, nil, oracle.ExpansionScope{})
 }
 
-func computeStaleOraclePathsWithStore(scanPaths []string, kotlinFilePaths []string, includeGenerated bool, tracker perf.Tracker, verbose bool, oracleStore *store.FileStore) []string {
+// computeStaleOraclePathsWithStore is computeStaleOraclePaths for a run with
+// the given compile scope: the reverse-dependency expansion reads the cache
+// entries that run's oracle invocation wrote (its settings-scoped legacy
+// directory, or its store scope), not another scope's.
+func computeStaleOraclePathsWithStore(scanPaths []string, kotlinFilePaths []string, includeGenerated bool, tracker perf.Tracker, verbose bool, oracleStore *store.FileStore, scope oracle.ExpansionScope) []string {
 	if !includeGenerated {
 		kotlinFilePaths = filterGeneratedPathStrings(kotlinFilePaths)
 	}
@@ -81,7 +85,7 @@ func computeStaleOraclePathsWithStore(scanPaths []string, kotlinFilePaths []stri
 	changedCount := len(stale)
 	cacheDir, err := oracle.CacheDir(repoDir)
 	if err == nil {
-		stale = oracle.ExpandStaleOraclePaths(oracleStore, cacheDir, kotlinFilePaths, stale)
+		stale = oracle.ExpandStaleOraclePaths(oracleStore, cacheDir, kotlinFilePaths, stale, scope)
 	}
 	if verbose {
 		preview := stale

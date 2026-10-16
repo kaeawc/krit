@@ -2,9 +2,11 @@ package oracle
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/perf"
@@ -157,17 +159,20 @@ func TestLegacyEntriesAreScopedByKotlinSettings(t *testing.T) {
 	a := writeTempFile(t, tmp, "A.kt", "class A\n")
 	hash, _ := ContentHash(a)
 	fp, _ := closureFingerprint(nil, nil)
-	older := InvocationOptions{Backend: BackendKAA, Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}}
-	newer := InvocationOptions{Backend: BackendKAA, Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "2.2", APIVersion: "2.2"}}
-	dirOld, dirNew := scopedLegacyCacheDir(base, older), scopedLegacyCacheDir(base, newer)
+	older := gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}
+	newer := gradlemodel.KotlinSettings{LanguageVersion: "2.2", APIVersion: "2.2"}
+	dirOld, dirNew := LegacyEntryDir(base, older), LegacyEntryDir(base, newer)
 	if dirOld == dirNew || dirOld == base || dirNew == base {
 		t.Fatalf("settings must separate legacy entry directories: %q %q %q", base, dirOld, dirNew)
 	}
-	if scopedLegacyCacheDir(base, older) != dirOld {
-		t.Fatal("scoped directory must be deterministic")
+	// Scopes live under the versioned root so jar/schema changes and `cache clear` cover them.
+	for _, d := range []string{dirOld, dirNew} {
+		if filepath.Dir(filepath.Dir(d)) != base || filepath.Base(filepath.Dir(d)) != legacyScopesDir {
+			t.Fatalf("%q is not under %s/%s", d, base, legacyScopesDir)
+		}
 	}
-	if scopedLegacyCacheDir(base, InvocationOptions{Backend: BackendKAA}) != base {
-		t.Fatal("no settings, JVM target or classpath must keep the original directory")
+	if LegacyEntryDir(base, gradlemodel.KotlinSettings{}) != base {
+		t.Fatal("zero settings must keep the original directory (no cold re-analysis)")
 	}
 	if err := WriteEntry(dirOld, &CacheEntry{
 		ContentHash: hash, FilePath: a, FileResult: &File{Package: "old"},
@@ -180,6 +185,44 @@ func TestLegacyEntriesAreScopedByKotlinSettings(t *testing.T) {
 	}
 	if hits, misses := ClassifyFiles(dirNew, []string{a}); len(hits) != 0 || len(misses) != 1 {
 		t.Fatalf("settings-only change reused an old-settings entry: hits=%d misses=%d", len(hits), len(misses))
+	}
+}
+
+func TestLegacyScopesArePrunedAndVersioned(t *testing.T) {
+	tmp := t.TempDir()
+	base, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dirs []string
+	for i := 0; i < maxLegacyScopes+3; i++ {
+		kt := gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0", Flags: []string{fmt.Sprintf("-XXLanguage:+Feature%d", i)}}
+		dir := prepareLegacyEntryDir(base, kt)
+		stamp := time.Now().Add(time.Duration(i) * time.Minute)
+		if err := os.Chtimes(dir, stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+		dirs = append(dirs, dir)
+	}
+	entries, err := os.ReadDir(filepath.Join(base, legacyScopesDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != maxLegacyScopes {
+		t.Fatalf("kept %d scopes, want %d", len(entries), maxLegacyScopes)
+	}
+	if _, err := os.Stat(dirs[len(dirs)-1]); err != nil {
+		t.Fatalf("most recent scope was pruned: %v", err)
+	}
+	// A schema/jar token change nukes the scopes with the rest of the root.
+	if err := os.WriteFile(filepath.Join(base, "version"), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CacheDir(tmp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(base, legacyScopesDir)); !os.IsNotExist(err) {
+		t.Fatalf("scopes survived a version change: %v", err)
 	}
 }
 

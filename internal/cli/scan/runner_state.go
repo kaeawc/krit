@@ -484,14 +484,15 @@ func (r *runner) runOracleIndex() (int, error) {
 	var err error
 	var preloadedCache *cache.Cache
 	r.tracker.TrackVoid("oracleIndex", func() {
-		staleOraclePaths := computeStaleOraclePathsWithStore(r.paths, r.files, *r.f.IncludeGenerated, r.tracker, *r.f.Verbose, r.oracleStore)
+		oracleClasspath := effectiveOracleClasspath(r.f.modelClasspath, r.cfg)
+		staleOraclePaths := computeStaleOraclePathsWithStore(r.paths, r.files, *r.f.IncludeGenerated, r.tracker, *r.f.Verbose, r.oracleStore,
+			oracle.ExpansionScope{Kotlin: r.f.modelKotlin, Classpath: oracleClasspath, JvmTarget: r.f.modelJvmTarget})
 		oracleBackend, oracleBackendErr := resolveOracleBackend(*r.f.OracleBackend, r.cfg)
 		if oracleBackendErr != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", oracleBackendErr)
 			err = oracleBackendErr
 			return
 		}
-		oracleClasspath := effectiveOracleClasspath(r.f.modelClasspath, r.cfg)
 		in := pipeline.IndexInput{
 			ParseResult:         pipeline.ParseResult{ActiveRules: r.activeRules},
 			Reporter:            r.reporter,

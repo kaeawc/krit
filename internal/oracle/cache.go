@@ -192,7 +192,10 @@ func CacheDir(repoDir string) (string, error) {
 	vd := cacheutil.VersionedDir{
 		Root:       dir,
 		EntriesDir: "entries",
-		Tokens:     tokens,
+		// Settings-scoped entry directories are versioned with the root: a jar
+		// or schema change removes them, and `krit cache clear` removes the root.
+		ExtraDirs: []string{legacyScopesDir},
+		Tokens:    tokens,
 	}
 	if _, err := vd.Open(); err != nil {
 		return "", fmt.Errorf("create cache dir: %w", err)

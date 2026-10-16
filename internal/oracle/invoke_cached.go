@@ -31,7 +31,6 @@ import (
 	"github.com/kaeawc/krit/internal/fileignore"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/gradlemodel"
-	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/store"
 )
@@ -399,7 +398,7 @@ func InvokeCachedWithOptions(
 		addOracleInstant(tracker, "cacheBypass", nil, map[string]string{"reason": "cacheDirInit"})
 		return InvokeWithFilesWithOptions(jarPath, sourceDirs, outputPath, filterListPath, verbose, opts)
 	}
-	cacheDir = scopedLegacyCacheDir(cacheDir, opts)
+	cacheDir = prepareLegacyEntryDir(cacheDir, opts.Kotlin)
 
 	var ktFiles []string
 	if err := trackOracle(tracker, "collectKtFiles", func() error {
@@ -1320,22 +1319,79 @@ func writeOracleJSON(path string, data *Data) error {
 	return nil
 }
 
-// scopedLegacyCacheDir separates the per-file entries of the legacy (no
-// .krit/store) layout by compile scope. Without a store the entries carry no
-// scope of their own, so after a settings-only change plus one edit the
-// unchanged files would still hit entries computed under the old Kotlin
-// settings, JVM target or classpath and be merged with fresh facts into one
-// inconsistent types.json. A run with none of those set keeps the original
-// directory, so existing caches stay valid.
-func scopedLegacyCacheDir(cacheDir string, opts InvocationOptions) string {
-	jvm := ""
-	if opts.Backend == BackendFIR {
-		jvm = opts.JvmTarget
-	}
-	kotlin := opts.Kotlin.Identity()
-	if kotlin == "" && jvm == "" && len(opts.Classpath) == 0 {
+// legacyScopesDir is the directory under the versioned cache root holding the
+// per-file entries of runs with Kotlin compiler settings, one subdirectory per
+// settings identity.
+const legacyScopesDir = "scopes"
+
+// maxLegacyScopes bounds how many settings-scoped entry directories are kept;
+// the least recently used beyond it are pruned.
+const maxLegacyScopes = 4
+
+// LegacyEntryDir is where the per-file entries of the legacy (no .krit/store)
+// layout live for the given Kotlin settings. Without a store the entries carry
+// no scope of their own, so a settings-only change plus one edit would leave
+// unchanged files hitting facts computed under the old settings. Zero settings
+// use cacheDir itself, byte-identical to before settings existed, so projects
+// without settings never re-analyze. Every reader of these entries (InvokeCached
+// and the freshness gate's reverse-dependency expansion) must use this function.
+//
+// Only the settings identity is scoped here; the classpath is a separate,
+// pre-existing gap (issue #827).
+func LegacyEntryDir(cacheDir string, kt gradlemodel.KotlinSettings) string {
+	hash := kt.IdentityHash()
+	if hash == "" {
 		return cacheDir
 	}
-	key := kotlin + "\x00" + jvm + "\x00" + gradlemodel.ClasspathFingerprint(AbsolutePaths(opts.Classpath))
-	return filepath.Join(filepath.Dir(cacheDir), filepath.Base(cacheDir)+"-"+hashutil.HashHex([]byte(key))[:12])
+	return filepath.Join(cacheDir, legacyScopesDir, hash)
+}
+
+// prepareLegacyEntryDir returns LegacyEntryDir, marks it most recently used and
+// prunes the least recently used scopes beyond maxLegacyScopes.
+func prepareLegacyEntryDir(cacheDir string, kt gradlemodel.KotlinSettings) string {
+	dir := LegacyEntryDir(cacheDir, kt)
+	if dir == cacheDir {
+		return dir
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return dir
+	}
+	now := time.Now()
+	_ = os.Chtimes(dir, now, now)
+	pruneLegacyScopes(filepath.Join(cacheDir, legacyScopesDir), filepath.Base(dir), maxLegacyScopes)
+	return dir
+}
+
+func pruneLegacyScopes(root, keepName string, limit int) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	type scope struct {
+		name  string
+		mtime time.Time
+	}
+	var scopes []scope
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		scopes = append(scopes, scope{e.Name(), info.ModTime()})
+	}
+	if len(scopes) <= limit {
+		return
+	}
+	sort.Slice(scopes, func(i, j int) bool {
+		if scopes[i].name == keepName || scopes[j].name == keepName {
+			return scopes[i].name == keepName
+		}
+		return scopes[i].mtime.After(scopes[j].mtime)
+	})
+	for _, old := range scopes[limit:] {
+		_ = os.RemoveAll(filepath.Join(root, old.name))
+	}
 }

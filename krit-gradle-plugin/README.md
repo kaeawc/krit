@@ -118,8 +118,9 @@ registers one `kritExportModel` task and writes one file under the build root's
 `:feature:login` writes `feature__login.json`. Running `gradle kritExportModel`
 selects the task in every project where it exists through ordinary Gradle task-name
 selection. No separate aggregate step is needed. Each file contains that project's
-entry, with external artifacts and project dependencies recorded separately. Schema 1
-contains a `sourceSets` list. JVM exports `main`, `test`, and (when enabled)
+entry, with external artifacts and project dependencies recorded separately. Schema 2
+contains a `sourceSets` list (schema 1, written by older plugin versions, is the same
+without each source set's `kotlin` object). JVM exports `main`, `test`, and (when enabled)
 `testFixtures`. Android exports the selected production variant plus available unit
 and instrumented test variants. Kotlin Multiplatform exports the `main` and `test`
 compilations of JVM and Android JVM targets; other targets are skipped. Android uses
@@ -127,7 +128,11 @@ compilations of JVM and Android JVM targets; other targets are skipped. Android 
 
 Each source-set entry retains `name`, `platform`, `variant`, `sourceDirs`, `classpath`,
 `bootClasspath`, and `projectDeps`, and adds `kind` (`main`, `test`, `testFixtures`, or
-`androidTest`), `generatedSourceDirs`, `generatedClasspath`, and `jvmTarget`.
+`androidTest`), `generatedSourceDirs`, `generatedClasspath`, `jvmTarget`, and `kotlin`: the
+compilation's `languageVersion`, `apiVersion`, `optIn`, `freeCompilerArgs`,
+`progressiveMode` and the Kotlin Gradle plugin's `pluginVersion`, each empty or `false`
+when not configured (krit computes the effective values; see
+[Kotlin compiler settings](../docs/kotlin-compiler-settings.md)).
 `sourceDirs` excludes paths beneath the project's build directory; those registered
 paths appear in `generatedSourceDirs` even before files exist. Android generated
 class jars are discovered best-effort from compile artifact views. Missing values

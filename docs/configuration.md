@@ -224,3 +224,9 @@ to disable discovery. An explicit directory takes precedence when both flags
 are set. Existing boot classpath entries come first, then model classpath
 entries, `oracle.classpath` from `krit.yml`, and finally the `CLASSPATH`
 environment variable. Duplicate paths keep their first position.
+
+Schema 2 models also carry each source set's Kotlin compiler settings
+(`languageVersion`, `apiVersion`, opt-ins, semantic flags). Krit applies them to
+the embedded compiler so a project is analyzed under its own language level, and
+includes them in cache identities; see
+[Kotlin compiler settings](kotlin-compiler-settings.md).

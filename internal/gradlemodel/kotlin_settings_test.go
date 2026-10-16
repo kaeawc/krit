@@ -276,7 +276,7 @@ func TestKotlinFlagAllowlistMatchesHelpers(t *testing.T) {
 	} {
 		data, err := os.ReadFile(helper)
 		if err != nil {
-			t.Skipf("helper source not present: %v", err)
+			t.Fatalf("helper allowlist source missing (moved? update this test): %v", err)
 		}
 		text := string(data)
 		for _, name := range KotlinFlagAllowlist() {

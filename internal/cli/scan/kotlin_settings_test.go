@@ -64,8 +64,12 @@ func TestLoadGradleKotlinSettings(t *testing.T) {
 	}
 
 	// Disabled model discovery means the embedded defaults, with no model read.
-	if got := loadGradleKotlinSettings([]string{root}, "", true, false, &out); !got.IsZero() {
+	var disabled bytes.Buffer
+	if got := loadGradleKotlinSettings([]string{root}, "", true, true, &disabled); !got.IsZero() {
 		t.Fatalf("disabled model produced settings: %+v", got)
+	}
+	if !strings.Contains(disabled.String(), "embedded compiler defaults (Gradle model discovery is disabled)") {
+		t.Fatalf("a disabled model must still state the default: %q", disabled.String())
 	}
 }
 

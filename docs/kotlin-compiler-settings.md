@@ -144,6 +144,9 @@ Notes, rejected arguments and opt-in order do not affect the identity.
 * On the `--fir` preflight path Krit does not (and did not before) read the
   model's source roots or JVM target; only the classpath and, now, the Kotlin
   settings come from the model there.
+* The language server's workspace index uses the resident Kotlin Analysis API
+  daemon, which is started once per jar and source roots and does not receive
+  the settings; a scan does.
 * Per-source-set `languageSettings` declared only on a Kotlin Multiplatform
   source set (not on the compilation's `compilerOptions`) are not read.
 * The oracle still compiles the repository as one unit; per-module requests

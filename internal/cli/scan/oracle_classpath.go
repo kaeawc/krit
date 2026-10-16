@@ -161,6 +161,9 @@ func loadGradleCompileContext(paths []string, explicit string, disabled bool) (d
 // the embedded compiler's own defaults, and verbose output says so.
 func loadGradleKotlinSettings(paths []string, explicit string, disabled, verbose bool, out io.Writer) gradlemodel.KotlinSettings {
 	if disabled && explicit == "" {
+		if verbose {
+			fmt.Fprintf(out, "gradle model: kotlin compiler settings: embedded compiler defaults (Gradle model discovery is disabled)\n")
+		}
 		return gradlemodel.KotlinSettings{}
 	}
 	if len(paths) == 0 {

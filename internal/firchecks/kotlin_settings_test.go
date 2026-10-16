@@ -117,6 +117,19 @@ func TestPrefetchRiderRequiresSameKotlinSettings(t *testing.T) {
 	}
 }
 
+func TestResponseWarningsReachResult(t *testing.T) {
+	var resp CheckResponse
+	if err := json.Unmarshal([]byte(`{"id":1,"succeeded":1,"skipped":0,"findings":[],"warning":"krit-fir: ignoring compiler argument -Werror (managed by krit)"}`), &resp); err != nil {
+		t.Fatal(err)
+	}
+	result := newResult()
+	result.addResponse(&resp)
+	result.addResponse(&resp)
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "-Werror") {
+		t.Fatalf("warnings = %v", result.Warnings)
+	}
+}
+
 func TestModuleSpecsFromModelKeepSettingsPerSourceSet(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "model")

@@ -37,6 +37,9 @@ type Result struct {
 	// checker threw on the file (CheckResponse.RuleErrors). Go keeps its own
 	// findings for exactly those (file, rule) pairs.
 	RuleErrors map[string]map[string]string
+	// Warnings are krit-fir's notes that part of the request was not applied
+	// (unsupported Kotlin compiler settings, an unsupported JVM target).
+	Warnings []string
 }
 
 func newResult() *Result {
@@ -61,6 +64,9 @@ func (r *Result) addRuleError(rule, path, msg string) {
 
 // addResponse folds a daemon/one-shot response into r.
 func (r *Result) addResponse(resp *CheckResponse) {
+	if resp.Warning != "" && !slices.Contains(r.Warnings, resp.Warning) {
+		r.Warnings = append(r.Warnings, resp.Warning)
+	}
 	contentCache := map[string][]byte{}
 	for _, f := range resp.Findings {
 		r.Findings = append(r.Findings, toScannerFindingWithRange(f, contentCache))

@@ -40,6 +40,10 @@ type CheckResponse struct {
 	// rule: the compile and every other rule continue, and only that
 	// (file, rule) verdict is not authoritative.
 	RuleErrors map[string]map[string]string `json:"ruleErrors"`
+	// Warning is krit-fir's note that part of the request was not applied: an
+	// unsupported JVM target, or Kotlin compiler settings outside its
+	// allowlist or beyond the embedded compiler. Empty when nothing was dropped.
+	Warning string `json:"warning,omitempty"`
 }
 
 var catalogOnce sync.Once

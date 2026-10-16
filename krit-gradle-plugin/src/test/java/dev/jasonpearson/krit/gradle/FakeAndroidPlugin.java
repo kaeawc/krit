@@ -57,7 +57,8 @@ public class FakeAndroidPlugin implements Plugin<Project> {
     }
     /** Mirrors KotlinTopLevelExtension.getCoreLibrariesVersion(). */
     public static class FakeKotlinExtension {
-        public String getCoreLibrariesVersion() { return "2.1.20"; }
+        // User-overridable and here pinned below the plugin version, as in real builds.
+        public String getCoreLibrariesVersion() { return "2.0.0"; }
     }
     public static class CompileKotlin extends DefaultTask {
         private final CompilerOptions compilerOptions = new CompilerOptions(getProject());

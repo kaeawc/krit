@@ -41,6 +41,9 @@ abstract class KritModelSourceSet {
     // Kotlin compiler settings as configured on the compilation. Blank / empty
     // means "not configured"; krit resolves the effective defaults (see
     // docs/gradle-model.md), so these are never filled in here.
+    // False for a source set with no Kotlin compile task (Java-only): it then has no
+    // `kotlin` object, so krit does not read "no settings" as a setting.
+    @get:Input abstract val kotlinPresent: Property<Boolean>
     @get:Input abstract val kotlinLanguageVersion: Property<String>
     @get:Input abstract val kotlinApiVersion: Property<String>
     @get:Input abstract val kotlinOptIn: ListProperty<String>
@@ -81,16 +84,19 @@ abstract class KritExportModelTask : DefaultTask() {
                 "bootClasspath" to sourceSet.bootClasspath.get().distinct().sorted(),
                 "projectDeps" to sourceSet.projectDeps.get().distinct().sorted(),
                 "jvmTarget" to sourceSet.jvmTarget.get(),
-                "kotlin" to linkedMapOf<String, Any>(
-                    "languageVersion" to sourceSet.kotlinLanguageVersion.getOrElse(""),
-                    "apiVersion" to sourceSet.kotlinApiVersion.getOrElse(""),
-                    "optIn" to sourceSet.kotlinOptIn.getOrElse(emptyList()).distinct().sorted(),
-                    // Order is significant (later flags win), so it is preserved.
-                    "freeCompilerArgs" to sourceSet.kotlinFreeCompilerArgs.getOrElse(emptyList()),
-                    "progressiveMode" to sourceSet.kotlinProgressiveMode.getOrElse(false),
-                    "pluginVersion" to sourceSet.kotlinPluginVersion.getOrElse(""),
-                ),
-            )
+            ).also { entry ->
+                if (sourceSet.kotlinPresent.getOrElse(false)) {
+                    entry["kotlin"] = linkedMapOf<String, Any>(
+                        "languageVersion" to sourceSet.kotlinLanguageVersion.getOrElse(""),
+                        "apiVersion" to sourceSet.kotlinApiVersion.getOrElse(""),
+                        "optIn" to sourceSet.kotlinOptIn.getOrElse(emptyList()).distinct().sorted(),
+                        // Order is significant (later flags win), so it is preserved.
+                        "freeCompilerArgs" to sourceSet.kotlinFreeCompilerArgs.getOrElse(emptyList()),
+                        "progressiveMode" to sourceSet.kotlinProgressiveMode.getOrElse(false),
+                        "pluginVersion" to sourceSet.kotlinPluginVersion.getOrElse(""),
+                    )
+                }
+            }
         }
         val entry = linkedMapOf<String, Any>(
             "path" to projectPath.get(),

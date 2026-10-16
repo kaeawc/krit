@@ -434,7 +434,31 @@ class KritExportModelTest {
         assertEquals(listOf("com.example.Experimental", "kotlin.RequiresOptIn"), kotlin["optIn"])
         assertEquals(listOf("-Xcontext-parameters", "-Xexplicit-backing-fields"), kotlin["freeCompilerArgs"])
         assertEquals(true, kotlin["progressiveMode"])
-        assertEquals("2.1.20", kotlin["pluginVersion"])
+        // The real plugin version, not the overridable coreLibrariesVersion (2.0.0 here).
+        assertEquals("2.2.10", kotlin["pluginVersion"])
+        // Only the main compilation has a Kotlin compile task in this fixture.
+        assertTrue(sourceSets(model).filter { it["kind"] != "main" }.none { "kotlin" in it })
+    }
+
+    @Test
+    fun `plugin version falls back to coreLibrariesVersion when KGP version is unavailable`() {
+        val root = File(directory, "kotlin-settings-fallback").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"kotlin-settings-fallback\"\n")
+        File(root, "build.gradle.kts").writeText("plugins { id(\"com.android.library\"); id(\"dev.jasonpearson.krit\") }\n")
+        File(root, "android.jar").writeBytes(byteArrayOf())
+        runWithFakeAndroid(root, "kritExportModel", "-PfakeKotlinOptions=1", "-PnoKgpVersion=1")
+        @Suppress("UNCHECKED_CAST")
+        val kotlin = sourceSets(File(root, ".krit/gradle-model/_root.json")).single { it["kind"] == "main" }["kotlin"] as Map<String, Any>
+        assertEquals("2.0.0", kotlin["pluginVersion"])
+    }
+
+    @Test
+    fun `source sets without a Kotlin compile task export no kotlin object`() {
+        val root = fixture()
+        run(root, "kritExportModel")
+        val sets = sourceSets(File(root, ".krit/gradle-model/app.json"))
+        assertTrue(sets.isNotEmpty())
+        assertTrue(sets.none { "kotlin" in it }, "Java-only source sets must not export settings: $sets")
     }
 
     @Test
@@ -444,16 +468,15 @@ class KritExportModelTest {
         File(root, "build.gradle.kts").writeText("plugins { id(\"com.android.library\"); id(\"dev.jasonpearson.krit\") }\n")
         File(root, "android.jar").writeBytes(byteArrayOf())
         runWithFakeAndroid(root, "kritExportModel")
-        for (set in sourceSets(File(root, ".krit/gradle-model/_root.json"))) {
-            @Suppress("UNCHECKED_CAST")
-            val kotlin = set["kotlin"] as Map<String, Any>
-            assertEquals("", kotlin["languageVersion"], set.toString())
-            assertEquals("", kotlin["apiVersion"])
-            assertEquals(emptyList<String>(), kotlin["optIn"])
-            assertEquals(emptyList<String>(), kotlin["freeCompilerArgs"])
-            assertEquals(false, kotlin["progressiveMode"])
-            assertEquals("", kotlin["pluginVersion"])
-        }
+        val main = sourceSets(File(root, ".krit/gradle-model/_root.json")).single { it["kind"] == "main" }
+        @Suppress("UNCHECKED_CAST")
+        val kotlin = main["kotlin"] as Map<String, Any>
+        assertEquals("", kotlin["languageVersion"])
+        assertEquals("", kotlin["apiVersion"])
+        assertEquals(emptyList<String>(), kotlin["optIn"])
+        assertEquals(emptyList<String>(), kotlin["freeCompilerArgs"])
+        assertEquals(false, kotlin["progressiveMode"])
+        assertEquals("", kotlin["pluginVersion"])
     }
 
     @Test

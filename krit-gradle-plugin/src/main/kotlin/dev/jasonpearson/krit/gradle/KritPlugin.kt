@@ -526,11 +526,24 @@ class KritPlugin : Plugin<Project> {
         return project.provider { readKotlinCompilerOptions(task.get(), pluginVersion) }
     }
 
-    private fun kotlinPluginVersion(project: Project): String = try {
-        // KotlinTopLevelExtension.coreLibrariesVersion defaults to the plugin's version.
-        val kotlin = project.extensions.findByName("kotlin") ?: throw ReflectiveOperationException()
-        reflect(kotlin, "getCoreLibrariesVersion").toString()
-    } catch (_: Exception) { "" }
+    /**
+     * The Kotlin Gradle plugin's own version, which fixes the language version Gradle
+     * compiled with when none is configured. Read from KGP's `getKotlinPluginVersion`
+     * (resolved through the kotlin extension's class loader, since KGP is not on this
+     * plugin's classpath). `coreLibrariesVersion` is only a last resort: it is user
+     * overridable and often pinned below the plugin version.
+     */
+    private fun kotlinPluginVersion(project: Project): String {
+        val kotlin = project.extensions.findByName("kotlin") ?: return ""
+        try {
+            val wrapper = kotlin.javaClass.classLoader
+                .loadClass("org.jetbrains.kotlin.gradle.plugin.KotlinPluginWrapperKt")
+            val version = wrapper.getMethod("getKotlinPluginVersion", Project::class.java).invoke(null, project)
+            if (version != null && version.toString().isNotBlank()) return version.toString()
+        } catch (_: Exception) {
+        }
+        return try { reflect(kotlin, "getCoreLibrariesVersion").toString() } catch (_: Exception) { "" }
+    }
 
     private fun readKotlinCompilerOptions(task: Any, pluginVersion: String): KotlinCompilerOptionsModel {
         val options = runCatching { reflect(task, "getCompilerOptions") }.getOrNull()
@@ -620,6 +633,7 @@ class KritPlugin : Plugin<Project> {
                 sourceDirs.set(spec.dirs)
                 bootClasspath.set(spec.boot)
                 jvmTarget.set(jvmTarget(project, spec.compileTask, spec.kind))
+                kotlinPresent.set(project.tasks.names.contains(spec.compileTask))
                 val kotlinOptions = kotlinCompilerOptions(project, spec.compileTask)
                 kotlinLanguageVersion.set(kotlinOptions.map { it.languageVersion })
                 kotlinApiVersion.set(kotlinOptions.map { it.apiVersion })

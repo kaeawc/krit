@@ -2815,10 +2815,12 @@ func oracleFactsFingerprint(
 // On a successful delta:
 //   - DispatchPhase runs against an IndexResult scoped to just the
 //     changed file. Per-file rules see only the dirty file.
-//   - CrossFilePhase still runs with the full IndexResult.CodeIndex
-//     because cross-file rule outputs depend on the aggregate
-//     structural state, which the planner gate guarantees is stable.
-//     The replacement is filtered to the changed path post-hoc.
+//   - CrossFilePhase runs against the FULL IndexResult (complete parse
+//     set, CodeIndex, module index) because project-scope rules
+//     (NeedsCrossFile / NeedsParsedFiles / NeedsModuleIndex) may report
+//     on any file. All of their prior rows are dropped and replaced
+//     by the regenerated set; per-file rows are replaced for the
+//     changed path only.
 //   - scanner.ApplyDelta(prior, replacement, [changedPath]) produces
 //     the merged FindingColumns.
 func tryDeltaDispatch(
@@ -2859,24 +2861,54 @@ func tryDeltaDispatch(
 		return DispatchResult{}, CrossFileResult{}, false, nil
 	}
 
+	// Per-file rules run on the edited file only.
 	scoped := indexResult
 	scoped.ParseResult = scopeParseResult(parseResult, changedFile)
 	d, err := DispatchPhase{}.Run(ctx, scoped)
 	if err != nil {
 		return DispatchResult{}, CrossFileResult{}, false, fmt.Errorf("dispatch (delta): %w", err)
 	}
-	c, err := CrossFilePhase{Workers: args.Workers}.Run(ctx, d)
+	// Project-scope rules (cross-file, parsed-files, module-index) are
+	// promised the complete project and may report on any file, so they
+	// run against the full parse set and replace ALL of their prior rows,
+	// not just the edited file's.
+	projectScopeIDs := projectScopeRuleIDs(args.ActiveRules)
+	perFile := dropFindingsByRule(scanner.FilterColumnsByFilePaths(&d.Findings, map[string]bool{changedPath: true}), projectScopeIDs)
+	full := d
+	full.IndexResult = indexResult
+	full.Findings = scanner.FindingColumns{}
+	c, err := CrossFilePhase{Workers: args.Workers}.Run(ctx, full)
 	if err != nil {
 		return DispatchResult{}, CrossFileResult{}, false, fmt.Errorf("crossfile (delta): %w", err)
 	}
 
-	replacement := scanner.FilterColumnsByFilePaths(&c.Findings, map[string]bool{changedPath: true})
-	merged := scanner.ApplyDelta(priorBundle, &replacement, []string{changedPath})
+	replacement := scanner.NewFindingCollector(perFile.Len() + c.Findings.Len())
+	replacement.AppendColumns(&perFile)
+	replacement.AppendColumns(&c.Findings)
+	base := dropFindingsByRule(*priorBundle, projectScopeIDs)
+	merged := scanner.ApplyDelta(&base, replacement.Columns(), []string{changedPath})
 
+	d.IndexResult = indexResult
 	d.Findings = merged
 	c.DispatchResult = d
 	c.Findings = merged
 	return d, c, true, nil
+}
+
+// projectScopeRuleIDs returns the IDs of rules the cross-file phase runs
+// against project-wide inputs (cross-file index, complete parsed set or
+// module index). Their findings are regenerated in full on the delta path.
+func projectScopeRuleIDs(activeRules []*api.Rule) map[string]bool {
+	ids := make(map[string]bool)
+	for _, r := range activeRules {
+		if r == nil {
+			continue
+		}
+		if r.Needs.Has(api.NeedsCrossFile) || r.Needs.Has(api.NeedsParsedFiles) || r.Needs.Has(api.NeedsModuleIndex) {
+			ids[r.ID] = true
+		}
+	}
+	return ids
 }
 
 // diffContentHashes returns the sorted list of paths where the

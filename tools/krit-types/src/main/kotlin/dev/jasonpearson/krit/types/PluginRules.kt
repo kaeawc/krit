@@ -475,7 +475,7 @@ fun DaemonSession.handleAnalyzeFileWithPlugins(request: DaemonRequest): String {
  * `KtCallExpression`, or asks `isLambdaSuspend` for an outer lambda
  * once per inner suspend call.
  */
-private class AnalysisApiResolver(private val ktFile: KtFile) : Resolver {
+internal class AnalysisApiResolver(private val ktFile: KtFile) : Resolver {
     private val callTargetCache = IdentityHashMap<KtCallExpression, CallTarget>()
     private val lambdaSuspendCache = IdentityHashMap<KtLambdaExpression, Boolean>()
 

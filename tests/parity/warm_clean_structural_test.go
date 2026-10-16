@@ -29,6 +29,7 @@ import (
 // payloads (the fields the divergence comparator in internal/daemon
 // deliberately ignores).
 func TestWarmCleanMutationStructural(t *testing.T) {
+	wcRequireMatrix(t)
 	bin := wcBuildKrit(t, repoRoot(t))
 	started := time.Now()
 	defer func() { t.Logf("structural matrix wall time: %s", time.Since(started).Round(time.Second)) }()
@@ -37,7 +38,7 @@ func TestWarmCleanMutationStructural(t *testing.T) {
 	for _, path := range []string{"cli", "daemon"} {
 		for _, spelling := range []string{"abs", "rel"} {
 			for _, m := range wcMutations() {
-				if m.oracleOnly {
+				if m.oracleOnly || (m.raceAnalyze && path != "daemon") {
 					continue
 				}
 				t.Run(fmt.Sprintf("%s/%s/%s", path, spelling, m.name), func(t *testing.T) {
@@ -76,6 +77,9 @@ type wcStructuralRun struct {
 	// daemon's whole-run findings cache.
 	cached, total int
 	bundleHit     bool
+	// dirty is the number of watcher-dirty files the daemon drained for the
+	// call.
+	dirty int
 }
 
 func (c *wcStructuralCase) run(t *testing.T) {
@@ -90,17 +94,31 @@ func (c *wcStructuralCase) run(t *testing.T) {
 	}
 	wcWriteProject(t, root, c.m)
 
-	var analyze func(root, label string) wcStructuralRun
-	var afterMutation func()
+	var analyze, analyzeAfterEdit func(root, label string) wcStructuralRun
 	if c.path == "daemon" {
 		d := wcStartDaemon(t, c.bin, root, home)
 		analyze = func(r, label string) wcStructuralRun { return c.analyzeDaemon(t, d, r, label) }
-		// The daemon learns about edits from its filesystem watcher; give the
-		// event time to land, as an editor save would have.
-		afterMutation = func() { time.Sleep(wcDaemonSettle()) }
+		// The daemon learns about edits from its filesystem watcher, and the
+		// protocol offers no way to ask whether an event has landed that does
+		// not itself consume it (analyze-project drains the dirty set, and an
+		// analyze that races the event leaves the daemon stale, see the
+		// raced-annotation row). So wait out the delivery, as an editor save
+		// followed by a human-speed command would. Create, Remove and Rename
+		// events are reported at once and Write events after a 50 ms debounce.
+		analyzeAfterEdit = func(r, label string) wcStructuralRun {
+			if c.m.raceAnalyze {
+				c.analyzeDaemon(t, d, r, "race")
+			}
+			time.Sleep(wcDaemonSettle())
+			run := c.analyzeDaemon(t, d, r, label)
+			if run.dirty == 0 {
+				t.Fatalf("%s: the daemon reported no dirty files %s after the edit; its watcher missed it", label, wcDaemonSettle())
+			}
+			return run
+		}
 	} else {
 		analyze = func(r, label string) wcStructuralRun { return c.analyzeCLI(t, r, home, label) }
-		afterMutation = func() {}
+		analyzeAfterEdit = analyze
 	}
 
 	// 1. Seed: a cold run that must populate the cache.
@@ -131,8 +149,7 @@ func (c *wcStructuralCase) run(t *testing.T) {
 	if c.m.apply != nil {
 		c.m.apply(t, root)
 	}
-	afterMutation()
-	warm := analyze(root, "warm")
+	warm := analyzeAfterEdit(root, "warm")
 
 	// 4. A genuinely fresh process over a copy of the final tree with an
 	//    empty cache. Rows reaching the same final tree share the baseline.
@@ -164,7 +181,11 @@ func (c *wcStructuralCase) run(t *testing.T) {
 		seed.cached, seed.total, control.cached, control.total, control.bundleHit, warm.cached, warm.total, warm.bundleHit)
 
 	diff := wcDiff(warm.snap, cleanSnap)
-	wcCheckWarmAgainstClean(t, fmt.Sprintf("structural/%s/%s", c.path, c.m.name), diff, fmt.Sprintf(
+	problem := ""
+	if diff != "" {
+		problem = "the warm result differs from a clean scan"
+	}
+	wcResolveRow(t, fmt.Sprintf("structural/%s/%s/%s", c.path, c.spellingKey(), c.m.name), problem, fmt.Sprintf(
 		"STALE WARM RESULT\n  mutation: %s\n  backend:  structural (%s path, %s scan root)\n  warm tree:  %s\n  clean tree: %s (fresh process, empty cache)\n  warm cache: cached=%d/%d bundleHit=%v\n  differing keys (warm vs clean):\n%s",
 		c.m.name, c.path, c.spelling(), identity, identity, warm.cached, warm.total, warm.bundleHit, diff))
 	changed := wcSnapshotsDiffer(cleanSnap, seed.snap)
@@ -180,6 +201,13 @@ func (c *wcStructuralCase) run(t *testing.T) {
 			t.Errorf("mutation %s changed the clean result but was expected to be a no-op:\n%s", c.m.name, wcDiff(cleanSnap, seed.snap))
 		}
 	}
+}
+
+func (c *wcStructuralCase) spellingKey() string {
+	if c.rel {
+		return "rel"
+	}
+	return "abs"
 }
 
 func (c *wcStructuralCase) spelling() string {
@@ -348,7 +376,7 @@ func (c *wcStructuralCase) analyzeDaemon(t *testing.T, d *wcDaemonProc, root, la
 			t.Fatalf("%s: columns: %v", label, err)
 		}
 	}
-	run := wcStructuralRun{snap: wcSnapshot{}, bundleHit: res.Stats.FindingsBundleHit}
+	run := wcStructuralRun{snap: wcSnapshot{}, bundleHit: res.Stats.FindingsBundleHit, dirty: res.Stats.DirtyFiles}
 	for i := 0; i < cols.Len(); i++ {
 		detail := fmt.Sprintf("bytes=%d-%d sev=%s conf=%.2f msg=%s", cols.StartByteAt(i), cols.EndByteAt(i),
 			cols.SeverityAt(i), cols.ConfidenceAt(i), cols.MessageAt(i))
@@ -370,9 +398,9 @@ func (c *wcStructuralCase) analyzeDaemon(t *testing.T, d *wcDaemonProc, root, la
 	return run
 }
 
-// wcDaemonSettle is how long the matrix waits after an edit before asking the
-// daemon, so the filesystem watcher's event has been delivered.
-// KRIT_TEST_DAEMON_SETTLE overrides it (a duration) when ruling out a race.
+// wcDaemonSettle is how long the matrix waits after an edit for the daemon's
+// filesystem watcher to deliver it. KRIT_TEST_DAEMON_SETTLE overrides it (a
+// duration) on a slow runner.
 func wcDaemonSettle() time.Duration {
 	if d, err := time.ParseDuration(os.Getenv("KRIT_TEST_DAEMON_SETTLE")); err == nil {
 		return d

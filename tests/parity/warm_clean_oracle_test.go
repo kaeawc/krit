@@ -80,6 +80,7 @@ func TestWarmCleanMutationFIR(t *testing.T) { runWarmCleanOracleMatrix(t, wcBack
 func TestWarmCleanMutationKAA(t *testing.T) { runWarmCleanOracleMatrix(t, wcBackends()[1]) }
 
 func runWarmCleanOracleMatrix(t *testing.T, be wcBackend) {
+	wcRequireMatrix(t)
 	root := repoRoot(t)
 	jar := be.jar(root)
 	if jar == "" {
@@ -98,9 +99,12 @@ func runWarmCleanOracleMatrix(t *testing.T, be wcBackend) {
 		t.Fatal(err)
 	}
 	mx := &wcMatrix{
-		be: be, jar: jar, baseCP: baseCP, shared: shared,
+		be: be, jar: jar, baseCP: baseCP, shared: shared, home: filepath.Join(shared, "home"),
 		altJar: wcIdentityJar(t, jar, filepath.Join(shared, "identity-"+filepath.Base(jar))),
 		seeds:  map[string]*wcSeed{}, cleans: map[string]wcClean{},
+	}
+	if err := os.MkdirAll(mx.home, 0o755); err != nil {
+		t.Fatal(err)
 	}
 	started := time.Now()
 	defer func() { t.Logf("%s matrix wall time: %s", be.name, time.Since(started).Round(time.Second)) }()
@@ -147,6 +151,7 @@ type wcMatrix struct {
 	greeter string
 	baseCP  []string
 	shared  string
+	home    string
 	seeds   map[string]*wcSeed
 	cleans  map[string]wcClean
 }
@@ -194,18 +199,33 @@ func wcBaseNames(paths []string) []string {
 }
 
 func (c *wcOracleCase) run(t *testing.T) {
-	mx, be := c.mx, c.mx.be
 	// A private daemon registry per case: the daemons this case starts are
 	// its own and die with it, so the matrix never accumulates JVMs.
-	home := t.TempDir()
+	home := c.mx.home
+	if c.mode == "daemon" {
+		home = t.TempDir()
+		t.Cleanup(func() { killRegisteredDaemons(t, home) })
+	}
+	// One-shot rows start no daemon, so they share one HOME (and its JVM
+	// class-data archives) instead of paying an archive build per case.
 	t.Setenv("HOME", home)
-	t.Cleanup(func() { killRegisteredDaemons(t, home) })
 	if c.mode == "daemon" {
 		t.Setenv("KRIT_DAEMON_CACHE", "on")
 	} else {
 		t.Setenv("KRIT_DAEMON_CACHE", "off")
 	}
+	problem, detail := c.exercise(t)
+	wcResolveRow(t, fmt.Sprintf("%s/%s/%s/%s", c.mx.be.name, c.mode, c.spellingKey(), c.m.name), problem, detail)
+}
 
+// exercise runs the seed / control / mutate / warm / clean sequence and
+// returns the first thing that is wrong ("" when nothing is) with a full
+// report. Rows listed in wcKnownStale turn a problem into a skip, so every
+// check that can be tripped by a known product bug returns instead of failing.
+// This harness calls the oracle with a nil store and no call filter, as the
+// default CLI flow does; it does not model users of a .krit/store.
+func (c *wcOracleCase) exercise(t *testing.T) (problem, detail string) {
+	mx, be := c.mx, c.mx.be
 	seedIn := wcInputs{jar: mx.jar, classpath: mx.baseCP}
 	warmIn := seedIn
 	if c.m.classpath {
@@ -220,25 +240,20 @@ func (c *wcOracleCase) run(t *testing.T) {
 	if seedStats.classified == 0 || seedStats.hits != 0 {
 		t.Fatalf("seed run is not cold: %+v", seedStats)
 	}
-	if c.rel && !wcHasFacts(seed) {
-		// Not a harness limit: the same project with an absolute scan root
-		// returns its facts. Keep the row visible as a skip naming the bug.
-		t.Skipf("known bug REL-ROOT-NO-FACTS: the %s %s path returned no facts for a relative scan root (krit . spelling); the absolute-root row returns them", c.mx.be.name, c.mode)
+	if !wcHasFacts(seed) {
+		return "the seed run returned no facts", fmt.Sprintf("%s %s path, %s scan root: the seed run returned no facts", be.name, c.mode, c.spellingKey())
 	}
 	if got := c.storedEntries(t, warmRoot, seedIn); got != seedStats.classified {
-		t.Fatalf("seed run populated %d cache entries for %d classified files; a warm run would prove nothing", got, seedStats.classified)
+		return "the seed run did not populate the cache", fmt.Sprintf("seed run populated %d cache entries for %d classified files; a warm run would prove nothing", got, seedStats.classified)
 	}
 
 	// 2. No-op control: must be served from the cache and change nothing.
 	control, controlStats := c.invoke(t, warmRoot, "control", seedIn)
 	if controlStats.misses != 0 || controlStats.hits != seedStats.classified {
-		t.Fatalf("no-op control did not hit the cache: %+v (seeded %d files)", controlStats, seedStats.classified)
-	}
-	if c.rel && wcHasFacts(seed) && !wcHasFacts(control) {
-		t.Skipf("known bug REL-ROOT-NO-FACTS: the %s %s path served no facts from its cache for a relative scan root after a seed run that produced them", c.mx.be.name, c.mode)
+		return "the no-op control missed the cache", fmt.Sprintf("no-op control did not hit the cache: %+v (seeded %d files)", controlStats, seedStats.classified)
 	}
 	if diff := wcDiff(control, seed); diff != "" {
-		t.Fatalf("no-op control changed the result relative to the seed run:\n%s", diff)
+		return "the cache-served control differs from the seed run", "no-op control changed the result relative to the seed run:\n" + diff
 	}
 
 	// 3. Mutate, then run warm on the same cache/session.
@@ -253,15 +268,7 @@ func (c *wcOracleCase) run(t *testing.T) {
 	if clean.stats.hits != 0 {
 		t.Fatalf("clean baseline was not cold: %+v", clean.stats)
 	}
-
 	t.Logf("cache use: seed=%+v control=%+v warm=%+v clean=%+v", seedStats, controlStats, warmStats, clean.stats)
-
-	diff := wcDiff(warm, clean.snap)
-	wcCheckWarmAgainstClean(t, fmt.Sprintf("%s/%s/%s", be.name, c.mode, c.m.name), diff, fmt.Sprintf(
-		"STALE WARM RESULT\n  mutation: %s\n  backend:  %s (%s path, %s scan root)\n  seed inputs:  %s\n  warm inputs:  %s\n  clean inputs: %s (fresh one-shot, isolated cache)\n  warm tree:  %s\n  clean tree: %s\n  warm cache: hits=%d misses=%d (clean: misses=%d)\n  differing keys (warm vs clean):\n%s",
-		c.m.name, be.name, c.mode, c.spelling(), seedIn, warmIn, warmIn,
-		wcTreeIdentity(warmRoot), clean.identity,
-		warmStats.hits, warmStats.misses, clean.stats.misses, diff))
 
 	changed := wcSnapshotsDiffer(clean.snap, seed)
 	switch c.m.effect {
@@ -277,6 +284,15 @@ func (c *wcOracleCase) run(t *testing.T) {
 	if c.m.jarIdentity && warmStats.hits != 0 {
 		t.Errorf("a byte-different helper jar still hit %d cache entries; helper identity must invalidate the store", warmStats.hits)
 	}
+
+	if diff := wcDiff(warm, clean.snap); diff != "" {
+		return "the warm result differs from a clean scan", fmt.Sprintf(
+			"STALE WARM RESULT\n  mutation: %s\n  backend:  %s (%s path, %s scan root)\n  seed inputs:  %s\n  warm inputs:  %s\n  clean inputs: %s (fresh one-shot, isolated cache)\n  warm tree:  %s\n  clean tree: %s\n  warm cache: hits=%d misses=%d (clean: misses=%d)\n  differing keys (warm vs clean):\n%s",
+			c.m.name, be.name, c.mode, c.spellingKey(), seedIn, warmIn, warmIn,
+			wcTreeIdentity(warmRoot), clean.identity,
+			warmStats.hits, warmStats.misses, clean.stats.misses, diff)
+	}
+	return "", ""
 }
 
 // seed returns a project root holding a freshly seeded cache and the seed
@@ -355,11 +371,12 @@ func wcCanonicalDirIn(t *testing.T, parent string) string {
 	return dir
 }
 
-func (c *wcOracleCase) spelling() string {
+// spellingKey is the scan-root spelling as it appears in wcKnownStale keys.
+func (c *wcOracleCase) spellingKey() string {
 	if c.rel {
-		return "relative"
+		return "rel"
 	}
-	return "absolute"
+	return "abs"
 }
 
 // invoke runs the cached oracle path once over root and returns the

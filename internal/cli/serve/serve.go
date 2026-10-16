@@ -429,11 +429,11 @@ func (s *daemonState) priorSourceState(noCache bool, repoDir string, paths []str
 // matches the request's scan paths — the pipeline falls back to its
 // existing collect-from-disk path in that case.
 //
-// The manifest's ContentHashes map is the source of truth for paths
-// here; it always reflects the file set the last successful analyze
-// indexed. If the watcher missed an add/delete, the bundle's
-// fingerprint check downstream rejects the cached entry and forces a
-// fresh walk anyway.
+// The manifest's ContentHashes map is the file set the last successful
+// analyze indexed, so it cannot name a file added since. Nothing downstream
+// notices: the bundle fingerprint is computed over the lists it is handed.
+// dropStalePrepopulatedPaths therefore discards these lists on a cold start
+// and whenever the watcher reports a path the manifest does not know.
 func (s *daemonState) prepopulatedSourcePaths(repoDir string, paths []string) (kotlinPaths, javaPaths []string) {
 	m, ok := s.priorManifest(repoDir, paths)
 	if !ok || len(m.ContentHashes) == 0 {
@@ -458,51 +458,15 @@ func (s *daemonState) prepopulatedSourcePaths(repoDir string, paths []string) (k
 }
 
 // dropStalePrepopulatedPaths hands the pipeline no source-path lists when the
-// prior manifest's lists cannot be complete, so it walks the source roots and
-// sees an added (or renamed-to) file.
-func dropStalePrepopulatedPaths(in *pipeline.ProjectInput, cold bool, dirty []string, root string) {
-	if !cold && dirtyIntroducesSourceFile(dirty, in.Host.PriorContentHashes, root) {
+// prior manifest's lists cannot be trusted to be complete, so it walks the
+// source roots and sees an added, renamed-to or moved-in file. They cannot be
+// trusted on a daemon's first call (the manifest on disk may predate files
+// added while no daemon ran) or when the watcher reports a dirty path the
+// manifest does not know.
+func dropStalePrepopulatedPaths(in *pipeline.ProjectInput, cold bool, dirty []string) {
+	if cold || (len(dirty) > 0 && !pipeline.DirtyPathsAllInManifest(dirty, in.Host.PriorContentHashes, in.Args.Paths)) {
 		in.Args.KotlinPaths, in.Args.JavaPaths = nil, nil
 	}
-}
-
-// dirtyIntroducesSourceFile reports whether any watcher-dirty Kotlin or Java
-// path is absent from the prior manifest's content hashes, that is, may be a
-// file added (or renamed to) since the manifest was written. The prepopulated
-// path lists come from that manifest, so they cannot contain such a file, and
-// the bundle fingerprint is computed over the lists it is handed: without a
-// fresh walk an added file is never analyzed. A path counts as known under
-// its absolute, root-relative or working-directory-relative spelling; an
-// unrecognized spelling only costs a walk.
-func dirtyIntroducesSourceFile(dirty []string, known map[string]string, root string) bool {
-	if len(dirty) == 0 {
-		return false
-	}
-	cwd, _ := os.Getwd()
-	for _, p := range dirty {
-		if !isKotlinPath(p) && !isJavaPath(p) {
-			continue
-		}
-		if _, ok := known[p]; ok {
-			continue
-		}
-		found := false
-		for _, base := range []string{root, cwd} {
-			if base == "" {
-				continue
-			}
-			if rel, err := filepath.Rel(base, p); err == nil {
-				if _, ok := known[rel]; ok {
-					found = true
-					break
-				}
-			}
-		}
-		if !found {
-			return true
-		}
-	}
-	return false
 }
 
 // oracleDaemonStarter abstracts the JVM-subprocess construction so

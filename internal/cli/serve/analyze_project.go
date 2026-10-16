@@ -117,7 +117,7 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		return nil, err
 	}
 	in.Host.SourceSetClean = !cold && len(dirty) == 0
-	dropStalePrepopulatedPaths(&in, cold, dirty, state.root)
+	dropStalePrepopulatedPaths(&in, cold, dirty)
 	if !cold {
 		// Hand the watcher's observed-dirty set to the pipeline so
 		// preparseSourcePaths can skip the 30-40s cold-OS-dentry-cache

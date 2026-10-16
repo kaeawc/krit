@@ -69,6 +69,9 @@ type wcMutation struct {
 	// pipeline's findings caches, not on compiler facts, so the (slow)
 	// compiler-backed runners skip them.
 	structuralOnly bool
+	// raceAnalyze makes the daemon rows analyze once straight after the edit,
+	// before the watcher's event can have landed, and again once it has.
+	raceAnalyze bool
 	// classpath, when set, changes the oracle classpath between seed and
 	// warm run by adding the compiled helper jar (see wcClasspathJar).
 	classpath bool
@@ -193,6 +196,17 @@ func wcMutations() []wcMutation {
 			},
 			effect:         wcEffectChanges,
 			structuralOnly: true,
+		},
+		{
+			// The same edit, but the daemon is asked to analyze in the instant
+			// after the save, before its watcher has delivered the event.
+			name: "annotation-deprecated-raced",
+			apply: func(t *testing.T, root string) {
+				wcReplace(t, root, "src/Lib.kt", "fun fresh(): Int = 1", "@Deprecated(\"old\")\nfun fresh(): Int = 1")
+			},
+			effect:         wcEffectChanges,
+			structuralOnly: true,
+			raceAnalyze:    true,
 		},
 		{
 			name: "return-type",
@@ -463,51 +477,89 @@ func wcSnapshotsDiffer(a, b wcSnapshot) bool {
 	return wcDiff(a, b) != ""
 }
 
-// wcKnownStale lists the rows whose warm result is known to differ from a
-// clean scan because of a stale-cache bug in the product (not in this test).
-// Keys are "<backend>/<path>/<mutation>" with <backend> one of structural,
-// fir or kaa; the scan-root spelling is not part of the key. A listed row is
-// skipped, with the diff logged, instead of failing; once the bug is fixed the
-// row passes and fails the suite until its entry is deleted, so the list
-// cannot go stale itself.
-var wcKnownStale = map[string]string{
+// wcKnownStale lists the rows whose result is known to be wrong because of a
+// stale-cache bug in the product (not in this test). Keys are
+// "<backend>/<path>/<spelling>/<mutation>" with <backend> one of structural,
+// fir or kaa, <path> cli, daemon, one-shot, and <spelling> abs or rel. A listed
+// row is skipped, with the report logged, whatever goes wrong in it (a warm
+// result that differs from a clean scan, or a cache-served control that
+// differs from its seed run); once the bug is fixed the row passes and fails
+// the suite until its entry is deleted, so the list cannot go stale itself.
+var wcKnownStale = wcBuildKnownStale()
+
+func wcBuildKnownStale() map[string]string {
+	known := map[string]string{}
+	both := func(prefix, mutation, why string) {
+		for _, spelling := range []string{"abs", "rel"} {
+			known[prefix+"/"+spelling+"/"+mutation] = why
+		}
+	}
 	// The structural bundle replay (#154) serves the previous run's findings,
 	// the edited file's own included, whenever a single file's structural
 	// fingerprint is unchanged. A body edit that adds a finding therefore
 	// leaves the warm result without it.
-	"structural/cli/body-edit-adds-finding":    "STALE-BUNDLE-BODY-EDIT: structural bundle replay (dispatchStableBundleLoad) keeps the edited file's old findings",
-	"structural/daemon/body-edit-adds-finding": "STALE-BUNDLE-BODY-EDIT: structural bundle replay (dispatchStableBundleLoad) keeps the edited file's old findings",
-	// The structural fingerprint (and `krit abi-hash`) ignores a property's
-	// declared type: `val name: String?` and `val name: String` hash alike, so
-	// the same replay fires for a public API change.
-	"structural/cli/nullability":    "ABI-HASH-PROPERTY-TYPE: property type changes do not move the structural fingerprint, so the stale bundle replay fires",
-	"structural/daemon/nullability": "ABI-HASH-PROPERTY-TYPE: property type changes do not move the structural fingerprint, so the stale bundle replay fires",
+	for _, path := range []string{"cli", "daemon"} {
+		both("structural/"+path, "body-edit-adds-finding", "#823 STALE-BUNDLE-BODY-EDIT: structural bundle replay (dispatchStableBundleLoad) keeps the edited file's old findings")
+		// The structural fingerprint (and `krit abi-hash`) ignores a
+		// property's declared type, so the same replay fires for a public API
+		// change.
+		both("structural/"+path, "nullability", "#824 ABI-HASH-PROPERTY-TYPE: property type changes do not move the structural fingerprint, so the stale bundle replay fires")
+	}
+	// An analyze that arrives before the watcher has delivered an edit is
+	// served the old findings, and so is every later one: the daemon stays
+	// stale until the next edit.
+	both("structural/daemon", "annotation-deprecated-raced", "DAEMON-RACED-ANALYZE (issue to be filed): an analyze-project call racing the watcher event leaves the daemon serving the pre-edit findings after the event lands")
 	// Deleting a file leaves its cross-file findings in the cross-file
-	// findings cache of the one-shot CLI (dropping cross-file-cache or
-	// cross-findings-cache clears them).
-	"structural/cli/file-delete": "STALE-CROSSFILE-DELETE: findings of a deleted file survive in the cross-file caches of the one-shot CLI",
+	// findings cache of the one-shot CLI.
+	both("structural/cli", "file-delete", "#825 STALE-CROSSFILE-DELETE: findings of a deleted file survive in the cross-file caches of the one-shot CLI")
 	// krit-types records dependencies only for classes and resolved callables
 	// the file already used, so a new file that adds an overload, or a
 	// classpath jar, leaves cached facts for existing files in place.
-	"kaa/one-shot/file-add":         "KAA-NEWFILE-OVERLOAD: a new file adding an overload does not invalidate cached facts of files that call the name",
-	"kaa/daemon/file-add":           "KAA-NEWFILE-OVERLOAD: a new file adding an overload does not invalidate cached facts of files that call the name",
-	"kaa/one-shot/classpath-change": "KAA-CLASSPATH-KEY: the krit-types cache key does not include the classpath (krit-fir's does)",
-	"kaa/daemon/classpath-change":   "KAA-CLASSPATH-KEY: the krit-types cache key does not include the classpath (krit-fir's does)",
+	for _, mode := range []string{"one-shot", "daemon"} {
+		both("kaa/"+mode, "file-add", "#826 KAA-NEWFILE-OVERLOAD: a new file adding an overload does not invalidate cached facts of files that call the name")
+		both("kaa/"+mode, "classpath-change", "#827 KAA-CLASSPATH-KEY: the krit-types cache key does not include the classpath (krit-fir's does)")
+	}
+	// A one-shot oracle run over a relative scan root (`krit .`) returns no
+	// facts (krit-types) or serves a cache that drops files (krit-fir). Every
+	// relative one-shot row stays known-bad while that is open.
+	relRoot := map[string]string{
+		"kaa": "#828 REL-ROOT-NO-FACTS: a one-shot krit-types run over a relative scan root analyzes 0 files and caches empty entries",
+		"fir": "#829 REL-ROOT-FIR-CACHE: a cache-served krit-fir run over a relative scan root drops files / returns relative keys",
+	}
+	for backend, why := range relRoot {
+		for _, m := range []string{"return-type", "file-add", "file-rename", "import-change"} {
+			known[backend+"/one-shot/rel/"+m] = why
+		}
+	}
+	return known
 }
 
-// wcCheckWarmAgainstClean fails the test when diff (warm vs clean) is
-// non-empty, unless the row is a known stale-cache bug. detail is the full
-// failure report.
-func wcCheckWarmAgainstClean(t *testing.T, key, diff, detail string) {
+// wcResolveRow reports a row's outcome. problem is the first thing that went
+// wrong ("" when nothing did) and detail the full report. A row listed in
+// wcKnownStale is skipped on a problem and fails when it has none.
+func wcResolveRow(t *testing.T, key, problem, detail string) {
 	t.Helper()
 	bug, known := wcKnownStale[key]
 	switch {
-	case diff != "" && known:
-		t.Logf("%s", detail)
-		t.Skipf("known stale-cache bug: %s", bug)
-	case diff != "":
+	case problem != "" && known:
+		t.Logf("%s: %s\n%s", key, problem, detail)
+		t.Skipf("known stale-cache bug %s", bug)
+	case problem != "":
 		t.Errorf("%s", detail)
 	case known:
-		t.Errorf("row %s matches a clean scan now; delete its wcKnownStale entry (%s)", key, bug)
+		t.Errorf("row %s is correct now; delete its wcKnownStale entry (%s)", key, bug)
+	}
+}
+
+// wcMatrixEnv enables the warm-versus-clean matrix. The matrix builds krit,
+// spawns daemons and JVMs and takes minutes, so only the CI job that provides
+// the helper jars (oracle-backend-parity's sibling, warm-clean-matrix) sets it;
+// a plain `make test` skips it. Run it locally with KRIT_WARM_CLEAN_MATRIX=1.
+const wcMatrixEnv = "KRIT_WARM_CLEAN_MATRIX"
+
+func wcRequireMatrix(t *testing.T) {
+	t.Helper()
+	if os.Getenv(wcMatrixEnv) != "1" {
+		t.Skipf("warm-versus-clean matrix is opt-in; set %s=1 (the warm-clean-matrix CI job does)", wcMatrixEnv)
 	}
 }

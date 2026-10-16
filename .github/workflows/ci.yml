@@ -439,20 +439,112 @@ jobs:
       # isolation test proves a throwing checker costs only its own rule and
       # file. The daemon relative-path tests prove `krit .` scans of different
       # projects never share a daemon and that each backend's daemon facts
-      # come back (and are cached) under the caller's relative spelling. The
-      # TestWarmCleanMutation* matrix (#786) seeds a warm cache or daemon, mutates
-      # the project, and requires the warm result to equal a fresh process's.
+      # come back (and are cached) under the caller's relative spelling.
       # All must pass before the FIR backend can be made the default.
       - name: Run oracle backend parity
         env:
           KRIT_TYPES_JAR: ${{ github.workspace }}/tools/krit-types/build/libs/krit-types.jar
         run: |
           set -o pipefail
-          go test ./tests/parity/ -count=1 -run 'TestOracleBackendParity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative|TestWarmCleanMutation' -v | tee parity.log
+          go test ./tests/parity/ -count=1 -run 'TestOracleBackendParity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative' -v | tee parity.log
           # Top-level tests only: an exempt rule's subtest may skip. The
           # daemon relative-path tests' per-backend subtests must all run.
-          if grep -qE -- '--- SKIP: (TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative[A-Za-z]+(/(fir|kaa)(-symlink)?)?|TestWarmCleanMutation[A-Za-z]*) \(' parity.log; then
+          if grep -qE -- '--- SKIP: (TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative[A-Za-z]+(/(fir|kaa)(-symlink)?)?) \(' parity.log; then
             echo "::error::a FIR parity/property/fuzz test skipped; the CI parity job must execute them"
+            exit 1
+          fi
+
+  # warm-clean-matrix (#786) seeds a warm cache or daemon for the structural
+  # pipeline and for both JVM oracles (krit-types and krit-fir), mutates the
+  # project (return type, nullability, signature, annotations, file add /
+  # delete / rename, imports, overloads, classpath, helper jar), and requires
+  # the warm result to equal a fresh process's over the same tree. It is a
+  # sibling of oracle-backend-parity so its ~10 minutes run in parallel; it
+  # needs the same helper jars. KRIT_WARM_CLEAN_MATRIX=1 opts the tests in (a
+  # plain `make test` skips them), and a top-level skip fails the job, so a
+  # missing jar cannot silently pass.
+  warm-clean-matrix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v5
+        with:
+          distribution: zulu
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+        with:
+          cache-cleanup: on-success
+          validate-wrappers: true
+      - name: Cache krit-types shadow jar
+        id: cache-krit-types
+        uses: actions/cache@v6
+        with:
+          path: tools/krit-types/build/libs
+          key: krit-types-jar-${{ hashFiles('tools/krit-types/**/*.kt', 'tools/krit-types/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
+      - name: Build krit-types shadow jar
+        if: steps.cache-krit-types.outputs.cache-hit != 'true'
+        working-directory: tools/krit-types
+        run: ./gradlew --no-daemon shadowJar
+      # TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd adds a
+      # test-only throwing probe rule from krit-fir's compiled test classes to
+      # a copy of the shadow jar. Build them on every run (the jar cache below
+      # can skip the Gradle build), and BEFORE the shadow jar is restored or
+      # built: testClasses also builds the thin `jar`, which has the same
+      # build/libs/krit-fir.jar name and would overwrite the shadow jar.
+      - name: Build krit-fir test classes
+        working-directory: tools/krit-fir
+        run: ./gradlew --no-daemon testClasses
+      - name: Cache krit-fir shadow jar
+        id: cache-krit-fir
+        uses: actions/cache@v6
+        with:
+          path: tools/krit-fir/build/libs
+          key: krit-fir-jar-${{ hashFiles('tools/krit-fir/**/*.kt', 'tools/krit-fir/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
+      - name: Build krit-fir shadow jar
+        if: steps.cache-krit-fir.outputs.cache-hit != 'true'
+        working-directory: tools/krit-fir
+        run: ./gradlew --no-daemon shadowJar
+      - name: Locate kotlin-stdlib jar
+        run: |
+          glob() {
+            local base="$HOME/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib"
+            local candidates=() f
+            for f in "$base"/*/*/kotlin-stdlib-*.jar; do
+              [ -f "$f" ] || continue
+              case "$f" in *sources*|*javadoc*) continue;; esac
+              candidates+=("$f")
+            done
+            [ ${#candidates[@]} -eq 0 ] && return 0
+            printf '%s\n' "${candidates[@]}" | sort | tail -1
+          }
+          jar="$(glob)"
+          if [ -z "$jar" ]; then
+            echo "kotlin-stdlib not in Gradle cache; resolving krit-fir dependencies"
+            (cd tools/krit-fir && ./gradlew --no-daemon --quiet :dependencies --configuration runtimeClasspath >/dev/null 2>&1 || true)
+            jar="$(glob)"
+          fi
+          if [ -z "$jar" ]; then
+            echo "::error::kotlin-stdlib jar not found; TestFirPilotParity would skip"
+            exit 1
+          fi
+          echo "KOTLIN_STDLIB_JAR=$jar" >> "$GITHUB_ENV"
+          echo "kotlin-stdlib: $jar"
+      - name: Run warm-versus-clean mutation matrix
+        env:
+          KRIT_TYPES_JAR: ${{ github.workspace }}/tools/krit-types/build/libs/krit-types.jar
+          KRIT_FIR_JAR: ${{ github.workspace }}/tools/krit-fir/build/libs/krit-fir.jar
+          KRIT_WARM_CLEAN_MATRIX: "1"
+        run: |
+          set -o pipefail
+          go test ./tests/parity/ -count=1 -timeout 30m -run 'TestWarmCleanMutation' -v | tee matrix.log
+          # Top-level tests only: a row may skip itself (a known stale-cache
+          # bug listed in wcKnownStale, or the compiler-setting row waiting on
+          # #784), but a whole matrix must not.
+          if grep -qE -- '--- SKIP: TestWarmCleanMutation[A-Za-z]* \(' matrix.log; then
+            echo "::error::a warm-versus-clean matrix test skipped as a whole; the CI job must execute it"
             exit 1
           fi
 

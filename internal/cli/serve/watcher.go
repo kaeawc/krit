@@ -233,6 +233,11 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 			if err := fw.addRecursive(ev.Path); err != nil {
 				fw.warn("watch new dir %s: %v\n", ev.Path, err)
 			}
+			// A directory that arrives populated (mv, cp -r, git stash pop)
+			// delivers no events for what is inside it, and a file created
+			// between the mkdir and the new watch is missed too. Report every
+			// source file already there as created.
+			fw.touchExistingSources(ev.Path)
 			return
 		}
 	}
@@ -281,7 +286,16 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 		// Coalesce within debounceWindow so only one Invalidate+Touch
 		// fires per burst — the dirty-set's map semantics already dedup
 		// Touch, but Invalidate and CodeIndex drops are not free.
-		fw.scheduleKotlinInvalidate(ev.Path)
+		//
+		// Create, Remove and Rename change the file SET, not just a file's
+		// content: they are reported at once, because an analyze that arrives
+		// inside the debounce window would otherwise see no dirty path and
+		// trust source-path lists that predate the change.
+		if relevant&(opCreate|opRemove|opRename) != 0 {
+			fw.invalidateKotlinNow(ev.Path)
+		} else {
+			fw.scheduleKotlinInvalidate(ev.Path)
+		}
 	case isJavaPath(ev.Path):
 		// .java edits invalidate the daemon-resident
 		// javafacts.SourceIndex cache. Kotlin and Java live on
@@ -310,6 +324,47 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 		fw.state.BumpSourceMTimeVersion()
 		fw.state.BumpXMLFilesVersion()
 	}
+}
+
+// invalidateKotlinNow is the undebounced form of scheduleKotlinInvalidate's
+// callback: it cancels any pending debounced invalidation for path and
+// invalidates and Touches it immediately.
+func (fw *fileWatcher) invalidateKotlinNow(path string) {
+	fw.state.BumpSourceMTimeVersion()
+	fw.debounceMu.Lock()
+	if t, ok := fw.debounce[path]; ok {
+		t.Stop()
+		delete(fw.debounce, path)
+	}
+	fw.debounceGen[path]++
+	fw.debounceMu.Unlock()
+	fw.invalidateBothForms(path)
+	fw.state.InvalidateCodeIndex()
+	fw.state.InvalidateDependents()
+	fw.state.InvalidateResolver()
+	fw.state.InvalidateOracleFilter()
+	fw.state.Touch(path)
+}
+
+// touchExistingSources reports every Kotlin and Java source already under dir
+// as created.
+func (fw *fileWatcher) touchExistingSources(dir string) {
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			fw.warn("walk %s: %v\n", path, err)
+			return nil
+		}
+		if d.IsDir() {
+			if path != dir && isPrunedDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if isKotlinPath(path) || isJavaPath(path) {
+			fw.handle(backendEvent{Path: path, Op: opCreate})
+		}
+		return nil
+	})
 }
 
 // scheduleKotlinInvalidate coalesces rapid fsnotify events for path into a

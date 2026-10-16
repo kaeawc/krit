@@ -142,7 +142,10 @@ keys are unchanged) is part of:
 
 * the oracle store scope (`oracle.NewStoreScopeWithSettings`) for both backends,
   the facts sidecar of a cached `types.json` (so a settings-only change cannot
-  reuse it), and the legacy per-file entry directory used without `.krit/store`;
+  reuse it), and the legacy per-file entry directory used without `.krit/store`
+  (keyed by the settings identity alone, under `types-cache/scopes/<hash>` in
+  the versioned root and pruned to the four most recent; no settings keep the
+  existing directory unchanged). The freshness gate reads the same directory;
 * the FIR check cache fingerprint and the FIR daemon registry key
   (`internal/firchecks`), and the prefetch match that lets a check ride on the
   oracle compilation;
@@ -158,6 +161,8 @@ Notes, rejected arguments and opt-in order do not affect the identity.
 * On the `--fir` preflight path Krit does not (and did not before) read the
   model's source roots or JVM target; only the classpath and, now, the Kotlin
   settings come from the model there.
+* The legacy per-file entries are not keyed by classpath or JVM target (tracked
+  in issue #827); only the store scope is.
 * The language server's workspace index uses the resident Kotlin Analysis API
   daemon, which is started once per jar and source roots and does not receive
   the settings; a scan does.

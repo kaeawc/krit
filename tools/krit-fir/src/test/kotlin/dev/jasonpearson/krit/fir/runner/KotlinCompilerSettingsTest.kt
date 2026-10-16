@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.runner
 import dev.jasonpearson.krit.fir.parseModuleRequest
 import dev.jasonpearson.krit.fir.parseRequest
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
+import org.jetbrains.kotlin.config.LanguageVersion
 import org.junit.jupiter.api.Test
 import java.io.File
 import kotlin.test.assertEquals
@@ -142,6 +143,14 @@ class KotlinCompilerSettingsTest {
         assertNull(s.apiVersion)
         assertTrue(s.warnings.any { "greater than languageVersion" in it }, s.warnings.toString())
         assertEquals("2.0", KotlinCompilerSettings.parse(listOf("-language-version=2.1", "-api-version=2.0")).apiVersion)
+    }
+
+    // Go's MinSupportedKotlinLanguage ("2.0") must be the first level the embedded compiler
+    // supports: Go drops older levels so it does not apply or hash what this helper would drop.
+    @Test fun goMinimumSupportedLanguageMatchesTheEmbeddedCompiler() {
+        assertTrue(LanguageVersion.KOTLIN_1_9.isUnsupported)
+        assertFalse(LanguageVersion.KOTLIN_2_0.isUnsupported)
+        assertEquals("2.0", LanguageVersion.entries.first { !it.isUnsupported }.versionString)
     }
 
     @Test fun requestsCarryKotlinArgs() {

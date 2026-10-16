@@ -86,6 +86,15 @@ class KotlinCompilerSettingsTest {
         assertTrue(s.warnings.any { "greater than languageVersion" in it }, s.warnings.toString())
     }
 
+    // Go's MinSupportedKotlinLanguage ("2.0") must be the first level the embedded compiler
+    // supports: Go drops older levels so it does not apply or hash what this helper would drop.
+    @Test
+    fun goMinimumSupportedLanguageMatchesTheEmbeddedCompiler() {
+        assertTrue(LanguageVersion.KOTLIN_1_9.isUnsupported)
+        assertFalse(LanguageVersion.KOTLIN_2_0.isUnsupported)
+        assertEquals("2.0", LanguageVersion.entries.first { !it.isUnsupported }.versionString)
+    }
+
     @Test
     fun noSettingsLeaveTheEmbeddedDefaultsInForce() {
         assertNull(KotlinCompilerSettings().toLanguageVersionSettings())

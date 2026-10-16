@@ -107,19 +107,55 @@ func hashSources(sourceDirs []string) string {
 // answers for another (its facts would be computed against the wrong
 // libraries).
 func daemonRegistryKey(jarPath string, sourceDirs []string, classpath ...string) string {
-	return daemonRegistryPrefix(jarPath, sourceDirs, classpath...) + "@" + JarIdentity(jarPath)
+	return daemonRegistryKeyKT(jarPath, sourceDirs, gradlemodel.KotlinSettings{}, classpath...)
 }
 
-func daemonRegistryPrefix(jarPath string, sourceDirs []string, classpath ...string) string {
-	return jarTag(jarPath) + "-" + JarPathTag(jarPath) + "-" + daemonLegacySuffix(sourceDirs, classpath...)
+// daemonRegistryKeyKT also keys the daemon on the Kotlin compiler settings it
+// was launched with (`--kotlin-arg`), so a daemon started for one language
+// level, opt-in set or flag set never answers for another. Zero settings give
+// exactly the key daemonRegistryKey always produced.
+func daemonRegistryKeyKT(jarPath string, sourceDirs []string, kt gradlemodel.KotlinSettings, classpath ...string) string {
+	return daemonRegistryPrefix(jarPath, sourceDirs, kt, classpath...) + "@" + JarIdentity(jarPath)
+}
+
+func daemonRegistryPrefix(jarPath string, sourceDirs []string, kt gradlemodel.KotlinSettings, classpath ...string) string {
+	return jarTag(jarPath) + "-" + JarPathTag(jarPath) + "-" + daemonLegacySuffix(sourceDirs, kotlinKeySuffix(kt), classpath...)
+}
+
+// kotlinKeySuffix is the registry key component for the settings, "" for none.
+func kotlinKeySuffix(kt gradlemodel.KotlinSettings) string {
+	if hash := kt.IdentityHash(); hash != "" {
+		return "-kt" + hash
+	}
+	return ""
+}
+
+// DaemonOption configures a persistent oracle daemon beyond jar, sources and
+// classpath.
+type DaemonOption func(*daemonConfig)
+
+type daemonConfig struct{ kotlin gradlemodel.KotlinSettings }
+
+// WithKotlinSettings launches (or connects to) the daemon for the project's
+// effective Kotlin compiler settings. Without it the embedded defaults apply.
+func WithKotlinSettings(s gradlemodel.KotlinSettings) DaemonOption {
+	return func(c *daemonConfig) { c.kotlin = s }
+}
+
+func resolveDaemonOptions(opts []DaemonOption) daemonConfig {
+	var c daemonConfig
+	for _, o := range opts {
+		o(&c)
+	}
+	return c
 }
 
 func daemonLegacyKey(jarPath string, sourceDirs []string, classpath ...string) string {
-	return jarTag(jarPath) + "-" + daemonLegacySuffix(sourceDirs, classpath...)
+	return jarTag(jarPath) + "-" + daemonLegacySuffix(sourceDirs, "", classpath...)
 }
 
-func daemonLegacySuffix(sourceDirs []string, classpath ...string) string {
-	key := daemonClasspathPathPrefix(sourceDirs, classpath...)
+func daemonLegacySuffix(sourceDirs []string, kt string, classpath ...string) string {
+	key := daemonClasspathPathPrefix(sourceDirs, kt, classpath...)
 	if len(classpath) > 0 {
 		key += "-" + gradlemodel.ClasspathFingerprint(AbsolutePaths(classpath))[:8]
 	}
@@ -128,8 +164,8 @@ func daemonLegacySuffix(sourceDirs []string, classpath ...string) string {
 
 // The path-only prefix lets retirement find daemons whose classpath jars
 // changed in place, while keeping unrelated classpaths separate.
-func daemonClasspathPathPrefix(sourceDirs []string, classpath ...string) string {
-	key := hashSources(sourceDirs)
+func daemonClasspathPathPrefix(sourceDirs []string, kt string, classpath ...string) string {
+	key := hashSources(sourceDirs) + kt
 	if len(classpath) > 0 {
 		// Order matters on a classpath, so hash it in the given order.
 		key += "-" + hashutil.HashHex([]byte(strings.Join(AbsolutePaths(classpath), "\n")))[:8]
@@ -281,9 +317,10 @@ func connectDaemonTCP(cmd *exec.Cmd, port int, srcHash string, slot int) (net.Co
 // caches for this jar are purged and the spawn is retried once. The
 // second attempt sees no cache files, so the JVM takes the training path
 // and starts cleanly.
-func StartDaemon(jarPath string, sourceDirs []string, classpath []string, verbose bool) (*Daemon, error) {
+func StartDaemon(jarPath string, sourceDirs []string, classpath []string, verbose bool, opts ...DaemonOption) (*Daemon, error) {
+	kt := resolveDaemonOptions(opts).kotlin
 	return retryOnHandshakeNoise(jarPath, verbose, func() (*Daemon, error) {
-		return startDaemonOnce(jarPath, sourceDirs, classpath, verbose)
+		return startDaemonOnce(jarPath, sourceDirs, classpath, verbose, kt)
 	})
 }
 
@@ -307,8 +344,17 @@ func retryOnHandshakeNoise(jarPath string, verbose bool, spawn func() (*Daemon, 
 // appendDaemonJarArgs appends the jar and its daemon inputs, all absolute:
 // the daemon runs in DaemonWorkDir, not the caller's directory.
 func appendDaemonJarArgs(args []string, jarPath string, sourceDirs, classpath []string, daemonArgs ...string) []string {
+	return appendDaemonJarArgsKT(args, jarPath, sourceDirs, classpath, gradlemodel.KotlinSettings{}, daemonArgs...)
+}
+
+// appendDaemonJarArgsKT also launches the daemon under the Kotlin settings;
+// each is its own `--kotlin-arg` flag, which both backends re-filter.
+func appendDaemonJarArgsKT(args []string, jarPath string, sourceDirs, classpath []string, kt gradlemodel.KotlinSettings, daemonArgs ...string) []string {
 	args = append(args, "-jar", AbsolutePath(jarPath))
 	args = append(args, daemonArgs...)
+	for _, arg := range kt.CompilerArgs() {
+		args = append(args, "--kotlin-arg", arg)
+	}
 	if len(sourceDirs) > 0 {
 		args = append(args, "--sources", strings.Join(AbsolutePaths(sourceDirs), ","))
 	}
@@ -327,7 +373,7 @@ func EphemeralDaemonArgs(args ...string) []string {
 	return args
 }
 
-func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, verbose bool) (*Daemon, error) {
+func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, verbose bool, kt gradlemodel.KotlinSettings) (*Daemon, error) {
 	// The daemon does not run in the caller's directory; the AOT/CDS
 	// startup-cache args and -jar must name the same absolute jar.
 	jarPath = AbsolutePath(jarPath)
@@ -339,7 +385,7 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 	args := buildJVMBaseArgs()
 	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgsFromEnv())
-	args = appendDaemonJarArgs(args, jarPath, sourceDirs, classpath, EphemeralDaemonArgs("--daemon")...)
+	args = appendDaemonJarArgsKT(args, jarPath, sourceDirs, classpath, kt, EphemeralDaemonArgs("--daemon")...)
 	aotCache := startupAOTCache(args)
 
 	if verbose {
@@ -383,6 +429,7 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 		nextID:       1,
 		sourceDirs:   sourceDirs,
 		aotCachePath: aotCache,
+		kotlin:       kt,
 	}
 
 	if _, err := waitPipeReady(cmd, scanner); err != nil {
@@ -406,7 +453,11 @@ func connectExistingDaemon(jarPath string, sourceDirs []string, verbose bool, cl
 }
 
 func connectExistingDaemonSlot(jarPath string, sourceDirs []string, verbose bool, slot int, classpath ...string) (*Daemon, error) {
-	hash := daemonRegistryKey(jarPath, sourceDirs, classpath...)
+	return connectExistingDaemonSlotKT(jarPath, sourceDirs, gradlemodel.KotlinSettings{}, verbose, slot, classpath...)
+}
+
+func connectExistingDaemonSlotKT(jarPath string, sourceDirs []string, kt gradlemodel.KotlinSettings, verbose bool, slot int, classpath ...string) (*Daemon, error) {
+	hash := daemonRegistryKeyKT(jarPath, sourceDirs, kt, classpath...)
 	info, err := readPIDFileSlot(hash, slot)
 	if err != nil {
 		return nil, fmt.Errorf("no existing daemon: %w", err)
@@ -438,6 +489,7 @@ func connectExistingDaemonSlot(jarPath string, sourceDirs []string, verbose bool
 		slot:        slot,
 		sourcesHash: info.SourcesHash,
 		sourceDirs:  sourceDirs,
+		kotlin:      kt,
 	}
 
 	// Verify the daemon is responsive with a ping
@@ -462,7 +514,11 @@ func cleanStaleDaemon(jarPath string, sourceDirs []string, verbose bool, classpa
 }
 
 func cleanStaleDaemonSlot(jarPath string, sourceDirs []string, verbose bool, slot int, classpath ...string) {
-	hash := daemonRegistryKey(jarPath, sourceDirs, classpath...)
+	cleanStaleDaemonSlotKT(jarPath, sourceDirs, gradlemodel.KotlinSettings{}, verbose, slot, classpath...)
+}
+
+func cleanStaleDaemonSlotKT(jarPath string, sourceDirs []string, kt gradlemodel.KotlinSettings, verbose bool, slot int, classpath ...string) {
+	hash := daemonRegistryKeyKT(jarPath, sourceDirs, kt, classpath...)
 	stopDaemonSlot(hash, slot, verbose)
 }
 
@@ -532,12 +588,19 @@ func stopDaemonSlot(hash string, slot int, verbose bool) {
 // classpath. A concurrent request on an old daemon can be interrupted after
 // its jar is replaced on disk; that daemon can no longer serve the current jar.
 func retireSupersededDaemons(jarPath string, sourceDirs []string, classpath []string, verbose bool) {
+	retireSupersededDaemonsKT(jarPath, sourceDirs, gradlemodel.KotlinSettings{}, classpath, verbose)
+}
+
+// retireSupersededDaemonsKT retires daemons of the same settings family whose
+// classpath jars changed in place; daemons for other settings are left to
+// serve their own requests and idle out.
+func retireSupersededDaemonsKT(jarPath string, sourceDirs []string, kt gradlemodel.KotlinSettings, classpath []string, verbose bool) {
 	dir, err := daemonsDir()
 	if err != nil {
 		return
 	}
-	current := daemonRegistryKey(jarPath, sourceDirs, classpath...)
-	family := jarTag(jarPath) + "-" + JarPathTag(jarPath) + "-" + daemonClasspathPathPrefix(sourceDirs, classpath...)
+	current := daemonRegistryKeyKT(jarPath, sourceDirs, kt, classpath...)
+	family := jarTag(jarPath) + "-" + JarPathTag(jarPath) + "-" + daemonClasspathPathPrefix(sourceDirs, kotlinKeySuffix(kt), classpath...)
 	paths, err := filepath.Glob(filepath.Join(dir, family+"*.pid"))
 	if err == nil {
 		for _, path := range paths {
@@ -553,6 +616,10 @@ func retireSupersededDaemons(jarPath string, sourceDirs []string, classpath []st
 		}
 	}
 	legacy := daemonLegacyKey(jarPath, sourceDirs, classpath...)
+	if kotlinKeySuffix(kt) != "" {
+		// Settings daemons never use the legacy key layout.
+		return
+	}
 	paths, err = filepath.Glob(filepath.Join(dir, legacy+"*.pid"))
 	if err == nil {
 		for _, path := range paths {
@@ -620,17 +687,18 @@ func waitUntilDead(pid int, timeout time.Duration) bool {
 
 // StartDaemonWithPort launches the krit-types JVM process in daemon mode with
 // a TCP listener. The daemon auto-assigns a port and reports it on stdout.
-func StartDaemonWithPort(jarPath string, sourceDirs []string, classpath []string, verbose bool) (*Daemon, error) {
-	return StartDaemonWithPortSlot(jarPath, sourceDirs, classpath, verbose, 0)
+func StartDaemonWithPort(jarPath string, sourceDirs []string, classpath []string, verbose bool, opts ...DaemonOption) (*Daemon, error) {
+	return StartDaemonWithPortSlot(jarPath, sourceDirs, classpath, verbose, 0, opts...)
 }
 
-func StartDaemonWithPortSlot(jarPath string, sourceDirs []string, classpath []string, verbose bool, slot int) (*Daemon, error) {
+func StartDaemonWithPortSlot(jarPath string, sourceDirs []string, classpath []string, verbose bool, slot int, opts ...DaemonOption) (*Daemon, error) {
+	kt := resolveDaemonOptions(opts).kotlin
 	return retryOnHandshakeNoise(jarPath, verbose, func() (*Daemon, error) {
-		return startDaemonWithPortSlotOnce(jarPath, sourceDirs, classpath, verbose, slot)
+		return startDaemonWithPortSlotOnce(jarPath, sourceDirs, classpath, verbose, slot, kt)
 	})
 }
 
-func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath []string, verbose bool, slot int) (*Daemon, error) {
+func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath []string, verbose bool, slot int, kt gradlemodel.KotlinSettings) (*Daemon, error) {
 	// The daemon does not run in the caller's directory; the AOT/CDS
 	// startup-cache args and -jar must name the same absolute jar.
 	jarPath = AbsolutePath(jarPath)
@@ -638,7 +706,7 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 	// replaced during startup, the daemon is registered under the identity
 	// observed first, so the next caller sees a mismatch and restarts rather
 	// than trusting a daemon that may be running the old artifact.
-	srcHash := daemonRegistryKey(jarPath, sourceDirs, classpath...)
+	srcHash := daemonRegistryKeyKT(jarPath, sourceDirs, kt, classpath...)
 
 	javaPath, err := exec.LookPath("java")
 	if err != nil {
@@ -648,7 +716,7 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 	args := buildJVMBaseArgs()
 	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgsFromEnv())
-	args = appendDaemonJarArgs(args, jarPath, sourceDirs, classpath, EphemeralDaemonArgs("--daemon", "--port", "0")...)
+	args = appendDaemonJarArgsKT(args, jarPath, sourceDirs, classpath, kt, EphemeralDaemonArgs("--daemon", "--port", "0")...)
 	aotCache := startupAOTCache(args)
 
 	if verbose {
@@ -713,6 +781,7 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 		sourcesHash:  srcHash,
 		sourceDirs:   sourceDirs,
 		aotCachePath: aotCache,
+		kotlin:       kt,
 	}
 
 	return d, nil
@@ -725,22 +794,23 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 // fight over a shared PID file. If no daemon is running (or the
 // existing one is unresponsive), cleanStaleDaemon wipes just this
 // repo's entry and StartDaemonWithPort starts a fresh one.
-func ConnectOrStartDaemon(jarPath string, sourceDirs []string, classpath []string, verbose bool) (*Daemon, error) {
+func ConnectOrStartDaemon(jarPath string, sourceDirs []string, classpath []string, verbose bool, opts ...DaemonOption) (*Daemon, error) {
+	kt := resolveDaemonOptions(opts).kotlin
 	// Try connecting to an existing daemon for this (jar, source tree)
 	// pair. The jar is part of the registry key so a running
 	// krit-types daemon isn't reused when the caller asks for
 	// krit-fir (or vice versa).
-	if d, err := connectExistingDaemon(jarPath, sourceDirs, verbose, classpath...); err == nil {
+	if d, err := connectExistingDaemonSlotKT(jarPath, sourceDirs, kt, verbose, 0, classpath...); err == nil {
 		return d, nil
 	}
-	retireSupersededDaemons(jarPath, sourceDirs, classpath, verbose)
+	retireSupersededDaemonsKT(jarPath, sourceDirs, kt, classpath, verbose)
 
 	// Clean up this (jar, repo)'s stale daemon entry (if any). Other
 	// registry entries are left alone.
-	cleanStaleDaemon(jarPath, sourceDirs, verbose, classpath...)
+	cleanStaleDaemonSlotKT(jarPath, sourceDirs, kt, verbose, 0, classpath...)
 
 	// Start a new persistent daemon.
-	d, err := StartDaemonWithPort(jarPath, sourceDirs, classpath, verbose)
+	d, err := StartDaemonWithPort(jarPath, sourceDirs, classpath, verbose, WithKotlinSettings(kt))
 	if err != nil {
 		return nil, fmt.Errorf("start persistent daemon: %w", err)
 	}

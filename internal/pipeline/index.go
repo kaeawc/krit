@@ -927,7 +927,7 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 	} else {
 		var daemonErr error
 		oracleTracker.TrackVoid("jvmStart", func() {
-			d, daemonErr = oracle.InvokeDaemon(scanPaths, in.Verbose)
+			d, daemonErr = oracle.InvokeDaemon(scanPaths, in.Verbose, oracle.WithKotlinSettings(in.OracleKotlin))
 		})
 		if daemonErr != nil {
 			in.warnf("warning: daemon: %v\n", daemonErr)
@@ -1464,14 +1464,6 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 	switch {
 	case in.UseDaemon && in.OracleBackend == oracle.BackendFIR:
 		resolver = p.runDaemonOracleFir(in, scanPaths, oracleTracker, base, result)
-	case in.UseDaemon && !in.OracleKotlin.IsZero():
-		// The resident KAA oracle daemon is started once per jar and source
-		// roots and is keyed on neither the classpath nor the Kotlin
-		// language level, opt-ins or flags, so it would answer with the
-		// compiler defaults. Settings-bearing runs take the one-shot path,
-		// whose compile is configured and cached per settings.
-		in.logf("verbose: oracle daemon does not carry Kotlin compiler settings (%s); using the settings-scoped one-shot oracle\n", in.OracleKotlin.Describe())
-		resolver = p.runAutoDetectOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, result)
 	case in.UseDaemon:
 		resolver = p.runDaemonOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, result)
 	default:

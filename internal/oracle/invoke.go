@@ -462,7 +462,7 @@ func runOracleProcessMeasured(
 // krit-types daemon process. The caller is responsible for calling Close() on
 // the returned Daemon. Missing jars are auto-downloaded for tagged releases;
 // see EnsureJar.
-func InvokeDaemon(scanPaths []string, verbose bool) (*Daemon, error) {
+func InvokeDaemon(scanPaths []string, verbose bool, opts ...DaemonOption) (*Daemon, error) {
 	jarPath, err := EnsureJar(context.Background(), scanPaths, verbose)
 	if err != nil {
 		return nil, err
@@ -477,7 +477,7 @@ func InvokeDaemon(scanPaths []string, verbose bool) (*Daemon, error) {
 		reporter().Verbosef("verbose: Found %d source directories for daemon\n", len(sourceDirs))
 	}
 
-	return StartDaemon(jarPath, sourceDirs, nil, verbose)
+	return StartDaemon(jarPath, sourceDirs, nil, verbose, opts...)
 }
 
 // InvokePersistentDaemon finds the JAR and source directories, then either

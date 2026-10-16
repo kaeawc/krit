@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/oracle"
 )
 
@@ -37,6 +38,40 @@ func TestEnsureOracleDaemonRestartsAfterJarReplacement(t *testing.T) {
 	}
 }
 
+// The resident krit-types daemon is keyed on the Kotlin compiler settings it
+// was launched with: the same settings reuse it, changed settings get another.
+func TestEnsureOracleDaemonIsKeyedOnKotlinSettings(t *testing.T) {
+	root := t.TempDir()
+	jar := filepath.Join(root, "krit-types.jar")
+	if err := os.WriteFile(jar, []byte("A"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KRIT_TYPES_JAR", jar)
+	state := newDaemonState(root)
+	t.Cleanup(state.closeOracleDaemons)
+	plain, v20, v22 := &oracle.Daemon{}, &oracle.Daemon{}, &oracle.Daemon{}
+	fake := &fakeOracleDaemonStarter{returns: []*oracle.Daemon{plain, v20, v22}}
+	state.oracleDaemonStarter = fake
+	older := gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}
+	newer := gradlemodel.KotlinSettings{LanguageVersion: "2.2", APIVersion: "2.2"}
+	get := func(kt ...gradlemodel.KotlinSettings) *oracle.Daemon {
+		d, err := state.ensureOracleDaemon([]string{root}, oracle.BackendKAA, kt...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	if get() != plain || get(older) != v20 || get(newer) != v22 {
+		t.Fatal("each settings identity must get its own daemon")
+	}
+	if get() != plain || get(older) != v20 || get(newer) != v22 {
+		t.Fatal("unchanged settings must reuse their resident daemon")
+	}
+	if got := fake.calls.Load(); got != 3 {
+		t.Fatalf("starter called %d times, want 3", got)
+	}
+}
+
 // fakeOracleDaemonStarter records every Start call and returns a
 // pre-canned daemon (or error) so tests exercise the lifecycle without
 // spinning up a real JVM. The returned Daemon is a zero-value handle —
@@ -49,7 +84,7 @@ type fakeOracleDaemonStarter struct {
 	errs    []error
 }
 
-func (f *fakeOracleDaemonStarter) Start(jarPath string, sourceDirs, classpath []string, verbose bool) (*oracle.Daemon, error) {
+func (f *fakeOracleDaemonStarter) Start(jarPath string, sourceDirs, classpath []string, verbose bool, opts ...oracle.DaemonOption) (*oracle.Daemon, error) {
 	idx := int(f.calls.Add(1)) - 1
 	if idx < len(f.errs) && f.errs[idx] != nil {
 		return nil, f.errs[idx]
@@ -162,7 +197,7 @@ func TestCloseOracleDaemons_ClearsCache(t *testing.T) {
 // failed to start". Used by the starter-error test below.
 type errStarter struct{ err error }
 
-func (e errStarter) Start(string, []string, []string, bool) (*oracle.Daemon, error) {
+func (e errStarter) Start(string, []string, []string, bool, ...oracle.DaemonOption) (*oracle.Daemon, error) {
 	return nil, e.err
 }
 

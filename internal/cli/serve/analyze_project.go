@@ -481,7 +481,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	// BackendFIR) is found. nil daemon means oracle stays disabled
 	// (no JVM, no behavior change). Per-verb ping happens at the
 	// call boundary in handleAnalyzeProject.
-	oracleDaemon, err := s.ensureOracleDaemon(paths, backend)
+	oracleDaemon, err := s.ensureOracleDaemon(paths, backend, args.OracleKotlin)
 	if err != nil {
 		// Best-effort degrade: a failed daemon start shouldn't fail
 		// the whole verb. Log via stderr; the verb continues with

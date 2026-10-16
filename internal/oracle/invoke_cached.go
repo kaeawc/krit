@@ -30,6 +30,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/fileignore"
 	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/store"
 )
@@ -1150,7 +1151,7 @@ func runMissAnalysis(
 		var pool *DaemonPool
 		if err := trackOracle(tracker, "daemonPoolConnectOrStart", func() error {
 			var err error
-			pool, err = ConnectOrStartDaemonPool(jarPath, sourceDirs, opts.Classpath, poolSize, verbose)
+			pool, err = ConnectOrStartDaemonPool(jarPath, sourceDirs, opts.Classpath, poolSize, verbose, WithKotlinSettings(opts.Kotlin))
 			return err
 		}); err != nil {
 			return fallback(fmt.Sprintf("ConnectOrStartDaemonPool: %v", err))
@@ -1162,7 +1163,7 @@ func runMissAnalysis(
 			"started":   int64(pool.Started),
 		}, nil)
 		var matchErr error
-		pool, matchErr = reconnectMismatchedDaemonPool(pool, jarPath, sourceDirs, opts.Classpath, poolSize, verbose, len(misses), tracker)
+		pool, matchErr = reconnectMismatchedDaemonPool(pool, jarPath, sourceDirs, opts.Classpath, opts.Kotlin, poolSize, verbose, len(misses), tracker)
 		if matchErr != nil {
 			return fallback(matchErr.Error())
 		}
@@ -1187,7 +1188,7 @@ func runMissAnalysis(
 	var d *Daemon
 	if err := trackOracle(tracker, "daemonConnectOrStart", func() error {
 		var err error
-		d, err = ConnectOrStartDaemon(jarPath, sourceDirs, opts.Classpath, verbose)
+		d, err = ConnectOrStartDaemon(jarPath, sourceDirs, opts.Classpath, verbose, WithKotlinSettings(opts.Kotlin))
 		return err
 	}); err != nil {
 		return fallback(fmt.Sprintf("ConnectOrStartDaemon: %v", err))
@@ -1201,7 +1202,7 @@ func runMissAnalysis(
 	defer func() { _ = d.Release() }()
 
 	var matchErr error
-	d, matchErr = reconnectMismatchedDaemon(d, jarPath, sourceDirs, opts.Classpath, verbose, len(misses), tracker)
+	d, matchErr = reconnectMismatchedDaemon(d, jarPath, sourceDirs, opts.Classpath, opts.Kotlin, verbose, len(misses), tracker)
 	if matchErr != nil {
 		return fallback(matchErr.Error())
 	}
@@ -1238,44 +1239,37 @@ func oneShotMissAnalysisReason(poolSize, misses int, opts InvocationOptions) (bo
 	if opts.Backend == BackendFIR && opts.JvmTarget != "" {
 		return true, "FIR JVM target requires target-scoped compilation"
 	}
-	// Likewise the daemon registry does not key the Kotlin language level,
-	// opt-ins or flags: a resident daemon would answer with the compiler
-	// defaults (or another project's settings), so a compile with project
-	// settings runs one-shot under its settings-scoped cache.
-	if !opts.Kotlin.IsZero() {
-		return true, "Kotlin compiler settings require settings-scoped compilation"
-	}
 	return shouldUseOneShotMissAnalysis(poolSize, misses)
 }
 
-func reconnectMismatchedDaemonPool(pool *DaemonPool, jarPath string, sourceDirs, classpath []string, size int, verbose bool, misses int, tracker perf.Tracker) (*DaemonPool, error) {
-	if pool.MatchesRepo(jarPath, sourceDirs, classpath...) {
+func reconnectMismatchedDaemonPool(pool *DaemonPool, jarPath string, sourceDirs, classpath []string, kt gradlemodel.KotlinSettings, size int, verbose bool, misses int, tracker perf.Tracker) (*DaemonPool, error) {
+	if pool.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...) {
 		return pool, nil
 	}
 	addOracleInstant(tracker, "daemonPoolRepoMismatch", map[string]int64{"misses": int64(misses)}, nil)
 	_ = pool.Release()
-	replacement, err := ConnectOrStartDaemonPool(jarPath, sourceDirs, classpath, size, verbose)
+	replacement, err := ConnectOrStartDaemonPool(jarPath, sourceDirs, classpath, size, verbose, WithKotlinSettings(kt))
 	if err != nil {
 		return pool, fmt.Errorf("reconnect daemon pool: %w", err)
 	}
-	if !replacement.MatchesRepo(jarPath, sourceDirs, classpath...) {
+	if !replacement.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...) {
 		_ = replacement.Release()
 		return replacement, fmt.Errorf("daemon pool (jar, sourceDirs) mismatch after reconnect")
 	}
 	return replacement, nil
 }
 
-func reconnectMismatchedDaemon(d *Daemon, jarPath string, sourceDirs, classpath []string, verbose bool, misses int, tracker perf.Tracker) (*Daemon, error) {
-	if d.MatchesRepo(jarPath, sourceDirs, classpath...) {
+func reconnectMismatchedDaemon(d *Daemon, jarPath string, sourceDirs, classpath []string, kt gradlemodel.KotlinSettings, verbose bool, misses int, tracker perf.Tracker) (*Daemon, error) {
+	if d.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...) {
 		return d, nil
 	}
 	addOracleInstant(tracker, "daemonRepoMismatch", map[string]int64{"misses": int64(misses)}, nil)
 	_ = d.Release()
-	replacement, err := ConnectOrStartDaemon(jarPath, sourceDirs, classpath, verbose)
+	replacement, err := ConnectOrStartDaemon(jarPath, sourceDirs, classpath, verbose, WithKotlinSettings(kt))
 	if err != nil {
 		return d, fmt.Errorf("reconnect daemon: %w", err)
 	}
-	if !replacement.MatchesRepo(jarPath, sourceDirs, classpath...) {
+	if !replacement.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...) {
 		_ = replacement.Release()
 		return replacement, fmt.Errorf("daemon (jar, sourceDirs) mismatch after reconnect")
 	}

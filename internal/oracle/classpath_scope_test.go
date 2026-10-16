@@ -87,19 +87,56 @@ func TestKotlinSettingsChangeStoreScope(t *testing.T) {
 	}
 }
 
-// A compile with settings must not go through the resident daemon registry,
-// which is keyed on neither the language level nor the flags.
-func TestKotlinSettingsForceSettingsScopedOneShot(t *testing.T) {
-	opts := InvocationOptions{Backend: BackendKAA}
-	if use, _ := oneShotMissAnalysisReason(4, 1, opts); use {
-		t.Skip("baseline already one-shot")
+// Kotlin settings no longer bypass the persistent daemon: the daemon registry
+// is keyed on them instead. A KAA run with settings keeps the daemon path.
+func TestKotlinSettingsKeepTheDaemonPathForKAA(t *testing.T) {
+	t.Setenv("KRIT_DAEMON_CACHE", "on")
+	opts := InvocationOptions{Backend: BackendKAA, Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}}
+	if use, reason := oneShotMissAnalysisReason(1, 1, opts); use {
+		t.Fatalf("settings forced a one-shot compile (%q); the daemon must serve them", reason)
 	}
-	opts.Kotlin = gradlemodel.KotlinSettings{LanguageVersion: "1.9"}
-	for _, backend := range []Backend{BackendKAA, BackendFIR} {
-		opts.Backend = backend
-		if use, reason := oneShotMissAnalysisReason(4, 1, opts); !use || reason == "" {
-			t.Errorf("%s: settings did not force the settings-scoped one-shot (%v %q)", backend, use, reason)
+	// The pre-existing FIR JVM-target rule is unchanged.
+	opts.Backend, opts.JvmTarget = BackendFIR, "17"
+	if use, _ := oneShotMissAnalysisReason(1, 1, opts); !use {
+		t.Fatal("FIR with a JVM target still needs the target-scoped one-shot")
+	}
+}
+
+// A daemon launched for one set of Kotlin settings is never reused for another,
+// and the settings are passed at launch.
+func TestDaemonRegistryIsKeyedOnKotlinSettings(t *testing.T) {
+	jar, dirs := "/jars/krit-types.jar", []string{"/src"}
+	older := gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}
+	newer := gradlemodel.KotlinSettings{LanguageVersion: "2.2", APIVersion: "2.2"}
+	if daemonRegistryKeyKT(jar, dirs, gradlemodel.KotlinSettings{}) != daemonRegistryKey(jar, dirs) {
+		t.Fatal("zero settings must keep the existing registry key")
+	}
+	keys := map[string]bool{}
+	for _, kt := range []gradlemodel.KotlinSettings{{}, older, newer, {LanguageVersion: "2.0", APIVersion: "2.0", Flags: []string{"-Xwhen-guards"}}} {
+		key := daemonRegistryKeyKT(jar, dirs, kt, "/a.jar")
+		if keys[key] {
+			t.Fatalf("settings %+v collide on registry key %q", kt, key)
 		}
+		keys[key] = true
+	}
+	d := &Daemon{sourcesHash: daemonRegistryKeyKT(jar, dirs, older, "/a.jar"), kotlin: older}
+	if !d.MatchesRepoSettings(jar, dirs, older, "/a.jar") || !d.MatchesRepo(jar, dirs, "/a.jar") {
+		t.Fatal("daemon must match the settings it was launched with")
+	}
+	if d.MatchesRepoSettings(jar, dirs, newer, "/a.jar") || d.MatchesRepoSettings(jar, dirs, gradlemodel.KotlinSettings{}, "/a.jar") {
+		t.Fatal("daemon launched for other settings must not match")
+	}
+	pool := &DaemonPool{Members: []*Daemon{d}}
+	if !pool.MatchesRepoSettings(jar, dirs, older, "/a.jar") || pool.MatchesRepoSettings(jar, dirs, newer, "/a.jar") {
+		t.Fatal("pool must require every member to carry the settings")
+	}
+	args := appendDaemonJarArgsKT(nil, jar, dirs, nil, older, "--daemon")
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--kotlin-arg -language-version=2.0") || !strings.Contains(joined, "--kotlin-arg -api-version=2.0") {
+		t.Fatalf("launch args lack the settings: %v", args)
+	}
+	if strings.Contains(strings.Join(appendDaemonJarArgs(nil, jar, dirs, nil, "--daemon"), " "), "--kotlin-arg") {
+		t.Fatal("no settings must add no launch flags")
 	}
 }
 

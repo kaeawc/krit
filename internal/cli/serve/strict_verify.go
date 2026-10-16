@@ -213,7 +213,7 @@ func (s *daemonState) runStrictVerify(ctx context.Context, args daemon.AnalyzePr
 	if parseErr != nil {
 		return "", fmt.Errorf("baseline oracle backend: %w", parseErr)
 	}
-	oracleDaemon, oracleErr := s.ensureOracleDaemon(paths, backend)
+	oracleDaemon, oracleErr := s.ensureOracleDaemon(paths, backend, args.OracleKotlin)
 	if oracleErr != nil {
 		// Mirror buildProjectInput's "best-effort degrade": a failed
 		// oracle daemon start shouldn't fail strict-verify. The

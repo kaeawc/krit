@@ -549,7 +549,7 @@ func (r *runner) runOracleIndex() (int, error) {
 	if len(parseCustomRuleJars(*r.f.CustomRuleJars)) > 0 && r.sess.OracleDaemon == nil {
 		var daemonErr error
 		r.tracker.TrackVoid("customRuleDaemonStart", func() {
-			r.sess.OracleDaemon, daemonErr = oracle.InvokeDaemon(r.paths, *r.f.Verbose)
+			r.sess.OracleDaemon, daemonErr = oracle.InvokeDaemon(r.paths, *r.f.Verbose, oracle.WithKotlinSettings(r.f.modelKotlin))
 		})
 		if daemonErr != nil {
 			fmt.Fprintf(os.Stderr, "error: custom-rule daemon: %v\n", daemonErr)

@@ -1419,6 +1419,11 @@ func loadWarmCrossFindings(args ProjectArgs, host ProjectHostState, warm warmAna
 	if !ok {
 		return false, nil
 	}
+	// Every remaining file can be a per-file cache hit after a delete, so
+	// require the indexed file set to match before trusting its findings.
+	if !meta.CoversSourcePaths(warm.filePaths) {
+		return false, nil
+	}
 	cols, ok := scanner.LoadCrossFindings(host.CrossFindingsCacheDir, scanner.CrossFindingsKey(meta.Fingerprint, warm.ruleHash))
 	if !ok {
 		return false, nil

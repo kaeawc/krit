@@ -276,7 +276,7 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	if filesListPath != "" {
 		args = append(args, "--files", filesListPath)
 	}
-	args = append(args, compileContextArgs(opts)...)
+	args = append(args, compileContextArgs(jarPath, opts)...)
 	rider, riderArgs, err := startCheckRider(opts)
 	if err != nil {
 		return "", err
@@ -340,7 +340,7 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 // compileContextArgs returns the one-shot arguments that set the compile
 // context: the configured classpath, the JVM target (krit-fir) and the
 // project's Kotlin compiler settings (both backends).
-func compileContextArgs(opts InvocationOptions) []string {
+func compileContextArgs(jarPath string, opts InvocationOptions) []string {
 	var args []string
 	if len(opts.Classpath) > 0 {
 		// Both backends parse `--classpath <joined>` as the user-
@@ -354,9 +354,7 @@ func compileContextArgs(opts InvocationOptions) []string {
 	}
 	// Each setting is its own flag so values never need quoting; both
 	// helpers re-filter them through their own allowlist.
-	for _, arg := range opts.Kotlin.CompilerArgs() {
-		args = append(args, "--kotlin-arg", arg)
-	}
+	args = append(args, KotlinLaunchArgs(jarPath, opts.Kotlin)...)
 	return args
 }
 

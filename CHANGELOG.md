@@ -26,6 +26,12 @@ All notable changes to Krit will be documented in this file.
   plugin, friend-path and fragment arguments stay protected, and anything not
   applied is reported. They are part of the oracle, FIR, daemon and findings
   bundle cache identities. See `docs/kotlin-compiler-settings.md`.
+- `krit-fir` module compilations (`analyzeModules`) now apply only allowlisted
+  semantic settings from a module's `compilerArgs` (language/API level, opt-ins,
+  progressive mode and the flags listed in `docs/kotlin-compiler-settings.md`).
+  Other extra compiler arguments that were previously passed through to the
+  compiler are no longer applied; each is reported in the response `warning`.
+  Krit-owned arguments were already dropped.
 
 ### Changed
 - `krit daemon: ready` startup line now reports the resolved watcher

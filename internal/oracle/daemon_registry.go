@@ -352,9 +352,7 @@ func appendDaemonJarArgs(args []string, jarPath string, sourceDirs, classpath []
 func appendDaemonJarArgsKT(args []string, jarPath string, sourceDirs, classpath []string, kt gradlemodel.KotlinSettings, daemonArgs ...string) []string {
 	args = append(args, "-jar", AbsolutePath(jarPath))
 	args = append(args, daemonArgs...)
-	for _, arg := range kt.CompilerArgs() {
-		args = append(args, "--kotlin-arg", arg)
-	}
+	args = append(args, KotlinLaunchArgs(jarPath, kt)...)
 	if len(sourceDirs) > 0 {
 		args = append(args, "--sources", strings.Join(AbsolutePaths(sourceDirs), ","))
 	}

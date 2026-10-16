@@ -650,7 +650,7 @@ func runKritTypesCached(
 		"--files", missListPath,
 		"--cache-deps-out", depsOutPath,
 	)
-	args = append(args, compileContextArgs(opts)...)
+	args = append(args, compileContextArgs(jarPath, opts)...)
 	rider, riderArgs, err := startCheckRider(opts)
 	if err != nil {
 		return err

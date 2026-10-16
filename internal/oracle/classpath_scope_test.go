@@ -145,7 +145,7 @@ func TestCompileContextArgsCarryKotlinSettings(t *testing.T) {
 		Backend: BackendKAA, Classpath: []string{"/a.jar"}, JvmTarget: "17",
 		Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "1.9", APIVersion: "1.8", OptIns: []string{"x.Y"}, Flags: []string{"-Xcontext-parameters"}},
 	}
-	got := compileContextArgs(opts)
+	got := compileContextArgs("/jars/x.jar", opts)
 	want := []string{
 		"--classpath", "/a.jar",
 		"--kotlin-arg", "-language-version=1.9", "--kotlin-arg", "-api-version=1.8",
@@ -155,10 +155,10 @@ func TestCompileContextArgsCarryKotlinSettings(t *testing.T) {
 		t.Fatalf("args = %v want %v", got, want)
 	}
 	opts.Backend = BackendFIR
-	if got := compileContextArgs(opts); !strings.Contains(strings.Join(got, " "), "--jvm-target 17") || !strings.Contains(strings.Join(got, " "), "--kotlin-arg -language-version=1.9") {
+	if got := compileContextArgs("/jars/x.jar", opts); !strings.Contains(strings.Join(got, " "), "--jvm-target 17") || !strings.Contains(strings.Join(got, " "), "--kotlin-arg -language-version=1.9") {
 		t.Fatalf("fir args = %v", got)
 	}
-	if got := compileContextArgs(InvocationOptions{Backend: BackendFIR}); len(got) != 0 {
+	if got := compileContextArgs("/jars/x.jar", InvocationOptions{Backend: BackendFIR}); len(got) != 0 {
 		t.Fatalf("no settings must add no arguments: %v", got)
 	}
 }

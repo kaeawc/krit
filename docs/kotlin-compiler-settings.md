@@ -27,7 +27,11 @@ independently, so an older plugin still exports what it has):
 | `pluginVersion` | The Kotlin Gradle plugin version, used only to derive a default. |
 
 The exporter never fills in defaults. Krit reads schema 1 and 2 models; a
-schema 1 model (older plugin) has no `kotlin` objects.
+schema 1 model (older plugin) has no `kotlin` objects. A source set with no Kotlin
+compile task (Java-only) also exports no `kotlin` object; Krit skips such a source
+set when merging, so it neither sets nor vetoes a setting. The plugin version is
+read from the Kotlin Gradle plugin itself (`getKotlinPluginVersion`), falling
+back to `kotlin.coreLibrariesVersion` only when that is unavailable.
 
 ## Effective settings
 
@@ -104,10 +108,12 @@ The allowlist exists in three copies kept equal by a Go test: `internal/gradlemo
 ### Language levels the embedded compiler no longer supports
 
 The embedded Kotlin 2.4 compiler cannot analyze under a language level it has
-dropped (1.9 and older). Such a level is **not** silently replaced: both
-helpers report `languageVersion 1.9 is not supported by the embedded compiler;
-its default applies`, drop the unusable API level with it, and continue under
-the embedded default.
+dropped (1.9 and older; Krit's `MinSupportedKotlinLanguage` is 2.0). Such a
+level is **not** silently replaced: Krit reports `languageVersion 1.9 is not
+supported by the embedded compiler (2.0 or newer); its default applies`, does
+not apply or identity-hash it, and the helpers independently do the same. An
+`apiVersion` that is below the minimum, or above the language version, is
+likewise not applied. `-progressive=false` turns progressive mode off.
 
 ## Where the settings go
 
@@ -118,8 +124,14 @@ the embedded default.
 | `krit serve` daemon | `oracle_kotlin` in the analyze-project request. |
 | `analyzeModules` | per module, in `ModuleSpec.compilerArgs`. |
 
-The resident KAA oracle daemon is keyed on neither classpath nor settings, so a
-scan with project settings takes the settings-scoped one-shot oracle instead.
+The persistent oracle daemons (`krit-types` and `krit-fir` oracle, their pool,
+and `krit serve`'s resident daemon) are keyed on the settings: a daemon is
+launched with `--kotlin-arg`, reused only for identical settings, and a settings
+change starts another. A `krit-types` / `krit-fir` jar that predates
+`--kotlin-arg` (for example via `KRIT_TYPES_JAR`) is detected from its contents;
+Krit then leaves the flags off, warns once, and the oracle keeps working under
+that jar's embedded defaults. `-Xnullability-annotations=` and `-Xjsr305=` values
+may contain `@`.
 
 ## Cache identities
 
@@ -128,7 +140,9 @@ affected results. The canonical settings identity
 (`KotlinSettings.Identity`; empty for the embedded defaults, so existing cache
 keys are unchanged) is part of:
 
-* the oracle store scope (`oracle.NewStoreScopeWithSettings`) for both backends;
+* the oracle store scope (`oracle.NewStoreScopeWithSettings`) for both backends,
+  the facts sidecar of a cached `types.json` (so a settings-only change cannot
+  reuse it), and the legacy per-file entry directory used without `.krit/store`;
 * the FIR check cache fingerprint and the FIR daemon registry key
   (`internal/firchecks`), and the prefetch match that lets a check ride on the
   oracle compilation;
@@ -150,5 +164,5 @@ Notes, rejected arguments and opt-in order do not affect the identity.
 * Per-source-set `languageSettings` declared only on a Kotlin Multiplatform
   source set (not on the compilation's `compilerOptions`) are not read.
 * The oracle still compiles the repository as one unit; per-module requests
-  are available through `ModuleSpecsFromModel` but the default scan does not
+  are available through `ModuleSpecsFromModel` (no production caller yet) but the default scan does not
   use them yet.

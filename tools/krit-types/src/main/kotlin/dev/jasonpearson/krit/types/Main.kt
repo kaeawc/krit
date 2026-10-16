@@ -11,8 +11,6 @@ import org.jetbrains.kotlin.analysis.api.components.collectDiagnostics
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
 import org.jetbrains.kotlin.analysis.api.resolution.KaCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.singleVariableAccessCall
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.standalone.buildStandaloneAnalysisAPISession
 import org.jetbrains.kotlin.analysis.api.symbols.*
@@ -3050,51 +3048,44 @@ fun analyzeKtFile(
                             var fallbackReason = "unresolved"
                             val resolveStart = System.nanoTime()
                             calleeAggregateStart = resolveStart
-                            val callInfo = expr.resolveToCall()
+                            // Candidate-tolerant by contract (see CallResolutionPolicy): a
+                            // failed call with exactly one candidate still names that
+                            // candidate; ambiguity or no candidate falls back below.
+                            val target = resolveCallTarget(expr, CallResolutionPolicy.CANDIDATE_TOLERANT)
                             val resolveNs = System.nanoTime() - resolveStart
                             calleeAggregateNs = resolveNs
                             perf?.count("kotlinCallResolveResolveToCall", resolveNs)
-                            if (callInfo != null) {
-                                perf?.count("kotlinCallResolveNonNull")
-                                val memberCallStart = System.nanoTime()
-                                val memberCall: KaCallableMemberCall<*, *>? =
-                                    callInfo.singleFunctionCallOrNull()
-                                        ?: callInfo.singleVariableAccessCall()
-                                perf?.count("kotlinCallResolve.memberCall", System.nanoTime() - memberCallStart)
-                                if (memberCall != null) {
-                                    perf?.count("kotlinCallResolveMemberCall")
-                                    val symbol = memberCall.partiallyAppliedSymbol.symbol
-                                    val symbolIsSuspend = symbol is KaNamedFunctionSymbol && symbol.isSuspend
-                                    val callableIDStart = System.nanoTime()
-                                    val cid = symbol.callableId
-                                    perf?.count("kotlinCallResolve.callableId", System.nanoTime() - callableIDStart)
-                                    if (cid != null) {
-                                        perf?.count("kotlinCallResolveCallableId")
-                                        val fqnStart = System.nanoTime()
-                                        val fqn = cid.asSingleFqName().asString()
-                                        perf?.count("kotlinCallResolve.fqnString", System.nanoTime() - fqnStart)
-                                        if (fqn.isNotEmpty()) {
-                                            callTarget = fqn
-                                            callTargetResolved = true
-                                            callTargetSuspend = symbolIsSuspend
-                                            callTargetAnnotations = symbol.annotations
-                                                .mapNotNull { it.classId?.asFqNameString() }
-                                            status = "resolved"
-                                            perf?.count("kotlinCallResolveResolved")
-                                        } else {
-                                            fallbackReason = "empty-callable-id"
-                                        }
+                            perf?.count("kotlinCallResolveNonNull")
+                            if (target != null) {
+                                perf?.count("kotlinCallResolveMemberCall")
+                                val symbol = target.symbol
+                                val symbolIsSuspend = symbol is KaNamedFunctionSymbol && symbol.isSuspend
+                                val callableIDStart = System.nanoTime()
+                                val cid = symbol.callableId
+                                perf?.count("kotlinCallResolve.callableId", System.nanoTime() - callableIDStart)
+                                if (cid != null) {
+                                    perf?.count("kotlinCallResolveCallableId")
+                                    val fqnStart = System.nanoTime()
+                                    val fqn = cid.asSingleFqName().asString()
+                                    perf?.count("kotlinCallResolve.fqnString", System.nanoTime() - fqnStart)
+                                    if (fqn.isNotEmpty()) {
+                                        callTarget = fqn
+                                        callTargetResolved = true
+                                        callTargetSuspend = symbolIsSuspend
+                                        callTargetAnnotations = symbol.annotations
+                                            .mapNotNull { it.classId?.asFqNameString() }
+                                        status = "resolved"
+                                        perf?.count("kotlinCallResolveResolved")
                                     } else {
-                                        perf?.count("kotlinCallResolveNoCallableId")
-                                        fallbackReason = "no-callable-id"
+                                        fallbackReason = "empty-callable-id"
                                     }
                                 } else {
-                                    perf?.count("kotlinCallResolveNoMember")
-                                    fallbackReason = "no-member-call"
+                                    perf?.count("kotlinCallResolveNoCallableId")
+                                    fallbackReason = "no-callable-id"
                                 }
                             } else {
-                                perf?.count("kotlinCallResolveNull")
-                                fallbackReason = "resolve-null"
+                                perf?.count("kotlinCallResolveNoMember")
+                                fallbackReason = "no-member-call"
                             }
                             // Fallback: lexical callee text. Preserves parity
                             // with the old code for calls the symbol graph

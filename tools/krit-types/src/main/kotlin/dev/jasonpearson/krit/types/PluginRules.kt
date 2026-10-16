@@ -18,10 +18,6 @@ import dev.jasonpearson.krit.api.RuleContext
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.singleVariableAccessCall
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
@@ -529,12 +525,10 @@ internal class AnalysisApiResolver(private val ktFile: KtFile) : Resolver {
         callTargetCache[call]?.let { return it }
         val target = try {
             analyze(ktFile) {
-                val callInfo = call.resolveToCall() ?: return@analyze CallTarget.UNKNOWN
-                val callable: KaCallableMemberCall<*, *> =
-                    callInfo.singleFunctionCallOrNull()
-                        ?: callInfo.singleVariableAccessCall()
-                        ?: return@analyze CallTarget.UNKNOWN
-                val symbol = callable.partiallyAppliedSymbol.symbol
+                // Candidate-tolerant by contract (see CallResolutionPolicy).
+                val resolved = resolveCallTarget(call, CallResolutionPolicy.CANDIDATE_TOLERANT)
+                    ?: return@analyze CallTarget.UNKNOWN
+                val symbol = resolved.symbol
                 val suspend = (symbol is KaNamedFunctionSymbol) && symbol.isSuspend
                 val fqn = symbol.callableId?.asSingleFqName()?.asString()
                 CallTarget(suspend, fqn)
@@ -576,8 +570,9 @@ internal class AnalysisApiResolver(private val ktFile: KtFile) : Resolver {
     private fun org.jetbrains.kotlin.analysis.api.KaSession.callHasSuspendFunctionalParam(
         call: KtCallExpression,
     ): Boolean {
-        val memberCall = call.resolveToCall()?.singleFunctionCallOrNull() ?: return false
-        val symbol = memberCall.partiallyAppliedSymbol.symbol as? KaFunctionSymbol ?: return false
+        // Candidate-tolerant by contract; only function targets count here.
+        val symbol = resolveCallTarget(call, CallResolutionPolicy.CANDIDATE_TOLERANT)?.symbol as? KaFunctionSymbol
+            ?: return false
         return symbol.valueParameters.any { (it.returnType as? KaFunctionType)?.isSuspend == true }
     }
 

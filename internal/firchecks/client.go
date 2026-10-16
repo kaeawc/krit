@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/fslock"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
@@ -774,74 +775,19 @@ func writeFirRegistryClaimed(pid, port int, sourcesHash string, meta firAOTMeta)
 	return nil
 }
 
-func firClaimPath(sourcesHash string) string { return firPIDPath(sourcesHash) + ".claim" }
+// firLockPath is the per-key publication lock file. It is created on demand
+// and never deleted (see internal/fslock).
+func firLockPath(sourcesHash string) string { return firPIDPath(sourcesHash) + ".lock" }
 
-// claimFirRegistry takes the per-key publication claim: an O_EXCL file
-// holding the claimant's PID, so exactly one process checks-and-publishes at
-// a time. A claim whose holder is dead (or whose content is unreadable and
-// old) is stale and is removed. It gives up after a short wait; the caller
-// then stays private.
-func claimFirRegistry(sourcesHash string) (release func(), ok bool) {
-	path := firClaimPath(sourcesHash)
-	deadline := time.Now().Add(firClaimWait)
-	for {
-		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-		if err == nil {
-			_, werr := fmt.Fprintln(f, os.Getpid())
-			cerr := f.Close()
-			if werr != nil || cerr != nil {
-				_ = os.Remove(path)
-				return nil, false
-			}
-			return func() { _ = os.Remove(path) }, true
-		}
-		if !os.IsExist(err) {
-			return nil, false
-		}
-		if data, rerr := os.ReadFile(path); rerr == nil {
-			holder, perr := strconv.Atoi(strings.TrimSpace(string(data)))
-			info, serr := os.Stat(path)
-			stale := perr == nil && !firPIDAlive(holder) || perr != nil && serr == nil && time.Since(info.ModTime()) > 10*time.Second
-			if stale {
-				staleClaimHook()
-				removeStaleClaim(path, data)
-				continue
-			}
-		}
-		if time.Now().After(deadline) {
-			return nil, false
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-}
-
-// staleClaimHook runs between classifying a claim stale and removing it. Tests
-// use it to interleave a second claimant at exactly that point.
-var staleClaimHook = func() {}
-
-// firClaimWait bounds how long a claimant waits for a live holder.
+// firClaimWait bounds how long a publisher waits for another one.
 var firClaimWait = 3 * time.Second
 
-// removeStaleClaim removes the claim at path only if it still holds the
-// content seen when it was classified stale. A plain Remove here would
-// delete a live claim that another process created after recovering the same
-// stale one. Instead the claim is renamed to a unique tombstone (atomic, so
-// only one renamer wins), and the tombstone is deleted only if it still has
-// the stale content. Otherwise it was live: it is linked back (no overwrite)
-// and the caller retries the claim loop as contended.
-func removeStaleClaim(path string, seen []byte) {
-	tomb := fmt.Sprintf("%s.stale.%d.%d", path, os.Getpid(), time.Now().UnixNano())
-	if os.Rename(path, tomb) != nil {
-		return
-	}
-	if got, err := os.ReadFile(tomb); err == nil && string(got) == string(seen) {
-		_ = os.Remove(tomb)
-		return
-	}
-	// Not the claim we inspected. Restore it unless someone has claimed in
-	// the meantime, in which case the displaced record is dropped.
-	_ = os.Link(tomb, path)
-	_ = os.Remove(tomb)
+// claimFirRegistry takes the per-key publication lock: an OS advisory lock,
+// so exactly one process checks-and-publishes at a time and the kernel
+// releases it if the holder dies. It gives up after firClaimWait; the caller
+// then stays private.
+func claimFirRegistry(sourcesHash string) (release func(), ok bool) {
+	return fslock.Acquire(firLockPath(sourcesHash), firClaimWait)
 }
 
 // writeFileAtomic replaces path with data via temp file + rename.

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 )
 
 // livePIDs starts n sleeping processes to stand in for verified daemons.
@@ -76,36 +75,10 @@ func TestConcurrentVerifiersPublishExactlyOnce(t *testing.T) {
 		!strings.Contains(string(meta), fmt.Sprintf(`"pid":%d`, pids[winner])) || !strings.Contains(string(meta), `"verified":true`) {
 		t.Fatalf("registry inconsistent: pid=%d,%v port=%q,%v meta=%q,%v (winner %d pid %d)", pid, ok, port, perr, meta, merr, winner, pids[winner])
 	}
-	if _, err := os.Stat(firClaimPath("race")); !os.IsNotExist(err) {
-		t.Fatalf("claim left behind: %v", err)
+	// The lock is released after publishing: it must be acquirable again.
+	release, locked := claimFirRegistry("race")
+	if !locked {
+		t.Fatal("publication lock still held after every verifier finished")
 	}
-}
-
-func TestStaleRegistryClaimIsRecovered(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", t.TempDir())
-	dead := exec.Command("true")
-	if err := dead.Run(); err != nil {
-		t.Fatal(err)
-	}
-	must(t, os.WriteFile(firClaimPath("stale"), []byte(strconv.Itoa(dead.Process.Pid)+"\n"), 0o644))
-	release, ok := claimFirRegistry("stale")
-	if !ok {
-		t.Fatal("stale claim not recovered")
-	}
-	// A live holder blocks a second claimant until it releases.
-	start := time.Now()
-	done := make(chan bool)
-	go func() {
-		release2, got := claimFirRegistry("stale")
-		if got {
-			release2()
-		}
-		done <- got
-	}()
-	time.Sleep(100 * time.Millisecond)
 	release()
-	if !<-done || time.Since(start) < 90*time.Millisecond {
-		t.Fatal("second claimant did not wait for the live holder")
-	}
 }

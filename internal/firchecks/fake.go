@@ -4,6 +4,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -37,6 +38,8 @@ type FakeFirChecker struct {
 	CalledTestFiles [][]string
 	// CalledScanPaths is the facts.ScanPaths passed to each Check call.
 	CalledScanPaths []map[string]string
+	// CalledSDKLevels is the facts.SDKLevels passed to each Check call.
+	CalledSDKLevels []map[string]android.SDKLevels
 }
 
 // NewFakeFirChecker returns a FakeFirChecker with all maps initialized.
@@ -56,6 +59,7 @@ func (f *FakeFirChecker) Check(files []string, sourceDirs, classpath, rules []st
 	f.CalledRuleConfigs = append(f.CalledRuleConfigs, ruleConfigs)
 	f.CalledTestFiles = append(f.CalledTestFiles, slices.Clone(facts.TestFiles))
 	f.CalledScanPaths = append(f.CalledScanPaths, maps.Clone(facts.ScanPaths))
+	f.CalledSDKLevels = append(f.CalledSDKLevels, maps.Clone(facts.SDKLevels))
 	if f.Err != nil {
 		return nil, f.Err
 	}
@@ -93,6 +97,9 @@ type ProductionFirChecker struct {
 	NoCache    bool
 	UseDaemon  bool
 	Verbose    bool
+	// Prefetch, when set, may hold the check response the oracle's krit-fir
+	// compilation already produced for this request (#739).
+	Prefetch *Prefetch
 }
 
 // Check runs InvokeCached with the configured parameters.
@@ -109,7 +116,16 @@ func (p *ProductionFirChecker) Check(files []string, sourceDirs, classpath, rule
 	if p.NoCache {
 		repoDir = ""
 	}
-	return InvokeCached(p.JarPath, files, sd, cl, rules, ruleConfigs, facts, repoDir, p.UseDaemon, p.Verbose, p.JvmTarget)
+	run := runMissesForCache
+	if resp, ok := p.Prefetch.response(p.JarPath, p.JvmTarget, files, sd, cl, rules, ruleConfigs, facts); ok {
+		if p.Verbose {
+			reporter().Verbosef("verbose: fir check: reusing the oracle compilation's check of %d files\n", len(files))
+		}
+		run = func(_ string, misses []string, _, _, _ []string, _ RuleConfigs, _ FileFacts, _, _ bool, _ ...string) (*CheckResponse, error) {
+			return resp.forFiles(misses), nil
+		}
+	}
+	return invokeCachedWith(run, p.JarPath, files, sd, cl, rules, ruleConfigs, facts, repoDir, p.UseDaemon, p.Verbose, p.JvmTarget)
 }
 
 // Compile-time check.

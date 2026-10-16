@@ -2,7 +2,8 @@
 
 `--modules-file request.json` prints the check response to stdout (or accepts
 `--output FILE`). The daemon accepts `command: "analyzeModules"`; `check` also
-accepts `modules`. Both reuse `rules`, `ruleConfigs`, `testFiles`, and `scanPaths`.
+accepts `modules`. Both reuse `rules`, `ruleConfigs`, `testFiles`, `scanPaths`,
+and `sdkLevels`.
 `checkFiles` contains path strings. An absent/empty modules list uses the legacy
 session compilation. The CLI JSON need not contain `id` or `command`.
 

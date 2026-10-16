@@ -31,7 +31,10 @@ import (
 // by path and content, and the fingerprint covers the whole compilation.
 // 5: the fingerprint covers the request's test-file classification.
 // 6: entries record per-rule checker exceptions (RuleErrors).
-const FirCacheVersion = 6
+// 7: the fingerprint covers each file's resolved minSdk / targetSdk
+// (FileFacts.SDKLevels), which checkers can now read. Entries written before
+// that never saw a build.gradle / AndroidManifest.xml edit, so drop them.
+const FirCacheVersion = 7
 
 // FirCacheEntry is one file's cached FIR findings.
 type FirCacheEntry struct {

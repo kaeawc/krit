@@ -386,6 +386,10 @@ func TestFileWatcher_TouchPropagatesOnGradleWrite(t *testing.T) {
 // TestFileWatcher_InvalidatesOnWrite covers the OS-roundtrip path.
 func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
 	root := t.TempDir()
+	// Run at the root, as a daemon serving `krit .` does, so the
+	// working-directory-relative and relative-to-root forms coincide
+	// and the count below is the two forms it documents.
+	t.Chdir(root)
 	ktPath := filepath.Join(root, "Foo.kt")
 	if err := os.WriteFile(ktPath, []byte("fun a() {}\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
@@ -829,6 +833,49 @@ func TestFileWatcher_InvalidatesBothPathForms(t *testing.T) {
 	}
 	if !haveRel {
 		t.Errorf("Invalidate must include the relative-to-root form %q; got %v", wantRel, calls)
+	}
+}
+
+// TestFileWatcher_InvalidatesWorkingDirectoryRelativeForm covers a scan
+// whose caller is not at the root. The daemon runs the scan from the
+// caller's working directory, so resident parses are keyed relative to
+// it ("Foo.kt" from <root>/src), a form neither the absolute nor the
+// relative-to-root invalidation reaches.
+func TestFileWatcher_InvalidatesWorkingDirectoryRelativeForm(t *testing.T) {
+	root := t.TempDir()
+	subdir := filepath.Join(root, "src")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	ktPath := filepath.Join(subdir, "Foo.kt")
+	if err := os.WriteFile(ktPath, []byte("fun a() {}\n"), 0o644); err != nil {
+		t.Fatalf("seed kt: %v", err)
+	}
+	t.Chdir(subdir)
+
+	state := &pathRecordingState{}
+	w, err := startFileWatcherWithState(context.Background(), root, state, nil,
+		withDebounceWindow(20*time.Millisecond))
+	if err != nil {
+		t.Fatalf("startFileWatcher: %v", err)
+	}
+	defer w.Stop()
+	<-w.Ready()
+
+	if err := os.WriteFile(ktPath, []byte("fun a() { 42 }\n"), 0o644); err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+
+	hasCwdForm := func() bool {
+		for _, p := range state.snapshot() {
+			if p == "Foo.kt" {
+				return true
+			}
+		}
+		return false
+	}
+	if !waitForCondition(hasCwdForm) {
+		t.Fatalf("Invalidate must include the working-directory-relative form %q; got %v", "Foo.kt", state.snapshot())
 	}
 }
 

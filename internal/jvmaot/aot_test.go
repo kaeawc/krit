@@ -28,32 +28,57 @@ func aotSetup(t *testing.T) (string, string, string, string) {
 	return jar, token, config, cache
 }
 
-func TestPartialCacheWithoutSidecarIsNotReady(t *testing.T) {
-	jar, token, _, cache := aotSetup(t)
-	if err := os.WriteFile(cache, []byte("partial"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	args, added := AppendArgsWithToken(nil, "missing-java", jar, token, "fir", 27, false, nil)
-	if added || IsRecording(args) {
-		t.Fatalf("expected no AOT while cache pair incomplete, got %v", args)
-	}
-	if _, err := os.Stat(cache); err != nil {
-		t.Fatalf("partial cache was removed: %v", err)
+func TestHalfPublishedPairIsNotReadyWhileBuilderHoldsLock(t *testing.T) {
+	for _, half := range []string{"cache without sidecar", "sidecar without cache"} {
+		t.Run(half, func(t *testing.T) {
+			jar, token, _, cache := aotSetup(t)
+			path := cache
+			if half == "sidecar without cache" {
+				path = cache + ".meta.json"
+			}
+			if err := os.WriteFile(path, []byte("builder in progress"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			// A live builder between its sidecar and cache renames.
+			if err := os.WriteFile(buildLockPath(cache), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			args, added := AppendArgsWithToken(nil, "missing-java", jar, token, "fir", 27, false, nil)
+			if added || IsRecording(args) {
+				t.Fatalf("expected no AOT while cache pair incomplete, got %v", args)
+			}
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("in-progress %s was removed: %v", half, err)
+			}
+		})
 	}
 }
 
-func TestSidecarWithoutCacheIsNotReady(t *testing.T) {
-	jar, token, _, cache := aotSetup(t)
-	sidecar := cache + ".meta.json"
-	if err := os.WriteFile(sidecar, []byte("builder in progress"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	args, added := AppendArgsWithToken(nil, "missing-java", jar, token, "fir", 27, false, nil)
-	if added || IsRecording(args) {
-		t.Fatalf("sidecar-only state started AOT: %v", args)
-	}
-	if _, err := os.Stat(sidecar); err != nil {
-		t.Fatalf("sidecar was removed: %v", err)
+// A crash between the sidecar and cache renames leaves a half pair with no
+// lock holder. It must be cleared so the key can be recorded and rebuilt
+// instead of disabling AOT for that key forever (#762).
+func TestCrashLeftHalfPairIsRemovedUnderLock(t *testing.T) {
+	for _, half := range []string{"cache without sidecar", "sidecar without cache"} {
+		t.Run(half, func(t *testing.T) {
+			jar, token, _, cache := aotSetup(t)
+			path := cache
+			if half == "sidecar without cache" {
+				path = cache + ".meta.json"
+			}
+			if err := os.WriteFile(path, []byte("orphan"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			args, added := AppendArgsWithToken(nil, "missing-java", jar, token, "fir", 27, false, nil)
+			if !added || !IsRecording(args) {
+				t.Fatalf("orphaned %s blocked a new recording: %v", half, args)
+			}
+			for _, p := range []string{cache, cache + ".meta.json"} {
+				if _, err := os.Stat(p); !os.IsNotExist(err) {
+					t.Fatalf("orphaned pair file %s survived: %v", p, err)
+				}
+			}
+			FinalizeRecording(args, false)
+		})
 	}
 }
 
@@ -102,18 +127,18 @@ func TestValidCacheUsedWhileBuildLockHeld(t *testing.T) {
 }
 
 func TestStaleBuildLockCanBeReclaimed(t *testing.T) {
-	for _, stale := range []string{"dead PID", "old mtime"} {
+	for _, stale := range []string{"dead PID", "old malformed"} {
 		t.Run(stale, func(t *testing.T) {
 			_, _, _, cache := aotSetup(t)
 			lock := buildLockPath(cache)
-			pid := 99999999
-			if stale == "old mtime" {
-				pid = os.Getpid()
+			content := strconv.Itoa(99999999)
+			if stale == "old malformed" {
+				content = "not-a-pid"
 			}
-			if err := os.WriteFile(lock, []byte(strconv.Itoa(pid)), 0o600); err != nil {
+			if err := os.WriteFile(lock, []byte(content), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if stale == "old mtime" {
+			if stale == "old malformed" {
 				old := time.Now().Add(-3 * time.Hour)
 				if err := os.Chtimes(lock, old, old); err != nil {
 					t.Fatal(err)
@@ -128,6 +153,38 @@ func TestStaleBuildLockCanBeReclaimed(t *testing.T) {
 			}
 			releaseBuildLock(cache)
 		})
+	}
+}
+
+// A recording keeps the lock until FinalizeRecording at daemon exit, which
+// can be long after the lock file's mtime ages out.
+func TestOldBuildLockWithLiveOwnerIsNotReclaimed(t *testing.T) {
+	_, _, _, cache := aotSetup(t)
+	lock := buildLockPath(cache)
+	if err := os.WriteFile(lock, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-3 * time.Hour)
+	if err := os.Chtimes(lock, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if acquireBuildLock(cache) {
+		t.Fatal("reclaimed a lock whose owner is still alive")
+	}
+	if _, err := os.Stat(lock); err != nil {
+		t.Fatalf("live owner's lock was removed: %v", err)
+	}
+}
+
+func TestFreshMalformedBuildLockIsNotReclaimed(t *testing.T) {
+	_, _, _, cache := aotSetup(t)
+	// O_EXCL create happens before the PID is written; a fresh empty lock
+	// is an owner mid-write, not a stale lock.
+	if err := os.WriteFile(buildLockPath(cache), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if acquireBuildLock(cache) {
+		t.Fatal("reclaimed a fresh malformed lock")
 	}
 }
 

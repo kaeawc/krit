@@ -4,11 +4,16 @@ import dev.jasonpearson.krit.fir.RequestResult
 import dev.jasonpearson.krit.fir.FirRuleErrorRecorder
 import dev.jasonpearson.krit.fir.isolateRule
 import dev.jasonpearson.krit.fir.handleRequestLine
+import dev.jasonpearson.krit.fir.SdkLevels
 import dev.jasonpearson.krit.fir.parseRequest
+import dev.jasonpearson.krit.fir.CheckRequest
+import dev.jasonpearson.krit.fir.withActiveSession
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AnalysisSessionModulesTest {
@@ -242,6 +247,23 @@ class AnalysisSessionModulesTest {
         } finally { session.dispose() }
     }
 
+    @Test fun sdkLevelChangeRechecksOnlyTheOwningModule() {
+        val lib = source("lib", "Lib", "package lib; fun api() = 1")
+        val app = source("app", "App", "fun app() { println(lib.api()) }")
+        val session = AnalysisSession(emptyList(), emptyList())
+        val modules = listOf(module("lib"), module("app", listOf("lib")))
+        try {
+            fun check(levels: Map<String, SdkLevels>) =
+                session.analyzeModules(1, modules, listOf(lib, app), setOf("PrintlnInProduction"), sdkLevels = levels)
+            check(mapOf(app to SdkLevels(21, 33)))
+            check(mapOf(app to SdkLevels(21, 33)))
+            assertEquals(mapOf("lib" to 1, "app" to 1), session.moduleCompilationCounts)
+            // A checker can read the levels, so a targetSdk change must not replay the old verdict.
+            check(mapOf(app to SdkLevels(21, 34)))
+            assertEquals(mapOf("lib" to 1, "app" to 2), session.moduleCompilationCounts)
+        } finally { session.dispose() }
+    }
+
     @Test fun sharedClasspathBytesAreMemoizedAcrossRequests() {
         val jar = tmp.resolve("shared.jar").toFile()
         java.util.jar.JarOutputStream(jar.outputStream()).use { }
@@ -356,6 +378,53 @@ class AnalysisSessionModulesTest {
             session.analyzeModules(3, modules, listOf(file), emptySet())
             assertEquals(1, session.moduleCompilationCounts["lib"])
         } finally { session.dispose() }
+    }
+
+    @Test fun nonModuleCommandWithModulesKeyKeepsLegacyFields() {
+        val request = parseRequest("""{"id":4,"command":"analyzeFile","path":"/src/A.kt","source":"fun a() = 1","modules":"not-an-array"}""")
+        assertEquals("analyzeFile", request.command)
+        assertEquals("/src/A.kt", request.path)
+        assertEquals("fun a() = 1", request.source)
+        assertEquals(emptyList(), request.modules)
+    }
+
+    @Test fun blankDefaultedModuleFieldsAreTreatedAsAbsent() {
+        // Go's ModuleSpec encodes unset Platform / Kind / JVMTarget as "".
+        val request = parseRequest("""{"id":5,"command":"analyzeModules","modules":[{"id":":lib:main","platform":"","kind":"","jvmTarget":"","sourceRoots":["/src"]}],"checkFiles":["/src/A.kt"]}""")
+        val spec = request.modules.single()
+        assertEquals("jvm", spec.platform)
+        assertEquals("main", spec.kind)
+        assertEquals("", spec.jvmTarget)
+        assertEquals("17", resolveModuleJvmTarget(spec.jvmTarget, "17").value)
+        assertNull(resolveModuleJvmTarget(spec.jvmTarget, "17").warning)
+    }
+
+    @Test fun failedRebuiltRequestReturnsModuleStateAndDisposesRebuild() {
+        val file = source("lib", "Lib", "fun api() = 1")
+        val session = AnalysisSession(emptyList(), emptyList())
+        try {
+            val modules = listOf(module("lib"))
+            session.analyzeModules(1, modules, listOf(file), emptySet())
+            val request = CheckRequest(id = 2, command = "check", sourceDirs = listOf(tmp.resolve("other").toString()))
+            var rebuilt: AnalysisSession? = null
+            assertFailsWith<IllegalStateException> {
+                withActiveSession(request, session) { active ->
+                    rebuilt = active
+                    error("analysis failed")
+                }
+            }
+            assertTrue(rebuilt != null && rebuilt !== session, "request should have run on a rebuilt session")
+            // The kept session still owns its retained outputs: no recompile.
+            session.analyzeModules(3, modules, listOf(file), emptySet())
+            assertEquals(1, session.moduleCompilationCounts["lib"])
+        } finally { session.dispose() }
+    }
+
+    @Test fun moduleOwnedCompilerArgumentsAreFiltered() {
+        val args = listOf("-opt-in=x.Y", "-Xfriend-paths=/other/classes", "-module-name", "gradle_module",
+            "-module-name=other", "-Xfragments=common,jvm", "-Xfragment-sources=common:/a.kt",
+            "-Xfragment-refines=jvm:common", "-Xexplicit-api=strict")
+        assertEquals(listOf("-opt-in=x.Y", "-Xexplicit-api=strict"), filterModuleArgs(args))
     }
 
     @Test fun nestedSourceOwnershipIgnoresDeclarationOrder() {

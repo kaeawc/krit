@@ -340,6 +340,7 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgsFromEnv())
 	args = appendDaemonJarArgs(args, jarPath, sourceDirs, classpath, EphemeralDaemonArgs("--daemon")...)
+	aotCache := startupAOTCache(args)
 
 	if verbose {
 		reporter().Verbosef("verbose: Starting krit-types daemon: %s %s\n", javaPath, strings.Join(args, " "))
@@ -375,12 +376,13 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 	scanner.Buffer(make([]byte, 0, 64*1024), 512*1024*1024)
 
 	d := &Daemon{
-		cmd:        cmd,
-		stdin:      stdinPipe,
-		stdout:     scanner,
-		logFile:    logFile,
-		nextID:     1,
-		sourceDirs: sourceDirs,
+		cmd:          cmd,
+		stdin:        stdinPipe,
+		stdout:       scanner,
+		logFile:      logFile,
+		nextID:       1,
+		sourceDirs:   sourceDirs,
+		aotCachePath: aotCache,
 	}
 
 	if _, err := waitPipeReady(cmd, scanner); err != nil {
@@ -647,6 +649,7 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgsFromEnv())
 	args = appendDaemonJarArgs(args, jarPath, sourceDirs, classpath, EphemeralDaemonArgs("--daemon", "--port", "0")...)
+	aotCache := startupAOTCache(args)
 
 	if verbose {
 		reporter().Verbosef("verbose: Starting persistent krit-types daemon slot %d: %s %s\n", slot, javaPath, strings.Join(args, " "))
@@ -697,18 +700,19 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 	}
 
 	d := &Daemon{
-		cmd:         cmd,
-		stdin:       conn,
-		stdout:      reader,
-		conn:        conn,
-		logFile:     logFile,
-		port:        ready.Port,
-		nextID:      1,
-		started:     true,
-		shared:      false,
-		slot:        slot,
-		sourcesHash: srcHash,
-		sourceDirs:  sourceDirs,
+		cmd:          cmd,
+		stdin:        conn,
+		stdout:       reader,
+		conn:         conn,
+		logFile:      logFile,
+		port:         ready.Port,
+		nextID:       1,
+		started:      true,
+		shared:       false,
+		slot:         slot,
+		sourcesHash:  srcHash,
+		sourceDirs:   sourceDirs,
+		aotCachePath: aotCache,
 	}
 
 	return d, nil

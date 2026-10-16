@@ -185,6 +185,12 @@ type AnalyzeProjectArgs struct {
 	// Paths is the explicit scan target. Empty means "use the
 	// daemon's --root".
 	Paths []string `json:"paths,omitempty"`
+	// Cwd is the caller's absolute working directory. Relative Paths
+	// (and every other caller-relative argument) resolve against it,
+	// and findings are reported in the caller's spelling, exactly as an
+	// in-process run from that directory would. Empty keeps the
+	// daemon's own working directory.
+	Cwd string `json:"cwd,omitempty"`
 	// Format is the output format. Empty defaults to "json".
 	Format string `json:"format,omitempty"`
 	// BaselinePath, when non-empty, points at a baseline file used
@@ -522,9 +528,12 @@ type ValidateConfigArgs struct {
 // OracleFilterFingerprintArgs drives the oracle-filter-fingerprint
 // verb. Paths is the explicit scan target; empty falls back to the
 // daemon's --root. AllRules toggles the rule-set label between
-// "default" and "all-rules" and broadens activeRules.
+// "default" and "all-rules" and broadens activeRules. Cwd is the
+// caller's absolute working directory, against which relative Paths
+// resolve; empty keeps the daemon's own.
 type OracleFilterFingerprintArgs struct {
 	Paths    []string `json:"paths,omitempty"`
+	Cwd      string   `json:"cwd,omitempty"`
 	AllRules bool     `json:"all_rules,omitempty"`
 }
 
@@ -533,12 +542,13 @@ type OracleFilterFingerprintArgs struct {
 // NoCacheOracle to bypass the incremental cache), and writes the
 // resulting oracle JSON dump to OutputPath. No rules are loaded or
 // fired. Paths is the explicit scan target; empty falls back to the
-// daemon's --root. OutputPath must be absolute — the daemon process
-// has its own CWD (the project root) and would otherwise resolve a
-// caller-relative path against the wrong directory; the CLI absolutizes
-// before forwarding.
+// daemon's --root. Cwd is the caller's absolute working directory,
+// against which relative Paths resolve; empty keeps the daemon's own.
+// OutputPath must be absolute so the dump lands where the caller asked
+// even when Cwd is not sent; the CLI absolutizes before forwarding.
 type DumpTypesArgs struct {
 	Paths         []string `json:"paths,omitempty"`
+	Cwd           string   `json:"cwd,omitempty"`
 	OutputPath    string   `json:"output_path"`
 	NoCacheOracle bool     `json:"no_cache_oracle,omitempty"`
 	Verbose       bool     `json:"verbose,omitempty"`

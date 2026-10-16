@@ -11,9 +11,6 @@ package rules
 // are not referenced by any other rule.
 
 import (
-	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 
 	androidproject "github.com/kaeawc/krit/internal/android"
@@ -96,69 +93,17 @@ type addJavascriptInterfaceSDKContext struct {
 	targetSdk int
 }
 
+// addJavascriptInterfaceSDKContextForFile resolves the file's SDK levels with
+// androidproject.ResolveSDKLevels, the helper the FIR pass also sends to
+// krit-fir checkers (firchecks.FileFacts.SDKLevels), so both sides agree.
 func addJavascriptInterfaceSDKContextForFile(file *scanner.File) addJavascriptInterfaceSDKContext {
 	if file == nil {
 		return addJavascriptInterfaceSDKContext{}
 	}
 	return filefacts.FileFact(fileFactsCache(), file, slotAddJSInterfaceSDK, func() addJavascriptInterfaceSDKContext {
-		sdk := addJavascriptInterfaceSDKContext{}
-		for _, dir := range ancestorDirs(filepath.Dir(file.Path)) {
-			for _, name := range []string{"build.gradle.kts", "build.gradle"} {
-				buildPath := filepath.Join(dir, name)
-				data, err := os.ReadFile(buildPath)
-				if err != nil {
-					continue
-				}
-				cfg, err := androidproject.ParseBuildGradleContent(string(data))
-				if err != nil {
-					continue
-				}
-				if cfg.MinSdkVersion > 0 {
-					sdk.minSdk = cfg.MinSdkVersion
-				}
-				if cfg.TargetSdkVersion > 0 {
-					sdk.targetSdk = cfg.TargetSdkVersion
-				}
-				if sdk.minSdk > 0 || sdk.targetSdk > 0 {
-					return sdk
-				}
-			}
-			for _, rel := range []string{"src/main/AndroidManifest.xml", "AndroidManifest.xml"} {
-				manifestPath := filepath.Join(dir, rel)
-				manifest, err := androidproject.ParseManifest(manifestPath)
-				if err != nil {
-					continue
-				}
-				if manifest.UsesSdk.MinSdkVersion != "" {
-					sdk.minSdk, _ = strconv.Atoi(manifest.UsesSdk.MinSdkVersion)
-				}
-				if manifest.UsesSdk.TargetSdkVersion != "" {
-					sdk.targetSdk, _ = strconv.Atoi(manifest.UsesSdk.TargetSdkVersion)
-				}
-				if sdk.minSdk > 0 || sdk.targetSdk > 0 {
-					return sdk
-				}
-			}
-		}
-		return sdk
+		levels := androidproject.ResolveSDKLevels(file.Path)
+		return addJavascriptInterfaceSDKContext{minSdk: levels.MinSdk, targetSdk: levels.TargetSdk}
 	})
-}
-
-func ancestorDirs(dir string) []string {
-	if dir == "" || dir == "." {
-		return nil
-	}
-	dir = filepath.Clean(dir)
-	var dirs []string
-	for {
-		dirs = append(dirs, dir)
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return dirs
 }
 
 func addJavascriptInterfaceBridgeMissingAnnotation(file *scanner.File, call uint32) bool {

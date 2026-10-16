@@ -116,13 +116,34 @@ func InvokeCached(
 	verbose bool,
 	jvmTarget ...string,
 ) (*Result, error) {
+	return invokeCachedWith(runMissesForCache, jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, repoDir, useDaemon, verbose, jvmTarget...)
+}
+
+// missRunner checks the files the cache could not answer.
+type missRunner func(jarPath string, misses, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, facts FileFacts, useDaemon, verbose bool, jvmTarget ...string) (*CheckResponse, error)
+
+// invokeCachedWith is InvokeCached with the checks of cache misses run by run.
+func invokeCachedWith(
+	run missRunner,
+	jarPath string,
+	files []string,
+	sourceDirs []string,
+	classpath []string,
+	rules []string,
+	ruleConfigs RuleConfigs,
+	facts FileFacts,
+	repoDir string,
+	useDaemon bool,
+	verbose bool,
+	jvmTarget ...string,
+) (*Result, error) {
 	if len(files) == 0 {
 		return newResult(), nil
 	}
 
 	// If no repo dir, skip cache and go straight to JVM.
 	if repoDir == "" {
-		return runUncached(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
+		return runUncached(run, jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
 	}
 
 	cacheDir, err := CacheDir(repoDir)
@@ -130,7 +151,7 @@ func InvokeCached(
 		if verbose {
 			reporter().Verbosef("verbose: fir cache dir init failed (%v), falling back to uncached\n", err)
 		}
-		return runUncached(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
+		return runUncached(run, jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
 	}
 
 	cacheFingerprint := CheckCacheFingerprint(sourceDirs, files, classpath, jarPath, rules, ruleConfigs, facts, jvmTarget...)
@@ -146,7 +167,7 @@ func InvokeCached(
 	}
 
 	// Slow path: analyze misses via daemon or one-shot.
-	resp, err := runMissesForCache(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
+	resp, err := run(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
 	if err != nil {
 		return nil, err
 	}
@@ -164,6 +185,7 @@ func InvokeCached(
 }
 
 func runUncached(
+	run missRunner,
 	jarPath string,
 	files []string,
 	sourceDirs []string,
@@ -175,7 +197,7 @@ func runUncached(
 	verbose bool,
 	jvmTarget ...string,
 ) (*Result, error) {
-	resp, err := runMissesForCache(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
+	resp, err := run(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
 	if err != nil {
 		return nil, err
 	}

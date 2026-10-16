@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kaeawc/krit/internal/devjar"
 	"github.com/kaeawc/krit/internal/env"
 )
 
@@ -25,6 +26,7 @@ func isolateJarLookup(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv(devjar.DirEnv, "")
 	t.Setenv("KRIT_TYPES_JAR", "")
 	t.Setenv("KRIT_FIR_JAR", "")
 	t.Setenv(jarRepositoryEnv, "")

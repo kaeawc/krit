@@ -10,29 +10,6 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-func TestAncestorDirs(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		in   string
-		want int
-	}{
-		{"", 0},
-		{".", 0},
-		{"/a", 2},
-		{"/a/b", 3},
-	}
-	for _, c := range cases {
-		got := ancestorDirs(c.in)
-		if len(got) != c.want {
-			t.Errorf("ancestorDirs(%q) returned %d entries, want %d (%v)", c.in, len(got), c.want, got)
-		}
-	}
-	dirs := ancestorDirs(filepath.Join("/x", "y", "z"))
-	if len(dirs) == 0 || dirs[0] != filepath.Clean("/x/y/z") {
-		t.Errorf("ancestorDirs leading entry mismatch: %v", dirs)
-	}
-}
-
 func TestHardcodedHTTPURLInsecure(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

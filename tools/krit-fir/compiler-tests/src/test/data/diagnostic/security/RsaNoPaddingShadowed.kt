@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 17, 21, 27
+// go-lines: 27
 // Negative: a bare `Cipher` that resolves to something other than
 // javax.crypto.Cipher, and a raw string whose value is not a valid
 // transformation, must NOT trigger RsaNoPadding.
@@ -12,8 +12,8 @@ object KeyCipher {
 }
 
 class Crypto {
-    // Go reports these because it only reads the receiver's text; FIR is correct
-    // because the local `Cipher` shadows the imported class.
+    // Go agrees: a parameter or an earlier local named `Cipher` in scope at the
+    // call shadows the imported class, as it does in FIR's resolution.
     fun parameter(Cipher: KeyCipher): String = Cipher.getInstance("RSA/ECB/NoPadding")
 
     fun localVal(): String {

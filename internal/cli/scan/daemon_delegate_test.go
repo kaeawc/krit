@@ -888,3 +888,24 @@ func TestDaemonBinaryForScanRefusesTestBinary(t *testing.T) {
 		t.Fatalf("daemonBinaryForScan() = %q, want empty inside go test", got)
 	}
 }
+
+// TestBuildDaemonAnalyzeArgs_SendsCallerCwd pins that the scan paths,
+// which go on the wire exactly as typed, travel with the directory they
+// are relative to. The daemon is found by repo directory and may be
+// running anywhere.
+func TestBuildDaemonAnalyzeArgs_SendsCallerCwd(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	want, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+
+	args := buildDaemonAnalyzeArgs(freshScanFlags(t), []string{"sub"})
+	if args.Cwd != want {
+		t.Errorf("Cwd = %q, want the caller's working directory %q", args.Cwd, want)
+	}
+	if len(args.Paths) != 1 || args.Paths[0] != "sub" {
+		t.Errorf("Paths = %v, want the caller's spelling [sub]", args.Paths)
+	}
+}

@@ -10,7 +10,7 @@ esac
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 source_hash="$(go run ./cmd/krit-dev-jar-hash "$tool")"
-target_dir="$HOME/.krit/jars/dev/$source_hash"
+target_dir="${KRIT_DEV_JAR_DIR:-$HOME/.krit/jars/dev}/$source_hash"
 target="$target_dir/$tool.jar"
 if [[ -f "$target" ]]; then
   echo "$target"
@@ -19,7 +19,8 @@ fi
 
 (cd "tools/$tool" && ./gradlew shadowJar)
 mkdir -p "$target_dir"
-temp_jar="$(mktemp "$target_dir/.$tool.XXXXXXXX.jar")"
+# BSD mktemp only substitutes trailing X placeholders.
+temp_jar="$(mktemp "$target_dir/.$tool.jar.XXXXXXXX")"
 trap 'rm -f "$temp_jar"' EXIT
 cp "tools/$tool/build/libs/$tool.jar" "$temp_jar"
 mv "$temp_jar" "$target"

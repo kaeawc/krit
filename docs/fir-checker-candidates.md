@@ -218,6 +218,17 @@ checked: Kotlin scripts (`build.gradle.kts`, `settings.gradle.kts`, ...) and
 scanned files from a non-JVM source set are never sent to the checkers, and
 `-v` counts them as excluded.
 
+**One compile with the oracle.** When the type oracle runs on krit-fir and
+compiles in the same context (the same jar, source roots, classpath, and JVM
+target), the checkers run on the oracle's compilation instead of compiling the
+module a second time. krit-fir shares the compilation only when the check
+would compile exactly the oracle's sources; the pass then reuses that response
+for any request with the same rules, options, and file facts whose sources
+have not changed since. Anything else, including an oracle served by its
+cache or by a persistent daemon, leaves the pass to compile on its own as
+before. `-v` reports `fir check: reusing the oracle compilation's check`, and
+`--perf` records `firCheckRider` under the oracle's JVM entry.
+
 **Which files FIR decides.** For each checked file the response says whether
 the compiler analyzed it cleanly. A file is *gated* when it has an
 error-severity compiler diagnostic (an unresolved reference, often from a

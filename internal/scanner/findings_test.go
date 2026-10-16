@@ -1323,3 +1323,26 @@ func TestFindingColumnsVisitRowsWithFixes(t *testing.T) {
 		t.Fatalf("VisitRowsWithBinaryFixes mismatch:\nwant: %#v\ngot:  %#v", []int{1, 2}, binaryRows)
 	}
 }
+
+// The incremental replay paths key allowedPaths by the scan's own spelling,
+// which is relative for `krit .`. Those rows must be kept, not just rows
+// whose absolute path is listed.
+func TestFilterColumnsByFilePathsMatchesScanSpelling(t *testing.T) {
+	t.Chdir(t.TempDir())
+	columns := CollectFindings([]Finding{
+		{File: "src/A.kt", Line: 1, Col: 1, RuleSet: "style", Rule: "R", Severity: "warning", Message: "keep"},
+		{File: "src/B.kt", Line: 1, Col: 1, RuleSet: "style", Rule: "R", Severity: "warning", Message: "drop"},
+	})
+	filtered := FilterColumnsByFilePaths(&columns, map[string]bool{"src/A.kt": true})
+	if filtered.Len() != 1 || filtered.FileAt(0) != "src/A.kt" {
+		t.Fatalf("relative allowed path: kept %d rows", filtered.Len())
+	}
+	abs, err := filepath.Abs("src/A.kt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered = FilterColumnsByFilePaths(&columns, map[string]bool{abs: true})
+	if filtered.Len() != 1 || filtered.FileAt(0) != "src/A.kt" {
+		t.Fatalf("absolute allowed path: kept %d rows", filtered.Len())
+	}
+}

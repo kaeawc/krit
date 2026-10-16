@@ -271,7 +271,7 @@ func NewParsedFile(path string, content []byte, tree *sitter.Tree) *File {
 
 	var flatTree *FlatTree
 	if tree != nil {
-		flatTree = flattenTree(tree.RootNode())
+		flatTree = normalizeExplicitBackingFields(flattenTree(tree.RootNode()), content)
 	}
 
 	return &File{
@@ -302,7 +302,7 @@ func ParseGradleScript(ctx context.Context, path string, content []byte, metadat
 		parser := GetKotlinParser()
 		defer PutKotlinParser(parser)
 		if tree, err := parser.ParseCtx(ctx, nil, content); err == nil && tree != nil {
-			file.FlatTree = flattenTree(tree.RootNode())
+			file.FlatTree = normalizeExplicitBackingFields(flattenTree(tree.RootNode()), content)
 		}
 	} else if strings.HasSuffix(path, ".gradle") {
 		parser := GetGroovyParser()
@@ -633,7 +633,7 @@ func parseJavaFileCached(ctx context.Context, path string, pc *ParseCache, opts 
 	var flatTree *FlatTree
 	if tree != nil {
 		flattenStart := time.Now()
-		flatTree = flattenTree(tree.RootNode())
+		flatTree = normalizeExplicitBackingFields(flattenTree(tree.RootNode()), content)
 		if opts.perf != nil {
 			opts.perf.FlattenTreeNs.Add(time.Since(flattenStart).Nanoseconds())
 		}

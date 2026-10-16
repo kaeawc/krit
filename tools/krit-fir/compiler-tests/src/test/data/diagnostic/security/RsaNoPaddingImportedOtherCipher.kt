@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 17
+// go-lines: none
 // Negative: an explicit import of another `Cipher` wins over the javax.crypto
 // star import, so the bare call is not javax.crypto.Cipher.getInstance.
 package test
@@ -12,7 +12,7 @@ object KeyCipher {
 }
 
 class Crypto {
-    // Go reports this because it sees the star import and no declaration named
-    // Cipher; FIR is correct because `Cipher` resolves to KeyCipher.
+    // Go agrees: an explicit import that binds another type to `Cipher` wins
+    // over the star import; in FIR `Cipher` resolves to KeyCipher.
     fun imported(): String = Cipher.getInstance("RSA/ECB/NoPadding")
 }

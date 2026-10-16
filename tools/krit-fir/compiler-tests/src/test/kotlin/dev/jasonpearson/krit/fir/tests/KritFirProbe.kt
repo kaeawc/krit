@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.tests
 
 import dev.jasonpearson.krit.fir.FirRuleCompileContext
+import dev.jasonpearson.krit.fir.SdkLevels
 import dev.jasonpearson.krit.fir.FirRuleContext
 import org.jetbrains.kotlin.cli.common.ExitCode
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
@@ -76,17 +77,22 @@ object KritFirProbe {
     // `/` to place the source in a subdirectory. [scanPaths] maps a [sources]
     // key to the scan's own spelling of it (FirRule.scanPath); with a
     // [ruleContext], every source is a requested file, spelled by its
-    // absolute path as Go requests it.
+    // absolute path as Go requests it. [sdkLevels] maps a [sources] key to
+    // the SDK levels the request resolved for it (FirRule.minSdkFor /
+    // targetSdkFor).
     // [configure] adjusts the compiler arguments (tests of the probe itself).
     fun compile(
         sources: Map<String, String>,
         ruleContext: FirRuleCompileContext? = null,
         testFiles: Set<String> = emptySet(),
         scanPaths: Map<String, String> = emptyMap(),
+        sdkLevels: Map<String, SdkLevels> = emptyMap(),
         configure: (K2JVMCompilerArguments) -> Unit = {},
     ): Compilation {
         require(testFiles.isEmpty() || ruleContext != null) { "testFiles needs a ruleContext" }
         require(scanPaths.isEmpty() || ruleContext != null) { "scanPaths needs a ruleContext" }
+        require(sdkLevels.isEmpty() || ruleContext != null) { "sdkLevels needs a ruleContext" }
+        require(sources.keys.containsAll(sdkLevels.keys)) { "sdkLevels must name sources: ${sdkLevels.keys}" }
         require(sources.keys.containsAll(testFiles)) { "testFiles must name sources: $testFiles" }
         require(sources.keys.containsAll(scanPaths.keys)) { "scanPaths must name sources: ${scanPaths.keys}" }
         val pluginJar = requireNotNull(locatePluginJar()) {
@@ -152,6 +158,8 @@ object KritFirProbe {
                         files = ruleContext.files + sources.keys.map { ktDir.resolve(it).absolutePath },
                         scanPaths = ruleContext.scanPaths +
                             scanPaths.mapKeys { (key, _) -> ktDir.resolve(key).absolutePath },
+                        sdkLevels = ruleContext.sdkLevels +
+                            sdkLevels.mapKeys { (key, _) -> ktDir.resolve(key).absolutePath },
                     ),
                 )
             }

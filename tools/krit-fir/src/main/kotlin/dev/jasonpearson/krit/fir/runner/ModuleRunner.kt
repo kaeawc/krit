@@ -1,5 +1,6 @@
 package dev.jasonpearson.krit.fir.runner
 
+import dev.jasonpearson.krit.fir.SdkLevels
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
 import org.jetbrains.kotlin.cli.common.arguments.parseCommandLineArguments
 import org.jetbrains.kotlin.config.JvmTarget
@@ -83,12 +84,16 @@ internal data class ModuleCompilation(
 internal fun filterModuleArgs(input: List<String>): List<String> {
     val out = mutableListOf<String>()
     var i = 0
-    val valued = setOf("-d", "-classpath", "-cp", "-jvm-target", "-Xplugin")
+    val valued = setOf("-d", "-classpath", "-cp", "-jvm-target", "-Xplugin", "-module-name")
+    // ModuleCompilation.configure owns friend paths, the module name and the
+    // HMPP fragment layout; a Gradle-provided copy would break internal
+    // visibility for test modules or the fragment mapping.
+    val managedFlags = setOf("-Werror", "-Xfriend-paths")
     while (i < input.size) {
         val arg = input[i++]
         val key = arg.substringBefore('=')
         when {
-            key == "-Werror" || key in valued -> {
+            key in managedFlags || key in valued || key.startsWith("-Xfragment") -> {
                 System.err.println("krit-fir: ignoring managed compiler argument $arg")
                 if (arg == key && key in valued && i < input.size) i++
             }
@@ -204,7 +209,7 @@ internal class ModuleRunner(
     fun check(
         id: Long, modules: List<ModuleSpec>, checkFiles: List<String>, rules: Set<String>,
         configs: Map<String, Map<String, Any?>>, testFiles: Set<String>, scanPaths: Map<String, String>,
-        sessionJvmTarget: String,
+        sdkLevels: Map<String, SdkLevels>, sessionJvmTarget: String,
     ): BatchResult {
         val components = moduleComponents(modules)
         val byId = modules.associateBy { it.id }
@@ -245,7 +250,8 @@ internal class ModuleRunner(
             val relevant = ownFiles.map { File(it).canonicalPath }.toSet()
             val findingsKey = digest(hash + "legacy=$cycle,$capped" + contextHash(ownFiles, rules, configs,
                 testFiles.filter { File(it).canonicalPath in relevant }.sorted(),
-                scanPaths.filterKeys { File(it).canonicalPath in relevant }))
+                scanPaths.filterKeys { File(it).canonicalPath in relevant },
+                sdkLevels.filterKeys { File(it).canonicalPath in relevant }))
             val old = cache[component.first().id]
             val dirty = old == null || old.hash != hash || old.findingsKey != findingsKey || !old.output.isDirectory
             val cached = if (!dirty) old else {
@@ -276,7 +282,7 @@ internal class ModuleRunner(
                     val session = AnalysisSession(spec.roots, cp, sessionJvmTarget)
                     val ownedSources = component.flatMap { sources.getValue(it.id) }.filter { owner(it) in ids }.toSet()
                     val result = session.checkCompilation(id, ownFiles.map { FileRef(it) }, rules, configs, testFiles, scanPaths,
-                        invocation, ownedSources)
+                        sdkLevels, invocation, ownedSources)
                     check(!result.compilerCrashed) { result.firstCompilerError ?: "Module compiler crashed" }
                     // Publish a new generation, never clear a directory a cached entry references.
                     val published = File(directory, "$key-${java.util.UUID.randomUUID()}")
@@ -331,7 +337,8 @@ internal class ModuleRunner(
     }
 
     private fun contextHash(files: List<String>, rules: Set<String>, configs: Map<String, Map<String, Any?>>,
-                            tests: List<String>, paths: Map<String, String>): String {
+                            tests: List<String>, paths: Map<String, String>,
+                            sdkLevels: Map<String, SdkLevels>): String {
         // Length framing prevents paths/config values containing delimiters from colliding.
         fun encode(value: Any?): String {
             val payload = when (value) {
@@ -347,7 +354,7 @@ internal class ModuleRunner(
             }
             return "$kind:${payload.length}:$payload"
         }
-        return encode(listOf(files, rules.sorted(), configs, tests, paths))
+        return encode(listOf(files, rules.sorted(), configs, tests, paths, sdkLevels))
     }
 
     private fun inputHash(

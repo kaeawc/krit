@@ -36,7 +36,9 @@ const (
 	// Bumped to 7 when Flags gained the node-local ERROR/MISSING bit;
 	// version 6 entries cannot distinguish recovery nodes from ancestors.
 	// v8: Kotlin top-level annotation normalization changes persisted FlatTrees.
-	parseCacheVersion uint32 = 8
+	// v9: explicit backing fields are re-typed as explicit_backing_field;
+	// v8 trees still hold the recovered property_declaration named `field`.
+	parseCacheVersion uint32 = 9
 
 	// Files below this threshold parse in under a millisecond; the gob
 	// serialization + filesystem round-trip dominates the savings.

@@ -55,6 +55,21 @@ internal class OracleCollector {
         map.putIfAbsent(key, payload)
     }
 
+    /**
+     * Record a smart-cast-refined type for [filePath] at [key]. Unlike
+     * [addExpression], this is authoritative over a declared-type entry
+     * already recorded at the same key, so the result never depends on
+     * whether FIR visits the wrapping smart cast before or after its inner
+     * access. Later [addExpression] calls can't displace it (first-wins).
+     * A call-site entry (one with a call target) stays: a smart cast wraps
+     * a stable reference, not a call, and call metadata must not be lost.
+     */
+    fun addSmartCastExpression(filePath: String, key: String, payload: ExpressionPayload) {
+        val map = expressionsByFile.getOrPut(filePath) { LinkedHashMap() }
+        val existing = map[key]
+        if (existing == null || existing.callTarget == null) map[key] = payload
+    }
+
     /** True iff an expression has already been recorded at this key in this file. */
     fun hasExpression(filePath: String, key: String): Boolean =
         expressionsByFile[filePath]?.containsKey(key) == true

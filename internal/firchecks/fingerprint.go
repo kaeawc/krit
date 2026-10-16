@@ -83,7 +83,11 @@ func jsonSafe(v any) any {
 // configured test paths, changes verdicts without changing any source) and
 // the scan's spelling of each file (checkers apply Go's path heuristics to it
 // through FirRule.scanPath, so scanning the same files from another working
-// directory can change verdicts). Stat avoids
+// directory can change verdicts), and each file's resolved SDK levels
+// (checkers read them through FirRule.minSdkFor / targetSdkFor, and they come
+// from build.gradle(.kts) / AndroidManifest.xml files that are not part of the
+// compilation, so editing a targetSdk changes verdicts without changing any
+// hashed source). Stat avoids
 // hashing the large fat jar. encoding/json sorts map keys, so the options
 // encoding is deterministic regardless of map iteration order.
 func FirInvocationFingerprint(classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, facts FileFacts, jvmTarget ...string) string {
@@ -121,6 +125,15 @@ func FirInvocationFingerprint(classpath []string, jarPath string, rules []string
 		}
 		fingerprint += "\x00scanPaths:" + string(scanJSON)
 	}
+	if len(facts.SDKLevels) > 0 {
+		// Appended only when present, so a project with no Android SDK
+		// levels keeps its fingerprint shape.
+		sdkJSON, err := json.Marshal(facts.SDKLevels)
+		if err != nil {
+			sdkJSON = []byte(fmt.Sprintf("unencodable:%v", err))
+		}
+		fingerprint += "\x00sdkLevels:" + string(sdkJSON)
+	}
 	return hashutil.HashHex([]byte(fingerprint))
 }
 
@@ -134,6 +147,13 @@ func FirInvocationFingerprint(classpath []string, jarPath string, rules []string
 // invalidate every cached FIR verdict (coarse but correct, the same trade-off
 // as krit-fir's oracle cache).
 func CheckCacheFingerprint(sourceDirs, files, classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, facts FileFacts, jvmTarget ...string) string {
+	compilation := checkCompilation(sourceDirs, files, classpath, jarPath)
+	return hashutil.HashHex([]byte(FirInvocationFingerprint(classpath, jarPath, rules, ruleConfigs, facts, jvmTarget...) + "\x00" + compilation))
+}
+
+// checkCompilation fingerprints the compilation a check of files runs:
+// every `.kt` under sourceDirs plus the requested files, by path and content.
+func checkCompilation(sourceDirs, files, classpath []string, jarPath string) string {
 	sources := oracle.CompilationSources(sourceDirs)
 	seen := make(map[string]bool, len(sources)+len(files))
 	for _, p := range sources {
@@ -145,6 +165,5 @@ func CheckCacheFingerprint(sourceDirs, files, classpath []string, jarPath string
 			sources = append(sources, p)
 		}
 	}
-	compilation := oracle.CompilationFingerprint(sources, classpath, jarPath)
-	return hashutil.HashHex([]byte(FirInvocationFingerprint(classpath, jarPath, rules, ruleConfigs, facts, jvmTarget...) + "\x00" + compilation))
+	return oracle.CompilationFingerprint(sources, classpath, jarPath)
 }

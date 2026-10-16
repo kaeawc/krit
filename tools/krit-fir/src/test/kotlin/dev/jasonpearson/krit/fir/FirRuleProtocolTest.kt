@@ -134,6 +134,77 @@ class FirRuleProtocolTest {
         assertEquals(emptyMap(), parseRequest("""{"id":8,"command":"check","files":[]}""").scanPaths)
     }
 
+    @Test fun wireRequestSdkLevelsReachFirRuleSdkAccessors() {
+        val app = tmp.resolve("app/src/A.kt").toFile().apply {
+            parentFile.mkdirs()
+            writeText("fun protocolProbe() {}\nfun use() { protocolProbe() }\n")
+        }
+        val partial = tmp.resolve("lib/src/L.kt").toFile().apply {
+            parentFile.mkdirs()
+            writeText("fun use2() { protocolProbe() }\n")
+        }
+        val plain = tmp.resolve("P.kt").toFile().apply { writeText("fun use3() { protocolProbe() }\n") }
+        val stdlib = java.io.File(kotlin.Unit::class.java.protectionDomain.codeSource.location.toURI()).absolutePath
+        val session = AnalysisSession(listOf(tmp.toString()), listOf(stdlib))
+        // Same shape internal/firchecks marshals: sdkLevels is keyed by the
+        // path as spelled in files, omits an unknown level, and only lists
+        // files with a known one. An option named sdkLevels is not the field.
+        val line = """{"id":10,"command":"check","files":[{"path":${jsonStr(app.absolutePath)}},""" +
+            """{"path":${jsonStr(partial.absolutePath)}},{"path":${jsonStr(plain.absolutePath)}}],""" +
+            """"rules":["ProtocolProbe"],""" +
+            """"sdkLevels":{${jsonStr(app.absolutePath)}:{"minSdk":21,"targetSdk":34},""" +
+            """${jsonStr(partial.absolutePath)}:{"targetSdk":30}},""" +
+            """"ruleConfigs":{"ProtocolProbe":{"tag":"t","showSdk":true,""" +
+            """"sdkLevels":{${jsonStr(plain.absolutePath)}:{"minSdk":1,"targetSdk":2}}}}}"""
+        val response = (handleRequestLine(line, session, System.currentTimeMillis()) as RequestResult.Response).json
+        assertTrue("configured: t sdk=21/34" in response, response)
+        assertTrue("configured: t sdk=0/30" in response, "an unsent level is unknown: $response")
+        assertTrue("configured: t sdk=0/0" in response, "no entry: both unknown: $response")
+    }
+
+    @Test fun checkRequestParsesSdkLevelsAtTopLevelOnly() {
+        val request = parseRequest(
+            """{"id":11,"command":"check","files":[{"path":"/p/app/[id]/A.kt"},{"path":"/p/B.kt"}],""" +
+                """"sdkLevels":{"/p/app/[id]/A.kt":{"minSdk":21,"targetSdk":34}},""" +
+                """"ruleConfigs":{"R":{"sdkLevels":{"/p/B.kt":{"minSdk":1}},"path":"/p/option"}}}""",
+        )
+        assertEquals(mapOf("/p/app/[id]/A.kt" to SdkLevels(21, 34)), request.sdkLevels)
+        assertEquals(listOf("/p/app/[id]/A.kt", "/p/B.kt"), request.files.map { it.path })
+        assertEquals("check", request.command)
+        assertEquals(emptyMap(), parseRequest("""{"id":12,"command":"check","files":[]}""").sdkLevels)
+        val modules = parseRequest(
+            """{"id":13,"command":"analyzeModules","modules":[{"id":":app:main","sourceRoots":["/p/app"]}],""" +
+                """"checkFiles":["/p/app/A.kt"],"sdkLevels":{"/p/app/A.kt":{"minSdk":23}}}""",
+        )
+        assertEquals(mapOf("/p/app/A.kt" to SdkLevels(minSdk = 23)), modules.sdkLevels)
+    }
+
+    @Test fun compileContextResolvesSdkLevelsByRequestOrCanonicalSpelling() {
+        val real = tmp.resolve("real").toFile().apply { mkdirs() }
+        val file = real.resolve("A.kt").apply { writeText("") }
+        val other = real.resolve("B.kt").apply { writeText("") }
+        val link = tmp.resolve("link")
+        java.nio.file.Files.createSymbolicLink(link, real.toPath())
+        val requested = link.resolve("A.kt").toString()
+        val context = FirRuleCompileContext(
+            files = setOf(requested, link.resolve("B.kt").toString()),
+            sdkLevels = mapOf(requested to SdkLevels(minSdk = 16, targetSdk = 33)),
+        )
+        assertEquals(SdkLevels(16, 33), context.sdkLevels(requested))
+        assertEquals(SdkLevels(16, 33), context.sdkLevels(file.canonicalPath), "canonical spelling of a requested file")
+        assertEquals(null, context.sdkLevels(other.canonicalPath), "requested, but no known level")
+        assertEquals(null, context.sdkLevels(null))
+        // No request context (oracle compile, direct compiler runs): unknown.
+        assertEquals(0, ProtocolProbe.minSdkFor(requested))
+        assertEquals(0, ProtocolProbe.targetSdkFor(requested))
+        FirRuleContext.begin(context)
+        try {
+            assertEquals(16, ProtocolProbe.minSdkFor(file.canonicalPath))
+            assertEquals(33, ProtocolProbe.targetSdkFor(file.canonicalPath))
+            assertEquals(0, ProtocolProbe.targetSdkFor(other.canonicalPath))
+        } finally { FirRuleContext.end() }
+    }
+
     @Test fun compileContextMatchesTestFilesByRequestOrCanonicalSpelling() {
         val real = tmp.resolve("real").toFile().apply { mkdirs() }
         val file = real.resolve("T.kt").apply { writeText("") }

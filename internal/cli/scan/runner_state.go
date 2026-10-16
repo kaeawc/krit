@@ -15,6 +15,7 @@ import (
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/experiment"
+	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
@@ -94,8 +95,11 @@ type runner struct {
 	cachesClosed       bool
 
 	// Parse phase
-	parseResult       pipeline.ParseResult
-	pendingFIR        pipeline.PendingFindingsPass
+	parseResult pipeline.ParseResult
+	pendingFIR  pipeline.PendingFindingsPass
+	// firChecker is the --fir pass's checker, built once so the oracle's
+	// krit-fir compilation can run the pass's check (firchecks.Prefetch).
+	firChecker        *firchecks.ProductionFirChecker
 	parsedFiles       []*scanner.File
 	sourceFiles       []*scanner.File
 	javaSemanticFacts *javafacts.Facts
@@ -506,6 +510,7 @@ func (r *runner) runOracleIndex() (int, error) {
 			OracleClasspath:     oracleClasspath,
 			OracleSourceDirs:    r.f.modelSourceDirs,
 			OracleJvmTarget:     r.f.modelJvmTarget,
+			FIRCheckRider:       r.firCheckRider(),
 			GeneratedSourceDirs: r.f.modelGeneratedSourceDirs,
 			IncludeGenerated:    *r.f.IncludeGenerated,
 			Store:               r.oracleStore,
@@ -664,14 +669,40 @@ func (r *runner) firPassOptions(parsed pipeline.ParseResult) firCheckerOpts {
 		Thorough:            r.depthPreset == DepthThorough,
 	}
 	if enabled {
+		checker := r.productionFIRChecker()
+		opts.Checker, opts.SourceDirs, opts.Classpath = checker, checker.SourceDirs, checker.Classpath
+	}
+	return opts
+}
+
+func (r *runner) productionFIRChecker() *firchecks.ProductionFirChecker {
+	if r.firChecker == nil {
 		checker := NewFIRChecker(r.paths, r.cfg, !*r.f.NoFirDaemon, *r.f.Verbose)
 		checker.NoCache = *r.f.NoCache
 		checker.Classpath = effectiveOracleClasspath(r.f.modelClasspath, r.cfg)
 		checker.SourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(checker.SourceDirs, r.f.modelSourceDirs))
 		checker.JvmTarget = r.f.modelJvmTarget
-		opts.Checker, opts.SourceDirs, opts.Classpath = checker, checker.SourceDirs, checker.Classpath
+		r.firChecker = checker
 	}
-	return opts
+	return r.firChecker
+}
+
+// firCheckRider plans the --fir pass from the collected Kotlin paths before
+// parsing, so the krit-fir oracle compilation can run its check too and the
+// pass reuses that response (#739). Nil without --fir.
+func (r *runner) firCheckRider() func(jarPath string, sourceDirs, classpath []string, jvmTarget string) *oracle.CheckRider {
+	prefetch := firchecks.NewPrefetch(r.firPassOptions(pipeline.ParseResult{KotlinPaths: r.files}))
+	if prefetch == nil {
+		return nil
+	}
+	r.productionFIRChecker().Prefetch = prefetch
+	return func(jarPath string, sourceDirs, classpath []string, jvmTarget string) *oracle.CheckRider {
+		rider := prefetch.Rider(jarPath, sourceDirs, classpath, jvmTarget)
+		if rider == nil && *r.f.Verbose {
+			fmt.Fprintf(os.Stderr, "verbose: fir check: the oracle compiles in another context; the pass compiles on its own\n")
+		}
+		return rider
+	}
 }
 
 // applyBaselinesAndDiff handles --create-baseline, --baseline-audit,

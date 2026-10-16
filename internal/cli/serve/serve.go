@@ -325,6 +325,11 @@ type daemonState struct {
 	// follow-up benchmark notes.
 	manifestMu    sync.Mutex
 	manifestCache map[string]scanner.FindingsBundleManifest
+
+	// analysisCwd identifies the working directory the last
+	// path-resolving verb ran in; see enterCallerCwd. Guarded by
+	// analyzeMu.
+	analysisCwd os.FileInfo
 }
 
 func newDaemonState(root string) *daemonState {
@@ -402,6 +407,19 @@ func (s *daemonState) priorManifest(repoDir string, paths []string) (scanner.Fin
 		return scanner.FindingsBundleManifest{}, false
 	}
 	return s.loadManifest(manifestPath)
+}
+
+// priorSourceState returns the prior manifest for the request's scan
+// paths along with the source-path lists prepopulated from it. The
+// manifest is an on-disk cache, so --no-cache skips it the same way
+// resolveDiskCacheWiring drops the manifest loader and saver.
+func (s *daemonState) priorSourceState(noCache bool, repoDir string, paths []string) (kotlinPaths, javaPaths []string, prior scanner.FindingsBundleManifest) {
+	if noCache {
+		return nil, nil, scanner.FindingsBundleManifest{}
+	}
+	kotlinPaths, javaPaths = s.prepopulatedSourcePaths(repoDir, paths)
+	prior, _ = s.priorManifest(repoDir, paths)
+	return kotlinPaths, javaPaths, prior
 }
 
 // prepopulatedSourcePaths returns the resident manifest's kotlin/java

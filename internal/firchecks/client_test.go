@@ -3,13 +3,19 @@ package firchecks
 import (
 	"os"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/devjar"
 )
 
 func TestFindFirJar_NoJarReturnsEmpty(t *testing.T) {
 	t.Setenv("KRIT_FIR_JAR", "")
-	// The locator also searches the per-user dev jar cache that
-	// `make fir-jar` fills; point it at an empty home.
-	t.Setenv("HOME", t.TempDir())
+	// Keep installed (~/.krit/jars) and `make fir-jar` dev-cache jars out of
+	// the lookup; either would otherwise be found on a developer machine.
+	// os.UserHomeDir reads USERPROFILE on Windows, so isolate both.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv(devjar.DirEnv, t.TempDir())
 	tmp := t.TempDir()
 	result := FindFirJar([]string{tmp})
 	if result != "" {

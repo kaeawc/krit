@@ -72,6 +72,13 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 	// rewrite between requests can preserve both size and mtime; clearing
 	// here prevents its old digest from validating on-disk caches.
 	hashutil.ResetDefault()
+	// Before anything resolves a path: the preflight, the config-driven
+	// walks and the pipeline all read args.Paths relative to the working
+	// directory.
+	if err := state.enterCallerCwd(args.Cwd); err != nil {
+		state.analyzeMu.Unlock()
+		return nil, err
+	}
 	if args.Fir {
 		if !args.FirPreflightPassed {
 			paths := args.Paths
@@ -490,13 +497,13 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	// drift is caught at the bundle-fingerprint comparison, which
 	// runs whether or not we walk; bypassing the walk just saves the
 	// 30-40s cold-OS-dentry-cache cost on kotlin-corpus scale.
-	kotlinPaths, javaPaths := s.prepopulatedSourcePaths(repoDir, paths)
-	// Pull the prior content-hash and structural-fp maps off the
+	//
+	// Also pull the prior content-hash and structural-fp maps off the
 	// resident manifest so RunProjectAnalysis can short-circuit per-
 	// file fingerprint recomputation for the 16 k+ unchanged files of
 	// a kotlin-corpus scan. Returns nil maps when no prior is cached;
 	// in that case the pipeline falls back to recomputing per-file.
-	priorManifest, _ := s.priorManifest(repoDir, paths)
+	kotlinPaths, javaPaths, priorManifest := s.priorSourceState(args.NoCache, repoDir, paths)
 
 	// Build a perf.Tracker only when the caller asked for --perf or
 	// --perf-rules. A nil-interface (untyped) Tracker keeps every

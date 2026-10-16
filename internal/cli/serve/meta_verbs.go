@@ -112,6 +112,13 @@ func handleOracleFilterFingerprint(_ context.Context, state *daemonState, raw js
 			return nil, fmt.Errorf("decode args: %w", err)
 		}
 	}
+	// analyzeMu: the working directory and the rule config applied
+	// below are process-wide and shared with analyze-project.
+	state.analyzeMu.Lock()
+	defer state.analyzeMu.Unlock()
+	if err := state.enterCallerCwd(args.Cwd); err != nil {
+		return nil, err
+	}
 	paths := args.Paths
 	if len(paths) == 0 {
 		paths = []string{state.root}
@@ -159,9 +166,8 @@ func handleOracleFilterFingerprint(_ context.Context, state *daemonState, raw js
 // on the user's terminal; the exit code is the CLI's exit code.
 //
 // args.OutputPath must be absolute: the CLI absolutizes before
-// forwarding because the daemon process has its own CWD (the project
-// root) and would otherwise resolve a relative path against the wrong
-// directory. Empty OutputPath returns exit code 2 with an explanatory
+// forwarding so the dump lands where the caller asked even for a
+// request that carries no Cwd. Empty OutputPath returns exit code 2 with an explanatory
 // error — the CLI gate already prevents this in practice.
 func handleDumpTypes(_ context.Context, state *daemonState, raw json.RawMessage) (any, error) {
 	var args daemon.DumpTypesArgs
@@ -174,6 +180,13 @@ func handleDumpTypes(_ context.Context, state *daemonState, raw json.RawMessage)
 		var stderr bytes.Buffer
 		fmt.Fprintln(&stderr, "error: dump-types: output_path is required")
 		return daemon.MetaResult{Stderr: stderr.Bytes(), ExitCode: 2}, nil
+	}
+	// analyzeMu: the working directory is process-wide and shared with
+	// analyze-project.
+	state.analyzeMu.Lock()
+	defer state.analyzeMu.Unlock()
+	if err := state.enterCallerCwd(args.Cwd); err != nil {
+		return nil, err
 	}
 	paths := args.Paths
 	if len(paths) == 0 {

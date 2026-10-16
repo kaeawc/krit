@@ -67,3 +67,93 @@ func TestSourceHashRejectsUnknownTool(t *testing.T) {
 		t.Fatal("expected unsupported tool error")
 	}
 }
+
+func minimalSourceTree(t *testing.T) (string, func(rel, content string)) {
+	t.Helper()
+	root := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, rel := range []string{
+		"LICENSE", "tools/THIRD_PARTY_NOTICES.txt",
+		"tools/krit-rule-api/build.gradle.kts", "tools/krit-rule-api/settings.gradle.kts",
+		"tools/krit-rule-api/gradle.properties", "tools/krit-rule-api/gradle/wrapper/gradle-wrapper.properties",
+		"tools/krit-fir/build.gradle.kts", "tools/krit-fir/settings.gradle.kts",
+		"tools/krit-fir/gradle.properties", "tools/krit-fir/gradle/wrapper/gradle-wrapper.properties",
+		"tools/krit-rule-api/src/main/kotlin/Api.kt", "tools/krit-fir/src/main/kotlin/Main.kt",
+	} {
+		write(rel, "original")
+	}
+	return root, write
+}
+
+// Concatenating raw "path\0content\0" records let one file's bytes mimic a
+// record boundary, so these two different trees used to hash the same.
+func TestSourceHashRecordsAreUnambiguous(t *testing.T) {
+	const a = "tools/krit-fir/src/main/resources/a.bin"
+	const b = "tools/krit-fir/src/main/resources/b.bin"
+
+	merged, writeMerged := minimalSourceTree(t)
+	writeMerged(a, "A\x00"+b+"\x00B")
+	split, writeSplit := minimalSourceTree(t)
+	writeSplit(a, "A")
+	writeSplit(b, "B")
+
+	h1, err := SourceHash(merged, "krit-fir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h2, err := SourceHash(split, "krit-fir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h1 == h2 {
+		t.Fatalf("different source trees share hash %q", h1)
+	}
+}
+
+func TestSourceHashTracksKritVersion(t *testing.T) {
+	root, _ := minimalSourceTree(t)
+	t.Setenv("KRIT_VERSION", "")
+	unset, err := SourceHash(root, "krit-fir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KRIT_VERSION", "1.2.3")
+	pinned, err := SourceHash(root, "krit-fir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pinned == unset {
+		t.Fatal("KRIT_VERSION did not change the dev-jar cache key")
+	}
+}
+
+func TestCacheDirHonorsOverride(t *testing.T) {
+	override := t.TempDir()
+	t.Setenv(DirEnv, override)
+	if got := CacheDir(); got != override {
+		t.Fatalf("CacheDir() = %q, want override %q", got, override)
+	}
+	path := CachePath("krit-fir", nil)
+	if path == "" {
+		t.Fatal("expected a cache path inside the krit checkout")
+	}
+	if filepath.Dir(filepath.Dir(path)) != override || filepath.Base(path) != "krit-fir.jar" {
+		t.Fatalf("CachePath() = %q, want <override>/<hash>/krit-fir.jar", path)
+	}
+
+	home := t.TempDir()
+	t.Setenv(DirEnv, "")
+	t.Setenv("HOME", home)
+	if got, want := CacheDir(), filepath.Join(home, ".krit", "jars", "dev"); got != want {
+		t.Fatalf("CacheDir() without override = %q, want %q", got, want)
+	}
+}

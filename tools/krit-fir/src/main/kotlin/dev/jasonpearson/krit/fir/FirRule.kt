@@ -39,7 +39,24 @@ interface FirRule {
      * runs).
      */
     fun scanPath(path: String?): String? = FirRuleContext.current()?.scanPath(path) ?: path
+
+    /**
+     * The minSdk of the Android module that owns the source file at [path]
+     * (the compiler's spelling), or 0 when it is unknown. Go resolves it with
+     * the lookup its own rules use (the nearest `build.gradle(.kts)` or
+     * `AndroidManifest.xml` above the file that declares an SDK level) and
+     * sends it in the check request's `sdkLevels`. Never read build files
+     * here. 0 for a file under no Android module and outside a check request
+     * (oracle compiles, direct compiler/test-harness runs).
+     */
+    fun minSdkFor(path: String?): Int = FirRuleContext.current()?.sdkLevels(path)?.minSdk ?: 0
+
+    /** The targetSdk counterpart of [minSdkFor]; 0 when unknown. */
+    fun targetSdkFor(path: String?): Int = FirRuleContext.current()?.sdkLevels(path)?.targetSdk ?: 0
 }
+
+/** A source file's resolved Android SDK levels; 0 means unknown, as in Go. */
+data class SdkLevels(val minSdk: Int = 0, val targetSdk: Int = 0)
 
 /** [FirRule.isTestFile] for the file [context] is checking. */
 context(context: CheckerContext)
@@ -48,6 +65,14 @@ fun FirRule.isInTestFile(): Boolean = isTestFile(context.containingFile?.path)
 /** [FirRule.scanPath] for the file [context] is checking. */
 context(context: CheckerContext)
 fun FirRule.containingScanPath(): String? = scanPath(context.containingFile?.path)
+
+/** [FirRule.minSdkFor] for the file [context] is checking. */
+context(context: CheckerContext)
+fun FirRule.containingMinSdk(): Int = minSdkFor(context.containingFile?.path)
+
+/** [FirRule.targetSdkFor] for the file [context] is checking. */
+context(context: CheckerContext)
+fun FirRule.containingTargetSdk(): Int = targetSdkFor(context.containingFile?.path)
 
 context(context: CheckerContext, reporter: DiagnosticReporter)
 fun FirRule.report(source: KtSourceElement?, message: String) {
@@ -65,6 +90,8 @@ data class FirRuleCompileContext(
     val files: Set<String> = emptySet(),
     /** Requested file -> the scan's own spelling of it, where the two differ. */
     val scanPaths: Map<String, String> = emptyMap(),
+    /** Requested file -> its resolved SDK levels, for the files with a known level. */
+    val sdkLevels: Map<String, SdkLevels> = emptyMap(),
 ) {
     // The compiler may spell a file differently from the request (absolute,
     // symlinks resolved), so fall back to canonical paths, memoized per path.
@@ -93,6 +120,10 @@ data class FirRuleCompileContext(
 
     /** See [FirRule.scanPath]; null when [path] is not a requested file. */
     fun scanPath(path: String?): String? = requestPath(path)?.let { scanPaths[it] ?: it }
+
+    /** See [FirRule.minSdkFor]; null when no level is known for [path]. */
+    fun sdkLevels(path: String?): SdkLevels? =
+        if (sdkLevels.isEmpty()) null else requestPath(path)?.let { sdkLevels[it] }
 
     private fun canonical(path: String): String = try {
         File(path).canonicalPath

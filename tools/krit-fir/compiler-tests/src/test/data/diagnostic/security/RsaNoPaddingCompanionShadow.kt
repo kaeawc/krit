@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 16
+// go-lines: none
 // Negative: a companion object named `Cipher` in the calling class wins over the
 // javax.crypto star import, so the call is not javax.crypto.Cipher.getInstance.
 package test
@@ -11,7 +11,7 @@ class Crypto {
         fun getInstance(transformation: String): String = transformation
     }
 
-    // Go reports this because its same-file guard skips companion objects; FIR
-    // is correct because `Cipher` resolves to the companion.
+    // Go agrees: a companion object named `Cipher` in a class that encloses the
+    // call shadows the import, as it does in FIR's resolution.
     fun companion(): String = Cipher.getInstance("RSA/ECB/NoPadding")
 }

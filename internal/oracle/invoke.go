@@ -276,16 +276,13 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	if filesListPath != "" {
 		args = append(args, "--files", filesListPath)
 	}
-	if len(opts.Classpath) > 0 {
-		// Both backends parse `--classpath <joined>` as the user-
-		// configured classpath. Joined with the OS path separator so
-		// the daemon-side parser (which splits on `:` / `;`) stays
-		// consistent with the env var convention.
-		args = append(args, "--classpath", strings.Join(opts.Classpath, string(os.PathListSeparator)))
+	args = append(args, compileContextArgs(opts)...)
+	rider, riderArgs, err := startCheckRider(opts)
+	if err != nil {
+		return "", err
 	}
-	if opts.Backend == BackendFIR && opts.JvmTarget != "" {
-		args = append(args, "--jvm-target", opts.JvmTarget)
-	}
+	defer rider.cleanup()
+	args = append(args, riderArgs...)
 	callFilterPath, cleanupCallFilter, err := writeCallFilterArg(opts, tracker)
 	if err != nil {
 		return "", fmt.Errorf("call filter: %w", err)
@@ -336,7 +333,25 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 		return err
 	})
 	addOracleProcessResources(tracker, "kritTypesProcessResources", proc.PeakRSSMB)
+	rider.finish(tracker, processErr)
 	return res, processErr
+}
+
+// compileContextArgs returns the one-shot arguments that set the compile
+// context: the configured classpath and, for krit-fir, the JVM target.
+func compileContextArgs(opts InvocationOptions) []string {
+	var args []string
+	if len(opts.Classpath) > 0 {
+		// Both backends parse `--classpath <joined>` as the user-
+		// configured classpath. Joined with the OS path separator so
+		// the daemon-side parser (which splits on `:` / `;`) stays
+		// consistent with the env var convention.
+		args = append(args, "--classpath", strings.Join(opts.Classpath, string(os.PathListSeparator)))
+	}
+	if opts.Backend == BackendFIR && opts.JvmTarget != "" {
+		args = append(args, "--jvm-target", opts.JvmTarget)
+	}
+	return args
 }
 
 // runOracleProcess is the exec+wait+grace-period+stderr-capture core shared by

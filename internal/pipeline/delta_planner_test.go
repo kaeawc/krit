@@ -227,3 +227,50 @@ func TestDiffContentHashes(t *testing.T) {
 		t.Errorf("diffContentHashes (identical) = %v, want []", got4)
 	}
 }
+
+// Same scenario with a relative scan root (`krit .`): the changed file's
+// regenerated findings must survive the delta merge.
+func TestRunProject_DeltaPath_RelativeScanRootKeepsFindings(t *testing.T) {
+	dir := t.TempDir()
+	cacheRoot := t.TempDir()
+	t.Chdir(dir)
+	if err := os.WriteFile("Sample.kt", []byte("package test\n\nclass Foo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rule := api.FakeRule("ClassDecl",
+		api.WithNodeTypes("class_declaration"),
+		api.WithSeverity(api.SeverityWarning),
+		api.WithCheck(func(ctx *api.Context) {
+			ctx.EmitAt(int(ctx.Node.StartRow)+1, 1, "class declared")
+		}),
+	)
+	run := func(t *testing.T) int {
+		t.Helper()
+		res, err := RunProject(context.Background(), ProjectInput{
+			Args: ProjectArgs{
+				Config:      config.NewConfig(),
+				Paths:       []string{"."},
+				ActiveRules: []*api.Rule{rule},
+				Format:      "json",
+				Version:     "test",
+			},
+			Host: ProjectHostState{
+				FindingsBundleStore:     scanner.DiskFindingsBundleStore{},
+				FindingsBundleCacheRoot: cacheRoot,
+			},
+		})
+		if err != nil {
+			t.Fatalf("RunProject: %v", err)
+		}
+		return res.FindingsCount
+	}
+	if got := run(t); got != 1 {
+		t.Fatalf("first run findings = %d, want 1", got)
+	}
+	if err := os.WriteFile("Sample.kt", []byte("package test\n\nclass Foo // comment edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := run(t); got != 1 {
+		t.Errorf("second run findings = %d, want 1", got)
+	}
+}

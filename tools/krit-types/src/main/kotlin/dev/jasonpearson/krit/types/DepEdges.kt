@@ -189,8 +189,10 @@ internal fun KaSession.recordResolvedDependencyEdges(file: KtFile, tracker: DepT
             is KtSimpleNameExpression -> resolve(element, propagating)
             // Operator conventions with no name at the use site: an
             // extension operator in another file is only reachable here.
-            is KtArrayAccessExpression, is KtForExpression, is KtPropertyDelegate, is KtDestructuringDeclarationEntry ->
-                resolve(element as KtElement, propagating)
+            is KtArrayAccessExpression -> resolve(element, propagating)
+            is KtForExpression -> resolve(element, propagating)
+            is KtPropertyDelegate -> resolve(element, propagating)
+            is KtDestructuringDeclarationEntry -> resolve(element, propagating)
         }
     }
 

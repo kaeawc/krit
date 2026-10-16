@@ -3051,13 +3051,18 @@ fun analyzeKtFile(
                             // Candidate-tolerant by contract (see CallResolutionPolicy): a
                             // failed call with exactly one candidate still names that
                             // candidate; ambiguity or no candidate falls back below.
-                            val target = resolveCallTarget(expr, CallResolutionPolicy.CANDIDATE_TOLERANT)
+                            val outcome = resolveCallTargetOutcome(expr, CallResolutionPolicy.CANDIDATE_TOLERANT)
+                            val target = (outcome as? CallTargetOutcome.Target)?.target
                             val resolveNs = System.nanoTime() - resolveStart
                             calleeAggregateNs = resolveNs
                             perf?.count("kotlinCallResolveResolveToCall", resolveNs)
-                            perf?.count("kotlinCallResolveNonNull")
+                            if (outcome !is CallTargetOutcome.NoAttempt) perf?.count("kotlinCallResolveNonNull")
                             if (target != null) {
                                 perf?.count("kotlinCallResolveMemberCall")
+                                // Preserved on purpose: a sole failed-call candidate is
+                                // reported as resolved, as before the adapter. The counter
+                                // makes the distinction observable.
+                                if (target.certainty == CallCertainty.CANDIDATE) perf?.count("kotlinCallResolveCandidate")
                                 val symbol = target.symbol
                                 val symbolIsSuspend = symbol is KaNamedFunctionSymbol && symbol.isSuspend
                                 val callableIDStart = System.nanoTime()
@@ -3083,6 +3088,9 @@ fun analyzeKtFile(
                                     perf?.count("kotlinCallResolveNoCallableId")
                                     fallbackReason = "no-callable-id"
                                 }
+                            } else if (outcome is CallTargetOutcome.NoAttempt) {
+                                perf?.count("kotlinCallResolveNull")
+                                fallbackReason = "resolve-null"
                             } else {
                                 perf?.count("kotlinCallResolveNoMember")
                                 fallbackReason = "no-member-call"

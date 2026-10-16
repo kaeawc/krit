@@ -9,8 +9,6 @@ import org.jetbrains.kotlin.analysis.api.resolution.KaCallResolutionError
 import org.jetbrains.kotlin.analysis.api.resolution.KaCallResolutionSuccess
 import org.jetbrains.kotlin.analysis.api.resolution.KaFunctionCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaMultiCallResolutionAttempt
-import org.jetbrains.kotlin.analysis.api.resolution.KaSingleCall
-import org.jetbrains.kotlin.analysis.api.resolution.KaVariableAccessCall
 import org.jetbrains.kotlin.analysis.api.resolution.calls
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.resolution.symbols
@@ -34,9 +32,18 @@ import org.jetbrains.kotlin.resolution.KtResolvable
 // implied by which reduction helper happened to be called. Analysis API
 // objects (symbols, calls, attempts) are lifetime-bound to a KaSession and
 // never leave this package; the public plugin `Resolver` API only exposes
-// strings and booleans. The element-based resolution API is still
-// @KaExperimentalApi in the pinned compiler (2.4.20), so the opt-in is confined
-// to this file and a future API move is a one-file change.
+// strings and booleans.
+//
+// This move is voluntary hardening, not a forced migration: in the pinned
+// compiler (2.4.20) the former `resolveToCall()` / `singleFunctionCallOrNull()`
+// / `singleVariableAccessCall()` / `KtReference.resolveToSymbols()` entry
+// points are not deprecated (only `partiallyAppliedSymbol` and the
+// KaSimpleFunctionCall / KaSimpleVariableAccessCall types are). The new
+// element-based entry points are @KaExperimentalApi / @KtExperimentalApi, so
+// the opt-in is confined to this file and a future API move is a one-file
+// change. CallResolutionCharacterizationTest, DepEdgeResolutionTest and
+// ResolutionAdapterTest pin the observable behaviour and are the canary for
+// Kotlin version bumps.
 
 /**
  * How a consumer treats a call that did not resolve cleanly.
@@ -44,8 +51,8 @@ import org.jetbrains.kotlin.resolution.KtResolvable
  * - [SUCCESS_ONLY]: only a successfully resolved call counts. A failed call
  *   (inapplicable argument, ambiguity, unresolved reference) yields no target.
  * - [CANDIDATE_TOLERANT]: a failed call with exactly one candidate yields that
- *   candidate, exactly as the `singleFunctionCallOrNull()` /
- *   `singleVariableAccessCall()` reductions of the former `KaCallInfo` did.
+ *   candidate, exactly as the `singleFunctionCallOrNull()` reduction of the
+ *   former `KaCallInfo` did.
  *   Several candidates (ambiguity) or none still yield no target.
  *
  * Current consumers, all [CANDIDATE_TOLERANT] because they are best-effort
@@ -69,26 +76,45 @@ internal enum class CallCertainty { SUCCESS, CANDIDATE }
 /** The callable a call expression targets. Only valid inside the producing session. */
 internal class CallTarget(val symbol: KaCallableSymbol, val certainty: CallCertainty)
 
-/**
- * Resolves [call] to a function or variable-access target under [policy], or
- * returns null when there is no such unique target (unresolved, ambiguous,
- * not a callable member call, or a failure under [CallResolutionPolicy.SUCCESS_ONLY]).
- */
-internal fun KaSession.resolveCallTarget(call: KtCallExpression, policy: CallResolutionPolicy): CallTarget? {
-    val (single, certainty) = when (val attempt = call.tryResolveCall()) {
-        is KaCallResolutionSuccess -> attempt.call to CallCertainty.SUCCESS
-        is KaCallResolutionError -> {
-            if (policy != CallResolutionPolicy.CANDIDATE_TOLERANT) return null
-            (attempt.candidateCalls.singleOrNull() ?: return null) to CallCertainty.CANDIDATE
-        }
-        // Multi-call attempts (compound operations) never target a single callable.
-        else -> return null
-    }
-    if (single !is KaFunctionCall<*> && single !is KaVariableAccessCall) return null
-    return CallTarget(single.callableSymbol(), certainty)
+/** Outcome of [resolveCallTargetOutcome]; lets callers tell "nothing came back" from "no unique callable". */
+internal sealed interface CallTargetOutcome {
+    /** The analysis produced no resolution attempt for the call at all. */
+    data object NoAttempt : CallTargetOutcome
+
+    /** An attempt exists but names no unique function target (unresolved, ambiguous, multi-call, or a failure under SUCCESS_ONLY). */
+    data object NoCallable : CallTargetOutcome
+
+    class Target(val target: CallTarget) : CallTargetOutcome
 }
 
-private fun KaSingleCall<*, *>.callableSymbol(): KaCallableSymbol = symbol
+/**
+ * Resolves [call] to a function target under [policy], reporting why there is
+ * none when there is none.
+ *
+ * Only [KaFunctionCall] targets are kept. The former reduction also fell back
+ * to `singleVariableAccessCall()`, but a [KtCallExpression] always resolves to
+ * a function call (a function-typed value is reached through its `invoke`, as
+ * the characterization tests pin), so that fallback was unreachable and is not
+ * carried over.
+ */
+internal fun KaSession.resolveCallTargetOutcome(call: KtCallExpression, policy: CallResolutionPolicy): CallTargetOutcome {
+    val attempt = call.tryResolveCall() ?: return CallTargetOutcome.NoAttempt
+    val (single, certainty) = when (attempt) {
+        is KaCallResolutionSuccess -> attempt.call to CallCertainty.SUCCESS
+        is KaCallResolutionError -> {
+            if (policy != CallResolutionPolicy.CANDIDATE_TOLERANT) return CallTargetOutcome.NoCallable
+            (attempt.candidateCalls.singleOrNull() ?: return CallTargetOutcome.NoCallable) to CallCertainty.CANDIDATE
+        }
+        // Multi-call attempts (compound operations) never target a single callable.
+        else -> return CallTargetOutcome.NoCallable
+    }
+    if (single !is KaFunctionCall<*>) return CallTargetOutcome.NoCallable
+    return CallTargetOutcome.Target(CallTarget(single.symbol, certainty))
+}
+
+/** [resolveCallTargetOutcome] reduced to the target, or null when there is none. */
+internal fun KaSession.resolveCallTarget(call: KtCallExpression, policy: CallResolutionPolicy): CallTarget? =
+    (resolveCallTargetOutcome(call, policy) as? CallTargetOutcome.Target)?.target
 
 /**
  * Every symbol [element] refers to, for dependency tracking: the symbols of a

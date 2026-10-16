@@ -1,6 +1,8 @@
 package scanner
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -111,7 +113,7 @@ func TestFileStructuralFingerprint_PropertyDeclaredType(t *testing.T) {
 		t.Fatal("whitespace and initializer-only edits with an explicit type must be stable")
 	}
 	// Cases below share simple names so reference names cannot mask them.
-	if fp("val Foo.bar: List<Int> get() = x") == fp("val Foo.bar: List<Int?> get() = x") {
+	if fp("val Foo.bar: List<Int> get() = 1") == fp("val Foo.bar: List<Int?> get() = 1") {
 		t.Fatal("extension property type nullability must move the fingerprint")
 	}
 	if fp("val Foo.bar: Int get() = 1") == fp("val Foo?.bar: Int get() = 1") {
@@ -120,10 +122,12 @@ func TestFileStructuralFingerprint_PropertyDeclaredType(t *testing.T) {
 	if fp("val a.Foo.bar: Int get() = 1") == fp("val b.Foo.bar: Int get() = 1") {
 		t.Fatal("extension receiver qualifier must move the fingerprint")
 	}
-	if fp("class R { val f: () -> Unit = x }") == fp("class R { val f: suspend () -> Unit = x }") {
+	if fp("class R { val f: () -> Unit = null }") == fp("class R { val f: suspend () -> Unit = null }") {
 		t.Fatal("suspend type modifier must move the fingerprint")
 	}
-	if fp("class R { val f: () -> Unit = x }") == fp("class R { val f: @Composable () -> Unit = x }") {
+	// Composable is referenced exactly once in both snippets, so only the
+	// captured type modifier can move the fingerprint.
+	if fp("class R { @Composable fun g() {}\nval f: () -> Unit = null }") == fp("class R { fun g() {}\nval f: @Composable () -> Unit = null }") {
 		t.Fatal("type annotation must move the fingerprint")
 	}
 	// Inferred types are deliberately not tracked: the initializer is body-like.
@@ -137,8 +141,8 @@ func TestKotlinPropertyDeclaredTypes(t *testing.T) {
 		{"val x: Int = 0", "", "Int"},
 		{"val x: Map<String,  Int?>? = null", "", "Map<String, Int?>?"},
 		{"val Foo<T>.bar: Int get() = 1", "Foo<T>", "Int"},
-		{"val f: suspend (Int) -> Unit = x", "", "suspend (Int) -> Unit"},
-		{"val f: @Composable () -> Unit = x", "", "@Composable () -> Unit"},
+		{"val f: suspend (Int) -> Unit = null", "", "suspend (Int) -> Unit"},
+		{"val f: @Composable () -> Unit = null", "", "@Composable () -> Unit"},
 		{"val x = 0", "", ""},
 		{"val x by lazy { 1 }", "", ""},
 	}
@@ -152,6 +156,31 @@ func TestKotlinPropertyDeclaredTypes(t *testing.T) {
 		})
 		if recv != c.recv || typ != c.typ {
 			t.Errorf("%q: got (%q, %q), want (%q, %q)", c.src, recv, typ, c.recv, c.typ)
+		}
+	}
+}
+
+func TestSweepStalePackDirs(t *testing.T) {
+	cacheDir := t.TempDir()
+	mk := func(name string) string {
+		p := filepath.Join(cacheDir, name)
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	old1, old2 := mk("packs-v1"), mk("packs-v5")
+	cur := mk(packSubdir)
+	other := mk("packs-foo")
+	(&packStore{cacheDir: cacheDir}).sweepLegacyShardsDir()
+	for _, p := range []string{old1, old2} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s should be removed", p)
+		}
+	}
+	for _, p := range []string{cur, other} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s should be kept: %v", p, err)
 		}
 	}
 }

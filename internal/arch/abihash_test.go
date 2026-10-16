@@ -197,7 +197,7 @@ func TestAbiHash_PropertyDeclaredType(t *testing.T) {
 		t.Fatal("initializer-only edit with explicit type must not change the ABI hash")
 	}
 	ext := func(src string) string { return hashOf(t, "package p\n\n"+src) }
-	if ext("val Foo.bar: List<Int> get() = x") == ext("val Foo.bar: List<Int?> get() = x") {
+	if ext("val Foo.bar: List<Int> get() = 1") == ext("val Foo.bar: List<Int?> get() = 1") {
 		t.Fatal("extension property type nullability must change the ABI hash")
 	}
 	if ext("val Foo.bar: Int get() = 1") == ext("val Foo?.bar: Int get() = 1") {
@@ -206,7 +206,7 @@ func TestAbiHash_PropertyDeclaredType(t *testing.T) {
 	if ext("val a.Foo.bar: Int get() = 1") == ext("val b.Foo.bar: Int get() = 1") {
 		t.Fatal("extension receiver qualifier must change the ABI hash")
 	}
-	if h2 := func(m string) string { return ext("class R { val f: " + m + "() -> Unit = x }") }; h2("") == h2("suspend ") || h2("") == h2("@Composable ") {
+	if h2 := func(m string) string { return ext("class R { val f: " + m + "() -> Unit = null }") }; h2("") == h2("suspend ") || h2("") == h2("@Composable ") {
 		t.Fatal("type modifiers must change the ABI hash")
 	}
 	both := "val Foo.bar: Int get() = 1\nval Baz.bar: Int get() = 1"

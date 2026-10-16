@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -13,7 +14,7 @@ func TestLoadParsesKotlinSettingsPerSourceSet(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "model")
 	write(t, filepath.Join(dir, "app.json"), fmt.Sprintf(`{"schema":2,"projects":[{"path":":app","dir":%q,"sourceSets":[
-		{"name":"main","kind":"main","kotlin":{"languageVersion":"1.9","apiVersion":"1.8","optIn":["kotlin.RequiresOptIn"],
+		{"name":"main","kind":"main","kotlin":{"languageVersion":"2.1","apiVersion":"2.0","optIn":["kotlin.RequiresOptIn"],
 			"freeCompilerArgs":["-Xcontext-receivers"],"progressiveMode":true,"pluginVersion":"2.1.20"}},
 		{"name":"test","kind":"test","kotlin":{"languageVersion":"","pluginVersion":"2.1.20"}}]}]}`, root))
 	write(t, filepath.Join(dir, "lib.json"), fmt.Sprintf(`{"schema":1,"projects":[{"path":":lib","dir":%q,"sourceSets":[{"name":"main","kind":"main"}]}]}`, root))
@@ -34,7 +35,7 @@ func TestLoadParsesKotlinSettingsPerSourceSet(t *testing.T) {
 		t.Fatalf("schema versions: app=%d lib=%d", by[":app"].SchemaVersion, by[":lib"].SchemaVersion)
 	}
 	main := by[":app"].SourceSets[0].Kotlin
-	if main == nil || main.LanguageVersion != "1.9" || main.APIVersion != "1.8" || !main.ProgressiveMode ||
+	if main == nil || main.LanguageVersion != "2.1" || main.APIVersion != "2.0" || !main.ProgressiveMode ||
 		!reflect.DeepEqual(main.OptIn, []string{"kotlin.RequiresOptIn"}) || main.PluginVersion != "2.1.20" {
 		t.Fatalf("main kotlin options = %+v", main)
 	}
@@ -51,7 +52,7 @@ func TestLoadParsesKotlinSettingsPerSourceSet(t *testing.T) {
 		got[e.Project+":"+e.SourceSet] = e.Settings
 	}
 	app := got[":app:main"]
-	if app.LanguageVersion != "1.9" || app.APIVersion != "1.8" || !app.Progressive ||
+	if app.LanguageVersion != "2.1" || app.APIVersion != "2.0" || !app.Progressive ||
 		!reflect.DeepEqual(app.Flags, []string{"-Xcontext-receivers"}) {
 		t.Fatalf("app main = %+v", app)
 	}
@@ -76,11 +77,11 @@ func TestResolveKotlinSettingsDefaults(t *testing.T) {
 		{"nothing known", &KotlinOptions{}, KotlinSettings{}, "plugin version is unknown"},
 		{"derived from plugin", &KotlinOptions{PluginVersion: "2.0.21-RC"},
 			KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}, "using 2.0 from Kotlin Gradle plugin"},
-		{"api defaults to language", &KotlinOptions{LanguageVersion: "1.9"},
-			KotlinSettings{LanguageVersion: "1.9", APIVersion: "1.9"}, "defaults to the language version"},
-		{"explicit wins over plugin", &KotlinOptions{LanguageVersion: "1.9", APIVersion: "1.8", PluginVersion: "2.1.0"},
-			KotlinSettings{LanguageVersion: "1.9", APIVersion: "1.8"}, ""},
-		{"free arg overrides DSL", &KotlinOptions{LanguageVersion: "1.9", FreeCompilerArgs: []string{"-language-version", "2.0", "-api-version=2.0"}},
+		{"api defaults to language", &KotlinOptions{LanguageVersion: "2.1"},
+			KotlinSettings{LanguageVersion: "2.1", APIVersion: "2.1"}, "defaults to the language version"},
+		{"explicit wins over plugin", &KotlinOptions{LanguageVersion: "2.1", APIVersion: "2.0", PluginVersion: "2.1.0"},
+			KotlinSettings{LanguageVersion: "2.1", APIVersion: "2.0"}, ""},
+		{"free arg overrides DSL", &KotlinOptions{LanguageVersion: "2.1", FreeCompilerArgs: []string{"-language-version", "2.0", "-api-version=2.0"}},
 			KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}, ""},
 		{"malformed version ignored", &KotlinOptions{LanguageVersion: "latest"},
 			KotlinSettings{}, `"latest" is not a major.minor version`},
@@ -119,7 +120,7 @@ func TestKotlinFlagAllowlistAndProtectedArgs(t *testing.T) {
 		"-d", "/tmp/out",
 		"-classpath=/evil.jar",
 		"-cp", "/evil.jar",
-		"-jvm-target", "1.8",
+		"-jvm-target", "2.0",
 		"-module-name=evil",
 		"-Xplugin=/evil-plugin.jar",
 		"-P", "plugin:x:y=z",
@@ -147,7 +148,7 @@ func TestKotlinFlagAllowlistAndProtectedArgs(t *testing.T) {
 		t.Fatalf("flags = %v want %v", got.Flags, wantFlags)
 	}
 	joined := strings.Join(got.Rejected, "\n")
-	for _, protected := range []string{"-d /tmp/out", "-classpath=/evil.jar", "-cp /evil.jar", "-jvm-target 1.8",
+	for _, protected := range []string{"-d /tmp/out", "-classpath=/evil.jar", "-cp /evil.jar", "-jvm-target 2.0",
 		"-module-name=evil", "-Xplugin=/evil-plugin.jar", "-P plugin:x:y=z", "-Xfriend-paths=/a", "-Xfragments=a,b",
 		"-Xfragment-sources=a:/b.kt", "-Xfragment-refines=a:b", "-Xmulti-platform", "-Xjdk-release=8"} {
 		if !strings.Contains(joined, protected+" (managed by krit)") {
@@ -172,10 +173,10 @@ func TestKotlinFlagAllowlistAndProtectedArgs(t *testing.T) {
 
 func TestKotlinSettingsCompilerArgs(t *testing.T) {
 	s := KotlinSettings{
-		LanguageVersion: "2.0", APIVersion: "1.9", OptIns: []string{"b.B", "a.A", "a.A"}, Progressive: true,
+		LanguageVersion: "2.0", APIVersion: "2.1", OptIns: []string{"b.B", "a.A", "a.A"}, Progressive: true,
 		Flags: []string{"-Xcontext-parameters"}, Notes: []string{"n"}, Rejected: []string{"r"},
 	}
-	want := []string{"-language-version=2.0", "-api-version=1.9", "-opt-in=a.A", "-opt-in=b.B", "-progressive", "-Xcontext-parameters"}
+	want := []string{"-language-version=2.0", "-api-version=2.1", "-opt-in=a.A", "-opt-in=b.B", "-progressive", "-Xcontext-parameters"}
 	if got := s.CompilerArgs(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("args = %v want %v", got, want)
 	}
@@ -199,8 +200,8 @@ func TestKotlinSettingsIdentity(t *testing.T) {
 	}
 	seen := map[string]string{base.Identity(): "base"}
 	variants := map[string]KotlinSettings{
-		"language":    {LanguageVersion: "1.9", APIVersion: "2.0", OptIns: base.OptIns, Flags: base.Flags},
-		"api":         {LanguageVersion: "2.0", APIVersion: "1.9", OptIns: base.OptIns, Flags: base.Flags},
+		"language":    {LanguageVersion: "2.1", APIVersion: "2.0", OptIns: base.OptIns, Flags: base.Flags},
+		"api":         {LanguageVersion: "2.0", APIVersion: "2.1", OptIns: base.OptIns, Flags: base.Flags},
 		"optin":       {LanguageVersion: "2.0", APIVersion: "2.0", OptIns: []string{"a.A", "b.B"}, Flags: base.Flags},
 		"flag":        {LanguageVersion: "2.0", APIVersion: "2.0", OptIns: base.OptIns, Flags: []string{"-Xexplicit-backing-fields"}},
 		"flag order":  {LanguageVersion: "2.0", APIVersion: "2.0", OptIns: base.OptIns, Flags: []string{"-Xcontext-parameters", "-Xwhen-guards"}},
@@ -224,7 +225,7 @@ func TestKotlinSettingsIdentity(t *testing.T) {
 
 func TestMergeKotlinSettingsNeverImposesOneModuleOnAnother(t *testing.T) {
 	modern := KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0", OptIns: []string{"a.A", "b.B"}, Flags: []string{"-Xcontext-parameters", "-Xwhen-guards"}}
-	old := KotlinSettings{LanguageVersion: "1.9", APIVersion: "1.9", OptIns: []string{"a.A"}, Flags: []string{"-Xcontext-parameters"}}
+	old := KotlinSettings{LanguageVersion: "2.1", APIVersion: "2.1", OptIns: []string{"a.A"}, Flags: []string{"-Xcontext-parameters"}}
 
 	agree := MergeKotlinSettings([]KotlinSettings{modern, modern}, []string{":a:main", ":b:main"})
 	if agree.LanguageVersion != "2.0" || agree.APIVersion != "2.0" || !reflect.DeepEqual(agree.OptIns, modern.OptIns) || !reflect.DeepEqual(agree.Flags, modern.Flags) {
@@ -266,32 +267,182 @@ func TestEffectiveKotlinSettingsOnNilAndEmptyModel(t *testing.T) {
 	}
 }
 
-// TestKotlinFlagAllowlistMatchesHelpers keeps the three copies of the allowlist
-// (Go, krit-fir, krit-types) identical, so a flag Go sends is never silently
-// dropped by a helper and a helper never accepts what Go rejects.
-func TestKotlinFlagAllowlistMatchesHelpers(t *testing.T) {
-	for _, helper := range []string{
-		"../../tools/krit-fir/src/main/kotlin/dev/jasonpearson/krit/fir/runner/KotlinCompilerSettings.kt",
-		"../../tools/krit-types/src/main/kotlin/dev/jasonpearson/krit/types/KotlinCompilerSettings.kt",
-	} {
-		data, err := os.ReadFile(helper)
-		if err != nil {
-			t.Fatalf("helper allowlist source missing (moved? update this test): %v", err)
+// helperSources are the two Kotlin copies of the settings allowlist and parser.
+var helperSources = map[string]string{
+	"krit-fir":   "../../tools/krit-fir/src/main/kotlin/dev/jasonpearson/krit/fir/runner/KotlinCompilerSettings.kt",
+	"krit-types": "../../tools/krit-types/src/main/kotlin/dev/jasonpearson/krit/types/KotlinCompilerSettings.kt",
+}
+
+func readHelper(t *testing.T, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(helperSources[name])
+	if err != nil {
+		t.Fatalf("%s helper source missing (moved? update this test): %v", name, err)
+	}
+	return string(data)
+}
+
+// kotlinStringSet returns the quoted strings of `private val NAME = setOf(...)`.
+func kotlinStringSet(t *testing.T, text, name string) map[string]bool {
+	t.Helper()
+	m := regexp.MustCompile(`val ` + name + ` = setOf\(([^)]*)\)`).FindStringSubmatch(text)
+	if m == nil {
+		t.Fatalf("no set %s in helper", name)
+	}
+	out := map[string]bool{}
+	for _, q := range regexp.MustCompile(`"([^"]+)"`).FindAllStringSubmatch(m[1], -1) {
+		out[q[1]] = true
+	}
+	return out
+}
+
+// TestKotlinSettingsMatchHelpers keeps the three copies of the allowlist, the
+// protected sets and the validation regexes (Go, krit-fir, krit-types) exactly
+// equal, so a flag Go sends is never silently dropped by a helper and a helper
+// never accepts what Go rejects.
+func TestKotlinSettingsMatchHelpers(t *testing.T) {
+	wantAllow := map[string]bool{}
+	for name, kind := range kotlinFlagAllowlist {
+		wantAllow[name] = kind == flagValued
+	}
+	wantProtected := map[string]bool{}
+	for name := range protectedKotlinArgs {
+		wantProtected[name] = true
+	}
+	wantValued := map[string]bool{}
+	for name := range protectedValued {
+		wantValued[name] = true
+	}
+	regexes := map[string]string{
+		"VERSION": versionRe.String(), "OPT_IN": optInRe.String(),
+		"FLAG_VALUE": flagValueRe.String(), "LANGUAGE_TOGGLE": languageRe.String(),
+	}
+	companions := map[string]string{}
+	for name := range helperSources {
+		text := readHelper(t, name)
+		gotAllow := map[string]bool{}
+		for _, m := range regexp.MustCompile(`"(-X[A-Za-z0-9-]+)" to (true|false), // allowlist:`).FindAllStringSubmatch(text, -1) {
+			gotAllow[m[1]] = m[2] == "true"
 		}
-		text := string(data)
-		for _, name := range KotlinFlagAllowlist() {
-			if !strings.Contains(text, `"`+name+`"`) {
-				t.Errorf("%s does not allowlist %s", filepath.Base(filepath.Dir(helper)), name)
+		if !reflect.DeepEqual(gotAllow, wantAllow) {
+			t.Errorf("%s allowlist (name -> takes a value) differs from Go:\n got %v\nwant %v", name, gotAllow, wantAllow)
+		}
+		if got := kotlinStringSet(t, text, "PROTECTED"); !reflect.DeepEqual(got, wantProtected) {
+			t.Errorf("%s protected set differs from Go:\n got %v\nwant %v", name, got, wantProtected)
+		}
+		if got := kotlinStringSet(t, text, "PROTECTED_VALUED"); !reflect.DeepEqual(got, wantValued) {
+			t.Errorf("%s protected-valued set differs from Go:\n got %v\nwant %v", name, got, wantValued)
+		}
+		for ktName, goSource := range regexes {
+			m := regexp.MustCompile(`val ` + ktName + ` = Regex\("(.*)"\)`).FindStringSubmatch(text)
+			if m == nil {
+				t.Errorf("%s has no %s regex", name, ktName)
+				continue
+			}
+			if got := strings.ReplaceAll(m[1], `\\`, `\`); got != goSource {
+				t.Errorf("%s %s regex = %q, Go = %q", name, ktName, got, goSource)
 			}
 		}
-		listed := 0
-		for _, line := range strings.Split(text, "\n") {
-			if strings.Contains(line, "// allowlist:") {
-				listed++
+		// The prefixes isProtected checks beyond the exact names.
+		for _, prefix := range []string{`"-Xfragment"`, `"-Xplugin"`} {
+			if !strings.Contains(text, "startsWith("+prefix+")") {
+				t.Errorf("%s does not protect the %s prefix", name, prefix)
 			}
 		}
-		if listed != len(kotlinFlagAllowlist) {
-			t.Errorf("%s lists %d allowlisted flags, Go has %d", helper, listed, len(kotlinFlagAllowlist))
+		idx := strings.Index(text, "companion object {")
+		if idx < 0 {
+			t.Fatalf("%s has no companion object", name)
 		}
+		companions[name] = text[idx:]
+	}
+	if companions["krit-fir"] != companions["krit-types"] {
+		t.Error("the companion-object blocks of the two Kotlin helper copies differ; they must stay identical")
+	}
+}
+
+func TestKotlinSettingsNullabilityValuesAllowAtSigns(t *testing.T) {
+	got := ClassifyKotlinArgs([]string{
+		"-Xnullability-annotations=@org.jspecify.annotations:strict", "-Xjsr305=@org.example.Nullable:warn", "-Xjsr305=strict", "@-Xjsr305=strict",
+	})
+	want := []string{"-Xnullability-annotations=@org.jspecify.annotations:strict", "-Xjsr305=strict"}
+	if !reflect.DeepEqual(got.Flags, want) {
+		t.Fatalf("flags = %v want %v", got.Flags, want)
+	}
+	if len(got.Rejected) != 1 {
+		t.Fatalf("only the argument starting with '@' is rejected: %v", got.Rejected)
+	}
+}
+
+func TestKotlinSettingsProgressiveFalse(t *testing.T) {
+	for args, want := range map[string]bool{"-progressive": true, "-progressive=true": true, "-progressive=false": false} {
+		if got := ClassifyKotlinArgs([]string{args}).Progressive; got != want {
+			t.Errorf("%s => %v", args, got)
+		}
+	}
+	if ClassifyKotlinArgs([]string{"-progressive", "-progressive=false"}).Progressive {
+		t.Error("-progressive=false must turn progressive mode off")
+	}
+	if got := ClassifyKotlinArgs([]string{"-progressive=maybe"}); got.Progressive || len(got.Rejected) != 1 {
+		t.Errorf("malformed value: %+v", got)
+	}
+	if ResolveKotlinSettings(&KotlinOptions{LanguageVersion: "2.1", FreeCompilerArgs: []string{"-progressive=false"}}).Progressive {
+		t.Error("resolved settings must honor -progressive=false")
+	}
+}
+
+func TestResolveKotlinSettingsLevels(t *testing.T) {
+	// The helpers cannot analyze below MinSupportedKotlinLanguage; Go must not apply,
+	// report or identity-hash what they would drop.
+	old := ResolveKotlinSettings(&KotlinOptions{LanguageVersion: "1.9", APIVersion: "1.8", OptIn: []string{"a.A"}})
+	if old.LanguageVersion != "" || old.APIVersion != "" {
+		t.Fatalf("unsupported levels applied: %+v", old)
+	}
+	if !strings.Contains(strings.Join(old.Notes, "\n"), "languageVersion 1.9 is not supported by the embedded compiler") {
+		t.Fatalf("unsupported level not reported: %v", old.Notes)
+	}
+	if !reflect.DeepEqual(old.OptIns, []string{"a.A"}) {
+		t.Fatalf("opt-ins must survive: %+v", old)
+	}
+	if got := ResolveKotlinSettings(&KotlinOptions{LanguageVersion: "1.9", APIVersion: "1.9"}); got.Identity() != "" {
+		t.Fatalf("only-unsupported settings must have the embedded-default identity: %q", got.Identity())
+	}
+	// A plugin older than the minimum yields no derived level either.
+	if got := ResolveKotlinSettings(&KotlinOptions{PluginVersion: "1.9.24"}); got.LanguageVersion != "" || got.APIVersion != "" {
+		t.Fatalf("derived unsupported level applied: %+v", got)
+	}
+	above := ResolveKotlinSettings(&KotlinOptions{LanguageVersion: "2.1", APIVersion: "2.3"})
+	if above.LanguageVersion != "2.1" || above.APIVersion != "" || !strings.Contains(strings.Join(above.Notes, "\n"), "greater than languageVersion") {
+		t.Fatalf("api above language: %+v", above)
+	}
+	if got := ResolveKotlinSettings(&KotlinOptions{LanguageVersion: "2.2", APIVersion: "2.0"}); got.APIVersion != "2.0" {
+		t.Fatalf("a lower API level is valid: %+v", got)
+	}
+}
+
+// A schema 2 source set with no kotlin object has no Kotlin compile task (Java
+// only): it analyzes no Kotlin, so it must not veto the whole-repo settings.
+func TestJavaOnlySourceSetsDoNotVetoTheMerge(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "model")
+	write(t, filepath.Join(dir, "a.json"), fmt.Sprintf(`{"schema":2,"projects":[
+		{"path":":kt","dir":%q,"sourceSets":[{"name":"main","kind":"main","kotlin":{"languageVersion":"2.1","apiVersion":"2.1","optIn":["a.A"]}}]},
+		{"path":":java","dir":%q,"sourceSets":[{"name":"main","kind":"main"},{"name":"test","kind":"test"}]}]}`, root, root))
+	write(t, filepath.Join(dir, "b.json"), fmt.Sprintf(`{"schema":1,"projects":[{"path":":old","dir":%q,"sourceSets":[{"name":"main","kind":"main"}]}]}`, root))
+	model, _, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var labels []string
+	for _, e := range model.KotlinSettingsBySourceSet() {
+		labels = append(labels, e.Project+":"+e.SourceSet)
+	}
+	if !reflect.DeepEqual(labels, []string{":kt:main", ":old:main"}) {
+		t.Fatalf("Java-only source sets must be skipped (and a schema 1 one kept as unknown): %v", labels)
+	}
+	// Without the unknown schema 1 project the Kotlin source set's settings apply.
+	only := &Model{Projects: []Project{model.Projects[0], model.Projects[1]}}
+	got := only.EffectiveKotlinSettings()
+	if got.LanguageVersion != "2.1" || got.APIVersion != "2.1" || !reflect.DeepEqual(got.OptIns, []string{"a.A"}) {
+		t.Fatalf("Java-only project vetoed the merge: %+v", got)
 	}
 }

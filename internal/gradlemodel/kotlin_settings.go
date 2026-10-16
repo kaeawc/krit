@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/hashutil"
@@ -116,9 +117,43 @@ var (
 	versionRe     = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
 	pluginMinorRe = regexp.MustCompile(`^([0-9]+)\.([0-9]+)`)
 	optInRe       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.]*$`)
-	flagValueRe   = regexp.MustCompile(`^[A-Za-z0-9_.,:+\-]+$`)
+	flagValueRe   = regexp.MustCompile(`^[A-Za-z0-9_.,:+@\-]+$`)
 	languageRe    = regexp.MustCompile(`^-XXLanguage:[+-][A-Za-z][A-Za-z0-9_]*$`)
 )
+
+// MinSupportedKotlinLanguage is the oldest language (and API) level the
+// embedded compiler can analyze under. The helpers drop anything older and fall
+// back to their default, so Go reports and identity-hashes only what they apply.
+// Keep it equal to LanguageVersion.FIRST_SUPPORTED of the embedded compiler.
+const MinSupportedKotlinLanguage = "2.0"
+
+// compareKotlinVersions orders two major.minor versions; -1, 0 or 1.
+func compareKotlinVersions(a, b string) int {
+	parse := func(v string) (int, int) {
+		m := pluginMinorRe.FindStringSubmatch(v)
+		if m == nil {
+			return 0, 0
+		}
+		major, _ := strconv.Atoi(m[1])
+		minor, _ := strconv.Atoi(m[2])
+		return major, minor
+	}
+	am, an := parse(a)
+	bm, bn := parse(b)
+	switch {
+	case am != bm:
+		if am < bm {
+			return -1
+		}
+		return 1
+	case an != bn:
+		if an < bn {
+			return -1
+		}
+		return 1
+	}
+	return 0
+}
 
 // kotlinFlagKind says whether an allowlisted flag takes a value.
 type kotlinFlagKind int
@@ -241,6 +276,19 @@ func (p *kotlinArgParser) version(arg, name, value string, hasValue bool) {
 	}
 }
 
+// progressive accepts -progressive and -progressive=true|false; the latter
+// turns progressive mode off, as in the compiler's boolean flag syntax.
+func (p *kotlinArgParser) progressive(arg, value string, hasValue bool) {
+	switch {
+	case !hasValue || value == "true":
+		p.out.progressive = true
+	case value == "false":
+		p.out.progressive = false
+	default:
+		p.reject(arg, "flag takes true or false")
+	}
+}
+
 func (p *kotlinArgParser) optIn(arg, value string, hasValue bool) {
 	v, ok := p.operand(value, hasValue)
 	if !ok || !optInRe.MatchString(v) {
@@ -283,7 +331,7 @@ func (p *kotlinArgParser) one(arg string) {
 	case name == "-opt-in" || name == "-Xopt-in":
 		p.optIn(arg, value, hasValue)
 	case name == "-progressive":
-		p.out.progressive = true
+		p.progressive(arg, value, hasValue)
 	case IsProtectedKotlinArg(arg):
 		p.protected(arg, name, hasValue)
 	case languageRe.MatchString(arg):
@@ -374,6 +422,10 @@ func ResolveKotlinSettings(opts *KotlinOptions) KotlinSettings {
 			s.Notes = append(s.Notes, "languageVersion not configured and the Kotlin plugin version is unknown; the embedded compiler default applies")
 		}
 	}
+	if language != "" && compareKotlinVersions(language, MinSupportedKotlinLanguage) < 0 {
+		s.Notes = append(s.Notes, fmt.Sprintf("languageVersion %s is not supported by the embedded compiler (%s or newer); its default applies", language, MinSupportedKotlinLanguage))
+		language = ""
+	}
 	s.LanguageVersion = language
 
 	api := firstNonEmpty(parsed.apiVersion, opts.APIVersion)
@@ -384,6 +436,14 @@ func ResolveKotlinSettings(opts *KotlinOptions) KotlinSettings {
 	case api == "" && language != "":
 		api = language
 		s.Notes = append(s.Notes, "apiVersion not configured; defaults to the language version "+language)
+	}
+	if api != "" && compareKotlinVersions(api, MinSupportedKotlinLanguage) < 0 {
+		s.Notes = append(s.Notes, fmt.Sprintf("apiVersion %s is not supported by the embedded compiler (%s or newer); its default applies", api, MinSupportedKotlinLanguage))
+		api = ""
+	}
+	if api != "" && language != "" && compareKotlinVersions(api, language) > 0 {
+		s.Notes = append(s.Notes, fmt.Sprintf("apiVersion %s is greater than languageVersion %s; not applied, the API level follows the language version", api, language))
+		api = ""
 	}
 	s.APIVersion = api
 
@@ -559,6 +619,13 @@ func (m *Model) KotlinSettingsBySourceSet() []SourceSetKotlinSettings {
 	var out []SourceSetKotlinSettings
 	for _, p := range m.Projects {
 		for _, s := range p.SourceSets {
+			// A schema 2 source set with no `kotlin` object has no Kotlin compile
+			// task (Java-only): it analyzes no Kotlin, so it neither sets nor vetoes
+			// a setting. A schema 1 source set may simply predate the field, so it
+			// stays "unknown" and keeps the conservative merge.
+			if s.Kotlin == nil && p.SchemaVersion >= 2 {
+				continue
+			}
 			out = append(out, SourceSetKotlinSettings{Project: p.Path, SourceSet: s.Name, Settings: ResolveKotlinSettings(s.Kotlin)})
 		}
 	}

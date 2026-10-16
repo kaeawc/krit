@@ -23,8 +23,8 @@ func settingsVariants() map[string]gradlemodel.KotlinSettings {
 	}
 	return map[string]gradlemodel.KotlinSettings{
 		"base":     base,
-		"language": vary(func(s *gradlemodel.KotlinSettings) { s.LanguageVersion = "1.9" }),
-		"api":      vary(func(s *gradlemodel.KotlinSettings) { s.APIVersion = "1.9" }),
+		"language": vary(func(s *gradlemodel.KotlinSettings) { s.LanguageVersion = "2.1" }),
+		"api":      vary(func(s *gradlemodel.KotlinSettings) { s.APIVersion = "2.1" }),
 		"optin":    vary(func(s *gradlemodel.KotlinSettings) { s.OptIns = append(s.OptIns, "b.B") }),
 		"flag":     vary(func(s *gradlemodel.KotlinSettings) { s.Flags = []string{"-Xexplicit-backing-fields"} }),
 		"progress": vary(func(s *gradlemodel.KotlinSettings) { s.Progressive = true }),
@@ -74,7 +74,7 @@ func TestSettingsOnlyChangeChangesFirIdentities(t *testing.T) {
 }
 
 func TestCheckRequestCarriesKotlinSettings(t *testing.T) {
-	settings := gradlemodel.KotlinSettings{LanguageVersion: "1.9", APIVersion: "1.8", OptIns: []string{"b.B", "a.A"}, Flags: []string{"-Xcontext-parameters"}}
+	settings := gradlemodel.KotlinSettings{LanguageVersion: "2.1", APIVersion: "2.0", OptIns: []string{"b.B", "a.A"}, Flags: []string{"-Xcontext-parameters"}}
 	data, _, err := encodeCheckRequest(7, []fileRef{{Path: "/p/A.kt"}}, []string{"/p"}, nil, []string{"R"}, nil, FileFacts{}, CompileTarget{JvmTarget: "17", Kotlin: settings})
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestCheckRequestCarriesKotlinSettings(t *testing.T) {
 	if err := json.Unmarshal(data, &req); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"-language-version=1.9", "-api-version=1.8", "-opt-in=a.A", "-opt-in=b.B", "-Xcontext-parameters"}
+	want := []string{"-language-version=2.1", "-api-version=2.0", "-opt-in=a.A", "-opt-in=b.B", "-Xcontext-parameters"}
 	if req.JvmTarget != "17" || !reflect.DeepEqual(req.KotlinArgs, want) {
 		t.Fatalf("request = %+v want kotlinArgs %v", req, want)
 	}
@@ -109,7 +109,7 @@ func TestPrefetchRiderRequiresSameKotlinSettings(t *testing.T) {
 		t.Fatal("no rider for the checker's own compile context")
 	}
 	for name, other := range map[string]CompileTarget{
-		"older language": {Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "1.9", APIVersion: "2.0"}},
+		"older language": {Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "2.1", APIVersion: "2.0"}},
 		"no settings":    {},
 		"extra flag":     {Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0", Flags: []string{"-Xcontext-parameters"}}},
 	} {
@@ -145,9 +145,9 @@ func TestModuleSpecsFromModelKeepSettingsPerSourceSet(t *testing.T) {
 	}
 	write("lib.json", fmt.Sprintf(`{"schema":2,"projects":[{"path":":lib","dir":%q,"sourceSets":[
 		{"name":"main","kind":"main","platform":"jvm","sourceDirs":["/lib/src"],"jvmTarget":"11",
-		 "kotlin":{"languageVersion":"1.9","apiVersion":"1.9","optIn":["lib.Only"],"freeCompilerArgs":["-Xcontext-receivers","-Xplugin=/evil.jar","-Xfriend-paths=/x"]}},
+		 "kotlin":{"languageVersion":"2.1","apiVersion":"2.1","optIn":["lib.Only"],"freeCompilerArgs":["-Xcontext-receivers","-Xplugin=/evil.jar","-Xfriend-paths=/x"]}},
 		{"name":"test","kind":"test","platform":"jvm","sourceDirs":["/lib/test"],
-		 "kotlin":{"languageVersion":"1.9","apiVersion":"1.9"}}]}]}`, root))
+		 "kotlin":{"languageVersion":"2.1","apiVersion":"2.1"}}]}]}`, root))
 	write("app.json", fmt.Sprintf(`{"schema":2,"projects":[{"path":":app","dir":%q,"sourceSets":[
 		{"name":"main","kind":"main","platform":"jvm","projectDeps":[":lib"],"jvmTarget":"17",
 		 "kotlin":{"languageVersion":"2.0","apiVersion":"2.0","freeCompilerArgs":["-Xwhen-guards"]}}]},
@@ -164,13 +164,13 @@ func TestModuleSpecsFromModelKeepSettingsPerSourceSet(t *testing.T) {
 	if len(by) != 4 {
 		t.Fatalf("specs = %+v", specs)
 	}
-	if got := by[":lib:main"].CompilerArgs; !reflect.DeepEqual(got, []string{"-language-version=1.9", "-api-version=1.9", "-opt-in=lib.Only", "-Xcontext-receivers"}) {
+	if got := by[":lib:main"].CompilerArgs; !reflect.DeepEqual(got, []string{"-language-version=2.1", "-api-version=2.1", "-opt-in=lib.Only", "-Xcontext-receivers"}) {
 		t.Fatalf("lib main args = %v", got)
 	}
 	if got := by[":app:main"].CompilerArgs; !reflect.DeepEqual(got, []string{"-language-version=2.0", "-api-version=2.0", "-Xwhen-guards"}) {
 		t.Fatalf("app main args = %v (must not inherit lib's settings)", got)
 	}
-	if got := by[":lib:test"].CompilerArgs; !reflect.DeepEqual(got, []string{"-language-version=1.9", "-api-version=1.9"}) {
+	if got := by[":lib:test"].CompilerArgs; !reflect.DeepEqual(got, []string{"-language-version=2.1", "-api-version=2.1"}) {
 		t.Fatalf("lib test args = %v (must not inherit lib main's opt-in or flags)", got)
 	}
 	if legacy := by[":legacy:main"]; len(legacy.CompilerArgs) != 0 || legacy.CompilerArgs == nil {

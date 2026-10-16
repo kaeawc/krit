@@ -117,7 +117,7 @@ data class KotlinCompilerSettings(
 
         private val VERSION = Regex("^[0-9]+\\.[0-9]+$")
         private val OPT_IN = Regex("^[A-Za-z_][A-Za-z0-9_.]*$")
-        private val FLAG_VALUE = Regex("^[A-Za-z0-9_.,:+\\-]+$")
+        private val FLAG_VALUE = Regex("^[A-Za-z0-9_.,:+@\\-]+$")
         private val LANGUAGE_TOGGLE = Regex("^-XXLanguage:[+-][A-Za-z][A-Za-z0-9_]*$")
 
         internal fun isProtected(arg: String): Boolean {
@@ -153,7 +153,11 @@ data class KotlinCompilerSettings(
                         val v = operand()
                         if (v == null || !OPT_IN.matches(v)) reject(arg, "unsupported opt-in marker") else optIns += v
                     }
-                    name == "-progressive" -> progressive = true
+                    name == "-progressive" -> when {
+                        !hasValue || arg.substringAfter('=') == "true" -> progressive = true
+                        arg.substringAfter('=') == "false" -> progressive = false
+                        else -> reject(arg, "flag takes true or false")
+                    }
                     isProtected(arg) -> {
                         if (name in PROTECTED_VALUED && !hasValue && i < args.size) reject("$arg ${args[i++]}", "managed by krit")
                         else reject(arg, "managed by krit")
@@ -184,6 +188,14 @@ data class KotlinCompilerSettings(
             val knownApi = api?.let { LanguageVersion.fromVersionString(it) }
             if (api != null && (knownApi == null || knownApi.isUnsupported)) {
                 warnings += "apiVersion $api is not supported by the embedded compiler; its default applies"
+                api = null
+            }
+            // The compiler rejects an API level above the language level; the API level then
+            // follows the language level, as Go decides too.
+            val effectiveLanguage = language?.let { LanguageVersion.fromVersionString(it) }
+            val effectiveApi = api?.let { LanguageVersion.fromVersionString(it) }
+            if (effectiveLanguage != null && effectiveApi != null && effectiveApi > effectiveLanguage) {
+                warnings += "apiVersion $api is greater than languageVersion $language; not applied"
                 api = null
             }
             return KotlinCompilerSettings(language, api, optIns.distinct().sorted(), progressive, flags.toList(), warnings)

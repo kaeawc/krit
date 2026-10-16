@@ -118,6 +118,32 @@ class KotlinCompilerSettingsTest {
         assertTrue(KotlinCompilerSettings.ALLOWLIST.keys.none { KotlinCompilerSettings.isProtected(it) })
     }
 
+    @Test fun nullabilityAnnotationValuesMayContainAtSigns() {
+        val s = KotlinCompilerSettings.parse(listOf(
+            "-Xnullability-annotations=@org.jspecify.annotations:strict", "-Xjsr305=@org.example.Nullable:warn", "-Xjsr305=strict",
+        ))
+        assertTrue(s.warnings.isEmpty(), s.warnings.toString())
+        // The last -Xjsr305 wins, and '@' stays valid only inside a value.
+        assertEquals(listOf("-Xnullability-annotations=@org.jspecify.annotations:strict", "-Xjsr305=strict"), s.flags)
+        assertTrue(KotlinCompilerSettings.parse(listOf("@-Xjsr305=strict")).isEmpty)
+    }
+
+    @Test fun progressiveFalseTurnsProgressiveModeOff() {
+        assertTrue(KotlinCompilerSettings.parse(listOf("-progressive")).progressive)
+        assertTrue(KotlinCompilerSettings.parse(listOf("-progressive=true")).progressive)
+        assertFalse(KotlinCompilerSettings.parse(listOf("-progressive=false")).progressive)
+        assertFalse(KotlinCompilerSettings.parse(listOf("-progressive", "-progressive=false")).progressive)
+        assertTrue(KotlinCompilerSettings.parse(listOf("-progressive=maybe")).warnings.isNotEmpty())
+    }
+
+    @Test fun apiVersionAboveTheLanguageVersionIsNotApplied() {
+        val s = KotlinCompilerSettings.parse(listOf("-language-version=2.1", "-api-version=2.3"))
+        assertEquals("2.1", s.languageVersion)
+        assertNull(s.apiVersion)
+        assertTrue(s.warnings.any { "greater than languageVersion" in it }, s.warnings.toString())
+        assertEquals("2.0", KotlinCompilerSettings.parse(listOf("-language-version=2.1", "-api-version=2.0")).apiVersion)
+    }
+
     @Test fun requestsCarryKotlinArgs() {
         val request = parseRequest("""{"id":1,"command":"check","files":[],"kotlinArgs":["-language-version=2.1","-opt-in=a.A"],"ruleConfigs":{"R":{"kotlinArgs":["-evil"]}}}""")
         assertEquals(listOf("-language-version=2.1", "-opt-in=a.A"), request.kotlinArgs)

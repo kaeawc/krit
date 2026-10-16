@@ -192,9 +192,7 @@ func startFirDaemonWithAOT(jarPath string, verbose, allowAOT bool, target ...Com
 	if t := firstTarget(target); t.JvmTarget != "" {
 		args = append(args, "--jvm-target", t.JvmTarget)
 	}
-	for _, arg := range firstTarget(target).kotlinArgs() {
-		args = append(args, "--kotlin-arg", arg)
-	}
+	args = append(args, oracle.KotlinLaunchArgs(jarPath, firstTarget(target).Kotlin)...)
 	args = oracle.EphemeralDaemonArgs(args...)
 
 	if verbose {

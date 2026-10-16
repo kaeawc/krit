@@ -182,16 +182,21 @@ func loadGradleKotlinSettings(paths []string, explicit string, disabled, verbose
 		}
 	}
 	var entries []gradlemodel.SourceSetKotlinSettings
+	loaded := 0
 	for _, dir := range dirs {
 		model, _, err := gradlemodel.Load(dir)
 		if err != nil {
 			continue
 		}
+		loaded++
 		entries = append(entries, model.KotlinSettingsBySourceSet()...)
 	}
 	settings := gradlemodel.MergeSourceSetSettings(entries)
-	if len(entries) == 0 {
+	switch {
+	case loaded == 0:
 		settings.Notes = append(settings.Notes, "no Gradle model found; the embedded compiler's defaults apply")
+	case len(entries) == 0:
+		settings.Notes = append(settings.Notes, "the Gradle model has no Kotlin source sets; the embedded compiler's defaults apply")
 	}
 	if verbose {
 		fmt.Fprintf(out, "gradle model: kotlin compiler settings: %s\n", settings.Describe())

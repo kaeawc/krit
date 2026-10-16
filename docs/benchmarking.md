@@ -61,6 +61,23 @@ means no reuse, and nothing the harness starts outlives it. Caches under
 `~/.krit` (downloaded jars, AOT/CDS archives) are not reset; the metadata
 records the jar hashes. FIR AOT stays off (see #768).
 
+### FIR AOT status (#768)
+
+The FIR checker JVM launches without the Leyden AOT cache. The failure that
+motivated this (a cache that passes the provenance checks but returns no
+findings) could not be reproduced on JDK 25.0.4.1 with the current jar:
+record, create, and reuse gave findings identical to a no-AOT run across
+training workloads (startup only, one rule on one file, all 80 rules on 150
+fixture files) and reuse workloads, including different heap flags and
+working directories. Once AOT is re-enabled, a daemon launched from a cache
+runs a canary before its first real request: a built-in source with a known
+`DefaultLocale` finding. If the finding does not come back, the cache is
+discarded for the process and the request is answered by a daemon launched
+without AOT (fail closed with `errFIRDegraded` if that one also cannot
+report). A passing daemon is marked verified in its registry metadata, so
+reconnecting runs reuse it without repeating the canary; an unverified AOT
+daemon is retired on reconnect.
+
 ## Verification
 
 Every non-cold run is checked against a clean scan: the harness copies the

@@ -48,6 +48,10 @@ type FirDaemon struct {
 	// aotCachePath is persisted with the PID registry for reconnecting clients.
 	aotCachePath string
 	aotCheckOnce sync.Once
+	// aotVerified records that the AOT canary passed for this daemon's JVM,
+	// here or in the krit run that started it (persisted with the registry).
+	aotVerified bool
+	aotPID      int
 	// sourcesHash is the registry key (role, jar, sourceDirs, classpath)
 	// this daemon serves.
 	sourcesHash string
@@ -172,8 +176,9 @@ func daemonRequestTimeout() time.Duration {
 // absolute (see Check) and nothing may resolve against its working directory.
 func StartFirDaemonWithPort(jarPath string, verbose bool, jvmTarget ...string) (*FirDaemon, error) {
 	// A valid Leyden cache can restore FIR with registered checkers that emit
-	// zero findings. Until cached verdicts can be verified, launch FIR without
-	// AOT for both one-shot and shared daemons.
+	// zero findings (#768). The cause is not found, so launch FIR without AOT
+	// for both one-shot and shared daemons. checkFirWithRecovery's canary
+	// (aot_canary.go) is the guard to rely on when this is re-enabled.
 	return startFirDaemonWithAOT(jarPath, verbose, false, jvmTarget...)
 }
 
@@ -360,12 +365,12 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 	}
 	srcHash := firRegistryKeyFor(role, jarPath, sourceDirs, classpath, target)
 	if d, err := connectExistingFirDaemon(srcHash, verbose); err == nil {
-		if d.aotCachePath == "" {
+		if d.aotCachePath == "" || d.aotVerified {
 			d.role = role
 			d.jvmTarget = target
 			return d, nil
 		}
-		// A daemon launched before FIR AOT was disabled may still be serving
+		// An AOT-backed daemon whose canary never passed may be serving
 		// silent false negatives. Retire it before sending any analysis request.
 		_ = d.conn.Close()
 	}
@@ -692,15 +697,8 @@ func writeFirPIDFile(pid, port int, sourcesHash string, aotPath ...string) error
 	// attributed to a newer daemon registered under the same key.
 	_ = os.Remove(firAOTPath(sourcesHash))
 	if len(aotPath) > 0 && aotPath[0] != "" {
-		data, err := json.Marshal(struct {
-			PID   int    `json:"pid"`
-			Cache string `json:"cache"`
-		}{pid, aotPath[0]})
-		if err != nil {
+		if err := writeFirAOTMeta(sourcesHash, firAOTMeta{PID: pid, Cache: aotPath[0]}); err != nil {
 			return err
-		}
-		if err := os.WriteFile(firAOTPath(sourcesHash), data, 0o644); err != nil {
-			return fmt.Errorf("write fir AOT metadata: %w", err)
 		}
 	}
 	if err := os.WriteFile(firPIDPath(sourcesHash), []byte(strconv.Itoa(pid)+"\n"), 0644); err != nil {
@@ -710,6 +708,40 @@ func writeFirPIDFile(pid, port int, sourcesHash string, aotPath ...string) error
 		return fmt.Errorf("write fir port: %w", err)
 	}
 	return nil
+}
+
+// firAOTMeta is the AOT metadata persisted beside a registered daemon.
+type firAOTMeta struct {
+	PID   int    `json:"pid"`
+	Cache string `json:"cache"`
+	// Verified is set once the AOT canary passed on this PID's JVM, so
+	// reconnecting krit runs can reuse the daemon without repeating it.
+	Verified bool `json:"verified,omitempty"`
+}
+
+func writeFirAOTMeta(sourcesHash string, meta firAOTMeta) error {
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(firAOTPath(sourcesHash), data, 0o644); err != nil {
+		return fmt.Errorf("write fir AOT metadata: %w", err)
+	}
+	return nil
+}
+
+// markAOTVerified records that the canary passed. Persisting is best effort:
+// without it another krit run repeats the canary or retires the daemon.
+func (d *FirDaemon) markAOTVerified() {
+	d.aotVerified = true
+	pid := d.aotPID
+	if d.cmd != nil && d.cmd.Process != nil {
+		pid = d.cmd.Process.Pid
+	}
+	if d.sourcesHash == "" || pid == 0 || d.aotCachePath == "" {
+		return
+	}
+	_ = writeFirAOTMeta(d.sourcesHash, firAOTMeta{PID: pid, Cache: d.aotCachePath, Verified: true})
 }
 
 func removeFirPIDFile(sourcesHash string) {
@@ -759,12 +791,11 @@ func connectExistingFirDaemon(hash string, verbose bool) (*FirDaemon, error) {
 		shared:      true,
 		sourcesHash: hash,
 	}
-	var aotMeta struct {
-		PID   int    `json:"pid"`
-		Cache string `json:"cache"`
-	}
+	var aotMeta firAOTMeta
 	if data, err := os.ReadFile(firAOTPath(hash)); err == nil && json.Unmarshal(data, &aotMeta) == nil && aotMeta.PID == pid {
 		d.aotCachePath = aotMeta.Cache
+		d.aotVerified = aotMeta.Verified
+		d.aotPID = pid
 	}
 	if err := d.Ping(); err != nil {
 		conn.Close()

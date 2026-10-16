@@ -79,6 +79,20 @@ class DepEdgeResolutionTest {
 
     @Test fun destructuringDependsOnComponentFunctions() = assertEdges("DestructureUse.kt", "Rx.kt", "DestructureOps.kt")
 
+    // --- convention halves declared in separate files: losing either is caught ---
+
+    @Test fun delegateGetValueSetValueAndProvideDelegateAreSeparateEdges() =
+        assertEdges("SplitDelegateUse.kt", "Rx.kt", "SplitGetValueOps.kt", "SplitSetValueOps.kt", "SplitProvideOps.kt", "Provided2.kt")
+
+    @Test fun destructuringComponentsAreSeparateEdges() =
+        assertEdges("SplitDestructureUse.kt", "Rx.kt", "Component1Ops.kt", "Component2Ops.kt")
+
+    @Test fun iteratorHasNextAndNextAreSeparateEdges() =
+        assertEdges("SplitIterUse.kt", "Rx.kt", "SplitIteratorOps.kt", "HasNextOps.kt", "NextOps.kt")
+
+    @Test fun ambiguousPlusAndPlusAssignKeepBothEdges() =
+        assertEdges("BothUse.kt", "Rx.kt", "BothPlusOps.kt", "BothAssignOps.kt")
+
     // --- candidate edges (failed resolution) ---
 
     @Test fun failedCallWithOneCandidateKeepsTheCandidateEdge() = assertEdges("FailedUse.kt", "OnlyOne.kt")
@@ -110,6 +124,12 @@ class DepEdgeResolutionTest {
                 class RDelegateVar
                 class RProvide
                 class RDestructure
+                class RSplitDelegate
+                class RSplitProvide
+                class RSplitDestructure
+                class RSplitIter
+                class Cursor
+                class RBoth
             """.trimIndent(),
             "Made.kt" to "package p\nclass Made(val v: Int)",
             "Guarded.kt" to "package p\nclass Guarded private constructor() { companion object { operator fun invoke(): Guarded = Guarded() } }",
@@ -141,6 +161,17 @@ class DepEdgeResolutionTest {
                 operator fun RDestructure.component1(): Int = 1
                 operator fun RDestructure.component2(): Int = 2
             """.trimIndent(),
+            "SplitGetValueOps.kt" to "package p\noperator fun RSplitDelegate.getValue(t: Any?, p: kotlin.reflect.KProperty<*>): Int = 1",
+            "SplitSetValueOps.kt" to "package p\noperator fun RSplitDelegate.setValue(t: Any?, p: kotlin.reflect.KProperty<*>, v: Int) {}",
+            "Provided2.kt" to "package p\nclass Provided2 { operator fun getValue(t: Any?, p: kotlin.reflect.KProperty<*>): Int = 1 }",
+            "SplitProvideOps.kt" to "package p\noperator fun RSplitProvide.provideDelegate(t: Any?, p: kotlin.reflect.KProperty<*>): Provided2 = Provided2()",
+            "Component1Ops.kt" to "package p\noperator fun RSplitDestructure.component1(): Int = 1",
+            "Component2Ops.kt" to "package p\noperator fun RSplitDestructure.component2(): Int = 2",
+            "SplitIteratorOps.kt" to "package p\noperator fun RSplitIter.iterator(): Cursor = Cursor()",
+            "HasNextOps.kt" to "package p\noperator fun Cursor.hasNext(): Boolean = false",
+            "NextOps.kt" to "package p\noperator fun Cursor.next(): Int = 1",
+            "BothPlusOps.kt" to "package p\noperator fun RBoth.plus(o: RBoth): RBoth = o",
+            "BothAssignOps.kt" to "package p\noperator fun RBoth.plusAssign(o: RBoth) {}",
             "OnlyOne.kt" to "package p\nfun onlyOne(x: Int) {}",
             "AmbA.kt" to "package p\nfun ambig(a: Any?, b: Int) {}",
             "AmbB.kt" to "package p\nfun ambig(a: Int, b: Any?) {}",
@@ -163,6 +194,10 @@ class DepEdgeResolutionTest {
             "DelegateVarUse.kt" to "package p\nfun useDelegateVar(a: RDelegateVar) { var v: Int by a }",
             "ProvideUse.kt" to "package p\nfun useProvide(a: RProvide) { val v: Int by a }",
             "DestructureUse.kt" to "package p\nfun useDestructure(a: RDestructure) { val (x, y) = a }",
+            "SplitDelegateUse.kt" to "package p\nfun useSplitDelegate(a: RSplitDelegate, b: RSplitProvide) { var v: Int by a; val w: Int by b }",
+            "SplitDestructureUse.kt" to "package p\nfun useSplitDestructure(a: RSplitDestructure) { val (x, y) = a }",
+            "SplitIterUse.kt" to "package p\nfun useSplitIter(a: RSplitIter) { for (x in a) {} }",
+            "BothUse.kt" to "package p\nfun useBoth(a: RBoth, b: RBoth) { var c = a; c += b }",
             "FailedUse.kt" to "package p\nfun useFailed() { onlyOne(\"not an int\") }",
             "AmbiguousUse.kt" to "package p\nfun useAmbiguous() { ambig(1, 1) }",
             "FailedOpUse.kt" to "package p\nfun useFailedOp(a: RPlus) { a + 1 }",

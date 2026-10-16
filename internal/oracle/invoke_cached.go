@@ -249,6 +249,21 @@ func writeSkippedPoisonEntries(
 			analyzed[path] = true
 		}
 	}
+	analyzedMisses := 0
+	for _, p := range misses {
+		if analyzed[p] {
+			analyzedMisses++
+		}
+	}
+	if len(misses) > 0 && analyzedMisses == 0 {
+		// The JVM answered for none of the files it was asked about. That is
+		// a request/response mismatch (for example paths it could not match),
+		// not a set of oversized sources, so marking the files skipped would
+		// poison the cache for every later run.
+		reporter().Warnf("warning: oracle analyzed 0 of %d requested files; not caching skipped markers\n", len(misses))
+		addOracleInstant(tracker, "skippedPoisonEntriesSuppressed", map[string]int64{"requested": int64(len(misses))}, nil)
+		return
+	}
 	skipped := 0
 	_ = trackOracle(tracker, "writeSkippedPoisonEntries", func() error {
 		for _, p := range misses {
@@ -264,7 +279,7 @@ func writeSkippedPoisonEntries(
 				ContentHash:                   hash,
 				FilePath:                      p,
 				Crashed:                       true,
-				CrashError:                    "jar-skipped: file not in Analysis API KtFile set (typically oversized source)",
+				CrashError:                    skipPoisonMarker + " file not in Analysis API KtFile set (typically oversized source)",
 				Approximation:                 depsFile.approximation(),
 				CompilationFingerprint:        depsFile.compilationFingerprint(),
 				CallFilterFingerprint:         callFilterScope,
@@ -567,6 +582,15 @@ func stampCacheDeps(depsFile *CacheDepsFile, opts InvocationOptions, compilation
 	depsFile.CompilationFingerprint = compilation
 }
 
+// oneShotSpelling maps the absolute paths a one-shot JVM run reports back to
+// the caller's spelling of the requested files and source roots, so a
+// relative scan root (`krit .`) keeps the cache and merge keys it had before
+// the request was absolutized.
+func oneShotSpelling(sourceDirs, requested []string) PathSpelling {
+	_, spelling := AbsoluteRequestPaths(requested)
+	return spelling.WithDirs(sourceDirs)
+}
+
 // prepareMissTemps creates three tempfiles for the miss-run round trip:
 //
 //	missListPath — newline-separated absolute paths for --files
@@ -579,7 +603,9 @@ func prepareMissTemps(misses []string) (string, string, string, error) {
 	if err != nil {
 		return "", "", "", fmt.Errorf("tempfile (miss list): %w", err)
 	}
-	for _, p := range misses {
+	// krit-types matches --files entries by exact equality with the absolute
+	// virtual file path, so a relative scan root must be absolutized here.
+	for _, p := range AbsolutePaths(misses) {
 		fmt.Fprintln(f, p)
 	}
 	_ = f.Close()
@@ -642,7 +668,7 @@ func runKritTypesCached(
 	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = append(args,
 		"-jar", jarPath,
-		"--sources", strings.Join(sourceDirs, ","),
+		"--sources", strings.Join(AbsolutePaths(sourceDirs), ","),
 		"--output", freshOutPath,
 		"--files", missListPath,
 		"--cache-deps-out", depsOutPath,
@@ -993,6 +1019,9 @@ func runKritTypesCachedShardedWithRunner(
 				deps, depsErr = LoadCacheDeps(depsPath)
 				return nil
 			})
+			spelling := oneShotSpelling(sourceDirs, group.Paths)
+			spelling.CallerData(fresh)
+			spelling.CallerCacheDeps(deps)
 			results[i] = shardResult{
 				Fresh:      fresh,
 				Deps:       deps,
@@ -1100,6 +1129,9 @@ func runMissAnalysis(
 			deps, _ = LoadCacheDeps(missDepsPath)
 			return nil
 		})
+		spelling := oneShotSpelling(sourceDirs, misses)
+		spelling.CallerData(fresh)
+		spelling.CallerCacheDeps(deps)
 		return fresh, deps, false, nil
 	}
 

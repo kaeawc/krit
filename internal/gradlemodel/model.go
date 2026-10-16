@@ -21,6 +21,9 @@ type Project struct {
 	Path       string      `json:"path"`
 	Dir        string      `json:"dir"`
 	SourceSets []SourceSet `json:"sourceSets"`
+	// SchemaVersion is the schema of the model file the project was read from:
+	// 1 carries no Kotlin compiler settings, 2 does.
+	SchemaVersion int `json:"-"`
 }
 
 // SourceSet contains compiler paths exported for one source set.
@@ -36,6 +39,9 @@ type SourceSet struct {
 	BootClasspath       []string `json:"bootClasspath"`
 	ProjectDeps         []string `json:"projectDeps"`
 	JvmTarget           string   `json:"jvmTarget"`
+	// Kotlin holds the compilation's Kotlin compiler settings (schema 2). It is
+	// nil for a schema 1 model or a source set without a Kotlin compile task.
+	Kotlin *KotlinOptions `json:"kotlin,omitempty"`
 }
 
 // Load reads JSON files directly in dir. Invalid files and projects with
@@ -65,7 +71,7 @@ func Load(dir string) (*Model, []string, error) {
 			warnings = append(warnings, fmt.Sprintf("%s: malformed JSON: %v", path, err))
 			continue
 		}
-		if file.Schema != 1 {
+		if file.Schema != 1 && file.Schema != 2 {
 			warnings = append(warnings, fmt.Sprintf("%s: unsupported schema %d", path, file.Schema))
 			continue
 		}
@@ -75,6 +81,7 @@ func Load(dir string) (*Model, []string, error) {
 				warnings = append(warnings, fmt.Sprintf("%s: project %s directory missing: %s", path, project.Path, project.Dir))
 				continue
 			}
+			project.SchemaVersion = file.Schema
 			model.Projects = append(model.Projects, project)
 		}
 	}

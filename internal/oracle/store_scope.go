@@ -17,17 +17,40 @@ type StoreScope struct {
 	JarToken       string
 	ClasspathToken string
 	JvmTarget      string
+	// KotlinSettings is the canonical identity of the Kotlin compiler settings
+	// the scope's facts were computed under; empty means embedded defaults.
+	KotlinSettings string
 	version        [16]byte
 }
 
 // NewStoreScopeWithTarget includes the FIR compilation target in cache identity.
 func NewStoreScopeWithTarget(backend Backend, jarPath string, classpath []string, jvmTarget string) StoreScope {
+	return NewStoreScopeWithSettings(backend, jarPath, classpath, jvmTarget, gradlemodel.KotlinSettings{})
+}
+
+// NewStoreScopeWithSettings includes the compilation target and the project's
+// effective Kotlin compiler settings in cache identity, for either backend.
+// The language level, API level, opt-ins and semantic flags change the facts a
+// compilation produces without changing any source or classpath entry, so a
+// settings-only change must read as a different scope. Zero settings leave the
+// identity exactly as it was before settings existed.
+func NewStoreScopeWithSettings(backend Backend, jarPath string, classpath []string, jvmTarget string, settings gradlemodel.KotlinSettings) StoreScope {
 	scope := NewStoreScope(backend, jarPath, classpath)
-	if backend != BackendFIR || jvmTarget == "" {
+	targeted := backend == BackendFIR && jvmTarget != ""
+	settingsID := settings.Identity()
+	if !targeted && settingsID == "" {
 		return scope
 	}
-	scope.JvmTarget = jvmTarget
-	h := hashutil.HashBytes([]byte(fmt.Sprintf("oracle-v%d|%s:%s:%s:jvmTarget:%s", CacheVersion, backend.String(), scope.JarToken, scope.ClasspathToken, jvmTarget)))
+	identity := fmt.Sprintf("oracle-v%d|%s:%s:%s", CacheVersion, backend.String(), scope.JarToken, scope.ClasspathToken)
+	if targeted {
+		scope.JvmTarget = jvmTarget
+		identity += ":jvmTarget:" + jvmTarget
+	}
+	if settingsID != "" {
+		scope.KotlinSettings = settingsID
+		identity += "|" + settingsID
+	}
+	h := hashutil.HashBytes([]byte(identity))
 	copy(scope.version[:], h[:])
 	return scope
 }

@@ -1238,6 +1238,13 @@ func oneShotMissAnalysisReason(poolSize, misses int, opts InvocationOptions) (bo
 	if opts.Backend == BackendFIR && opts.JvmTarget != "" {
 		return true, "FIR JVM target requires target-scoped compilation"
 	}
+	// Likewise the daemon registry does not key the Kotlin language level,
+	// opt-ins or flags: a resident daemon would answer with the compiler
+	// defaults (or another project's settings), so a compile with project
+	// settings runs one-shot under its settings-scoped cache.
+	if !opts.Kotlin.IsZero() {
+		return true, "Kotlin compiler settings require settings-scoped compilation"
+	}
 	return shouldUseOneShotMissAnalysis(poolSize, misses)
 }
 

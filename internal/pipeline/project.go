@@ -17,6 +17,7 @@ import (
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
@@ -44,6 +45,10 @@ type ProjectArgs struct {
 	OracleClasspath  []string
 	OracleSourceDirs []string
 	OracleJvmTarget  string
+	// OracleKotlin is the project's effective Kotlin compiler settings from the
+	// Gradle model. The zero value means the model had none and the embedded
+	// compiler's defaults apply.
+	OracleKotlin gradlemodel.KotlinSettings
 	// Paths are the scan target paths (files or directories). Required.
 	Paths []string
 	// KotlinPaths, when non-nil, are the already-collected Kotlin
@@ -1058,6 +1063,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		OracleClasspath:     args.OracleClasspath,
 		OracleSourceDirs:    args.OracleSourceDirs,
 		OracleJvmTarget:     args.OracleJvmTarget,
+		OracleKotlin:        args.OracleKotlin,
 		Thorough:            args.TargetedResolution,
 	}
 	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)

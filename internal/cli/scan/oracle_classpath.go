@@ -152,6 +152,56 @@ func loadGradleCompileContext(paths []string, explicit string, disabled bool) (d
 	return dedupePreservingOrder(dirs), dedupePreservingOrder(generated), target
 }
 
+// loadGradleKotlinSettings resolves the effective Kotlin compiler settings
+// from the discovered (or explicit) Gradle models, merging every source set of
+// every model for the whole-repo compilations the oracle and FIR passes run.
+// A source set's settings are never applied to another: fields the source sets
+// disagree on stay at the embedded compiler's default (see
+// gradlemodel.MergeKotlinSettings). No model yields the zero settings, i.e.
+// the embedded compiler's own defaults, and verbose output says so.
+func loadGradleKotlinSettings(paths []string, explicit string, disabled, verbose bool, out io.Writer) gradlemodel.KotlinSettings {
+	if disabled && explicit == "" {
+		return gradlemodel.KotlinSettings{}
+	}
+	if len(paths) == 0 {
+		paths = []string{"."}
+	}
+	var dirs []string
+	if explicit != "" {
+		dirs = []string{explicit}
+	} else {
+		seen := map[string]bool{}
+		for _, path := range paths {
+			if dir := gradlemodel.Discover(path); dir != "" && !seen[dir] {
+				seen[dir] = true
+				dirs = append(dirs, dir)
+			}
+		}
+	}
+	var entries []gradlemodel.SourceSetKotlinSettings
+	for _, dir := range dirs {
+		model, _, err := gradlemodel.Load(dir)
+		if err != nil {
+			continue
+		}
+		entries = append(entries, model.KotlinSettingsBySourceSet()...)
+	}
+	settings := gradlemodel.MergeSourceSetSettings(entries)
+	if len(entries) == 0 {
+		settings.Notes = append(settings.Notes, "no Gradle model found; the embedded compiler's defaults apply")
+	}
+	if verbose {
+		fmt.Fprintf(out, "gradle model: kotlin compiler settings: %s\n", settings.Describe())
+		for _, note := range settings.Notes {
+			fmt.Fprintf(out, "gradle model: kotlin compiler settings: %s\n", note)
+		}
+		for _, rejected := range settings.Rejected {
+			fmt.Fprintf(out, "gradle model: kotlin compiler settings: not applied: %s\n", rejected)
+		}
+	}
+	return settings
+}
+
 func maxJvmTarget(a, b string) string {
 	parse := func(s string) int {
 		if len(s) > 2 && s[:2] == "1." {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -53,6 +54,7 @@ func TestOracleModelArgsMatchAcrossStrictVerifyPaths(t *testing.T) {
 		OracleClasspath:           []string{"model/classes", "model/dependencies.jar"},
 		OracleSourceDirs:          []string{"module/src/main/kotlin", "module/src/main/java"},
 		OracleJvmTarget:           "17",
+		OracleKotlin:              gradlemodel.KotlinSettings{LanguageVersion: "1.9", ApiVersion: "1.9"},
 		OracleGeneratedSourceDirs: []string{"module/build/generated/source"},
 	}
 	current := pipeline.ProjectArgs{}
@@ -76,6 +78,7 @@ func TestOracleModelArgsMatchAcrossStrictVerifyPaths(t *testing.T) {
 	if !reflect.DeepEqual(current.OracleClasspath, args.OracleClasspath) ||
 		!reflect.DeepEqual(current.OracleSourceDirs, args.OracleSourceDirs) ||
 		current.OracleJvmTarget != args.OracleJvmTarget ||
+		current.OracleKotlin.Identity() != args.OracleKotlin.Identity() || current.OracleKotlin.Identity() != baseline.OracleKotlin.Identity() ||
 		!reflect.DeepEqual(current.GeneratedSourceDirs, args.OracleGeneratedSourceDirs) {
 		t.Fatal("oracle model fields were not copied into pipeline.ProjectArgs")
 	}

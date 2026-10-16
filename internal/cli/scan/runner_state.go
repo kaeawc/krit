@@ -510,6 +510,7 @@ func (r *runner) runOracleIndex() (int, error) {
 			OracleClasspath:     oracleClasspath,
 			OracleSourceDirs:    r.f.modelSourceDirs,
 			OracleJvmTarget:     r.f.modelJvmTarget,
+			OracleKotlin:        r.f.modelKotlin,
 			FIRCheckRider:       r.firCheckRider(),
 			GeneratedSourceDirs: r.f.modelGeneratedSourceDirs,
 			IncludeGenerated:    *r.f.IncludeGenerated,
@@ -682,6 +683,7 @@ func (r *runner) productionFIRChecker() *firchecks.ProductionFirChecker {
 		checker.Classpath = effectiveOracleClasspath(r.f.modelClasspath, r.cfg)
 		checker.SourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(checker.SourceDirs, r.f.modelSourceDirs))
 		checker.JvmTarget = r.f.modelJvmTarget
+		checker.Kotlin = r.f.modelKotlin
 		r.firChecker = checker
 	}
 	return r.firChecker
@@ -690,14 +692,14 @@ func (r *runner) productionFIRChecker() *firchecks.ProductionFirChecker {
 // firCheckRider plans the --fir pass from the collected Kotlin paths before
 // parsing, so the krit-fir oracle compilation can run its check too and the
 // pass reuses that response (#739). Nil without --fir.
-func (r *runner) firCheckRider() func(jarPath string, sourceDirs, classpath []string, jvmTarget string) *oracle.CheckRider {
+func (r *runner) firCheckRider() func(jarPath string, sourceDirs, classpath []string, target firchecks.CompileTarget) *oracle.CheckRider {
 	prefetch := firchecks.NewPrefetch(r.firPassOptions(pipeline.ParseResult{KotlinPaths: r.files}))
 	if prefetch == nil {
 		return nil
 	}
 	r.productionFIRChecker().Prefetch = prefetch
-	return func(jarPath string, sourceDirs, classpath []string, jvmTarget string) *oracle.CheckRider {
-		rider := prefetch.Rider(jarPath, sourceDirs, classpath, jvmTarget)
+	return func(jarPath string, sourceDirs, classpath []string, target firchecks.CompileTarget) *oracle.CheckRider {
+		rider := prefetch.Rider(jarPath, sourceDirs, classpath, target)
 		if rider == nil && *r.f.Verbose {
 			fmt.Fprintf(os.Stderr, "verbose: fir check: the oracle compiles in another context; the pass compiles on its own\n")
 		}

@@ -267,6 +267,12 @@ func Run() int {
 		f.modelClasspath = model
 		f.modelSourceDirs, f.modelGeneratedSourceDirs, f.modelJvmTarget = loadGradleCompileContext(flag.Args(), *f.GradleModel, *f.NoGradleModel)
 	}
+	if !*f.Init && !*f.Version && *f.Completions == "" {
+		// Loaded for both branches above: the --fir preflight branch does not
+		// read the compile context (source roots, JVM target) from the model,
+		// but the language level and opt-ins must reach the compiler either way.
+		f.modelKotlin = loadGradleKotlinSettings(flag.Args(), *f.GradleModel, *f.NoGradleModel, *f.Verbose, os.Stderr)
+	}
 	if handled, code := tryDaemonDelegate(f, flag.Args(), repoDir); handled {
 		return code
 	}

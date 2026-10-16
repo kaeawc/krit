@@ -707,6 +707,7 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		OracleSourceDirs:          f.modelSourceDirs,
 		OracleGeneratedSourceDirs: f.modelGeneratedSourceDirs,
 		OracleJvmTarget:           f.modelJvmTarget,
+		OracleKotlin:              f.modelKotlin,
 		NoFirDaemon:               *f.NoFirDaemon,
 		ClientBinaryHash:          daemonclient.CurrentBinaryHash(),
 	}

@@ -114,13 +114,13 @@ func InvokeCached(
 	repoDir string,
 	useDaemon bool,
 	verbose bool,
-	jvmTarget ...string,
+	target ...CompileTarget,
 ) (*Result, error) {
-	return invokeCachedWith(runMissesForCache, jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, repoDir, useDaemon, verbose, jvmTarget...)
+	return invokeCachedWith(runMissesForCache, jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, repoDir, useDaemon, verbose, target...)
 }
 
 // missRunner checks the files the cache could not answer.
-type missRunner func(jarPath string, misses, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, facts FileFacts, useDaemon, verbose bool, jvmTarget ...string) (*CheckResponse, error)
+type missRunner func(jarPath string, misses, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, facts FileFacts, useDaemon, verbose bool, target ...CompileTarget) (*CheckResponse, error)
 
 // invokeCachedWith is InvokeCached with the checks of cache misses run by run.
 func invokeCachedWith(
@@ -135,7 +135,7 @@ func invokeCachedWith(
 	repoDir string,
 	useDaemon bool,
 	verbose bool,
-	jvmTarget ...string,
+	target ...CompileTarget,
 ) (*Result, error) {
 	if len(files) == 0 {
 		return newResult(), nil
@@ -143,7 +143,7 @@ func invokeCachedWith(
 
 	// If no repo dir, skip cache and go straight to JVM.
 	if repoDir == "" {
-		return runUncached(run, jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
+		return runUncached(run, jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, target...)
 	}
 
 	cacheDir, err := CacheDir(repoDir)
@@ -151,10 +151,10 @@ func invokeCachedWith(
 		if verbose {
 			reporter().Verbosef("verbose: fir cache dir init failed (%v), falling back to uncached\n", err)
 		}
-		return runUncached(run, jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
+		return runUncached(run, jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, target...)
 	}
 
-	cacheFingerprint := CheckCacheFingerprint(sourceDirs, files, classpath, jarPath, rules, ruleConfigs, facts, jvmTarget...)
+	cacheFingerprint := CheckCacheFingerprint(sourceDirs, files, classpath, jarPath, rules, ruleConfigs, facts, target...)
 	hits, misses := ClassifyFilesForFingerprint(cacheDir, files, cacheFingerprint)
 	if verbose {
 		reporter().Verbosef("verbose: fir cache: %d hits, %d misses (%d files)\n",
@@ -167,7 +167,7 @@ func invokeCachedWith(
 	}
 
 	// Slow path: analyze misses via daemon or one-shot.
-	resp, err := run(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
+	resp, err := run(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, target...)
 	if err != nil {
 		return nil, err
 	}
@@ -195,9 +195,9 @@ func runUncached(
 	facts FileFacts,
 	useDaemon bool,
 	verbose bool,
-	jvmTarget ...string,
+	target ...CompileTarget,
 ) (*Result, error) {
-	resp, err := run(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, jvmTarget...)
+	resp, err := run(jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, target...)
 	if err != nil {
 		return nil, err
 	}
@@ -216,16 +216,16 @@ func runMisses(
 	facts FileFacts,
 	useDaemon bool,
 	verbose bool,
-	jvmTarget ...string,
+	target ...CompileTarget,
 ) (*CheckResponse, error) {
 	facts = facts.forFiles(misses)
 	// Try persistent daemon.
 	if useDaemon && jarPath != "" {
-		d, err := connectOrStartFirCheckDaemon(jarPath, sourceDirs, classpath, verbose, jvmTarget...)
+		d, err := connectOrStartFirCheckDaemon(jarPath, sourceDirs, classpath, verbose, target...)
 		if err == nil {
 			defer func() { _ = d.Release() }()
 			refs := buildFileRefs(misses)
-			resp, err := checkFirWithRecovery(d, jarPath, refs, sourceDirs, classpath, rules, ruleConfigs, facts, verbose, jvmTarget...)
+			resp, err := checkFirWithRecovery(d, jarPath, refs, sourceDirs, classpath, rules, ruleConfigs, facts, verbose, target...)
 			if err == nil {
 				return resp, nil
 			}
@@ -244,18 +244,18 @@ func runMisses(
 	if jarPath == "" {
 		return nil, fmt.Errorf("krit-fir.jar not found; build with: cd tools/krit-fir && ./gradlew shadowJar")
 	}
-	return InvokeOneShot(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, facts, verbose, jvmTarget...)
+	return InvokeOneShot(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, facts, verbose, target...)
 }
 
 var aotWarningOnce sync.Once
 var errFIRDegraded = errors.New("FIR registered zero requested checkers after AOT-free retry")
 
 // The seam lets package tests use a fake TCP daemon for the AOT-free retry.
-var startFirWithoutAOT = func(jarPath string, verbose bool, target ...string) (*FirDaemon, error) {
+var startFirWithoutAOT = func(jarPath string, verbose bool, target ...CompileTarget) (*FirDaemon, error) {
 	return startFirDaemonWithAOT(jarPath, verbose, false, target...)
 }
 
-func checkFirWithRecovery(d *FirDaemon, jarPath string, refs []fileRef, sourceDirs, classpath, rules []string, configs RuleConfigs, facts FileFacts, verbose bool, target ...string) (*CheckResponse, error) {
+func checkFirWithRecovery(d *FirDaemon, jarPath string, refs []fileRef, sourceDirs, classpath, rules []string, configs RuleConfigs, facts FileFacts, verbose bool, target ...CompileTarget) (*CheckResponse, error) {
 	first := false
 	d.aotCheckOnce.Do(func() { first = true })
 	cachePath := d.aotCachePath

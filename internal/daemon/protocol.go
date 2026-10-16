@@ -9,7 +9,11 @@
 // JSON object terminated by a newline.
 package daemon
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/kaeawc/krit/internal/gradlemodel"
+)
 
 // Request names a verb and carries its arguments as opaque JSON.
 type Request struct {
@@ -338,6 +342,9 @@ type AnalyzeProjectArgs struct {
 	OracleSourceDirs          []string `json:"oracle_source_dirs,omitempty"`
 	OracleGeneratedSourceDirs []string `json:"oracle_generated_source_dirs,omitempty"`
 	OracleJvmTarget           string   `json:"oracle_jvm_target,omitempty"`
+	// OracleKotlin is the caller-resolved effective Kotlin compiler settings of
+	// the Gradle model; part of the daemon's analysis and cache identity.
+	OracleKotlin gradlemodel.KotlinSettings `json:"oracle_kotlin,omitzero"`
 	// NoFirDaemon mirrors --no-fir-daemon: run the FIR checkers one-shot
 	// instead of through the persistent krit-fir daemon.
 	NoFirDaemon bool `json:"no_fir_daemon,omitempty"`

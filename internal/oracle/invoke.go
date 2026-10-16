@@ -338,7 +338,8 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 }
 
 // compileContextArgs returns the one-shot arguments that set the compile
-// context: the configured classpath and, for krit-fir, the JVM target.
+// context: the configured classpath, the JVM target (krit-fir) and the
+// project's Kotlin compiler settings (both backends).
 func compileContextArgs(opts InvocationOptions) []string {
 	var args []string
 	if len(opts.Classpath) > 0 {
@@ -350,6 +351,11 @@ func compileContextArgs(opts InvocationOptions) []string {
 	}
 	if opts.Backend == BackendFIR && opts.JvmTarget != "" {
 		args = append(args, "--jvm-target", opts.JvmTarget)
+	}
+	// Each setting is its own flag so values never need quoting; both
+	// helpers re-filter them through their own allowlist.
+	for _, arg := range opts.Kotlin.CompilerArgs() {
+		args = append(args, "--kotlin-arg", arg)
 	}
 	return args
 }

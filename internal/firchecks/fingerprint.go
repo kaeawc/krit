@@ -90,7 +90,7 @@ func jsonSafe(v any) any {
 // hashed source). Stat avoids
 // hashing the large fat jar. encoding/json sorts map keys, so the options
 // encoding is deterministic regardless of map iteration order.
-func FirInvocationFingerprint(classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, facts FileFacts, jvmTarget ...string) string {
+func FirInvocationFingerprint(classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, facts FileFacts, target ...CompileTarget) string {
 	jarIdentity := jarPath + ":" + buildid.JarToken(jarPath)
 	if info, err := os.Stat(jarPath); err == nil {
 		jarIdentity = fmt.Sprintf("%s:%d:%d:%s", jarPath, info.Size(), info.ModTime().UnixNano(), buildid.JarToken(jarPath))
@@ -113,8 +113,15 @@ func FirInvocationFingerprint(classpath []string, jarPath string, rules []string
 	}
 	fingerprint := cache.ComputeCacheKeyHash(nil, nil, false) + "\x00" + ClasspathFingerprint(classpath) + "\x00" + gradlemodel.ClasspathFingerprint(classpath) + "\x00" + jarIdentity + "\x00" +
 		strings.Join(ids, "\x00") + "\x00" + string(options) + "\x00" + string(testsJSON)
-	if len(jvmTarget) > 0 && jvmTarget[0] != "" {
-		fingerprint += "\x00jvmTarget:" + jvmTarget[0]
+	if compile := firstTarget(target); compile.JvmTarget != "" {
+		fingerprint += "\x00jvmTarget:" + compile.JvmTarget
+	}
+	// Appended only when settings are known, so a project with no Gradle model
+	// keeps its fingerprint shape. A settings-only change (language version,
+	// API version, opt-ins, an allowlisted flag) changes verdicts without
+	// changing any source, so it must change the fingerprint.
+	if id := firstTarget(target).Kotlin.Identity(); id != "" {
+		fingerprint += "\x00kotlinSettings:" + id
 	}
 	if len(facts.ScanPaths) > 0 {
 		// encoding/json sorts the keys. Appended only when present, so a
@@ -146,9 +153,9 @@ func FirInvocationFingerprint(classpath []string, jarPath string, rules []string
 // source in it changes; keying on the compilation makes any source edit
 // invalidate every cached FIR verdict (coarse but correct, the same trade-off
 // as krit-fir's oracle cache).
-func CheckCacheFingerprint(sourceDirs, files, classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, facts FileFacts, jvmTarget ...string) string {
+func CheckCacheFingerprint(sourceDirs, files, classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, facts FileFacts, target ...CompileTarget) string {
 	compilation := checkCompilation(sourceDirs, files, classpath, jarPath)
-	return hashutil.HashHex([]byte(FirInvocationFingerprint(classpath, jarPath, rules, ruleConfigs, facts, jvmTarget...) + "\x00" + compilation))
+	return hashutil.HashHex([]byte(FirInvocationFingerprint(classpath, jarPath, rules, ruleConfigs, facts, target...) + "\x00" + compilation))
 }
 
 // checkCompilation fingerprints the compilation a check of files runs:

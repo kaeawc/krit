@@ -18,6 +18,7 @@ import (
 	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
@@ -203,10 +204,14 @@ type IndexInput struct {
 	OracleClasspath  []string
 	OracleSourceDirs []string
 	OracleJvmTarget  string
+	// OracleKotlin is the project's effective Kotlin compiler settings from the
+	// Gradle model. The zero value means the model had none and the embedded
+	// compiler's defaults apply.
+	OracleKotlin gradlemodel.KotlinSettings
 	// FIRCheckRider, when set, returns the FIR check request to run on the
 	// krit-fir oracle's one-shot compilation of jarPath over sourceDirs and
-	// classpath for jvmTarget, or nil (#739).
-	FIRCheckRider func(jarPath string, sourceDirs, classpath []string, jvmTarget string) *oracle.CheckRider
+	// classpath for target, or nil (#739).
+	FIRCheckRider func(jarPath string, sourceDirs, classpath []string, target firchecks.CompileTarget) *oracle.CheckRider
 	// PrebuiltOracleDaemon, when non-nil, is reused by runDaemonOracle
 	// instead of calling oracle.InvokeDaemon. The serve daemon's
 	// ensureOracleDaemon supplies a *oracle.Daemon kept alive across
@@ -375,6 +380,32 @@ type IndexInput struct {
 }
 
 // logf forwards verbose progress lines to Reporter when set.
+// kotlinSettingsAttrs makes the Kotlin compiler settings of an oracle run
+// visible in --perf output: which settings reached the compiler (or that the
+// embedded defaults did), the identity hash folded into cache keys, and why
+// anything was defaulted or left out.
+func kotlinSettingsAttrs(s gradlemodel.KotlinSettings) map[string]string {
+	attrs := map[string]string{"applied": s.Describe(), "source": "gradle-model"}
+	if s.IsZero() {
+		attrs["source"] = "embedded-default"
+	} else {
+		attrs["identity"] = s.IdentityHash()
+	}
+	if len(s.Notes) > 0 {
+		attrs["notes"] = strings.Join(s.Notes, "; ")
+	}
+	if len(s.Rejected) > 0 {
+		attrs["notApplied"] = strings.Join(s.Rejected, "; ")
+	}
+	return attrs
+}
+
+// compileTarget is the JVM target and Kotlin settings every krit-fir compile
+// in this run must agree on.
+func (in IndexInput) compileTarget() firchecks.CompileTarget {
+	return firchecks.CompileTarget{JvmTarget: in.OracleJvmTarget, Kotlin: in.OracleKotlin}
+}
+
 func (in IndexInput) logf(format string, args ...any) {
 	in.Reporter.Verbosef(format, args...)
 }
@@ -1054,7 +1085,7 @@ func (p IndexPhase) runDaemonOracleFir(in IndexInput, scanPaths []string, oracle
 	var d *firchecks.FirDaemon
 	var daemonErr error
 	oracleTracker.TrackVoid("firDaemonStart", func() {
-		d, daemonErr = firchecks.ConnectOrStartFirDaemon(jarPath, sourceDirs, in.OracleClasspath, in.Verbose, in.OracleJvmTarget)
+		d, daemonErr = firchecks.ConnectOrStartFirDaemon(jarPath, sourceDirs, in.OracleClasspath, in.Verbose, in.compileTarget())
 	})
 	if daemonErr != nil {
 		in.warnf("warning: --daemon: %v\n", daemonErr)
@@ -1192,13 +1223,20 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		in.reportMissingOracleJar(jarErr)
 		return ""
 	}
-	storeScope := oracle.NewStoreScopeWithTarget(backend, jarPath, in.OracleClasspath, in.OracleJvmTarget)
+	storeScope := oracle.NewStoreScopeWithSettings(backend, jarPath, in.OracleClasspath, in.OracleJvmTarget, in.OracleKotlin)
 	// Record what actually serves the oracle (after any fallback), so
 	// benchmarks and --perf readers can verify the backend they asked for.
 	perf.AddEntryDetails(jvmTracker, "oracleBackend", 0, nil, map[string]string{
 		"backend": backend.String(),
 		"jar":     filepath.Base(jarPath),
 	})
+	perf.AddEntryDetails(jvmTracker, "oracleKotlinSettings", 0, nil, kotlinSettingsAttrs(in.OracleKotlin))
+	for _, note := range in.OracleKotlin.Notes {
+		in.logf("verbose: kotlin compiler settings: %s\n", note)
+	}
+	for _, rejected := range in.OracleKotlin.Rejected {
+		in.logf("verbose: kotlin compiler settings: not applied: %s\n", rejected)
+	}
 	perf.AddEntryDetails(jvmTracker, "sourceDirsFound", 0, map[string]int64{"sourceDirs": int64(len(sourceDirs))}, nil)
 	var cacheDest string
 	jvmTracker.TrackVoid("resolveOracleCachePath", func() {
@@ -1254,10 +1292,11 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		// backend. Empty preserves source-tree discovery.
 		Classpath: in.OracleClasspath,
 		JvmTarget: in.OracleJvmTarget,
+		Kotlin:    in.OracleKotlin,
 		Backend:   backend,
 	}
 	if backend == oracle.BackendFIR && in.FIRCheckRider != nil {
-		invokeOpts.CheckRider = in.FIRCheckRider(jarPath, sourceDirs, in.OracleClasspath, in.OracleJvmTarget)
+		invokeOpts.CheckRider = in.FIRCheckRider(jarPath, sourceDirs, in.OracleClasspath, in.compileTarget())
 	}
 	invocationStore := in.Store
 	if invocationStore != nil {
@@ -1300,7 +1339,7 @@ func cachedTypesJSONSatisfies(in IndexInput, oracleRules []*api.Rule, path strin
 	if err != nil || jarPath == "" {
 		return false
 	}
-	scope := oracle.NewStoreScopeWithTarget(used, jarPath, in.OracleClasspath, in.OracleJvmTarget)
+	scope := oracle.NewStoreScopeWithSettings(used, jarPath, in.OracleClasspath, in.OracleJvmTarget, in.OracleKotlin)
 	return oracle.TypesJSONSatisfies(path, oracleDiagnosticsRequired(in, oracleRules), scope, buildid.Token())
 }
 
@@ -1425,6 +1464,14 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 	switch {
 	case in.UseDaemon && in.OracleBackend == oracle.BackendFIR:
 		resolver = p.runDaemonOracleFir(in, scanPaths, oracleTracker, base, result)
+	case in.UseDaemon && !in.OracleKotlin.IsZero():
+		// The resident KAA oracle daemon is started once per jar and source
+		// roots and is keyed on neither the classpath nor the Kotlin
+		// language level, opt-ins or flags, so it would answer with the
+		// compiler defaults. Settings-bearing runs take the one-shot path,
+		// whose compile is configured and cached per settings.
+		in.logf("verbose: oracle daemon does not carry Kotlin compiler settings (%s); using the settings-scoped one-shot oracle\n", in.OracleKotlin.Describe())
+		resolver = p.runAutoDetectOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, result)
 	case in.UseDaemon:
 		resolver = p.runDaemonOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, result)
 	default:

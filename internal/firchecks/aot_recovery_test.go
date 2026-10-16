@@ -58,7 +58,7 @@ func TestZeroRegisteredFIRRulesDiscardsAOTAndRetries(t *testing.T) {
 	original := startFirWithoutAOT
 	t.Cleanup(func() { startFirWithoutAOT = original })
 	retries := 0
-	startFirWithoutAOT = func(_ string, _ bool, _ ...string) (*FirDaemon, error) {
+	startFirWithoutAOT = func(_ string, _ bool, _ ...CompileTarget) (*FirDaemon, error) {
 		retries++
 		args := buildFirJVMArgsWithAOT(jar, "missing-java", 27, false, false)
 		for _, arg := range args {
@@ -111,7 +111,7 @@ func TestAbsentRulesFieldDoesNotTriggerAOTRecovery(t *testing.T) {
 	d := fakeAOTDaemon(t, `{"id":1,"findings":[{"path":"/src/A.kt","line":1,"col":1,"rule":"InjectDispatcher","message":"original"}]}`, "-XX:AOTCache="+cache)
 	original := startFirWithoutAOT
 	t.Cleanup(func() { startFirWithoutAOT = original })
-	startFirWithoutAOT = func(_ string, _ bool, _ ...string) (*FirDaemon, error) {
+	startFirWithoutAOT = func(_ string, _ bool, _ ...CompileTarget) (*FirDaemon, error) {
 		t.Fatal("old jar response triggered retry")
 		return nil, nil
 	}
@@ -190,7 +190,7 @@ func TestReconnectedAOTDaemonIsRetiredAndRetried(t *testing.T) {
 	original := startFirWithoutAOT
 	t.Cleanup(func() { startFirWithoutAOT = original })
 	retries := 0
-	startFirWithoutAOT = func(_ string, _ bool, _ ...string) (*FirDaemon, error) {
+	startFirWithoutAOT = func(_ string, _ bool, _ ...CompileTarget) (*FirDaemon, error) {
 		retries++
 		return fakeAOTDaemon(t, `{"id":1,"rules":["InjectDispatcher"],"findings":[{"path":"/src/A.kt","line":1,"col":1,"rule":"InjectDispatcher","message":"retried"}]}`), nil
 	}

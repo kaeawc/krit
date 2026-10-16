@@ -688,7 +688,7 @@ func waitForCmdExit(cmd *exec.Cmd) error {
 		// kernel reaps the SIGKILLed process promptly so this never
 		// hangs in practice, but the deterministic join is the whole
 		// point of the fix.
-		<-done
+		<-done //nolint:errcheck // killed above, so the exit error is expected
 		return fmt.Errorf("daemon did not exit within timeout, killed")
 	}
 }

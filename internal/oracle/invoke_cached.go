@@ -234,8 +234,12 @@ func writeFreshCacheEntries(
 
 // minUnexplainedForMismatch is how many requested files the JVM must leave
 // entirely unanswered, with no expected reason, before that is treated as a
-// request mismatch rather than as skipped sources.
-const minUnexplainedForMismatch = 2
+// request mismatch rather than as skipped sources. One is enough: krit-types
+// answers for every in-root file at or under the size limit, even an empty
+// one, a package-only file, a script or an expect declaration, so an
+// unanswered one is never a normal skip and a marker for it would hide the
+// file from later runs.
+const minUnexplainedForMismatch = 1
 
 // maxJVMSourceBytes is the largest source file the Analysis API builds a
 // KtFile for. It is IntelliJ's idea.max.intellisense.filesize default

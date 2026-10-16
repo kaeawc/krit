@@ -115,11 +115,14 @@ func TestApplyOracleFilter_RelativeFilesMatchAbsoluteList(t *testing.T) {
 	}
 }
 
-// A lone file the JVM legitimately skips (an oversized source) keeps its
+// A lone oversized file the JVM legitimately skips keeps its
 // marker, written under the absolute path so both a relative and an absolute
 // root hit it on the next run, and no warning is emitted.
 func TestWriteSkippedPoisonEntries_LoneSkippedFileMarkedAndHitFromBothRoots(t *testing.T) {
 	dir := chdirProject(t, map[string]string{"src/Big.kt": "class Big\n"})
+	if err := os.Truncate(filepath.Join(dir, "src", "Big.kt"), maxJVMSourceBytes+1); err != nil {
+		t.Fatal(err)
+	}
 	cacheDir, err := CacheDir(dir)
 	if err != nil {
 		t.Fatal(err)

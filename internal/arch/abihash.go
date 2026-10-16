@@ -14,7 +14,7 @@ import (
 // AbiHashVersion is mixed into the hash input. Bump when the canonical
 // signature encoding changes so consumers invalidate cached hashes on
 // krit upgrade.
-const AbiHashVersion uint32 = 1
+const AbiHashVersion uint32 = 2
 
 // abiAnnotationAllowlist is the set of annotations that affect the binary
 // surface and are therefore folded into the hash. Annotations outside this
@@ -516,7 +516,18 @@ func extractProperty(file *scanner.File, idx uint32, pkg string) (AbiSignature, 
 		Kind:        "property",
 		FQN:         qualify(pkg, chain, name),
 		Modifiers:   collectModifiers(file, idx),
-		ReturnType:  firstTypeChild(file, idx, ""),
+		ReturnType:  propertyAbiType(file, idx),
 		Annotations: collectAnnotations(file, idx),
 	}, true
+}
+
+// propertyAbiType renders the explicitly declared property type, prefixed by
+// the extension receiver when present. Inferred types are left empty: the
+// initializer is not part of the ABI surface we can resolve without types.
+func propertyAbiType(file *scanner.File, idx uint32) string {
+	receiver, declared := scanner.KotlinPropertyDeclaredTypes(file, idx)
+	if receiver != "" {
+		return receiver + "." + declared
+	}
+	return declared
 }

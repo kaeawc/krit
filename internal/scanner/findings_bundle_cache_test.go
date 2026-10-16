@@ -93,3 +93,53 @@ func TestApplyDelta_ReplacesAffectedRowsAndKeepsProjectRows(t *testing.T) {
 		t.Fatalf("messages = %v, want %v", messages, want)
 	}
 }
+
+func TestFileStructuralFingerprint_PropertyDeclaredType(t *testing.T) {
+	fp := func(src string) string {
+		return FileStructuralFingerprint(parseKotlinSnippet(t, src))
+	}
+	nullable := fp("class R { val name: String? = null }")
+	str := fp("class R { val name: String = \"\" }")
+	num := fp("class R { val name: Int = 0 }")
+	if nullable == str || str == num || nullable == num {
+		t.Fatalf("declared type/nullability must move the fingerprint: %s %s %s", nullable, str, num)
+	}
+	if fp("class R { val name: Map<String, Int?>? = null }") == fp("class R { val name: Map<String, Int>? = null }") {
+		t.Fatal("generic argument nullability must move the fingerprint")
+	}
+	if fp("class R { val name:   String = \"a\" }") != fp("class R { val name: String = \"b\" }") {
+		t.Fatal("whitespace and initializer-only edits with an explicit type must be stable")
+	}
+	if fp("val Foo.bar: Int get() = 1") == fp("val Foo.bar: Long get() = 1") {
+		t.Fatal("extension property type must move the fingerprint")
+	}
+	if fp("val Foo.bar: Int get() = 1") == fp("val Baz.bar: Int get() = 1") {
+		t.Fatal("extension receiver must move the fingerprint")
+	}
+	// Inferred types are deliberately not tracked: the initializer is body-like.
+	if fp("class R { val name = 0 }") != fp("class R { val name = \"\" }") {
+		t.Fatal("initializer-only edit without a declared type must stay stable")
+	}
+}
+
+func TestKotlinPropertyDeclaredTypes(t *testing.T) {
+	cases := []struct{ src, recv, typ string }{
+		{"val x: Int = 0", "", "Int"},
+		{"val x: Map<String,  Int?>? = null", "", "Map<String, Int?>?"},
+		{"val Foo<T>.bar: Int get() = 1", "Foo<T>", "Int"},
+		{"val x = 0", "", ""},
+		{"val x by lazy { 1 }", "", ""},
+	}
+	for _, c := range cases {
+		f := parseKotlinSnippet(t, c.src)
+		var recv, typ string
+		f.FlatWalkAllNodes(0, func(idx uint32) {
+			if f.FlatType(idx) == "property_declaration" {
+				recv, typ = KotlinPropertyDeclaredTypes(f, idx)
+			}
+		})
+		if recv != c.recv || typ != c.typ {
+			t.Errorf("%q: got (%q, %q), want (%q, %q)", c.src, recv, typ, c.recv, c.typ)
+		}
+	}
+}

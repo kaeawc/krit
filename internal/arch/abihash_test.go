@@ -184,3 +184,23 @@ class Foo {
 		t.Fatalf("@VisibleForTesting changed the hash; should be ignored")
 	}
 }
+
+func TestAbiHash_PropertyDeclaredType(t *testing.T) {
+	h := func(typ, init string) string {
+		return hashOf(t, "package p\n\nclass R { val name: "+typ+" = "+init+" }")
+	}
+	a, b, c := h("String?", "null"), h("String", `""`), h("Int", "0")
+	if a == b || b == c || a == c {
+		t.Fatalf("property type/nullability must change the ABI hash: %s %s %s", a, b, c)
+	}
+	if h("String", `""`) != h("String", `"other"`) {
+		t.Fatal("initializer-only edit with explicit type must not change the ABI hash")
+	}
+	ext := func(src string) string { return hashOf(t, "package p\n\n"+src) }
+	if ext("val Foo.bar: Int get() = 1") == ext("val Foo.bar: Long get() = 1") {
+		t.Fatal("extension property type must change the ABI hash")
+	}
+	if ext("val Foo.bar: Int get() = 1") == ext("val Baz.bar: Int get() = 1") {
+		t.Fatal("extension receiver must change the ABI hash")
+	}
+}

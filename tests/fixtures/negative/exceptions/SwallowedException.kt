@@ -166,3 +166,45 @@ class FaultHidingSink(
         throw IllegalStateException("failure")
     }
 }
+
+class WrapperException(cause: Throwable) : RuntimeException(cause)
+
+class WrapperConsumers {
+    fun thrown() {
+        try {
+            work()
+        } catch (e: Exception) {
+            throw WrapperException(e)
+        }
+    }
+
+    fun assigned() {
+        try {
+            work()
+        } catch (e: Exception) {
+            val wrapped = WrapperException(e)
+            report(wrapped)
+        }
+    }
+
+    fun returned(): Throwable {
+        try {
+            work()
+        } catch (e: Exception) {
+            return WrapperException(e)
+        }
+        return RuntimeException()
+    }
+
+    fun passedAsArgument() {
+        try {
+            work()
+        } catch (e: Exception) {
+            report(WrapperException(e))
+        }
+    }
+
+    private fun report(t: Throwable) {}
+
+    private fun work() {}
+}

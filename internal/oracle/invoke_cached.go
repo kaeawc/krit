@@ -240,8 +240,25 @@ const minUnexplainedForMismatch = 2
 // maxJVMSourceBytes is the largest source file the Analysis API builds a
 // KtFile for. It is IntelliJ's idea.max.intellisense.filesize default
 // (FileUtilRt.getUserFileSizeLimit: 2500 KB, so 2,560,000 bytes); a larger
-// file is dropped from the source module and never answered.
+// file is dropped from the source module and never answered. This is the
+// krit-types (KAA) limit; krit-fir answers oversized files, so the guard that
+// uses it is simply inactive there.
 const maxJVMSourceBytes = 2560000
+
+// pathUnderRoot reports whether the clean absolute path abs is root or lies
+// below it. A sibling sharing a name prefix (/a/rootX for /a/root) is not under
+// it, and a root that already ends in a separator (a filesystem root such as
+// / or C:\) is not given a second one.
+func pathUnderRoot(abs, root string) bool {
+	if abs == root {
+		return true
+	}
+	prefix := root
+	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
+		prefix += string(filepath.Separator)
+	}
+	return strings.HasPrefix(abs, prefix)
+}
 
 // expectedlySkipped reports whether the JVM is expected not to answer for p:
 // it is over the Analysis API size limit, or it lies outside every source
@@ -251,7 +268,7 @@ func expectedlySkipped(p string, absRoots []string) bool {
 	abs := filepath.Clean(AbsolutePath(p))
 	underRoot := false
 	for _, root := range absRoots {
-		if abs == root || strings.HasPrefix(abs, root+string(filepath.Separator)) {
+		if pathUnderRoot(abs, root) {
 			underRoot = true
 			break
 		}

@@ -13,74 +13,132 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// A deleted file leaves every remaining file a per-file cache hit, but the
-// cross-file index changed, so warm cross findings must be recomputed rather
-// than replayed from the previous file set (issue #825).
-func TestRunProject_WarmCrossFindingsInvalidatedByDeletedFile(t *testing.T) {
-	dir := t.TempDir()
-	cachePath := filepath.Join(dir, "krit.cache")
-	crossCacheDir := scanner.CrossFileCacheDir(dir)
-	crossFindingsDir := scanner.CrossFindingsCacheDir(dir)
-	bPath := filepath.Join(dir, "B.kt")
-	if err := os.WriteFile(filepath.Join(dir, "A.kt"), []byte("package test\n\nclass A\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(bPath, []byte("package test\n\nclass B\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+// warmCrossHarness runs RunProject repeatedly over one directory with a
+// shared on-disk cache and a cross rule that emits one finding per indexed
+// file, so results depend on the file set and not just per-file content.
+type warmCrossHarness struct {
+	t          *testing.T
+	dir        string
+	rule       *api.Rule
+	crossCalls *int64
+}
 
-	// Emits one finding per indexed file, so the result depends on the file
-	// set and not only on each file's own content.
-	var crossCalls int64
-	rule := api.FakeRule("CrossRule", api.WithNeeds(api.NeedsCrossFile), api.WithCheck(func(ctx *api.Context) {
-		atomic.AddInt64(&crossCalls, 1)
+func newWarmCrossHarness(t *testing.T, ruleID string, files map[string]string) *warmCrossHarness {
+	t.Helper()
+	h := &warmCrossHarness{t: t, dir: t.TempDir(), crossCalls: new(int64)}
+	for name, body := range files {
+		h.write(name, body)
+	}
+	calls := h.crossCalls
+	h.rule = api.FakeRule(ruleID, api.WithNeeds(api.NeedsCrossFile), api.WithCheck(func(ctx *api.Context) {
+		atomic.AddInt64(calls, 1)
 		for _, f := range ctx.CodeIndex.Files {
 			ctx.Emit(scanner.Finding{File: f.Path, Line: 1, Col: 1, Message: "cross"})
 		}
 	}))
-	run := func(t *testing.T) ProjectResult {
-		t.Helper()
-		res, err := RunProject(context.Background(), ProjectInput{
-			Args: ProjectArgs{
-				Config:      config.NewConfig(),
-				Paths:       []string{dir},
-				ActiveRules: []*api.Rule{rule},
-				Format:      "json",
-				Version:     "test",
-			},
-			Host: ProjectHostState{
-				AnalysisCache:         cache.Load(cachePath),
-				AnalysisCacheFilePath: cachePath,
-				AnalysisCacheLookup:   true,
-				CrossFileCacheDir:     crossCacheDir,
-				CrossFindingsCacheDir: crossFindingsDir,
-			},
-		})
-		if err != nil {
-			t.Fatalf("RunProject: %v", err)
-		}
-		return res
-	}
+	return h
+}
 
-	if first := run(t); first.FindingsCount != 2 {
-		t.Fatalf("cold run findings=%d, want 2", first.FindingsCount)
+func (h *warmCrossHarness) write(name, body string) {
+	h.t.Helper()
+	if err := os.WriteFile(filepath.Join(h.dir, name), []byte(body), 0o644); err != nil {
+		h.t.Fatal(err)
 	}
-	if second := run(t); second.FindingsCount != 2 {
-		t.Fatalf("warm run findings=%d, want 2", second.FindingsCount)
-	}
-	callsBefore := atomic.LoadInt64(&crossCalls)
-	if callsBefore != 1 {
-		t.Fatalf("warm run should reuse cross findings; calls=%d want 1", callsBefore)
-	}
+}
 
-	if err := os.Remove(bPath); err != nil {
-		t.Fatal(err)
+func (h *warmCrossHarness) remove(name string) {
+	h.t.Helper()
+	if err := os.Remove(filepath.Join(h.dir, name)); err != nil {
+		h.t.Fatal(err)
 	}
-	after := run(t)
-	if after.FindingsCount != 1 {
-		t.Fatalf("after delete findings=%d, want 1 (finding for deleted file must not survive)", after.FindingsCount)
+}
+
+func (h *warmCrossHarness) calls() int64 { return atomic.LoadInt64(h.crossCalls) }
+
+func (h *warmCrossHarness) run() ProjectResult {
+	h.t.Helper()
+	cachePath := filepath.Join(h.dir, ".krit-test", "krit.cache")
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
+		h.t.Fatal(err)
 	}
-	if got := atomic.LoadInt64(&crossCalls); got != callsBefore+1 {
-		t.Fatalf("delete must recompute cross findings; calls=%d want %d", got, callsBefore+1)
+	res, err := RunProject(context.Background(), ProjectInput{
+		Args: ProjectArgs{
+			Config:      config.NewConfig(),
+			Paths:       []string{h.dir},
+			ActiveRules: []*api.Rule{h.rule},
+			Format:      "json",
+			Version:     "test",
+		},
+		Host: ProjectHostState{
+			AnalysisCache:         cache.Load(cachePath),
+			AnalysisCacheFilePath: cachePath,
+			AnalysisCacheLookup:   true,
+			CrossFileCacheDir:     scanner.CrossFileCacheDir(filepath.Join(h.dir, ".krit-test")),
+			CrossFindingsCacheDir: scanner.CrossFindingsCacheDir(filepath.Join(h.dir, ".krit-test")),
+		},
+	})
+	if err != nil {
+		h.t.Fatalf("RunProject: %v", err)
 	}
+	return res
+}
+
+func (h *warmCrossHarness) wantFindings(label string, want int) {
+	h.t.Helper()
+	if got := h.run().FindingsCount; got != want {
+		h.t.Fatalf("%s findings=%d, want %d", label, got, want)
+	}
+}
+
+// A deleted file leaves every remaining file a per-file cache hit, but the
+// cross-file index changed, so warm cross findings must be recomputed rather
+// than replayed from the previous file set (issue #825).
+func TestRunProject_WarmCrossFindingsInvalidatedByDeletedFile(t *testing.T) {
+	h := newWarmCrossHarness(t, "CrossRule", map[string]string{
+		"A.kt": "package test\n\nclass A\n",
+		"B.kt": "package test\n\nclass B\n",
+	})
+	h.wantFindings("cold", 2)
+	h.wantFindings("warm", 2)
+	if h.calls() != 1 {
+		t.Fatalf("warm run should reuse cross findings; calls=%d want 1", h.calls())
+	}
+	h.remove("B.kt")
+	h.wantFindings("after delete", 1)
+	if h.calls() != 2 {
+		t.Fatalf("delete must recompute cross findings; calls=%d want 2", h.calls())
+	}
+}
+
+// Java files are always indexed, even when no active rule needs Java before
+// dispatch. They must not defeat the warm hit, and deleting one must
+// invalidate it.
+func TestRunProject_WarmCrossFindingsJavaFileSet(t *testing.T) {
+	h := newWarmCrossHarness(t, "CrossRule", map[string]string{
+		"A.kt":   "package test\n\nclass A\n",
+		"J.java": "package test;\n\nclass J {}\n",
+	})
+	h.wantFindings("cold", 2)
+	h.wantFindings("warm", 2)
+	if h.calls() != 1 {
+		t.Fatalf("Kotlin-only cross rule with a .java file must still get a warm hit; calls=%d want 1", h.calls())
+	}
+	h.remove("J.java")
+	h.wantFindings("after java delete", 1)
+	if h.calls() != 2 {
+		t.Fatalf("java delete must recompute cross findings; calls=%d want 2", h.calls())
+	}
+}
+
+// The lexically-irrelevant-miss shortcut replays the last cross findings, so
+// it needs the same file-set check: delete B.kt and comment-edit A.kt.
+func TestRunProject_WarmCrossFindingsLexicalShortcutInvalidatedByDelete(t *testing.T) {
+	h := newWarmCrossHarness(t, "OnClick", map[string]string{
+		"A.kt": "package test\n\nclass A\n",
+		"B.kt": "package test\n\nclass B\n",
+	})
+	h.wantFindings("cold", 2)
+	h.remove("B.kt")
+	h.write("A.kt", "package test\n\nclass A\n// comment only\n")
+	h.wantFindings("after delete and comment edit", 1)
 }

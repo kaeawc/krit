@@ -1405,6 +1405,18 @@ func loadWarmCrossFindings(args ProjectArgs, host ProjectHostState, warm warmAna
 	if host.CrossFileCacheDir == "" || host.CrossFindingsCacheDir == "" || warm.ruleHash == "" {
 		return false, nil
 	}
+	meta, ok := scanner.LoadCurrentCrossFileCacheMeta(host.CrossFileCacheDir)
+	if !ok {
+		return false, nil
+	}
+	// Cross findings are only valid for the file set the index was built
+	// from. After a delete or rename every remaining file can still be a
+	// per-file cache hit (or a lexically irrelevant miss), so compare the
+	// indexed Kotlin/Java paths with the current ones before any reuse.
+	// XML inputs are not compared: that would need a content walk.
+	if !meta.CoversSourcePaths(crossIndexSourcePaths(args, warm)) {
+		return false, nil
+	}
 	if warm.result != nil && warm.result.TotalFiles > 0 && warm.result.TotalCached != warm.result.TotalFiles {
 		missPaths := CacheMissPaths(warm.filePaths, warm.result)
 		if canReuseCrossFindingsForLexicallyIrrelevantMisses(args.ActiveRules, missPaths) {
@@ -1413,15 +1425,6 @@ func loadWarmCrossFindings(args ProjectArgs, host ProjectHostState, warm warmAna
 				return true, &cols
 			}
 		}
-		return false, nil
-	}
-	meta, ok := scanner.LoadCurrentCrossFileCacheMeta(host.CrossFileCacheDir)
-	if !ok {
-		return false, nil
-	}
-	// Every remaining file can be a per-file cache hit after a delete, so
-	// require the indexed file set to match before trusting its findings.
-	if !meta.CoversSourcePaths(warm.filePaths) {
 		return false, nil
 	}
 	cols, ok := scanner.LoadCrossFindings(host.CrossFindingsCacheDir, scanner.CrossFindingsKey(meta.Fingerprint, warm.ruleHash))
@@ -3807,4 +3810,23 @@ func oracleFilterFingerprint(activeRules []*api.Rule, kotlinFiles []*scanner.Fil
 	}
 	sort.Strings(fileEntries)
 	return hashutil.HashHex([]byte(strings.Join(ruleIDs, "\x01") + "\x02" + strings.Join(fileEntries, "\x01")))
+}
+
+// crossIndexSourcePaths returns the Kotlin and Java source paths the
+// cross-file index covers. The index always includes Java, while
+// warm.filePaths carries Java only when a rule needs it before dispatch.
+func crossIndexSourcePaths(args ProjectArgs, warm warmAnalysisCachePlan) []string {
+	if NeedsJavaBeforeDispatch(args.ActiveRules) {
+		return warm.filePaths
+	}
+	javaPaths := args.JavaPaths
+	if javaPaths == nil {
+		if collected, err := scanner.CollectJavaFiles(args.Paths, nil); err == nil {
+			javaPaths = collected
+		}
+	}
+	javaPaths = filterGeneratedSourcePaths(javaPaths, args.IncludeGenerated, args.GeneratedSourceDirs...)
+	paths := make([]string, 0, len(warm.filePaths)+len(javaPaths))
+	paths = append(paths, warm.filePaths...)
+	return append(paths, javaPaths...)
 }

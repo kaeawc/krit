@@ -18,6 +18,9 @@ func TestCrossFileCacheMeta_CoversSourcePaths(t *testing.T) {
 		{"added file", []string{"A.kt", "B.java", "C.kt"}, false},
 		{"renamed file", []string{"A.kt", "C.java"}, false},
 	}
+	if (CrossFileCacheMeta{}).CoversSourcePaths([]string{"A.kt"}) {
+		t.Error("old meta with empty Entries must be a miss")
+	}
 	for _, tc := range cases {
 		if got := meta.CoversSourcePaths(tc.paths); got != tc.want {
 			t.Errorf("%s: CoversSourcePaths=%t, want %t", tc.name, got, tc.want)

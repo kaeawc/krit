@@ -92,26 +92,17 @@ func collectInOnCreateOracleConfirmed(lookup oracle.Lookup, file *scanner.File, 
 	if target == "" {
 		return false
 	}
-	for _, prefix := range collectInOnCreateFlowReceivers {
-		if strings.HasPrefix(target, prefix+".") || target == prefix+".collect" {
-			return true
-		}
-	}
-	return false
+	return strings.HasPrefix(target, collectInOnCreateFlowPackage)
 }
 
-// collectInOnCreateFlowReceivers are the Flow-family receivers whose
-// `collect` extension the rule cares about. Project-local `collect`
-// methods on unrelated types resolve to a different FQN and are
-// filtered out.
-var collectInOnCreateFlowReceivers = []string{
-	"kotlinx.coroutines.flow.Flow",
-	"kotlinx.coroutines.flow.FlowKt",
-	"kotlinx.coroutines.flow.SharedFlow",
-	"kotlinx.coroutines.flow.StateFlow",
-	"kotlinx.coroutines.flow.MutableSharedFlow",
-	"kotlinx.coroutines.flow.MutableStateFlow",
-}
+// collectInOnCreateFlowPackage prefixes every `collect` the rule cares
+// about: a member of a Flow-family type (`Flow.collect`,
+// `SharedFlow.collect`, `MutableStateFlow.collect`) or the package-level
+// extension, spelled `kotlinx.coroutines.flow.collect` by krit-fir and
+// `kotlinx.coroutines.flow.FlowKt.collect` by krit-types. The krit-fir
+// checker draws the same line. Project-local `collect` methods on unrelated
+// types resolve outside the package and are filtered out.
+const collectInOnCreateFlowPackage = "kotlinx.coroutines.flow."
 
 func registerCoroutinesGlobalCoroutineUsage() {
 	r := &GlobalCoroutineUsageRule{BaseRule: BaseRule{RuleName: "GlobalCoroutineUsage", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects GlobalScope.launch/async usage instead of structured concurrency with a proper CoroutineScope."}}
@@ -212,19 +203,8 @@ func registerCoroutinesInjectDispatcher() {
 			if args == 0 {
 				return
 			}
-			dispatcherNode, dispatcherName := findDirectDispatcherArgumentFlat(file, args, injectDispatcherNames(r.DispatcherNames))
-			if dispatcherNode == 0 {
-				return
-			}
-			if !injectDispatcherReferenceConfirmed(file, dispatcherNode) {
-				return
-			}
-			// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
-			var oracleLookup oracle.Lookup
-			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
-				oracleLookup = cr.Oracle()
-			}
-			if !injectDispatcherOracleConfirmed(oracleLookup, file, dispatcherNode, dispatcherName) {
+			operands := findDirectDispatcherArgumentsFlat(file, args, injectDispatcherNames(r.DispatcherNames))
+			if len(operands) == 0 {
 				return
 			}
 			// Idiomatic-host filter mirroring the FIR checker. Some
@@ -233,26 +213,39 @@ func registerCoroutinesInjectDispatcher() {
 			// `viewModelScope.launch`, `lifecycleScope.launchWhen*`),
 			// where injecting a dispatcher param doesn't help — the
 			// call already takes a dispatcher and the surrounding scope
-			// is fixed. Don't flag those. `Main` is similarly exempted
-			// because there's no "test main dispatcher" alternative.
+			// is fixed. Don't flag those.
 			if injectDispatcherIdiomaticHost(file, idx) {
 				return
 			}
-			if dispatcherName == "Main" {
-				return
+			// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+			var oracleLookup oracle.Lookup
+			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+				oracleLookup = cr.Oracle()
 			}
-			// Only flag when there is an injectable host: a member
-			// function of a class/object/companion. Top-level and
-			// extension functions have nowhere to inject a dispatcher,
-			// so a hardcoded Dispatchers.* there is not actionable.
-			// Mirrors the FIR checker's top-level/extension exemption.
-			if !injectDispatcherHasInjectableHost(file, dispatcherNode) {
-				return
+			for _, op := range operands {
+				// `Main` is exempted because there's no "test main
+				// dispatcher" alternative. It doesn't hide the other
+				// operands of a combined context (`Main + IO` runs on IO).
+				if op.name == "Main" {
+					continue
+				}
+				if !injectDispatcherReferenceConfirmed(file, op.node) {
+					continue
+				}
+				if !injectDispatcherOracleConfirmed(oracleLookup, file, op.node, op.name) {
+					continue
+				}
+				// Only flag when there is an injectable host: a member
+				// function of a class/object/companion. Top-level and
+				// extension functions have nowhere to inject a dispatcher,
+				// so a hardcoded Dispatchers.* there is not actionable.
+				// Mirrors the FIR checker's top-level/extension exemption.
+				if !injectDispatcherHasInjectableHost(file, op.node) {
+					continue
+				}
+				ctx.EmitAt(file.FlatRow(op.node)+1, file.FlatCol(op.node)+1,
+					fmt.Sprintf("Hardcoded Dispatchers.%s. Inject dispatchers for better testability.", op.name))
 			}
-			matchLine := file.FlatRow(dispatcherNode) + 1
-			matchCol := file.FlatCol(dispatcherNode) + 1
-			ctx.EmitAt(matchLine, matchCol,
-				fmt.Sprintf("Hardcoded Dispatchers.%s. Inject dispatchers for better testability.", dispatcherName))
 		},
 	})
 }
@@ -277,12 +270,30 @@ func injectDispatcherOracleConfirmed(lookup oracle.Lookup, file *scanner.File, d
 	if lookup == nil {
 		return true
 	}
+	// As the left operand of a `+` chain the dispatcher starts where the
+	// chain does, so a position lookup returns the chain's own target
+	// (CoroutineContext.plus), which says nothing about the dispatcher.
+	if injectDispatcherLeadsPlusChain(file, dispatcherNode) {
+		return true
+	}
 	target := oracleLookupCallTargetFlat(lookup, file, dispatcherNode)
 	if target == "" {
 		return true
 	}
 	expected := "kotlinx.coroutines.Dispatchers." + dispatcherName
 	return target == expected || target == "kotlinx.coroutines.Dispatchers.get"+dispatcherName
+}
+
+// injectDispatcherLeadsPlusChain reports whether an enclosing `+` chain
+// starts at the same byte as the dispatcher reference.
+func injectDispatcherLeadsPlusChain(file *scanner.File, dispatcherNode uint32) bool {
+	start := file.FlatStartByte(dispatcherNode)
+	for p, ok := file.FlatParent(dispatcherNode); ok && file.FlatStartByte(p) == start; p, ok = file.FlatParent(p) {
+		if file.FlatType(p) == "additive_expression" {
+			return true
+		}
+	}
+	return false
 }
 
 func registerCoroutinesRedundantSuspendModifier() {

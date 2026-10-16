@@ -225,6 +225,15 @@ class KritPlugin : Plugin<Project> {
         }
     }
 
+    private data class KotlinCompilerOptionsModel(
+        val languageVersion: String = "",
+        val apiVersion: String = "",
+        val optIn: List<String> = emptyList(),
+        val freeCompilerArgs: List<String> = emptyList(),
+        val progressiveMode: Boolean = false,
+        val pluginVersion: String = "",
+    ) : java.io.Serializable
+
     private data class ModelSpec(
         val name: String, val kind: String, val platform: String, val variant: String,
         val dirs: List<String>, val boot: Provider<List<String>>, val configuration: Configuration,
@@ -499,6 +508,55 @@ class KritPlugin : Plugin<Project> {
         }
     }
 
+    /**
+     * The Kotlin compiler settings of one compilation, read lazily from the
+     * compile task's `compilerOptions` (KGP 1.8+) or, for older plugins, the
+     * deprecated `kotlinOptions`. Every read is guarded on its own so a KGP
+     * that lacks one option (or a build without KGP, where the task is absent)
+     * still exports the rest; an unreadable option is exported as unset.
+     */
+    private fun kotlinCompilerOptions(project: Project, compileTask: String): Provider<KotlinCompilerOptionsModel> {
+        val pluginVersion = kotlinPluginVersion(project)
+        if (!project.tasks.names.contains(compileTask)) {
+            return project.provider { KotlinCompilerOptionsModel(pluginVersion = pluginVersion) }
+        }
+        // Wrapped in provider{} rather than TaskProvider.map{}: mapping a task
+        // provider would make the export task depend on running the compile task.
+        val task = project.tasks.named(compileTask)
+        return project.provider { readKotlinCompilerOptions(task.get(), pluginVersion) }
+    }
+
+    private fun kotlinPluginVersion(project: Project): String = try {
+        // KotlinTopLevelExtension.coreLibrariesVersion defaults to the plugin's version.
+        val kotlin = project.extensions.findByName("kotlin") ?: throw ReflectiveOperationException()
+        reflect(kotlin, "getCoreLibrariesVersion").toString()
+    } catch (_: Exception) { "" }
+
+    private fun readKotlinCompilerOptions(task: Any, pluginVersion: String): KotlinCompilerOptionsModel {
+        val options = runCatching { reflect(task, "getCompilerOptions") }.getOrNull()
+        val legacy = if (options == null) runCatching { reflect(task, "getKotlinOptions") }.getOrNull() else null
+        fun value(getter: String): Any? {
+            val holder = options ?: legacy ?: return null
+            val raw = runCatching { reflect(holder, getter) }.getOrNull() ?: return null
+            return if (raw is Provider<*>) raw.orNull else raw
+        }
+        fun text(getter: String): String {
+            val raw = value(getter) ?: return ""
+            // KotlinVersion exposes the "2.0" spelling through getVersion().
+            return runCatching { reflect(raw, "getVersion").toString() }.getOrElse { raw.toString() }
+        }
+        fun list(getter: String): List<String> =
+            (value(getter) as? Iterable<*>)?.mapNotNull { it?.toString() }.orEmpty()
+        return KotlinCompilerOptionsModel(
+            languageVersion = text("getLanguageVersion"),
+            apiVersion = text("getApiVersion"),
+            optIn = list("getOptIn"),
+            freeCompilerArgs = list("getFreeCompilerArgs"),
+            progressiveMode = value("getProgressiveMode") == true,
+            pluginVersion = pluginVersion,
+        )
+    }
+
     private fun androidRJar(project: Project, variant: String, kind: String, major: Int): Provider<List<String>> {
         val libraryMain = kind == "main" && project.plugins.hasPlugin(ANDROID_LIBRARY_PLUGIN_ID)
         val runtimeFolders = listOf("compile_and_runtime_not_namespaced_r_class_jar",
@@ -562,6 +620,13 @@ class KritPlugin : Plugin<Project> {
                 sourceDirs.set(spec.dirs)
                 bootClasspath.set(spec.boot)
                 jvmTarget.set(jvmTarget(project, spec.compileTask, spec.kind))
+                val kotlinOptions = kotlinCompilerOptions(project, spec.compileTask)
+                kotlinLanguageVersion.set(kotlinOptions.map { it.languageVersion })
+                kotlinApiVersion.set(kotlinOptions.map { it.apiVersion })
+                kotlinOptIn.set(kotlinOptions.map { it.optIn })
+                kotlinFreeCompilerArgs.set(kotlinOptions.map { it.freeCompilerArgs })
+                kotlinProgressiveMode.set(kotlinOptions.map { it.progressiveMode })
+                kotlinPluginVersion.set(kotlinOptions.map { it.pluginVersion })
                 val externalArtifacts = spec.configuration.incoming.artifactView {
                     if (spec.platform == "android") {
                         attributes.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "android-classes-jar")

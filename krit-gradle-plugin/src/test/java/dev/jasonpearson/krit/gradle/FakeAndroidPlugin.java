@@ -7,6 +7,7 @@ import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.file.RegularFile;
+import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.provider.Provider;
 
@@ -14,13 +15,49 @@ import org.gradle.api.provider.Provider;
 public class FakeAndroidPlugin implements Plugin<Project> {
     // Mirrors AndroidArtifacts.ArtifactType.R_CLASS_JAR = "r-class-jar" in AGP 8.8.0-alpha09.
     public static final String DEPENDENCY_R_CLASS_JAR_ARTIFACT_TYPE = "r-class-jar";
+    /** Mirrors org.jetbrains.kotlin.gradle.dsl.KotlinVersion: the "2.0" spelling is getVersion(). */
+    public static class FakeKotlinVersion {
+        private final String version;
+        public FakeKotlinVersion(String version) { this.version = version; }
+        public String getVersion() { return version; }
+        @Override public String toString() { return "KOTLIN_" + version.replace('.', '_'); }
+    }
     public static class CompilerOptions {
         private final Property<String> jvmTarget;
+        private final Property<FakeKotlinVersion> languageVersion;
+        private final Property<FakeKotlinVersion> apiVersion;
+        private final ListProperty<String> optIn;
+        private final ListProperty<String> freeCompilerArgs;
+        private final Property<Boolean> progressiveMode;
         public CompilerOptions(Project project) {
             jvmTarget = project.getObjects().property(String.class);
             jvmTarget.set("17");
+            languageVersion = project.getObjects().property(FakeKotlinVersion.class);
+            apiVersion = project.getObjects().property(FakeKotlinVersion.class);
+            optIn = project.getObjects().listProperty(String.class);
+            freeCompilerArgs = project.getObjects().listProperty(String.class);
+            progressiveMode = project.getObjects().property(Boolean.class);
+            // Kotlin settings are only configured when a test asks for them, so the
+            // other fixtures keep exercising the "nothing configured" export.
+            if (project.hasProperty("fakeKotlinOptions")) {
+                languageVersion.set(new FakeKotlinVersion("1.9"));
+                apiVersion.set(new FakeKotlinVersion("1.8"));
+                optIn.add("kotlin.RequiresOptIn");
+                optIn.add("com.example.Experimental");
+                freeCompilerArgs.addAll("-Xcontext-parameters", "-Xexplicit-backing-fields");
+                progressiveMode.set(true);
+            }
         }
         public Property<String> getJvmTarget() { return jvmTarget; }
+        public Property<FakeKotlinVersion> getLanguageVersion() { return languageVersion; }
+        public Property<FakeKotlinVersion> getApiVersion() { return apiVersion; }
+        public ListProperty<String> getOptIn() { return optIn; }
+        public ListProperty<String> getFreeCompilerArgs() { return freeCompilerArgs; }
+        public Property<Boolean> getProgressiveMode() { return progressiveMode; }
+    }
+    /** Mirrors KotlinTopLevelExtension.getCoreLibrariesVersion(). */
+    public static class FakeKotlinExtension {
+        public String getCoreLibrariesVersion() { return "2.1.20"; }
     }
     public static class CompileKotlin extends DefaultTask {
         private final CompilerOptions compilerOptions = new CompilerOptions(getProject());
@@ -85,6 +122,8 @@ public class FakeAndroidPlugin implements Plugin<Project> {
 
     @Override public void apply(Project project) {
         project.getExtensions().add("android", new Android(project.getProjectDir()));
+        if (project.hasProperty("fakeKotlinOptions"))
+            project.getExtensions().add("kotlin", new FakeKotlinExtension());
         if (!project.hasProperty("omitComponents"))
             project.getExtensions().add("androidComponents", new Components(project));
         if (project.hasProperty("fakeRJarKind")) {

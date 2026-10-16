@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/perf"
 )
 
@@ -141,6 +142,44 @@ func TestClassifyFiles_BroadEntrySatisfiesFilteredRun(t *testing.T) {
 	hits, misses := ClassifyFilesScoped(cacheDir, []string{a}, "filtered")
 	if len(hits) != 1 || len(misses) != 0 {
 		t.Fatalf("filtered run did not use broad entry: hits=%d misses=%d", len(hits), len(misses))
+	}
+}
+
+// Without a .krit/store the per-file entries live in the legacy directory and
+// carry no scope. After a settings-only change, an unchanged file must not hit
+// the entry computed under the old Kotlin settings.
+func TestLegacyEntriesAreScopedByKotlinSettings(t *testing.T) {
+	tmp := t.TempDir()
+	base, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := writeTempFile(t, tmp, "A.kt", "class A\n")
+	hash, _ := ContentHash(a)
+	fp, _ := closureFingerprint(nil, nil)
+	older := InvocationOptions{Backend: BackendKAA, Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}}
+	newer := InvocationOptions{Backend: BackendKAA, Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "2.2", APIVersion: "2.2"}}
+	dirOld, dirNew := scopedLegacyCacheDir(base, older), scopedLegacyCacheDir(base, newer)
+	if dirOld == dirNew || dirOld == base || dirNew == base {
+		t.Fatalf("settings must separate legacy entry directories: %q %q %q", base, dirOld, dirNew)
+	}
+	if scopedLegacyCacheDir(base, older) != dirOld {
+		t.Fatal("scoped directory must be deterministic")
+	}
+	if scopedLegacyCacheDir(base, InvocationOptions{Backend: BackendKAA}) != base {
+		t.Fatal("no settings, JVM target or classpath must keep the original directory")
+	}
+	if err := WriteEntry(dirOld, &CacheEntry{
+		ContentHash: hash, FilePath: a, FileResult: &File{Package: "old"},
+		Closure: CacheClosure{DepPaths: nil, Fingerprint: fp},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if hits, misses := ClassifyFiles(dirOld, []string{a}); len(hits) != 1 || len(misses) != 0 {
+		t.Fatalf("same settings must hit: hits=%d misses=%d", len(hits), len(misses))
+	}
+	if hits, misses := ClassifyFiles(dirNew, []string{a}); len(hits) != 0 || len(misses) != 1 {
+		t.Fatalf("settings-only change reused an old-settings entry: hits=%d misses=%d", len(hits), len(misses))
 	}
 }
 

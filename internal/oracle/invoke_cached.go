@@ -31,6 +31,7 @@ import (
 	"github.com/kaeawc/krit/internal/fileignore"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/gradlemodel"
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/store"
 )
@@ -398,6 +399,7 @@ func InvokeCachedWithOptions(
 		addOracleInstant(tracker, "cacheBypass", nil, map[string]string{"reason": "cacheDirInit"})
 		return InvokeWithFilesWithOptions(jarPath, sourceDirs, outputPath, filterListPath, verbose, opts)
 	}
+	cacheDir = scopedLegacyCacheDir(cacheDir, opts)
 
 	var ktFiles []string
 	if err := trackOracle(tracker, "collectKtFiles", func() error {
@@ -1316,4 +1318,24 @@ func writeOracleJSON(path string, data *Data) error {
 		return fmt.Errorf("write oracle json: %w", err)
 	}
 	return nil
+}
+
+// scopedLegacyCacheDir separates the per-file entries of the legacy (no
+// .krit/store) layout by compile scope. Without a store the entries carry no
+// scope of their own, so after a settings-only change plus one edit the
+// unchanged files would still hit entries computed under the old Kotlin
+// settings, JVM target or classpath and be merged with fresh facts into one
+// inconsistent types.json. A run with none of those set keeps the original
+// directory, so existing caches stay valid.
+func scopedLegacyCacheDir(cacheDir string, opts InvocationOptions) string {
+	jvm := ""
+	if opts.Backend == BackendFIR {
+		jvm = opts.JvmTarget
+	}
+	kotlin := opts.Kotlin.Identity()
+	if kotlin == "" && jvm == "" && len(opts.Classpath) == 0 {
+		return cacheDir
+	}
+	key := kotlin + "\x00" + jvm + "\x00" + gradlemodel.ClasspathFingerprint(AbsolutePaths(opts.Classpath))
+	return filepath.Join(filepath.Dir(cacheDir), filepath.Base(cacheDir)+"-"+hashutil.HashHex([]byte(key))[:12])
 }

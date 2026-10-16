@@ -117,12 +117,7 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		return nil, err
 	}
 	in.Host.SourceSetClean = !cold && len(dirty) == 0
-	if !cold && dirtyIntroducesSourceFile(dirty, in.Host.PriorContentHashes, state.root) {
-		// The prior manifest's path lists cannot name a file that did not
-		// exist when it was written. Hand the pipeline no lists so it walks
-		// the source roots and sees the added (or renamed-to) file.
-		in.Args.KotlinPaths, in.Args.JavaPaths = nil, nil
-	}
+	dropStalePrepopulatedPaths(&in, cold, dirty, state.root)
 	if !cold {
 		// Hand the watcher's observed-dirty set to the pipeline so
 		// preparseSourcePaths can skip the 30-40s cold-OS-dentry-cache

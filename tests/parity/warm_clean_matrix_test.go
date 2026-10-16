@@ -351,15 +351,18 @@ func wcCopy(t *testing.T, src, dst string, keepCache bool) {
 func wcTreeIdentity(root string) string {
 	var lines []string
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			if err == nil && d.Name() == ".krit" {
+		if err != nil {
+			return fs.SkipDir
+		}
+		if d.IsDir() {
+			if d.Name() == ".krit" {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 		raw, rerr := os.ReadFile(path)
 		if rerr != nil {
-			return nil
+			return rerr
 		}
 		sum := sha256.Sum256(raw)
 		rel, _ := filepath.Rel(root, path)

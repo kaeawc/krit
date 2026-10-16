@@ -457,6 +457,15 @@ func (s *daemonState) prepopulatedSourcePaths(repoDir string, paths []string) (k
 	return kotlinPaths, javaPaths
 }
 
+// dropStalePrepopulatedPaths hands the pipeline no source-path lists when the
+// prior manifest's lists cannot be complete, so it walks the source roots and
+// sees an added (or renamed-to) file.
+func dropStalePrepopulatedPaths(in *pipeline.ProjectInput, cold bool, dirty []string, root string) {
+	if !cold && dirtyIntroducesSourceFile(dirty, in.Host.PriorContentHashes, root) {
+		in.Args.KotlinPaths, in.Args.JavaPaths = nil, nil
+	}
+}
+
 // dirtyIntroducesSourceFile reports whether any watcher-dirty Kotlin or Java
 // path is absent from the prior manifest's content hashes, that is, may be a
 // file added (or renamed to) since the manifest was written. The prepopulated

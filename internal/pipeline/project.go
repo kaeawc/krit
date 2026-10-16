@@ -1960,7 +1960,7 @@ func runDispatchOrLoadBundle(
 		// cacheHitFullBundle: RunFingerprint matches a prior run
 		// exactly; the prior bytes are guaranteed correct for this
 		// request.
-		if d, c, ok := tryBundleLayer(tracker, "dispatchBundleLoad", indexResult, func() (*scanner.FindingColumns, bool) {
+		if d, c, ok := tryBundleLayer(tracker, indexResult, func() (*scanner.FindingColumns, bool) {
 			cached, found := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, runFP)
 			return cached, found
 		}); ok {
@@ -1975,8 +1975,9 @@ func runDispatchOrLoadBundle(
 		var deltaC CrossFileResult
 		var deltaOK bool
 		var deltaErr error
+		var deltaTimes dispatchTimings
 		deltaStart := time.Now()
-		deltaD, deltaC, deltaOK, deltaErr = tryDeltaDispatch(ctx, args, host, indexResult, parseResult, runFP, manifest)
+		deltaD, deltaC, deltaOK, deltaTimes, deltaErr = tryDeltaDispatch(ctx, args, host, indexResult, parseResult, runFP, manifest)
 		deltaOutcome := "miss"
 		if deltaOK {
 			deltaOutcome = "hit"
@@ -1987,7 +1988,7 @@ func runDispatchOrLoadBundle(
 		}
 		if deltaOK {
 			recordDispatchPath("cacheHitDeltaBundle")
-			return deltaD, deltaC, false, dispatchTimings{}, nil
+			return deltaD, deltaC, false, deltaTimes, nil
 		}
 		// cacheHitAffectedSetBundle: the single-file delta planner declined
 		// (multi-file edit, or an ABI change that drifts the CrossFile
@@ -2029,14 +2030,13 @@ func runDispatchOrLoadBundle(
 
 // tryBundleLayer wraps a single bundle-cache lookup in its own perf
 // scope and packages the (cached → DispatchResult/CrossFileResult)
-// adaptation that both the full-fingerprint and structural-reuse
-// layers need. Returns (_, _, false) when the layer misses (caller
+// adaptation that the full-fingerprint bundle
+// layer needs. Returns (_, _, false) when the layer misses (caller
 // falls through to the next layer); returns (d, c, true) when the
 // cached FindingColumns is non-nil and the caller should short-return
 // with bundleHit=true.
 func tryBundleLayer(
 	tracker perf.Tracker,
-	scope string,
 	indexResult IndexResult,
 	load func() (*scanner.FindingColumns, bool),
 ) (DispatchResult, CrossFileResult, bool) {
@@ -2057,7 +2057,7 @@ func tryBundleLayer(
 	if ok && cached != nil {
 		outcome = "hit"
 	}
-	perf.AddEntryDetails(tracker, scope, dur, nil, map[string]string{"outcome": outcome})
+	perf.AddEntryDetails(tracker, "dispatchBundleLoad", dur, nil, map[string]string{"outcome": outcome})
 	if !ok || cached == nil {
 		return DispatchResult{}, CrossFileResult{}, false
 	}
@@ -2831,25 +2831,25 @@ func tryDeltaDispatch(
 	parseResult ParseResult,
 	runFP scanner.RunFingerprint,
 	manifest deltaManifestData,
-) (DispatchResult, CrossFileResult, bool, error) {
+) (DispatchResult, CrossFileResult, bool, dispatchTimings, error) {
 	if !manifest.enabled || manifest.manifestKey == "" {
-		return DispatchResult{}, CrossFileResult{}, false, nil
+		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, nil
 	}
 	prior, ok := loadBundleManifest(host, manifest.manifestKey)
 	if !ok {
-		return DispatchResult{}, CrossFileResult{}, false, nil
+		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, nil
 	}
 	changedPaths := diffContentHashes(prior.ContentHashes, manifest.contentHashes)
 	plan := scanner.ConservativeDeltaPlanner{}.Plan(prior.Fingerprint, runFP, changedPaths)
 	if !plan.ReusePrevious || len(plan.ChangedPaths) != 1 {
-		return DispatchResult{}, CrossFileResult{}, false, nil
+		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, nil
 	}
 	priorKey := scanner.FindingsBundleKey(prior.Fingerprint)
 	priorBundle := residentBundleLookup(host, priorKey)
 	if priorBundle == nil {
 		loaded, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, prior.Fingerprint)
 		if !ok || loaded == nil {
-			return DispatchResult{}, CrossFileResult{}, false, nil
+			return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, nil
 		}
 		priorBundle = loaded
 		residentBundleStash(host, priorKey, priorBundle)
@@ -2858,15 +2858,17 @@ func tryDeltaDispatch(
 	changedPath := plan.ChangedPaths[0]
 	changedFile := findFileByPath(parseResult, changedPath)
 	if changedFile == nil {
-		return DispatchResult{}, CrossFileResult{}, false, nil
+		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, nil
 	}
 
 	// Per-file rules run on the edited file only.
 	scoped := indexResult
 	scoped.ParseResult = scopeParseResult(parseResult, changedFile)
+	dispatchStart := time.Now()
 	d, err := DispatchPhase{}.Run(ctx, scoped)
+	dispatchMs := time.Since(dispatchStart).Milliseconds()
 	if err != nil {
-		return DispatchResult{}, CrossFileResult{}, false, fmt.Errorf("dispatch (delta): %w", err)
+		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, fmt.Errorf("dispatch (delta): %w", err)
 	}
 	// Project-scope rules (cross-file, parsed-files, module-index) are
 	// promised the complete project and may report on any file, so they
@@ -2877,9 +2879,19 @@ func tryDeltaDispatch(
 	full := d
 	full.IndexResult = indexResult
 	full.Findings = scanner.FindingColumns{}
+	crossStart := time.Now()
 	c, err := CrossFilePhase{Workers: args.Workers}.Run(ctx, full)
+	crossMs := time.Since(crossStart).Milliseconds()
 	if err != nil {
-		return DispatchResult{}, CrossFileResult{}, false, fmt.Errorf("crossfile (delta): %w", err)
+		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, fmt.Errorf("crossfile (delta): %w", err)
+	}
+
+	// A rule panic recorded by either phase leaves a degraded result: its
+	// rows are missing from the regenerated set and the prior rows were
+	// dropped. Decline so the full path reports the error and skips the
+	// bundle save instead of caching the loss.
+	if len(d.Stats.Errors) > 0 || len(c.Stats.Errors) > 0 {
+		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, nil
 	}
 
 	replacement := scanner.NewFindingCollector(perFile.Len() + c.Findings.Len())
@@ -2892,7 +2904,7 @@ func tryDeltaDispatch(
 	d.Findings = merged
 	c.DispatchResult = d
 	c.Findings = merged
-	return d, c, true, nil
+	return d, c, true, dispatchTimings{dispatchMs: dispatchMs, crossFileMs: crossMs}, nil
 }
 
 // projectScopeRuleIDs returns the IDs of rules the cross-file phase runs

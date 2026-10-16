@@ -64,6 +64,11 @@ type RunFingerprint struct {
 	OracleFacts  string
 	Android      string
 	LibraryFacts string
+	// CompilerSettings is the canonical identity of the Kotlin compiler
+	// settings (language/API level, opt-ins, semantic flags) the project is
+	// analyzed under. Empty means the embedded compiler defaults and is omitted
+	// from FindingsBundleKey for parity with bundles written before it existed.
+	CompilerSettings string
 }
 
 type FindingsBundleStore interface {
@@ -94,7 +99,8 @@ func (ConservativeDeltaPlanner) Plan(previous, current RunFingerprint, changed [
 		previous.CrossFile == current.CrossFile &&
 		previous.OracleFacts == current.OracleFacts &&
 		previous.Android == current.Android &&
-		previous.LibraryFacts == current.LibraryFacts
+		previous.LibraryFacts == current.LibraryFacts &&
+		previous.CompilerSettings == current.CompilerSettings
 	if !stable {
 		return DeltaPlan{ChangedPaths: changed, AffectedPaths: changed}
 	}
@@ -277,6 +283,9 @@ func FindingsBundleKey(fp RunFingerprint) string {
 	}
 	writeFingerprintField(h, fp.Android)
 	writeFingerprintField(h, fp.LibraryFacts)
+	if fp.CompilerSettings != "" {
+		writeFingerprintField(h, fp.CompilerSettings)
+	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 

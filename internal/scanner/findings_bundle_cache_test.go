@@ -74,6 +74,34 @@ func TestConservativeDeltaPlanner_GlobalFingerprintChangeDisablesDelta(t *testin
 	}
 }
 
+// Kotlin compiler settings are part of the findings identity: the same
+// sources under another language level may be analyzed differently.
+func TestFindingsBundleKey_CompilerSettingsOnlyChange(t *testing.T) {
+	base := RunFingerprint{Version: "v1", Rules: "rules", Config: "config", SourceSet: "src", CrossFile: "cross"}
+	withOld := base
+	withOld.CompilerSettings = "kotlin-settings-v1|lang=1.9"
+	withNew := base
+	withNew.CompilerSettings = "kotlin-settings-v1|lang=2.4"
+	keys := map[string]string{
+		"none": FindingsBundleKey(base), "old": FindingsBundleKey(withOld), "new": FindingsBundleKey(withNew),
+	}
+	if keys["none"] == keys["old"] || keys["old"] == keys["new"] || keys["none"] == keys["new"] {
+		t.Fatalf("settings-only change kept the bundle key: %v", keys)
+	}
+	// An absent setting hashes exactly as before the field existed.
+	legacy := RunFingerprint{Version: "v1", Rules: "rules", Config: "config", SourceSet: "src", CrossFile: "cross", CompilerSettings: ""}
+	if FindingsBundleKey(legacy) != FindingsBundleKey(base) {
+		t.Fatal("empty CompilerSettings changed the key")
+	}
+	plan := (ConservativeDeltaPlanner{}).Plan(withOld, withNew, []string{"/repo/A.kt"})
+	if plan.ReusePrevious {
+		t.Fatal("a compiler settings change must not be treated as a single-file delta")
+	}
+	if !(ConservativeDeltaPlanner{}).Plan(withOld, withOld, []string{"/repo/A.kt"}).ReusePrevious {
+		t.Fatal("unchanged settings must still allow a single-file delta")
+	}
+}
+
 func TestApplyDelta_ReplacesAffectedRowsAndKeepsProjectRows(t *testing.T) {
 	prev := CollectFindings([]Finding{
 		{File: "/repo/A.kt", Line: 2, Rule: "RuleA", Message: "old"},

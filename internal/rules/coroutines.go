@@ -109,16 +109,41 @@ func injectDispatcherNames(names []string) map[string]bool {
 	return out
 }
 
-func findDirectDispatcherArgumentFlat(file *scanner.File, args uint32, names map[string]bool) (uint32, string) {
+// injectDispatcherOperand is one hardcoded `Dispatchers.<name>` reference
+// passed as (part of) a call argument.
+type injectDispatcherOperand struct {
+	node uint32
+	name string
+}
+
+// findDirectDispatcherArgumentsFlat returns every hardcoded dispatcher the
+// call's arguments pass, in source order.
+func findDirectDispatcherArgumentsFlat(file *scanner.File, args uint32, names map[string]bool) []injectDispatcherOperand {
+	var out []injectDispatcherOperand
 	for i := 0; i < file.FlatNamedChildCount(args); i++ {
 		arg := file.FlatNamedChild(args, i)
 		if arg == 0 || file.FlatType(arg) != "value_argument" || file.FlatNamedChildCount(arg) == 0 {
 			continue
 		}
-		value := file.FlatNamedChild(arg, 0)
-		if value == 0 || file.FlatType(value) != "navigation_expression" {
-			continue
-		}
+		out = appendInjectDispatcherOperandsFlat(file, file.FlatNamedChild(arg, 0), names, out)
+	}
+	return out
+}
+
+// appendInjectDispatcherOperandsFlat appends the `Dispatchers.<name>`
+// references an argument value passes: the value itself, or every operand of
+// a `+` chain that combines it with other context elements
+// (`SupervisorJob() + Dispatchers.IO`, `Dispatchers.Main + Dispatchers.IO`).
+// The combined context goes to the same call, so each dispatcher is as
+// hardcoded there as a lone argument; the FIR checker reports each of them.
+// A chain with any other operator is not a context combination and is left
+// alone.
+func appendInjectDispatcherOperandsFlat(file *scanner.File, value uint32, names map[string]bool, out []injectDispatcherOperand) []injectDispatcherOperand {
+	if value == 0 {
+		return out
+	}
+	switch file.FlatType(value) {
+	case "navigation_expression":
 		receiver := ""
 		if file.FlatNamedChildCount(value) > 0 {
 			first := file.FlatNamedChild(value, 0)
@@ -128,10 +153,23 @@ func findDirectDispatcherArgumentFlat(file *scanner.File, args uint32, names map
 		}
 		member := flatNavigationExpressionLastIdentifier(file, value)
 		if receiver == "Dispatchers" && names[member] {
-			return value, member
+			out = append(out, injectDispatcherOperand{node: value, name: member})
+		}
+	case "parenthesized_expression":
+		if file.FlatNamedChildCount(value) == 1 {
+			return appendInjectDispatcherOperandsFlat(file, file.FlatNamedChild(value, 0), names, out)
+		}
+	case "additive_expression":
+		for child := file.FlatFirstChild(value); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "-" {
+				return out
+			}
+		}
+		for i := 0; i < file.FlatNamedChildCount(value); i++ {
+			out = appendInjectDispatcherOperandsFlat(file, file.FlatNamedChild(value, i), names, out)
 		}
 	}
-	return 0, ""
+	return out
 }
 
 // injectDispatcherIdiomaticHost reports whether a call_expression's

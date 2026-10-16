@@ -631,7 +631,7 @@ func (d *FirDaemon) Close() error {
 			if d.cmd != nil && d.cmd.Process != nil {
 				d.cmd.Process.Kill()
 			}
-			<-done
+			<-done //nolint:errcheck // killed above, so the exit error is expected
 			jvmaot.FinalizeRecording(d.cmd.Args, false)
 		}
 	}

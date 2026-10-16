@@ -1,8 +1,10 @@
 package test
 
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
@@ -96,6 +98,20 @@ suspend fun String.loadExt() {
 // shape carries type parameters but is still an extension.
 suspend fun <T> T.loadGenericExt() {
     withContext(Dispatchers.IO) { fetchFromNetwork() }
+}
+
+// Scope construction is an idiomatic dispatcher host, and stays one when
+// the dispatcher is combined with other context elements: the `+` is not a
+// host of its own. A combined context that is not passed to a call is not a
+// dispatcher argument at all.
+class ImageCache(private val ioDispatcher: CoroutineDispatcher) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val named = CoroutineScope(Dispatchers.Default + CoroutineName("cache"))
+    private val context = SupervisorJob() + Dispatchers.IO
+
+    suspend fun injectedCombined() {
+        withContext(ioDispatcher + CoroutineName("load")) { fetchFromNetwork() }
+    }
 }
 
 fun fetchFromNetwork() = Unit

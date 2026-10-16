@@ -102,6 +102,7 @@ func (o *Oracle) SetExpressionFact(filePath string, line, col int, t *typeinfer.
 	if o == nil || t == nil {
 		return
 	}
+	filePath = o.fileKey(filePath)
 	fileExprs, ok := o.expressions[filePath]
 	if !ok {
 		fileExprs = make(map[uint64]*typeinfer.ResolvedType)

@@ -162,9 +162,9 @@ func TestCloseDoesNotDeleteTakenOverRecord(t *testing.T) {
 // lock) and publishFirDaemon keeps it private.
 func TestPublishDoesNotReplaceLiveRegisteredDaemon(t *testing.T) {
 	isolateRegistry(t)
-	pids := livePIDs(t, 2)
-	incumbent, newcomer := pids[0], pids[1]
-	must(t, writeFirRegistry(incumbent, 5000, "incumbent", firAOTMeta{PID: incumbent, Verified: true}))
+	incumbent, incumbentPort := pingListener(t)
+	newcomer := livePIDs(t, 1)[0]
+	must(t, writeFirRegistry(incumbent, incumbentPort, "incumbent", firAOTMeta{PID: incumbent, Verified: true}))
 	before, _ := os.ReadFile(firPortPath("incumbent"))
 
 	if err := writeFirRegistry(newcomer, 5001, "incumbent", firAOTMeta{PID: newcomer, Verified: true}); !errors.Is(err, errFirRegistryOwned) {
@@ -182,7 +182,7 @@ func TestPublishDoesNotReplaceLiveRegisteredDaemon(t *testing.T) {
 	}
 
 	// A dead incumbent is replaceable, and the same PID may re-publish.
-	must(t, writeFirRegistry(incumbent, 5000, "incumbent", firAOTMeta{PID: incumbent, Verified: true}))
+	must(t, writeFirRegistry(incumbent, incumbentPort, "incumbent", firAOTMeta{PID: incumbent, Verified: true}))
 	dead := exec.Command("true")
 	must(t, dead.Run())
 	must(t, writeFirRegistryClaimed(dead.Process.Pid, 5002, "gone", firAOTMeta{PID: dead.Process.Pid, Verified: true}))

@@ -34,10 +34,15 @@ func TestConcurrentVerifiersPublishExactlyOnce(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", t.TempDir())
 	const n = 12
-	pids := livePIDs(t, n)
+	pids := make([]int, n)
+	ports := make([]int, n)
+	for i := range pids {
+		// Each verifier is a live daemon: a live PID whose port accepts.
+		pids[i], ports[i] = pingListener(t)
+	}
 	daemons := make([]*FirDaemon, n)
 	for i := range daemons {
-		daemons[i] = &FirDaemon{sourcesHash: "race", aotCachePath: "/c.aot", aotPID: pids[i], port: 20000 + i, unpublished: true}
+		daemons[i] = &FirDaemon{sourcesHash: "race", aotCachePath: "/c.aot", aotPID: pids[i], port: ports[i], unpublished: true}
 	}
 	start := make(chan struct{})
 	var wg sync.WaitGroup
@@ -71,7 +76,7 @@ func TestConcurrentVerifiersPublishExactlyOnce(t *testing.T) {
 	port, perr := os.ReadFile(firPortPath("race"))
 	meta, merr := os.ReadFile(firAOTPath("race"))
 	if !ok || pid != pids[winner] || perr != nil || merr != nil ||
-		strings.TrimSpace(string(port)) != strconv.Itoa(20000+winner) ||
+		strings.TrimSpace(string(port)) != strconv.Itoa(ports[winner]) ||
 		!strings.Contains(string(meta), fmt.Sprintf(`"pid":%d`, pids[winner])) || !strings.Contains(string(meta), `"verified":true`) {
 		t.Fatalf("registry inconsistent: pid=%d,%v port=%q,%v meta=%q,%v (winner %d pid %d)", pid, ok, port, perr, meta, merr, winner, pids[winner])
 	}

@@ -10,6 +10,7 @@ package firchecks
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -236,12 +237,12 @@ func startFirDaemonWithAOT(jarPath string, verbose, allowAOT bool, jvmTarget ...
 	select {
 	case res := <-readyCh:
 		if res.err != nil {
-			cmd.Process.Kill()
+			killAndReap(cmd)
 			return nil, res.err
 		}
 		ready = res.ready
 	case <-time.After(startupTimeout):
-		cmd.Process.Kill()
+		killAndReap(cmd)
 		return nil, fmt.Errorf("fir daemon startup timed out after %s", startupTimeout)
 	}
 
@@ -251,7 +252,7 @@ func startFirDaemonWithAOT(jarPath string, verbose, allowAOT bool, jvmTarget ...
 
 	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", ready.Port))
 	if err != nil {
-		cmd.Process.Kill()
+		killAndReap(cmd)
 		return nil, fmt.Errorf("connect to fir daemon port %d: %w", ready.Port, err)
 	}
 
@@ -398,7 +399,7 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 	d.jvmTarget = target
 	if err := publishFirDaemon(d, d.cmd.Process.Pid, srcHash, verbose); err != nil {
 		d.conn.Close()
-		d.cmd.Process.Kill()
+		killAndReap(d.cmd)
 		return nil, fmt.Errorf("write fir PID file: %w", err)
 	}
 	return d, nil
@@ -523,9 +524,7 @@ func (d *FirDaemon) exchangeLocked(data []byte) (string, error) {
 		}
 		line = res.line
 	case <-time.After(timeout):
-		if d.cmd != nil && d.cmd.Process != nil {
-			_ = d.cmd.Process.Kill()
-		}
+		killAndReap(d.cmd)
 		d.started = false
 		return "", fmt.Errorf("fir daemon request timed out after %s; daemon killed", timeout)
 	}
@@ -804,7 +803,7 @@ var errFirRegistryOwned = errors.New("fir registry key already owned by another 
 func writeFirRegistryClaimed(pid, port int, sourcesHash string, meta firAOTMeta) error {
 	// Re-read the registered PID now that the lock is held: another live
 	// daemon already registered for this key is never displaced.
-	if registered, found := registeredFirPID(sourcesHash); found && registered != pid && firPIDAlive(registered) {
+	if registered, found := registeredFirPID(sourcesHash); found && registered != pid && firDaemonServes(sourcesHash, registered) {
 		return errFirRegistryOwned
 	}
 	_ = os.Remove(firPIDPath(sourcesHash))
@@ -822,8 +821,19 @@ func writeFirRegistryClaimed(pid, port int, sourcesHash string, meta firAOTMeta)
 
 func firLockPath(sourcesHash string) string { return firPIDPath(sourcesHash) + ".lock" }
 
-// firClaimWait bounds how long a publisher waits for another one.
-var firClaimWait = 3 * time.Second
+// How long stopFirDaemonIf waits for SIGTERM, then after SIGKILL, while it
+// holds the per-key lock.
+var (
+	firStopTermWait = 5 * time.Second
+	firStopKillWait = 500 * time.Millisecond
+)
+
+// firClaimWait bounds how long anyone waits for the per-key lock. It must
+// exceed the longest the lock is legitimately held, which is a stop's
+// firStopTermWait+firStopKillWait: if it did not, every publisher or Close
+// queued behind a stop would give up and stay private. The margin covers the
+// slower publish writes and scheduling delays.
+var firClaimWait = firStopTermWait + firStopKillWait + 3*time.Second
 
 // claimFirRegistry takes the per-key publication lock: an OS advisory lock,
 // so exactly one process checks-and-publishes at a time and the kernel
@@ -886,6 +896,30 @@ func writeFirAOTMeta(sourcesHash string, meta firAOTMeta) error {
 	return nil
 }
 
+// firDaemonServes reports whether the registered PID is demonstrably the
+// daemon: the process is alive AND the record's port accepts a connection. A
+// bare live PID proves little, since a PID can be reused by an unrelated
+// process after a crash or reboot; such a record is replaceable.
+func firDaemonServes(sourcesHash string, pid int) bool {
+	if !firPIDAlive(pid) {
+		return false
+	}
+	data, err := os.ReadFile(firPortPath(sourcesHash))
+	if err != nil {
+		return false
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || port <= 0 {
+		return false
+	}
+	conn, err := (&net.Dialer{Timeout: 500 * time.Millisecond}).DialContext(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
 func registeredFirPID(sourcesHash string) (int, bool) {
 	data, err := os.ReadFile(firPIDPath(sourcesHash))
 	if err != nil {
@@ -895,9 +929,38 @@ func registeredFirPID(sourcesHash string) (int, bool) {
 	return pid, err == nil
 }
 
+// firPIDAlive reports whether pid is a running process. An exited but
+// unreaped child (a zombie) still answers signal 0, so it is checked
+// separately where /proc exposes the state.
 func firPIDAlive(pid int) bool {
 	proc, err := os.FindProcess(pid)
-	return err == nil && proc.Signal(syscall.Signal(0)) == nil
+	if err != nil || proc.Signal(syscall.Signal(0)) != nil {
+		return false
+	}
+	return !firPIDZombie(pid)
+}
+
+// firPIDZombie reads the process state from /proc/<pid>/stat, whose third
+// field follows the last ')' of "pid (comm) S ...". It is false where /proc
+// is unavailable.
+func firPIDZombie(pid int) bool {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return false
+	}
+	i := bytes.LastIndexByte(data, ')')
+	return i >= 0 && i+2 < len(data) && data[i+2] == 'Z'
+}
+
+// killAndReap kills a process this program launched and reaps it in the
+// background, so it does not linger as a zombie that other runs would see as
+// a live registered owner.
+func killAndReap(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	_ = cmd.Process.Kill()
+	go func() { _ = cmd.Wait() }()
 }
 
 // markAOTVerified records that the canary passed.
@@ -988,8 +1051,7 @@ func connectExistingFirDaemon(hash string, verbose bool) (*FirDaemon, error) {
 		return nil, fmt.Errorf("parse fir port: %w", err)
 	}
 
-	proc, ferr := os.FindProcess(pid)
-	if ferr != nil || proc.Signal(syscall.Signal(0)) != nil {
+	if !firPIDAlive(pid) {
 		return nil, fmt.Errorf("fir daemon PID %d not alive", pid)
 	}
 
@@ -1070,7 +1132,7 @@ func stopFirDaemonIf(hash string, expect int, verbose bool) bool {
 		return false
 	}
 	proc, ferr := os.FindProcess(pid)
-	if ferr != nil || proc.Signal(syscall.Signal(0)) != nil {
+	if ferr != nil || !firPIDAlive(pid) {
 		if verbose {
 			reporter().Verbosef("verbose: Cleaning stale krit-fir daemon PID file (PID %d not alive)\n", pid)
 		}
@@ -1081,16 +1143,16 @@ func stopFirDaemonIf(hash string, expect int, verbose bool) bool {
 		reporter().Verbosef("verbose: Killing unresponsive krit-fir daemon (PID %d)\n", pid)
 	}
 	proc.Signal(syscall.SIGTERM)
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(firStopTermWait)
 	for time.Now().Before(deadline) {
-		if proc.Signal(syscall.Signal(0)) != nil {
+		if !firPIDAlive(pid) {
 			break
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 	}
-	if proc.Signal(syscall.Signal(0)) == nil {
+	if firPIDAlive(pid) {
 		proc.Signal(syscall.SIGKILL)
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(firStopKillWait)
 	}
 	removeFirRegistryFiles(hash)
 	return true

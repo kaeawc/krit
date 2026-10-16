@@ -170,7 +170,7 @@ func TestDispatcher_FlatDispatchRuleRunsOnFlatTree(t *testing.T) {
 	if columns.LineAt(0) != 1 {
 		t.Fatalf("expected flat finding on line 1, got %d", columns.LineAt(0))
 	}
-	if stats.DispatchRuleNsByRule[rule.ID] <= 0 {
+	if ns, ok := stats.DispatchRuleNsByRule[rule.ID]; !ok || ns < 0 {
 		t.Fatalf("expected flat rule timing to be recorded, got %+v", stats.DispatchRuleNsByRule)
 	}
 
@@ -295,10 +295,13 @@ fun second() = 2
 	if len(columnStats.DispatchRuleNsByRule) != len(sliceStats.DispatchRuleNsByRule) {
 		t.Fatalf("expected same number of per-rule timing entries, got columns=%+v slice=%+v", columnStats.DispatchRuleNsByRule, sliceStats.DispatchRuleNsByRule)
 	}
-	if len(columnStats.DispatchRuleNsByRule) != 1 || columnStats.DispatchRuleNsByRule[rule.ID] <= 0 {
+	// A trivial rule can finish within one clock tick, so a recorded
+	// timing of 0ns is valid; assert the entry exists, not that it is
+	// positive.
+	if ns, ok := columnStats.DispatchRuleNsByRule[rule.ID]; len(columnStats.DispatchRuleNsByRule) != 1 || !ok || ns < 0 {
 		t.Fatalf("expected recorded timing for %s, got %+v", rule.ID, columnStats.DispatchRuleNsByRule)
 	}
-	if sliceStats.DispatchRuleNsByRule[rule.ID] <= 0 {
+	if ns, ok := sliceStats.DispatchRuleNsByRule[rule.ID]; !ok || ns < 0 {
 		t.Fatalf("expected RunWithStats timing for %s, got %+v", rule.ID, sliceStats.DispatchRuleNsByRule)
 	}
 	if columnStats.AggregateCollectNs != sliceStats.AggregateCollectNs ||

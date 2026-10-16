@@ -127,7 +127,7 @@ func TestWriteSkippedPoisonEntries_LoneSkippedFileMarkedAndHitFromBothRoots(t *t
 	warnings := captureWarnings(t)
 	rel := filepath.Join("src", "Big.kt")
 
-	writeSkippedPoisonEntries(nil, cacheDir, []string{rel}, &Data{Files: map[string]*File{}}, &CacheDepsFile{}, "", "", perf.New(false), false)
+	writeSkippedPoisonEntries(nil, cacheDir, []string{"src"}, []string{rel}, &Data{Files: map[string]*File{}}, &CacheDepsFile{}, "", "", perf.New(false), false)
 
 	if warnings.Len() != 0 {
 		t.Fatalf("unexpected warning: %q", warnings.String())

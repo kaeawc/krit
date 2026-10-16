@@ -101,7 +101,7 @@ func TestWriteSkippedPoisonEntries_ZeroOfNAnalyzedWritesNothing(t *testing.T) {
 	b := writeTempFile(t, tmp, "B.kt", "class B\n")
 	warnings := captureWarnings(t)
 
-	writeSkippedPoisonEntries(nil, cacheDir, []string{a, b}, &Data{Files: map[string]*File{}}, &CacheDepsFile{}, "", "", perf.New(false), false)
+	writeSkippedPoisonEntries(nil, cacheDir, []string{tmp}, []string{a, b}, &Data{Files: map[string]*File{}}, &CacheDepsFile{}, "", "", perf.New(false), false)
 
 	hits, misses := ClassifyFiles(cacheDir, []string{a, b})
 	if len(hits) != 0 || len(misses) != 2 {
@@ -123,7 +123,7 @@ func TestWriteSkippedPoisonEntries_PartialStillMarksSkipped(t *testing.T) {
 	captureWarnings(t)
 
 	fresh := &Data{Files: map[string]*File{a: {Package: "a"}}}
-	writeSkippedPoisonEntries(nil, cacheDir, []string{a, b}, fresh, &CacheDepsFile{}, "", "", perf.New(false), false)
+	writeSkippedPoisonEntries(nil, cacheDir, []string{tmp}, []string{a, b}, fresh, &CacheDepsFile{}, "", "", perf.New(false), false)
 
 	hits, _ := ClassifyFiles(cacheDir, []string{b})
 	if len(hits) != 1 || !hits[0].Crashed {

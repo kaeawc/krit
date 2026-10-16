@@ -232,17 +232,76 @@ func writeFreshCacheEntries(
 	}
 }
 
-// minUnansweredForMismatch is how many requested files the JVM must leave
-// entirely unanswered before that is treated as a request mismatch rather than
-// as skipped sources.
-const minUnansweredForMismatch = 2
+// minUnexplainedForMismatch is how many requested files the JVM must leave
+// entirely unanswered, with no expected reason, before that is treated as a
+// request mismatch rather than as skipped sources.
+const minUnexplainedForMismatch = 2
+
+// maxJVMSourceBytes is the largest source file the Analysis API builds a
+// KtFile for. It is IntelliJ's idea.max.intellisense.filesize default
+// (FileUtilRt.getUserFileSizeLimit: 2500 KB, so 2,560,000 bytes); a larger
+// file is dropped from the source module and never answered.
+const maxJVMSourceBytes = 2560000
+
+// expectedlySkipped reports whether the JVM is expected not to answer for p:
+// it is over the Analysis API size limit, or it lies outside every source
+// root (the JVM only builds KtFiles for files under them). Anything else it
+// leaves unanswered is unexplained.
+func expectedlySkipped(p string, absRoots []string) bool {
+	abs := filepath.Clean(AbsolutePath(p))
+	underRoot := false
+	for _, root := range absRoots {
+		if abs == root || strings.HasPrefix(abs, root+string(filepath.Separator)) {
+			underRoot = true
+			break
+		}
+	}
+	if !underRoot {
+		return true
+	}
+	info, err := os.Stat(abs)
+	return err != nil || info.Size() > maxJVMSourceBytes
+}
+
+// unexplainedMisses returns the misses to withhold skipped markers from: none
+// unless the JVM answered for none of them and at least
+// minUnexplainedForMismatch have no expected reason to be skipped.
+func unexplainedMisses(sourceDirs, misses []string, analyzed map[string]bool) map[string]bool {
+	for _, p := range misses {
+		if analyzed[p] {
+			return nil
+		}
+	}
+	absRoots := make([]string, len(sourceDirs))
+	for i, d := range sourceDirs {
+		absRoots[i] = filepath.Clean(AbsolutePath(d))
+	}
+	unexplained := map[string]bool{}
+	for _, p := range misses {
+		if !expectedlySkipped(p, absRoots) {
+			unexplained[p] = true
+		}
+	}
+	if len(unexplained) < minUnexplainedForMismatch {
+		return nil
+	}
+	return unexplained
+}
 
 // writeSkippedPoisonEntries writes jar-skipped poison cache entries for misses
 // that freshData/depsFile did not cover, preventing them from re-entering miss
 // lists on future warm runs.
+//
+// When the JVM answered for none of the misses and at least
+// minUnexplainedForMismatch of them have no expected reason to be skipped
+// (see expectedlySkipped), that is a request/response mismatch rather than
+// skipped sources, and marking those files skipped would poison the cache for
+// later runs: they get no marker, with a warning. Files with an expected
+// reason, such as oversized sources, always get theirs.
 func writeSkippedPoisonEntries(
 	s *store.FileStore,
 	cacheDir string,
+	sourceDirs []string,
 	misses []string,
 	freshData *Data,
 	depsFile *CacheDepsFile,
@@ -261,27 +320,15 @@ func writeSkippedPoisonEntries(
 			analyzed[path] = true
 		}
 	}
-	analyzedMisses := 0
-	for _, p := range misses {
-		if analyzed[p] {
-			analyzedMisses++
-		}
-	}
-	if len(misses) >= minUnansweredForMismatch && analyzedMisses == 0 {
-		// The JVM answered for none of several requested files. A lone
-		// unanswered file is the normal skipped-source case (an oversized
-		// file the Analysis API never builds a KtFile for) and keeps its
-		// marker; several at once, with nothing answered, is a
-		// request/response mismatch (for example paths it could not match),
-		// and marking them skipped would poison the cache for later runs.
-		reporter().Warnf("warning: oracle analyzed 0 of %d requested files; not caching skipped markers\n", len(misses))
-		addOracleInstant(tracker, "skippedPoisonEntriesSuppressed", map[string]int64{"requested": int64(len(misses))}, nil)
-		return
+	unexplained := unexplainedMisses(sourceDirs, misses, analyzed)
+	if len(unexplained) > 0 {
+		reporter().Warnf("warning: oracle analyzed 0 of %d requested files; not caching skipped markers for %d unexplained files\n", len(misses), len(unexplained))
+		addOracleInstant(tracker, "skippedPoisonEntriesSuppressed", map[string]int64{"requested": int64(len(misses)), "unexplained": int64(len(unexplained))}, nil)
 	}
 	skipped := 0
 	_ = trackOracle(tracker, "writeSkippedPoisonEntries", func() error {
 		for _, p := range misses {
-			if analyzed[p] {
+			if analyzed[p] || unexplained[p] {
 				continue
 			}
 			hash, herr := ContentHash(p)
@@ -370,14 +417,16 @@ func splitForcedMisses(ktFiles []string, forcedMisses []string) ([]string, []str
 	if len(forcedMisses) == 0 {
 		return ktFiles, nil
 	}
+	// Compare in absolute form: the hint and the scan may spell one file
+	// differently (`./x` vs `x`). The result keeps ktFiles' spelling.
 	forcedSet := make(map[string]bool, len(forcedMisses))
 	for _, p := range forcedMisses {
-		forcedSet[p] = true
+		forcedSet[filepath.Clean(AbsolutePath(p))] = true
 	}
 	classifyInput := make([]string, 0, len(ktFiles))
 	forcedInScan := make([]string, 0, len(forcedSet))
 	for _, p := range ktFiles {
-		if forcedSet[p] {
+		if forcedSet[filepath.Clean(AbsolutePath(p))] {
 			forcedInScan = append(forcedInScan, p)
 			continue
 		}
@@ -537,7 +586,7 @@ func InvokeCachedWithOptions(
 		writeFreshCacheEntries(s, cacheDir, freshData, depsFile, callFilterScope, declarationProfileScope, tracker, opts, verbose)
 	}
 
-	writeSkippedPoisonEntries(s, cacheDir, misses, freshData, depsFile, callFilterScope, declarationProfileScope, tracker, verbose)
+	writeSkippedPoisonEntries(s, cacheDir, sourceDirs, misses, freshData, depsFile, callFilterScope, declarationProfileScope, tracker, verbose)
 
 	return assembleAndWriteOracle(hits, freshData, outputPath, cacheDir, tracker, verbose)
 }
@@ -629,6 +678,18 @@ func oneShotSpelling(sourceDirs, requested []string) PathSpelling {
 	return spelling.WithDirs(sourceDirs)
 }
 
+// missListLines returns the --files entries for misses: absolute, and with
+// forward slashes, which is how krit-types' virtual file system spells paths
+// on every platform (Main.kt compares entries by exact equality).
+func missListLines(misses []string) []string {
+	abs := AbsolutePaths(misses)
+	out := make([]string, len(abs))
+	for i, p := range abs {
+		out[i] = filepath.ToSlash(p)
+	}
+	return out
+}
+
 // prepareMissTemps creates three tempfiles for the miss-run round trip:
 //
 //	missListPath — newline-separated absolute paths for --files
@@ -643,7 +704,7 @@ func prepareMissTemps(misses []string) (string, string, string, error) {
 	}
 	// krit-types matches --files entries by exact equality with the absolute
 	// virtual file path, so a relative scan root must be absolutized here.
-	for _, p := range AbsolutePaths(misses) {
+	for _, p := range missListLines(misses) {
 		fmt.Fprintln(f, p)
 	}
 	_ = f.Close()

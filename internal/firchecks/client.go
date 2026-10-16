@@ -749,14 +749,90 @@ func writeFirPIDFile(pid, port int, sourcesHash string, aotPath ...string) error
 // metadata so stale metadata cannot be attributed to a newer daemon
 // registered under the same key.
 func writeFirRegistry(pid, port int, sourcesHash string, meta firAOTMeta) error {
+	// Serialize with other publishers so their three files cannot interleave.
+	// A claim that cannot be taken is not fatal here (non-AOT daemons keep
+	// the last-writer-wins behavior); markAOTVerified treats it as a loss.
+	if release, ok := claimFirRegistry(sourcesHash); ok {
+		defer release()
+	}
+	return writeFirRegistryClaimed(pid, port, sourcesHash, meta)
+}
+
+// writeFirRegistryClaimed writes the record; the caller holds the claim.
+// Each file is replaced atomically and the metadata, which names the PID
+// every reader cross-checks, goes first.
+func writeFirRegistryClaimed(pid, port int, sourcesHash string, meta firAOTMeta) error {
 	if err := writeFirAOTMeta(sourcesHash, meta); err != nil {
 		return err
 	}
-	if err := os.WriteFile(firPIDPath(sourcesHash), []byte(strconv.Itoa(pid)+"\n"), 0644); err != nil {
+	if err := writeFileAtomic(firPIDPath(sourcesHash), []byte(strconv.Itoa(pid)+"\n")); err != nil {
 		return fmt.Errorf("write fir pid: %w", err)
 	}
-	if err := os.WriteFile(firPortPath(sourcesHash), []byte(strconv.Itoa(port)+"\n"), 0644); err != nil {
+	if err := writeFileAtomic(firPortPath(sourcesHash), []byte(strconv.Itoa(port)+"\n")); err != nil {
 		return fmt.Errorf("write fir port: %w", err)
+	}
+	return nil
+}
+
+func firClaimPath(sourcesHash string) string { return firPIDPath(sourcesHash) + ".claim" }
+
+// claimFirRegistry takes the per-key publication claim: an O_EXCL file
+// holding the claimant's PID, so exactly one process checks-and-publishes at
+// a time. A claim whose holder is dead (or whose content is unreadable and
+// old) is stale and is removed. It gives up after a short wait; the caller
+// then stays private.
+func claimFirRegistry(sourcesHash string) (release func(), ok bool) {
+	path := firClaimPath(sourcesHash)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err == nil {
+			_, werr := fmt.Fprintln(f, os.Getpid())
+			cerr := f.Close()
+			if werr != nil || cerr != nil {
+				_ = os.Remove(path)
+				return nil, false
+			}
+			return func() { _ = os.Remove(path) }, true
+		}
+		if !os.IsExist(err) {
+			return nil, false
+		}
+		if data, rerr := os.ReadFile(path); rerr == nil {
+			holder, perr := strconv.Atoi(strings.TrimSpace(string(data)))
+			info, serr := os.Stat(path)
+			stale := perr == nil && !firPIDAlive(holder) || perr != nil && serr == nil && time.Since(info.ModTime()) > 10*time.Second
+			if stale {
+				_ = os.Remove(path)
+				continue
+			}
+		}
+		if time.Now().After(deadline) {
+			return nil, false
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// writeFileAtomic replaces path with data via temp file + rename.
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp.*")
+	if err != nil {
+		return err
+	}
+	_, werr := tmp.Write(data)
+	cerr := tmp.Close()
+	if werr != nil || cerr != nil {
+		_ = os.Remove(tmp.Name())
+		return errors.Join(werr, cerr)
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
 	}
 	return nil
 }
@@ -785,23 +861,7 @@ func writeFirAOTMeta(sourcesHash string, meta firAOTMeta) error {
 	if err != nil {
 		return err
 	}
-	path := firAOTPath(sourcesHash)
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp.*")
-	if err != nil {
-		return fmt.Errorf("write fir AOT metadata: %w", err)
-	}
-	_, werr := tmp.Write(data)
-	cerr := tmp.Close()
-	if werr != nil || cerr != nil {
-		_ = os.Remove(tmp.Name())
-		return fmt.Errorf("write fir AOT metadata: %w", errors.Join(werr, cerr))
-	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
-		_ = os.Remove(tmp.Name())
-		return fmt.Errorf("write fir AOT metadata: %w", err)
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		_ = os.Remove(tmp.Name())
+	if err := writeFileAtomic(firAOTPath(sourcesHash), data); err != nil {
 		return fmt.Errorf("write fir AOT metadata: %w", err)
 	}
 	return nil
@@ -841,10 +901,19 @@ func (d *FirDaemon) markAOTVerified() {
 	meta := firAOTMeta{PID: pid, Cache: d.aotCachePath, Verified: true}
 	registered, ok := registeredFirPID(d.sourcesHash)
 	if d.unpublished {
+		// Check-and-publish runs under the per-key claim, so of several
+		// concurrent verifiers exactly one publishes; the rest stay private
+		// and are closed on Release.
+		release, claimed := claimFirRegistry(d.sourcesHash)
+		if !claimed {
+			return
+		}
+		defer release()
+		registered, ok = registeredFirPID(d.sourcesHash)
 		if ok && registered != pid && firPIDAlive(registered) {
 			return
 		}
-		if writeFirRegistry(pid, d.port, d.sourcesHash, meta) == nil {
+		if writeFirRegistryClaimed(pid, d.port, d.sourcesHash, meta) == nil {
 			d.unpublished = false
 		}
 		return

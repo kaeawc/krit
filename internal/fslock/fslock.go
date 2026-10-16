@@ -20,6 +20,10 @@ const retryInterval = 5 * time.Millisecond
 // lock stayed held by someone else for the whole wait, or if the lock file
 // cannot be opened or locked; callers then proceed without the lock's
 // protection (for a publisher: stay private).
+//
+// The release function owns the lock file's descriptor, whose finalizer
+// closes it, and so drops the lock, when it is garbage collected. Keep
+// release reachable for as long as the lock must be held.
 func Acquire(path string, wait time.Duration) (release func(), ok bool) {
 	return acquire(path, time.Now().Add(wait))
 }

@@ -389,17 +389,34 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 	d.sourcesHash = srcHash
 	d.role = role
 	d.jvmTarget = target
-	if d.aotCachePath != "" {
-		// Registered by markAOTVerified once the canary passes.
-		d.unpublished = true
-		return d, nil
-	}
-	if err := writeFirPIDFile(d.cmd.Process.Pid, d.port, srcHash); err != nil {
+	if err := publishFirDaemon(d, d.cmd.Process.Pid, srcHash, verbose); err != nil {
 		d.conn.Close()
 		d.cmd.Process.Kill()
 		return nil, fmt.Errorf("write fir PID file: %w", err)
 	}
 	return d, nil
+}
+
+// publishFirDaemon registers a freshly started daemon so later krit runs can
+// reuse it. A daemon launched from an AOT cache is registered by
+// markAOTVerified once its canary passes. Otherwise it is registered here,
+// but only while holding the per-key lock: when the lock cannot be taken the
+// registry is left untouched and the daemon stays private to this process
+// (closed on Release), never written over a concurrent publisher.
+func publishFirDaemon(d *FirDaemon, pid int, srcHash string, verbose bool) error {
+	if d.aotCachePath != "" {
+		d.unpublished = true
+		return nil
+	}
+	err := writeFirPIDFile(pid, d.port, srcHash)
+	if errors.Is(err, errFirRegistryBusy) {
+		if verbose {
+			reporter().Verbosef("verbose: krit-fir registry for %s is locked by another process; keeping the daemon private\n", srcHash)
+		}
+		d.unpublished = true
+		return nil
+	}
+	return err
 }
 
 // absoluteKeys keys a per-file fact (ScanPaths, SDKLevels) by the absolute
@@ -750,14 +767,22 @@ func writeFirPIDFile(pid, port int, sourcesHash string, aotPath ...string) error
 // metadata so stale metadata cannot be attributed to a newer daemon
 // registered under the same key.
 func writeFirRegistry(pid, port int, sourcesHash string, meta firAOTMeta) error {
-	// Serialize with other publishers so their three files cannot interleave.
-	// A claim that cannot be taken is not fatal here (non-AOT daemons keep
-	// the last-writer-wins behavior); markAOTVerified treats it as a loss.
-	if release, ok := claimFirRegistry(sourcesHash); ok {
-		defer release()
+	// Never write without the per-key lock: another publisher's metadata,
+	// PID and port files would interleave with ours. When the lock cannot be
+	// taken the registry is left untouched and the caller keeps its daemon
+	// private.
+	release, ok := claimFirRegistry(sourcesHash)
+	if !ok {
+		return errFirRegistryBusy
 	}
+	defer release()
 	return writeFirRegistryClaimed(pid, port, sourcesHash, meta)
 }
+
+// errFirRegistryBusy reports that the per-key publication lock was not
+// obtained (contention timeout, lock-file failure, or an unsupported
+// platform), so nothing was written.
+var errFirRegistryBusy = errors.New("fir registry publication lock not obtained")
 
 // writeFirRegistryClaimed writes the record; the caller holds the claim.
 // Each file is replaced atomically and the metadata, which names the PID

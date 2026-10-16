@@ -13,6 +13,9 @@ import (
 
 const helperEnv = "KRIT_FSLOCK_HELPER_PATH"
 
+// heldRelease pins the helper process's lock; see TestMain.
+var heldRelease func()
+
 // TestMain doubles as the lock-holding helper process: when helperEnv is set
 // the test binary takes the lock, reports it on stdout, and blocks until
 // killed. It never reaches m.Run, so the suite is not re-executed.
@@ -22,9 +25,16 @@ func TestMain(m *testing.M) {
 		if !ok {
 			os.Exit(3)
 		}
-		_ = release
+		// Precaution: release owns the *os.File, whose finalizer closes the
+		// descriptor (dropping the flock) if it is ever garbage collected,
+		// so keep it reachable for the life of the process.
+		heldRelease = release
 		os.Stdout.WriteString("locked\n")
-		select {}
+		// Block on a timer, not "select {}": with no other goroutine alive
+		// the runtime reports "all goroutines are asleep - deadlock!" and
+		// exits, which silently dropped the lock the parent expects held.
+		// (-race starts extra goroutines, which hid this.)
+		time.Sleep(time.Hour)
 	}
 	os.Exit(m.Run())
 }
@@ -105,9 +115,24 @@ func TestLockHeldByKilledProcessIsReleased(t *testing.T) {
 			_ = child.Wait()
 		}
 	})
-	line, err := bufio.NewReader(stdout).ReadString('\n')
-	if err != nil || line != "locked\n" {
-		t.Fatalf("helper did not lock: %q, %v", line, err)
+	// The helper reports readiness only after taking the lock; wait for
+	// that line with a timeout so a wedged helper cannot hang the suite.
+	type ready struct {
+		line string
+		err  error
+	}
+	readyCh := make(chan ready, 1)
+	go func() {
+		line, err := bufio.NewReader(stdout).ReadString('\n')
+		readyCh <- ready{line, err}
+	}()
+	select {
+	case r := <-readyCh:
+		if r.err != nil || r.line != "locked\n" {
+			t.Fatalf("helper did not lock: %q, %v", r.line, r.err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("helper did not report the lock within 10s")
 	}
 	if _, ok := Acquire(path, 50*time.Millisecond); ok {
 		t.Fatal("acquired a lock held by a live child")

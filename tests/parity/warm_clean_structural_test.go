@@ -106,7 +106,7 @@ func (c *wcStructuralCase) run(t *testing.T) {
 		analyzeAfterEdit = func(r, label string) wcStructuralRun {
 			if c.m.raceAnalyze {
 				if raced := c.analyzeDaemon(t, d, r, "race"); raced.dirty > 0 {
-					t.Skip("the watcher event beat the racing analyze, so the race was not exercised this time")
+					t.Skip("#832 race NOT exercised on this run: the watcher event beat the racing analyze, so nothing was checked")
 				}
 			}
 			wcWaitForDaemonDirty(t, d, label)

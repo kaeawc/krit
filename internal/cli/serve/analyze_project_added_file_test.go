@@ -153,3 +153,23 @@ func TestAnalyzeProject_DirectoryMovedOutIsForgotten(t *testing.T) {
 		t.Fatalf("findings for S.kt, moved out of the tree, are still served (bundleHit=%v)", warm.Stats.FindingsBundleHit)
 	}
 }
+
+// With a scan root such as ../lib the manifest spells its keys relative to the
+// working directory; a directory moved out from under that root must still be
+// recognised as gone.
+func TestSourceSetMayHaveChanged_CwdRelativeManifestKeys(t *testing.T) {
+	parent := t.TempDir()
+	work := filepath.Join(parent, "app")
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(work)
+	gone := filepath.Join(parent, "lib", "gone") // never created: moved out
+	manifest := map[string]string{"../lib/gone/B.kt": "h"}
+	if !sourceSetMayHaveChanged([]string{gone}, manifest, []string{"../lib"}) {
+		t.Fatal("a vanished directory with cwd-relative manifest entries beneath it went undetected")
+	}
+	if sourceSetMayHaveChanged([]string{filepath.Join(parent, "lib", "other")}, manifest, []string{"../lib"}) {
+		t.Fatal("a vanished path with no known sources beneath it must not count")
+	}
+}

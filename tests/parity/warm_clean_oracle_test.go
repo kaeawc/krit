@@ -332,6 +332,8 @@ func (c *wcOracleCase) seed(t *testing.T, in wcInputs) (string, wcSnapshot, wcRu
 			usable = wcSeedUsable(built.snap)
 			if !usable {
 				t.Logf("seed attempt %d unusable: %s", attempt, wcSeedFailure(built.snap))
+				// Visible in the CI annotations without failing the job.
+				fmt.Printf("::warning::warm-clean matrix: %s seed attempt %d was unusable (%s)\n", c.mx.be.name, attempt, wcSeedFailure(built.snap))
 			}
 		}
 		if !usable {

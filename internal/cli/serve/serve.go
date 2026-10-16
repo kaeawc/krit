@@ -500,6 +500,14 @@ func directoryWithKnownSourcesIsGone(p string, manifest map[string]string, scanR
 		return false
 	}
 	prefixes := []string{p + string(filepath.Separator)}
+	// A scan root such as ../lib spells manifest keys relative to the working
+	// directory (../lib/gone/B.kt), which neither p nor a root-relative path
+	// reproduces.
+	if cwd, err := os.Getwd(); err == nil {
+		if rel, err := filepath.Rel(cwd, p); err == nil {
+			prefixes = append(prefixes, rel+string(filepath.Separator))
+		}
+	}
 	for _, root := range scanRoots {
 		abs, err := filepath.Abs(root)
 		if err != nil {

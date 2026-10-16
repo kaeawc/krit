@@ -783,7 +783,7 @@ func firClaimPath(sourcesHash string) string { return firPIDPath(sourcesHash) + 
 // then stays private.
 func claimFirRegistry(sourcesHash string) (release func(), ok bool) {
 	path := firClaimPath(sourcesHash)
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(firClaimWait)
 	for {
 		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err == nil {
@@ -803,7 +803,8 @@ func claimFirRegistry(sourcesHash string) (release func(), ok bool) {
 			info, serr := os.Stat(path)
 			stale := perr == nil && !firPIDAlive(holder) || perr != nil && serr == nil && time.Since(info.ModTime()) > 10*time.Second
 			if stale {
-				_ = os.Remove(path)
+				staleClaimHook()
+				removeStaleClaim(path, data)
 				continue
 			}
 		}
@@ -812,6 +813,35 @@ func claimFirRegistry(sourcesHash string) (release func(), ok bool) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+}
+
+// staleClaimHook runs between classifying a claim stale and removing it. Tests
+// use it to interleave a second claimant at exactly that point.
+var staleClaimHook = func() {}
+
+// firClaimWait bounds how long a claimant waits for a live holder.
+var firClaimWait = 3 * time.Second
+
+// removeStaleClaim removes the claim at path only if it still holds the
+// content seen when it was classified stale. A plain Remove here would
+// delete a live claim that another process created after recovering the same
+// stale one. Instead the claim is renamed to a unique tombstone (atomic, so
+// only one renamer wins), and the tombstone is deleted only if it still has
+// the stale content. Otherwise it was live: it is linked back (no overwrite)
+// and the caller retries the claim loop as contended.
+func removeStaleClaim(path string, seen []byte) {
+	tomb := fmt.Sprintf("%s.stale.%d.%d", path, os.Getpid(), time.Now().UnixNano())
+	if os.Rename(path, tomb) != nil {
+		return
+	}
+	if got, err := os.ReadFile(tomb); err == nil && string(got) == string(seen) {
+		_ = os.Remove(tomb)
+		return
+	}
+	// Not the claim we inspected. Restore it unless someone has claimed in
+	// the meantime, in which case the displaced record is dropped.
+	_ = os.Link(tomb, path)
+	_ = os.Remove(tomb)
 }
 
 // writeFileAtomic replaces path with data via temp file + rename.

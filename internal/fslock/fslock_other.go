@@ -1,4 +1,4 @@
-//go:build (!unix || solaris) && !windows
+//go:build (!unix || solaris || aix) && !windows
 
 package fslock
 

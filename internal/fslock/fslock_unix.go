@@ -1,4 +1,4 @@
-//go:build unix && !solaris
+//go:build unix && !solaris && !aix
 
 package fslock
 

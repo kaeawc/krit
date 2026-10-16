@@ -21,18 +21,6 @@ func TestClaimWaitExceedsStopWorstCase(t *testing.T) {
 	}
 }
 
-func spawnReaped(t *testing.T, name string, args ...string) *exec.Cmd {
-	t.Helper()
-	cmd := exec.Command(name, args...)
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan struct{})
-	go func() { _ = cmd.Wait(); close(done) }()
-	t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
-	return cmd
-}
-
 // A publisher queued behind a slow stop waits for it and then publishes.
 func TestPublishQueuedBehindStopSucceeds(t *testing.T) {
 	isolateRegistry(t)
@@ -44,8 +32,29 @@ func TestPublishQueuedBehindStopSucceeds(t *testing.T) {
 	t.Cleanup(func() { firStopTermWait, firStopKillWait = oldTerm, oldKill })
 
 	// A daemon that ignores SIGTERM makes the stop run its full wait.
-	stubborn := spawnReaped(t, "sh", "-c", `trap "" TERM; while :; do sleep 1; done`)
-	time.Sleep(100 * time.Millisecond) // let the trap install
+	// It prints a line only after installing the trap, and the test waits for
+	// that line, so SIGTERM can never land before the trap.
+	stubborn := exec.Command("sh", "-c", `trap "" TERM; echo ready; while :; do sleep 1; done`)
+	stubbornOut, err := stubborn.StdoutPipe()
+	must(t, err)
+	must(t, stubborn.Start())
+	stubbornDone := make(chan struct{})
+	t.Cleanup(func() { _ = stubborn.Process.Kill(); <-stubbornDone })
+	readyLine := make(chan string, 1)
+	go func() {
+		line, _ := bufio.NewReader(stubbornOut).ReadString('\n')
+		readyLine <- line
+		_ = stubborn.Wait()
+		close(stubbornDone)
+	}()
+	select {
+	case line := <-readyLine:
+		if line != "ready\n" {
+			t.Fatalf("stubborn child printed %q", line)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("stubborn child never installed its trap")
+	}
 	_, port := pingListener(t)
 	must(t, writeFirRegistry(stubborn.Process.Pid, port, "queued", firAOTMeta{PID: stubborn.Process.Pid, Verified: true}))
 
@@ -55,15 +64,20 @@ func TestPublishQueuedBehindStopSucceeds(t *testing.T) {
 		stopFirDaemon("queued", false)
 		stopped <- time.Since(start)
 	}()
-	// Wait until the stop holds the lock.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if release, ok := fslock.Acquire(firLockPath("queued"), time.Millisecond); ok {
-			release()
-			time.Sleep(2 * time.Millisecond)
-			continue
+	// Wait until the stop holds the lock; the stop's SIGTERM wait (600ms)
+	// keeps it held long enough to observe.
+	held := false
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		release, ok := fslock.Acquire(firLockPath("queued"), time.Millisecond)
+		if !ok {
+			held = true
+			break
 		}
-		break
+		release()
+		time.Sleep(2 * time.Millisecond)
+	}
+	if !held {
+		t.Fatal("the stop never took the registry lock")
 	}
 
 	newcomer := livePIDs(t, 1)[0]
@@ -160,12 +174,10 @@ func TestRequestTimeoutKillReapsTheDaemon(t *testing.T) {
 func TestLiveNonDaemonPIDWithDeadPortIsReplaceable(t *testing.T) {
 	isolateRegistry(t)
 	stranger := livePIDs(t, 1)[0] // e.g. a PID reused by an unrelated process
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Skipf("local TCP unavailable: %v", err)
-	}
-	deadPort := l.Addr().(*net.TCPAddr).Port
-	_ = l.Close()
+	// Port 1 (tcpmux) is a privileged port nothing in this suite listens on.
+	// A freed ephemeral port could be grabbed by a concurrent test between
+	// closing it and probing it, which would make the "dead" port live.
+	const deadPort = 1
 	must(t, writeFirRegistryClaimed(stranger, deadPort, "reused", firAOTMeta{PID: stranger, Verified: true}))
 
 	newcomer := livePIDs(t, 1)[0]

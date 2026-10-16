@@ -8,13 +8,22 @@ import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.resolution.KaCallResolutionError
 import org.jetbrains.kotlin.analysis.api.resolution.KaCallResolutionSuccess
 import org.jetbrains.kotlin.analysis.api.resolution.KaFunctionCall
+import org.jetbrains.kotlin.analysis.api.resolution.KaMultiCallResolutionAttempt
 import org.jetbrains.kotlin.analysis.api.resolution.KaSingleCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaVariableAccessCall
+import org.jetbrains.kotlin.analysis.api.resolution.calls
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.symbols
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveSymbols
 import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
 import org.jetbrains.kotlin.psi.KtCallExpression
+import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtExperimentalApi
+import org.jetbrains.kotlin.psi.KtForExpression
+import org.jetbrains.kotlin.psi.KtPropertyDelegate
+import org.jetbrains.kotlin.resolution.KtResolvable
 
 // Internal adapter over the Analysis API's element-based resolution entry
 // points (`tryResolveCall`, `KaCallResolutionSuccess` / `KaCallResolutionError`).
@@ -80,3 +89,25 @@ internal fun KaSession.resolveCallTarget(call: KtCallExpression, policy: CallRes
 }
 
 private fun KaSingleCall<*, *>.callableSymbol(): KaCallableSymbol = symbol
+
+/**
+ * Every symbol [element] refers to, for dependency tracking: the symbols of a
+ * name, operator or array access, and for the elements whose operator
+ * conventions have no name at the use site (`for`, property delegates) the
+ * functions those conventions resolve to.
+ *
+ * Candidate-tolerant by contract: when resolution fails, the candidate symbols
+ * are still returned (`KaSymbolResolutionAttempt.symbols`, as opposed to
+ * `successfulSymbols`). A dependency edge to a declaration that an edit could
+ * turn into a successful resolution is exactly what the cache must keep, so
+ * this must never be narrowed to successful symbols.
+ */
+internal fun KaSession.referencedSymbols(element: KtElement): List<KaSymbol> = when (element) {
+    is KtForExpression -> multiCallSymbols(element.tryResolveCall())
+    is KtPropertyDelegate -> multiCallSymbols(element.tryResolveCall())
+    is KtResolvable -> element.tryResolveSymbols()?.symbols.orEmpty()
+    else -> emptyList()
+}
+
+private fun multiCallSymbols(attempt: KaMultiCallResolutionAttempt?): List<KaSymbol> =
+    attempt?.attempts.orEmpty().flatMap { it.calls.flatMap { call -> call.symbols } }

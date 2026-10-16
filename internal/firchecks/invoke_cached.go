@@ -262,18 +262,21 @@ func checkFirWithRecovery(d *FirDaemon, jarPath string, refs []fileRef, sourceDi
 	if !first {
 		cachePath = ""
 	}
-	if cachePath != "" && !d.aotVerified {
-		// The canary has a known finding for an always-registered checker, so
-		// it catches a JVM that registers its rules yet reports nothing.
-		healthy, err := d.runAOTCanary(sourceDirs, classpath, target...)
+	if d.aotCachePath != "" && !d.aotVerified {
+		// Gated on verification, not on the first call: after a canary
+		// transport error the daemon may stay connected, and no later call
+		// may skip the check. The canary has a known finding for an
+		// always-registered checker, so it catches a JVM that registers its
+		// rules yet reports nothing.
+		healthy, err := d.runAOTCanary()
 		if err != nil {
 			return nil, err
 		}
 		if !healthy {
 			if verbose {
-				reporter().Verbosef("verbose: FIR AOT canary finding missing; discarding %s and retrying without AOT\n", cachePath)
+				reporter().Verbosef("verbose: FIR AOT canary finding missing; discarding %s and retrying without AOT\n", d.aotCachePath)
 			}
-			return retryFirWithoutAOT(d, cachePath, jarPath, refs, sourceDirs, classpath, rules, configs, facts, verbose, target...)
+			return retryFirWithoutAOT(d, d.aotCachePath, jarPath, refs, sourceDirs, classpath, rules, configs, facts, verbose, target...)
 		}
 		d.markAOTVerified()
 	}
@@ -293,8 +296,10 @@ func checkFirWithRecovery(d *FirDaemon, jarPath string, refs []fileRef, sourceDi
 
 // retryFirWithoutAOT retires the poisoned daemon d, discards its cache for
 // the rest of this process, and answers the request from a daemon launched
-// without AOT. It fails closed: if the AOT-free daemon cannot answer, the
-// error wraps errFIRDegraded rather than reporting empty findings.
+// without AOT. It fails closed when the AOT-free daemon cannot answer or
+// still registers none of the requested checkers (errFIRDegraded). The
+// AOT-free daemon gets no canary: it has no cache to distrust, and a jar
+// that predates the canary request could not pass one.
 func retryFirWithoutAOT(d *FirDaemon, cachePath, jarPath string, refs []fileRef, sourceDirs, classpath, rules []string, configs RuleConfigs, facts FileFacts, verbose bool, target ...string) (*CheckResponse, error) {
 	aotWarningOnce.Do(func() {
 		fmt.Fprintln(os.Stderr, "warning: FIR AOT cache produced no registered checkers or findings; retrying without AOT")
@@ -305,8 +310,10 @@ func retryFirWithoutAOT(d *FirDaemon, cachePath, jarPath string, refs []fileRef,
 		stopFirDaemon(d.sourcesHash, verbose)
 	}
 	_ = d.Close()
-	jvmaot.DisableForProcess(cachePath)
-	jvmaot.DiscardCache(cachePath)
+	if cachePath != unknownAOTState {
+		jvmaot.DisableForProcess(cachePath)
+		jvmaot.DiscardCache(cachePath)
+	}
 	retryDaemon, err := startFirWithoutAOT(jarPath, verbose, target...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: restart FIR without AOT: %w", errFIRDegraded, err)

@@ -69,14 +69,27 @@ findings) could not be reproduced on JDK 25.0.4.1 with the current jar:
 record, create, and reuse gave findings identical to a no-AOT run across
 training workloads (startup only, one rule on one file, all 80 rules on 150
 fixture files) and reuse workloads, including different heap flags and
-working directories. Once AOT is re-enabled, a daemon launched from a cache
-runs a canary before its first real request: a built-in source with a known
-`DefaultLocale` finding. If the finding does not come back, the cache is
-discarded for the process and the request is answered by a daemon launched
-without AOT (fail closed with `errFIRDegraded` if that one also cannot
-report). A passing daemon is marked verified in its registry metadata, so
-reconnecting runs reuse it without repeating the canary; an unverified AOT
-daemon is retired on reconnect.
+working directories. Once AOT is re-enabled, a daemon launched from a cache is checked before it
+is trusted, with the daemon's built-in `canary` request: krit-fir compiles one
+tiny built-in source with a known `DefaultLocale` finding in an isolated
+session. The cost is one small compile, independent of the project the daemon
+serves (an earlier design reused the project's source dirs, which compiled the
+whole project a second time). If the finding does not come back, or the jar
+predates the request, the cache is discarded for the process and the request
+is answered by a daemon launched without AOT. That daemon is not canaried; if
+it registers none of the requested checkers the call fails with
+`errFIRDegraded`.
+
+Registry rules: an AOT-launched daemon is not registered until its canary
+passes, so another krit process can neither reuse nor retire it mid-check; if
+the process ends first, the daemon is closed. Every registered daemon carries
+launch metadata (written atomically); a reconnecting run reuses a daemon only
+if the metadata is readable for that PID and says non-AOT or verified, and
+retires everything else, including daemons with missing or unreadable
+metadata. Prerequisite for re-enabling AOT for the oracle-role krit-fir
+daemons: they share this launch path but have no canary of their own, so an
+AOT oracle-role daemon would never be verified and would be closed after each
+use.
 
 ## Verification
 

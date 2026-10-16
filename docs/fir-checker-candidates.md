@@ -271,4 +271,5 @@ is not gated, and its verdict is computed against the broken type.
 **Caching.** FIR findings are cached per file under `.krit/fir-cache`, keyed by
 the whole compilation (every source path and content, the classpath, and the
 jar) plus the enabled rules and their options, so any source edit re-runs the
-checkers for every file.
+checkers for every file. `--no-cache` bypasses this cache entirely: no reads and no
+writes, in-process and daemon-delegated.

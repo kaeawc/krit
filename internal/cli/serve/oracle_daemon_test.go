@@ -39,8 +39,10 @@ func TestEnsureOracleDaemonRestartsAfterJarReplacement(t *testing.T) {
 }
 
 // The resident krit-types daemon is keyed on the Kotlin compiler settings it
-// was launched with: the same settings reuse it, changed settings get another.
-func TestEnsureOracleDaemonIsKeyedOnKotlinSettings(t *testing.T) {
+// was launched with: the same settings reuse it, changed settings get another,
+// and the daemon for the superseded settings is retired rather than kept
+// resident (a krit-types JVM costs 1-2 GB).
+func TestEnsureOracleDaemonIsKeyedOnKotlinSettingsAndEvictsSuperseded(t *testing.T) {
 	root := t.TempDir()
 	jar := filepath.Join(root, "krit-types.jar")
 	if err := os.WriteFile(jar, []byte("A"), 0644); err != nil {
@@ -61,14 +63,23 @@ func TestEnsureOracleDaemonIsKeyedOnKotlinSettings(t *testing.T) {
 		}
 		return d
 	}
-	if get() != plain || get(older) != v20 || get(newer) != v22 {
-		t.Fatal("each settings identity must get its own daemon")
+	if get() != plain {
+		t.Fatal("first daemon")
 	}
-	if get() != plain || get(older) != v20 || get(newer) != v22 {
+	if get() != plain || fake.calls.Load() != 1 {
 		t.Fatal("unchanged settings must reuse their resident daemon")
 	}
-	if got := fake.calls.Load(); got != 3 {
-		t.Fatalf("starter called %d times, want 3", got)
+	if get(older) != v20 {
+		t.Fatal("changed settings must get another daemon")
+	}
+	if n := len(state.oracleDaemonByKey); n != 1 {
+		t.Fatalf("the daemon for the superseded settings stayed resident: %d entries", n)
+	}
+	if get(newer) != v22 || len(state.oracleDaemonByKey) != 1 {
+		t.Fatalf("second change: %d resident entries", len(state.oracleDaemonByKey))
+	}
+	if get(newer) != v22 || fake.calls.Load() != 3 {
+		t.Fatalf("current settings must keep reusing the resident daemon (starts %d)", fake.calls.Load())
 	}
 }
 

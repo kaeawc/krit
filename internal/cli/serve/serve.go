@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -568,6 +569,17 @@ func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Back
 		return nil, fmt.Errorf("start oracle daemon: %w", err)
 	}
 	s.oracleDaemonByKey[key] = &oracleDaemonEntry{daemon: d, jarPath: jarPath, jarIdentity: oracle.JarIdentity(jarPath), sourceDirs: sourceDirs, kotlin: kt}
+	// A resident krit-types JVM costs 1-2 GB. A daemon for the same jar and source
+	// roots under other Kotlin settings can no longer be reached once the project's
+	// settings changed, so retire it instead of keeping one JVM per identity ever seen.
+	for otherKey, other := range s.oracleDaemonByKey {
+		if otherKey == key || other == nil || other.jarPath != jarPath || !slices.Equal(other.sourceDirs, sourceDirs) ||
+			other.kotlin.Identity() == kt.Identity() {
+			continue
+		}
+		_ = other.close()
+		delete(s.oracleDaemonByKey, otherKey)
+	}
 	return d, nil
 }
 

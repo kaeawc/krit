@@ -8,7 +8,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kaeawc/krit/internal/gradlemodel"
 )
+
+// connectExistingDaemon connects to a resident daemon launched with no Kotlin
+// settings, in slot 0 and quietly.
+func connectExistingDaemon(jarPath string, sourceDirs []string) (*Daemon, error) {
+	return connectExistingDaemonSlotKT(jarPath, sourceDirs, gradlemodel.KotlinSettings{}, false, 0)
+}
 
 func testJar(t *testing.T) string {
 	t.Helper()
@@ -54,7 +62,7 @@ func TestConnectOrStartDaemon_ReplacedJarIsNotReused(t *testing.T) {
 	if err := writePIDFile(pid, fake.Port, oldKey); err != nil {
 		t.Fatal(err)
 	}
-	d, err := connectExistingDaemon(jar, sources, false)
+	d, err := connectExistingDaemon(jar, sources)
 	if err != nil {
 		t.Fatalf("sanity connect: %v", err)
 	}
@@ -249,7 +257,7 @@ func TestStartDaemonRegistersJarIdentityObservedBeforeStartup(t *testing.T) {
 	if _, err := os.Stat(daemonPIDPathForSlot(preStartKey, 0)); err != nil {
 		t.Fatalf("daemon not registered under the pre-start jar identity: %v", err)
 	}
-	if reused, err := connectExistingDaemon(jar, sources, false); err == nil {
+	if reused, err := connectExistingDaemon(jar, sources); err == nil {
 		_ = reused.Release()
 		t.Fatal("daemon started while the jar was replaced is reused for the replacement jar")
 	}

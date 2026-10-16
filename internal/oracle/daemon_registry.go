@@ -442,18 +442,10 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 	return d, nil
 }
 
-// connectExistingDaemon attempts to connect to an already-running daemon
-// for the given sourceDirs. Each repo has its own PID file under
-// ~/.krit/cache/daemons/{hash}.{pid,port}, so multiple daemons (one
+// connectExistingDaemonSlotKT attempts to connect to an already-running daemon
+// for the given sourceDirs and Kotlin settings. Each repo has its own PID file
+// under ~/.krit/cache/daemons/{hash}.{pid,port}, so multiple daemons (one
 // per repo) can coexist under the same user cache hierarchy.
-func connectExistingDaemon(jarPath string, sourceDirs []string, verbose bool, classpath ...string) (*Daemon, error) {
-	return connectExistingDaemonSlot(jarPath, sourceDirs, verbose, 0, classpath...)
-}
-
-func connectExistingDaemonSlot(jarPath string, sourceDirs []string, verbose bool, slot int, classpath ...string) (*Daemon, error) {
-	return connectExistingDaemonSlotKT(jarPath, sourceDirs, gradlemodel.KotlinSettings{}, verbose, slot, classpath...)
-}
-
 func connectExistingDaemonSlotKT(jarPath string, sourceDirs []string, kt gradlemodel.KotlinSettings, verbose bool, slot int, classpath ...string) (*Daemon, error) {
 	hash := daemonRegistryKeyKT(jarPath, sourceDirs, kt, classpath...)
 	info, err := readPIDFileSlot(hash, slot)

@@ -929,7 +929,7 @@ func TestConnectOrStartDaemon_NoPIDFile_StartsNew(t *testing.T) {
 	defer os.Setenv("HOME", origHome)
 
 	// No PID files — connectExistingDaemon should fail
-	_, err := connectExistingDaemon(testJarPath, testSourceDirs, false)
+	_, err := connectExistingDaemon(testJarPath, testSourceDirs)
 	if err == nil {
 		t.Fatal("expected error when no PID file exists")
 	}
@@ -952,7 +952,7 @@ func TestConnectOrStartDaemon_StalePIDFile_StartsNew(t *testing.T) {
 	os.WriteFile(filepath.Join(daemonsDir, testDaemonKey+".port"), []byte("12345\n"), 0644)
 
 	// connectExistingDaemon should fail because the PID is dead
-	_, err := connectExistingDaemon(testJarPath, testSourceDirs, false)
+	_, err := connectExistingDaemon(testJarPath, testSourceDirs)
 	if err == nil {
 		t.Fatal("expected error for dead PID")
 	}
@@ -994,7 +994,7 @@ func TestConnectOrStartDaemon_LiveDaemon_Reuses(t *testing.T) {
 	)
 
 	// connectExistingDaemon should successfully connect
-	d, err := connectExistingDaemon(testJarPath, testSourceDirs, false)
+	d, err := connectExistingDaemon(testJarPath, testSourceDirs)
 	if err != nil {
 		t.Fatalf("connectExistingDaemon: %v", err)
 	}
@@ -1035,13 +1035,13 @@ func TestConnectOrStartDaemon_LiveDaemon_MultipleClients(t *testing.T) {
 	)
 
 	// Connect two clients to the same fake daemon
-	d1, err := connectExistingDaemon(testJarPath, testSourceDirs, false)
+	d1, err := connectExistingDaemon(testJarPath, testSourceDirs)
 	if err != nil {
 		t.Fatalf("first connect: %v", err)
 	}
 	defer d1.Close()
 
-	d2, err := connectExistingDaemon(testJarPath, testSourceDirs, false)
+	d2, err := connectExistingDaemon(testJarPath, testSourceDirs)
 	if err != nil {
 		t.Fatalf("second connect: %v", err)
 	}
@@ -1101,7 +1101,7 @@ func TestCleanStaleDaemon_WithLivePIDButBrokenPort(t *testing.T) {
 	)
 
 	// connectExistingDaemon should fail because the port connection fails
-	_, err := connectExistingDaemon(testJarPath, testSourceDirs, false)
+	_, err := connectExistingDaemon(testJarPath, testSourceDirs)
 	if err == nil {
 		t.Fatal("expected error for unreachable port")
 	}

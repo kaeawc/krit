@@ -938,98 +938,7 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 
 	var oracleData *oracle.Data
 	oracleTracker.TrackVoid("jvmAnalyze", func() {
-		// Partial reanalyze path: when the caller has prior-manifest
-		// evidence of exactly which .kt files changed (StaleOraclePaths
-		// populated by the daemon's bundle-manifest comparator), ask
-		// the resident JVM session to re-analyze only that subset and
-		// merge the fresh facts into the cached types.json on disk.
-		// This avoids the full-module reanalyze cost (5+ seconds on
-		// kotlin-corpus scale) on warm runs that touch one or two
-		// files. Falls back to analyzeAll when:
-		//   - StaleOraclePaths is empty (cold run, no prior manifest)
-		//   - The on-disk types.json doesn't exist (nothing to merge
-		//     into; partial would return a per-file slice the dispatcher
-		//     can't use)
-		//   - The partial call itself errors (defensive)
-		cachedTypesPath := oracle.CachePath(scanPaths)
-		canPartial := len(in.StaleOraclePaths) > 0 && cachedTypesPath != ""
-		if canPartial {
-			if _, err := os.Stat(cachedTypesPath); err != nil {
-				canPartial = false
-			}
-		}
-		// Merging fresh facts for the stale paths into types.json keeps every
-		// other file's facts. That is only sound when types.json was produced
-		// under this run's scope (backend, jar, classpath, JVM target and Kotlin
-		// settings): after a settings-only change plus one edit the untouched
-		// files would otherwise keep facts computed under the old settings.
-		typesScope, haveScope := oracleTypesScope(in, scanPaths)
-		scopeDeclined := false
-		if canPartial && !partialMergeAllowed(cachedTypesPath, typesScope, haveScope) {
-			in.logf("verbose: daemon partial reanalyze skipped: cached types.json was not produced under this run's compile scope\n")
-			canPartial = false
-			scopeDeclined = true
-		}
-		if canPartial {
-			perf.AddEntryDetails(oracleTracker, "daemonPartialReanalyze", 0, map[string]int64{
-				"stalePaths": int64(len(in.StaleOraclePaths)),
-			}, nil)
-			analyzeAll := func() (*oracle.Data, error) { return d.AnalyzeAllWithCallFilter(callFilterPtr) }
-			fresh, err := d.AnalyzeFilesWithCallFilter(in.StaleOraclePaths, callFilterPtr)
-			if err != nil {
-				in.warnf("warning: daemon analyzeFiles (fallback to analyzeAll): %v\n", err)
-				od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf, typesScope, haveScope)
-				if allErr != nil {
-					in.warnf("warning: daemon analyzeAll: %v\n", allErr)
-					return
-				}
-				oracleData = od
-				return
-			}
-			// Merge fresh facts into the on-disk types.json. The
-			// cached JSON holds the full project's per-file entries
-			// from the prior cold/warm run; the fresh slice only
-			// covers the stale paths. mergeFreshIntoCachedTypes
-			// rewrites types.json with the union (fresh wins on
-			// overlap), then loads the merged result.
-			merged, pruned, mergeErr := oracle.MergeFreshIntoCachedTypes(cachedTypesPath, fresh)
-			if mergeErr != nil {
-				in.warnf("warning: oracle partial merge (fallback to analyzeAll): %v\n", mergeErr)
-			}
-			if pruned {
-				// Dependencies has no per-file provenance in types.json. A
-				// pruned file may have contributed an FQN that survives the
-				// union, so only a full daemon result is safe to load.
-				in.warnf("warning: daemon partial merge pruned removed Kotlin files; falling back to analyzeAll\n")
-			}
-			if shouldFallbackToAnalyzeAll(mergeErr, pruned) {
-				od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf, typesScope, haveScope)
-				if allErr != nil {
-					in.warnf("warning: daemon analyzeAll: %v\n", allErr)
-					return
-				}
-				oracleData = od
-				return
-			}
-			recordTypesScope(cachedTypesPath, typesScope, haveScope, in.warnf)
-			oracleData = merged
-			return
-		}
-		od, err := d.AnalyzeAllWithCallFilter(callFilterPtr)
-		if err != nil {
-			in.warnf("warning: daemon analyzeAll: %v\n", err)
-			return
-		}
-		if scopeDeclined && od != nil {
-			// Replace the out-of-scope types.json with this full result and stamp it,
-			// so the next run can reanalyze partially again.
-			if werr := oracle.WriteTypesJSON(cachedTypesPath, od); werr != nil {
-				in.warnf("warning: persist daemon analyzeAll types.json: %v\n", werr)
-			} else {
-				recordTypesScope(cachedTypesPath, typesScope, haveScope, in.warnf)
-			}
-		}
-		oracleData = od
+		oracleData = daemonAnalyze(in, d, scanPaths, callFilterPtr, oracleTracker)
 	})
 	if oracleData == nil {
 		return base
@@ -1053,6 +962,101 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 		in.logf("verbose: Type oracle loaded from daemon (%d dependency types)\n", len(oracleLoaded.Dependencies()))
 	}
 	return oracle.NewCompositeResolver(oracleLoaded, base)
+}
+
+// daemonAnalyze obtains the oracle facts from the resident daemon: a partial
+// reanalyze merged into the cached types.json when that is sound, else a full
+// analysis. It returns nil when the daemon produced nothing usable.
+func daemonAnalyze(in IndexInput, d *oracle.Daemon, scanPaths []string, callFilterPtr *oracle.CallTargetFilterSummary, oracleTracker perf.Tracker) *oracle.Data {
+	// Partial reanalyze path: when the caller has prior-manifest
+	// evidence of exactly which .kt files changed (StaleOraclePaths
+	// populated by the daemon's bundle-manifest comparator), ask
+	// the resident JVM session to re-analyze only that subset and
+	// merge the fresh facts into the cached types.json on disk.
+	// This avoids the full-module reanalyze cost (5+ seconds on
+	// kotlin-corpus scale) on warm runs that touch one or two
+	// files. Falls back to analyzeAll when:
+	//   - StaleOraclePaths is empty (cold run, no prior manifest)
+	//   - The on-disk types.json doesn't exist (nothing to merge
+	//     into; partial would return a per-file slice the dispatcher
+	//     can't use)
+	//   - The partial call itself errors (defensive)
+	cachedTypesPath := oracle.CachePath(scanPaths)
+	canPartial := len(in.StaleOraclePaths) > 0 && cachedTypesPath != ""
+	if canPartial {
+		if _, err := os.Stat(cachedTypesPath); err != nil {
+			canPartial = false
+		}
+	}
+	// Merging fresh facts for the stale paths into types.json keeps every
+	// other file's facts. That is only sound when types.json was produced
+	// under this run's scope (backend, jar, classpath, JVM target and Kotlin
+	// settings): after a settings-only change plus one edit the untouched
+	// files would otherwise keep facts computed under the old settings.
+	typesScope, haveScope := oracleTypesScope(in, scanPaths)
+	scopeDeclined := false
+	if canPartial && !partialMergeAllowed(cachedTypesPath, typesScope, haveScope) {
+		in.logf("verbose: daemon partial reanalyze skipped: cached types.json was not produced under this run's compile scope\n")
+		canPartial = false
+		scopeDeclined = true
+	}
+	if canPartial {
+		perf.AddEntryDetails(oracleTracker, "daemonPartialReanalyze", 0, map[string]int64{
+			"stalePaths": int64(len(in.StaleOraclePaths)),
+		}, nil)
+		analyzeAll := func() (*oracle.Data, error) { return d.AnalyzeAllWithCallFilter(callFilterPtr) }
+		fresh, err := d.AnalyzeFilesWithCallFilter(in.StaleOraclePaths, callFilterPtr)
+		if err != nil {
+			in.warnf("warning: daemon analyzeFiles (fallback to analyzeAll): %v\n", err)
+			od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf, typesScope, haveScope)
+			if allErr != nil {
+				in.warnf("warning: daemon analyzeAll: %v\n", allErr)
+				return nil
+			}
+			return od
+		}
+		// Merge fresh facts into the on-disk types.json. The
+		// cached JSON holds the full project's per-file entries
+		// from the prior cold/warm run; the fresh slice only
+		// covers the stale paths. mergeFreshIntoCachedTypes
+		// rewrites types.json with the union (fresh wins on
+		// overlap), then loads the merged result.
+		merged, pruned, mergeErr := oracle.MergeFreshIntoCachedTypes(cachedTypesPath, fresh)
+		if mergeErr != nil {
+			in.warnf("warning: oracle partial merge (fallback to analyzeAll): %v\n", mergeErr)
+		}
+		if pruned {
+			// Dependencies has no per-file provenance in types.json. A
+			// pruned file may have contributed an FQN that survives the
+			// union, so only a full daemon result is safe to load.
+			in.warnf("warning: daemon partial merge pruned removed Kotlin files; falling back to analyzeAll\n")
+		}
+		if shouldFallbackToAnalyzeAll(mergeErr, pruned) {
+			od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf, typesScope, haveScope)
+			if allErr != nil {
+				in.warnf("warning: daemon analyzeAll: %v\n", allErr)
+				return nil
+			}
+			return od
+		}
+		recordTypesScope(cachedTypesPath, typesScope, haveScope, in.warnf)
+		return merged
+	}
+	od, err := d.AnalyzeAllWithCallFilter(callFilterPtr)
+	if err != nil {
+		in.warnf("warning: daemon analyzeAll: %v\n", err)
+		return nil
+	}
+	if scopeDeclined && od != nil {
+		// Replace the out-of-scope types.json with this full result and stamp it,
+		// so the next run can reanalyze partially again.
+		if werr := oracle.WriteTypesJSON(cachedTypesPath, od); werr != nil {
+			in.warnf("warning: persist daemon analyzeAll types.json: %v\n", werr)
+		} else {
+			recordTypesScope(cachedTypesPath, typesScope, haveScope, in.warnf)
+		}
+	}
+	return od
 }
 
 // shouldFallbackToAnalyzeAll keeps partial-merge recovery decisions testable

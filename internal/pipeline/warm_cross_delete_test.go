@@ -1,14 +1,17 @@
 package pipeline
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/diag"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -21,6 +24,10 @@ type warmCrossHarness struct {
 	dir        string
 	rule       *api.Rule
 	crossCalls *int64
+	// javaPaths, when non-nil, is passed as ProjectArgs.JavaPaths the way the
+	// CLI does after its own walk (empty non-nil means "collected, none").
+	javaPaths []string
+	verbose   bytes.Buffer
 }
 
 func newWarmCrossHarness(t *testing.T, ruleID string, files map[string]string) *warmCrossHarness {
@@ -61,6 +68,7 @@ func (h *warmCrossHarness) run() ProjectResult {
 	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
 		h.t.Fatal(err)
 	}
+	h.verbose.Reset()
 	res, err := RunProject(context.Background(), ProjectInput{
 		Args: ProjectArgs{
 			Config:      config.NewConfig(),
@@ -68,8 +76,10 @@ func (h *warmCrossHarness) run() ProjectResult {
 			ActiveRules: []*api.Rule{h.rule},
 			Format:      "json",
 			Version:     "test",
+			JavaPaths:   h.javaPaths,
 		},
 		Host: ProjectHostState{
+			Reporter:              &diag.Reporter{Verbose: &h.verbose},
 			AnalysisCache:         cache.Load(cachePath),
 			AnalysisCacheFilePath: cachePath,
 			AnalysisCacheLookup:   true,
@@ -83,10 +93,18 @@ func (h *warmCrossHarness) run() ProjectResult {
 	return res
 }
 
-func (h *warmCrossHarness) wantFindings(label string, want int) {
+// wantFindings runs once and checks the finding count and whether the run
+// skipped parsing. The parse skip is only possible when the cached cross
+// findings were judged valid for the current file set, so it also guards
+// against warm runs silently losing their cache hit.
+func (h *warmCrossHarness) wantFindings(label string, want int, wantSkipParse bool) {
 	h.t.Helper()
-	if got := h.run().FindingsCount; got != want {
+	got := h.run().FindingsCount
+	if got != want {
 		h.t.Fatalf("%s findings=%d, want %d", label, got, want)
+	}
+	if skipped := strings.Contains(h.verbose.String(), "Skipped parse"); skipped != wantSkipParse {
+		h.t.Fatalf("%s skippedParse=%t, want %t\n%s", label, skipped, wantSkipParse, h.verbose.String())
 	}
 }
 
@@ -98,13 +116,13 @@ func TestRunProject_WarmCrossFindingsInvalidatedByDeletedFile(t *testing.T) {
 		"A.kt": "package test\n\nclass A\n",
 		"B.kt": "package test\n\nclass B\n",
 	})
-	h.wantFindings("cold", 2)
-	h.wantFindings("warm", 2)
+	h.wantFindings("cold", 2, false)
+	h.wantFindings("warm", 2, true)
 	if h.calls() != 1 {
 		t.Fatalf("warm run should reuse cross findings; calls=%d want 1", h.calls())
 	}
 	h.remove("B.kt")
-	h.wantFindings("after delete", 1)
+	h.wantFindings("after delete", 1, false)
 	if h.calls() != 2 {
 		t.Fatalf("delete must recompute cross findings; calls=%d want 2", h.calls())
 	}
@@ -118,13 +136,13 @@ func TestRunProject_WarmCrossFindingsJavaFileSet(t *testing.T) {
 		"A.kt":   "package test\n\nclass A\n",
 		"J.java": "package test;\n\nclass J {}\n",
 	})
-	h.wantFindings("cold", 2)
-	h.wantFindings("warm", 2)
+	h.wantFindings("cold", 2, false)
+	h.wantFindings("warm", 2, true)
 	if h.calls() != 1 {
 		t.Fatalf("Kotlin-only cross rule with a .java file must still get a warm hit; calls=%d want 1", h.calls())
 	}
 	h.remove("J.java")
-	h.wantFindings("after java delete", 1)
+	h.wantFindings("after java delete", 1, false)
 	if h.calls() != 2 {
 		t.Fatalf("java delete must recompute cross findings; calls=%d want 2", h.calls())
 	}
@@ -137,8 +155,36 @@ func TestRunProject_WarmCrossFindingsLexicalShortcutInvalidatedByDelete(t *testi
 		"A.kt": "package test\n\nclass A\n",
 		"B.kt": "package test\n\nclass B\n",
 	})
-	h.wantFindings("cold", 2)
+	h.wantFindings("cold", 2, false)
 	h.remove("B.kt")
 	h.write("A.kt", "package test\n\nclass A\n// comment only\n")
-	h.wantFindings("after delete and comment edit", 1)
+	h.wantFindings("after delete and comment edit", 1, false)
+}
+
+// Deleting the last .java file empties the Java set; that must invalidate
+// the warm findings, and the following warm run must hit again.
+func TestRunProject_WarmCrossFindingsLastJavaFileDeleted(t *testing.T) {
+	h := newWarmCrossHarness(t, "CrossRule", map[string]string{
+		"A.kt":   "package test\n\nclass A\n",
+		"J.java": "package test;\n\nclass J {}\n",
+	})
+	h.wantFindings("cold", 2, false)
+	h.wantFindings("warm", 2, true)
+	h.remove("J.java")
+	h.wantFindings("after last java delete", 1, false)
+	h.wantFindings("warm again", 1, true)
+}
+
+// When the caller already collected Java paths (empty meaning none), the warm
+// path must trust that and not walk the tree again. A .java file on disk
+// that the caller did not report would show up as a file-set mismatch if it
+// walked.
+func TestRunProject_WarmCrossFindingsEmptyJavaPathsDoNotWalk(t *testing.T) {
+	h := newWarmCrossHarness(t, "CrossRule", map[string]string{
+		"A.kt":   "package test\n\nclass A\n",
+		"J.java": "package test;\n\nclass J {}\n",
+	})
+	h.javaPaths = []string{}
+	h.wantFindings("cold", 1, false)
+	h.wantFindings("warm", 1, true)
 }

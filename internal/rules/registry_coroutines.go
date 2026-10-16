@@ -203,19 +203,8 @@ func registerCoroutinesInjectDispatcher() {
 			if args == 0 {
 				return
 			}
-			dispatcherNode, dispatcherName := findDirectDispatcherArgumentFlat(file, args, injectDispatcherNames(r.DispatcherNames))
-			if dispatcherNode == 0 {
-				return
-			}
-			if !injectDispatcherReferenceConfirmed(file, dispatcherNode) {
-				return
-			}
-			// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
-			var oracleLookup oracle.Lookup
-			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
-				oracleLookup = cr.Oracle()
-			}
-			if !injectDispatcherOracleConfirmed(oracleLookup, file, dispatcherNode, dispatcherName) {
+			operands := findDirectDispatcherArgumentsFlat(file, args, injectDispatcherNames(r.DispatcherNames))
+			if len(operands) == 0 {
 				return
 			}
 			// Idiomatic-host filter mirroring the FIR checker. Some
@@ -224,26 +213,39 @@ func registerCoroutinesInjectDispatcher() {
 			// `viewModelScope.launch`, `lifecycleScope.launchWhen*`),
 			// where injecting a dispatcher param doesn't help — the
 			// call already takes a dispatcher and the surrounding scope
-			// is fixed. Don't flag those. `Main` is similarly exempted
-			// because there's no "test main dispatcher" alternative.
+			// is fixed. Don't flag those.
 			if injectDispatcherIdiomaticHost(file, idx) {
 				return
 			}
-			if dispatcherName == "Main" {
-				return
+			// Gate on resolved call-target FQN; falls back to AST evidence when oracle is silent.
+			var oracleLookup oracle.Lookup
+			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+				oracleLookup = cr.Oracle()
 			}
-			// Only flag when there is an injectable host: a member
-			// function of a class/object/companion. Top-level and
-			// extension functions have nowhere to inject a dispatcher,
-			// so a hardcoded Dispatchers.* there is not actionable.
-			// Mirrors the FIR checker's top-level/extension exemption.
-			if !injectDispatcherHasInjectableHost(file, dispatcherNode) {
-				return
+			for _, op := range operands {
+				// `Main` is exempted because there's no "test main
+				// dispatcher" alternative. It doesn't hide the other
+				// operands of a combined context (`Main + IO` runs on IO).
+				if op.name == "Main" {
+					continue
+				}
+				if !injectDispatcherReferenceConfirmed(file, op.node) {
+					continue
+				}
+				if !injectDispatcherOracleConfirmed(oracleLookup, file, op.node, op.name) {
+					continue
+				}
+				// Only flag when there is an injectable host: a member
+				// function of a class/object/companion. Top-level and
+				// extension functions have nowhere to inject a dispatcher,
+				// so a hardcoded Dispatchers.* there is not actionable.
+				// Mirrors the FIR checker's top-level/extension exemption.
+				if !injectDispatcherHasInjectableHost(file, op.node) {
+					continue
+				}
+				ctx.EmitAt(file.FlatRow(op.node)+1, file.FlatCol(op.node)+1,
+					fmt.Sprintf("Hardcoded Dispatchers.%s. Inject dispatchers for better testability.", op.name))
 			}
-			matchLine := file.FlatRow(dispatcherNode) + 1
-			matchCol := file.FlatCol(dispatcherNode) + 1
-			ctx.EmitAt(matchLine, matchCol,
-				fmt.Sprintf("Hardcoded Dispatchers.%s. Inject dispatchers for better testability.", dispatcherName))
 		},
 	})
 }

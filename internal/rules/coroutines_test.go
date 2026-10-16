@@ -545,6 +545,35 @@ class Repo(private val handler: CoroutineExceptionHandler) {
 	}
 }
 
+// `Main + IO` leaves IO active (CoroutineContext.plus keeps the right-hand
+// element for the same key), so a leading Main must not hide the injectable
+// dispatcher, and every hardcoded operand is reported, as the FIR checker does.
+func TestInjectDispatcher_PositiveContextPlusChainEveryNonMainOperand(t *testing.T) {
+	findings := runRuleByName(t, "InjectDispatcher", `
+package test
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+class Repo {
+    suspend fun mainThenIO() = withContext(Dispatchers.Main + Dispatchers.IO) { fetch() }
+    suspend fun both() = withContext(Dispatchers.IO + Dispatchers.Default) { fetch() }
+}
+`)
+	type key struct{ line, col int }
+	want := map[key]string{
+		{6, 63}: "Hardcoded Dispatchers.IO. Inject dispatchers for better testability.",
+		{7, 38}: "Hardcoded Dispatchers.IO. Inject dispatchers for better testability.",
+		{7, 55}: "Hardcoded Dispatchers.Default. Inject dispatchers for better testability.",
+	}
+	if len(findings) != len(want) {
+		t.Fatalf("expected %d findings, got %d: %v", len(want), len(findings), findings)
+	}
+	for _, f := range findings {
+		if want[key{f.Line, f.Col}] != f.Message {
+			t.Errorf("%d:%d: got %q, want one of %v", f.Line, f.Col, f.Message, want)
+		}
+	}
+}
+
 // The idiomatic-host and top-level exemptions hold for a combined context
 // too, a `+` chain that is not passed to a call is out of the rule's scope,
 // and a chain with another operator is not a context combination.

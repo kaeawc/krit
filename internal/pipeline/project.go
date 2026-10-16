@@ -775,7 +775,7 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	// && warm.cross == nil` gate flips false and codeIndexBuild is
 	// skipped. The post-IndexPhase runDispatchOrLoadBundle still calls
 	// Load with the same key and short-circuits dispatch via the
-	// existing cacheHitFullBundle / cacheHitStructuralBundle paths.
+	// existing cacheHitFullBundle paths.
 	earlyBundle := previewPostParseBundleHit(args, host, parseResult)
 	if earlyBundle != nil {
 		warmPlan.cross = earlyBundle
@@ -796,7 +796,7 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	}
 	// Oracle facts are produced inside IndexPhase for daemon/input-types
 	// project runs. Make the current lookup available to the bundle manifest
-	// builder and structural-replay gate that run immediately afterward.
+	// builder that runs immediately afterward.
 	host.OracleBlobHash = indexResult.OracleBlobHash
 	defer endProjectAnalysisTrackers(indexResult)
 	if err := loadJavaSemanticFacts(ctx, args, host, parseResult.JavaFiles, &indexResult); err != nil {
@@ -1001,7 +1001,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 	}
 	moduleNeeds := rules.CollectModuleAwareNeeds(args.ActiveRules)
 	// When warm.cross is non-nil, the early bundle preview has
-	// confirmed (and aliased, on the structural-replay path) a stored
+	// confirmed a stored
 	// bundle that runDispatchOrLoadBundle will Load with the same
 	// runFP. Both DispatchPhase and CrossFilePhase short-circuit on
 	// the bundle hit, and runAndroidPhaseAndMerge /
@@ -1894,25 +1894,18 @@ type dispatchTimings struct {
 }
 
 // runDispatchOrLoadBundle resolves dispatch + cross-file findings via
-// four cache layers, tried from most-precise to fall-through:
+// three cache layers, tried from most-precise to fall-through:
 //
 //  1. cacheHitFullBundle: RunFingerprint identical to a prior run.
 //     The findings-bundle store has bytes for this exact key, so we
 //     replay them and skip dispatch + cross-file entirely.
-//  2. cacheHitStructuralBundle: prior manifest exists, the conservative
-//     delta planner says exactly one file changed, and every non-
-//     SourceSet fingerprint field is stable. The prior bundle is still
-//     correct under the new SourceSet hash (body-only Kotlin edit), so
-//     we load it, save an alias under the current key, and skip
-//     dispatch + cross-file entirely. This is the load-bearing #55
-//     win for body-only edits.
-//  3. cacheHitDeltaBundle: structural reuse cannot save the alias, but
-//     the planner still believes a single-file delta is safe. Dispatch
+//  2. cacheHitDeltaBundle: the planner believes a single-file delta is
+//     safe (e.g. a body-only edit, #823). Dispatch
 //     runs only on the changed file, cross-file re-runs, the
 //     replacement is filtered to the changed path, and ApplyDelta
 //     merges against the prior bundle. Bundle "hit" is false because
 //     we paid dispatch work, even though most findings come from cache.
-//  4. cacheMissFullDispatch: no cache layer applies. Normal
+//  3. cacheMissFullDispatch: no cache layer applies. Normal
 //     DispatchPhase + CrossFilePhase.
 func runDispatchOrLoadBundle(
 	ctx context.Context,
@@ -1972,16 +1965,6 @@ func runDispatchOrLoadBundle(
 			return cached, found
 		}); ok {
 			recordDispatchPath("cacheHitFullBundle")
-			return d, c, true, dispatchTimings{}, nil
-		}
-		// cacheHitStructuralBundle: SourceSet hash drifted but every
-		// other fingerprint field is stable and the planner says a
-		// single body-only edit. Prior bundle replays under a new
-		// alias.
-		if d, c, ok := tryBundleLayer(tracker, "dispatchStableBundleLoad", indexResult, func() (*scanner.FindingColumns, bool) {
-			return tryLoadStructurallyStableBundle(host, runFP, manifest)
-		}); ok {
-			recordDispatchPath("cacheHitStructuralBundle")
 			return d, c, true, dispatchTimings{}, nil
 		}
 		reportFindingsBundleMiss(host, manifest, runFP)
@@ -2064,7 +2047,7 @@ func tryBundleLayer(
 	// timed the scope, leaving the hit/miss distinction implicit in
 	// "was the next layer's scope also emitted" — which is fragile
 	// for the daemon path where we genuinely want to know which
-	// bundle layer fired (cacheHitFullBundle / cacheHitStructuralBundle
+	// bundle layer fired (cacheHitFullBundle
 	// / cacheHitDeltaBundle / cacheMissFullDispatch). With explicit
 	// hit attrs the perf JSON answers that question on every call.
 	start := time.Now()
@@ -2080,82 +2063,6 @@ func tryBundleLayer(
 	}
 	d := DispatchResult{IndexResult: indexResult, Findings: *cached}
 	return d, CrossFileResult{DispatchResult: d}, true
-}
-
-func tryLoadStructurallyStableBundle(host ProjectHostState, runFP scanner.RunFingerprint, manifest deltaManifestData) (*scanner.FindingColumns, bool) {
-	if !manifest.enabled || manifest.manifestKey == "" {
-		return nil, false
-	}
-	prior, ok := loadBundleManifest(host, manifest.manifestKey)
-	if !ok {
-		return nil, false
-	}
-	changedPaths := diffContentHashes(prior.ContentHashes, manifest.contentHashes)
-	plan := scanner.ConservativeDeltaPlanner{}.Plan(prior.Fingerprint, runFP, changedPaths)
-	if !plan.ReusePrevious || len(plan.ChangedPaths) != 1 || !bodyOnlyKotlinChange(plan.ChangedPaths[0], prior.StructuralFPs, manifest.structuralFPs, prior.OracleBlobHashes, manifest.oracleBlobHashes) {
-		return nil, false
-	}
-	priorBundle, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, prior.Fingerprint)
-	if !ok || priorBundle == nil {
-		return nil, false
-	}
-	if err := host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, priorBundle); err != nil {
-		host.Reporter.Verbosef("verbose: Findings bundle structural reuse skipped: save alias failed: %v\n", err)
-		return nil, false
-	}
-	// Alias the formatted-output cache too. The findings bytes that
-	// emitBundleHitOutput would produce are a pure function of
-	// (priorBundle, args.ActiveRules), which is byte-identical between
-	// prior.Fingerprint and runFP since the planner gate proves rules
-	// haven't changed. Without aliasing, the first warm+ABI cycle
-	// builds the formatted output from scratch (~100ms of column-
-	// serialisation work on kotlin-corpus scale) even though the bytes
-	// already exist under prior.Fingerprint's key. Skipped silently
-	// when the host hasn't wired the BundleOutput cache (CLI path).
-	aliasBundleOutputCache(host, prior.Fingerprint, runFP)
-	host.Reporter.Verbosef("verbose: Findings bundle cache: HIT (structural reuse: %s)\n", plan.ChangedPaths[0])
-	return priorBundle, true
-}
-
-// aliasBundleOutputCache copies host.BundleOutput[priorKey] to
-// host.BundleOutput[newKey] when both ends of the BundleOutput cache
-// API are wired and a stored entry exists for priorFP. A no-op
-// otherwise. Used by the structural-replay path so subsequent
-// analyzes against the same body-edit can take the pre-Load
-// BundleOutput fast path instead of rebuilding the formatted bytes.
-func aliasBundleOutputCache(host ProjectHostState, priorFP, newFP scanner.RunFingerprint) {
-	if host.BundleOutput == nil || host.StoreBundleOutput == nil {
-		return
-	}
-	priorKey := scanner.FindingsBundleKey(priorFP)
-	if priorKey == "" {
-		return
-	}
-	existing := host.BundleOutput(priorKey)
-	if existing == nil {
-		return
-	}
-	newKey := scanner.FindingsBundleKey(newFP)
-	if newKey == "" || newKey == priorKey {
-		return
-	}
-	host.StoreBundleOutput(newKey, existing)
-}
-
-func bodyOnlyKotlinChange(path string, prior, current, priorOracle, currentOracle map[string]string) bool {
-	if !strings.HasSuffix(path, ".kt") && !strings.HasSuffix(path, ".kts") {
-		return false
-	}
-	if len(prior) == 0 || len(current) == 0 {
-		return false
-	}
-	if prior[path] == "" || prior[path] != current[path] {
-		return false
-	}
-	if len(priorOracle) == 0 && len(currentOracle) == 0 {
-		return true
-	}
-	return priorOracle[path] != "" && priorOracle[path] == currentOracle[path]
 }
 
 func reportFindingsBundleMiss(host ProjectHostState, manifest deltaManifestData, runFP scanner.RunFingerprint) {
@@ -3414,7 +3321,7 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 	// warm+ABI: when fp != prior.Fingerprint the bundle CAN'T be
 	// stored under fp (no analyze ever produced it), so the Load
 	// would deterministically miss. Going straight to the
-	// structural-replay path saves the wasted decode attempt.
+	// delta path saves the wasted decode attempt.
 	manifestKey := scanner.FindingsBundleManifestKey(host.FindingsBundleCacheRoot, args.Paths)
 	prior, priorOK := loadBundleManifest(host, manifestKey)
 
@@ -3433,59 +3340,11 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 			return cached
 		}
 	}
-	// cacheHitStructuralBundle: SourceSet drifted but the planner
-	// believes a single body-only edit is the only difference. The
-	// prior bundle is replayed and aliased under the new runFP so the
-	// post-IndexPhase runDispatchOrLoadBundle's cacheHitFullBundle hits
-	// the same alias on its own Load.
-	if !priorOK {
-		return nil
-	}
-	preview := buildPreviewManifestData(args, host, parseResult)
-	if cached, ok := tryLoadStructurallyStableBundleWithPrior(host, fp, preview, prior); ok {
-		return cached
-	}
+	// A body-only edit to a single file (same structural fingerprint) is
+	// NOT replayed from the prior bundle: the edited file's own findings
+	// can differ (#823). It falls through to the delta path, which
+	// re-dispatches that file and merges against the prior bundle.
 	return nil
-}
-
-// tryLoadStructurallyStableBundleWithPrior is the prior-injected
-// variant of tryLoadStructurallyStableBundle: the caller has already
-// loaded the manifest (often from a daemon-resident cache) and passes
-// it in so we don't reload. Used by previewPostParseBundleHit where
-// the same prior drives the fp-vs-prior.Fingerprint short-circuit
-// AND the structural-replay gate.
-func tryLoadStructurallyStableBundleWithPrior(host ProjectHostState, runFP scanner.RunFingerprint, manifest deltaManifestData, prior scanner.FindingsBundleManifest) (*scanner.FindingColumns, bool) {
-	if !manifest.enabled || manifest.manifestKey == "" {
-		return nil, false
-	}
-	changedPaths := diffContentHashes(prior.ContentHashes, manifest.contentHashes)
-	plan := scanner.ConservativeDeltaPlanner{}.Plan(prior.Fingerprint, runFP, changedPaths)
-	if !plan.ReusePrevious || len(plan.ChangedPaths) != 1 || !bodyOnlyKotlinChange(plan.ChangedPaths[0], prior.StructuralFPs, manifest.structuralFPs, prior.OracleBlobHashes, manifest.oracleBlobHashes) {
-		return nil, false
-	}
-	priorKey := scanner.FindingsBundleKey(prior.Fingerprint)
-	var priorBundle *scanner.FindingColumns
-	if cached := residentBundleLookup(host, priorKey); cached != nil {
-		priorBundle = cached
-	} else {
-		loaded, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, prior.Fingerprint)
-		if !ok || loaded == nil {
-			return nil, false
-		}
-		priorBundle = loaded
-		residentBundleStash(host, priorKey, priorBundle)
-	}
-	if err := host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, priorBundle); err != nil {
-		host.Reporter.Verbosef("verbose: Findings bundle structural reuse skipped: save alias failed: %v\n", err)
-		return nil, false
-	}
-	// Mirror the alias into the in-memory cache so the next analyze's
-	// cacheHitFullBundle attempt (which Loads by runFP) skips the
-	// disk decode of the bundle we just confirmed in memory.
-	residentBundleStash(host, scanner.FindingsBundleKey(runFP), priorBundle)
-	aliasBundleOutputCache(host, prior.Fingerprint, runFP)
-	host.Reporter.Verbosef("verbose: Findings bundle cache: HIT (structural reuse: %s)\n", plan.ChangedPaths[0])
-	return priorBundle, true
 }
 
 // residentBundleLookup consults host.ResidentBundle when wired, nil-
@@ -3529,75 +3388,6 @@ func runBackgroundSave(host ProjectHostState, fn func()) {
 		return
 	}
 	fn()
-}
-
-// buildPreviewManifestData is the parse-only subset of buildManifestData
-// that the early bundle preview needs. It computes the current run's
-// per-file content hashes and structural fingerprints — the inputs
-// tryLoadStructurallyStableBundle reads to gate the body-only single-
-// file edit case — and skips the fileStats / abiHashes work that the
-// preview doesn't consume. Skipping the fileStats sweep avoids
-// ~18 k os.Stat calls on kotlin-corpus scale (~80-200 ms) every
-// preview invocation. The persisted manifest still gets the complete
-// data because buildManifestData runs again post-IndexPhase under the
-// existing flow.
-func buildPreviewManifestData(args ProjectArgs, host ProjectHostState, parseResult ParseResult) deltaManifestData {
-	parsedByPath := make(map[string]*scanner.File, len(parseResult.KotlinFiles)+len(parseResult.JavaFiles))
-	for _, f := range parseResult.KotlinFiles {
-		if f != nil {
-			parsedByPath[f.Path] = f
-		}
-	}
-	for _, f := range parseResult.JavaFiles {
-		if f != nil {
-			parsedByPath[f.Path] = f
-		}
-	}
-	total := len(parsedByPath) + len(host.PriorContentHashes)
-	contentHashes := make(map[string]string, total)
-	structuralFPs := make(map[string]string, total)
-	var oracleBlobHashes map[string]string
-	if host.OracleBlobHash != nil {
-		oracleBlobHashes = make(map[string]string, total)
-	}
-	dirty := dirtyPathSet(host.SourceSetDirty)
-	for path, f := range parsedByPath {
-		contentHashes[path] = priorOrCompute(host.PriorContentHashes, dirty, path, func() string {
-			return hashutil.Default().HashContent(path, f.Content)
-		})
-		structuralFPs[path] = priorOrCompute(host.PriorStructuralFPs, dirty, path, func() string {
-			return scanner.FileStructuralFingerprint(f)
-		})
-		if oracleBlobHashes != nil {
-			oracleBlobHashes[path] = priorOrCompute(host.PriorOracleBlobHashes, dirty, path, func() string {
-				return host.OracleBlobHash(path)
-			})
-		}
-	}
-	for path, hash := range host.PriorContentHashes {
-		if _, parsed := parsedByPath[path]; parsed {
-			continue
-		}
-		if dirty != nil && dirty[path] {
-			continue
-		}
-		contentHashes[path] = hash
-		if fp, ok := host.PriorStructuralFPs[path]; ok {
-			structuralFPs[path] = fp
-		}
-		if oracleBlobHashes != nil {
-			oracleBlobHashes[path] = priorOrCompute(host.PriorOracleBlobHashes, dirty, path, func() string {
-				return host.OracleBlobHash(path)
-			})
-		}
-	}
-	return deltaManifestData{
-		enabled:          true,
-		manifestKey:      scanner.FindingsBundleManifestKey(host.FindingsBundleCacheRoot, args.Paths),
-		contentHashes:    contentHashes,
-		structuralFPs:    structuralFPs,
-		oracleBlobHashes: oracleBlobHashes,
-	}
 }
 
 func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult ParseResult, indexResult IndexResult) (scanner.RunFingerprint, bool) {

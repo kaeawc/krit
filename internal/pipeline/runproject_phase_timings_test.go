@@ -105,7 +105,11 @@ func TestRunProject_PhaseTimings_BundleHitSkipsDispatchAndCrossfile(t *testing.T
 	}
 }
 
-func TestRunProject_BodyOnlyEditReusesFindingsBundle(t *testing.T) {
+// TestRunProject_BodyOnlyEditDoesNotReplayFindingsBundle pins the #823
+// fix: a body-only edit must not replay the prior bundle verbatim (the
+// edited file's own findings can differ); the edited file is re-dispatched
+// through the delta path instead.
+func TestRunProject_BodyOnlyEditDoesNotReplayFindingsBundle(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "Foo.kt")
 	if err := os.WriteFile(src,
@@ -151,15 +155,11 @@ func TestRunProject_BodyOnlyEditReusesFindingsBundle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second RunProject: %v", err)
 	}
-	if !second.FindingsBundleHit {
-		t.Fatalf("body-only edit with stable structural fingerprint must hit the bundle; got timings=%+v", second.PhaseTimingsMs)
+	if second.FindingsBundleHit {
+		t.Fatalf("body-only edit must re-dispatch the edited file, not replay the prior bundle")
 	}
 	if second.FindingsCount != first.FindingsCount {
-		t.Fatalf("body-only bundle replay changed finding count: first=%d second=%d", first.FindingsCount, second.FindingsCount)
-	}
-	if second.PhaseTimingsMs.Dispatch != 0 || second.PhaseTimingsMs.CrossFile != 0 {
-		t.Errorf("body-only bundle hit must bypass dispatch+crossfile; got dispatch=%dms crossfile=%dms",
-			second.PhaseTimingsMs.Dispatch, second.PhaseTimingsMs.CrossFile)
+		t.Fatalf("body-only delta changed finding count: first=%d second=%d", first.FindingsCount, second.FindingsCount)
 	}
 }
 

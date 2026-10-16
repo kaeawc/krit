@@ -307,7 +307,7 @@ func retryFirWithoutAOT(d *FirDaemon, cachePath, jarPath string, refs []fileRef,
 	if d.shared && d.sourcesHash != "" {
 		// Release() normally leaves shared daemons running. A poisoned JVM
 		// must instead be retired and removed from the registry.
-		stopFirDaemon(d.sourcesHash, verbose)
+		stopFirDaemonIf(d.sourcesHash, d.aotPID, verbose)
 	}
 	_ = d.Close()
 	if cachePath != unknownAOTState {

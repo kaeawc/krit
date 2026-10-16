@@ -370,6 +370,10 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 		target = jvmTarget[0]
 	}
 	srcHash := firRegistryKeyFor(role, jarPath, sourceDirs, classpath, target)
+	// rejected is the PID of the record this call decided against. The stop
+	// below re-validates it under the registry lock, so a record another
+	// process published in the meantime is never killed.
+	rejected, _ := registeredFirPID(srcHash)
 	if d, err := connectExistingFirDaemon(srcHash, verbose); err == nil {
 		if d.aotVerified {
 			d.role = role
@@ -379,9 +383,12 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 		// An AOT-backed daemon whose canary never passed may be serving
 		// silent false negatives. Retire it before sending any analysis request.
 		_ = d.conn.Close()
+		rejected = d.aotPID
 	}
 	retireSupersededFirDaemons(firRegistryFamilyPrefix(role, jarPath, sourceDirs, classpath, target), sourceDirs, srcHash, len(classpath) > 0, verbose)
-	stopFirDaemon(srcHash, verbose)
+	if rejected != 0 {
+		stopFirDaemonIf(srcHash, rejected, verbose)
+	}
 	d, err := StartFirDaemonWithPort(jarPath, verbose, target)
 	if err != nil {
 		return nil, fmt.Errorf("start persistent fir daemon: %w", err)
@@ -409,9 +416,9 @@ func publishFirDaemon(d *FirDaemon, pid int, srcHash string, verbose bool) error
 		return nil
 	}
 	err := writeFirPIDFile(pid, d.port, srcHash)
-	if errors.Is(err, errFirRegistryBusy) {
+	if errors.Is(err, errFirRegistryBusy) || errors.Is(err, errFirRegistryOwned) {
 		if verbose {
-			reporter().Verbosef("verbose: krit-fir registry for %s is locked by another process; keeping the daemon private\n", srcHash)
+			reporter().Verbosef("verbose: krit-fir registry for %s is locked or owned by another process (%v); keeping the daemon private\n", srcHash, err)
 		}
 		d.unpublished = true
 		return nil
@@ -694,8 +701,8 @@ func (d *FirDaemon) Close() error {
 			jvmaot.FinalizeRecording(d.cmd.Args, false)
 		}
 	}
-	if d.port != 0 && d.sourcesHash != "" && !d.unpublished {
-		removeFirPIDFile(d.sourcesHash)
+	if d.port != 0 && d.sourcesHash != "" && !d.unpublished && d.cmd != nil && d.cmd.Process != nil {
+		removeFirRegistryIfOwned(d.sourcesHash, d.cmd.Process.Pid)
 	}
 	if d.conn != nil {
 		d.conn.Close()
@@ -784,24 +791,35 @@ func writeFirRegistry(pid, port int, sourcesHash string, meta firAOTMeta) error 
 // platform), so nothing was written.
 var errFirRegistryBusy = errors.New("fir registry publication lock not obtained")
 
+// errFirRegistryOwned reports that another live daemon is already registered
+// for the key, so nothing was written. Callers keep their daemon private, as
+// for errFirRegistryBusy.
+var errFirRegistryOwned = errors.New("fir registry key already owned by another live daemon")
+
 // writeFirRegistryClaimed writes the record; the caller holds the claim.
-// Each file is replaced atomically and the metadata, which names the PID
-// every reader cross-checks, goes first.
+// The PID file is the discoverability marker and is written last, after the
+// metadata and port: a reader that sees a live PID therefore sees a complete
+// record. Any previous PID file is removed first so a half-replaced record
+// is never discoverable.
 func writeFirRegistryClaimed(pid, port int, sourcesHash string, meta firAOTMeta) error {
+	// Re-read the registered PID now that the lock is held: another live
+	// daemon already registered for this key is never displaced.
+	if registered, found := registeredFirPID(sourcesHash); found && registered != pid && firPIDAlive(registered) {
+		return errFirRegistryOwned
+	}
+	_ = os.Remove(firPIDPath(sourcesHash))
 	if err := writeFirAOTMeta(sourcesHash, meta); err != nil {
 		return err
-	}
-	if err := writeFileAtomic(firPIDPath(sourcesHash), []byte(strconv.Itoa(pid)+"\n")); err != nil {
-		return fmt.Errorf("write fir pid: %w", err)
 	}
 	if err := writeFileAtomic(firPortPath(sourcesHash), []byte(strconv.Itoa(port)+"\n")); err != nil {
 		return fmt.Errorf("write fir port: %w", err)
 	}
+	if err := writeFileAtomic(firPIDPath(sourcesHash), []byte(strconv.Itoa(pid)+"\n")); err != nil {
+		return fmt.Errorf("write fir pid: %w", err)
+	}
 	return nil
 }
 
-// firLockPath is the per-key publication lock file. It is created on demand
-// and never deleted (see internal/fslock).
 func firLockPath(sourcesHash string) string { return firPIDPath(sourcesHash) + ".lock" }
 
 // firClaimWait bounds how long a publisher waits for another one.
@@ -910,24 +928,44 @@ func (d *FirDaemon) markAOTVerified() {
 			return
 		}
 		defer release()
-		registered, ok = registeredFirPID(d.sourcesHash)
-		if ok && registered != pid && firPIDAlive(registered) {
-			return
-		}
 		if writeFirRegistryClaimed(pid, d.port, d.sourcesHash, meta) == nil {
 			d.unpublished = false
 		}
 		return
 	}
+	// Registered already: update the metadata under the lock, and only while
+	// the PID file still names this daemon.
 	if ok && registered == pid {
-		_ = writeFirAOTMeta(d.sourcesHash, meta)
+		if release, claimed := claimFirRegistry(d.sourcesHash); claimed {
+			defer release()
+			if current, found := registeredFirPID(d.sourcesHash); found && current == pid {
+				_ = writeFirAOTMeta(d.sourcesHash, meta)
+			}
+		}
 	}
 }
 
-func removeFirPIDFile(sourcesHash string) {
+// removeFirRegistryFiles deletes a record, the PID marker first so the
+// record is never discoverable while half deleted. The caller holds the lock.
+func removeFirRegistryFiles(sourcesHash string) {
 	os.Remove(firPIDPath(sourcesHash))
 	os.Remove(firPortPath(sourcesHash))
 	os.Remove(firAOTPath(sourcesHash))
+}
+
+// removeFirRegistryIfOwned deletes the record under the lock, and only if the
+// PID file still names pid. If the lock cannot be taken the record is left
+// alone: it is being published or replaced by someone else, and a record of a
+// dead daemon is cleaned up by the next stopFirDaemonIf.
+func removeFirRegistryIfOwned(sourcesHash string, pid int) {
+	release, ok := claimFirRegistry(sourcesHash)
+	if !ok {
+		return
+	}
+	defer release()
+	if current, found := registeredFirPID(sourcesHash); found && current == pid {
+		removeFirRegistryFiles(sourcesHash)
+	}
 }
 
 // connectExistingFirDaemon reuses the daemon registered under hash, a
@@ -991,24 +1029,53 @@ func connectExistingFirDaemon(hash string, verbose bool) (*FirDaemon, error) {
 	return d, nil
 }
 
-func stopFirDaemon(hash string, verbose bool) {
+// stopFirDaemon kills whatever daemon is registered under hash and removes
+// its record. See stopFirDaemonIf.
+func stopFirDaemon(hash string, verbose bool) bool { return stopFirDaemonIf(hash, 0, verbose) }
+
+// stopFirDaemonIf stops the daemon registered under hash and removes its
+// record, but only under the per-key lock and, when expect is non-zero, only
+// if the record still names expect. It reports whether it acted.
+//
+// Every destructive registry path goes through here (or
+// removeFirRegistryIfOwned) so a publisher holding the lock is never raced:
+// when the lock cannot be taken the record is treated as being published or
+// replaced and nothing is killed or deleted. The caller then starts its own
+// daemon, which publishes under the same lock or stays private.
+func stopFirDaemonIf(hash string, expect int, verbose bool) bool {
+	release, ok := claimFirRegistry(hash)
+	if !ok {
+		if verbose {
+			reporter().Verbosef("verbose: krit-fir registry %s is locked by another process; not stopping its daemon\n", hash)
+		}
+		return false
+	}
+	defer release()
 	pidData, err := os.ReadFile(firPIDPath(hash))
 	if err != nil {
-		removeFirPIDFile(hash)
-		return
+		// No PID marker means no discoverable daemon; clear any leftovers of
+		// a publication that never completed.
+		removeFirRegistryFiles(hash)
+		return true
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(pidData)))
 	if err != nil {
-		removeFirPIDFile(hash)
-		return
+		removeFirRegistryFiles(hash)
+		return true
+	}
+	if expect != 0 && pid != expect {
+		if verbose {
+			reporter().Verbosef("verbose: krit-fir registry %s now names PID %d, not %d; leaving it\n", hash, pid, expect)
+		}
+		return false
 	}
 	proc, ferr := os.FindProcess(pid)
 	if ferr != nil || proc.Signal(syscall.Signal(0)) != nil {
 		if verbose {
 			reporter().Verbosef("verbose: Cleaning stale krit-fir daemon PID file (PID %d not alive)\n", pid)
 		}
-		removeFirPIDFile(hash)
-		return
+		removeFirRegistryFiles(hash)
+		return true
 	}
 	if verbose {
 		reporter().Verbosef("verbose: Killing unresponsive krit-fir daemon (PID %d)\n", pid)
@@ -1025,7 +1092,8 @@ func stopFirDaemon(hash string, verbose bool) {
 		proc.Signal(syscall.SIGKILL)
 		time.Sleep(500 * time.Millisecond)
 	}
-	removeFirPIDFile(hash)
+	removeFirRegistryFiles(hash)
+	return true
 }
 
 // Retiring an old daemon can interrupt another krit mid-request, but a jar

@@ -958,6 +958,18 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 				canPartial = false
 			}
 		}
+		// Merging fresh facts for the stale paths into types.json keeps every
+		// other file's facts. That is only sound when types.json was produced
+		// under this run's scope (backend, jar, classpath, JVM target and Kotlin
+		// settings): after a settings-only change plus one edit the untouched
+		// files would otherwise keep facts computed under the old settings.
+		typesScope, haveScope := oracleTypesScope(in, scanPaths)
+		scopeDeclined := false
+		if canPartial && !partialMergeAllowed(cachedTypesPath, typesScope, haveScope) {
+			in.logf("verbose: daemon partial reanalyze skipped: cached types.json was not produced under this run's compile scope\n")
+			canPartial = false
+			scopeDeclined = true
+		}
 		if canPartial {
 			perf.AddEntryDetails(oracleTracker, "daemonPartialReanalyze", 0, map[string]int64{
 				"stalePaths": int64(len(in.StaleOraclePaths)),
@@ -966,7 +978,7 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 			fresh, err := d.AnalyzeFilesWithCallFilter(in.StaleOraclePaths, callFilterPtr)
 			if err != nil {
 				in.warnf("warning: daemon analyzeFiles (fallback to analyzeAll): %v\n", err)
-				od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf)
+				od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf, typesScope, haveScope)
 				if allErr != nil {
 					in.warnf("warning: daemon analyzeAll: %v\n", allErr)
 					return
@@ -991,7 +1003,7 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 				in.warnf("warning: daemon partial merge pruned removed Kotlin files; falling back to analyzeAll\n")
 			}
 			if shouldFallbackToAnalyzeAll(mergeErr, pruned) {
-				od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf)
+				od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf, typesScope, haveScope)
 				if allErr != nil {
 					in.warnf("warning: daemon analyzeAll: %v\n", allErr)
 					return
@@ -999,6 +1011,7 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 				oracleData = od
 				return
 			}
+			recordTypesScope(cachedTypesPath, typesScope, haveScope, in.warnf)
 			oracleData = merged
 			return
 		}
@@ -1006,6 +1019,15 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 		if err != nil {
 			in.warnf("warning: daemon analyzeAll: %v\n", err)
 			return
+		}
+		if scopeDeclined && od != nil {
+			// Replace the out-of-scope types.json with this full result and stamp it,
+			// so the next run can reanalyze partially again.
+			if werr := oracle.WriteTypesJSON(cachedTypesPath, od); werr != nil {
+				in.warnf("warning: persist daemon analyzeAll types.json: %v\n", werr)
+			} else {
+				recordTypesScope(cachedTypesPath, typesScope, haveScope, in.warnf)
+			}
 		}
 		oracleData = od
 	})
@@ -1044,7 +1066,7 @@ func shouldFallbackToAnalyzeAll(mergeErr error, pruned bool) bool {
 // the merge, so without this the pruned merge (which can still carry a
 // deleted file's Dependencies entries) would stay on disk and the next
 // partial run would union those stale entries back in.
-func analyzeAllAndPersist(analyzeAll func() (*oracle.Data, error), typesPath string, warnf func(string, ...any)) (*oracle.Data, error) {
+func analyzeAllAndPersist(analyzeAll func() (*oracle.Data, error), typesPath string, warnf func(string, ...any), scope oracle.StoreScope, haveScope bool) (*oracle.Data, error) {
 	od, err := analyzeAll()
 	if err != nil {
 		return nil, err
@@ -1052,9 +1074,43 @@ func analyzeAllAndPersist(analyzeAll func() (*oracle.Data, error), typesPath str
 	if typesPath != "" && od != nil {
 		if err := oracle.WriteTypesJSON(typesPath, od); err != nil {
 			warnf("warning: persist daemon analyzeAll types.json: %v\n", err)
+		} else {
+			recordTypesScope(typesPath, scope, haveScope, warnf)
 		}
 	}
 	return od, nil
+}
+
+// oracleTypesScope is the compile scope the oracle's cached facts are keyed on
+// for this run, or false when no oracle jar resolves.
+func oracleTypesScope(in IndexInput, scanPaths []string) (oracle.StoreScope, bool) {
+	backend := in.OracleBackend
+	if backend == "" {
+		backend = oracle.DefaultBackend
+	}
+	jarPath, used, _, err := oracle.ResolveOracleJar(context.Background(), backend, scanPaths, false)
+	if err != nil || jarPath == "" {
+		return oracle.StoreScope{}, false
+	}
+	return oracle.NewStoreScopeWithSettings(used, jarPath, in.OracleClasspath, in.OracleJvmTarget, in.OracleKotlin), true
+}
+
+// partialMergeAllowed reports whether fresh facts may be merged into the cached
+// types.json: it must have been produced under exactly this scope.
+func partialMergeAllowed(typesPath string, scope oracle.StoreScope, haveScope bool) bool {
+	return haveScope && oracle.TypesJSONSatisfies(typesPath, false, scope, buildid.Token())
+}
+
+// recordTypesScope stamps types.json with the scope its facts now belong to, so
+// the next partial reanalyze can verify it. Diagnostics availability is kept
+// from the prior record (unknown stays "omitted").
+func recordTypesScope(typesPath string, scope oracle.StoreScope, haveScope bool, warnf func(string, ...any)) {
+	if !haveScope {
+		return
+	}
+	if err := oracle.RecordTypesFacts(typesPath, !oracle.TypesJSONHasDiagnostics(typesPath), scope); err != nil {
+		warnf("warning: types.json facts record not written: %v\n", err)
+	}
 }
 
 // runDaemonOracleFir spawns (or reuses) the krit-fir persistent
@@ -1331,15 +1387,10 @@ func cachedTypesJSONSatisfies(in IndexInput, oracleRules []*api.Rule, path strin
 	if in.NoCacheOracle {
 		return false
 	}
-	backend := in.OracleBackend
-	if backend == "" {
-		backend = oracle.DefaultBackend
-	}
-	jarPath, used, _, err := oracle.ResolveOracleJar(context.Background(), backend, scanPaths, false)
-	if err != nil || jarPath == "" {
+	scope, ok := oracleTypesScope(in, scanPaths)
+	if !ok {
 		return false
 	}
-	scope := oracle.NewStoreScopeWithSettings(used, jarPath, in.OracleClasspath, in.OracleJvmTarget, in.OracleKotlin)
 	return oracle.TypesJSONSatisfies(path, oracleDiagnosticsRequired(in, oracleRules), scope, buildid.Token())
 }
 

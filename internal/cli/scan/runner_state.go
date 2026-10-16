@@ -470,6 +470,17 @@ func (r *runner) bootstrapResolver() {
 	})
 }
 
+// oracleExpansionScope is the compile scope the freshness gate must read the
+// oracle cache under: the same Kotlin settings, classpath and JVM target the
+// oracle run itself is keyed on.
+func (r *runner) oracleExpansionScope() oracle.ExpansionScope {
+	return oracle.ExpansionScope{
+		Kotlin:    r.f.modelKotlin,
+		Classpath: effectiveOracleClasspath(r.f.modelClasspath, r.cfg),
+		JvmTarget: r.f.modelJvmTarget,
+	}
+}
+
 // runOracleIndex executes the standalone IndexPhase invocation that
 // loads the type oracle and the incremental analysis cache. The phase
 // runs in oracle-only mode (SkipModules + SkipAndroid +
@@ -486,7 +497,7 @@ func (r *runner) runOracleIndex() (int, error) {
 	r.tracker.TrackVoid("oracleIndex", func() {
 		oracleClasspath := effectiveOracleClasspath(r.f.modelClasspath, r.cfg)
 		staleOraclePaths := computeStaleOraclePathsWithStore(r.paths, r.files, *r.f.IncludeGenerated, r.tracker, *r.f.Verbose, r.oracleStore,
-			oracle.ExpansionScope{Kotlin: r.f.modelKotlin, Classpath: oracleClasspath, JvmTarget: r.f.modelJvmTarget})
+			r.oracleExpansionScope())
 		oracleBackend, oracleBackendErr := resolveOracleBackend(*r.f.OracleBackend, r.cfg)
 		if oracleBackendErr != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", oracleBackendErr)

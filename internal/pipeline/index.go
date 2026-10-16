@@ -964,10 +964,17 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 	return oracle.NewCompositeResolver(oracleLoaded, base)
 }
 
+// daemonAnalyzer is the slice of *oracle.Daemon that daemonAnalyze drives; it
+// lets tests substitute a stub for the resident JVM.
+type daemonAnalyzer interface {
+	AnalyzeAllWithCallFilter(callFilter *oracle.CallTargetFilterSummary) (*oracle.Data, error)
+	AnalyzeFilesWithCallFilter(files []string, callFilter *oracle.CallTargetFilterSummary) (*oracle.Data, error)
+}
+
 // daemonAnalyze obtains the oracle facts from the resident daemon: a partial
 // reanalyze merged into the cached types.json when that is sound, else a full
 // analysis. It returns nil when the daemon produced nothing usable.
-func daemonAnalyze(in IndexInput, d *oracle.Daemon, scanPaths []string, callFilterPtr *oracle.CallTargetFilterSummary, oracleTracker perf.Tracker) *oracle.Data {
+func daemonAnalyze(in IndexInput, d daemonAnalyzer, scanPaths []string, callFilterPtr *oracle.CallTargetFilterSummary, oracleTracker perf.Tracker) *oracle.Data {
 	// Partial reanalyze path: when the caller has prior-manifest
 	// evidence of exactly which .kt files changed (StaleOraclePaths
 	// populated by the daemon's bundle-manifest comparator), ask

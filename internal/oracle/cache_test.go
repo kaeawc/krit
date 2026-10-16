@@ -198,7 +198,7 @@ func TestLegacyScopesArePrunedAndVersioned(t *testing.T) {
 	for i := 0; i < maxLegacyScopes+3; i++ {
 		kt := gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0", Flags: []string{fmt.Sprintf("-XXLanguage:+Feature%d", i)}}
 		dir := prepareLegacyEntryDir(base, kt)
-		stamp := time.Now().Add(time.Duration(i) * time.Minute)
+		stamp := time.Now().Add(-3*time.Hour + time.Duration(i)*time.Minute)
 		if err := os.Chtimes(dir, stamp, stamp); err != nil {
 			t.Fatal(err)
 		}

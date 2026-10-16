@@ -506,9 +506,9 @@ func (e *oracleDaemonEntry) close() error {
 }
 
 // oracleJarForBackend picks the JVM jar the resident oracle daemon
-// runs. Empty / unknown backends route to KAA (the historical
-// default) so the caller can treat "" as "use the default" without
-// reproducing the routing logic. Returns "" when neither jar is
+// runs: krit-fir for BackendFIR (the default backend) and krit-types for
+// every other value, including "" and unknown backends, so the caller does not
+// reproduce the routing logic. Returns "" when neither jar is
 // installed; callers degrade to "oracle disabled".
 func oracleJarForBackend(scanPaths []string, backend oracle.Backend) string {
 	switch backend {

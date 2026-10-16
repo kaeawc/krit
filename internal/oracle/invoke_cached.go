@@ -1328,6 +1328,10 @@ const legacyScopesDir = "scopes"
 // the least recently used beyond it are pruned.
 const maxLegacyScopes = 4
 
+// legacyScopeGrace protects a scope directory touched recently: a long
+// concurrent run under other settings may still be reading and writing it.
+const legacyScopeGrace = 10 * time.Minute
+
 // LegacyEntryDir is where the per-file entries of the legacy (no .krit/store)
 // layout live for the given Kotlin settings. Without a store the entries carry
 // no scope of their own, so a settings-only change plus one edit would leave
@@ -1392,6 +1396,9 @@ func pruneLegacyScopes(root, keepName string, limit int) {
 		return scopes[i].mtime.After(scopes[j].mtime)
 	})
 	for _, old := range scopes[limit:] {
+		if time.Since(old.mtime) < legacyScopeGrace {
+			continue
+		}
 		_ = os.RemoveAll(filepath.Join(root, old.name))
 	}
 }

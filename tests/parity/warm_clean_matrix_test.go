@@ -489,9 +489,17 @@ var wcKnownStale = wcBuildKnownStale()
 
 func wcBuildKnownStale() map[string]string {
 	known := map[string]string{}
+	// add records why a row is known-bad; a row with several causes cites all
+	// of them rather than letting the last write win.
+	add := func(key, why string) {
+		if prior, ok := known[key]; ok {
+			why = prior + "; and " + why
+		}
+		known[key] = why
+	}
 	both := func(prefix, mutation, why string) {
 		for _, spelling := range []string{"abs", "rel"} {
-			known[prefix+"/"+spelling+"/"+mutation] = why
+			add(prefix+"/"+spelling+"/"+mutation, why)
 		}
 	}
 	// The structural bundle replay (#154) serves the previous run's findings,
@@ -528,7 +536,7 @@ func wcBuildKnownStale() map[string]string {
 	}
 	for backend, why := range relRoot {
 		for _, m := range []string{"return-type", "file-add", "file-rename", "import-change"} {
-			known[backend+"/one-shot/rel/"+m] = why
+			add(backend+"/one-shot/rel/"+m, why)
 		}
 	}
 	return known

@@ -98,23 +98,19 @@ func (c *wcStructuralCase) run(t *testing.T) {
 	if c.path == "daemon" {
 		d := wcStartDaemon(t, c.bin, root, home)
 		analyze = func(r, label string) wcStructuralRun { return c.analyzeDaemon(t, d, r, label) }
-		// The daemon learns about edits from its filesystem watcher, and the
-		// protocol offers no way to ask whether an event has landed that does
-		// not itself consume it (analyze-project drains the dirty set, and an
-		// analyze that races the event leaves the daemon stale, see the
-		// raced-annotation row). So wait out the delivery, as an editor save
-		// followed by a human-speed command would. Create, Remove and Rename
-		// events are reported at once and Write events after a 50 ms debounce.
+		// The daemon learns about edits from its filesystem watcher. Wait, on
+		// its status verb (which reports the dirty count without draining it),
+		// until the watcher has delivered the edit; analyzing earlier would
+		// race the event, which is what the raced-annotation row does on
+		// purpose.
 		analyzeAfterEdit = func(r, label string) wcStructuralRun {
 			if c.m.raceAnalyze {
-				c.analyzeDaemon(t, d, r, "race")
+				if raced := c.analyzeDaemon(t, d, r, "race"); raced.dirty > 0 {
+					t.Skip("the watcher event beat the racing analyze, so the race was not exercised this time")
+				}
 			}
-			time.Sleep(wcDaemonSettle())
-			run := c.analyzeDaemon(t, d, r, label)
-			if run.dirty == 0 {
-				t.Fatalf("%s: the daemon reported no dirty files %s after the edit; its watcher missed it", label, wcDaemonSettle())
-			}
-			return run
+			wcWaitForDaemonDirty(t, d, label)
+			return c.analyzeDaemon(t, d, r, label)
 		}
 	} else {
 		analyze = func(r, label string) wcStructuralRun { return c.analyzeCLI(t, r, home, label) }
@@ -398,12 +394,22 @@ func (c *wcStructuralCase) analyzeDaemon(t *testing.T, d *wcDaemonProc, root, la
 	return run
 }
 
-// wcDaemonSettle is how long the matrix waits after an edit for the daemon's
-// filesystem watcher to deliver it. KRIT_TEST_DAEMON_SETTLE overrides it (a
-// duration) on a slow runner.
-func wcDaemonSettle() time.Duration {
-	if d, err := time.ParseDuration(os.Getenv("KRIT_TEST_DAEMON_SETTLE")); err == nil {
-		return d
+// wcWaitForDaemonDirty polls the daemon's status until the watcher has
+// reported the edit, or fails after a timeout.
+func wcWaitForDaemonDirty(t *testing.T, d *wcDaemonProc, label string) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var st daemon.StatusResult
+		if err := daemon.Call(d.socket, daemon.VerbStatus, nil, &st); err != nil {
+			t.Fatalf("%s: status: %v", label, err)
+		}
+		if st.DirtyFiles > 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s: the daemon's watcher never reported the edit (status dirty_files stayed 0)", label)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	return 750 * time.Millisecond
 }

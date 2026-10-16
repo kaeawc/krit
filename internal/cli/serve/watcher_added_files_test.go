@@ -25,6 +25,13 @@ func drainedBases(ws *pipeline.WorkspaceState) []string {
 // lists that predate the file.
 func TestFileWatcher_CreateIsDirtyBeforeTheDebounceWindowElapses(t *testing.T) {
 	root := t.TempDir()
+	// The file exists before the watcher starts, so the real filesystem
+	// events cannot add a Create of their own to the dirty set; the test
+	// delivers the Create by hand.
+	created := filepath.Join(root, "New.kt")
+	if err := os.WriteFile(created, []byte("class New\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	ws := pipeline.NewWorkspaceState(root)
 	w, err := startFileWatcherWithState(context.Background(), root, ws, nil, withDebounceWindow(time.Hour))
 	if err != nil {
@@ -33,10 +40,6 @@ func TestFileWatcher_CreateIsDirtyBeforeTheDebounceWindowElapses(t *testing.T) {
 	defer w.Stop()
 	<-w.Ready()
 
-	created := filepath.Join(root, "New.kt")
-	if err := os.WriteFile(created, []byte("class New\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	w.handle(backendEvent{Path: created, Op: opCreate})
 	if got := drainedBases(ws); len(got) != 1 || got[0] != "New.kt" {
 		t.Fatalf("dirty after a create = %v, want [New.kt] (an hour-long debounce must not delay it)", got)
@@ -88,5 +91,41 @@ func TestFileWatcher_MovedInDirectoryReportsItsSources(t *testing.T) {
 	want := []string{"A.kt", "B.java", "script.kts"}
 	if got := drainedBases(ws); len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
 		t.Fatalf("dirty after a directory move-in = %v, want %v", got, want)
+	}
+}
+
+// A directory moved out of the tree delivers one event for the directory and
+// none for the files in it; the watcher must still report it.
+func TestFileWatcher_DirectoryMovedOutIsReported(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "S.kt"), []byte("class S\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ws := pipeline.NewWorkspaceState(root)
+	w, err := startFileWatcherWithState(context.Background(), root, ws, nil, withDebounceWindow(time.Hour))
+	if err != nil {
+		t.Fatalf("startFileWatcher: %v", err)
+	}
+	defer w.Stop()
+	<-w.Ready()
+
+	if err := os.Rename(sub, filepath.Join(t.TempDir(), "sub")); err != nil {
+		t.Skipf("cannot move a directory out of the project: %v", err)
+	}
+	var got []string
+	if !waitForCondition(func() bool {
+		got = append(got, drainedBases(ws)...)
+		for _, b := range got {
+			if b == "sub" {
+				return true
+			}
+		}
+		return false
+	}) {
+		t.Fatalf("dirty after moving a directory out = %v, want it to include sub", got)
 	}
 }

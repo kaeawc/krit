@@ -240,8 +240,8 @@ func (c *wcOracleCase) exercise(t *testing.T) (problem, detail string) {
 	if seedStats.classified == 0 || seedStats.hits != 0 {
 		t.Fatalf("seed run is not cold: %+v", seedStats)
 	}
-	if !wcHasFacts(seed) {
-		return "the seed run returned no facts", fmt.Sprintf("%s %s path, %s scan root: the seed run returned no facts", be.name, c.mode, c.spellingKey())
+	if !wcSeedUsable(seed) {
+		return "the seed run returned no facts", fmt.Sprintf("%s %s path, %s scan root: the seed run is unusable: %s", be.name, c.mode, c.spellingKey(), wcSeedFailure(seed))
 	}
 	if got := c.storedEntries(t, warmRoot, seedIn); got != seedStats.classified {
 		return "the seed run did not populate the cache", fmt.Sprintf("seed run populated %d cache entries for %d classified files; a warm run would prove nothing", got, seedStats.classified)
@@ -315,11 +315,31 @@ func (c *wcOracleCase) seed(t *testing.T, in wcInputs) (string, wcSnapshot, wcRu
 	key := fmt.Sprintf("%v|%v", c.rel, extras)
 	seed := mx.seeds[key]
 	if seed == nil {
-		seed = &wcSeed{root: wcCanonicalDirIn(t, mx.shared), backup: wcCanonicalDirIn(t, mx.shared)}
-		wcWriteProject(t, seed.root, c.m)
-		seed.snap, seed.stats = c.invoke(t, seed.root, "seed", in)
-		wcCopyTreeKeepCache(t, seed.root, seed.backup)
-		mx.seeds[key] = seed
+		// Build the seed, retrying once if the helper errored or returned no
+		// facts (a loaded runner can do that to a cold JVM). A seed that never
+		// comes out usable is not shared: every later row would restore it and
+		// fail for the same transient reason.
+		built := &wcSeed{root: wcCanonicalDirIn(t, mx.shared), backup: wcCanonicalDirIn(t, mx.shared)}
+		usable := false
+		for attempt := 1; attempt <= 2 && !usable; attempt++ {
+			for _, dir := range []string{"src", ".krit"} {
+				if err := os.RemoveAll(filepath.Join(built.root, dir)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			wcWriteProject(t, built.root, c.m)
+			built.snap, built.stats = c.invoke(t, built.root, "seed", in)
+			usable = wcSeedUsable(built.snap)
+			if !usable {
+				t.Logf("seed attempt %d unusable: %s", attempt, wcSeedFailure(built.snap))
+			}
+		}
+		if !usable {
+			return built.root, built.snap, built.stats
+		}
+		wcCopyTreeKeepCache(t, built.root, built.backup)
+		mx.seeds[key] = built
+		seed = built
 	}
 	// Restore the seeded project and cache exactly, whatever the previous
 	// row left behind.
@@ -671,4 +691,19 @@ func wcHasFacts(snap wcSnapshot) bool {
 		}
 	}
 	return false
+}
+
+// wcSeedUsable reports whether a seed run produced facts and did not error.
+func wcSeedUsable(snap wcSnapshot) bool {
+	_, failed := snap["run-error"]
+	return !failed && wcHasFacts(snap)
+}
+
+// wcSeedFailure says why a seed run is unusable: the helper's error when it
+// had one, else that it returned no facts.
+func wcSeedFailure(snap wcSnapshot) string {
+	if err, failed := snap["run-error"]; failed {
+		return "oracle run error: " + err
+	}
+	return "the oracle returned no facts"
 }

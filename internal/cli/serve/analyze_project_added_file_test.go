@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -74,7 +75,7 @@ func TestAnalyzeProject_FileAddedWhileDaemonWasDownIsSeen(t *testing.T) {
 }
 
 func TestDropStalePrepopulatedPaths(t *testing.T) {
-	known := map[string]string{"/r/src/A.kt": "h"}
+	known := map[string]string{"/r/src/A.kt": "h", "/r/gone/S.kt": "h"}
 	newInput := func() *pipeline.ProjectInput {
 		in := &pipeline.ProjectInput{}
 		in.Args.Paths = []string{"/r"}
@@ -95,6 +96,14 @@ func TestDropStalePrepopulatedPaths(t *testing.T) {
 		{"warm created java file", false, []string{"/r/src/New.java"}, true},
 		{"warm known edit plus created file", false, []string{"/r/src/A.kt", "/r/src/New.kt"}, true},
 		{"cold start", true, nil, true},
+		{"warm directory gone with known sources", false, []string{"/r/gone"}, true},
+		{"warm path gone with no known sources", false, []string{"/r/other"}, false},
+		{"warm layout xml edit", false, []string{"/r/app/src/main/res/layout/a.xml"}, false},
+		{"warm krit.yml edit", false, []string{"/r/krit.yml"}, false},
+		{"warm version catalog edit", false, []string{"/r/gradle/libs.versions.toml"}, false},
+		{"warm groovy gradle edit", false, []string{"/r/app/build.gradle"}, false},
+		{"warm xml edit plus known source edit", false, []string{"/r/res/layout/a.xml", "/r/src/A.kt"}, false},
+		{"warm xml edit plus created source", false, []string{"/r/res/layout/a.xml", "/r/src/New.kt"}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -104,5 +113,43 @@ func TestDropStalePrepopulatedPaths(t *testing.T) {
 				t.Fatalf("dropped = %v, want %v", dropped, tc.drop)
 			}
 		})
+	}
+}
+
+// A directory moved out of the tree must stop contributing findings. The
+// watcher reports one event for the directory (and none for its files), and
+// the next analyze has to notice that the source set shrank.
+func TestAnalyzeProject_DirectoryMovedOutIsForgotten(t *testing.T) {
+	socket, state := startServerForTest(t)
+	writeKotlinFile(t, state.root, "A.kt", "package demo\n\nclass A {\n    fun a() {}\n}\n")
+	sub := filepath.Join(state.root, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeKotlinFile(t, sub, "S.kt", "package demo\n\nclass S {\n    fun s() {}\n}\n")
+
+	call := func() (r daemon.AnalyzeProjectResult) {
+		if err := daemon.Call(socket, daemon.VerbAnalyzeProject, daemon.AnalyzeProjectArgs{NoFir: true}, &r); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	if !strings.Contains(string(call().Findings), "S.kt") {
+		t.Fatal("setup: S.kt must produce a finding before the move (the test would prove nothing)")
+	}
+	if !call().Stats.FindingsBundleHit {
+		t.Fatal("control must hit the bundle")
+	}
+
+	elsewhere := filepath.Join(t.TempDir(), "sub")
+	if err := os.Rename(sub, elsewhere); err != nil {
+		t.Skipf("cannot move a directory out of the project: %v", err)
+	}
+	// What the filesystem watcher does for the directory's Rename event.
+	state.workspace.Touch(sub)
+	state.workspace.BumpSourceMTimeVersion()
+	warm := call()
+	if strings.Contains(string(warm.Findings), "S.kt") {
+		t.Fatalf("findings for S.kt, moved out of the tree, are still served (bundleHit=%v)", warm.Stats.FindingsBundleHit)
 	}
 }

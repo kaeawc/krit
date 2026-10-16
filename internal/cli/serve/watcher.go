@@ -258,6 +258,16 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 	if relevant == 0 {
 		return
 	}
+	// A directory moved or deleted out of the tree delivers one event for the
+	// directory, and none for the files in it (rm -rf deletes them one by one,
+	// mv does not). Report the directory so the next analyze notices that the
+	// source set shrank.
+	if relevant&(opRemove|opRename) != 0 && filepath.Ext(ev.Path) == "" && !isPrunedDir(filepath.Base(ev.Path)) {
+		if _, err := os.Lstat(ev.Path); err != nil {
+			fw.directoryGone(ev.Path)
+			return
+		}
+	}
 	// Library-config paths come first — build.gradle.kts also matches
 	// isKotlinPath because of its extension, but it drives library
 	// facts, not the per-file parse cache.
@@ -324,6 +334,17 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 		fw.state.BumpSourceMTimeVersion()
 		fw.state.BumpXMLFilesVersion()
 	}
+}
+
+// directoryGone records that path, which no longer exists and has no file
+// extension (so most likely a directory), left the tree.
+func (fw *fileWatcher) directoryGone(path string) {
+	fw.state.BumpSourceMTimeVersion()
+	fw.state.InvalidateCodeIndex()
+	fw.state.InvalidateDependents()
+	fw.state.InvalidateResolver()
+	fw.state.InvalidateOracleFilter()
+	fw.state.Touch(path)
 }
 
 // invalidateKotlinNow is the undebounced form of scheduleKotlinInvalidate's

@@ -464,9 +464,59 @@ func (s *daemonState) prepopulatedSourcePaths(repoDir string, paths []string) (k
 // added while no daemon ran) or when the watcher reports a dirty path the
 // manifest does not know.
 func dropStalePrepopulatedPaths(in *pipeline.ProjectInput, cold bool, dirty []string) {
-	if cold || (len(dirty) > 0 && !pipeline.DirtyPathsAllInManifest(dirty, in.Host.PriorContentHashes, in.Args.Paths)) {
+	if cold || sourceSetMayHaveChanged(dirty, in.Host.PriorContentHashes, in.Args.Paths) {
 		in.Args.KotlinPaths, in.Args.JavaPaths = nil, nil
 	}
+}
+
+// sourceSetMayHaveChanged reports whether the set of source files may differ
+// from the prior manifest's: a dirty Kotlin or Java path the manifest does not
+// know (a file added, renamed to or moved in), or a dirty path that no longer
+// exists and has known sources beneath it (a directory moved or deleted out).
+// The watcher also touches XML, krit.yml, version catalogs and Gradle scripts;
+// none of them can change the source set, so editing one must not cost a walk
+// of the source roots.
+func sourceSetMayHaveChanged(dirty []string, manifest map[string]string, scanRoots []string) bool {
+	var sources []string
+	for _, p := range dirty {
+		switch {
+		case isKotlinPath(p) || isJavaPath(p):
+			sources = append(sources, p)
+		case directoryWithKnownSourcesIsGone(p, manifest, scanRoots):
+			return true
+		}
+	}
+	return len(sources) > 0 && !pipeline.DirtyPathsAllInManifest(sources, manifest, scanRoots)
+}
+
+// directoryWithKnownSourcesIsGone reports whether p no longer exists and the
+// manifest lists files beneath it, under any of the spellings the manifest
+// may use (as written, absolute, or relative to a scan root).
+func directoryWithKnownSourcesIsGone(p string, manifest map[string]string, scanRoots []string) bool {
+	if len(manifest) == 0 || filepath.Ext(p) != "" {
+		return false
+	}
+	if _, err := os.Lstat(p); err == nil {
+		return false
+	}
+	prefixes := []string{p + string(filepath.Separator)}
+	for _, root := range scanRoots {
+		abs, err := filepath.Abs(root)
+		if err != nil {
+			continue
+		}
+		if rel, err := filepath.Rel(abs, p); err == nil && !strings.HasPrefix(rel, "..") {
+			prefixes = append(prefixes, rel+string(filepath.Separator))
+		}
+	}
+	for key := range manifest {
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(key, prefix) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // oracleDaemonStarter abstracts the JVM-subprocess construction so
@@ -866,6 +916,7 @@ func registerVerbs(srv *daemon.Server, state *daemonState) {
 			BinaryHash:      daemonBinaryHash(),
 			HasLibraryFacts: xfile.HasLibraryFacts,
 			HasCodeIndex:    xfile.HasCodeIndex,
+			DirtyFiles:      state.workspace.DirtyCount(),
 		}, nil
 	})
 	srv.Register(daemon.VerbShutdown, func(_ context.Context, _ json.RawMessage) (any, error) {

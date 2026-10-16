@@ -457,6 +457,45 @@ func (s *daemonState) prepopulatedSourcePaths(repoDir string, paths []string) (k
 	return kotlinPaths, javaPaths
 }
 
+// dirtyIntroducesSourceFile reports whether any watcher-dirty Kotlin or Java
+// path is absent from the prior manifest's content hashes, that is, may be a
+// file added (or renamed to) since the manifest was written. The prepopulated
+// path lists come from that manifest, so they cannot contain such a file, and
+// the bundle fingerprint is computed over the lists it is handed: without a
+// fresh walk an added file is never analyzed. A path counts as known under
+// its absolute, root-relative or working-directory-relative spelling; an
+// unrecognized spelling only costs a walk.
+func dirtyIntroducesSourceFile(dirty []string, known map[string]string, root string) bool {
+	if len(dirty) == 0 {
+		return false
+	}
+	cwd, _ := os.Getwd()
+	for _, p := range dirty {
+		if !isKotlinPath(p) && !isJavaPath(p) {
+			continue
+		}
+		if _, ok := known[p]; ok {
+			continue
+		}
+		found := false
+		for _, base := range []string{root, cwd} {
+			if base == "" {
+				continue
+			}
+			if rel, err := filepath.Rel(base, p); err == nil {
+				if _, ok := known[rel]; ok {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			return true
+		}
+	}
+	return false
+}
+
 // oracleDaemonStarter abstracts the JVM-subprocess construction so
 // tests can substitute a fake without spinning up a real daemon. The
 // production implementation is defaultOracleDaemonStarter.

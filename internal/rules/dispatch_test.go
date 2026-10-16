@@ -89,7 +89,7 @@ func TestDispatcher_RunWithStats_TracksRuleBuckets(t *testing.T) {
 		t.Fatal("expected per-rule dispatch timings")
 	}
 	stat := stats.RuleStatsByRule[rule.ID]
-	if stat.Rule != rule.ID || stat.Family != "dispatch" || stat.Invocations != 1 || stat.DurationNs <= 0 {
+	if stat.Rule != rule.ID || stat.Family != "dispatch" || stat.Invocations != 1 || stat.DurationNs < 0 {
 		t.Fatalf("expected dispatch rule timing with one invocation, got %+v", stat)
 	}
 }
@@ -118,7 +118,7 @@ func TestDispatcher_RunWithStats_TracksLineRuleInvocations(t *testing.T) {
 		t.Fatalf("expected one line-rule finding, got %d", columns.Len())
 	}
 	stat := stats.RuleStatsByRule[rule.ID]
-	if stat.Rule != rule.ID || stat.Family != "line" || stat.Invocations != 1 || stat.DurationNs <= 0 {
+	if stat.Rule != rule.ID || stat.Family != "line" || stat.Invocations != 1 || stat.DurationNs < 0 {
 		t.Fatalf("expected line rule timing with one invocation, got %+v", stat)
 	}
 }

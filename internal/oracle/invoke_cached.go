@@ -176,10 +176,17 @@ func applyOracleFilter(ktFiles []string, filterListPath string, tracker perf.Tra
 		addOracleEntry(tracker, "readOracleFilterList", start, nil, map[string]string{"error": ferr.Error()})
 		return ktFiles
 	}
+	// The filter list holds absolute paths while ktFiles is spelled like the
+	// scan root (relative for `krit .`), so compare in absolute form. The
+	// result keeps the caller's spelling of each file.
+	wantedAbs := make(map[string]bool, len(wanted))
+	for p := range wanted {
+		wantedAbs[filepath.Clean(AbsolutePath(p))] = true
+	}
 	before := len(ktFiles)
 	filtered := ktFiles[:0]
 	for _, p := range ktFiles {
-		if wanted[p] {
+		if wantedAbs[filepath.Clean(AbsolutePath(p))] {
 			filtered = append(filtered, p)
 		}
 	}
@@ -225,6 +232,11 @@ func writeFreshCacheEntries(
 	}
 }
 
+// minUnansweredForMismatch is how many requested files the JVM must leave
+// entirely unanswered before that is treated as a request mismatch rather than
+// as skipped sources.
+const minUnansweredForMismatch = 2
+
 // writeSkippedPoisonEntries writes jar-skipped poison cache entries for misses
 // that freshData/depsFile did not cover, preventing them from re-entering miss
 // lists on future warm runs.
@@ -255,11 +267,13 @@ func writeSkippedPoisonEntries(
 			analyzedMisses++
 		}
 	}
-	if len(misses) > 0 && analyzedMisses == 0 {
-		// The JVM answered for none of the files it was asked about. That is
-		// a request/response mismatch (for example paths it could not match),
-		// not a set of oversized sources, so marking the files skipped would
-		// poison the cache for every later run.
+	if len(misses) >= minUnansweredForMismatch && analyzedMisses == 0 {
+		// The JVM answered for none of several requested files. A lone
+		// unanswered file is the normal skipped-source case (an oversized
+		// file the Analysis API never builds a KtFile for) and keeps its
+		// marker; several at once, with nothing answered, is a
+		// request/response mismatch (for example paths it could not match),
+		// and marking them skipped would poison the cache for later runs.
 		reporter().Warnf("warning: oracle analyzed 0 of %d requested files; not caching skipped markers\n", len(misses))
 		addOracleInstant(tracker, "skippedPoisonEntriesSuppressed", map[string]int64{"requested": int64(len(misses))}, nil)
 		return
@@ -275,9 +289,11 @@ func writeSkippedPoisonEntries(
 				continue
 			}
 			entry := &CacheEntry{
-				V:                             CacheVersion,
-				ContentHash:                   hash,
-				FilePath:                      p,
+				V:           CacheVersion,
+				ContentHash: hash,
+				// Absolute, so a relative FilePath on a skipped marker only
+				// ever means a marker written by the relative-root bug.
+				FilePath:                      AbsolutePath(p),
 				Crashed:                       true,
 				CrashError:                    skipPoisonMarker + " file not in Analysis API KtFile set (typically oversized source)",
 				Approximation:                 depsFile.approximation(),
@@ -580,6 +596,28 @@ func stampCacheDeps(depsFile *CacheDepsFile, opts InvocationOptions, compilation
 		depsFile.Approximation = opts.Backend.CacheApproximation()
 	}
 	depsFile.CompilationFingerprint = compilation
+}
+
+// readOneShotMissResult reads a one-shot JVM run's facts and cache deps and
+// re-spells their absolute paths to the caller's spelling of requested and
+// sourceDirs. A cache-deps read failure is returned separately (depsErr) so
+// callers can choose to ignore it; err is set only when the facts are unreadable.
+func readOneShotMissResult(tracker perf.Tracker, freshPath, depsPath string, sourceDirs, requested []string) (fresh *Data, deps *CacheDepsFile, depsErr, err error) {
+	if err = trackOracle(tracker, "readFreshOracleJSON", func() error {
+		var readErr error
+		fresh, readErr = readOracleJSON(freshPath)
+		return readErr
+	}); err != nil {
+		return nil, nil, nil, err
+	}
+	_ = trackOracle(tracker, "readCacheDepsJSON", func() error {
+		deps, depsErr = LoadCacheDeps(depsPath)
+		return nil
+	})
+	spelling := oneShotSpelling(sourceDirs, requested)
+	spelling.CallerData(fresh)
+	spelling.CallerCacheDeps(deps)
+	return fresh, deps, depsErr, nil
 }
 
 // oneShotSpelling maps the absolute paths a one-shot JVM run reports back to
@@ -1003,25 +1041,11 @@ func runKritTypesCachedShardedWithRunner(
 				return
 			}
 
-			var fresh *Data
-			if err := trackOracle(child, "readFreshOracleJSON", func() error {
-				var readErr error
-				fresh, readErr = readOracleJSON(freshPath)
-				return readErr
-			}); err != nil {
+			fresh, deps, depsErr, err := readOneShotMissResult(child, freshPath, depsPath, sourceDirs, group.Paths)
+			if err != nil {
 				results[i].Err = fmt.Errorf("shard %d read fresh oracle: %w", i, err)
 				return
 			}
-
-			var deps *CacheDepsFile
-			var depsErr error
-			_ = trackOracle(child, "readCacheDepsJSON", func() error {
-				deps, depsErr = LoadCacheDeps(depsPath)
-				return nil
-			})
-			spelling := oneShotSpelling(sourceDirs, group.Paths)
-			spelling.CallerData(fresh)
-			spelling.CallerCacheDeps(deps)
 			results[i] = shardResult{
 				Fresh:      fresh,
 				Deps:       deps,
@@ -1114,24 +1138,12 @@ func runMissAnalysis(
 		if err := runKritTypesCached(jarPath, sourceDirs, missListPath, missFreshPath, missDepsPath, verbose, tracker, opts); err != nil {
 			return nil, nil, false, err
 		}
-		var fresh *Data
-		if err := trackOracle(tracker, "readFreshOracleJSON", func() error {
-			var err error
-			fresh, err = readOracleJSON(missFreshPath)
-			return err
-		}); err != nil {
+		// Same swallowed-error policy as the pre-daemon code: missing or
+		// malformed cache-deps is non-fatal, we just skip cache writes.
+		fresh, deps, _, err := readOneShotMissResult(tracker, missFreshPath, missDepsPath, sourceDirs, misses)
+		if err != nil {
 			return nil, nil, false, fmt.Errorf("read fresh oracle: %w", err)
 		}
-		// Same swallowed-error policy as the pre-daemon code — missing
-		// or malformed cache-deps is non-fatal, we just skip cache writes.
-		var deps *CacheDepsFile
-		_ = trackOracle(tracker, "readCacheDepsJSON", func() error {
-			deps, _ = LoadCacheDeps(missDepsPath)
-			return nil
-		})
-		spelling := oneShotSpelling(sourceDirs, misses)
-		spelling.CallerData(fresh)
-		spelling.CallerCacheDeps(deps)
 		return fresh, deps, false, nil
 	}
 

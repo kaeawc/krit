@@ -1,5 +1,6 @@
 package test
 
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -68,6 +69,16 @@ class JavaInterop {
         fun doWorkStatic() {
             CoroutineScope(Dispatchers.IO).launch { fetchFromNetwork() }
         }
+    }
+}
+
+class CombinedContext {
+    suspend fun dispatcherOnTheRight() {
+        withContext(CoroutineName("load") + Dispatchers.IO) { fetchFromNetwork() }
+    }
+
+    suspend fun dispatcherOnTheLeft() {
+        withContext(Dispatchers.Default + CoroutineName("load")) { fetchFromNetwork() }
     }
 }
 

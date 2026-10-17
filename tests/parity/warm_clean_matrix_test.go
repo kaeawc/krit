@@ -506,11 +506,9 @@ func wcBuildKnownStale() map[string]string {
 	// served the old findings, and so is every later one: the daemon stays
 	// stale until the next edit.
 	both("structural/daemon", "annotation-deprecated-raced", "#832 DAEMON-RACED-ANALYZE: an analyze-project call racing the watcher event leaves the daemon serving the pre-edit findings after the event lands")
-	// krit-types records dependencies only for classes and resolved callables
-	// the file already used, so a new file that adds an overload, or a
-	// classpath jar, leaves cached facts for existing files in place.
+	// The krit-types cache key does not include the classpath, so a
+	// classpath change leaves cached facts for existing files in place.
 	for _, mode := range []string{"one-shot", "daemon"} {
-		both("kaa/"+mode, "file-add", "#826 KAA-NEWFILE-OVERLOAD: a new file adding an overload does not invalidate cached facts of files that call the name")
 		both("kaa/"+mode, "classpath-change", "#827 KAA-CLASSPATH-KEY: the krit-types cache key does not include the classpath (krit-fir's does)")
 	}
 	return known

@@ -1280,7 +1280,7 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		in.warnf("warning: krit-types: %v\n", err)
 		return ""
 	}
-	if err := oracle.RecordTypesFacts(res, invokeOpts.DisableDiagnostics, storeScope); err != nil && in.Verbose {
+	if err := oracle.RecordTypesFactsForPaths(res, invokeOpts.DisableDiagnostics, scanPaths, storeScope); err != nil && in.Verbose {
 		in.logf("verbose: oracle facts record not written: %v\n", err)
 	}
 	return res
@@ -1301,7 +1301,7 @@ func cachedTypesJSONSatisfies(in IndexInput, oracleRules []*api.Rule, path strin
 		return false
 	}
 	scope := oracle.NewStoreScopeWithTarget(used, jarPath, in.OracleClasspath, in.OracleJvmTarget)
-	return oracle.TypesJSONSatisfies(path, oracleDiagnosticsRequired(in, oracleRules), scope, buildid.Token())
+	return oracle.TypesJSONSatisfiesForPaths(path, oracleDiagnosticsRequired(in, oracleRules), scope, buildid.Token(), scanPaths)
 }
 
 // oracleDiagnosticsRequired reports whether this run needs compiler

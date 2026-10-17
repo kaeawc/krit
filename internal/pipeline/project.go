@@ -3669,6 +3669,14 @@ func oracleFilterFingerprint(activeRules []*api.Rule, kotlinFiles []*scanner.Fil
 	return hashutil.HashHex([]byte(strings.Join(ruleIDs, "\x01") + "\x02" + strings.Join(fileEntries, "\x01")))
 }
 
+// DirtyPathsAllInManifest reports whether every watcher-dirty path names a file
+// the prior manifest already knows (see dirtyPathsAllInManifest). A daemon uses
+// it to tell an edit of a known file from a created, renamed-to or moved-in one
+// before it trusts source-path lists taken from that manifest.
+func DirtyPathsAllInManifest(dirty []string, manifest map[string]string, scanRoots []string) bool {
+	return dirtyPathsAllInManifest(dirty, manifest, scanRoots)
+}
+
 // crossIndexSourcePaths returns the Kotlin and Java source paths the
 // cross-file index covers. The index always includes Java, while
 // warm.filePaths carries Java only when a rule needs it before dispatch.

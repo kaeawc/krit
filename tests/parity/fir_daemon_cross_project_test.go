@@ -104,6 +104,7 @@ func killRegisteredDaemons(t *testing.T, home string) {
 		if err != nil || pid <= 0 {
 			continue
 		}
+		wcKillProcessGroup(pid)
 		if proc, err := os.FindProcess(pid); err == nil {
 			_ = proc.Kill()
 		}

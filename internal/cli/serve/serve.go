@@ -429,11 +429,11 @@ func (s *daemonState) priorSourceState(noCache bool, repoDir string, paths []str
 // matches the request's scan paths — the pipeline falls back to its
 // existing collect-from-disk path in that case.
 //
-// The manifest's ContentHashes map is the source of truth for paths
-// here; it always reflects the file set the last successful analyze
-// indexed. If the watcher missed an add/delete, the bundle's
-// fingerprint check downstream rejects the cached entry and forces a
-// fresh walk anyway.
+// The manifest's ContentHashes map is the file set the last successful
+// analyze indexed, so it cannot name a file added since. Nothing downstream
+// notices: the bundle fingerprint is computed over the lists it is handed.
+// dropStalePrepopulatedPaths therefore discards these lists on a cold start
+// and whenever the watcher reports a path the manifest does not know.
 func (s *daemonState) prepopulatedSourcePaths(repoDir string, paths []string) (kotlinPaths, javaPaths []string) {
 	m, ok := s.priorManifest(repoDir, paths)
 	if !ok || len(m.ContentHashes) == 0 {
@@ -455,6 +455,76 @@ func (s *daemonState) prepopulatedSourcePaths(repoDir string, paths []string) (k
 	sort.Strings(kotlinPaths)
 	sort.Strings(javaPaths)
 	return kotlinPaths, javaPaths
+}
+
+// dropStalePrepopulatedPaths hands the pipeline no source-path lists when the
+// prior manifest's lists cannot be trusted to be complete, so it walks the
+// source roots and sees an added, renamed-to or moved-in file. They cannot be
+// trusted on a daemon's first call (the manifest on disk may predate files
+// added while no daemon ran) or when the watcher reports a dirty path the
+// manifest does not know.
+func dropStalePrepopulatedPaths(in *pipeline.ProjectInput, cold bool, dirty []string) {
+	if cold || sourceSetMayHaveChanged(dirty, in.Host.PriorContentHashes, in.Args.Paths) {
+		in.Args.KotlinPaths, in.Args.JavaPaths = nil, nil
+	}
+}
+
+// sourceSetMayHaveChanged reports whether the set of source files may differ
+// from the prior manifest's: a dirty Kotlin or Java path the manifest does not
+// know (a file added, renamed to or moved in), or a dirty path that no longer
+// exists and has known sources beneath it (a directory moved or deleted out).
+// The watcher also touches XML, krit.yml, version catalogs and Gradle scripts;
+// none of them can change the source set, so editing one must not cost a walk
+// of the source roots.
+func sourceSetMayHaveChanged(dirty []string, manifest map[string]string, scanRoots []string) bool {
+	var sources []string
+	for _, p := range dirty {
+		switch {
+		case isKotlinPath(p) || isJavaPath(p):
+			sources = append(sources, p)
+		case directoryWithKnownSourcesIsGone(p, manifest, scanRoots):
+			return true
+		}
+	}
+	return len(sources) > 0 && !pipeline.DirtyPathsAllInManifest(sources, manifest, scanRoots)
+}
+
+// directoryWithKnownSourcesIsGone reports whether p no longer exists and the
+// manifest lists files beneath it, under any of the spellings the manifest
+// may use (as written, absolute, or relative to a scan root).
+func directoryWithKnownSourcesIsGone(p string, manifest map[string]string, scanRoots []string) bool {
+	if len(manifest) == 0 || filepath.Ext(p) != "" {
+		return false
+	}
+	if _, err := os.Lstat(p); err == nil {
+		return false
+	}
+	prefixes := []string{p + string(filepath.Separator)}
+	// A scan root such as ../lib spells manifest keys relative to the working
+	// directory (../lib/gone/B.kt), which neither p nor a root-relative path
+	// reproduces.
+	if cwd, err := os.Getwd(); err == nil {
+		if rel, err := filepath.Rel(cwd, p); err == nil {
+			prefixes = append(prefixes, rel+string(filepath.Separator))
+		}
+	}
+	for _, root := range scanRoots {
+		abs, err := filepath.Abs(root)
+		if err != nil {
+			continue
+		}
+		if rel, err := filepath.Rel(abs, p); err == nil && !strings.HasPrefix(rel, "..") {
+			prefixes = append(prefixes, rel+string(filepath.Separator))
+		}
+	}
+	for key := range manifest {
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(key, prefix) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // oracleDaemonStarter abstracts the JVM-subprocess construction so
@@ -854,6 +924,7 @@ func registerVerbs(srv *daemon.Server, state *daemonState) {
 			BinaryHash:      daemonBinaryHash(),
 			HasLibraryFacts: xfile.HasLibraryFacts,
 			HasCodeIndex:    xfile.HasCodeIndex,
+			DirtyFiles:      state.workspace.DirtyCount(),
 		}, nil
 	})
 	srv.Register(daemon.VerbShutdown, func(_ context.Context, _ json.RawMessage) (any, error) {

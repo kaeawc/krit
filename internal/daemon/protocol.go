@@ -124,6 +124,11 @@ type StatusResult struct {
 	HasLibraryFacts bool `json:"has_library_facts,omitempty"`
 	// HasCodeIndex reports the same for *scanner.CodeIndex.
 	HasCodeIndex bool `json:"has_code_index,omitempty"`
+	// DirtyFiles is how many paths the filesystem watcher has reported since
+	// the last analyze-project call. Unlike that call's own DirtyFiles stat it
+	// does not drain the set, so a client can wait for an edit to be seen
+	// without disturbing the daemon. Absent (zero) from older daemons.
+	DirtyFiles int `json:"dirty_files,omitempty"`
 }
 
 // AnalyzeBufferArgs carries an in-memory file body for single-buffer

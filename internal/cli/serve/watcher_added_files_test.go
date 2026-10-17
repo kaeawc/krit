@@ -45,13 +45,15 @@ func TestFileWatcher_CreateIsDirtyBeforeTheDebounceWindowElapses(t *testing.T) {
 		t.Fatalf("dirty after a create = %v, want [New.kt] (an hour-long debounce must not delay it)", got)
 	}
 
-	// A plain write is still debounced.
-	if err := os.WriteFile(created, []byte("class New2\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	w.handle(backendEvent{Path: created, Op: opWrite})
-	if got := drainedBases(ws); len(got) != 0 {
-		t.Fatalf("dirty after a write = %v, want none until the debounce window elapses", got)
+	// A plain write is reported at once too (#832): the first event of a burst
+	// invalidates immediately, and only the repeat for later writes in the
+	// burst waits out the debounce window.
+	// The event is delivered by hand for a path nothing writes on disk, so no
+	// real filesystem event joins its burst.
+	edited := filepath.Join(root, "Edited.kt")
+	w.handle(backendEvent{Path: edited, Op: opWrite})
+	if got := drainedBases(ws); len(got) != 1 || got[0] != "Edited.kt" {
+		t.Fatalf("dirty after a write = %v, want [Edited.kt] (the first event of a burst is not debounced)", got)
 	}
 }
 

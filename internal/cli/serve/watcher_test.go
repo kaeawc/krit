@@ -31,6 +31,7 @@ type countingState struct {
 	bumpCalls       atomic.Int64
 	javaBumpCalls   atomic.Int64
 	xmlBumpCalls    atomic.Int64
+	touchCalls      atomic.Int64
 }
 
 func (c *countingState) Invalidate(path string)  { c.invalidateCalls.Add(1) }
@@ -39,7 +40,7 @@ func (c *countingState) InvalidateDependents()   {}
 func (c *countingState) InvalidateLibraryFacts() {}
 func (c *countingState) InvalidateResolver()     {}
 func (c *countingState) InvalidateOracleFilter() {}
-func (c *countingState) Touch(path string)       {}
+func (c *countingState) Touch(path string)       { c.touchCalls.Add(1) }
 func (c *countingState) BumpSourceMTimeVersion() { c.bumpCalls.Add(1) }
 func (c *countingState) BumpJavaSourceVersion()  { c.javaBumpCalls.Add(1) }
 func (c *countingState) BumpXMLFilesVersion()    { c.xmlBumpCalls.Add(1) }
@@ -406,16 +407,24 @@ func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
 	<-w.Ready()
 
 	ev := backendEvent{Path: ktPath, Op: opWrite}
+	// A single event is invalidated once, at once; Touch runs last in a pass.
+	// This measures how many Invalidate calls one pass makes (one per path
+	// spelling), so the burst below does not hard-code it.
+	w.handle(ev)
+	if !waitForCondition(func() bool { return state.touchCalls.Load() >= 1 }) {
+		t.Fatal("single event never invalidated")
+	}
+	time.Sleep(window * 2) // a single event must not be repeated
+	perPass := state.invalidateCalls.Load()
+	if perPass == 0 || state.touchCalls.Load() != 1 {
+		t.Fatalf("single event: %d Invalidate calls, %d Touch calls; want one pass", perPass, state.touchCalls.Load())
+	}
+
 	for range 3 {
 		w.handle(ev)
 	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if state.invalidateCalls.Load() > 0 {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
+	if !waitForCondition(func() bool { return state.touchCalls.Load() >= 3 }) {
+		t.Fatal("burst never invalidated")
 	}
 	// Settle: if a stray timer was re-armed under load, give it a full
 	// window + margin to complete before asserting the final count.
@@ -428,8 +437,10 @@ func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
 	// of which form scanWithResident is keyed on. The debounce still
 	// coalesces the burst of 3 events into a single callback firing,
 	// just the callback now invokes Invalidate twice instead of once.
-	if got := state.invalidateCalls.Load(); got != 2 {
-		t.Errorf("Invalidate called %d times, want 2 (debounce should coalesce burst; the 2 calls are the absolute+relative forms)", got)
+	// The first event of the burst also invalidates at once (#832), so a burst
+	// costs the immediate pair plus the one debounced pair, however long it is.
+	if got, want := state.invalidateCalls.Load(), 3*perPass; got != want {
+		t.Errorf("Invalidate called %d times, want %d (the single event's pass, then one immediate and one debounced pass for the burst)", got, want)
 	}
 }
 
@@ -727,11 +738,16 @@ func TestFileWatcher_BumpsXMLFilesVersionOnXMLEdit(t *testing.T) {
 // window of a write would still see the stale "no events" state and
 // serve cached findings that don't reflect the change.
 //
-// Setup: install a watcher with a long debounce window (300 ms) so the
-// downstream Invalidate* calls demonstrably haven't fired yet, write a
-// .kt file, and assert that BumpSourceMTimeVersion was called before the
-// debounce body. invalidateCalls must still be 0 (debounced); bumpCalls
-// must already be >= 1 (eager).
+// The first event of a burst also drops the resident state at once and
+// reports the path dirty (#832): an analyze that arrives after the bump has
+// stopped the bundle shortcut, so it parses, and must not find the old parse,
+// code index and dirty set still in place. The debounced invalidation then
+// repeats once, after the burst, for any later write in it.
+//
+// Setup: install a watcher with a long debounce window (300 ms), write a .kt
+// file, and assert that the bump and one invalidation (the absolute and
+// relative forms) were made before the debounce body, and that the debounced
+// one has not.
 func TestFileWatcher_BumpSourceMTimeIsEager(t *testing.T) {
 	root := t.TempDir()
 	ktPath := filepath.Join(root, "Foo.kt")
@@ -761,9 +777,13 @@ func TestFileWatcher_BumpSourceMTimeIsEager(t *testing.T) {
 	if !waitForCondition(func() bool { return state.bumpCalls.Load() >= 1 }) {
 		t.Fatalf("BumpSourceMTimeVersion did not fire within timeout; bump=%d", state.bumpCalls.Load())
 	}
-	if got := state.invalidateCalls.Load(); got != 0 {
-		t.Errorf("Invalidate fired before debounce window (bump=%d invalidate=%d); the eager bump must NOT also have eagerly invalidated downstream state",
-			state.bumpCalls.Load(), got)
+	// Touch is the last step of an invalidation pass, so once it is seen the
+	// pass is complete and the Invalidate count is stable.
+	if !waitForCondition(func() bool { return state.touchCalls.Load() >= 1 }) {
+		t.Fatalf("the first event did not invalidate at once; touch=%d", state.touchCalls.Load())
+	}
+	if state.invalidateCalls.Load() == 0 {
+		t.Error("the first event touched the path without invalidating it")
 	}
 }
 

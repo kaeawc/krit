@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/firchecks"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
 )
@@ -112,7 +113,7 @@ func runWarmCleanOracleMatrix(t *testing.T, be wcBackend) {
 	// The relative-root rows are the #805 bug class (a warm run that spells
 	// paths relative to the working directory). They cover the mutations that
 	// move the affected set most: an ABI edit, a new file, a rename, an import.
-	relRows := map[string]bool{"return-type": true, "file-add": true, "file-rename": true, "import-change": true}
+	relRows := map[string]bool{"return-type": true, "file-add": true, "file-rename": true, "import-change": true, "compiler-setting-change": true}
 
 	for _, spelling := range []string{"abs", "rel"} {
 		for _, mode := range []string{"one-shot", "daemon"} {
@@ -184,10 +185,11 @@ type wcRunStats struct {
 type wcInputs struct {
 	jar       string
 	classpath []string
+	kotlin    gradlemodel.KotlinSettings
 }
 
 func (in wcInputs) String() string {
-	return fmt.Sprintf("jar=%s classpath=%v", filepath.Base(filepath.Dir(in.jar))+"/"+filepath.Base(in.jar), wcBaseNames(in.classpath))
+	return fmt.Sprintf("jar=%s classpath=%v kotlin=%q", filepath.Base(filepath.Dir(in.jar))+"/"+filepath.Base(in.jar), wcBaseNames(in.classpath), in.kotlin.Identity())
 }
 
 func wcBaseNames(paths []string) []string {
@@ -233,6 +235,9 @@ func (c *wcOracleCase) exercise(t *testing.T) (problem, detail string) {
 	}
 	if c.m.jarIdentity {
 		warmIn.jar = mx.altJar
+	}
+	if c.m.kotlin != nil {
+		warmIn.kotlin = *c.m.kotlin
 	}
 
 	// 1. Seed: a cold run that must populate the cache.
@@ -414,7 +419,7 @@ func (c *wcOracleCase) invoke(t *testing.T, root, label string, in wcInputs) (wc
 	}
 	out := filepath.Join(t.TempDir(), label+".json")
 	tracker := perf.New(true)
-	opts := oracle.InvocationOptions{Backend: c.mx.be.backend, Classpath: in.classpath, Tracker: tracker}
+	opts := oracle.InvocationOptions{Backend: c.mx.be.backend, Classpath: in.classpath, Kotlin: in.kotlin, Tracker: tracker}
 	_, runErr := oracle.InvokeCachedWithOptions(in.jar, srcDirs, root, out, "", false, nil, opts)
 
 	snap := wcSnapshot{}
@@ -470,6 +475,9 @@ func (c *wcOracleCase) addEntries(t *testing.T, snap wcSnapshot, root string, in
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Without a .krit/store the entries live in a directory scoped by the
+	// Kotlin settings (the base directory for the embedded defaults).
+	cacheDir = oracle.LegacyEntryDir(cacheDir, in.kotlin)
 	hits, _ := oracle.ClassifyFilesScopedV3(cacheDir, files, "", "", c.mx.be.backend.CacheApproximation())
 	for _, h := range hits {
 		deps := wcNormPaths(root, h.Closure.DepPaths)
@@ -501,6 +509,9 @@ func (c *wcOracleCase) storedEntries(t *testing.T, root string, in wcInputs) int
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Without a .krit/store the entries live in a directory scoped by the
+	// Kotlin settings (the base directory for the embedded defaults).
+	cacheDir = oracle.LegacyEntryDir(cacheDir, in.kotlin)
 	hits, _ := oracle.ClassifyFilesScopedV3(cacheDir, files, "", "", c.mx.be.backend.CacheApproximation())
 	n := 0
 	for _, h := range hits {

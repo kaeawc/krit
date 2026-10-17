@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -878,6 +879,28 @@ func LoadCurrentCrossFileCacheMeta(dir string) (CrossFileCacheMeta, bool) {
 		return CrossFileCacheMeta{}, false
 	}
 	return meta, true
+}
+
+// CoversSourcePaths reports whether the Kotlin/Java source files recorded in
+// the metadata are exactly paths. A deleted or added source file changes the
+// index even when every remaining file is unchanged, so cross-file results
+// computed under this fingerprint are only valid for the same file set.
+func (m CrossFileCacheMeta) CoversSourcePaths(paths []string) bool {
+	want := make(map[string]struct{}, len(paths))
+	for _, p := range paths {
+		want[p] = struct{}{}
+	}
+	n := 0
+	for _, e := range m.Entries {
+		if strings.EqualFold(filepath.Ext(e.Path), ".xml") {
+			continue
+		}
+		if _, ok := want[e.Path]; !ok {
+			return false
+		}
+		n++
+	}
+	return n == len(want)
 }
 
 // LoadCrossFileCacheIndex returns a fully-assembled CodeIndex (symbols,

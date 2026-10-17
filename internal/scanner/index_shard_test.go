@@ -12,6 +12,7 @@ import (
 	"github.com/bits-and-blooms/bloom/v3"
 
 	"github.com/kaeawc/krit/internal/cacheutil"
+	"github.com/kaeawc/krit/internal/hashutil"
 )
 
 func TestFileShardRoundTrip(t *testing.T) {
@@ -649,5 +650,28 @@ func TestSaveFileShardConcurrent(t *testing.T) {
 		if _, ok := store.LoadShard(p, "h"); !ok {
 			t.Errorf("expected shard hit for %s after concurrent writes", p)
 		}
+	}
+}
+
+// A shard written under a previous crossFileShardVersion must be a miss: the
+// stamped version is not checked on load, so the version has to be part of the
+// shard identity or stale signatures are reloaded and re-saved.
+func TestPackStoreLoadShard_PreviousVersionIsMiss(t *testing.T) {
+	store := newPackStore(CrossFileCacheDir(t.TempDir()))
+	s := &fileShard{Path: "a.kt", ContentHash: "h", Version: crossFileShardVersion - 1,
+		Symbols: []Symbol{{Name: "name", Kind: "property", Signature: "p.R#name/0", File: "a.kt"}}}
+	blob, err := encodeShardBlob(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldKey := hashutil.HashHex([]byte(fmt.Sprintf("%s\x00%s", "a.kt", "h")))
+	if oldKey == shardKey("a.kt", "h") {
+		t.Fatal("shard key must differ from the pre-versioned key")
+	}
+	if err := store.packFor(oldKey).put(oldKey, blob); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.LoadShard("a.kt", "h"); ok {
+		t.Fatal("shard stored under the previous identity must be a miss")
 	}
 }

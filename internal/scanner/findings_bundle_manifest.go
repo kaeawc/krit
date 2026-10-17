@@ -49,7 +49,9 @@ func StatFile(path string) (FileStat, bool) {
 // v1 → v2: AbiHashes added.
 // v2 → v3: OracleBlobHashes added: per-file semantic fact hashes that feed the
 // OracleFacts run fingerprint the delta planner compares.
-const findingsBundleManifestVersion = 3
+// v3 → v4: property signatures include the declared type, so persisted
+// StructuralFPs/AbiHashes from the old algorithm must not be mixed with new.
+const findingsBundleManifestVersion = 4
 
 type FindingsBundleManifest struct {
 	Version          int                 `json:"version"`

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
@@ -14,7 +15,7 @@ import (
 // AbiHashVersion is mixed into the hash input. Bump when the canonical
 // signature encoding changes so consumers invalidate cached hashes on
 // krit upgrade.
-const AbiHashVersion uint32 = 1
+const AbiHashVersion uint32 = 2
 
 // abiAnnotationAllowlist is the set of annotations that affect the binary
 // surface and are therefore folded into the hash. Annotations outside this
@@ -116,7 +117,10 @@ func sortSignatures(sigs []AbiSignature) {
 		if sigs[i].Kind != sigs[j].Kind {
 			return sigs[i].Kind < sigs[j].Kind
 		}
-		return canonicalParams(sigs[i].Params) < canonicalParams(sigs[j].Params)
+		if pa, pb := canonicalParams(sigs[i].Params), canonicalParams(sigs[j].Params); pa != pb {
+			return pa < pb
+		}
+		return sigs[i].ReturnType < sigs[j].ReturnType
 	})
 }
 
@@ -516,7 +520,18 @@ func extractProperty(file *scanner.File, idx uint32, pkg string) (AbiSignature, 
 		Kind:        "property",
 		FQN:         qualify(pkg, chain, name),
 		Modifiers:   collectModifiers(file, idx),
-		ReturnType:  firstTypeChild(file, idx, ""),
+		ReturnType:  propertyAbiType(file, idx),
 		Annotations: collectAnnotations(file, idx),
 	}, true
+}
+
+// propertyAbiType renders the explicitly declared property type, prefixed by
+// the extension receiver (length-prefixed) so the two cannot be confused.
+// Inferred types are left empty: the initializer is not part of the ABI
+// surface we can resolve without types.
+func propertyAbiType(file *scanner.File, idx uint32) string {
+	receiver, declared := scanner.KotlinPropertyDeclaredTypes(file, idx)
+	// Length-prefix the receiver so `val Foo.item: Bar` and `val item: Foo.Bar`
+	// cannot collide.
+	return strconv.Itoa(len(receiver)) + ":" + receiver + declared
 }

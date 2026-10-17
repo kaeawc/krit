@@ -267,7 +267,7 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = append(args,
 		"-jar", jarPath,
-		"--sources", strings.Join(sourceDirs, ","),
+		"--sources", strings.Join(AbsolutePaths(sourceDirs), ","),
 		"--output", outputPath,
 	)
 	extraJVMArgs := configuredExtraJVMArgs(opts)

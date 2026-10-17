@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,12 @@ import (
 )
 
 func fakeAOTDaemon(t *testing.T, response string, args ...string) *FirDaemon {
+	t.Helper()
+	return fakeAOTDaemonFunc(t, func(string) string { return response }, args...)
+}
+
+// fakeAOTDaemonFunc answers each request line with respond(line).
+func fakeAOTDaemonFunc(t *testing.T, respond func(line string) string, args ...string) *FirDaemon {
 	t.Helper()
 	client, server := net.Pipe()
 	t.Cleanup(func() { _ = client.Close(); _ = server.Close() })
@@ -28,7 +35,7 @@ func fakeAOTDaemon(t *testing.T, response string, args ...string) *FirDaemon {
 			if strings.Contains(line, `"command":"shutdown"`) {
 				return
 			}
-			_, _ = fmt.Fprintln(server, response)
+			_, _ = fmt.Fprintln(server, echoRequestID(line, respond(line)))
 		}
 	}()
 	cmd := exec.Command("true")
@@ -108,7 +115,12 @@ func TestAbsentRulesFieldDoesNotTriggerAOTRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	d := fakeAOTDaemon(t, `{"id":1,"findings":[{"path":"/src/A.kt","line":1,"col":1,"rule":"InjectDispatcher","message":"original"}]}`, "-XX:AOTCache="+cache)
+	d := fakeAOTDaemonFunc(t, func(line string) string {
+		if isCanaryRequest(line) {
+			return healthyCanaryResponse
+		}
+		return `{"id":1,"findings":[{"path":"/src/A.kt","line":1,"col":1,"rule":"InjectDispatcher","message":"original"}]}`
+	}, "-XX:AOTCache="+cache)
 	original := startFirWithoutAOT
 	t.Cleanup(func() { startFirWithoutAOT = original })
 	startFirWithoutAOT = func(_ string, _ bool, _ ...CompileTarget) (*FirDaemon, error) {
@@ -216,4 +228,16 @@ func TestReconnectedAOTDaemonIsRetiredAndRetried(t *testing.T) {
 			t.Fatalf("later launch uses AOT: %v", arg)
 		}
 	}
+}
+
+var requestIDPattern = regexp.MustCompile(`"id":(\d+)`)
+
+// echoRequestID rewrites a canned response's leading id to the request's, as
+// the real daemon does.
+func echoRequestID(request, response string) string {
+	m := requestIDPattern.FindStringSubmatch(request)
+	if m == nil {
+		return response
+	}
+	return strings.Replace(response, `{"id":1,`, `{"id":`+m[1]+`,`, 1)
 }

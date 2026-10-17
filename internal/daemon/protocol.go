@@ -435,8 +435,9 @@ type AnalyzeProjectStats struct {
 	ParseMisses int64 `json:"parse_misses"`
 	// FindingsBundleHit is true when the whole-run findings cache
 	// served the result without redoing dispatch or cross-file work.
-	// A true value means the call was a structural reuse of a prior
-	// identical-input run.
+	// A true value means the call replayed a prior identical-input
+	// run. A body-only edit is never a hit: the edited file is
+	// re-dispatched through the delta path.
 	FindingsBundleHit bool `json:"findings_bundle_hit"`
 	// PhaseTimingsMs is the per-phase wall-time breakdown for this
 	// call. Phases skipped on a findings-bundle hit (dispatch,

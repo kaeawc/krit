@@ -3,6 +3,7 @@ package oracle
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 
 	"github.com/kaeawc/krit/internal/buildid"
 	"github.com/kaeawc/krit/internal/fsutil"
@@ -30,6 +31,26 @@ type typesFactsRecord struct {
 	// jar, classpath, JVM target and Kotlin compiler settings, so a
 	// settings-only change cannot reuse a types.json computed under others.
 	ScopeVersion string `json:"scopeVersion,omitempty"`
+	// KeyBase pins the spelling of the file keys inside types.json: empty
+	// when the scan used absolute roots, the working directory when it used
+	// relative ones (`krit .`), whose keys are relative to it. A run with a
+	// different base cannot look its absolute (or differently relative) paths
+	// up in those keys and must not reuse the file.
+	KeyBase string `json:"keyBase,omitempty"`
+}
+
+// KeyBaseFor returns the file-key spelling token for a scan over scanPaths:
+// "" when every scan path is absolute, else the working directory.
+func KeyBaseFor(scanPaths []string) string {
+	for _, p := range scanPaths {
+		if p != "" && !filepath.IsAbs(p) {
+			if wd, err := os.Getwd(); err == nil {
+				return wd
+			}
+			return "?"
+		}
+	}
+	return ""
 }
 
 func typesFactsPath(typesPath string) string { return typesPath + ".facts" }
@@ -37,6 +58,12 @@ func typesFactsPath(typesPath string) string { return typesPath + ".facts" }
 // RecordTypesFacts notes whether the types.json at typesPath was produced
 // with compiler diagnostics omitted. Call it after the oracle wrote the file.
 func RecordTypesFacts(typesPath string, diagnosticsOmitted bool, scope ...StoreScope) error {
+	return RecordTypesFactsForPaths(typesPath, diagnosticsOmitted, nil, scope...)
+}
+
+// RecordTypesFactsForPaths is RecordTypesFacts that also records the key
+// spelling of the scan over scanPaths.
+func RecordTypesFactsForPaths(typesPath string, diagnosticsOmitted bool, scanPaths []string, scope ...StoreScope) error {
 	info, err := os.Stat(typesPath)
 	if err != nil {
 		return err
@@ -46,6 +73,7 @@ func RecordTypesFacts(typesPath string, diagnosticsOmitted bool, scope ...StoreS
 		TypesSize:          info.Size(),
 		TypesModNanos:      info.ModTime().UnixNano(),
 		BuildToken:         buildid.Token(),
+		KeyBase:            KeyBaseFor(scanPaths),
 	}
 	if len(scope) > 0 {
 		rec.Backend = scope[0].Backend.String()
@@ -72,8 +100,14 @@ func TypesJSONHasDiagnostics(typesPath string) bool {
 // TypesJSONSatisfies checks both optional diagnostics and the exact backend,
 // jar, and Krit build that produced a cached types.json.
 func TypesJSONSatisfies(typesPath string, diagnosticsRequired bool, scope StoreScope, buildToken string) bool {
+	return TypesJSONSatisfiesForPaths(typesPath, diagnosticsRequired, scope, buildToken, nil)
+}
+
+// TypesJSONSatisfiesForPaths additionally requires the file keys to be spelled
+// the way a scan over scanPaths looks them up.
+func TypesJSONSatisfiesForPaths(typesPath string, diagnosticsRequired bool, scope StoreScope, buildToken string, scanPaths []string) bool {
 	rec, ok := readTypesFacts(typesPath)
-	return ok && rec.Backend == scope.Backend.String() && rec.JarToken == scope.JarToken && rec.ClasspathToken == scope.ClasspathToken &&
+	return ok && rec.KeyBase == KeyBaseFor(scanPaths) && rec.Backend == scope.Backend.String() && rec.JarToken == scope.JarToken && rec.ClasspathToken == scope.ClasspathToken &&
 		rec.ScopeVersion == scope.versionHex() && rec.BuildToken == buildToken && (!diagnosticsRequired || !rec.DiagnosticsOmitted)
 }
 

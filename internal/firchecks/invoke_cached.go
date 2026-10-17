@@ -254,7 +254,7 @@ func runMisses(
 }
 
 var aotWarningOnce sync.Once
-var errFIRDegraded = errors.New("FIR registered zero requested checkers after AOT-free retry")
+var errFIRDegraded = errors.New("FIR checkers unusable after AOT-free retry")
 
 // The seam lets package tests use a fake TCP daemon for the AOT-free retry.
 var startFirWithoutAOT = func(jarPath string, verbose bool, target ...CompileTarget) (*FirDaemon, error) {
@@ -268,6 +268,24 @@ func checkFirWithRecovery(d *FirDaemon, jarPath string, refs []fileRef, sourceDi
 	if !first {
 		cachePath = ""
 	}
+	if d.aotCachePath != "" && !d.aotVerified {
+		// Gated on verification, not on the first call: after a canary
+		// transport error the daemon may stay connected, and no later call
+		// may skip the check. The canary has a known finding for an
+		// always-registered checker, so it catches a JVM that registers its
+		// rules yet reports nothing.
+		healthy, err := d.runAOTCanary()
+		if err != nil {
+			return nil, err
+		}
+		if !healthy {
+			if verbose {
+				reporter().Verbosef("verbose: FIR AOT canary finding missing; discarding %s and retrying without AOT\n", d.aotCachePath)
+			}
+			return retryFirWithoutAOT(d, d.aotCachePath, jarPath, refs, sourceDirs, classpath, rules, configs, facts, verbose, target...)
+		}
+		d.markAOTVerified()
+	}
 	resp, err := d.Check(refs, sourceDirs, classpath, rules, configs, facts, target...)
 	if err == nil && cachePath != "" && !resp.rulesPresent && verbose {
 		reporter().Verbosef("verbose: krit-fir jar predates the rules response field; skipping FIR AOT self-check\n")
@@ -279,23 +297,35 @@ func checkFirWithRecovery(d *FirDaemon, jarPath string, refs []fileRef, sourceDi
 	if verbose {
 		reporter().Verbosef("verbose: FIR AOT cache returned zero registered rules; discarding %s and retrying without AOT\n", cachePath)
 	}
+	return retryFirWithoutAOT(d, cachePath, jarPath, refs, sourceDirs, classpath, rules, configs, facts, verbose, target...)
+}
+
+// retryFirWithoutAOT retires the poisoned daemon d, discards its cache for
+// the rest of this process, and answers the request from a daemon launched
+// without AOT. It fails closed when the AOT-free daemon cannot answer or
+// still registers none of the requested checkers (errFIRDegraded). The
+// AOT-free daemon gets no canary: it has no cache to distrust, and a jar
+// that predates the canary request could not pass one.
+func retryFirWithoutAOT(d *FirDaemon, cachePath, jarPath string, refs []fileRef, sourceDirs, classpath, rules []string, configs RuleConfigs, facts FileFacts, verbose bool, target ...CompileTarget) (*CheckResponse, error) {
 	aotWarningOnce.Do(func() {
-		fmt.Fprintln(os.Stderr, "warning: FIR AOT cache produced no registered checkers; retrying without AOT")
+		fmt.Fprintln(os.Stderr, "warning: FIR AOT cache produced no registered checkers or findings; retrying without AOT")
 	})
 	if d.shared && d.sourcesHash != "" {
 		// Release() normally leaves shared daemons running. A poisoned JVM
 		// must instead be retired and removed from the registry.
-		stopFirDaemon(d.sourcesHash, verbose)
+		stopFirDaemonIf(d.sourcesHash, d.aotPID, verbose)
 	}
 	_ = d.Close()
-	jvmaot.DisableForProcess(cachePath)
-	jvmaot.DiscardCache(cachePath)
+	if cachePath != unknownAOTState {
+		jvmaot.DisableForProcess(cachePath)
+		jvmaot.DiscardCache(cachePath)
+	}
 	retryDaemon, err := startFirWithoutAOT(jarPath, verbose, target...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: restart FIR without AOT: %w", errFIRDegraded, err)
 	}
 	defer retryDaemon.Close()
-	resp, err = retryDaemon.Check(refs, sourceDirs, classpath, rules, configs, facts, target...)
+	resp, err := retryDaemon.Check(refs, sourceDirs, classpath, rules, configs, facts, target...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: retry check: %w", errFIRDegraded, err)
 	}

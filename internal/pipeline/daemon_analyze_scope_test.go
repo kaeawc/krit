@@ -59,7 +59,7 @@ func TestDaemonAnalyzeGatesThePartialPathOnTheRunsScope(t *testing.T) {
 	}
 	old := run(gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"})
 	cur := run(gradlemodel.KotlinSettings{LanguageVersion: "2.2", APIVersion: "2.2"})
-	recordTypesScope(typesPath, scopeFor(old), true, t.Logf)
+	recordTypesScope(typesPath, scopeFor(old), true, scanPaths, t.Logf)
 
 	d := &stubDaemon{}
 	if got := daemonAnalyze(cur, d, scanPaths, nil, perf.New(false)); got == nil {
@@ -68,7 +68,7 @@ func TestDaemonAnalyzeGatesThePartialPathOnTheRunsScope(t *testing.T) {
 	if d.filesCalls != 0 || d.allCalls != 1 {
 		t.Fatalf("settings-only change took the partial path: files=%d all=%d", d.filesCalls, d.allCalls)
 	}
-	if !partialMergeAllowed(typesPath, scopeFor(cur), true) {
+	if !partialMergeAllowed(typesPath, scopeFor(cur), true, scanPaths) {
 		t.Fatal("the full fallback result was not stamped with the run's scope")
 	}
 

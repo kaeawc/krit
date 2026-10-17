@@ -541,10 +541,10 @@ func daemonAutoStartDisabled() bool {
 //
 // --no-cache, --clear-cache, --clear-matrix-cache are also daemon-
 // routable: --no-cache rides on AnalyzeProjectArgs.NoCache (the
-// daemon nils every disk-cache pointer for this single call); the
-// two clear-* flags are handled by tryDaemonClearCache and
-// tryDaemonClearMatrixCache before tryDaemonDelegate runs (early-
-// exit verbs). --clear-cache also drops the daemon's resident
+// daemon nils every disk-cache pointer and skips .krit/fir-cache for
+// this single call); the two clear-* flags are handled by
+// tryDaemonClearCache and tryDaemonClearMatrixCache before
+// tryDaemonDelegate runs (early-exit verbs). --clear-cache also drops the daemon's resident
 // WorkspaceState slots so the next analyze rebuilds from cold;
 // --clear-matrix-cache only touches the host-wide matrix baseline
 // directory because the matrix cache has no resident counterpart.

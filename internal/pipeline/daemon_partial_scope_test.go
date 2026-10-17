@@ -24,25 +24,25 @@ func TestPartialMergeRequiresTheRunsCompileScope(t *testing.T) {
 	}
 	v20, v22 := scopeOf("2.0"), scopeOf("2.2")
 
-	if partialMergeAllowed(typesPath, v20, true) {
+	if partialMergeAllowed(typesPath, v20, true, nil) {
 		t.Fatal("a types.json with no scope record must not be merged into")
 	}
-	recordTypesScope(typesPath, v20, true, t.Logf)
-	if !partialMergeAllowed(typesPath, v20, true) {
+	recordTypesScope(typesPath, v20, true, nil, t.Logf)
+	if !partialMergeAllowed(typesPath, v20, true, nil) {
 		t.Fatal("types.json stamped with this scope must allow a partial merge")
 	}
-	if partialMergeAllowed(typesPath, v22, true) {
+	if partialMergeAllowed(typesPath, v22, true, nil) {
 		t.Fatal("settings-only change allowed a partial merge into old-settings facts")
 	}
-	if partialMergeAllowed(typesPath, v20, false) {
+	if partialMergeAllowed(typesPath, v20, false, nil) {
 		t.Fatal("an unresolved scope must not allow a merge")
 	}
 	// The fallback full result is stamped with the new scope, so partial resumes.
 	full := &oracle.Data{Version: 1, Files: map[string]*oracle.File{}}
-	if _, err := analyzeAllAndPersist(func() (*oracle.Data, error) { return full, nil }, typesPath, t.Logf, v22, true); err != nil {
+	if _, err := analyzeAllAndPersist(func() (*oracle.Data, error) { return full, nil }, typesPath, t.Logf, v22, true, nil); err != nil {
 		t.Fatal(err)
 	}
-	if !partialMergeAllowed(typesPath, v22, true) || partialMergeAllowed(typesPath, v20, true) {
+	if !partialMergeAllowed(typesPath, v22, true, nil) || partialMergeAllowed(typesPath, v20, true, nil) {
 		t.Fatalf("persisted full result is not stamped with the new scope (build token %s)", buildid.Token())
 	}
 }

@@ -30,7 +30,7 @@ interface KritAdvanced {
     /** Number of parallel jobs (maps to `-j`). Defaults to CPU count. */
     val parallel: Property<Int>
 
-    /** Disable the incremental analysis cache (maps to `--no-cache`). Default: false. */
+    /** Disable the incremental analysis cache and the FIR check cache (maps to `--no-cache`). Default: false. */
     val noCache: Property<Boolean>
 
     /** Enable source-level type inference. Default: true. */

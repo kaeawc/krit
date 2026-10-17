@@ -99,7 +99,7 @@ Krit XML baselines use the `SmellBaseline` document shape with `ManuallySuppress
 
 ## Cache location
 
-Generated repo-local state lives under `.krit/` by default. The incremental analysis cache uses `.krit/cache/`; parse, resource, type, file-walk, and library-profile indexes use sibling directories under the same root. `--cache-dir DIR` only overrides the incremental analysis cache.
+Generated repo-local state lives under `.krit/` by default. The incremental analysis cache uses `.krit/cache/`; parse, resource, type, file-walk, and library-profile indexes use sibling directories under the same root. The FIR checker cache uses `.krit/fir-cache/`. `--cache-dir DIR` only overrides the incremental analysis cache; `--no-cache` skips both the incremental analysis cache and the FIR checker cache.
 
 ## FIR scan requirements
 

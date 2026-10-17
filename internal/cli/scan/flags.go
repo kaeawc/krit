@@ -162,7 +162,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.BasePath = fs.String("base-path", "", "Base path for relative file paths in baselines and reports (default: first scan path)")
 	f.EditorConfig = fs.Bool("enable-editorconfig", false, "Read .editorconfig for max_line_length, indent_size, etc.")
 	f.Version = fs.Bool("version", false, "Print version")
-	f.NoCache = fs.Bool("no-cache", false, "Disable incremental analysis cache")
+	f.NoCache = fs.Bool("no-cache", false, "Disable the incremental analysis cache and the FIR check cache (neither is read or written)")
 	f.NoParseCache = fs.Bool("no-parse-cache", false, "Disable the on-disk tree-sitter parse cache (forces re-parse of every file)")
 	f.ParseCacheCapMB = fs.Int("parse-cache-cap-mb", 0, "Size cap in MB for .krit/parse-cache/ (0 = use config or default 1024; negative = unlimited)")
 	f.NoResourceCache = fs.Bool("no-resource-cache", false, "Disable the on-disk Android values-XML ResourceIndex cache (forces re-parse of every values XML file)")

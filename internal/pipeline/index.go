@@ -1002,7 +1002,7 @@ func daemonAnalyze(in IndexInput, d daemonAnalyzer, scanPaths []string, callFilt
 	// files would otherwise keep facts computed under the old settings.
 	typesScope, haveScope := oracleTypesScope(in, scanPaths)
 	scopeDeclined := false
-	if canPartial && !partialMergeAllowed(cachedTypesPath, typesScope, haveScope) {
+	if canPartial && !partialMergeAllowed(cachedTypesPath, typesScope, haveScope, scanPaths) {
 		in.logf("verbose: daemon partial reanalyze skipped: cached types.json was not produced under this run's compile scope\n")
 		canPartial = false
 		scopeDeclined = true
@@ -1015,7 +1015,7 @@ func daemonAnalyze(in IndexInput, d daemonAnalyzer, scanPaths []string, callFilt
 		fresh, err := d.AnalyzeFilesWithCallFilter(in.StaleOraclePaths, callFilterPtr)
 		if err != nil {
 			in.warnf("warning: daemon analyzeFiles (fallback to analyzeAll): %v\n", err)
-			od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf, typesScope, haveScope)
+			od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf, typesScope, haveScope, scanPaths)
 			if allErr != nil {
 				in.warnf("warning: daemon analyzeAll: %v\n", allErr)
 				return nil
@@ -1039,14 +1039,14 @@ func daemonAnalyze(in IndexInput, d daemonAnalyzer, scanPaths []string, callFilt
 			in.warnf("warning: daemon partial merge pruned removed Kotlin files; falling back to analyzeAll\n")
 		}
 		if shouldFallbackToAnalyzeAll(mergeErr, pruned) {
-			od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf, typesScope, haveScope)
+			od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf, typesScope, haveScope, scanPaths)
 			if allErr != nil {
 				in.warnf("warning: daemon analyzeAll: %v\n", allErr)
 				return nil
 			}
 			return od
 		}
-		recordTypesScope(cachedTypesPath, typesScope, haveScope, in.warnf)
+		recordTypesScope(cachedTypesPath, typesScope, haveScope, scanPaths, in.warnf)
 		return merged
 	}
 	od, err := d.AnalyzeAllWithCallFilter(callFilterPtr)
@@ -1060,7 +1060,7 @@ func daemonAnalyze(in IndexInput, d daemonAnalyzer, scanPaths []string, callFilt
 		if werr := oracle.WriteTypesJSON(cachedTypesPath, od); werr != nil {
 			in.warnf("warning: persist daemon analyzeAll types.json: %v\n", werr)
 		} else {
-			recordTypesScope(cachedTypesPath, typesScope, haveScope, in.warnf)
+			recordTypesScope(cachedTypesPath, typesScope, haveScope, scanPaths, in.warnf)
 		}
 	}
 	return od
@@ -1077,7 +1077,7 @@ func shouldFallbackToAnalyzeAll(mergeErr error, pruned bool) bool {
 // the merge, so without this the pruned merge (which can still carry a
 // deleted file's Dependencies entries) would stay on disk and the next
 // partial run would union those stale entries back in.
-func analyzeAllAndPersist(analyzeAll func() (*oracle.Data, error), typesPath string, warnf func(string, ...any), scope oracle.StoreScope, haveScope bool) (*oracle.Data, error) {
+func analyzeAllAndPersist(analyzeAll func() (*oracle.Data, error), typesPath string, warnf func(string, ...any), scope oracle.StoreScope, haveScope bool, scanPaths []string) (*oracle.Data, error) {
 	od, err := analyzeAll()
 	if err != nil {
 		return nil, err
@@ -1086,7 +1086,7 @@ func analyzeAllAndPersist(analyzeAll func() (*oracle.Data, error), typesPath str
 		if err := oracle.WriteTypesJSON(typesPath, od); err != nil {
 			warnf("warning: persist daemon analyzeAll types.json: %v\n", err)
 		} else {
-			recordTypesScope(typesPath, scope, haveScope, warnf)
+			recordTypesScope(typesPath, scope, haveScope, scanPaths, warnf)
 		}
 	}
 	return od, nil
@@ -1108,18 +1108,18 @@ func oracleTypesScope(in IndexInput, scanPaths []string) (oracle.StoreScope, boo
 
 // partialMergeAllowed reports whether fresh facts may be merged into the cached
 // types.json: it must have been produced under exactly this scope.
-func partialMergeAllowed(typesPath string, scope oracle.StoreScope, haveScope bool) bool {
-	return haveScope && oracle.TypesJSONSatisfies(typesPath, false, scope, buildid.Token())
+func partialMergeAllowed(typesPath string, scope oracle.StoreScope, haveScope bool, scanPaths []string) bool {
+	return haveScope && oracle.TypesJSONSatisfiesForPaths(typesPath, false, scope, buildid.Token(), scanPaths)
 }
 
 // recordTypesScope stamps types.json with the scope its facts now belong to, so
 // the next partial reanalyze can verify it. Diagnostics availability is kept
 // from the prior record (unknown stays "omitted").
-func recordTypesScope(typesPath string, scope oracle.StoreScope, haveScope bool, warnf func(string, ...any)) {
+func recordTypesScope(typesPath string, scope oracle.StoreScope, haveScope bool, scanPaths []string, warnf func(string, ...any)) {
 	if !haveScope {
 		return
 	}
-	if err := oracle.RecordTypesFacts(typesPath, !oracle.TypesJSONHasDiagnostics(typesPath), scope); err != nil {
+	if err := oracle.RecordTypesFactsForPaths(typesPath, !oracle.TypesJSONHasDiagnostics(typesPath), scanPaths, scope); err != nil {
 		warnf("warning: types.json facts record not written: %v\n", err)
 	}
 }
@@ -1386,7 +1386,7 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		in.warnf("warning: krit-types: %v\n", err)
 		return ""
 	}
-	if err := oracle.RecordTypesFacts(res, invokeOpts.DisableDiagnostics, storeScope); err != nil && in.Verbose {
+	if err := oracle.RecordTypesFactsForPaths(res, invokeOpts.DisableDiagnostics, scanPaths, storeScope); err != nil && in.Verbose {
 		in.logf("verbose: oracle facts record not written: %v\n", err)
 	}
 	return res
@@ -1402,7 +1402,7 @@ func cachedTypesJSONSatisfies(in IndexInput, oracleRules []*api.Rule, path strin
 	if !ok {
 		return false
 	}
-	return oracle.TypesJSONSatisfies(path, oracleDiagnosticsRequired(in, oracleRules), scope, buildid.Token())
+	return oracle.TypesJSONSatisfiesForPaths(path, oracleDiagnosticsRequired(in, oracleRules), scope, buildid.Token(), scanPaths)
 }
 
 // oracleDiagnosticsRequired reports whether this run needs compiler

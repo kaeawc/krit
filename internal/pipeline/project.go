@@ -2562,11 +2562,12 @@ func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, t
 	return fp, filesForPaths(kotlinPaths, scanner.LangKotlin), filesForPaths(javaPaths, scanner.LangJava), true
 }
 
-// hasDirtySourcePath reports whether dirty names a Kotlin or Java file.
+// hasDirtySourcePath reports whether dirty names a Kotlin, Kotlin script or
+// Java file.
 func hasDirtySourcePath(dirty []string) bool {
 	for _, p := range dirty {
 		switch filepath.Ext(p) {
-		case ".kt", ".java":
+		case ".kt", ".kts", ".java":
 			return true
 		}
 	}

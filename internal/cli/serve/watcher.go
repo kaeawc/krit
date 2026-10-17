@@ -278,9 +278,9 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 		fw.state.BumpSourceMTimeVersion()
 	case isKotlinPath(ev.Path):
 		// Editors emit Write+Write+Chmod on a single logical save.
-		// Coalesce within debounceWindow so only one Invalidate+Touch
-		// fires per burst — the dirty-set's map semantics already dedup
-		// Touch, but Invalidate and CodeIndex drops are not free.
+		// The first event of a burst invalidates at once; a burst of more
+		// than one event is invalidated once more after debounceWindow of
+		// silence, so a later write in it is covered too. See kotlinEdited.
 		fw.kotlinEdited(ev.Path)
 	case isJavaPath(ev.Path):
 		// .java edits invalidate the daemon-resident
@@ -328,10 +328,18 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 // byte-identical findings to the no-probe call, both serving findings
 // for a `__kritItem3` function from a prior session's probe. Bumping
 // eagerly is safe because (a) the bump is just an atomic counter
-// increment, and (b) all downstream invalidations remain debounced —
-// resident workspace state stays consistent, and the next analyze
-// rebuilds from disk anyway via the post-parse path.
+// increment, and (b) the invalidations that follow it are idempotent drops
+// of resident state.
+//
+// The first event of a burst also invalidates at once (see kotlinEdited, the
+// entry point for Kotlin writes); this debounced pass is the repeat that
+// covers later writes. With skipIfSingle, a burst that saw exactly one event
+// skips the repeat, because the immediate pass already did all of it.
 func (fw *fileWatcher) scheduleKotlinInvalidate(path string) {
+	fw.scheduleKotlinInvalidateOpt(path, false)
+}
+
+func (fw *fileWatcher) scheduleKotlinInvalidateOpt(path string, skipIfSingle bool) {
 	// Eager bump: invalidate BundleStatsClean on the very first event
 	// so the pre-parse bundle layer cannot serve stale findings within
 	// the debounce window.
@@ -351,6 +359,9 @@ func (fw *fileWatcher) scheduleKotlinInvalidate(path string) {
 		delete(fw.debounce, path)
 		delete(fw.debounceGen, path)
 		fw.debounceMu.Unlock()
+		if skipIfSingle && gen == 1 {
+			return
+		}
 		fw.invalidateKotlinState(path)
 	})
 	fw.debounceMu.Unlock()
@@ -379,11 +390,12 @@ func (fw *fileWatcher) invalidateKotlinState(path string) {
 // tree, hash the old content, and record it under the new on-disk stat.
 // Nothing after it would tell the bundle that the file changed (#832).
 func (fw *fileWatcher) kotlinEdited(path string) {
-	if !fw.burstPending(path) {
-		fw.state.BumpSourceMTimeVersion()
+	first := !fw.burstPending(path)
+	// Arming the timer bumps the version, which must precede the invalidation.
+	fw.scheduleKotlinInvalidateOpt(path, first)
+	if first {
 		fw.invalidateKotlinState(path)
 	}
-	fw.scheduleKotlinInvalidate(path)
 }
 
 // burstPending reports whether a debounced invalidation for path is armed,

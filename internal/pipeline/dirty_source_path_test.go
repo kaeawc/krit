@@ -12,7 +12,8 @@ func TestHasDirtySourcePath(t *testing.T) {
 		{[]string{"/r/A.kt"}, true},
 		{[]string{"/r/B.java"}, true},
 		{[]string{"/r/res/layout/a.xml", "/r/krit.yml", "/r/gradle/libs.versions.toml"}, false},
-		{[]string{"/r/build.gradle.kts"}, false},
+		{[]string{"/r/build.gradle.kts"}, true},
+		{[]string{"/r/scripts/Tool.kts"}, true},
 		{[]string{"/r/res/layout/a.xml", "/r/src/A.kt"}, true},
 	}
 	for _, tc := range cases {

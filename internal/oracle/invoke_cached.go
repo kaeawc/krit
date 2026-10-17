@@ -432,6 +432,7 @@ func InvokeCachedWithOptions(
 	if len(forcedInScan) > 0 {
 		misses = append(misses, forcedInScan...)
 	}
+	hits, misses = demoteNameCollidingHits(opts, hits, misses, tracker, verbose)
 	misses = requestCompilationRefresh(opts, hits, misses, compilation, tracker, verbose)
 	classifyElapsed := time.Since(startClassify)
 	perf.AddEntryDetails(tracker, "cacheClassify", classifyElapsed, map[string]int64{

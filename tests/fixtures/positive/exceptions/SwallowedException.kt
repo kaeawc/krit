@@ -50,6 +50,16 @@ class Processor {
         }
     }
 
+    // A fire-and-forget constructor/factory call used as a bare statement
+    // discards the wrapper; uppercase initial alone is not handling.
+    fun discardedWrapper() {
+        try {
+            doWork()
+        } catch (e: Exception) {
+            Analytics(e)
+        }
+    }
+
     fun nestedLambdaIgnored() {
         try {
             doWork()

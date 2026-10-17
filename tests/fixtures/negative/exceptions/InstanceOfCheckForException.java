@@ -19,6 +19,19 @@ class NetworkClient {
     }
   }
 
+  // A local unwrapped from the caught variable's cause is still narrowing of
+  // the caught exception chain. Must NOT fire.
+  void causeLocalUnwrap() {
+    try {
+      doSend();
+    } catch (Exception e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof IOException) {
+        return;
+      }
+    }
+  }
+
   private boolean doSend() throws IOException {
     return true;
   }

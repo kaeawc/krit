@@ -281,7 +281,7 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 		// Coalesce within debounceWindow so only one Invalidate+Touch
 		// fires per burst — the dirty-set's map semantics already dedup
 		// Touch, but Invalidate and CodeIndex drops are not free.
-		fw.scheduleKotlinInvalidate(ev.Path)
+		fw.kotlinEdited(ev.Path)
 	case isJavaPath(ev.Path):
 		// .java edits invalidate the daemon-resident
 		// javafacts.SourceIndex cache. Kotlin and Java live on
@@ -351,14 +351,48 @@ func (fw *fileWatcher) scheduleKotlinInvalidate(path string) {
 		delete(fw.debounce, path)
 		delete(fw.debounceGen, path)
 		fw.debounceMu.Unlock()
-		fw.invalidateBothForms(path)
-		fw.state.InvalidateCodeIndex()
-		fw.state.InvalidateDependents()
-		fw.state.InvalidateResolver()
-		fw.state.InvalidateOracleFilter()
-		fw.state.Touch(path)
+		fw.invalidateKotlinState(path)
 	})
 	fw.debounceMu.Unlock()
+}
+
+// invalidateKotlinState drops every resident slot a changed Kotlin file feeds
+// and reports the path dirty.
+func (fw *fileWatcher) invalidateKotlinState(path string) {
+	fw.invalidateBothForms(path)
+	fw.state.InvalidateCodeIndex()
+	fw.state.InvalidateDependents()
+	fw.state.InvalidateResolver()
+	fw.state.InvalidateOracleFilter()
+	fw.state.Touch(path)
+}
+
+// kotlinEdited handles a Write to a Kotlin file. The first event of a burst
+// invalidates at once; scheduleKotlinInvalidate then repeats the invalidation
+// once the burst has been quiet for the debounce window, so a later write in
+// the same burst is covered too.
+//
+// The eager step exists because the source-mtime bump is already eager: it
+// stops the pre-parse bundle shortcut serving the old findings, so an analyze
+// inside the window parses. With the resident parse, the code index and the
+// dirty set all still holding the old file, that analyze would reuse the old
+// tree, hash the old content, and record it under the new on-disk stat.
+// Nothing after it would tell the bundle that the file changed (#832).
+func (fw *fileWatcher) kotlinEdited(path string) {
+	if !fw.burstPending(path) {
+		fw.state.BumpSourceMTimeVersion()
+		fw.invalidateKotlinState(path)
+	}
+	fw.scheduleKotlinInvalidate(path)
+}
+
+// burstPending reports whether a debounced invalidation for path is armed,
+// i.e. whether this event continues a burst rather than starting one.
+func (fw *fileWatcher) burstPending(path string) bool {
+	fw.debounceMu.Lock()
+	defer fw.debounceMu.Unlock()
+	_, ok := fw.debounce[path]
+	return ok
 }
 
 // invalidateBothForms drops the WorkspaceState parse-cache entry for

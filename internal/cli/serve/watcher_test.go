@@ -428,8 +428,10 @@ func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
 	// of which form scanWithResident is keyed on. The debounce still
 	// coalesces the burst of 3 events into a single callback firing,
 	// just the callback now invokes Invalidate twice instead of once.
-	if got := state.invalidateCalls.Load(); got != 2 {
-		t.Errorf("Invalidate called %d times, want 2 (debounce should coalesce burst; the 2 calls are the absolute+relative forms)", got)
+	// The first event of the burst also invalidates at once (#832), so a burst
+	// costs the immediate pair plus the one debounced pair, however long it is.
+	if got := state.invalidateCalls.Load(); got != 4 {
+		t.Errorf("Invalidate called %d times, want 4 (one immediate and one debounced invalidation per burst, each under the absolute+relative forms)", got)
 	}
 }
 
@@ -727,11 +729,16 @@ func TestFileWatcher_BumpsXMLFilesVersionOnXMLEdit(t *testing.T) {
 // window of a write would still see the stale "no events" state and
 // serve cached findings that don't reflect the change.
 //
-// Setup: install a watcher with a long debounce window (300 ms) so the
-// downstream Invalidate* calls demonstrably haven't fired yet, write a
-// .kt file, and assert that BumpSourceMTimeVersion was called before the
-// debounce body. invalidateCalls must still be 0 (debounced); bumpCalls
-// must already be >= 1 (eager).
+// The first event of a burst also drops the resident state at once and
+// reports the path dirty (#832): an analyze that arrives after the bump has
+// stopped the bundle shortcut, so it parses, and must not find the old parse,
+// code index and dirty set still in place. The debounced invalidation then
+// repeats once, after the burst, for any later write in it.
+//
+// Setup: install a watcher with a long debounce window (300 ms), write a .kt
+// file, and assert that the bump and one invalidation (the absolute and
+// relative forms) were made before the debounce body, and that the debounced
+// one has not.
 func TestFileWatcher_BumpSourceMTimeIsEager(t *testing.T) {
 	root := t.TempDir()
 	ktPath := filepath.Join(root, "Foo.kt")
@@ -761,9 +768,16 @@ func TestFileWatcher_BumpSourceMTimeIsEager(t *testing.T) {
 	if !waitForCondition(func() bool { return state.bumpCalls.Load() >= 1 }) {
 		t.Fatalf("BumpSourceMTimeVersion did not fire within timeout; bump=%d", state.bumpCalls.Load())
 	}
-	if got := state.invalidateCalls.Load(); got != 0 {
-		t.Errorf("Invalidate fired before debounce window (bump=%d invalidate=%d); the eager bump must NOT also have eagerly invalidated downstream state",
-			state.bumpCalls.Load(), got)
+	if !waitForCondition(func() bool { return state.invalidateCalls.Load() >= 1 }) {
+		t.Fatalf("the first event did not invalidate at once; invalidate=%d", state.invalidateCalls.Load())
+	}
+	immediate := state.invalidateCalls.Load()
+	time.Sleep(50 * time.Millisecond)
+	if got := state.invalidateCalls.Load(); got != immediate {
+		t.Errorf("Invalidate called %d times, then %d before the debounce window ended; only the immediate invalidation may precede it", immediate, got)
+	}
+	if !waitForCondition(func() bool { return state.invalidateCalls.Load() > immediate }) {
+		t.Errorf("the debounced invalidation never followed the immediate one (invalidate=%d)", immediate)
 	}
 }
 

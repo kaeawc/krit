@@ -74,7 +74,7 @@ func TestRunDispatchOrLoadBundle_PreloadedSkipsStoreLoad(t *testing.T) {
 
 // TestRunDispatchOrLoadBundle_NoPreloadHitsStoreLoad confirms the
 // fallback path is unchanged when WarmCrossFindings is nil — the
-// usual cacheHitFullBundle / cacheHitStructuralBundle / dispatch
+// usual cacheHitFullBundle / delta / dispatch
 // flow must still drive FindingsBundleStore.Load.
 func TestRunDispatchOrLoadBundle_NoPreloadHitsStoreLoad(t *testing.T) {
 	store := &loadCountingBundleStore{}

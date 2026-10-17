@@ -164,6 +164,9 @@ func (o *Oracle) fileKey(path string) string {
 	if path == "" || filepath.IsAbs(path) {
 		return path
 	}
+	// Facts are keyed by clean paths, but a single-file scan argument
+	// (`krit ./src/A.kt`) reaches rules as spelled.
+	path = filepath.Clean(path)
 	if _, ok := o.blobHashes[path]; ok {
 		return path
 	}

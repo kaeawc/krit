@@ -101,8 +101,8 @@ type WorkspaceState struct {
 	residentBundleMu sync.Mutex
 	// residentBundle is the in-memory mirror of the on-disk
 	// FindingsBundleStore: keyed by FindingsBundleKey, value is the
-	// decoded *scanner.FindingColumns. The structural-replay path in
-	// previewPostParseBundleHit otherwise re-decodes the prior bundle
+	// decoded *scanner.FindingColumns. The preview and delta paths
+	// otherwise re-decode the prior bundle
 	// from zstd+gob on every warm+ABI analyze (~90 ms on
 	// kotlin-corpus); consulting this map first cuts that to a map
 	// lookup. The Save path also mirrors into here so the next
@@ -1104,8 +1104,8 @@ func (w *WorkspaceState) StoreResidentBundle(bundleKey string, cols *scanner.Fin
 	}
 	if _, exists := w.residentBundle[bundleKey]; exists {
 		// Refresh the slot but keep its position in the FIFO — the
-		// caller is re-storing the same key (e.g. structural-replay
-		// aliasing a bundle we already mirrored).
+		// caller is re-storing the same key (e.g. the delta path
+		// refreshing a bundle we already mirrored).
 		w.residentBundle[bundleKey] = cols
 		return
 	}

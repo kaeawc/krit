@@ -348,6 +348,9 @@ func (r *runner) collectFiles() (int, error) {
 		if walkErr != nil {
 			return
 		}
+		// Non-nil even when the project has no Java: downstream phases treat a
+		// nil JavaPaths as "not collected" and would walk the tree again.
+		r.allJavaPaths = []string{}
 		for _, f := range all {
 			if strings.HasSuffix(f, ".kt") || strings.HasSuffix(f, ".kts") {
 				r.files = append(r.files, f)

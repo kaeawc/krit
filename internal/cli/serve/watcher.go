@@ -453,8 +453,9 @@ func (fw *fileWatcher) scheduleKotlinInvalidate(path string) {
 // isn't, and the next warm analyze's scanWithResident.LookupParsedByPath
 // returns the pre-edit FlatTree + bytes. Downstream
 // FileStructuralFingerprint hashes the OLD symbols, the cross-file
-// structural FP appears unchanged, the structural-replay gate
-// accepts, and the prior bundle's findings get served for content
+// structural FP appears unchanged, the CrossFile fingerprint matches the
+// prior run, the delta planner proceeds with the stale parse, and prior
+// findings get served for content
 // they no longer reflect. Demonstrated against ~/github/kotlin: a
 // probe that adds 3 top-level declarations to libraries/stdlib/
 // src/kotlin/Unit.kt produces 84623 findings (== cold baseline)

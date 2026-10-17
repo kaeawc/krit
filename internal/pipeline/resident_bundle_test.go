@@ -60,8 +60,8 @@ func TestWorkspaceState_ResidentBundle_FIFOEvictsOldest(t *testing.T) {
 
 // TestWorkspaceState_ResidentBundle_RefreshDoesNotEvict pins the
 // re-store semantics: writing to an existing key updates the value
-// in place without rotating the FIFO. Used by the structural-replay
-// path where the same priorKey may get refreshed across analyzes
+// in place without rotating the FIFO. Used by the delta path
+// where the same priorKey may get refreshed across analyzes
 // without bumping a "new" entry into the eviction list.
 func TestWorkspaceState_ResidentBundle_RefreshDoesNotEvict(t *testing.T) {
 	w := &WorkspaceState{}

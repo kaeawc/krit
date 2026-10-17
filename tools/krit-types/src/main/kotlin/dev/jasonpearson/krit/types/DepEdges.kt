@@ -9,8 +9,6 @@ import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.symbols.*
 import org.jetbrains.kotlin.analysis.api.types.*
-import org.jetbrains.kotlin.idea.references.KtReference
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
 
@@ -168,10 +166,9 @@ internal fun KaSession.recordResolvedDependencyEdges(file: KtFile, tracker: DepT
         }
     }
 
-    fun resolve(reference: KtReference?, propagating: Boolean) {
-        if (reference == null) return
+    fun resolve(element: KtElement, propagating: Boolean) {
         val symbols = try {
-            reference.resolveToSymbols()
+            referencedSymbols(element)
         } catch (_: Throwable) {
             return
         }
@@ -188,13 +185,14 @@ internal fun KaSession.recordResolvedDependencyEdges(file: KtFile, tracker: DepT
             is KtOperationReferenceExpression ->
                 // Built-in operators have no symbol to reach; overloadable
                 // ones may resolve to a source operator function.
-                if (element.operationSignTokenType !in nonOverloadableOperators) resolve(element.mainReference, propagating)
-            is KtSimpleNameExpression -> resolve(element.mainReference, propagating)
+                if (element.operationSignTokenType !in nonOverloadableOperators) resolve(element, propagating)
+            is KtSimpleNameExpression -> resolve(element, propagating)
             // Operator conventions with no name at the use site: an
             // extension operator in another file is only reachable here.
-            is KtArrayAccessExpression -> resolve(element.mainReference, propagating)
-            is KtForExpression, is KtPropertyDelegate, is KtDestructuringDeclarationEntry ->
-                for (ref in element.references) if (ref is KtReference) resolve(ref, propagating)
+            is KtArrayAccessExpression -> resolve(element, propagating)
+            is KtForExpression -> resolve(element, propagating)
+            is KtPropertyDelegate -> resolve(element, propagating)
+            is KtDestructuringDeclarationEntry -> resolve(element, propagating)
         }
     }
 

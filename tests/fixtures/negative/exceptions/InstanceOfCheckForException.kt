@@ -58,6 +58,19 @@ class NetworkClient {
         }
     }
 
+    // A local unwrapped from the caught variable's cause (`val cause = e.cause`)
+    // is still narrowing of the caught exception chain. Must NOT fire.
+    fun causeLocalUnwrap() {
+        try {
+            loadFromNetwork()
+        } catch (e: RuntimeException) {
+            val cause = e.cause
+            if (cause is InterruptedException) {
+                throw cause
+            }
+        }
+    }
+
     fun classify(): String {
         try {
             return loadFromNetwork()

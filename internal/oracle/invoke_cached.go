@@ -176,10 +176,17 @@ func applyOracleFilter(ktFiles []string, filterListPath string, tracker perf.Tra
 		addOracleEntry(tracker, "readOracleFilterList", start, nil, map[string]string{"error": ferr.Error()})
 		return ktFiles
 	}
+	// The filter list holds absolute paths while ktFiles is spelled like the
+	// scan root (relative for `krit .`), so compare in absolute form. The
+	// result keeps the caller's spelling of each file.
+	wantedAbs := make(map[string]bool, len(wanted))
+	for p := range wanted {
+		wantedAbs[filepath.Clean(AbsolutePath(p))] = true
+	}
 	before := len(ktFiles)
 	filtered := ktFiles[:0]
 	for _, p := range ktFiles {
-		if wanted[p] {
+		if wantedAbs[filepath.Clean(AbsolutePath(p))] {
 			filtered = append(filtered, p)
 		}
 	}
@@ -225,12 +232,97 @@ func writeFreshCacheEntries(
 	}
 }
 
+// minUnexplainedForMismatch is how many requested files the JVM must leave
+// entirely unanswered, with no expected reason, before that is treated as a
+// request mismatch rather than as skipped sources. One is enough: krit-types
+// answers for every in-root file at or under the size limit, even an empty
+// one, a package-only file, a script or an expect declaration, so an
+// unanswered one is never a normal skip and a marker for it would hide the
+// file from later runs.
+const minUnexplainedForMismatch = 1
+
+// maxJVMSourceBytes is the largest source file the Analysis API builds a
+// KtFile for. It is IntelliJ's idea.max.intellisense.filesize default
+// (FileUtilRt.getUserFileSizeLimit: 2500 KB, so 2,560,000 bytes); a larger
+// file is dropped from the source module and never answered. This is the
+// krit-types (KAA) limit; krit-fir answers oversized files, so the guard that
+// uses it is simply inactive there.
+const maxJVMSourceBytes = 2560000
+
+// pathUnderRoot reports whether the clean absolute path abs is root or lies
+// below it. A sibling sharing a name prefix (/a/rootX for /a/root) is not under
+// it, and a root that already ends in a separator (a filesystem root such as
+// / or C:\) is not given a second one.
+func pathUnderRoot(abs, root string) bool {
+	if abs == root {
+		return true
+	}
+	prefix := root
+	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
+		prefix += string(filepath.Separator)
+	}
+	return strings.HasPrefix(abs, prefix)
+}
+
+// expectedlySkipped reports whether the JVM is expected not to answer for p:
+// it is over the Analysis API size limit, or it lies outside every source
+// root (the JVM only builds KtFiles for files under them). Anything else it
+// leaves unanswered is unexplained.
+func expectedlySkipped(p string, absRoots []string) bool {
+	abs := filepath.Clean(AbsolutePath(p))
+	underRoot := false
+	for _, root := range absRoots {
+		if pathUnderRoot(abs, root) {
+			underRoot = true
+			break
+		}
+	}
+	if !underRoot {
+		return true
+	}
+	info, err := os.Stat(abs)
+	return err != nil || info.Size() > maxJVMSourceBytes
+}
+
+// unexplainedMisses returns the misses to withhold skipped markers from: none
+// unless the JVM answered for none of them and at least
+// minUnexplainedForMismatch have no expected reason to be skipped.
+func unexplainedMisses(sourceDirs, misses []string, analyzed map[string]bool) map[string]bool {
+	for _, p := range misses {
+		if analyzed[p] {
+			return nil
+		}
+	}
+	absRoots := make([]string, len(sourceDirs))
+	for i, d := range sourceDirs {
+		absRoots[i] = filepath.Clean(AbsolutePath(d))
+	}
+	unexplained := map[string]bool{}
+	for _, p := range misses {
+		if !expectedlySkipped(p, absRoots) {
+			unexplained[p] = true
+		}
+	}
+	if len(unexplained) < minUnexplainedForMismatch {
+		return nil
+	}
+	return unexplained
+}
+
 // writeSkippedPoisonEntries writes jar-skipped poison cache entries for misses
 // that freshData/depsFile did not cover, preventing them from re-entering miss
 // lists on future warm runs.
+//
+// When the JVM answered for none of the misses and at least
+// minUnexplainedForMismatch of them have no expected reason to be skipped
+// (see expectedlySkipped), that is a request/response mismatch rather than
+// skipped sources, and marking those files skipped would poison the cache for
+// later runs: they get no marker, with a warning. Files with an expected
+// reason, such as oversized sources, always get theirs.
 func writeSkippedPoisonEntries(
 	s *store.FileStore,
 	cacheDir string,
+	sourceDirs []string,
 	misses []string,
 	freshData *Data,
 	depsFile *CacheDepsFile,
@@ -249,10 +341,15 @@ func writeSkippedPoisonEntries(
 			analyzed[path] = true
 		}
 	}
+	unexplained := unexplainedMisses(sourceDirs, misses, analyzed)
+	if len(unexplained) > 0 {
+		reporter().Warnf("warning: oracle analyzed 0 of %d requested files; not caching skipped markers for %d unexplained files\n", len(misses), len(unexplained))
+		addOracleInstant(tracker, "skippedPoisonEntriesSuppressed", map[string]int64{"requested": int64(len(misses)), "unexplained": int64(len(unexplained))}, nil)
+	}
 	skipped := 0
 	_ = trackOracle(tracker, "writeSkippedPoisonEntries", func() error {
 		for _, p := range misses {
-			if analyzed[p] {
+			if analyzed[p] || unexplained[p] {
 				continue
 			}
 			hash, herr := ContentHash(p)
@@ -260,11 +357,13 @@ func writeSkippedPoisonEntries(
 				continue
 			}
 			entry := &CacheEntry{
-				V:                             CacheVersion,
-				ContentHash:                   hash,
-				FilePath:                      p,
+				V:           CacheVersion,
+				ContentHash: hash,
+				// Absolute, so a relative FilePath on a skipped marker only
+				// ever means a marker written by the relative-root bug.
+				FilePath:                      AbsolutePath(p),
 				Crashed:                       true,
-				CrashError:                    "jar-skipped: file not in Analysis API KtFile set (typically oversized source)",
+				CrashError:                    skipPoisonMarker + " file not in Analysis API KtFile set (typically oversized source)",
 				Approximation:                 depsFile.approximation(),
 				CompilationFingerprint:        depsFile.compilationFingerprint(),
 				CallFilterFingerprint:         callFilterScope,
@@ -339,14 +438,16 @@ func splitForcedMisses(ktFiles []string, forcedMisses []string) ([]string, []str
 	if len(forcedMisses) == 0 {
 		return ktFiles, nil
 	}
+	// Compare in absolute form: the hint and the scan may spell one file
+	// differently (`./x` vs `x`). The result keeps ktFiles' spelling.
 	forcedSet := make(map[string]bool, len(forcedMisses))
 	for _, p := range forcedMisses {
-		forcedSet[p] = true
+		forcedSet[filepath.Clean(AbsolutePath(p))] = true
 	}
 	classifyInput := make([]string, 0, len(ktFiles))
 	forcedInScan := make([]string, 0, len(forcedSet))
 	for _, p := range ktFiles {
-		if forcedSet[p] {
+		if forcedSet[filepath.Clean(AbsolutePath(p))] {
 			forcedInScan = append(forcedInScan, p)
 			continue
 		}
@@ -507,7 +608,7 @@ func InvokeCachedWithOptions(
 		writeFreshCacheEntries(s, cacheDir, freshData, depsFile, callFilterScope, declarationProfileScope, tracker, opts, verbose)
 	}
 
-	writeSkippedPoisonEntries(s, cacheDir, misses, freshData, depsFile, callFilterScope, declarationProfileScope, tracker, verbose)
+	writeSkippedPoisonEntries(s, cacheDir, sourceDirs, misses, freshData, depsFile, callFilterScope, declarationProfileScope, tracker, verbose)
 
 	return assembleAndWriteOracle(hits, freshData, outputPath, cacheDir, tracker, verbose)
 }
@@ -568,6 +669,49 @@ func stampCacheDeps(depsFile *CacheDepsFile, opts InvocationOptions, compilation
 	depsFile.CompilationFingerprint = compilation
 }
 
+// readOneShotMissResult reads a one-shot JVM run's facts and cache deps and
+// re-spells their absolute paths to the caller's spelling of requested and
+// sourceDirs. A cache-deps read failure is returned separately (depsErr) so
+// callers can choose to ignore it; err is set only when the facts are unreadable.
+func readOneShotMissResult(tracker perf.Tracker, freshPath, depsPath string, sourceDirs, requested []string) (fresh *Data, deps *CacheDepsFile, depsErr, err error) {
+	if err = trackOracle(tracker, "readFreshOracleJSON", func() error {
+		var readErr error
+		fresh, readErr = readOracleJSON(freshPath)
+		return readErr
+	}); err != nil {
+		return nil, nil, nil, err
+	}
+	_ = trackOracle(tracker, "readCacheDepsJSON", func() error {
+		deps, depsErr = LoadCacheDeps(depsPath)
+		return nil
+	})
+	spelling := oneShotSpelling(sourceDirs, requested)
+	spelling.CallerData(fresh)
+	spelling.CallerCacheDeps(deps)
+	return fresh, deps, depsErr, nil
+}
+
+// oneShotSpelling maps the absolute paths a one-shot JVM run reports back to
+// the caller's spelling of the requested files and source roots, so a
+// relative scan root (`krit .`) keeps the cache and merge keys it had before
+// the request was absolutized.
+func oneShotSpelling(sourceDirs, requested []string) PathSpelling {
+	_, spelling := AbsoluteRequestPaths(requested)
+	return spelling.WithDirs(sourceDirs)
+}
+
+// missListLines returns the --files entries for misses: absolute, and with
+// forward slashes, which is how krit-types' virtual file system spells paths
+// on every platform (Main.kt compares entries by exact equality).
+func missListLines(misses []string) []string {
+	abs := AbsolutePaths(misses)
+	out := make([]string, len(abs))
+	for i, p := range abs {
+		out[i] = filepath.ToSlash(p)
+	}
+	return out
+}
+
 // prepareMissTemps creates three tempfiles for the miss-run round trip:
 //
 //	missListPath — newline-separated absolute paths for --files
@@ -580,7 +724,9 @@ func prepareMissTemps(misses []string) (string, string, string, error) {
 	if err != nil {
 		return "", "", "", fmt.Errorf("tempfile (miss list): %w", err)
 	}
-	for _, p := range misses {
+	// krit-types matches --files entries by exact equality with the absolute
+	// virtual file path, so a relative scan root must be absolutized here.
+	for _, p := range missListLines(misses) {
 		fmt.Fprintln(f, p)
 	}
 	_ = f.Close()
@@ -643,7 +789,7 @@ func runKritTypesCached(
 	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = append(args,
 		"-jar", jarPath,
-		"--sources", strings.Join(sourceDirs, ","),
+		"--sources", strings.Join(AbsolutePaths(sourceDirs), ","),
 		"--output", freshOutPath,
 		"--files", missListPath,
 		"--cache-deps-out", depsOutPath,
@@ -978,22 +1124,11 @@ func runKritTypesCachedShardedWithRunner(
 				return
 			}
 
-			var fresh *Data
-			if err := trackOracle(child, "readFreshOracleJSON", func() error {
-				var readErr error
-				fresh, readErr = readOracleJSON(freshPath)
-				return readErr
-			}); err != nil {
+			fresh, deps, depsErr, err := readOneShotMissResult(child, freshPath, depsPath, sourceDirs, group.Paths)
+			if err != nil {
 				results[i].Err = fmt.Errorf("shard %d read fresh oracle: %w", i, err)
 				return
 			}
-
-			var deps *CacheDepsFile
-			var depsErr error
-			_ = trackOracle(child, "readCacheDepsJSON", func() error {
-				deps, depsErr = LoadCacheDeps(depsPath)
-				return nil
-			})
 			results[i] = shardResult{
 				Fresh:      fresh,
 				Deps:       deps,
@@ -1086,21 +1221,12 @@ func runMissAnalysis(
 		if err := runKritTypesCached(jarPath, sourceDirs, missListPath, missFreshPath, missDepsPath, verbose, tracker, opts); err != nil {
 			return nil, nil, false, err
 		}
-		var fresh *Data
-		if err := trackOracle(tracker, "readFreshOracleJSON", func() error {
-			var err error
-			fresh, err = readOracleJSON(missFreshPath)
-			return err
-		}); err != nil {
+		// Same swallowed-error policy as the pre-daemon code: missing or
+		// malformed cache-deps is non-fatal, we just skip cache writes.
+		fresh, deps, _, err := readOneShotMissResult(tracker, missFreshPath, missDepsPath, sourceDirs, misses)
+		if err != nil {
 			return nil, nil, false, fmt.Errorf("read fresh oracle: %w", err)
 		}
-		// Same swallowed-error policy as the pre-daemon code — missing
-		// or malformed cache-deps is non-fatal, we just skip cache writes.
-		var deps *CacheDepsFile
-		_ = trackOracle(tracker, "readCacheDepsJSON", func() error {
-			deps, _ = LoadCacheDeps(missDepsPath)
-			return nil
-		})
 		return fresh, deps, false, nil
 	}
 

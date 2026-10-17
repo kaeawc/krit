@@ -105,8 +105,14 @@ func (c *wcStructuralCase) run(t *testing.T) {
 		// purpose.
 		analyzeAfterEdit = func(r, label string) wcStructuralRun {
 			if c.m.raceAnalyze {
+				// The racing call drains the dirty set. When it drained the
+				// edit, the watcher had already reported it (the call is then
+				// served correctly by design, and the event is consumed); when
+				// it did not, the event is still to come. Either way the call
+				// after must match a clean scan, so neither case skips.
 				if raced := c.analyzeDaemon(t, d, r, "race"); raced.dirty > 0 {
-					t.Skip("#832 race NOT exercised on this run: the watcher event beat the racing analyze, so nothing was checked")
+					t.Logf("#832: the watcher reported the edit before the racing analyze (dirty=%d)", raced.dirty)
+					return c.analyzeDaemon(t, d, r, label)
 				}
 			}
 			wcWaitForDaemonDirty(t, d, label)

@@ -528,10 +528,6 @@ func wcBuildKnownStale() map[string]string {
 			add(prefix+"/"+spelling+"/"+mutation, why)
 		}
 	}
-	// An analyze that arrives before the watcher has delivered an edit is
-	// served the old findings, and so is every later one: the daemon stays
-	// stale until the next edit.
-	both("structural/daemon", "annotation-deprecated-raced", "#832 DAEMON-RACED-ANALYZE: an analyze-project call racing the watcher event leaves the daemon serving the pre-edit findings after the event lands")
 	// The krit-types cache key does not include the classpath, so a
 	// classpath change leaves cached facts for existing files in place.
 	for _, mode := range []string{"one-shot", "daemon"} {

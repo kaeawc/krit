@@ -2504,6 +2504,14 @@ func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, t
 	if !ok || len(prior.StructuralFPs) == 0 {
 		return scanner.RunFingerprint{}, nil, nil, false
 	}
+	// A source file the watcher reports as changed is never vouched for by the
+	// manifest's recorded (size, mtime): a call that raced the event can have
+	// recorded the new stat against content it analyzed before the edit, and
+	// the stat then matches while the recorded content hash is the old one.
+	// The post-parse path rehashes dirty files, so it is the one that decides.
+	if hasDirtySourcePath(host.SourceSetDirty) {
+		return scanner.RunFingerprint{}, nil, nil, false
+	}
 	var kotlinPaths, javaPaths []string
 	track("sourcePaths", func() {
 		kotlinPaths, javaPaths, ok = preparseSourcePaths(args, host, prior)
@@ -2560,6 +2568,18 @@ func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, t
 		return scanner.RunFingerprint{}, nil, nil, false
 	}
 	return fp, filesForPaths(kotlinPaths, scanner.LangKotlin), filesForPaths(javaPaths, scanner.LangJava), true
+}
+
+// hasDirtySourcePath reports whether dirty names a Kotlin, Kotlin script or
+// Java file.
+func hasDirtySourcePath(dirty []string) bool {
+	for _, p := range dirty {
+		switch filepath.Ext(p) {
+		case ".kt", ".kts", ".java":
+			return true
+		}
+	}
+	return false
 }
 
 func preparseSourcePaths(args ProjectArgs, host ProjectHostState, prior scanner.FindingsBundleManifest) ([]string, []string, bool) {

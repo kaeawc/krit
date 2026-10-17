@@ -33,14 +33,25 @@ func TestKAAOracleCacheRefreshesCallersWhenNewFileAddsOverload(t *testing.T) {
 
 	cases := []struct {
 		name, newFile string
+		// lib and use override the default Lib.kt and Use.kt sources.
+		lib, use string
 		// wantMisses is the warm run's re-analysis count: the new file
-		// alone, or the new file plus Use.kt and Lib.kt (which also mentions pick).
+		// alone, or the new file plus Use.kt and Lib.kt (which also declares the name).
 		wantMisses int64
 		wantDiag   bool
 	}{
-		{"overload", "package p\n\nfun pick(x: Int): Int = 1\n", 3, true},
-		{"unrelated", "package p\n\nfun other(): Int = 1\n", 1, false},
-		{"other-package", "package q\n\nfun pick(x: Int): Int = 1\n", 1, false},
+		{name: "overload", newFile: "package p\n\nfun pick(x: Int): Int = 1\n", wantMisses: 3, wantDiag: true},
+		{name: "unrelated", newFile: "package p\n\nfun other(): Int = 1\n", wantMisses: 1},
+		{name: "other-package", newFile: "package q\n\nfun pick(x: Int): Int = 1\n", wantMisses: 1},
+		{
+			// Use.kt never spells the function's name: a + a is the call.
+			name:       "operator-syntax",
+			newFile:    "package p\n\noperator fun Foo.plus(o: Foo): Int = 1\n",
+			lib:        "package p\n\nclass Foo\noperator fun Any.plus(o: Any): Int? = null\n",
+			use:        "package p\n\nfun usePick(a: Foo) = (a + a)!!\n",
+			wantMisses: 3,
+			wantDiag:   true,
+		},
 	}
 
 	// hasDiagnostic runs the cached oracle and reports whether Use.kt has
@@ -97,8 +108,15 @@ func TestKAAOracleCacheRefreshesCallersWhenNewFileAddsOverload(t *testing.T) {
 			t.Run("daemon-"+mode+"/"+tc.name, func(t *testing.T) {
 				t.Setenv("KRIT_DAEMON_CACHE", mode)
 				repo, src := newRepo(t)
-				writeFile(t, filepath.Join(src, "Lib.kt"), "package p\n\nfun pick(x: Any): Int? = null\n")
-				writeFile(t, filepath.Join(src, "Use.kt"), "package p\n\nfun usePick() = pick(1)!!\n")
+				lib, use := tc.lib, tc.use
+				if lib == "" {
+					lib = "package p\n\nfun pick(x: Any): Int? = null\n"
+				}
+				if use == "" {
+					use = "package p\n\nfun usePick() = pick(1)!!\n"
+				}
+				writeFile(t, filepath.Join(src, "Lib.kt"), lib)
+				writeFile(t, filepath.Join(src, "Use.kt"), use)
 				if mode == "on" {
 					t.Cleanup(func() {
 						if d, err := oracle.ConnectOrStartDaemon(jar, []string{src}, classpath, false); err == nil {

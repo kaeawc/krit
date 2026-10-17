@@ -20,8 +20,70 @@ var kotlinDefaultImports = map[string]bool{
 	"java.lang": true,
 }
 
+// operatorGates maps an operator-convention function name to the source
+// patterns through which a caller can reach it without writing its name. A
+// hit that contains any pattern may call the function by operator syntax, so
+// for `operator` declarations the pattern stands in for the identifier. The
+// patterns are raw byte matches and deliberately loose: `(` for invoke
+// matches nearly every file, which only matters when a changed file declares
+// an `operator fun invoke` visible to it.
+var operatorGates = map[string][]string{
+	"plus": {"+"}, "minus": {"-"}, "times": {"*"}, "div": {"/"}, "rem": {"%"}, "mod": {"%"},
+	"unaryPlus": {"+"}, "unaryMinus": {"-"}, "not": {"!"}, "inc": {"++"}, "dec": {"--"},
+	"plusAssign": {"+="}, "minusAssign": {"-="}, "timesAssign": {"*="}, "divAssign": {"/="},
+	"remAssign": {"%="}, "modAssign": {"%="},
+	"get": {"["}, "set": {"["}, "invoke": {"("},
+	"getValue": {" by "}, "setValue": {" by "}, "provideDelegate": {" by "},
+	"compareTo": {"<", ">"},
+	"contains":  {" in ", "!in "},
+	"iterator":  {"for ("}, "next": {"for ("}, "hasNext": {"for ("},
+	"rangeTo": {".."}, "rangeUntil": {".."},
+}
+
+// componentGates are the destructuring spellings: `val (a, b) =`, `for ((a,
+// b) in`, and lambda parameters `(a, b) ->`.
+var componentGates = []string{"val (", "var (", "val(", "var(", "((", ") ->"}
+
+func gatesFor(name string) []string {
+	if g, ok := operatorGates[name]; ok {
+		return g
+	}
+	if strings.HasPrefix(name, "component") && len(name) > len("component") {
+		digits := name[len("component"):]
+		if strings.Trim(digits, "0123456789") == "" {
+			return componentGates
+		}
+	}
+	return nil
+}
+
+// Known limits of demoteNameCollidingHits:
+//
+//   - The oracle filter list can drop a declaring file that has no rule
+//     identifiers, so it is never a miss and its names are never collected
+//     (https://github.com/kaeawc/krit/issues/847).
+//   - The check is run-local: it only sees the files analyzed in this run. A
+//     partial or subpath scan that analyzes the new file caches it, so a
+//     later full scan finds no miss and never demotes the callers
+//     (https://github.com/kaeawc/krit/issues/847).
+//   - Declaring Java sources are not scanned; only Kotlin files contribute
+//     names, though Java classes can also add overload candidates.
+//   - Deleted files are not considered. Removing a declaration can change
+//     resolution only for callers that resolved to it, and those carry the
+//     deleted file in their closure.
+
+type declEntry struct {
+	pkg, name string
+	operator  bool
+}
+
+// declaredSet is the set of top-level names the changed files declare.
+type declaredSet struct {
+	entries []declEntry
+}
+
 // demoteNameCollidingHits moves cached KAA hits back to the miss list when a
-// file being re-analyzed this run declares a top-level name the hit mentions
+// file being re-analyzed this run declares a top-level name the hit uses
 // from a scope that can see it.
 //
 // A krit-types cache entry's dependency closure records only the
@@ -34,13 +96,17 @@ var kotlinDefaultImports = map[string]bool{
 // else verified as a hit), so their top-level declared names are the names
 // that may have appeared. A hit is demoted when it
 //
-//   - mentions such a name as a whole identifier, and
-//   - is in the declaring package, imports it (explicitly, by wildcard, or
-//     through a default import), or spells it package-qualified.
+//   - mentions such a name as an identifier outside comments, or, for an
+//     `operator` declaration, contains a syntax pattern that calls it (see
+//     operatorGates), and
+//   - is in the declaring package, imports the name (explicitly, by
+//     wildcard, or through a default import), or spells it
+//     package-qualified, and
+//   - cannot be read, which fails closed.
 //
-// The test is deliberately conservative on the hit side (a lexical identifier
-// match, so a comment or an unrelated receiver's member can demote a hit) and
-// precise on the declaring side (flat-AST top-level, non-private
+// The test is deliberately conservative on the hit side (lexical, so a name
+// in a string template or an unrelated receiver's member can demote a hit)
+// and precise on the declaring side (flat-AST top-level, non-private
 // declarations only). Over-invalidation costs one re-analysis of that file;
 // an unrelated added file demotes nothing. After re-analysis the new file is
 // in the caller's closure, so later edits of it invalidate through the
@@ -52,8 +118,8 @@ func demoteNameCollidingHits(opts InvocationOptions, hits []*CacheEntry, misses 
 	if opts.Backend.ReturnsWholeCompilation() || len(hits) == 0 || len(misses) == 0 {
 		return hits, misses
 	}
-	declared := declaredNamesByPackage(misses)
-	if len(declared) == 0 {
+	declared := declaredNamesOf(misses)
+	if len(declared.entries) == 0 {
 		return hits, misses
 	}
 	kept := make([]*CacheEntry, 0, len(hits))
@@ -71,17 +137,17 @@ func demoteNameCollidingHits(opts InvocationOptions, hits []*CacheEntry, misses 
 	sort.Strings(demoted)
 	addOracleInstant(tracker, "nameCollisionInvalidated", map[string]int64{"files": int64(len(demoted))}, nil)
 	if verbose {
-		reporter().Verbosef("verbose: cache classify: %d hit(s) mention a name declared by a changed file; re-analyzing\n", len(demoted))
+		reporter().Verbosef("verbose: cache classify: %d hit(s) use a name declared by a changed file; re-analyzing\n", len(demoted))
 	}
 	return kept, append(append([]string(nil), misses...), demoted...)
 }
 
-// declaredNamesByPackage maps a package to the visible top-level names the
-// given Kotlin files declare in it. Files that cannot be parsed contribute
-// nothing; they are already misses and the closure check covers their
-// callers.
-func declaredNamesByPackage(paths []string) map[string]map[string]bool {
-	out := map[string]map[string]bool{}
+// declaredNamesOf collects the visible top-level names the given Kotlin
+// files declare. Files that cannot be parsed contribute nothing; they are
+// already misses and the closure check covers their callers.
+func declaredNamesOf(paths []string) declaredSet {
+	var set declaredSet
+	seen := map[declEntry]int{}
 	for _, path := range paths {
 		if !strings.HasSuffix(path, ".kt") {
 			continue
@@ -90,71 +156,98 @@ func declaredNamesByPackage(paths []string) map[string]map[string]bool {
 		if err != nil {
 			continue
 		}
-		pkg, names := scanner.TopLevelDeclaredNames(file)
-		if len(names) == 0 {
+		pkg, decls := scanner.TopLevelDeclaredNames(file)
+		for _, d := range decls {
+			key := declEntry{pkg: pkg, name: d.Name}
+			if i, ok := seen[key]; ok {
+				set.entries[i].operator = set.entries[i].operator || d.Operator
+				continue
+			}
+			seen[key] = len(set.entries)
+			set.entries = append(set.entries, declEntry{pkg: pkg, name: d.Name, operator: d.Operator})
+		}
+	}
+	return set
+}
+
+// hitSeesDeclaredName reports whether the file at path uses one of the
+// declared names from a scope that can see it. The checks run cheapest
+// first: raw substring and syntax-pattern presence, then the lexical
+// identifier scan only for names that are present, then the header prefix
+// (package and imports) only for names actually mentioned.
+func hitSeesDeclaredName(path string, declared declaredSet) bool {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		// Fail closed: a hit we cannot inspect cannot be trusted.
+		return true
+	}
+	textual := map[string]bool{}
+	gated := make([]bool, len(declared.entries))
+	anyGated := false
+	for i, e := range declared.entries {
+		if bytes.Contains(content, []byte(e.name)) {
+			textual[e.name] = true
+		}
+		if e.operator {
+			for _, g := range gatesFor(e.name) {
+				if bytes.Contains(content, []byte(g)) {
+					gated[i] = true
+					anyGated = true
+					break
+				}
+			}
+		}
+	}
+	if len(textual) == 0 && !anyGated {
+		return false
+	}
+	var mentioned map[string]bool
+	if len(textual) > 0 {
+		mentioned = identifiersUsed(content, textual)
+	}
+	var header scanner.SourceHeader
+	headerRead := false
+	for i, e := range declared.entries {
+		if !mentioned[e.name] && !gated[i] {
 			continue
 		}
-		set := out[pkg]
-		if set == nil {
-			set = map[string]bool{}
-			out[pkg] = set
+		if !headerRead {
+			header = scanner.ParseSourceHeader(content)
+			headerRead = true
 		}
-		for _, name := range names {
-			set[name] = true
-		}
-	}
-	return out
-}
-
-func hitSeesDeclaredName(path string, declared map[string]map[string]bool) bool {
-	var content []byte
-	var hitPkg string
-	var imports, wildcards []string
-	headerRead := false
-	for pkg, names := range declared {
-		for name := range names {
-			if content == nil {
-				data, err := os.ReadFile(path)
-				if err != nil {
-					return false
-				}
-				content = data
-			}
-			if !mentionsIdentifier(content, name) {
-				continue
-			}
-			if !headerRead {
-				hitPkg, imports, wildcards = scanner.SourceHeaderFacts(content)
-				headerRead = true
-			}
-			if hitPkg == pkg || kotlinDefaultImports[pkg] || containsString(wildcards, pkg) {
-				return true
-			}
-			qualified := pkg + "." + name
-			if pkg == "" {
-				continue
-			}
-			if containsString(imports, qualified) || bytes.Contains(content, []byte(qualified)) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func containsString(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
+		if declaredNameVisible(header, e, content) {
 			return true
 		}
 	}
 	return false
 }
 
-// mentionsIdentifier reports whether content contains name as a whole
-// identifier (not as part of a longer one).
-func mentionsIdentifier(content []byte, name string) bool {
-	needle := []byte(name)
+// declaredNameVisible reports whether a file with the given header can see
+// the top-level declaration e.
+func declaredNameVisible(header scanner.SourceHeader, e declEntry, content []byte) bool {
+	if header.Package == e.pkg || kotlinDefaultImports[e.pkg] {
+		return true
+	}
+	qualified := e.name
+	if e.pkg != "" {
+		qualified = e.pkg + "." + e.name
+	}
+	for _, imp := range header.Imports {
+		if imp.Wildcard {
+			if imp.Path == e.pkg {
+				return true
+			}
+		} else if imp.Path == qualified {
+			return true
+		}
+	}
+	return e.pkg != "" && containsQualified(content, qualified)
+}
+
+// containsQualified reports whether qualified appears in content as a whole
+// dotted name, so `a.p.pick` does not count as `p.pick`.
+func containsQualified(content []byte, qualified string) bool {
+	needle := []byte(qualified)
 	for from := 0; from < len(content); {
 		i := bytes.Index(content[from:], needle)
 		if i < 0 {
@@ -162,7 +255,9 @@ func mentionsIdentifier(content []byte, name string) bool {
 		}
 		start := from + i
 		end := start + len(needle)
-		if (start == 0 || !isIdentByte(content[start-1])) && (end == len(content) || !isIdentByte(content[end])) {
+		beforeOK := start == 0 || (!isIdentByte(content[start-1]) && content[start-1] != '.')
+		afterOK := end == len(content) || !isIdentByte(content[end])
+		if beforeOK && afterOK {
 			return true
 		}
 		from = start + 1
@@ -173,4 +268,8 @@ func mentionsIdentifier(content []byte, name string) bool {
 func isIdentByte(b byte) bool {
 	return b == '_' || b == '$' || b >= 0x80 ||
 		(b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+func isIdentStart(b byte) bool {
+	return b == '_' || b == '$' || b >= 0x80 || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }

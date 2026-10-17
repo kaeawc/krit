@@ -105,6 +105,134 @@ func TestDemoteNameCollidingHits(t *testing.T) {
 			},
 			want: []string{"A.kt", "B.kt", "C.kt"},
 		},
+		{
+			name: "operator plus used only through syntax",
+			new:  "package p\noperator fun Foo.plus(o: Foo): Foo = o\n",
+			hits: map[string]string{
+				"Use.kt":   "package p\nfun u(a: Any) = (a + a)!!\n",
+				"Other.kt": "package p\nfun v() = 1\n",
+			},
+			want: []string{"Use.kt"},
+		},
+		{
+			name: "operator get used only through indexing",
+			new:  "package p\noperator fun Foo.get(i: Int): Int = i\n",
+			hits: map[string]string{
+				"Use.kt":   "package p\nfun u(f: Foo) = f[0]\n",
+				"Other.kt": "package p\nfun v() = 1\n",
+			},
+			want: []string{"Use.kt"},
+		},
+		{
+			name: "operator fun in imported package demotes syntax user",
+			new:  "package p\noperator fun Foo.plus(o: Foo): Foo = o\n",
+			hits: map[string]string{"Use.kt": "package q\nimport p.plus\nfun u(a: Foo) = a + a\n"},
+			want: []string{"Use.kt"},
+		},
+		{
+			name: "plain fun named plus is not syntax-gated",
+			new:  "package p\nfun Foo.plus(o: Foo): Foo = o\n",
+			hits: map[string]string{"Use.kt": "package p\nfun u(a: Int) = a + a\n"},
+		},
+		{
+			name: "destructuring reaches componentN",
+			new:  "package p\noperator fun Foo.component1(): Int = 1\n",
+			hits: map[string]string{"Use.kt": "package p\nfun u(f: Foo) { val (a) = f }\n"},
+			want: []string{"Use.kt"},
+		},
+		{
+			name: "delegate reaches getValue",
+			new:  "package p\noperator fun Foo.getValue(t: Any?, p: Any?): Int = 1\n",
+			hits: map[string]string{"Use.kt": "package p\nval x: Int by Foo()\n"},
+			want: []string{"Use.kt"},
+		},
+		{
+			name: "operator in other package without import is invisible",
+			new:  "package p\noperator fun Foo.plus(o: Foo): Foo = o\n",
+			hits: map[string]string{"Use.kt": "package q\nfun u(a: Foo) = a + a\n"},
+		},
+		{
+			name: "import alias demotes",
+			new:  "package p\nfun pick(x: Int): Int = 1\n",
+			hits: map[string]string{"Use.kt": "package q\nimport p.pick as choose\nfun u() = choose(1)\n"},
+			want: []string{"Use.kt"},
+		},
+		{
+			name: "no package header sees only root package declarations",
+			new:  "fun pick(x: Int): Int = 1\n",
+			hits: map[string]string{"Use.kt": "fun u() = pick(1)\n", "Pkg.kt": "package q\nfun u() = pick(1)\n"},
+			want: []string{"Use.kt"},
+		},
+		{
+			name: "root package explicit import demotes",
+			new:  "fun pick(x: Int): Int = 1\n",
+			hits: map[string]string{"Use.kt": "package q\nimport pick\nfun u() = pick(1)\n"},
+			want: []string{"Use.kt"},
+		},
+		{
+			name: "sub package does not see parent package",
+			new:  "package p\nfun pick(x: Int): Int = 1\n",
+			hits: map[string]string{"Use.kt": "package p.sub\nfun u() = pick(1)\n"},
+		},
+		{
+			name: "default import package",
+			new:  "package kotlin.collections\nfun pick(x: Int): Int = 1\n",
+			hits: map[string]string{"Use.kt": "package q\nfun u() = pick(1)\n"},
+			want: []string{"Use.kt"},
+		},
+		{
+			name: "longer qualified prefix is not the package",
+			new:  "package p\nfun pick(x: Int): Int = 1\n",
+			hits: map[string]string{"Use.kt": "package q\nfun u() = a.p.pick(1)\n"},
+		},
+		{
+			name: "mention in line comment does not demote",
+			new:  "package p\nfun pick(x: Int): Int = 1\n",
+			hits: map[string]string{"Use.kt": "package p\n// pick the best\nfun u() = 1\n"},
+		},
+		{
+			name: "mention in block comment and KDoc does not demote",
+			new:  "package p\nfun pick(x: Int): Int = 1\n",
+			hits: map[string]string{"Use.kt": "package p\n/** pick */\n/* nested /* pick */ pick */\nfun u() = 1\n"},
+		},
+		{
+			name: "string template mention still demotes",
+			new:  "package p\nfun pick(x: Int): Int = 1\n",
+			hits: map[string]string{"Use.kt": "package p\nfun u() = \"${pick(1)}\"\n"},
+			want: []string{"Use.kt"},
+		},
+		{
+			name: "plain string text does not demote",
+			new:  "package p\nfun pick(x: Int): Int = 1\n",
+			hits: map[string]string{"Use.kt": "package p\nfun u() = \"pick // me\"\n"},
+		},
+		{
+			name: "comment marker inside string does not hide later code",
+			new:  "package p\nfun pick(x: Int): Int = 1\n",
+			hits: map[string]string{"Use.kt": "package p\nval url = \"http://x\"\nfun u() = pick(1)\n"},
+			want: []string{"Use.kt"},
+		},
+		{
+			name: "package inside block comment is ignored",
+			new:  "package p\nfun pick(x: Int): Int = 1\n",
+			hits: map[string]string{"Use.kt": "/* package p */\npackage q\nfun u() = pick(1)\n"},
+		},
+		{
+			name: "backtick package",
+			new:  "package `p`\nfun pick(x: Int): Int = 1\n",
+			hits: map[string]string{"Use.kt": "@file:Suppress(\"x\")\npackage `p`\nfun u() = pick(1)\n"},
+			want: []string{"Use.kt"},
+		},
+		{
+			name: "typealias and fun interface",
+			new:  "package p\ntypealias Alias = List<Int>\nfun interface Fi { fun run() }\n",
+			hits: map[string]string{
+				"A.kt": "package p\nfun a(x: Alias) = x\n",
+				"B.kt": "package p\nfun b(x: Fi) = x\n",
+				"C.kt": "package p\nfun c() = run()\n",
+			},
+			want: []string{"A.kt", "B.kt"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -128,5 +256,20 @@ func TestDemoteNameCollidingHitsSkipsWholeCompilationBackend(t *testing.T) {
 	hits, misses := demoteNameCollidingHits(InvocationOptions{Backend: BackendFIR}, []*CacheEntry{hit}, []string{miss}, nil, false)
 	if len(hits) != 1 || len(misses) != 1 {
 		t.Fatalf("FIR hits=%d misses=%d, want untouched", len(hits), len(misses))
+	}
+}
+
+func TestDemoteNameCollidingHitsSkipsCrashedAndFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	crashed := &CacheEntry{FilePath: writeKt(t, dir, "Crashed.kt", "package p\nfun u() = pick(1)\n"), Crashed: true}
+	missing := &CacheEntry{FilePath: filepath.Join(dir, "Gone.kt")}
+	clean := &CacheEntry{FilePath: writeKt(t, dir, "Clean.kt", "package p\nfun u() = 1\n")}
+	miss := writeKt(t, dir, "New.kt", "package p\nfun pick(x: Int): Int = 1\n")
+	kept, misses := demoteNameCollidingHits(InvocationOptions{Backend: BackendKAA}, []*CacheEntry{crashed, missing, clean}, []string{miss}, nil, false)
+	if len(kept) != 2 || kept[0] != crashed || kept[1] != clean {
+		t.Fatalf("kept %v, want the crashed and clean hits", kept)
+	}
+	if len(misses) != 2 || misses[1] != missing.FilePath {
+		t.Fatalf("misses %v, want New.kt plus the unreadable hit", misses)
 	}
 }

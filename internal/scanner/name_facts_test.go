@@ -20,6 +20,11 @@ func TestTopLevelDeclaredNames(t *testing.T) {
 	}{
 		{"typealias", "package p\ntypealias Alias = List<Int>\n", []string{"Alias"}},
 		{"fun interface yields the name, not members", "package p\nfun interface Fi { fun run() }\n", []string{"Fi"}},
+		{"fun interface with modifier and type parameter", "package p\npublic fun interface G<T> { fun run(t: T) }\n", []string{"G"}},
+		{"annotated fun interface", "package p\n@FunctionalInterface fun interface H { fun run() }\n", []string{"H"}},
+		{"fun interface with bound and supertype", "package p\nfun interface K<T : Any> : Base { fun run() }\n", []string{"K"}},
+		{"context receiver function", "package p\ncontext(Foo) fun ctx() {}\n", []string{"ctx"}},
+		{"private fun interface with annotation string", "package p\n@A(\"public\") private fun interface Pk { fun run() }\n", nil},
 		{"private fun interface excluded", "package p\nprivate fun interface Fi { fun run() }\n", nil},
 		{"extension property", "package p\nval String.ext: Int get() = 1\n", []string{"ext"}},
 		{"extension function", "package p\nfun String.shout() = this\n", []string{"shout"}},
@@ -72,6 +77,14 @@ func TestParseSourceHeader(t *testing.T) {
 	}
 	if !reflect.DeepEqual(h.Imports, want) {
 		t.Fatalf("imports = %+v, want %+v", h.Imports, want)
+	}
+	bom := ParseSourceHeader([]byte("\xEF\xBB\xBFpackage a.b\nimport c.D\n"))
+	if bom.Package != "a.b" || len(bom.Imports) != 1 || bom.Imports[0].Path != "c.D" {
+		t.Fatalf("BOM header = %+v", bom)
+	}
+	wrapped := ParseSourceHeader([]byte("package a .\n  b\nimport c . D\nimport e.\n  /* c */ *\n"))
+	if wrapped.Package != "a.b" || !reflect.DeepEqual(wrapped.Imports, []HeaderImport{{Path: "c.D"}, {Path: "e", Wildcard: true}}) {
+		t.Fatalf("wrapped header = %+v", wrapped)
 	}
 	if h := ParseSourceHeader([]byte("fun f() {}\npackage late\n")); h.Package != "" {
 		t.Fatalf("package after a declaration = %q, want empty", h.Package)

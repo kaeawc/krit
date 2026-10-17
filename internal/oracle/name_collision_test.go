@@ -224,6 +224,76 @@ func TestDemoteNameCollidingHits(t *testing.T) {
 			want: []string{"Use.kt"},
 		},
 		{
+			name: "adjacent string templates record both names",
+			new:  "package p\nfun foo() = 1\n",
+			hits: map[string]string{
+				"A.kt": "package p\nval s = \"$a$foo\"\n",
+				"B.kt": "package p\nval s = \"$foo$a\"\n",
+				"C.kt": "package p\nval s = \"$foo$\"\n",
+				"D.kt": "package p\nval s = \"$$foo\"\n",
+				"E.kt": "package p\nval s = \"$a$b\"\n",
+			},
+			want: []string{"A.kt", "B.kt", "C.kt", "D.kt"},
+		},
+		{
+			name: "raw string closing with extra quotes does not hide code",
+			new:  "package p\nfun foo() = 1\n",
+			hits: map[string]string{
+				"A.kt": "package p\nval s = \"\"\"a\"\"\"\" + foo()\n",
+				"B.kt": "package p\nval s = \"\"\"a\"\"\"\" + \"foo\"\n",
+			},
+			want: []string{"A.kt"},
+		},
+		{
+			name: "contains operator through unusually spaced in",
+			new:  "package p\noperator fun Foo.contains(x: Int): Boolean = true\n",
+			hits: map[string]string{
+				"A.kt": "package p\nfun f(a: Foo) = 1 in\n a\n",
+				"B.kt": "package p\nfun f(a: Foo) = when (1) {\n\tin a -> 1\n\telse -> 0\n}\n",
+				"C.kt": "package p\nfun f(a: Foo) = 1 in(a)\n",
+				"D.kt": "package p\nfun f() = 1\n",
+			},
+			want: []string{"A.kt", "B.kt", "C.kt"},
+		},
+		{
+			name: "iterator operator through for without space",
+			new:  "package p\noperator fun Foo.iterator(): Iterator<Int> = TODO()\n",
+			hits: map[string]string{
+				"A.kt": "package p\nfun f(a: Foo) { for(x in a) {} }\n",
+				"B.kt": "package p\nfun f() = 1\n",
+			},
+			want: []string{"A.kt"},
+		},
+		{
+			name: "delegate operator through by on its own line",
+			new:  "package p\noperator fun Foo.getValue(t: Any?, p: Any?): Int = 1\n",
+			hits: map[string]string{
+				"A.kt": "package p\nval x: Int\n\t\tby foo\n",
+				"B.kt": "package p\nval x = 1\n",
+			},
+			want: []string{"A.kt"},
+		},
+		{
+			name: "component operator through typed and spaced destructuring",
+			new:  "package p\noperator fun Foo.component1(): Int = 1\n",
+			hits: map[string]string{
+				"A.kt": "package p\nval f = { (x, y): Pair<Int, Int> -> x }\n",
+				"B.kt": "package p\nfun f(a: List<Int>) { for ( (x, y) in a) {} }\n",
+				"C.kt": "package p\nval g = { (x, y)\n -> x }\n",
+				"D.kt": "package p\nfun f() = 1\n",
+			},
+			want: []string{"A.kt", "B.kt", "C.kt"},
+		},
+		{
+			name: "invoke operator through trailing lambda",
+			new:  "package p\noperator fun Foo.invoke(f: () -> Unit) {}\n",
+			hits: map[string]string{
+				"A.kt": "package p\nfun f(x: Foo) = x { }\n",
+				"B.kt": "package p\nconst val k = 1\n",
+			},
+			want: []string{"A.kt"},
+		},
+		{
 			name: "typealias and fun interface",
 			new:  "package p\ntypealias Alias = List<Int>\nfun interface Fi { fun run() }\n",
 			hits: map[string]string{

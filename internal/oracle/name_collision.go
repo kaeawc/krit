@@ -27,34 +27,51 @@ var kotlinDefaultImports = map[string]bool{
 // patterns are raw byte matches and deliberately loose: `(` for invoke
 // matches nearly every file, which only matters when a changed file declares
 // an `operator fun invoke` visible to it.
-var operatorGates = map[string][]string{
-	"plus": {"+"}, "minus": {"-"}, "times": {"*"}, "div": {"/"}, "rem": {"%"}, "mod": {"%"},
-	"unaryPlus": {"+"}, "unaryMinus": {"-"}, "not": {"!"}, "inc": {"++"}, "dec": {"--"},
-	"plusAssign": {"+="}, "minusAssign": {"-="}, "timesAssign": {"*="}, "divAssign": {"/="},
-	"remAssign": {"%="}, "modAssign": {"%="},
-	"get": {"["}, "set": {"["}, "invoke": {"("},
-	"getValue": {" by "}, "setValue": {" by "}, "provideDelegate": {" by "},
-	"compareTo": {"<", ">"},
-	"contains":  {" in ", "!in "},
-	"iterator":  {"for ("}, "next": {"for ("}, "hasNext": {"for ("},
-	"rangeTo": {".."}, "rangeUntil": {".."},
+//
+// A gate is either raw bytes that need no surrounding spacing (`+`, `[`) or
+// a token (`in`, `by`, `for`, `->`, `val`) found by the lexical scan, which
+// skips comments and plain strings and does not depend on how the source is
+// spaced or wrapped.
+type opGate struct {
+	raw    []string
+	tokens []string
 }
 
-// componentGates are the destructuring spellings: `val (a, b) =`, `for ((a,
-// b) in`, and lambda parameters `(a, b) ->`.
-var componentGates = []string{"val (", "var (", "val(", "var(", "((", ") ->"}
+var operatorGates = map[string]opGate{
+	"plus": {raw: []string{"+"}}, "minus": {raw: []string{"-"}}, "times": {raw: []string{"*"}},
+	"div": {raw: []string{"/"}}, "rem": {raw: []string{"%"}}, "mod": {raw: []string{"%"}},
+	"unaryPlus": {raw: []string{"+"}}, "unaryMinus": {raw: []string{"-"}}, "not": {raw: []string{"!"}},
+	"inc": {raw: []string{"++"}}, "dec": {raw: []string{"--"}},
+	"plusAssign": {raw: []string{"+="}}, "minusAssign": {raw: []string{"-="}},
+	"timesAssign": {raw: []string{"*="}}, "divAssign": {raw: []string{"/="}},
+	"remAssign": {raw: []string{"%="}}, "modAssign": {raw: []string{"%="}},
+	// invoke also covers a trailing-lambda call, `x { }`.
+	"get": {raw: []string{"["}}, "set": {raw: []string{"["}}, "invoke": {raw: []string{"(", "{"}},
+	"getValue": {tokens: []string{"by"}}, "setValue": {tokens: []string{"by"}},
+	"provideDelegate": {tokens: []string{"by"}},
+	"compareTo":       {raw: []string{"<", ">"}},
+	"contains":        {tokens: []string{"in"}},
+	"iterator":        {tokens: []string{"for"}}, "next": {tokens: []string{"for"}},
+	"hasNext":    {tokens: []string{"for"}},
+	"rangeTo":    {raw: []string{".."}},
+	"rangeUntil": {raw: []string{".."}},
+}
 
-func gatesFor(name string) []string {
+// componentGate covers destructuring: `val (a, b) =`, `for ((a, b) in`, and
+// lambda parameters `(a, b) ->`.
+var componentGate = opGate{tokens: []string{"val", "var", "for", "->"}}
+
+func gatesFor(name string) opGate {
 	if g, ok := operatorGates[name]; ok {
 		return g
 	}
 	if strings.HasPrefix(name, "component") && len(name) > len("component") {
 		digits := name[len("component"):]
 		if strings.Trim(digits, "0123456789") == "" {
-			return componentGates
+			return componentGate
 		}
 	}
-	return nil
+	return opGate{}
 }
 
 // Known limits of demoteNameCollidingHits:
@@ -181,34 +198,42 @@ func hitSeesDeclaredName(path string, declared declaredSet) bool {
 		// Fail closed: a hit we cannot inspect cannot be trusted.
 		return true
 	}
-	textual := map[string]bool{}
+	// wanted holds the identifiers and gate tokens the lexical scan looks
+	// for; gated marks entries whose raw syntax gate is already present.
+	wanted := map[string]bool{}
 	gated := make([]bool, len(declared.entries))
 	anyGated := false
 	for i, e := range declared.entries {
 		if bytes.Contains(content, []byte(e.name)) {
-			textual[e.name] = true
+			wanted[e.name] = true
 		}
-		if e.operator {
-			for _, g := range gatesFor(e.name) {
-				if bytes.Contains(content, []byte(g)) {
-					gated[i] = true
-					anyGated = true
-					break
-				}
+		if !e.operator {
+			continue
+		}
+		gate := gatesFor(e.name)
+		for _, g := range gate.raw {
+			if bytes.Contains(content, []byte(g)) {
+				gated[i] = true
+				anyGated = true
+				break
 			}
 		}
+		for _, tok := range gate.tokens {
+			wanted[tok] = true
+		}
 	}
-	if len(textual) == 0 && !anyGated {
+	if len(wanted) == 0 && !anyGated {
 		return false
 	}
-	var mentioned map[string]bool
-	if len(textual) > 0 {
-		mentioned = identifiersUsed(content, textual)
+	var used map[string]bool
+	if len(wanted) > 0 {
+		used = identifiersUsed(content, wanted)
 	}
 	var header scanner.SourceHeader
 	headerRead := false
 	for i, e := range declared.entries {
-		if !mentioned[e.name] && !gated[i] {
+		viaToken := e.operator && anyToken(used, gatesFor(e.name).tokens)
+		if !used[e.name] && !gated[i] && !viaToken {
 			continue
 		}
 		if !headerRead {
@@ -216,6 +241,15 @@ func hitSeesDeclaredName(path string, declared declaredSet) bool {
 			headerRead = true
 		}
 		if declaredNameVisible(header, e, content) {
+			return true
+		}
+	}
+	return false
+}
+
+func anyToken(used map[string]bool, tokens []string) bool {
+	for _, tok := range tokens {
+		if used[tok] {
 			return true
 		}
 	}

@@ -66,6 +66,17 @@ func (l *kotlinLexer) readIdent() {
 	l.i = j
 }
 
+// readTemplateIdent reads the identifier after a `$` in string text. Unlike
+// code identifiers it cannot contain `$`, so "$a$foo" is two references.
+func (l *kotlinLexer) readTemplateIdent() {
+	j := l.i + 1
+	for j < len(l.content) && l.content[j] != '$' && isIdentByte(l.content[j]) {
+		j++
+	}
+	l.record(l.content[l.i:j])
+	l.i = j
+}
+
 func (l *kotlinLexer) skipCharLiteral() {
 	l.i++
 	for l.i < len(l.content) && l.content[l.i] != '\'' && l.content[l.i] != '\n' {
@@ -104,6 +115,9 @@ func (l *kotlinLexer) codeStep() {
 			l.push(lexString)
 			l.i++
 		}
+	case c == '-' && l.peek(1) == '>':
+		l.record([]byte("->"))
+		l.i += 2
 	case c == '\'':
 		l.skipCharLiteral()
 	case c == '{', c == '}':
@@ -153,14 +167,18 @@ func (l *kotlinLexer) textStep() {
 		l.pop()
 		l.i++
 	case c == '"' && mode == lexRawString && l.peek(1) == '"' && l.peek(2) == '"':
+		// The closer is the last three quotes of a run of quotes; the
+		// earlier ones are content.
 		l.pop()
-		l.i += 3
+		for l.i < len(l.content) && l.content[l.i] == '"' {
+			l.i++
+		}
 	case c == '$' && l.peek(1) == '{':
 		l.push(lexCode)
 		l.i += 2
-	case c == '$' && isIdentStart(l.peek(1)):
+	case c == '$' && l.peek(1) != '$' && isIdentStart(l.peek(1)):
 		l.i++
-		l.readIdent()
+		l.readTemplateIdent()
 	default:
 		l.i++
 	}

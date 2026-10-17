@@ -43,3 +43,20 @@ func BenchmarkDemoteNameCollidingHits(b *testing.B) {
 		demoteNameCollidingHits(InvocationOptions{Backend: BackendKAA}, hits, []string{miss}, nil, false)
 	}
 }
+
+// BenchmarkDemoteNameCollidingHitsOperatorGates is the worst case: the
+// changed file declares several operator functions, whose token gates make
+// every hit take the lexical scan, and one is invoke, whose raw gate `(`
+// matches every hit. Only hits in the declaring package are demoted.
+func BenchmarkDemoteNameCollidingHitsOperatorGates(b *testing.B) {
+	hits := syntheticHits(b, 3000)
+	miss := filepath.Join(b.TempDir(), "New.kt")
+	src := "package app.p3\n\nclass Foo\noperator fun Foo.invoke(): Int = 1\noperator fun Foo.component1(): Int = 1\noperator fun Foo.contains(x: Int): Boolean = true\noperator fun Foo.getValue(t: Any?, p: Any?): Int = 1\n"
+	if err := os.WriteFile(miss, []byte(src), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		demoteNameCollidingHits(InvocationOptions{Backend: BackendKAA}, hits, []string{miss}, nil, false)
+	}
+}

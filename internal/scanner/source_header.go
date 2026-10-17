@@ -1,6 +1,9 @@
 package scanner
 
-import "strings"
+import (
+	"bytes"
+	"strings"
+)
 
 // HeaderImport is one import directive from a source file header.
 type HeaderImport struct {
@@ -28,6 +31,7 @@ type SourceHeader struct {
 // segments are accepted.
 func ParseSourceHeader(content []byte) SourceHeader {
 	var h SourceHeader
+	content = bytes.TrimPrefix(content, []byte("\xEF\xBB\xBF"))
 	i := 0
 	n := len(content)
 	for i < n {
@@ -146,7 +150,7 @@ func hasKeyword(content []byte, i int, word string) bool {
 // `@file:[A B]` at i. It reports false for any other annotation, which means
 // the header has ended.
 func skipFileAnnotation(content []byte, i int) (int, bool) {
-	if !strings.HasPrefix(string(content[i:min(len(content), i+6)]), "@file:") {
+	if !bytes.HasPrefix(content[i:], []byte("@file:")) {
 		return i, false
 	}
 	i += len("@file:")
@@ -222,12 +226,14 @@ func readDottedName(content []byte, i int) (path string, wildcard bool, next int
 		default:
 			return sb.String(), wildcard, i
 		}
-		if i < n && content[i] == '.' {
-			if i+1 < n && content[i+1] == '*' {
-				return sb.String(), true, i + 2
+		// Whitespace and comments may surround the dots.
+		if j := skipHeaderTrivia(content, i); j < n && content[j] == '.' {
+			k := skipHeaderTrivia(content, j+1)
+			if k < n && content[k] == '*' {
+				return sb.String(), true, k + 1
 			}
 			sb.WriteByte('.')
-			i++
+			i = k
 			continue
 		}
 		return sb.String(), false, i

@@ -461,6 +461,97 @@ jobs:
             exit 1
           fi
 
+  # warm-clean-matrix (#786) seeds a warm cache or daemon for the structural
+  # pipeline and for both JVM oracles (krit-types and krit-fir), mutates the
+  # project (return type, nullability, signature, annotations, file add /
+  # delete / rename, imports, overloads, classpath, helper jar), and requires
+  # the warm result to equal a fresh process's over the same tree. It is a
+  # sibling of oracle-backend-parity so its ~10 minutes run in parallel; it
+  # needs the same helper jars. KRIT_WARM_CLEAN_MATRIX=1 opts the tests in (a
+  # plain `make test` skips them), and a top-level skip fails the job, so a
+  # missing jar cannot silently pass.
+  warm-clean-matrix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v5
+        with:
+          distribution: zulu
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+        with:
+          cache-cleanup: on-success
+          validate-wrappers: true
+      - name: Cache krit-types shadow jar
+        id: cache-krit-types
+        uses: actions/cache@v6
+        with:
+          path: tools/krit-types/build/libs
+          key: krit-types-jar-${{ hashFiles('tools/krit-types/**/*.kt', 'tools/krit-types/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
+      - name: Build krit-types shadow jar
+        if: steps.cache-krit-types.outputs.cache-hit != 'true'
+        working-directory: tools/krit-types
+        run: ./gradlew --no-daemon shadowJar
+      - name: Cache krit-fir shadow jar
+        id: cache-krit-fir
+        uses: actions/cache@v6
+        with:
+          path: tools/krit-fir/build/libs
+          key: krit-fir-jar-${{ hashFiles('tools/krit-fir/**/*.kt', 'tools/krit-fir/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
+      - name: Build krit-fir shadow jar
+        if: steps.cache-krit-fir.outputs.cache-hit != 'true'
+        working-directory: tools/krit-fir
+        run: ./gradlew --no-daemon shadowJar
+      - name: Locate kotlin-stdlib jar
+        run: |
+          glob() {
+            local base="$HOME/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib"
+            local candidates=() f
+            for f in "$base"/*/*/kotlin-stdlib-*.jar; do
+              [ -f "$f" ] || continue
+              case "$f" in *sources*|*javadoc*) continue;; esac
+              candidates+=("$f")
+            done
+            [ ${#candidates[@]} -eq 0 ] && return 0
+            printf '%s\n' "${candidates[@]}" | sort | tail -1
+          }
+          jar="$(glob)"
+          if [ -z "$jar" ]; then
+            echo "kotlin-stdlib not in Gradle cache; resolving krit-fir dependencies"
+            (cd tools/krit-fir && ./gradlew --no-daemon --quiet :dependencies --configuration runtimeClasspath >/dev/null 2>&1 || true)
+            jar="$(glob)"
+          fi
+          if [ -z "$jar" ]; then
+            echo "::error::kotlin-stdlib jar not found; the warm-versus-clean matrix needs it for krit-types"
+            exit 1
+          fi
+          echo "KOTLIN_STDLIB_JAR=$jar" >> "$GITHUB_ENV"
+          echo "kotlin-stdlib: $jar"
+      - name: Run warm-versus-clean mutation matrix
+        env:
+          KRIT_TYPES_JAR: ${{ github.workspace }}/tools/krit-types/build/libs/krit-types.jar
+          KRIT_FIR_JAR: ${{ github.workspace }}/tools/krit-fir/build/libs/krit-fir.jar
+          KRIT_WARM_CLEAN_MATRIX: "1"
+        run: |
+          set -o pipefail
+          go test ./tests/parity/ -count=1 -timeout 45m -run 'TestWarmCleanMutation' -v | tee matrix.log
+          # Top-level tests only: a row may skip itself (a known stale-cache
+          # bug listed in wcKnownStale, or the compiler-setting row waiting on
+          # #784), but a whole matrix must not.
+          if grep -qE -- '--- SKIP: TestWarmCleanMutation[A-Za-z]* \(' matrix.log; then
+            echo "::error::a warm-versus-clean matrix test skipped as a whole; the CI job must execute it"
+            exit 1
+          fi
+      - name: Upload matrix log
+        if: failure()
+        uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
+        with:
+          name: warm-clean-matrix-log
+          path: matrix.log
+
   krit-lint-sarif:
     runs-on: ubuntu-latest
     steps:

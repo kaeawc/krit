@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
@@ -525,12 +526,12 @@ func extractProperty(file *scanner.File, idx uint32, pkg string) (AbiSignature, 
 }
 
 // propertyAbiType renders the explicitly declared property type, prefixed by
-// the extension receiver when present. Inferred types are left empty: the
-// initializer is not part of the ABI surface we can resolve without types.
+// the extension receiver (length-prefixed) so the two cannot be confused.
+// Inferred types are left empty: the initializer is not part of the ABI
+// surface we can resolve without types.
 func propertyAbiType(file *scanner.File, idx uint32) string {
 	receiver, declared := scanner.KotlinPropertyDeclaredTypes(file, idx)
-	if receiver != "" {
-		return receiver + "." + declared
-	}
-	return declared
+	// Length-prefix the receiver so `val Foo.item: Bar` and `val item: Foo.Bar`
+	// cannot collide.
+	return strconv.Itoa(len(receiver)) + ":" + receiver + declared
 }

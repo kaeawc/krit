@@ -155,13 +155,19 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 // normalized. Either is "" when absent. The type is read only from the
 // variable_declaration (`name: Type`), never inferred from the initializer.
 func KotlinPropertyDeclaredTypes(file *File, idx uint32) (receiver, declared string) {
+	norm := func(n uint32) string { return strings.Join(strings.Fields(file.FlatNodeText(n)), " ") }
+	recvMods := ""
 	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
 		switch file.FlatType(child) {
-		case "user_type", "nullable_type", "function_type", "parenthesized_type":
+		case "type_modifiers":
+			// Directly under the declaration (after `val`) these annotate the
+			// extension receiver type, e.g. `val @Ann Foo.x: Int`.
+			recvMods = norm(child) + " "
+		case "user_type", "nullable_type", "function_type", "parenthesized_type", "not_nullable_type":
 			// A type directly under the declaration precedes `.name` and is
 			// the extension receiver.
 			if receiver == "" {
-				receiver = strings.Join(strings.Fields(file.FlatNodeText(child)), " ")
+				receiver = recvMods + norm(child)
 			}
 		case "variable_declaration":
 			mods := ""
@@ -170,10 +176,9 @@ func KotlinPropertyDeclaredTypes(file *File, idx uint32) (receiver, declared str
 				case "type_modifiers":
 					// `suspend` / annotations such as @Composable are siblings
 					// of the type node and are part of the declared type.
-					mods = strings.Join(strings.Fields(file.FlatNodeText(t)), " ") + " "
-				case "user_type", "nullable_type", "function_type", "parenthesized_type":
-					declared = mods + strings.Join(strings.Fields(file.FlatNodeText(t)), " ")
-					return receiver, declared
+					mods = norm(t) + " "
+				case "user_type", "nullable_type", "function_type", "parenthesized_type", "not_nullable_type":
+					return receiver, mods + norm(t)
 				}
 			}
 		}

@@ -214,4 +214,13 @@ func TestAbiHash_PropertyDeclaredType(t *testing.T) {
 	if ext(both) != ext(swapped) {
 		t.Fatal("same-named extension properties must hash independent of declaration order")
 	}
+	if ext("val Foo.item: Bar get() = 1") == ext("val item: Foo.Bar get() = 1") {
+		t.Fatal("receiver+type must not collide with a qualified declared type")
+	}
+	if ext("val Foo.x: Int get() = 1") == ext("val @Ann Foo.x: Int get() = 1") {
+		t.Fatal("receiver type annotation must change the ABI hash")
+	}
+	if ext("val <T> T.v: T get() = 1") == ext("val <T> T.v: T & Any get() = 1") {
+		t.Fatal("definitely-non-null declared type must change the ABI hash")
+	}
 }

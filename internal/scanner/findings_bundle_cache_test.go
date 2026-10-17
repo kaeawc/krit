@@ -143,6 +143,9 @@ func TestKotlinPropertyDeclaredTypes(t *testing.T) {
 		{"val Foo<T>.bar: Int get() = 1", "Foo<T>", "Int"},
 		{"val f: suspend (Int) -> Unit = null", "", "suspend (Int) -> Unit"},
 		{"val f: @Composable () -> Unit = null", "", "@Composable () -> Unit"},
+		{"val @Ann Foo.x: Int get() = 1", "@Ann Foo", "Int"},
+		{"val <T> T.v: T & Any get() = 1", "T", "T & Any"},
+		{"val v: T & Any = null", "", "T & Any"},
 		{"val x = 0", "", ""},
 		{"val x by lazy { 1 }", "", ""},
 	}

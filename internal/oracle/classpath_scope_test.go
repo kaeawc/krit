@@ -170,3 +170,38 @@ func TestJvmTargetChangesFIRStoreScope(t *testing.T) {
 		t.Fatal("JVM target did not affect FIR store scope")
 	}
 }
+
+// A changed dependency jar must move the legacy (no .krit/store) entry
+// directory so unchanged files miss instead of reusing stale facts (#827).
+func TestLegacyEntryDirIsScopedByClasspath(t *testing.T) {
+	tmp := t.TempDir()
+	base, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jar := filepath.Join(tmp, "dep.jar")
+	if err := os.WriteFile(jar, []byte("one"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	kt := gradlemodel.KotlinSettings{}
+	if LegacyEntryDir(base, kt, nil) != base {
+		t.Fatal("empty classpath must keep the original directory")
+	}
+	before := LegacyEntryDir(base, kt, []string{jar})
+	if before == base {
+		t.Fatal("classpath must scope the entry directory")
+	}
+	if again := LegacyEntryDir(base, kt, []string{jar}); again != before {
+		t.Fatalf("unchanged classpath moved the directory: %q vs %q", before, again)
+	}
+	if err := os.WriteFile(jar, []byte("replaced jar"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if after := LegacyEntryDir(base, kt, []string{jar}); after == before {
+		t.Fatal("changed jar reused the old entry directory")
+	}
+	withKt := gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}
+	if LegacyEntryDir(base, withKt, []string{jar}) == LegacyEntryDir(base, kt, []string{jar}) {
+		t.Fatal("settings must still separate directories under one classpath")
+	}
+}

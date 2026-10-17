@@ -31,6 +31,7 @@ import (
 	"github.com/kaeawc/krit/internal/fileignore"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/gradlemodel"
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/store"
 )
@@ -499,7 +500,7 @@ func InvokeCachedWithOptions(
 		addOracleInstant(tracker, "cacheBypass", nil, map[string]string{"reason": "cacheDirInit"})
 		return InvokeWithFilesWithOptions(jarPath, sourceDirs, outputPath, filterListPath, verbose, opts)
 	}
-	cacheDir = prepareLegacyEntryDir(cacheDir, opts.Kotlin)
+	cacheDir = prepareLegacyEntryDir(cacheDir, opts.Kotlin, opts.Classpath)
 
 	var ktFiles []string
 	if err := trackOracle(tracker, "collectKtFiles", func() error {
@@ -1467,10 +1468,15 @@ const legacyScopeGrace = 10 * time.Minute
 // without settings never re-analyze. Every reader of these entries (InvokeCached
 // and the freshness gate's reverse-dependency expansion) must use this function.
 //
-// Only the settings identity is scoped here; the classpath is a separate,
-// pre-existing gap (issue #827).
-func LegacyEntryDir(cacheDir string, kt gradlemodel.KotlinSettings) string {
+// The classpath (jar path plus size and mtime, as krit-fir fingerprints it) is
+// part of the scope too: a changed dependency jar changes the facts of files
+// whose own content did not change (issue #827). An empty classpath adds
+// nothing, so classpath-less projects keep their existing directories.
+func LegacyEntryDir(cacheDir string, kt gradlemodel.KotlinSettings, classpath []string) string {
 	hash := kt.IdentityHash()
+	if len(classpath) > 0 {
+		hash = hashutil.HashHex([]byte(kt.Identity() + "|classpath:" + gradlemodel.ClasspathFingerprint(classpath)))[:16]
+	}
 	if hash == "" {
 		return cacheDir
 	}
@@ -1479,8 +1485,8 @@ func LegacyEntryDir(cacheDir string, kt gradlemodel.KotlinSettings) string {
 
 // prepareLegacyEntryDir returns LegacyEntryDir, marks it most recently used and
 // prunes the least recently used scopes beyond maxLegacyScopes.
-func prepareLegacyEntryDir(cacheDir string, kt gradlemodel.KotlinSettings) string {
-	dir := LegacyEntryDir(cacheDir, kt)
+func prepareLegacyEntryDir(cacheDir string, kt gradlemodel.KotlinSettings, classpath []string) string {
+	dir := LegacyEntryDir(cacheDir, kt, classpath)
 	if dir == cacheDir {
 		return dir
 	}

@@ -161,7 +161,7 @@ func TestLegacyEntriesAreScopedByKotlinSettings(t *testing.T) {
 	fp, _ := closureFingerprint(nil, nil)
 	older := gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}
 	newer := gradlemodel.KotlinSettings{LanguageVersion: "2.2", APIVersion: "2.2"}
-	dirOld, dirNew := LegacyEntryDir(base, older), LegacyEntryDir(base, newer)
+	dirOld, dirNew := LegacyEntryDir(base, older, nil), LegacyEntryDir(base, newer, nil)
 	if dirOld == dirNew || dirOld == base || dirNew == base {
 		t.Fatalf("settings must separate legacy entry directories: %q %q %q", base, dirOld, dirNew)
 	}
@@ -171,7 +171,7 @@ func TestLegacyEntriesAreScopedByKotlinSettings(t *testing.T) {
 			t.Fatalf("%q is not under %s/%s", d, base, legacyScopesDir)
 		}
 	}
-	if LegacyEntryDir(base, gradlemodel.KotlinSettings{}) != base {
+	if LegacyEntryDir(base, gradlemodel.KotlinSettings{}, nil) != base {
 		t.Fatal("zero settings must keep the original directory (no cold re-analysis)")
 	}
 	if err := WriteEntry(dirOld, &CacheEntry{
@@ -197,7 +197,7 @@ func TestLegacyScopesArePrunedAndVersioned(t *testing.T) {
 	var dirs []string
 	for i := 0; i < maxLegacyScopes+3; i++ {
 		kt := gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0", Flags: []string{fmt.Sprintf("-XXLanguage:+Feature%d", i)}}
-		dir := prepareLegacyEntryDir(base, kt)
+		dir := prepareLegacyEntryDir(base, kt, nil)
 		stamp := time.Now().Add(-3*time.Hour + time.Duration(i)*time.Minute)
 		if err := os.Chtimes(dir, stamp, stamp); err != nil {
 			t.Fatal(err)

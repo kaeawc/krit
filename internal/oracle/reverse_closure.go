@@ -37,7 +37,7 @@ func ExpandStaleOraclePaths(s *store.FileStore, cacheDir string, allPaths, chang
 	// Read exactly what InvokeCached wrote: the legacy entries live in the
 	// directory for the run's Kotlin settings, and store entries under the scope
 	// (jar, classpath, JVM target, settings) the run was bound to.
-	legacyDir := LegacyEntryDir(cacheDir, es.Kotlin)
+	legacyDir := LegacyEntryDir(cacheDir, es.Kotlin, es.Classpath)
 	var scopes map[string]StoreScope
 	if s != nil {
 		scanPaths := storeScanPaths(cacheDir, "")

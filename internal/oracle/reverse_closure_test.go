@@ -139,7 +139,7 @@ func TestExpandStaleOraclePaths_ReadsTheSettingsScopedLegacyDir(t *testing.T) {
 	b := writeTempFile(t, dir, "B.kt", "package demo\nfun b() = a()\n")
 	c := writeTempFile(t, dir, "C.kt", "package demo\nfun c() = 3\n")
 	// Written where InvokeCached writes for these settings.
-	if _, err := WriteFreshEntries(prepareLegacyEntryDir(cacheDir, kt),
+	if _, err := WriteFreshEntries(prepareLegacyEntryDir(cacheDir, kt, nil),
 		&Data{Version: 1, Files: map[string]*File{a: {}, b: {}, c: {}}},
 		&CacheDepsFile{Version: 1, Files: map[string]*CacheDepsEntry{
 			a: {DepPaths: nil}, b: {DepPaths: []string{a}}, c: {DepPaths: nil},
@@ -215,7 +215,7 @@ func TestInvokeCachedUsesTheSettingsScopedLegacyDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	kt := gradlemodel.KotlinSettings{LanguageVersion: "2.1", APIVersion: "2.1"}
-	if _, err := WriteFreshEntries(prepareLegacyEntryDir(cacheDir, kt),
+	if _, err := WriteFreshEntries(prepareLegacyEntryDir(cacheDir, kt, nil),
 		&Data{Version: 1, Files: map[string]*File{a: {}}},
 		&CacheDepsFile{Version: 1, Approximation: ApproximationKAATaggedReferences, Files: map[string]*CacheDepsEntry{a: {DepPaths: nil}}},
 	); err != nil {

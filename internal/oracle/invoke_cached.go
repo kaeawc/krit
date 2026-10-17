@@ -31,6 +31,7 @@ import (
 	"github.com/kaeawc/krit/internal/fileignore"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/gradlemodel"
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/store"
 )
@@ -499,7 +500,7 @@ func InvokeCachedWithOptions(
 		addOracleInstant(tracker, "cacheBypass", nil, map[string]string{"reason": "cacheDirInit"})
 		return InvokeWithFilesWithOptions(jarPath, sourceDirs, outputPath, filterListPath, verbose, opts)
 	}
-	cacheDir = prepareLegacyEntryDir(cacheDir, opts.Kotlin)
+	cacheDir = legacyEntryDirForRun(s, cacheDir, opts)
 
 	var ktFiles []string
 	if err := trackOracle(tracker, "collectKtFiles", func() error {
@@ -1451,9 +1452,12 @@ func writeOracleJSON(path string, data *Data) error {
 // settings identity.
 const legacyScopesDir = "scopes"
 
-// maxLegacyScopes bounds how many settings-scoped entry directories are kept;
-// the least recently used beyond it are pruned.
-const maxLegacyScopes = 4
+// maxLegacyScopes bounds how many settings- and classpath-scoped entry
+// directories are kept; the least recently used beyond it are pruned. Classpath
+// scopes share the budget, and a classpath that flips between IDE and shell
+// runs (or across a few dependency updates) would thrash a smaller cap, so it
+// is 8 rather than 4.
+const maxLegacyScopes = 8
 
 // legacyScopeGrace protects a scope directory touched recently: a long
 // concurrent run under other settings may still be reading and writing it.
@@ -1467,20 +1471,38 @@ const legacyScopeGrace = 10 * time.Minute
 // without settings never re-analyze. Every reader of these entries (InvokeCached
 // and the freshness gate's reverse-dependency expansion) must use this function.
 //
-// Only the settings identity is scoped here; the classpath is a separate,
-// pre-existing gap (issue #827).
-func LegacyEntryDir(cacheDir string, kt gradlemodel.KotlinSettings) string {
+// The classpath (jar path plus size and mtime, as krit-fir fingerprints it) is
+// part of the scope too: a changed dependency jar changes the facts of files
+// whose own content did not change (issue #827). An empty classpath adds
+// nothing, so classpath-less projects keep their existing directories.
+// Directory entries are only stat'd at the top level and relative entries
+// resolve against the working directory; both can only cause a miss, never a
+// stale hit.
+func LegacyEntryDir(cacheDir string, kt gradlemodel.KotlinSettings, classpath []string) string {
 	hash := kt.IdentityHash()
+	if len(classpath) > 0 {
+		hash = hashutil.HashHex([]byte(kt.Identity() + "|classpath:" + gradlemodel.ClasspathFingerprint(classpath)))[:16]
+	}
 	if hash == "" {
 		return cacheDir
 	}
 	return filepath.Join(cacheDir, legacyScopesDir, hash)
 }
 
+// legacyEntryDirForRun is the per-file entry directory for one invocation. With
+// a store the scope lives in the store keys, so the directory is not created:
+// an empty scope would only take an LRU slot and could prune a real one.
+func legacyEntryDirForRun(s *store.FileStore, cacheDir string, opts InvocationOptions) string {
+	if s != nil {
+		return LegacyEntryDir(cacheDir, opts.Kotlin, opts.Classpath)
+	}
+	return prepareLegacyEntryDir(cacheDir, opts.Kotlin, opts.Classpath)
+}
+
 // prepareLegacyEntryDir returns LegacyEntryDir, marks it most recently used and
 // prunes the least recently used scopes beyond maxLegacyScopes.
-func prepareLegacyEntryDir(cacheDir string, kt gradlemodel.KotlinSettings) string {
-	dir := LegacyEntryDir(cacheDir, kt)
+func prepareLegacyEntryDir(cacheDir string, kt gradlemodel.KotlinSettings, classpath []string) string {
+	dir := LegacyEntryDir(cacheDir, kt, classpath)
 	if dir == cacheDir {
 		return dir
 	}

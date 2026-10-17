@@ -10,6 +10,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/buildid"
 	"github.com/kaeawc/krit/internal/gradlemodel"
+	"github.com/kaeawc/krit/internal/store"
 )
 
 func TestClasspathChangesStoreScopeAndTypesFreshness(t *testing.T) {
@@ -168,5 +169,188 @@ func TestJvmTargetChangesFIRStoreScope(t *testing.T) {
 	b := NewStoreScopeWithTarget(BackendFIR, "", nil, "17")
 	if a.version == b.version {
 		t.Fatal("JVM target did not affect FIR store scope")
+	}
+}
+
+// A changed dependency jar must move the legacy (no .krit/store) entry
+// directory so unchanged files miss instead of reusing stale facts (#827).
+func TestLegacyEntryDirIsScopedByClasspath(t *testing.T) {
+	tmp := t.TempDir()
+	base, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jar := filepath.Join(tmp, "dep.jar")
+	if err := os.WriteFile(jar, []byte("one"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	kt := gradlemodel.KotlinSettings{}
+	if LegacyEntryDir(base, kt, nil) != base {
+		t.Fatal("empty classpath must keep the original directory")
+	}
+	before := LegacyEntryDir(base, kt, []string{jar})
+	if before == base {
+		t.Fatal("classpath must scope the entry directory")
+	}
+	if again := LegacyEntryDir(base, kt, []string{jar}); again != before {
+		t.Fatalf("unchanged classpath moved the directory: %q vs %q", before, again)
+	}
+	if err := os.WriteFile(jar, []byte("replaced jar"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if after := LegacyEntryDir(base, kt, []string{jar}); after == before {
+		t.Fatal("changed jar reused the old entry directory")
+	}
+	withKt := gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}
+	if LegacyEntryDir(base, withKt, []string{jar}) == LegacyEntryDir(base, kt, []string{jar}) {
+		t.Fatal("settings must still separate directories under one classpath")
+	}
+}
+
+// legacyClasspathRepo seeds a valid KAA entry for one file in the legacy dir
+// scoped by kt and classpath.
+func legacyClasspathRepo(t *testing.T, kt gradlemodel.KotlinSettings, classpath []string) (repo, srcDir, cacheDir, file string) {
+	t.Helper()
+	repo = t.TempDir()
+	srcDir = filepath.Join(repo, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file = writeTempFile(t, srcDir, "A.kt", "package demo\nfun a() = 1\n")
+	var err error
+	if cacheDir, err = CacheDir(repo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteFreshEntries(prepareLegacyEntryDir(cacheDir, kt, classpath),
+		&Data{Version: 1, Files: map[string]*File{file: {}}},
+		&CacheDepsFile{Version: 1, Approximation: ApproximationKAATaggedReferences, Files: map[string]*CacheDepsEntry{file: {DepPaths: nil}}},
+	); err != nil {
+		t.Fatal(err)
+	}
+	return repo, srcDir, cacheDir, file
+}
+
+func writeTestJar(t *testing.T, dir, content string) string {
+	t.Helper()
+	jar := filepath.Join(dir, "dep.jar")
+	if err := os.WriteFile(jar, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return jar
+}
+
+// InvokeCachedWithOptions must read the entry dir scoped by opts.Classpath.
+func TestInvokeCachedUsesTheClasspathScopedLegacyDir(t *testing.T) {
+	jarDir := t.TempDir()
+	jar := writeTestJar(t, jarDir, "one")
+	kt := gradlemodel.KotlinSettings{}
+	repo, srcDir, _, _ := legacyClasspathRepo(t, kt, []string{jar})
+	run := func(name string, cp []string) error {
+		_, err := InvokeCachedWithOptions("", []string{srcDir}, repo, filepath.Join(repo, name), "", false, nil,
+			InvocationOptions{Backend: BackendKAA, Kotlin: kt, Classpath: cp})
+		return err
+	}
+	if err := run("a.json", []string{jar}); err != nil {
+		t.Fatalf("entries seeded under the run's classpath must be served from cache: %v", err)
+	}
+	if err := run("b.json", nil); err == nil {
+		t.Fatal("a classpath-free run reused classpath-scoped entries")
+	}
+	// A jar rewritten in place (new size) is a different classpath: miss.
+	writeTestJar(t, jarDir, "replaced jar contents")
+	if err := run("c.json", []string{jar}); err == nil {
+		t.Fatal("a rewritten jar reused the old entries")
+	}
+}
+
+func TestExpandStaleOraclePathsReadsTheClasspathScopedLegacyDir(t *testing.T) {
+	jar := writeTestJar(t, t.TempDir(), "one")
+	kt := gradlemodel.KotlinSettings{}
+	_, _, cacheDir, a := legacyClasspathRepo(t, kt, []string{jar})
+	if got := ExpandStaleOraclePaths(nil, cacheDir, []string{a}, nil, ExpansionScope{Classpath: []string{jar}}); len(got) != 0 {
+		t.Fatalf("entries under the run's classpath must resolve (nothing seeded): %v", got)
+	}
+	if got := ExpandStaleOraclePaths(nil, cacheDir, []string{a}, nil, ExpansionScope{}); len(got) != 1 {
+		t.Fatalf("an empty-classpath scope must not see the entries (file is seeded unresolved): %v", got)
+	}
+}
+
+// Classpath-scoped directories share the pruning budget.
+func TestLegacyClasspathScopesArePruned(t *testing.T) {
+	tmp := t.TempDir()
+	base, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dirs []string
+	for i := 0; i < maxLegacyScopes+3; i++ {
+		jar := writeTestJar(t, t.TempDir(), strings.Repeat("x", i+1))
+		dir := prepareLegacyEntryDir(base, gradlemodel.KotlinSettings{}, []string{jar})
+		stamp := time.Now().Add(-3*time.Hour + time.Duration(i)*time.Minute)
+		if err := os.Chtimes(dir, stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+		dirs = append(dirs, dir)
+	}
+	entries, err := os.ReadDir(filepath.Join(base, legacyScopesDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != maxLegacyScopes {
+		t.Fatalf("kept %d classpath scopes, want %d", len(entries), maxLegacyScopes)
+	}
+	if _, err := os.Stat(dirs[len(dirs)-1]); err != nil {
+		t.Fatalf("most recent scope was pruned: %v", err)
+	}
+}
+
+// With a store in use the scope lives in the store keys: no empty legacy
+// scope directory may be created to take an LRU slot.
+func TestInvokeCachedWithStoreCreatesNoLegacyScopeDir(t *testing.T) {
+	jar := writeTestJar(t, t.TempDir(), "one")
+	repo := t.TempDir()
+	srcDir := filepath.Join(repo, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTempFile(t, srcDir, "A.kt", "package demo\nfun a() = 1\n")
+	cacheDir, err := CacheDir(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := store.New(filepath.Join(repo, "store"))
+	// The run itself may fail (no JVM jar); only the directory side effect matters.
+	_, _ = InvokeCachedWithOptions("", []string{srcDir}, repo, filepath.Join(repo, "o.json"), "", false, s,
+		InvocationOptions{Backend: BackendKAA, Classpath: []string{jar}})
+	if _, err := os.Stat(filepath.Join(cacheDir, legacyScopesDir)); err == nil {
+		t.Fatal("a store run created a legacy scope directory")
+	}
+}
+
+// The FIR compilation fingerprint independently catches a classpath-only
+// change while the legacy entry dir is held fixed.
+func TestFIRCompilationRefreshOnClasspathOnlyChange(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := writeTempFile(t, srcDir, "A.kt", "package demo\nfun a() = 1\n")
+	fir := writeTestJar(t, filepath.Join(dir), "fir")
+	cpDir := t.TempDir()
+	jar := writeTestJar(t, cpDir, "one")
+	opts := InvocationOptions{Backend: BackendFIR, Classpath: []string{jar}}
+	before := wholeCompilationFingerprint(opts, []string{srcDir}, fir, opts.tracker())
+	hits := []*CacheEntry{{FilePath: a, CompilationFingerprint: before}}
+	if got := requestCompilationRefresh(opts, hits, nil, before, opts.tracker(), false); len(got) != 0 {
+		t.Fatalf("unchanged classpath requested a refresh: %v", got)
+	}
+	writeTestJar(t, cpDir, "replaced jar contents")
+	after := wholeCompilationFingerprint(opts, []string{srcDir}, fir, opts.tracker())
+	if after == before {
+		t.Fatal("classpath change left the compilation fingerprint unchanged")
+	}
+	if got := requestCompilationRefresh(opts, hits, nil, after, opts.tracker(), false); len(got) != 1 || got[0] != a {
+		t.Fatalf("classpath-only change must refresh through %s, got %v", a, got)
 	}
 }

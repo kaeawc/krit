@@ -81,7 +81,7 @@ func TestComputeStaleOraclePaths_ReadsTheRunsSettingsScopedEntries(t *testing.T)
 	deps := &oracle.CacheDepsFile{Version: 1, Files: map[string]*oracle.CacheDepsEntry{
 		dependency: {}, caller: {DepPaths: []string{dependency}}, unrelated: {},
 	}}
-	if _, err := oracle.WriteFreshEntries(oracle.LegacyEntryDir(cacheDir, kt), data, deps); err != nil {
+	if _, err := oracle.WriteFreshEntries(oracle.LegacyEntryDir(cacheDir, kt, nil), data, deps); err != nil {
 		t.Fatal(err)
 	}
 	typesPath := oracle.CachePath([]string{dir})

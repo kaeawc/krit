@@ -477,7 +477,7 @@ func (c *wcOracleCase) addEntries(t *testing.T, snap wcSnapshot, root string, in
 	}
 	// Without a .krit/store the entries live in a directory scoped by the
 	// Kotlin settings (the base directory for the embedded defaults).
-	cacheDir = oracle.LegacyEntryDir(cacheDir, in.kotlin)
+	cacheDir = oracle.LegacyEntryDir(cacheDir, in.kotlin, in.classpath)
 	hits, _ := oracle.ClassifyFilesScopedV3(cacheDir, files, "", "", c.mx.be.backend.CacheApproximation())
 	for _, h := range hits {
 		deps := wcNormPaths(root, h.Closure.DepPaths)
@@ -511,7 +511,7 @@ func (c *wcOracleCase) storedEntries(t *testing.T, root string, in wcInputs) int
 	}
 	// Without a .krit/store the entries live in a directory scoped by the
 	// Kotlin settings (the base directory for the embedded defaults).
-	cacheDir = oracle.LegacyEntryDir(cacheDir, in.kotlin)
+	cacheDir = oracle.LegacyEntryDir(cacheDir, in.kotlin, in.classpath)
 	hits, _ := oracle.ClassifyFilesScopedV3(cacheDir, files, "", "", c.mx.be.backend.CacheApproximation())
 	n := 0
 	for _, h := range hits {

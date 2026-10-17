@@ -515,24 +515,8 @@ var wcKnownStale = wcBuildKnownStale()
 
 func wcBuildKnownStale() map[string]string {
 	known := map[string]string{}
-	// add records why a row is known-bad; a row with several causes cites all
-	// of them rather than letting the last write win.
-	add := func(key, why string) {
-		if prior, ok := known[key]; ok {
-			why = prior + "; and " + why
-		}
-		known[key] = why
-	}
-	both := func(prefix, mutation, why string) {
-		for _, spelling := range []string{"abs", "rel"} {
-			add(prefix+"/"+spelling+"/"+mutation, why)
-		}
-	}
-	// The krit-types cache key does not include the classpath, so a
-	// classpath change leaves cached facts for existing files in place.
-	for _, mode := range []string{"one-shot", "daemon"} {
-		both("kaa/"+mode, "classpath-change", "#827 KAA-CLASSPATH-KEY: the krit-types cache key does not include the classpath (krit-fir's does)")
-	}
+	// No rows are currently known stale. Record a new one as known[key] = why
+	// (joining causes with "; and " when a row has several).
 	return known
 }
 

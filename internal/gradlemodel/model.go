@@ -323,6 +323,9 @@ func (m *Model) Fingerprint() string {
 
 // ClasspathFingerprint hashes paths, sizes, and modification times in order.
 // Missing paths retain a marker so removing an existing entry changes the key.
+// Directory entries are only stat'd at the top level and relative entries
+// resolve against the working directory; both can only cause a miss, never a
+// stale hit.
 func ClasspathFingerprint(entries []string) string {
 	var b strings.Builder
 	for _, entry := range entries {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/oracle"
 )
 
@@ -142,6 +143,9 @@ func TestKAAOracleCacheRefreshesResolvedCallableDependents(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				// Without a .krit/store the entries live in the directory
+				// scoped by the Kotlin settings and the classpath.
+				cacheDir = oracle.LegacyEntryDir(cacheDir, gradlemodel.KotlinSettings{}, classpath)
 				hits, _ := oracle.ClassifyFilesScopedV3(cacheDir, []string{use}, "", "", oracle.BackendKAA.CacheApproximation())
 				if len(hits) != 1 {
 					t.Fatalf("cold run did not cache Use.kt: hits=%d", len(hits))
@@ -293,6 +297,9 @@ func runKAAConventionRefreshCase(t *testing.T, jar string, classpath []string, m
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Without a .krit/store the entries live in the directory scoped by the
+	// Kotlin settings and the classpath.
+	cacheDir = oracle.LegacyEntryDir(cacheDir, gradlemodel.KotlinSettings{}, classpath)
 	hits, _ := oracle.ClassifyFilesScopedV3(cacheDir, []string{use}, "", "", oracle.BackendKAA.CacheApproximation())
 	if len(hits) != 1 {
 		t.Fatalf("cold run did not cache Use.kt: hits=%d", len(hits))

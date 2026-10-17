@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/gradlemodel"
 )
 
 // Warm-versus-clean mutation matrix (#786).
@@ -78,6 +80,10 @@ type wcMutation struct {
 	// jarIdentity, when set, swaps the backend helper jar for a byte-different
 	// copy between seed and warm run.
 	jarIdentity bool
+	// kotlin, when set, changes the project's effective Kotlin compiler
+	// settings between seed and warm run, as a Gradle model export would
+	// (the seed runs under the embedded defaults).
+	kotlin *gradlemodel.KotlinSettings
 	// skip, when non-empty, records the case as skipped with this reason.
 	skip string
 }
@@ -136,6 +142,17 @@ fun useBox(): Box = Box()
 
 fun jarGreeting(): String = lib.Greeter.greet()
 `
+	// wcAnnotationTarget is the annotation-target default that follows the
+	// project's language level: on a constructor `val`, 2.4 applies @Tag to
+	// the parameter and the property, language level 2.3 to the parameter only,
+	// so the property's annotation facts change with the level.
+	wcAnnotationTarget = `package p
+
+@Target(AnnotationTarget.VALUE_PARAMETER, AnnotationTarget.PROPERTY)
+annotation class Tag
+
+class TaggedBox(@Tag val label: String)
+`
 	wcOver = `package p
 
 fun pick(x: Int): Int = 1
@@ -170,8 +187,7 @@ func wcReplace(t *testing.T, root, rel, old, repl string) {
 	writeFile(t, path, strings.Replace(string(raw), old, repl, 1))
 }
 
-// wcMutations is the matrix. The "effective compiler-setting change" row is a
-// clearly marked skip until #784 wires that propagation.
+// wcMutations is the matrix.
 func wcMutations() []wcMutation {
 	return []wcMutation{
 		{
@@ -298,9 +314,19 @@ func wcMutations() []wcMutation {
 			effect:      wcEffectSame,
 		},
 		{
+			// The project's Kotlin settings change from the embedded defaults
+			// to language/API level 2.3 (#784/#837), as a Gradle model export
+			// would report them. That flips the annotation-target default for
+			// p.TaggedBox.label, so facts computed under the old settings are
+			// stale.
 			name:       "compiler-setting-change",
+			extra:      map[string]string{"src/Tagged.kt": wcAnnotationTarget},
 			oracleOnly: true,
-			skip:       "effective compiler-setting propagation (language/api version, opt-ins) is wired by #784; enable once it lands",
+			kotlin: func() *gradlemodel.KotlinSettings {
+				kt := gradlemodel.ResolveKotlinSettings(&gradlemodel.KotlinOptions{LanguageVersion: "2.3", APIVersion: "2.3"})
+				return &kt
+			}(),
+			effect: wcEffectChanges,
 		},
 	}
 }

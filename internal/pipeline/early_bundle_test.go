@@ -129,8 +129,8 @@ func TestPreviewPostParseBundleHit_LoadHitReturnsColumns(t *testing.T) {
 		capturedFP = fp
 	}}
 	// Bootstrap: temporary manifest with any fingerprint — won't gate
-	// open, but it lets us peek at the cacheHitStructuralBundle's
-	// preview manifest pipeline. Easier path: construct the fp via
+	// open, but it lets us peek at the preview
+	// pipeline. Easier path: construct the fp via
 	// the exposed helper and use it directly.
 	rulesHash := projectRuleHash(args.ActiveRules, args.Config)
 	androidFP, libraryFactsFP := preparseProjectFingerprints(args, ProjectHostState{
@@ -228,8 +228,8 @@ func TestPreviewPostParseBundleHit_LoadMissReturnsNil(t *testing.T) {
 // Drives the preview with a manifestLoader that returns a prior
 // whose Fingerprint guarantees a mismatch. asserts the
 // FindingsBundleStore.Load count stays at zero for the
-// cacheHitFullBundle path (structural-replay still Loads exactly
-// once for the alias source).
+// cacheHitFullBundle path (the preview never replays a
+// structurally-stable prior).
 func TestPreviewPostParseBundleHit_SkipsFullBundleLoadWhenFpDiffers(t *testing.T) {
 	store := &recordingPreviewStore{} // Load always misses
 	priorWithDifferentFP := scanner.FindingsBundleManifest{
@@ -257,77 +257,10 @@ func TestPreviewPostParseBundleHit_SkipsFullBundleLoadWhenFpDiffers(t *testing.T
 
 	got := previewPostParseBundleHit(args, host, parseResult)
 	if got != nil {
-		t.Errorf("structural-replay shouldn't fire on multi-file structural change; got %v", got)
+		t.Errorf("preview must not hit on multi-file structural change; got %v", got)
 	}
 	// fp != prior.Fingerprint short-circuits the full-bundle Load.
-	// The structural-replay path may still attempt a Load — but on
-	// this fixture (no parsed files in priorContentHashes), the
-	// planner refuses before reaching Load. So loadCalls stays 0.
 	if store.loadCalls > 0 {
 		t.Errorf("fp != prior.Fingerprint must skip cacheHitFullBundle Load; got loadCalls=%d", store.loadCalls)
-	}
-}
-
-// TestBuildPreviewManifestData_OmitsFileStats pins the cost-saving
-// contract: the preview's manifest builder must NOT call statForPath
-// on every prior path. On kotlin-corpus scale the prior contains
-// ~18 k entries; a stat sweep is ~80-200 ms of wasted work since
-// tryLoadStructurallyStableBundle never reads fileStats.
-func TestBuildPreviewManifestData_OmitsFileStats(t *testing.T) {
-	args := ProjectArgs{Paths: []string{"/repo"}, Version: "test"}
-	host := ProjectHostState{
-		FindingsBundleCacheRoot: "/repo",
-		PriorContentHashes: map[string]string{
-			"/repo/a.kt": "h1",
-			"/repo/b.kt": "h2",
-		},
-		PriorStructuralFPs: map[string]string{
-			"/repo/a.kt": "s1",
-			"/repo/b.kt": "s2",
-		},
-	}
-	parseResult := ParseResult{}
-
-	got := buildPreviewManifestData(args, host, parseResult)
-	if !got.enabled {
-		t.Fatalf("manifest disabled: %+v", got)
-	}
-	if len(got.fileStats) != 0 {
-		t.Errorf("preview manifest must omit fileStats; got %d entries", len(got.fileStats))
-	}
-	if got.contentHashes["/repo/a.kt"] != "h1" || got.contentHashes["/repo/b.kt"] != "h2" {
-		t.Errorf("preview manifest must carry forward prior content hashes; got %v", got.contentHashes)
-	}
-	if got.structuralFPs["/repo/a.kt"] != "s1" {
-		t.Errorf("preview manifest must carry forward prior structural fps; got %v", got.structuralFPs)
-	}
-}
-
-// TestBuildPreviewManifestData_DirtyPathRecomputed pins the
-// recompute-for-dirty contract: when a parsed file is marked dirty
-// (watcher saw an edit OR #590's stat-drift augmentation added it),
-// the preview manifest must hash the parsed Content rather than reuse
-// the stale prior hash. Otherwise the runFP we build matches the
-// prior bundle key on every analyze and structural reuse never
-// fires for ABI changes.
-func TestBuildPreviewManifestData_DirtyPathRecomputed(t *testing.T) {
-	args := ProjectArgs{Paths: []string{"/repo"}, Version: "test"}
-	host := ProjectHostState{
-		FindingsBundleCacheRoot: "/repo",
-		PriorContentHashes:      map[string]string{"/repo/a.kt": "STALE"},
-		PriorStructuralFPs:      map[string]string{"/repo/a.kt": "STALE-FP"},
-		SourceSetDirty:          []string{"/repo/a.kt"},
-	}
-	parseResult := ParseResult{
-		KotlinFiles: []*scanner.File{{
-			Path:     "/repo/a.kt",
-			Language: scanner.LangKotlin,
-			Content:  []byte("package demo\nclass A\n"),
-		}},
-	}
-
-	got := buildPreviewManifestData(args, host, parseResult)
-	if got.contentHashes["/repo/a.kt"] == "STALE" {
-		t.Errorf("dirty parsed file's hash must be recomputed; got %q", got.contentHashes["/repo/a.kt"])
 	}
 }

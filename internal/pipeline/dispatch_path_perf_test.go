@@ -18,7 +18,7 @@ import (
 func TestTryBundleLayer_HitEmitsOutcomeAttr(t *testing.T) {
 	tracker := perf.New(true)
 	cached := &scanner.FindingColumns{}
-	_, _, ok := tryBundleLayer(tracker, "dispatchBundleLoad", IndexResult{},
+	_, _, ok := tryBundleLayer(tracker, IndexResult{},
 		func() (*scanner.FindingColumns, bool) { return cached, true })
 	if !ok {
 		t.Fatal("expected hit")
@@ -44,7 +44,7 @@ func TestTryBundleLayer_HitEmitsOutcomeAttr(t *testing.T) {
 // presence isn't the only signal that this one was attempted.
 func TestTryBundleLayer_MissEmitsOutcomeAttr(t *testing.T) {
 	tracker := perf.New(true)
-	_, _, ok := tryBundleLayer(tracker, "dispatchStableBundleLoad", IndexResult{},
+	_, _, ok := tryBundleLayer(tracker, IndexResult{},
 		func() (*scanner.FindingColumns, bool) { return nil, false })
 	if ok {
 		t.Fatal("expected miss")
@@ -52,16 +52,16 @@ func TestTryBundleLayer_MissEmitsOutcomeAttr(t *testing.T) {
 	entries := tracker.GetTimings()
 	found := false
 	for _, e := range entries {
-		if e.Name != "dispatchStableBundleLoad" {
+		if e.Name != "dispatchBundleLoad" {
 			continue
 		}
 		found = true
 		if got := e.Attributes["outcome"]; got != "miss" {
-			t.Errorf("dispatchStableBundleLoad outcome = %q, want %q", got, "miss")
+			t.Errorf("dispatchBundleLoad outcome = %q, want %q", got, "miss")
 		}
 	}
 	if !found {
-		t.Errorf("dispatchStableBundleLoad entry missing on miss; got %v", entryNames(entries))
+		t.Errorf("dispatchBundleLoad entry missing on miss; got %v", entryNames(entries))
 	}
 }
 
@@ -71,7 +71,7 @@ func TestTryBundleLayer_MissEmitsOutcomeAttr(t *testing.T) {
 // outcome attribute must reflect that.
 func TestTryBundleLayer_NilCachedTreatedAsMiss(t *testing.T) {
 	tracker := perf.New(true)
-	_, _, ok := tryBundleLayer(tracker, "dispatchBundleLoad", IndexResult{},
+	_, _, ok := tryBundleLayer(tracker, IndexResult{},
 		func() (*scanner.FindingColumns, bool) { return nil, true })
 	if ok {
 		t.Fatal("expected miss (nil cached treated as miss)")

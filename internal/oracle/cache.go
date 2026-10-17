@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -339,6 +340,20 @@ func VerifyClosure(entry *CacheEntry, hashCache map[string]string) bool {
 	return fp == entry.Closure.Fingerprint
 }
 
+// skipPoisonMarker prefixes the CrashError of jar-skipped poison entries.
+const skipPoisonMarker = "jar-skipped:"
+
+// isRelativeSkipPoison reports whether entry is a jar-skipped poison marker
+// recorded under a relative path. Absolute paths are what the JVM is sent, so
+// a relative one means a relative-root (`krit .`) one-shot run asked the JVM
+// about spellings it could not match, analyzed nothing, and marked the files
+// skipped. Those markers are content-hash keyed and would otherwise be served
+// as empty facts to every later run, so they are treated as misses.
+func isRelativeSkipPoison(entry *CacheEntry) bool {
+	return entry.Crashed && strings.HasPrefix(entry.CrashError, skipPoisonMarker) &&
+		entry.FilePath != "" && !filepath.IsAbs(entry.FilePath)
+}
+
 // cacheScopeCompatibleV2 checks cache entry scope compatibility with the call filter and declaration
 // profile scope. Both the call filter and declaration profile follow the
 // "empty = broad superset" convention: an entry with an empty fingerprint
@@ -346,6 +361,9 @@ func VerifyClosure(entry *CacheEntry, hashCache map[string]string) bool {
 // fingerprint only satisfies an identical lookup.
 func cacheScopeCompatibleV2(entry *CacheEntry, currentCallFilter, currentDeclarationProfile string) bool {
 	if entry == nil {
+		return false
+	}
+	if isRelativeSkipPoison(entry) {
 		return false
 	}
 	if currentCallFilter == "" {

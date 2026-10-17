@@ -348,6 +348,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                     newSession,
                 )
             }
+            "canary" -> RequestResult.Response(handleCanary(request.id))
             "ping" -> {
                 val uptime = System.currentTimeMillis() - startTime
                 RequestResult.Response("""{"id":${request.id},"result":{"ok":true,"uptime":$uptime}}""")

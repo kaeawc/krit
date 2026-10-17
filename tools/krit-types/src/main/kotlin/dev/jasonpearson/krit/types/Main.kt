@@ -2237,6 +2237,12 @@ fun buildSession(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf? = n
     val platform = JvmPlatforms.defaultJvmPlatform
     lateinit var sourceModule: KaSourceModule
 
+    // The project's own language level, API level, opt-ins and semantic flags. Without
+    // any, the embedded compiler's defaults apply (a missing or incomplete Gradle model).
+    val kotlinSettings = KotlinCompilerSettings.parse(args.kotlinArgs)
+    kotlinSettings.warnings.forEach { System.err.println("krit-types: $it") }
+    val projectLanguageSettings = kotlinSettings.toLanguageVersionSettings()
+
     buildStandaloneAnalysisAPISession(disposable) {
         val providerStart = System.nanoTime()
         buildKtModuleProvider {
@@ -2271,6 +2277,7 @@ fun buildSession(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf? = n
                 addSourceRoots(args.sourceDirs.map { Path(it) })
                 this.platform = platform
                 moduleName = "source"
+                projectLanguageSettings?.let { languageVersionSettings = it }
                 addRegularDependency(jdk)
                 addRegularDependency(dependencies)
             }
@@ -3294,7 +3301,11 @@ data class ParsedArgs(
     val diagnostics: Boolean = true,
     // Experiment 2 probe: run analyzeKtFile on N parallel platform threads within one KAA session.
     // 0 or 1 = sequential (default). Safety is NOT established — use only for benchmarking.
-    val parallelFiles: Int = 0
+    val parallelFiles: Int = 0,
+    // --kotlin-arg ARG (repeatable): the project's Kotlin compiler settings as compiler
+    // arguments. Filtered through KotlinCompilerSettings' allowlist; empty keeps the
+    // embedded compiler's defaults.
+    val kotlinArgs: List<String> = emptyList()
 )
 
 /**
@@ -3377,6 +3388,7 @@ fun parseArgs(args: Array<String>): ParsedArgs? {
     var declarationProfile: DeclarationExportProfile = DeclarationExportProfile.full()
     var diagnostics = true
     var parallelFiles = 0
+    val kotlinArgs = mutableListOf<String>()
 
     var i = 0
     while (i < args.size) {
@@ -3422,13 +3434,14 @@ fun parseArgs(args: Array<String>): ParsedArgs? {
                     return null
                 }
             }
+            "--kotlin-arg" -> { i++; if (i >= args.size) return null; kotlinArgs += args[i] }
             "--help", "-h" -> return null
             else -> { System.err.println("Unknown argument: ${args[i]}"); return null }
         }
         i++
     }
     if (sources.isEmpty()) { System.err.println("Error: --sources is required"); return null }
-    return ParsedArgs(sources, classpath, jdkHome, output, expressions, daemon, parentPid, port, exclude, filesList, cacheDepsOut, timingsOut, loadCallFilter(callFilterPath), declarationProfile, diagnostics, parallelFiles)
+    return ParsedArgs(sources, classpath, jdkHome, output, expressions, daemon, parentPid, port, exclude, filesList, cacheDepsOut, timingsOut, loadCallFilter(callFilterPath), declarationProfile, diagnostics, parallelFiles, kotlinArgs)
 }
 
 fun printUsage() {
@@ -3459,6 +3472,10 @@ fun printUsage() {
         |                          within one KAA session. Thread-safety of FIR/PSI is NOT established.
         |                          Use only to probe correctness and measure wall-time vs sequential.
         |                          0 or 1 = sequential (default).
+        |  --kotlin-arg ARG        Project Kotlin compiler setting as a compiler argument
+        |                          (-language-version=2.0, -opt-in=x.Y, -Xcontext-parameters, ...).
+        |                          Repeatable. Only an allowlist of analysis-semantic settings is
+        |                          applied; anything else is reported on stderr and ignored.
         |  --help                  Show this help
     """.trimMargin())
 }

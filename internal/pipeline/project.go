@@ -17,6 +17,7 @@ import (
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
@@ -44,6 +45,10 @@ type ProjectArgs struct {
 	OracleClasspath  []string
 	OracleSourceDirs []string
 	OracleJvmTarget  string
+	// OracleKotlin is the project's effective Kotlin compiler settings from the
+	// Gradle model. The zero value means the model had none and the embedded
+	// compiler's defaults apply.
+	OracleKotlin gradlemodel.KotlinSettings
 	// Paths are the scan target paths (files or directories). Required.
 	Paths []string
 	// KotlinPaths, when non-nil, are the already-collected Kotlin
@@ -1058,6 +1063,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		OracleClasspath:     args.OracleClasspath,
 		OracleSourceDirs:    args.OracleSourceDirs,
 		OracleJvmTarget:     args.OracleJvmTarget,
+		OracleKotlin:        args.OracleKotlin,
 		Thorough:            args.TargetedResolution,
 	}
 	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)
@@ -2105,6 +2111,7 @@ func runFingerprintDiffFields(prior, current scanner.RunFingerprint) []string {
 	add("oracleFacts", prior.OracleFacts, current.OracleFacts)
 	add("android", prior.Android, current.Android)
 	add("libraryFacts", prior.LibraryFacts, current.LibraryFacts)
+	add("compilerSettings", prior.CompilerSettings, current.CompilerSettings)
 	return changed
 }
 
@@ -2547,14 +2554,15 @@ func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, t
 		androidFP, libraryFactsFP = preparseProjectFingerprints(args, host)
 	})
 	fp := scanner.RunFingerprint{
-		Version:      args.Version,
-		Rules:        rulesHash,
-		Config:       rulesHash,
-		SourceSet:    fingerprintPathHashMap(prior.ContentHashes),
-		CrossFile:    fingerprintPathHashMap(prior.StructuralFPs),
-		OracleFacts:  fingerprintOptionalPathHashMap(prior.OracleBlobHashes),
-		Android:      androidFP,
-		LibraryFacts: libraryFactsFP,
+		Version:          args.Version,
+		Rules:            rulesHash,
+		Config:           rulesHash,
+		SourceSet:        fingerprintPathHashMap(prior.ContentHashes),
+		CrossFile:        fingerprintPathHashMap(prior.StructuralFPs),
+		OracleFacts:      fingerprintOptionalPathHashMap(prior.OracleBlobHashes),
+		Android:          androidFP,
+		LibraryFacts:     libraryFactsFP,
+		CompilerSettings: args.OracleKotlin.Identity(),
 	}
 	if fp != prior.Fingerprint {
 		return scanner.RunFingerprint{}, nil, nil, false
@@ -3383,14 +3391,15 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 	dirty := dirtyPathSet(host.SourceSetDirty)
 	androidFP, libraryFactsFP := preparseProjectFingerprints(args, host)
 	fp := scanner.RunFingerprint{
-		Version:      args.Version,
-		Rules:        rulesHash,
-		Config:       rulesHash,
-		SourceSet:    sourceSetFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, dirty),
-		CrossFile:    crossFileStructuralFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorStructuralFPs, dirty),
-		OracleFacts:  oracleFactsFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, host.PriorOracleBlobHashes, dirty, host.OracleBlobHash),
-		Android:      androidFP,
-		LibraryFacts: libraryFactsFP,
+		Version:          args.Version,
+		Rules:            rulesHash,
+		Config:           rulesHash,
+		SourceSet:        sourceSetFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, dirty),
+		CrossFile:        crossFileStructuralFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorStructuralFPs, dirty),
+		OracleFacts:      oracleFactsFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, host.PriorOracleBlobHashes, dirty, host.OracleBlobHash),
+		Android:          androidFP,
+		LibraryFacts:     libraryFactsFP,
+		CompilerSettings: args.OracleKotlin.Identity(),
 	}
 	// Look up the prior manifest once — daemon callers wire
 	// FindingsBundleManifestLoader to an in-memory cache so this is
@@ -3475,10 +3484,11 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 	rulesHash := projectRuleHash(args.ActiveRules, args.Config)
 	dirty := dirtyPathSet(host.SourceSetDirty)
 	fp := scanner.RunFingerprint{
-		Version:   args.Version,
-		Rules:     rulesHash,
-		Config:    rulesHash,
-		SourceSet: sourceSetFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, dirty),
+		Version:          args.Version,
+		Rules:            rulesHash,
+		Config:           rulesHash,
+		SourceSet:        sourceSetFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, dirty),
+		CompilerSettings: args.OracleKotlin.Identity(),
 	}
 	fp.CrossFile = crossFileStructuralFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorStructuralFPs, dirty)
 	fp.OracleFacts = oracleFactsFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, host.PriorOracleBlobHashes, dirty, indexResult.OracleBlobHash)

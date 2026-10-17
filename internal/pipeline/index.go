@@ -18,6 +18,7 @@ import (
 	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
@@ -203,10 +204,14 @@ type IndexInput struct {
 	OracleClasspath  []string
 	OracleSourceDirs []string
 	OracleJvmTarget  string
+	// OracleKotlin is the project's effective Kotlin compiler settings from the
+	// Gradle model. The zero value means the model had none and the embedded
+	// compiler's defaults apply.
+	OracleKotlin gradlemodel.KotlinSettings
 	// FIRCheckRider, when set, returns the FIR check request to run on the
 	// krit-fir oracle's one-shot compilation of jarPath over sourceDirs and
-	// classpath for jvmTarget, or nil (#739).
-	FIRCheckRider func(jarPath string, sourceDirs, classpath []string, jvmTarget string) *oracle.CheckRider
+	// classpath for target, or nil (#739).
+	FIRCheckRider func(jarPath string, sourceDirs, classpath []string, target firchecks.CompileTarget) *oracle.CheckRider
 	// PrebuiltOracleDaemon, when non-nil, is reused by runDaemonOracle
 	// instead of calling oracle.InvokeDaemon. The serve daemon's
 	// ensureOracleDaemon supplies a *oracle.Daemon kept alive across
@@ -375,6 +380,32 @@ type IndexInput struct {
 }
 
 // logf forwards verbose progress lines to Reporter when set.
+// kotlinSettingsAttrs makes the Kotlin compiler settings of an oracle run
+// visible in --perf output: which settings reached the compiler (or that the
+// embedded defaults did), the identity hash folded into cache keys, and why
+// anything was defaulted or left out.
+func kotlinSettingsAttrs(s gradlemodel.KotlinSettings) map[string]string {
+	attrs := map[string]string{"applied": s.Describe(), "source": "gradle-model"}
+	if s.IsZero() {
+		attrs["source"] = "embedded-default"
+	} else {
+		attrs["identity"] = s.IdentityHash()
+	}
+	if len(s.Notes) > 0 {
+		attrs["notes"] = strings.Join(s.Notes, "; ")
+	}
+	if len(s.Rejected) > 0 {
+		attrs["notApplied"] = strings.Join(s.Rejected, "; ")
+	}
+	return attrs
+}
+
+// compileTarget is the JVM target and Kotlin settings every krit-fir compile
+// in this run must agree on.
+func (in IndexInput) compileTarget() firchecks.CompileTarget {
+	return firchecks.CompileTarget{JvmTarget: in.OracleJvmTarget, Kotlin: in.OracleKotlin}
+}
+
 func (in IndexInput) logf(format string, args ...any) {
 	in.Reporter.Verbosef(format, args...)
 }
@@ -896,7 +927,7 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 	} else {
 		var daemonErr error
 		oracleTracker.TrackVoid("jvmStart", func() {
-			d, daemonErr = oracle.InvokeDaemon(scanPaths, in.Verbose)
+			d, daemonErr = oracle.InvokeDaemon(scanPaths, in.Verbose, oracle.WithKotlinSettings(in.OracleKotlin))
 		})
 		if daemonErr != nil {
 			in.warnf("warning: daemon: %v\n", daemonErr)
@@ -907,76 +938,7 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 
 	var oracleData *oracle.Data
 	oracleTracker.TrackVoid("jvmAnalyze", func() {
-		// Partial reanalyze path: when the caller has prior-manifest
-		// evidence of exactly which .kt files changed (StaleOraclePaths
-		// populated by the daemon's bundle-manifest comparator), ask
-		// the resident JVM session to re-analyze only that subset and
-		// merge the fresh facts into the cached types.json on disk.
-		// This avoids the full-module reanalyze cost (5+ seconds on
-		// kotlin-corpus scale) on warm runs that touch one or two
-		// files. Falls back to analyzeAll when:
-		//   - StaleOraclePaths is empty (cold run, no prior manifest)
-		//   - The on-disk types.json doesn't exist (nothing to merge
-		//     into; partial would return a per-file slice the dispatcher
-		//     can't use)
-		//   - The partial call itself errors (defensive)
-		cachedTypesPath := oracle.CachePath(scanPaths)
-		canPartial := len(in.StaleOraclePaths) > 0 && cachedTypesPath != ""
-		if canPartial {
-			if _, err := os.Stat(cachedTypesPath); err != nil {
-				canPartial = false
-			}
-		}
-		if canPartial {
-			perf.AddEntryDetails(oracleTracker, "daemonPartialReanalyze", 0, map[string]int64{
-				"stalePaths": int64(len(in.StaleOraclePaths)),
-			}, nil)
-			analyzeAll := func() (*oracle.Data, error) { return d.AnalyzeAllWithCallFilter(callFilterPtr) }
-			fresh, err := d.AnalyzeFilesWithCallFilter(in.StaleOraclePaths, callFilterPtr)
-			if err != nil {
-				in.warnf("warning: daemon analyzeFiles (fallback to analyzeAll): %v\n", err)
-				od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf)
-				if allErr != nil {
-					in.warnf("warning: daemon analyzeAll: %v\n", allErr)
-					return
-				}
-				oracleData = od
-				return
-			}
-			// Merge fresh facts into the on-disk types.json. The
-			// cached JSON holds the full project's per-file entries
-			// from the prior cold/warm run; the fresh slice only
-			// covers the stale paths. mergeFreshIntoCachedTypes
-			// rewrites types.json with the union (fresh wins on
-			// overlap), then loads the merged result.
-			merged, pruned, mergeErr := oracle.MergeFreshIntoCachedTypes(cachedTypesPath, fresh)
-			if mergeErr != nil {
-				in.warnf("warning: oracle partial merge (fallback to analyzeAll): %v\n", mergeErr)
-			}
-			if pruned {
-				// Dependencies has no per-file provenance in types.json. A
-				// pruned file may have contributed an FQN that survives the
-				// union, so only a full daemon result is safe to load.
-				in.warnf("warning: daemon partial merge pruned removed Kotlin files; falling back to analyzeAll\n")
-			}
-			if shouldFallbackToAnalyzeAll(mergeErr, pruned) {
-				od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf)
-				if allErr != nil {
-					in.warnf("warning: daemon analyzeAll: %v\n", allErr)
-					return
-				}
-				oracleData = od
-				return
-			}
-			oracleData = merged
-			return
-		}
-		od, err := d.AnalyzeAllWithCallFilter(callFilterPtr)
-		if err != nil {
-			in.warnf("warning: daemon analyzeAll: %v\n", err)
-			return
-		}
-		oracleData = od
+		oracleData = daemonAnalyze(in, d, scanPaths, callFilterPtr, oracleTracker)
 	})
 	if oracleData == nil {
 		return base
@@ -1002,6 +964,108 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 	return oracle.NewCompositeResolver(oracleLoaded, base)
 }
 
+// daemonAnalyzer is the slice of *oracle.Daemon that daemonAnalyze drives; it
+// lets tests substitute a stub for the resident JVM.
+type daemonAnalyzer interface {
+	AnalyzeAllWithCallFilter(callFilter *oracle.CallTargetFilterSummary) (*oracle.Data, error)
+	AnalyzeFilesWithCallFilter(files []string, callFilter *oracle.CallTargetFilterSummary) (*oracle.Data, error)
+}
+
+// daemonAnalyze obtains the oracle facts from the resident daemon: a partial
+// reanalyze merged into the cached types.json when that is sound, else a full
+// analysis. It returns nil when the daemon produced nothing usable.
+func daemonAnalyze(in IndexInput, d daemonAnalyzer, scanPaths []string, callFilterPtr *oracle.CallTargetFilterSummary, oracleTracker perf.Tracker) *oracle.Data {
+	// Partial reanalyze path: when the caller has prior-manifest
+	// evidence of exactly which .kt files changed (StaleOraclePaths
+	// populated by the daemon's bundle-manifest comparator), ask
+	// the resident JVM session to re-analyze only that subset and
+	// merge the fresh facts into the cached types.json on disk.
+	// This avoids the full-module reanalyze cost (5+ seconds on
+	// kotlin-corpus scale) on warm runs that touch one or two
+	// files. Falls back to analyzeAll when:
+	//   - StaleOraclePaths is empty (cold run, no prior manifest)
+	//   - The on-disk types.json doesn't exist (nothing to merge
+	//     into; partial would return a per-file slice the dispatcher
+	//     can't use)
+	//   - The partial call itself errors (defensive)
+	cachedTypesPath := oracle.CachePath(scanPaths)
+	canPartial := len(in.StaleOraclePaths) > 0 && cachedTypesPath != ""
+	if canPartial {
+		if _, err := os.Stat(cachedTypesPath); err != nil {
+			canPartial = false
+		}
+	}
+	// Merging fresh facts for the stale paths into types.json keeps every
+	// other file's facts. That is only sound when types.json was produced
+	// under this run's scope (backend, jar, classpath, JVM target and Kotlin
+	// settings): after a settings-only change plus one edit the untouched
+	// files would otherwise keep facts computed under the old settings.
+	typesScope, haveScope := oracleTypesScope(in, scanPaths)
+	scopeDeclined := false
+	if canPartial && !partialMergeAllowed(cachedTypesPath, typesScope, haveScope, scanPaths) {
+		in.logf("verbose: daemon partial reanalyze skipped: cached types.json was not produced under this run's compile scope\n")
+		canPartial = false
+		scopeDeclined = true
+	}
+	if canPartial {
+		perf.AddEntryDetails(oracleTracker, "daemonPartialReanalyze", 0, map[string]int64{
+			"stalePaths": int64(len(in.StaleOraclePaths)),
+		}, nil)
+		analyzeAll := func() (*oracle.Data, error) { return d.AnalyzeAllWithCallFilter(callFilterPtr) }
+		fresh, err := d.AnalyzeFilesWithCallFilter(in.StaleOraclePaths, callFilterPtr)
+		if err != nil {
+			in.warnf("warning: daemon analyzeFiles (fallback to analyzeAll): %v\n", err)
+			od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf, typesScope, haveScope, scanPaths)
+			if allErr != nil {
+				in.warnf("warning: daemon analyzeAll: %v\n", allErr)
+				return nil
+			}
+			return od
+		}
+		// Merge fresh facts into the on-disk types.json. The
+		// cached JSON holds the full project's per-file entries
+		// from the prior cold/warm run; the fresh slice only
+		// covers the stale paths. mergeFreshIntoCachedTypes
+		// rewrites types.json with the union (fresh wins on
+		// overlap), then loads the merged result.
+		merged, pruned, mergeErr := oracle.MergeFreshIntoCachedTypes(cachedTypesPath, fresh)
+		if mergeErr != nil {
+			in.warnf("warning: oracle partial merge (fallback to analyzeAll): %v\n", mergeErr)
+		}
+		if pruned {
+			// Dependencies has no per-file provenance in types.json. A
+			// pruned file may have contributed an FQN that survives the
+			// union, so only a full daemon result is safe to load.
+			in.warnf("warning: daemon partial merge pruned removed Kotlin files; falling back to analyzeAll\n")
+		}
+		if shouldFallbackToAnalyzeAll(mergeErr, pruned) {
+			od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf, typesScope, haveScope, scanPaths)
+			if allErr != nil {
+				in.warnf("warning: daemon analyzeAll: %v\n", allErr)
+				return nil
+			}
+			return od
+		}
+		recordTypesScope(cachedTypesPath, typesScope, haveScope, scanPaths, in.warnf)
+		return merged
+	}
+	od, err := d.AnalyzeAllWithCallFilter(callFilterPtr)
+	if err != nil {
+		in.warnf("warning: daemon analyzeAll: %v\n", err)
+		return nil
+	}
+	if scopeDeclined && od != nil {
+		// Replace the out-of-scope types.json with this full result and stamp it,
+		// so the next run can reanalyze partially again.
+		if werr := oracle.WriteTypesJSON(cachedTypesPath, od); werr != nil {
+			in.warnf("warning: persist daemon analyzeAll types.json: %v\n", werr)
+		} else {
+			recordTypesScope(cachedTypesPath, typesScope, haveScope, scanPaths, in.warnf)
+		}
+	}
+	return od
+}
+
 // shouldFallbackToAnalyzeAll keeps partial-merge recovery decisions testable
 // without constructing the concrete RPC-backed oracle.Daemon in pipeline tests.
 func shouldFallbackToAnalyzeAll(mergeErr error, pruned bool) bool {
@@ -1013,7 +1077,7 @@ func shouldFallbackToAnalyzeAll(mergeErr error, pruned bool) bool {
 // the merge, so without this the pruned merge (which can still carry a
 // deleted file's Dependencies entries) would stay on disk and the next
 // partial run would union those stale entries back in.
-func analyzeAllAndPersist(analyzeAll func() (*oracle.Data, error), typesPath string, warnf func(string, ...any)) (*oracle.Data, error) {
+func analyzeAllAndPersist(analyzeAll func() (*oracle.Data, error), typesPath string, warnf func(string, ...any), scope oracle.StoreScope, haveScope bool, scanPaths []string) (*oracle.Data, error) {
 	od, err := analyzeAll()
 	if err != nil {
 		return nil, err
@@ -1021,9 +1085,43 @@ func analyzeAllAndPersist(analyzeAll func() (*oracle.Data, error), typesPath str
 	if typesPath != "" && od != nil {
 		if err := oracle.WriteTypesJSON(typesPath, od); err != nil {
 			warnf("warning: persist daemon analyzeAll types.json: %v\n", err)
+		} else {
+			recordTypesScope(typesPath, scope, haveScope, scanPaths, warnf)
 		}
 	}
 	return od, nil
+}
+
+// oracleTypesScope is the compile scope the oracle's cached facts are keyed on
+// for this run, or false when no oracle jar resolves.
+func oracleTypesScope(in IndexInput, scanPaths []string) (oracle.StoreScope, bool) {
+	backend := in.OracleBackend
+	if backend == "" {
+		backend = oracle.DefaultBackend
+	}
+	jarPath, used, _, err := oracle.ResolveOracleJar(context.Background(), backend, scanPaths, false)
+	if err != nil || jarPath == "" {
+		return oracle.StoreScope{}, false
+	}
+	return oracle.NewStoreScopeWithSettings(used, jarPath, in.OracleClasspath, in.OracleJvmTarget, in.OracleKotlin), true
+}
+
+// partialMergeAllowed reports whether fresh facts may be merged into the cached
+// types.json: it must have been produced under exactly this scope.
+func partialMergeAllowed(typesPath string, scope oracle.StoreScope, haveScope bool, scanPaths []string) bool {
+	return haveScope && oracle.TypesJSONSatisfiesForPaths(typesPath, false, scope, buildid.Token(), scanPaths)
+}
+
+// recordTypesScope stamps types.json with the scope its facts now belong to, so
+// the next partial reanalyze can verify it. Diagnostics availability is kept
+// from the prior record (unknown stays "omitted").
+func recordTypesScope(typesPath string, scope oracle.StoreScope, haveScope bool, scanPaths []string, warnf func(string, ...any)) {
+	if !haveScope {
+		return
+	}
+	if err := oracle.RecordTypesFactsForPaths(typesPath, !oracle.TypesJSONHasDiagnostics(typesPath), scanPaths, scope); err != nil {
+		warnf("warning: types.json facts record not written: %v\n", err)
+	}
 }
 
 // runDaemonOracleFir spawns (or reuses) the krit-fir persistent
@@ -1054,7 +1152,7 @@ func (p IndexPhase) runDaemonOracleFir(in IndexInput, scanPaths []string, oracle
 	var d *firchecks.FirDaemon
 	var daemonErr error
 	oracleTracker.TrackVoid("firDaemonStart", func() {
-		d, daemonErr = firchecks.ConnectOrStartFirDaemon(jarPath, sourceDirs, in.OracleClasspath, in.Verbose, in.OracleJvmTarget)
+		d, daemonErr = firchecks.ConnectOrStartFirDaemon(jarPath, sourceDirs, in.OracleClasspath, in.Verbose, in.compileTarget())
 	})
 	if daemonErr != nil {
 		in.warnf("warning: --daemon: %v\n", daemonErr)
@@ -1192,13 +1290,20 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		in.reportMissingOracleJar(jarErr)
 		return ""
 	}
-	storeScope := oracle.NewStoreScopeWithTarget(backend, jarPath, in.OracleClasspath, in.OracleJvmTarget)
+	storeScope := oracle.NewStoreScopeWithSettings(backend, jarPath, in.OracleClasspath, in.OracleJvmTarget, in.OracleKotlin)
 	// Record what actually serves the oracle (after any fallback), so
 	// benchmarks and --perf readers can verify the backend they asked for.
 	perf.AddEntryDetails(jvmTracker, "oracleBackend", 0, nil, map[string]string{
 		"backend": backend.String(),
 		"jar":     filepath.Base(jarPath),
 	})
+	perf.AddEntryDetails(jvmTracker, "oracleKotlinSettings", 0, nil, kotlinSettingsAttrs(in.OracleKotlin))
+	for _, note := range in.OracleKotlin.Notes {
+		in.logf("verbose: kotlin compiler settings: %s\n", note)
+	}
+	for _, rejected := range in.OracleKotlin.Rejected {
+		in.logf("verbose: kotlin compiler settings: not applied: %s\n", rejected)
+	}
 	perf.AddEntryDetails(jvmTracker, "sourceDirsFound", 0, map[string]int64{"sourceDirs": int64(len(sourceDirs))}, nil)
 	var cacheDest string
 	jvmTracker.TrackVoid("resolveOracleCachePath", func() {
@@ -1254,10 +1359,11 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		// backend. Empty preserves source-tree discovery.
 		Classpath: in.OracleClasspath,
 		JvmTarget: in.OracleJvmTarget,
+		Kotlin:    in.OracleKotlin,
 		Backend:   backend,
 	}
 	if backend == oracle.BackendFIR && in.FIRCheckRider != nil {
-		invokeOpts.CheckRider = in.FIRCheckRider(jarPath, sourceDirs, in.OracleClasspath, in.OracleJvmTarget)
+		invokeOpts.CheckRider = in.FIRCheckRider(jarPath, sourceDirs, in.OracleClasspath, in.compileTarget())
 	}
 	invocationStore := in.Store
 	if invocationStore != nil {
@@ -1292,15 +1398,10 @@ func cachedTypesJSONSatisfies(in IndexInput, oracleRules []*api.Rule, path strin
 	if in.NoCacheOracle {
 		return false
 	}
-	backend := in.OracleBackend
-	if backend == "" {
-		backend = oracle.DefaultBackend
-	}
-	jarPath, used, _, err := oracle.ResolveOracleJar(context.Background(), backend, scanPaths, false)
-	if err != nil || jarPath == "" {
+	scope, ok := oracleTypesScope(in, scanPaths)
+	if !ok {
 		return false
 	}
-	scope := oracle.NewStoreScopeWithTarget(used, jarPath, in.OracleClasspath, in.OracleJvmTarget)
 	return oracle.TypesJSONSatisfiesForPaths(path, oracleDiagnosticsRequired(in, oracleRules), scope, buildid.Token(), scanPaths)
 }
 

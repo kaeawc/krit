@@ -482,7 +482,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	// BackendFIR) is found. nil daemon means oracle stays disabled
 	// (no JVM, no behavior change). Per-verb ping happens at the
 	// call boundary in handleAnalyzeProject.
-	oracleDaemon, err := s.ensureOracleDaemon(paths, backend)
+	oracleDaemon, err := s.ensureOracleDaemon(paths, backend, args.OracleKotlin)
 	if err != nil {
 		// Best-effort degrade: a failed daemon start shouldn't fail
 		// the whole verb. Log via stderr; the verb continues with
@@ -613,6 +613,7 @@ func applyOracleModelArgs(args daemon.AnalyzeProjectArgs, projectArgs *pipeline.
 	projectArgs.OracleClasspath = args.OracleClasspath
 	projectArgs.OracleSourceDirs = args.OracleSourceDirs
 	projectArgs.OracleJvmTarget = args.OracleJvmTarget
+	projectArgs.OracleKotlin = args.OracleKotlin
 	projectArgs.GeneratedSourceDirs = args.OracleGeneratedSourceDirs
 }
 
@@ -630,6 +631,7 @@ func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *c
 		checker.Classpath = args.OracleClasspath
 		checker.SourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(checker.SourceDirs, args.OracleSourceDirs))
 		checker.JvmTarget = args.OracleJvmTarget
+		checker.Kotlin = args.OracleKotlin
 		return firchecks.StartPass(ctx, firchecks.PassOptions{
 			Enabled:             true,
 			Checker:             checker,

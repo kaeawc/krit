@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/jvmaot"
 	"github.com/kaeawc/krit/internal/perf"
 )
@@ -53,6 +54,9 @@ type Daemon struct {
 	// gates the first-response health check (see checkAOTHealthLocked).
 	aotCachePath string
 	aotCheckOnce sync.Once
+	// kotlin is the Kotlin compiler settings this daemon was launched with
+	// (part of its registry key); zero means the embedded defaults.
+	kotlin gradlemodel.KotlinSettings
 }
 
 // requestSpelling absolutizes request files and returns the mapping from
@@ -82,7 +86,18 @@ func (d *Daemon) MatchesRepo(jarPath string, sourceDirs []string, classpath ...s
 	if d.sourcesHash == "" {
 		return false
 	}
-	return d.sourcesHash == daemonRegistryKey(jarPath, sourceDirs, classpath...)
+	return d.sourcesHash == daemonRegistryKeyKT(jarPath, sourceDirs, d.kotlin, classpath...)
+}
+
+// MatchesRepoSettings reports whether this daemon serves exactly the given
+// jar, sources, classpath and Kotlin compiler settings. A daemon launched for
+// other settings answers with other facts, so callers that know their settings
+// must use this instead of MatchesRepo.
+func (d *Daemon) MatchesRepoSettings(jarPath string, sourceDirs []string, kt gradlemodel.KotlinSettings, classpath ...string) bool {
+	if d.sourcesHash == "" {
+		return false
+	}
+	return d.sourcesHash == daemonRegistryKeyKT(jarPath, sourceDirs, kt, classpath...)
 }
 
 // daemonRequest is the JSON request sent to the daemon process.

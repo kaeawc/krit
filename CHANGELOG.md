@@ -17,6 +17,22 @@ All notable changes to Krit will be documented in this file.
 - `make test-fanotify` Docker target + CI job to exercise the fanotify
   path on platforms / users without the required capabilities.
 
+- Kotlin compiler settings from the Gradle model (`languageVersion`,
+  `apiVersion`, opt-ins, semantic `-X` / `-XXLanguage:` flags, progressive mode)
+  now reach the embedded compiler in both `krit-fir` and `krit-types`, so a
+  project pinned to an older language level is no longer analyzed under the
+  Kotlin 2.4 defaults. The Gradle model is now schema 2 (schema 1 is still
+  read). Settings are applied from an allowlist; Krit-owned output, classpath,
+  plugin, friend-path and fragment arguments stay protected, and anything not
+  applied is reported. They are part of the oracle, FIR, daemon and findings
+  bundle cache identities. See `docs/kotlin-compiler-settings.md`.
+- `krit-fir` module compilations (`analyzeModules`) now apply only allowlisted
+  semantic settings from a module's `compilerArgs` (language/API level, opt-ins,
+  progressive mode and the flags listed in `docs/kotlin-compiler-settings.md`).
+  Other extra compiler arguments that were previously passed through to the
+  compiler are no longer applied; each is reported in the response `warning`.
+  Krit-owned arguments were already dropped.
+
 ### Changed
 - `krit daemon: ready` startup line now reports the resolved watcher
   backend (`watcher=fsnotify` / `watcher=fanotify` / `watcher=off`).

@@ -30,6 +30,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/fileignore"
 	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/store"
 )
@@ -498,6 +499,7 @@ func InvokeCachedWithOptions(
 		addOracleInstant(tracker, "cacheBypass", nil, map[string]string{"reason": "cacheDirInit"})
 		return InvokeWithFilesWithOptions(jarPath, sourceDirs, outputPath, filterListPath, verbose, opts)
 	}
+	cacheDir = prepareLegacyEntryDir(cacheDir, opts.Kotlin)
 
 	var ktFiles []string
 	if err := trackOracle(tracker, "collectKtFiles", func() error {
@@ -533,6 +535,7 @@ func InvokeCachedWithOptions(
 	if len(forcedInScan) > 0 {
 		misses = append(misses, forcedInScan...)
 	}
+	hits, misses = demoteNameCollidingHits(opts, hits, misses, tracker, verbose)
 	misses = requestCompilationRefresh(opts, hits, misses, compilation, tracker, verbose)
 	classifyElapsed := time.Since(startClassify)
 	perf.AddEntryDetails(tracker, "cacheClassify", classifyElapsed, map[string]int64{
@@ -793,7 +796,7 @@ func runKritTypesCached(
 		"--files", missListPath,
 		"--cache-deps-out", depsOutPath,
 	)
-	args = append(args, compileContextArgs(opts)...)
+	args = append(args, compileContextArgs(jarPath, opts)...)
 	rider, riderArgs, err := startCheckRider(opts)
 	if err != nil {
 		return err
@@ -1276,7 +1279,7 @@ func runMissAnalysis(
 		var pool *DaemonPool
 		if err := trackOracle(tracker, "daemonPoolConnectOrStart", func() error {
 			var err error
-			pool, err = ConnectOrStartDaemonPool(jarPath, sourceDirs, opts.Classpath, poolSize, verbose)
+			pool, err = ConnectOrStartDaemonPool(jarPath, sourceDirs, opts.Classpath, poolSize, verbose, WithKotlinSettings(opts.Kotlin))
 			return err
 		}); err != nil {
 			return fallback(fmt.Sprintf("ConnectOrStartDaemonPool: %v", err))
@@ -1288,7 +1291,7 @@ func runMissAnalysis(
 			"started":   int64(pool.Started),
 		}, nil)
 		var matchErr error
-		pool, matchErr = reconnectMismatchedDaemonPool(pool, jarPath, sourceDirs, opts.Classpath, poolSize, verbose, len(misses), tracker)
+		pool, matchErr = reconnectMismatchedDaemonPool(pool, jarPath, sourceDirs, opts.Classpath, opts.Kotlin, poolSize, verbose, len(misses), tracker)
 		if matchErr != nil {
 			return fallback(matchErr.Error())
 		}
@@ -1313,7 +1316,7 @@ func runMissAnalysis(
 	var d *Daemon
 	if err := trackOracle(tracker, "daemonConnectOrStart", func() error {
 		var err error
-		d, err = ConnectOrStartDaemon(jarPath, sourceDirs, opts.Classpath, verbose)
+		d, err = ConnectOrStartDaemon(jarPath, sourceDirs, opts.Classpath, verbose, WithKotlinSettings(opts.Kotlin))
 		return err
 	}); err != nil {
 		return fallback(fmt.Sprintf("ConnectOrStartDaemon: %v", err))
@@ -1327,7 +1330,7 @@ func runMissAnalysis(
 	defer func() { _ = d.Release() }()
 
 	var matchErr error
-	d, matchErr = reconnectMismatchedDaemon(d, jarPath, sourceDirs, opts.Classpath, verbose, len(misses), tracker)
+	d, matchErr = reconnectMismatchedDaemon(d, jarPath, sourceDirs, opts.Classpath, opts.Kotlin, verbose, len(misses), tracker)
 	if matchErr != nil {
 		return fallback(matchErr.Error())
 	}
@@ -1367,34 +1370,34 @@ func oneShotMissAnalysisReason(poolSize, misses int, opts InvocationOptions) (bo
 	return shouldUseOneShotMissAnalysis(poolSize, misses)
 }
 
-func reconnectMismatchedDaemonPool(pool *DaemonPool, jarPath string, sourceDirs, classpath []string, size int, verbose bool, misses int, tracker perf.Tracker) (*DaemonPool, error) {
-	if pool.MatchesRepo(jarPath, sourceDirs, classpath...) {
+func reconnectMismatchedDaemonPool(pool *DaemonPool, jarPath string, sourceDirs, classpath []string, kt gradlemodel.KotlinSettings, size int, verbose bool, misses int, tracker perf.Tracker) (*DaemonPool, error) {
+	if pool.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...) {
 		return pool, nil
 	}
 	addOracleInstant(tracker, "daemonPoolRepoMismatch", map[string]int64{"misses": int64(misses)}, nil)
 	_ = pool.Release()
-	replacement, err := ConnectOrStartDaemonPool(jarPath, sourceDirs, classpath, size, verbose)
+	replacement, err := ConnectOrStartDaemonPool(jarPath, sourceDirs, classpath, size, verbose, WithKotlinSettings(kt))
 	if err != nil {
 		return pool, fmt.Errorf("reconnect daemon pool: %w", err)
 	}
-	if !replacement.MatchesRepo(jarPath, sourceDirs, classpath...) {
+	if !replacement.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...) {
 		_ = replacement.Release()
 		return replacement, fmt.Errorf("daemon pool (jar, sourceDirs) mismatch after reconnect")
 	}
 	return replacement, nil
 }
 
-func reconnectMismatchedDaemon(d *Daemon, jarPath string, sourceDirs, classpath []string, verbose bool, misses int, tracker perf.Tracker) (*Daemon, error) {
-	if d.MatchesRepo(jarPath, sourceDirs, classpath...) {
+func reconnectMismatchedDaemon(d *Daemon, jarPath string, sourceDirs, classpath []string, kt gradlemodel.KotlinSettings, verbose bool, misses int, tracker perf.Tracker) (*Daemon, error) {
+	if d.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...) {
 		return d, nil
 	}
 	addOracleInstant(tracker, "daemonRepoMismatch", map[string]int64{"misses": int64(misses)}, nil)
 	_ = d.Release()
-	replacement, err := ConnectOrStartDaemon(jarPath, sourceDirs, classpath, verbose)
+	replacement, err := ConnectOrStartDaemon(jarPath, sourceDirs, classpath, verbose, WithKotlinSettings(kt))
 	if err != nil {
 		return d, fmt.Errorf("reconnect daemon: %w", err)
 	}
-	if !replacement.MatchesRepo(jarPath, sourceDirs, classpath...) {
+	if !replacement.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...) {
 		_ = replacement.Release()
 		return replacement, fmt.Errorf("daemon (jar, sourceDirs) mismatch after reconnect")
 	}
@@ -1441,4 +1444,88 @@ func writeOracleJSON(path string, data *Data) error {
 		return fmt.Errorf("write oracle json: %w", err)
 	}
 	return nil
+}
+
+// legacyScopesDir is the directory under the versioned cache root holding the
+// per-file entries of runs with Kotlin compiler settings, one subdirectory per
+// settings identity.
+const legacyScopesDir = "scopes"
+
+// maxLegacyScopes bounds how many settings-scoped entry directories are kept;
+// the least recently used beyond it are pruned.
+const maxLegacyScopes = 4
+
+// legacyScopeGrace protects a scope directory touched recently: a long
+// concurrent run under other settings may still be reading and writing it.
+const legacyScopeGrace = 10 * time.Minute
+
+// LegacyEntryDir is where the per-file entries of the legacy (no .krit/store)
+// layout live for the given Kotlin settings. Without a store the entries carry
+// no scope of their own, so a settings-only change plus one edit would leave
+// unchanged files hitting facts computed under the old settings. Zero settings
+// use cacheDir itself, byte-identical to before settings existed, so projects
+// without settings never re-analyze. Every reader of these entries (InvokeCached
+// and the freshness gate's reverse-dependency expansion) must use this function.
+//
+// Only the settings identity is scoped here; the classpath is a separate,
+// pre-existing gap (issue #827).
+func LegacyEntryDir(cacheDir string, kt gradlemodel.KotlinSettings) string {
+	hash := kt.IdentityHash()
+	if hash == "" {
+		return cacheDir
+	}
+	return filepath.Join(cacheDir, legacyScopesDir, hash)
+}
+
+// prepareLegacyEntryDir returns LegacyEntryDir, marks it most recently used and
+// prunes the least recently used scopes beyond maxLegacyScopes.
+func prepareLegacyEntryDir(cacheDir string, kt gradlemodel.KotlinSettings) string {
+	dir := LegacyEntryDir(cacheDir, kt)
+	if dir == cacheDir {
+		return dir
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return dir
+	}
+	now := time.Now()
+	_ = os.Chtimes(dir, now, now)
+	pruneLegacyScopes(filepath.Join(cacheDir, legacyScopesDir), filepath.Base(dir), maxLegacyScopes)
+	return dir
+}
+
+func pruneLegacyScopes(root, keepName string, limit int) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	type scope struct {
+		name  string
+		mtime time.Time
+	}
+	var scopes []scope
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		scopes = append(scopes, scope{e.Name(), info.ModTime()})
+	}
+	if len(scopes) <= limit {
+		return
+	}
+	sort.Slice(scopes, func(i, j int) bool {
+		if scopes[i].name == keepName || scopes[j].name == keepName {
+			return scopes[i].name == keepName
+		}
+		return scopes[i].mtime.After(scopes[j].mtime)
+	})
+	for _, old := range scopes[limit:] {
+		if time.Since(old.mtime) < legacyScopeGrace {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(root, old.name))
+	}
 }

@@ -37,8 +37,8 @@ func TestFirFingerprintChangesWhenClasspathJarChanges(t *testing.T) {
 }
 
 func TestFirFingerprintChangesWithJvmTarget(t *testing.T) {
-	a := FirInvocationFingerprint(nil, "", nil, nil, FileFacts{}, "11")
-	b := FirInvocationFingerprint(nil, "", nil, nil, FileFacts{}, "17")
+	a := FirInvocationFingerprint(nil, "", nil, nil, FileFacts{}, CompileTarget{JvmTarget: "11"})
+	b := FirInvocationFingerprint(nil, "", nil, nil, FileFacts{}, CompileTarget{JvmTarget: "17"})
 	if a == b {
 		t.Fatal("JVM target did not affect invocation fingerprint")
 	}

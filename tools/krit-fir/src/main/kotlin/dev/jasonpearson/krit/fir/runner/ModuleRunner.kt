@@ -76,7 +76,11 @@ internal data class ModuleCompilation(
             }
             parseCommandLineArguments(flags, args)
         }
-        parseCommandLineArguments(extraArgs, args)
+        // Only this module's own allowlisted semantic settings are applied: the
+        // language and API level, opt-ins, progressive mode and the allowlisted
+        // flags. Anything else was already dropped (krit-managed) or is reported by
+        // the runner as not applied, so it can never override a krit-owned field.
+        KotlinCompilerSettings.parse(extraArgs).applyTo(args)
     }
 }
 
@@ -215,6 +219,10 @@ internal class ModuleRunner(
         val byId = modules.associateBy { it.id }
         val sources = modules.associate { it.id to moduleSources(it) }
         val args = modules.associate { it.id to filterModuleArgs(it.compilerArgs) }
+        // Reported per module, so an argument that is ignored is never silent.
+        val warnings = modules.flatMap { module ->
+            KotlinCompilerSettings.parse(args.getValue(module.id)).warnings.map { "krit-fir: module ${module.id}: $it" }
+        }
         val orderedIds = components.flatten().map { it.id }
         val results = mutableListOf<BatchResult>()
         val statuses = mutableListOf<ModuleStatus>()
@@ -328,7 +336,7 @@ internal class ModuleRunner(
             results.flatMap { it.findings }, results.flatMap { it.crashed.entries }.associate { it.toPair() },
             results.flatMap { it.rules }.distinct(),
             results.flatMap { it.errorFiles.entries }.associate { it.toPair() } + unknown.associateWith { "Not owned by any module" },
-            ruleErrors, statuses, deciding)
+            ruleErrors, statuses, deciding, warnings = warnings)
     }
 
     private fun reconcileOutputs() {

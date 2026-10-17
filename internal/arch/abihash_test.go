@@ -184,3 +184,43 @@ class Foo {
 		t.Fatalf("@VisibleForTesting changed the hash; should be ignored")
 	}
 }
+
+func TestAbiHash_PropertyDeclaredType(t *testing.T) {
+	h := func(typ, init string) string {
+		return hashOf(t, "package p\n\nclass R { val name: "+typ+" = "+init+" }")
+	}
+	a, b, c := h("String?", "null"), h("String", `""`), h("Int", "0")
+	if a == b || b == c || a == c {
+		t.Fatalf("property type/nullability must change the ABI hash: %s %s %s", a, b, c)
+	}
+	if h("String", `""`) != h("String", `"other"`) {
+		t.Fatal("initializer-only edit with explicit type must not change the ABI hash")
+	}
+	ext := func(src string) string { return hashOf(t, "package p\n\n"+src) }
+	if ext("val Foo.bar: List<Int> get() = 1") == ext("val Foo.bar: List<Int?> get() = 1") {
+		t.Fatal("extension property type nullability must change the ABI hash")
+	}
+	if ext("val Foo.bar: Int get() = 1") == ext("val Foo?.bar: Int get() = 1") {
+		t.Fatal("extension receiver nullability must change the ABI hash")
+	}
+	if ext("val a.Foo.bar: Int get() = 1") == ext("val b.Foo.bar: Int get() = 1") {
+		t.Fatal("extension receiver qualifier must change the ABI hash")
+	}
+	if h2 := func(m string) string { return ext("class R { val f: " + m + "() -> Unit = null }") }; h2("") == h2("suspend ") || h2("") == h2("@Composable ") {
+		t.Fatal("type modifiers must change the ABI hash")
+	}
+	both := "val Foo.bar: Int get() = 1\nval Baz.bar: Int get() = 1"
+	swapped := "val Baz.bar: Int get() = 1\nval Foo.bar: Int get() = 1"
+	if ext(both) != ext(swapped) {
+		t.Fatal("same-named extension properties must hash independent of declaration order")
+	}
+	if ext("val Foo.item: Bar get() = 1") == ext("val item: Foo.Bar get() = 1") {
+		t.Fatal("receiver+type must not collide with a qualified declared type")
+	}
+	if ext("val Foo.x: Int get() = 1") == ext("val @Ann Foo.x: Int get() = 1") {
+		t.Fatal("receiver type annotation must change the ABI hash")
+	}
+	if ext("val <T> T.v: T get() = 1") == ext("val <T> T.v: T & Any get() = 1") {
+		t.Fatal("definitely-non-null declared type must change the ABI hash")
+	}
+}

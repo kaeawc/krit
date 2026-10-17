@@ -142,12 +142,72 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 				Package:    pkg,
 				FQN:        fqn,
 				Owner:      owner,
-				Signature:  symbolSignature(owner, name, 0),
+				Signature:  propertySymbolSignature(owner, name, file, idx),
 				Arity:      0,
 				IsOverride: file.FlatHasModifier(idx, "override"),
 			})
 		}
 	})
+}
+
+// KotlinPropertyDeclaredTypes returns the extension receiver type and the
+// explicitly declared type of a Kotlin property_declaration, whitespace
+// normalized. Either is "" when absent. The type is read only from the
+// variable_declaration (`name: Type`), never inferred from the initializer.
+func KotlinPropertyDeclaredTypes(file *File, idx uint32) (receiver, declared string) {
+	norm := func(n uint32) string { return strings.Join(strings.Fields(file.FlatNodeText(n)), " ") }
+	recvMods := ""
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "type_modifiers":
+			// Directly under the declaration (after `val`) these annotate the
+			// extension receiver type, e.g. `val @Ann Foo.x: Int`.
+			recvMods = norm(child) + " "
+		case "user_type", "nullable_type", "function_type", "parenthesized_type", "not_nullable_type":
+			// A type directly under the declaration precedes `.name` and is
+			// the extension receiver.
+			if receiver == "" {
+				receiver = recvMods + norm(child)
+			}
+		case "variable_declaration":
+			mods := ""
+			for t := file.FlatFirstChild(child); t != 0; t = file.FlatNextSib(t) {
+				switch file.FlatType(t) {
+				case "type_modifiers":
+					// `suspend` / annotations such as @Composable are siblings
+					// of the type node and are part of the declared type.
+					mods = norm(t) + " "
+				case "user_type", "nullable_type", "function_type", "parenthesized_type", "not_nullable_type":
+					return receiver, mods + norm(t)
+				}
+			}
+		}
+	}
+	return receiver, declared
+}
+
+// propertySymbolSignature extends the function-style owner#name/0 signature
+// with the extension receiver ("@Recv") and the explicitly declared type
+// (":Type"), so changing a public property's type or nullability changes the
+// structural fingerprint instead of looking like a body-only edit.
+//
+// Properties whose type is inferred from the initializer (`val x = 0`) get no
+// type suffix on purpose: the initializer is body-like, and the inferred type
+// cannot be known without type resolution. Their signature is unchanged from
+// before, so an initializer edit stays a non-structural change.
+func propertySymbolSignature(owner, name string, file *File, idx uint32) string {
+	sig := symbolSignature(owner, name, 0)
+	receiver, declared := KotlinPropertyDeclaredTypes(file, idx)
+	if receiver == "" && declared == "" {
+		return sig
+	}
+	if receiver != "" {
+		sig += "@" + receiver
+	}
+	if declared != "" {
+		sig += ":" + declared
+	}
+	return internString(sig)
 }
 
 func collectReferencesFlat(file *File, refs *[]Reference) {

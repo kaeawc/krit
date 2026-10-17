@@ -3,6 +3,8 @@ package scan
 import (
 	"flag"
 	"runtime"
+
+	"github.com/kaeawc/krit/internal/gradlemodel"
 )
 
 // scanFlags bundles every CLI flag the scan default verb declares.
@@ -67,6 +69,9 @@ type scanFlags struct {
 	modelSourceDirs          []string
 	modelGeneratedSourceDirs []string
 	modelJvmTarget           string
+	// modelKotlin is the effective Kotlin compiler settings of the Gradle model
+	// (zero when there is no model: the embedded compiler defaults apply).
+	modelKotlin              gradlemodel.KotlinSettings
 	firPreflightPassed       bool
 	NoCrossFileCache         *bool
 	CustomRuleJars           *string

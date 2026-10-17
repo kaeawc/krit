@@ -36,6 +36,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,12 +69,19 @@ func init() {
 const (
 	packMagic       uint32 = 0x4b50414b // "KPAK"
 	packVersion     uint16 = 1
-	packSubdir             = "packs-v1"
 	packBucketBits         = 256
 	packHeaderFixed        = 4 + 2 + 4     // magic + version + entryCount
 	packEntryFixed         = 2 + 8 + 8 + 4 // keyLen + offset + length + crc32
 	packExt                = ".pack"
 )
+
+// packDirPrefix prefixes every shard pack directory under the cross-file
+// cache dir. The directory name carries crossFileShardVersion so a shard
+// version bump starts a fresh generation and the previous one can be swept.
+const packDirPrefix = "packs-v"
+
+// packSubdir is the pack directory name for the current shard version.
+var packSubdir = packDirPrefix + strconv.Itoa(crossFileShardVersion)
 
 // errPackCorrupt is returned when a pack header fails to parse. The
 // caller treats this as "pack missing" and lets the scanner rebuild.
@@ -555,7 +564,33 @@ func (ps *packStore) sweepLegacyShardsDir() {
 	ps.legacySweep.Do(func() {
 		legacy := filepath.Join(ps.cacheDir, legacyShardsSubdir)
 		_ = os.RemoveAll(legacy)
+		sweepStalePackDirs(ps.cacheDir)
 	})
+}
+
+// sweepStalePackDirs removes pack directories from older shard versions
+// (packs-v<N> with N below the current version). Nothing else evicts
+// shards, so without this every shard-version bump would leave a dead
+// generation behind. Best-effort like the legacy sweep: an older krit running
+// concurrently just recreates its own directory on its next write.
+func sweepStalePackDirs(cacheDir string) {
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !e.IsDir() || name == packSubdir || !strings.HasPrefix(name, packDirPrefix) {
+			continue
+		}
+		// Only older generations: a newer krit's dir must survive so
+		// alternating builds do not delete each other's cache.
+		n, err := strconv.Atoi(strings.TrimPrefix(name, packDirPrefix))
+		if err != nil || n >= crossFileShardVersion {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(cacheDir, name))
+	}
 }
 
 // encodeShardBlob / decodeShardBlob centralize the columnar+zstd

@@ -276,7 +276,7 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	if filesListPath != "" {
 		args = append(args, "--files", filesListPath)
 	}
-	args = append(args, compileContextArgs(opts)...)
+	args = append(args, compileContextArgs(jarPath, opts)...)
 	rider, riderArgs, err := startCheckRider(opts)
 	if err != nil {
 		return "", err
@@ -338,8 +338,9 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 }
 
 // compileContextArgs returns the one-shot arguments that set the compile
-// context: the configured classpath and, for krit-fir, the JVM target.
-func compileContextArgs(opts InvocationOptions) []string {
+// context: the configured classpath, the JVM target (krit-fir) and the
+// project's Kotlin compiler settings (both backends).
+func compileContextArgs(jarPath string, opts InvocationOptions) []string {
 	var args []string
 	if len(opts.Classpath) > 0 {
 		// Both backends parse `--classpath <joined>` as the user-
@@ -351,6 +352,9 @@ func compileContextArgs(opts InvocationOptions) []string {
 	if opts.Backend == BackendFIR && opts.JvmTarget != "" {
 		args = append(args, "--jvm-target", opts.JvmTarget)
 	}
+	// Each setting is its own flag so values never need quoting; both
+	// helpers re-filter them through their own allowlist.
+	args = append(args, KotlinLaunchArgs(jarPath, opts.Kotlin)...)
 	return args
 }
 
@@ -456,7 +460,7 @@ func runOracleProcessMeasured(
 // krit-types daemon process. The caller is responsible for calling Close() on
 // the returned Daemon. Missing jars are auto-downloaded for tagged releases;
 // see EnsureJar.
-func InvokeDaemon(scanPaths []string, verbose bool) (*Daemon, error) {
+func InvokeDaemon(scanPaths []string, verbose bool, opts ...DaemonOption) (*Daemon, error) {
 	jarPath, err := EnsureJar(context.Background(), scanPaths, verbose)
 	if err != nil {
 		return nil, err
@@ -471,7 +475,7 @@ func InvokeDaemon(scanPaths []string, verbose bool) (*Daemon, error) {
 		reporter().Verbosef("verbose: Found %d source directories for daemon\n", len(sourceDirs))
 	}
 
-	return StartDaemon(jarPath, sourceDirs, nil, verbose)
+	return StartDaemon(jarPath, sourceDirs, nil, verbose, opts...)
 }
 
 // InvokePersistentDaemon finds the JAR and source directories, then either

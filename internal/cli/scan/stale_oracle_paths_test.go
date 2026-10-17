@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -50,6 +51,63 @@ func TestFilterGeneratedPathStrings_DropsGeneratedKotlin(t *testing.T) {
 		if strings.Contains(filepath.ToSlash(p), "/generated/") {
 			t.Errorf("filter retained generated path: %q", p)
 		}
+	}
+}
+
+// With Kotlin settings, InvokeCached writes the per-file entries to the
+// settings-scoped legacy directory. The freshness gate must read that same
+// directory: reading the unscoped one found no entries, seeded every file as
+// unresolved and forced a full re-analysis on every incremental run.
+func TestComputeStaleOraclePaths_ReadsTheRunsSettingsScopedEntries(t *testing.T) {
+	dir := t.TempDir()
+	dependency := filepath.Join(dir, "Dependency.kt")
+	caller := filepath.Join(dir, "Caller.kt")
+	unrelated := filepath.Join(dir, "Unrelated.kt")
+	for path, body := range map[string]string{
+		dependency: "package demo\nfun dependency() = 1\n",
+		caller:     "package demo\nfun caller() = dependency()\n",
+		unrelated:  "package demo\nfun unrelated() = 3\n",
+	} {
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cacheDir, err := oracle.CacheDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kt := gradlemodel.KotlinSettings{LanguageVersion: "2.1", APIVersion: "2.1"}
+	data := &oracle.Data{Version: 1, Files: map[string]*oracle.File{dependency: {}, caller: {}, unrelated: {}}}
+	deps := &oracle.CacheDepsFile{Version: 1, Files: map[string]*oracle.CacheDepsEntry{
+		dependency: {}, caller: {DepPaths: []string{dependency}}, unrelated: {},
+	}}
+	if _, err := oracle.WriteFreshEntries(oracle.LegacyEntryDir(cacheDir, kt), data, deps); err != nil {
+		t.Fatal(err)
+	}
+	typesPath := oracle.CachePath([]string{dir})
+	if err := os.MkdirAll(filepath.Dir(typesPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(data)
+	if err := os.WriteFile(typesPath, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := scanner.FindingsBundleManifest{ContentHashes: map[string]string{}, FileStats: map[string]scanner.FileStat{}}
+	for _, path := range []string{dependency, caller, unrelated} {
+		hash, _ := oracle.ContentHash(path)
+		stat, _ := scanner.StatFile(path)
+		manifest.ContentHashes[path], manifest.FileStats[path] = hash, stat
+	}
+	if err := scanner.SaveFindingsBundleManifest(dir, scanner.FindingsBundleManifestKey(dir, []string{dir}), manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dependency, []byte("package demo\nfun dependency() = null\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	all := []string{caller, dependency, unrelated}
+	got := computeStaleOraclePathsWithStore([]string{dir}, all, true, nil, false, nil, oracle.ExpansionScope{Kotlin: kt})
+	if want := []string{caller, dependency}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("stale = %v, want only the changed file and its dependent %v", got, want)
 	}
 }
 

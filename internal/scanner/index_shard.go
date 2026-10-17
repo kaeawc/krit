@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -96,7 +97,10 @@ func (crossFileShardsRegistered) Stats() cacheutil.CacheStats {
 // plus static/final flags for Java declarations.
 // v8: normalized Kotlin annotations change declaration flags and references
 // for unchanged content, so pre-fix shards must be rebuilt.
-const crossFileShardVersion = 8
+// v9: Kotlin property signatures carry the declared type and receiver. The
+// version is now mixed into shardKey, so a bump makes every older shard an
+// unreachable key (a miss) instead of being reloaded and re-stamped.
+const crossFileShardVersion = 9
 
 // Per-shard bloom sizing. Every shard's bloom uses these exact
 // (m, k) parameters so they can be unioned with BloomFilter.Merge,
@@ -138,8 +142,12 @@ type fileShard struct {
 // collisions; keying on path alone would require a separate "is the
 // content still the same?" check. Combining both keeps the hit check
 // purely structural.
+//
+// crossFileShardVersion is part of the identity: the stamped Version is not
+// checked on load, so without it a payload-shape or semantics bump would keep
+// serving (and re-saving) stale shards for unchanged files.
 func shardKey(path, contentHash string) string {
-	return hashutil.HashHex([]byte(path + "\x00" + contentHash))
+	return hashutil.HashHex([]byte(strconv.Itoa(crossFileShardVersion) + "\x00" + path + "\x00" + contentHash))
 }
 
 // newShardBloom returns a fresh empty bloom sized for union. Every

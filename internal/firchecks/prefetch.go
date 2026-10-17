@@ -49,14 +49,14 @@ func NewPrefetch(opts PassOptions) *Prefetch {
 }
 
 // Rider returns the rider for an oracle compilation of jarPath over
-// sourceDirs and classpath for jvmTarget, or nil when that is not the
+// sourceDirs and classpath for target, or nil when that is not the
 // checker's own compile context.
-func (p *Prefetch) Rider(jarPath string, sourceDirs, classpath []string, jvmTarget string) *oracle.CheckRider {
+func (p *Prefetch) Rider(jarPath string, sourceDirs, classpath []string, target CompileTarget) *oracle.CheckRider {
 	if p == nil {
 		return nil
 	}
 	c := p.checker
-	if jarPath != c.JarPath || jvmTarget != c.JvmTarget || !sameAbsolutePaths(sourceDirs, c.SourceDirs) || !sameAbsolutePaths(classpath, c.Classpath) {
+	if jarPath != c.JarPath || !sameCompileTarget(target, c.CompileTarget()) || !sameAbsolutePaths(sourceDirs, c.SourceDirs) || !sameAbsolutePaths(classpath, c.Classpath) {
 		return nil
 	}
 	return &oracle.CheckRider{Prepare: p.prepare}
@@ -76,7 +76,7 @@ func (p *Prefetch) prepare() ([]byte, func([]byte)) {
 		refs[i] = fileRef{Path: path}
 		files[path] = true
 	}
-	request, spelling, err := encodeCheckRequest(prefetchRequestID, refs, c.SourceDirs, c.Classpath, plan.rules, plan.configs, plan.facts, c.JvmTarget)
+	request, spelling, err := encodeCheckRequest(prefetchRequestID, refs, c.SourceDirs, c.Classpath, plan.rules, plan.configs, plan.facts, c.CompileTarget())
 	if err != nil {
 		return nil, nil
 	}
@@ -103,7 +103,7 @@ func (p *Prefetch) prepare() ([]byte, func([]byte)) {
 
 // response returns the prefetched response when a check of files with these
 // inputs would compile exactly what the prefetched one did.
-func (p *Prefetch) response(jarPath, jvmTarget string, files, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, facts FileFacts) (*CheckResponse, bool) {
+func (p *Prefetch) response(jarPath string, target CompileTarget, files, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, facts FileFacts) (*CheckResponse, bool) {
 	if p == nil {
 		return nil, false
 	}
@@ -111,7 +111,7 @@ func (p *Prefetch) response(jarPath, jvmTarget string, files, sourceDirs, classp
 	resp, plan, planned, configs, compilation := p.resp, p.plan, p.files, p.configs, p.compilation
 	p.mu.Unlock()
 	c := p.checker
-	if resp == nil || jarPath != c.JarPath || jvmTarget != c.JvmTarget ||
+	if resp == nil || jarPath != c.JarPath || !sameCompileTarget(target, c.CompileTarget()) ||
 		!sameAbsolutePaths(sourceDirs, c.SourceDirs) || !sameAbsolutePaths(classpath, c.Classpath) ||
 		!sameRuleSet(rules, plan.rules) || configsKey(ruleConfigs) != configs {
 		return nil, false

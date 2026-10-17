@@ -3,8 +3,19 @@ package oracle
 import (
 	"sort"
 
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/store"
 )
+
+// ExpansionScope is the compile scope of the run whose cached entries
+// ExpandStaleOraclePaths reads: the same Kotlin settings, classpath and JVM
+// target the oracle invocation was keyed on. The zero value is a run without
+// any of them.
+type ExpansionScope struct {
+	Kotlin    gradlemodel.KotlinSettings
+	Classpath []string
+	JvmTarget string
+}
 
 // ExpandStaleOraclePaths returns changed plus every cached file whose stored
 // dependency closure contains a changed path. It builds a reverse index from
@@ -18,13 +29,21 @@ import (
 // fresh facts. Skipping it would silently leave a dependent of a changed file
 // unanalyzed, keeping its stale facts in types.json. Directly changed paths
 // always remain in the result.
-func ExpandStaleOraclePaths(s *store.FileStore, cacheDir string, allPaths, changed []string) []string {
+func ExpandStaleOraclePaths(s *store.FileStore, cacheDir string, allPaths, changed []string, runScope ...ExpansionScope) []string {
+	var es ExpansionScope
+	if len(runScope) > 0 {
+		es = runScope[0]
+	}
+	// Read exactly what InvokeCached wrote: the legacy entries live in the
+	// directory for the run's Kotlin settings, and store entries under the scope
+	// (jar, classpath, JVM target, settings) the run was bound to.
+	legacyDir := LegacyEntryDir(cacheDir, es.Kotlin)
 	var scopes map[string]StoreScope
 	if s != nil {
 		scanPaths := storeScanPaths(cacheDir, "")
 		scopes = map[string]StoreScope{
-			ApproximationFIRWholeCompilation: NewStoreScope(BackendFIR, FindBackendJar(BackendFIR, scanPaths)),
-			ApproximationKAATaggedReferences: NewStoreScope(BackendKAA, FindBackendJar(BackendKAA, scanPaths)),
+			ApproximationFIRWholeCompilation: NewStoreScopeWithSettings(BackendFIR, FindBackendJar(BackendFIR, scanPaths), es.Classpath, es.JvmTarget, es.Kotlin),
+			ApproximationKAATaggedReferences: NewStoreScopeWithSettings(BackendKAA, FindBackendJar(BackendKAA, scanPaths), es.Classpath, es.JvmTarget, es.Kotlin),
 		}
 	}
 	paths := append([]string(nil), allPaths...)
@@ -54,7 +73,7 @@ func ExpandStaleOraclePaths(s *store.FileStore, cacheDir string, allPaths, chang
 				}
 			}
 		} else {
-			entry, loadErr := LoadEntry(cacheDir, hash)
+			entry, loadErr := LoadEntry(legacyDir, hash)
 			err = loadErr
 			if entry != nil {
 				entries = append(entries, entry)

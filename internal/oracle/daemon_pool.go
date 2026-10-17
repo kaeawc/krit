@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/perf"
 )
 
@@ -48,7 +49,8 @@ func shouldUseDaemonPool(misses int, poolSize int) bool {
 // ConnectOrStartDaemonPool connects or starts each requested pool slot. It is
 // deliberately separate from ConnectOrStartDaemon so the default path keeps
 // exactly one daemon and the old PID-file layout.
-func ConnectOrStartDaemonPool(jarPath string, sourceDirs []string, classpath []string, size int, verbose bool) (*DaemonPool, error) {
+func ConnectOrStartDaemonPool(jarPath string, sourceDirs []string, classpath []string, size int, verbose bool, opts ...DaemonOption) (*DaemonPool, error) {
+	kt := resolveDaemonOptions(opts).kotlin
 	if size < 1 {
 		size = 1
 	}
@@ -56,7 +58,7 @@ func ConnectOrStartDaemonPool(jarPath string, sourceDirs []string, classpath []s
 	connected := make([]*Daemon, size)
 	allConnected := true
 	for slot := 0; slot < size; slot++ {
-		d, err := connectExistingDaemonSlot(jarPath, sourceDirs, verbose, slot, classpath...)
+		d, err := connectExistingDaemonSlotKT(jarPath, sourceDirs, kt, verbose, slot, classpath...)
 		if err != nil {
 			allConnected = false
 			continue
@@ -64,7 +66,7 @@ func ConnectOrStartDaemonPool(jarPath string, sourceDirs []string, classpath []s
 		connected[slot] = d
 	}
 	if !allConnected {
-		retireSupersededDaemons(jarPath, sourceDirs, classpath, verbose)
+		retireSupersededDaemonsKT(jarPath, sourceDirs, kt, classpath, verbose)
 	}
 	for slot := 0; slot < size; slot++ {
 		if d := connected[slot]; d != nil {
@@ -73,8 +75,8 @@ func ConnectOrStartDaemonPool(jarPath string, sourceDirs []string, classpath []s
 			continue
 		}
 
-		cleanStaleDaemonSlot(jarPath, sourceDirs, verbose, slot, classpath...)
-		d, err := StartDaemonWithPortSlot(jarPath, sourceDirs, classpath, verbose, slot)
+		cleanStaleDaemonSlotKT(jarPath, sourceDirs, kt, verbose, slot, classpath...)
+		d, err := StartDaemonWithPortSlot(jarPath, sourceDirs, classpath, verbose, slot, WithKotlinSettings(kt))
 		if err != nil {
 			_ = pool.Release()
 			for _, pending := range connected[slot+1:] {
@@ -112,6 +114,20 @@ func (p *DaemonPool) MatchesRepo(jarPath string, sourceDirs []string, classpath 
 	}
 	for _, d := range p.Members {
 		if d == nil || !d.MatchesRepo(jarPath, sourceDirs, classpath...) {
+			return false
+		}
+	}
+	return true
+}
+
+// MatchesRepoSettings is MatchesRepo for a caller running under the given
+// Kotlin settings: every member must have been launched with exactly those.
+func (p *DaemonPool) MatchesRepoSettings(jarPath string, sourceDirs []string, kt gradlemodel.KotlinSettings, classpath ...string) bool {
+	if p == nil || len(p.Members) == 0 {
+		return false
+	}
+	for _, d := range p.Members {
+		if d == nil || !d.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...) {
 			return false
 		}
 	}

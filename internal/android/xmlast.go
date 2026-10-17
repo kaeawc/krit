@@ -8,15 +8,18 @@ import (
 
 	sitter "github.com/smacker/go-tree-sitter"
 
+	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/tsxml"
 )
 
+func newXMLParser() *sitter.Parser {
+	parser := sitter.NewParser()
+	parser.SetLanguage(tsxml.GetLanguage())
+	return parser
+}
+
 var xmlParserPool = sync.Pool{
-	New: func() any {
-		parser := sitter.NewParser()
-		parser.SetLanguage(tsxml.GetLanguage())
-		return parser
-	},
+	New: func() any { return newXMLParser() },
 }
 
 // XMLAttribute is a position-aware XML attribute.
@@ -76,9 +79,10 @@ func ParseXMLAST(ctx context.Context, data []byte) (*XMLNode, error) {
 	}
 
 	parser := xmlParserPool.Get().(*sitter.Parser)
-	defer xmlParserPool.Put(parser)
-
-	tree, err := parser.ParseCtx(ctx, nil, data)
+	tree, reusable, err := scanner.ParseCtxPooled(ctx, parser, newXMLParser, data)
+	if reusable != nil {
+		defer xmlParserPool.Put(reusable)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("parse xml: %w", err)
 	}

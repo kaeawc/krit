@@ -17,6 +17,7 @@ import (
 // over those lists, so nothing downstream notices the file is missing. Found by
 // the warm-versus-clean mutation matrix (tests/parity, #786).
 func TestAnalyzeProject_AddedFileIsSeenByWarmCall(t *testing.T) {
+	isolateFromHelperJars(t)
 	socket, state := startServerForTest(t)
 	writeKotlinFile(t, state.root, "A.kt", "package demo\n\nclass A {\n    fun a() {}\n}\n")
 	call := func() (r daemon.AnalyzeProjectResult) {
@@ -42,6 +43,7 @@ func TestAnalyzeProject_AddedFileIsSeenByWarmCall(t *testing.T) {
 // the project changed while no daemon ran) must see it too: its first call
 // used to take the path lists from the on-disk manifest of the previous daemon.
 func TestAnalyzeProject_FileAddedWhileDaemonWasDownIsSeen(t *testing.T) {
+	isolateFromHelperJars(t)
 	root := t.TempDir()
 	writeKotlinFile(t, root, "A.kt", "package demo\n\nclass A {\n    fun a() {}\n}\n")
 
@@ -120,6 +122,7 @@ func TestDropStalePrepopulatedPaths(t *testing.T) {
 // watcher reports one event for the directory (and none for its files), and
 // the next analyze has to notice that the source set shrank.
 func TestAnalyzeProject_DirectoryMovedOutIsForgotten(t *testing.T) {
+	isolateFromHelperJars(t)
 	socket, state := startServerForTest(t)
 	writeKotlinFile(t, state.root, "A.kt", "package demo\n\nclass A {\n    fun a() {}\n}\n")
 	sub := filepath.Join(state.root, "sub")
@@ -172,4 +175,14 @@ func TestSourceSetMayHaveChanged_CwdRelativeManifestKeys(t *testing.T) {
 	if sourceSetMayHaveChanged([]string{filepath.Join(parent, "lib", "other")}, manifest, []string{"../lib"}) {
 		t.Fatal("a vanished path with no known sources beneath it must not count")
 	}
+}
+
+// isolateFromHelperJars keeps a daemon test off any krit-types or krit-fir jar
+// installed on the machine: with one present the daemon would connect to (or
+// start) a real oracle JVM instead of running the structural pipeline alone.
+func isolateFromHelperJars(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("KRIT_TYPES_JAR", "")
+	t.Setenv("KRIT_FIR_JAR", "")
 }

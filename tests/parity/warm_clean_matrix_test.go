@@ -502,42 +502,16 @@ func wcBuildKnownStale() map[string]string {
 			add(prefix+"/"+spelling+"/"+mutation, why)
 		}
 	}
-	// The structural bundle replay (#154) serves the previous run's findings,
-	// the edited file's own included, whenever a single file's structural
-	// fingerprint is unchanged. A body edit that adds a finding therefore
-	// leaves the warm result without it.
-	for _, path := range []string{"cli", "daemon"} {
-		both("structural/"+path, "body-edit-adds-finding", "#823 STALE-BUNDLE-BODY-EDIT: structural bundle replay (dispatchStableBundleLoad) keeps the edited file's old findings")
-		// The structural fingerprint (and `krit abi-hash`) ignores a
-		// property's declared type, so the same replay fires for a public API
-		// change.
-		both("structural/"+path, "nullability", "#824 ABI-HASH-PROPERTY-TYPE: property type changes do not move the structural fingerprint, so the stale bundle replay fires")
-	}
 	// An analyze that arrives before the watcher has delivered an edit is
 	// served the old findings, and so is every later one: the daemon stays
 	// stale until the next edit.
 	both("structural/daemon", "annotation-deprecated-raced", "#832 DAEMON-RACED-ANALYZE: an analyze-project call racing the watcher event leaves the daemon serving the pre-edit findings after the event lands")
-	// Deleting a file leaves its cross-file findings in the cross-file
-	// findings cache of the one-shot CLI.
-	both("structural/cli", "file-delete", "#825 STALE-CROSSFILE-DELETE: findings of a deleted file survive in the cross-file caches of the one-shot CLI")
 	// krit-types records dependencies only for classes and resolved callables
 	// the file already used, so a new file that adds an overload, or a
 	// classpath jar, leaves cached facts for existing files in place.
 	for _, mode := range []string{"one-shot", "daemon"} {
 		both("kaa/"+mode, "file-add", "#826 KAA-NEWFILE-OVERLOAD: a new file adding an overload does not invalidate cached facts of files that call the name")
 		both("kaa/"+mode, "classpath-change", "#827 KAA-CLASSPATH-KEY: the krit-types cache key does not include the classpath (krit-fir's does)")
-	}
-	// A one-shot oracle run over a relative scan root (`krit .`) returns no
-	// facts (krit-types) or serves a cache that drops files (krit-fir). Every
-	// relative one-shot row stays known-bad while that is open.
-	relRoot := map[string]string{
-		"kaa": "#828 REL-ROOT-NO-FACTS: a one-shot krit-types run over a relative scan root analyzes 0 files and caches empty entries",
-		"fir": "#829 REL-ROOT-FIR-CACHE: a cache-served krit-fir run over a relative scan root drops files / returns relative keys",
-	}
-	for backend, why := range relRoot {
-		for _, m := range []string{"return-type", "file-add", "file-rename", "import-change"} {
-			add(backend+"/one-shot/rel/"+m, why)
-		}
 	}
 	return known
 }

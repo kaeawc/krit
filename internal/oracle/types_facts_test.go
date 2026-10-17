@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/kaeawc/krit/internal/gradlemodel"
 )
 
 func TestTypesJSONHasDiagnostics(t *testing.T) {
@@ -64,5 +66,33 @@ func TestTypesJSONSatisfiesBuildAndBackend(t *testing.T) {
 	}
 	if TypesJSONSatisfies(path, true, storeScopeForToken(BackendKAA, "jar-x"), rec.BuildToken) {
 		t.Fatal("different backend reused types.json")
+	}
+}
+
+// A settings-only change (same sources, jar, classpath) must not reuse a
+// types.json computed under other Kotlin compiler settings or JVM target.
+func TestTypesJSONSatisfiesRejectsSettingsOnlyChange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "types.json")
+	if err := os.WriteFile(path, []byte(`{"version":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	v20 := NewStoreScopeWithSettings(BackendFIR, "", nil, "17", gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"})
+	v22 := NewStoreScopeWithSettings(BackendFIR, "", nil, "17", gradlemodel.KotlinSettings{LanguageVersion: "2.2", APIVersion: "2.2"})
+	if err := RecordTypesFacts(path, false, v20); err != nil {
+		t.Fatal(err)
+	}
+	rec, _ := readTypesFacts(path)
+	if !TypesJSONSatisfies(path, false, v20, rec.BuildToken) {
+		t.Fatal("same settings must reuse")
+	}
+	if TypesJSONSatisfies(path, false, v22, rec.BuildToken) {
+		t.Fatal("settings-only change reused a stale types.json")
+	}
+	other := NewStoreScopeWithSettings(BackendFIR, "", nil, "21", gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"})
+	if TypesJSONSatisfies(path, false, other, rec.BuildToken) {
+		t.Fatal("JVM target change reused types.json")
+	}
+	if TypesJSONSatisfies(path, false, NewStoreScopeWithSettings(BackendFIR, "", nil, "", gradlemodel.KotlinSettings{}), rec.BuildToken) {
+		t.Fatal("no-settings scope matched a settings record")
 	}
 }

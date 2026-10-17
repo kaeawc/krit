@@ -64,8 +64,8 @@ type FirDaemon struct {
 	sourcesHash string
 	// role separates the checker daemon from the oracle-backend daemon; see
 	// firCheckRole.
-	role      string
-	jvmTarget string
+	role   string
+	target CompileTarget
 }
 
 // MatchesRepo returns true if this daemon uses the current jar, sourceDirs,
@@ -74,7 +74,7 @@ func (d *FirDaemon) MatchesRepo(jarPath string, sourceDirs []string, classpath .
 	if d.sourcesHash == "" {
 		return false
 	}
-	return d.sourcesHash == firRegistryKeyFor(d.role, jarPath, sourceDirs, classpath, d.jvmTarget)
+	return d.sourcesHash == firRegistryKeyFor(d.role, jarPath, sourceDirs, classpath, d.target)
 }
 
 // firDaemonRequest is the JSON shape sent to the krit-fir daemon.
@@ -85,7 +85,12 @@ type firDaemonRequest struct {
 	SourceDirs []string  `json:"sourceDirs,omitempty"`
 	Classpath  []string  `json:"classpath,omitempty"`
 	JvmTarget  string    `json:"jvmTarget,omitempty"`
-	Rules      []string  `json:"rules,omitempty"`
+	// KotlinArgs are the project's effective Kotlin compiler settings as
+	// compiler arguments (-language-version=2.0, -opt-in=x, -Xfoo). krit-fir
+	// re-filters them through its own allowlist; an empty list leaves the
+	// embedded compiler's defaults in force.
+	KotlinArgs []string `json:"kotlinArgs,omitempty"`
+	Rules      []string `json:"rules,omitempty"`
 	// TestFiles is the subset of Files (spelled exactly as in Files) that
 	// krit classifies as test sources (scanner.IsTestFile, honoring the
 	// configured test paths); checkers read it through FirRule.isTestFile.
@@ -181,24 +186,25 @@ func daemonRequestTimeout() time.Duration {
 // daemon runs in oracle.DaemonWorkDir: it may outlive this invocation and
 // serve krit runs from other directories, so every path it is sent is
 // absolute (see Check) and nothing may resolve against its working directory.
-func StartFirDaemonWithPort(jarPath string, verbose bool, jvmTarget ...string) (*FirDaemon, error) {
+func StartFirDaemonWithPort(jarPath string, verbose bool, target ...CompileTarget) (*FirDaemon, error) {
 	// A valid Leyden cache can restore FIR with registered checkers that emit
 	// zero findings (#768). The cause is not found, so launch FIR without AOT
 	// for both one-shot and shared daemons. checkFirWithRecovery's canary
 	// (aot_canary.go) is the guard to rely on when this is re-enabled.
-	return startFirDaemonWithAOT(jarPath, verbose, false, jvmTarget...)
+	return startFirDaemonWithAOT(jarPath, verbose, false, target...)
 }
 
-func startFirDaemonWithAOT(jarPath string, verbose, allowAOT bool, jvmTarget ...string) (*FirDaemon, error) {
+func startFirDaemonWithAOT(jarPath string, verbose, allowAOT bool, target ...CompileTarget) (*FirDaemon, error) {
 	javaPath, err := oracle.JavaPath()
 	if err != nil {
 		return nil, fmt.Errorf("java not found in PATH: %w", err)
 	}
 
 	args := buildFirJVMArgsWithAOT(jarPath, javaPath, oracle.CachedJDKMajorVersion(), verbose, allowAOT)
-	if len(jvmTarget) > 0 && jvmTarget[0] != "" {
-		args = append(args, "--jvm-target", jvmTarget[0])
+	if t := firstTarget(target); t.JvmTarget != "" {
+		args = append(args, "--jvm-target", t.JvmTarget)
 	}
+	args = append(args, oracle.KotlinLaunchArgs(jarPath, firstTarget(target).Kotlin)...)
 	args = oracle.EphemeralDaemonArgs(args...)
 
 	if verbose {
@@ -353,24 +359,21 @@ const firCheckRole = "check"
 
 // ConnectOrStartFirDaemon tries to reuse an existing daemon for the given
 // sourceDirs and classpath (via PID file), or starts a new one.
-func ConnectOrStartFirDaemon(jarPath string, sourceDirs, classpath []string, verbose bool, jvmTarget ...string) (*FirDaemon, error) {
-	return connectOrStartFirDaemon("", jarPath, sourceDirs, classpath, verbose, jvmTarget...)
+func ConnectOrStartFirDaemon(jarPath string, sourceDirs, classpath []string, verbose bool, target ...CompileTarget) (*FirDaemon, error) {
+	return connectOrStartFirDaemon("", jarPath, sourceDirs, classpath, verbose, target...)
 }
 
-func connectOrStartFirCheckDaemon(jarPath string, sourceDirs, classpath []string, verbose bool, jvmTarget ...string) (*FirDaemon, error) {
-	return connectOrStartFirDaemon(firCheckRole, jarPath, sourceDirs, classpath, verbose, jvmTarget...)
+func connectOrStartFirCheckDaemon(jarPath string, sourceDirs, classpath []string, verbose bool, target ...CompileTarget) (*FirDaemon, error) {
+	return connectOrStartFirDaemon(firCheckRole, jarPath, sourceDirs, classpath, verbose, target...)
 }
 
-func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []string, verbose bool, jvmTarget ...string) (*FirDaemon, error) {
+func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []string, verbose bool, target ...CompileTarget) (*FirDaemon, error) {
 	// Capture the jar identity once, before any JVM opens the jar. If the jar
 	// is replaced while a new daemon starts, it stays registered under the
 	// identity observed first, so the next caller restarts it instead of
 	// trusting a daemon that may be running the old artifact.
-	target := ""
-	if len(jvmTarget) > 0 {
-		target = jvmTarget[0]
-	}
-	srcHash := firRegistryKeyFor(role, jarPath, sourceDirs, classpath, target)
+	compile := firstTarget(target)
+	srcHash := firRegistryKeyFor(role, jarPath, sourceDirs, classpath, compile)
 	// rejected is the PID of the record this call decided against. The stop
 	// below re-validates it under the registry lock, so a record another
 	// process published in the meantime is never killed.
@@ -378,7 +381,7 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 	if d, err := connectExistingFirDaemon(srcHash, verbose); err == nil {
 		if d.aotVerified {
 			d.role = role
-			d.jvmTarget = target
+			d.target = compile
 			return d, nil
 		}
 		// An AOT-backed daemon whose canary never passed may be serving
@@ -386,17 +389,17 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 		_ = d.conn.Close()
 		rejected = d.aotPID
 	}
-	retireSupersededFirDaemons(firRegistryFamilyPrefix(role, jarPath, sourceDirs, classpath, target), sourceDirs, srcHash, len(classpath) > 0, verbose)
+	retireSupersededFirDaemons(firRegistryFamilyPrefix(role, jarPath, sourceDirs, classpath, compile), sourceDirs, srcHash, len(classpath) > 0, verbose)
 	if rejected != 0 {
 		stopFirDaemonIf(srcHash, rejected, verbose)
 	}
-	d, err := StartFirDaemonWithPort(jarPath, verbose, target)
+	d, err := StartFirDaemonWithPort(jarPath, verbose, compile)
 	if err != nil {
 		return nil, fmt.Errorf("start persistent fir daemon: %w", err)
 	}
 	d.sourcesHash = srcHash
 	d.role = role
-	d.jvmTarget = target
+	d.target = compile
 	if err := publishFirDaemon(d, d.cmd.Process.Pid, srcHash, verbose); err != nil {
 		d.conn.Close()
 		killAndReap(d.cmd)
@@ -441,7 +444,7 @@ func absoluteKeys[V any](byPath map[string]V) map[string]V {
 }
 
 // Check sends a check request to the daemon and returns the response.
-func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, facts FileFacts, jvmTarget ...string) (*CheckResponse, error) {
+func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, facts FileFacts, target ...CompileTarget) (*CheckResponse, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -452,11 +455,11 @@ func (d *FirDaemon) Check(files []fileRef, sourceDirs, classpath, rules []string
 	id := d.nextID
 	d.nextID++
 
-	target := d.jvmTarget
-	if len(jvmTarget) > 0 {
-		target = jvmTarget[0]
+	compile := d.target
+	if len(target) > 0 {
+		compile = target[0]
 	}
-	data, spelling, err := encodeCheckRequest(id, files, sourceDirs, classpath, rules, ruleConfigs, facts, target)
+	data, spelling, err := encodeCheckRequest(id, files, sourceDirs, classpath, rules, ruleConfigs, facts, compile)
 	if err != nil {
 		return nil, err
 	}
@@ -535,7 +538,7 @@ func (d *FirDaemon) exchangeLocked(data []byte) (string, error) {
 // mapping back to the caller's spelling of each file. The daemon echoes
 // request paths back; they are sent absolute, and decodeCheckResponse
 // restores the caller's spelling, which Go indexes the response by.
-func encodeCheckRequest(id int64, files []fileRef, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, facts FileFacts, jvmTarget string) ([]byte, oracle.PathSpelling, error) {
+func encodeCheckRequest(id int64, files []fileRef, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, facts FileFacts, target CompileTarget) ([]byte, oracle.PathSpelling, error) {
 	requested, spelling := absoluteFileRefs(files)
 	req := firDaemonRequest{
 		ID:          id,
@@ -543,7 +546,8 @@ func encodeCheckRequest(id int64, files []fileRef, sourceDirs, classpath, rules 
 		Files:       requested,
 		SourceDirs:  oracle.AbsolutePaths(sourceDirs),
 		Classpath:   oracle.AbsolutePaths(classpath),
-		JvmTarget:   jvmTarget,
+		JvmTarget:   target.JvmTarget,
+		KotlinArgs:  target.kotlinArgs(),
 		Rules:       rules,
 		TestFiles:   oracle.AbsolutePaths(facts.TestFiles),
 		ScanPaths:   absoluteKeys(facts.ScanPaths),
@@ -1208,23 +1212,23 @@ func firRegistryKey(jarPath string, sourceDirs []string) string {
 // path, and jar identity, mirroring the oracle daemon key: a daemon started
 // for one classpath never answers for another, since its checker verdicts
 // would be computed against the wrong libraries.
-func firRegistryKeyFor(role, jarPath string, sourceDirs, classpath []string, jvmTarget ...string) string {
-	return firRegistryPrefix(role, jarPath, sourceDirs, classpath, jvmTarget...) + oracle.JarIdentity(jarPath)
+func firRegistryKeyFor(role, jarPath string, sourceDirs, classpath []string, target ...CompileTarget) string {
+	return firRegistryPrefix(role, jarPath, sourceDirs, classpath, target...) + oracle.JarIdentity(jarPath)
 }
 
-func firRegistryPrefix(role, jarPath string, sourceDirs, classpath []string, jvmTarget ...string) string {
-	key := firRegistryFamilyPrefix(role, jarPath, sourceDirs, classpath, jvmTarget...)
+func firRegistryPrefix(role, jarPath string, sourceDirs, classpath []string, target ...CompileTarget) string {
+	key := firRegistryFamilyPrefix(role, jarPath, sourceDirs, classpath, target...)
 	if len(classpath) > 0 {
 		key += "-" + gradlemodel.ClasspathFingerprint(oracle.AbsolutePaths(classpath))[:8]
 	}
 	return key + "@"
 }
 
-func firRegistryFamilyPrefix(role, jarPath string, sourceDirs, classpath []string, jvmTarget ...string) string {
+func firRegistryFamilyPrefix(role, jarPath string, sourceDirs, classpath []string, target ...CompileTarget) string {
 	key := hashFirSources(sourceDirs)
-	if len(jvmTarget) > 0 && jvmTarget[0] != "" {
-		key += "-jvm" + jvmTarget[0]
-	}
+	// The JVM target and the Kotlin settings both change what the compiler
+	// reports, so a daemon started for one never answers for another.
+	key += firstTarget(target).registrySuffix()
 	if len(classpath) > 0 {
 		// Order matters on a classpath, so hash it in the given order.
 		absolute := oracle.AbsolutePaths(classpath)

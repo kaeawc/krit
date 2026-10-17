@@ -473,6 +473,17 @@ func (r *runner) bootstrapResolver() {
 	})
 }
 
+// oracleExpansionScope is the compile scope the freshness gate must read the
+// oracle cache under: the same Kotlin settings, classpath and JVM target the
+// oracle run itself is keyed on.
+func (r *runner) oracleExpansionScope() oracle.ExpansionScope {
+	return oracle.ExpansionScope{
+		Kotlin:    r.f.modelKotlin,
+		Classpath: effectiveOracleClasspath(r.f.modelClasspath, r.cfg),
+		JvmTarget: r.f.modelJvmTarget,
+	}
+}
+
 // runOracleIndex executes the standalone IndexPhase invocation that
 // loads the type oracle and the incremental analysis cache. The phase
 // runs in oracle-only mode (SkipModules + SkipAndroid +
@@ -487,14 +498,15 @@ func (r *runner) runOracleIndex() (int, error) {
 	var err error
 	var preloadedCache *cache.Cache
 	r.tracker.TrackVoid("oracleIndex", func() {
-		staleOraclePaths := computeStaleOraclePathsWithStore(r.paths, r.files, *r.f.IncludeGenerated, r.tracker, *r.f.Verbose, r.oracleStore)
+		oracleClasspath := effectiveOracleClasspath(r.f.modelClasspath, r.cfg)
+		staleOraclePaths := computeStaleOraclePathsWithStore(r.paths, r.files, *r.f.IncludeGenerated, r.tracker, *r.f.Verbose, r.oracleStore,
+			r.oracleExpansionScope())
 		oracleBackend, oracleBackendErr := resolveOracleBackend(*r.f.OracleBackend, r.cfg)
 		if oracleBackendErr != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", oracleBackendErr)
 			err = oracleBackendErr
 			return
 		}
-		oracleClasspath := effectiveOracleClasspath(r.f.modelClasspath, r.cfg)
 		in := pipeline.IndexInput{
 			ParseResult:         pipeline.ParseResult{ActiveRules: r.activeRules},
 			Reporter:            r.reporter,
@@ -513,6 +525,7 @@ func (r *runner) runOracleIndex() (int, error) {
 			OracleClasspath:     oracleClasspath,
 			OracleSourceDirs:    r.f.modelSourceDirs,
 			OracleJvmTarget:     r.f.modelJvmTarget,
+			OracleKotlin:        r.f.modelKotlin,
 			FIRCheckRider:       r.firCheckRider(),
 			GeneratedSourceDirs: r.f.modelGeneratedSourceDirs,
 			IncludeGenerated:    *r.f.IncludeGenerated,
@@ -551,7 +564,7 @@ func (r *runner) runOracleIndex() (int, error) {
 	if len(parseCustomRuleJars(*r.f.CustomRuleJars)) > 0 && r.sess.OracleDaemon == nil {
 		var daemonErr error
 		r.tracker.TrackVoid("customRuleDaemonStart", func() {
-			r.sess.OracleDaemon, daemonErr = oracle.InvokeDaemon(r.paths, *r.f.Verbose)
+			r.sess.OracleDaemon, daemonErr = oracle.InvokeDaemon(r.paths, *r.f.Verbose, oracle.WithKotlinSettings(r.f.modelKotlin))
 		})
 		if daemonErr != nil {
 			fmt.Fprintf(os.Stderr, "error: custom-rule daemon: %v\n", daemonErr)
@@ -685,6 +698,7 @@ func (r *runner) productionFIRChecker() *firchecks.ProductionFirChecker {
 		checker.Classpath = effectiveOracleClasspath(r.f.modelClasspath, r.cfg)
 		checker.SourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(checker.SourceDirs, r.f.modelSourceDirs))
 		checker.JvmTarget = r.f.modelJvmTarget
+		checker.Kotlin = r.f.modelKotlin
 		r.firChecker = checker
 	}
 	return r.firChecker
@@ -693,14 +707,14 @@ func (r *runner) productionFIRChecker() *firchecks.ProductionFirChecker {
 // firCheckRider plans the --fir pass from the collected Kotlin paths before
 // parsing, so the krit-fir oracle compilation can run its check too and the
 // pass reuses that response (#739). Nil without --fir.
-func (r *runner) firCheckRider() func(jarPath string, sourceDirs, classpath []string, jvmTarget string) *oracle.CheckRider {
+func (r *runner) firCheckRider() func(jarPath string, sourceDirs, classpath []string, target firchecks.CompileTarget) *oracle.CheckRider {
 	prefetch := firchecks.NewPrefetch(r.firPassOptions(pipeline.ParseResult{KotlinPaths: r.files}))
 	if prefetch == nil {
 		return nil
 	}
 	r.productionFIRChecker().Prefetch = prefetch
-	return func(jarPath string, sourceDirs, classpath []string, jvmTarget string) *oracle.CheckRider {
-		rider := prefetch.Rider(jarPath, sourceDirs, classpath, jvmTarget)
+	return func(jarPath string, sourceDirs, classpath []string, target firchecks.CompileTarget) *oracle.CheckRider {
+		rider := prefetch.Rider(jarPath, sourceDirs, classpath, target)
 		if rider == nil && *r.f.Verbose {
 			fmt.Fprintf(os.Stderr, "verbose: fir check: the oracle compiles in another context; the pass compiles on its own\n")
 		}

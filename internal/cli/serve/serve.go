@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/pipeline"
@@ -531,13 +533,13 @@ func directoryWithKnownSourcesIsGone(p string, manifest map[string]string, scanR
 // tests can substitute a fake without spinning up a real daemon. The
 // production implementation is defaultOracleDaemonStarter.
 type oracleDaemonStarter interface {
-	Start(jarPath string, sourceDirs []string, classpath []string, verbose bool) (*oracle.Daemon, error)
+	Start(jarPath string, sourceDirs []string, classpath []string, verbose bool, opts ...oracle.DaemonOption) (*oracle.Daemon, error)
 }
 
 type defaultOracleDaemonStarter struct{}
 
-func (defaultOracleDaemonStarter) Start(jarPath string, sourceDirs, classpath []string, verbose bool) (*oracle.Daemon, error) {
-	return oracle.ConnectOrStartDaemon(jarPath, sourceDirs, classpath, verbose)
+func (defaultOracleDaemonStarter) Start(jarPath string, sourceDirs, classpath []string, verbose bool, opts ...oracle.DaemonOption) (*oracle.Daemon, error) {
+	return oracle.ConnectOrStartDaemon(jarPath, sourceDirs, classpath, verbose, opts...)
 }
 
 // oracleDaemonEntry caches a started Daemon plus the inputs it was
@@ -548,6 +550,9 @@ type oracleDaemonEntry struct {
 	jarPath     string
 	jarIdentity string
 	sourceDirs  []string
+	// kotlin is the compiler settings the daemon was launched with; a daemon
+	// for other settings would answer with other facts, so it is part of the key.
+	kotlin gradlemodel.KotlinSettings
 	// closeFn, when non-nil, replaces entry.daemon.Close() in
 	// closeOracleDaemons. Used by tests to inject a controllable
 	// close — production code leaves it nil.
@@ -571,9 +576,9 @@ func (e *oracleDaemonEntry) close() error {
 }
 
 // oracleJarForBackend picks the JVM jar the resident oracle daemon
-// runs. Empty / unknown backends route to KAA (the historical
-// default) so the caller can treat "" as "use the default" without
-// reproducing the routing logic. Returns "" when neither jar is
+// runs: krit-fir for BackendFIR (the default backend) and krit-types for
+// every other value, including "" and unknown backends, so the caller does not
+// reproduce the routing logic. Returns "" when neither jar is
 // installed; callers degrade to "oracle disabled".
 func oracleJarForBackend(scanPaths []string, backend oracle.Backend) string {
 	switch backend {
@@ -605,7 +610,11 @@ func oracleJarForBackend(scanPaths []string, backend oracle.Backend) string {
 // ProjectArgs.OracleEnabled when the daemon is non-nil, so type-aware
 // rules in the daemon get oracle precision without paying JVM startup
 // on every call.
-func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Backend) (*oracle.Daemon, error) {
+func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Backend, kotlin ...gradlemodel.KotlinSettings) (*oracle.Daemon, error) {
+	var kt gradlemodel.KotlinSettings
+	if len(kotlin) > 0 {
+		kt = kotlin[0]
+	}
 	jarPath := oracleJarForBackend(scanPaths, backend)
 	if jarPath == "" {
 		// Graceful disable: no jar means oracle isn't installed in
@@ -614,7 +623,7 @@ func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Back
 		return nil, nil
 	}
 	sourceDirs := oracle.FindSourceDirs(scanPaths)
-	key := jarPath + "\x00" + strings.Join(sourceDirs, "\x00")
+	key := jarPath + "\x00" + strings.Join(sourceDirs, "\x00") + "\x00" + kt.Identity()
 
 	s.oracleDaemonMu.Lock()
 	defer s.oracleDaemonMu.Unlock()
@@ -625,11 +634,22 @@ func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Back
 		_ = entry.close()
 		delete(s.oracleDaemonByKey, key)
 	}
-	d, err := s.oracleDaemonStarter.Start(jarPath, sourceDirs, nil, false)
+	d, err := s.oracleDaemonStarter.Start(jarPath, sourceDirs, nil, false, oracle.WithKotlinSettings(kt))
 	if err != nil {
 		return nil, fmt.Errorf("start oracle daemon: %w", err)
 	}
-	s.oracleDaemonByKey[key] = &oracleDaemonEntry{daemon: d, jarPath: jarPath, jarIdentity: oracle.JarIdentity(jarPath), sourceDirs: sourceDirs}
+	s.oracleDaemonByKey[key] = &oracleDaemonEntry{daemon: d, jarPath: jarPath, jarIdentity: oracle.JarIdentity(jarPath), sourceDirs: sourceDirs, kotlin: kt}
+	// A resident krit-types JVM costs 1-2 GB. A daemon for the same jar and source
+	// roots under other Kotlin settings can no longer be reached once the project's
+	// settings changed, so retire it instead of keeping one JVM per identity ever seen.
+	for otherKey, other := range s.oracleDaemonByKey {
+		if otherKey == key || other == nil || other.jarPath != jarPath || !slices.Equal(other.sourceDirs, sourceDirs) ||
+			other.kotlin.Identity() == kt.Identity() {
+			continue
+		}
+		_ = other.close()
+		delete(s.oracleDaemonByKey, otherKey)
+	}
 	return d, nil
 }
 
@@ -654,7 +674,7 @@ func (s *daemonState) pingOracleDaemon() {
 		// Failed ping → close and rebuild. Closing a dead daemon is
 		// best-effort; errors are intentionally ignored.
 		_ = entry.daemon.Close()
-		d, err := s.oracleDaemonStarter.Start(entry.jarPath, entry.sourceDirs, nil, false)
+		d, err := s.oracleDaemonStarter.Start(entry.jarPath, entry.sourceDirs, nil, false, oracle.WithKotlinSettings(entry.kotlin))
 		if err != nil {
 			// Drop the entry so the next ensureOracleDaemon retries.
 			delete(s.oracleDaemonByKey, key)

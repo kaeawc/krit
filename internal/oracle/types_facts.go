@@ -27,6 +27,10 @@ type typesFactsRecord struct {
 	JarToken           string `json:"jarToken"`
 	ClasspathToken     string `json:"classpathToken"`
 	BuildToken         string `json:"buildToken"`
+	// ScopeVersion is the store scope's identity hash: it covers the backend,
+	// jar, classpath, JVM target and Kotlin compiler settings, so a
+	// settings-only change cannot reuse a types.json computed under others.
+	ScopeVersion string `json:"scopeVersion,omitempty"`
 	// KeyBase pins the spelling of the file keys inside types.json: empty
 	// when the scan used absolute roots, the working directory when it used
 	// relative ones (`krit .`), whose keys are relative to it. A run with a
@@ -75,6 +79,7 @@ func RecordTypesFactsForPaths(typesPath string, diagnosticsOmitted bool, scanPat
 		rec.Backend = scope[0].Backend.String()
 		rec.JarToken = scope[0].JarToken
 		rec.ClasspathToken = scope[0].ClasspathToken
+		rec.ScopeVersion = scope[0].versionHex()
 	}
 	body, err := json.Marshal(rec)
 	if err != nil {
@@ -103,7 +108,7 @@ func TypesJSONSatisfies(typesPath string, diagnosticsRequired bool, scope StoreS
 func TypesJSONSatisfiesForPaths(typesPath string, diagnosticsRequired bool, scope StoreScope, buildToken string, scanPaths []string) bool {
 	rec, ok := readTypesFacts(typesPath)
 	return ok && rec.KeyBase == KeyBaseFor(scanPaths) && rec.Backend == scope.Backend.String() && rec.JarToken == scope.JarToken && rec.ClasspathToken == scope.ClasspathToken &&
-		rec.BuildToken == buildToken && (!diagnosticsRequired || !rec.DiagnosticsOmitted)
+		rec.ScopeVersion == scope.versionHex() && rec.BuildToken == buildToken && (!diagnosticsRequired || !rec.DiagnosticsOmitted)
 }
 
 func readTypesFacts(typesPath string) (typesFactsRecord, bool) {

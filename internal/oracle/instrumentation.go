@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/perf"
 )
 
@@ -43,6 +44,11 @@ type InvocationOptions struct {
 	// preserves the existing source-tree-discovery fallback.
 	Classpath []string
 	JvmTarget string
+	// Kotlin is the project's effective Kotlin compiler settings (language and
+	// API level, opt-ins, allowlisted flags), forwarded to either backend as
+	// `--kotlin-arg` flags. The zero value keeps the embedded compiler's
+	// defaults. It is part of the cache scope (NewStoreScopeWithSettings).
+	Kotlin gradlemodel.KotlinSettings
 	// Backend is the JVM backend being invoked. When set, cached entries
 	// written by the other backend are misses (see Backend.CacheApproximation),
 	// and a whole-compilation backend's entries are checked against the

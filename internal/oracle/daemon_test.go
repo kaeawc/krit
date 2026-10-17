@@ -1383,7 +1383,7 @@ func TestConnectExistingDaemon_NoFiles(t *testing.T) {
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
-	_, err := connectExistingDaemon(testJarPath, testSourceDirs, false)
+	_, err := connectExistingDaemon(testJarPath, testSourceDirs)
 	if err == nil {
 		t.Fatal("expected error when no PID file exists")
 	}
@@ -1403,7 +1403,7 @@ func TestConnectExistingDaemon_DeadPID(t *testing.T) {
 	os.WriteFile(filepath.Join(daemonsDir, testDaemonKey+".pid"), []byte("99999999\n"), 0644)
 	os.WriteFile(filepath.Join(daemonsDir, testDaemonKey+".port"), []byte("12345\n"), 0644)
 
-	_, err := connectExistingDaemon(testJarPath, testSourceDirs, false)
+	_, err := connectExistingDaemon(testJarPath, testSourceDirs)
 	if err == nil {
 		t.Fatal("expected error for dead PID")
 	}

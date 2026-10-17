@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -89,8 +90,11 @@ var _ FirChecker = (*FakeFirChecker)(nil)
 
 // ProductionFirChecker wraps InvokeCached to satisfy FirChecker.
 type ProductionFirChecker struct {
-	JarPath    string
-	JvmTarget  string
+	JarPath   string
+	JvmTarget string
+	// Kotlin is the project's effective Kotlin compiler settings; the zero value
+	// leaves the embedded compiler's defaults in force.
+	Kotlin     gradlemodel.KotlinSettings
 	SourceDirs []string
 	Classpath  []string
 	RepoDir    string
@@ -117,15 +121,20 @@ func (p *ProductionFirChecker) Check(files []string, sourceDirs, classpath, rule
 		repoDir = ""
 	}
 	run := runMissesForCache
-	if resp, ok := p.Prefetch.response(p.JarPath, p.JvmTarget, files, sd, cl, rules, ruleConfigs, facts); ok {
+	if resp, ok := p.Prefetch.response(p.JarPath, p.CompileTarget(), files, sd, cl, rules, ruleConfigs, facts); ok {
 		if p.Verbose {
 			reporter().Verbosef("verbose: fir check: reusing the oracle compilation's check of %d files\n", len(files))
 		}
-		run = func(_ string, misses []string, _, _, _ []string, _ RuleConfigs, _ FileFacts, _, _ bool, _ ...string) (*CheckResponse, error) {
+		run = func(_ string, misses []string, _, _, _ []string, _ RuleConfigs, _ FileFacts, _, _ bool, _ ...CompileTarget) (*CheckResponse, error) {
 			return resp.forFiles(misses), nil
 		}
 	}
-	return invokeCachedWith(run, p.JarPath, files, sd, cl, rules, ruleConfigs, facts, repoDir, p.UseDaemon, p.Verbose, p.JvmTarget)
+	return invokeCachedWith(run, p.JarPath, files, sd, cl, rules, ruleConfigs, facts, repoDir, p.UseDaemon, p.Verbose, p.CompileTarget())
+}
+
+// CompileTarget is the checker's JVM target and Kotlin settings as one value.
+func (p *ProductionFirChecker) CompileTarget() CompileTarget {
+	return CompileTarget{JvmTarget: p.JvmTarget, Kotlin: p.Kotlin}
 }
 
 // Compile-time check.

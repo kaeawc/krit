@@ -44,7 +44,7 @@ func stubRetryDaemon(t *testing.T, retries *int32, response string) {
 	t.Helper()
 	original := startFirWithoutAOT
 	t.Cleanup(func() { startFirWithoutAOT = original })
-	startFirWithoutAOT = func(_ string, _ bool, _ ...string) (*FirDaemon, error) {
+	startFirWithoutAOT = func(_ string, _ bool, _ ...CompileTarget) (*FirDaemon, error) {
 		atomic.AddInt32(retries, 1)
 		return fakeAOTDaemon(t, response), nil
 	}
@@ -80,11 +80,11 @@ func TestCanaryRequestIsProjectIndependent(t *testing.T) {
 		}
 		return `{"id":1,"rules":["InjectDispatcher"],"findings":[]}`
 	}, "-XX:AOTCache="+cache)
-	_, err := checkFirWithRecovery(d, jar, []fileRef{{Path: "/src/A.kt"}}, []string{"/src"}, []string{"/lib.jar"}, []string{"InjectDispatcher"}, nil, FileFacts{}, false, "17")
+	_, err := checkFirWithRecovery(d, jar, []fileRef{{Path: "/src/A.kt"}}, []string{"/src"}, []string{"/lib.jar"}, []string{"InjectDispatcher"}, nil, FileFacts{}, false, CompileTarget{JvmTarget: "17"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"files", "sourceDirs", "classpath", "jvmTarget", "rules"} {
+	for _, field := range []string{"files", "sourceDirs", "classpath", "jvmTarget", "kotlinArgs", "rules"} {
 		if strings.Contains(canaryLine, `"`+field+`"`) {
 			t.Fatalf("canary request carries %s: %s", field, canaryLine)
 		}

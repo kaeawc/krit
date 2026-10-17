@@ -74,17 +74,32 @@ data class BatchResult(
     val firstCompilerError: String? = null,
     internal val ownedCompilerError: String? = null,
     internal val compilerCrashed: Boolean = false,
+    // Compiler settings or arguments that were requested but not applied (unsupported
+    // flag, krit-managed argument, version the embedded compiler lacks). Never silent.
+    val warnings: List<String> = emptyList(),
 )
 
 // Holds the current session config. When sourceDirs or classpath change the Go side sends a
 // "rebuild" command which disposes this session and creates a new one.
 // Analysis runs via K2JVMCompiler with krit-fir registered as a plugin via the fat JAR itself.
-class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>, val jvmTarget: String = "") {
+class AnalysisSession(
+    val sourceDirs: List<String>,
+    val classpath: List<String>,
+    val jvmTarget: String = "",
+    /** The project's Kotlin compiler settings as compiler arguments; empty keeps the embedded compiler's defaults. */
+    val kotlinArgs: List<String> = emptyList(),
+) {
 
     private val compilationJvmTarget: String = resolveJvmTarget(jvmTarget)
     val jvmTargetWarning: String? = if (jvmTarget.isNotBlank() && JvmTarget.fromString(jvmTarget) == null) {
         "Unsupported JVM target '$jvmTarget'; using $compilationJvmTarget"
     } else null
+
+    /** The allowlist-filtered settings applied to every non-module compilation of this session. */
+    val kotlinSettings: KotlinCompilerSettings = KotlinCompilerSettings.parse(kotlinArgs)
+
+    /** Why part of [kotlinArgs] was not applied; surfaced in the response so it is never silent. */
+    val kotlinSettingsWarnings: List<String> = kotlinSettings.warnings.map { "krit-fir: $it" }
 
     // Path to the running fat JAR — used to register our FIR plugin with the embedded compiler.
     private val selfJar: String? = resolveSelfJar()
@@ -363,7 +378,8 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
         fun sameFiles(requested: List<String>, own: List<String>) =
             requested.isEmpty() || requested.map { canonicalOrSelf(File(it)) } == own.map { canonicalOrSelf(File(it)) }
         return sameFiles(request.sourceDirs, sourceDirs) && sameFiles(request.classpath, classpath) &&
-            (request.jvmTarget.isEmpty() || request.jvmTarget == jvmTarget)
+            (request.jvmTarget.isEmpty() || request.jvmTarget == jvmTarget) &&
+            (request.kotlinArgs.isEmpty() || KotlinCompilerSettings.parse(request.kotlinArgs).identity == kotlinSettings.identity)
     }
 
     private fun canonicalSet(paths: List<String>): Set<String> = paths.mapTo(HashSet()) { canonicalOrSelf(File(it)) }
@@ -409,6 +425,10 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
         if (module == null) MultiplatformSources.configure(this, sourceDirs, freeArgs)
         classpath = effectiveClasspath(this@AnalysisSession.classpath).joinToString(File.pathSeparator)
         jvmTarget = compilationJvmTarget
+        // Session-level settings describe the whole-repo compilation. A module
+        // compilation takes only its own module's arguments (ModuleCompilation),
+        // so one module's settings are never applied to another.
+        if (module == null) kotlinSettings.applyTo(this)
         destination = output.absolutePath
         noStdlib = true
         noReflect = true
@@ -466,8 +486,10 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>,
     private var retainedModuleRunner: ModuleRunner? = null
     internal val moduleRunner: ModuleRunner get() = retainedModuleRunner ?: ModuleRunner().also { retainedModuleRunner = it }
 
-    internal fun rebuild(sourceDirs: List<String>, classpath: List<String>, jvmTarget: String): AnalysisSession =
-        AnalysisSession(sourceDirs, classpath, jvmTarget).also {
+    internal fun rebuild(
+        sourceDirs: List<String>, classpath: List<String>, jvmTarget: String, kotlinArgs: List<String> = this.kotlinArgs,
+    ): AnalysisSession =
+        AnalysisSession(sourceDirs, classpath, jvmTarget, kotlinArgs).also {
             it.retainedModuleRunner = retainedModuleRunner
             retainedModuleRunner = null
         }

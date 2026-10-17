@@ -89,6 +89,55 @@ class AnalysisSessionModulesTest {
         }
     }
 
+    // Each module compiles under its own settings. The same source is gated in the module
+    // pinned to an older language level, and clean in its sibling and under an allowlisted flag.
+    @Test fun moduleSettingsAreNeverSharedAcrossModules() {
+        val guard = "package g\nfun f(x: Any): Int = when (x) {\n    is String if x.isNotEmpty() -> 1\n    else -> 0\n}"
+        val older = source("older", "G", guard)
+        val modern = source("modern", "G", guard)
+        val flagged = source("flagged", "G", guard)
+        val pinned = listOf("-language-version=2.1", "-api-version=2.1")
+        val modules = listOf(
+            module("older").copy(compilerArgs = pinned),
+            module("modern"),
+            module("flagged").copy(compilerArgs = pinned + "-Xwhen-guards"),
+        )
+        for (order in listOf(modules, modules.reversed())) run(order, listOf(older, modern, flagged)) {
+            assertEquals(setOf(older), it.errorFiles.keys, it.toString())
+            assertTrue("when guards" in it.errorFiles.getValue(older), it.toString())
+            assertEquals(2, it.succeeded, it.toString())
+        }
+    }
+
+    @Test fun moduleSettingsChangeInvalidatesOnlyThatModulesCompilation() {
+        val guard = "package g\nfun f(x: Any): Int = when (x) {\n    is String if x.isNotEmpty() -> 1\n    else -> 0\n}"
+        val a = source("a", "G", guard)
+        val b = source("b", "G", guard)
+        val session = AnalysisSession(emptyList(), emptyList())
+        try {
+            fun check(aArgs: List<String>) =
+                session.analyzeModules(1, listOf(module("a").copy(compilerArgs = aArgs), module("b")), listOf(a, b), emptySet())
+            assertEquals(emptySet(), check(emptyList()).errorFiles.keys)
+            assertEquals(mapOf("a" to 1, "b" to 1), session.moduleCompilationCounts.toMap())
+            assertEquals(emptySet(), check(emptyList()).errorFiles.keys)
+            assertEquals(mapOf("a" to 1, "b" to 1), session.moduleCompilationCounts.toMap(), "unchanged settings reuse the outputs")
+            assertEquals(setOf(a), check(listOf("-language-version=2.1", "-api-version=2.1")).errorFiles.keys)
+            assertEquals(mapOf("a" to 2, "b" to 1), session.moduleCompilationCounts.toMap(), "only the module whose settings changed recompiles")
+        } finally { session.dispose() }
+    }
+
+    @Test fun unsupportedModuleArgumentsAreReportedWithTheirModule() {
+        val file = source("w", "W", "package w\nfun x() = 1")
+        val session = AnalysisSession(emptyList(), emptyList())
+        try {
+            val result = session.analyzeModules(1, listOf(module("w").copy(compilerArgs = listOf("-Werror", "-Xno-param-assertions", "-Xwhen-guards"))),
+                listOf(file), emptySet())
+            val warning = result.warnings.joinToString("\n")
+            assertTrue("module w" in warning && "-Xno-param-assertions" in warning, warning)
+            assertEquals(1, result.succeeded, result.toString())
+        } finally { session.dispose() }
+    }
+
     @Test fun gatedUpstreamMergesOnlyReachableSources() {
         val lib = source("lib", "Lib", "package lib\nfun api() = 1\nfun broken() = unresolved()\nfun log() { println(1) }")
         val app = source("app", "App", "fun app() = lib.api()")

@@ -254,6 +254,9 @@ func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) 
 			"verbose: FIR checker in %v (%d findings, %d files requested, cache hits=%d misses=%d)\n",
 			outcome.duration.Round(time.Millisecond), len(result.Findings), len(p.requested), cache.Hits, cache.Misses)
 		writeVerdictSummary(opts.VerboseOut, stats, p.buildLogicExcluded)
+		for _, warning := range result.Warnings {
+			fmt.Fprintf(opts.VerboseOut, "verbose: FIR checker warning: %s\n", warning)
+		}
 	}
 	return merged, nil
 }

@@ -57,7 +57,7 @@ func (p *prefetchProject) prefetched(t *testing.T, rules ...string) *Prefetch {
 		t.Fatal("NewPrefetch = nil")
 	}
 	p.checker.Prefetch = prefetch
-	rider := prefetch.Rider(p.jar, []string{p.src}, []string{p.jar}, "")
+	rider := prefetch.Rider(p.jar, []string{p.src}, []string{p.jar}, CompileTarget{})
 	if rider == nil {
 		t.Fatal("Rider = nil for the checker's own compile context")
 	}
@@ -72,7 +72,7 @@ func stubMisses(t *testing.T, want bool) *int {
 	old := runMissesForCache
 	t.Cleanup(func() { runMissesForCache = old })
 	calls := 0
-	runMissesForCache = func(_ string, files, _, _, _ []string, _ RuleConfigs, _ FileFacts, _, _ bool, _ ...string) (*CheckResponse, error) {
+	runMissesForCache = func(_ string, files, _, _, _ []string, _ RuleConfigs, _ FileFacts, _, _ bool, _ ...CompileTarget) (*CheckResponse, error) {
 		calls++
 		if !want {
 			t.Fatalf("the pass compiled on its own for %v", files)
@@ -97,7 +97,7 @@ func (p *prefetchProject) check(t *testing.T, files []string, rules []string) *R
 
 func TestPrefetchRequestIsThePassRequest(t *testing.T) {
 	p := newPrefetchProject(t)
-	request, _ := NewPrefetch(p.opts).Rider(p.jar, []string{p.src}, []string{p.jar}, "").Prepare()
+	request, _ := NewPrefetch(p.opts).Rider(p.jar, []string{p.src}, []string{p.jar}, CompileTarget{}).Prepare()
 	var req firDaemonRequest
 	if err := json.Unmarshal(request, &req); err != nil {
 		t.Fatal(err)
@@ -177,10 +177,10 @@ func TestPrefetchRidesOnlyTheCheckersCompileContext(t *testing.T) {
 	p := newPrefetchProject(t)
 	prefetch := NewPrefetch(p.opts)
 	for name, rider := range map[string]any{
-		"jar":       prefetch.Rider(p.jar+".other", []string{p.src}, []string{p.jar}, ""),
-		"sources":   prefetch.Rider(p.jar, []string{p.src, filepath.Dir(p.src)}, []string{p.jar}, ""),
-		"classpath": prefetch.Rider(p.jar, []string{p.src}, nil, ""),
-		"target":    prefetch.Rider(p.jar, []string{p.src}, []string{p.jar}, "17"),
+		"jar":       prefetch.Rider(p.jar+".other", []string{p.src}, []string{p.jar}, CompileTarget{}),
+		"sources":   prefetch.Rider(p.jar, []string{p.src, filepath.Dir(p.src)}, []string{p.jar}, CompileTarget{}),
+		"classpath": prefetch.Rider(p.jar, []string{p.src}, nil, CompileTarget{}),
+		"target":    prefetch.Rider(p.jar, []string{p.src}, []string{p.jar}, CompileTarget{JvmTarget: "17"}),
 	} {
 		if fmt.Sprint(rider) != "<nil>" {
 			t.Fatalf("%s: rider for another compile context", name)
@@ -196,7 +196,7 @@ func TestPrefetchRidesOnlyTheCheckersCompileContext(t *testing.T) {
 	}
 	noRules := p.opts
 	noRules.ActiveRules = nil
-	if request, deliver := NewPrefetch(noRules).Rider(p.jar, []string{p.src}, []string{p.jar}, "").Prepare(); request != nil || deliver != nil {
+	if request, deliver := NewPrefetch(noRules).Rider(p.jar, []string{p.src}, []string{p.jar}, CompileTarget{}).Prepare(); request != nil || deliver != nil {
 		t.Fatal("prepared a request for a pass with no active rules")
 	}
 }

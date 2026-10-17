@@ -64,7 +64,7 @@ func TestLoadClasspathAndWarnings(t *testing.T) {
 	write(t, boot, "boot")
 	write(t, lib, "lib")
 	write(t, filepath.Join(dir, "bad.json"), "{")
-	write(t, filepath.Join(dir, "schema.json"), `{"schema":2}`)
+	write(t, filepath.Join(dir, "schema.json"), `{"schema":99}`)
 	write(t, filepath.Join(dir, "missing.json"), `{"schema":1,"projects":[{"path":":missing","dir":"/definitely/not/here"}]}`)
 	body, err := json.Marshal(map[string]interface{}{
 		"schema": 1,

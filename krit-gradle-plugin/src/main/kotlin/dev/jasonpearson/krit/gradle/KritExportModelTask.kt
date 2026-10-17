@@ -38,7 +38,22 @@ abstract class KritModelSourceSet {
     @get:Input abstract val bootClasspath: ListProperty<String>
     @get:Input abstract val projectDeps: ListProperty<String>
     @get:Input abstract val jvmTarget: Property<String>
+    // Kotlin compiler settings as configured on the compilation. Blank / empty
+    // means "not configured"; krit resolves the effective defaults (see
+    // docs/gradle-model.md), so these are never filled in here.
+    // False for a source set with no Kotlin compile task (Java-only): it then has no
+    // `kotlin` object, so krit does not read "no settings" as a setting.
+    @get:Input abstract val kotlinPresent: Property<Boolean>
+    @get:Input abstract val kotlinLanguageVersion: Property<String>
+    @get:Input abstract val kotlinApiVersion: Property<String>
+    @get:Input abstract val kotlinOptIn: ListProperty<String>
+    @get:Input abstract val kotlinFreeCompilerArgs: ListProperty<String>
+    @get:Input abstract val kotlinProgressiveMode: Property<Boolean>
+    @get:Input abstract val kotlinPluginVersion: Property<String>
 }
+
+/** Model schema written by [KritExportModelTask]. Schema 1 had no `kotlin` object. */
+internal const val MODEL_SCHEMA = 2
 
 @DisableCachingByDefault(because = "Output contains absolute artifact paths")
 abstract class KritExportModelTask : DefaultTask() {
@@ -69,7 +84,19 @@ abstract class KritExportModelTask : DefaultTask() {
                 "bootClasspath" to sourceSet.bootClasspath.get().distinct().sorted(),
                 "projectDeps" to sourceSet.projectDeps.get().distinct().sorted(),
                 "jvmTarget" to sourceSet.jvmTarget.get(),
-            )
+            ).also { entry ->
+                if (sourceSet.kotlinPresent.getOrElse(false)) {
+                    entry["kotlin"] = linkedMapOf<String, Any>(
+                        "languageVersion" to sourceSet.kotlinLanguageVersion.getOrElse(""),
+                        "apiVersion" to sourceSet.kotlinApiVersion.getOrElse(""),
+                        "optIn" to sourceSet.kotlinOptIn.getOrElse(emptyList()).distinct().sorted(),
+                        // Order is significant (later flags win), so it is preserved.
+                        "freeCompilerArgs" to sourceSet.kotlinFreeCompilerArgs.getOrElse(emptyList()),
+                        "progressiveMode" to sourceSet.kotlinProgressiveMode.getOrElse(false),
+                        "pluginVersion" to sourceSet.kotlinPluginVersion.getOrElse(""),
+                    )
+                }
+            }
         }
         val entry = linkedMapOf<String, Any>(
             "path" to projectPath.get(),
@@ -77,7 +104,7 @@ abstract class KritExportModelTask : DefaultTask() {
             "sourceSets" to entries,
         )
         writeJson(outputFile.get().asFile, linkedMapOf(
-            "schema" to 1,
+            "schema" to MODEL_SCHEMA,
             "generatedBy" to generatedBy.get(),
             "rootDir" to rootDir.get(),
             "projects" to listOf(entry),

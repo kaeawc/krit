@@ -65,7 +65,7 @@ func TestAnalyzeAllAndPersist_StopsDeletedFileFactsReturningOnNextMerge(t *testi
 		t.Fatalf("first merge: pruned=%v err=%v, want a prune", pruned, err)
 	}
 	full := &oracle.Data{Files: map[string]*oracle.File{other: {Package: "p"}}}
-	od, err := analyzeAllAndPersist(func() (*oracle.Data, error) { return full, nil }, typesPath, t.Logf)
+	od, err := analyzeAllAndPersist(func() (*oracle.Data, error) { return full, nil }, typesPath, t.Logf, oracle.StoreScope{}, false, nil)
 	if err != nil || od != full {
 		t.Fatalf("analyzeAllAndPersist = %v, %v", od, err)
 	}
@@ -88,7 +88,7 @@ func TestAnalyzeAllAndPersist_StopsDeletedFileFactsReturningOnNextMerge(t *testi
 func TestAnalyzeAllAndPersist_AnalyzeErrorLeavesTypesJSON(t *testing.T) {
 	typesPath := filepath.Join(t.TempDir(), "types.json")
 	want := errors.New("daemon down")
-	if _, err := analyzeAllAndPersist(func() (*oracle.Data, error) { return nil, want }, typesPath, t.Logf); !errors.Is(err, want) {
+	if _, err := analyzeAllAndPersist(func() (*oracle.Data, error) { return nil, want }, typesPath, t.Logf, oracle.StoreScope{}, false, nil); !errors.Is(err, want) {
 		t.Fatalf("err = %v, want %v", err, want)
 	}
 	if _, err := os.Stat(typesPath); !os.IsNotExist(err) {

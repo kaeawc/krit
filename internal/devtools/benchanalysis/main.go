@@ -115,7 +115,10 @@ type Run struct {
 	// the difference.
 	prevCaches map[string]CacheIO
 	rawCaches  map[string]CacheIO
-	Rejected   string `json:"rejected,omitempty"`
+	// DaemonServed is true when krit's stderr carried the perf marker that a
+	// krit daemon served the scan.
+	DaemonServed bool   `json:"daemonServed,omitempty"`
+	Rejected     string `json:"rejected,omitempty"`
 	// OracleSkip says why a warm run legitimately did not run the oracle
 	// (for example "findings-bundle-hit"); empty when the oracle ran.
 	OracleSkip string `json:"oracleSkip,omitempty"`
@@ -166,19 +169,8 @@ func run(o options) error {
 	if o.corpus == "" {
 		return errors.New("-corpus is required")
 	}
-	for _, m := range o.modes {
-		if _, ok := modes[m]; !ok {
-			return fmt.Errorf("unknown mode %q", m)
-		}
-	}
-	for _, s := range o.states {
-		st, ok := states[s]
-		if !ok {
-			return fmt.Errorf("unknown state %q", s)
-		}
-		if st.Edit != "" && !strings.HasSuffix(o.editFile, ".kt") {
-			return fmt.Errorf("state %s needs -edit-file naming a corpus .kt file", s)
-		}
+	if err := validateOptions(o); err != nil {
+		return err
 	}
 	corpus, err := filepath.Abs(o.corpus)
 	if err != nil {
@@ -384,8 +376,8 @@ func (h *harness) invoke(m Mode, s State, index int, measured bool) Run {
 		start.prevCaches = h.daemonCaches
 	}
 	r := execRun(h.krit, h.work, h.args(m, s.Daemon), h.env(s.Daemon), m, start)
-	if s.Daemon && r.rawCaches != nil {
-		h.daemonCaches = r.rawCaches
+	if s.Daemon {
+		h.daemonCaches = nextDaemonBaseline(h.daemonCaches, r)
 	}
 	rejectUnverifiedSkip(&r, h.o.verify)
 	if _, err := os.Stat(procRoot); err == nil {
@@ -448,6 +440,7 @@ func execRun(bin, dir string, args, env []string, m Mode, r Run) Run {
 		return r
 	}
 	r.Warnings = diagnosticLines(stderr.String())
+	r.DaemonServed = strings.Contains(stderr.String(), daemonServedMarker)
 	// krit exits 1 when it reports findings; anything else is a failure.
 	if r.ExitCode != 0 && r.ExitCode != 1 {
 		r.Rejected = fmt.Sprintf("exit code %d: %s", r.ExitCode, lastLine(stderr.String()))
@@ -480,6 +473,9 @@ func checkDaemonUsed(r Run) string {
 			return "krit daemon was not used (" + w + "); try a shorter -out path"
 		}
 	}
+	if !r.DaemonServed {
+		return "no sign that a krit daemon served this run (missing " + daemonServedMarker + " marker)"
+	}
 	// Positive evidence: oracle facts a daemon served say so. An in-process
 	// oracleBackend entry has no source attribute.
 	if attr(r.Attributes, "oracleBackend", "backend") != "" && attr(r.Attributes, "oracleBackend", "source") != "resident-daemon" {
@@ -491,6 +487,10 @@ func checkDaemonUsed(r Run) string {
 // fallbackMarker is the phrase every daemon-to-in-process fallback warning in
 // internal/cli/scan/daemon_delegate.go shares ("unavailable", "call failed",
 // "rejected request", "clear-cache failed", ...).
+// daemonServedMarker is what `krit -perf` prints to stderr when a daemon
+// served the scan (scan.DaemonServedPerfMarker).
+const daemonServedMarker = "perf: served by krit daemon"
+
 const fallbackMarker = "falling back to in-process"
 
 func isDaemonFallback(warning string) bool {
@@ -556,6 +556,18 @@ func parseOutput(data []byte, root string, r *Run) string {
 		r.Caches[c.Name] = cacheDelta(c.Stats, r.prevCaches[c.Name])
 	}
 	return ""
+}
+
+// nextDaemonBaseline is the cumulative-counter baseline for the next daemon
+// run. It advances only on a response known to be daemon-served; after an
+// in-process fallback the previous baseline is kept (the in-process
+// counters belong to a different process), and if the daemon restarted the
+// next delta is computed from zero by cacheDelta.
+func nextDaemonBaseline(prev map[string]CacheIO, r Run) map[string]CacheIO {
+	if r.DaemonServed && r.rawCaches != nil {
+		return r.rawCaches
+	}
+	return prev
 }
 
 // rejectUnverifiedSkip rejects a run that skipped the oracle when findings
@@ -780,6 +792,43 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return out.Close()
+}
+
+// validateOptions checks mode and state names and the extra arguments.
+func validateOptions(o options) error {
+	for _, m := range o.modes {
+		if _, ok := modes[m]; !ok {
+			return fmt.Errorf("unknown mode %q", m)
+		}
+	}
+	for _, s := range o.states {
+		st, ok := states[s]
+		if !ok {
+			return fmt.Errorf("unknown state %q", s)
+		}
+		if st.Edit != "" && !strings.HasSuffix(o.editFile, ".kt") {
+			return fmt.Errorf("state %s needs -edit-file naming a corpus .kt file", s)
+		}
+	}
+	return checkExtraArgs(o)
+}
+
+// checkExtraArgs refuses -extra-args that turn the daemon off while a daemon
+// state is selected: those rows would not measure the daemon.
+func checkExtraArgs(o options) error {
+	daemon := false
+	for _, s := range o.states {
+		daemon = daemon || states[s].Daemon
+	}
+	if !daemon {
+		return nil
+	}
+	for _, a := range strings.Fields(o.extraArgs) {
+		if name := strings.TrimLeft(a, "-"); name == "no-daemon" || strings.HasPrefix(name, "no-daemon=") {
+			return fmt.Errorf("-extra-args %q disables the krit daemon, which the selected daemon states need", a)
+		}
+	}
+	return nil
 }
 
 func splitList(s string) []string {

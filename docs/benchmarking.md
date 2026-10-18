@@ -120,8 +120,12 @@ affected-set replay bug was found.
 
 A run in a daemon state is rejected when krit prints any `krit daemon ...
 falling back to in-process` warning (unavailable, call failed, rejected
-request) or when its oracle entry lacks `source=resident-daemon`, since the
-daemon was then not used. The daemon's unix socket path must fit in
+request) or when its oracle entry lacks `source=resident-daemon`, or when krit's stderr
+lacks the `perf: served by krit daemon` marker it prints under `-perf` after a
+delegated scan. The harness also refuses `-extra-args` containing `--no-daemon`
+when a daemon state is selected. After an in-process fallback the per-run cache
+baseline is kept, so the next daemon run's counters are still diffed correctly.
+The daemon was then not used. The daemon's unix socket path must fit in
 `sun_path` (about 100 bytes), so keep `-out` short. A run is also rejected when krit exits with anything but 0 (no findings) or 1
 (findings), when the JSON report can't be parsed, or when the mode check
 fails. Rejected runs are listed in `summary.md` and kept in `results.json`,

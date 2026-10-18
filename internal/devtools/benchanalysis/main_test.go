@@ -219,7 +219,7 @@ func TestIsDaemonFallbackMatchesEveryVariant(t *testing.T) {
 		}
 	}
 	for _, w := range []string{"warning: jar predates the flag", "warning: watch backend unavailable; falling back to fsnotify"} {
-		if checkDaemonUsed(Run{State: "warm-daemon", Warnings: []string{w}}) != "" {
+		if checkDaemonUsed(Run{State: "warm-daemon", DaemonServed: true, Warnings: []string{w}}) != "" {
 			t.Errorf("unrelated warning rejected: %s", w)
 		}
 	}
@@ -271,7 +271,7 @@ func TestDaemonStateRequiresResidentOracleSource(t *testing.T) {
 	if checkDaemonUsed(inproc) == "" {
 		t.Error("in-process oracle accepted in a daemon state")
 	}
-	resident := Run{State: "warm-daemon", Attributes: map[string]string{"a/oracleBackend.backend": "fir", "a/oracleBackend.source": "resident-daemon"}}
+	resident := Run{State: "warm-daemon", DaemonServed: true, Attributes: map[string]string{"a/oracleBackend.backend": "fir", "a/oracleBackend.source": "resident-daemon"}}
 	if checkDaemonUsed(resident) != "" {
 		t.Error("resident oracle rejected")
 	}
@@ -322,5 +322,59 @@ func TestSummaryShowsNoSampledDaemonAsNA(t *testing.T) {
 	out := summarize(runs, options{modes: []string{"structural"}, states: []string{"cold"}})
 	if !strings.Contains(out, "| n/a | n/a |") {
 		t.Errorf("empty daemon sample not n/a:\n%s", out)
+	}
+}
+
+func TestDaemonStateRequiresServedMarker(t *testing.T) {
+	if checkDaemonUsed(Run{State: "warm-daemon"}) == "" {
+		t.Error("daemon state without the served marker accepted (structural or bundle run, or --no-daemon)")
+	}
+	if got := checkDaemonUsed(Run{State: "warm-daemon", DaemonServed: true}); got != "" {
+		t.Errorf("marked run rejected: %s", got)
+	}
+	if checkDaemonUsed(Run{State: "warm-disk"}) != "" {
+		t.Error("non-daemon state needs no marker")
+	}
+}
+
+func TestExecRunDetectsServedMarker(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "fake-krit")
+	script := "#!/bin/sh\necho '" + daemonServedMarker + "' >&2\necho '{\"durationMs\":1,\"findings\":[],\"rules\":[]}'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := execRun(bin, t.TempDir(), nil, os.Environ(), modes["structural"], Run{State: "warm-daemon", Measured: true})
+	if !r.DaemonServed || r.Rejected != "" {
+		t.Fatalf("served=%v rejected=%q", r.DaemonServed, r.Rejected)
+	}
+}
+
+func TestCheckExtraArgsRejectsNoDaemonInDaemonStates(t *testing.T) {
+	for _, a := range []string{"--no-daemon", "-no-daemon", "--no-daemon=true"} {
+		if checkExtraArgs(options{states: []string{"cold", "warm-daemon"}, extraArgs: "--foo " + a}) == nil {
+			t.Errorf("%s accepted", a)
+		}
+	}
+	if err := checkExtraArgs(options{states: []string{"cold", "warm-disk"}, extraArgs: "--no-daemon"}); err != nil {
+		t.Errorf("non-daemon states rejected: %v", err)
+	}
+}
+
+func TestDaemonBaselineSurvivesInProcessFallback(t *testing.T) {
+	daemon1 := map[string]CacheIO{"findings-bundle-cache": {Hits: 4, Misses: 1}}
+	base := nextDaemonBaseline(nil, Run{DaemonServed: true, rawCaches: daemon1})
+	// An in-process fallback reports its own tiny counters: ignored.
+	base = nextDaemonBaseline(base, Run{rawCaches: map[string]CacheIO{"findings-bundle-cache": {Hits: 0, Misses: 1}}})
+	if base["findings-bundle-cache"].Hits != 4 {
+		t.Fatalf("baseline overwritten by fallback: %+v", base)
+	}
+	// The next daemon run (cumulative 5 hits) is exactly one hit.
+	next := Run{DaemonServed: true, rawCaches: map[string]CacheIO{"findings-bundle-cache": {Hits: 5, Misses: 1}}}
+	if d := cacheDelta(next.rawCaches["findings-bundle-cache"], base["findings-bundle-cache"]); d.Hits != 1 || d.Misses != 0 {
+		t.Fatalf("delta = %+v", d)
+	}
+	// A restarted daemon (counters below the baseline) is taken as-is.
+	if d := cacheDelta(CacheIO{Hits: 1}, base["findings-bundle-cache"]); d.Hits != 1 {
+		t.Fatalf("restart delta = %+v", d)
 	}
 }

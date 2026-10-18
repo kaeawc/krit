@@ -135,3 +135,33 @@ func TestRunStrictVerify_NoTypeOracleBaselineSkipsOracle(t *testing.T) {
 		t.Fatalf("no-type-oracle strict-verify baseline started %d oracle daemon(s), want 0", n)
 	}
 }
+
+// Custom Kotlin rule jars run in the krit-types JVM: a --no-type-oracle
+// request that carries them keeps a krit-types handle for the plugin RPCs,
+// but the type oracle itself stays off, matching an in-process scan.
+func TestBuildProjectInput_NoTypeOracleKeepsDaemonForCustomRuleJars(t *testing.T) {
+	tmp := t.TempDir()
+	seedJar(t, tmp, ".krit/krit-types.jar")
+	state := newDaemonState(tmp)
+	t.Cleanup(state.closeOracleDaemons)
+	starter := &fakeOracleDaemonStarter{}
+	state.oracleDaemonStarter = starter
+
+	in, err := state.buildProjectInput(daemon.AnalyzeProjectArgs{
+		NoFir:          true,
+		NoTypeOracle:   true,
+		CustomRuleJars: []string{filepath.Join(tmp, "rules.jar")},
+	}, oracle.BackendFIR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in.Host.OracleDaemon == nil {
+		t.Fatal("custom rule jars need a krit-types daemon handle even with --no-type-oracle")
+	}
+	if in.Args.OracleEnabled {
+		t.Fatal("the type oracle must stay disabled")
+	}
+	if len(starter.backends) != 1 || starter.backends[0] != oracle.BackendKAA {
+		t.Fatalf("started backends %v, want [%s]", starter.backends, oracle.BackendKAA)
+	}
+}

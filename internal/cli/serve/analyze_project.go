@@ -45,9 +45,9 @@ var errDaemonNotWarm = errors.New("daemon not warm yet")
 // initialising it once at daemon startup. See issue #53.
 // pingOracleDaemonFor health-checks cached oracle daemons unless the request
 // opted out of the oracle: a --no-type-oracle request neither consults nor
-// restarts the oracle JVM.
+// restarts the oracle JVM, unless it needs one for custom Kotlin rule jars.
 func (s *daemonState) pingOracleDaemonFor(args daemon.AnalyzeProjectArgs) {
-	if args.NoTypeOracle {
+	if args.NoTypeOracle && len(args.CustomRuleJars) == 0 {
 		return
 	}
 	s.pingOracleDaemon()
@@ -496,9 +496,17 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	// --no-type-oracle skips the oracle for this request only: the
 	// resident JVM stays cached for other requests, but this one neither
 	// starts nor consults it, matching an in-process scan.
+	//
+	// Custom Kotlin rule jars run inside the krit-types JVM, so a
+	// --no-type-oracle request that carries them still gets a krit-types
+	// handle for the plugin RPCs (OracleEnabled stays false), as an
+	// in-process scan does.
 	var oracleDaemon *oracle.Daemon
-	if !args.NoTypeOracle {
+	switch {
+	case !args.NoTypeOracle:
 		oracleDaemon, err = s.ensureOracleDaemon(paths, backend, args.OracleKotlin)
+	case len(args.CustomRuleJars) > 0:
+		oracleDaemon, err = s.ensureOracleDaemon(paths, oracle.BackendKAA, args.OracleKotlin)
 	}
 	if err != nil {
 		// Best-effort degrade: a failed daemon start shouldn't fail

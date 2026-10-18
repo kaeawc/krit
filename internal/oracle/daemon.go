@@ -59,6 +59,20 @@ type Daemon struct {
 	kotlin gradlemodel.KotlinSettings
 }
 
+// Backend reports which oracle backend this daemon serves, read from the jar
+// tag its registry key starts with. It returns "" when the daemon's key is
+// unknown (for example a test double), so callers record nothing rather than
+// guess.
+func (d *Daemon) Backend() Backend {
+	switch {
+	case strings.HasPrefix(d.sourcesHash, "krit-fir"):
+		return BackendFIR
+	case strings.HasPrefix(d.sourcesHash, "krit-types"):
+		return BackendKAA
+	}
+	return ""
+}
+
 // requestSpelling absolutizes request files and returns the mapping from
 // the daemon's absolute paths, requested or walked from a source root, back
 // to this caller's spelling.

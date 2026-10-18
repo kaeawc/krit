@@ -33,6 +33,15 @@ that actually served the oracle, after any fallback. `firCheckOutcome` (under
 A run that shows a different backend, or no oracle when one was asked for (a
 missing jar, for example), is rejected rather than timed.
 
+One exception: a measured run in a warm or edit state may skip the oracle when
+the perf report shows a cache layer served the result (`dispatchBundleLoad`
+outcome `hit`, a `cacheHit*` `dispatchPath`, or `findings-bundle-cache` or
+`oracle-cache` hits). Such a run is accepted and its `oracleSkip` field (and
+the summary's `oracle` column) records the reason, for example
+`findings-bundle-hit`. Cold runs, unmeasured fill runs and clean baselines
+never get this exception, so a missing jar still fails the fill run that
+should have filled the caches and the state is skipped.
+
 Compare modes only where the workload is the same. `structural` doesn't run a
 JVM at all. `fir-oracle` and `kaa-oracle` produce the same facts with
 different engines, so they compare directly. `fir-checkers` adds the rule
@@ -100,7 +109,9 @@ and message, with paths relative to the scan root, order ignored) must match.
 A mismatch rejects the run and is reported. This is how the relative-root
 affected-set replay bug was found.
 
-A run is also rejected when krit exits with anything but 0 (no findings) or 1
+A run in a daemon state is rejected when krit reports `daemon unavailable` and
+falls back to in-process analysis (the daemon's unix socket path must fit in
+`sun_path`, about 100 bytes, so keep `-out` short). A run is also rejected when krit exits with anything but 0 (no findings) or 1
 (findings), when the JSON report can't be parsed, or when the mode check
 fails. Rejected runs are listed in `summary.md` and kept in `results.json`,
 and never count toward timings.
@@ -117,9 +128,16 @@ and never count toward timings.
   krit could pick up, Go, Java and Kotlin versions, OS, CPU count, load
   average, the corpus's build files, and the harness options.
 
-CPU and RSS cover the krit process and the children it waited for. Daemons
-(the krit daemon and its JVM helpers in warm states) aren't included; their
-cost shows up in wall time only.
+CPU and RSS cover the krit process and the children it waited for. Long-lived
+daemons (krit serve, the krit-fir and krit-types oracle JVMs, the checker
+daemon) are not children, so they are reported in separate columns: before and
+after each run the harness reads `/proc/<pid>/stat` (utime+stime) and
+`/proc/<pid>/status` (VmHWM, VmRSS) for every PID in the helper registry and
+`.krit/daemon.pid`. "Daemon CPU ms" is the delta over the run (a daemon the run
+started counts in full); "daemon peak RSS MB" is the sum of the daemons'
+lifetime VmHWM. Linux only; elsewhere the columns read `n/a`. A daemon that
+exits during the run is not sampled. Raw values are in each run's `daemon`
+object.
 
 ## Noise
 

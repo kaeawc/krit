@@ -935,6 +935,14 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 		}
 	}
 	result.Daemon = d
+	// Resident-daemon runs skip runJvmAnalyze, so record the backend here;
+	// benchmarks use the entry to tell a served oracle from a missing one.
+	if backend := d.Backend(); backend != "" {
+		perf.AddEntryDetails(oracleTracker, "oracleBackend", 0, nil, map[string]string{
+			"backend": backend.String(),
+			"source":  "resident-daemon",
+		})
+	}
 
 	var oracleData *oracle.Data
 	oracleTracker.TrackVoid("jvmAnalyze", func() {

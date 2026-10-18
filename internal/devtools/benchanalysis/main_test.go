@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -119,5 +120,87 @@ func TestKotlinVersionReadsBuildScript(t *testing.T) {
 	}
 	if got := kotlinVersion(script); got != "2.4.20" {
 		t.Fatalf("kotlinVersion = %q", got)
+	}
+}
+
+func warmBundleHit(state string, measured bool) Run {
+	return Run{State: state, Measured: measured,
+		Attributes: map[string]string{"dispatchBundleLoad.outcome": "hit", "dispatchPath.path": "cacheHitFullBundle"},
+		Caches:     map[string]CacheIO{"findings-bundle-cache": {Hits: 1}}}
+}
+
+func TestCheckModeAcceptsWarmBundleHit(t *testing.T) {
+	for _, mode := range []string{"fir-oracle", "kaa-oracle"} {
+		for _, state := range []string{"warm-disk", "warm-daemon"} {
+			if got := checkMode(modes[mode], warmBundleHit(state, true)); got != "" {
+				t.Errorf("%s/%s rejected: %s", mode, state, got)
+			}
+		}
+	}
+	r := warmBundleHit("warm-disk", true)
+	if got := oracleSkipReason(r); got != "findings-bundle-hit" {
+		t.Errorf("skip reason = %q", got)
+	}
+	// fir-checkers still needs the checker pass to succeed.
+	r.Attributes["firCheck/firCheckOutcome.status"] = "ok"
+	if got := checkMode(modes["fir-checkers"], r); got != "" {
+		t.Errorf("fir-checkers bundle hit rejected: %s", got)
+	}
+}
+
+func TestCheckModeRejectsOracleMissingWithoutCacheEvidence(t *testing.T) {
+	cases := map[string]Run{
+		"cold no oracle":              {State: "cold", Measured: true, Attributes: map[string]string{}},
+		"cold claiming a bundle hit":  warmBundleHit("cold", true),
+		"warm, missing jar, no cache": {State: "warm-disk", Measured: true, Attributes: map[string]string{}, Caches: map[string]CacheIO{"findings-bundle-cache": {Misses: 1}}},
+		"fill run with a bundle hit":  warmBundleHit("warm-disk", false),
+		"clean baseline":              warmBundleHit("", false),
+	}
+	for name, r := range cases {
+		if got := checkMode(modes["fir-oracle"], r); got == "" {
+			t.Errorf("%s: accepted, want rejection", name)
+		}
+	}
+}
+
+func TestExecRunRecordsOracleSkip(t *testing.T) {
+	report := `{"durationMs":5,"findings":[],"rules":[],"caches":[{"name":"findings-bundle-cache","stats":{"hits":1,"misses":0}}],` +
+		`"perfTiming":[{"name":"dispatchBundleLoad","attributes":{"outcome":"hit"}}]}`
+	bin := filepath.Join(t.TempDir(), "fake-krit")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncat <<'EOF'\n"+report+"\nEOF\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	warm := execRun(bin, t.TempDir(), nil, os.Environ(), modes["fir-oracle"], Run{State: "warm-disk", Measured: true})
+	if warm.Rejected != "" || warm.OracleSkip != "findings-bundle-hit" {
+		t.Fatalf("warm: rejected=%q skip=%q", warm.Rejected, warm.OracleSkip)
+	}
+	cold := execRun(bin, t.TempDir(), nil, os.Environ(), modes["fir-oracle"], Run{State: "cold", Measured: true})
+	if cold.Rejected == "" {
+		t.Fatal("cold run without the oracle was accepted")
+	}
+}
+
+func TestSummaryListsRunKindOracleAndRejections(t *testing.T) {
+	d := &DaemonUsage{CPUMs: 4000, PeakRSSKB: 3 * 1024}
+	runs := []Run{
+		{Mode: "fir-oracle", State: "warm-disk", Measured: true, Index: 1, WallMs: 10, OracleSkip: "findings-bundle-hit", Daemon: d},
+		{Mode: "fir-oracle", State: "warm-disk", Measured: true, Index: 2, Rejected: "no oracleBackend in the perf report"},
+	}
+	out := summarize(runs, options{modes: []string{"fir-oracle"}, states: []string{"warm-disk"}})
+	for _, want := range []string{"run kind", "| warm-disk | 1/2 |", "skipped: findings-bundle-hit (1)", "| 4000 | 3 |", "Rejected runs", "fir-oracle/warm-disk run 2"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("summary missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestCheckDaemonUsedRejectsInProcessFallback(t *testing.T) {
+	fell := Run{State: "warm-daemon", Warnings: []string{"warning: krit daemon unavailable (timeout); falling back to in-process"}}
+	if checkDaemonUsed(fell) == "" {
+		t.Error("in-process fallback accepted as a warm-daemon run")
+	}
+	fell.State = "warm-disk"
+	if checkDaemonUsed(fell) != "" {
+		t.Error("warm-disk run rejected for daemon fallback")
 	}
 }

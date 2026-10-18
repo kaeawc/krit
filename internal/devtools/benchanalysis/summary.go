@@ -13,11 +13,24 @@ type Stats struct {
 	N                      int
 	Median, P90, Min, Max  int64
 	MedianCPU, MedianRSSKB int64
+	// Daemon columns cover long-lived daemons only; DaemonN is how many
+	// accepted runs had a sample.
+	DaemonN                         int
+	MedianDaemonCPU, MedianDaemonKB int64
+	Skips                           map[string]int
 }
 
 func stats(runs []Run) Stats {
-	var wall, cpu, rss []int64
+	var wall, cpu, rss, dcpu, drss []int64
+	skips := map[string]int{}
 	for _, r := range runs {
+		if r.OracleSkip != "" {
+			skips[r.OracleSkip]++
+		}
+		if r.Daemon != nil {
+			dcpu = append(dcpu, r.Daemon.CPUMs)
+			drss = append(drss, r.Daemon.PeakRSSKB)
+		}
 		wall = append(wall, r.WallMs)
 		cpu = append(cpu, r.UserCPUMs+r.SysCPUMs)
 		rss = append(rss, r.MaxRSSKB)
@@ -34,6 +47,8 @@ func stats(runs []Run) Stats {
 	return Stats{
 		N: len(w), Median: percentile(w, 50), P90: percentile(w, 90), Min: w[0], Max: w[len(w)-1],
 		MedianCPU: percentile(sorted(cpu), 50), MedianRSSKB: percentile(sorted(rss), 50),
+		DaemonN: len(dcpu), MedianDaemonCPU: percentile(sorted(dcpu), 50), MedianDaemonKB: percentile(sorted(drss), 50),
+		Skips: skips,
 	}
 }
 
@@ -51,8 +66,8 @@ func percentile(sorted []int64, p int) int64 {
 
 func summarize(results []Run, o options) string {
 	var b strings.Builder
-	b.WriteString("| mode | state | accepted/measured | median ms | p90 ms | min–max ms | median CPU ms | median max RSS MB | verified | findings |\n")
-	b.WriteString("|---|---|---|---|---|---|---|---|---|---|\n")
+	b.WriteString("| mode | run kind | accepted/measured | median ms | p90 ms | min–max ms | median CPU ms | median max RSS MB | daemon CPU ms | daemon peak RSS MB | oracle | verified | findings |\n")
+	b.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
 	var rejected []string
 	for _, m := range o.modes {
 		for _, s := range o.states {
@@ -85,8 +100,12 @@ func summarize(results []Run, o options) string {
 			if checked > 0 {
 				ver = fmt.Sprintf("%d/%d", verified, checked)
 			}
-			fmt.Fprintf(&b, "| %s | %s | %d/%d | %d | %d | %d–%d | %d | %d | %s | %s |\n",
-				m, s, st.N, len(measured), st.Median, st.P90, st.Min, st.Max, st.MedianCPU, st.MedianRSSKB/1024, ver, findingCounts(findings))
+			dcpu, drss := "n/a", "n/a"
+			if st.DaemonN > 0 {
+				dcpu, drss = fmt.Sprint(st.MedianDaemonCPU), fmt.Sprint(st.MedianDaemonKB/1024)
+			}
+			fmt.Fprintf(&b, "| %s | %s | %d/%d | %d | %d | %d–%d | %d | %d | %s | %s | %s | %s | %s |\n",
+				m, s, st.N, len(measured), st.Median, st.P90, st.Min, st.Max, st.MedianCPU, st.MedianRSSKB/1024, dcpu, drss, oracleColumn(m, st), ver, findingCounts(findings))
 		}
 	}
 	if len(rejected) > 0 {
@@ -94,8 +113,40 @@ func summarize(results []Run, o options) string {
 		b.WriteString(strings.Join(rejected, "\n"))
 		b.WriteString("\n")
 	}
-	b.WriteString("\nCPU and RSS cover the krit process and the helpers it waited for; long-lived daemons are not included. Raw data: results.json.\n")
+	b.WriteString("\nRun kinds: cold = every cache and process reset before each run; warm-disk = on-disk caches kept, fresh processes; warm-daemon = caches and krit and JVM daemons kept; body-edit and abi-edit = warm-daemon after a comment-only or public-API edit.\n")
+	b.WriteString("CPU and max RSS cover the krit process and the helpers it waited for. Daemon CPU ms and daemon peak RSS MB cover long-lived daemons (krit serve, krit-fir, krit-types, checker) sampled from /proc before and after each run; peak RSS is the daemons' lifetime VmHWM, and n/a means no sample (non-Linux). The oracle column says whether the oracle ran or why a warm run legitimately skipped it. Raw data: results.json.\n")
 	return b.String()
+}
+
+// oracleColumn says whether accepted runs ran the oracle or which cache
+// layer let them skip it.
+func oracleColumn(m string, st Stats) string {
+	if modes[m].Backend == "" {
+		return "n/a"
+	}
+	if st.N == 0 {
+		return "-"
+	}
+	if len(st.Skips) == 0 {
+		return "ran"
+	}
+	var parts []string
+	for k, n := range st.Skips {
+		parts = append(parts, fmt.Sprintf("skipped: %s (%d)", k, n))
+	}
+	sort.Strings(parts)
+	if skipped := st.N - sumInts(st.Skips); skipped > 0 {
+		parts = append([]string{fmt.Sprintf("ran (%d)", skipped)}, parts...)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func sumInts(m map[string]int) int {
+	n := 0
+	for _, v := range m {
+		n += v
+	}
+	return n
 }
 
 func findingCounts(set map[int]bool) string {

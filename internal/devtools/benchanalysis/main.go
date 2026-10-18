@@ -89,30 +89,36 @@ var states = map[string]State{
 
 // Run is one krit invocation and everything measured about it.
 type Run struct {
-	Mode        string             `json:"mode"`
-	State       string             `json:"state"`
-	Index       int                `json:"index"`
-	Measured    bool               `json:"measured"`
-	Command     []string           `json:"command"`
-	Env         []string           `json:"env"`
-	ExitCode    int                `json:"exitCode"`
-	WallMs      int64              `json:"wallMs"`
-	UserCPUMs   int64              `json:"userCpuMs"`
-	SysCPUMs    int64              `json:"sysCpuMs"`
-	MaxRSSKB    int64              `json:"maxRssKb"`
-	LoadAvg     string             `json:"loadAvg,omitempty"`
-	DurationMs  int64              `json:"durationMs"`
-	Phases      map[string]int64   `json:"phasesMs,omitempty"`
-	Attributes  map[string]string  `json:"attributes,omitempty"`
-	Caches      map[string]CacheIO `json:"caches,omitempty"`
-	Findings    int                `json:"findings"`
-	Checksum    string             `json:"findingsChecksum"`
-	Rules       int                `json:"rules"`
-	Warnings    []string           `json:"warnings,omitempty"`
-	Rejected    string             `json:"rejected,omitempty"`
-	Verified    *bool              `json:"verifiedAgainstClean,omitempty"`
-	CleanSum    string             `json:"cleanChecksum,omitempty"`
-	EditApplied string             `json:"editApplied,omitempty"`
+	Mode       string             `json:"mode"`
+	State      string             `json:"state"`
+	Index      int                `json:"index"`
+	Measured   bool               `json:"measured"`
+	Command    []string           `json:"command"`
+	Env        []string           `json:"env"`
+	ExitCode   int                `json:"exitCode"`
+	WallMs     int64              `json:"wallMs"`
+	UserCPUMs  int64              `json:"userCpuMs"`
+	SysCPUMs   int64              `json:"sysCpuMs"`
+	MaxRSSKB   int64              `json:"maxRssKb"`
+	LoadAvg    string             `json:"loadAvg,omitempty"`
+	DurationMs int64              `json:"durationMs"`
+	Phases     map[string]int64   `json:"phasesMs,omitempty"`
+	Attributes map[string]string  `json:"attributes,omitempty"`
+	Caches     map[string]CacheIO `json:"caches,omitempty"`
+	Findings   int                `json:"findings"`
+	Checksum   string             `json:"findingsChecksum"`
+	Rules      int                `json:"rules"`
+	Warnings   []string           `json:"warnings,omitempty"`
+	Rejected   string             `json:"rejected,omitempty"`
+	// OracleSkip says why a warm run legitimately did not run the oracle
+	// (for example "findings-bundle-hit"); empty when the oracle ran.
+	OracleSkip string `json:"oracleSkip,omitempty"`
+	// Daemon is the CPU and memory of long-lived daemons during the run,
+	// kept apart from the rusage columns. Nil where /proc is unavailable.
+	Daemon      *DaemonUsage `json:"daemon,omitempty"`
+	Verified    *bool        `json:"verifiedAgainstClean,omitempty"`
+	CleanSum    string       `json:"cleanChecksum,omitempty"`
+	EditApplied string       `json:"editApplied,omitempty"`
 }
 
 // CacheIO is the hit/miss counters krit reports for one cache layer.
@@ -211,12 +217,22 @@ func run(o options) error {
 	if err := os.WriteFile(filepath.Join(out, "results.json"), data, 0o644); err != nil {
 		return err
 	}
-	summary := summarize(results, o)
+	summary := withSocketWarning(summarize(results, o), work)
 	if err := os.WriteFile(filepath.Join(out, "summary.md"), []byte(summary), 0o644); err != nil {
 		return err
 	}
 	fmt.Print(summary)
 	return nil
+}
+
+// withSocketWarning prefixes the summary with a long-socket-path warning.
+func withSocketWarning(summary, work string) string {
+	w := socketPathWarning(work)
+	if w == "" {
+		return summary
+	}
+	fmt.Fprintln(os.Stderr, "benchanalysis: "+w)
+	return "WARNING: " + w + "\n\n" + summary
 }
 
 type harness struct {
@@ -297,11 +313,16 @@ func (h *harness) newRegistry() {
 	}
 }
 
+// stopDaemon stops the krit daemon for the corpus. `krit daemon stop` needs a
+// pidfile that auto-spawned daemons don't always write (it prints "not
+// running" and leaves them alive), so the daemon is also found by its
+// `serve --root <work>` command line and signalled directly.
 func (h *harness) stopDaemon() {
 	cmd := exec.CommandContext(context.Background(), h.krit, "daemon", "stop")
 	cmd.Dir = h.work
 	cmd.Env = h.env(true)
 	_ = cmd.Run()
+	killProcs(findServeDaemons(procRoot, h.work), 5*time.Second)
 }
 
 // env scopes JVM helpers to the krit process that started them
@@ -344,10 +365,19 @@ func (h *harness) args(m Mode, daemon bool) []string {
 }
 
 func (h *harness) invoke(m Mode, s State, index int, measured bool) Run {
-	return execRun(h.krit, h.work, h.args(m, s.Daemon), h.env(s.Daemon), m, Run{
+	before := sampleDaemons(procRoot, daemonPIDs(h.registry, h.work))
+	r := execRun(h.krit, h.work, h.args(m, s.Daemon), h.env(s.Daemon), m, Run{
 		Mode: m.Name, State: s.Name, Index: index, Measured: measured,
 	})
+	if _, err := os.Stat(procRoot); err == nil {
+		u := daemonUsage(before, sampleDaemons(procRoot, daemonPIDs(h.registry, h.work)))
+		r.Daemon = &u
+	}
+	return r
 }
+
+// procRoot is where daemon CPU and RSS are sampled; absent off Linux.
+const procRoot = "/proc"
 
 // verify scans a fresh copy of the current corpus contents with every cache
 // layer and process cold, and compares findings with the measured run.
@@ -409,7 +439,52 @@ func execRun(bin, dir string, args, env []string, m Mode, r Run) Run {
 		return r
 	}
 	r.Rejected = checkMode(m, r)
+	if r.Rejected == "" {
+		r.Rejected = checkDaemonUsed(r)
+	}
+	if r.Rejected == "" && m.Backend != "" && attr(r.Attributes, "oracleBackend", "backend") == "" {
+		r.OracleSkip = oracleSkipReason(r)
+	}
 	return r
+}
+
+// checkDaemonUsed rejects a run in a daemon state that krit served in-process
+// because the daemon never became reachable (for example a socket path over
+// the unix sun_path limit, which makes the client wait out its spawn timeout
+// first). That is not a warm-daemon measurement.
+func checkDaemonUsed(r Run) string {
+	if !states[r.State].Daemon {
+		return ""
+	}
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "daemon unavailable") {
+			return "krit daemon was not used (" + w + "); try a shorter -out path"
+		}
+	}
+	return ""
+}
+
+// oracleSkipReason names the cache layer that legitimately made a warm
+// measured run skip the oracle, or "" when nothing in the perf report
+// explains it. Fill runs, cold runs and clean baselines never qualify: they
+// start from no caches, so an absent oracle there means a missing jar or a
+// broken helper. A skip on a warm run is only trustworthy because the
+// unmeasured fill run that filled the caches had to run the oracle.
+func oracleSkipReason(r Run) string {
+	if !r.Measured || r.State == "" || r.State == "cold" {
+		return ""
+	}
+	switch attr(r.Attributes, "dispatchBundleLoad", "outcome") {
+	case "hit", "preloaded":
+		return "findings-bundle-hit"
+	}
+	if strings.HasPrefix(attr(r.Attributes, "dispatchPath", "path"), "cacheHit") || r.Caches["findings-bundle-cache"].Hits > 0 {
+		return "findings-bundle-hit"
+	}
+	if r.Caches["oracle-cache"].Hits > 0 {
+		return "oracle-cache-hit"
+	}
+	return ""
 }
 
 // parseOutput fills r from krit's JSON report and returns a rejection
@@ -451,7 +526,10 @@ func checkMode(m Mode, r Run) string {
 		return "oracle ran (" + got + ") in a mode that disables it"
 	case m.Backend != "" && got != m.Backend:
 		if got == "" {
-			return "no oracleBackend in the perf report: the " + m.Backend + " oracle did not run (missing jar or no Kotlin sources?)"
+			if oracleSkipReason(r) != "" {
+				break
+			}
+			return "no oracleBackend in the perf report: the " + m.Backend + " oracle did not run (missing jar or no Kotlin sources?), and no cache layer explains the skip"
 		}
 		return "oracle backend " + got + ", want " + m.Backend
 	}

@@ -23,16 +23,69 @@ const maxSocketPath = 100
 // DefaultSocketPath returns the conventional socket path for a project
 // rooted at root (.krit/daemon.sock under the project root). When that
 // path would exceed the unix socket path limit (deeply nested checkouts,
-// long CI workspace names), it returns a short, stable per-root path under
-// the temp dir instead, so the daemon can still bind. Server and clients
-// both derive the path here, so they always agree.
+// long CI workspace names), it returns a short, stable per-root path in a
+// private (0700, current-user-owned) directory instead, so the daemon can
+// still bind. Server and clients both derive the path here from the
+// absolute, symlink-resolved root, so they always agree.
+//
+// If no safe fallback directory exists it returns the conventional path
+// unchanged; ResolveSocketPath reports why.
 func DefaultSocketPath(root string) string {
+	p, err := ResolveSocketPath(root)
+	if err != nil {
+		return filepath.Join(normalizeRoot(root), ".krit", "daemon.sock")
+	}
+	return p
+}
+
+// normalizeRoot makes root absolute and resolves symlinks (falling back to
+// the absolute form), so a relative root and its absolute form map to the
+// same socket.
+func normalizeRoot(root string) string {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return filepath.Clean(root)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved
+	}
+	return abs
+}
+
+// ResolveSocketPath is DefaultSocketPath with the failure reason: it errors
+// when the conventional path is too long and no private fallback directory
+// is usable.
+func ResolveSocketPath(root string) (string, error) {
+	root = normalizeRoot(root)
 	p := filepath.Join(root, ".krit", "daemon.sock")
 	if len(p) <= maxSocketPath {
-		return p
+		return p, nil
 	}
-	sum := sha256.Sum256([]byte(filepath.Clean(root)))
-	return filepath.Join(os.TempDir(), fmt.Sprintf("krit-%d", os.Getuid()), hex.EncodeToString(sum[:6])+".sock")
+	sum := sha256.Sum256([]byte(root))
+	name := hex.EncodeToString(sum[:8]) + ".sock"
+	uid := os.Getuid()
+	var bases []string
+	if x := os.Getenv("XDG_RUNTIME_DIR"); x != "" {
+		bases = append(bases, filepath.Join(x, "krit"))
+	}
+	bases = append(bases,
+		filepath.Join(os.TempDir(), fmt.Sprintf("krit-%d", uid)),
+		filepath.Join("/tmp", fmt.Sprintf("krit-%d", uid)),
+	)
+	var errs []error
+	for _, dir := range bases {
+		sock := filepath.Join(dir, name)
+		if len(sock) > maxSocketPath {
+			errs = append(errs, fmt.Errorf("%s: path too long for a unix socket", sock))
+			continue
+		}
+		if err := ensurePrivateDir(dir); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		return sock, nil
+	}
+	return "", fmt.Errorf("daemon: no usable socket directory for %s: %w", root, errors.Join(errs...))
 }
 
 // Available reports whether a daemon appears reachable at socketPath. It

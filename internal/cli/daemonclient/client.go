@@ -258,7 +258,10 @@ func EnsureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
 	if selfexec.IsTestBinary(binary) {
 		return nil, fmt.Errorf("daemonclient: refusing to spawn %s as a daemon: %w", binary, selfexec.ErrTestBinary)
 	}
-	socket := daemon.DefaultSocketPath(repoRoot)
+	socket, err := daemon.ResolveSocketPath(repoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("daemonclient: %w", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(socket), 0o755); err != nil {
 		return nil, fmt.Errorf("daemonclient: prepare socket dir: %w", err)
 	}

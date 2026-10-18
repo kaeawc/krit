@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -89,30 +90,45 @@ var states = map[string]State{
 
 // Run is one krit invocation and everything measured about it.
 type Run struct {
-	Mode        string             `json:"mode"`
-	State       string             `json:"state"`
-	Index       int                `json:"index"`
-	Measured    bool               `json:"measured"`
-	Command     []string           `json:"command"`
-	Env         []string           `json:"env"`
-	ExitCode    int                `json:"exitCode"`
-	WallMs      int64              `json:"wallMs"`
-	UserCPUMs   int64              `json:"userCpuMs"`
-	SysCPUMs    int64              `json:"sysCpuMs"`
-	MaxRSSKB    int64              `json:"maxRssKb"`
-	LoadAvg     string             `json:"loadAvg,omitempty"`
-	DurationMs  int64              `json:"durationMs"`
-	Phases      map[string]int64   `json:"phasesMs,omitempty"`
-	Attributes  map[string]string  `json:"attributes,omitempty"`
-	Caches      map[string]CacheIO `json:"caches,omitempty"`
-	Findings    int                `json:"findings"`
-	Checksum    string             `json:"findingsChecksum"`
-	Rules       int                `json:"rules"`
-	Warnings    []string           `json:"warnings,omitempty"`
-	Rejected    string             `json:"rejected,omitempty"`
-	Verified    *bool              `json:"verifiedAgainstClean,omitempty"`
-	CleanSum    string             `json:"cleanChecksum,omitempty"`
-	EditApplied string             `json:"editApplied,omitempty"`
+	Mode       string             `json:"mode"`
+	State      string             `json:"state"`
+	Index      int                `json:"index"`
+	Measured   bool               `json:"measured"`
+	Command    []string           `json:"command"`
+	Env        []string           `json:"env"`
+	ExitCode   int                `json:"exitCode"`
+	WallMs     int64              `json:"wallMs"`
+	UserCPUMs  int64              `json:"userCpuMs"`
+	SysCPUMs   int64              `json:"sysCpuMs"`
+	MaxRSSKB   int64              `json:"maxRssKb"`
+	LoadAvg    string             `json:"loadAvg,omitempty"`
+	DurationMs int64              `json:"durationMs"`
+	Phases     map[string]int64   `json:"phasesMs,omitempty"`
+	Attributes map[string]string  `json:"attributes,omitempty"`
+	Caches     map[string]CacheIO `json:"caches,omitempty"`
+	Findings   int                `json:"findings"`
+	Checksum   string             `json:"findingsChecksum"`
+	Rules      int                `json:"rules"`
+	Warnings   []string           `json:"warnings,omitempty"`
+	// prevCaches is the daemon's cumulative cache counters after the previous
+	// invocation; rawCaches is this run's cumulative reading. Counters in a
+	// long-lived daemon accumulate across requests, so Caches is reported as
+	// the difference.
+	prevCaches map[string]CacheIO
+	rawCaches  map[string]CacheIO
+	// DaemonServed is true when krit's stderr carried the perf marker that a
+	// krit daemon served the scan.
+	DaemonServed bool   `json:"daemonServed,omitempty"`
+	Rejected     string `json:"rejected,omitempty"`
+	// OracleSkip says why a warm run legitimately did not run the oracle
+	// (for example "findings-bundle-hit"); empty when the oracle ran.
+	OracleSkip string `json:"oracleSkip,omitempty"`
+	// Daemon is the CPU and memory of long-lived daemons during the run,
+	// kept apart from the rusage columns. Nil where /proc is unavailable.
+	Daemon      *DaemonUsage `json:"daemon,omitempty"`
+	Verified    *bool        `json:"verifiedAgainstClean,omitempty"`
+	CleanSum    string       `json:"cleanChecksum,omitempty"`
+	EditApplied string       `json:"editApplied,omitempty"`
 }
 
 // CacheIO is the hit/miss counters krit reports for one cache layer.
@@ -154,19 +170,8 @@ func run(o options) error {
 	if o.corpus == "" {
 		return errors.New("-corpus is required")
 	}
-	for _, m := range o.modes {
-		if _, ok := modes[m]; !ok {
-			return fmt.Errorf("unknown mode %q", m)
-		}
-	}
-	for _, s := range o.states {
-		st, ok := states[s]
-		if !ok {
-			return fmt.Errorf("unknown state %q", s)
-		}
-		if st.Edit != "" && !strings.HasSuffix(o.editFile, ".kt") {
-			return fmt.Errorf("state %s needs -edit-file naming a corpus .kt file", s)
-		}
+	if err := validateOptions(o); err != nil {
+		return err
 	}
 	corpus, err := filepath.Abs(o.corpus)
 	if err != nil {
@@ -226,6 +231,8 @@ type harness struct {
 	original              []byte
 	editPath              string
 	editsApplied, cleanID int
+	daemonCaches          map[string]CacheIO // cumulative counters after the last daemon run
+	daemonID              string             // identity of the daemon those counters belong to
 }
 
 func (h *harness) runState(m Mode, s State) ([]Run, error) {
@@ -244,8 +251,10 @@ func (h *harness) runState(m Mode, s State) ([]Run, error) {
 		h.original = data
 		defer func() { _ = os.WriteFile(h.editPath, h.original, 0o644) }()
 	}
+	h.stopDaemon() // a daemon left by an interrupted run must not serve the fill run
 	h.resetDisk()
 	h.newRegistry()
+	h.daemonCaches, h.daemonID = nil, ""
 	if s.Fill {
 		fill := h.invoke(m, s, 0, false)
 		runs = append(runs, fill)
@@ -297,11 +306,98 @@ func (h *harness) newRegistry() {
 	}
 }
 
+// stopDaemon stops the krit daemon for the corpus, portably first: ask it to
+// shut down over its socket (`krit serve --stop --root <work>`, which finds a
+// fallback socket through the pointer file), then `krit daemon stop` (pid
+// file), and wait for the pid and socket to go away. Scanning /proc for the
+// `serve --root <work>` process is only a last resort, and a no-op where
+// /proc does not exist.
 func (h *harness) stopDaemon() {
-	cmd := exec.CommandContext(context.Background(), h.krit, "daemon", "stop")
-	cmd.Dir = h.work
-	cmd.Env = h.env(true)
-	_ = cmd.Run()
+	// Record the daemon processes before asking them to stop: the socket
+	// goes away before serve finishes its deferred flush and JVM cleanup,
+	// and the pid file only when the repo lock is released, so wait for the
+	// processes themselves to exit before the next state touches the disk.
+	pids := daemonPIDsBeforeStop(h.work, h.krit)
+	for _, args := range [][]string{{"serve", "--stop", "--root", h.work}, {"daemon", "stop"}} {
+		cmd := exec.CommandContext(context.Background(), h.krit, args...)
+		cmd.Dir = h.work
+		cmd.Env = h.env(true)
+		_ = cmd.Run()
+		if waitDaemonGone(h.work, pids, 10*time.Second) {
+			break
+		}
+	}
+	if !waitDaemonGone(h.work, pids, 0) {
+		killProcs(procRoot, findServeDaemons(procRoot, h.work, h.krit), 5*time.Second)
+	}
+}
+
+// daemonPIDsBeforeStop returns the pid from <work>/.krit/daemon.pid plus any
+// `krit serve --root <work>` processes found under /proc (none where /proc
+// does not exist).
+func daemonPIDsBeforeStop(work, bin string) []int {
+	var pids []int
+	if pid := pidFromFile(work); pid > 0 {
+		pids = append(pids, pid)
+	}
+	for _, p := range findServeDaemons(procRoot, work, bin) {
+		pids = append(pids, p.PID)
+	}
+	return pids
+}
+
+func pidFromFile(work string) int {
+	data, err := os.ReadFile(filepath.Join(work, ".krit", "daemon.pid"))
+	if err != nil {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0
+	}
+	return pid
+}
+
+// waitDaemonGone waits up to d for every pid in pids and the one in
+// <work>/.krit/daemon.pid to exit and the default socket to disappear. It
+// reports whether all are gone.
+func waitDaemonGone(work string, pids []int, d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for {
+		if daemonGone(work, pids...) {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func daemonGone(work string, pids ...int) bool {
+	if pid := pidFromFile(work); pid > 0 {
+		pids = append(pids, pid)
+	}
+	for _, pid := range pids {
+		if pid > 0 && processAlive(pid) {
+			return false
+		}
+	}
+	_, err := os.Stat(filepath.Join(work, ".krit", "daemon.sock"))
+	return err != nil
+}
+
+// processAlive reports whether pid is running. A zombie (exited, not yet
+// reaped) counts as gone where /proc shows its state.
+func processAlive(pid int) bool {
+	if syscall.Kill(pid, 0) != nil {
+		return false
+	}
+	stat, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return true // no /proc (macOS): kill(0) is all we have
+	}
+	return statField(string(stat), 3) != "Z"
 }
 
 // env scopes JVM helpers to the krit process that started them
@@ -344,10 +440,40 @@ func (h *harness) args(m Mode, daemon bool) []string {
 }
 
 func (h *harness) invoke(m Mode, s State, index int, measured bool) Run {
-	return execRun(h.krit, h.work, h.args(m, s.Daemon), h.env(s.Daemon), m, Run{
-		Mode: m.Name, State: s.Name, Index: index, Measured: measured,
-	})
+	before := sampleDaemons(procRoot, daemonPIDs(procRoot, h.registry, h.work, h.krit))
+	start := Run{Mode: m.Name, State: s.Name, Index: index, Measured: measured}
+	idBefore := ""
+	if s.Daemon {
+		// Counters belong to one daemon process: a different one (restart,
+		// replacement) starts from zero whatever its counters read.
+		if idBefore = daemonIdentity(procRoot, h.work); idBefore != h.daemonID {
+			h.daemonCaches = nil
+		}
+		start.prevCaches = h.daemonCaches
+	}
+	r := execRun(h.krit, h.work, h.args(m, s.Daemon), h.env(s.Daemon), m, start)
+	if s.Daemon {
+		idAfter := daemonIdentity(procRoot, h.work)
+		if idAfter != idBefore {
+			// The daemon started or changed during this run: its counters
+			// began at zero.
+			rediffCaches(&r, nil)
+		}
+		if r.DaemonServed && r.rawCaches != nil {
+			h.daemonID = idAfter
+		}
+		h.daemonCaches = nextDaemonBaseline(h.daemonCaches, r)
+	}
+	rejectUnverifiedSkip(&r, h.o.verify)
+	if _, err := os.Stat(procRoot); err == nil {
+		u := daemonUsage(before, sampleDaemons(procRoot, daemonPIDs(procRoot, h.registry, h.work, h.krit)))
+		r.Daemon = &u
+	}
+	return r
 }
+
+// procRoot is where daemon CPU and RSS are sampled; absent off Linux.
+const procRoot = "/proc"
 
 // verify scans a fresh copy of the current corpus contents with every cache
 // layer and process cold, and compares findings with the measured run.
@@ -399,6 +525,7 @@ func execRun(bin, dir string, args, env []string, m Mode, r Run) Run {
 		return r
 	}
 	r.Warnings = diagnosticLines(stderr.String())
+	r.DaemonServed = strings.Contains(stderr.String(), daemonServedMarker)
 	// krit exits 1 when it reports findings; anything else is a failure.
 	if r.ExitCode != 0 && r.ExitCode != 1 {
 		r.Rejected = fmt.Sprintf("exit code %d: %s", r.ExitCode, lastLine(stderr.String()))
@@ -409,7 +536,78 @@ func execRun(bin, dir string, args, env []string, m Mode, r Run) Run {
 		return r
 	}
 	r.Rejected = checkMode(m, r)
+	if r.Rejected == "" {
+		r.Rejected = checkDaemonUsed(r)
+	}
+	if r.Rejected == "" && m.Backend != "" && attr(r.Attributes, "oracleBackend", "backend") == "" {
+		r.OracleSkip = oracleSkipReason(r)
+	}
 	return r
+}
+
+// checkDaemonUsed rejects a run in a daemon state that krit served in-process
+// because the daemon never became reachable (for example a socket path over
+// the unix sun_path limit, which makes the client wait out its spawn timeout
+// first). That is not a warm-daemon measurement.
+func checkDaemonUsed(r Run) string {
+	if !states[r.State].Daemon {
+		return ""
+	}
+	for _, w := range r.Warnings {
+		if isDaemonFallback(w) {
+			return "krit daemon was not used (" + w + "); try a shorter -out path"
+		}
+	}
+	if !r.DaemonServed {
+		return "no sign that a krit daemon served this run (missing " + daemonServedMarker + " marker)"
+	}
+	// Positive evidence: oracle facts a daemon served say so. An in-process
+	// oracleBackend entry has no source attribute.
+	if attr(r.Attributes, "oracleBackend", "backend") != "" && attr(r.Attributes, "oracleBackend", "source") != "resident-daemon" {
+		return "oracle ran in-process in a daemon state (no resident-daemon source); the krit daemon was not used"
+	}
+	return ""
+}
+
+// fallbackMarker is the phrase every daemon-to-in-process fallback warning in
+// internal/cli/scan/daemon_delegate.go shares ("unavailable", "call failed",
+// "rejected request", "clear-cache failed", ...).
+// daemonServedMarker is what `krit -perf` prints to stderr when a daemon
+// served the scan (scan.DaemonServedPerfMarker).
+const daemonServedMarker = "perf: served by krit daemon"
+
+const fallbackMarker = "falling back to in-process"
+
+func isDaemonFallback(warning string) bool {
+	return strings.Contains(warning, "krit daemon") && strings.Contains(warning, fallbackMarker)
+}
+
+// oracleSkipReason names the cache layer that legitimately made a warm
+// measured run skip the oracle, or "" when nothing in the perf report
+// explains it. Only warm-disk and warm-daemon runs qualify: edit states must
+// always run the oracle, and cold runs, fill runs and clean baselines start
+// from no caches, so an absent oracle there means a missing jar or a broken
+// helper. A skip on a warm run is only trustworthy because the unmeasured
+// fill run that filled the caches had to run the oracle.
+//
+// Only per-request evidence counts. The cache counters are lifetime totals
+// of the process (and of a whole daemon), so they never qualify here.
+func oracleSkipReason(r Run) string {
+	if !r.Measured || (r.State != "warm-disk" && r.State != "warm-daemon") {
+		return ""
+	}
+	outcome := attr(r.Attributes, "dispatchBundleLoad", "outcome")
+	if (outcome == "hit" || outcome == "preloaded") && attr(r.Attributes, "dispatchPath", "path") == "cacheHitFullBundle" {
+		return "findings-bundle-hit"
+	}
+	// A daemon answers a whole-run bundle hit from its response cache with a
+	// top-level "bundleHit" perf entry and none of the dispatch attributes.
+	// The scope is opened before the lookup, so only its explicit per-request
+	// outcome counts: a miss also leaves the entry behind.
+	if _, ok := r.Phases["bundleHit"]; ok && attr(r.Attributes, "bundleOutcome", "outcome") == "hit" {
+		return "findings-bundle-hit"
+	}
+	return ""
 }
 
 // parseOutput fills r from krit's JSON report and returns a rejection
@@ -437,10 +635,68 @@ func parseOutput(data []byte, root string, r *Run) string {
 	r.Attributes = map[string]string{}
 	flattenTimings(report.PerfTiming, "", r.Phases, r.Attributes)
 	r.Caches = map[string]CacheIO{}
+	r.rawCaches = map[string]CacheIO{}
 	for _, c := range report.Caches {
-		r.Caches[c.Name] = c.Stats
+		r.rawCaches[c.Name] = c.Stats
+		r.Caches[c.Name] = cacheDelta(c.Stats, r.prevCaches[c.Name])
 	}
 	return ""
+}
+
+// daemonIdentity names the daemon process behind <work>/.krit/daemon.pid: its
+// PID plus, where /proc exists, its start time, so a reused PID is told apart.
+// It is "" when there is no readable pid file.
+func daemonIdentity(procRoot, work string) string {
+	data, err := os.ReadFile(filepath.Join(work, ".krit", "daemon.pid"))
+	if err != nil {
+		return ""
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return ""
+	}
+	id := strconv.Itoa(pid)
+	if stat, err := os.ReadFile(filepath.Join(procRoot, id, "stat")); err == nil {
+		id += ":" + statField(string(stat), 22)
+	}
+	return id
+}
+
+// rediffCaches recomputes r.Caches from its raw counters against prev.
+func rediffCaches(r *Run, prev map[string]CacheIO) {
+	for name, raw := range r.rawCaches {
+		r.Caches[name] = cacheDelta(raw, prev[name])
+	}
+}
+
+// nextDaemonBaseline is the cumulative-counter baseline for the next daemon
+// run. It advances only on a response known to be daemon-served; after an
+// in-process fallback the previous baseline is kept (the in-process
+// counters belong to a different process), and if the daemon restarted the
+// next delta is computed from zero by cacheDelta.
+func nextDaemonBaseline(prev map[string]CacheIO, r Run) map[string]CacheIO {
+	if r.DaemonServed && r.rawCaches != nil {
+		return r.rawCaches
+	}
+	return prev
+}
+
+// rejectUnverifiedSkip rejects a run that skipped the oracle when findings
+// are not being checked against a clean scan: nothing then confirms the cache
+// result is right.
+func rejectUnverifiedSkip(r *Run, verify bool) {
+	if r.Rejected == "" && r.OracleSkip != "" && !verify {
+		r.Rejected = "oracle skipped and -verify=false: cannot confirm the cache result"
+	}
+}
+
+// cacheDelta is cur minus prev; a counter that went down means the daemon
+// restarted, so cur is already per-run.
+func cacheDelta(cur, prev CacheIO) CacheIO {
+	if cur.Hits < prev.Hits || cur.Misses < prev.Misses {
+		return cur
+	}
+	return CacheIO{Hits: cur.Hits - prev.Hits, Misses: cur.Misses - prev.Misses}
 }
 
 // checkMode rejects a run whose report doesn't show the requested backend.
@@ -451,7 +707,10 @@ func checkMode(m Mode, r Run) string {
 		return "oracle ran (" + got + ") in a mode that disables it"
 	case m.Backend != "" && got != m.Backend:
 		if got == "" {
-			return "no oracleBackend in the perf report: the " + m.Backend + " oracle did not run (missing jar or no Kotlin sources?)"
+			if oracleSkipReason(r) != "" {
+				break
+			}
+			return "no oracleBackend in the perf report: the " + m.Backend + " oracle did not run (missing jar or no Kotlin sources?), and no cache layer explains the skip"
 		}
 		return "oracle backend " + got + ", want " + m.Backend
 	}
@@ -644,6 +903,43 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return out.Close()
+}
+
+// validateOptions checks mode and state names and the extra arguments.
+func validateOptions(o options) error {
+	for _, m := range o.modes {
+		if _, ok := modes[m]; !ok {
+			return fmt.Errorf("unknown mode %q", m)
+		}
+	}
+	for _, s := range o.states {
+		st, ok := states[s]
+		if !ok {
+			return fmt.Errorf("unknown state %q", s)
+		}
+		if st.Edit != "" && !strings.HasSuffix(o.editFile, ".kt") {
+			return fmt.Errorf("state %s needs -edit-file naming a corpus .kt file", s)
+		}
+	}
+	return checkExtraArgs(o)
+}
+
+// checkExtraArgs refuses -extra-args that turn the daemon off while a daemon
+// state is selected: those rows would not measure the daemon.
+func checkExtraArgs(o options) error {
+	daemon := false
+	for _, s := range o.states {
+		daemon = daemon || states[s].Daemon
+	}
+	if !daemon {
+		return nil
+	}
+	for _, a := range strings.Fields(o.extraArgs) {
+		if name := strings.TrimLeft(a, "-"); name == "no-daemon" || strings.HasPrefix(name, "no-daemon=") {
+			return fmt.Errorf("-extra-args %q disables the krit daemon, which the selected daemon states need", a)
+		}
+	}
+	return nil
 }
 
 func splitList(s string) []string {

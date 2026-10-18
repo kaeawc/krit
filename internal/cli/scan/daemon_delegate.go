@@ -68,6 +68,10 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 	return runDaemonAnalyze(client, f, paths)
 }
 
+// DaemonServedPerfMarker is printed to stderr under -perf when a krit daemon
+// served the scan, so a harness can tell delegation from an in-process run.
+const DaemonServedPerfMarker = "perf: served by krit daemon"
+
 func runDaemonAnalyze(client *daemonclient.Client, f *scanFlags, paths []string) (bool, int) {
 	start := time.Now()
 	res, err := client.AnalyzeProject(buildDaemonAnalyzeArgs(f, paths))
@@ -92,6 +96,10 @@ func runDaemonAnalyze(client *daemonclient.Client, f *scanFlags, paths []string)
 
 	if !*f.Quiet {
 		fmt.Fprintln(os.Stderr, "info: using daemon")
+	}
+	if *f.Perf {
+		// Positive proof of delegation for benchmarks, which run with -q.
+		fmt.Fprintln(os.Stderr, DaemonServedPerfMarker)
 	}
 	if handled, code := dispatchDaemonShortCircuits(f, paths, res); handled {
 		return true, code

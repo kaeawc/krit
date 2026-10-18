@@ -308,6 +308,12 @@ func EnsureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
 	if poll == 0 {
 		poll = 25 * time.Millisecond
 	}
+	return waitForDaemon(socket, timeout, poll, exited, opts.LogPath)
+}
+
+// waitForDaemon polls until the socket is reachable, the spawned daemon
+// exits, or timeout elapses.
+func waitForDaemon(socket string, timeout, poll time.Duration, exited <-chan error, logPath string) (*Client, error) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if daemon.Available(socket) {
@@ -320,7 +326,7 @@ func EnsureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
 			if werr == nil {
 				werr = errors.New("exited")
 			}
-			return nil, fmt.Errorf("daemonclient: spawned daemon exited before becoming reachable: %w (see %s)", werr, opts.LogPath)
+			return nil, fmt.Errorf("daemonclient: spawned daemon exited before becoming reachable: %w (see %s)", werr, logPath)
 		case <-time.After(poll):
 		}
 	}

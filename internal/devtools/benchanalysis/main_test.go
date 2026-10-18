@@ -444,4 +444,13 @@ func TestDaemonGoneWaitsForPIDAndSocket(t *testing.T) {
 	if daemonGone(work) {
 		t.Fatal("live pid ignored")
 	}
+	// A pid recorded before the stop keeps the daemon "running" after its
+	// socket and pid file are gone (serve still flushing on its way out).
+	_ = os.Remove(filepath.Join(work, ".krit", "daemon.pid"))
+	if !daemonGone(work) {
+		t.Fatal("nothing left, still reported running")
+	}
+	if daemonGone(work, os.Getpid()) {
+		t.Fatal("recorded live pid ignored once the pid file is gone")
+	}
 }

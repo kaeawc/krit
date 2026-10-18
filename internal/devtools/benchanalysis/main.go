@@ -313,26 +313,58 @@ func (h *harness) newRegistry() {
 // `serve --root <work>` process is only a last resort, and a no-op where
 // /proc does not exist.
 func (h *harness) stopDaemon() {
+	// Record the daemon processes before asking them to stop: the socket
+	// goes away before serve finishes its deferred flush and JVM cleanup,
+	// and the pid file only when the repo lock is released, so wait for the
+	// processes themselves to exit before the next state touches the disk.
+	pids := daemonPIDsBeforeStop(h.work, h.krit)
 	for _, args := range [][]string{{"serve", "--stop", "--root", h.work}, {"daemon", "stop"}} {
 		cmd := exec.CommandContext(context.Background(), h.krit, args...)
 		cmd.Dir = h.work
 		cmd.Env = h.env(true)
 		_ = cmd.Run()
-		if waitDaemonGone(h.work, 3*time.Second) {
+		if waitDaemonGone(h.work, pids, 10*time.Second) {
 			break
 		}
 	}
-	if !waitDaemonGone(h.work, 0) {
+	if !waitDaemonGone(h.work, pids, 0) {
 		killProcs(procRoot, findServeDaemons(procRoot, h.work, h.krit), 5*time.Second)
 	}
 }
 
-// waitDaemonGone waits up to d for the pid in <work>/.krit/daemon.pid to
-// exit and the default socket to disappear. It reports whether both are gone.
-func waitDaemonGone(work string, d time.Duration) bool {
+// daemonPIDsBeforeStop returns the pid from <work>/.krit/daemon.pid plus any
+// `krit serve --root <work>` processes found under /proc (none where /proc
+// does not exist).
+func daemonPIDsBeforeStop(work, bin string) []int {
+	var pids []int
+	if pid := pidFromFile(work); pid > 0 {
+		pids = append(pids, pid)
+	}
+	for _, p := range findServeDaemons(procRoot, work, bin) {
+		pids = append(pids, p.PID)
+	}
+	return pids
+}
+
+func pidFromFile(work string) int {
+	data, err := os.ReadFile(filepath.Join(work, ".krit", "daemon.pid"))
+	if err != nil {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0
+	}
+	return pid
+}
+
+// waitDaemonGone waits up to d for every pid in pids and the one in
+// <work>/.krit/daemon.pid to exit and the default socket to disappear. It
+// reports whether all are gone.
+func waitDaemonGone(work string, pids []int, d time.Duration) bool {
 	deadline := time.Now().Add(d)
 	for {
-		if daemonGone(work) {
+		if daemonGone(work, pids...) {
 			return true
 		}
 		if !time.Now().Before(deadline) {
@@ -342,14 +374,30 @@ func waitDaemonGone(work string, d time.Duration) bool {
 	}
 }
 
-func daemonGone(work string) bool {
-	if data, err := os.ReadFile(filepath.Join(work, ".krit", "daemon.pid")); err == nil {
-		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid > 0 && syscall.Kill(pid, 0) == nil {
+func daemonGone(work string, pids ...int) bool {
+	if pid := pidFromFile(work); pid > 0 {
+		pids = append(pids, pid)
+	}
+	for _, pid := range pids {
+		if pid > 0 && processAlive(pid) {
 			return false
 		}
 	}
 	_, err := os.Stat(filepath.Join(work, ".krit", "daemon.sock"))
 	return err != nil
+}
+
+// processAlive reports whether pid is running. A zombie (exited, not yet
+// reaped) counts as gone where /proc shows its state.
+func processAlive(pid int) bool {
+	if syscall.Kill(pid, 0) != nil {
+		return false
+	}
+	stat, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return true // no /proc (macOS): kill(0) is all we have
+	}
+	return statField(string(stat), 3) != "Z"
 }
 
 // env scopes JVM helpers to the krit process that started them

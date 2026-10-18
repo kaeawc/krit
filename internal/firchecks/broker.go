@@ -96,7 +96,10 @@ func (b *Broker) Arm(p *Prefetch, matches ContextMatcher) {
 	case checker.JvmTarget != "":
 		b.Done("fir check needs a target-scoped compile")
 		return
-	case matches == nil || !matches(checker.JarPath, checker.SourceDirs, checker.Kotlin, checker.Classpath):
+	case matches == nil:
+		b.Done("no oracle daemon to share a compile with")
+		return
+	case !matches(checker.JarPath, checker.SourceDirs, checker.Kotlin, checker.Classpath):
 		b.Done("oracle daemon compiles in another context")
 		return
 	}

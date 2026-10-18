@@ -27,11 +27,29 @@ It writes `bench-out/results.json` (metadata and every run, raw) and
 | `kaa-oracle` | `--oracle-backend=kaa --no-fir` | `oracleBackend.backend == "kaa"` |
 | `fir-checkers` | `--oracle-backend=fir --fir` | as `fir-oracle`, plus `firCheckOutcome.status == "ok"` |
 
-`oracleBackend` (under `typeOracle/jvmAnalyze`) records the backend and jar
-that actually served the oracle, after any fallback. `firCheckOutcome` (under
+`oracleBackend` (under `typeOracle`, and under `typeOracle/jvmAnalyze` for an
+in-process run) records the backend that actually served the oracle, after any
+fallback. The in-process entry also records the jar; the entry written for a
+resident daemon has `source=resident-daemon` and no jar, and is written only
+after the daemon's analysis succeeded and its facts loaded. `firCheckOutcome` (under
 `firCheck`) records the FIR checker pass's file and rule counts and status.
 A run that shows a different backend, or no oracle when one was asked for (a
 missing jar, for example), is rejected rather than timed.
+
+One exception: a measured run in the `warm-disk` or `warm-daemon` state may
+skip the oracle when the perf report shows the whole-run findings bundle served
+the result. The evidence must be per request: `dispatchBundleLoad` outcome
+`hit` or `preloaded` together with `dispatchPath` `cacheHitFullBundle`, or the
+top-level `bundleHit` entry a daemon writes when it answers from its
+response cache, but only with its `bundleOutcome` child marked `hit` (the
+scope is also left behind by a lookup that missed). Delta and affected-set bundle hits, cache hit and miss
+counters (which are lifetime totals of the process or daemon) and the edit
+states never qualify, because those runs must still run the oracle. A skipped
+run is accepted only with `-verify` on (its findings are then checked against
+a clean scan), its `oracleSkip` field and the summary's `oracle` column record
+the reason (for example `findings-bundle-hit`), and cold runs, unmeasured fill
+runs and clean baselines never get the exception. So a missing jar still fails
+the fill run that should have filled the caches, and the state is skipped.
 
 Compare modes only where the workload is the same. `structural` doesn't run a
 JVM at all. `fir-oracle` and `kaa-oracle` produce the same facts with
@@ -100,6 +118,19 @@ and message, with paths relative to the scan root, order ignored) must match.
 A mismatch rejects the run and is reported. This is how the relative-root
 affected-set replay bug was found.
 
+A run in a daemon state is rejected when krit prints any `krit daemon ...
+falling back to in-process` warning (unavailable, call failed, rejected
+request) or when its oracle entry lacks `source=resident-daemon`, or when krit's stderr
+lacks the `perf: served by krit daemon` marker it prints under `-perf` after a
+delegated scan. The harness also refuses `-extra-args` containing `--no-daemon`
+when a daemon state is selected. Between states the harness stops the daemon with `krit serve --stop --root <corpus>`,
+then `krit daemon stop`, waits for the pid and socket to go away, and only then
+falls back to finding `krit serve` in `/proc`. The per-run cache baseline is tied
+to the daemon's identity (pid and start time), so a restarted daemon is diffed
+from zero. After an in-process fallback the baseline is kept, so the next daemon run's counters are still diffed correctly.
+(Long `-out` paths are fine: krit falls back to a short per-user socket path
+when `<work>/.krit/daemon.sock` would not fit in `sun_path`.)
+
 A run is also rejected when krit exits with anything but 0 (no findings) or 1
 (findings), when the JSON report can't be parsed, or when the mode check
 fails. Rejected runs are listed in `summary.md` and kept in `results.json`,
@@ -117,9 +148,18 @@ and never count toward timings.
   krit could pick up, Go, Java and Kotlin versions, OS, CPU count, load
   average, the corpus's build files, and the harness options.
 
-CPU and RSS cover the krit process and the children it waited for. Daemons
-(the krit daemon and its JVM helpers in warm states) aren't included; their
-cost shows up in wall time only.
+CPU and RSS cover the krit process and the children it waited for. Long-lived
+daemons (krit serve, the krit-fir and krit-types oracle JVMs, the checker
+daemon) are not children, so they are reported in separate columns: before and
+after each run the harness reads `/proc/<pid>/stat` (utime+stime) and
+`/proc/<pid>/status` (VmHWM, VmRSS) for every PID in the helper registry and
+`.krit/daemon.pid`, plus any `krit serve --root <corpus>` process found by command line (auto-spawned daemons write no pidfile). "Daemon CPU ms" is the delta over the run (a daemon the run
+started counts in full); "daemon lifetime-peak RSS MB" is the sum of the daemons'
+lifetime VmHWM. Linux only; elsewhere the columns read `n/a`. A daemon that
+exits during the run is not sampled. Raw values are in each run's `daemon`
+object. In daemon states the per-cache hit and miss counts are the difference from the previous
+run's reading, because a daemon's counters accumulate for its lifetime, so a stale
+bundle hit is never taken as evidence for the current run.
 
 ## Noise
 

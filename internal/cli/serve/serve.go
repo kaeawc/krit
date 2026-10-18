@@ -599,6 +599,9 @@ type oracleDaemonEntry struct {
 	// kotlin is the compiler settings the daemon was launched with; a daemon
 	// for other settings would answer with other facts, so it is part of the key.
 	kotlin gradlemodel.KotlinSettings
+	// backend is the oracle backend the daemon serves; a rebuilt daemon
+	// must report it too, or its analyses carry no resident backend marker.
+	backend oracle.Backend
 	// closeFn, when non-nil, replaces entry.daemon.Close() in
 	// closeOracleDaemons. Used by tests to inject a controllable
 	// close — production code leaves it nil.
@@ -680,11 +683,16 @@ func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Back
 		_ = entry.close()
 		delete(s.oracleDaemonByKey, key)
 	}
-	d, err := s.oracleDaemonStarter.Start(jarPath, sourceDirs, nil, false, oracle.WithKotlinSettings(kt))
+	// oracleJarForBackend picks krit-fir for FIR and krit-types otherwise.
+	served := oracle.BackendKAA
+	if backend == oracle.BackendFIR {
+		served = oracle.BackendFIR
+	}
+	d, err := s.oracleDaemonStarter.Start(jarPath, sourceDirs, nil, false, oracle.WithKotlinSettings(kt), oracle.WithBackend(served))
 	if err != nil {
 		return nil, fmt.Errorf("start oracle daemon: %w", err)
 	}
-	s.oracleDaemonByKey[key] = &oracleDaemonEntry{daemon: d, jarPath: jarPath, jarIdentity: oracle.JarIdentity(jarPath), sourceDirs: sourceDirs, kotlin: kt}
+	s.oracleDaemonByKey[key] = &oracleDaemonEntry{daemon: d, jarPath: jarPath, jarIdentity: oracle.JarIdentity(jarPath), sourceDirs: sourceDirs, kotlin: kt, backend: served}
 	// A resident krit-types JVM costs 1-2 GB. A daemon for the same jar and source
 	// roots under other Kotlin settings can no longer be reached once the project's
 	// settings changed, so retire it instead of keeping one JVM per identity ever seen.
@@ -720,7 +728,7 @@ func (s *daemonState) pingOracleDaemon() {
 		// Failed ping → close and rebuild. Closing a dead daemon is
 		// best-effort; errors are intentionally ignored.
 		_ = entry.daemon.Close()
-		d, err := s.oracleDaemonStarter.Start(entry.jarPath, entry.sourceDirs, nil, false, oracle.WithKotlinSettings(entry.kotlin))
+		d, err := s.oracleDaemonStarter.Start(entry.jarPath, entry.sourceDirs, nil, false, oracle.WithKotlinSettings(entry.kotlin), oracle.WithBackend(entry.backend))
 		if err != nil {
 			// Drop the entry so the next ensureOracleDaemon retries.
 			delete(s.oracleDaemonByKey, key)

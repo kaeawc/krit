@@ -213,7 +213,13 @@ func (s *daemonState) runStrictVerify(ctx context.Context, args daemon.AnalyzePr
 	if parseErr != nil {
 		return "", fmt.Errorf("baseline oracle backend: %w", parseErr)
 	}
-	oracleDaemon, oracleErr := s.ensureOracleDaemon(paths, backend, args.OracleKotlin)
+	// A --no-type-oracle request is compared against a no-oracle baseline:
+	// an oracle-backed one would report type-aware findings as divergence.
+	var oracleDaemon *oracle.Daemon
+	var oracleErr error
+	if !args.NoTypeOracle {
+		oracleDaemon, oracleErr = s.ensureOracleDaemon(paths, backend, args.OracleKotlin)
+	}
 	if oracleErr != nil {
 		// Mirror buildProjectInput's "best-effort degrade": a failed
 		// oracle daemon start shouldn't fail strict-verify. The
@@ -244,6 +250,7 @@ func (s *daemonState) runStrictVerify(ctx context.Context, args daemon.AnalyzePr
 		// daemon call used; wireOracleHandles consumes host.OracleDaemon
 		// from the matching ensureOracleDaemon slot.
 		OracleEnabled: oracleDaemon != nil,
+		NoTypeOracle:  args.NoTypeOracle,
 	}
 	applyOracleModelArgs(args, &baselineArgs)
 	baseline, err := pipeline.RunProjectAnalysis(ctx, pipeline.ProjectInput{

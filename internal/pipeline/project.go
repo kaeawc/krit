@@ -103,6 +103,11 @@ type ProjectArgs struct {
 	// daemon sets this true when ensureOracleDaemon found a
 	// krit-types JAR; the CLI sets it from --type-oracle.
 	OracleEnabled bool
+	// NoTypeOracle mirrors --no-type-oracle for hosted runs. It forces the
+	// oracle off and folds a marker into the rule hash so every cache keyed
+	// on it (analysis cache, cross-file findings, findings bundles) is kept
+	// apart from oracle-backed runs over the same sources.
+	NoTypeOracle bool
 	// CustomRuleJars are Kotlin custom-rule plugin jars loaded by the
 	// krit-types daemon and merged into the standard finding stream.
 	CustomRuleJars []string
@@ -1086,6 +1091,12 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 	if warm.result == nil {
 		wireAnalysisCacheLookup(&indexInput, args, host)
 	}
+	if args.NoTypeOracle && indexInput.CacheRuleNames == nil {
+		// No cache lookup is wired, but IndexPhase still derives RuleHash
+		// (which keys the cross-file findings cache) from these fields.
+		indexInput.CacheRuleNames = cacheRuleNames(args.ActiveRules, true)
+		indexInput.CacheConfig = args.Config
+	}
 	indexResult, err := IndexPhase{Workers: args.Workers}.Run(ctx, indexInput)
 	if err != nil {
 		return IndexResult{}, err
@@ -1152,7 +1163,7 @@ func completeRunProjectIndexResult(args ProjectArgs, host ProjectHostState, warm
 	indexResult.CacheScanPaths = args.Paths
 	indexResult.Version = args.Version
 	if indexResult.RuleHash == "" {
-		indexResult.RuleHash = projectRuleHash(args.ActiveRules, args.Config)
+		indexResult.RuleHash = projectRuleHashForArgs(args, false)
 	}
 }
 
@@ -1308,7 +1319,7 @@ func buildWarmAnalysisCachePlan(args ProjectArgs, host ProjectHostState) warmAna
 	}
 	kotlinPaths, javaPaths := warmSourcePaths(args)
 	filePaths := warmCacheFilePaths(args, kotlinPaths, javaPaths)
-	ruleHash := projectRuleHashWithEditorConfig(args.ActiveRules, args.Config, args.EditorConfigEnabled)
+	ruleHash := projectRuleHashForArgs(args, args.EditorConfigEnabled)
 	result, stats := warmAnalysisCacheResult(args, host, filePaths, ruleHash)
 	plan := warmAnalysisCachePlan{
 		cache:       host.AnalysisCache,
@@ -1529,13 +1540,31 @@ func projectRuleHash(activeRules []*api.Rule, cfg *config.Config) string {
 }
 
 func projectRuleHashWithEditorConfig(activeRules []*api.Rule, cfg *config.Config, editorConfigEnabled bool) string {
-	ruleNames := make([]string, 0, len(activeRules))
+	return cache.ComputeCacheKeyHash(cacheRuleNames(activeRules, false), cfg, editorConfigEnabled)
+}
+
+// noTypeOracleCacheMarker is folded into the rule-name list of a
+// --no-type-oracle run. Findings produced without oracle facts differ from
+// oracle-backed ones, so the two must never share a cache entry.
+const noTypeOracleCacheMarker = "\x00mode:no-type-oracle"
+
+func cacheRuleNames(activeRules []*api.Rule, noTypeOracle bool) []string {
+	ruleNames := make([]string, 0, len(activeRules)+1)
 	for _, r := range activeRules {
 		if r != nil {
 			ruleNames = append(ruleNames, r.ID)
 		}
 	}
-	return cache.ComputeCacheKeyHash(ruleNames, cfg, editorConfigEnabled)
+	if noTypeOracle {
+		ruleNames = append(ruleNames, noTypeOracleCacheMarker)
+	}
+	return ruleNames
+}
+
+// projectRuleHashForArgs is projectRuleHashWithEditorConfig for a hosted run:
+// it additionally separates --no-type-oracle runs from oracle-backed ones.
+func projectRuleHashForArgs(args ProjectArgs, editorConfigEnabled bool) string {
+	return cache.ComputeCacheKeyHash(cacheRuleNames(args.ActiveRules, args.NoTypeOracle), args.Config, editorConfigEnabled)
 }
 
 // wireAnalysisCacheLookup turns on IndexPhase.runCacheLoad when the
@@ -1559,13 +1588,7 @@ func wireAnalysisCacheLookup(in *IndexInput, args ProjectArgs, host ProjectHostS
 	in.CacheScanPaths = args.Paths
 	in.CacheConfig = args.Config
 	in.CacheEditorConfigEnabled = args.EditorConfigEnabled
-	ruleNames := make([]string, 0, len(args.ActiveRules))
-	for _, r := range args.ActiveRules {
-		if r != nil {
-			ruleNames = append(ruleNames, r.ID)
-		}
-	}
-	in.CacheRuleNames = ruleNames
+	in.CacheRuleNames = cacheRuleNames(args.ActiveRules, args.NoTypeOracle)
 	in.CacheDirty = host.AnalysisCacheDirty
 }
 
@@ -2141,6 +2164,20 @@ func preParseBundleShortcutAllowed(args ProjectArgs, host ProjectHostState) bool
 	return host.FindingsBundleStore != nil && host.FindingsBundleCacheRoot != ""
 }
 
+// recordBundleOutcome marks the "bundleHit" perf scope as a real hit or a
+// miss. The scope is opened before the lookup, so its presence alone does not
+// mean the bundle served the run; benchmarks read this entry.
+func recordBundleOutcome(t perf.Tracker, hit bool) {
+	if t == nil {
+		return
+	}
+	outcome := "miss"
+	if hit {
+		outcome = "hit"
+	}
+	perf.AddEntryDetails(t, "bundleOutcome", 0, nil, map[string]string{"outcome": outcome})
+}
+
 func tryLoadFindingsBundleBeforeParse(
 	ctx context.Context,
 	startTime time.Time,
@@ -2168,6 +2205,7 @@ func tryLoadFindingsBundleBeforeParse(
 		phaseTimings.Parse = time.Since(start).Milliseconds()
 	}
 	if !ok {
+		recordBundleOutcome(bundleTracker, false)
 		if bundleTracker != nil {
 			bundleTracker.End()
 		}
@@ -2185,6 +2223,7 @@ func tryLoadFindingsBundleBeforeParse(
 		if cachedOut := host.BundleOutput(scanner.FindingsBundleKey(fp)); cachedOut != nil {
 			if bundleTracker != nil {
 				bundleTracker.TrackVoid("bundleLoadSkipped", func() {})
+				recordBundleOutcome(bundleTracker, true)
 				bundleTracker.End()
 			}
 			return emitBundleHitOutput(ctx, args, host, out, format, startTime, phaseTimings,
@@ -2206,6 +2245,7 @@ func tryLoadFindingsBundleBeforeParse(
 	} else {
 		loadFn()
 	}
+	recordBundleOutcome(bundleTracker, ok && cached != nil)
 	if bundleTracker != nil {
 		bundleTracker.End()
 	}
@@ -2564,7 +2604,7 @@ func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, t
 	if host.MarkBundleStatsClean != nil {
 		host.MarkBundleStatsClean(key, preStatVersion)
 	}
-	rulesHash := projectRuleHash(args.ActiveRules, args.Config)
+	rulesHash := projectRuleHashForArgs(args, false)
 	var androidFP, libraryFactsFP string
 	track("projectFingerprints", func() {
 		androidFP, libraryFactsFP = preparseProjectFingerprints(args, host)
@@ -3403,7 +3443,7 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 	if len(host.PriorContentHashes) == 0 {
 		return nil
 	}
-	rulesHash := projectRuleHash(args.ActiveRules, args.Config)
+	rulesHash := projectRuleHashForArgs(args, false)
 	dirty := dirtyPathSet(host.SourceSetDirty)
 	androidFP, libraryFactsFP := preparseProjectFingerprints(args, host)
 	fp := scanner.RunFingerprint{
@@ -3497,7 +3537,7 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 	if len(args.CustomRuleJars) > 0 {
 		return scanner.RunFingerprint{}, false
 	}
-	rulesHash := projectRuleHash(args.ActiveRules, args.Config)
+	rulesHash := projectRuleHashForArgs(args, false)
 	dirty := dirtyPathSet(host.SourceSetDirty)
 	fp := scanner.RunFingerprint{
 		Version:          args.Version,

@@ -925,6 +925,20 @@ func (p IndexPhase) runCacheLoad(in IndexInput, result *IndexResult) {
 // Compile-time check.
 var _ Phase[IndexInput, IndexResult] = IndexPhase{}
 
+// recordResidentOracleBackend records the oracleBackend perf entry for facts
+// served by a resident daemon, which skips runJvmAnalyze. It records nothing
+// when the analysis produced no data (a failed analysis must not read as the
+// oracle having run) or when the daemon's backend is unknown.
+func recordResidentOracleBackend(tracker perf.Tracker, backend oracle.Backend, data *oracle.Data) {
+	if data == nil || backend == "" {
+		return
+	}
+	perf.AddEntryDetails(tracker, "oracleBackend", 0, nil, map[string]string{
+		"backend": backend.String(),
+		"source":  "resident-daemon",
+	})
+}
+
 // runDaemonOracle starts a daemon, analyzes all files, and wraps base in
 // a CompositeResolver. Returns the updated resolver.
 func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scanPaths []string, loadOracleFilterFiles func() []*scanner.File, oracleTracker perf.Tracker, base typeinfer.TypeResolver, result *IndexResult) typeinfer.TypeResolver {
@@ -948,7 +962,6 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 		}
 	}
 	result.Daemon = d
-
 	var oracleData *oracle.Data
 	oracleTracker.TrackVoid("jvmAnalyze", func() {
 		oracleData = daemonAnalyze(in, d, scanPaths, callFilterPtr, oracleTracker)
@@ -959,7 +972,6 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 	if oracleData == nil {
 		return base
 	}
-
 	var oracleLoaded *oracle.Oracle
 	oracleTracker.TrackVoid("indexBuild", func() {
 		ol, err := oracle.LoadFromData(oracleData)
@@ -973,6 +985,8 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 		return base
 	}
 	result.Oracle = oracleLoaded
+	// Only now has the resident daemon actually served the oracle.
+	recordResidentOracleBackend(oracleTracker, d.Backend(), oracleData)
 	result.OracleBlobHash = oracleLoaded.BlobHash
 	if in.Verbose {
 		in.logf("verbose: Type oracle loaded from daemon (%d dependency types)\n", len(oracleLoaded.Dependencies()))

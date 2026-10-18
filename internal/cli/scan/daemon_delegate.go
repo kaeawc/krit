@@ -2,6 +2,7 @@ package scan
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/cli/daemonclient"
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -28,6 +30,7 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 	if f == nil || *f.NoDaemon {
 		return false, 0
 	}
+	resolveDepthForDelegation(f, flag.CommandLine, paths)
 	if verb, ok := metaVerbForFlags(f); ok {
 		client, ok := daemonclient.TryConnect(repoDir, *f.DaemonSocket)
 		if !ok {
@@ -68,6 +71,30 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 	return runDaemonAnalyze(client, f, paths)
 }
 
+// resolveDepthForDelegation applies the --depth / krit.yml analysis.depth
+// preset to f before it becomes a daemon request. The in-process path applies
+// it later (newRunner); without this a delegated --depth=fast scan would still
+// ask the daemon for the oracle. Warnings are left to the in-process path,
+// which repeats the (idempotent) resolution if delegation falls back.
+func resolveDepthForDelegation(f *scanFlags, fs *flag.FlagSet, args []string) {
+	if f == nil || f.Depth == nil {
+		return
+	}
+	cfgPath := ""
+	if f.Config != nil {
+		cfgPath = *f.Config
+	}
+	if cfgPath == "" {
+		cfgPath = detectConfigForScanArgs(args)
+	}
+	cfg, _ := config.LoadAndMergeDefaults(cfgPath, args...)
+	applyDepthPreset(resolveDepthPreset(*f.Depth, cfg, io.Discard), f, fs)
+}
+
+// DaemonServedPerfMarker is printed to stderr under -perf when a krit daemon
+// served the scan, so a harness can tell delegation from an in-process run.
+const DaemonServedPerfMarker = "perf: served by krit daemon"
+
 func runDaemonAnalyze(client *daemonclient.Client, f *scanFlags, paths []string) (bool, int) {
 	start := time.Now()
 	res, err := client.AnalyzeProject(buildDaemonAnalyzeArgs(f, paths))
@@ -92,6 +119,10 @@ func runDaemonAnalyze(client *daemonclient.Client, f *scanFlags, paths []string)
 
 	if !*f.Quiet {
 		fmt.Fprintln(os.Stderr, "info: using daemon")
+	}
+	if *f.Perf {
+		// Positive proof of delegation for benchmarks, which run with -q.
+		fmt.Fprintln(os.Stderr, DaemonServedPerfMarker)
 	}
 	if handled, code := dispatchDaemonShortCircuits(f, paths, res); handled {
 		return true, code
@@ -700,6 +731,7 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		OracleBackend:             *f.OracleBackend,
 		Fir:                       *f.Fir && !*f.NoFir,
 		NoFir:                     *f.NoFir || !*f.Fir,
+		NoTypeOracle:              *f.NoTypeOracle,
 		GradleModel:               *f.GradleModel,
 		NoGradleModel:             *f.NoGradleModel,
 		FirPreflightPassed:        f.firPreflightPassed,

@@ -831,13 +831,25 @@ func TestFileWatcher_InvalidatesBothPathForms(t *testing.T) {
 		t.Fatalf("rewrite: %v", err)
 	}
 
-	if !waitForCondition(func() bool { return len(state.snapshot()) >= 2 }) {
-		t.Fatalf("expected Invalidate to fire for both abs + rel; got %v", state.snapshot())
+	wantAbs := ktPath
+	wantRel := filepath.Join("src", "Foo.kt")
+	// invalidateBothForms issues its Invalidate calls one after another
+	// (absolute, cwd-relative, root-relative), so a snapshot taken after
+	// "at least two calls" can miss the last one when the caller's cwd is
+	// not the root. Wait for the forms under test instead of a count.
+	hasBoth := func() bool {
+		var abs, rel bool
+		for _, p := range state.snapshot() {
+			abs = abs || p == wantAbs
+			rel = rel || p == wantRel
+		}
+		return abs && rel
+	}
+	if !waitForCondition(hasBoth) {
+		t.Logf("expected Invalidate to fire for both abs + rel; got %v", state.snapshot())
 	}
 
 	calls := state.snapshot()
-	wantAbs := ktPath
-	wantRel := filepath.Join("src", "Foo.kt")
 	haveAbs := false
 	haveRel := false
 	for _, p := range calls {

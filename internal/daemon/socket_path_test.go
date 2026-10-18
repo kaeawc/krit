@@ -232,3 +232,39 @@ func TestServerStart_ReportsUnremovableStaleSocket(t *testing.T) {
 		t.Fatalf("want remove-stale-socket error, got %v", err)
 	}
 }
+
+// A fallback daemon that cannot publish its pointer must not come up: a
+// client in another environment could not find it and would start a second.
+func TestServerStart_FailsWhenPointerUnwritable(t *testing.T) {
+	isolateTmp(t)
+	root := longRoot(t)
+	krit := filepath.Join(root, ".krit")
+	if os.Getuid() == 0 {
+		// Root ignores mode bits; make .krit a regular file instead so the
+		// pointer's directory cannot be created.
+		if err := os.WriteFile(krit, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		if err := os.MkdirAll(krit, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(krit, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(krit, 0o755) })
+	}
+	sock := DefaultSocketPath(root)
+	srv := NewServer(sock)
+	srv.PointerPath = PointerPath(root)
+	err := srv.Start(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "socket pointer") {
+		t.Fatalf("Start err = %v, want pointer error", err)
+	}
+	if _, serr := os.Lstat(sock); !os.IsNotExist(serr) {
+		t.Fatalf("socket left behind after failed start: %v", serr)
+	}
+	if Available(sock) {
+		t.Fatal("daemon reachable after failed start")
+	}
+}

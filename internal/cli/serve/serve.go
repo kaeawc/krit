@@ -136,6 +136,7 @@ func Run(args []string) int {
 	}
 
 	if *stopFlag {
+		socketPath = stopTarget(root, *socketFlag)
 		if err := daemon.Call(socketPath, daemon.VerbShutdown, nil, nil); err != nil {
 			fmt.Fprintf(os.Stderr, "krit serve --stop: %v\n", err)
 			return 1
@@ -207,6 +208,20 @@ func Run(args []string) int {
 		state.fileCount(), state.moduleCount(), state.warmDuration.Seconds(), watcherLine)
 	srv.Wait()
 	return 0
+}
+
+// stopTarget is the socket `serve --stop` talks to: the explicit --socket,
+// else the daemon's pointer file (so a stop issued from an environment with
+// a different TMPDIR/XDG_RUNTIME_DIR still finds a fallback-path daemon),
+// else the derived default.
+func stopTarget(root, socketFlag string) string {
+	if socketFlag != "" {
+		return socketFlag
+	}
+	if p, err := daemon.LocateSocketPath(root); err == nil {
+		return p
+	}
+	return daemon.DefaultSocketPath(root)
 }
 
 // signalContext returns a context cancelled on SIGINT or SIGTERM.

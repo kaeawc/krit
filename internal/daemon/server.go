@@ -158,8 +158,16 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("daemon: chmod socket: %w", err)
 	}
 	if s.PointerPath != "" {
+		// On a fallback socket the pointer is how clients with a different
+		// TMPDIR/XDG_RUNTIME_DIR find this daemon. Without it they would
+		// start a second one, so a failed write fails startup: release the
+		// socket and let the client fall back to in-process.
 		if err := WriteSocketPointer(s.PointerPath, s.socketPath); err != nil {
-			s.reporter().Warnf("krit daemon: write socket pointer %s: %v\n", s.PointerPath, err)
+			_ = l.Close()
+			if rerr := os.Remove(s.socketPath); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
+				s.reporter().Warnf("krit daemon: remove socket %s: %v\n", s.socketPath, rerr)
+			}
+			return fmt.Errorf("daemon: write socket pointer %s: %w", s.PointerPath, err)
 		}
 	}
 

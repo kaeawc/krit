@@ -125,8 +125,10 @@ lacks the `perf: served by krit daemon` marker it prints under `-perf` after a
 delegated scan. The harness also refuses `-extra-args` containing `--no-daemon`
 when a daemon state is selected. After an in-process fallback the per-run cache
 baseline is kept, so the next daemon run's counters are still diffed correctly.
-The daemon was then not used. The daemon's unix socket path must fit in
-`sun_path` (about 100 bytes), so keep `-out` short. A run is also rejected when krit exits with anything but 0 (no findings) or 1
+(Long `-out` paths are fine: krit falls back to a short per-user socket path
+when `<work>/.krit/daemon.sock` would not fit in `sun_path`.)
+
+A run is also rejected when krit exits with anything but 0 (no findings) or 1
 (findings), when the JSON report can't be parsed, or when the mode check
 fails. Rejected runs are listed in `summary.md` and kept in `results.json`,
 and never count toward timings.

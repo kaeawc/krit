@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 )
@@ -72,16 +71,6 @@ func TestDaemonPIDsFromRegistryAndKritDaemon(t *testing.T) {
 	pids := daemonPIDs(filepath.Join(t.TempDir(), "noproc"), reg, work, "")
 	if len(pids) != 2 || pids[0] != 77 || pids[1] != 4242 {
 		t.Fatalf("pids = %v", pids)
-	}
-}
-
-func TestSocketPathWarning(t *testing.T) {
-	if w := socketPathWarning("/tmp/kb/corpus"); w != "" {
-		t.Errorf("short path warned: %s", w)
-	}
-	long := "/" + strings.Repeat("a", 120)
-	if w := socketPathWarning(long); !strings.Contains(w, "daemon.sock") {
-		t.Errorf("long path: %q", w)
 	}
 }
 

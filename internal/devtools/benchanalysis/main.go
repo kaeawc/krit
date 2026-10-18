@@ -215,26 +215,12 @@ func run(o options) error {
 	if err := os.WriteFile(filepath.Join(out, "results.json"), data, 0o644); err != nil {
 		return err
 	}
-	summary := withSocketWarning(summarize(results, o), work, o)
+	summary := summarize(results, o)
 	if err := os.WriteFile(filepath.Join(out, "summary.md"), []byte(summary), 0o644); err != nil {
 		return err
 	}
 	fmt.Print(summary)
 	return nil
-}
-
-// withSocketWarning prefixes the summary with a long-socket-path warning.
-func withSocketWarning(summary, work string, o options) string {
-	daemon := false
-	for _, s := range o.states {
-		daemon = daemon || states[s].Daemon
-	}
-	w := socketPathWarning(work)
-	if !daemon || w == "" {
-		return summary
-	}
-	fmt.Fprintln(os.Stderr, "benchanalysis: "+w)
-	return "WARNING: " + w + "\n\n" + summary
 }
 
 type harness struct {

@@ -198,23 +198,6 @@ func daemonUsage(before, after map[int]procSample) DaemonUsage {
 	return u
 }
 
-// maxSocketPath is the longest daemon socket path a run can rely on. The
-// kernel's sun_path holds 108 bytes and the daemon's socket path has no
-// shorter fallback, so a longer one makes krit serve fail to bind and the
-// client wait out its spawn timeout before running in-process.
-const maxSocketPath = 100
-
-// socketPathWarning explains when <work>/.krit/daemon.sock is long enough to
-// break or divert daemon-delegated runs, and returns "" otherwise.
-func socketPathWarning(work string) string {
-	sock := filepath.Join(work, ".krit", "daemon.sock")
-	if len(sock) <= maxSocketPath {
-		return ""
-	}
-	return "daemon socket path is " + strconv.Itoa(len(sock)) + " bytes (over " + strconv.Itoa(maxSocketPath) +
-		"): " + sock + "; daemon-delegated rows fall back to in-process and are rejected, use a shorter -out path"
-}
-
 // procRef identifies one process: PID plus starttime guards against reuse.
 type procRef struct {
 	PID   int

@@ -13,7 +13,8 @@ package spike
  */
 class DepIndex {
     data class Decl(val owner: String?, val name: String, val header: String, val inferred: Boolean, val supers: List<String>, val sealed: Boolean = false)
-    class Facts(val idents: Set<String>, val decls: List<Decl>)
+    class Facts(val idents: Set<String>, val decls: List<Decl>, val pkg: String = "", val imports: Set<String> = emptySet())
+    data class Item(val pkg: String?, val owner: String?, val name: String)
 
     val facts = HashMap<String, Facts>()
     private val inverted = HashMap<String, MutableSet<String>>()
@@ -33,34 +34,46 @@ class DepIndex {
     }
 
     /** Items whose observable shape differs between [old] and [new] facts (either may be null). */
-    fun changedItems(old: Facts?, new: Facts?): Set<Pair<String?, String>> {
+    fun changedItems(old: Facts?, new: Facts?): Set<Item> {
         val a = old?.decls.orEmpty().groupBy { it.owner to it.name }.mapValues { e -> e.value.map { it.header }.sorted() }
         val b = new?.decls.orEmpty().groupBy { it.owner to it.name }.mapValues { e -> e.value.map { it.header }.sorted() }
-        val out = HashSet<Pair<String?, String>>()
-        for (k in a.keys + b.keys) if (a[k] != b[k]) out += k
+        val pkg = new?.pkg ?: old?.pkg
+        val out = HashSet<Item>()
+        for (k in a.keys + b.keys) if (a[k] != b[k]) out += Item(if (k.first == null) pkg else null, k.first, k.second)
         // new/removed/changed class headers expose their supertypes (exhaustive `when`, abstract members, ...)
-        val supers = (old?.decls.orEmpty() + new?.decls.orEmpty()).filter { (it.owner to it.name) in out }.flatMap { it.supers }
-        for (s in supers) out += (null to s)
+        val supers = (old?.decls.orEmpty() + new?.decls.orEmpty()).filter { (it.owner to it.name) in a.keys.filter { k -> a[k] != b[k] } + b.keys.filter { k -> a[k] != b[k] } }.flatMap { it.supers }
+        for (s in supers) out += Item(null, null, s)
         return out
     }
 
+    private val defaultPkgs = setOf("kotlin", "kotlin.annotation", "kotlin.collections", "kotlin.comparisons", "kotlin.io", "kotlin.ranges", "kotlin.sequences", "kotlin.text", "kotlin.jvm", "java.lang")
+
+    private fun sees(f: Facts, it: Item): Boolean {
+        if (it.owner != null) return it.owner in f.idents
+        val pkg = it.pkg ?: return true
+        return !scopeAware || f.pkg == pkg || "$pkg.${it.name}" in f.imports || "$pkg.*" in f.imports || pkg in defaultPkgs
+    }
+
+    /** When false, the visibility check (same package / import / default import) is skipped: name-only matching. */
+    var scopeAware = true
+
     /** Files (other than [exclude]) that observe any of [items], closed over inferred-type exposure. */
-    fun dependents(items: Set<Pair<String?, String>>, exclude: Set<String>, closure: Boolean = true): Set<String> {
+    fun dependents(items: Set<Item>, exclude: Set<String>, closure: Boolean = true): Set<String> {
         val result = LinkedHashSet<String>()
-        val seen = HashSet<Pair<String?, String>>()
-        val work = ArrayDeque<Pair<String?, String>>()
+        val seen = HashSet<Item>()
+        val work = ArrayDeque<Item>()
         items.forEach { if (seen.add(it)) work.add(it) }
         while (work.isNotEmpty()) {
-            val (owner, name) = work.removeFirst()
-            val cands = inverted[name] ?: continue
+            val item = work.removeFirst()
+            val cands = inverted[item.name] ?: continue
             for (p in cands) {
                 if (p in exclude) continue
                 val f = facts[p] ?: continue
-                if (owner != null && owner !in f.idents) continue
+                if (!sees(f, item)) continue
                 if (!result.add(p)) continue
                 if (closure) for (d in f.decls) if (d.inferred) {
-                    val it = d.owner to d.name
-                    if (seen.add(it)) work.add(it)
+                    val nx = Item(if (d.owner == null) f.pkg else null, d.owner, d.name)
+                    if (seen.add(nx)) work.add(nx)
                 }
             }
         }
@@ -141,7 +154,9 @@ class DepIndex {
                 for (c in code) { if (c == '{') depth++ else if (c == '}') depth-- }
                 if (owner != null && depth <= ownerDepth) { owner = null; ownerDepth = -1 }
             }
-            return Facts(idents, decls)
+            val pkgM = Regex("(?m)^\\s*package\\s+([A-Za-z0-9_.`]+)").find(text)
+            val imps = Regex("(?m)^\\s*import\\s+([A-Za-z0-9_.`]+(?:\\.\\*)?)(?:\\s+as\\s+\\w+)?").findAll(text).map { it.groupValues[1].replace("`", "") }.toSet()
+            return Facts(idents, decls, pkgM?.groupValues?.get(1)?.replace("`", "") ?: "", imps)
         }
     }
 }

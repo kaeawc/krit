@@ -8,13 +8,13 @@ import java.util.Random
  * mirrored to disk. Edits mutate the model and the disk and report the changed
  * paths, so a harness can feed them to a runner exactly like a file watcher.
  */
-class Gen(val root: File, val total: Int, seed: Long = 7L, val hotDependents: Int = 500) {
+class Gen(val root: File, val total: Int, seed: Long = 7L, val hotDependents: Int = 500) : Proj {
     val libDir = File(root, "lib/src")
     val appDir = File(root, "app/src")
-    val rnd = Random(seed)
+    override val rnd = Random(seed)
     val libCount = (total * 0.25).toInt()
     val appCount = total - libCount
-    val texts = LinkedHashMap<String, String>() // abs path -> text (all files)
+    override val texts = LinkedHashMap<String, String>() // abs path -> text (all files)
     private var nextApp = appCount
     private val addedApps = ArrayList<Int>()
     private val shadowFiles = ArrayList<String>()
@@ -50,7 +50,8 @@ class Gen(val root: File, val total: Int, seed: Long = 7L, val hotDependents: In
 
     private fun refs(j: Int): IntArray {
         val l = maxOf(1, libCount - 1)
-        val r = intArrayOf(1 + (j * 7) % l, 1 + (j * 13 + 5) % l, 1 + (j * 29 + 11) % l)
+        val rr = Random(j * 2654435761L + 12345L)
+        val r = intArrayOf(1 + rr.nextInt(l), 1 + rr.nextInt(l), 1 + rr.nextInt(l))
         for (k in 1..2) while ((0 until k).any { r[it] == r[k] }) r[k] = 1 + r[k] % l
         return r
     }
@@ -118,7 +119,20 @@ class Gen(val root: File, val total: Int, seed: Long = 7L, val hotDependents: In
         }
     }
 
-    fun nextEdit(kinds: List<String>? = null): Edit {
+    override val classpath: List<String> = emptyList()
+    override val sourceDirs: List<String> get() = listOf(libDir.path, appDir.path)
+    override fun describe() = "synthetic: ${texts.size} files"
+    override fun specs(slice: Set<String>?): List<ModSpec> {
+        if (slice == null) return listOf(ModSpec("lib", listOf(libDir.path)), ModSpec("app", listOf(appDir.path), listOf("lib")))
+        val lib = slice.filter { it.startsWith(libDir.path) }.sorted()
+        val app = slice.filter { it.startsWith(appDir.path) }.sorted()
+        val l = ArrayList<ModSpec>()
+        if (lib.isNotEmpty()) l += ModSpec("lib", emptyList(), files = lib)
+        if (app.isNotEmpty()) l += ModSpec("app", emptyList(), if (lib.isNotEmpty()) listOf("lib") else emptyList(), files = app)
+        return l
+    }
+
+    override fun nextEdit(kinds: List<String>?): Edit {
         val roll = rnd.nextInt(100)
         val kind = kinds?.get(rnd.nextInt(kinds.size)) ?: when {
             roll < 35 -> "body"
@@ -133,6 +147,8 @@ class Gen(val root: File, val total: Int, seed: Long = 7L, val hotDependents: In
         }
         return apply(kind)
     }
+
+    fun sigToggle(i: Int) { sigState[i] = sigState[i] != true; texts[libPath(i)] = libText(i) }
 
     fun apply(kind: String): Edit {
         when (kind) {

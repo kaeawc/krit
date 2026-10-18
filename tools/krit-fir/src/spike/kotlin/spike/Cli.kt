@@ -13,17 +13,17 @@ class Cli(val o: Map<String, String>) {
 
     fun run() {
         dir.deleteRecursively()
-        val g = Gen(dir, n); g.generate()
+        val g = makeProj(o, dir, n, 7L)
         val idx = DepIndex(); for ((p, t) in g.texts) idx.put(p, t)
-        val s = AnalysisSession(listOf(g.libDir.path, g.appDir.path), emptyList())
+        val s = AnalysisSession(g.sourceDirs, g.classpath)
         val all = g.texts.keys.map { FileRef(it) }
         var t = System.nanoTime()
         val r0 = s.check(0, all, emptySet())
         println("cli cold full check: ${ms(System.nanoTime() - t)} ms findings=${r0.findings.size} errorFiles=${r0.errorFiles.size}")
         val rows = ArrayList<Pair<String, Long>>()
         for (i in 1..(warm + edits)) {
-            val e = g.nextEdit()
-            val items = HashSet<Pair<String?, String>>()
+            val e = g.nextEdit(o["kinds"]?.split(","))
+            val items = HashSet<DepIndex.Item>()
             for (p in e.changed + e.added + e.deleted) {
                 val old = idx.facts[p]
                 if (File(p).exists()) idx.put(p, File(p).readText()) else idx.remove(p)
@@ -49,13 +49,13 @@ class Cli(val o: Map<String, String>) {
     /** Same project state through both runners: compare krit findings per (file, rule) and error-file sets. */
     fun parity() {
         dir.deleteRecursively()
-        val g = Gen(dir, n); g.generate()
-        val s = AnalysisSession(listOf(g.libDir.path, g.appDir.path), emptyList())
-        val specs = listOf(ModSpec("lib", listOf(g.libDir.path)), ModSpec("app", listOf(g.appDir.path), listOf("lib")))
+        val g = makeProj(o, dir, n, 7L)
+        val s = AnalysisSession(g.sourceDirs, g.classpath)
+        val specs = g.specs(null)
         for (round in 0..(o["edits"] ?: "6").toInt()) {
-            if (round > 0) g.nextEdit()
+            if (round > 0) g.nextEdit(null)
             val cli = s.check(round.toLong(), g.texts.keys.map { FileRef(it) }, emptySet())
-            val b = Runner.build(specs)
+            val b = Runner.build(specs, g.classpath)
             val aa = Runner.check(b); b.dispose()
             val cliKrit = cli.findings.groupingBy { it.path to it.rule }.eachCount()
             val aaKrit = HashMap<Pair<String, String>, Int>()

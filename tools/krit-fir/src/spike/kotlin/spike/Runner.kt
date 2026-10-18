@@ -2,6 +2,9 @@ package spike
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.util.Disposer
+import com.intellij.testFramework.LightVirtualFile
+import dev.jasonpearson.krit.fir.FirRuleErrorRecorder
+import dev.jasonpearson.krit.fir.FirRuleErrors
 import dev.jasonpearson.krit.fir.KritPluginRegistrar
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.analyze
@@ -40,6 +43,7 @@ class Built(
     val files: Map<String, KtFile>,
     val libs: Libs?,
     val buildNanos: Long,
+    val recorder: FirRuleErrorRecorder = FirRuleErrorRecorder(),
 ) {
     fun dispose() = Disposer.dispose(disposable)
 }
@@ -61,7 +65,7 @@ object Runner {
      * Build a fresh standalone session. [reuse] carries the JDK/stdlib modules of an earlier session into this one
      * (strategy B); null builds them fresh (strategy A).
      */
-    fun build(specs: List<ModSpec>, extraClasspath: List<String> = emptyList(), reuse: Libs? = null, plugin: Boolean = true): Built {
+    fun build(specs: List<ModSpec>, extraClasspath: List<String> = emptyList(), reuse: Libs? = null, plugin: Boolean = true, overlay: Map<String, String> = emptyMap()): Built {
         val t0 = System.nanoTime()
         val disposable = Disposer.newDisposable("spike")
         var libsOut: Libs? = null
@@ -77,7 +81,11 @@ object Runner {
                     val m = buildKtSourceModule {
                         this.platform = Runner.platform
                         moduleName = s.name
-                        if (s.files != null) addSourceRoots(s.files.map { Path(it) }) else addSourceRoots(s.roots.map { Path(it) })
+                        val own = s.files ?: emptyList()
+                        if (s.files != null) {
+                            addSourceRoots(own.filter { it !in overlay }.map { Path(it) })
+                            for (p in own) overlay[p]?.let { addSourceVirtualFile(LightVirtualFile(File(p).name, org.jetbrains.kotlin.idea.KotlinFileType.INSTANCE, it)) }
+                        } else addSourceRoots(s.roots.map { Path(it) })
                         addRegularDependency(libs.jdk)
                         addRegularDependency(libs.stdlib)
                         for (d in s.deps) addRegularDependency(built.getValue(d))
@@ -89,7 +97,11 @@ object Runner {
             }
         }
         val files = HashMap<String, KtFile>()
-        for ((_, list) in session.modulesWithFiles) for (f in list) if (f is KtFile) files[f.virtualFile.path] = f
+        val byName = overlay.keys.associateBy { File(it).name }
+        for ((_, list) in session.modulesWithFiles) for (f in list) if (f is KtFile) {
+            val vf = f.virtualFile
+            files[if (vf is LightVirtualFile) byName[vf.name] ?: vf.path else vf.path] = f
+        }
         return Built(disposable, session, files, libsOut, System.nanoTime() - t0)
     }
 
@@ -112,22 +124,32 @@ object Runner {
         val out = HashMap<String, FileDiags>()
         for (p in paths ?: b.files.keys) {
             val kt = b.files[p] ?: continue
-            out[p] = checkFile(kt)
+            out[p] = checkFile(kt, b.recorder, p)
         }
         return out
     }
 
-    fun checkFile(kt: KtFile): FileDiags {
+    @Volatile var filter: KaDiagnosticCheckerFilter = KaDiagnosticCheckerFilter.EXTENDED_AND_COMMON_CHECKERS
+
+    fun checkFile(kt: KtFile, rec: FirRuleErrorRecorder = FirRuleErrorRecorder(), path: String = kt.virtualFile.path): FileDiags {
+        // Rule isolation: the recorder is captured when the FIR session builds its checker extension (on first use),
+        // so it must be current on this thread before the first analyze() of a session.
+        FirRuleErrors.begin(rec)
         val keys = HashSet<String>()
         var errors = 0
         var krit = 0
         analyze(kt) {
-            for (d in kt.collectDiagnostics(KaDiagnosticCheckerFilter.EXTENDED_AND_COMMON_CHECKERS)) {
+            for (d in kt.collectDiagnostics(filter)) {
                 val off = d.textRanges.firstOrNull()?.startOffset ?: -1
                 keys += "${d.factoryName}|${d.severity}|$off|${d.defaultMessage}"
                 if (d.severity.name == "ERROR") errors++
                 if (d.factoryName == "KRIT_RULE") krit++
             }
+        }
+        val canon = try { File(path).canonicalPath } catch (_: Exception) { path }
+        for ((rule, byPath) in rec.snapshot()) for (p in byPath.keys) {
+            val cp = try { File(p).canonicalPath } catch (_: Exception) { p }
+            if (p == path || cp == canon || (File(p).parent == "/" && File(p).name == File(path).name)) keys += "RULEERR|$rule"
         }
         return FileDiags(keys, errors, krit)
     }

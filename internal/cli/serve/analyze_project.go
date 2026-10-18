@@ -482,7 +482,14 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	// BackendFIR) is found. nil daemon means oracle stays disabled
 	// (no JVM, no behavior change). Per-verb ping happens at the
 	// call boundary in handleAnalyzeProject.
-	oracleDaemon, err := s.ensureOracleDaemon(paths, backend, args.OracleKotlin)
+	//
+	// --no-type-oracle skips the oracle for this request only: the
+	// resident JVM stays cached for other requests, but this one neither
+	// starts nor consults it, matching an in-process scan.
+	var oracleDaemon *oracle.Daemon
+	if !args.NoTypeOracle {
+		oracleDaemon, err = s.ensureOracleDaemon(paths, backend, args.OracleKotlin)
+	}
 	if err != nil {
 		// Best-effort degrade: a failed daemon start shouldn't fail
 		// the whole verb. Log via stderr; the verb continues with
@@ -533,7 +540,8 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 			IncludeGenerated:    args.IncludeGenerated,
 			GeneratedSourceDirs: args.OracleGeneratedSourceDirs,
 			Version:             kritVersion(),
-			OracleEnabled:       oracleDaemon != nil || args.InputTypesPath != "",
+			OracleEnabled:       !args.NoTypeOracle && (oracleDaemon != nil || args.InputTypesPath != ""),
+			NoTypeOracle:        args.NoTypeOracle,
 			ShowPerf:            args.ShowPerf || args.PerfRules,
 			PerfRules:           args.PerfRules,
 			ProfileDispatch:     args.ProfileDispatch,

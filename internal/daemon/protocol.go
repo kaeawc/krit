@@ -336,7 +336,12 @@ type AnalyzeProjectArgs struct {
 	// apply its authoritative verdict, like an in-process scan does.
 	Fir bool `json:"fir,omitempty"`
 	// NoFir explicitly opts a daemon scan out of the default FIR pass.
-	NoFir         bool   `json:"no_fir,omitempty"`
+	NoFir bool `json:"no_fir,omitempty"`
+	// NoTypeOracle mirrors --no-type-oracle: the request runs without any
+	// JVM type oracle (no krit-types or krit-fir oracle daemon is started or
+	// consulted) even though the resident daemon may hold one warm for other
+	// requests. Findings caches are keyed apart from oracle-backed runs.
+	NoTypeOracle  bool   `json:"no_type_oracle,omitempty"`
 	GradleModel   string `json:"gradle_model,omitempty"`
 	NoGradleModel bool   `json:"no_gradle_model,omitempty"`
 	// FirPreflightPassed means the CLI checked the FIR requirements and

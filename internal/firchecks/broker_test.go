@@ -327,7 +327,7 @@ func TestBrokerStructuralDeclinesAreDecidedAtArmTime(t *testing.T) {
 	}{
 		"jvm target":       {"17", matchAll, "fir check needs a target-scoped compile"},
 		"another context":  {"", func(string, []string, gradlemodel.KotlinSettings, []string) bool { return false }, "oracle daemon compiles in another context"},
-		"no oracle daemon": {"", nil, "oracle daemon compiles in another context"},
+		"no oracle daemon": {"", nil, "no oracle daemon to share a compile with"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

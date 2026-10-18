@@ -638,7 +638,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 		// No oracle run in this request, so there is no compile to share.
 		in.Host.FIRCheckBroker.Done("type oracle disabled for this request")
 	}
-	in.Host.StartFindingsPass = firStartFindingsPass(args, paths, cfg, in.Host.FIRCheckBroker, oracleDaemonMatcher(oracleDaemon))
+	in.Host.StartFindingsPass = firStartFindingsPass(args, paths, cfg, in.Host.FIRCheckBroker, oracleDaemonMatcher(oracleDaemon), in.Host.Tracker)
 	return in, nil
 }
 
@@ -657,7 +657,7 @@ func applyOracleModelArgs(args daemon.AnalyzeProjectArgs, projectArgs *pipeline.
 // for a delegated `krit --fir` scan, or nil when FIR is off. It is the same
 // pass (and compile context) the in-process scan runs in firCheckAndCollect.
 // Verbose output stays off: the daemon's stderr is not the caller's.
-func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *config.Config, broker *firchecks.Broker, matchOracle firchecks.ContextMatcher) func(context.Context, pipeline.ParseResult) (pipeline.PendingFindingsPass, error) {
+func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *config.Config, broker *firchecks.Broker, matchOracle firchecks.ContextMatcher, tracker perf.Tracker) func(context.Context, pipeline.ParseResult) (pipeline.PendingFindingsPass, error) {
 	if !args.Fir {
 		return nil
 	}
@@ -679,6 +679,7 @@ func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *c
 			GeneratedSourceDirs: args.OracleGeneratedSourceDirs,
 			SourceDirs:          checker.SourceDirs,
 			Classpath:           checker.Classpath,
+			Tracker:             tracker,
 		}
 		// Offer the pass's check to the oracle compile before the pass starts:
 		// the pass waits on the broker whenever it has files to compile.

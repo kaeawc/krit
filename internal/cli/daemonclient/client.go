@@ -263,6 +263,14 @@ func EnsureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
 		return nil, fmt.Errorf("daemonclient: prepare socket dir: %w", err)
 	}
 
+	if opts.LogPath != "" {
+		// The socket may live outside <root>/.krit (long project paths), so
+		// the log directory is no longer created as a side effect above.
+		if err := os.MkdirAll(filepath.Dir(opts.LogPath), 0o755); err != nil {
+			return nil, fmt.Errorf("daemonclient: prepare log dir: %w", err)
+		}
+	}
+
 	cmd := exec.CommandContext(context.Background(), binary, "serve", "--root", repoRoot)
 	if opts.Env != nil {
 		cmd.Env = opts.Env
@@ -286,7 +294,8 @@ func EnsureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
 	}
 	// Detach so the daemon outlives the parent. Wait must be reaped
 	// somewhere — do it in a goroutine to avoid a zombie.
-	go func() { _ = cmd.Wait() }()
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
 
 	timeout := opts.WaitTimeout
 	if timeout == 0 {
@@ -301,7 +310,16 @@ func EnsureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
 		if daemon.Available(socket) {
 			return &Client{socketPath: socket}, nil
 		}
-		time.Sleep(poll)
+		select {
+		case werr := <-exited:
+			// The daemon died before binding (for example a listen
+			// error). Waiting out the timeout cannot help; fail now.
+			if werr == nil {
+				werr = errors.New("exited")
+			}
+			return nil, fmt.Errorf("daemonclient: spawned daemon exited before becoming reachable: %w (see %s)", werr, opts.LogPath)
+		case <-time.After(poll):
+		}
 	}
 	return nil, errors.New("daemonclient: spawned daemon did not become reachable before timeout")
 }

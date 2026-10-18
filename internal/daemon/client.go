@@ -3,6 +3,8 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,10 +14,25 @@ import (
 	"time"
 )
 
+// maxSocketPath is the longest unix socket path DefaultSocketPath will
+// return before falling back to a short temp-dir path. sun_path holds 108
+// bytes on Linux and 104 on macOS (including the NUL), and bind(2) fails
+// with EINVAL beyond that.
+const maxSocketPath = 100
+
 // DefaultSocketPath returns the conventional socket path for a project
-// rooted at root (.krit/daemon.sock under the project root).
+// rooted at root (.krit/daemon.sock under the project root). When that
+// path would exceed the unix socket path limit (deeply nested checkouts,
+// long CI workspace names), it returns a short, stable per-root path under
+// the temp dir instead, so the daemon can still bind. Server and clients
+// both derive the path here, so they always agree.
 func DefaultSocketPath(root string) string {
-	return filepath.Join(root, ".krit", "daemon.sock")
+	p := filepath.Join(root, ".krit", "daemon.sock")
+	if len(p) <= maxSocketPath {
+		return p
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(root)))
+	return filepath.Join(os.TempDir(), fmt.Sprintf("krit-%d", os.Getuid()), hex.EncodeToString(sum[:6])+".sock")
 }
 
 // Available reports whether a daemon appears reachable at socketPath. It

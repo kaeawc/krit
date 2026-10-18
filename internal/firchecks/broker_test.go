@@ -380,3 +380,25 @@ func TestBrokerUnusableResponseIsADecline(t *testing.T) {
 	}
 	_ = p
 }
+
+// A pass that finishes from a warm cache before the oracle decides still
+// reports a real outcome.
+func TestBrokerOutcomeWhenThePassNeverWaited(t *testing.T) {
+	_, broker := brokeredProject(t, time.Hour, time.Hour)
+	if got := broker.Outcome(); got != "not needed: fir check cache warm" {
+		t.Fatalf("outcome = %q", got)
+	}
+}
+
+// The rider reports it is cancelled once the pass gave up.
+func TestBrokerRiderIsCancelledOnceResolved(t *testing.T) {
+	_, broker := brokeredProject(t, time.Hour, time.Hour)
+	rider := broker.Claim(matchAll)
+	if rider.Cancelled() {
+		t.Fatal("cancelled before the pass gave up")
+	}
+	broker.Done("timed out waiting for the oracle")
+	if !rider.Cancelled() {
+		t.Fatal("not cancelled after the pass gave up")
+	}
+}

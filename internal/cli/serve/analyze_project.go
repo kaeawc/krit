@@ -505,7 +505,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	var oracleDaemon *oracle.Daemon
 	switch {
 	case !args.NoTypeOracle:
-		oracleDaemon, err = s.ensureOracleDaemon(paths, backend, args.OracleKotlin)
+		oracleDaemon, err = s.ensureOracleDaemonFor(paths, backend, oracleContextFor(args))
 	case len(args.CustomRuleJars) > 0:
 		oracleDaemon, err = s.ensureOracleDaemon(paths, oracle.BackendKAA, args.OracleKotlin)
 	}
@@ -683,6 +683,11 @@ func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *c
 		}
 		// Offer the pass's check to the oracle compile before the pass starts:
 		// the pass waits on the broker whenever it has files to compile.
+		if len(rules.KotlinOracleRulesV2(parsed.ActiveRules)) == 0 {
+			// No oracle run for this request: nothing to share, so do not wait
+			// through the index phase to find out.
+			broker.Done("no oracle rules active")
+		}
 		if prefetch := firchecks.NewPrefetch(opts); prefetch != nil && broker != nil {
 			checker.Prefetch, checker.Broker = prefetch, broker
 			opts.Broker = broker

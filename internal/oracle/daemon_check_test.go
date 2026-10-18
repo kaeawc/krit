@@ -295,3 +295,56 @@ func TestAnalyzeAllWithCheckSendsTheCheckWithoutACommand(t *testing.T) {
 		t.Fatalf("embedded check = %s", sent)
 	}
 }
+
+// An old jar's expected refusal must not count toward the circuit breaker:
+// with the breaker one failure from opening, the refusal leaves it closed and
+// the plain analyzeAll still runs; a real error still counts.
+func TestAnalyzeAllWithCheckRefusalDoesNotTripTheBreaker(t *testing.T) {
+	d, rec := newCheckDaemon(t, func(method string, id int) string {
+		if method == analyzeWithCheckMethod {
+			return fmt.Sprintf(`{"id":%d,"error":"Unknown command: %s"}`, id, method)
+		}
+		return fmt.Sprintf(`{"id":%d,"result":%s}`, id, emptyOracleResult)
+	})
+	d.breakerFailures = breakerThreshold - 1
+	var delivered []string
+	data, err := d.AnalyzeAllWithCheck(nil, testRider(checkRequestBody, &delivered))
+	if err != nil || data == nil {
+		t.Fatalf("the oracle lost its facts: data=%v err=%v", data, err)
+	}
+	if d.breakerFailures >= breakerThreshold || !d.breakerAdmit() {
+		t.Fatalf("breaker failures = %d: the refusal tripped it", d.breakerFailures)
+	}
+	if got := strings.Join(rec.seen(), ","); got != analyzeWithCheckMethod+",analyzeAll" {
+		t.Fatalf("requests = %s", got)
+	}
+
+	// A real failure is still counted.
+	d2, _ := newCheckDaemon(t, func(_ string, id int) string {
+		return fmt.Sprintf(`{"id":%d,"error":"Analysis API exception"}`, id)
+	})
+	d2.breakerFailures = breakerThreshold - 1
+	if _, err := d2.AnalyzeAllWithCheck(nil, testRider(checkRequestBody, &delivered)); err == nil {
+		t.Fatal("want the real error")
+	}
+	if d2.breakerFailures != breakerThreshold {
+		t.Fatalf("a real error was not counted: %d", d2.breakerFailures)
+	}
+}
+
+// A pass that gave up while the request queued behind another one gets no
+// embedded check: the oracle sends a plain analyzeAll.
+func TestAnalyzeAllWithCheckSkipsTheCheckOnceCancelled(t *testing.T) {
+	d, rec := newCheckDaemon(t, func(_ string, id int) string {
+		return fmt.Sprintf(`{"id":%d,"result":%s}`, id, emptyOracleResult)
+	})
+	var delivered []string
+	rider := testRider(checkRequestBody, &delivered)
+	rider.Cancelled = func() bool { return true }
+	if _, err := d.AnalyzeAllWithCheck(nil, rider); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(rec.seen(), ","); got != "analyzeAll" || len(delivered) != 0 {
+		t.Fatalf("requests = %s delivered=%v", got, delivered)
+	}
+}

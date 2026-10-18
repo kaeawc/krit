@@ -109,13 +109,32 @@ class AnalyzeWithCheckDispatchTest {
         assertNull(parseRequest("""{"id":9,"method":"analyzeAll","params":{"files":[]}}""").sharedCheck)
     }
 
-    @Test fun anOldJarStyleRequestWithoutTheCommandIsRefused() {
-        // A jar without this command answers "Unknown command", which is how the
-        // Go client detects it; here that is pinned for a command we do not know.
+    @Test fun anUnknownMethodIsRefusedWithUnknownCommand() {
+        // The refusal shape the Go client keys on: "Unknown command: <method>".
         val session = AnalysisSession(emptyList(), emptyList())
         try {
             val response = respond(session, """{"id":10,"method":"analyzeWithCheckV2","params":{}}""")
             assertTrue("Unknown command: analyzeWithCheckV2" in response, response)
+        } finally {
+            session.dispose()
+        }
+    }
+
+    @Test fun theSharedCheckCarriesTheSameWarningsAsAStandaloneCheck() {
+        val (root, paths) = project()
+        val args = listOf("-language-version=9.9")
+        val session = AnalysisSession(listOf(root), listOf(stdlib), "", args)
+        try {
+            val block = checkBlock(paths, listOf(root)).replaceFirst("{", "{\"kotlinArgs\":[\"-language-version=9.9\"],")
+            val standalone = respond(session, block.replaceFirst("{", "{\"command\":\"check\","))
+            val shared = respond(session, request(14, block))
+            val standaloneWarning = standalone.substringAfter("\"warning\":", "")
+            assertTrue(standaloneWarning.isNotEmpty() && "languageVersion 9.9" in standaloneWarning, standalone.takeLast(200))
+            val check = shared.substring(shared.indexOf(",\"check\":") + ",\"check\":".length)
+            assertTrue(check.startsWith("{\"id\":1,"), check.take(80))
+            // The embedded check ends with the same warning a standalone check carries.
+            val sharedWarning = check.substringAfter("\"warning\":", "").substringBefore("}")
+            assertEquals(standaloneWarning.substringBefore("}"), sharedWarning)
         } finally {
             session.dispose()
         }

@@ -132,3 +132,30 @@ func TestDelegatedFirScanSharesTheCompileAndMatchesInProcess(t *testing.T) {
 		t.Fatalf("firCheckBroker outcome = %v, want [shared]", delegated.OutcomeLog)
 	}
 }
+
+// With an older krit-fir jar (KRIT_FIR_OLD_JAR, a jar from before the combined
+// request) the delegated scan keeps the oracle's facts and reports what the
+// in-process scan reports, compiling twice as before. Skipped without it.
+func TestDelegatedFirScanWithAnOlderJarFallsBack(t *testing.T) {
+	old := os.Getenv("KRIT_FIR_OLD_JAR")
+	if old == "" {
+		t.Skip("KRIT_FIR_OLD_JAR not set")
+	}
+	jar, err := filepath.Abs(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := buildVerdictKrit(t, repoRoot(t))
+	home := t.TempDir()
+	inProcess := runSharedScan(t, bin, jar, home, writeVerdictProject(t, nil), false)
+	project := writeVerdictProject(t, nil)
+	t.Cleanup(func() { stopDelegatedDaemon(t, bin, home, project) })
+	delegated := runSharedScan(t, bin, jar, home, project, true)
+	if len(inProcess.Findings) == 0 || strings.Join(delegated.Findings, "\n") != strings.Join(inProcess.Findings, "\n") {
+		t.Fatalf("delegated findings differ from in-process\n--- delegated\n%s\n--- in-process\n%s",
+			strings.Join(delegated.Findings, "\n"), strings.Join(inProcess.Findings, "\n"))
+	}
+	if len(delegated.OutcomeLog) != 1 || delegated.OutcomeLog[0] == "shared" {
+		t.Fatalf("firCheckBroker outcome = %v, want a decline", delegated.OutcomeLog)
+	}
+}

@@ -3,6 +3,7 @@ package oracle
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 )
@@ -41,6 +42,12 @@ func (d *Daemon) AnalyzeAllWithCheck(callFilter *CallTargetFilterSummary, rider 
 	}
 
 	d.mu.Lock()
+	if rider.Cancelled != nil && rider.Cancelled() {
+		// The pass gave up while this request queued behind another one: it
+		// compiles on its own, so carrying its check would be wasted work.
+		d.mu.Unlock()
+		return d.AnalyzeAllWithCallFilter(callFilter)
+	}
 	params := callFilterParams(callFilter)
 	if params == nil {
 		params = map[string]interface{}{}
@@ -49,7 +56,7 @@ func (d *Daemon) AnalyzeAllWithCheck(callFilter *CallTargetFilterSummary, rider 
 	if rider.Sent != nil {
 		rider.Sent()
 	}
-	resp, err := d.send(analyzeWithCheckMethod, params)
+	resp, err := d.sendCarrier(params)
 	d.mu.Unlock()
 	if err != nil {
 		if !isUnknownCommand(err) {
@@ -113,3 +120,24 @@ func isUnknownCommand(err error) bool {
 // DaemonRequestTimeout is how long one daemon request may take
 // (KRIT_TYPES_REQUEST_TIMEOUT, default 10 minutes) before the daemon is killed.
 func DaemonRequestTimeout() time.Duration { return daemonRequestTimeout() }
+
+// sendCarrier is send for the combined request, with one difference in the
+// circuit breaker's books: an older jar refusing the request as an unknown
+// command is an expected answer from a healthy daemon, not a failure, and must
+// not push the breaker toward opening (the plain analyzeAll that follows would
+// then be refused). Every other error counts as usual. Caller holds d.mu.
+func (d *Daemon) sendCarrier(params map[string]interface{}) (*daemonResponse, error) {
+	if !d.started {
+		return nil, errors.New("daemon not started")
+	}
+	if !d.breakerAdmit() {
+		return nil, errBreakerOpen
+	}
+	resp, err := d.sendOnce(analyzeWithCheckMethod, params)
+	if isUnknownCommand(err) {
+		d.breakerRecord(nil)
+	} else {
+		d.breakerRecord(err)
+	}
+	return resp, err
+}

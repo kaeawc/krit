@@ -574,16 +574,16 @@ private fun matchingBrace(s: String, open: Int): Int {
     return -1
 }
 
-fun parseRequest(request: String): CheckRequest {
+fun parseRequest(request: String, liftEmbedded: Boolean = true): CheckRequest {
     // The rest of this parser reads fields nest-blind, so the embedded check
     // request is lifted out first and parsed on its own.
-    if ("\"$SHARED_CHECK_KEY\"" in request) {
+    if (liftEmbedded && "\"$SHARED_CHECK_KEY\"" in request) {
         val lifted = liftSharedCheck(request)
         if (lifted != null) {
             // The block is a `check` request without its `command` (an older jar
             // would prefer that over the outer `method`), so it is restored here.
             val block = lifted.block.replaceFirst("{", "{\"command\":\"check\",")
-            return parseRequest(lifted.rest).copy(sharedCheck = parseRequest(block))
+            return parseRequest(lifted.rest).copy(sharedCheck = parseRequest(block, liftEmbedded = false))
         }
     }
     if ("\"modules\"" in request) parseModuleRequest(request)?.let { return it }
@@ -647,7 +647,7 @@ internal fun handleAnalyzeWithCheck(request: CheckRequest, session: AnalysisSess
     if (check == null) return OracleResponse.buildAnalyze(request.id, session.analyze(files))
     val (outcome, checked) = session.analyzeWithCheck(files, check)
     val oracle = OracleResponse.buildAnalyze(request.id, outcome.result)
-    return oracle.dropLast(1) + ",\"check\":" + (checked?.let(::buildCheckResponse) ?: "null") + "}"
+    return oracle.dropLast(1) + ",\"check\":" + (checked?.let { withWarnings(buildCheckResponse(it), session, check.jvmTarget, it.warnings) } ?: "null") + "}"
 }
 
 internal fun handleAnalyzeFile(request: CheckRequest, session: AnalysisSession): String {

@@ -166,8 +166,9 @@ func (b *Broker) Claim(matches ContextMatcher) *oracle.CheckRider {
 	// always grants the rider.
 	rider := prefetch.Rider(checker.JarPath, checker.SourceDirs, checker.Classpath, checker.CompileTarget())
 	return &oracle.CheckRider{
-		Decline: b.Done,
-		Sent:    b.markClaimed,
+		Decline:   b.Done,
+		Cancelled: b.Resolved,
+		Sent:      b.markClaimed,
 		Prepare: func() ([]byte, func([]byte)) {
 			if b.Resolved() {
 				return nil, nil // the pass gave up: do not hash the module for nothing
@@ -293,6 +294,10 @@ func (b *Broker) Outcome() string {
 		return "shared"
 	case b.delivered:
 		return "delivered, not used"
+	case b.reason == "":
+		// Asked for before the oracle decided: the pass never waited, because
+		// its check cache answered every file.
+		return "not needed: fir check cache warm"
 	}
 	return b.reason
 }

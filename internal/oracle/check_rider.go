@@ -26,6 +26,9 @@ type CheckRider struct {
 	// (after the daemon is free), so a waiter's deadline for the compile can
 	// start there. Optional.
 	Sent func()
+	// Cancelled, when set, reports that the rider's owner no longer wants the
+	// check (it gave up waiting); checked once more after the daemon is free.
+	Cancelled func() bool
 	// Decline, when set, tells the rider's owner that this compile will not
 	// answer the request, and why: the daemon's jar does not know it, or
 	// krit-fir could not share the compile. A caller waiting on the oracle's

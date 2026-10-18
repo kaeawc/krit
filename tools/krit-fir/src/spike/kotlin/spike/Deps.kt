@@ -49,13 +49,18 @@ class DepIndex {
     private val defaultPkgs = setOf("kotlin", "kotlin.annotation", "kotlin.collections", "kotlin.comparisons", "kotlin.io", "kotlin.ranges", "kotlin.sequences", "kotlin.text", "kotlin.jvm", "java.lang")
 
     private fun sees(f: Facts, it: Item): Boolean {
-        if (it.owner != null) return it.owner in f.idents
+        // Member items: a dependent may reach the member through an inferred receiver type (`a.b.member()`), so the
+        // owner's name need not appear in it. Owner narrowing is unsafe and only on when ownerAware is set.
+        if (it.owner != null) return !ownerAware || it.owner in f.idents
         val pkg = it.pkg ?: return true
         return !scopeAware || f.pkg == pkg || "$pkg.${it.name}" in f.imports || "$pkg.*" in f.imports || pkg in defaultPkgs
     }
 
     /** When false, the visibility check (same package / import / default import) is skipped: name-only matching. */
     var scopeAware = true
+
+    /** Unsafe precision aid kept for comparison: require the owner's name in a dependent of a member change. */
+    var ownerAware = false
 
     /** Files (other than [exclude]) that observe any of [items], closed over inferred-type exposure. */
     fun dependents(items: Set<Item>, exclude: Set<String>, closure: Boolean = true): Set<String> {
@@ -78,6 +83,18 @@ class DepIndex {
             }
         }
         return result
+    }
+
+    /** Items that introduce a name or an overload the old facts did not have (resolution can newly reach them). */
+    fun addedItems(old: Facts?, new: Facts?): Set<Item> {
+        val a = old?.decls.orEmpty().groupBy { it.owner to it.name }.mapValues { e -> e.value.map { it.header }.toSet() }
+        val b = new?.decls.orEmpty().groupBy { it.owner to it.name }.mapValues { e -> e.value.map { it.header }.toSet() }
+        val pkg = new?.pkg ?: old?.pkg
+        val out = HashSet<Item>()
+        for ((k, hs) in b) { val before = a[k]; if (before == null || hs.size > before.size) out += Item(if (k.first == null) pkg else null, k.first, k.second) }
+        val newDecls = new?.decls.orEmpty().filter { (it.owner to it.name) in out.map { i -> i.owner to i.name } }
+        for (d in newDecls) for (s in d.supers) out += Item(null, null, s)
+        return out
     }
 
     /** Files declaring top-level name [n] (owner == null). */

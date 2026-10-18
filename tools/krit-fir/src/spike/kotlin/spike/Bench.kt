@@ -120,7 +120,7 @@ class Inc(val o: Map<String, String>) {
         val g = makeProj(o, dir, n, seed)
         log("# ${g.describe()}")
         log("# inc strategy=$strategy files=$n edits=$edits warmup=$warm oracle=$oracleEvery heapMax=${Runtime.getRuntime().maxMemory() shr 20}MB")
-        val idx = DepIndex().also { it.scopeAware = o["scopeAware"] != "false" }
+        val idx = DepIndex().also { it.scopeAware = o["scopeAware"] != "false"; it.ownerAware = o["ownerAware"] == "true" }
         var t = System.nanoTime()
         for ((p, txt) in g.texts) idx.put(p, txt)
         log("depindex build: ${ms(System.nanoTime() - t)} ms for ${g.texts.size} files")
@@ -142,11 +142,37 @@ class Inc(val o: Map<String, String>) {
         val rows = ArrayList<Row>()
         val shadow = HashMap(g.texts) // texts as the daemon last saw them (for priming old surfaces)
         val surf = HashMap<String, String>() // resolved declaration surface per file, as of its last check
+        val useEdges = strategy == "R"
+        // Files whose last verdict holds `Unresolved reference 'x'`: only they can newly resolve when member `x` appears.
+        val unres = HashMap<String, Set<String>>()
+        val unresRe = Regex("UNRESOLVED_REFERENCE\\|ERROR\\|\\d+\\|Unresolved reference '([^']+)'")
+        fun noteUnresolved(r: Map<String, FileDiags>) { for ((f, d) in r) unres[f] = d.keys.mapNotNull { unresRe.find(it)?.groupValues?.get(1) }.toSet() }
+        if (coldCheck) noteUnresolved(cache)
+        /** Resolved-edge mode: lexical lookup only for top-level names (new overloads/shadows/subtypes); member additions only reach files that were failing on that name. */
+        fun lexicalAdds(items: Set<DepIndex.Item>, exclude: Set<String>): Set<String> {
+            val top = items.filter { it.owner == null }.toSet()
+            val memberNames = items.filter { it.owner != null }.map { it.name }.toSet()
+            val byUnresolved = if (memberNames.isEmpty()) emptySet() else unres.filter { (f, ns) -> f !in exclude && ns.any { it in memberNames } }.keys
+            return idx.dependents(top, exclude, closure = false) + byUnresolved
+        }
+        val fwd = HashMap<String, Set<String>>() // resolved references: file -> source files it depends on
+        val rev = HashMap<String, MutableSet<String>>() // reverse: file -> files that reference it
+        fun setEdges(f: String, targets: Set<String>) {
+            fwd[f]?.forEach { rev[it]?.remove(f) }
+            fwd[f] = targets
+            targets.forEach { rev.getOrPut(it) { HashSet() }.add(f) }
+        }
+        if (useEdges) {
+            val t0 = System.nanoTime()
+            val tr = Runner.edges(cur, cur.files.keys)
+            for (f in cur.files.keys) setEdges(f, tr.depPathsByFile[f].orEmpty())
+            log("cold resolved edges: ${ms(System.nanoTime() - t0)} ms, ${fwd.values.sumOf { it.size }} edges over ${fwd.size} files")
+        }
         for (i in 1..(warm + edits)) {
             val e = g.nextEdit(kinds)
             // Strategy S: the daemon would hold the previous surface of an edited file from its last check; emulate that
             // (untimed) by resolving the file's pre-edit text.
-            if (strategy == "S") for (p in e.changed) if (p !in surf && shadow.containsKey(p)) {
+            if (strategy == "S" || strategy == "R") for (p in e.changed) if (p !in surf && shadow.containsKey(p)) {
                 val slice0 = idx.forwardClosure(setOf(p)) + p
                 val pb = Runner.build(g.specs(slice0), g.classpath, reuse = libs, overlay = mapOf(p to shadow.getValue(p)))
                 surf[p] = Runner.surface(pb.files.getValue(p)); pb.dispose()
@@ -165,7 +191,8 @@ class Inc(val o: Map<String, String>) {
                 items += idx.changedItems(old, idx.facts[p])
             }
             val self = (e.changed + e.added + e.deleted).toSet()
-            val deps = idx.dependents(items, self)
+            // S/R compute their own dependents per wave (surface-gated); the closure heuristic here is for A/B/D only
+            val deps = if (strategy == "S" || strategy == "R") emptySet() else idx.dependents(items, self)
             val checkSet = LinkedHashSet<String>().apply { addAll(changedNow); addAll(deps) }
             val tScan = System.nanoTime() - total0
             var checkSetFinal: Set<String> = checkSet
@@ -175,7 +202,7 @@ class Inc(val o: Map<String, String>) {
             var tBuild: Long
             var tCheck: Long
             var res: Map<String, FileDiags>
-            if (strategy == "S") {
+            if (strategy == "S" || strategy == "R") {
                 // Surface-gated fixpoint: check the edited files; only when a file's resolved surface changed, check its
                 // lexical dependents, and repeat for those (replaces the "inferred type" heuristic closure).
                 val itemsAD = HashSet<DepIndex.Item>()
@@ -188,7 +215,12 @@ class Inc(val o: Map<String, String>) {
                 }
                 val edited = changedNow.toSet()
                 val queue = LinkedHashSet<String>(changedNow)
-                queue += idx.dependents(itemsAD, self)
+                if (useEdges) {
+                    val add = HashSet<DepIndex.Item>()
+                    for (p in e.added + e.deleted) add += idx.addedItems(oldFacts[p], idx.facts[p])
+                    for (p in e.deleted) queue += rev[p].orEmpty()
+                    queue += lexicalAdds(add, self)
+                } else queue += idx.dependents(itemsAD, self, closure = false)
                 val done = LinkedHashSet<String>()
                 val merged = HashMap<String, FileDiags>()
                 var tb = 0L; var tc = 0L; var last: Built? = null; var waves = 0
@@ -200,8 +232,9 @@ class Inc(val o: Map<String, String>) {
                     val wb = Runner.build(g.specs(slice), g.classpath, reuse = libs)
                     tb += System.nanoTime() - t1
                     val t2 = System.nanoTime()
-                    merged.putAll(Runner.check(wb, files))
+                    merged.putAll(Runner.check(wb, files)); noteUnresolved(merged.filterKeys { it in files })
                     val newSurf = files.associateWith { Runner.surface(wb.files.getValue(it)) }
+                    if (useEdges) { val tr = Runner.edges(wb, files); for (f in files) setEdges(f, tr.depPathsByFile[f].orEmpty()) }
                     tc += System.nanoTime() - t2
                     done += files
                     for (f in files) {
@@ -214,7 +247,13 @@ class Inc(val o: Map<String, String>) {
                         surf[f] = newSurf.getValue(f)
                         if (changed) {
                             val its = itemsByFile[f]?.takeIf { it.isNotEmpty() } ?: idx.facts[f]?.decls.orEmpty().map { DepIndex.Item(if (it.owner == null) idx.facts[f]?.pkg else null, it.owner, it.name) }.toSet()
-                            queue += idx.dependents(its, done + files)
+                            if (useEdges) {
+                                val viaEdges = rev[f].orEmpty().filter { it !in done && it !in files }
+                                val addIts = if (f in edited) idx.addedItems(oldFacts[f], idx.facts[f]) else emptySet()
+                                val viaNames = if (f in edited) lexicalAdds(addIts, done + files) else emptySet()
+                                if (System.getenv("SPIKE_DEBUG") != null) log("    wave$waves ${File(f).name}: surfaceChanged viaEdges=${viaEdges.size} addedItems=${addIts.take(3)} viaNames=${viaNames.size}")
+                                queue += viaEdges; queue += viaNames
+                            } else queue += idx.dependents(its, done + files, closure = false)
                         }
                     }
                     last?.dispose(); last = wb; waves++
@@ -242,7 +281,7 @@ class Inc(val o: Map<String, String>) {
             val cpuUsed = cpuNanos() - cpu0
             cur = fresh
             for (p in e.changed + e.added) g.texts[p]?.let { shadow[p] = it }
-            for (p in e.deleted) { shadow.remove(p); surf.remove(p) }
+            for (p in e.deleted) { shadow.remove(p); surf.remove(p); if (useEdges) { setEdges(p, emptySet()); rev.remove(p) } }
             if (strategy != "A") libs = libs ?: fresh.libs
 
             val mem = if (i % gcEvery == 0) memSnap(true) else null

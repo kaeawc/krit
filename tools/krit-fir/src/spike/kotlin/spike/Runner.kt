@@ -183,4 +183,16 @@ object Runner {
         val h = java.security.MessageDigest.getInstance("SHA-256").digest(surfaceText(kt).toByteArray())
         return h.joinToString("") { "%02x".format(it) }.take(16)
     }
+
+    /** Resolved source-file reference edges of [files] (krit-types' DepEdges recorder, run inside an AA session). */
+    fun edges(b: Built, files: Collection<String>): EdgeTracker {
+        val tr = EdgeTracker()
+        for (p in files) {
+            val kt = b.files[p] ?: continue
+            val owner = kt.virtualFilePath
+            analyze(kt) { try { recordResolvedDependencyEdges(kt, tr) } catch (t: Throwable) { System.err.println("edges failed for $owner: $t") } }
+            // paths recorded under the file's own virtual path; harness keys are the same spelling for disk files
+        }
+        return tr
+    }
 }

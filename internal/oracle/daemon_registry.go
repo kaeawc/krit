@@ -151,6 +151,13 @@ func WithKotlinSettings(s gradlemodel.KotlinSettings) DaemonOption {
 	return func(c *daemonConfig) { c.kotlin = s }
 }
 
+// BackendFromOptions reports the backend opts select (WithBackend), or ""
+// when none is given. Lets callers that only forward options (and tests of
+// them) check which backend a daemon will report.
+func BackendFromOptions(opts ...DaemonOption) Backend {
+	return resolveDaemonOptions(opts).backend
+}
+
 func resolveDaemonOptions(opts []DaemonOption) daemonConfig {
 	var c daemonConfig
 	for _, o := range opts {

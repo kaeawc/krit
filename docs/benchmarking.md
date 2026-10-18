@@ -40,8 +40,9 @@ One exception: a measured run in the `warm-disk` or `warm-daemon` state may
 skip the oracle when the perf report shows the whole-run findings bundle served
 the result. The evidence must be per request: `dispatchBundleLoad` outcome
 `hit` or `preloaded` together with `dispatchPath` `cacheHitFullBundle`, or the
-bare top-level `bundleHit` entry a daemon writes when it answers from its
-response cache. Delta and affected-set bundle hits, cache hit and miss
+top-level `bundleHit` entry a daemon writes when it answers from its
+response cache, but only with its `bundleOutcome` child marked `hit` (the
+scope is also left behind by a lookup that missed). Delta and affected-set bundle hits, cache hit and miss
 counters (which are lifetime totals of the process or daemon) and the edit
 states never qualify, because those runs must still run the oracle. A skipped
 run is accepted only with `-verify` on (its findings are then checked against

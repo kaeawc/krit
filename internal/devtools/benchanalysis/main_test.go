@@ -277,13 +277,24 @@ func TestDaemonStateRequiresResidentOracleSource(t *testing.T) {
 	}
 }
 
-func TestDaemonResponseCacheBundleHitCountsAsSkip(t *testing.T) {
-	r := Run{State: "warm-daemon", Measured: true, Phases: map[string]int64{"bundleHit": 0, "bundleHit/bundleLoad": 0}, Attributes: map[string]string{}}
-	if got := checkMode(modes["fir-oracle"], r); got != "" {
-		t.Fatalf("rejected: %s", got)
+func TestDaemonResponseCacheBundleHitNeedsHitOutcome(t *testing.T) {
+	mk := func(state, outcome string) Run {
+		attrs := map[string]string{}
+		if outcome != "" {
+			attrs["bundleHit/bundleOutcome.outcome"] = outcome
+		}
+		return Run{State: state, Measured: true, Phases: map[string]int64{"bundleHit": 0, "bundleHit/bundleOutcome": 0}, Attributes: attrs}
 	}
-	r.State = "cold"
-	if checkMode(modes["fir-oracle"], r) == "" {
+	if got := checkMode(modes["fir-oracle"], mk("warm-daemon", "hit")); got != "" {
+		t.Fatalf("hit rejected: %s", got)
+	}
+	// The bundleHit scope is also left behind by a lookup that missed.
+	for _, outcome := range []string{"miss", ""} {
+		if checkMode(modes["fir-oracle"], mk("warm-daemon", outcome)) == "" {
+			t.Errorf("outcome %q with no oracle accepted", outcome)
+		}
+	}
+	if checkMode(modes["fir-oracle"], mk("cold", "hit")) == "" {
 		t.Fatal("cold run accepted")
 	}
 }

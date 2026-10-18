@@ -516,9 +516,10 @@ func oracleSkipReason(r Run) string {
 		return "findings-bundle-hit"
 	}
 	// A daemon answers a whole-run bundle hit from its response cache with a
-	// bare top-level "bundleHit" perf entry and none of the dispatch
-	// attributes. The entry is per request.
-	if _, ok := r.Phases["bundleHit"]; ok {
+	// top-level "bundleHit" perf entry and none of the dispatch attributes.
+	// The scope is opened before the lookup, so only its explicit per-request
+	// outcome counts: a miss also leaves the entry behind.
+	if _, ok := r.Phases["bundleHit"]; ok && attr(r.Attributes, "bundleOutcome", "outcome") == "hit" {
 		return "findings-bundle-hit"
 	}
 	return ""

@@ -2125,6 +2125,20 @@ func preParseBundleShortcutAllowed(args ProjectArgs, host ProjectHostState) bool
 	return host.FindingsBundleStore != nil && host.FindingsBundleCacheRoot != ""
 }
 
+// recordBundleOutcome marks the "bundleHit" perf scope as a real hit or a
+// miss. The scope is opened before the lookup, so its presence alone does not
+// mean the bundle served the run; benchmarks read this entry.
+func recordBundleOutcome(t perf.Tracker, hit bool) {
+	if t == nil {
+		return
+	}
+	outcome := "miss"
+	if hit {
+		outcome = "hit"
+	}
+	perf.AddEntryDetails(t, "bundleOutcome", 0, nil, map[string]string{"outcome": outcome})
+}
+
 func tryLoadFindingsBundleBeforeParse(
 	ctx context.Context,
 	startTime time.Time,
@@ -2152,6 +2166,7 @@ func tryLoadFindingsBundleBeforeParse(
 		phaseTimings.Parse = time.Since(start).Milliseconds()
 	}
 	if !ok {
+		recordBundleOutcome(bundleTracker, false)
 		if bundleTracker != nil {
 			bundleTracker.End()
 		}
@@ -2169,6 +2184,7 @@ func tryLoadFindingsBundleBeforeParse(
 		if cachedOut := host.BundleOutput(scanner.FindingsBundleKey(fp)); cachedOut != nil {
 			if bundleTracker != nil {
 				bundleTracker.TrackVoid("bundleLoadSkipped", func() {})
+				recordBundleOutcome(bundleTracker, true)
 				bundleTracker.End()
 			}
 			return emitBundleHitOutput(ctx, args, host, out, format, startTime, phaseTimings,
@@ -2190,6 +2206,7 @@ func tryLoadFindingsBundleBeforeParse(
 	} else {
 		loadFn()
 	}
+	recordBundleOutcome(bundleTracker, ok && cached != nil)
 	if bundleTracker != nil {
 		bundleTracker.End()
 	}

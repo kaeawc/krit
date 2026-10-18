@@ -74,9 +74,7 @@ func tryAbiHashViaDaemon(socketPath, target string) (abiHashResult, bool) {
 		if err != nil {
 			return abiHashResult{}, false
 		}
-		if socketPath, err = daemon.LocateSocketPath(root); err != nil {
-			socketPath = daemon.DefaultSocketPath(root)
-		}
+		socketPath = daemon.LocateSocketPath(root)
 	}
 	if !daemon.Available(socketPath) {
 		return abiHashResult{}, false

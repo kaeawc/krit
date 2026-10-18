@@ -120,3 +120,48 @@ func TestUserKritDir_TempFallbackIsPrivate(t *testing.T) {
 		t.Fatalf("dir %s not private: %v %v", dir, fi, err)
 	}
 }
+
+func TestEnsurePrivateDir_RejectsParentOwnedByOtherUser(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("needs root to chown")
+	}
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(parent, 54321, -1); err != nil {
+		t.Skipf("chown unsupported: %v", err)
+	}
+	dir := filepath.Join(parent, "krit-x")
+	if err := EnsurePrivateDir(dir, true); err == nil || !strings.Contains(err.Error(), "neither us nor root") {
+		t.Fatalf("want parent-owner rejection, got %v", err)
+	}
+}
+
+func TestCheckPrivateDir_ReadOnly(t *testing.T) {
+	base := t.TempDir()
+	missing := filepath.Join(base, "krit-x")
+	if err := CheckPrivateDir(missing, true); err != nil {
+		t.Fatalf("missing dir should pass: %v", err)
+	}
+	if _, err := os.Lstat(missing); err == nil {
+		t.Fatal("CheckPrivateDir must not create the dir")
+	}
+	loose := filepath.Join(base, "loose")
+	if err := os.Mkdir(loose, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckPrivateDir(loose, true); err != nil {
+		t.Fatalf("own loose dir should pass: %v", err)
+	}
+	if fi, _ := os.Stat(loose); fi.Mode().Perm() != 0o755 {
+		t.Fatal("CheckPrivateDir must not chmod")
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(loose, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckPrivateDir(link, true); err == nil {
+		t.Fatal("symlink must fail")
+	}
+}

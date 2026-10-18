@@ -9,7 +9,7 @@ import (
 
 // verifyPeer requires the process on the other end of conn to run as the
 // current user (SO_PEERCRED).
-func verifyPeer(conn net.Conn, _ string) error {
+func verifyPeer(conn net.Conn, socketPath string) error {
 	uc, ok := conn.(*net.UnixConn)
 	if !ok {
 		return nil
@@ -29,7 +29,7 @@ func verifyPeer(conn net.Conn, _ string) error {
 		return fmt.Errorf("daemon: peer credentials: %w", cerr)
 	}
 	if int(cred.Uid) != os.Getuid() {
-		return fmt.Errorf("daemon: socket peer runs as uid %d, not %d; refusing", cred.Uid, os.Getuid())
+		return &PeerUIDError{Path: socketPath, UID: int(cred.Uid)}
 	}
 	return nil
 }

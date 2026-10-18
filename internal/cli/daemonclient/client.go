@@ -52,30 +52,32 @@ func Discover(repoRoot string) (*Client, bool) {
 }
 
 // ErrRootMismatch is returned (wrapped) when the daemon reachable at a
-// fallback socket serves a different project root than the one requested.
+// socket serves a different project root than the one requested.
 var ErrRootMismatch = errors.New("daemon serves a different root")
 
 // discoverChecked is Discover plus the reason a reachable daemon was
-// rejected. For fallback-path sockets the daemon's reported root must equal
-// the requested root, since the 64-bit path hash could in principle collide
-// and the directory is shared between projects.
+// rejected: it serves a different root (ErrRootMismatch) or runs as another
+// user (daemon.ErrPeerUID). Candidates are tried in order (pointer file
+// target, then the derived path), so a stale pointer never hides a daemon.
 func discoverChecked(repoRoot string) (*Client, bool, error) {
-	socket, err := daemon.LocateSocketPath(repoRoot)
-	if err != nil {
-		// No usable socket location: nothing can be running there.
-		return nil, false, nil //nolint:nilerr // absence, not failure
+	for _, sock := range daemon.SocketCandidates(repoRoot) {
+		c, err := reachable(sock, repoRoot)
+		if err != nil {
+			return nil, false, err
+		}
+		if c != nil {
+			return c, true, nil
+		}
 	}
-	c, err := reachable(socket, repoRoot)
-	return c, c != nil, err
+	return nil, false, nil
 }
 
-// verifyRoot checks that the daemon behind c serves repoRoot. Only
-// fallback-path sockets need it; the conventional <root>/.krit/daemon.sock
-// is unambiguous.
+// verifyRoot checks that the daemon behind c serves repoRoot. It runs for
+// every socket, not just fallback ones: the fallback directory is shared
+// between projects, and even the conventional <root>/.krit can be a symlink
+// committed to a repository that points at another project's directory. The
+// cost is one Status round trip per discovery.
 func verifyRoot(c *Client, repoRoot string) error {
-	if !daemon.IsFallbackSocket(c.socketPath) {
-		return nil
-	}
 	st, err := c.Status()
 	if err != nil {
 		return fmt.Errorf("daemonclient: status of daemon at %s: %w", c.socketPath, err)
@@ -91,7 +93,9 @@ func verifyRoot(c *Client, repoRoot string) error {
 // the override drives the dial directly so `--daemon-socket PATH`
 // can point at non-default locations (test fixtures, multi-root
 // setups). Never returns an error — the CLI's auto-detect contract
-// is that socket noise does not bubble up to the user.
+// is that socket noise does not bubble up to the user. An explicit override
+// is the caller's choice of daemon, so it skips the root check that
+// Discover applies.
 func TryConnect(repoRoot, socketOverride string) (*Client, bool) {
 	if socketOverride == "" {
 		return Discover(repoRoot)
@@ -362,17 +366,37 @@ func EnsureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
 // waitForDaemon polls until the socket is reachable, the spawned daemon
 // exits, or timeout elapses.
 func waitForDaemon(socket, repoRoot string, timeout, poll time.Duration, exited <-chan error, logPath string) (*Client, error) {
+	check := func() (*Client, error) {
+		// Our own socket first, then wherever another daemon for this root
+		// may have come up (pointer file / derived path in its environment).
+		for _, sock := range append([]string{socket}, daemon.SocketCandidates(repoRoot)...) {
+			if c, err := reachable(sock, repoRoot); c != nil || err != nil {
+				return c, err
+			}
+		}
+		return nil, nil
+	}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if c, err := reachable(socket, repoRoot); c != nil || err != nil {
+		if c, err := check(); c != nil || err != nil {
 			return c, err
 		}
 		select {
 		case werr := <-exited:
-			// The child is gone. Another daemon may have won the race
-			// for the socket (single-instance lock), so check once more.
-			if c, err := reachable(socket, repoRoot); c != nil || err != nil {
+			exited = nil // consumed; a nil channel blocks forever
+			// The child is gone. A daemon may nonetheless be up (one
+			// started concurrently by another client, or one that outlived
+			// its pointer), so check once more.
+			if c, err := check(); c != nil || err != nil {
 				return c, err
+			}
+			var xe *exec.ExitError
+			if errors.As(werr, &xe) && xe.ExitCode() == daemon.ExitAlreadyRunning {
+				// The repo lock is held: another daemon is starting up for
+				// this repo (possibly on a socket path derived from a
+				// different environment). Keep waiting for it rather than
+				// spawning another.
+				continue
 			}
 			// Waiting out the timeout cannot help; fail now.
 			if werr == nil {
@@ -385,9 +409,15 @@ func waitForDaemon(socket, repoRoot string, timeout, poll time.Duration, exited 
 	return nil, errors.New("daemonclient: spawned daemon did not become reachable before timeout")
 }
 
-// reachable returns a verified client when a daemon answers on socket.
+// reachable returns a verified client when a daemon of ours answers on
+// socket. (nil, nil) means nothing is there; an error means something is
+// there but must not be used or spawned over (another user's daemon, or one
+// serving a different root).
 func reachable(socket, repoRoot string) (*Client, error) {
-	if !daemon.Available(socket) {
+	if err := daemon.Probe(socket); err != nil {
+		if errors.Is(err, daemon.ErrPeerUID) {
+			return nil, err
+		}
 		return nil, nil
 	}
 	c := &Client{socketPath: socket}

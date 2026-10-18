@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/kaeawc/krit/internal/diag"
@@ -142,14 +141,11 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("daemon: remove stale socket %s: %w", s.socketPath, err)
 	}
 
-	// Bind under umask 0177 so the socket is created 0600 and there is no
-	// window where it is reachable with the default umask's mode. The
-	// private 0700 fallback dir independently keeps other users out; the
-	// umask additionally covers the conventional <root>/.krit location.
-	// The umask is process-wide but only held for the duration of bind.
-	oldMask := syscall.Umask(0o177)
+	// The socket is chmod 0600 immediately after bind. Until then its mode
+	// follows the process umask, but no one is trusted by mode alone:
+	// acceptLoop verifies every peer's uid (SO_PEERCRED) before serving, and
+	// fallback sockets additionally sit in a private 0700 directory.
 	l, err := (&net.ListenConfig{}).Listen(ctx, "unix", s.socketPath)
-	syscall.Umask(oldMask)
 	if err != nil {
 		return fmt.Errorf("daemon: listen %s: %w", s.socketPath, err)
 	}
@@ -307,6 +303,11 @@ func (s *Server) acceptLoop(ctx context.Context) {
 			}
 			s.reporter().Warnf("krit daemon: accept: %v\n", err)
 			return
+		}
+		if err := verifyPeer(conn, s.socketPath); err != nil {
+			s.reporter().Warnf("krit daemon: rejecting connection: %v\n", err)
+			_ = conn.Close()
+			continue
 		}
 		s.wg.Add(1)
 		go func() {

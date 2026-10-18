@@ -17,7 +17,10 @@ func verifyPeer(_ net.Conn, socketPath string) error {
 		return err
 	}
 	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok || int(st.Uid) != os.Getuid() || fi.Mode().Perm()&0o077 != 0 {
+	if ok && int(st.Uid) != os.Getuid() {
+		return &PeerUIDError{Path: socketPath, UID: int(st.Uid)}
+	}
+	if !ok || fi.Mode().Perm()&0o077 != 0 {
 		return fmt.Errorf("daemon: socket %s is not a private socket owned by the current user; refusing", socketPath)
 	}
 	return nil

@@ -14,3 +14,6 @@ func EnsurePrivateDir(dir string, _ bool) error {
 	}
 	return nil
 }
+
+// CheckPrivateDir has nothing to inspect on Windows.
+func CheckPrivateDir(string, bool) error { return nil }

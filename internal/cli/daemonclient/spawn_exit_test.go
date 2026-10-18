@@ -6,9 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -63,15 +66,11 @@ func TestEnsureRunning_NoLogPathOmitsHint(t *testing.T) {
 	}
 }
 
-// A child that exits 0 (for example it lost the single-instance race to a
-// daemon that is in fact serving) is not a failure when a daemon is reachable.
+// A child that exits 0 (for example a daemon that came up concurrently
+// was already serving) is not a failure when a daemon is reachable.
 func TestEnsureRunning_ChildExitsZeroButDaemonReachable(t *testing.T) {
 	root := tmpDir(t)
-	srv := daemon.NewServer(daemon.DefaultSocketPath(root))
-	if err := srv.Start(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(srv.Stop)
+	startRootServer(t, daemon.DefaultSocketPath(root), root)
 	// Discover finds it first, so force the spawn path through the waiter.
 	c, err := waitForDaemon(daemon.DefaultSocketPath(root), root, 5*time.Second, 10*time.Millisecond, closedExit(nil), "")
 	if err != nil || c == nil {
@@ -100,12 +99,15 @@ func TestEnsureRunning_ChildBindsSuccessfully(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	srv := daemon.NewServer(want)
+	srv.Register(daemon.VerbStatus, func(_ context.Context, _ json.RawMessage) (any, error) {
+		return daemon.StatusResult{Ready: true, Root: root}, nil
+	})
+	t.Cleanup(srv.Stop) // registered before the goroutine can signal
 	srvErr := make(chan error, 1)
 	go func() {
 		time.Sleep(150 * time.Millisecond)
-		srv := daemon.NewServer(want)
 		srvErr <- srv.Start(context.Background())
-		t.Cleanup(srv.Stop)
 	}()
 	c, err := EnsureRunning(root, SpawnOptions{Binary: bin, WaitTimeout: 10 * time.Second})
 	if err != nil || c == nil {
@@ -188,5 +190,159 @@ func TestClient_AcceptsDaemonServingSameRoot(t *testing.T) {
 	startRootServer(t, sock, root)
 	if _, ok := Discover(root); !ok {
 		t.Fatal("Discover must accept a daemon serving the same root")
+	}
+}
+
+// A child that exits with the "repo lock held" status means another daemon is
+// coming up for this repo; the client keeps waiting for it instead of failing
+// or spawning more.
+func TestEnsureRunning_ChildAlreadyRunningWaitsForWinner(t *testing.T) {
+	root := tmpDir(t)
+	bin := writeScript(t, "exit 2")
+	want := daemon.DefaultSocketPath(root)
+	srv := daemon.NewServer(want)
+	srv.Register(daemon.VerbStatus, func(_ context.Context, _ json.RawMessage) (any, error) {
+		return daemon.StatusResult{Ready: true, Root: root}, nil
+	})
+	t.Cleanup(srv.Stop)
+	go func() {
+		time.Sleep(400 * time.Millisecond)
+		_ = srv.Start(context.Background())
+	}()
+	c, err := EnsureRunning(root, SpawnOptions{Binary: bin, WaitTimeout: 10 * time.Second})
+	if err != nil || c == nil {
+		t.Fatalf("EnsureRunning = %v, %v; want the winner's client", c, err)
+	}
+}
+
+// A stale or committed pointer must never hide a live conventional daemon:
+// Discover finds it and nothing is spawned.
+func TestDiscover_ShortRootIgnoresBogusPointer(t *testing.T) {
+	t.Setenv("TMPDIR", tmpDir(t))
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	root := tmpDir(t)
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		root = r
+	}
+	startRootServer(t, daemon.ConventionalSocketPath(root), root)
+	bogus := filepath.Join(tmpDir(t), "krit", "0123456789abcdef.sock")
+	if err := daemon.WriteSocketPointer(daemon.PointerPath(root), bogus); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(tmpDir(t), "spawned")
+	bin := writeScript(t, "touch "+marker)
+	c, err := EnsureRunning(root, SpawnOptions{Binary: bin, WaitTimeout: 2 * time.Second})
+	if err != nil || c == nil || c.SocketPath() != daemon.ConventionalSocketPath(root) {
+		t.Fatalf("EnsureRunning = %v, %v; want the conventional daemon", c, err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("spawned a daemon despite a live one")
+	}
+}
+
+// Even the conventional socket is root-checked: .krit can be a symlink
+// committed to a repository.
+func TestDiscover_ConventionalSocketServingOtherRootIsRefused(t *testing.T) {
+	root := tmpDir(t)
+	startRootServer(t, daemon.ConventionalSocketPath(root), "/some/other/project")
+	if _, ok := Discover(root); ok {
+		t.Fatal("Discover must refuse a conventional-socket daemon serving another root")
+	}
+	if _, err := EnsureRunning(root, SpawnOptions{Binary: "/bin/false"}); !errors.Is(err, ErrRootMismatch) {
+		t.Fatalf("EnsureRunning err = %v, want ErrRootMismatch", err)
+	}
+}
+
+// Helper process: listens on $KRIT_TEST_SOCK (run as another uid).
+func TestHelperForeignListener(t *testing.T) {
+	sock := os.Getenv("KRIT_TEST_SOCK")
+	if sock == "" {
+		t.Skip("helper process only")
+	}
+	l, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chmod(sock, 0o666)
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	time.Sleep(30 * time.Second)
+}
+
+// A daemon owned by another user must stop EnsureRunning/EnsureCompatible
+// with a clear message instead of spawning over its socket.
+func TestEnsure_ForeignUIDDaemonIsNotSpawnedOver(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("needs root to run a listener as another uid")
+	}
+	root := tmpDir(t)
+	if err := os.Chmod(root, 0o755); err != nil { // uid 54321 must traverse it
+		t.Fatal(err)
+	}
+	krit := filepath.Join(root, ".krit")
+	if err := os.MkdirAll(krit, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(krit, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindir := tmpDir(t)
+	if err := os.Chmod(bindir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(bindir, "daemonclient.test")
+	if err := os.WriteFile(bin, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sock := daemon.ConventionalSocketPath(root)
+	cmd := exec.Command(bin, "-test.run=^TestHelperForeignListener$")
+	cmd.Env = append(os.Environ(), "KRIT_TEST_SOCK="+sock)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: 54321, Gid: 54321}}
+	if err := cmd.Start(); err != nil {
+		t.Skipf("cannot run as another uid: %v", err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(sock); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("foreign listener did not come up")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if _, ok := Discover(root); ok {
+		t.Fatal("Discover must report absent for a foreign daemon")
+	}
+	marker := filepath.Join(tmpDir(t), "spawned")
+	spawn := writeScript(t, "touch "+marker)
+	_, err = EnsureRunning(root, SpawnOptions{Binary: spawn, WaitTimeout: 2 * time.Second})
+	if !errors.Is(err, daemon.ErrPeerUID) || !strings.Contains(err.Error(), "uid 54321") || !strings.Contains(err.Error(), "--no-daemon") {
+		t.Fatalf("EnsureRunning err = %v, want actionable ErrPeerUID", err)
+	}
+	if _, _, err := EnsureCompatible(root, SpawnOptions{Binary: spawn, AutoRestart: true}); !errors.Is(err, daemon.ErrPeerUID) {
+		t.Fatalf("EnsureCompatible err = %v, want ErrPeerUID", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("spawned over a foreign daemon")
 	}
 }

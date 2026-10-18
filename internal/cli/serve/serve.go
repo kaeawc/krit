@@ -130,19 +130,42 @@ func Run(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	socketPath := *socketFlag
-	if socketPath == "" {
-		socketPath = daemon.DefaultSocketPath(root)
-	}
-
 	if *stopFlag {
-		socketPath = stopTarget(root, *socketFlag)
-		if err := daemon.Call(socketPath, daemon.VerbShutdown, nil, nil); err != nil {
+		if err := daemon.Call(stopTarget(root, *socketFlag), daemon.VerbShutdown, nil, nil); err != nil {
 			fmt.Fprintf(os.Stderr, "krit serve --stop: %v\n", err)
 			return 1
 		}
 		return 0
 	}
+	socketPath := *socketFlag
+	if socketPath == "" {
+		// Creates/validates the private fallback dir when the root is too
+		// deep for a unix socket, and fails here with a clear error when no
+		// usable dir exists instead of a bare bind EINVAL later.
+		var rerr error
+		if socketPath, rerr = daemon.ResolveSocketPath(root); rerr != nil {
+			fmt.Fprintf(os.Stderr, "krit serve: %v\n", rerr)
+			return 1
+		}
+	}
+
+	// Single-instance enforcement: one daemon per repository, whatever
+	// socket path each would have derived from its environment. The kernel
+	// drops the flock if we die, so no manual cleanup is needed.
+	lock, err := daemon.AcquireRepoLock(daemon.NormalizeRoot(root))
+	if err != nil {
+		if errors.Is(err, daemon.ErrAlreadyHeld) {
+			if pid := daemon.ReadPIDFile(daemon.NormalizeRoot(root)); pid > 0 {
+				fmt.Fprintf(os.Stderr, "krit serve: another daemon is running for this repo (already running, PID %d)\n", pid)
+			} else {
+				fmt.Fprintln(os.Stderr, "krit serve: another daemon is running for this repo (already running, PID unknown)")
+			}
+			return daemon.ExitAlreadyRunning
+		}
+		fmt.Fprintf(os.Stderr, "krit serve: acquire repo lock: %v\n", err)
+		return 1
+	}
+	defer lock.Close() //nolint:errcheck // best effort on shutdown
 
 	state := newDaemonState(root)
 	// Shut down every oracle JVM child this serve invocation owns
@@ -166,10 +189,16 @@ func Run(args []string) int {
 	state.warmDuration = time.Since(warmStart)
 
 	srv := daemon.NewServer(socketPath)
-	if daemon.IsFallbackSocket(socketPath) {
+	switch {
+	case daemon.IsFallbackSocket(socketPath):
 		// Long project path: record where the socket really is, so clients
 		// with a different TMPDIR/XDG_RUNTIME_DIR still find it.
 		srv.PointerPath = daemon.PointerPath(root)
+	case socketPath == daemon.ConventionalSocketPath(root):
+		// A stale pointer must not steer clients away from this daemon.
+		if err := daemon.ClearSocketPointer(root); err != nil {
+			fmt.Fprintf(os.Stderr, "krit serve: clear stale socket pointer: %v\n", err)
+		}
 	}
 	srv.IdleTimeout = *idleFlag
 	registerVerbs(srv, state)
@@ -218,10 +247,7 @@ func stopTarget(root, socketFlag string) string {
 	if socketFlag != "" {
 		return socketFlag
 	}
-	if p, err := daemon.LocateSocketPath(root); err == nil {
-		return p
-	}
-	return daemon.DefaultSocketPath(root)
+	return daemon.LocateSocketPath(root)
 }
 
 // signalContext returns a context cancelled on SIGINT or SIGTERM.

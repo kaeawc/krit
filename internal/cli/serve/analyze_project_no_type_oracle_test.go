@@ -1,10 +1,14 @@
 package serve
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // Issue #855: a request with NoTypeOracle must neither start nor consult the
@@ -81,5 +85,53 @@ func TestAnalyzeProject_NoTypeOracleDoesNotShareWarmBundle(t *testing.T) {
 	}
 	if r := call(false); !r.Stats.FindingsBundleHit {
 		t.Fatalf("oracle-mode bundle must survive an interleaved no-type-oracle call: %+v", r.Stats)
+	}
+}
+
+// A --no-type-oracle request must not health-check (and so possibly
+// restart) a cached oracle JVM: it promises not to touch the oracle at all.
+func TestAnalyzeProject_NoTypeOracleSkipsOracleHealthCheck(t *testing.T) {
+	socket, state := startServerForTest(t)
+	writeKotlinFile(t, state.root, "A.kt", "package demo\n\nclass A\n")
+	seedJar(t, state.root, ".krit/krit-types.jar")
+	jar := filepath.Join(state.root, ".krit", "krit-types.jar")
+	starter := &fakeOracleDaemonStarter{}
+	state.oracleDaemonMu.Lock()
+	state.oracleDaemonStarter = starter
+	state.oracleDaemonByKey["dead"] = &oracleDaemonEntry{
+		daemon:      &oracle.Daemon{}, // never started: a ping would fail and rebuild it
+		jarPath:     jar,
+		jarIdentity: oracle.JarIdentity(jar),
+	}
+	state.oracleDaemonMu.Unlock()
+
+	var res daemon.AnalyzeProjectResult
+	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
+		daemon.AnalyzeProjectArgs{NoFir: true, NoTypeOracle: true}, &res); err != nil {
+		t.Fatalf("analyze: %v", err)
+	}
+	if n := starter.calls.Load(); n != 0 {
+		t.Fatalf("no-type-oracle request rebuilt %d oracle daemon(s), want 0", n)
+	}
+}
+
+// The strict-verify baseline of a --no-type-oracle request runs without the
+// oracle too, so it neither starts one nor compares against oracle facts.
+func TestRunStrictVerify_NoTypeOracleBaselineSkipsOracle(t *testing.T) {
+	root := t.TempDir()
+	seedJar(t, root, ".krit/krit-types.jar")
+	writeKotlinFile(t, root, "X.kt", "package demo\n\nclass X\n")
+	state := newDaemonState(root)
+	t.Cleanup(state.closeOracleDaemons)
+	state.strictVerify = true
+	starter := &fakeOracleDaemonStarter{}
+	state.oracleDaemonStarter = starter
+
+	daemonCols := scanner.FindingColumns{}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, _ = state.runStrictVerify(ctx, daemon.AnalyzeProjectArgs{NoFir: true, NoTypeOracle: true}, &daemonCols)
+	if n := starter.calls.Load(); n != 0 {
+		t.Fatalf("no-type-oracle strict-verify baseline started %d oracle daemon(s), want 0", n)
 	}
 }

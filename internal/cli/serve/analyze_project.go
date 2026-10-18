@@ -43,6 +43,16 @@ var errDaemonNotWarm = errors.New("daemon not warm yet")
 // and the dispatcher — a verified DATA RACE under -race. Loosening
 // the lock requires making the rules config state per-call or
 // initialising it once at daemon startup. See issue #53.
+// pingOracleDaemonFor health-checks cached oracle daemons unless the request
+// opted out of the oracle: a --no-type-oracle request neither consults nor
+// restarts the oracle JVM.
+func (s *daemonState) pingOracleDaemonFor(args daemon.AnalyzeProjectArgs) {
+	if args.NoTypeOracle {
+		return
+	}
+	s.pingOracleDaemon()
+}
+
 func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMessage) (any, error) {
 	var args daemon.AnalyzeProjectArgs
 	if len(raw) > 0 {
@@ -107,7 +117,7 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 	// the verb runs. A JVM that died (OOM, host kill) gets replaced
 	// here so RunProject sees a live handle. No-op when no daemon is
 	// cached. See issue #125 PR-A for the lifecycle plumbing.
-	state.pingOracleDaemon()
+	state.pingOracleDaemonFor(args)
 	start := time.Now()
 	dirty := state.workspace.DrainDirty()
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -376,5 +377,71 @@ func TestDaemonBaselineSurvivesInProcessFallback(t *testing.T) {
 	// A restarted daemon (counters below the baseline) is taken as-is.
 	if d := cacheDelta(CacheIO{Hits: 1}, base["findings-bundle-cache"]); d.Hits != 1 {
 		t.Fatalf("restart delta = %+v", d)
+	}
+}
+
+func TestDaemonIdentityDistinguishesRestartsAndRediffs(t *testing.T) {
+	work, proc := t.TempDir(), t.TempDir()
+	_ = os.MkdirAll(filepath.Join(work, ".krit"), 0o755)
+	write := func(pid, start string) {
+		_ = os.WriteFile(filepath.Join(work, ".krit", "daemon.pid"), []byte(pid+"\n"), 0o644)
+		_ = os.MkdirAll(filepath.Join(proc, pid), 0o755)
+		_ = os.WriteFile(filepath.Join(proc, pid, "stat"), []byte(pid+" (krit) S 1 1 1 0 -1 0 0 0 0 0 1 1 0 0 20 0 5 0 "+start+" 1 1\n"), 0o644)
+	}
+	if daemonIdentity(proc, work) != "" {
+		t.Fatal("identity without a pid file")
+	}
+	write("42", "100")
+	first := daemonIdentity(proc, work)
+	write("42", "200") // same PID reused by a new process
+	second := daemonIdentity(proc, work)
+	write("43", "300")
+	third := daemonIdentity(proc, work)
+	if first == second || second == third || first == "" {
+		t.Fatalf("identities = %q %q %q", first, second, third)
+	}
+	// A restart whose counters are equal or larger than the old baseline is
+	// still diffed against zero once the identity changed.
+	r := Run{Caches: map[string]CacheIO{}, rawCaches: map[string]CacheIO{"findings-bundle-cache": {Hits: 9, Misses: 2}}}
+	rediffCaches(&r, nil)
+	if r.Caches["findings-bundle-cache"] != (CacheIO{Hits: 9, Misses: 2}) {
+		t.Fatalf("caches = %+v", r.Caches)
+	}
+}
+
+func TestStopDaemonUsesPortableStopFirst(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls")
+	bin := filepath.Join(dir, "fake-krit")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" >> "+log+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	work := t.TempDir()
+	h := &harness{krit: bin, work: work, registry: t.TempDir()}
+	h.stopDaemon()
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if lines[0] != "serve --stop --root "+work {
+		t.Fatalf("first call = %q, want serve --stop --root %s", lines[0], work)
+	}
+}
+
+func TestDaemonGoneWaitsForPIDAndSocket(t *testing.T) {
+	work := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(work, ".krit"), 0o755)
+	if !daemonGone(work) {
+		t.Fatal("empty work reported as having a daemon")
+	}
+	_ = os.WriteFile(filepath.Join(work, ".krit", "daemon.sock"), nil, 0o644)
+	if daemonGone(work) {
+		t.Fatal("socket file ignored")
+	}
+	_ = os.Remove(filepath.Join(work, ".krit", "daemon.sock"))
+	_ = os.WriteFile(filepath.Join(work, ".krit", "daemon.pid"), []byte(strconv.Itoa(os.Getpid())), 0o644)
+	if daemonGone(work) {
+		t.Fatal("live pid ignored")
 	}
 }

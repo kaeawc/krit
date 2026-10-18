@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -231,6 +232,7 @@ type harness struct {
 	editPath              string
 	editsApplied, cleanID int
 	daemonCaches          map[string]CacheIO // cumulative counters after the last daemon run
+	daemonID              string             // identity of the daemon those counters belong to
 }
 
 func (h *harness) runState(m Mode, s State) ([]Run, error) {
@@ -252,7 +254,7 @@ func (h *harness) runState(m Mode, s State) ([]Run, error) {
 	h.stopDaemon() // a daemon left by an interrupted run must not serve the fill run
 	h.resetDisk()
 	h.newRegistry()
-	h.daemonCaches = nil
+	h.daemonCaches, h.daemonID = nil, ""
 	if s.Fill {
 		fill := h.invoke(m, s, 0, false)
 		runs = append(runs, fill)
@@ -304,16 +306,50 @@ func (h *harness) newRegistry() {
 	}
 }
 
-// stopDaemon stops the krit daemon for the corpus. `krit daemon stop` needs a
-// pidfile that auto-spawned daemons don't always write (it prints "not
-// running" and leaves them alive), so the daemon is also found by its
-// `serve --root <work>` command line and signalled directly.
+// stopDaemon stops the krit daemon for the corpus, portably first: ask it to
+// shut down over its socket (`krit serve --stop --root <work>`, which finds a
+// fallback socket through the pointer file), then `krit daemon stop` (pid
+// file), and wait for the pid and socket to go away. Scanning /proc for the
+// `serve --root <work>` process is only a last resort, and a no-op where
+// /proc does not exist.
 func (h *harness) stopDaemon() {
-	cmd := exec.CommandContext(context.Background(), h.krit, "daemon", "stop")
-	cmd.Dir = h.work
-	cmd.Env = h.env(true)
-	_ = cmd.Run()
-	killProcs(procRoot, findServeDaemons(procRoot, h.work, h.krit), 5*time.Second)
+	for _, args := range [][]string{{"serve", "--stop", "--root", h.work}, {"daemon", "stop"}} {
+		cmd := exec.CommandContext(context.Background(), h.krit, args...)
+		cmd.Dir = h.work
+		cmd.Env = h.env(true)
+		_ = cmd.Run()
+		if waitDaemonGone(h.work, 3*time.Second) {
+			break
+		}
+	}
+	if !waitDaemonGone(h.work, 0) {
+		killProcs(procRoot, findServeDaemons(procRoot, h.work, h.krit), 5*time.Second)
+	}
+}
+
+// waitDaemonGone waits up to d for the pid in <work>/.krit/daemon.pid to
+// exit and the default socket to disappear. It reports whether both are gone.
+func waitDaemonGone(work string, d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for {
+		if daemonGone(work) {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func daemonGone(work string) bool {
+	if data, err := os.ReadFile(filepath.Join(work, ".krit", "daemon.pid")); err == nil {
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid > 0 && syscall.Kill(pid, 0) == nil {
+			return false
+		}
+	}
+	_, err := os.Stat(filepath.Join(work, ".krit", "daemon.sock"))
+	return err != nil
 }
 
 // env scopes JVM helpers to the krit process that started them
@@ -358,11 +394,26 @@ func (h *harness) args(m Mode, daemon bool) []string {
 func (h *harness) invoke(m Mode, s State, index int, measured bool) Run {
 	before := sampleDaemons(procRoot, daemonPIDs(procRoot, h.registry, h.work, h.krit))
 	start := Run{Mode: m.Name, State: s.Name, Index: index, Measured: measured}
+	idBefore := ""
 	if s.Daemon {
+		// Counters belong to one daemon process: a different one (restart,
+		// replacement) starts from zero whatever its counters read.
+		if idBefore = daemonIdentity(procRoot, h.work); idBefore != h.daemonID {
+			h.daemonCaches = nil
+		}
 		start.prevCaches = h.daemonCaches
 	}
 	r := execRun(h.krit, h.work, h.args(m, s.Daemon), h.env(s.Daemon), m, start)
 	if s.Daemon {
+		idAfter := daemonIdentity(procRoot, h.work)
+		if idAfter != idBefore {
+			// The daemon started or changed during this run: its counters
+			// began at zero.
+			rediffCaches(&r, nil)
+		}
+		if r.DaemonServed && r.rawCaches != nil {
+			h.daemonID = idAfter
+		}
 		h.daemonCaches = nextDaemonBaseline(h.daemonCaches, r)
 	}
 	rejectUnverifiedSkip(&r, h.o.verify)
@@ -542,6 +593,32 @@ func parseOutput(data []byte, root string, r *Run) string {
 		r.Caches[c.Name] = cacheDelta(c.Stats, r.prevCaches[c.Name])
 	}
 	return ""
+}
+
+// daemonIdentity names the daemon process behind <work>/.krit/daemon.pid: its
+// PID plus, where /proc exists, its start time, so a reused PID is told apart.
+// It is "" when there is no readable pid file.
+func daemonIdentity(procRoot, work string) string {
+	data, err := os.ReadFile(filepath.Join(work, ".krit", "daemon.pid"))
+	if err != nil {
+		return ""
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return ""
+	}
+	id := strconv.Itoa(pid)
+	if stat, err := os.ReadFile(filepath.Join(procRoot, id, "stat")); err == nil {
+		id += ":" + statField(string(stat), 22)
+	}
+	return id
+}
+
+// rediffCaches recomputes r.Caches from its raw counters against prev.
+func rediffCaches(r *Run, prev map[string]CacheIO) {
+	for name, raw := range r.rawCaches {
+		r.Caches[name] = cacheDelta(raw, prev[name])
+	}
 }
 
 // nextDaemonBaseline is the cumulative-counter baseline for the next daemon

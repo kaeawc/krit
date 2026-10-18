@@ -123,8 +123,11 @@ falling back to in-process` warning (unavailable, call failed, rejected
 request) or when its oracle entry lacks `source=resident-daemon`, or when krit's stderr
 lacks the `perf: served by krit daemon` marker it prints under `-perf` after a
 delegated scan. The harness also refuses `-extra-args` containing `--no-daemon`
-when a daemon state is selected. After an in-process fallback the per-run cache
-baseline is kept, so the next daemon run's counters are still diffed correctly.
+when a daemon state is selected. Between states the harness stops the daemon with `krit serve --stop --root <corpus>`,
+then `krit daemon stop`, waits for the pid and socket to go away, and only then
+falls back to finding `krit serve` in `/proc`. The per-run cache baseline is tied
+to the daemon's identity (pid and start time), so a restarted daemon is diffed
+from zero. After an in-process fallback the baseline is kept, so the next daemon run's counters are still diffed correctly.
 (Long `-out` paths are fine: krit falls back to a short per-user socket path
 when `<work>/.krit/daemon.sock` would not fit in `sun_path`.)
 

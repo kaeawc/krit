@@ -475,7 +475,8 @@ func InvokeDaemon(scanPaths []string, verbose bool, opts ...DaemonOption) (*Daem
 		reporter().Verbosef("verbose: Found %d source directories for daemon\n", len(sourceDirs))
 	}
 
-	return StartDaemon(jarPath, sourceDirs, nil, verbose, opts...)
+	// EnsureJar resolves the krit-types jar.
+	return StartDaemon(jarPath, sourceDirs, nil, verbose, append([]DaemonOption{WithBackend(BackendKAA)}, opts...)...)
 }
 
 // InvokePersistentDaemon finds the JAR and source directories, then either

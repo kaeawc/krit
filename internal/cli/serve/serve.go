@@ -680,7 +680,12 @@ func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Back
 		_ = entry.close()
 		delete(s.oracleDaemonByKey, key)
 	}
-	d, err := s.oracleDaemonStarter.Start(jarPath, sourceDirs, nil, false, oracle.WithKotlinSettings(kt))
+	// oracleJarForBackend picks krit-fir for FIR and krit-types otherwise.
+	served := oracle.BackendKAA
+	if backend == oracle.BackendFIR {
+		served = oracle.BackendFIR
+	}
+	d, err := s.oracleDaemonStarter.Start(jarPath, sourceDirs, nil, false, oracle.WithKotlinSettings(kt), oracle.WithBackend(served))
 	if err != nil {
 		return nil, fmt.Errorf("start oracle daemon: %w", err)
 	}

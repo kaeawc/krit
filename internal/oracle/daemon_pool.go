@@ -50,7 +50,8 @@ func shouldUseDaemonPool(misses int, poolSize int) bool {
 // deliberately separate from ConnectOrStartDaemon so the default path keeps
 // exactly one daemon and the old PID-file layout.
 func ConnectOrStartDaemonPool(jarPath string, sourceDirs []string, classpath []string, size int, verbose bool, opts ...DaemonOption) (*DaemonPool, error) {
-	kt := resolveDaemonOptions(opts).kotlin
+	cfg := resolveDaemonOptions(opts)
+	kt := cfg.kotlin
 	if size < 1 {
 		size = 1
 	}
@@ -63,6 +64,7 @@ func ConnectOrStartDaemonPool(jarPath string, sourceDirs []string, classpath []s
 			allConnected = false
 			continue
 		}
+		d.backend = cfg.backend
 		connected[slot] = d
 	}
 	if !allConnected {
@@ -76,7 +78,7 @@ func ConnectOrStartDaemonPool(jarPath string, sourceDirs []string, classpath []s
 		}
 
 		cleanStaleDaemonSlotKT(jarPath, sourceDirs, kt, verbose, slot, classpath...)
-		d, err := StartDaemonWithPortSlot(jarPath, sourceDirs, classpath, verbose, slot, WithKotlinSettings(kt))
+		d, err := StartDaemonWithPortSlot(jarPath, sourceDirs, classpath, verbose, slot, WithKotlinSettings(kt), WithBackend(cfg.backend))
 		if err != nil {
 			_ = pool.Release()
 			for _, pending := range connected[slot+1:] {

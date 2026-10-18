@@ -57,6 +57,19 @@ type Daemon struct {
 	// kotlin is the Kotlin compiler settings this daemon was launched with
 	// (part of its registry key); zero means the embedded defaults.
 	kotlin gradlemodel.KotlinSettings
+	// backend is the oracle backend the caller launched or connected this
+	// daemon for (WithBackend); empty when the caller did not say.
+	backend Backend
+}
+
+// Backend reports which oracle backend this daemon serves, as recorded by
+// WithBackend when it was launched or connected. It is "" for a nil daemon or
+// when the caller did not say, so callers record nothing rather than guess.
+func (d *Daemon) Backend() Backend {
+	if d == nil {
+		return ""
+	}
+	return d.backend
 }
 
 // requestSpelling absolutizes request files and returns the mapping from

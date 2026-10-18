@@ -134,12 +134,28 @@ func kotlinKeySuffix(kt gradlemodel.KotlinSettings) string {
 // classpath.
 type DaemonOption func(*daemonConfig)
 
-type daemonConfig struct{ kotlin gradlemodel.KotlinSettings }
+type daemonConfig struct {
+	kotlin  gradlemodel.KotlinSettings
+	backend Backend
+}
+
+// WithBackend records which oracle backend the daemon's jar serves. Callers
+// know the backend they asked for; it is not inferred from the jar filename.
+func WithBackend(b Backend) DaemonOption {
+	return func(c *daemonConfig) { c.backend = b }
+}
 
 // WithKotlinSettings launches (or connects to) the daemon for the project's
 // effective Kotlin compiler settings. Without it the embedded defaults apply.
 func WithKotlinSettings(s gradlemodel.KotlinSettings) DaemonOption {
 	return func(c *daemonConfig) { c.kotlin = s }
+}
+
+// BackendFromOptions reports the backend opts select (WithBackend), or ""
+// when none is given. Lets callers that only forward options (and tests of
+// them) check which backend a daemon will report.
+func BackendFromOptions(opts ...DaemonOption) Backend {
+	return resolveDaemonOptions(opts).backend
 }
 
 func resolveDaemonOptions(opts []DaemonOption) daemonConfig {
@@ -318,10 +334,15 @@ func connectDaemonTCP(cmd *exec.Cmd, port int, srcHash string, slot int) (net.Co
 // second attempt sees no cache files, so the JVM takes the training path
 // and starts cleanly.
 func StartDaemon(jarPath string, sourceDirs []string, classpath []string, verbose bool, opts ...DaemonOption) (*Daemon, error) {
-	kt := resolveDaemonOptions(opts).kotlin
-	return retryOnHandshakeNoise(jarPath, verbose, func() (*Daemon, error) {
+	cfg := resolveDaemonOptions(opts)
+	kt := cfg.kotlin
+	d, err := retryOnHandshakeNoise(jarPath, verbose, func() (*Daemon, error) {
 		return startDaemonOnce(jarPath, sourceDirs, classpath, verbose, kt)
 	})
+	if d != nil {
+		d.backend = cfg.backend
+	}
+	return d, err
 }
 
 // retryOnHandshakeNoise runs spawn once, and if the daemon's handshake
@@ -682,10 +703,15 @@ func StartDaemonWithPort(jarPath string, sourceDirs []string, classpath []string
 }
 
 func StartDaemonWithPortSlot(jarPath string, sourceDirs []string, classpath []string, verbose bool, slot int, opts ...DaemonOption) (*Daemon, error) {
-	kt := resolveDaemonOptions(opts).kotlin
-	return retryOnHandshakeNoise(jarPath, verbose, func() (*Daemon, error) {
+	cfg := resolveDaemonOptions(opts)
+	kt := cfg.kotlin
+	d, err := retryOnHandshakeNoise(jarPath, verbose, func() (*Daemon, error) {
 		return startDaemonWithPortSlotOnce(jarPath, sourceDirs, classpath, verbose, slot, kt)
 	})
+	if d != nil {
+		d.backend = cfg.backend
+	}
+	return d, err
 }
 
 func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath []string, verbose bool, slot int, kt gradlemodel.KotlinSettings) (*Daemon, error) {
@@ -785,12 +811,14 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 // existing one is unresponsive), cleanStaleDaemon wipes just this
 // repo's entry and StartDaemonWithPort starts a fresh one.
 func ConnectOrStartDaemon(jarPath string, sourceDirs []string, classpath []string, verbose bool, opts ...DaemonOption) (*Daemon, error) {
-	kt := resolveDaemonOptions(opts).kotlin
+	cfg := resolveDaemonOptions(opts)
+	kt := cfg.kotlin
 	// Try connecting to an existing daemon for this (jar, source tree)
 	// pair. The jar is part of the registry key so a running
 	// krit-types daemon isn't reused when the caller asks for
 	// krit-fir (or vice versa).
 	if d, err := connectExistingDaemonSlotKT(jarPath, sourceDirs, kt, verbose, 0, classpath...); err == nil {
+		d.backend = cfg.backend
 		return d, nil
 	}
 	retireSupersededDaemonsKT(jarPath, sourceDirs, kt, classpath, verbose)
@@ -800,7 +828,7 @@ func ConnectOrStartDaemon(jarPath string, sourceDirs []string, classpath []strin
 	cleanStaleDaemonSlotKT(jarPath, sourceDirs, kt, verbose, 0, classpath...)
 
 	// Start a new persistent daemon.
-	d, err := StartDaemonWithPort(jarPath, sourceDirs, classpath, verbose, WithKotlinSettings(kt))
+	d, err := StartDaemonWithPort(jarPath, sourceDirs, classpath, verbose, WithKotlinSettings(kt), WithBackend(cfg.backend))
 	if err != nil {
 		return nil, fmt.Errorf("start persistent daemon: %w", err)
 	}

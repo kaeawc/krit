@@ -90,13 +90,15 @@ func TestEnsureOracleDaemonIsKeyedOnKotlinSettingsAndEvictsSuperseded(t *testing
 // pingOracleDaemon path which the tests below drive directly via the
 // real daemon's Ping when needed.
 type fakeOracleDaemonStarter struct {
-	calls   atomic.Int32
-	returns []*oracle.Daemon
-	errs    []error
+	calls    atomic.Int32
+	returns  []*oracle.Daemon
+	errs     []error
+	backends []oracle.Backend // backend each Start was asked for
 }
 
 func (f *fakeOracleDaemonStarter) Start(jarPath string, sourceDirs, classpath []string, verbose bool, opts ...oracle.DaemonOption) (*oracle.Daemon, error) {
 	idx := int(f.calls.Add(1)) - 1
+	f.backends = append(f.backends, oracle.BackendFromOptions(opts...))
 	if idx < len(f.errs) && f.errs[idx] != nil {
 		return nil, f.errs[idx]
 	}
@@ -227,5 +229,27 @@ func TestEnsureOracleDaemon_PropagatesStarterError(t *testing.T) {
 	_, err := state.oracleDaemonStarter.Start("fake.jar", nil, nil, false)
 	if err == nil {
 		t.Fatalf("expected starter error, got nil")
+	}
+}
+
+// A daemon rebuilt after a failed ping keeps the backend it was started
+// for, so its analyses still record the resident oracle backend.
+func TestPingOracleDaemon_RebuildKeepsBackend(t *testing.T) {
+	state := newDaemonState(t.TempDir())
+	jar := filepath.Join(t.TempDir(), "custom.jar")
+	if err := os.WriteFile(jar, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeOracleDaemonStarter{}
+	state.oracleDaemonStarter = fake
+	state.oracleDaemonByKey["k"] = &oracleDaemonEntry{
+		daemon:      &oracle.Daemon{}, // never started: Ping fails
+		jarPath:     jar,
+		jarIdentity: oracle.JarIdentity(jar),
+		backend:     oracle.BackendFIR,
+	}
+	state.pingOracleDaemon()
+	if len(fake.backends) != 1 || fake.backends[0] != oracle.BackendFIR {
+		t.Fatalf("rebuild asked for backends %v, want [%s]", fake.backends, oracle.BackendFIR)
 	}
 }

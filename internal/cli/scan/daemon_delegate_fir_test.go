@@ -2,6 +2,9 @@ package scan
 
 import (
 	"encoding/json"
+	"flag"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -86,5 +89,46 @@ func TestBuildDaemonAnalyzeArgs_ForwardsNoTypeOracleAndNoFir(t *testing.T) {
 				t.Fatalf("wire %s: no_type_oracle present=%v, want %v", raw, got, tc.wantNoTypeOracle)
 			}
 		})
+	}
+}
+
+// --depth=fast (or analysis.depth: fast) disables the oracle; a delegated
+// scan must resolve it before building the daemon request.
+func TestResolveDepthForDelegation_FastDisablesOracleOnTheWire(t *testing.T) {
+	dir := t.TempDir()
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	f := registerScanFlags(fs)
+	if err := fs.Parse([]string{"--depth=fast", dir}); err != nil {
+		t.Fatal(err)
+	}
+	resolveDepthForDelegation(f, fs, fs.Args())
+	if args := buildDaemonAnalyzeArgs(f, fs.Args()); !args.NoTypeOracle {
+		t.Fatal("--depth=fast must reach the daemon as no_type_oracle")
+	}
+
+	// From krit.yml too.
+	cfgDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cfgDir, "krit.yml"), []byte("analysis:\n  depth: fast\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fs = flag.NewFlagSet("test", flag.ContinueOnError)
+	f = registerScanFlags(fs)
+	if err := fs.Parse([]string{"--config", filepath.Join(cfgDir, "krit.yml"), dir}); err != nil {
+		t.Fatal(err)
+	}
+	resolveDepthForDelegation(f, fs, fs.Args())
+	if args := buildDaemonAnalyzeArgs(f, fs.Args()); !args.NoTypeOracle {
+		t.Fatal("analysis.depth: fast must reach the daemon as no_type_oracle")
+	}
+
+	// An explicit --no-type-oracle=false still wins over the preset.
+	fs = flag.NewFlagSet("test", flag.ContinueOnError)
+	f = registerScanFlags(fs)
+	if err := fs.Parse([]string{"--depth=fast", "--no-type-oracle=false", dir}); err != nil {
+		t.Fatal(err)
+	}
+	resolveDepthForDelegation(f, fs, fs.Args())
+	if args := buildDaemonAnalyzeArgs(f, fs.Args()); args.NoTypeOracle {
+		t.Fatal("explicit --no-type-oracle=false must override the fast preset")
 	}
 }

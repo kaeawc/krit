@@ -2,6 +2,7 @@ package scan
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/cli/daemonclient"
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -28,6 +30,7 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 	if f == nil || *f.NoDaemon {
 		return false, 0
 	}
+	resolveDepthForDelegation(f, flag.CommandLine, paths)
 	if verb, ok := metaVerbForFlags(f); ok {
 		client, ok := daemonclient.TryConnect(repoDir, *f.DaemonSocket)
 		if !ok {
@@ -66,6 +69,26 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 		return false, 0
 	}
 	return runDaemonAnalyze(client, f, paths)
+}
+
+// resolveDepthForDelegation applies the --depth / krit.yml analysis.depth
+// preset to f before it becomes a daemon request. The in-process path applies
+// it later (newRunner); without this a delegated --depth=fast scan would still
+// ask the daemon for the oracle. Warnings are left to the in-process path,
+// which repeats the (idempotent) resolution if delegation falls back.
+func resolveDepthForDelegation(f *scanFlags, fs *flag.FlagSet, args []string) {
+	if f == nil || f.Depth == nil {
+		return
+	}
+	cfgPath := ""
+	if f.Config != nil {
+		cfgPath = *f.Config
+	}
+	if cfgPath == "" {
+		cfgPath = detectConfigForScanArgs(args)
+	}
+	cfg, _ := config.LoadAndMergeDefaults(cfgPath, args...)
+	applyDepthPreset(resolveDepthPreset(*f.Depth, cfg, io.Discard), f, fs)
 }
 
 func runDaemonAnalyze(client *daemonclient.Client, f *scanFlags, paths []string) (bool, int) {

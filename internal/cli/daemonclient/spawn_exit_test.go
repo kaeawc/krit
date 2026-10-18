@@ -72,7 +72,7 @@ func TestEnsureRunning_ChildExitsZeroButDaemonReachable(t *testing.T) {
 	root := tmpDir(t)
 	startRootServer(t, daemon.DefaultSocketPath(root), root)
 	// Discover finds it first, so force the spawn path through the waiter.
-	c, err := waitForDaemon(daemon.DefaultSocketPath(root), root, 5*time.Second, 10*time.Millisecond, closedExit(nil), "")
+	c, err := waitForDaemon(daemon.DefaultSocketPath(root), root, 5*time.Second, 10*time.Millisecond, closedExit(nil), "", nil)
 	if err != nil || c == nil {
 		t.Fatalf("want reachable client, got %v, %v", c, err)
 	}
@@ -344,5 +344,68 @@ func TestEnsure_ForeignUIDDaemonIsNotSpawnedOver(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("spawned over a foreign daemon")
+	}
+}
+
+// A child that loses the repo lock to a daemon that is shutting down (the
+// version-mismatch restart window) must be re-spawned once the lock is
+// released, instead of waiting out the timeout for a daemon that never comes.
+func TestEnsureRunning_RespawnsAfterLockHolderExits(t *testing.T) {
+	root := tmpDir(t)
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		root = r
+	}
+	lock, err := daemon.AcquireRepoLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := filepath.Join(tmpDir(t), "first")
+	respawned := filepath.Join(tmpDir(t), "respawned")
+	// First spawn: loses the lock. Later spawns: record and stay alive.
+	bin := writeScript(t, `if [ ! -e `+first+` ]; then touch `+first+`; exit 2; fi; touch `+respawned+`; sleep 5`)
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		_ = lock.Close() // the incumbent finishes shutting down
+	}()
+	sock := daemon.DefaultSocketPath(root)
+	srv := daemon.NewServer(sock)
+	srv.Register(daemon.VerbStatus, func(_ context.Context, _ json.RawMessage) (any, error) {
+		return daemon.StatusResult{Ready: true, Root: root}, nil
+	})
+	t.Cleanup(srv.Stop)
+	go func() {
+		// Stand in for the respawned daemon binding its socket.
+		deadline := time.Now().Add(8 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(respawned); err == nil {
+				_ = srv.Start(context.Background())
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	c, err := EnsureRunning(root, SpawnOptions{Binary: bin, WaitTimeout: 8 * time.Second})
+	if err != nil || c == nil {
+		t.Fatalf("EnsureRunning = %v, %v; want a client after respawn", c, err)
+	}
+	if _, err := os.Stat(respawned); err != nil {
+		t.Fatalf("daemon was not re-spawned after the lock was released: %v", err)
+	}
+}
+
+// logHint reads only a bounded tail of a large append-only log.
+func TestLogHint_ReadsBoundedTail(t *testing.T) {
+	p := filepath.Join(tmpDir(t), "daemon.log")
+	big := strings.Repeat("old noise line\n", 50000) + "one\ntwo\nthree\nlast error\n"
+	if err := os.WriteFile(p, []byte(big), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := logHint(p)
+	if !strings.HasSuffix(got, ": two; three; last error)") {
+		t.Fatalf("logHint = %q", got)
+	}
+	tail, err := readTail(p, logHintBytes)
+	if err != nil || int64(len(tail)) > logHintBytes {
+		t.Fatalf("readTail returned %d bytes, err %v", len(tail), err)
 	}
 }

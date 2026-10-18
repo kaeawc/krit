@@ -5,6 +5,7 @@
 package daemonclient
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -326,31 +327,38 @@ func EnsureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
 		}
 	}
 
-	cmd := exec.CommandContext(context.Background(), binary, "serve", "--root", repoRoot, "--socket", socket)
-	if opts.Env != nil {
-		cmd.Env = opts.Env
-	}
-	cmd.Stdin = nil
-	logFile, err := attachSpawnLog(cmd, opts.LogPath)
-	if err != nil {
-		return nil, fmt.Errorf("daemonclient: open log %s: %w", opts.LogPath, err)
-	}
-	if err := cmd.Start(); err != nil {
+	spawn := func() (<-chan error, error) {
+		cmd := exec.CommandContext(context.Background(), binary, "serve", "--root", repoRoot, "--socket", socket)
+		if opts.Env != nil {
+			cmd.Env = opts.Env
+		}
+		cmd.Stdin = nil
+		logFile, err := attachSpawnLog(cmd, opts.LogPath)
+		if err != nil {
+			return nil, fmt.Errorf("daemonclient: open log %s: %w", opts.LogPath, err)
+		}
+		if err := cmd.Start(); err != nil {
+			if logFile != nil {
+				_ = logFile.Close()
+			}
+			return nil, fmt.Errorf("daemonclient: spawn %s serve: %w", binary, err)
+		}
+		// exec.Cmd dup'd the fd into the child at Start; the parent's
+		// handle is no longer needed and would otherwise leak one fd per
+		// daemon respawn in a long-lived LSP/MCP session.
 		if logFile != nil {
 			_ = logFile.Close()
 		}
-		return nil, fmt.Errorf("daemonclient: spawn %s serve: %w", binary, err)
+		// Detach so the daemon outlives the parent. Wait must be reaped
+		// somewhere — do it in a goroutine to avoid a zombie.
+		exited := make(chan error, 1)
+		go func() { exited <- cmd.Wait() }()
+		return exited, nil
 	}
-	// exec.Cmd dup'd the fd into the child at Start; the parent's
-	// handle is no longer needed and would otherwise leak one fd per
-	// daemon respawn in a long-lived LSP/MCP session.
-	if logFile != nil {
-		_ = logFile.Close()
+	exited, err := spawn()
+	if err != nil {
+		return nil, err
 	}
-	// Detach so the daemon outlives the parent. Wait must be reaped
-	// somewhere — do it in a goroutine to avoid a zombie.
-	exited := make(chan error, 1)
-	go func() { exited <- cmd.Wait() }()
 
 	timeout := opts.WaitTimeout
 	if timeout == 0 {
@@ -360,12 +368,22 @@ func EnsureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
 	if poll == 0 {
 		poll = 25 * time.Millisecond
 	}
-	return waitForDaemon(socket, repoRoot, timeout, poll, exited, opts.LogPath)
+	return waitForDaemon(socket, repoRoot, timeout, poll, exited, opts.LogPath, spawn)
 }
 
+// maxLockRespawns bounds how often waitForDaemon re-spawns after a child
+// lost the repo lock to a daemon that then went away.
+const maxLockRespawns = 3
+
 // waitForDaemon polls until the socket is reachable, the spawned daemon
-// exits, or timeout elapses.
-func waitForDaemon(socket, repoRoot string, timeout, poll time.Duration, exited <-chan error, logPath string) (*Client, error) {
+// exits, or timeout elapses. When the child exits because another process
+// holds the repo lock, it waits for that daemon; if the lock is released
+// with no daemon reachable (an incumbent that was shutting down, e.g. after
+// a version-mismatch restart), it spawns again via respawn (nil disables).
+func waitForDaemon(socket, repoRoot string, timeout, poll time.Duration, exited <-chan error, logPath string, respawn func() (<-chan error, error)) (*Client, error) {
+	lockRoot := daemon.NormalizeRoot(repoRoot)
+	lostLock := false
+	respawns := 0
 	check := func() (*Client, error) {
 		// Our own socket first, then wherever another daemon for this root
 		// may have come up (pointer file / derived path in its environment).
@@ -381,6 +399,15 @@ func waitForDaemon(socket, repoRoot string, timeout, poll time.Duration, exited 
 		if c, err := check(); c != nil || err != nil {
 			return c, err
 		}
+		if lostLock && respawn != nil && respawns < maxLockRespawns && !daemon.RepoLockHeld(lockRoot) {
+			lostLock = false
+			respawns++
+			ch, err := respawn()
+			if err != nil {
+				return nil, err
+			}
+			exited = ch
+		}
 		select {
 		case werr := <-exited:
 			exited = nil // consumed; a nil channel blocks forever
@@ -395,7 +422,8 @@ func waitForDaemon(socket, repoRoot string, timeout, poll time.Duration, exited 
 				// The repo lock is held: another daemon is starting up for
 				// this repo (possibly on a socket path derived from a
 				// different environment). Keep waiting for it rather than
-				// spawning another.
+				// spawning another, unless the lock holder goes away first.
+				lostLock = true
 				continue
 			}
 			// Waiting out the timeout cannot help; fail now.
@@ -433,7 +461,7 @@ func logHint(logPath string) string {
 		return ""
 	}
 	hint := " (see " + logPath
-	if data, err := os.ReadFile(logPath); err == nil {
+	if data, err := readTail(logPath, logHintBytes); err == nil {
 		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 		if len(lines) > 3 {
 			lines = lines[len(lines)-3:]
@@ -443,6 +471,39 @@ func logHint(logPath string) string {
 		}
 	}
 	return hint + ")"
+}
+
+// logHintBytes bounds how much of an append-only daemon log logHint reads.
+const logHintBytes = 4096
+
+// readTail returns at most the last n bytes of path.
+func readTail(path string, n int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	off := info.Size() - n
+	if off < 0 {
+		off = 0
+	}
+	buf := make([]byte, info.Size()-off)
+	k, err := f.ReadAt(buf, off)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	buf = buf[:k]
+	if off > 0 {
+		// Drop the partial first line.
+		if i := bytes.IndexByte(buf, '\n'); i >= 0 {
+			buf = buf[i+1:]
+		}
+	}
+	return buf, nil
 }
 
 // AnalyzeBuffer dispatches the analyze-buffer verb against the

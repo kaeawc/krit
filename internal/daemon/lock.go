@@ -65,6 +65,23 @@ func AcquireRepoLock(repoDir string) (*RepoLock, error) {
 	return &RepoLock{f: f, pidPath: pidPath}, nil
 }
 
+// RepoLockHeld reports whether a live process holds repoDir's daemon lock.
+// It probes with a non-blocking flock that it releases immediately; a
+// daemon starting in that instant may see the lock held and exit with
+// ExitAlreadyRunning, which spawning clients already retry.
+func RepoLockHeld(repoDir string) bool {
+	f, err := os.OpenFile(filepath.Join(repoDir, lockFileName), os.O_RDWR, 0)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return errors.Is(err, syscall.EWOULDBLOCK)
+	}
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return false
+}
+
 // Close closes the underlying fd, releasing the flock as a kernel
 // side-effect, and removes the PID file. Safe to call multiple times.
 func (l *RepoLock) Close() error {

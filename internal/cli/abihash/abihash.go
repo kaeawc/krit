@@ -31,7 +31,7 @@ func Run(args []string) int {
 	fs := flag.NewFlagSet("abi-hash", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	jsonFlag := fs.Bool("json", false, "Emit JSON instead of plain text")
-	socketFlag := fs.String("socket", "", "Daemon socket path (default <root>/.krit/daemon.sock)")
+	socketFlag := fs.String("socket", "", "Daemon socket path (default <root>/.krit/daemon.sock, or a short per-user temp path when that exceeds the unix socket length limit)")
 	noDaemonFlag := fs.Bool("no-daemon", false, "Skip daemon dispatch even if a socket is present")
 
 	positional, rest := clishared.SplitPositional(args, 1)
@@ -74,7 +74,9 @@ func tryAbiHashViaDaemon(socketPath, target string) (abiHashResult, bool) {
 		if err != nil {
 			return abiHashResult{}, false
 		}
-		socketPath = daemon.DefaultSocketPath(root)
+		if socketPath, err = daemon.LocateSocketPath(root); err != nil {
+			socketPath = daemon.DefaultSocketPath(root)
+		}
 	}
 	if !daemon.Available(socketPath) {
 		return abiHashResult{}, false

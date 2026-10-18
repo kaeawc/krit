@@ -101,7 +101,7 @@ func Run(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	rootFlag := fs.String("root", ".", "Project root")
-	socketFlag := fs.String("socket", "", "Unix socket path (default <root>/.krit/daemon.sock)")
+	socketFlag := fs.String("socket", "", "Unix socket path (default <root>/.krit/daemon.sock, or a short per-user temp path when that exceeds the unix socket length limit)")
 	stopFlag := fs.Bool("stop", false, "Stop a running daemon at --socket")
 	idleFlag := fs.Duration("idle-timeout", 30*time.Minute, "Auto-shutdown after no request for this duration; 0 disables")
 	maxParseBytesFlag := fs.Int64("max-parse-bytes", 0, "Cap on resident parsed-file bytes; over the cap, LRU entries are evicted. 0 disables")
@@ -165,6 +165,11 @@ func Run(args []string) int {
 	state.warmDuration = time.Since(warmStart)
 
 	srv := daemon.NewServer(socketPath)
+	if daemon.IsFallbackSocket(socketPath) {
+		// Long project path: record where the socket really is, so clients
+		// with a different TMPDIR/XDG_RUNTIME_DIR still find it.
+		srv.PointerPath = daemon.PointerPath(root)
+	}
 	srv.IdleTimeout = *idleFlag
 	registerVerbs(srv, state)
 

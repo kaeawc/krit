@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/selfexec"
 )
 
@@ -42,13 +43,47 @@ func (c *Client) SocketPath() string {
 // repoRoot and returns a Client only when a daemon is reachable.
 // Returns (nil, false) when no daemon is running — callers should
 // fall back to in-process execution or call EnsureRunning to spawn
-// one.
+// one. A daemon that answers on a fallback socket but belongs to a
+// different root (a hash collision or a hijacked path) is treated as
+// absent; use discoverChecked to see why.
 func Discover(repoRoot string) (*Client, bool) {
-	socket := daemon.DefaultSocketPath(repoRoot)
-	if !daemon.Available(socket) {
-		return nil, false
+	c, ok, _ := discoverChecked(repoRoot)
+	return c, ok
+}
+
+// ErrRootMismatch is returned (wrapped) when the daemon reachable at a
+// fallback socket serves a different project root than the one requested.
+var ErrRootMismatch = errors.New("daemon serves a different root")
+
+// discoverChecked is Discover plus the reason a reachable daemon was
+// rejected. For fallback-path sockets the daemon's reported root must equal
+// the requested root, since the 64-bit path hash could in principle collide
+// and the directory is shared between projects.
+func discoverChecked(repoRoot string) (*Client, bool, error) {
+	socket, err := daemon.LocateSocketPath(repoRoot)
+	if err != nil {
+		// No usable socket location: nothing can be running there.
+		return nil, false, nil //nolint:nilerr // absence, not failure
 	}
-	return &Client{socketPath: socket}, true
+	c, err := reachable(socket, repoRoot)
+	return c, c != nil, err
+}
+
+// verifyRoot checks that the daemon behind c serves repoRoot. Only
+// fallback-path sockets need it; the conventional <root>/.krit/daemon.sock
+// is unambiguous.
+func verifyRoot(c *Client, repoRoot string) error {
+	if !daemon.IsFallbackSocket(c.socketPath) {
+		return nil
+	}
+	st, err := c.Status()
+	if err != nil {
+		return fmt.Errorf("daemonclient: status of daemon at %s: %w", c.socketPath, err)
+	}
+	if want, got := daemon.NormalizeRoot(repoRoot), daemon.NormalizeRoot(st.Root); want != got {
+		return fmt.Errorf("daemonclient: daemon at %s serves %s, not %s: %w", c.socketPath, got, want, ErrRootMismatch)
+	}
+	return nil
 }
 
 // TryConnect is Discover with an explicit socket-path override. When
@@ -101,7 +136,12 @@ func IsUnsupportedOracleBackend(err error) bool {
 // nil with ok=false when no daemon is running and AutoRestart is
 // false — callers fall back to in-process.
 func EnsureCompatible(repoRoot string, opts SpawnOptions) (*Client, bool, error) {
-	c, ok := Discover(repoRoot)
+	c, ok, derr := discoverChecked(repoRoot)
+	if derr != nil {
+		// A daemon owns the path but serves another root: never spawn
+		// over it (the new daemon would unlink its socket).
+		return nil, false, derr
+	}
 	if !ok {
 		if !opts.AutoRestart {
 			return nil, false, nil
@@ -124,7 +164,7 @@ func EnsureCompatible(repoRoot string, opts SpawnOptions) (*Client, bool, error)
 	// Versions diverged. Shut the running daemon down and (optionally)
 	// spawn a fresh one.
 	_ = c.Shutdown()
-	waitForSocketGone(daemon.DefaultSocketPath(repoRoot), 2*time.Second)
+	waitForSocketGone(c.socketPath, 2*time.Second)
 	if !opts.AutoRestart {
 		return nil, false, nil
 	}
@@ -242,7 +282,11 @@ type SpawnOptions struct {
 // (e.g. tests) should send `daemon.VerbShutdown` explicitly before
 // exiting.
 func EnsureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
-	if c, ok := Discover(repoRoot); ok {
+	c, ok, derr := discoverChecked(repoRoot)
+	if derr != nil {
+		return nil, derr
+	}
+	if ok {
 		return c, nil
 	}
 	binary := opts.Binary
@@ -262,7 +306,11 @@ func EnsureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("daemonclient: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(socket), 0o755); err != nil {
+	if daemon.IsFallbackSocket(socket) {
+		if err := fsutil.EnsurePrivateDir(filepath.Dir(socket), true); err != nil {
+			return nil, fmt.Errorf("daemonclient: prepare socket dir: %w", err)
+		}
+	} else if err := os.MkdirAll(filepath.Dir(socket), 0o755); err != nil {
 		return nil, fmt.Errorf("daemonclient: prepare socket dir: %w", err)
 	}
 
@@ -274,7 +322,7 @@ func EnsureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
 		}
 	}
 
-	cmd := exec.CommandContext(context.Background(), binary, "serve", "--root", repoRoot)
+	cmd := exec.CommandContext(context.Background(), binary, "serve", "--root", repoRoot, "--socket", socket)
 	if opts.Env != nil {
 		cmd.Env = opts.Env
 	}
@@ -308,29 +356,63 @@ func EnsureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
 	if poll == 0 {
 		poll = 25 * time.Millisecond
 	}
-	return waitForDaemon(socket, timeout, poll, exited, opts.LogPath)
+	return waitForDaemon(socket, repoRoot, timeout, poll, exited, opts.LogPath)
 }
 
 // waitForDaemon polls until the socket is reachable, the spawned daemon
 // exits, or timeout elapses.
-func waitForDaemon(socket string, timeout, poll time.Duration, exited <-chan error, logPath string) (*Client, error) {
+func waitForDaemon(socket, repoRoot string, timeout, poll time.Duration, exited <-chan error, logPath string) (*Client, error) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if daemon.Available(socket) {
-			return &Client{socketPath: socket}, nil
+		if c, err := reachable(socket, repoRoot); c != nil || err != nil {
+			return c, err
 		}
 		select {
 		case werr := <-exited:
-			// The daemon died before binding (for example a listen
-			// error). Waiting out the timeout cannot help; fail now.
+			// The child is gone. Another daemon may have won the race
+			// for the socket (single-instance lock), so check once more.
+			if c, err := reachable(socket, repoRoot); c != nil || err != nil {
+				return c, err
+			}
+			// Waiting out the timeout cannot help; fail now.
 			if werr == nil {
 				werr = errors.New("exited")
 			}
-			return nil, fmt.Errorf("daemonclient: spawned daemon exited before becoming reachable: %w (see %s)", werr, logPath)
+			return nil, fmt.Errorf("daemonclient: spawned daemon exited before becoming reachable: %w%s", werr, logHint(logPath))
 		case <-time.After(poll):
 		}
 	}
 	return nil, errors.New("daemonclient: spawned daemon did not become reachable before timeout")
+}
+
+// reachable returns a verified client when a daemon answers on socket.
+func reachable(socket, repoRoot string) (*Client, error) {
+	if !daemon.Available(socket) {
+		return nil, nil
+	}
+	c := &Client{socketPath: socket}
+	if err := verifyRoot(c, repoRoot); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// logHint returns " (see <log>: <last lines>)" for a non-empty log path.
+func logHint(logPath string) string {
+	if logPath == "" {
+		return ""
+	}
+	hint := " (see " + logPath
+	if data, err := os.ReadFile(logPath); err == nil {
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		if len(lines) > 3 {
+			lines = lines[len(lines)-3:]
+		}
+		if tail := strings.TrimSpace(strings.Join(lines, "; ")); tail != "" {
+			hint += ": " + tail
+		}
+	}
+	return hint + ")"
 }
 
 // AnalyzeBuffer dispatches the analyze-buffer verb against the

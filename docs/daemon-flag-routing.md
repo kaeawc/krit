@@ -33,6 +33,37 @@ Consequences worth knowing when adding a verb or resident state:
 - A request whose directory the daemon cannot enter fails, and the CLI falls
   back to the in-process path.
 
+## Socket location
+
+The daemon listens on `<root>/.krit/daemon.sock`, where `<root>` is the
+absolute, symlink-resolved project root. A unix socket path is limited to 108
+bytes on Linux (104 on macOS), so for deeply nested checkouts the conventional
+path would make `bind` fail. When the conventional path is longer than 100
+bytes, the socket moves to `<dir>/<16 hex of sha256(root)>.sock`, where `<dir>`
+is the first usable of `$XDG_RUNTIME_DIR/krit`, `$TMPDIR/krit-<uid>` and
+`/tmp/krit-<uid>` whose full path fits. That directory is created `0700`; an
+existing one must be a real directory (not a symlink) owned by the current
+user, and its parent must not be group/other-writable without the sticky bit.
+If none qualifies, spawning fails with an error naming each candidate.
+
+Because the fallback directory is shared between projects and derived from the
+environment, three things keep clients and daemons in agreement:
+
+- The client passes the socket it resolved to the child it spawns
+  (`krit serve --root R --socket S`), so a different `TMPDIR` in the spawned
+  environment cannot move it.
+- A daemon on a fallback socket writes the real path to
+  `<root>/.krit/daemon.sock.path` (mode `0600`, atomic temp file and rename)
+  and removes it on stop. Clients read it first and derive the path only when
+  it is absent. `krit daemon status --json` reports the real `socketPath`;
+  tools should read that rather than hard-coding `.krit/daemon.sock`.
+- Before trusting a daemon on a fallback socket, clients check the peer uid
+  (`SO_PEERCRED` / `LOCAL_PEERCRED`) and that its `status` reports the same
+  root. A mismatch is refused with an error and no new daemon is spawned over
+  it.
+
+The `daemon` package is Unix-only today (the repo lock uses `syscall.Flock`).
+
 ## Meta / non-analysis flags
 
 These flags do not run an analysis at all. The daemon's only client verb is

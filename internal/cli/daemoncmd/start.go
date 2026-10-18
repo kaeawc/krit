@@ -30,7 +30,7 @@ func runStart(args []string) int {
 	fs := flag.NewFlagSet("daemon start", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	repoFlag := addRepoFlag(fs)
-	socketFlag := fs.String("socket", "", "socket path (defaults to <repo>/.krit/daemon.sock)")
+	socketFlag := fs.String("socket", "", "socket path (defaults to <repo>/.krit/daemon.sock, or a short per-user temp path when that exceeds the unix socket length limit)")
 	binaryFlag := fs.String("binary", "", "krit-daemon binary path (defaults to one next to krit)")
 	timeoutFlag := fs.Duration("timeout", startWaitTimeout, "how long to wait for the daemon to become ready")
 	idleTimeoutFlag := fs.Duration("idle-timeout", 0,

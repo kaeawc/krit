@@ -19,12 +19,14 @@ import (
 // keeps the path off-limits.
 func UserKritDir() (string, error) {
 	base, err := os.UserCacheDir()
+	shared := false
 	if err != nil || base == "" {
 		base = filepath.Join(os.TempDir(), fmt.Sprintf("krit-%d", os.Getuid()))
+		shared = true // predictable name in a shared dir: validate ownership and parent
 	} else {
 		base = filepath.Join(base, "krit")
 	}
-	if err := os.MkdirAll(base, 0o700); err != nil {
+	if err := EnsurePrivateDir(base, shared); err != nil {
 		return "", fmt.Errorf("create krit user dir %s: %w", base, err)
 	}
 	return base, nil

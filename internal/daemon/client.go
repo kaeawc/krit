@@ -11,7 +11,12 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
+	"syscall"
 	"time"
+
+	"github.com/kaeawc/krit/internal/fsutil"
 )
 
 // maxSocketPath is the longest unix socket path DefaultSocketPath will
@@ -19,6 +24,9 @@ import (
 // bytes on Linux and 104 on macOS (including the NUL), and bind(2) fails
 // with EINVAL beyond that.
 const maxSocketPath = 100
+
+// NOTE: the daemon package is Unix-only today (lock.go uses syscall.Flock
+// without build tags), so the helpers here use Unix-only syscalls freely.
 
 // DefaultSocketPath returns the conventional socket path for a project
 // rooted at root (.krit/daemon.sock under the project root). When that
@@ -33,15 +41,15 @@ const maxSocketPath = 100
 func DefaultSocketPath(root string) string {
 	p, err := ResolveSocketPath(root)
 	if err != nil {
-		return filepath.Join(normalizeRoot(root), ".krit", "daemon.sock")
+		return filepath.Join(NormalizeRoot(root), ".krit", "daemon.sock")
 	}
 	return p
 }
 
-// normalizeRoot makes root absolute and resolves symlinks (falling back to
+// NormalizeRoot makes root absolute and resolves symlinks (falling back to
 // the absolute form), so a relative root and its absolute form map to the
 // same socket.
-func normalizeRoot(root string) string {
+func NormalizeRoot(root string) string {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return filepath.Clean(root)
@@ -52,17 +60,122 @@ func normalizeRoot(root string) string {
 	return abs
 }
 
+const (
+	fallbackSockSuffix = ".sock"
+	pointerFileName    = "daemon.sock.path"
+)
+
+var fallbackSockName = regexp.MustCompile(`^[0-9a-f]{16}\.sock$`)
+
+// IsFallbackSocket reports whether path has the shape of a socket created by
+// the long-root fallback (<private dir>/<16 hex>.sock under a dir named
+// "krit" or "krit-<uid>").
+func IsFallbackSocket(path string) bool {
+	if !fallbackSockName.MatchString(filepath.Base(path)) {
+		return false
+	}
+	d := filepath.Base(filepath.Dir(path))
+	return d == "krit" || strings.HasPrefix(d, "krit-")
+}
+
+// PointerPath is where a daemon bound to a fallback socket records the real
+// socket path: <root>/.krit/daemon.sock.path.
+func PointerPath(root string) string {
+	return filepath.Join(NormalizeRoot(root), ".krit", pointerFileName)
+}
+
+// WriteSocketPointer atomically (temp file + rename) records sock in the
+// pointer file at pointer, mode 0600.
+func WriteSocketPointer(pointer, sock string) error {
+	dir := filepath.Dir(pointer)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, pointerFileName+".tmp-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	_, werr := tmp.WriteString(sock + "\n")
+	cerr := tmp.Close()
+	if werr == nil {
+		werr = cerr
+	}
+	if werr == nil {
+		werr = os.Chmod(name, 0o600)
+	}
+	if werr == nil {
+		werr = os.Rename(name, pointer)
+	}
+	if werr != nil {
+		_ = os.Remove(name)
+	}
+	return werr
+}
+
+// RemoveSocketPointer removes the pointer file if it still names sock (so a
+// successor daemon's pointer is left alone). A missing file is not an error.
+func RemoveSocketPointer(pointer, sock string) error {
+	if got, err := os.ReadFile(pointer); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	} else if strings.TrimSpace(string(got)) != sock {
+		return nil
+	}
+	if err := os.Remove(pointer); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// readSocketPointer returns the socket path recorded for root, when the
+// pointer file is a regular file owned by us holding an absolute path that
+// is either the conventional socket or a fallback-shaped one.
+func readSocketPointer(root string) (string, bool) {
+	ptr := PointerPath(root)
+	fi, err := os.Lstat(ptr)
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() > 4096 {
+		return "", false
+	}
+	if st, ok := fi.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != os.Getuid() {
+		return "", false
+	}
+	data, err := os.ReadFile(ptr)
+	if err != nil {
+		return "", false
+	}
+	p := strings.TrimSpace(string(data))
+	conventional := filepath.Join(NormalizeRoot(root), ".krit", "daemon.sock")
+	if !filepath.IsAbs(p) || len(p) > maxSocketPath || (p != conventional && !IsFallbackSocket(p)) {
+		return "", false
+	}
+	return p, true
+}
+
+// LocateSocketPath is what clients use to find a daemon: the pointer file
+// written by the daemon (robust to a different TMPDIR/XDG_RUNTIME_DIR in the
+// daemon's environment) when present, else the derived ResolveSocketPath.
+// The server never uses it; it always derives (or is told via --socket).
+func LocateSocketPath(root string) (string, error) {
+	if p, ok := readSocketPointer(root); ok {
+		return p, nil
+	}
+	return ResolveSocketPath(root)
+}
+
 // ResolveSocketPath is DefaultSocketPath with the failure reason: it errors
 // when the conventional path is too long and no private fallback directory
 // is usable.
 func ResolveSocketPath(root string) (string, error) {
-	root = normalizeRoot(root)
+	root = NormalizeRoot(root)
 	p := filepath.Join(root, ".krit", "daemon.sock")
 	if len(p) <= maxSocketPath {
 		return p, nil
 	}
 	sum := sha256.Sum256([]byte(root))
-	name := hex.EncodeToString(sum[:8]) + ".sock"
+	name := hex.EncodeToString(sum[:8]) + fallbackSockSuffix
 	uid := os.Getuid()
 	var bases []string
 	if x := os.Getenv("XDG_RUNTIME_DIR"); x != "" {
@@ -79,13 +192,29 @@ func ResolveSocketPath(root string) (string, error) {
 			errs = append(errs, fmt.Errorf("%s: path too long for a unix socket", sock))
 			continue
 		}
-		if err := ensurePrivateDir(dir); err != nil {
+		if err := fsutil.EnsurePrivateDir(dir, true); err != nil {
 			errs = append(errs, err)
 			continue
 		}
 		return sock, nil
 	}
 	return "", fmt.Errorf("daemon: no usable socket directory for %s: %w", root, errors.Join(errs...))
+}
+
+// dialVerified dials the unix socket and, before anything is sent over it,
+// confirms the listener is a process of the current user. The socket is
+// 0600 and fallback dirs are 0700, so this is defence in depth against a
+// socket planted by another local user.
+func dialVerified(socketPath string, timeout time.Duration) (net.Conn, error) {
+	conn, err := (&net.Dialer{Timeout: timeout}).DialContext(context.Background(), "unix", socketPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyPeer(conn, socketPath); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return conn, nil
 }
 
 // Available reports whether a daemon appears reachable at socketPath. It
@@ -98,7 +227,7 @@ func Available(socketPath string) bool {
 	if _, err := os.Stat(socketPath); err != nil {
 		return false
 	}
-	conn, err := (&net.Dialer{Timeout: 200 * time.Millisecond}).DialContext(context.Background(), "unix", socketPath)
+	conn, err := dialVerified(socketPath, 200*time.Millisecond)
 	if err != nil {
 		return false
 	}
@@ -110,7 +239,7 @@ func Available(socketPath string) bool {
 // Data field of the Response into out (which may be nil). It returns the
 // daemon's error string as a Go error when OK=false.
 func Call(socketPath, verb string, args any, out any) error {
-	conn, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(context.Background(), "unix", socketPath)
+	conn, err := dialVerified(socketPath, 2*time.Second)
 	if err != nil {
 		return fmt.Errorf("daemon: dial %s: %w", socketPath, err)
 	}

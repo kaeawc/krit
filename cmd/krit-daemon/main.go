@@ -32,7 +32,7 @@ var version = "dev"
 func main() {
 	versionFlag := flag.Bool("version", false, "print version and exit")
 	repoFlag := flag.String("repo", "", "repository root the daemon serves (required)")
-	socketFlag := flag.String("socket", "", "socket path (defaults to <repo>/.krit/daemon.sock)")
+	socketFlag := flag.String("socket", "", "socket path (defaults to <repo>/.krit/daemon.sock, or a short per-user temp path when that exceeds the unix socket length limit)")
 	verboseFlag := flag.Bool("verbose", false, "log lifecycle events to stderr")
 	flag.BoolVar(verboseFlag, "v", false, "alias for --verbose")
 	// --strict-verify reruns every analyze in-process from cold caches

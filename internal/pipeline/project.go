@@ -17,6 +17,7 @@ import (
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
+	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/javafacts"
@@ -179,6 +180,13 @@ type ProjectHostState struct {
 	// StartFindingsPass starts work after parsing, before Go dispatch. The
 	// returned pass is finished at the FindingsPostPass boundary.
 	StartFindingsPass func(context.Context, ParseResult) (PendingFindingsPass, error)
+	// FIRCheckBroker, when non-nil, is the rendezvous between the oracle and
+	// the pass StartFindingsPass starts, so a --fir scan compiles the module
+	// once for both (#810). The pass registers its check with it; the oracle
+	// claims it. RunProjectAnalysis resolves it as soon as the index phase has
+	// returned, whatever the oracle did, so the pass never waits on an oracle
+	// that is not going to answer.
+	FIRCheckBroker *firchecks.Broker
 	// Tracker, when non-nil, wraps expensive sub-phases for --perf.
 	Tracker perf.Tracker
 	// ParseCache, when non-nil, is consulted by ParsePhase to skip
@@ -762,6 +770,9 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	}
 	completed := false
 	defer cancelPendingUnlessComplete(pending, &completed)
+	// Every return below, including the early bundle hits that never reach
+	// the oracle, ends the pass's wait for the oracle's decision.
+	defer host.FIRCheckBroker.Done("analysis returned")
 
 	// Augment the watcher's dirty set with paths whose on-disk stat has
 	// drifted from the prior manifest's recorded FileStats. Moved ahead
@@ -796,6 +807,10 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	indexStart := time.Now()
 	indexResult, err := runProjectIndexPhase(ctx, args, host, warmPlan, parseResult)
 	phaseTimings.Index = time.Since(indexStart).Milliseconds()
+	// The oracle has said everything it will say. Resolving here, not only at
+	// return, matters: the pass is joined after the analysis and must not wait
+	// on a decision the index phase skipped or abandoned.
+	host.FIRCheckBroker.Done("index phase returned")
 	if err != nil {
 		return ProjectAnalysisResult{}, fmt.Errorf("index: %w", err)
 	}
@@ -1041,6 +1056,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		Reporter:                 host.Reporter,
 		Tracker:                  host.Tracker,
 		Verbose:                  host.Reporter.VerboseEnabled(),
+		FIRCheckBroker:           host.FIRCheckBroker,
 		BuildCodeIndex:           buildCodeIndex,
 		CrossFileParentTracker:   crossTracker,
 		CrossFileJobsFlag:        args.Workers,

@@ -602,7 +602,12 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 		},
 	}
 	applyOracleModelArgs(args, &in.Args)
-	in.Host.StartFindingsPass = firStartFindingsPass(args, paths, cfg)
+	if args.Fir {
+		// The oracle daemon and the pass compile the same module; the broker
+		// lets the oracle's compile answer the pass's check too (#810).
+		in.Host.FIRCheckBroker = firchecks.NewBroker()
+	}
+	in.Host.StartFindingsPass = firStartFindingsPass(args, paths, cfg, in.Host.FIRCheckBroker)
 	return in, nil
 }
 
@@ -621,7 +626,7 @@ func applyOracleModelArgs(args daemon.AnalyzeProjectArgs, projectArgs *pipeline.
 // for a delegated `krit --fir` scan, or nil when FIR is off. It is the same
 // pass (and compile context) the in-process scan runs in firCheckAndCollect.
 // Verbose output stays off: the daemon's stderr is not the caller's.
-func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *config.Config) func(context.Context, pipeline.ParseResult) (pipeline.PendingFindingsPass, error) {
+func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *config.Config, broker *firchecks.Broker) func(context.Context, pipeline.ParseResult) (pipeline.PendingFindingsPass, error) {
 	if !args.Fir {
 		return nil
 	}
@@ -632,7 +637,7 @@ func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *c
 		checker.SourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(checker.SourceDirs, args.OracleSourceDirs))
 		checker.JvmTarget = args.OracleJvmTarget
 		checker.Kotlin = args.OracleKotlin
-		return firchecks.StartPass(ctx, firchecks.PassOptions{
+		opts := firchecks.PassOptions{
 			Enabled:             true,
 			Checker:             checker,
 			ActiveRules:         parsed.ActiveRules,
@@ -643,7 +648,17 @@ func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *c
 			GeneratedSourceDirs: args.OracleGeneratedSourceDirs,
 			SourceDirs:          checker.SourceDirs,
 			Classpath:           checker.Classpath,
-		}), nil
+		}
+		// Offer the pass's check to the oracle compile before the pass starts:
+		// the pass waits on the broker whenever it has files to compile.
+		if prefetch := firchecks.NewPrefetch(opts); prefetch != nil && broker != nil {
+			checker.Prefetch, checker.Broker = prefetch, broker
+			broker.Arm(prefetch)
+			broker.Watch(ctx)
+		} else {
+			broker.Done("no fir check to carry")
+		}
+		return firchecks.StartPass(ctx, opts), nil
 	}
 }
 

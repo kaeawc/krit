@@ -104,6 +104,10 @@ type ProductionFirChecker struct {
 	// Prefetch, when set, may hold the check response the oracle's krit-fir
 	// compilation already produced for this request (#739).
 	Prefetch *Prefetch
+	// Broker, when set, is how a daemon-delegated scan learns whether the
+	// oracle's compilation is going to carry this check (#810): a compile
+	// is due only after it has resolved.
+	Broker *Broker
 }
 
 // Check runs InvokeCached with the configured parameters.
@@ -121,12 +125,20 @@ func (p *ProductionFirChecker) Check(files []string, sourceDirs, classpath, rule
 		repoDir = ""
 	}
 	run := runMissesForCache
-	if resp, ok := p.Prefetch.response(p.JarPath, p.CompileTarget(), files, sd, cl, rules, ruleConfigs, facts); ok {
-		if p.Verbose {
-			reporter().Verbosef("verbose: fir check: reusing the oracle compilation's check of %d files\n", len(files))
-		}
-		run = func(_ string, misses []string, _, _, _ []string, _ RuleConfigs, _ FileFacts, _, _ bool, _ ...CompileTarget) (*CheckResponse, error) {
-			return resp.forFiles(misses), nil
+	if p.Prefetch != nil {
+		// Decided when a compile is due, not before: a check the cache
+		// answers in full never waits for the oracle or reuses anything.
+		run = func(jarPath string, misses, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, facts FileFacts, useDaemon, verbose bool, target ...CompileTarget) (*CheckResponse, error) {
+			if reason := p.Broker.Wait(); p.Verbose && reason != "" {
+				reporter().Verbosef("verbose: fir check: oracle compile finished (%s)\n", reason)
+			}
+			if resp, ok := p.Prefetch.response(p.JarPath, p.CompileTarget(), files, sd, cl, rules, ruleConfigs, facts); ok {
+				if p.Verbose {
+					reporter().Verbosef("verbose: fir check: reusing the oracle compilation's check of %d files\n", len(files))
+				}
+				return resp.forFiles(misses), nil
+			}
+			return runMissesForCache(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, target...)
 		}
 	}
 	return invokeCachedWith(run, p.JarPath, files, sd, cl, rules, ruleConfigs, facts, repoDir, p.UseDaemon, p.Verbose, p.CompileTarget())

@@ -62,6 +62,28 @@ func (p *Prefetch) Rider(jarPath string, sourceDirs, classpath []string, target 
 	return &oracle.CheckRider{Prepare: p.prepare}
 }
 
+// hasUncachedFiles reports whether the pass would compile anything: false only
+// when the check cache answers every file it checks, so a check riding on the
+// oracle's compile would be work nobody asked for. True when the pass runs
+// uncached or the cache cannot be consulted.
+func (p *Prefetch) hasUncachedFiles() bool {
+	c := p.checker
+	if c.NoCache || c.RepoDir == "" {
+		return true
+	}
+	plan, ok := planPass(p.opts)
+	if !ok || len(plan.requested) == 0 {
+		return true
+	}
+	cacheDir, err := CacheDir(c.RepoDir)
+	if err != nil {
+		return true
+	}
+	fingerprint := CheckCacheFingerprint(c.SourceDirs, plan.requested, c.Classpath, c.JarPath, plan.rules, plan.configs, plan.facts, c.CompileTarget())
+	_, misses := ClassifyFilesForFingerprint(cacheDir, plan.requested, fingerprint)
+	return len(misses) > 0
+}
+
 // prepare plans the pass and returns its check request, recording what the
 // compile will see so the pass can tell whether the response still applies.
 func (p *Prefetch) prepare() ([]byte, func([]byte)) {

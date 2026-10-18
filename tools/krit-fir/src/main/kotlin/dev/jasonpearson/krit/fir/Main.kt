@@ -398,6 +398,9 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 }
                 withWarnings(response, activeSession, request.jvmTarget)
             }
+            "analyzeWithCheck" -> withActiveSession(request, session) { activeSession ->
+                withWarnings(handleAnalyzeWithCheck(request, activeSession), activeSession, request.jvmTarget)
+            }
             "listPlugins" -> {
                 val response = try {
                     PluginRuleRegistry.load(request.pluginJars)
@@ -489,9 +492,22 @@ data class CheckRequest(
     // (e.g. NEEDS_MANIFEST on a pure-Kotlin library).
     val projectPayloads: ProjectPayloads = ProjectPayloads.EMPTY,
     val modules: List<ModuleSpec> = emptyList(),
+    // `analyzeWithCheck` only: the `check` request the oracle compile also
+    // answers (#810), carried under the `sharedCheck` key.
+    val sharedCheck: CheckRequest? = null,
 )
 
 fun parseRequest(request: String): CheckRequest {
+    // The rest of this parser reads fields nest-blind, so the embedded check
+    // request is lifted out first and parsed on its own.
+    if ("\"sharedCheck\"" in request) {
+        val block = dev.jasonpearson.krit.fir.plugins.PayloadParsers.extractObjectBlock(request, "sharedCheck")
+        val start = if (block == null) -1 else request.indexOf(block, request.indexOf("\"sharedCheck\""))
+        if (block != null && start >= 0) {
+            val rest = request.substring(0, start) + "null" + request.substring(start + block.length)
+            return parseRequest(rest).copy(sharedCheck = parseRequest(block))
+        }
+    }
     if ("\"modules\"" in request) parseModuleRequest(request)?.let { return it }
     val ruleConfigs = parseFirRuleConfigs(request)
     val testFiles = parseFirTestFiles(request)
@@ -538,6 +554,22 @@ private fun withoutObjectBlock(json: String, key: String): String {
     val start = json.indexOf(block, json.indexOf("\"$key\"").coerceAtLeast(0))
     if (start < 0) return json
     return json.substring(0, start) + "{}" + json.substring(start + block.length)
+}
+
+/**
+ * `analyzeWithCheck` (#810): the oracle's `analyze` (every file when `files` is
+ * empty) plus, when the request carries a `sharedCheck`, the rule check of
+ * that request from the same compilation. The response is `analyze`'s with a
+ * sibling `check` field: the `check` response, or null when the compile could
+ * not be shared and the caller has to check on its own.
+ */
+internal fun handleAnalyzeWithCheck(request: CheckRequest, session: AnalysisSession): String {
+    val files = request.files.map { it.path }
+    val check = request.sharedCheck
+    if (check == null) return OracleResponse.buildAnalyze(request.id, session.analyze(files))
+    val (outcome, checked) = session.analyzeWithCheck(files, check)
+    val oracle = OracleResponse.buildAnalyze(request.id, outcome.result)
+    return oracle.dropLast(1) + ",\"check\":" + (checked?.let(::buildCheckResponse) ?: "null") + "}"
 }
 
 internal fun handleAnalyzeFile(request: CheckRequest, session: AnalysisSession): String {

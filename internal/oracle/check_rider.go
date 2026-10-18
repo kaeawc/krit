@@ -22,6 +22,17 @@ type CheckRider struct {
 	// when the oracle launches its one-shot compile, so a run the oracle
 	// cache answers pays nothing; a nil request rides nothing.
 	Prepare func() (request []byte, deliver func(response []byte))
+	// Abandon, when set, tells the rider's owner that the oracle will not
+	// carry the request (the daemon's jar does not know it), so a caller
+	// waiting on the oracle's compile can stop at once. Optional.
+	Abandon func()
+}
+
+// abandon reports that the request will not be carried; nil-safe.
+func (r *CheckRider) abandon() {
+	if r != nil && r.Abandon != nil {
+		r.Abandon()
+	}
 }
 
 // checkRiderRun is one oracle process's share of a CheckRider: the files it

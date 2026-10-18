@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kaeawc/krit/internal/gradlemodel"
@@ -57,6 +58,10 @@ type Daemon struct {
 	// kotlin is the Kotlin compiler settings this daemon was launched with
 	// (part of its registry key); zero means the embedded defaults.
 	kotlin gradlemodel.KotlinSettings
+	// noSharedCheck is set once this daemon's jar answered analyzeWithCheck
+	// with "Unknown command" (it predates #810), so later calls skip the
+	// request and use plain analyzeAll.
+	noSharedCheck atomic.Bool
 }
 
 // requestSpelling absolutizes request files and returns the mapping from
@@ -125,6 +130,10 @@ type daemonResponse struct {
 	// Timings is an optional perf.TimingEntry array emitted by newer
 	// krit-types daemon methods for request-level deep dives.
 	Timings *json.RawMessage `json:"timings,omitempty"`
+	// Check is the rule-check response an analyzeWithCheck request asked the
+	// same compilation to produce (#810). Nil for every other method, and
+	// when krit-fir could not share the compile.
+	Check *json.RawMessage `json:"check,omitempty"`
 }
 
 // ErrDaemonFileNotInSession is returned by Daemon.AnalyzeWithDeps when

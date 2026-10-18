@@ -43,6 +43,16 @@ var errDaemonNotWarm = errors.New("daemon not warm yet")
 // and the dispatcher — a verified DATA RACE under -race. Loosening
 // the lock requires making the rules config state per-call or
 // initialising it once at daemon startup. See issue #53.
+// pingOracleDaemonFor health-checks cached oracle daemons unless the request
+// opted out of the oracle: a --no-type-oracle request neither consults nor
+// restarts the oracle JVM, unless it needs one for custom Kotlin rule jars.
+func (s *daemonState) pingOracleDaemonFor(args daemon.AnalyzeProjectArgs) {
+	if args.NoTypeOracle && len(args.CustomRuleJars) == 0 {
+		return
+	}
+	s.pingOracleDaemon()
+}
+
 func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMessage) (any, error) {
 	var args daemon.AnalyzeProjectArgs
 	if len(raw) > 0 {
@@ -107,7 +117,7 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 	// the verb runs. A JVM that died (OOM, host kill) gets replaced
 	// here so RunProject sees a live handle. No-op when no daemon is
 	// cached. See issue #125 PR-A for the lifecycle plumbing.
-	state.pingOracleDaemon()
+	state.pingOracleDaemonFor(args)
 	start := time.Now()
 	dirty := state.workspace.DrainDirty()
 
@@ -482,7 +492,22 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	// BackendFIR) is found. nil daemon means oracle stays disabled
 	// (no JVM, no behavior change). Per-verb ping happens at the
 	// call boundary in handleAnalyzeProject.
-	oracleDaemon, err := s.ensureOracleDaemon(paths, backend, args.OracleKotlin)
+	//
+	// --no-type-oracle skips the oracle for this request only: the
+	// resident JVM stays cached for other requests, but this one neither
+	// starts nor consults it, matching an in-process scan.
+	//
+	// Custom Kotlin rule jars run inside the krit-types JVM, so a
+	// --no-type-oracle request that carries them still gets a krit-types
+	// handle for the plugin RPCs (OracleEnabled stays false), as an
+	// in-process scan does.
+	var oracleDaemon *oracle.Daemon
+	switch {
+	case !args.NoTypeOracle:
+		oracleDaemon, err = s.ensureOracleDaemon(paths, backend, args.OracleKotlin)
+	case len(args.CustomRuleJars) > 0:
+		oracleDaemon, err = s.ensureOracleDaemon(paths, oracle.BackendKAA, args.OracleKotlin)
+	}
 	if err != nil {
 		// Best-effort degrade: a failed daemon start shouldn't fail
 		// the whole verb. Log via stderr; the verb continues with
@@ -533,7 +558,8 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 			IncludeGenerated:    args.IncludeGenerated,
 			GeneratedSourceDirs: args.OracleGeneratedSourceDirs,
 			Version:             kritVersion(),
-			OracleEnabled:       oracleDaemon != nil || args.InputTypesPath != "",
+			OracleEnabled:       !args.NoTypeOracle && (oracleDaemon != nil || args.InputTypesPath != ""),
+			NoTypeOracle:        args.NoTypeOracle,
 			ShowPerf:            args.ShowPerf || args.PerfRules,
 			PerfRules:           args.PerfRules,
 			ProfileDispatch:     args.ProfileDispatch,

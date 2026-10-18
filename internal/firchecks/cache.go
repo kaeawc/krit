@@ -179,26 +179,27 @@ func ClassifyFiles(cacheDir string, files []string) (hits []*FirCacheEntry, miss
 // ClassifyFilesForFingerprint is ClassifyFiles plus dependency/classpath
 // fingerprint validation. A non-matching cache entry is treated as a miss.
 func ClassifyFilesForFingerprint(cacheDir string, files []string, fingerprint string) (hits []*FirCacheEntry, misses []string) {
+	hits, misses = classifyFilesQuiet(cacheDir, files, fingerprint)
+	firCacheHits.Add(int64(len(hits)))
+	firCacheMisses.Add(int64(len(misses)))
+	return hits, misses
+}
+
+// classifyFilesQuiet is ClassifyFilesForFingerprint without touching the
+// cache statistics, for a look-ahead that the real classification repeats.
+func classifyFilesQuiet(cacheDir string, files []string, fingerprint string) (hits []*FirCacheEntry, misses []string) {
 	for _, p := range files {
 		hash, err := ContentHash(p)
 		if err != nil {
 			misses = append(misses, p)
-			firCacheMisses.Add(1)
 			continue
 		}
 		entry, err := LoadCacheEntry(cacheDir, p, hash)
-		if err != nil || entry == nil {
+		if err != nil || entry == nil || entry.ClosureFingerprint != fingerprint {
 			misses = append(misses, p)
-			firCacheMisses.Add(1)
-			continue
-		}
-		if entry.ClosureFingerprint != fingerprint {
-			misses = append(misses, p)
-			firCacheMisses.Add(1)
 			continue
 		}
 		hits = append(hits, entry)
-		firCacheHits.Add(1)
 	}
 	return hits, misses
 }

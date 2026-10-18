@@ -34,13 +34,13 @@ class AnalyzeWithCheckDispatchTest {
     }
 
     private fun checkBlock(paths: List<String>, sourceDirs: List<String>, id: Int = 1) =
-        """{"id":$id,"command":"check","files":[${paths.joinToString(",") { "{\"path\":\"$it\"}" }}],""" +
+        """{"id":$id,"files":[${paths.joinToString(",") { "{\"path\":\"$it\"}" }}],""" +
             """"sourceDirs":[${sourceDirs.joinToString(",") { "\"$it\"" }}],"classpath":["$stdlib"],"rules":["ProtocolProbe"],""" +
             """"ruleConfigs":{"ProtocolProbe":{"files":"opt-named-like-a-field","classpath":"x"}}}"""
 
     private fun request(id: Int, check: String?, files: List<String> = emptyList()): String {
         val params = buildList {
-            if (check != null) add("\"sharedCheck\":$check")
+            if (check != null) add("\"kritSharedCheck\":$check")
             add("\"files\":[${files.joinToString(",") { "\"$it\"" }}]")
         }.joinToString(",")
         return """{"id":$id,"method":"analyzeWithCheck","params":{$params}}"""
@@ -55,7 +55,7 @@ class AnalyzeWithCheckDispatchTest {
         try {
             val response = respond(session, request(5, checkBlock(paths, listOf(root))))
             val oracleOnly = respond(session, """{"id":5,"method":"analyzeAll"}""")
-            val checkOnly = respond(session, checkBlock(paths, listOf(root)))
+            val checkOnly = respond(session, checkBlock(paths, listOf(root)).replaceFirst("{", "{\"command\":\"check\","))
 
             assertTrue(response.startsWith(oracleOnly.dropLast(1) + ",\"check\":"), response.take(300))
             val check = response.substring(response.indexOf(",\"check\":") + ",\"check\":".length).dropLast(1)
@@ -119,6 +119,33 @@ class AnalyzeWithCheckDispatchTest {
         } finally {
             session.dispose()
         }
+    }
+
+    @Test fun theKeyTokenInsideArraysOrDeeperMapKeysIsNotLifted() {
+        val (root, paths) = project()
+        val check = checkBlock(paths, listOf(root))
+        // The real key sits after callFilter* in the sorted wire order; the token
+        // as an array element or a nested map key must not be taken for it.
+        val line = """{"id":11,"method":"analyzeWithCheck","params":{"callFilterCalleeNames":["a","kritSharedCheck"],""" +
+            """"callFilterLexicalHintsByCallee":{"kritSharedCheck":["x"]},"kritSharedCheck":$check,"files":[]}}"""
+        val parsed = parseRequest(line)
+        assertEquals("analyzeWithCheck", parsed.command)
+        assertEquals(1L, assertNotNull(parsed.sharedCheck).id)
+        assertEquals(paths, parsed.sharedCheck!!.files.map { it.path })
+
+        // Without the real key nothing is lifted, however the token is spelled.
+        val none = parseRequest(
+            """{"id":12,"method":"analyzeAll","params":{"callFilterCalleeNames":["a","kritSharedCheck"],""" +
+                """"callFilterLexicalHintsByCallee":{"kritSharedCheck":["x"]}}}""",
+        )
+        assertNull(none.sharedCheck)
+        assertEquals(12L, none.id)
+    }
+
+    @Test fun aMalformedSharedCheckIsAnErrorNotALeak() {
+        val line = """{"id":13,"method":"analyzeWithCheck","params":{"kritSharedCheck":"nope"}}"""
+        val result = handleRequestLine(line, AnalysisSession(emptyList(), emptyList()), startTime = 0L)
+        assertTrue(result is RequestResult.ParseError && "Parse error" in result.json, result.toString())
     }
 
     // The findings array, ordered, from a check response.

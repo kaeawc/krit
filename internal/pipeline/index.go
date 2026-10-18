@@ -956,9 +956,6 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 	// The compile is over, shared or not: the pass may use the check it
 	// carried or run its own.
 	in.FIRCheckBroker.Done("oracle daemon analysis finished")
-	if in.FIRCheckBroker != nil {
-		perf.AddEntryDetails(oracleTracker, "firCheckBroker", 0, nil, map[string]string{"outcome": in.FIRCheckBroker.Outcome()})
-	}
 	if oracleData == nil {
 		return base
 	}
@@ -1014,7 +1011,11 @@ func analyzeAllCarryingCheck(in IndexInput, d daemonAnalyzer, callFilterPtr *ora
 	if rider == nil {
 		return d.AnalyzeAllWithCallFilter(callFilterPtr)
 	}
-	return carrier.AnalyzeAllWithCheck(callFilterPtr, rider)
+	data, err := carrier.AnalyzeAllWithCheck(callFilterPtr, rider)
+	if err != nil {
+		in.FIRCheckBroker.Done("oracle request failed")
+	}
+	return data, err
 }
 
 // daemonAnalyze obtains the oracle facts from the resident daemon: a partial

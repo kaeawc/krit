@@ -25,7 +25,7 @@ func brokeredProject(t *testing.T, unclaimed, claimed time.Duration) (*prefetchP
 		t.Fatal("NewPrefetch = nil")
 	}
 	p.checker.Prefetch, p.checker.Broker = prefetch, broker
-	broker.Arm(prefetch)
+	broker.Arm(prefetch, matchAll)
 	return p, broker
 }
 
@@ -63,7 +63,7 @@ func countingRun(t *testing.T) *atomic.Int32 {
 
 func TestNilBrokerIsInert(t *testing.T) {
 	var b *Broker
-	b.Arm(nil)
+	b.Arm(nil, nil)
 	b.Watch(context.Background())
 	b.Done("x")
 	if b.Claim(matchAll) != nil || b.Wait() != "" || b.Reason() != "" || b.Outcome() != "" || !b.Resolved() {
@@ -86,6 +86,7 @@ func TestBrokerOneCompileAnswersTheOracleAndThePass(t *testing.T) {
 	if rider == nil {
 		t.Fatalf("Claim declined: %q", broker.Reason())
 	}
+	rider.Sent()
 	request, deliver := rider.Prepare()
 	if len(request) == 0 || deliver == nil {
 		t.Fatal("the rider carries no request")
@@ -134,15 +135,17 @@ func TestBrokerEveryResolutionPathReleasesThePass(t *testing.T) {
 			}
 		},
 		"krit-fir does not know the request (older jar)": func(_ *prefetchProject, b *Broker) {
-			b.Claim(matchAll).Abandon()
+			b.Claim(matchAll).Decline("krit-fir does not carry the check")
 		},
 		"claimed but the compile failed": func(_ *prefetchProject, b *Broker) {
 			rider := b.Claim(matchAll)
+			rider.Sent()
 			rider.Prepare()
 			b.Done("oracle failed") // no response ever delivered
 		},
 		"claimed, nothing delivered (not shared)": func(_ *prefetchProject, b *Broker) {
 			rider := b.Claim(matchAll)
+			rider.Sent()
 			rider.Prepare()
 			b.Done("oracle daemon analysis finished")
 		},
@@ -165,13 +168,6 @@ func TestBrokerEveryResolutionPathReleasesThePass(t *testing.T) {
 }
 
 func TestBrokerClaimDeclinesWhatCannotRide(t *testing.T) {
-	t.Run("jvm target", func(t *testing.T) {
-		p, broker := brokeredProject(t, time.Minute, time.Minute)
-		p.checker.JvmTarget = "17"
-		if broker.Claim(matchAll) != nil || !broker.Resolved() {
-			t.Fatalf("claimed a target-scoped compile: %q", broker.Reason())
-		}
-	})
 	t.Run("no matcher", func(t *testing.T) {
 		_, broker := brokeredProject(t, time.Minute, time.Minute)
 		if broker.Claim(nil) != nil || !broker.Resolved() {
@@ -242,6 +238,7 @@ func TestBrokerTimeoutFallsBack(t *testing.T) {
 		compiles := countingRun(t)
 		rider := broker.Claim(matchAll)
 		_, deliver := rider.Prepare()
+		rider.Sent()
 		waitResult(t, p.startCheck(t))
 		if compiles.Load() != 1 || broker.Outcome() != "timed out waiting for the oracle compile" {
 			t.Fatalf("compiles=%d outcome=%q", compiles.Load(), broker.Outcome())
@@ -318,4 +315,68 @@ func TestBrokerWaitAfterResolveReturnsImmediately(t *testing.T) {
 	case <-time.After(brokerTestWait):
 		t.Fatal("Wait blocked on a resolved broker")
 	}
+}
+
+// Declines that do not depend on the oracle run are decided when the pass is
+// armed, so a pass that can never ride does not wait for the oracle at all.
+func TestBrokerStructuralDeclinesAreDecidedAtArmTime(t *testing.T) {
+	cases := map[string]struct {
+		jvmTarget string
+		matches   ContextMatcher
+		reason    string
+	}{
+		"jvm target":       {"17", matchAll, "fir check needs a target-scoped compile"},
+		"another context":  {"", func(string, []string, gradlemodel.KotlinSettings, []string) bool { return false }, "oracle daemon compiles in another context"},
+		"no oracle daemon": {"", nil, "oracle daemon compiles in another context"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := newPrefetchProject(t)
+			p.checker.JvmTarget = tc.jvmTarget
+			broker := NewBrokerWithTimeouts(time.Hour, time.Hour) // would hang the test if the pass waited
+			prefetch := NewPrefetch(p.opts)
+			p.checker.Prefetch, p.checker.Broker = prefetch, broker
+			broker.Arm(prefetch, tc.matches)
+			if !broker.Resolved() || broker.Reason() != tc.reason {
+				t.Fatalf("resolved=%v reason=%q, want %q", broker.Resolved(), broker.Reason(), tc.reason)
+			}
+			compiles := countingRun(t)
+			waitResult(t, p.startCheck(t)) // returns promptly: nothing to wait for
+			if compiles.Load() != 1 {
+				t.Fatalf("pass compiles = %d", compiles.Load())
+			}
+		})
+	}
+}
+
+// The outcome is "shared" only once the pass has used the oracle's response.
+func TestBrokerOutcomeReportsWhatThePassUsed(t *testing.T) {
+	p, broker := brokeredProject(t, time.Minute, time.Minute)
+	rider := broker.Claim(matchAll)
+	rider.Sent()
+	_, deliver := rider.Prepare()
+	deliver(p.response(verdictRule))
+	broker.Done("oracle daemon analysis finished")
+	if got := broker.Outcome(); got != "delivered, not used" {
+		t.Fatalf("before the pass: %q", got)
+	}
+	stubMisses(t, false)
+	p.check(t, []string{p.a, p.b}, []string{verdictRule})
+	if got := broker.Outcome(); got != "shared" {
+		t.Fatalf("after the pass: %q", got)
+	}
+}
+
+// A response the prefetch cannot use (here: no registered checkers) resolves
+// the broker as a decline instead of claiming a share.
+func TestBrokerUnusableResponseIsADecline(t *testing.T) {
+	p, broker := brokeredProject(t, time.Minute, time.Minute)
+	rider := broker.Claim(matchAll)
+	rider.Sent()
+	_, deliver := rider.Prepare()
+	deliver([]byte(`{"id":1,"succeeded":0,"rules":[],"findings":[],"crashed":{},"errorFiles":{}}`))
+	if broker.Outcome() != "oracle response unusable" {
+		t.Fatalf("outcome = %q", broker.Outcome())
+	}
+	_ = p
 }

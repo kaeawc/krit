@@ -136,6 +136,7 @@ func (p *ProductionFirChecker) Check(files []string, sourceDirs, classpath, rule
 				if p.Verbose {
 					reporter().Verbosef("verbose: fir check: reusing the oracle compilation's check of %d files\n", len(files))
 				}
+				p.Broker.Consumed()
 				return resp.forFiles(misses), nil
 			}
 			return runMissesForCache(jarPath, misses, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, target...)

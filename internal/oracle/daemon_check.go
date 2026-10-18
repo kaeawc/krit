@@ -1,14 +1,20 @@
 package oracle
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
+	"time"
 )
 
 // analyzeWithCheckMethod is the krit-fir daemon request that answers the
 // oracle's analyzeAll and a rule check from one compilation (#810). A jar that
 // predates it answers "Unknown command".
 const analyzeWithCheckMethod = "analyzeWithCheck"
+
+// sharedCheckKey is the params key the combined request carries the check
+// request under.
+const sharedCheckKey = "kritSharedCheck"
 
 // AnalyzeAllWithCheck is AnalyzeAllWithCallFilter that also asks the daemon to
 // run the rider's check request on the same compilation, instead of leaving
@@ -24,12 +30,13 @@ func (d *Daemon) AnalyzeAllWithCheck(callFilter *CallTargetFilterSummary, rider 
 		return d.AnalyzeAllWithCallFilter(callFilter)
 	}
 	if d.noSharedCheck.Load() {
-		rider.abandon()
+		rider.decline("krit-fir does not carry the check")
 		return d.AnalyzeAllWithCallFilter(callFilter)
 	}
 	body, deliver := rider.Prepare()
+	body = withoutCommand(body)
 	if len(body) == 0 || deliver == nil {
-		rider.abandon()
+		rider.decline("nothing to check")
 		return d.AnalyzeAllWithCallFilter(callFilter)
 	}
 
@@ -38,19 +45,22 @@ func (d *Daemon) AnalyzeAllWithCheck(callFilter *CallTargetFilterSummary, rider 
 	if params == nil {
 		params = map[string]interface{}{}
 	}
-	params["sharedCheck"] = json.RawMessage(body)
+	params[sharedCheckKey] = json.RawMessage(body)
+	if rider.Sent != nil {
+		rider.Sent()
+	}
 	resp, err := d.send(analyzeWithCheckMethod, params)
 	d.mu.Unlock()
 	if err != nil {
 		if !isUnknownCommand(err) {
 			return nil, err
 		}
-		// An older jar: the daemon is healthy, it just lacks the request.
-		d.noSharedCheck.Store(true)
-		// Nothing will come back with this compile: let the caller go on its
-		// own while the oracle's plain analysis runs.
-		rider.abandon()
-		return d.AnalyzeAllWithCallFilter(callFilter)
+		return d.unsupportedCarrier(callFilter, rider)
+	}
+	if resp.Result == nil {
+		// An older jar that misread the request as something else answers
+		// without an oracle result: never trust it with the check again.
+		return d.unsupportedCarrier(callFilter, rider)
 	}
 
 	_, spelling := d.requestSpelling(nil)
@@ -60,12 +70,46 @@ func (d *Daemon) AnalyzeAllWithCheck(callFilter *CallTargetFilterSummary, rider 
 	}
 	if resp.Check != nil && len(*resp.Check) > 0 {
 		deliver(*resp.Check)
+	} else {
+		rider.decline("krit-fir did not share the compile")
 	}
 	return data, nil
 }
 
-// isUnknownCommand reports whether err is krit-fir refusing a request it does
-// not implement.
-func isUnknownCommand(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "Unknown command")
+// unsupportedCarrier remembers that this daemon's jar cannot carry a check,
+// releases the rider's waiter before the plain compile starts, and returns the
+// oracle's plain analysis.
+func (d *Daemon) unsupportedCarrier(callFilter *CallTargetFilterSummary, rider *CheckRider) (*Data, error) {
+	d.noSharedCheck.Store(true)
+	rider.decline("krit-fir does not carry the check")
+	return d.AnalyzeAllWithCallFilter(callFilter)
 }
+
+// withoutCommand drops the embedded request's top-level "command" key. The
+// carrier's own "method" names the request; a jar that reads fields without
+// regard to nesting would otherwise prefer the embedded "command" and run the
+// check instead of refusing the unknown method. The new jar restores it.
+func withoutCommand(body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return nil
+	}
+	delete(fields, "command")
+	out, err := json.Marshal(fields)
+	if err != nil {
+		return nil
+	}
+	return bytes.TrimSpace(out)
+}
+
+// isUnknownCommand reports whether err is krit-fir refusing this request.
+func isUnknownCommand(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "Unknown command: "+analyzeWithCheckMethod)
+}
+
+// DaemonRequestTimeout is how long one daemon request may take
+// (KRIT_TYPES_REQUEST_TIMEOUT, default 10 minutes) before the daemon is killed.
+func DaemonRequestTimeout() time.Duration { return daemonRequestTimeout() }

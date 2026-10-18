@@ -51,6 +51,9 @@ type PassOptions struct {
 	SourceDirs []string
 	Classpath  []string
 	Tracker    perf.Tracker
+	// Broker, when set, is the rendezvous with the oracle's compile (#810);
+	// the pass records how it ended in the "firCheckBroker" perf entry.
+	Broker     *Broker
 	VerboseOut io.Writer
 	// Thorough mirrors --depth=thorough; forwarded to ActiveFirRules.
 	Thorough bool
@@ -152,6 +155,11 @@ func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
 		status := "ok"
 		if err != nil {
 			status = "error"
+		}
+		if opts.Broker != nil {
+			// Recorded once the pass has its answer, so "shared" means the
+			// pass really used the oracle's compile.
+			perf.AddEntryDetails(sub, "firCheckBroker", 0, nil, map[string]string{"outcome": opts.Broker.Outcome()})
 		}
 		perf.AddEntryDetails(sub, "firCheckOutcome", 0, map[string]int64{
 			"files": int64(len(requested)),

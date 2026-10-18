@@ -49,8 +49,10 @@ type Broker struct {
 	claimed  bool
 	resolved bool
 	reason   string
-	// delivered is set once the oracle's check response reached the prefetch.
-	delivered bool
+	// delivered is set once the oracle's check response reached the prefetch;
+	// consumed once the pass answered its files from it.
+	delivered, consumed bool
+	claimedAt           time.Time
 
 	claimedCh  chan struct{}
 	resolvedCh chan struct{}
@@ -58,12 +60,14 @@ type Broker struct {
 
 // NewBroker returns a broker with the production timeouts.
 func NewBroker() *Broker {
-	return NewBrokerWithTimeouts(brokerUnclaimedTimeout, daemonRequestTimeout()+brokerClaimedSlack)
+	// The compile rides an oracle daemon request, which is bounded by the
+	// oracle's own request timeout, not the checker daemon's.
+	return NewBrokerWithTimeouts(brokerUnclaimedTimeout, oracle.DaemonRequestTimeout()+brokerClaimedSlack)
 }
 
 // NewBrokerWithTimeouts returns a broker whose wait gives up after unclaimed
-// without the oracle's decision, or after claimed once the oracle has started
-// the shared compile.
+// without the oracle's decision, or after claimed from the moment the oracle
+// sent the shared request.
 func NewBrokerWithTimeouts(unclaimed, claimed time.Duration) *Broker {
 	return &Broker{
 		unclaimedTimeout: unclaimed,
@@ -75,8 +79,25 @@ func NewBrokerWithTimeouts(unclaimed, claimed time.Duration) *Broker {
 
 // Arm registers the pass's prefetch: the check request the oracle may claim.
 // Without it, or after the broker resolved, the oracle has nothing to carry.
-func (b *Broker) Arm(p *Prefetch) {
+//
+// What does not depend on the oracle run is decided here, so a pass that can
+// never ride starts compiling at once instead of waiting for the oracle:
+//   - the generic oracle daemon registry does not key a JVM target;
+//   - the oracle daemon must compile in the pass's context (matches says so;
+//     nil means there is no oracle daemon).
+//
+// The partial-reanalyze and warm-cache declines stay with the oracle run.
+func (b *Broker) Arm(p *Prefetch, matches ContextMatcher) {
 	if b == nil || p == nil {
+		return
+	}
+	checker := p.checker
+	switch {
+	case checker.JvmTarget != "":
+		b.Done("fir check needs a target-scoped compile")
+		return
+	case matches == nil || !matches(checker.JarPath, checker.SourceDirs, checker.Kotlin, checker.Classpath):
+		b.Done("oracle daemon compiles in another context")
 		return
 	}
 	b.mu.Lock()
@@ -110,8 +131,7 @@ type ContextMatcher func(jarPath string, sourceDirs []string, kotlin gradlemodel
 // when the check cannot ride (the broker is then resolved as a decline, so
 // the pass compiles on its own at once):
 //   - the pass registered no check, or the broker already resolved;
-//   - the oracle compiles in another context than the pass (matches says no);
-//   - the generic oracle daemon cannot honor the pass's JVM target;
+//   - the oracle daemon is not the one the pass was armed against (matches);
 //   - the pass would not compile anything because its check cache is warm.
 //
 // A claimed broker stays pending until Done, so the oracle must call Done
@@ -132,10 +152,6 @@ func (b *Broker) Claim(matches ContextMatcher) *oracle.CheckRider {
 	}
 	checker := prefetch.checker
 	switch {
-	case checker.JvmTarget != "":
-		// The oracle daemon registry does not key the JVM target.
-		b.Done("fir check needs a target-scoped compile")
-		return nil
 	case matches == nil || !matches(checker.JarPath, checker.SourceDirs, checker.Kotlin, checker.Classpath):
 		b.Done("oracle daemon compiles in another context")
 		return nil
@@ -143,41 +159,64 @@ func (b *Broker) Claim(matches ContextMatcher) *oracle.CheckRider {
 		b.Done("fir check cache is warm")
 		return nil
 	}
+	// The context is the checker's own (it was just matched), so the prefetch
+	// always grants the rider.
 	rider := prefetch.Rider(checker.JarPath, checker.SourceDirs, checker.Classpath, checker.CompileTarget())
-	if rider == nil {
-		b.Done("oracle daemon compiles in another context")
-		return nil
-	}
-	return &oracle.CheckRider{Abandon: func() { b.Done("krit-fir does not carry the check") }, Prepare: func() ([]byte, func([]byte)) {
-		request, deliver := rider.Prepare()
-		if len(request) == 0 || deliver == nil {
-			b.Done("nothing to check")
-			return nil, nil
-		}
-		b.mu.Lock()
-		if b.resolved {
-			b.mu.Unlock()
-			return nil, nil
-		}
-		if !b.claimed {
-			b.claimed = true
-			close(b.claimedCh)
-		}
-		b.mu.Unlock()
-		return request, func(response []byte) {
-			// A response that arrives after the pass gave up is dropped:
-			// the pass already compiles on its own.
-			b.mu.Lock()
-			stale := b.resolved
-			if !stale {
-				b.delivered = true
+	return &oracle.CheckRider{
+		Decline: b.Done,
+		Sent:    b.markClaimed,
+		Prepare: func() ([]byte, func([]byte)) {
+			if b.Resolved() {
+				return nil, nil // the pass gave up: do not hash the module for nothing
 			}
-			b.mu.Unlock()
-			if !stale {
+			request, deliver := rider.Prepare()
+			if len(request) == 0 || deliver == nil {
+				b.Done("nothing to check")
+				return nil, nil
+			}
+			return request, func(response []byte) {
+				// A response that arrives after the pass gave up is dropped:
+				// the pass already compiles on its own.
+				b.mu.Lock()
+				stale := b.resolved
+				b.mu.Unlock()
+				if stale {
+					return
+				}
 				deliver(response)
+				if !prefetch.hasResponse() {
+					b.Done("oracle response unusable")
+					return
+				}
+				b.mu.Lock()
+				b.delivered = true
+				b.mu.Unlock()
 			}
-		}
-	}}
+		},
+	}
+}
+
+// markClaimed starts the clock on the oracle's compile: the request is on the
+// wire.
+func (b *Broker) markClaimed() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.resolved || b.claimed {
+		return
+	}
+	b.claimed, b.claimedAt = true, time.Now()
+	close(b.claimedCh)
+}
+
+// Consumed records that the pass answered its files from the oracle's
+// response.
+func (b *Broker) Consumed() {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	b.consumed = true
+	b.mu.Unlock()
 }
 
 // Done resolves the broker: the oracle is finished with the shared compile,
@@ -210,7 +249,10 @@ func (b *Broker) Wait() string {
 	case <-b.resolvedCh:
 	case <-b.claimedCh:
 		// The oracle is compiling: give it as long as a daemon request may take.
-		compile := time.NewTimer(b.claimedTimeout)
+		b.mu.Lock()
+		remaining := b.claimedTimeout - time.Since(b.claimedAt)
+		b.mu.Unlock()
+		compile := time.NewTimer(remaining)
 		defer compile.Stop()
 		select {
 		case <-b.resolvedCh:
@@ -233,16 +275,21 @@ func (b *Broker) Reason() string {
 	return b.reason
 }
 
-// Outcome is "shared" when the oracle's compile delivered the pass's check,
-// and otherwise the reason the pass compiles on its own.
+// Outcome is "shared" once the pass answered its files from the oracle's
+// compile, "delivered, not used" when a response arrived but the pass compiled
+// anyway (its inputs drifted), and otherwise the reason the pass compiles on
+// its own.
 func (b *Broker) Outcome() string {
 	if b == nil {
 		return ""
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.delivered {
+	switch {
+	case b.consumed:
 		return "shared"
+	case b.delivered:
+		return "delivered, not used"
 	}
 	return b.reason
 }

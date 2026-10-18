@@ -38,6 +38,9 @@ func (c *checkingDaemon) AnalyzeAllWithCallFilter(f *oracle.CallTargetFilterSumm
 func (c *checkingDaemon) AnalyzeAllWithCheck(f *oracle.CallTargetFilterSummary, rider *oracle.CheckRider) (*oracle.Data, error) {
 	c.withCheckCalls.Add(1)
 	c.compiles.Add(1) // one compile answers both
+	if rider.Sent != nil {
+		rider.Sent()
+	}
 	if _, deliver := rider.Prepare(); deliver != nil && c.checkResponse != nil {
 		deliver(c.checkResponse)
 	}
@@ -73,7 +76,7 @@ func armedBroker(t *testing.T) (*firchecks.Broker, []byte) {
 		t.Fatal("no prefetch")
 	}
 	broker := firchecks.NewBrokerWithTimeouts(time.Minute, time.Minute)
-	broker.Arm(prefetch)
+	broker.Arm(prefetch, func(string, []string, gradlemodel.KotlinSettings, []string) bool { return true })
 	response, _ := json.Marshal(map[string]any{
 		"id": 1, "succeeded": 1, "skipped": 0, "rules": []string{"InjectDispatcher"},
 		"findings": []any{}, "crashed": map[string]string{}, "errorFiles": map[string]string{},
@@ -114,7 +117,8 @@ func TestAnalyzeAllCarryingCheckCompilesOnce(t *testing.T) {
 	if d.compiles.Load() != 1 || d.withCheckCalls.Load() != 1 || d.allCalls != 0 {
 		t.Fatalf("compiles=%d withCheck=%d plain=%d, want one combined compile", d.compiles.Load(), d.withCheckCalls.Load(), d.allCalls)
 	}
-	if broker.Outcome() != "shared" {
+	// The response arrived; "shared" is only claimed once the pass used it.
+	if broker.Outcome() != "delivered, not used" {
 		t.Fatalf("outcome = %q", broker.Outcome())
 	}
 }

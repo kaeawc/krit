@@ -18,6 +18,7 @@ import (
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/firchecks"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
@@ -607,7 +608,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 		// lets the oracle's compile answer the pass's check too (#810).
 		in.Host.FIRCheckBroker = firchecks.NewBroker()
 	}
-	in.Host.StartFindingsPass = firStartFindingsPass(args, paths, cfg, in.Host.FIRCheckBroker)
+	in.Host.StartFindingsPass = firStartFindingsPass(args, paths, cfg, in.Host.FIRCheckBroker, oracleDaemonMatcher(oracleDaemon))
 	return in, nil
 }
 
@@ -626,7 +627,7 @@ func applyOracleModelArgs(args daemon.AnalyzeProjectArgs, projectArgs *pipeline.
 // for a delegated `krit --fir` scan, or nil when FIR is off. It is the same
 // pass (and compile context) the in-process scan runs in firCheckAndCollect.
 // Verbose output stays off: the daemon's stderr is not the caller's.
-func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *config.Config, broker *firchecks.Broker) func(context.Context, pipeline.ParseResult) (pipeline.PendingFindingsPass, error) {
+func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *config.Config, broker *firchecks.Broker, matchOracle firchecks.ContextMatcher) func(context.Context, pipeline.ParseResult) (pipeline.PendingFindingsPass, error) {
 	if !args.Fir {
 		return nil
 	}
@@ -653,7 +654,9 @@ func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *c
 		// the pass waits on the broker whenever it has files to compile.
 		if prefetch := firchecks.NewPrefetch(opts); prefetch != nil && broker != nil {
 			checker.Prefetch, checker.Broker = prefetch, broker
-			broker.Arm(prefetch)
+			opts.Broker = broker
+			// Declines that do not depend on the oracle run are decided here.
+			broker.Arm(prefetch, matchOracle)
 			broker.Watch(ctx)
 		} else {
 			broker.Done("no fir check to carry")
@@ -749,4 +752,15 @@ func loadDaemonConfig(root string) (*config.Config, error) {
 		return cfg, fmt.Errorf("config merge: %w", mergeErr)
 	}
 	return cfg, nil
+}
+
+// oracleDaemonMatcher says whether the resident oracle daemon compiles in a
+// given context; nil when there is no daemon (the pass then compiles itself).
+func oracleDaemonMatcher(d *oracle.Daemon) firchecks.ContextMatcher {
+	if d == nil {
+		return nil
+	}
+	return func(jarPath string, sourceDirs []string, kt gradlemodel.KotlinSettings, classpath []string) bool {
+		return d.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...)
+	}
 }

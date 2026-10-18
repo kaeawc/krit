@@ -139,3 +139,27 @@ func TestReadPIDFile_AfterRecycle(t *testing.T) {
 		t.Fatalf("recycle pid = %s, want %s", got, want)
 	}
 }
+
+func TestRepoLockHeld(t *testing.T) {
+	dir := t.TempDir()
+	if RepoLockHeld(dir) {
+		t.Fatal("no lock file: want not held")
+	}
+	lock, err := AcquireRepoLock(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !RepoLockHeld(dir) {
+		t.Fatal("want held while the lock is open")
+	}
+	_ = lock.Close()
+	if RepoLockHeld(dir) {
+		t.Fatal("want released after Close")
+	}
+	// The probe must not leave the lock taken.
+	again, err := AcquireRepoLock(dir)
+	if err != nil {
+		t.Fatalf("probe left the lock held: %v", err)
+	}
+	_ = again.Close()
+}

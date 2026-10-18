@@ -8,39 +8,71 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"time"
 )
 
-// DefaultSocketPath returns the conventional socket path for a project
-// rooted at root (.krit/daemon.sock under the project root).
-func DefaultSocketPath(root string) string {
-	return filepath.Join(root, ".krit", "daemon.sock")
+// dialVerified dials the unix socket and, before anything is sent over it,
+// confirms the listener is a process of the current user. The socket is
+// 0600 and fallback dirs are 0700, so this is defence in depth against a
+// socket planted by another local user.
+func dialVerified(socketPath string, timeout time.Duration) (net.Conn, error) {
+	conn, err := (&net.Dialer{Timeout: timeout}).DialContext(context.Background(), "unix", socketPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyPeer(conn, socketPath); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return conn, nil
+}
+
+// ErrPeerUID matches (errors.Is) the error returned when the process
+// listening on a socket runs as a different user than the caller.
+var ErrPeerUID = errors.New("daemon socket peer runs as a different user")
+
+// PeerUIDError is the concrete error behind ErrPeerUID.
+type PeerUIDError struct {
+	Path string
+	UID  int
+}
+
+func (e *PeerUIDError) Error() string {
+	return fmt.Sprintf("daemon at %s runs as uid %d, not %d; stop it as that user or use --no-daemon", e.Path, e.UID, os.Getuid())
+}
+
+// Is makes errors.Is(err, ErrPeerUID) match.
+func (e *PeerUIDError) Is(target error) bool { return target == ErrPeerUID }
+
+// Probe reports whether a daemon of the current user answers at socketPath.
+// A nil error means reachable. Absence yields an ordinary error; a listener
+// owned by another user yields an error matching ErrPeerUID, which callers
+// that would otherwise spawn a daemon must not ignore.
+func Probe(socketPath string) error {
+	if socketPath == "" {
+		return errors.New("daemon: empty socket path")
+	}
+	if _, err := os.Stat(socketPath); err != nil {
+		return err
+	}
+	conn, err := dialVerified(socketPath, 200*time.Millisecond)
+	if err != nil {
+		return err
+	}
+	_ = conn.Close()
+	return nil
 }
 
 // Available reports whether a daemon appears reachable at socketPath. It
 // performs a short-timeout dial; absence is not an error from the caller's
 // perspective, just "fall back to in-process".
-func Available(socketPath string) bool {
-	if socketPath == "" {
-		return false
-	}
-	if _, err := os.Stat(socketPath); err != nil {
-		return false
-	}
-	conn, err := (&net.Dialer{Timeout: 200 * time.Millisecond}).DialContext(context.Background(), "unix", socketPath)
-	if err != nil {
-		return false
-	}
-	_ = conn.Close()
-	return true
-}
+func Available(socketPath string) bool { return Probe(socketPath) == nil }
 
 // Call sends a single Request to the daemon at socketPath and decodes the
 // Data field of the Response into out (which may be nil). It returns the
 // daemon's error string as a Go error when OK=false.
 func Call(socketPath, verb string, args any, out any) error {
-	conn, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(context.Background(), "unix", socketPath)
+	conn, err := dialVerified(socketPath, 2*time.Second)
 	if err != nil {
 		return fmt.Errorf("daemon: dial %s: %w", socketPath, err)
 	}

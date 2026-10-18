@@ -234,6 +234,6 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.BaselineAudit = fs.Bool("baseline-audit", false, "Audit a baseline file for dead entries and removed rules, then exit")
 	f.Depth = fs.String("depth", "", "Analysis depth preset: fast (skip JVM oracle), balanced (default), thorough. Overrides krit.yml analysis.depth; individual --no-* flags still take precedence.")
 	f.NoDaemon = fs.Bool("no-daemon", false, "Force in-process execution; do not contact the krit daemon even if a socket is reachable.")
-	f.DaemonSocket = fs.String("daemon-socket", "", "Override the krit daemon socket path (default <repoRoot>/.krit/daemon.sock).")
+	f.DaemonSocket = fs.String("daemon-socket", "", "Override the krit daemon socket path (default <repoRoot>/.krit/daemon.sock, or a short per-user temp path when that exceeds the unix socket length limit).")
 	return f
 }

@@ -66,7 +66,7 @@ func runStatus(args []string) int {
 // sessdaemon-backed probe never reached this code path in production
 // because the analyze path was broken (see issue #247).
 func collectStatus(repo string) DaemonStatus {
-	socket := daemon.DefaultSocketPath(repo)
+	socket := daemon.LocateSocketPath(repo)
 	st := DaemonStatus{SocketPath: socket}
 
 	pid, perr := readPIDFile(pidFilePath(repo))

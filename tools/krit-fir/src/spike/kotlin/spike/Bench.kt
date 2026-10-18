@@ -20,8 +20,17 @@ fun main(args: Array<String>) {
             "inc" -> Inc(opts).run()
             "cli" -> Cli(opts).run()
             "parity" -> Cli(opts).parity()
+            "oracle" -> Cli(opts).oracleParity()
+            "surf" -> {
+                val g = Gen(File("/tmp/spike740/surf"), 60); g.generate()
+                val b = Runner.build(g.specs(null))
+                println(Runner.surfaceText(b.files.getValue(g.libPath(5))))
+                println(Runner.surfaceText(b.files.getValue(g.appPath(7))))
+                b.dispose(); File("/tmp/spike740/surf").deleteRecursively()
+            }
             "ctx" -> ctxProbe()
             "dangling" -> Dangling(opts).run()
+            "fidelity" -> Dangling(opts).fidelity()
             "filters" -> filtersProbe(opts)
             "depdebug" -> depDebug(opts)
             "stratc" -> StrategyC(opts).run()
@@ -122,6 +131,7 @@ class Inc(val o: Map<String, String>) {
         val tb = System.nanoTime()
         val cache = HashMap(if (coldCheck) Runner.check(cur) else emptyMap())
         var prevFull: Map<String, FileDiags>? = if (coldCheck) HashMap(cache) else null
+        val causes = java.util.TreeMap<String, Int>() // strict-mismatch diagnostic factories (file x edit)
         val precision = ArrayList<Triple<String, Int, Pair<Int, Int>>>() // kind, deps size, (truth size, missed)
         val tc = System.nanoTime()
         var libs = cur.libs
@@ -130,15 +140,26 @@ class Inc(val o: Map<String, String>) {
 
         data class Row(val i: Int, val kind: String, val scan: Long, val build: Long, val check: Long, val dispose: Long, val checked: Int, val mism: Int, val mem: Mem?, val cpu: Long, val load: String, val vmism: Int = -1)
         val rows = ArrayList<Row>()
+        val shadow = HashMap(g.texts) // texts as the daemon last saw them (for priming old surfaces)
+        val surf = HashMap<String, String>() // resolved declaration surface per file, as of its last check
         for (i in 1..(warm + edits)) {
             val e = g.nextEdit(kinds)
+            // Strategy S: the daemon would hold the previous surface of an edited file from its last check; emulate that
+            // (untimed) by resolving the file's pre-edit text.
+            if (strategy == "S") for (p in e.changed) if (p !in surf && shadow.containsKey(p)) {
+                val slice0 = idx.forwardClosure(setOf(p)) + p
+                val pb = Runner.build(g.specs(slice0), g.classpath, reuse = libs, overlay = mapOf(p to shadow.getValue(p)))
+                surf[p] = Runner.surface(pb.files.getValue(p)); pb.dispose()
+            }
             val total0 = System.nanoTime()
             val cpu0 = cpuNanos()
             // --- scan: re-read changed files, update index, derive check set
             val changedNow = (e.changed + e.added).filter { File(it).exists() }
             val items = HashSet<DepIndex.Item>()
+            val oldFacts = HashMap<String, DepIndex.Facts?>()
             for (p in e.changed + e.added + e.deleted) {
                 val old = idx.facts[p]
+                oldFacts[p] = old
                 val txtNew = if (File(p).exists()) File(p).readText() else null
                 if (txtNew != null) idx.put(p, txtNew) else idx.remove(p)
                 items += idx.changedItems(old, idx.facts[p])
@@ -147,24 +168,81 @@ class Inc(val o: Map<String, String>) {
             val deps = idx.dependents(items, self)
             val checkSet = LinkedHashSet<String>().apply { addAll(changedNow); addAll(deps) }
             val tScan = System.nanoTime() - total0
-            // --- build
+            var checkSetFinal: Set<String> = checkSet
+            var depsFinal: Set<String> = deps
             val old = cur
+            var fresh: Built
+            var tBuild: Long
+            var tCheck: Long
+            var res: Map<String, FileDiags>
+            if (strategy == "S") {
+                // Surface-gated fixpoint: check the edited files; only when a file's resolved surface changed, check its
+                // lexical dependents, and repeat for those (replaces the "inferred type" heuristic closure).
+                val itemsAD = HashSet<DepIndex.Item>()
+                val itemsByFile = HashMap<String, Set<DepIndex.Item>>()
+                for (p in e.changed + e.added + e.deleted) {
+                    val before = oldFacts[p]
+                    val its = idx.changedItems(before, idx.facts[p])
+                    itemsByFile[p] = its
+                    if (p in e.added || p in e.deleted) itemsAD += its
+                }
+                val edited = changedNow.toSet()
+                val queue = LinkedHashSet<String>(changedNow)
+                queue += idx.dependents(itemsAD, self)
+                val done = LinkedHashSet<String>()
+                val merged = HashMap<String, FileDiags>()
+                var tb = 0L; var tc = 0L; var last: Built? = null; var waves = 0
+                while (queue.isNotEmpty() && waves < 16) {
+                    val files = queue.filter { it !in done && File(it).exists() }.toSet(); queue.clear()
+                    if (files.isEmpty()) break
+                    val slice = idx.forwardClosure(files)
+                    val t1 = System.nanoTime()
+                    val wb = Runner.build(g.specs(slice), g.classpath, reuse = libs)
+                    tb += System.nanoTime() - t1
+                    val t2 = System.nanoTime()
+                    merged.putAll(Runner.check(wb, files))
+                    val newSurf = files.associateWith { Runner.surface(wb.files.getValue(it)) }
+                    tc += System.nanoTime() - t2
+                    done += files
+                    for (f in files) {
+                        val prev = surf[f]
+                        val changed = when {
+                            prev != null -> prev != newSurf.getValue(f)
+                            f in edited -> true
+                            else -> idx.facts[f]?.decls?.any { it.inferred } == true // unknown history: conservative fallback
+                        }
+                        surf[f] = newSurf.getValue(f)
+                        if (changed) {
+                            val its = itemsByFile[f]?.takeIf { it.isNotEmpty() } ?: idx.facts[f]?.decls.orEmpty().map { DepIndex.Item(if (it.owner == null) idx.facts[f]?.pkg else null, it.owner, it.name) }.toSet()
+                            queue += idx.dependents(its, done + files)
+                        }
+                    }
+                    last?.dispose(); last = wb; waves++
+                }
+                fresh = last ?: Runner.build(g.specs(emptySet()), g.classpath)
+                tBuild = tb; tCheck = tc; res = merged
+                checkSetFinal = done; depsFinal = done - edited
+            } else {
+            // --- build
             if (disposeFirst) old.dispose()
             val slice = if (strategy == "D") idx.forwardClosure(checkSet) else null
             val tb0 = System.nanoTime()
-            val fresh = Runner.build(g.specs(slice), g.classpath, reuse = if (strategy == "A") null else libs)
-            val tBuild = System.nanoTime() - tb0
+            fresh = Runner.build(g.specs(slice), g.classpath, reuse = if (strategy == "A") null else libs)
+            tBuild = System.nanoTime() - tb0
             // --- check
             val tc0 = System.nanoTime()
-            val res = Runner.check(fresh, checkSet)
-            val tCheck = System.nanoTime() - tc0
+            res = Runner.check(fresh, checkSet)
+            tCheck = System.nanoTime() - tc0
+            }
             for (d in e.deleted) cache.remove(d)
             cache.putAll(res)
             val td0 = System.nanoTime()
-            if (!disposeFirst) old.dispose()
+            if (!disposeFirst && old !== fresh) old.dispose()
             val tDisp = System.nanoTime() - td0
             val cpuUsed = cpuNanos() - cpu0
             cur = fresh
+            for (p in e.changed + e.added) g.texts[p]?.let { shadow[p] = it }
+            for (p in e.deleted) { shadow.remove(p); surf.remove(p) }
             if (strategy != "A") libs = libs ?: fresh.libs
 
             val mem = if (i % gcEvery == 0) memSnap(true) else null
@@ -175,7 +253,7 @@ class Inc(val o: Map<String, String>) {
                 val fullNow = oracleSample == 0 || (oracleFullEvery > 0 && i % oracleFullEvery == 0)
                 val sample: Collection<String>? = if (!fullNow) {
                     val pool = fullB.files.keys.toList()
-                    (checkSet + (1..oracleSample).map { pool[g.rnd.nextInt(pool.size)] } + e.deleted).toSet()
+                    (checkSetFinal + (1..oracleSample).map { pool[g.rnd.nextInt(pool.size)] } + e.deleted).toSet()
                 } else null
                 val full = Runner.check(fullB, sample)
                 fullB.dispose()
@@ -183,24 +261,24 @@ class Inc(val o: Map<String, String>) {
                 if (fullNow && prevFull != null) {
                     val pf = prevFull!!
                     val truth = (full.keys + pf.keys).filter { p -> p !in self && full[p]?.keys != pf[p]?.keys }.toSet()
-                    val missed = truth - deps
-                    precision += Triple(e.kind, deps.size, truth.size to missed.size)
-                    log("  truth: files (other than the edited) whose diagnostics changed=${truth.size}, flagged dependents=${deps.size}, missed=${missed.size}")
+                    val missed = truth - depsFinal
+                    precision += Triple(e.kind, depsFinal.size, truth.size to missed.size)
+                    log("  truth: files (other than the edited) whose diagnostics changed=${truth.size}, flagged dependents=${depsFinal.size}, missed=${missed.size}")
                 }
                 if (fullNow) prevFull = full
                 val bad = ArrayList<String>()
                 for (p in sample ?: (full.keys + cache.keys)) {
                     val a = full[p]?.keys; val b = cache[p]?.keys
-                    if (b == null && sample != null && p !in checkSet) continue // never cached (sampled, not rechecked): no claim
+                    if (b == null && sample != null && p !in checkSetFinal) continue // never cached (sampled, not rechecked): no claim
                     fun verdict(d: FileDiags?) = d?.let { x -> x.keys.filter { it.startsWith("KRIT_RULE|") || it.startsWith("RULEERR|") }.toSet() to x.hasError }
                     if (verdict(full[p]) != verdict(cache[p])) { vmism++; log("  VERDICT-MISMATCH edit#$i ${e.kind} ${File(p).name}") }
-                    if (a != b) { mism++; if (bad.size < 3) bad += "${File(p).name}: want=${a?.size} got=${b?.size} ${(a.orEmpty() - b.orEmpty()).take(1)} / ${(b.orEmpty() - a.orEmpty()).take(1)}" }
+                    if (a != b) { for (k in (a.orEmpty() - b.orEmpty()) + (b.orEmpty() - a.orEmpty())) causes.merge(k.substringBefore('|'), 1, Int::plus); mism++; if (bad.size < 3) bad += "${File(p).name}: want=${a?.size} got=${b?.size} ${(a.orEmpty() - b.orEmpty()).take(1)} / ${(b.orEmpty() - a.orEmpty()).take(1)}" }
                 }
                 if (mism > 0) log("  MISMATCH(strict) edit#$i ${e.kind}: $mism files, verdict-level $vmism; e.g. $bad")
             }
-            val r = Row(i, e.kind, tScan, tBuild, tCheck, tDisp, checkSet.size, mism, mem, cpuUsed, load1(), vmism)
+            val r = Row(i, e.kind, tScan, tBuild, tCheck, tDisp, checkSetFinal.size, mism, mem, cpuUsed, load1(), vmism)
             rows += r
-            log("e$i ${e.kind} set=${checkSet.size} (deps=${deps.size}) scan=${ms(tScan)} build=${ms(tBuild)} check=${ms(tCheck)} dispose=${ms(tDisp)} total=${ms(tScan + tBuild + tCheck)}ms cpu=${ms(cpuUsed)}ms load=${load1()}${if (mem != null) " mem=$mem" else ""}${if (mism >= 0) " mism=$mism" else ""}")
+            log("e$i ${e.kind} set=${checkSetFinal.size} (deps=${depsFinal.size}) scan=${ms(tScan)} build=${ms(tBuild)} check=${ms(tCheck)} dispose=${ms(tDisp)} total=${ms(tScan + tBuild + tCheck)}ms cpu=${ms(cpuUsed)}ms load=${load1()}${if (mem != null) " mem=$mem" else ""}${if (mism >= 0) " mism=$mism" else ""}")
         }
         val meas = rows.filter { it.i > warm }
         fun stat(name: String, rs: List<Row>) {
@@ -228,6 +306,7 @@ class Inc(val o: Map<String, String>) {
         for ((i, m) in mems) log("  edit $i: used=${m.usedMb}MB meta=${m.metaMb}MB classes=${m.classes} threads=${m.threads} fds=${m.fds}")
         val mmis = rows.filter { it.mism >= 0 }
         log("## correctness: oracle ran on ${mmis.size} edits; strict(all diagnostics) mismatching edits=${mmis.count { it.mism > 0 }} files=${mmis.sumOf { it.mism }}; verdict(krit findings + error gating) mismatching edits=${mmis.count { it.vmism > 0 }} files=${mmis.sumOf { it.vmism }}")
+        log("## strict-mismatch causes by diagnostic factory (file x edit): $causes")
         for (r in mmis.filter { it.mism > 0 }) log("   edit ${r.i} (${r.kind}) strict=${r.mism} verdict=${r.vmism} set=${r.checked}")
         log("## process memory at end: " + (try { File("/proc/self/status").readLines().filter { it.startsWith("VmHWM") || it.startsWith("VmRSS") }.joinToString(" ") { it.replace(Regex("\\s+"), " ") } } catch (_: Exception) { "n/a" }) +
             " gcPeakHeap(MB)=" + ManagementFactory.getMemoryPoolMXBeans().filter { it.type == java.lang.management.MemoryType.HEAP }.sumOf { it.peakUsage.used } / (1 shl 20))

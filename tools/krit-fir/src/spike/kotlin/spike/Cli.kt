@@ -71,4 +71,48 @@ class Cli(val o: Map<String, String>) {
         }
         if (o["keep"] != "true") dir.deleteRecursively()
     }
+
+    /**
+     * Do the oracle facts (declarations, expression types, lambda suspend flags) that krit-fir produces for #810's shared
+     * compile come out of an Analysis API session identically? The collector is driven by the same FIR extension
+     * through a thread-local registry, so a check of a file in an AA session can fill it.
+     */
+    fun oracleParity() {
+        dir.deleteRecursively()
+        val g = makeProj(o, dir, n, 7L)
+        val s = AnalysisSession(g.sourceDirs, g.classpath)
+        val b = Runner.build(g.specs(null), g.classpath)
+        val cc = Class.forName("dev.jasonpearson.krit.fir.oracle.OracleCollector")
+        val reg = Class.forName("dev.jasonpearson.krit.fir.oracle.OracleCollectorRegistry")
+        val inst = reg.getField("INSTANCE").get(null)
+        val sample = g.texts.keys.sorted().filterIndexed { i, _ -> i % (g.texts.size / 12 + 1) == 0 }.take(12)
+        val coll = cc.getDeclaredConstructor().newInstance()
+        reg.getMethod("begin", cc).invoke(inst, coll)
+        val t = System.nanoTime()
+        Runner.check(b, sample)
+        println("AA check with the oracle collector active: ${ms(System.nanoTime() - t)} ms for ${sample.size} files")
+        reg.getMethod("end").invoke(inst)
+        val aa = cc.getMethod("toResult").invoke(coll) as dev.jasonpearson.krit.fir.oracle.AnalyzeResult
+        val cli = s.analyze(sample)
+        var same = 0; var diffDecl = 0; var diffExpr = 0; var diffLambda = 0; var missing = 0
+        for (p in sample) {
+            val a = aa.files[p]; val c = cli.files[p]
+            if (a == null || c == null) { missing++; println("  missing payload for ${File(p).name}: aa=${a != null} cli=${c != null}"); continue }
+            val d = a.declarations.sortedBy { it.fqn } == c.declarations.sortedBy { it.fqn }; val e = a.expressions == c.expressions; val l = a.lambdaSuspendByLineCol == c.lambdaSuspendByLineCol
+            if (d && e && l) same++ else {
+                if (!d) diffDecl++; if (!e) diffExpr++; if (!l) diffLambda++
+                println("  differs ${File(p).name}: decl=$d (aa=${a.declarations.size}, cli=${c.declarations.size}) expr=$e (aa=${a.expressions.size}, cli=${c.expressions.size}) lambda=$l")
+                if (!d) for ((x, y) in a.declarations.zip(c.declarations)) if (x != y) {
+                    val sx = x.toString(); val sy = y.toString()
+                    var k = 0; while (k < sx.length && k < sy.length && sx[k] == sy[k]) k++
+                    println("     first differing class ${x.fqn}: common prefix=$k chars; aa=…${sx.substring(maxOf(0, k - 40)).take(220)}")
+                    println("                                           cli=…${sy.substring(maxOf(0, k - 40)).take(220)}")
+                    break
+                }
+                if (!e) { val ka = a.expressions.keys; val kc = c.expressions.keys; println("     expr keys only-aa=${(ka - kc).take(3)} only-cli=${(kc - ka).take(3)} valueDiffs=${ka.intersect(kc).count { a.expressions[it] != c.expressions[it] }}") }
+            }
+        }
+        println("oracle-facts parity over ${sample.size} files: identical=$same declDiff=$diffDecl exprDiff=$diffExpr lambdaDiff=$diffLambda missing=$missing")
+        b.dispose()
+    }
 }

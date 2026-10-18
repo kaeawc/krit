@@ -25,6 +25,8 @@ import org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi
 import org.jetbrains.kotlin.cli.extensionsStorage
 import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.jetbrains.kotlin.platform.jvm.JvmPlatforms
+import org.jetbrains.kotlin.analysis.api.renderer.declarations.impl.KaDeclarationRendererForSource
+import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtFile
 import java.io.File
 import kotlin.io.path.Path
@@ -131,7 +133,7 @@ object Runner {
 
     @Volatile var filter: KaDiagnosticCheckerFilter = KaDiagnosticCheckerFilter.EXTENDED_AND_COMMON_CHECKERS
 
-    fun checkFile(kt: KtFile, rec: FirRuleErrorRecorder = FirRuleErrorRecorder(), path: String = kt.virtualFile.path): FileDiags {
+    fun checkFile(kt: KtFile, rec: FirRuleErrorRecorder = FirRuleErrorRecorder(), path: String = kt.virtualFile?.path ?: kt.name): FileDiags {
         // Rule isolation: the recorder is captured when the FIR session builds its checker extension (on first use),
         // so it must be current on this thread before the first analyze() of a session.
         FirRuleErrors.begin(rec)
@@ -152,5 +154,33 @@ object Runner {
             if (p == path || cp == canon || (File(p).parent == "/" && File(p).name == File(path).name)) keys += "RULEERR|$rule"
         }
         return FileDiags(keys, errors, krit)
+    }
+
+    /**
+     * Resolved declaration surface of a file: the rendered, resolved signatures (inferred types included) of every
+     * non-private top-level declaration and its members. Equal surfaces mean no other file can observe an edit.
+     */
+    fun surfaceText(kt: KtFile): String {
+        val sb = StringBuilder("package ${kt.packageFqName}\n")
+        analyze(kt) {
+            val r = KaDeclarationRendererForSource.WITH_QUALIFIED_NAMES
+            fun visit(d: org.jetbrains.kotlin.psi.KtDeclaration, depth: Int) {
+                if (d.hasModifier(KtTokens.PRIVATE_KEYWORD)) return
+                try {
+                    sb.append("  ".repeat(depth)).append(d.symbol.render(r)).append('\n')
+                    if (d is org.jetbrains.kotlin.psi.KtClassOrObject) {
+                        for (p in d.primaryConstructorParameters) if (p.hasValOrVar() && !p.hasModifier(KtTokens.PRIVATE_KEYWORD)) sb.append("  ".repeat(depth + 1)).append(p.symbol.render(r)).append('\n')
+                        for (m in d.declarations) visit(m, depth + 1)
+                    }
+                } catch (t: Throwable) { sb.append("UNRENDERABLE ${d.name}\n") }
+            }
+            for (d in kt.declarations) visit(d, 0)
+        }
+        return sb.toString()
+    }
+
+    fun surface(kt: KtFile): String {
+        val h = java.security.MessageDigest.getInstance("SHA-256").digest(surfaceText(kt).toByteArray())
+        return h.joinToString("") { "%02x".format(it) }.take(16)
     }
 }

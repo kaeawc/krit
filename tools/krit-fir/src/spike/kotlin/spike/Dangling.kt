@@ -11,7 +11,7 @@ import java.io.File
  * (KtFile.originalFile = the session's PSI) instead of rebuilding anything. Valid while the edit does not change
  * the file's declaration surface, so nothing else in the session is stale.
  */
-@OptIn(KaExperimentalApi::class, org.jetbrains.kotlin.analysis.api.KaPlatformInterface::class)
+@OptIn(KaExperimentalApi::class, org.jetbrains.kotlin.analysis.api.KaPlatformInterface::class, org.jetbrains.kotlin.analysis.api.KaImplementationDetail::class)
 class Dangling(val o: Map<String, String>) {
     fun danglingCopy(b: Built, path: String, text: String): KtFile {
         val orig = b.files.getValue(path)
@@ -56,5 +56,29 @@ class Dangling(val o: Map<String, String>) {
         println("## heap after GC: ${memSnap(true)}")
         b.dispose()
         if (o["keep"] != "true") java.io.File(o["dir"] ?: "/tmp/spike740/dang$n").deleteRecursively()
+    }
+
+    /** Unchanged text analyzed as a dangling copy must give the original file's diagnostics. Which files differ, and does the resolution mode matter? */
+    fun fidelity() {
+        val g = makeProj(o, java.io.File(o["dir"] ?: "/tmp/spike740/fid"), (o["files"] ?: "300").toInt(), 17L)
+        println("# ${g.describe()}")
+        val b = Runner.build(g.specs(null), g.classpath)
+        val paths = b.files.keys.sorted().let { if (o["limit"] != null) it.take(o["limit"]!!.toInt()) else it }
+        var checked = 0
+        val bad = HashMap<String, Int>()
+        for (p in paths) {
+            val orig = Runner.checkFile(b.files.getValue(p), b.recorder, p)
+            for (mode in listOf(org.jetbrains.kotlin.analysis.api.projectStructure.KaDanglingFileResolutionMode.PREFER_SELF, org.jetbrains.kotlin.analysis.api.projectStructure.KaDanglingFileResolutionMode.IGNORE_SELF)) {
+                val copy = danglingCopy(b, p, java.io.File(p).readText())
+                val got = org.jetbrains.kotlin.analysis.api.projectStructure.withDanglingFileResolutionMode(copy, mode) { Runner.checkFile(copy, b.recorder, p) }
+                if (got.keys != orig.keys) {
+                    bad.merge(mode.name, 1, Int::plus)
+                    println("  DIFF ${mode.name} ${java.io.File(p).name}: orig=${orig.keys.size} copy=${got.keys.size} extra=${(got.keys - orig.keys).take(2).map { it.take(120) }} missing=${(orig.keys - got.keys).take(2).map { it.take(120) }}")
+                }
+            }
+            checked++
+        }
+        println("## dangling fidelity (unchanged text): files=$checked mismatches by mode=$bad")
+        b.dispose()
     }
 }

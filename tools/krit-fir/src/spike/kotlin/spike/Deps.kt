@@ -144,6 +144,8 @@ class DepIndex {
                         inferred = false
                         header = rest.substringBefore("{")
                     }
+                    // literal contents never change a declaration's type: normalize them out of the observable header
+                    header = header.replace(Regex("\"[^\"]*\""), "\"\"").replace(Regex("(?<![A-Za-z0-9_])\\d+\\.\\d+"), "0.0").replace(Regex("(?<![A-Za-z0-9_.])\\d+"), "0")
                     header = kw + " " + header.trim().replace(Regex("\\s+"), " ")
                     val supers = if (isType && header.contains(":")) {
                         ident.findAll(header.substringAfter(":")).map { it.value }.toList()

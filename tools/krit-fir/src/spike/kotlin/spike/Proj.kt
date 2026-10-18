@@ -55,7 +55,7 @@ class RealProj(srcRoots: List<String>, override val classpath: List<String>, cop
 
     private fun put(path: String, text: String) { texts[path] = text; File(path).parentFile.mkdirs(); File(path).writeText(text) }
 
-    private fun pick(): String { val ks = texts.keys.toList(); return ks[rnd.nextInt(ks.size)] }
+    private fun pick(): String { val pool = System.getenv("SPIKE_POOL")?.toIntOrNull(); val ks = texts.keys.toList().let { if (pool != null) it.take(pool) else it }; return ks[rnd.nextInt(ks.size)] }
 
     override fun nextEdit(kinds: List<String>?): Gen.Edit {
         val roll = rnd.nextInt(100)

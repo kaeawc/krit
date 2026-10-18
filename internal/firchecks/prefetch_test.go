@@ -212,3 +212,26 @@ func TestPrefetchIgnoresAResponseWithoutCheckers(t *testing.T) {
 		t.Fatalf("own checks = %d, want 1", *calls)
 	}
 }
+
+// krit-fir's "not applied" warning rides the shared response and reaches the
+// pass's result like the one a separate check would give.
+func TestPrefetchedResponseKeepsItsWarning(t *testing.T) {
+	p := newPrefetchProject(t)
+	prefetch := NewPrefetch(p.opts)
+	p.checker.Prefetch = prefetch
+	rider := prefetch.Rider(p.jar, []string{p.src}, []string{p.jar}, CompileTarget{})
+	_, deliver := rider.Prepare()
+	var resp map[string]any
+	if err := json.Unmarshal(p.response(verdictRule), &resp); err != nil {
+		t.Fatal(err)
+	}
+	resp["warning"] = "krit-fir: languageVersion 9.9 is not supported"
+	data, _ := json.Marshal(resp)
+	deliver(data)
+	stubMisses(t, false)
+
+	res := p.check(t, []string{p.a, p.b}, []string{verdictRule})
+	if !slices.Equal(res.Warnings, []string{"krit-fir: languageVersion 9.9 is not supported"}) {
+		t.Fatalf("warnings = %v", res.Warnings)
+	}
+}

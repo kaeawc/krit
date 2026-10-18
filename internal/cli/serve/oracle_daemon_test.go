@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"testing"
 
@@ -251,5 +252,62 @@ func TestPingOracleDaemon_RebuildKeepsBackend(t *testing.T) {
 	state.pingOracleDaemon()
 	if len(fake.backends) != 1 || fake.backends[0] != oracle.BackendFIR {
 		t.Fatalf("rebuild asked for backends %v, want [%s]", fake.backends, oracle.BackendFIR)
+	}
+}
+
+// recordingStarter remembers the context each daemon was started with.
+type recordingStarter struct {
+	sourceDirs, classpaths [][]string
+}
+
+func (r *recordingStarter) Start(_ string, sourceDirs, classpath []string, _ bool, _ ...oracle.DaemonOption) (*oracle.Daemon, error) {
+	r.sourceDirs = append(r.sourceDirs, sourceDirs)
+	r.classpaths = append(r.classpaths, classpath)
+	return &oracle.Daemon{}, nil
+}
+
+// The resident krit-fir oracle compiles with the classpath and source roots the
+// request's FIR checker uses (#810), is keyed on them, and retires the daemon
+// for a superseded context. krit-types keeps its walked roots and no classpath.
+func TestEnsureOracleDaemonForCompilesInTheCheckersContext(t *testing.T) {
+	root := t.TempDir()
+	jar := filepath.Join(root, "krit-fir.jar")
+	if err := os.WriteFile(jar, []byte("A"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KRIT_FIR_JAR", jar)
+	src := filepath.Join(root, "src", "main", "kotlin")
+	extra := filepath.Join(root, "model-src")
+	for _, d := range []string{src, extra} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state := newDaemonState(root)
+	t.Cleanup(state.closeOracleDaemons)
+	rec := &recordingStarter{}
+	state.oracleDaemonStarter = rec
+
+	ctx := oracleDaemonContext{Classpath: []string{"/m/a.jar"}, ExtraSourceDirs: []string{extra}}
+	d1, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendFIR, ctx)
+	if err != nil || d1 == nil {
+		t.Fatalf("daemon=%v err=%v", d1, err)
+	}
+	if got := rec.classpaths[0]; len(got) != 1 || got[0] != "/m/a.jar" {
+		t.Fatalf("classpath = %v", got)
+	}
+	if !slices.Contains(rec.sourceDirs[0], extra) {
+		t.Fatalf("source dirs %v lack the model's %s", rec.sourceDirs[0], extra)
+	}
+	if d, _ := state.ensureOracleDaemonFor([]string{root}, oracle.BackendFIR, ctx); d != d1 || len(rec.classpaths) != 1 {
+		t.Fatal("the same context must reuse the resident daemon")
+	}
+	other := ctx
+	other.Classpath = []string{"/m/b.jar"}
+	if d, _ := state.ensureOracleDaemonFor([]string{root}, oracle.BackendFIR, other); d == d1 || len(rec.classpaths) != 2 {
+		t.Fatal("another classpath must get its own daemon")
+	}
+	if n := len(state.oracleDaemonByKey); n != 1 {
+		t.Fatalf("%d daemons resident, want the superseded one retired", n)
 	}
 }

@@ -176,7 +176,12 @@ func TestFirDaemonRetiresLegacyAndPreservesOtherEntries(t *testing.T) {
 	t.Setenv("JAVA_HOME", "")
 	t.Setenv("PATH", t.TempDir())
 	_, _ = ConnectOrStartFirDaemon(jar, sources, nil, false)
-	if err := cmd.Process.Signal(os.Interrupt); err == nil {
+	// The retired process may still be an unreaped zombie for a moment
+	// (signals to a zombie succeed), so wait for it to be reaped rather
+	// than probing it with a signal.
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
 		t.Fatal("legacy process remains alive")
 	}
 	for key, want := range map[string]bool{legacy: false, otherPath: true, otherSources: true} {

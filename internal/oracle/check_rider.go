@@ -22,6 +22,25 @@ type CheckRider struct {
 	// when the oracle launches its one-shot compile, so a run the oracle
 	// cache answers pays nothing; a nil request rides nothing.
 	Prepare func() (request []byte, deliver func(response []byte))
+	// Sent, when set, is called once the request is about to go on the wire
+	// (after the daemon is free), so a waiter's deadline for the compile can
+	// start there. Optional.
+	Sent func()
+	// Cancelled, when set, reports that the rider's owner no longer wants the
+	// check (it gave up waiting); checked once more after the daemon is free.
+	Cancelled func() bool
+	// Decline, when set, tells the rider's owner that this compile will not
+	// answer the request, and why: the daemon's jar does not know it, or
+	// krit-fir could not share the compile. A caller waiting on the oracle's
+	// compile can stop at once. Optional.
+	Decline func(reason string)
+}
+
+// decline reports that the request will not be answered; nil-safe.
+func (r *CheckRider) decline(reason string) {
+	if r != nil && r.Decline != nil {
+		r.Decline(reason)
+	}
 }
 
 // checkRiderRun is one oracle process's share of a CheckRider: the files it

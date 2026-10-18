@@ -212,6 +212,11 @@ type IndexInput struct {
 	// krit-fir oracle's one-shot compilation of jarPath over sourceDirs and
 	// classpath for target, or nil (#739).
 	FIRCheckRider func(jarPath string, sourceDirs, classpath []string, target firchecks.CompileTarget) *oracle.CheckRider
+	// FIRCheckBroker, when non-nil, lets the resident oracle daemon answer the
+	// --fir pass's check from its own compilation (#810). IndexPhase resolves
+	// it on every path: when the oracle will not run, when it has run, and
+	// when it declines to carry the check.
+	FIRCheckBroker *firchecks.Broker
 	// PrebuiltOracleDaemon, when non-nil, is reused by runDaemonOracle
 	// instead of calling oracle.InvokeDaemon. The serve daemon's
 	// ensureOracleDaemon supplies a *oracle.Daemon kept alive across
@@ -788,7 +793,11 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 	})
 	if !in.SkipOracle && in.OracleEnabled && resolverForOracle != nil && len(rules.KotlinOracleRulesV2(in.ActiveRules)) > 0 {
 		resolverForOracle = p.runOracle(in, resolverForOracle, &result)
+	} else {
+		in.FIRCheckBroker.Done("oracle skipped")
 	}
+	// Whatever the oracle did, it is not going to carry the check any more.
+	in.FIRCheckBroker.Done("oracle finished")
 
 	track("buildTypeResolver", func() {
 		result.Resolver = p.buildTypeResolver(in, resolverForOracle, caps)
@@ -935,6 +944,10 @@ func recordResidentOracleBackend(tracker perf.Tracker, backend oracle.Backend, d
 func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scanPaths []string, loadOracleFilterFiles func() []*scanner.File, oracleTracker perf.Tracker, base typeinfer.TypeResolver, result *IndexResult) typeinfer.TypeResolver {
 	callFilterPtr := selectOracleCallFilter(in, oracleRules, loadOracleFilterFiles, oracleTracker)
 
+	// Whichever way this returns, the pass must not keep waiting for a check
+	// this function never sent.
+	defer in.FIRCheckBroker.Done("oracle daemon path returned")
+
 	var d *oracle.Daemon
 	if in.PrebuiltOracleDaemon != nil {
 		d = in.PrebuiltOracleDaemon
@@ -953,6 +966,9 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 	oracleTracker.TrackVoid("jvmAnalyze", func() {
 		oracleData = daemonAnalyze(in, d, scanPaths, callFilterPtr, oracleTracker)
 	})
+	// The compile is over, shared or not: the pass may use the check it
+	// carried or run its own.
+	in.FIRCheckBroker.Done("oracle daemon analysis finished")
 	if oracleData == nil {
 		return base
 	}
@@ -983,6 +999,37 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 type daemonAnalyzer interface {
 	AnalyzeAllWithCallFilter(callFilter *oracle.CallTargetFilterSummary) (*oracle.Data, error)
 	AnalyzeFilesWithCallFilter(files []string, callFilter *oracle.CallTargetFilterSummary) (*oracle.Data, error)
+}
+
+// daemonCheckAnalyzer is what a daemon needs to answer the --fir pass's check
+// from its compilation (#810): the combined request, and the registry facts
+// that say the daemon compiles in the pass's context.
+type daemonCheckAnalyzer interface {
+	AnalyzeAllWithCheck(callFilter *oracle.CallTargetFilterSummary, rider *oracle.CheckRider) (*oracle.Data, error)
+	MatchesRepoSettings(jarPath string, sourceDirs []string, kt gradlemodel.KotlinSettings, classpath ...string) bool
+}
+
+// analyzeAllCarryingCheck is a full daemon analysis that also answers the
+// --fir pass's check when the broker lets it: the daemon compiles in the
+// pass's context and krit-fir knows the combined request. Otherwise it is
+// exactly AnalyzeAllWithCallFilter, and the broker is resolved by the caller.
+func analyzeAllCarryingCheck(in IndexInput, d daemonAnalyzer, callFilterPtr *oracle.CallTargetFilterSummary) (*oracle.Data, error) {
+	carrier, ok := d.(daemonCheckAnalyzer)
+	if !ok {
+		in.FIRCheckBroker.Done("oracle daemon cannot carry a check")
+		return d.AnalyzeAllWithCallFilter(callFilterPtr)
+	}
+	rider := in.FIRCheckBroker.Claim(func(jarPath string, sourceDirs []string, kt gradlemodel.KotlinSettings, classpath []string) bool {
+		return carrier.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...)
+	})
+	if rider == nil {
+		return d.AnalyzeAllWithCallFilter(callFilterPtr)
+	}
+	data, err := carrier.AnalyzeAllWithCheck(callFilterPtr, rider)
+	if err != nil {
+		in.FIRCheckBroker.Done("oracle request failed")
+	}
+	return data, err
 }
 
 // daemonAnalyze obtains the oracle facts from the resident daemon: a partial
@@ -1022,6 +1069,9 @@ func daemonAnalyze(in IndexInput, d daemonAnalyzer, scanPaths []string, callFilt
 		scopeDeclined = true
 	}
 	if canPartial {
+		// A partial reanalyze compiles for a few files; the pass checks the
+		// whole module on its own.
+		in.FIRCheckBroker.Done("partial oracle reanalyze")
 		perf.AddEntryDetails(oracleTracker, "daemonPartialReanalyze", 0, map[string]int64{
 			"stalePaths": int64(len(in.StaleOraclePaths)),
 		}, nil)
@@ -1063,7 +1113,7 @@ func daemonAnalyze(in IndexInput, d daemonAnalyzer, scanPaths []string, callFilt
 		recordTypesScope(cachedTypesPath, typesScope, haveScope, scanPaths, in.warnf)
 		return merged
 	}
-	od, err := d.AnalyzeAllWithCallFilter(callFilterPtr)
+	od, err := analyzeAllCarryingCheck(in, d, callFilterPtr)
 	if err != nil {
 		in.warnf("warning: daemon analyzeAll: %v\n", err)
 		return nil
@@ -1539,10 +1589,12 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 	var resolver typeinfer.TypeResolver
 	switch {
 	case in.UseDaemon && in.OracleBackend == oracle.BackendFIR:
+		in.FIRCheckBroker.Done("fir daemon oracle")
 		resolver = p.runDaemonOracleFir(in, scanPaths, oracleTracker, base, result)
 	case in.UseDaemon:
 		resolver = p.runDaemonOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, result)
 	default:
+		in.FIRCheckBroker.Done("one-shot oracle")
 		resolver = p.runAutoDetectOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, result)
 	}
 

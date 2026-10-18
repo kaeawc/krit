@@ -218,7 +218,7 @@ func (s *daemonState) runStrictVerify(ctx context.Context, args daemon.AnalyzePr
 	var oracleDaemon *oracle.Daemon
 	var oracleErr error
 	if !args.NoTypeOracle {
-		oracleDaemon, oracleErr = s.ensureOracleDaemon(paths, backend, args.OracleKotlin)
+		oracleDaemon, oracleErr = s.ensureOracleDaemonFor(paths, backend, oracleContextFor(args))
 	}
 	if oracleErr != nil {
 		// Mirror buildProjectInput's "best-effort degrade": a failed

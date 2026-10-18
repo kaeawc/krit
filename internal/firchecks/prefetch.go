@@ -62,6 +62,35 @@ func (p *Prefetch) Rider(jarPath string, sourceDirs, classpath []string, target 
 	return &oracle.CheckRider{Prepare: p.prepare}
 }
 
+// hasResponse reports whether a usable check response is held.
+func (p *Prefetch) hasResponse() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.resp != nil
+}
+
+// hasUncachedFiles reports whether the pass would compile anything: false only
+// when the check cache answers every file it checks, so a check riding on the
+// oracle's compile would be work nobody asked for. True when the pass runs
+// uncached or the cache cannot be consulted.
+func (p *Prefetch) hasUncachedFiles() bool {
+	c := p.checker
+	if c.NoCache || c.RepoDir == "" {
+		return true
+	}
+	plan, ok := planPass(p.opts)
+	if !ok || len(plan.requested) == 0 {
+		return true
+	}
+	cacheDir, err := CacheDir(c.RepoDir)
+	if err != nil {
+		return true
+	}
+	fingerprint := CheckCacheFingerprint(c.SourceDirs, plan.requested, c.Classpath, c.JarPath, plan.rules, plan.configs, plan.facts, c.CompileTarget())
+	_, misses := classifyFilesQuiet(cacheDir, plan.requested, fingerprint)
+	return len(misses) > 0
+}
+
 // prepare plans the pass and returns its check request, recording what the
 // compile will see so the pass can tell whether the response still applies.
 func (p *Prefetch) prepare() ([]byte, func([]byte)) {
@@ -176,7 +205,7 @@ func (r *CheckResponse) forFiles(files []string) *CheckResponse {
 	for _, path := range files {
 		want[path] = true
 	}
-	out := &CheckResponse{ID: r.ID, Rules: slices.Clone(r.Rules), rulesPresent: r.rulesPresent}
+	out := &CheckResponse{ID: r.ID, Rules: slices.Clone(r.Rules), rulesPresent: r.rulesPresent, Warning: r.Warning}
 	for _, f := range r.Findings {
 		if want[f.Path] {
 			out.Findings = append(out.Findings, f)

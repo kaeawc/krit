@@ -596,6 +596,11 @@ type oracleDaemonEntry struct {
 	jarPath     string
 	jarIdentity string
 	sourceDirs  []string
+	// roots are the walked scan roots before any context is applied; daemons
+	// for the same jar and roots under another context retire each other.
+	roots []string
+	// classpath is the classpath the daemon was started with (krit-fir only).
+	classpath []string
 	// kotlin is the compiler settings the daemon was launched with; a daemon
 	// for other settings would answer with other facts, so it is part of the key.
 	kotlin gradlemodel.KotlinSettings
@@ -660,10 +665,40 @@ func oracleJarForBackend(scanPaths []string, backend oracle.Backend) string {
 // rules in the daemon get oracle precision without paying JVM startup
 // on every call.
 func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Backend, kotlin ...gradlemodel.KotlinSettings) (*oracle.Daemon, error) {
-	var kt gradlemodel.KotlinSettings
+	var ctx oracleDaemonContext
 	if len(kotlin) > 0 {
-		kt = kotlin[0]
+		ctx.Kotlin = kotlin[0]
 	}
+	return s.ensureOracleDaemonFor(scanPaths, backend, ctx)
+}
+
+// oracleDaemonContext is the compile context a request's oracle runs under,
+// beyond the scan paths: the Kotlin settings, and, for krit-fir, the classpath
+// and extra source roots the in-process scan and the FIR checkers compile with.
+// A resident daemon compiles only with what it was started with (requests carry
+// no classpath), so these are part of its identity.
+type oracleDaemonContext struct {
+	Kotlin gradlemodel.KotlinSettings
+	// Classpath is the resolved oracle classpath (Gradle model plus config).
+	// Used by krit-fir only; krit-types ignores it today.
+	Classpath []string
+	// ExtraSourceDirs are the Gradle-model source roots added to the walked
+	// ones (krit-fir only).
+	ExtraSourceDirs []string
+}
+
+// oracleContextFor is the context the request's FIR checker compiles with, so
+// the resident oracle and the checker can share one compile.
+func oracleContextFor(args daemon.AnalyzeProjectArgs) oracleDaemonContext {
+	return oracleDaemonContext{Kotlin: args.OracleKotlin, Classpath: args.OracleClasspath, ExtraSourceDirs: args.OracleSourceDirs}
+}
+
+// ensureOracleDaemonFor is ensureOracleDaemon under an explicit context. For
+// krit-fir the daemon is started and keyed with the classpath and the
+// filtered, unioned source roots the checker uses, exactly as an in-process
+// scan's oracle compiles; a different context gets its own daemon.
+func (s *daemonState) ensureOracleDaemonFor(scanPaths []string, backend oracle.Backend, octx oracleDaemonContext) (*oracle.Daemon, error) {
+	kt := octx.Kotlin
 	jarPath := oracleJarForBackend(scanPaths, backend)
 	if jarPath == "" {
 		// Graceful disable: no jar means oracle isn't installed in
@@ -671,8 +706,19 @@ func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Back
 		// re-walk the filesystem on every call.
 		return nil, nil
 	}
-	sourceDirs := oracle.FindSourceDirs(scanPaths)
-	key := jarPath + "\x00" + strings.Join(sourceDirs, "\x00") + "\x00" + kt.Identity()
+	// oracleJarForBackend picks krit-fir for FIR and krit-types otherwise.
+	served := oracle.BackendKAA
+	if backend == oracle.BackendFIR {
+		served = oracle.BackendFIR
+	}
+	roots := oracle.FindSourceDirs(scanPaths)
+	sourceDirs, classpath := roots, []string(nil)
+	if served == oracle.BackendFIR {
+		// The checker's context: FilterFIRSourceDirs(Union(Filter(roots), extra)).
+		sourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(oracle.FilterFIRSourceDirs(roots), octx.ExtraSourceDirs))
+		classpath = octx.Classpath
+	}
+	key := jarPath + "\x00" + strings.Join(sourceDirs, "\x00") + "\x00" + kt.Identity() + "\x00" + strings.Join(classpath, "\x00")
 
 	s.oracleDaemonMu.Lock()
 	defer s.oracleDaemonMu.Unlock()
@@ -683,22 +729,17 @@ func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Back
 		_ = entry.close()
 		delete(s.oracleDaemonByKey, key)
 	}
-	// oracleJarForBackend picks krit-fir for FIR and krit-types otherwise.
-	served := oracle.BackendKAA
-	if backend == oracle.BackendFIR {
-		served = oracle.BackendFIR
-	}
-	d, err := s.oracleDaemonStarter.Start(jarPath, sourceDirs, nil, false, oracle.WithKotlinSettings(kt), oracle.WithBackend(served))
+	d, err := s.oracleDaemonStarter.Start(jarPath, sourceDirs, classpath, false, oracle.WithKotlinSettings(kt), oracle.WithBackend(served))
 	if err != nil {
 		return nil, fmt.Errorf("start oracle daemon: %w", err)
 	}
-	s.oracleDaemonByKey[key] = &oracleDaemonEntry{daemon: d, jarPath: jarPath, jarIdentity: oracle.JarIdentity(jarPath), sourceDirs: sourceDirs, kotlin: kt, backend: served}
-	// A resident krit-types JVM costs 1-2 GB. A daemon for the same jar and source
-	// roots under other Kotlin settings can no longer be reached once the project's
-	// settings changed, so retire it instead of keeping one JVM per identity ever seen.
+	s.oracleDaemonByKey[key] = &oracleDaemonEntry{daemon: d, jarPath: jarPath, jarIdentity: oracle.JarIdentity(jarPath), sourceDirs: sourceDirs, roots: roots, classpath: classpath, kotlin: kt, backend: served}
+	// A resident krit-types JVM costs 1-2 GB. A daemon for the same jar and scan
+	// roots under another context (Kotlin settings, classpath, source roots) can no
+	// longer be reached once the project's context changed, so retire it instead of
+	// keeping one JVM per identity ever seen.
 	for otherKey, other := range s.oracleDaemonByKey {
-		if otherKey == key || other == nil || other.jarPath != jarPath || !slices.Equal(other.sourceDirs, sourceDirs) ||
-			other.kotlin.Identity() == kt.Identity() {
+		if otherKey == key || other == nil || other.jarPath != jarPath || !slices.Equal(other.roots, roots) {
 			continue
 		}
 		_ = other.close()
@@ -728,7 +769,7 @@ func (s *daemonState) pingOracleDaemon() {
 		// Failed ping → close and rebuild. Closing a dead daemon is
 		// best-effort; errors are intentionally ignored.
 		_ = entry.daemon.Close()
-		d, err := s.oracleDaemonStarter.Start(entry.jarPath, entry.sourceDirs, nil, false, oracle.WithKotlinSettings(entry.kotlin), oracle.WithBackend(entry.backend))
+		d, err := s.oracleDaemonStarter.Start(entry.jarPath, entry.sourceDirs, entry.classpath, false, oracle.WithKotlinSettings(entry.kotlin), oracle.WithBackend(entry.backend))
 		if err != nil {
 			// Drop the entry so the next ensureOracleDaemon retries.
 			delete(s.oracleDaemonByKey, key)

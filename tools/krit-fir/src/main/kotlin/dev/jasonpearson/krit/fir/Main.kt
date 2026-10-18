@@ -398,6 +398,9 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 }
                 withWarnings(response, activeSession, request.jvmTarget)
             }
+            "analyzeWithCheck" -> withActiveSession(request, session) { activeSession ->
+                withWarnings(handleAnalyzeWithCheck(request, activeSession), activeSession, request.jvmTarget)
+            }
             "listPlugins" -> {
                 val response = try {
                     PluginRuleRegistry.load(request.pluginJars)
@@ -489,9 +492,100 @@ data class CheckRequest(
     // (e.g. NEEDS_MANIFEST on a pure-Kotlin library).
     val projectPayloads: ProjectPayloads = ProjectPayloads.EMPTY,
     val modules: List<ModuleSpec> = emptyList(),
+    // `analyzeWithCheck` only: the `check` request the oracle compile also
+    // answers (#810), carried under the `kritSharedCheck` key.
+    val sharedCheck: CheckRequest? = null,
 )
 
-fun parseRequest(request: String): CheckRequest {
+/** The key an `analyzeWithCheck` request carries its embedded check request under. */
+internal const val SHARED_CHECK_KEY = "kritSharedCheck"
+
+internal class LiftedSharedCheck(val block: String, val rest: String)
+
+/**
+ * Lifts the embedded check object out of [request]: only a real key of the
+ * request object or its `params` object (depth at most 2), found by scanning
+ * with string and nesting state, so the token inside an array element or a
+ * deeper map key (`callFilterLexicalHintsByCallee`) is never taken. The block
+ * is replaced by `null` in `rest`. Null when the key is absent; a key whose
+ * object is malformed is an error, never a leak into the outer request.
+ */
+internal fun liftSharedCheck(request: String): LiftedSharedCheck? {
+    val containers = ArrayList<Char>()
+    var i = 0
+    while (i < request.length) {
+        val c = request[i]
+        when {
+            c == '"' -> {
+                var j = i + 1
+                var escaped = false
+                while (j < request.length) {
+                    val d = request[j]
+                    if (escaped) escaped = false else if (d == '\\') escaped = true else if (d == '"') break
+                    j++
+                }
+                require(j < request.length) { "Unterminated string in request" }
+                var after = j + 1
+                while (after < request.length && request[after].isWhitespace()) after++
+                val isKey = containers.lastOrNull() == '{' && after < request.length && request[after] == ':'
+                if (isKey && containers.size <= 2 && request.substring(i + 1, j) == SHARED_CHECK_KEY) {
+                    var v = request.indexOf(':', j) + 1
+                    while (v < request.length && request[v].isWhitespace()) v++
+                    if (v < request.length && request[v] == '{') {
+                        val end = matchingBrace(request, v)
+                        require(end > 0) { "Malformed $SHARED_CHECK_KEY object" }
+                        return LiftedSharedCheck(
+                            request.substring(v, end + 1),
+                            request.substring(0, v) + "null" + request.substring(end + 1),
+                        )
+                    }
+                    if (request.startsWith("null", v)) {
+                        i = j // already lifted
+                    } else {
+                        throw IllegalArgumentException("$SHARED_CHECK_KEY must be an object")
+                    }
+                }
+                i = j
+            }
+            c == '{' || c == '[' -> containers.add(c)
+            c == '}' || c == ']' -> if (containers.isNotEmpty()) containers.removeAt(containers.size - 1)
+        }
+        i++
+    }
+    return null
+}
+
+private fun matchingBrace(s: String, open: Int): Int {
+    var depth = 0
+    var inString = false
+    var escaped = false
+    for (k in open until s.length) {
+        val c = s[k]
+        if (inString) {
+            if (escaped) escaped = false else if (c == '\\') escaped = true else if (c == '"') inString = false
+            continue
+        }
+        when (c) {
+            '"' -> inString = true
+            '{' -> depth++
+            '}' -> { depth--; if (depth == 0) return k }
+        }
+    }
+    return -1
+}
+
+fun parseRequest(request: String, liftEmbedded: Boolean = true): CheckRequest {
+    // The rest of this parser reads fields nest-blind, so the embedded check
+    // request is lifted out first and parsed on its own.
+    if (liftEmbedded && "\"$SHARED_CHECK_KEY\"" in request) {
+        val lifted = liftSharedCheck(request)
+        if (lifted != null) {
+            // The block is a `check` request without its `command` (an older jar
+            // would prefer that over the outer `method`), so it is restored here.
+            val block = lifted.block.replaceFirst("{", "{\"command\":\"check\",")
+            return parseRequest(lifted.rest).copy(sharedCheck = parseRequest(block, liftEmbedded = false))
+        }
+    }
     if ("\"modules\"" in request) parseModuleRequest(request)?.let { return it }
     val ruleConfigs = parseFirRuleConfigs(request)
     val testFiles = parseFirTestFiles(request)
@@ -538,6 +632,22 @@ private fun withoutObjectBlock(json: String, key: String): String {
     val start = json.indexOf(block, json.indexOf("\"$key\"").coerceAtLeast(0))
     if (start < 0) return json
     return json.substring(0, start) + "{}" + json.substring(start + block.length)
+}
+
+/**
+ * `analyzeWithCheck` (#810): the oracle's `analyze` (every file when `files` is
+ * empty) plus, when the request carries a `kritSharedCheck`, the rule check of
+ * that request from the same compilation. The response is `analyze`'s with a
+ * sibling `check` field: the `check` response, or null when the compile could
+ * not be shared and the caller has to check on its own.
+ */
+internal fun handleAnalyzeWithCheck(request: CheckRequest, session: AnalysisSession): String {
+    val files = request.files.map { it.path }
+    val check = request.sharedCheck
+    if (check == null) return OracleResponse.buildAnalyze(request.id, session.analyze(files))
+    val (outcome, checked) = session.analyzeWithCheck(files, check)
+    val oracle = OracleResponse.buildAnalyze(request.id, outcome.result)
+    return oracle.dropLast(1) + ",\"check\":" + (checked?.let { withWarnings(buildCheckResponse(it), session, check.jvmTarget, it.warnings) } ?: "null") + "}"
 }
 
 internal fun handleAnalyzeFile(request: CheckRequest, session: AnalysisSession): String {

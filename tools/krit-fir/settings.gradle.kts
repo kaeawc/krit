@@ -7,6 +7,10 @@ project(":krit-rule-api").projectDir = file("../krit-rule-api")
 dependencyResolutionManagement {
     repositories {
         mavenCentral()
+        // spike #740: unshrunk IntelliJ core for the standalone Analysis API
+        maven("https://www.jetbrains.com/intellij-repository/releases") {
+            content { includeModule("com.jetbrains.intellij.platform", "core") }
+        }
         exclusiveContent {
             forRepository {
                 maven("https://redirector.kotlinlang.org/maven/intellij-dependencies")

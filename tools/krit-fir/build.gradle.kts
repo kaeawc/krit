@@ -58,6 +58,54 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
+// --- #740 spike: isolated source set + task; not part of the shipped jar ---
+val spike by sourceSets.creating {
+    compileClasspath += sourceSets.main.get().output + configurations.compileClasspath.get()
+    runtimeClasspath += output + compileClasspath + sourceSets.main.get().runtimeClasspath
+}
+configurations[spike.implementationConfigurationName].extendsFrom(configurations.implementation.get())
+configurations[spike.runtimeOnlyConfigurationName].extendsFrom(configurations.runtimeOnly.get())
+dependencies {
+    val aa = listOf(
+        "analysis-api-standalone-for-ide", "analysis-api-for-ide", "analysis-api-k2-for-ide",
+        "analysis-api-impl-base-for-ide", "analysis-api-platform-interface-for-ide",
+        "low-level-api-fir-for-ide", "symbol-light-classes-for-ide",
+    )
+    aa.forEach { add(spike.implementationConfigurationName, "org.jetbrains.kotlin:$it:$kotlinVersion") { isTransitive = false } }
+    add(spike.runtimeOnlyConfigurationName, "org.jetbrains.kotlin:kotlin-compiler-common-for-ide:$kotlinVersion") { isTransitive = false }
+    add(spike.implementationConfigurationName, "org.jetbrains.kotlinx:kotlinx-serialization-core:1.11.0")
+    add(spike.runtimeOnlyConfigurationName, "com.github.ben-manes.caffeine:caffeine:3.3.0")
+    add(spike.runtimeOnlyConfigurationName, "org.jetbrains.intellij.deps.kotlinx:kotlinx-coroutines-core:1.10.2-intellij-1")
+}
+val spikeIntellijCore by configurations.creating { isCanBeConsumed = false; isCanBeResolved = true }
+dependencies { add(spikeIntellijCore.name, "com.jetbrains.intellij.platform:core:251.27812.49") { isTransitive = false } }
+tasks.register("spikeClasspath") {
+    group = "verification"
+    description = "Writes the spike runtime classpath to build/spike-classpath.txt so the harness can run under plain java."
+    dependsOn("spikeClasses", "jar")
+    notCompatibleWithConfigurationCache("spike resolves a configuration at execution time")
+    val stdlib = bundledKotlinStdlib
+    doLast {
+        val cp = (spikeIntellijCore + spike.runtimeClasspath).files.joinToString(":") { it.absolutePath }
+        val jar = tasks.named("jar", Jar::class.java).get().archiveFile.get().asFile.absolutePath
+        file("build/spike-classpath.txt").writeText(cp)
+        file("build/spike-env.txt").writeText("-Dspike.stdlib=${stdlib.files.first().absolutePath} -Dkrit.fir.plugin.jar=$jar")
+    }
+}
+tasks.register<JavaExec>("benchSpike") {
+    group = "verification"
+    description = "Runs the #740 incremental FIR spike harness (args via -PspikeArgs)."
+    classpath = spikeIntellijCore + spike.runtimeClasspath
+    mainClass.set("spike.BenchKt")
+    notCompatibleWithConfigurationCache("spike resolves a configuration at execution time")
+    dependsOn("jar")
+    systemProperty("krit.fir.plugin.jar", tasks.named("jar", Jar::class.java).get().archiveFile.get().asFile.absolutePath)
+    val stdlib = bundledKotlinStdlib
+    doFirst { systemProperty("spike.stdlib", stdlib.files.first().absolutePath) }
+    jvmArgs((findProperty("spikeJvm") as String? ?: "-Xmx3g").split(" "))
+    args((findProperty("spikeArgs") as String? ?: "").split(" ").filter { it.isNotBlank() })
+}
+
 tasks.shadowJar {
     archiveClassifier.set("")
     // Keep the launcher path stable while project version drives publication coordinates.

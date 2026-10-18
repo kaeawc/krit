@@ -64,6 +64,9 @@ type Daemon struct {
 // unknown (for example a test double), so callers record nothing rather than
 // guess.
 func (d *Daemon) Backend() Backend {
+	if d == nil {
+		return ""
+	}
 	switch {
 	case strings.HasPrefix(d.sourcesHash, "krit-fir"):
 		return BackendFIR

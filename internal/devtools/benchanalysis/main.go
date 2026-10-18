@@ -109,7 +109,13 @@ type Run struct {
 	Checksum   string             `json:"findingsChecksum"`
 	Rules      int                `json:"rules"`
 	Warnings   []string           `json:"warnings,omitempty"`
-	Rejected   string             `json:"rejected,omitempty"`
+	// prevCaches is the daemon's cumulative cache counters after the previous
+	// invocation; rawCaches is this run's cumulative reading. Counters in a
+	// long-lived daemon accumulate across requests, so Caches is reported as
+	// the difference.
+	prevCaches map[string]CacheIO
+	rawCaches  map[string]CacheIO
+	Rejected   string `json:"rejected,omitempty"`
 	// OracleSkip says why a warm run legitimately did not run the oracle
 	// (for example "findings-bundle-hit"); empty when the oracle ran.
 	OracleSkip string `json:"oracleSkip,omitempty"`
@@ -217,7 +223,7 @@ func run(o options) error {
 	if err := os.WriteFile(filepath.Join(out, "results.json"), data, 0o644); err != nil {
 		return err
 	}
-	summary := withSocketWarning(summarize(results, o), work)
+	summary := withSocketWarning(summarize(results, o), work, o)
 	if err := os.WriteFile(filepath.Join(out, "summary.md"), []byte(summary), 0o644); err != nil {
 		return err
 	}
@@ -226,9 +232,13 @@ func run(o options) error {
 }
 
 // withSocketWarning prefixes the summary with a long-socket-path warning.
-func withSocketWarning(summary, work string) string {
+func withSocketWarning(summary, work string, o options) string {
+	daemon := false
+	for _, s := range o.states {
+		daemon = daemon || states[s].Daemon
+	}
 	w := socketPathWarning(work)
-	if w == "" {
+	if !daemon || w == "" {
 		return summary
 	}
 	fmt.Fprintln(os.Stderr, "benchanalysis: "+w)
@@ -242,6 +252,7 @@ type harness struct {
 	original              []byte
 	editPath              string
 	editsApplied, cleanID int
+	daemonCaches          map[string]CacheIO // cumulative counters after the last daemon run
 }
 
 func (h *harness) runState(m Mode, s State) ([]Run, error) {
@@ -260,8 +271,10 @@ func (h *harness) runState(m Mode, s State) ([]Run, error) {
 		h.original = data
 		defer func() { _ = os.WriteFile(h.editPath, h.original, 0o644) }()
 	}
+	h.stopDaemon() // a daemon left by an interrupted run must not serve the fill run
 	h.resetDisk()
 	h.newRegistry()
+	h.daemonCaches = nil
 	if s.Fill {
 		fill := h.invoke(m, s, 0, false)
 		runs = append(runs, fill)
@@ -322,7 +335,7 @@ func (h *harness) stopDaemon() {
 	cmd.Dir = h.work
 	cmd.Env = h.env(true)
 	_ = cmd.Run()
-	killProcs(findServeDaemons(procRoot, h.work), 5*time.Second)
+	killProcs(procRoot, findServeDaemons(procRoot, h.work, h.krit), 5*time.Second)
 }
 
 // env scopes JVM helpers to the krit process that started them
@@ -365,12 +378,18 @@ func (h *harness) args(m Mode, daemon bool) []string {
 }
 
 func (h *harness) invoke(m Mode, s State, index int, measured bool) Run {
-	before := sampleDaemons(procRoot, daemonPIDs(h.registry, h.work))
-	r := execRun(h.krit, h.work, h.args(m, s.Daemon), h.env(s.Daemon), m, Run{
-		Mode: m.Name, State: s.Name, Index: index, Measured: measured,
-	})
+	before := sampleDaemons(procRoot, daemonPIDs(procRoot, h.registry, h.work, h.krit))
+	start := Run{Mode: m.Name, State: s.Name, Index: index, Measured: measured}
+	if s.Daemon {
+		start.prevCaches = h.daemonCaches
+	}
+	r := execRun(h.krit, h.work, h.args(m, s.Daemon), h.env(s.Daemon), m, start)
+	if s.Daemon && r.rawCaches != nil {
+		h.daemonCaches = r.rawCaches
+	}
+	rejectUnverifiedSkip(&r, h.o.verify)
 	if _, err := os.Stat(procRoot); err == nil {
-		u := daemonUsage(before, sampleDaemons(procRoot, daemonPIDs(h.registry, h.work)))
+		u := daemonUsage(before, sampleDaemons(procRoot, daemonPIDs(procRoot, h.registry, h.work, h.krit)))
 		r.Daemon = &u
 	}
 	return r
@@ -457,32 +476,50 @@ func checkDaemonUsed(r Run) string {
 		return ""
 	}
 	for _, w := range r.Warnings {
-		if strings.Contains(w, "daemon unavailable") {
+		if isDaemonFallback(w) {
 			return "krit daemon was not used (" + w + "); try a shorter -out path"
 		}
+	}
+	// Positive evidence: oracle facts a daemon served say so. An in-process
+	// oracleBackend entry has no source attribute.
+	if attr(r.Attributes, "oracleBackend", "backend") != "" && attr(r.Attributes, "oracleBackend", "source") != "resident-daemon" {
+		return "oracle ran in-process in a daemon state (no resident-daemon source); the krit daemon was not used"
 	}
 	return ""
 }
 
+// fallbackMarker is the phrase every daemon-to-in-process fallback warning in
+// internal/cli/scan/daemon_delegate.go shares ("unavailable", "call failed",
+// "rejected request", "clear-cache failed", ...).
+const fallbackMarker = "falling back to in-process"
+
+func isDaemonFallback(warning string) bool {
+	return strings.Contains(warning, "krit daemon") && strings.Contains(warning, fallbackMarker)
+}
+
 // oracleSkipReason names the cache layer that legitimately made a warm
 // measured run skip the oracle, or "" when nothing in the perf report
-// explains it. Fill runs, cold runs and clean baselines never qualify: they
-// start from no caches, so an absent oracle there means a missing jar or a
-// broken helper. A skip on a warm run is only trustworthy because the
-// unmeasured fill run that filled the caches had to run the oracle.
+// explains it. Only warm-disk and warm-daemon runs qualify: edit states must
+// always run the oracle, and cold runs, fill runs and clean baselines start
+// from no caches, so an absent oracle there means a missing jar or a broken
+// helper. A skip on a warm run is only trustworthy because the unmeasured
+// fill run that filled the caches had to run the oracle.
+//
+// Only per-request evidence counts. The cache counters are lifetime totals
+// of the process (and of a whole daemon), so they never qualify here.
 func oracleSkipReason(r Run) string {
-	if !r.Measured || r.State == "" || r.State == "cold" {
+	if !r.Measured || (r.State != "warm-disk" && r.State != "warm-daemon") {
 		return ""
 	}
-	switch attr(r.Attributes, "dispatchBundleLoad", "outcome") {
-	case "hit", "preloaded":
+	outcome := attr(r.Attributes, "dispatchBundleLoad", "outcome")
+	if (outcome == "hit" || outcome == "preloaded") && attr(r.Attributes, "dispatchPath", "path") == "cacheHitFullBundle" {
 		return "findings-bundle-hit"
 	}
-	if strings.HasPrefix(attr(r.Attributes, "dispatchPath", "path"), "cacheHit") || r.Caches["findings-bundle-cache"].Hits > 0 {
+	// A daemon answers a whole-run bundle hit from its response cache with a
+	// bare top-level "bundleHit" perf entry and none of the dispatch
+	// attributes. The entry is per request.
+	if _, ok := r.Phases["bundleHit"]; ok {
 		return "findings-bundle-hit"
-	}
-	if r.Caches["oracle-cache"].Hits > 0 {
-		return "oracle-cache-hit"
 	}
 	return ""
 }
@@ -512,10 +549,30 @@ func parseOutput(data []byte, root string, r *Run) string {
 	r.Attributes = map[string]string{}
 	flattenTimings(report.PerfTiming, "", r.Phases, r.Attributes)
 	r.Caches = map[string]CacheIO{}
+	r.rawCaches = map[string]CacheIO{}
 	for _, c := range report.Caches {
-		r.Caches[c.Name] = c.Stats
+		r.rawCaches[c.Name] = c.Stats
+		r.Caches[c.Name] = cacheDelta(c.Stats, r.prevCaches[c.Name])
 	}
 	return ""
+}
+
+// rejectUnverifiedSkip rejects a run that skipped the oracle when findings
+// are not being checked against a clean scan: nothing then confirms the cache
+// result is right.
+func rejectUnverifiedSkip(r *Run, verify bool) {
+	if r.Rejected == "" && r.OracleSkip != "" && !verify {
+		r.Rejected = "oracle skipped and -verify=false: cannot confirm the cache result"
+	}
+}
+
+// cacheDelta is cur minus prev; a counter that went down means the daemon
+// restarted, so cur is already per-run.
+func cacheDelta(cur, prev CacheIO) CacheIO {
+	if cur.Hits < prev.Hits || cur.Misses < prev.Misses {
+		return cur
+	}
+	return CacheIO{Hits: cur.Hits - prev.Hits, Misses: cur.Misses - prev.Misses}
 }
 
 // checkMode rejects a run whose report doesn't show the requested backend.

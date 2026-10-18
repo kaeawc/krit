@@ -31,6 +31,7 @@ type DaemonUsage struct {
 // procSample is one daemon's counters at a point in time.
 type procSample struct {
 	CPUTicks int64
+	Start    string // starttime (stat field 22); with the PID it identifies the process
 	HWMKB    int64
 	RSSKB    int64
 	Kind     string
@@ -38,8 +39,9 @@ type procSample struct {
 
 // daemonPIDs lists the daemon processes krit records for a run: PID files in
 // the helper registry (oracle and checker JVMs) and the krit daemon's
-// <work>/.krit/daemon.pid.
-func daemonPIDs(registry, work string) []int {
+// <work>/.krit/daemon.pid, plus any `krit serve --root <work>` found under
+// procRoot, since an auto-spawned daemon writes no pidfile.
+func daemonPIDs(procRoot, registry, work, bin string) []int {
 	var files []string
 	if registry != "" {
 		matches, _ := filepath.Glob(filepath.Join(registry, "*.pid"))
@@ -50,6 +52,10 @@ func daemonPIDs(registry, work string) []int {
 	}
 	seen := map[int]bool{}
 	var pids []int
+	for _, p := range findServeDaemons(procRoot, work, bin) {
+		seen[p.PID] = true
+		pids = append(pids, p.PID)
+	}
 	for _, f := range files {
 		data, err := os.ReadFile(f)
 		if err != nil {
@@ -84,7 +90,7 @@ func sampleDaemons(procRoot string, pids []int) map[int]procSample {
 		if !ok {
 			continue
 		}
-		s := procSample{CPUTicks: ticks}
+		s := procSample{CPUTicks: ticks, Start: statField(string(stat), 22)}
 		if status, err := os.ReadFile(filepath.Join(dir, "status")); err == nil {
 			s.HWMKB = statusKB(string(status), "VmHWM:")
 			s.RSSKB = statusKB(string(status), "VmRSS:")
@@ -118,6 +124,19 @@ func parseStatTicks(stat string) (int64, bool) {
 	return u + s, true
 }
 
+// statField returns 1-based field n of a /proc/<pid>/stat line (n >= 3).
+func statField(stat string, n int) string {
+	end := strings.LastIndexByte(stat, ')')
+	if end < 0 {
+		return ""
+	}
+	f := strings.Fields(stat[end+1:])
+	if i := n - 3; i >= 0 && i < len(f) {
+		return f[i]
+	}
+	return ""
+}
+
 func statusKB(status, key string) int64 {
 	for _, line := range strings.Split(status, "\n") {
 		if strings.HasPrefix(line, key) {
@@ -132,16 +151,21 @@ func statusKB(status, key string) int64 {
 }
 
 func daemonKind(cmdline string) string {
-	args := strings.ReplaceAll(cmdline, "\x00", " ")
-	switch {
-	case strings.Contains(args, "krit-fir"):
-		return "krit-fir"
-	case strings.Contains(args, "krit-types"):
-		return "krit-types"
-	case strings.Contains(args, " serve") || strings.Contains(args, "daemon"):
+	args := strings.Split(strings.TrimRight(cmdline, "\x00"), "\x00")
+	for i, a := range args {
+		if a == "-jar" && i+1 < len(args) {
+			jar := filepath.Base(args[i+1])
+			switch {
+			case strings.HasPrefix(jar, "krit-fir"):
+				return "krit-fir"
+			case strings.HasPrefix(jar, "krit-types"):
+				return "krit-types"
+			}
+			return "jvm-helper"
+		}
+	}
+	if len(args) > 1 && args[1] == "serve" {
 		return "krit-serve"
-	case strings.Contains(args, "java"):
-		return "jvm-helper"
 	}
 	return "other"
 }
@@ -153,8 +177,9 @@ func daemonUsage(before, after map[int]procSample) DaemonUsage {
 	var u DaemonUsage
 	kinds := map[string]bool{}
 	for pid, a := range after {
-		ticks := a.CPUTicks - before[pid].CPUTicks
-		if ticks < 0 {
+		prev, seen := before[pid]
+		ticks := a.CPUTicks - prev.CPUTicks
+		if !seen || prev.Start != a.Start || ticks < 0 { // new process, or a reused PID
 			ticks = a.CPUTicks
 		}
 		u.CPUMs += ticks * 1000 / clockTicksPerSec
@@ -174,8 +199,9 @@ func daemonUsage(before, after map[int]procSample) DaemonUsage {
 }
 
 // maxSocketPath is the longest daemon socket path a run can rely on. The
-// kernel's sun_path holds 108 bytes; krit falls back to a short temp path past
-// that, but a bind failure on older builds costs a full spawn timeout.
+// kernel's sun_path holds 108 bytes and the daemon's socket path has no
+// shorter fallback, so a longer one makes krit serve fail to bind and the
+// client wait out its spawn timeout before running in-process.
 const maxSocketPath = 100
 
 // socketPathWarning explains when <work>/.krit/daemon.sock is long enough to
@@ -186,63 +212,126 @@ func socketPathWarning(work string) string {
 		return ""
 	}
 	return "daemon socket path is " + strconv.Itoa(len(sock)) + " bytes (over " + strconv.Itoa(maxSocketPath) +
-		"): " + sock + "; daemon-delegated rows may fall back to in-process and are rejected, use a shorter -out path"
+		"): " + sock + "; daemon-delegated rows fall back to in-process and are rejected, use a shorter -out path"
 }
 
-// findServeDaemons returns PIDs under procRoot whose command line is
-// `krit serve --root <work>`.
-func findServeDaemons(procRoot, work string) []int {
+// procRef identifies one process: PID plus starttime guards against reuse.
+type procRef struct {
+	PID   int
+	Start string
+	Cmd   string
+}
+
+// findServeDaemons returns the processes under procRoot that are this
+// harness's `krit serve --root <work>` daemons: owned by the current user,
+// running the krit binary bin (by exe link, or by name where exe is
+// unreadable), with args[1] == "serve", and not zombies. work is compared
+// both as given and with symlinks resolved.
+func findServeDaemons(procRoot, work, bin string) []procRef {
 	entries, err := os.ReadDir(procRoot)
 	if err != nil {
 		return nil
 	}
-	var pids []int
+	roots := map[string]bool{work: true}
+	if resolved, err := filepath.EvalSymlinks(work); err == nil {
+		roots[resolved] = true
+	}
+	var out []procRef
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil || pid == os.Getpid() {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(procRoot, e.Name(), "cmdline"))
-		if err != nil {
-			continue
-		}
-		args := strings.Split(strings.TrimRight(string(data), "\x00"), "\x00")
-		if isServeRoot(args, work) {
-			pids = append(pids, pid)
+		if ref, ok := serveProc(procRoot, pid, roots, bin); ok {
+			out = append(out, ref)
 		}
 	}
-	sort.Ints(pids)
-	return pids
+	sort.Slice(out, func(i, j int) bool { return out[i].PID < out[j].PID })
+	return out
 }
 
-func isServeRoot(args []string, work string) bool {
-	serve := false
+func serveProc(procRoot string, pid int, roots map[string]bool, bin string) (procRef, bool) {
+	dir := filepath.Join(procRoot, strconv.Itoa(pid))
+	info, err := os.Stat(dir)
+	if err != nil {
+		return procRef{}, false
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok && int(st.Uid) != os.Getuid() {
+		return procRef{}, false
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "cmdline"))
+	if err != nil {
+		return procRef{}, false
+	}
+	cmd := string(data)
+	args := strings.Split(strings.TrimRight(cmd, "\x00"), "\x00")
+	if len(args) < 2 || args[1] != "serve" || !isServeRoot(args, roots) || !sameBinary(dir, args[0], bin) {
+		return procRef{}, false
+	}
+	ref := procRef{PID: pid, Cmd: cmd}
+	if stat, err := os.ReadFile(filepath.Join(dir, "stat")); err == nil {
+		if statField(string(stat), 3) == "Z" {
+			return procRef{}, false
+		}
+		ref.Start = statField(string(stat), 22)
+	}
+	return ref, true
+}
+
+// sameBinary reports whether the process runs bin: by its exe link when it is
+// readable, else by the basename of its first argument.
+func sameBinary(procDir, arg0, bin string) bool {
+	if bin == "" {
+		return true
+	}
+	if exe, err := os.Readlink(filepath.Join(procDir, "exe")); err == nil {
+		if resolved, err := filepath.EvalSymlinks(bin); err == nil && exe == resolved {
+			return true
+		}
+		return filepath.Base(exe) == filepath.Base(bin)
+	}
+	return filepath.Base(arg0) == filepath.Base(bin)
+}
+
+func isServeRoot(args []string, roots map[string]bool) bool {
 	for i, a := range args {
 		switch {
-		case a == "serve":
-			serve = true
-		case a == "--root" && i+1 < len(args) && serve:
-			return args[i+1] == work
-		case strings.HasPrefix(a, "--root=") && serve:
-			return strings.TrimPrefix(a, "--root=") == work
+		case a == "--root" && i+1 < len(args):
+			return roots[args[i+1]]
+		case strings.HasPrefix(a, "--root="):
+			return roots[strings.TrimPrefix(a, "--root=")]
 		}
 	}
 	return false
 }
 
-// killProcs sends SIGTERM, waits up to grace for each PID to exit, then
-// SIGKILLs the rest.
-func killProcs(pids []int, grace time.Duration) {
-	for _, pid := range pids {
-		_ = syscall.Kill(pid, syscall.SIGTERM)
+// alive reports whether ref is still the same running, non-zombie process.
+func alive(procRoot string, ref procRef) bool {
+	stat, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(ref.PID), "stat"))
+	if err != nil {
+		return false
+	}
+	if statField(string(stat), 3) == "Z" {
+		return false
+	}
+	return ref.Start == "" || statField(string(stat), 22) == ref.Start
+}
+
+// killProcs sends SIGTERM, waits up to grace for each process to exit, then
+// SIGKILLs those still alive and still the same process (same starttime).
+func killProcs(procRoot string, refs []procRef, grace time.Duration) {
+	for _, ref := range refs {
+		if alive(procRoot, ref) {
+			_ = syscall.Kill(ref.PID, syscall.SIGTERM)
+		}
 	}
 	deadline := time.Now().Add(grace)
-	for _, pid := range pids {
-		for time.Now().Before(deadline) && syscall.Kill(pid, 0) == nil {
+	for _, ref := range refs {
+		for time.Now().Before(deadline) && alive(procRoot, ref) {
 			time.Sleep(50 * time.Millisecond)
 		}
-		if syscall.Kill(pid, 0) == nil {
-			_ = syscall.Kill(pid, syscall.SIGKILL)
+		if alive(procRoot, ref) {
+			_ = syscall.Kill(ref.PID, syscall.SIGKILL)
 		}
 	}
 }

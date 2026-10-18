@@ -165,7 +165,7 @@ func TestCheckModeRejectsOracleMissingWithoutCacheEvidence(t *testing.T) {
 
 func TestExecRunRecordsOracleSkip(t *testing.T) {
 	report := `{"durationMs":5,"findings":[],"rules":[],"caches":[{"name":"findings-bundle-cache","stats":{"hits":1,"misses":0}}],` +
-		`"perfTiming":[{"name":"dispatchBundleLoad","attributes":{"outcome":"hit"}}]}`
+		`"perfTiming":[{"name":"dispatchBundleLoad","attributes":{"outcome":"hit"}},{"name":"dispatchPath","attributes":{"path":"cacheHitFullBundle"}}]}`
 	bin := filepath.Join(t.TempDir(), "fake-krit")
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncat <<'EOF'\n"+report+"\nEOF\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -181,9 +181,10 @@ func TestExecRunRecordsOracleSkip(t *testing.T) {
 }
 
 func TestSummaryListsRunKindOracleAndRejections(t *testing.T) {
-	d := &DaemonUsage{CPUMs: 4000, PeakRSSKB: 3 * 1024}
+	d := &DaemonUsage{CPUMs: 4000, PeakRSSKB: 3 * 1024, PIDs: []int{9}}
+	ok := true
 	runs := []Run{
-		{Mode: "fir-oracle", State: "warm-disk", Measured: true, Index: 1, WallMs: 10, OracleSkip: "findings-bundle-hit", Daemon: d},
+		{Mode: "fir-oracle", State: "warm-disk", Measured: true, Index: 1, WallMs: 10, OracleSkip: "findings-bundle-hit", Daemon: d, Verified: &ok},
 		{Mode: "fir-oracle", State: "warm-disk", Measured: true, Index: 2, Rejected: "no oracleBackend in the perf report"},
 	}
 	out := summarize(runs, options{modes: []string{"fir-oracle"}, states: []string{"warm-disk"}})
@@ -202,5 +203,113 @@ func TestCheckDaemonUsedRejectsInProcessFallback(t *testing.T) {
 	fell.State = "warm-disk"
 	if checkDaemonUsed(fell) != "" {
 		t.Error("warm-disk run rejected for daemon fallback")
+	}
+}
+
+func TestIsDaemonFallbackMatchesEveryVariant(t *testing.T) {
+	for _, w := range []string{
+		"warning: krit daemon unavailable (timeout); falling back to in-process",
+		"warning: krit daemon call failed (EOF); falling back to in-process",
+		"warning: krit daemon rejected request (bad); falling back to in-process. Restart it with: krit daemon restart",
+		"warning: krit daemon clear-cache failed (x); falling back to in-process",
+	} {
+		r := Run{State: "warm-daemon", Warnings: []string{w}}
+		if checkDaemonUsed(r) == "" {
+			t.Errorf("not rejected: %s", w)
+		}
+	}
+	for _, w := range []string{"warning: jar predates the flag", "warning: watch backend unavailable; falling back to fsnotify"} {
+		if checkDaemonUsed(Run{State: "warm-daemon", Warnings: []string{w}}) != "" {
+			t.Errorf("unrelated warning rejected: %s", w)
+		}
+	}
+}
+
+func TestCumulativeCacheHitsAreNeverEvidence(t *testing.T) {
+	// A daemon-state run whose only evidence is Hits > 0 (a lifetime counter)
+	// is rejected, whether or not the count is stale.
+	r := Run{State: "warm-daemon", Measured: true, Attributes: map[string]string{},
+		Caches: map[string]CacheIO{"findings-bundle-cache": {Hits: 3}, "oracle-cache": {Hits: 2}}}
+	if checkMode(modes["fir-oracle"], r) == "" || oracleSkipReason(r) != "" {
+		t.Fatal("cumulative counters accepted as evidence")
+	}
+}
+
+func TestCacheDeltaIsPerRun(t *testing.T) {
+	if d := cacheDelta(CacheIO{Hits: 3, Misses: 1}, CacheIO{Hits: 3, Misses: 1}); d != (CacheIO{}) {
+		t.Errorf("stale delta = %+v", d)
+	}
+	if d := cacheDelta(CacheIO{Hits: 4, Misses: 1}, CacheIO{Hits: 3, Misses: 1}); d.Hits != 1 {
+		t.Errorf("delta = %+v", d)
+	}
+	if d := cacheDelta(CacheIO{Hits: 1}, CacheIO{Hits: 5}); d.Hits != 1 {
+		t.Errorf("restart delta = %+v", d)
+	}
+}
+
+func TestEditStatesAndPartialBundlesNeverSkipOracle(t *testing.T) {
+	for _, state := range []string{"body-edit", "abi-edit"} {
+		for _, path := range []string{"cacheHitDeltaBundle", "cacheHitAffectedSetBundle", "cacheHitFullBundle"} {
+			r := Run{State: state, Measured: true, Attributes: map[string]string{
+				"dispatchBundleLoad.outcome": "hit", "dispatchPath.path": path}}
+			if checkMode(modes["fir-oracle"], r) == "" {
+				t.Errorf("%s/%s accepted without the oracle", state, path)
+			}
+		}
+	}
+	for _, state := range []string{"warm-disk", "warm-daemon"} {
+		r := Run{State: state, Measured: true, Attributes: map[string]string{
+			"dispatchBundleLoad.outcome": "hit", "dispatchPath.path": "cacheHitDeltaBundle"}}
+		if checkMode(modes["fir-oracle"], r) == "" {
+			t.Errorf("%s accepted a delta bundle hit", state)
+		}
+	}
+}
+
+func TestDaemonStateRequiresResidentOracleSource(t *testing.T) {
+	inproc := Run{State: "warm-daemon", Attributes: map[string]string{"a/oracleBackend.backend": "fir"}}
+	if checkDaemonUsed(inproc) == "" {
+		t.Error("in-process oracle accepted in a daemon state")
+	}
+	resident := Run{State: "warm-daemon", Attributes: map[string]string{"a/oracleBackend.backend": "fir", "a/oracleBackend.source": "resident-daemon"}}
+	if checkDaemonUsed(resident) != "" {
+		t.Error("resident oracle rejected")
+	}
+}
+
+func TestDaemonResponseCacheBundleHitCountsAsSkip(t *testing.T) {
+	r := Run{State: "warm-daemon", Measured: true, Phases: map[string]int64{"bundleHit": 0, "bundleHit/bundleLoad": 0}, Attributes: map[string]string{}}
+	if got := checkMode(modes["fir-oracle"], r); got != "" {
+		t.Fatalf("rejected: %s", got)
+	}
+	r.State = "cold"
+	if checkMode(modes["fir-oracle"], r) == "" {
+		t.Fatal("cold run accepted")
+	}
+}
+
+func TestRejectUnverifiedSkip(t *testing.T) {
+	r := Run{OracleSkip: "findings-bundle-hit"}
+	rejectUnverifiedSkip(&r, true)
+	if r.Rejected != "" {
+		t.Fatal("verified skip rejected")
+	}
+	rejectUnverifiedSkip(&r, false)
+	if r.Rejected == "" {
+		t.Fatal("unverified skip accepted")
+	}
+	none := Run{}
+	rejectUnverifiedSkip(&none, false)
+	if none.Rejected != "" {
+		t.Fatal("run without a skip rejected")
+	}
+}
+
+func TestSummaryShowsNoSampledDaemonAsNA(t *testing.T) {
+	ok := true
+	runs := []Run{{Mode: "structural", State: "cold", Measured: true, Index: 1, Verified: &ok, Daemon: &DaemonUsage{}}}
+	out := summarize(runs, options{modes: []string{"structural"}, states: []string{"cold"}})
+	if !strings.Contains(out, "| n/a | n/a |") {
+		t.Errorf("empty daemon sample not n/a:\n%s", out)
 	}
 }

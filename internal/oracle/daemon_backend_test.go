@@ -15,3 +15,10 @@ func TestDaemonBackendFromRegistryKey(t *testing.T) {
 		}
 	}
 }
+
+func TestDaemonBackendNilSafe(t *testing.T) {
+	var d *Daemon
+	if got := d.Backend(); got != "" {
+		t.Fatalf("nil daemon backend = %q", got)
+	}
+}

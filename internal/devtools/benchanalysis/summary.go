@@ -25,9 +25,13 @@ func stats(runs []Run) Stats {
 	skips := map[string]int{}
 	for _, r := range runs {
 		if r.OracleSkip != "" {
-			skips[r.OracleSkip]++
+			key := r.OracleSkip
+			if r.Verified == nil {
+				key += ", unverified"
+			}
+			skips[key]++
 		}
-		if r.Daemon != nil {
+		if r.Daemon != nil && len(r.Daemon.PIDs) > 0 {
 			dcpu = append(dcpu, r.Daemon.CPUMs)
 			drss = append(drss, r.Daemon.PeakRSSKB)
 		}
@@ -66,7 +70,7 @@ func percentile(sorted []int64, p int) int64 {
 
 func summarize(results []Run, o options) string {
 	var b strings.Builder
-	b.WriteString("| mode | run kind | accepted/measured | median ms | p90 ms | min–max ms | median CPU ms | median max RSS MB | daemon CPU ms | daemon peak RSS MB | oracle | verified | findings |\n")
+	b.WriteString("| mode | run kind | accepted/measured | median ms | p90 ms | min–max ms | median CPU ms | median max RSS MB | daemon CPU ms | daemon lifetime-peak RSS MB | oracle | verified | findings |\n")
 	b.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
 	var rejected []string
 	for _, m := range o.modes {
@@ -114,7 +118,7 @@ func summarize(results []Run, o options) string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\nRun kinds: cold = every cache and process reset before each run; warm-disk = on-disk caches kept, fresh processes; warm-daemon = caches and krit and JVM daemons kept; body-edit and abi-edit = warm-daemon after a comment-only or public-API edit.\n")
-	b.WriteString("CPU and max RSS cover the krit process and the helpers it waited for. Daemon CPU ms and daemon peak RSS MB cover long-lived daemons (krit serve, krit-fir, krit-types, checker) sampled from /proc before and after each run; peak RSS is the daemons' lifetime VmHWM, and n/a means no sample (non-Linux). The oracle column says whether the oracle ran or why a warm run legitimately skipped it. Raw data: results.json.\n")
+	b.WriteString("CPU and max RSS cover the krit process and the helpers it waited for. Daemon CPU ms and daemon lifetime-peak RSS MB cover long-lived daemons (krit serve, krit-fir, krit-types, checker) sampled from /proc before and after each run; peak RSS is the daemons' lifetime VmHWM, and n/a means no sample (non-Linux). The oracle column says whether the oracle ran or why a warm run legitimately skipped it. Raw data: results.json.\n")
 	return b.String()
 }
 
@@ -135,8 +139,8 @@ func oracleColumn(m string, st Stats) string {
 		parts = append(parts, fmt.Sprintf("skipped: %s (%d)", k, n))
 	}
 	sort.Strings(parts)
-	if skipped := st.N - sumInts(st.Skips); skipped > 0 {
-		parts = append([]string{fmt.Sprintf("ran (%d)", skipped)}, parts...)
+	if ran := st.N - sumInts(st.Skips); ran > 0 {
+		parts = append([]string{fmt.Sprintf("ran (%d)", ran)}, parts...)
 	}
 	return strings.Join(parts, "; ")
 }

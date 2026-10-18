@@ -17,8 +17,8 @@ import (
 // is listening at the conventional socket and TryConnect returns a
 // usable client.
 func TestTryConnect_FindsRunningDaemon(t *testing.T) {
-	socketDir, _ := startEchoDaemon(t)
 	root := newTempRoot(t)
+	socketDir, _ := startEchoDaemon(t, root)
 	expected := daemon.DefaultSocketPath(root)
 	if err := os.MkdirAll(filepath.Dir(expected), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -66,7 +66,7 @@ func TestTryConnect_StaleSocketFallsBack(t *testing.T) {
 // TestTryConnect_HonorsSocketOverride confirms --daemon-socket
 // semantics: an explicit path beats the default discovery rule.
 func TestTryConnect_HonorsSocketOverride(t *testing.T) {
-	socketDir, _ := startEchoDaemon(t)
+	socketDir, _ := startEchoDaemon(t, "")
 	override := filepath.Join(socketDir, "d.sock")
 	root := newTempRoot(t)
 	// Default discovery would fail (no symlink); override drives the

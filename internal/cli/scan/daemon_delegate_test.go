@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -343,6 +344,17 @@ func newRoot(t *testing.T) string {
 		t.Fatalf("mkdir: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(r) })
+	mockDaemonRoot.Store(r)
+	return r
+}
+
+// mockDaemonRoot is the project root the mock daemons report in their Status
+// reply: discovery verifies the daemon serves the requested root. Set by
+// newRoot; the daemon tests do not run in parallel.
+var mockDaemonRoot atomic.Value
+
+func currentMockRoot() string {
+	r, _ := mockDaemonRoot.Load().(string)
 	return r
 }
 
@@ -375,7 +387,7 @@ func startMockDaemon(t *testing.T, b mockBehavior) string {
 	socket := filepath.Join(socketDir, "d.sock")
 	srv := daemon.NewServer(socket)
 	srv.Register(daemon.VerbStatus, func(_ context.Context, _ json.RawMessage) (any, error) {
-		return daemon.StatusResult{Ready: true}, nil
+		return daemon.StatusResult{Ready: true, Root: currentMockRoot()}, nil
 	})
 	srv.Register(daemon.VerbShutdown, func(_ context.Context, _ json.RawMessage) (any, error) {
 		return map[string]bool{"ok": true}, nil
@@ -503,7 +515,7 @@ func startMockMetaDaemon(t *testing.T, verb string, reply daemon.MetaResult) str
 	socket := filepath.Join(socketDir, "d.sock")
 	srv := daemon.NewServer(socket)
 	srv.Register(daemon.VerbStatus, func(_ context.Context, _ json.RawMessage) (any, error) {
-		return daemon.StatusResult{Ready: true}, nil
+		return daemon.StatusResult{Ready: true, Root: currentMockRoot()}, nil
 	})
 	srv.Register(verb, func(_ context.Context, _ json.RawMessage) (any, error) {
 		return reply, nil
@@ -698,7 +710,7 @@ func startMockClearMatrixCacheDaemon(t *testing.T, cleared bool) string {
 	socket := filepath.Join(socketDir, "d.sock")
 	srv := daemon.NewServer(socket)
 	srv.Register(daemon.VerbStatus, func(_ context.Context, _ json.RawMessage) (any, error) {
-		return daemon.StatusResult{Ready: true}, nil
+		return daemon.StatusResult{Ready: true, Root: currentMockRoot()}, nil
 	})
 	srv.Register(daemon.VerbShutdown, func(_ context.Context, _ json.RawMessage) (any, error) {
 		return map[string]bool{"ok": true}, nil
@@ -733,7 +745,7 @@ func startMockClearCacheDaemon(t *testing.T, cleared bool) string {
 	socket := filepath.Join(socketDir, "d.sock")
 	srv := daemon.NewServer(socket)
 	srv.Register(daemon.VerbStatus, func(_ context.Context, _ json.RawMessage) (any, error) {
-		return daemon.StatusResult{Ready: true}, nil
+		return daemon.StatusResult{Ready: true, Root: currentMockRoot()}, nil
 	})
 	srv.Register(daemon.VerbShutdown, func(_ context.Context, _ json.RawMessage) (any, error) {
 		return map[string]bool{"ok": true}, nil

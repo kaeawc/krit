@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/diag"
+	"github.com/kaeawc/krit/internal/fsutil"
 )
 
 // Handler runs a single verb. It receives the raw JSON args and returns a
@@ -58,6 +59,12 @@ type Server struct {
 	// back to a default warnings-only stderr Reporter so library code
 	// never panics.
 	Reporter *diag.Reporter
+
+	// PointerPath, when non-empty, is a file the server writes (0600,
+	// atomically) with its actual socket path once bound, and removes on
+	// Stop. Set it when the socket is on a fallback path so clients whose
+	// environment derives a different fallback directory still find it.
+	PointerPath string
 
 	// IdleTimeout, when > 0, makes the server self-stop after no
 	// requests have been seen for the given duration. Updated on every
@@ -115,13 +122,29 @@ func (s *Server) SocketPath() string { return s.socketPath }
 // error if it could not bind). Connection accept and dispatch run in
 // background goroutines until Stop is called or the listener errors.
 func (s *Server) Start(ctx context.Context) error {
-	if err := os.MkdirAll(filepath.Dir(s.socketPath), 0o755); err != nil {
+	dir := filepath.Dir(s.socketPath)
+	if IsFallbackSocket(s.socketPath) {
+		// The fallback dir lives in a shared location: it must be a
+		// private (0700), current-user-owned dir, not one planted by
+		// another local user.
+		if err := fsutil.EnsurePrivateDir(dir, true); err != nil {
+			return fmt.Errorf("daemon: prepare socket dir: %w", err)
+		}
+	} else if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("daemon: prepare socket dir: %w", err)
 	}
 	// Clean up any stale socket from a previous crashed run. A live daemon
-	// would refuse to bind anyway; an orphaned inode just blocks us.
-	_ = os.Remove(s.socketPath)
+	// would refuse to bind anyway; an orphaned inode just blocks us. A
+	// failed unlink for any reason other than "already gone" is reported
+	// instead of surfacing later as a confusing bind error.
+	if err := os.Remove(s.socketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("daemon: remove stale socket %s: %w", s.socketPath, err)
+	}
 
+	// The socket is chmod 0600 immediately after bind. Until then its mode
+	// follows the process umask, but no one is trusted by mode alone:
+	// acceptLoop verifies every peer's uid (SO_PEERCRED) before serving, and
+	// fallback sockets additionally sit in a private 0700 directory.
 	l, err := (&net.ListenConfig{}).Listen(ctx, "unix", s.socketPath)
 	if err != nil {
 		return fmt.Errorf("daemon: listen %s: %w", s.socketPath, err)
@@ -129,6 +152,19 @@ func (s *Server) Start(ctx context.Context) error {
 	if err := os.Chmod(s.socketPath, 0o600); err != nil {
 		_ = l.Close()
 		return fmt.Errorf("daemon: chmod socket: %w", err)
+	}
+	if s.PointerPath != "" {
+		// On a fallback socket the pointer is how clients with a different
+		// TMPDIR/XDG_RUNTIME_DIR find this daemon. Without it they would
+		// start a second one, so a failed write fails startup: release the
+		// socket and let the client fall back to in-process.
+		if err := WriteSocketPointer(s.PointerPath, s.socketPath); err != nil {
+			_ = l.Close()
+			if rerr := os.Remove(s.socketPath); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
+				s.reporter().Warnf("krit daemon: remove socket %s: %v\n", s.socketPath, rerr)
+			}
+			return fmt.Errorf("daemon: write socket pointer %s: %w", s.PointerPath, err)
+		}
 	}
 
 	s.listener = l
@@ -244,7 +280,14 @@ func (s *Server) Stop() {
 		if s.listener != nil {
 			_ = s.listener.Close()
 		}
-		_ = os.Remove(s.socketPath)
+		if err := os.Remove(s.socketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			s.reporter().Warnf("krit daemon: remove socket %s: %v\n", s.socketPath, err)
+		}
+		if s.PointerPath != "" {
+			if err := RemoveSocketPointer(s.PointerPath, s.socketPath); err != nil {
+				s.reporter().Warnf("krit daemon: remove socket pointer %s: %v\n", s.PointerPath, err)
+			}
+		}
 		s.wg.Wait()
 		close(s.stopped)
 	})
@@ -260,6 +303,11 @@ func (s *Server) acceptLoop(ctx context.Context) {
 			}
 			s.reporter().Warnf("krit daemon: accept: %v\n", err)
 			return
+		}
+		if err := verifyPeer(conn, s.socketPath); err != nil {
+			s.reporter().Warnf("krit daemon: rejecting connection: %v\n", err)
+			_ = conn.Close()
+			continue
 		}
 		s.wg.Add(1)
 		go func() {

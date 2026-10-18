@@ -101,14 +101,20 @@ func TestAnalyzeProject_EditRacingWatcherEventIsSeenAfterEvent(t *testing.T) {
 			// The event (or its debounced remainder) is delivered.
 			if !st.delivered {
 				fw.handle(backendEvent{Path: p, Op: opWrite})
+				deadline := time.Now().Add(5 * time.Second)
+				for state.workspace.DirtyCount() == 0 && time.Now().Before(deadline) {
+					time.Sleep(10 * time.Millisecond)
+				}
+				if state.workspace.DirtyCount() == 0 {
+					t.Fatal("the watcher never reported the edit")
+				}
 			}
-			deadline := time.Now().Add(5 * time.Second)
-			for state.workspace.DirtyCount() == 0 && time.Now().Before(deadline) {
-				time.Sleep(10 * time.Millisecond)
-			}
-			if state.workspace.DirtyCount() == 0 {
-				t.Fatal("the watcher never reported the edit")
-			}
+			// A stage that delivers its own events has already waited out the
+			// debounce window, and its debounced invalidation may have been
+			// drained by the racing analyze itself when that analyze started
+			// late (a loaded CI runner), so the dirty set can be empty here.
+			// The assertions below are what matter: every call from now on
+			// must match a clean scan.
 			got := []string{}
 			if st.exact {
 				got = append(got, raced)

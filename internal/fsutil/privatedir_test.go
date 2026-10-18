@@ -114,10 +114,31 @@ func TestUserKritDir_TempFallbackIsPrivate(t *testing.T) {
 	t.Setenv("HOME", "")
 	dir, err := UserKritDir()
 	if err != nil {
-		t.Skipf("UserCacheDir available, fallback not exercised: %v", err)
+		t.Fatalf("UserKritDir: %v", err)
+	}
+	if !strings.HasPrefix(dir, tmp) {
+		t.Skipf("UserCacheDir available (%s), fallback not exercised", dir)
 	}
 	if fi, err := os.Stat(dir); err != nil || fi.Mode().Perm()&0o077 != 0 {
 		t.Fatalf("dir %s not private: %v %v", dir, fi, err)
+	}
+}
+
+// A symlinked per-user cache dir (caches moved to another disk) is accepted;
+// only the shared temp fallback is held to the no-symlink rule.
+func TestUserKritDir_AcceptsSymlinkedUserCacheDir(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	target := t.TempDir()
+	if err := os.Symlink(target, filepath.Join(cache, "krit")); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := UserKritDir()
+	if err != nil {
+		t.Fatalf("UserKritDir with a symlinked cache dir: %v", err)
+	}
+	if !strings.HasPrefix(dir, cache) {
+		t.Skipf("UserCacheDir does not honor XDG_CACHE_HOME here (%s)", dir)
 	}
 }
 

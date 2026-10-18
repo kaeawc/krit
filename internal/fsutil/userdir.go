@@ -26,7 +26,15 @@ func UserKritDir() (string, error) {
 	} else {
 		base = filepath.Join(base, "krit")
 	}
-	if err := EnsurePrivateDir(base, shared); err != nil {
+	if shared {
+		if err := EnsurePrivateDir(base, true); err != nil {
+			return "", fmt.Errorf("create krit user dir %s: %w", base, err)
+		}
+		return base, nil
+	}
+	// The per-user cache dir is not plantable by other users, so a
+	// symlinked ~/.cache/krit (caches on another disk) stays supported.
+	if err := os.MkdirAll(base, 0o700); err != nil {
 		return "", fmt.Errorf("create krit user dir %s: %w", base, err)
 	}
 	return base, nil

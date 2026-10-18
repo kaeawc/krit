@@ -60,7 +60,7 @@ func TestEnsureRunning_FailsFastWhenDaemonExits(t *testing.T) {
 }
 
 func TestEnsureRunning_NoLogPathOmitsHint(t *testing.T) {
-	_, err := EnsureRunning(tmpDir(t), SpawnOptions{Binary: "/bin/false", WaitTimeout: 20 * time.Second})
+	_, err := EnsureRunning(tmpDir(t), SpawnOptions{Binary: writeScript(t, "exit 1"), WaitTimeout: 20 * time.Second})
 	if err == nil || strings.Contains(err.Error(), "(see") {
 		t.Fatalf("want error without a log hint, got %v", err)
 	}
@@ -77,7 +77,7 @@ func TestEnsureRunning_ChildExitsZeroButDaemonReachable(t *testing.T) {
 		t.Fatalf("want reachable client, got %v, %v", c, err)
 	}
 	// And with nothing listening, a clean exit is still reported as an error.
-	_, err = EnsureRunning(tmpDir(t), SpawnOptions{Binary: "/bin/true", WaitTimeout: 20 * time.Second})
+	_, err = EnsureRunning(tmpDir(t), SpawnOptions{Binary: writeScript(t, "exit 0"), WaitTimeout: 20 * time.Second})
 	if err == nil || !strings.Contains(err.Error(), "exited before becoming reachable") {
 		t.Fatalf("exit 0 without a daemon must still fail, got %v", err)
 	}
@@ -249,7 +249,7 @@ func TestDiscover_ConventionalSocketServingOtherRootIsRefused(t *testing.T) {
 	if _, ok := Discover(root); ok {
 		t.Fatal("Discover must refuse a conventional-socket daemon serving another root")
 	}
-	if _, err := EnsureRunning(root, SpawnOptions{Binary: "/bin/false"}); !errors.Is(err, ErrRootMismatch) {
+	if _, err := EnsureRunning(root, SpawnOptions{Binary: writeScript(t, "exit 1")}); !errors.Is(err, ErrRootMismatch) {
 		t.Fatalf("EnsureRunning err = %v, want ErrRootMismatch", err)
 	}
 }

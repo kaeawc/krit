@@ -94,7 +94,7 @@ func startMockDumpTypesDaemon(t *testing.T, capturedArgs *atomic.Value, reply da
 	socket := filepath.Join(socketDir, "d.sock")
 	srv := daemon.NewServer(socket)
 	srv.Register(daemon.VerbStatus, func(_ context.Context, _ json.RawMessage) (any, error) {
-		return daemon.StatusResult{Ready: true}, nil
+		return daemon.StatusResult{Ready: true, Root: currentMockRoot()}, nil
 	})
 	srv.Register(daemon.VerbDumpTypes, func(_ context.Context, raw json.RawMessage) (any, error) {
 		var args daemon.DumpTypesArgs

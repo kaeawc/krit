@@ -15,7 +15,7 @@ import (
 // we can exercise the client. The daemon registers a passthrough
 // echo verb for AnalyzeBuffer and the standard Status / Shutdown
 // verbs.
-func startEchoDaemon(t *testing.T) (string, *daemon.Server) {
+func startEchoDaemon(t *testing.T, root string) (string, *daemon.Server) {
 	t.Helper()
 	socketDir, err := os.MkdirTemp("/tmp", "krit-cli-")
 	if err != nil {
@@ -26,7 +26,7 @@ func startEchoDaemon(t *testing.T) (string, *daemon.Server) {
 
 	srv := daemon.NewServer(socket)
 	srv.Register(daemon.VerbStatus, func(_ context.Context, _ json.RawMessage) (any, error) {
-		return daemon.StatusResult{Ready: true, Files: 7}, nil
+		return daemon.StatusResult{Ready: true, Files: 7, Root: root}, nil
 	})
 	srv.Register(daemon.VerbShutdown, func(_ context.Context, _ json.RawMessage) (any, error) {
 		return map[string]bool{"ok": true}, nil
@@ -81,14 +81,14 @@ func itoa(n int) string {
 }
 
 func TestDiscover_FindsRunningDaemon(t *testing.T) {
-	socketDir, srv := startEchoDaemon(t)
-	// Place a fake .krit/daemon.sock symlink so Discover with the
-	// project root finds the running daemon.
 	root, err := os.MkdirTemp("/tmp", "krit-root-")
 	if err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	socketDir, srv := startEchoDaemon(t, root)
+	// Place a fake .krit/daemon.sock symlink so Discover with the
+	// project root finds the running daemon.
 	if err := os.MkdirAll(filepath.Join(root, ".krit"), 0o755); err != nil {
 		t.Fatalf("mkdir krit: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestDiscover_NoDaemonReturnsFalse(t *testing.T) {
 }
 
 func TestClient_AnalyzeBufferRoundTrip(t *testing.T) {
-	socketDir, _ := startEchoDaemon(t)
+	socketDir, _ := startEchoDaemon(t, "")
 	c := &Client{socketPath: filepath.Join(socketDir, "d.sock")}
 	got, err := c.AnalyzeBuffer(daemon.AnalyzeBufferArgs{Path: "Foo.kt", Content: "fun f()"})
 	if err != nil {
@@ -137,7 +137,7 @@ func TestClient_AnalyzeBufferRoundTrip(t *testing.T) {
 }
 
 func TestClient_StatusRoundTrip(t *testing.T) {
-	socketDir, _ := startEchoDaemon(t)
+	socketDir, _ := startEchoDaemon(t, "")
 	c := &Client{socketPath: filepath.Join(socketDir, "d.sock")}
 	st, err := c.Status()
 	if err != nil {
@@ -151,7 +151,7 @@ func TestClient_StatusRoundTrip(t *testing.T) {
 // startEchoDaemonWithStatus is startEchoDaemon plus a Status verb that
 // returns the configured BinaryHash so tests can simulate
 // version-mismatch handshakes.
-func startEchoDaemonWithStatus(t *testing.T, daemonHash string) string {
+func startEchoDaemonWithStatus(t *testing.T, daemonHash, root string) string {
 	t.Helper()
 	socketDir, err := os.MkdirTemp("/tmp", "krit-cli-")
 	if err != nil {
@@ -162,7 +162,7 @@ func startEchoDaemonWithStatus(t *testing.T, daemonHash string) string {
 
 	srv := daemon.NewServer(socket)
 	srv.Register(daemon.VerbStatus, func(_ context.Context, _ json.RawMessage) (any, error) {
-		return daemon.StatusResult{Ready: true, BinaryHash: daemonHash}, nil
+		return daemon.StatusResult{Ready: true, BinaryHash: daemonHash, Root: root}, nil
 	})
 	srv.Register(daemon.VerbShutdown, func(_ context.Context, _ json.RawMessage) (any, error) {
 		return map[string]bool{"ok": true}, nil
@@ -199,7 +199,7 @@ func TestEnsureCompatible_MatchingHashKeepsClient(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
-	socket := startEchoDaemonWithStatus(t, currentBinaryHash())
+	socket := startEchoDaemonWithStatus(t, currentBinaryHash(), root)
 	linkSocket(t, root, socket)
 
 	c, ok, err := EnsureCompatible(root, SpawnOptions{})
@@ -217,7 +217,7 @@ func TestEnsureCompatible_MismatchShutsDownNoRestart(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
-	socket := startEchoDaemonWithStatus(t, "deadbeefdeadbeefdeadbeefdeadbeef")
+	socket := startEchoDaemonWithStatus(t, "deadbeefdeadbeefdeadbeefdeadbeef", root)
 	linkSocket(t, root, socket)
 
 	c, ok, err := EnsureCompatible(root, SpawnOptions{})

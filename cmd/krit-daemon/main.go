@@ -15,7 +15,6 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -23,7 +22,6 @@ import (
 	"path/filepath"
 
 	"github.com/kaeawc/krit/internal/cli/serve"
-	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/oracle"
 )
 
@@ -32,7 +30,7 @@ var version = "dev"
 func main() {
 	versionFlag := flag.Bool("version", false, "print version and exit")
 	repoFlag := flag.String("repo", "", "repository root the daemon serves (required)")
-	socketFlag := flag.String("socket", "", "socket path (defaults to <repo>/.krit/daemon.sock)")
+	socketFlag := flag.String("socket", "", "socket path (defaults to <repo>/.krit/daemon.sock, or a short per-user temp path when that exceeds the unix socket length limit)")
 	verboseFlag := flag.Bool("verbose", false, "log lifecycle events to stderr")
 	flag.BoolVar(verboseFlag, "v", false, "alias for --verbose")
 	// --strict-verify reruns every analyze in-process from cold caches
@@ -74,24 +72,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// flock(2) single-instance enforcement (issue #208). serve.Run
-	// itself doesn't hold the lock, so we acquire it here and release
-	// on exit. The kernel releases the fd if the process is killed.
-	lock, err := daemon.AcquireRepoLock(repo)
-	if err != nil {
-		if errors.Is(err, daemon.ErrAlreadyHeld) {
-			if pid := daemon.ReadPIDFile(repo); pid > 0 {
-				fmt.Fprintf(os.Stderr, "krit-daemon: already running, PID %d\n", pid)
-			} else {
-				fmt.Fprintln(os.Stderr, "krit-daemon: already running (PID unknown)")
-			}
-			os.Exit(2)
-		}
-		fmt.Fprintf(os.Stderr, "krit-daemon: acquire lock: %v\n", err)
-		os.Exit(1)
-	}
-	defer lock.Close() //nolint:errcheck // best effort on shutdown
-
+	// Single-instance enforcement (flock on .krit/daemon.lock, issue #208)
+	// lives in serve.Run, so every way of starting a daemon shares it; a
+	// second instance for this repo exits 2 ("already running").
 	// Translate krit-daemon's flag surface to serve.Run's. The flag
 	// names changed when we collapsed the two daemon implementations.
 	serveArgs := []string{"--root", repo}

@@ -33,6 +33,56 @@ Consequences worth knowing when adding a verb or resident state:
 - A request whose directory the daemon cannot enter fails, and the CLI falls
   back to the in-process path.
 
+## Socket location
+
+The daemon listens on `<root>/.krit/daemon.sock`, where `<root>` is the
+absolute, symlink-resolved project root. A unix socket path is limited to 108
+bytes on Linux (104 on macOS), so for deeply nested checkouts the conventional
+path would make `bind` fail. When the conventional path is longer than 100
+bytes, the socket moves to `<dir>/<16 hex of sha256(root)>.sock`, where `<dir>`
+is the first usable of `$XDG_RUNTIME_DIR/krit`, `$TMPDIR/krit-<uid>` and
+`/tmp/krit-<uid>` whose full path fits (relative `TMPDIR`/`XDG_RUNTIME_DIR`
+values are skipped). That directory is created `0700`; an existing one must be
+a real directory (not a symlink) owned by the current user, and its parent
+must be owned by us or root and not group/other-writable without the sticky
+bit. Lookups (`status`, discovery) only inspect these directories; creating
+them happens when a daemon is spawned or binds. If none qualifies, spawning
+fails with an error naming each candidate.
+
+How clients and daemons stay in agreement and stay safe:
+
+- **One daemon per repo.** `krit serve` takes the per-repo flock
+  (`.krit/daemon.lock`, which also writes `.krit/daemon.pid`). A second serve
+  for the same root exits with status 2 and "another daemon is running for this
+  repo", even if its environment would derive a different socket path. A client
+  whose spawned child exits 2 keeps waiting for the winner.
+- **Spawn.** The client passes the socket it resolved to the child it spawns
+  (`krit serve --root R --socket S`), so a different `TMPDIR` in the spawned
+  environment cannot move it.
+- **Pointer file.** A daemon on a fallback socket must write the real path to
+  `<root>/.krit/daemon.sock.path` (mode `0600`, atomic temp file and rename);
+  failing to do so aborts startup. It removes the pointer on stop. A daemon on
+  the conventional socket removes any stale pointer at startup. Clients only
+  honor a pointer when the conventional path is too long, the file is a
+  regular file owned by the user and small, and its target is
+  `<krit dir>/<this root's hash>.sock`; the target is tried first and, if it
+  does not answer, the derived path is tried, so a stale pointer cannot hide a
+  live daemon. `krit daemon status --json` reports the real `socketPath`;
+  tools should read that rather than hard-coding `.krit/daemon.sock`.
+- **Peer and root checks.** Every connection is checked for the peer uid
+  (`SO_PEERCRED` / `LOCAL_PEERCRED`) on both ends: the daemon drops
+  connections from other users and clients will not talk to a daemon of
+  another user. Discovery treats such a daemon as absent, but
+  `EnsureRunning`/`EnsureCompatible` stop with "daemon at X runs as uid N; stop
+  it as that user or use --no-daemon" instead of spawning over it. Discovery
+  also asks the daemon for its `status` and requires the reported root to equal
+  the requested root (for every socket, since `.krit` can be a symlink in a
+  repository); a mismatch is refused with an error and no daemon is spawned
+  over it. An explicit `--daemon-socket` skips the root check: it is the
+  caller's choice of daemon.
+
+The `daemon` package is Unix-only today (the repo lock uses `syscall.Flock`).
+
 ## Meta / non-analysis flags
 
 These flags do not run an analysis at all. The daemon's only client verb is

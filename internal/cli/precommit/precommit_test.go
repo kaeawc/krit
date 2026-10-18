@@ -133,6 +133,10 @@ func startEchoDaemon(t *testing.T, root string) (*daemon.Server, string) {
 		t.Fatalf("marshal echo cols: %v", err)
 	}
 	srv := daemon.NewServer(socket)
+	// Discovery verifies that the daemon serves this root.
+	srv.Register(daemon.VerbStatus, func(_ context.Context, _ json.RawMessage) (any, error) {
+		return daemon.StatusResult{Ready: true, Root: root}, nil
+	})
 	srv.Register(daemon.VerbAnalyzeBuffer, func(_ context.Context, _ json.RawMessage) (any, error) {
 		return daemon.AnalyzeBufferResult{Findings: json.RawMessage(echoBody), CacheHit: false}, nil
 	})

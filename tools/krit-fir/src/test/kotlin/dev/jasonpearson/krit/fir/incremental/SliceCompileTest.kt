@@ -157,6 +157,24 @@ class SliceCompileTest {
         session.dispose()
     }
 
+    @Test fun aSharedOracleAndCheckCompileKeepsTheSnapshot() {
+        baseline()
+        val session = recording()
+        full(session)
+        val snapshot = assertNotNull(session.incrementalState.snapshot)
+        val before = filesUnder(snapshot.dir)
+        val paths = kotlinFilesIn(src)
+        val (_, checked) = session.analyzeWithCheck(
+            paths, dev.jasonpearson.krit.fir.CheckRequest(id = 9, command = "check", files = paths.map { FileRef(it) }, rules = listOf("ProtocolProbe")),
+        )
+        assertNotNull(checked)
+        assertEquals(null, session.sliceFallback())
+        assertTrue(snapshot === session.incrementalState.snapshot)
+        assertEquals(before, filesUnder(snapshot.dir))
+        assertEquals(emptySet(), slice(session, "Lib.kt").errorFiles.keys)
+        session.dispose()
+    }
+
     // ---- sealed hierarchies and what a slice adds on its own -------------------------------------------------
 
     private fun sealedModule() {

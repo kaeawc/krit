@@ -230,6 +230,13 @@ internal object SnapshotStorage {
     const val LOCKLESS_GRACE_MILLIS = 10 * 60 * 1000L
     private const val MAX_CREATE_ATTEMPTS = 5
 
+    // Serializes, within this process, the sweep and the stretch of a creation from opening `.lock` to owning it.
+    // Both open channels on the same file, and in one JVM that goes wrong two ways: a sweep that holds the lock makes
+    // the creator's `tryLock` throw OverlappingFileLockException, and a sweep that merely opens and closes a channel
+    // after the creator locked the file drops the creator's lock (on Linux closing any channel on a file does).
+    // Other processes need no such guard: their locks and close() calls are theirs alone.
+    private val guard = Any()
+
     private val sequence = AtomicInteger()
     private val pid = ProcessHandle.current().pid()
     private val hookInstalled = java.util.concurrent.atomic.AtomicBoolean()
@@ -282,26 +289,32 @@ internal object SnapshotStorage {
         repeat(MAX_CREATE_ATTEMPTS) {
             val root = File(snapshots, "p$pid-${sequence.incrementAndGet()}-${java.lang.Long.toHexString(System.nanoTime())}")
             createPrivateDirectories(root.toPath())
-            val channel = try {
-                java.nio.channels.FileChannel.open(
-                    File(root, LOCK_NAME).toPath(),
-                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE,
-                )
-            } catch (_: IOException) { return@repeat }
-            // Registered before locking: from then on this process's sweep leaves the file alone (opening and closing
-            // another channel on it would drop the lock).
-            val key = root.canonicalFile
-            held[key] = channel
-            val locked = try {
-                channel.tryLock() != null && root.isDirectory && File(root, LOCK_NAME).isFile
-            } catch (e: Throwable) {
-                held.remove(key)
-                channel.close()
-                throw e
+            val owned = synchronized(guard) {
+                val channel = try {
+                    java.nio.channels.FileChannel.open(
+                        File(root, LOCK_NAME).toPath(),
+                        java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE,
+                    )
+                } catch (_: IOException) { return@synchronized false }
+                // Registered before locking: from then on this process's sweep leaves the file alone.
+                val key = root.canonicalFile
+                held[key] = channel
+                val locked = try {
+                    // A lock another process (or, defensively, this JVM) holds is not ours: try a fresh directory.
+                    val lock = try { channel.tryLock() } catch (_: java.nio.channels.OverlappingFileLockException) { null }
+                    lock != null && root.isDirectory && File(root, LOCK_NAME).isFile
+                } catch (e: Throwable) {
+                    held.remove(key)
+                    channel.close()
+                    throw e
+                }
+                if (!locked) {
+                    held.remove(key)
+                    channel.close()
+                }
+                locked
             }
-            if (locked) return root
-            held.remove(key)
-            channel.close()
+            if (owned) return root
             root.deleteRecursively()
         }
         throw IOException("could not create a snapshot directory under $snapshots")
@@ -317,7 +330,7 @@ internal object SnapshotStorage {
      * is kept when this process holds it, when another process holds its lock, or when it has no lock file yet and
      * is younger than [LOCKLESS_GRACE_MILLIS].
      */
-    fun sweepDead(snapshots: File): Int {
+    fun sweepDead(snapshots: File): Int = synchronized(guard) {
         var removed = 0
         for (child in snapshots.listFiles().orEmpty()) {
             if (!child.isDirectory || held.containsKey(child.canonicalFile)) continue
@@ -340,7 +353,7 @@ internal object SnapshotStorage {
                 try { channel.close() } catch (_: IOException) {}
             }
         }
-        return removed
+        removed
     }
 
     /** Deletes this process's snapshot directories: what the shutdown hook runs. Other processes' are not touched. */

@@ -168,21 +168,39 @@ class SnapshotStorageTest {
 
     @Test fun creatingSnapshotsWhileOthersSweepNeverLosesADirectory() {
         val roots = java.util.concurrent.ConcurrentLinkedQueue<File>()
+        val failures = java.util.concurrent.ConcurrentLinkedQueue<Throwable>()
         val stop = java.util.concurrent.atomic.AtomicBoolean(false)
-        val sweeper = Thread { while (!stop.get()) SnapshotStorage.sweepDead(snapshots) }
-        sweeper.start()
+        val sweepers = (1..2).map { Thread { while (!stop.get()) SnapshotStorage.sweepDead(snapshots) }.also { t -> t.start() } }
         try {
             val creators = (1..4).map {
-                Thread { repeat(25) { roots += SnapshotStorage.newSnapshotRoot(parent) } }.also { t -> t.start() }
+                Thread {
+                    try {
+                        repeat(25) { roots += SnapshotStorage.newSnapshotRoot(parent) }
+                    } catch (t: Throwable) {
+                        failures += t
+                    }
+                }.also { t -> t.start() }
             }
             creators.forEach { it.join() }
         } finally {
             stop.set(true)
-            sweeper.join()
+            sweepers.forEach { it.join() }
         }
-        assertEquals(100, roots.size)
-        assertTrue(roots.all { it.isDirectory && File(it, ".lock").isFile }, "a concurrent sweep deleted a live snapshot")
-        roots.forEach { SnapshotStorage.release(it); it.deleteRecursively() }
+        val report = buildString {
+            append("created ${roots.size} of 100 snapshot directories")
+            for (t in failures) append("\n  creator failed: ").append(t.stackTraceToString().lines().take(6).joinToString("\n    "))
+            for (r in roots) {
+                when {
+                    !r.isDirectory -> append("\n  directory deleted: ").append(r.name)
+                    !File(r, ".lock").isFile -> append("\n  lock file deleted, directory kept: ").append(r.name)
+                }
+            }
+        }
+        try {
+            assertTrue(failures.isEmpty() && roots.size == 100 && roots.all { it.isDirectory && File(it, ".lock").isFile }, report)
+        } finally {
+            roots.forEach { SnapshotStorage.release(it); it.deleteRecursively() }
+        }
     }
 
     // ---- the shutdown hook ------------------------------------------------------------------------------------

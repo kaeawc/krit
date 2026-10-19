@@ -638,6 +638,9 @@ class AnalysisSession(
      * session's. Otherwise, or when the shared compile throws, the check
      * result is null and the oracle compiles alone, so the caller checks on
      * its own.
+     *
+     * The shared compile is not recorded into [incrementalState] and leaves it, snapshot included, as it is: step 5
+     * (#859 integration) will build the snapshot inside this compile and record it.
      */
     fun analyzeWithCheck(files: List<String>, checkRequest: CheckRequest): Pair<AnalyzeOutcome, BatchResult?> {
         val walked = currentSourceFiles()
@@ -652,8 +655,12 @@ class AnalysisSession(
         if (!shared) return analyzeFull(files) to null
         var exitCode = ExitCode.OK
         val outcome = try {
-            plan.startRecording(oracleSources)
-            analyzeCompilation(oracleSources, plan) { exitCode = it; plan.commitRecording(it) }
+            // Not recorded: a recording committed here would replace the incremental state without a snapshot
+            // (the shared compile is frontend-only), so every later slice would fall back. The state and its
+            // snapshot are left as they are; a planner compares content hashes with them, so it stays correct
+            // whatever shared compiles ran in between. Step 5 (#859 integration) will build the snapshot inside
+            // this shared compile and record here again.
+            analyzeCompilation(oracleSources, plan) { exitCode = it }
         } catch (e: Exception) {
             // A checker failure the rule isolation does not absorb must not
             // cost the oracle its facts: compile for the oracle alone, and

@@ -67,7 +67,7 @@ dependencies {
     runtimeOnly("org.jetbrains.kotlin:kotlin-compiler-common-for-ide:$kotlinVersion") { isTransitive = false }
 
     // Required runtime deps
-    implementation("com.github.ben-manes.caffeine:caffeine:3.3.0")
+    implementation("com.github.ben-manes.caffeine:caffeine:3.3.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.11.0")
     runtimeOnly("org.jetbrains.intellij.deps.kotlinx:kotlinx-coroutines-core:1.10.2-intellij-1")
 

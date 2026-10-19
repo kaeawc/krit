@@ -8,7 +8,9 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * What one whole-module compile recorded: lookups and declaration surfaces per canonical source path, plus
  * content hashes. [compileKey] identifies the compiler facts (lookups, surfaces); [verdictKey] identifies what
- * a verdict additionally depends on (rules, configs, requested files).
+ * a verdict additionally depends on: rules, rule configs, test-file classification, scan paths and SDK levels.
+ * It does not cover which files were requested. Step 4 must derive per-file verdict keys from it, because
+ * testFiles, scanPaths and sdkLevels are per-file maps.
  *
  * Recording is best-effort: a failure while recording poisons it with [fail], and a poisoned recording is
  * never committed.
@@ -64,10 +66,19 @@ internal class FingerprintBuilder {
         return this
     }
 
-    /** Path, size and modification time: cheap, and changes whenever the classpath entry is rebuilt. */
+    /**
+     * Path, size and modification time: cheap, and changes whenever the classpath entry is rebuilt. A directory
+     * (compiled classes of an upstream module) is walked and each regular file's relative path, size and
+     * modification time is included, sorted; the root's own mtime does not change when nested files are rewritten.
+     * Contents are never read.
+     */
     fun addFileIdentity(label: String, path: String): FingerprintBuilder {
         val f = File(path)
-        return add(label, listOf(canonicalPath(path), if (f.isFile) f.length() else -1L, f.lastModified()))
+        if (!f.isDirectory) return add(label, listOf(canonicalPath(path), if (f.isFile) f.length() else -1L, f.lastModified()))
+        val root = f.toPath()
+        val entries = f.walkTopDown().filter { it.isFile }
+            .map { "${root.relativize(it.toPath())}|${it.length()}|${it.lastModified()}" }.sorted().toList()
+        return add(label, listOf(canonicalPath(path), "dir", entries))
     }
 
     fun build(): String = hex(digest.digest())
@@ -106,8 +117,10 @@ internal class SurfaceChange(val symbols: Set<Sym>, val scopes: Set<String>, val
  *
  * Every [commit] is a whole-module compile and replaces the per-file facts. The facts are compiler facts, so a
  * commit under a different [compileKey] (compiler, sources, classpath, settings) resets the state first. The
- * [verdictKey] (rules, configs, requested files) only records which verdict inputs the latest commit used; a
- * verdict cache keyed by it can sit on top without losing lookups or surfaces when the rules change.
+ * [verdictKey] (rules, rule configs, test-file classification, scan paths and SDK levels; not the requested
+ * files) only records which verdict inputs the latest commit used; a verdict cache keyed by it can sit on top
+ * without losing lookups or surfaces when the rules change. Step 4 must derive per-file verdict keys, because
+ * testFiles, scanPaths and sdkLevels are per-file maps.
  */
 internal open class IncrementalState {
     @Volatile var compileKey: String? = null

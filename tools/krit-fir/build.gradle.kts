@@ -108,6 +108,8 @@ tasks.test {
         "krit.fir.plugin.jar",
         pluginJar.get().asFile.absolutePath,
     )
+    // Sessions that snapshot a module write under krit's cache dir: keep tests out of the user's.
+    systemProperty("krit.fir.cache.dir", layout.buildDirectory.dir("test-krit-cache").get().asFile.absolutePath)
 }
 
 // FirIncrementalSplitDifferentialTest: a full-vs-slice compile of the compiler-test
@@ -124,6 +126,7 @@ tasks.register<Test>("incrementalDifferentialTest") {
     inputs.file(pluginJar)
     inputs.dir(project.file("compiler-tests/src/test/data")).withPropertyName("testData")
     systemProperty("krit.fir.plugin.jar", pluginJar.get().asFile.absolutePath)
+    systemProperty("krit.fir.cache.dir", layout.buildDirectory.dir("test-krit-cache").get().asFile.absolutePath)
     for (name in listOf("krit.fir.differential.sample", "krit.fir.differential.only")) {
         findProperty(name)?.let { systemProperty(name, it.toString()) }
     }

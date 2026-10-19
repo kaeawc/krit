@@ -233,15 +233,38 @@ class IncrementalRecordingTest {
     @Test fun aChangedClasspathEntryResetsTheState() {
         baseline()
         val extra = tmp.resolve("extra-classes").toFile().apply { mkdirs() }
+        val entry = File(extra, "B.class").apply { writeText("x") }
         val session = AnalysisSession(listOf(tmp.resolve("src").toString()), listOf(stdlib, extra.path), incrementalRecording = true)
         File(tmp.resolve("src").toFile().apply { mkdirs() }, "A.kt").writeText("package a\nfun a() = 1\n")
         val files = listOf(FileRef(tmp.resolve("src/A.kt").toString()))
         session.check(1, files, emptySet())
         session.check(1, files, emptySet())
         assertEquals(2, session.incrementalState.generation)
-        extra.setLastModified(extra.lastModified() + 5000)
+        entry.setLastModified(entry.lastModified() + 5000)
         session.check(1, files, emptySet())
         assertEquals(1, session.incrementalState.generation, "a classpath entry that changed starts a new state")
+    }
+
+    @Test fun aRewrittenNestedClasspathFileResetsTheStateEvenWhenTheRootMtimeIsUnchanged() {
+        val extra = tmp.resolve("extra-classes").toFile().apply { mkdirs() }
+        val nested = File(extra, "pkg/deep/A.class").apply { parentFile.mkdirs(); writeText("v1") }
+        val src = tmp.resolve("src").toFile().apply { mkdirs() }
+        File(src, "A.kt").writeText("package a\nfun a() = 1\n")
+        val session = AnalysisSession(listOf(src.path), listOf(stdlib, extra.path), incrementalRecording = true)
+        val files = listOf(FileRef(File(src, "A.kt").path))
+        session.check(1, files, emptySet())
+        val before = session.incrementalState.compileKey
+        session.check(1, files, emptySet())
+        assertEquals(2, session.incrementalState.generation)
+
+        val rootMtime = extra.lastModified()
+        nested.writeText("version-two")
+        nested.setLastModified(nested.lastModified() + 5000)
+        extra.setLastModified(rootMtime)
+        assertEquals(rootMtime, extra.lastModified())
+        session.check(1, files, emptySet())
+        assertTrue(before != session.incrementalState.compileKey)
+        assertEquals(1, session.incrementalState.generation, "a rewritten nested class file starts a new state")
     }
 
     @Test fun theSharedOracleAndCheckCompileRecordsToo() {

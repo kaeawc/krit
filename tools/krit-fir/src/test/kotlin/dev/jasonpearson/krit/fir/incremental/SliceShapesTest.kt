@@ -39,6 +39,8 @@ class SliceShapesTest {
         val expectFindings: Boolean = false,
         /** Files (by name) `sliceCheck` adds to the requested slice on its own. */
         val expands: Set<String> = emptySet(),
+        /** Files of [edit] that are deleted: they are passed to the slice as removals. */
+        val deleted: Set<String> = emptySet(),
     )
 
     private val cases = listOf(
@@ -78,6 +80,7 @@ class SliceShapesTest {
             // A subclass in source of a sealed parent in the snapshot: not a "different module".
             mapOf("b/B.kt" to "package p\n\nclass B1 : S()\nfun f(s: S): Int = when (s) { is A1 -> 1; is B1 -> 3 }\n"),
             listOf("b/B.kt"),
+            expands = setOf("S.kt"), // the sealed parent comes along, with its other inheritor
         ),
         Case(
             "sealed-hierarchy-in-snapshot-when-in-slice",
@@ -101,6 +104,7 @@ class SliceShapesTest {
             listOf("c/D2.kt"),
             errors = setOf("W.kt"),
             outside = setOf("W.kt"), // the when in W.kt is no longer exhaustive; only a planner can know to recheck it
+            expands = setOf("S.kt"),
         ),
         Case(
             "sealed-new-subclass-when-in-slice",
@@ -111,10 +115,50 @@ class SliceShapesTest {
             ),
             mapOf("c/D2.kt" to "package p\n\nclass Other\nclass D2 : U\n"),
             listOf("c/D2.kt", "b/W.kt"),
-            // The parent's binary still lists only D1, so the when looks exhaustive: the parent's file has to be
-            // in the slice too (next case).
-            differs = setOf("W.kt"),
+            // The parent's binary would list only D1, so the when would look exhaustive: the slice brings the
+            // parent's file in on its own.
             errors = setOf("W.kt"),
+            expands = setOf("S.kt"),
+        ),
+        Case(
+            "sealed-new-subclass-only-the-subclass-requested",
+            mapOf(
+                "a/S.kt" to "package p\n\nsealed interface U\nclass D1 : U\n",
+                "b/W.kt" to "package p\n\nfun h(u: U): Int = when (u) { is D1 -> 1 }\n",
+                "c/D2.kt" to "package p\n\nclass Other\n",
+            ),
+            // Only the new subclass's file is requested: the sealed parent and its other inheritors come along, so the
+            // parent's inheritor list is complete. The when in W.kt is a dependent and stays with the planner.
+            mapOf("c/D2.kt" to "package p\n\nclass Other\nclass D2 : U\n"),
+            listOf("c/D2.kt"),
+            errors = setOf("W.kt"),
+            outside = setOf("W.kt"),
+            expands = setOf("S.kt"),
+        ),
+        Case(
+            "sealed-subclass-removed-by-dropping-the-supertype",
+            mapOf(
+                "a/S.kt" to "package p\n\nsealed interface U\nclass D1 : U\n",
+                "c/D2.kt" to "package p\n\nclass D2 : U\n",
+                "b/W.kt" to "package p\n\nfun h(u: U): Int = when (u) { is D1 -> 1; is D2 -> 2 }\n",
+            ),
+            mapOf("c/D2.kt" to "package p\n\nclass D2\n"),
+            listOf("c/D2.kt"),
+            errors = setOf("W.kt"),
+            outside = setOf("W.kt"),
+            expands = setOf("S.kt"),
+        ),
+        Case(
+            "sealed-subclass-removed-by-deleting-the-file",
+            mapOf(
+                "a/S.kt" to "package p\n\nsealed interface U\nclass D1 : U\n",
+                "c/D2.kt" to "package p\n\nclass D2 : U\n",
+                "d/Keep.kt" to "package p\n\nclass Keep\n",
+            ),
+            mapOf("c/D2.kt" to null),
+            listOf("d/Keep.kt"),
+            expands = setOf("S.kt"),
+            deleted = setOf("c/D2.kt"),
         ),
         Case(
             "sealed-new-subclass-parent-in-slice",
@@ -224,7 +268,7 @@ class SliceShapesTest {
             val ref = plainSession(src).check(2, all.map { FileRef(it) }, emptySet())
 
             val slice = c.slice.map { canon(File(src, it).path) }
-            val outcome = session.sliceCheck(3, slice.map { FileRef(it) }, emptySet())
+            val outcome = session.sliceCheck(3, slice.map { FileRef(it) }, emptySet(), removedFiles = c.deleted.map { File(src, it).path })
             val checked = outcome as? SliceOutcome.Checked
                 ?: error("${c.name}: the slice fell back: ${(outcome as SliceOutcome.Fallback).reason}")
             val inc = checked.result
@@ -259,7 +303,16 @@ class SliceShapesTest {
 
     @Test fun newSealedSubclassLeavesTheWhenFileToThePlanner() = run(cases.first { it.name == "sealed-new-subclass-other-file" })
 
-    @Test fun newSealedSubclassWithTheWhenInTheSliceNeedsTheParentToo() {
+    @Test fun aNewSealedSubclassBringsItsParentAndTheParentsInheritors() =
+        run(cases.first { it.name == "sealed-new-subclass-only-the-subclass-requested" })
+
+    @Test fun droppingTheSupertypeOfASealedSubclassRecompilesTheParent() =
+        run(cases.first { it.name == "sealed-subclass-removed-by-dropping-the-supertype" })
+
+    @Test fun deletingASealedSubclassRecompilesTheParent() =
+        run(cases.first { it.name == "sealed-subclass-removed-by-deleting-the-file" })
+
+    @Test fun newSealedSubclassWithTheWhenInTheSliceMatchesAFullCheck() {
         run(cases.first { it.name == "sealed-new-subclass-when-in-slice" })
     }
 

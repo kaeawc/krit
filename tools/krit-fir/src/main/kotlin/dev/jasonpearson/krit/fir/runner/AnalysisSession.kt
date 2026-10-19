@@ -288,8 +288,10 @@ class AnalysisSession(
      * enforces itself and reports in [SliceOutcome.Checked.compiled]:
      *  - [IncrementalState.binaryStale]: a file whose binary no longer describes it must not be read from the
      *    snapshot;
-     *  - the files of every subclass of a sealed class or interface declared in a compiled file, over the whole
-     *    sealed hierarchy. A sealed parent compiled from source knows only the inheritors that are in source, so
+     *  - the whole sealed hierarchy of every sealed class or interface a compiled (or deleted) file touches: the
+     *    inheritors of a sealed class it declares, and the file of a sealed parent it extends, recorded or
+     *    current, so a subclass that is added, removed or retargeted brings its parent and the parent's other
+     *    inheritors in. A sealed parent compiled from source knows only the inheritors that are in source, so
      *    without them its inheritor list, and with it its surface and every exhaustiveness check, would be wrong.
      *    The set is re-checked against the compiled surfaces and the slice is compiled again when it grew.
      *
@@ -301,9 +303,8 @@ class AnalysisSession(
      * then untouched).
      *
      * What remains with the caller (the planner):
-     *  - the dependents of what changed (lookups, plus the structural rules of the findings), and, for a new
-     *    subclass of a sealed parent in another file, that parent's file (this method adds a sealed parent's
-     *    subclasses, not a subclass's parent);
+     *  - the dependents of what changed (lookups, plus the structural rules of the findings): a `when` over a
+     *    sealed hierarchy that gained or lost a subclass is such a dependent and is not added here;
      *  - a redeclaration or conflicting overload is only seen when both sides are in the slice;
      *  - verdicts of the whole-compilation tiered rules (`FirRule.wholeCompilationTier`) are not those of a full
      *    compile on a slice and must not be trusted; step 4 decides how they are served;
@@ -323,7 +324,7 @@ class AnalysisSession(
         for (ref in dirtyFiles) refs.putIfAbsent(canonicalOrSelf(File(ref.path)), ref)
         val requested = refs.keys.toSet()
         for (stale in incrementalState.binaryStale()) refs.putIfAbsent(stale, FileRef(stale))
-        var wanted = incrementalState.withSealedInheritors(refs.keys)
+        var wanted = incrementalState.withSealedInheritors(refs.keys + removedFiles.map { canonicalOrSelf(File(it)) })
         while (true) {
             val (present, missing) = wanted.partition { File(it).isFile }
             val removed = (removedFiles + missing).mapTo(LinkedHashSet()) { canonicalOrSelf(File(it)) }
@@ -359,7 +360,7 @@ class AnalysisSession(
                 }
                 // A sealed class declared in a compiled file (it may have become sealed in this very edit) needs
                 // all its inheritors in source.
-                val grown = incrementalState.withSealedInheritors(compiled, recording.surfaces)
+                val grown = incrementalState.withSealedInheritors(compiled + removed, recording.surfaces)
                 if ((grown - compiled - removed).any { File(it).isFile }) {
                     wanted = grown + wanted
                     continue

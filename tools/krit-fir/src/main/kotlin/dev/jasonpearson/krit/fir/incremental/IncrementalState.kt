@@ -346,20 +346,40 @@ internal open class IncrementalState {
     @Synchronized fun filesDeclaring(symbol: Sym): Set<String> = HashSet(declFiles[symbol].orEmpty())
 
     /**
-     * [files] plus, for every sealed class or interface declared in them, the files of all its direct and indirect
-     * subclasses (the closure over the whole sealed hierarchy). A sealed parent compiled from source only knows the
-     * inheritors that are in source too, so it must be compiled with all of them: otherwise its surface (which
-     * lists the inheritors) moves with the slice and exhaustiveness over it is wrong. [current] gives the surfaces
-     * of files just compiled, which win over the recorded ones.
+     * [files] plus the whole sealed hierarchy of every sealed class or interface they touch, in both directions:
+     *  - for a sealed class or interface declared in a file, the files of all its direct and indirect subclasses;
+     *  - for a class a file declares (or declared: [files] may name deleted files, whose recorded surface counts) with
+     *    a direct supertype that is a sealed class or interface of the module, that parent's file, and through it the
+     *    parent's other inheritors. The supertypes of both the recorded surface and the one in [current] are
+     *    looked at, so a subclass that is added, removed or retargeted to another parent brings the parent in.
+     *
+     * A sealed parent compiled from source knows only the inheritors that are in source too, so it must be compiled
+     * with all of them; otherwise its inheritor list (part of its surface) and every exhaustiveness check over it is
+     * wrong. [current] gives the surfaces of files just compiled, which win over the recorded ones for the sealed
+     * classes they declare.
      */
     @Synchronized
     fun withSealedInheritors(files: Collection<String>, current: Map<String, FileSurface> = emptyMap()): Set<String> {
         val out = files.mapTo(LinkedHashSet()) { canonicalPath(it) }
         val queue = ArrayDeque(out)
+        fun add(file: String) { if (out.add(file)) queue.add(file) }
+        fun isSealed(cls: String): Boolean {
+            val declaring = classFile[cls] ?: return false
+            return cls in (current[declaring] ?: surfaces[declaring])?.sealed.orEmpty()
+        }
         while (queue.isNotEmpty()) {
             val file = queue.removeFirst()
-            val surface = current[file] ?: surfaces[file] ?: continue
-            for (cls in surface.sealed) for (sub in subclassFiles[cls].orEmpty()) if (out.add(sub)) queue.add(sub)
+            val recorded = surfaces[file]
+            val now = current[file]
+            for (surface in listOfNotNull(recorded, now)) {
+                for ((_, supers) in surface.supers) for (super_ in supers) {
+                    val parent = erase(super_)
+                    if (isSealed(parent)) classFile[parent]?.let(::add)
+                }
+            }
+            for (cls in (now ?: recorded)?.sealed.orEmpty() + recorded?.sealed.orEmpty()) {
+                for (sub in subclassFiles[cls].orEmpty()) add(sub)
+            }
         }
         return out
     }

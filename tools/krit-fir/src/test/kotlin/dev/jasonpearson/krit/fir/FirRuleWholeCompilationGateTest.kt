@@ -38,6 +38,9 @@ class FirRuleWholeCompilationGateTest {
         Regex("""\bfir\??\.(body|initializer|defaultValue)\b"""),
         Regex("""\b(symbol|\w*Symbol|property|function|variable|getter|accessor|resolved|klass|owner)\??\.(source|delegate)\b"""),
         Regex("""\bgetContainingFile\w*\b"""),
+        // A FIR element taken from a symbol and kept in a variable (`val property = symbol.fir`) hides the later
+        // `.initializer`/`.getter` reads, so the symbol-to-FIR step itself counts.
+        Regex("""\b\w+\??\.fir\b"""),
     )
 
     /** Local: the symbol is declared in the file under check. Const: the value is kept in class files. */
@@ -79,6 +82,20 @@ class FirRuleWholeCompilationGateTest {
             "the function containing the call under check (context.containingDeclarations)"),
         AllowedRead("BindsReturnTypeMatchesParam", "val default = parameter.fir.defaultValue", Why.CONST,
             "an annotation constructor's parameter default; annotation defaults are kept in class files"),
+        AllowedRead("BindsReturnTypeMatchesParam", "val result = FirExpressionEvaluator.evaluateParameterDefaultValue(parameter.fir, session)", Why.CONST,
+            "evaluates the same annotation constructor default; kept in class files"),
+        AllowedRead("UseEmptyCounterpart", "val imports = context.containingFileSymbol?.fir?.imports.orEmpty()", Why.LOCAL,
+            "containingFileSymbol is the file under check"),
+        AllowedRead("PrngFromSystemTime", "val imports = context.containingFileSymbol?.fir?.imports ?: return false", Why.LOCAL,
+            "containingFileSymbol is the file under check"),
+        AllowedRead("SynchronizedOnBoxedPrimitive", "owner.fir.accept(object : FirVisitorVoid() {", Why.LOCAL,
+            "owner is the enclosing class of the code under check (context.containingDeclarations)"),
+        AllowedRead("BufferedReadWithoutBuffer", "val root = rootSymbol.fir", Why.LOCAL,
+            "rootSymbol is the outermost non-class declaration enclosing the code under check (context.containingDeclarations)"),
+        AllowedRead("ReassignedLocals", "root.fir.accept(object : FirVisitorVoid() {", Why.LOCAL,
+            "root is the outermost non-class declaration enclosing the code under check (context.containingDeclarations); helper file, named by file name"),
+        AllowedRead("WorldReadableFiles", "val scope = klass.fir.scopeProvider.getStaticScope(klass.fir, context.session, context.scopeSession)", Why.CONST,
+            "reads the static scope (member signatures and supertypes) of an imported class, which class files keep; no body or initializer is read"),
     )
 
     private class Hit(val file: File, val line: String, val compilationWide: Boolean)
@@ -93,10 +110,14 @@ class FirRuleWholeCompilationGateTest {
             val hits = readLines(source).map { Hit(file, it.first, it.second) }
             val ids = ruleIdDecl.findAll(file.readText()).map { it.groupValues[1] }.toList()
             if (ids.isEmpty()) {
-                if (hits.isNotEmpty()) {
-                    problems += "${file.path} reads other-file state (${hits.joinToString { it.line.take(60) }}) but " +
+                // A helper file with no rule id: allow-list entries name it by file name.
+                hitsByRule[file.nameWithoutExtension] = hits
+                val counted = countedHits(file.nameWithoutExtension, hits)
+                if (counted.isNotEmpty()) {
+                    problems += "${file.path} reads other-file state (${counted.joinToString { it.line.take(60) }}) but " +
                         "declares no rule id. Move the read into the rule's own file (and set " +
-                        "wholeCompilationTier there) or stop reading other declarations."
+                        "wholeCompilationTier there), stop reading other declarations, or, if the read is proven " +
+                        "local or const, add an allowedReads entry named by the file name."
                 }
                 continue
             }
@@ -199,12 +220,16 @@ class FirRuleWholeCompilationGateTest {
             val j = property.source
             val k = symbol.delegate
             val l = parameter.fir.defaultValue
+            val m = symbol.fir
+            package a.b.fir
+            import a.b.fir.X
         """.trimIndent()
         assertEquals(
             listOf(
                 "val a = session.firProvider", "val b = symbol.resolvedInitializer", "val c = getter.fir.body",
-                "val d = klass.fir?.initializer", "val e = functionSymbol.source", "val j = property.source",
-                "val k = symbol.delegate", "val l = parameter.fir.defaultValue",
+                "val d = klass.fir?.initializer", "val e = functionSymbol.source",
+                "val g = containingFileSymbol?.fir?.imports", "val j = property.source",
+                "val k = symbol.delegate", "val l = parameter.fir.defaultValue", "val m = symbol.fir",
             ),
             readLines(stripCommentsAndStrings(src)).map { it.first },
         )
@@ -227,7 +252,7 @@ class FirRuleWholeCompilationGateTest {
 
     /** (line, isCompilationWide) of every read line in comment- and string-stripped [source]. */
     private fun readLines(source: String): List<Pair<String, Boolean>> =
-        source.lineSequence().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("import ") }
+        source.lineSequence().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("import ") && !it.startsWith("package ") }
             .mapNotNull { line ->
                 val wide = compilationWide.containsMatchIn(line)
                 if (wide || bodyReads.any { it.containsMatchIn(line) }) line to wide else null

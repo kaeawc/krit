@@ -101,6 +101,7 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  */
 internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "HardcodedSecretKey"
+    override val wholeCompilationReason = "Reads the resolvedInitializer of a non-local, non-const property (key bytes in a top-level or object val) declared elsewhere."
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(HardcodedSecretKey)
     }

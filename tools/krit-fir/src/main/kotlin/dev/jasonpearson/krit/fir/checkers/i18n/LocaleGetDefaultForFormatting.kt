@@ -75,6 +75,7 @@ import org.jetbrains.kotlin.util.getChildren
 //   (LocaleGetDefaultForFormattingRecall.kt, LocaleGetDefaultForFormattingTest).
 internal object LocaleGetDefaultForFormatting : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "LocaleGetDefaultForFormatting"
+    override val wholeCompilationReason = "Reads a helper's single-return body (function.fir.body) and the resolvedInitializer of a top-level val declared elsewhere."
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(LocaleGetDefaultForFormatting)
     }

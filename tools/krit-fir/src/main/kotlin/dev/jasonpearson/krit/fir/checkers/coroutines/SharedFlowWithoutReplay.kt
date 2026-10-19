@@ -78,6 +78,7 @@ import org.jetbrains.kotlin.util.getChildren
  */
 internal object SharedFlowWithoutReplay : FirPropertyChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "SharedFlowWithoutReplay"
+    override val wholeCompilationReason = "Reads the body of a factory function (function.fir.body) in another file."
     override val declarationCheckers = object : DeclarationCheckers() {
         override val propertyCheckers = setOf(SharedFlowWithoutReplay)
     }

@@ -98,6 +98,7 @@ import org.jetbrains.kotlin.name.StandardClassIds
 //   name (a property's declared name excepted).
 internal object WorldWriteableFiles : FirQualifiedAccessExpressionChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "WorldWriteableFiles"
+    override val wholeCompilationReason = "Reads a getter body or resolvedInitializer of a mode constant holder that is not const, declared in another file."
     override val expressionCheckers = object : ExpressionCheckers() {
         override val qualifiedAccessExpressionCheckers = setOf(WorldWriteableFiles)
         override val callCheckers = setOf(NamedArguments)

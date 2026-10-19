@@ -89,6 +89,7 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  */
 internal object ShortAlarm : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "ShortAlarm"
+    override val wholeCompilationReason = "Reads the body of a project wrapper function (function.fir.body); a binary has no body, and the rule treats no body as may-set-the-interval."
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(ShortAlarm)
     }

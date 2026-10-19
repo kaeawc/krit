@@ -96,6 +96,7 @@ import org.jetbrains.kotlin.text
 //   Go only (LongLogTagDivergence).
 internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "LongLogTag"
+    override val wholeCompilationReason = "Reads the resolvedInitializer of a non-const tag val and a tag getter's body, which another file's binary does not carry (const tags are in metadata)."
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(LongLogTag)
     }

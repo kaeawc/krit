@@ -119,6 +119,7 @@ import org.jetbrains.kotlin.name.StandardClassIds
  */
 internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "JdbcStatementExecute"
+    override val wholeCompilationReason = "Reads the resolvedInitializer of a property to decide whether the SQL is static; the property may be declared in another file."
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(JdbcStatementExecute)
     }

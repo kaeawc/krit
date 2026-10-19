@@ -18,18 +18,27 @@ interface FirRule {
     val typeCheckers: TypeCheckers? get() = null
 
     /**
-     * True when the verdict for one file depends on files outside the set
-     * being checked, or the rule iterates the compilation's files (for
-     * example `session.firProvider.getFirFilesByPackage`). Such a rule is
-     * evaluated only on a full compile: an incremental run that checks a
-     * slice of a module skips it, because the slice cannot give a correct
-     * verdict (and the Analysis API forbids the file iteration outright).
-     * Leave false for rules that look only at the file under check and
-     * resolve other symbols through `symbolProvider`.
-     * `FirRuleWholeCompilationGateTest` keeps this flag in step with the
-     * rule's source.
+     * Non-null puts the rule on the full-compile tier, and the text says why.
+     * An incremental run compiles only the dirty files and takes the rest of
+     * the module from a binary snapshot, so a rule whose verdict for a file
+     * depends on other files runs only on a full compile. Set it when the rule
+     *  - iterates the compilation's files (`session.firProvider.getFirFiles*`), or
+     *  - reads another declaration's body or initializer
+     *    (`resolvedInitializer`, `symbol.fir.body`, `symbol.fir.initializer`,
+     *    `symbol.source`, `getContainingFile`) on a symbol that may be non-local.
+     * Such a read sees nothing for a declaration that comes from the snapshot,
+     * and it depends on facts (a body, a non-const initializer) that no
+     * signature-based dirty set tracks. Leave null for rules that look only at
+     * the file under check and resolve other symbols through `symbolProvider`
+     * (class and signature metadata, which a snapshot keeps).
+     * `FirRuleWholeCompilationGateTest` keeps this in step with the rule's
+     * source, and `FirIncrementalSplitDifferentialTest` checks it against the
+     * behaviour of a slice compile.
      */
-    val requiresWholeCompilation: Boolean get() = false
+    val wholeCompilationReason: String? get() = null
+
+    /** True when [wholeCompilationReason] is set. */
+    val requiresWholeCompilation: Boolean get() = wholeCompilationReason != null
     fun config(): Map<String, Any?> = FirRuleContext.current()?.ruleConfigs?.get(ruleId).orEmpty()
 
     /**

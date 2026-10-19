@@ -13,6 +13,10 @@ object FirRuleDiscovery {
     fun wholeCompilationRuleIds(): List<String> =
         rules.filter { it.requiresWholeCompilation }.map { it.ruleId }.sorted()
 
+    /** Rule ID to the reason it needs a full compile, for every tiered rule. */
+    fun wholeCompilationReasons(): Map<String, String> =
+        rules.mapNotNull { rule -> rule.wholeCompilationReason?.let { rule.ruleId to it } }.toMap().toSortedMap()
+
     fun enabled(context: FirRuleCompileContext? = FirRuleContext.current()): List<FirRule> =
         when {
             context?.noneEnabled == true -> emptyList()

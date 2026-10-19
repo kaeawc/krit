@@ -89,6 +89,7 @@ import org.jetbrains.kotlin.name.StandardClassIds
 //   iterate a `java.util.Collections` wrapper there.
 internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "CollectionsSynchronizedListIteration"
+    override val wholeCompilationReason = "Reads the resolvedInitializer of a property holding the synchronized wrapper, which may be declared in another file."
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(CollectionsSynchronizedListIteration)
     }

@@ -103,6 +103,7 @@ import org.jetbrains.kotlin.name.StandardClassIds
  */
 internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "StaticIv"
+    override val wholeCompilationReason = "Reads the resolvedInitializer of an IV byte-array property declared in another file."
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(StaticIv)
     }

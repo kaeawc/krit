@@ -133,6 +133,7 @@ import org.jetbrains.kotlin.name.SpecialNames
  */
 internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "WeakKeySize"
+    override val wholeCompilationReason = "Reads the resolvedInitializer of a top-level val key size declared in another file."
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(WeakKeySize)
     }

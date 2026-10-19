@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.otherDeclarationBodies
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtNodeTypes
@@ -118,6 +119,7 @@ import org.jetbrains.kotlin.text
 //   lambda are reported (GetSignaturesRecall).
 internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "GetSignatures"
+    override val wholeCompilationTier = otherDeclarationBodies("Reads the resolvedInitializer of a non-const val (the flags value, or a val named GET_SIGNATURES) declared in another file; only const values survive in a binary.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(GetSignatures)
     }

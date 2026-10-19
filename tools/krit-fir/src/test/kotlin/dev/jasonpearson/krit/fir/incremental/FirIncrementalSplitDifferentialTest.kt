@@ -35,7 +35,14 @@ import kotlin.test.assertTrue
  * piece is compiled alone through the stock incremental path against the snapshot of the others, and its verdict is
  * compared with the reference. A difference means a rule used a fact of another declaration that only its source
  * carries (an initializer, a body, its source element), so the rule must be tiered: every rule that differs must
- * have [dev.jasonpearson.krit.fir.FirRule.wholeCompilationReason] set. The compiler-error gate must never differ.
+ * have [dev.jasonpearson.krit.fir.FirRule.wholeCompilationTier] set. The compiler-error gate must never differ.
+ *
+ * The single-file split never separates a property from the code that uses it, so [crossFileScenarios] (two files:
+ * the declaration in B, the use in A) run too. Known-different scenarios must differ only in tiered rules; the
+ * safe controls (const values, literal-null initializers, annotation defaults) must not differ at all.
+ *
+ * With the full corpus (no sampling or filter) the run also fails when it is vacuous: too few rules produced
+ * findings, or no piece differed, which means the harness stopped loading the plugin or the snapshot.
  *
  * Runtime: a few minutes, so it is tagged [TAG] and runs in its own Gradle task (`incrementalDifferentialTest`),
  * not in `test`. `-Pkrit.fir.differential.sample=N` keeps every Nth scenario (deterministic, sorted by path);
@@ -44,6 +51,8 @@ import kotlin.test.assertTrue
 @Tag(FirIncrementalSplitDifferentialTest.TAG)
 class FirIncrementalSplitDifferentialTest {
     companion object {
+        /** The spike saw 77 rules with findings; far fewer means the plugin or the corpus did not load. */
+        private const val MIN_EXERCISED_RULES = 60
         const val TAG = "incremental-differential"
         private val DATA = File("compiler-tests/src/test/data")
         private val HEADER_MARKERS = Regex("<![A-Za-z_][A-Za-z0-9_, ]*!>")
@@ -69,22 +78,56 @@ class FirIncrementalSplitDifferentialTest {
             val result = Result()
             for (case in cases) compareCase(case, psi, cp, work, result)
 
+            // Two-file scenarios: the declaration in B, the use in A.
+            val scenarioFailures = ArrayList<String>()
+            val scenarios = crossFileScenarios.filter { only == null || it.name.contains(only) || it.rule.contains(only) }
+            for (s in scenarios) {
+                val diffs = diffModule(s.files, cp, File(work, "scenario"), s.config, result)
+                val byRule = TreeMap<String, MutableList<String>>()
+                for (d in diffs) for ((rule, what) in d.byRule) byRule.getOrPut(rule) { ArrayList() }.add("${d.file}: $what")
+                println("## scenario '${s.name}': ${if (byRule.isEmpty()) "same" else "differs in " + byRule.keys}")
+                for ((rule, xs) in byRule) {
+                    if (rule !in tiered) scenarioFailures += "${s.name}: $rule differs but is not tiered: ${xs.first()}"
+                }
+                val ownRule = byRule[s.rule].orEmpty()
+                if (s.differs && ownRule.isEmpty()) {
+                    scenarioFailures += "${s.name}: expected ${s.rule} to differ on a slice, but it did not. If the rule " +
+                        "was fixed, turn this scenario into a control (differs = false) and drop its tier if no read remains."
+                }
+                if (!s.differs && ownRule.isNotEmpty()) {
+                    scenarioFailures += "${s.name}: control for ${s.rule} differs between full and slice: ${ownRule.first()}"
+                }
+                for (d in diffs) if (d.errorDiff != null) scenarioFailures += "${s.name}: compiler-error gate differs: ${d.errorDiff}"
+            }
+
             println(
                 "## split differential: scenarios=${cases.size} split=${result.split} compared=${result.compared} " +
                     "pieces=${result.pieces} pieceVerdictDiffs=${result.pieceDiffs} " +
-                    "rulesWithFindings=${result.exercised.size}",
+                    "rulesWithFindings=${result.exercised.size} crossFileScenarios=${scenarios.size}",
             )
             for ((rule, xs) in result.diffByRule) {
                 println("## DIFF $rule (${if (rule in tiered) "tiered" else "NOT TIERED"}): ${xs.size} findings differ")
                 xs.take(3).forEach { println("     $it") }
             }
             assertTrue(result.compared > 0, "no scenario could be split and compared; the harness is broken")
+            if (sample == 1 && only == null) {
+                assertTrue(
+                    result.exercised.size >= MIN_EXERCISED_RULES,
+                    "Only ${result.exercised.size} rules produced findings (expected at least $MIN_EXERCISED_RULES): " +
+                        "the harness probably stopped loading the krit plugin.",
+                )
+                assertTrue(
+                    result.pieceDiffs > 0,
+                    "No piece differed between the full and the slice compile. The tiered rules are known to differ, " +
+                        "so the slice compile is probably not reading the snapshot.",
+                )
+            }
             val untiered = result.diffByRule.filterKeys { it !in tiered }
             assertTrue(
                 untiered.isEmpty(),
                 "These rules give a different verdict on a slice compile against a binary snapshot but are not " +
-                    "tiered. Set `override val wholeCompilationReason = \"<why>\"` on each rule (the reason is the " +
-                    "other-file fact it reads), or make the rule read only the file under check:\n" +
+                    "tiered. Set `override val wholeCompilationTier = otherDeclarationBodies(\"<why>\")` on each rule " +
+                    "(the reason is the other-file fact it reads), or make the rule read only the file under check:\n" +
                     untiered.entries.joinToString("\n") { (rule, xs) -> "$rule (${xs.size}):\n    " + xs.take(4).joinToString("\n    ") },
             )
             assertTrue(
@@ -92,6 +135,7 @@ class FirIncrementalSplitDifferentialTest {
                 "The compiler-error gate (which requested files have a compile error) differs between a full and a " +
                     "slice compile, so an incremental run could not trust it:\n" + result.errorDiffs.take(10).joinToString("\n"),
             )
+            assertTrue(scenarioFailures.isEmpty(), "Cross-file scenarios:\n" + scenarioFailures.joinToString("\n"))
         } finally {
             Disposer.dispose(disposable)
             work.deleteRecursively()
@@ -107,6 +151,9 @@ class FirIncrementalSplitDifferentialTest {
         val exercised = TreeMap<String, Int>()
         val errorDiffs = ArrayList<String>()
     }
+
+    /** One file whose slice verdict differs from the full-compile verdict. */
+    private class PieceDiff(val file: String, val byRule: Map<String, String>, val errorDiff: String?)
 
     /** The shared Kotlin stubs, compiled once into a class directory (Java stubs are source roots). */
     private fun compileStubs(work: File): File {
@@ -139,35 +186,61 @@ class FirIncrementalSplitDifferentialTest {
             kt.importList?.let { append(it.text).append('\n') }
             append('\n')
         }
-        val root = File(work, "case").also { it.deleteRecursively(); it.mkdirs() }
-        val pieces = decls.mapIndexed { i, d ->
+        val pieces = LinkedHashMap<String, String>()
+        decls.forEachIndexed { i, d ->
             var body = d.text
             val priv = (d as? KtModifierListOwner)?.modifierList?.getModifier(KtTokens.PRIVATE_KEYWORD)
             if (priv != null) {
                 val off = priv.textRange.startOffset - d.textRange.startOffset
                 body = body.substring(0, off) + "internal" + body.substring(off + "private".length)
             }
-            File(root, "src/P${i}_${(d.name ?: "anon").take(30)}.kt")
-                .also { it.parentFile.mkdirs(); it.writeText(header + body + "\n") }.path
+            pieces["P${i}_${(d.name ?: "anon").take(30)}.kt"] = header + body + "\n"
+        }
+        val tag = case.relativeTo(File(DATA, "diagnostic")).path
+        val diffs = diffModule(pieces, cp, File(work, "case"), emptyMap(), r, tagPrefix = tag)
+        for (d in diffs) {
+            for ((rule, what) in d.byRule) r.diffByRule.getOrPut(rule) { ArrayList() }.add("${d.file} $what")
+            if (d.errorDiff != null) r.errorDiffs += d.errorDiff
+        }
+    }
+
+    /**
+     * Compiles [sources] (file name to text) in full as the reference, as a snapshot, and then each file alone
+     * against the snapshot of the others. Returns the files whose verdict differs. Counts go into [r].
+     */
+    private fun diffModule(
+        sources: Map<String, String>,
+        cp: List<String>,
+        rootDir: File,
+        ruleConfigs: Map<String, Map<String, Any?>>,
+        r: Result,
+        tagPrefix: String = "",
+    ): List<PieceDiff> {
+        val root = rootDir.also { it.deleteRecursively(); it.mkdirs() }
+        val files = sources.map { (name, text) ->
+            File(root, "src/$name").also { it.parentFile.mkdirs(); it.writeText(text) }.path
         }.map(::canon)
         val javaRoots = arrayOf(File(DATA, "stubs/java").path)
-        fun args(files: List<String>, out: File) = kritArgs(files, cp, out).also { it.javaSourceRoots = javaRoots }
+        fun args(fs: List<String>, out: File) = kritArgs(fs, cp, out).also { it.javaSourceRoots = javaRoots }
 
-        // Reference: the whole split module from source, frontend only.
-        val ref = runShipped(args(pieces, File(root, "ref")), pieces, frontendOnly = true)
+        // Reference: the whole module from source, frontend only.
+        val ref = runShipped(args(files, File(root, "ref")), files, frontendOnly = true, ruleConfigs = ruleConfigs)
         for (v in ref.verdicts.values) for (f in v.findings) r.exercised.merge(f.substringBefore('@'), 1, Int::plus)
 
         // Snapshot: the same module with the backend, class files plus the source -> output map.
         val tmp = File(root, "tmp").also { it.mkdirs() }
-        val full = runCheck(StockPhases.full, args(pieces, tmp).also { it.reportOutputFiles = true }, pieces)
-        if (full.outputs.isEmpty()) return // the split module has compile errors: no snapshot to compare against
+        val full = runCheck(
+            StockPhases.full, args(files, tmp).also { it.reportOutputFiles = true }, files, ruleConfigs = ruleConfigs,
+        )
+        if (full.outputs.isEmpty()) return emptyList() // compile errors: no snapshot to compare against
         val snapDir = File(root, "snapshot")
         tmp.renameTo(snapDir)
         val snap = Snapshot(snapDir)
         snap.adopt(full.outputs.mapValues { (_, ps) -> ps.map { it.replace(tmp.path, snapDir.path) } })
         r.compared++
 
-        for (p in pieces) {
+        val diffs = ArrayList<PieceDiff>()
+        for (p in files) {
             r.pieces++
             snap.park(listOf(p))
             val a = args(listOf(p), File(root, "slice")).also {
@@ -175,7 +248,7 @@ class FirIncrementalSplitDifferentialTest {
                 it.classpath = it.classpath + File.pathSeparator + snapDir.path
             }
             val inc = try {
-                runCheck(StockPhases.frontend, a, listOf(p), snapshotServices(snap))
+                runCheck(StockPhases.frontend, a, listOf(p), snapshotServices(snap), ruleConfigs)
             } finally {
                 snap.unpark()
             }
@@ -183,20 +256,25 @@ class FirIncrementalSplitDifferentialTest {
             val actual = inc.verdicts[p]
             if (expected?.verdictKey() == actual?.verdictKey()) continue
             r.pieceDiffs++
-            val tag = "${case.relativeTo(File(DATA, "diagnostic")).path}:${File(p).name}"
+            val tag = (if (tagPrefix.isEmpty()) "" else "$tagPrefix:") + File(p).name
+            val byRule = LinkedHashMap<String, String>()
             val onlyFull = expected?.findings.orEmpty() - actual?.findings.orEmpty().toSet()
             val onlySlice = actual?.findings.orEmpty() - expected?.findings.orEmpty().toSet()
-            for (f in onlyFull) r.diffByRule.getOrPut(f.substringBefore('@')) { ArrayList() }.add("$tag full-only ${f.take(140)}")
-            for (f in onlySlice) r.diffByRule.getOrPut(f.substringBefore('@')) { ArrayList() }.add("$tag slice-only ${f.take(140)}")
+            for (f in onlyFull) byRule.putIfAbsent(f.substringBefore('@'), "full-only ${f.take(140)}")
+            for (f in onlySlice) byRule.putIfAbsent(f.substringBefore('@'), "slice-only ${f.take(140)}")
             // A rule that crashed on one side only.
-            val ruleErrorDiff = expected?.ruleErrors?.keys.orEmpty().toSet() symmetricDifference actual?.ruleErrors?.keys.orEmpty().toSet()
-            for (rule in ruleErrorDiff) r.diffByRule.getOrPut(rule) { ArrayList() }.add("$tag rule error differs")
+            val expectedErrors = expected?.ruleErrors?.keys.orEmpty().toSet()
+            val actualErrors = actual?.ruleErrors?.keys.orEmpty().toSet()
+            for (rule in (expectedErrors - actualErrors) + (actualErrors - expectedErrors)) {
+                byRule.putIfAbsent(rule, "rule error differs")
+            }
+            var errorDiff: String? = null
             if (expected?.error != actual?.error) {
                 val extra = (actual?.diags.orEmpty() - expected?.diags.orEmpty().toSet()).firstOrNull()?.take(160)
-                r.errorDiffs += "$tag error full=${expected?.error} slice=${actual?.error} $extra"
+                errorDiff = "$tag error full=${expected?.error} slice=${actual?.error} $extra"
             }
+            diffs += PieceDiff(tag, byRule, errorDiff)
         }
+        return diffs
     }
-
-    private infix fun <T> Set<T>.symmetricDifference(other: Set<T>): Set<T> = (this - other) + (other - this)
 }

@@ -118,12 +118,12 @@ private class Fanout(private val cs: List<MessageCollector>) : MessageCollector 
  * The krit side of one check compile, as `AnalysisSession.CheckPlan` sets it up: the rule context and the armed
  * rule-error recorder on the calling thread, a [FindingCollector] over the requested files.
  */
-private class KritCheck(requested: Collection<String>) {
+private class KritCheck(requested: Collection<String>, ruleConfigs: Map<String, Map<String, Any?>>) {
     private val requestedCanon: Map<String, String> = requested.associate { canon(it) to canon(it) }
     val findings = FindingCollector(requestedCanon)
     val all = AllDiags()
     private val recorder = FirRuleErrorRecorder(null)
-    private val ctx = FirRuleCompileContext(files = requested.toCollection(LinkedHashSet()))
+    private val ctx = FirRuleCompileContext(files = requested.toCollection(LinkedHashSet()), ruleConfigs = ruleConfigs)
     private val collector: MessageCollector = Fanout(listOf(findings, all))
 
     fun run(body: (MessageCollector) -> ExitCode): CheckOut {
@@ -190,14 +190,16 @@ internal fun runCheck(
     args: K2JVMCompilerArguments,
     requested: Collection<String>,
     services: Services = Services.EMPTY,
-): CheckOut = KritCheck(requested).run { mc -> PhasePipeline(phase).execute(args, services, mc) }
+    ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),
+): CheckOut = KritCheck(requested, ruleConfigs).run { mc -> PhasePipeline(phase).execute(args, services, mc) }
 
 /** The shipped frontend-only path (`FrontendOnlyJvmPipeline`), or the full `K2JVMCompiler`, for baselines. */
 internal fun runShipped(
     args: K2JVMCompilerArguments,
     requested: Collection<String>,
     frontendOnly: Boolean,
-): CheckOut = KritCheck(requested).run { mc ->
+    ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),
+): CheckOut = KritCheck(requested, ruleConfigs).run { mc ->
     if (frontendOnly) FrontendOnlyJvmPipeline().execute(args, Services.EMPTY, mc)
     else K2JVMCompiler().exec(mc, Services.EMPTY, args)
 }

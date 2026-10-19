@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.otherDeclarationBodies
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
@@ -111,6 +112,7 @@ import org.jetbrains.kotlin.name.Name
 //   before the only `show` is still reported, as in Go (ShowToastOverwrite).
 internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "ShowToast"
+    override val wholeCompilationTier = otherDeclarationBodies("onlyStore reads the resolvedInitializer of a non-local property assigned in this file but declared in another; a binary has no initializer, so the property is wrongly treated as never initialized.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(ShowToast)
     }

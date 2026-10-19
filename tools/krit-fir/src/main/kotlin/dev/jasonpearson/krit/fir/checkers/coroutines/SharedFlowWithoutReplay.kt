@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.coroutines
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.otherDeclarationBodies
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
@@ -78,7 +79,7 @@ import org.jetbrains.kotlin.util.getChildren
  */
 internal object SharedFlowWithoutReplay : FirPropertyChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "SharedFlowWithoutReplay"
-    override val wholeCompilationReason = "Reads the body of a factory function (function.fir.body) in another file."
+    override val wholeCompilationTier = otherDeclarationBodies("Reads the body of a factory function (function.fir.body) in another file.")
     override val declarationCheckers = object : DeclarationCheckers() {
         override val propertyCheckers = setOf(SharedFlowWithoutReplay)
     }

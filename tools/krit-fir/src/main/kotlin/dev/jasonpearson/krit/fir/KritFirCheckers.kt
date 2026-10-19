@@ -1,5 +1,7 @@
 package dev.jasonpearson.krit.fir
 
+import dev.jasonpearson.krit.fir.incremental.CompileRecordingRegistry
+import dev.jasonpearson.krit.fir.incremental.SurfaceFileChecker
 import dev.jasonpearson.krit.fir.oracle.OracleClassChecker
 import dev.jasonpearson.krit.fir.oracle.OracleExpressionChecker
 import dev.jasonpearson.krit.fir.oracle.OracleFileChecker
@@ -25,7 +27,8 @@ class KritFirCheckers(session: FirSession) : FirAdditionalCheckersExtension(sess
         baseDeclarations = listOf(object : DeclarationCheckers() {
             override val classCheckers = setOf(SmokeChecker, OracleClassChecker)
             // Gives every compiled file an entry in the oracle result.
-            override val fileCheckers = setOf(OracleFileChecker)
+            // The surface checker is added only while the session records for incremental checking; it reports nothing.
+            override val fileCheckers = setOf(OracleFileChecker) + listOfNotNull(CompileRecordingRegistry.current()?.let(::SurfaceFileChecker))
             override val controlFlowAnalyserCheckers = setOf(UnreachableCodeChecker)
         }),
         // Captured here, on the thread running the compile, so rule isolation

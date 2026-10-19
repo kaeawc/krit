@@ -7,6 +7,12 @@ import dev.jasonpearson.krit.fir.FirRuleContext
 import dev.jasonpearson.krit.fir.FirRuleDiscovery
 import dev.jasonpearson.krit.fir.FirRuleErrorRecorder
 import dev.jasonpearson.krit.fir.FirRuleErrors
+import dev.jasonpearson.krit.fir.incremental.CompileRecording
+import dev.jasonpearson.krit.fir.incremental.CompileRecordingRegistry
+import dev.jasonpearson.krit.fir.incremental.FingerprintBuilder
+import dev.jasonpearson.krit.fir.incremental.IncrementalState
+import dev.jasonpearson.krit.fir.incremental.contentHashesOf
+import dev.jasonpearson.krit.fir.incremental.incrementalRecordingFromEnv
 import dev.jasonpearson.krit.fir.isIsolatable
 import dev.jasonpearson.krit.fir.oracle.AnalyzeResult
 import dev.jasonpearson.krit.fir.oracle.OracleCollector
@@ -21,6 +27,8 @@ import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSourceLocation
 import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 import org.jetbrains.kotlin.config.Services
 import org.jetbrains.kotlin.config.JvmTarget
+import org.jetbrains.kotlin.config.KotlinCompilerVersion
+import org.jetbrains.kotlin.incremental.components.LookupTracker
 import java.io.File
 import java.nio.file.Files
 
@@ -88,7 +96,16 @@ class AnalysisSession(
     val jvmTarget: String = "",
     /** The project's Kotlin compiler settings as compiler arguments; empty keeps the embedded compiler's defaults. */
     val kotlinArgs: List<String> = emptyList(),
+    /**
+     * Records what incremental checking needs from each whole-module check compile: the compiler's lookups
+     * and every file's declaration surface, kept in [incrementalState]. Off keeps the compile exactly as it
+     * is without the feature. Defaults to `KRIT_FIR_INCREMENTAL=1`.
+     */
+    val incrementalRecording: Boolean = incrementalRecordingFromEnv(),
 ) {
+
+    /** Per-file surface hashes, lookup reverse index and content hashes of this session's last recorded check compile. */
+    internal val incrementalState = IncrementalState()
 
     private val compilationJvmTarget: String = resolveJvmTarget(jvmTarget)
     val jvmTargetWarning: String? = if (jvmTarget.isNotBlank() && JvmTarget.fromString(jvmTarget) == null) {
@@ -177,8 +194,12 @@ class AnalysisSession(
         if (plan.compiled.isEmpty() && module == null) return plan.emptyResult()
         val outDir = module?.output ?: Files.createTempDirectory("krit-fir-out-").toFile()
         val exitCode = try {
-            val args = compilationArguments(module?.sources ?: compilationFiles(plan.compiled.map { it.path }), outDir, module)
-            compileModule(args, listOf(plan.collector), plan.contexts(), skipEmptySources = true, frontendOnly = module == null)
+            val sources = module?.sources ?: compilationFiles(plan.compiled.map { it.path })
+            val args = compilationArguments(sources, outDir, module)
+            // A session runs many module compiles; only the legacy whole-session compile is recorded.
+            if (module == null) plan.startRecording(sources)
+            compileModule(args, listOf(plan.collector), plan.contexts(), skipEmptySources = true, frontendOnly = module == null,
+                recording = plan.recording).also { plan.commitRecording(it) }
         } catch (e: Exception) {
             if (module == null || !isIsolatable(e)) throw e
             plan.collector.exceptions += (e.message ?: e.javaClass.name)
@@ -225,9 +246,28 @@ class AnalysisSession(
             sdkLevels = sdkLevels,
         )
 
-        fun contexts(): List<CompilationContext> = listOf(
+        // Incremental recording of this compile; null unless the session records.
+        var recording: CompileRecording? = null
+            private set
+        private val fingerprint: String by lazy {
+            invocationFingerprint(enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels)
+        }
+
+        fun startRecording(sources: List<String>) {
+            if (!incrementalRecording) return
+            recording = CompileRecording(fingerprint, contentHashesOf(sources))
+        }
+
+        /** Keeps the recording unless the compiler crashed, when it would be partial. */
+        fun commitRecording(exitCode: ExitCode) {
+            val recorded = recording ?: return
+            if (exitCode != ExitCode.INTERNAL_ERROR && collector.exceptions.isEmpty()) incrementalState.commit(recorded)
+        }
+
+        fun contexts(): List<CompilationContext> = listOfNotNull(
             CompilationContext({ FirRuleContext.begin(ruleContext) }, { FirRuleContext.end() }),
             CompilationContext({ FirRuleErrors.begin(ruleErrorRecorder) }, { FirRuleErrors.end() }),
+            recording?.let { r -> CompilationContext({ CompileRecordingRegistry.begin(r) }, { CompileRecordingRegistry.end() }) },
         )
 
         fun emptyResult(): BatchResult = BatchResult(
@@ -363,7 +403,8 @@ class AnalysisSession(
         if (!shared) return analyzeFull(files) to null
         var exitCode = ExitCode.OK
         val outcome = try {
-            analyzeCompilation(oracleSources, plan) { exitCode = it }
+            plan.startRecording(oracleSources)
+            analyzeCompilation(oracleSources, plan) { exitCode = it; plan.commitRecording(it) }
         } catch (e: Exception) {
             // A checker failure the rule isolation does not absorb must not
             // cost the oracle its facts: compile for the oracle alone, and
@@ -401,7 +442,8 @@ class AnalysisSession(
                     CompilationContext({ FirRuleContext.begin(FirRuleCompileContext(noneEnabled = true)) }, { FirRuleContext.end() }),
                 ), frontendOnly = true)
             } else {
-                compileModule(args, listOf(oracleMessages, check.collector), listOf(oracleContext) + check.contexts(), frontendOnly = true)
+                compileModule(args, listOf(oracleMessages, check.collector), listOf(oracleContext) + check.contexts(), frontendOnly = true,
+                    recording = check.recording)
             })
         } finally {
             outDir.deleteRecursively()
@@ -440,6 +482,31 @@ class AnalysisSession(
         module?.configure(this, compilationJvmTarget)
     }
 
+    /**
+     * Identity of everything the recorded facts depend on: this session's sources and classpath (with file
+     * identity), JVM target and compiler settings, the compiler and plugin builds, and the request's rules,
+     * rule configs, test-file classification, scan paths and SDK levels. A different fingerprint resets
+     * [incrementalState].
+     */
+    private fun invocationFingerprint(
+        enabledRules: Set<String>, ruleConfigs: Map<String, Map<String, Any?>>,
+        testFiles: Set<String>, scanPaths: Map<String, String>, sdkLevels: Map<String, SdkLevels>,
+    ): String {
+        val builder = FingerprintBuilder()
+            .add("kotlin", KotlinCompilerVersion.VERSION)
+            .add("sourceDirs", sourceDirs.map { canonicalOrSelf(File(it)) })
+            .add("jvmTarget", compilationJvmTarget)
+            .add("kotlinSettings", kotlinSettings.identity)
+            .add("rules", enabledRules)
+            .add("ruleConfigs", ruleConfigs)
+            .add("testFiles", testFiles)
+            .add("scanPaths", scanPaths)
+            .add("sdkLevels", sdkLevels)
+        selfJar?.let { builder.addFileIdentity("plugin", it) }
+        for (entry in effectiveClasspath(classpath)) builder.addFileIdentity("classpath", entry)
+        return builder.build()
+    }
+
     /** A caller-supplied registry scope; the execution seam knows nothing about its payload. */
     private class CompilationContext(val begin: () -> Unit, val end: () -> Unit)
 
@@ -460,7 +527,13 @@ class AnalysisSession(
         contexts: List<CompilationContext>,
         skipEmptySources: Boolean = false,
         frontendOnly: Boolean = false,
+        recording: CompileRecording? = null,
     ): ExitCode {
+        // The compiler's own incremental-compilation dependency recording, wired the way Gradle/JPS do. Without
+        // recording the services stay empty, so the compile is the one that runs without the feature.
+        val services = if (recording == null) Services.EMPTY else {
+            Services.Builder().register(LookupTracker::class.java, recording.lookups).build()
+        }
         val messages = object : MessageCollector {
             override fun clear() = collectors.forEach { it.clear() }
             override fun hasErrors() = collectors.any { it.hasErrors() }
@@ -472,8 +545,8 @@ class AnalysisSession(
                 // Module/check requests with no sources must not enter the compiler REPL.
                 return when {
                     skipEmptySources && args.freeArgs.isEmpty() -> ExitCode.OK
-                    frontendOnly -> FrontendOnlyJvmPipeline().execute(args, Services.EMPTY, messages)
-                    else -> K2JVMCompiler().exec(messages, Services.EMPTY, args)
+                    frontendOnly -> FrontendOnlyJvmPipeline().execute(args, services, messages)
+                    else -> K2JVMCompiler().exec(messages, services, args)
                 }
             }
             val context = contexts[index]
@@ -489,7 +562,7 @@ class AnalysisSession(
     internal fun rebuild(
         sourceDirs: List<String>, classpath: List<String>, jvmTarget: String, kotlinArgs: List<String> = this.kotlinArgs,
     ): AnalysisSession =
-        AnalysisSession(sourceDirs, classpath, jvmTarget, kotlinArgs).also {
+        AnalysisSession(sourceDirs, classpath, jvmTarget, kotlinArgs, incrementalRecording).also {
             it.retainedModuleRunner = retainedModuleRunner
             retainedModuleRunner = null
         }

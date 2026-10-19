@@ -267,16 +267,24 @@ class IncrementalRecordingTest {
         assertEquals(1, session.incrementalState.generation, "a rewritten nested class file starts a new state")
     }
 
-    @Test fun theSharedOracleAndCheckCompileRecordsToo() {
+    @Test fun theSharedOracleAndCheckCompileLeavesTheRecordedStateAlone() {
         baseline()
         val session = newSession()
         val paths = allFiles()
-        val (_, checked) = session.analyzeWithCheck(
-            paths, CheckRequest(id = 1, command = "check", files = paths.map { FileRef(it) }, rules = listOf("ProtocolProbe")),
-        )
+        val request = CheckRequest(id = 1, command = "check", files = paths.map { FileRef(it) }, rules = listOf("ProtocolProbe"))
+        // On its own the shared compile records nothing: it has no snapshot to go with a recording.
+        val (_, checked) = session.analyzeWithCheck(paths, request)
         assertNotNull(checked)
+        assertEquals(0, session.incrementalState.generation)
+        // After a recorded check it changes nothing in the state.
+        compile(session)
+        val lookups = paths.associateWith { session.incrementalState.lookupsOf(it) }
+        val files = session.incrementalState.files()
+        write("Other.kt", "package p\n\nfun other(): String = \"changed\"\n")
+        session.analyzeWithCheck(paths, request)
         assertEquals(1, session.incrementalState.generation)
-        for (file in paths) assertTrue(session.incrementalState.lookupsOf(file).isNotEmpty(), file)
+        assertEquals(files, session.incrementalState.files())
+        for (file in paths) assertEquals(lookups[file], session.incrementalState.lookupsOf(file), file)
     }
 
     // ---- recording changes no verdict --------------------------------------------------------------------

@@ -121,6 +121,12 @@ internal class SurfaceChange(val symbols: Set<Sym>, val scopes: Set<String>, val
  * files) only records which verdict inputs the latest commit used; a verdict cache keyed by it can sit on top
  * without losing lookups or surfaces when the rules change. Step 4 must derive per-file verdict keys, because
  * testFiles, scanPaths and sdkLevels are per-file maps.
+ *
+ * A slice compile (see [commitSlice]) *merges*: it replaces the facts of the files it compiled and keeps the rest.
+ *
+ * The state also owns the module's binary [snapshot] (attached after a clean full compile, see [attachSnapshot])
+ * and tracks which files the snapshot's binaries no longer describe ([binaryStale]). A slice compile reads every
+ * file outside its source set from the snapshot, so a planner must keep the binary-stale files in every slice.
  */
 internal open class IncrementalState {
     @Volatile var compileKey: String? = null
@@ -139,13 +145,23 @@ internal open class IncrementalState {
     private val declFiles = HashMap<Sym, MutableSet<String>>()
     private val subclassFiles = HashMap<String, MutableSet<String>>()
 
+    // The binary snapshot of the module and what became of it since it was built.
+    private var snapshotOrNull: Snapshot? = null
+    private var noSnapshotReason = SliceFallback.NO_SNAPSHOT
+    private val snapshotSurfaceHashes = HashMap<String, String>() // file -> surface hash its binary was built from
+    private val binaryStaleFiles = HashSet<String>()
+    private val removedFiles = HashSet<String>() // had a binary in the snapshot, deleted since
+    private var sliceFailure: Throwable? = null
+
     /** Number of commits since the last reset. */
     val generation: Int @Synchronized get() = commits
 
+    /** Replaces the whole state with a whole-module compile. Drops the snapshot: [attachSnapshot] a new one after. */
     @Synchronized
     open fun commit(recording: CompileRecording) {
         val previous = if (compileKey == recording.compileKey) HashMap(surfaces) else null
         if (previous == null) reset()
+        releaseSnapshot()
         compileKey = recording.compileKey
         verdictKey = recording.verdictKey
         val next = HashMap<String, SurfaceChange>()
@@ -160,6 +176,57 @@ internal open class IncrementalState {
         // Rebuilt from this recording alone, so a file that lost all its lookups keeps none.
         index.clear()
         for (file in recording.surfaces.keys) index.update(file, recording.lookups.byFile[file] ?: emptySet())
+        rebuildDeclarationIndexes()
+        commits++
+    }
+
+    /**
+     * Merges a slice compile into the state: replaces the facts of the [compiled] files (content hash, surface,
+     * lookups, declaration indexes) with [recording]'s and keeps every other file's. [removed] files, deleted since
+     * the last commit, lose theirs. [errorFiles] are the compiled files that had a compiler error.
+     *
+     * [changeOf] describes the move of each compiled and removed file in this commit (with its previous surface)
+     * and reports every other file as unchanged. It covers the latest commit only: a planner that runs several
+     * waves of slices must consume the changes of each wave before the next one. Binary staleness is updated for the compiled files: see
+     * [binaryStale]. [compileKey] stays; [verdictKey] becomes the slice's.
+     */
+    @Synchronized
+    open fun commitSlice(
+        recording: CompileRecording,
+        compiled: Collection<String>,
+        removed: Collection<String> = emptyList(),
+        errorFiles: Collection<String> = emptyList(),
+    ) {
+        check(compileKey != null && compileKey == recording.compileKey) {
+            "a slice recorded under a different compile key cannot be merged"
+        }
+        val compiledSet = compiled.mapTo(HashSet()) { canonicalPath(it) }
+        val removedSet = removed.mapTo(HashSet()) { canonicalPath(it) }.also { it -= compiledSet }
+        val errored = errorFiles.mapTo(HashSet()) { canonicalPath(it) }
+        verdictKey = recording.verdictKey
+
+        val next = HashMap<String, SurfaceChange>()
+        for (file in surfaces.keys) next[file] = UNCHANGED
+        for (file in compiledSet) next[file] = SurfaceChange.of(surfaces[file], recording.surfaces[file])
+        for (file in removedSet) next[file] = SurfaceChange.of(surfaces[file], null)
+        changes = next
+
+        for (file in removedSet) {
+            surfaces.remove(file); contentHashes.remove(file); index.remove(file)
+            binaryStaleFiles.remove(file)
+            if (file in snapshotSurfaceHashes) removedFiles += file
+        }
+        for (file in compiledSet) {
+            recording.surfaces[file]?.let { surfaces[file] = it } ?: surfaces.remove(file)
+            recording.contentHashes[file]?.let { contentHashes[file] = it } ?: contentHashes.remove(file)
+            index.update(file, recording.lookups.byFile[file] ?: emptySet())
+            removedFiles.remove(file)
+            if (snapshotOrNull != null) {
+                val builtFrom = snapshotSurfaceHashes[file]
+                val now = surfaces[file]?.let(::hashOf)
+                if (file in errored || builtFrom == null || now != builtFrom) binaryStaleFiles += file else binaryStaleFiles -= file
+            }
+        }
         rebuildDeclarationIndexes()
         commits++
     }
@@ -186,6 +253,81 @@ internal open class IncrementalState {
         compileKey = null; verdictKey = null
         surfaces.clear(); contentHashes.clear(); index.clear(); changes = HashMap(); commits = 0
         classFile.clear(); declFiles.clear(); subclassFiles.clear()
+        releaseSnapshot()
+    }
+
+    // ---- binary snapshot ----------------------------------------------------------------------------------
+
+    /**
+     * Takes the binary snapshot of the compile just committed, built from exactly the sources that compile read.
+     * The state owns it from here and deletes it when the state is committed to again or reset. A null [snapshot]
+     * records why there is none: [reason] is what a planner reports.
+     */
+    @Synchronized
+    open fun attachSnapshot(snapshot: Snapshot?, reason: SliceFallback = SliceFallback.NO_SNAPSHOT) {
+        releaseSnapshot()
+        noSnapshotReason = reason
+        if (snapshot == null) return
+        snapshotOrNull = snapshot
+        for ((file, surface) in surfaces) snapshotSurfaceHashes[file] = hashOf(surface)
+    }
+
+    /** The module's binary snapshot, or null when there is none ([fallbackReason] says why). */
+    val snapshot: Snapshot? @Synchronized get() = snapshotOrNull
+
+    /** Why a slice compile cannot be used right now, or null when the state has a usable snapshot. */
+    @Synchronized fun fallbackReason(): SliceFallback? = if (snapshotOrNull != null) null else noSnapshotReason
+
+    /** Drops the snapshot (it is corrupt, or its facts are gone): the planner falls back to a full compile. */
+    @Synchronized fun dropSnapshot(reason: SliceFallback = SliceFallback.NO_SNAPSHOT) {
+        releaseSnapshot()
+        noSnapshotReason = reason
+    }
+
+    /** The exception of the latest failed slice compile since the last full commit, for the planner's telemetry. */
+    val lastSliceFailure: Throwable? @Synchronized get() = sliceFailure
+
+    @Synchronized fun noteSliceFailure(cause: Throwable) { sliceFailure = cause }
+
+    /**
+     * Files whose binary in the snapshot no longer describes them, canonical paths: files whose surface differs
+     * from the surface their binary was built from (including files added since the snapshot), and files whose last
+     * compile had a compiler error. A slice compile sees the rest of the module only through those binaries, so
+     * a planner keeps every one of these in every slice until the module is re-snapshotted. A body-only edit leaves
+     * a file's surface, and so its binary, valid for everything outside it: it never lands here.
+     */
+    @Synchronized fun binaryStale(): Set<String> = HashSet(binaryStaleFiles)
+
+    /** Files that have a binary in the snapshot but were deleted since; every slice hides those binaries. */
+    @Synchronized fun removedSinceSnapshot(): Set<String> = HashSet(removedFiles)
+
+    /**
+     * True when so many files have to be kept in every slice that a re-snapshot (one full compile with the
+     * backend, a full `AnalysisSession.check`) is cheaper: at least [minFiles] binary-stale or removed files, and
+     * more than [maxFraction] of the files the snapshot was built from.
+     */
+    @Synchronized
+    fun exceedsStaleBound(maxFraction: Double = DEFAULT_STALE_FRACTION, minFiles: Int = DEFAULT_STALE_MIN_FILES): Boolean {
+        val pending = binaryStaleFiles.size + removedFiles.size
+        return pending >= minFiles && pending > snapshotSurfaceHashes.size * maxFraction
+    }
+
+    private fun releaseSnapshot() {
+        val old = snapshotOrNull
+        snapshotOrNull = null
+        snapshotSurfaceHashes.clear(); binaryStaleFiles.clear(); removedFiles.clear()
+        noSnapshotReason = SliceFallback.NO_SNAPSHOT
+        sliceFailure = null
+        try { old?.delete() } catch (_: Exception) {}
+    }
+
+    private fun hashOf(s: FileSurface) =
+        sha1Hex(s.decls.entries.map { "${it.key}=${it.value}" }.sorted().joinToString("\n").toByteArray())
+
+    companion object {
+        const val DEFAULT_STALE_FRACTION = 0.10
+        const val DEFAULT_STALE_MIN_FILES = 16
+        private val UNCHANGED = SurfaceChange(emptySet(), emptySet(), null)
     }
 
     @Synchronized fun files(): Set<String> = HashSet(surfaces.keys)
@@ -193,9 +335,7 @@ internal open class IncrementalState {
     @Synchronized fun contentHash(file: String): String? = contentHashes[canonicalPath(file)]
 
     /** Digest of [file]'s recorded declaration surface, or null when the file is not recorded. */
-    @Synchronized fun surfaceHash(file: String): String? = surfaces[canonicalPath(file)]?.let { s ->
-        sha1Hex(s.decls.entries.map { "${it.key}=${it.value}" }.sorted().joinToString("\n").toByteArray())
-    }
+    @Synchronized fun surfaceHash(file: String): String? = surfaces[canonicalPath(file)]?.let(::hashOf)
 
     @Synchronized fun lookupsOf(file: String): Set<Sym> = HashSet(index.lookupsOf(canonicalPath(file)))
 
@@ -204,6 +344,45 @@ internal open class IncrementalState {
 
     /** Files that declare [symbol] (a class is `Sym(scope, name)`), usually one; more than one is a redeclaration. */
     @Synchronized fun filesDeclaring(symbol: Sym): Set<String> = HashSet(declFiles[symbol].orEmpty())
+
+    /**
+     * [files] plus the whole sealed hierarchy of every sealed class or interface they touch, in both directions:
+     *  - for a sealed class or interface declared in a file, the files of all its direct and indirect subclasses;
+     *  - for a class a file declares (or declared: [files] may name deleted files, whose recorded surface counts) with
+     *    a direct supertype that is a sealed class or interface of the module, that parent's file, and through it the
+     *    parent's other inheritors. The supertypes of both the recorded surface and the one in [current] are
+     *    looked at, so a subclass that is added, removed or retargeted to another parent brings the parent in.
+     *
+     * A sealed parent compiled from source knows only the inheritors that are in source too, so it must be compiled
+     * with all of them; otherwise its inheritor list (part of its surface) and every exhaustiveness check over it is
+     * wrong. [current] gives the surfaces of files just compiled, which win over the recorded ones for the sealed
+     * classes they declare.
+     */
+    @Synchronized
+    fun withSealedInheritors(files: Collection<String>, current: Map<String, FileSurface> = emptyMap()): Set<String> {
+        val out = files.mapTo(LinkedHashSet()) { canonicalPath(it) }
+        val queue = ArrayDeque(out)
+        fun add(file: String) { if (out.add(file)) queue.add(file) }
+        fun isSealed(cls: String): Boolean {
+            val declaring = classFile[cls] ?: return false
+            return cls in (current[declaring] ?: surfaces[declaring])?.sealed.orEmpty()
+        }
+        while (queue.isNotEmpty()) {
+            val file = queue.removeFirst()
+            val recorded = surfaces[file]
+            val now = current[file]
+            for (surface in listOfNotNull(recorded, now)) {
+                for ((_, supers) in surface.supers) for (super_ in supers) {
+                    val parent = erase(super_)
+                    if (isSealed(parent)) classFile[parent]?.let(::add)
+                }
+            }
+            for (cls in (now ?: recorded)?.sealed.orEmpty() + recorded?.sealed.orEmpty()) {
+                for (sub in subclassFiles[cls].orEmpty()) add(sub)
+            }
+        }
+        return out
+    }
 
     /** Files that declare a class with [supertypeFqName] among its supertypes (type arguments ignored). */
     @Synchronized fun subclassFilesOf(supertypeFqName: String): Set<String> = HashSet(subclassFiles[supertypeFqName].orEmpty())

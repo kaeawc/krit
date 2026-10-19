@@ -29,7 +29,16 @@ internal class CompileLookups : LookupTracker {
 
     override val requiresPosition: Boolean get() = false
 
+    @Volatile private var frozen = false
+
+    /**
+     * Stops recording. A compile that goes on past the frontend (the snapshot build runs the backend) calls this
+     * when the frontend is done, so the recording is the frontend's lookups, as in a frontend-only compile.
+     */
+    fun freeze() { frozen = true }
+
     override fun record(filePath: String, position: Position, scopeFqName: String, scopeKind: ScopeKind, name: String) {
+        if (frozen) return
         val file = canonical.getOrPut(filePath) { canonicalPath(filePath) }
         byFile.getOrPut(file) { ConcurrentHashMap.newKeySet() }.add(Sym(scopeFqName, name))
     }

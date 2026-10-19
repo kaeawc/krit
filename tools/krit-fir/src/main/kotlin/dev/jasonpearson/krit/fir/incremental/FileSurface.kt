@@ -39,7 +39,12 @@ import java.security.MessageDigest
  * [supers] maps the fully qualified name of every non-private class declared in the file (nested ones included)
  * to its rendered supertypes, as written by `renderReadableWithFqNames` (type arguments and `?` included).
  */
-internal data class FileSurface(val decls: Map<Sym, String>, val supers: Map<String, List<String>>) {
+internal data class FileSurface(
+    val decls: Map<Sym, String>,
+    val supers: Map<String, List<String>>,
+    /** Fully qualified names of the sealed classes and interfaces declared in the file. */
+    val sealed: Set<String> = emptySet(),
+) {
     companion object {
         /** Changed lookup symbols between [old] and [new]; class-header changes also return the class scope. */
         fun diff(old: FileSurface?, new: FileSurface?): Pair<Set<Sym>, Set<String>> {
@@ -59,19 +64,21 @@ internal object Surface {
     fun file(f: FirFile, session: FirSession): FileSurface {
         val acc = HashMap<Sym, MutableList<String>>()
         val supers = HashMap<String, List<String>>()
+        val sealed = HashSet<String>()
         val pkg = f.packageDirective.packageFqName.asString()
-        for (d in f.declarations) visit(d, pkg, acc, supers, session)
-        return FileSurface(acc.mapValues { (_, v) -> hash(v.sorted().joinToString("\n")) }, supers)
+        for (d in f.declarations) visit(d, pkg, acc, supers, sealed, session)
+        return FileSurface(acc.mapValues { (_, v) -> hash(v.sorted().joinToString("\n")) }, supers, sealed)
     }
 
     private fun visible(d: FirMemberDeclaration) = d.status.visibility != Visibilities.Private
 
-    private fun visit(d: FirDeclaration, scope: String, acc: MutableMap<Sym, MutableList<String>>, supers: MutableMap<String, List<String>>, session: FirSession) {
+    private fun visit(d: FirDeclaration, scope: String, acc: MutableMap<Sym, MutableList<String>>, supers: MutableMap<String, List<String>>, sealed: MutableSet<String>, session: FirSession) {
         when (d) {
             is FirRegularClass -> {
                 if (!visible(d)) return
                 val fq = d.symbol.classId.asSingleFqName().asString()
                 supers[fq] = d.superTypeRefs.map { t(it) }
+                if (d.status.modality == org.jetbrains.kotlin.descriptors.Modality.SEALED) sealed += fq
                 val header = buildString {
                     append(d.classKind).append(' ').append(st(d.status)).append(tps(d.typeParameters)).append(" : ")
                     append(d.superTypeRefs.joinToString { t(it) }).append(anns(d.annotations))
@@ -79,7 +86,7 @@ internal object Surface {
                     for (c in d.declarations.filterIsInstance<FirConstructor>()) if (visible(c)) append("\n  ctor ").append(fn(c))
                 }
                 acc.getOrPut(Sym(scope, FileSurface.CLASS_MARK + d.name.asString())) { ArrayList() }.add(header)
-                for (m in d.declarations) if (m !is FirConstructor) visit(m, fq, acc, supers, session)
+                for (m in d.declarations) if (m !is FirConstructor) visit(m, fq, acc, supers, sealed, session)
             }
             is FirNamedFunction -> if (visible(d)) acc.getOrPut(Sym(scope, d.name.asString())) { ArrayList() }.add(fn(d))
             is FirProperty -> if (visible(d)) acc.getOrPut(Sym(scope, d.name.asString())) { ArrayList() }.add(prop(d))

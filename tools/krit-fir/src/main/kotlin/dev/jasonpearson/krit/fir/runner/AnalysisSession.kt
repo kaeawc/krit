@@ -105,7 +105,19 @@ class AnalysisSession(
 ) {
 
     /** Per-file surface hashes, lookup reverse index and content hashes of this session's last recorded check compile. */
-    internal val incrementalState = IncrementalState()
+    internal var incrementalState = IncrementalState()
+        internal set
+
+    @Volatile private var recordingFailureLogged = false
+
+    // Recording is best-effort: whatever goes wrong with it drops the recorded facts and never touches the verdict.
+    private fun recordingFailed(cause: Throwable) {
+        try { incrementalState.reset() } catch (_: Throwable) {}
+        if (!recordingFailureLogged) {
+            recordingFailureLogged = true
+            System.err.println("krit-fir: incremental recording failed and was dropped (${cause.javaClass.name}: ${cause.message})")
+        }
+    }
 
     private val compilationJvmTarget: String = resolveJvmTarget(jvmTarget)
     val jvmTargetWarning: String? = if (jvmTarget.isNotBlank() && JvmTarget.fromString(jvmTarget) == null) {
@@ -249,19 +261,29 @@ class AnalysisSession(
         // Incremental recording of this compile; null unless the session records.
         var recording: CompileRecording? = null
             private set
-        private val fingerprint: String by lazy {
-            invocationFingerprint(enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels)
-        }
+        private val requestVerdictKey: String by lazy { verdictKey(enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels) }
 
         fun startRecording(sources: List<String>) {
             if (!incrementalRecording) return
-            recording = CompileRecording(fingerprint, contentHashesOf(sources))
+            try {
+                recording = CompileRecording(compileKey(), requestVerdictKey, contentHashesOf(sources))
+            } catch (e: Throwable) {
+                if (!isIsolatable(e)) throw e
+                recording = null
+                recordingFailed(e)
+            }
         }
 
-        /** Keeps the recording unless the compiler crashed, when it would be partial. */
+        /** Keeps the recording unless the compiler crashed or the recording failed, when it would be partial. */
         fun commitRecording(exitCode: ExitCode) {
             val recorded = recording ?: return
-            if (exitCode != ExitCode.INTERNAL_ERROR && collector.exceptions.isEmpty()) incrementalState.commit(recorded)
+            try {
+                if (recorded.failed) { recordingFailed(recorded.failure ?: IllegalStateException("recording failed")); return }
+                if (exitCode != ExitCode.INTERNAL_ERROR && collector.exceptions.isEmpty()) incrementalState.commit(recorded)
+            } catch (e: Throwable) {
+                if (!isIsolatable(e)) throw e
+                recordingFailed(e)
+            }
         }
 
         fun contexts(): List<CompilationContext> = listOfNotNull(
@@ -483,29 +505,31 @@ class AnalysisSession(
     }
 
     /**
-     * Identity of everything the recorded facts depend on: this session's sources and classpath (with file
-     * identity), JVM target and compiler settings, the compiler and plugin builds, and the request's rules,
-     * rule configs, test-file classification, scan paths and SDK levels. A different fingerprint resets
-     * [incrementalState].
+     * Key of the compiler facts (lookups, surfaces): the compiler and plugin builds, this session's sources,
+     * classpath (with file identity), JVM target and Kotlin settings. A different key resets [incrementalState].
      */
-    private fun invocationFingerprint(
-        enabledRules: Set<String>, ruleConfigs: Map<String, Map<String, Any?>>,
-        testFiles: Set<String>, scanPaths: Map<String, String>, sdkLevels: Map<String, SdkLevels>,
-    ): String {
+    private fun compileKey(): String {
         val builder = FingerprintBuilder()
             .add("kotlin", KotlinCompilerVersion.VERSION)
             .add("sourceDirs", sourceDirs.map { canonicalOrSelf(File(it)) })
             .add("jvmTarget", compilationJvmTarget)
             .add("kotlinSettings", kotlinSettings.identity)
-            .add("rules", enabledRules)
-            .add("ruleConfigs", ruleConfigs)
-            .add("testFiles", testFiles)
-            .add("scanPaths", scanPaths)
-            .add("sdkLevels", sdkLevels)
         selfJar?.let { builder.addFileIdentity("plugin", it) }
         for (entry in effectiveClasspath(classpath)) builder.addFileIdentity("classpath", entry)
         return builder.build()
     }
+
+    /** Key of what a verdict depends on beyond the compiler facts: rules, configs, test files, scan paths, SDK levels. */
+    private fun verdictKey(
+        enabledRules: Set<String>, ruleConfigs: Map<String, Map<String, Any?>>,
+        testFiles: Set<String>, scanPaths: Map<String, String>, sdkLevels: Map<String, SdkLevels>,
+    ): String = FingerprintBuilder()
+        .add("rules", enabledRules)
+        .add("ruleConfigs", ruleConfigs)
+        .add("testFiles", testFiles)
+        .add("scanPaths", scanPaths)
+        .add("sdkLevels", sdkLevels)
+        .build()
 
     /** A caller-supplied registry scope; the execution seam knows nothing about its payload. */
     private class CompilationContext(val begin: () -> Unit, val end: () -> Unit)

@@ -19,6 +19,9 @@ internal fun canonicalPath(path: String): String =
  * recording Gradle/JPS incremental compilation uses: K2 reports every name it looks up in every package
  * or classifier scope it searches, whether or not the lookup succeeds, so a later declaration that would
  * shadow or overload is covered too. Passed to the compiler through `Services`.
+ *
+ * `ImportTracker` is intentionally not wired: the lookup of an imported name already arrives here, in the
+ * scope the import names, so imports add no dependency this tracker misses.
  */
 internal class CompileLookups : LookupTracker {
     val byFile = ConcurrentHashMap<String, MutableSet<Sym>>()
@@ -55,8 +58,8 @@ internal class LookupIndex {
     fun remove(file: String) {
         val old = forward.remove(file) ?: return
         for (s in old) {
-            reverse[s]?.remove(file)
-            byScope[s.scope]?.remove(file)
+            reverse[s]?.let { files -> files.remove(file); if (files.isEmpty()) reverse.remove(s) }
+            byScope[s.scope]?.let { files -> files.remove(file); if (files.isEmpty()) byScope.remove(s.scope) }
         }
     }
 

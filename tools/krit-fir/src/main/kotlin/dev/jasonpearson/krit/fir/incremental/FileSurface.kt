@@ -27,12 +27,17 @@ import org.jetbrains.kotlin.fir.render
 import org.jetbrains.kotlin.fir.types.FirTypeRef
 import org.jetbrains.kotlin.fir.types.coneTypeOrNull
 import org.jetbrains.kotlin.fir.types.renderReadableWithFqNames
+import dev.jasonpearson.krit.fir.isIsolatable
 import java.security.MessageDigest
 
 /**
  * The declaration surface of one file as resolved FIR sees it: every non-private declaration keyed by the lookup symbol
  * other files would use to reach it, with its resolved signature (inferred types included). Inline function bodies and
  * const initializers are part of the surface, as for IC. Constructors are folded into the class header.
+ *
+ * [decls] maps each lookup symbol to a hash of its declarations; a class is keyed `Sym(scope, "class:Name")`.
+ * [supers] maps the fully qualified name of every non-private class declared in the file (nested ones included)
+ * to its rendered supertypes, as written by `renderReadableWithFqNames` (type arguments and `?` included).
  */
 internal data class FileSurface(val decls: Map<Sym, String>, val supers: Map<String, List<String>>) {
     companion object {
@@ -123,7 +128,7 @@ internal object Surface {
 
     fun hash(s: String): String {
         val md = MessageDigest.getInstance("SHA-1").digest(s.toByteArray())
-        return md.take(10).joinToString("") { "%02x".format(it) }
+        return hex(md, 10)
     }
 }
 
@@ -134,7 +139,19 @@ internal object Surface {
 internal class SurfaceFileChecker(private val recording: CompileRecording) : FirFileChecker(MppCheckerKind.Common) {
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirFile) {
-        val path = declaration.sourceFile?.path ?: return
-        recording.surfaces[canonicalPath(path)] = Surface.file(declaration, context.session)
+        // Best-effort: a failure here must never reach the compiler, where it would fail the file's real checkers.
+        try {
+            val path = declaration.sourceFile?.path ?: return
+            SurfaceTestHook.beforeFile?.invoke(path)
+            recording.surfaces[canonicalPath(path)] = Surface.file(declaration, context.session)
+        } catch (e: Throwable) {
+            if (!isIsolatable(e)) throw e
+            recording.fail(e)
+        }
     }
+}
+
+/** Lets tests make the surface checker fail on chosen files; null in production. */
+internal object SurfaceTestHook {
+    @Volatile var beforeFile: ((String) -> Unit)? = null
 }

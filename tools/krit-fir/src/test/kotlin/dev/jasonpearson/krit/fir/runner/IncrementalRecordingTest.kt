@@ -2,7 +2,15 @@ package dev.jasonpearson.krit.fir.runner
 
 import dev.jasonpearson.krit.fir.CheckRequest
 import dev.jasonpearson.krit.fir.checkers.protocol.ThrowingProbe
+import dev.jasonpearson.krit.fir.incremental.CompileRecording
+import dev.jasonpearson.krit.fir.incremental.CompileRecordingRegistry
+import dev.jasonpearson.krit.fir.incremental.FileSurface
+import dev.jasonpearson.krit.fir.incremental.IncrementalState
+import dev.jasonpearson.krit.fir.incremental.LookupIndex
+import dev.jasonpearson.krit.fir.incremental.SurfaceTestHook
 import dev.jasonpearson.krit.fir.incremental.Sym
+import dev.jasonpearson.krit.fir.incremental.sha1Hex
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
@@ -10,6 +18,7 @@ import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -43,6 +52,7 @@ class IncrementalRecordingTest {
         class Box { fun size(): Int = 1 }
 
         fun make() = Box()
+        fun makePlain() = Plain()
         fun base() = 1
         fun ret(): Int = 1
         fun param(a: Int) {}
@@ -58,6 +68,8 @@ class IncrementalRecordingTest {
         write("Mid.kt", "package p\n\nfun mid() = base()\n")
         write("Other.kt", "package p\n\nfun other(): String = \"x\"\n")
     }
+
+    @AfterEach fun clearHook() { SurfaceTestHook.beforeFile = null }
 
     private fun lib() = tmp.resolve("Lib.kt").toString()
     private fun mid() = tmp.resolve("Mid.kt").toString()
@@ -84,7 +96,7 @@ class IncrementalRecordingTest {
 
     // ---- surface changes ----------------------------------------------------------------------------------
 
-    private fun surfaceChangesAfter(name: String, edit: () -> Unit): Boolean {
+    private fun surfaceChangesAfter(edit: () -> Unit): Boolean {
         baseline()
         val session = newSession()
         compile(session)
@@ -98,18 +110,18 @@ class IncrementalRecordingTest {
         write("Lib.kt", baseLib.replace(from, to))
     }
 
-    @Test fun surfaceChangesOnReturnTypeEdit() = assertTrue(surfaceChangesAfter("return type") { editLib("fun ret(): Int = 1", "fun ret(): Long = 1L") })
+    @Test fun surfaceChangesOnReturnTypeEdit() = assertTrue(surfaceChangesAfter { editLib("fun ret(): Int = 1", "fun ret(): Long = 1L") })
 
-    @Test fun surfaceChangesOnParameterEdit() = assertTrue(surfaceChangesAfter("parameter") { editLib("fun param(a: Int) {}", "fun param(a: String) {}") })
+    @Test fun surfaceChangesOnParameterEdit() = assertTrue(surfaceChangesAfter { editLib("fun param(a: Int) {}", "fun param(a: String) {}") })
 
-    @Test fun surfaceChangesOnNewOverload() = assertTrue(surfaceChangesAfter("overload") { editLib("fun over(a: Int) {}", "fun over(a: Int) {}\nfun over(a: String) {}") })
+    @Test fun surfaceChangesOnNewOverload() = assertTrue(surfaceChangesAfter { editLib("fun over(a: Int) {}", "fun over(a: Int) {}\nfun over(a: String) {}") })
 
-    @Test fun surfaceChangesOnVisibilityEdit() = assertTrue(surfaceChangesAfter("visibility") { editLib("fun vis() {}", "internal fun vis() {}") })
+    @Test fun surfaceChangesOnVisibilityEdit() = assertTrue(surfaceChangesAfter { editLib("fun vis() {}", "internal fun vis() {}") })
 
-    @Test fun surfaceChangesOnSupertypeEdit() = assertTrue(surfaceChangesAfter("supertype") { editLib("class Plain\n", "class Plain : I\n") })
+    @Test fun surfaceChangesOnSupertypeEdit() = assertTrue(surfaceChangesAfter { editLib("class Plain\n", "class Plain : I\n") })
 
     @Test fun surfaceChangesOnNewSealedSubclassInAnotherFile() = assertTrue(
-        surfaceChangesAfter("sealed subclass") { write("Sub.kt", "package p\n\nclass S2 : S()\n") },
+        surfaceChangesAfter { write("Sub.kt", "package p\n\nclass S2 : S()\n") },
     )
 
     @Test fun surfaceChangesOnInferredTypeChangePropagatedFromAnotherFile() {
@@ -153,7 +165,12 @@ class IncrementalRecordingTest {
         for (file in allFiles()) assertTrue(session.incrementalState.lookupsOf(file).isNotEmpty(), "no lookups for $file")
         assertTrue(Sym("p", "base") in session.incrementalState.lookupsOf(mid()), session.incrementalState.lookupsOf(mid()).toString())
         for (file in allFiles()) assertNotNull(session.incrementalState.contentHash(file), file)
-        assertEquals(session.incrementalState.contentHash(lib()), session.incrementalState.contentHash(lib()))
+        assertEquals(sha1Hex(File(lib()).readBytes()), session.incrementalState.contentHash(lib()))
+        val before = session.incrementalState.contentHash(lib())
+        write("Lib.kt", baseLib + "// edited\n")
+        compile(session)
+        assertEquals(sha1Hex(File(lib()).readBytes()), session.incrementalState.contentHash(lib()))
+        assertTrue(before != session.incrementalState.contentHash(lib()))
     }
 
     @Test fun dependentsIncludeAMemberReachedThroughAnInferredReceiver() {
@@ -186,19 +203,45 @@ class IncrementalRecordingTest {
 
     // ---- invocation fingerprint --------------------------------------------------------------------------
 
-    @Test fun aChangedInvocationFingerprintResetsTheState() {
+    @Test fun differentRulesKeepTheCompilerFactsAndChangeOnlyTheVerdictKey() {
         baseline()
         val session = newSession()
         compile(session, setOf("ProtocolProbe"))
         compile(session, setOf("ProtocolProbe"))
         assertEquals(2, session.incrementalState.generation)
-        val fingerprint = session.incrementalState.fingerprint
+        val compileKey = session.incrementalState.compileKey
+        val verdictKey = session.incrementalState.verdictKey
         assertFalse(session.incrementalState.surfaceChanged(lib()))
 
         compile(session, setOf("ProtocolProbe", "ThrowingProbe"))
-        assertEquals(1, session.incrementalState.generation, "different rules start a new state")
-        assertTrue(fingerprint != session.incrementalState.fingerprint)
-        assertTrue(session.incrementalState.surfaceChanged(lib()), "nothing to compare with after a reset")
+        assertEquals(3, session.incrementalState.generation, "different rules keep the state")
+        assertEquals(compileKey, session.incrementalState.compileKey)
+        assertTrue(verdictKey != session.incrementalState.verdictKey)
+        assertFalse(session.incrementalState.surfaceChanged(lib()), "surfaces still compare with the previous commit")
+        assertTrue(session.incrementalState.lookupsOf(mid()).isNotEmpty())
+    }
+
+    @Test fun aRequestForASubsetOfFilesKeepsTheState() {
+        baseline()
+        val session = newSession()
+        compile(session)
+        session.check(2, listOf(FileRef(mid())), setOf("ProtocolProbe"))
+        assertEquals(2, session.incrementalState.generation)
+        assertEquals(allFiles().size, session.incrementalState.files().size)
+    }
+
+    @Test fun aChangedClasspathEntryResetsTheState() {
+        baseline()
+        val extra = tmp.resolve("extra-classes").toFile().apply { mkdirs() }
+        val session = AnalysisSession(listOf(tmp.resolve("src").toString()), listOf(stdlib, extra.path), incrementalRecording = true)
+        File(tmp.resolve("src").toFile().apply { mkdirs() }, "A.kt").writeText("package a\nfun a() = 1\n")
+        val files = listOf(FileRef(tmp.resolve("src/A.kt").toString()))
+        session.check(1, files, emptySet())
+        session.check(1, files, emptySet())
+        assertEquals(2, session.incrementalState.generation)
+        extra.setLastModified(extra.lastModified() + 5000)
+        session.check(1, files, emptySet())
+        assertEquals(1, session.incrementalState.generation, "a classpath entry that changed starts a new state")
     }
 
     @Test fun theSharedOracleAndCheckCompileRecordsToo() {
@@ -239,5 +282,191 @@ class IncrementalRecordingTest {
         // Off records nothing; on records every file.
         assertEquals(emptySet(), plain.incrementalState.files())
         assertEquals(allFiles().size, recording.incrementalState.files().size)
+    }
+
+    // ---- structural facts the lookups cannot see ---------------------------------------------------------
+
+    @Test fun aClassHeaderChangeReachesAFileThatOnlyLooksUpMembersInThatScope() {
+        baseline()
+        // `makePlain()` is inferred as Plain: the file looks up toString in scope p.Plain and never names Plain.
+        val user = write("PlainUser.kt", "package q\n\nimport p.makePlain\n\nfun u() = makePlain().toString()\n").absolutePath
+        val session = newSession()
+        compile(session)
+        val lookups = session.incrementalState.lookupsOf(user)
+        assertTrue(lookups.any { it.scope == "p.Plain" }, lookups.toString())
+
+        editLib("class Plain\n", "class Plain : I\n")
+        compile(session)
+        assertTrue(session.incrementalState.surfaceChanged(lib()))
+        assertTrue(user in session.incrementalState.dependentsOf(listOf(lib())))
+    }
+
+    @Test fun aClassHeaderChangeIsReportedAsTheWholeClassScope() {
+        fun surface(header: String) = FileSurface(
+            mapOf(Sym("p", "class:Plain") to header, Sym("p.Plain", "size") to "s", Sym("", "class:Top") to "t"), emptyMap(),
+        )
+        val (symbols, scopes) = FileSurface.diff(surface("a"), surface("b"))
+        assertEquals(setOf(Sym("p", "Plain")), symbols)
+        assertEquals(setOf("p.Plain"), scopes)
+        assertEquals(setOf("Top"), FileSurface.diff(null, FileSurface(mapOf(Sym("", "class:Top") to "t"), emptyMap())).second)
+        // A member change alone is only that symbol.
+        val member = FileSurface.diff(surface("a"), surface("a").copy(decls = surface("a").decls + (Sym("p.Plain", "size") to "s2")))
+        assertEquals(setOf(Sym("p.Plain", "size")), member.first)
+        assertEquals(emptySet(), member.second)
+
+        val index = LookupIndex()
+        index.update("/a.kt", setOf(Sym("p.Plain", "toString")))
+        index.update("/b.kt", setOf(Sym("p", "other")))
+        assertEquals(setOf("/a.kt"), index.dependents(symbols, scopes))
+        assertEquals(emptySet(), index.dependents(symbols, emptySet()))
+    }
+
+    @Test fun aNewSealedSubclassInAnotherFileReachesTheWhenFile() {
+        baseline()
+        val whenFile = write("WhenUser.kt", "package q\n\nimport p.S\nimport p.S1\n\nfun w(s: S): Int = when (s) { is S1 -> 1 }\n").absolutePath
+        val session = newSession()
+        compile(session)
+        write("Sub.kt", "package p\n\nclass S2 : S()\n")
+        compile(session)
+        assertTrue(session.incrementalState.surfaceChanged(lib()))
+        assertTrue(whenFile in session.incrementalState.dependentsOf(listOf(lib())))
+    }
+
+    @Test fun renamingABaseMemberIsSeenThroughTheSubclassIndex() {
+        baseline()
+        val base = write("Base.kt", "package p\n\nopen class Base { open fun m() {} }\n").absolutePath
+        val sub = write("SubOfBase.kt", "package p\n\nclass SubOfBase : Base()\n").absolutePath
+        val session = newSession()
+        compile(session)
+        assertEquals(base, session.incrementalState.fileDeclaring("p.Base"))
+        assertEquals(setOf(base), session.incrementalState.filesDeclaring(Sym("p", "Base")))
+        assertEquals(setOf(sub), session.incrementalState.subclassFilesOf("p.Base"))
+
+        write("Base.kt", "package p\n\nopen class Base { open fun n() {} }\n")
+        compile(session)
+        val change = assertNotNull(session.incrementalState.changeOf(base))
+        assertEquals(setOf(Sym("p.Base", "m"), Sym("p.Base", "n")), change.symbols)
+        // Lookups alone miss the subclass: SubOfBase never looked up Base#m.
+        assertFalse(sub in session.incrementalState.dependentsOf(listOf(base)))
+        assertEquals(setOf(sub), session.incrementalState.subclassFilesOf("p.Base"))
+        assertEquals(setOf(base), session.incrementalState.filesDeclaring(Sym("p.Base", "n")))
+        assertEquals(emptySet(), session.incrementalState.filesDeclaring(Sym("p.Base", "m")))
+    }
+
+    @Test fun aRemovedSupertypeIsKeptOnTheChange() {
+        baseline()
+        val session = newSession()
+        write("Lib.kt", baseLib.replace("class Plain\n", "class Plain : I\n"))
+        compile(session)
+        assertEquals(setOf(lib()), session.incrementalState.subclassFilesOf("p.I"))
+        write("Lib.kt", baseLib)
+        compile(session)
+        assertEquals(emptySet(), session.incrementalState.subclassFilesOf("p.I"))
+        val previous = assertNotNull(session.incrementalState.changeOf(lib())?.previous)
+        assertEquals(listOf("p.I"), previous.supers["p.Plain"])
+    }
+
+    // ---- the index follows the latest compile ------------------------------------------------------------
+
+    @Test fun aFileThatLosesAllItsLookupsKeepsNone() {
+        baseline()
+        val empty = write("Empty.kt", "package q\n\nfun u() {}\nfun h() = u()\n").absolutePath
+        val session = newSession()
+        compile(session)
+        assertTrue(session.incrementalState.lookupsOf(empty).isNotEmpty())
+        write("Empty.kt", "package q\n")
+        compile(session)
+        assertEquals(emptySet(), session.incrementalState.lookupsOf(empty))
+        assertTrue(File(empty).canonicalPath in session.incrementalState.files())
+    }
+
+    @Test fun aDeletedFileDisappearsFromTheState() {
+        baseline()
+        val other = tmp.resolve("Other.kt").toString()
+        val session = newSession()
+        compile(session)
+        assertTrue(File(other).canonicalPath in session.incrementalState.files())
+        File(other).delete()
+        compile(session)
+        assertFalse(File(other).canonicalPath in session.incrementalState.files())
+        assertEquals(emptySet(), session.incrementalState.lookupsOf(other))
+        assertNull(session.incrementalState.contentHash(other))
+        assertNull(session.incrementalState.surfaceHash(other))
+    }
+
+    // ---- recording is best-effort ------------------------------------------------------------------------
+
+    private fun failureFixture(): Set<String> {
+        write("Api.kt", "package p\n\nfun protocolProbe() {}\nfun throwingProbeReport() {}\nfun throwingProbeCrash() {}\n")
+        write("ThrowsInCall.kt", "package p\n\nfun a() { throwingProbeReport(); throwingProbeCrash(); protocolProbe() }\n")
+        write("Clean.kt", "package p\n\nfun e() { throwingProbeReport(); protocolProbe() }\n")
+        write("Broken.kt", "package p\n\nfun broken() { protocolProbe(); missingFunction() }\n")
+        return setOf("ThrowingProbe", "ProtocolProbe")
+    }
+
+    private fun BatchResult.normalized() = copy(
+        findings = findings.sortedWith(compareBy({ it.path }, { it.line }, { it.col }, { it.rule })),
+    )
+
+    private fun assertSameVerdict(off: BatchResult, on: BatchResult) {
+        assertTrue(off.findings.isNotEmpty() && off.errorFiles.isNotEmpty() && off.ruleErrors.isNotEmpty(), off.toString())
+        assertEquals(off.normalized(), on.normalized())
+        assertEquals(off.errorFiles, on.errorFiles)
+        assertEquals(off.ruleErrors, on.ruleErrors)
+        assertTrue(on.crashed.isEmpty(), on.crashed.toString())
+    }
+
+    private fun verdictWithRecordingOff(rules: Set<String>): BatchResult {
+        ThrowingProbe.reset()
+        return compile(newSession(record = false), rules)
+    }
+
+    @Test fun aThrowingSurfaceCheckerDoesNotChangeTheVerdict() {
+        val rules = failureFixture()
+        val off = verdictWithRecordingOff(rules)
+        SurfaceTestHook.beforeFile = { path -> if (path.endsWith("Clean.kt")) error("surface boom") }
+        ThrowingProbe.reset()
+        val session = newSession()
+        val on = compile(session, rules)
+        assertSameVerdict(off, on)
+        assertEquals(0, session.incrementalState.generation, "a poisoned recording is not committed")
+        assertEquals(emptySet(), session.incrementalState.files())
+        assertNull(CompileRecordingRegistry.current())
+    }
+
+    @Test fun aThrowingCommitDoesNotChangeTheVerdictOrTheSharedCompile() {
+        val rules = failureFixture()
+        val off = verdictWithRecordingOff(rules)
+        class ThrowingState : IncrementalState() {
+            override fun commit(recording: CompileRecording) = error("commit boom")
+        }
+        ThrowingProbe.reset()
+        val session = newSession()
+        session.incrementalState = ThrowingState()
+        assertSameVerdict(off, compile(session, rules))
+        assertNull(CompileRecordingRegistry.current())
+
+        // The shared oracle/check compile must stay shared: a recording failure is not a compile failure.
+        ThrowingProbe.reset()
+        val paths = allFiles()
+        val (_, checked) = session.analyzeWithCheck(
+            paths, CheckRequest(id = 1, command = "check", files = paths.map { FileRef(it) }, rules = rules.toList()),
+        )
+        assertNotNull(checked, "the check should still share the oracle's compilation")
+        assertSameVerdict(off, checked)
+    }
+
+    @Test fun theRecordingRegistryIsClearAfterACompileWhoseCheckerThrew() {
+        val rules = failureFixture()
+        SurfaceTestHook.beforeFile = { _ -> throw StackOverflowError() }
+        val session = newSession()
+        compile(session, rules)
+        assertNull(CompileRecordingRegistry.current())
+        assertEquals(0, session.incrementalState.generation)
+        // The next compile, with the fault gone, records again.
+        SurfaceTestHook.beforeFile = null
+        compile(session, rules)
+        assertEquals(1, session.incrementalState.generation)
+        assertNull(CompileRecordingRegistry.current())
     }
 }

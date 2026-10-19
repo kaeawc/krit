@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.otherDeclarationBodies
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.importedNameSource
 import dev.jasonpearson.krit.fir.support.lightChildren
@@ -98,6 +99,7 @@ import org.jetbrains.kotlin.name.StandardClassIds
 //   name (a property's declared name excepted).
 internal object WorldWriteableFiles : FirQualifiedAccessExpressionChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "WorldWriteableFiles"
+    override val wholeCompilationTier = otherDeclarationBodies("Reads a getter body or resolvedInitializer of a mode constant holder that is not const, declared in another file.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val qualifiedAccessExpressionCheckers = setOf(WorldWriteableFiles)
         override val callCheckers = setOf(NamedArguments)

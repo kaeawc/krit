@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.coroutines
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.otherDeclarationBodies
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -61,6 +62,7 @@ import org.jetbrains.kotlin.text
  */
 internal object GlobalScopeLaunchInViewModel : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "GlobalScopeLaunchInViewModel"
+    override val wholeCompilationTier = otherDeclarationBodies("Follows the resolvedInitializer of a final val (CoroutineScope = GlobalScope) declared in another file; a binary has no initializer.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(GlobalScopeLaunchInViewModel)
     }

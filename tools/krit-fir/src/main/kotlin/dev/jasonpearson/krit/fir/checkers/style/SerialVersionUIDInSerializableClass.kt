@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.style
 
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.compilationFiles
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
@@ -84,6 +85,7 @@ import java.util.WeakHashMap
 internal object SerialVersionUIDInSerializableClass :
     FirRegularClassChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "SerialVersionUIDInSerializableClass"
+    override val wholeCompilationTier = compilationFiles("Walks every source file in the compilation (firProvider.getFirFilesByPackage) to find classes that transitively reach Serializable.")
     override val declarationCheckers = object : DeclarationCheckers() {
         override val regularClassCheckers = setOf(SerialVersionUIDInSerializableClass)
     }

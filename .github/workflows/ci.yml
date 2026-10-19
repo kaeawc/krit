@@ -323,6 +323,14 @@ jobs:
       - name: Validate krit-fir
         working-directory: tools/krit-fir
         run: ./gradlew --no-daemon test --stacktrace
+      # The split differential (FirIncrementalSplitDifferentialTest) compiles
+      # every compiler-test scenario in pieces against a binary snapshot and
+      # asserts that only whole-compilation-tiered rules differ from a full
+      # compile. It takes about 5 minutes, so `test` excludes it and it runs
+      # as its own step.
+      - name: Split differential (incremental FIR tiering)
+        working-directory: tools/krit-fir
+        run: ./gradlew --no-daemon incrementalDifferentialTest --stacktrace
       - name: Upload krit-fir test reports
         if: failure()
         uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
@@ -330,6 +338,7 @@ jobs:
           name: krit-fir-test-reports
           path: |
             tools/krit-fir/build/reports/tests/test/
+            tools/krit-fir/build/reports/tests/incrementalDifferentialTest/
             tools/krit-fir/compiler-tests/build/reports/tests/test/
 
   # oracle-backend-parity drives both JVM oracles (krit-types and

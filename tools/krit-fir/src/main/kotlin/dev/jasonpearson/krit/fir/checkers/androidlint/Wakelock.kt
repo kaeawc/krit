@@ -397,6 +397,8 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
         val access = receiver as? FirQualifiedAccessExpression ?: return false
         if (access is FirFunctionCall) return false
         val property = access.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol ?: return false
+        // Source offsets alone do not prove the property is in this file.
+        if (!property.isLocal) return false
         val declared = property.source ?: return false
         val function = candidate.function.source ?: return false
         if (declared.startOffset < function.startOffset || declared.endOffset > function.endOffset) return false

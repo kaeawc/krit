@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.otherDeclarationBodies
 import dev.jasonpearson.krit.fir.checkers.security.assignedLocalValues
 import dev.jasonpearson.krit.fir.checkers.security.isLocalVar
 import dev.jasonpearson.krit.fir.report
@@ -92,6 +93,7 @@ import org.jetbrains.kotlin.name.StandardClassIds
  */
 internal object SecureRandom : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "SecureRandom"
+    override val wholeCompilationTier = otherDeclarationBodies("Reads the resolvedInitializer of a possibly top-level property (a Random-typed val holding a SecureRandom) declared in another file; a binary has no initializer.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(SecureRandom)
     }

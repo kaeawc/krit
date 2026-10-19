@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.security
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.otherDeclarationBodies
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -103,6 +104,7 @@ import org.jetbrains.kotlin.name.StandardClassIds
  */
 internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "StaticIv"
+    override val wholeCompilationTier = otherDeclarationBodies("Reads the resolvedInitializer of an IV byte-array property declared in another file.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(StaticIv)
     }

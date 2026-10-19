@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.security
 
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.otherDeclarationBodies
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.significantChildren
@@ -133,6 +134,7 @@ import org.jetbrains.kotlin.name.SpecialNames
  */
 internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "WeakKeySize"
+    override val wholeCompilationTier = otherDeclarationBodies("Reads the resolvedInitializer of a top-level val key size declared in another file.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(WeakKeySize)
     }

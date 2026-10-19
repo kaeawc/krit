@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.exceptions
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.otherDeclarationBodies
 import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
@@ -102,6 +103,7 @@ import org.jetbrains.kotlin.psi.KtElement
 internal object TooGenericExceptionThrown :
     FirExpressionChecker<FirThrowExpression>(MppCheckerKind.Common), FirRule {
     override val ruleId = "TooGenericExceptionThrown"
+    override val wholeCompilationTier = otherDeclarationBodies("Uses symbol.source to tell a project exception class (Kotlin source of this compilation) from a library class when exceptionNames lists a non-default name; a class from the snapshot has no source.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val throwExpressionCheckers = setOf(TooGenericExceptionThrown)
     }

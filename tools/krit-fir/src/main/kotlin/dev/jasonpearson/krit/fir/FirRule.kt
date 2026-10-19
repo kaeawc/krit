@@ -16,6 +16,36 @@ interface FirRule {
     val expressionCheckers: ExpressionCheckers? get() = null
     val declarationCheckers: DeclarationCheckers? get() = null
     val typeCheckers: TypeCheckers? get() = null
+
+    /**
+     * Non-null puts the rule on the full-compile tier, with the kind of read
+     * that put it there and the reason. Build it with [compilationFiles] or
+     * [otherDeclarationBodies].
+     *
+     * The incremental runner (#865) will compile only the dirty files and take
+     * the rest of the module from a binary snapshot, and will check tiered
+     * rules only on a full compile. Nothing consumes the tier yet.
+     *
+     * Set it when the rule iterates the compilation's files
+     * (`session.firProvider.getFirFiles*`), or reads another declaration's body
+     * or initializer (`resolvedInitializer`, `symbol.fir.body`,
+     * `symbol.fir.initializer`, `delegate`, `defaultValue`, `symbol.source`,
+     * `getContainingFile`) on a symbol that may be non-local. A declaration
+     * from a snapshot has none of these, and no signature-based dirty set
+     * tracks them. Leave null for rules that look only at the file under check
+     * and resolve other symbols through `symbolProvider` (class and signature
+     * metadata, which a snapshot keeps).
+     *
+     * `FirRuleWholeCompilationGateTest` keeps this in step with the rule's
+     * source, and the split differential tests check it against slice compiles.
+     * Known gap neither can see: SOURCE-retention annotations are absent from
+     * class files, so a rule reading them through `resolvedAnnotationClassIds`
+     * can differ on a slice (IntoMapMissingKey; findings section 8.2).
+     */
+    val wholeCompilationTier: WholeCompilationTier? get() = null
+
+    /** True when [wholeCompilationTier] is set. */
+    val requiresWholeCompilation: Boolean get() = wholeCompilationTier != null
     fun config(): Map<String, Any?> = FirRuleContext.current()?.ruleConfigs?.get(ruleId).orEmpty()
 
     /**
@@ -144,3 +174,18 @@ object FirRuleContext {
     fun current(): FirRuleCompileContext? = active.get()
     fun end() { active.remove() }
 }
+
+/** Why a rule needs a full compile. */
+enum class WholeCompilationKind {
+    /** The rule iterates the compilation's files (`firProvider`): it cannot run on a slice at all. */
+    COMPILATION_FILES,
+
+    /** The rule reads other declarations' bodies or initializers: a slice sees them only as binaries. */
+    OTHER_DECLARATION_BODIES,
+}
+
+data class WholeCompilationTier(val kind: WholeCompilationKind, val reason: String)
+
+fun compilationFiles(reason: String) = WholeCompilationTier(WholeCompilationKind.COMPILATION_FILES, reason)
+
+fun otherDeclarationBodies(reason: String) = WholeCompilationTier(WholeCompilationKind.OTHER_DECLARATION_BODIES, reason)

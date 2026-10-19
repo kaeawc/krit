@@ -88,8 +88,14 @@ tasks.shadowJar {
     }
 }
 
+val differentialTag = "incremental-differential"
+
 tasks.test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        // The split differential compiles thousands of module slices; it runs in
+        // its own task (incrementalDifferentialTest) and CI step.
+        excludeTags(differentialTag)
+    }
     // AnalysisSessionAnalyzeTest drives the embedded K2 compiler and
     // needs the krit-fir plugin classes on the plugin classpath. Point
     // it at the plain `:jar` output (the compiler runtime is already
@@ -102,6 +108,31 @@ tasks.test {
         "krit.fir.plugin.jar",
         pluginJar.get().asFile.absolutePath,
     )
+}
+
+// FirIncrementalSplitDifferentialTest: a full-vs-slice compile of the compiler-test
+// data, asserting that only tiered rules (FirRule.wholeCompilationReason) differ.
+// Tuning: -Pkrit.fir.differential.sample=N (every Nth scenario), -Pkrit.fir.differential.only=Name.
+tasks.register<Test>("incrementalDifferentialTest") {
+    description = "Split differential: only whole-compilation-tiered rules may differ on a slice compile."
+    group = "verification"
+    useJUnitPlatform { includeTags(differentialTag) }
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    dependsOn("jar")
+    val pluginJar = tasks.named("jar", Jar::class.java).flatMap { it.archiveFile }
+    inputs.file(pluginJar)
+    inputs.dir(project.file("compiler-tests/src/test/data")).withPropertyName("testData")
+    systemProperty("krit.fir.plugin.jar", pluginJar.get().asFile.absolutePath)
+    for (name in listOf("krit.fir.differential.sample", "krit.fir.differential.only")) {
+        findProperty(name)?.let { systemProperty(name, it.toString()) }
+    }
+    maxHeapSize = "2g"
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStandardStreams = true
+    }
 }
 
 // Publish the self-contained shadow jar as the main artifact; its POM must not

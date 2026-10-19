@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.security
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.otherDeclarationBodies
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
@@ -101,6 +102,7 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  */
 internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "HardcodedSecretKey"
+    override val wholeCompilationTier = otherDeclarationBodies("Reads the resolvedInitializer of a non-local, non-const property (key bytes in a top-level or object val) declared elsewhere.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(HardcodedSecretKey)
     }

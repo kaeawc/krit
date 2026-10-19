@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.otherDeclarationBodies
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.qualifiedCall
@@ -89,6 +90,7 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  */
 internal object ShortAlarm : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "ShortAlarm"
+    override val wholeCompilationTier = otherDeclarationBodies("Reads the body of a project wrapper function (function.fir.body); a binary has no body, and the rule treats no body as may-set-the-interval.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(ShortAlarm)
     }

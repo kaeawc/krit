@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.i18n
 
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.otherDeclarationBodies
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -75,6 +76,7 @@ import org.jetbrains.kotlin.util.getChildren
 //   (LocaleGetDefaultForFormattingRecall.kt, LocaleGetDefaultForFormattingTest).
 internal object LocaleGetDefaultForFormatting : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "LocaleGetDefaultForFormatting"
+    override val wholeCompilationTier = otherDeclarationBodies("Reads a helper's single-return body (function.fir.body) and the resolvedInitializer of a top-level val declared elsewhere.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(LocaleGetDefaultForFormatting)
     }

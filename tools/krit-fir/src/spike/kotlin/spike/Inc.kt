@@ -70,6 +70,13 @@ class Inc(val o: Map<String, String>) {
                 for (sup in old?.supers?.get(fq).orEmpty() + new?.supers?.get(fq).orEmpty()) classFile[sup.substringBefore('<')]?.let(out::add)
             }
             if ((k in o) != (k in n) && classFile[k.scope] == null) declIndex[plainSym(k)]?.let(out::addAll)
+            // a member added, removed or changed in a class: every subclass's declaring file (an implementer of a
+            // renamed abstract member never looks the new name up, so the lookup index cannot find it)
+            val owner = if (k.name.startsWith(FileSurface.CLASS_MARK)) classFq(k) else k.scope
+            if (classFile[owner] != null) {
+                val subs = subclassesOf(); val seen = HashSet<String>(); val stack = ArrayDeque(listOf(owner))
+                while (stack.isNotEmpty()) for (s in subs[stack.removeLast()].orEmpty()) if (seen.add(s)) { classFile[s]?.let(out::add); stack += s }
+            }
         }
         out.remove(f)
         return out

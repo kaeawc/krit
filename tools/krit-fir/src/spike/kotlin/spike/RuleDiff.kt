@@ -1,5 +1,5 @@
 @file:Suppress("DEPRECATION")
-@file:OptIn(org.jetbrains.kotlin.CoreEnvironmentDeprecation::class, org.jetbrains.kotlin.config.CompilerConfiguration.Internals::class)
+@file:OptIn(org.jetbrains.kotlin.CoreEnvironmentDeprecation::class, org.jetbrains.kotlin.config.CompilerConfiguration.Internals::class, org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi::class)
 
 package spike
 
@@ -7,6 +7,7 @@ import com.intellij.openapi.util.Disposer
 import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
 import org.jetbrains.kotlin.config.CompilerConfiguration
+import org.jetbrains.kotlin.cli.extensionsStorage
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtModifierListOwner
 import org.jetbrains.kotlin.psi.KtPsiFactory
@@ -37,7 +38,7 @@ class RuleDiff(val o: Map<String, String>) {
         val cp = listOf(ktStubsOut.path)
 
         val disposable = Disposer.newDisposable("rulediff-parse")
-        val cfg = CompilerConfiguration()
+        val cfg = CompilerConfiguration().also { it.extensionsStorage = org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar.ExtensionStorage() }
         val env = KotlinCoreEnvironment.createForProduction(disposable, cfg, EnvironmentConfigFiles.JVM_CONFIG_FILES)
         val psi = KtPsiFactory(env.project)
 

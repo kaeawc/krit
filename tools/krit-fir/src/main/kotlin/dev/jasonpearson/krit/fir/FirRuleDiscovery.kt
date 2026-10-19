@@ -9,6 +9,10 @@ object FirRuleDiscovery {
     internal const val CHECKERS_PREFIX = "dev/jasonpearson/krit/fir/checkers/"
     val rules: List<FirRule> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) { discover() }
 
+    /** IDs of rules with [FirRule.requiresWholeCompilation], sorted; skipped by incremental runs. */
+    fun wholeCompilationRuleIds(): List<String> =
+        rules.filter { it.requiresWholeCompilation }.map { it.ruleId }.sorted()
+
     fun enabled(context: FirRuleCompileContext? = FirRuleContext.current()): List<FirRule> =
         when {
             context?.noneEnabled == true -> emptyList()

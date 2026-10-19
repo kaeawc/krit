@@ -16,6 +16,20 @@ interface FirRule {
     val expressionCheckers: ExpressionCheckers? get() = null
     val declarationCheckers: DeclarationCheckers? get() = null
     val typeCheckers: TypeCheckers? get() = null
+
+    /**
+     * True when the verdict for one file depends on files outside the set
+     * being checked, or the rule iterates the compilation's files (for
+     * example `session.firProvider.getFirFilesByPackage`). Such a rule is
+     * evaluated only on a full compile: an incremental run that checks a
+     * slice of a module skips it, because the slice cannot give a correct
+     * verdict (and the Analysis API forbids the file iteration outright).
+     * Leave false for rules that look only at the file under check and
+     * resolve other symbols through `symbolProvider`.
+     * `FirRuleWholeCompilationGateTest` keeps this flag in step with the
+     * rule's source.
+     */
+    val requiresWholeCompilation: Boolean get() = false
     fun config(): Map<String, Any?> = FirRuleContext.current()?.ruleConfigs?.get(ruleId).orEmpty()
 
     /**

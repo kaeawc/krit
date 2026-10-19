@@ -84,6 +84,11 @@ import java.util.WeakHashMap
 internal object SerialVersionUIDInSerializableClass :
     FirRegularClassChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "SerialVersionUIDInSerializableClass"
+
+    // Walks every source file in the compilation (firProvider) to find which
+    // classes transitively reach Serializable, so one file's verdict depends
+    // on files outside a slice.
+    override val requiresWholeCompilation: Boolean get() = true
     override val declarationCheckers = object : DeclarationCheckers() {
         override val regularClassCheckers = setOf(SerialVersionUIDInSerializableClass)
     }

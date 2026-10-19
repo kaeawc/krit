@@ -228,12 +228,15 @@ internal object SnapshotStorage {
     private const val DIR_NAME = "fir-snapshots"
     private const val LOCK_NAME = ".lock"
     const val LOCKLESS_GRACE_MILLIS = 10 * 60 * 1000L
+    private const val MAX_CREATE_ATTEMPTS = 5
 
     private val sequence = AtomicInteger()
     private val pid = ProcessHandle.current().pid()
     private val hookInstalled = java.util.concurrent.atomic.AtomicBoolean()
 
-    // This process's snapshot roots and the lock channels it holds on them; closing a channel releases its lock.
+    // This process's snapshot roots (canonical) and the lock channels it holds on them. Closing a channel releases
+    // its lock, and on Linux closing ANY channel on the file does, so nothing but the owner may open `.lock`: the
+    // sweep must recognise this process's directories whatever way its path is spelled.
     private val held = java.util.concurrent.ConcurrentHashMap<File, java.nio.channels.FileChannel>()
 
     /** `KRIT_FIR_CACHE_DIR` (or `-Dkrit.fir.cache.dir`) wins; otherwise the per-user cache dir plus `krit`. */
@@ -274,26 +277,39 @@ internal object SnapshotStorage {
         createPrivateDirectories(snapshots.toPath())
         sweepDead(snapshots)
         installCleanupHook()
-        val root = File(snapshots, "p$pid-${sequence.incrementAndGet()}-${java.lang.Long.toHexString(System.nanoTime())}")
-        createPrivateDirectories(root.toPath())
-        val channel = java.nio.channels.FileChannel.open(
-            File(root, LOCK_NAME).toPath(),
-            java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE,
-        )
-        try {
-            channel.tryLock() ?: throw IOException("could not lock $root")
-        } catch (e: Throwable) {
+        // Between creating the lock file and locking it a concurrent sweep may delete the directory (nothing is
+        // locked yet): the directory is checked again once locked, and a fresh one is made if it is gone.
+        repeat(MAX_CREATE_ATTEMPTS) {
+            val root = File(snapshots, "p$pid-${sequence.incrementAndGet()}-${java.lang.Long.toHexString(System.nanoTime())}")
+            createPrivateDirectories(root.toPath())
+            val channel = try {
+                java.nio.channels.FileChannel.open(
+                    File(root, LOCK_NAME).toPath(),
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE,
+                )
+            } catch (_: IOException) { return@repeat }
+            // Registered before locking: from then on this process's sweep leaves the file alone (opening and closing
+            // another channel on it would drop the lock).
+            val key = root.canonicalFile
+            held[key] = channel
+            val locked = try {
+                channel.tryLock() != null && root.isDirectory && File(root, LOCK_NAME).isFile
+            } catch (e: Throwable) {
+                held.remove(key)
+                channel.close()
+                throw e
+            }
+            if (locked) return root
+            held.remove(key)
             channel.close()
             root.deleteRecursively()
-            throw e
         }
-        held[root] = channel
-        return root
+        throw IOException("could not create a snapshot directory under $snapshots")
     }
 
     /** Releases this process's lock on [root] (the directory is deleted by the caller). */
     fun release(root: File) {
-        try { held.remove(root)?.close() } catch (_: IOException) {}
+        try { held.remove(root.canonicalFile)?.close() } catch (_: IOException) {}
     }
 
     /**
@@ -304,7 +320,7 @@ internal object SnapshotStorage {
     fun sweepDead(snapshots: File): Int {
         var removed = 0
         for (child in snapshots.listFiles().orEmpty()) {
-            if (!child.isDirectory || held.containsKey(child)) continue
+            if (!child.isDirectory || held.containsKey(child.canonicalFile)) continue
             val lockFile = File(child, LOCK_NAME)
             if (!lockFile.isFile) {
                 if (System.currentTimeMillis() - child.lastModified() > LOCKLESS_GRACE_MILLIS) {

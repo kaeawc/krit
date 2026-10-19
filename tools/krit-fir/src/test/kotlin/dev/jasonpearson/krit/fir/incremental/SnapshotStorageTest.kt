@@ -128,6 +128,63 @@ class SnapshotStorageTest {
         own.deleteRecursively()
     }
 
+    /** Whether a separate JVM can take the lock of [lockFile] (true: nobody in any process holds it). */
+    private fun lockIsFreeForAnotherProcess(lockFile: File): Boolean {
+        val source = tmp.resolve("Probe.java").toFile()
+        source.writeText(
+            """
+            import java.nio.channels.FileChannel;
+            import java.nio.file.Path;
+            import java.nio.file.StandardOpenOption;
+            public class Probe {
+                public static void main(String[] args) throws Exception {
+                    FileChannel channel = FileChannel.open(Path.of(args[0]), StandardOpenOption.WRITE);
+                    System.out.println(channel.tryLock() != null ? "free" : "held");
+                }
+            }
+            """.trimIndent(),
+        )
+        val java = File(System.getProperty("java.home"), "bin/java").path
+        val process = ProcessBuilder(java, source.path, lockFile.path).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+        val line = BufferedReader(InputStreamReader(process.inputStream)).readLine()
+        process.waitFor()
+        return line == "free"
+    }
+
+    @Test fun sweepingThroughAnotherSpellingOfThePathKeepsThisProcessesLock() {
+        val own = SnapshotStorage.newSnapshotRoot(parent)
+        val lockFile = File(own, ".lock")
+        assertFalse(lockIsFreeForAnotherProcess(lockFile), "the lock is held to begin with")
+        // A symlink to the cache root, and a path with a detour: the same directories under other names.
+        val link = tmp.resolve("link-to-cache").also { java.nio.file.Files.createSymbolicLink(it, parent.toPath()) }
+        SnapshotStorage.sweepDead(File(link.toFile(), "fir-snapshots"))
+        SnapshotStorage.sweepDead(File(parent, "x/../fir-snapshots"))
+        assertTrue(own.isDirectory)
+        assertFalse(lockIsFreeForAnotherProcess(lockFile), "sweeping must not release this process's own lock")
+        SnapshotStorage.release(own)
+        assertTrue(lockIsFreeForAnotherProcess(lockFile), "release does")
+        own.deleteRecursively()
+    }
+
+    @Test fun creatingSnapshotsWhileOthersSweepNeverLosesADirectory() {
+        val roots = java.util.concurrent.ConcurrentLinkedQueue<File>()
+        val stop = java.util.concurrent.atomic.AtomicBoolean(false)
+        val sweeper = Thread { while (!stop.get()) SnapshotStorage.sweepDead(snapshots) }
+        sweeper.start()
+        try {
+            val creators = (1..4).map {
+                Thread { repeat(25) { roots += SnapshotStorage.newSnapshotRoot(parent) } }.also { t -> t.start() }
+            }
+            creators.forEach { it.join() }
+        } finally {
+            stop.set(true)
+            sweeper.join()
+        }
+        assertEquals(100, roots.size)
+        assertTrue(roots.all { it.isDirectory && File(it, ".lock").isFile }, "a concurrent sweep deleted a live snapshot")
+        roots.forEach { SnapshotStorage.release(it); it.deleteRecursively() }
+    }
+
     // ---- the shutdown hook ------------------------------------------------------------------------------------
 
     @Test fun theShutdownHookRemovesOnlyThisProcessesDirectories() {

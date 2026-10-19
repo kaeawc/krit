@@ -58,6 +58,51 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
+// --- #740 FIR-only spike: isolated source set + tasks; not part of the shipped jar ---
+val spike by sourceSets.creating
+kotlin.target.compilations.getByName("spike").associateWith(kotlin.target.compilations.getByName("main"))
+configurations[spike.implementationConfigurationName].extendsFrom(configurations.implementation.get())
+configurations[spike.runtimeOnlyConfigurationName].extendsFrom(configurations.runtimeOnly.get())
+dependencies {
+    add(spike.implementationConfigurationName, "org.jetbrains.kotlin:kotlin-build-tools-api:$kotlinVersion")
+}
+// Build Tools API implementation, loaded in its own class loader by the F3 harness.
+val spikeBtaImpl by configurations.creating { isCanBeConsumed = false; isCanBeResolved = true }
+dependencies { add(spikeBtaImpl.name, "org.jetbrains.kotlin:kotlin-build-tools-impl:$kotlinVersion") }
+val spikeAbiGen by configurations.creating { isCanBeConsumed = false; isCanBeResolved = true }
+dependencies { add(spikeAbiGen.name, "org.jetbrains.kotlin:jvm-abi-gen:$kotlinVersion") { isTransitive = false } }
+// krit's plugin with com.intellij relocated the way kotlin-compiler-embeddable relocates it, for the BTA harness.
+val spikeEmbeddablePlugin by tasks.registering(com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar::class) {
+    archiveFileName.set("krit-fir-plugin-embeddable.jar")
+    destinationDirectory.set(layout.buildDirectory.dir("spike"))
+    from(sourceSets.main.get().output)
+    configurations = listOf(project.configurations.runtimeClasspath.get())
+    dependencies {
+        include(project(":krit-rule-api"))
+    }
+    relocate("com.intellij", "org.jetbrains.kotlin.com.intellij")
+    mergeServiceFiles()
+}
+tasks.register("spikeClasspath") {
+    group = "verification"
+    description = "Writes the spike runtime classpath to build/spike-classpath.txt so the harness can run under plain java."
+    dependsOn("spikeClasses", "jar", spikeEmbeddablePlugin)
+    notCompatibleWithConfigurationCache("spike resolves configurations at execution time")
+    val stdlib = bundledKotlinStdlib
+    doLast {
+        val cp = spike.runtimeClasspath.files.joinToString(":") { it.absolutePath }
+        val jar = tasks.named("jar", Jar::class.java).get().archiveFile.get().asFile.absolutePath
+        file("build/spike-classpath.txt").writeText(cp)
+        file("build/spike-bta-classpath.txt").writeText(spikeBtaImpl.files.joinToString(":") { it.absolutePath })
+        file("build/spike-env.txt").writeText(
+            "-Dspike.stdlib=${stdlib.files.first().absolutePath} -Dkrit.fir.plugin.jar=$jar " +
+                "-Dspike.abigen=${spikeAbiGen.files.first().absolutePath} " +
+                "-Dspike.embeddablePlugin=${spikeEmbeddablePlugin.get().archiveFile.get().asFile.absolutePath} " +
+                "-Dspike.btaClasspath=${file("build/spike-bta-classpath.txt").absolutePath}",
+        )
+    }
+}
+
 tasks.shadowJar {
     archiveClassifier.set("")
     // Keep the launcher path stable while project version drives publication coordinates.

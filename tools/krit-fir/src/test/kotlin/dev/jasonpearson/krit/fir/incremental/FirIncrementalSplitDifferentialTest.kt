@@ -9,6 +9,8 @@ package dev.jasonpearson.krit.fir.incremental
 
 import com.intellij.openapi.util.Disposer
 import dev.jasonpearson.krit.fir.FirRuleDiscovery
+import dev.jasonpearson.krit.fir.runner.AnalysisSession
+import dev.jasonpearson.krit.fir.runner.FileRef
 import org.jetbrains.kotlin.cli.extensionsStorage
 import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
@@ -31,9 +33,10 @@ import kotlin.test.assertTrue
  * Corpus: the compiler-test data (`compiler-tests/src/test/data/diagnostic`, one scenario per file, written against
  * the shared stubs, which are compiled once into a stub library). Each scenario with at least two top-level
  * declarations is split into one file per declaration (`private` becomes `internal` so the split still compiles).
- * The split module is compiled in full (frontend only: the reference) and with the backend (the snapshot). Then each
- * piece is compiled alone through the stock incremental path against the snapshot of the others, and its verdict is
- * compared with the reference. A difference means a rule used a fact of another declaration that only its source
+ * The split module is checked in full by a plain session (the reference) and by a recording session, whose check also
+ * builds the binary snapshot. Then each piece is checked alone with that session's `sliceCheck`, against the
+ * snapshot of the others, and its verdict is compared with the reference. The snapshot and the slice compile are
+ * the production ones. A difference means a rule used a fact of another declaration that only its source
  * carries (an initializer, a body, its source element), so the rule must be tiered: every rule that differs must
  * have [dev.jasonpearson.krit.fir.FirRule.wholeCompilationTier] set. The compiler-error gate must never differ.
  *
@@ -136,6 +139,11 @@ class FirIncrementalSplitDifferentialTest {
                     "slice compile, so an incremental run could not trust it:\n" + result.errorDiffs.take(10).joinToString("\n"),
             )
             assertTrue(scenarioFailures.isEmpty(), "Cross-file scenarios:\n" + scenarioFailures.joinToString("\n"))
+            assertTrue(
+                result.coldDiffs.isEmpty(),
+                "The check that also builds the snapshot gave a different verdict than a plain check:\n" +
+                    result.coldDiffs.take(10).joinToString("\n"),
+            )
         } finally {
             Disposer.dispose(disposable)
             work.deleteRecursively()
@@ -150,6 +158,7 @@ class FirIncrementalSplitDifferentialTest {
         val diffByRule = TreeMap<String, MutableList<String>>()
         val exercised = TreeMap<String, Int>()
         val errorDiffs = ArrayList<String>()
+        val coldDiffs = ArrayList<String>()
     }
 
     /** One file whose slice verdict differs from the full-compile verdict. */
@@ -159,11 +168,7 @@ class FirIncrementalSplitDifferentialTest {
     private fun compileStubs(work: File): File {
         val out = File(work, "kt-stubs").also { it.mkdirs() }
         val stubSources = File(DATA, "stubs").listFiles { f -> f.extension == "kt" }!!.map { it.path }.sorted()
-        val args = kritArgs(stubSources, emptyList(), out).also {
-            it.javaSourceRoots = arrayOf(File(DATA, "stubs/java").path)
-            it.pluginClasspaths = emptyArray()
-        }
-        runShipped(args, emptyList(), frontendOnly = false)
+        compileKotlinLibrary(stubSources, out, listOf(File(DATA, "stubs/java").path))
         assertTrue(out.walkTopDown().any { it.extension == "class" }, "stub library did not compile")
         return out
     }
@@ -205,8 +210,9 @@ class FirIncrementalSplitDifferentialTest {
     }
 
     /**
-     * Compiles [sources] (file name to text) in full as the reference, as a snapshot, and then each file alone
-     * against the snapshot of the others. Returns the files whose verdict differs. Counts go into [r].
+     * Checks [sources] (file name to text) in full as the reference, and again in a recording session whose check
+     * builds the snapshot, and then checks each file alone against the snapshot of the others. Returns the files
+     * whose verdict differs. Counts go into [r].
      */
     private fun diffModule(
         sources: Map<String, String>,
@@ -217,64 +223,61 @@ class FirIncrementalSplitDifferentialTest {
         tagPrefix: String = "",
     ): List<PieceDiff> {
         val root = rootDir.also { it.deleteRecursively(); it.mkdirs() }
+        val srcDir = File(root, "src")
         val files = sources.map { (name, text) ->
-            File(root, "src/$name").also { it.parentFile.mkdirs(); it.writeText(text) }.path
+            File(srcDir, name).also { it.parentFile.mkdirs(); it.writeText(text) }.path
         }.map(::canon)
         val javaRoots = arrayOf(File(DATA, "stubs/java").path)
-        fun args(fs: List<String>, out: File) = kritArgs(fs, cp, out).also { it.javaSourceRoots = javaRoots }
-
-        // Reference: the whole module from source, frontend only.
-        val ref = runShipped(args(files, File(root, "ref")), files, frontendOnly = true, ruleConfigs = ruleConfigs)
-        for (v in ref.verdicts.values) for (f in v.findings) r.exercised.merge(f.substringBefore('@'), 1, Int::plus)
-
-        // Snapshot: the same module with the backend, class files plus the source -> output map.
-        val tmp = File(root, "tmp").also { it.mkdirs() }
-        val full = runCheck(
-            StockPhases.full, args(files, tmp).also { it.reportOutputFiles = true }, files, ruleConfigs = ruleConfigs,
-        )
-        if (full.outputs.isEmpty()) return emptyList() // compile errors: no snapshot to compare against
-        val snapDir = File(root, "snapshot")
-        tmp.renameTo(snapDir)
-        val snap = Snapshot(snapDir)
-        snap.adopt(full.outputs.mapValues { (_, ps) -> ps.map { it.replace(tmp.path, snapDir.path) } })
-        r.compared++
-
-        val diffs = ArrayList<PieceDiff>()
-        for (p in files) {
-            r.pieces++
-            snap.park(listOf(p))
-            val a = args(listOf(p), File(root, "slice")).also {
-                it.incrementalCompilation = true
-                it.classpath = it.classpath + File.pathSeparator + snapDir.path
-            }
-            val inc = try {
-                runCheck(StockPhases.frontend, a, listOf(p), snapshotServices(snap), ruleConfigs)
-            } finally {
-                snap.unpark()
-            }
-            val expected = ref.verdicts[p]
-            val actual = inc.verdicts[p]
-            if (expected?.verdictKey() == actual?.verdictKey()) continue
-            r.pieceDiffs++
-            val tag = (if (tagPrefix.isEmpty()) "" else "$tagPrefix:") + File(p).name
-            val byRule = LinkedHashMap<String, String>()
-            val onlyFull = expected?.findings.orEmpty() - actual?.findings.orEmpty().toSet()
-            val onlySlice = actual?.findings.orEmpty() - expected?.findings.orEmpty().toSet()
-            for (f in onlyFull) byRule.putIfAbsent(f.substringBefore('@'), "full-only ${f.take(140)}")
-            for (f in onlySlice) byRule.putIfAbsent(f.substringBefore('@'), "slice-only ${f.take(140)}")
-            // A rule that crashed on one side only.
-            val expectedErrors = expected?.ruleErrors?.keys.orEmpty().toSet()
-            val actualErrors = actual?.ruleErrors?.keys.orEmpty().toSet()
-            for (rule in (expectedErrors - actualErrors) + (actualErrors - expectedErrors)) {
-                byRule.putIfAbsent(rule, "rule error differs")
-            }
-            var errorDiff: String? = null
-            if (expected?.error != actual?.error) {
-                val extra = (actual?.diags.orEmpty() - expected?.diags.orEmpty().toSet()).firstOrNull()?.take(160)
-                errorDiff = "$tag error full=${expected?.error} slice=${actual?.error} $extra"
-            }
-            diffs += PieceDiff(tag, byRule, errorDiff)
+        val requested = files.map { FileRef(it) }
+        fun session(record: Boolean) = AnalysisSession(listOf(srcDir.path), cp, "", emptyList(), incrementalRecording = record).also {
+            it.snapshotRootOverride = File(root, "snapshots")
+            it.argumentsHook = { args -> args.javaSourceRoots = javaRoots }
         }
-        return diffs
+
+        // Reference: the whole module from source, frontend only, nothing recorded.
+        val ref = session(record = false).check(1, requested, emptySet(), ruleConfigs)
+        for (f in ref.findings) r.exercised.merge(f.rule, 1, Int::plus)
+
+        // Snapshot: the same check in a recording session, which also writes the binaries.
+        val session = session(record = true)
+        try {
+            val full = session.check(1, requested, emptySet(), ruleConfigs)
+            // Compile errors: no snapshot to compare against.
+            if (session.incrementalState.snapshot == null) return emptyList()
+            r.compared++
+            for (p in files) {
+                if (ref.verdictOf(p).key() != full.verdictOf(p).key()) r.coldDiffs += "${File(p).name}: ${ref.verdictOf(p)} vs ${full.verdictOf(p)}"
+            }
+
+            val diffs = ArrayList<PieceDiff>()
+            for (p in files) {
+                r.pieces++
+                val outcome = session.sliceCheck(1, listOf(FileRef(p)), emptySet(), ruleConfigs)
+                val inc = (outcome as? SliceOutcome.Checked)?.result
+                    ?: error("slice of ${File(p).name} fell back: ${(outcome as SliceOutcome.Fallback).reason} ${outcome.cause}")
+                val expected = ref.verdictOf(p)
+                val actual = inc.verdictOf(p)
+                if (expected.key() == actual.key()) continue
+                r.pieceDiffs++
+                val tag = (if (tagPrefix.isEmpty()) "" else "$tagPrefix:") + File(p).name
+                val byRule = LinkedHashMap<String, String>()
+                val onlyFull = expected.findings - actual.findings.toSet()
+                val onlySlice = actual.findings - expected.findings.toSet()
+                for (f in onlyFull) byRule.putIfAbsent(f.substringBefore('@'), "full-only ${f.take(140)}")
+                for (f in onlySlice) byRule.putIfAbsent(f.substringBefore('@'), "slice-only ${f.take(140)}")
+                // A rule that crashed on one side only.
+                for (rule in (expected.ruleErrors - actual.ruleErrors) + (actual.ruleErrors - expected.ruleErrors)) {
+                    byRule.putIfAbsent(rule, "rule error differs")
+                }
+                var errorDiff: String? = null
+                if (expected.error != actual.error) {
+                    errorDiff = "$tag error full=${expected.error} slice=${actual.error} ${actual.errorMessage?.take(160)}"
+                }
+                diffs += PieceDiff(tag, byRule, errorDiff)
+            }
+            return diffs
+        } finally {
+            session.dispose()
+        }
     }
 }

@@ -88,6 +88,24 @@ internal object MultiplatformSources {
         return sourceSet.name
     }
 
+    /**
+     * True when [args] compile as multiplatform, or any of [sourceFiles] declares an `expect` or `actual` (modifier
+     * form, comments and strings ignored). Unreadable files are skipped.
+     */
+    fun usesExpectActual(args: K2JVMCompilerArguments, sourceFiles: List<String>): Boolean {
+        if (args.multiPlatform || !args.commonSources.isNullOrEmpty()) return true
+        return sourceFiles.any { path ->
+            val text = try { File(path).readText() } catch (_: Exception) { return@any false }
+            // Most files mention neither word: skip the lexical pass for them.
+            (text.contains("expect") || text.contains("actual")) && declaresExpectOrActual(text)
+        }
+    }
+
+    internal fun declaresExpectOrActual(text: String): Boolean {
+        val code = stripCommentsAndStrings(text)
+        return EXPECT_MODIFIER.containsMatchIn(code) || ACTUAL_MODIFIER.containsMatchIn(code)
+    }
+
     private fun declaresExpectOnly(dir: String): Boolean {
         var sawExpect = false
         File(dir).walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { file ->

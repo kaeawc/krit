@@ -10,7 +10,16 @@ import dev.jasonpearson.krit.fir.FirRuleErrors
 import dev.jasonpearson.krit.fir.incremental.CompileRecording
 import dev.jasonpearson.krit.fir.incremental.CompileRecordingRegistry
 import dev.jasonpearson.krit.fir.incremental.FingerprintBuilder
+import dev.jasonpearson.krit.fir.incremental.IncrementalStage
 import dev.jasonpearson.krit.fir.incremental.IncrementalState
+import dev.jasonpearson.krit.fir.incremental.IncrementalTestHook
+import dev.jasonpearson.krit.fir.incremental.SNAPSHOT_MODULE_NAME
+import dev.jasonpearson.krit.fir.incremental.SliceFallback
+import dev.jasonpearson.krit.fir.incremental.SliceOutcome
+import dev.jasonpearson.krit.fir.incremental.Snapshot
+import dev.jasonpearson.krit.fir.incremental.SnapshotBuild
+import dev.jasonpearson.krit.fir.incremental.SnapshotComponents
+import dev.jasonpearson.krit.fir.incremental.SnapshotStorage
 import dev.jasonpearson.krit.fir.incremental.contentHashesOf
 import dev.jasonpearson.krit.fir.incremental.incrementalRecordingFromEnv
 import dev.jasonpearson.krit.fir.isIsolatable
@@ -29,6 +38,7 @@ import org.jetbrains.kotlin.config.Services
 import org.jetbrains.kotlin.config.JvmTarget
 import org.jetbrains.kotlin.config.KotlinCompilerVersion
 import org.jetbrains.kotlin.incremental.components.LookupTracker
+import org.jetbrains.kotlin.load.kotlin.incremental.components.IncrementalCompilationComponents
 import java.io.File
 import java.nio.file.Files
 
@@ -102,13 +112,37 @@ class AnalysisSession(
      * is without the feature. Defaults to `KRIT_FIR_INCREMENTAL=1`.
      */
     val incrementalRecording: Boolean = incrementalRecordingFromEnv(),
+    /**
+     * After a clean whole-module check compile with [incrementalRecording] on, builds the module's binary snapshot
+     * in the same compile (the backend runs after the frontend that produced the verdicts), for slice compiles
+     * ([sliceCheck]). A failure to build it loses the snapshot only; the check's result is the same either way.
+     */
+    val incrementalSnapshot: Boolean = incrementalRecording,
 ) {
+
+    /** Parent of the snapshot directories, for tests; null uses the per-user krit cache dir. */
+    internal var snapshotRootOverride: File? = null
+
+    /** Lets tests adjust the compiler arguments of every non-module compile (Java source roots). */
+    internal var argumentsHook: ((K2JVMCompilerArguments) -> Unit)? = null
+
+    // Serializes whatever touches the snapshot directory: slice compiles (which move files in it), and the commits
+    // of a whole-module compile (which replace and delete it).
+    private val snapshotLock = Any()
 
     /** Per-file surface hashes, lookup reverse index and content hashes of this session's last recorded check compile. */
     internal var incrementalState = IncrementalState()
         internal set
 
     @Volatile private var recordingFailureLogged = false
+    @Volatile private var snapshotFailureLogged = false
+
+    private fun snapshotFailed(cause: Throwable) {
+        if (!snapshotFailureLogged) {
+            snapshotFailureLogged = true
+            System.err.println("krit-fir: incremental snapshot failed and was dropped (${cause.javaClass.name}: ${cause.message})")
+        }
+    }
 
     // Recording is best-effort: whatever goes wrong with it drops the recorded facts and never touches the verdict.
     private fun recordingFailed(cause: Throwable) {
@@ -210,16 +244,137 @@ class AnalysisSession(
             val args = compilationArguments(sources, outDir, module)
             // A session runs many module compiles; only the legacy whole-session compile is recorded.
             if (module == null) plan.startRecording(sources)
+            val build = if (module == null) plan.prepareSnapshot(args, sources) else null
             compileModule(args, listOf(plan.collector), plan.contexts(), skipEmptySources = true, frontendOnly = module == null,
-                recording = plan.recording).also { plan.commitRecording(it) }
+                recording = plan.recording, build = build).also { plan.commitRecording(it, build) }
         } catch (e: Exception) {
             if (module == null || !isIsolatable(e)) throw e
             plan.collector.exceptions += (e.message ?: e.javaClass.name)
             ExitCode.INTERNAL_ERROR
         } finally {
+            plan.discardSnapshot()
             if (module == null) outDir.deleteRecursively()
         }
         return plan.result(exitCode)
+    }
+
+    /**
+     * A whole-module check compile that rebuilds the binary snapshot, replacing the state: what the planner calls
+     * when [needsResnapshot] says too many files are kept in every slice, or after [sliceFallback] reports that
+     * the snapshot is gone. It is [check] (and returns its result) with snapshot building on; without
+     * [incrementalSnapshot] it is a plain check.
+     */
+    fun resnapshot(
+        id: Long, files: List<FileRef>, enabledRules: Set<String>,
+        ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),
+        testFiles: Set<String> = emptySet(),
+        scanPaths: Map<String, String> = emptyMap(),
+        sdkLevels: Map<String, SdkLevels> = emptyMap(),
+    ): BatchResult = check(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels)
+
+    /** True when the files kept in every slice (binary-stale or deleted since the snapshot) passed the bound. */
+    internal fun needsResnapshot(
+        maxFraction: Double = IncrementalState.DEFAULT_STALE_FRACTION,
+        minFiles: Int = IncrementalState.DEFAULT_STALE_MIN_FILES,
+    ): Boolean = incrementalState.exceedsStaleBound(maxFraction, minFiles)
+
+    /**
+     * Why [sliceCheck] cannot be used right now, or null when it can: no snapshot (never built, the module has a
+     * compiler error, building failed, or a slice damaged it), the module uses `expect`/`actual`, or the compiler
+     * facts changed since the snapshot was built. The planner serves the request with a full check in each case.
+     */
+    internal fun sliceFallback(): SliceFallback? {
+        incrementalState.fallbackReason()?.let { return it }
+        return if (incrementalState.compileKey != compileKey()) SliceFallback.STATE_CHANGED else null
+    }
+
+    /**
+     * Checks exactly [dirtyFiles] against the module's binary snapshot: the files are compiled from source through
+     * the stock frontend with the snapshot as the module's own previous output, and every other file of the module
+     * comes from its binary. `internal`, sealed hierarchies, facades, inline functions and constants resolve as in
+     * a full compile.
+     *
+     * The result is today's per-file shape for the compiled files: findings, errorFiles and ruleErrors. The slice's
+     * lookups and surfaces are merged into [incrementalState]: the compiled files' replace theirs, everything
+     * else stays. A dirty file that no longer exists is a deletion, like those in [removedFiles]; the snapshot's
+     * binaries of deleted files stay hidden from every slice.
+     *
+     * The caller (the planner) owns correctness of the slice: it must include [IncrementalState.binaryStale] in
+     * [dirtyFiles], and the dependents of what changed. Returns [SliceOutcome.Fallback] instead of compiling when
+     * [sliceFallback] says so, and when the slice compile throws or crashes (the snapshot and the state are then
+     * untouched).
+     */
+    internal fun sliceCheck(
+        id: Long, dirtyFiles: List<FileRef>, enabledRules: Set<String>,
+        ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),
+        testFiles: Set<String> = emptySet(),
+        scanPaths: Map<String, String> = emptyMap(),
+        sdkLevels: Map<String, SdkLevels> = emptyMap(),
+        removedFiles: Collection<String> = emptyList(),
+    ): SliceOutcome = synchronized(snapshotLock) {
+        sliceFallback()?.let { return SliceOutcome.Fallback(it) }
+        val snapshot = incrementalState.snapshot ?: return SliceOutcome.Fallback(SliceFallback.NO_SNAPSHOT)
+        val (present, missing) = dirtyFiles.partition { File(it.path).isFile }
+        val removed = (removedFiles + missing.map { it.path }).mapTo(LinkedHashSet()) { canonicalOrSelf(File(it)) }
+        val plan = CheckPlan(id, present, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, null, emptySet())
+        val sources = plan.compiled.map { it.path }
+        plan.startRecording(sources)
+        val recording = plan.recording ?: return SliceOutcome.Fallback(SliceFallback.NO_SNAPSHOT)
+        val compiled = sources.mapTo(LinkedHashSet()) { canonicalOrSelf(File(it)) }
+        if (sources.isEmpty()) {
+            // Only deletions (or files krit never compiles): nothing to compile.
+            if (removed.isNotEmpty()) mergeSlice(plan, compiled, removed, emptySet())
+            return SliceOutcome.Checked(plan.emptyResult(), compiled)
+        }
+        val outDir = Files.createTempDirectory("krit-fir-slice-out-").toFile()
+        try {
+            val args = compilationArguments(sources, outDir)
+            args.incrementalCompilation = true
+            args.moduleName = SNAPSHOT_MODULE_NAME
+            args.classpath = listOfNotNull(args.classpath, snapshot.dir.path).joinToString(File.pathSeparator)
+            val hidden = sources + removed + incrementalState.removedSinceSnapshot()
+            val exit = try {
+                snapshot.parked(hidden) {
+                    compileModule(args, listOf(plan.collector), plan.contexts(), frontendOnly = true, recording = recording, slice = snapshot)
+                }
+            } catch (e: Throwable) {
+                if (!isIsolatable(e)) throw e
+                return sliceFailed(e, snapshot)
+            }
+            if (exit == ExitCode.INTERNAL_ERROR || plan.collector.exceptions.isNotEmpty()) {
+                return sliceFailed(IllegalStateException(plan.collector.exceptions.firstOrNull() ?: "slice compile exited with $exit"), snapshot)
+            }
+            val result = plan.result(exit)
+            val errored = result.errorFiles.keys.mapTo(HashSet()) { canonicalOrSelf(File(it)) }
+            mergeSlice(plan, compiled, removed, errored)
+            SliceOutcome.Checked(result, compiled)
+        } finally {
+            outDir.deleteRecursively()
+        }
+    }
+
+    private fun sliceFailed(cause: Throwable, snapshot: Snapshot): SliceOutcome {
+        incrementalState.noteSliceFailure(cause)
+        System.err.println("krit-fir: slice compile failed (${cause.javaClass.name}: ${cause.message}); falling back to a full compile")
+        // A snapshot whose files could not be put back is unusable.
+        if (snapshot.corrupt) incrementalState.dropSnapshot(SliceFallback.SLICE_FAILED)
+        return SliceOutcome.Fallback(SliceFallback.SLICE_FAILED, cause)
+    }
+
+    // Best-effort like all recording: if the facts cannot be merged they are dropped (and with them the snapshot),
+    // and the verdict, which is already computed, is returned unchanged.
+    private fun mergeSlice(plan: CheckPlan, compiled: Set<String>, removed: Set<String>, errored: Set<String>) {
+        try {
+            val recorded = plan.recording
+            if (recorded == null || recorded.failed) {
+                recordingFailed(recorded?.failure ?: IllegalStateException("recording failed"))
+            } else {
+                incrementalState.commitSlice(recorded, compiled, removed, errored)
+            }
+        } catch (e: Throwable) {
+            if (!isIsolatable(e)) throw e
+            recordingFailed(e)
+        }
     }
 
     /**
@@ -263,6 +418,44 @@ class AnalysisSession(
             private set
         private val requestVerdictKey: String by lazy { verdictKey(enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels) }
 
+        // The snapshot this plan's compile is writing, until the state takes it over.
+        private var pendingSnapshot: Snapshot? = null
+        private var noSnapshotReason = SliceFallback.NO_SNAPSHOT
+
+        /**
+         * Sets up the snapshot build for a whole-module compile that is recording: the compile then also runs the
+         * backend into a snapshot directory under krit's cache dir. Null (the compile stays frontend-only) when
+         * snapshots are off, the module uses expect/actual, or the directory cannot be made.
+         */
+        fun prepareSnapshot(args: K2JVMCompilerArguments, sources: List<String>): SnapshotBuild? {
+            val recorded = recording ?: return null
+            if (!incrementalSnapshot) return null
+            try {
+                if (MultiplatformSources.usesExpectActual(args, sources)) {
+                    noSnapshotReason = SliceFallback.EXPECT_ACTUAL
+                    return null
+                }
+                val snapshot = Snapshot(SnapshotStorage.newSnapshotRoot(snapshotRootOverride))
+                pendingSnapshot = snapshot
+                snapshot.dir.mkdirs()
+                args.destination = snapshot.dir.path
+                args.reportOutputFiles = true
+                args.moduleName = SNAPSHOT_MODULE_NAME
+                return SnapshotBuild(snapshot, recorded.lookups)
+            } catch (e: Throwable) {
+                if (!isIsolatable(e)) throw e
+                snapshotFailed(e)
+                discardSnapshot()
+                return null
+            }
+        }
+
+        fun discardSnapshot() {
+            val pending = pendingSnapshot ?: return
+            pendingSnapshot = null
+            try { pending.delete() } catch (_: Exception) {}
+        }
+
         fun startRecording(sources: List<String>) {
             if (!incrementalRecording) return
             try {
@@ -274,12 +467,23 @@ class AnalysisSession(
             }
         }
 
-        /** Keeps the recording unless the compiler crashed or the recording failed, when it would be partial. */
-        fun commitRecording(exitCode: ExitCode) {
+        /**
+         * Keeps the recording unless the compiler crashed or the recording failed, when it would be partial. The
+         * snapshot [build] wrote goes to the state with it, when the compile was clean and the backend succeeded.
+         */
+        fun commitRecording(exitCode: ExitCode, build: SnapshotBuild? = null) {
             val recorded = recording ?: return
             try {
                 if (recorded.failed) { recordingFailed(recorded.failure ?: IllegalStateException("recording failed")); return }
-                if (exitCode != ExitCode.INTERNAL_ERROR && collector.exceptions.isEmpty()) incrementalState.commit(recorded)
+                if (exitCode != ExitCode.INTERNAL_ERROR && collector.exceptions.isEmpty()) {
+                    build?.failure?.let { snapshotFailed(it) }
+                    synchronized(snapshotLock) {
+                        incrementalState.commit(recorded)
+                        val snapshot = build?.takeIf { it.built }?.snapshot
+                        incrementalState.attachSnapshot(snapshot, noSnapshotReason)
+                        if (snapshot != null) pendingSnapshot = null
+                    }
+                }
             } catch (e: Throwable) {
                 if (!isIsolatable(e)) throw e
                 recordingFailed(e)
@@ -502,6 +706,7 @@ class AnalysisSession(
         reportAllWarnings = true
         if (selfJar != null) pluginClasspaths = arrayOf(selfJar)
         module?.configure(this, compilationJvmTarget)
+        if (module == null) argumentsHook?.invoke(this)
     }
 
     /**
@@ -552,11 +757,17 @@ class AnalysisSession(
         skipEmptySources: Boolean = false,
         frontendOnly: Boolean = false,
         recording: CompileRecording? = null,
+        slice: Snapshot? = null,
+        build: SnapshotBuild? = null,
     ): ExitCode {
-        // The compiler's own incremental-compilation dependency recording, wired the way Gradle/JPS do. Without
-        // recording the services stay empty, so the compile is the one that runs without the feature.
-        val services = if (recording == null) Services.EMPTY else {
-            Services.Builder().register(LookupTracker::class.java, recording.lookups).build()
+        // The compiler's own incremental-compilation services, wired the way Gradle/JPS do: dependency recording,
+        // and for a slice compile the module's previous output. Without either the services stay empty, so the
+        // compile is the one that runs without the feature.
+        val services = if (recording == null && slice == null) Services.EMPTY else {
+            Services.Builder().apply {
+                recording?.let { register(LookupTracker::class.java, it.lookups) }
+                slice?.let { register(IncrementalCompilationComponents::class.java, SnapshotComponents(it)) }
+            }.build()
         }
         val messages = object : MessageCollector {
             override fun clear() = collectors.forEach { it.clear() }
@@ -567,8 +778,10 @@ class AnalysisSession(
         fun execute(index: Int): ExitCode {
             if (index == contexts.size) {
                 // Module/check requests with no sources must not enter the compiler REPL.
+                if (slice != null) IncrementalTestHook.onStage?.invoke(IncrementalStage.SLICE_COMPILE)
                 return when {
                     skipEmptySources && args.freeArgs.isEmpty() -> ExitCode.OK
+                    build != null -> build.run(args, services, messages)
                     frontendOnly -> FrontendOnlyJvmPipeline().execute(args, services, messages)
                     else -> K2JVMCompiler().exec(messages, services, args)
                 }
@@ -586,7 +799,7 @@ class AnalysisSession(
     internal fun rebuild(
         sourceDirs: List<String>, classpath: List<String>, jvmTarget: String, kotlinArgs: List<String> = this.kotlinArgs,
     ): AnalysisSession =
-        AnalysisSession(sourceDirs, classpath, jvmTarget, kotlinArgs, incrementalRecording).also {
+        AnalysisSession(sourceDirs, classpath, jvmTarget, kotlinArgs, incrementalRecording, incrementalSnapshot).also {
             it.retainedModuleRunner = retainedModuleRunner
             retainedModuleRunner = null
         }
@@ -616,7 +829,11 @@ class AnalysisSession(
 
     internal val moduleOutputDirectories: Map<String, File> get() = moduleRunner.outputDirectories
 
-    fun dispose() { retainedModuleRunner?.dispose(); retainedModuleRunner = null }
+    fun dispose() {
+        retainedModuleRunner?.dispose(); retainedModuleRunner = null
+        // Also deletes the snapshot directory.
+        synchronized(snapshotLock) { incrementalState.reset() }
+    }
 
     companion object {
         internal const val SCRIPT_NOT_COMPILED =

@@ -25,7 +25,10 @@ class SliceCompileTest {
     private val snaps get() = tmp.resolve("snapshots").toFile()
     private val rules = setOf("ProtocolProbe", "ThrowingProbe")
 
-    @AfterEach fun clearHook() { IncrementalTestHook.onStage = null }
+    @AfterEach fun clearHook() {
+        IncrementalTestHook.onStage = null
+        IncrementalTestHook.hideMessageBuffer = false
+    }
 
     private fun write(rel: String, text: String) = src.writeSource(rel, text)
     private fun path(rel: String) = canon(File(src, rel).path)
@@ -126,6 +129,89 @@ class SliceCompileTest {
         assertNull(session.incrementalState.snapshot)
         assertEquals(1, session.incrementalState.generation)
         assertTrue(snaps.resolve("fir-snapshots").listFiles().orEmpty().isEmpty())
+    }
+
+    @Test fun withoutTheCompilersMessageBufferNoBackendRunsAndNothingChanges() {
+        write("Api.kt", "package p\n\nfun protocolProbe() {}\n")
+        write("Use.kt", "package p\n\nfun u() { protocolProbe() }\nfun v(): Int = \"x\"\n")
+        val plain = full(plainSession(src))
+        IncrementalTestHook.hideMessageBuffer = true
+        val session = recording()
+        val on = full(session)
+        assertTrue(plain.errorFiles.isNotEmpty())
+        assertEquals(plain.errorFiles, on.errorFiles)
+        assertEquals(plain.findings, on.findings)
+        assertEquals(plain.firstCompilerError, on.firstCompilerError)
+        IncrementalTestHook.hideMessageBuffer = false
+        // A clean module: the marker is reached, fails closed, and the result is the plain one.
+        write("Use.kt", "package p\n\nfun u() { protocolProbe() }\n")
+        val cleanPlain = full(plainSession(src))
+        IncrementalTestHook.hideMessageBuffer = true
+        val clean = full(session)
+        assertEquals(cleanPlain.findings, clean.findings)
+        assertEquals(cleanPlain.errorFiles, clean.errorFiles)
+        assertEquals(null, clean.firstCompilerError)
+        assertTrue(clean.crashed.isEmpty())
+        assertNull(session.incrementalState.snapshot)
+        assertTrue(snaps.resolve("fir-snapshots").listFiles().orEmpty().isEmpty(), "no directory is left behind")
+        session.dispose()
+    }
+
+    // ---- sealed hierarchies and what a slice adds on its own -------------------------------------------------
+
+    private fun sealedModule() {
+        write("S.kt", "package p\n\nsealed interface U\nclass D1 : U\nfun bodyOnly(): Int = 1\n")
+        write("S2.kt", "package p\n\nclass D2 : U\n")
+        write("W.kt", "package p\n\nfun h(u: U): Int = when (u) { is D1 -> 1; is D2 -> 2 }\n")
+    }
+
+    @Test fun aBodyOnlyEditOfASealedParentsFileChangesNeitherItsSurfaceNorItsBinary() {
+        sealedModule()
+        val session = recording()
+        full(session)
+        val state = session.incrementalState
+        val before = state.surfaceHash(path("S.kt"))
+        write("S.kt", "package p\n\nsealed interface U\nclass D1 : U\nfun bodyOnly(): Int = 2\n")
+        val outcome = session.sliceCheck(2, refs("S.kt"), rules) as SliceOutcome.Checked
+        assertEquals(setOf(path("S2.kt")), outcome.added, "the inheritor in the snapshot is compiled with its sealed parent")
+        assertEquals(before, state.surfaceHash(path("S.kt")), "the inheritor list is complete, so the surface is stable")
+        assertFalse(state.surfaceChanged(path("S.kt")))
+        assertFalse(state.surfaceChanged(path("S2.kt")))
+        assertEquals(emptySet(), state.binaryStale())
+        assertEquals(emptySet(), state.dependentsOf(listOf(path("S.kt"))))
+        // And it stays that way for the next slice.
+        write("S.kt", "package p\n\nsealed interface U\nclass D1 : U\nfun bodyOnly(): Int = 3\n")
+        assertEquals(emptySet(), (session.sliceCheck(3, refs("S.kt"), rules) as SliceOutcome.Checked).result.errorFiles.keys)
+        assertEquals(emptySet(), state.binaryStale())
+        session.dispose()
+    }
+
+    @Test fun aClassThatBecomesSealedInTheEditBringsItsInheritorsToo() {
+        write("S.kt", "package p\n\ninterface U\nclass D1 : U\n")
+        write("S2.kt", "package p\n\nclass D2 : U\n")
+        val session = recording()
+        full(session)
+        write("S.kt", "package p\n\nsealed interface U\nclass D1 : U\n")
+        val outcome = session.sliceCheck(2, refs("S.kt"), rules) as SliceOutcome.Checked
+        assertEquals(setOf(path("S.kt"), path("S2.kt")), outcome.compiled)
+        assertEquals(setOf(path("S2.kt")), outcome.added)
+        assertEquals(emptySet(), outcome.result.errorFiles.keys)
+        session.dispose()
+    }
+
+    @Test fun aSliceAlwaysCompilesTheBinaryStaleFiles() {
+        baseline()
+        val session = recording()
+        full(session)
+        write("Lib.kt", libText.replace("fun base(): Int = 1", "fun base(): Long = 1L"))
+        slice(session, "Lib.kt")
+        assertEquals(setOf(path("Lib.kt")), session.incrementalState.binaryStale())
+        // The caller asks for Mid.kt alone: the stale Lib.kt comes along, so Mid.kt sees the new base().
+        val outcome = session.sliceCheck(3, refs("Mid.kt"), rules) as SliceOutcome.Checked
+        assertEquals(setOf(path("Mid.kt"), path("Lib.kt")), outcome.compiled)
+        assertEquals(setOf(path("Lib.kt")), outcome.added)
+        assertEquals(setOf(path("Lib.kt"), path("Mid.kt")), session.incrementalState.binaryStale())
+        session.dispose()
     }
 
     // ---- the slice check ---------------------------------------------------------------------------------------
@@ -371,8 +457,8 @@ class SliceCompileTest {
         assertFalse(session.needsResnapshot(), "one file of four is under the default minimum")
         assertTrue(session.needsResnapshot(maxFraction = 0.1, minFiles = 1))
         assertFalse(session.needsResnapshot(maxFraction = 0.5, minFiles = 1))
-        // Resnapshot: one full check with a fresh snapshot.
-        session.resnapshot(3, kotlinFilesIn(src).map { FileRef(it) }, rules)
+        // Resnapshot: a full check builds a fresh snapshot and replaces the state.
+        session.check(3, kotlinFilesIn(src).map { FileRef(it) }, rules)
         assertEquals(emptySet(), state.binaryStale())
         assertFalse(session.needsResnapshot(0.0, 1))
         session.dispose()

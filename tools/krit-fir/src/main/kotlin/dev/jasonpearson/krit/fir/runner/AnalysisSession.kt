@@ -146,7 +146,7 @@ class AnalysisSession(
 
     // Recording is best-effort: whatever goes wrong with it drops the recorded facts and never touches the verdict.
     private fun recordingFailed(cause: Throwable) {
-        try { incrementalState.reset() } catch (_: Throwable) {}
+        try { synchronized(snapshotLock) { incrementalState.reset() } } catch (_: Throwable) {}
         if (!recordingFailureLogged) {
             recordingFailureLogged = true
             System.err.println("krit-fir: incremental recording failed and was dropped (${cause.javaClass.name}: ${cause.message})")
@@ -259,20 +259,9 @@ class AnalysisSession(
     }
 
     /**
-     * A whole-module check compile that rebuilds the binary snapshot, replacing the state: what the planner calls
-     * when [needsResnapshot] says too many files are kept in every slice, or after [sliceFallback] reports that
-     * the snapshot is gone. It is [check] (and returns its result) with snapshot building on; without
-     * [incrementalSnapshot] it is a plain check.
+     * True when the files kept in every slice (binary-stale or deleted since the snapshot) passed the bound: the
+     * planner then serves the request with a full [check], which builds a fresh snapshot and replaces the state.
      */
-    fun resnapshot(
-        id: Long, files: List<FileRef>, enabledRules: Set<String>,
-        ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),
-        testFiles: Set<String> = emptySet(),
-        scanPaths: Map<String, String> = emptyMap(),
-        sdkLevels: Map<String, SdkLevels> = emptyMap(),
-    ): BatchResult = check(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels)
-
-    /** True when the files kept in every slice (binary-stale or deleted since the snapshot) passed the bound. */
     internal fun needsResnapshot(
         maxFraction: Double = IncrementalState.DEFAULT_STALE_FRACTION,
         minFiles: Int = IncrementalState.DEFAULT_STALE_MIN_FILES,
@@ -289,20 +278,36 @@ class AnalysisSession(
     }
 
     /**
-     * Checks exactly [dirtyFiles] against the module's binary snapshot: the files are compiled from source through
-     * the stock frontend with the snapshot as the module's own previous output, and every other file of the module
-     * comes from its binary. `internal`, sealed hierarchies, facades, inline functions and constants resolve as in
-     * a full compile.
+     * Checks [dirtyFiles] against the module's binary snapshot: the files are compiled from source through the
+     * stock frontend with the snapshot as the module's own previous output, and every other file of the module
+     * comes from its binary. Constructs that cross the source/binary line (`internal`, facades and multifile
+     * classes, inline functions, constants, sealed parents with sources on both sides) resolve as in a full
+     * compile, with the exceptions listed below.
+     *
+     * The set that is compiled is [dirtyFiles] plus whatever a slice needs to be sound, which `sliceCheck`
+     * enforces itself and reports in [SliceOutcome.Checked.compiled]:
+     *  - [IncrementalState.binaryStale]: a file whose binary no longer describes it must not be read from the
+     *    snapshot;
+     *  - the files of every subclass of a sealed class or interface declared in a compiled file, over the whole
+     *    sealed hierarchy. A sealed parent compiled from source knows only the inheritors that are in source, so
+     *    without them its inheritor list, and with it its surface and every exhaustiveness check, would be wrong.
+     *    The set is re-checked against the compiled surfaces and the slice is compiled again when it grew.
      *
      * The result is today's per-file shape for the compiled files: findings, errorFiles and ruleErrors. The slice's
      * lookups and surfaces are merged into [incrementalState]: the compiled files' replace theirs, everything
      * else stays. A dirty file that no longer exists is a deletion, like those in [removedFiles]; the snapshot's
-     * binaries of deleted files stay hidden from every slice.
+     * binaries of deleted files stay hidden from every slice. Returns [SliceOutcome.Fallback] instead of compiling
+     * when [sliceFallback] says so, and when the slice compile throws or crashes (the snapshot and the state are
+     * then untouched).
      *
-     * The caller (the planner) owns correctness of the slice: it must include [IncrementalState.binaryStale] in
-     * [dirtyFiles], and the dependents of what changed. Returns [SliceOutcome.Fallback] instead of compiling when
-     * [sliceFallback] says so, and when the slice compile throws or crashes (the snapshot and the state are then
-     * untouched).
+     * What remains with the caller (the planner):
+     *  - the dependents of what changed (lookups, plus the structural rules of the findings), and, for a new
+     *    subclass of a sealed parent in another file, that parent's file (this method adds a sealed parent's
+     *    subclasses, not a subclass's parent);
+     *  - a redeclaration or conflicting overload is only seen when both sides are in the slice;
+     *  - verdicts of the whole-compilation tiered rules (`FirRule.wholeCompilationTier`) are not those of a full
+     *    compile on a slice and must not be trusted; step 4 decides how they are served;
+     *  - a module that uses `expect`/`actual` has no snapshot ([SliceFallback.EXPECT_ACTUAL]).
      */
     internal fun sliceCheck(
         id: Long, dirtyFiles: List<FileRef>, enabledRules: Set<String>,
@@ -314,43 +319,60 @@ class AnalysisSession(
     ): SliceOutcome = synchronized(snapshotLock) {
         sliceFallback()?.let { return SliceOutcome.Fallback(it) }
         val snapshot = incrementalState.snapshot ?: return SliceOutcome.Fallback(SliceFallback.NO_SNAPSHOT)
-        val (present, missing) = dirtyFiles.partition { File(it.path).isFile }
-        val removed = (removedFiles + missing.map { it.path }).mapTo(LinkedHashSet()) { canonicalOrSelf(File(it)) }
-        val plan = CheckPlan(id, present, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, null, emptySet())
-        val sources = plan.compiled.map { it.path }
-        plan.startRecording(sources)
-        val recording = plan.recording ?: return SliceOutcome.Fallback(SliceFallback.NO_SNAPSHOT)
-        val compiled = sources.mapTo(LinkedHashSet()) { canonicalOrSelf(File(it)) }
-        if (sources.isEmpty()) {
-            // Only deletions (or files krit never compiles): nothing to compile.
-            if (removed.isNotEmpty()) mergeSlice(plan, compiled, removed, emptySet())
-            return SliceOutcome.Checked(plan.emptyResult(), compiled)
-        }
-        val outDir = Files.createTempDirectory("krit-fir-slice-out-").toFile()
-        try {
-            val args = compilationArguments(sources, outDir)
-            args.incrementalCompilation = true
-            args.moduleName = SNAPSHOT_MODULE_NAME
-            args.classpath = listOfNotNull(args.classpath, snapshot.dir.path).joinToString(File.pathSeparator)
-            val hidden = sources + removed + incrementalState.removedSinceSnapshot()
-            val exit = try {
-                snapshot.parked(hidden) {
-                    compileModule(args, listOf(plan.collector), plan.contexts(), frontendOnly = true, recording = recording, slice = snapshot)
+        val refs = LinkedHashMap<String, FileRef>()
+        for (ref in dirtyFiles) refs.putIfAbsent(canonicalOrSelf(File(ref.path)), ref)
+        val requested = refs.keys.toSet()
+        for (stale in incrementalState.binaryStale()) refs.putIfAbsent(stale, FileRef(stale))
+        var wanted = incrementalState.withSealedInheritors(refs.keys)
+        while (true) {
+            val (present, missing) = wanted.partition { File(it).isFile }
+            val removed = (removedFiles + missing).mapTo(LinkedHashSet()) { canonicalOrSelf(File(it)) }
+            val plan = CheckPlan(
+                id, present.map { refs[it] ?: FileRef(it) }, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, null, emptySet(),
+            )
+            val sources = plan.compiled.map { it.path }
+            plan.startRecording(sources)
+            val recording = plan.recording ?: return SliceOutcome.Fallback(SliceFallback.NO_SNAPSHOT)
+            val compiled = sources.mapTo(LinkedHashSet()) { canonicalOrSelf(File(it)) }
+            if (sources.isEmpty()) {
+                // Only deletions (or files krit never compiles): nothing to compile.
+                if (removed.isNotEmpty()) mergeSlice(plan, compiled, removed, emptySet())
+                return SliceOutcome.Checked(plan.emptyResult(), compiled, compiled - requested)
+            }
+            val outDir = Files.createTempDirectory("krit-fir-slice-out-").toFile()
+            try {
+                val args = compilationArguments(sources, outDir)
+                args.incrementalCompilation = true
+                args.moduleName = SNAPSHOT_MODULE_NAME
+                args.classpath = listOfNotNull(args.classpath, snapshot.dir.path).joinToString(File.pathSeparator)
+                val hidden = sources + removed + incrementalState.removedSinceSnapshot()
+                val exit = try {
+                    snapshot.parked(hidden) {
+                        compileModule(args, listOf(plan.collector), plan.contexts(), frontendOnly = true, recording = recording, slice = snapshot)
+                    }
+                } catch (e: Throwable) {
+                    if (!isIsolatable(e)) throw e
+                    return sliceFailed(e, snapshot)
                 }
-            } catch (e: Throwable) {
-                if (!isIsolatable(e)) throw e
-                return sliceFailed(e, snapshot)
+                if (exit == ExitCode.INTERNAL_ERROR || plan.collector.exceptions.isNotEmpty()) {
+                    return sliceFailed(IllegalStateException(plan.collector.exceptions.firstOrNull() ?: "slice compile exited with $exit"), snapshot)
+                }
+                // A sealed class declared in a compiled file (it may have become sealed in this very edit) needs
+                // all its inheritors in source.
+                val grown = incrementalState.withSealedInheritors(compiled, recording.surfaces)
+                if ((grown - compiled - removed).any { File(it).isFile }) {
+                    wanted = grown + wanted
+                    continue
+                }
+                val result = plan.result(exit)
+                val errored = result.errorFiles.keys.mapTo(HashSet()) { canonicalOrSelf(File(it)) }
+                mergeSlice(plan, compiled, removed, errored)
+                return SliceOutcome.Checked(result, compiled, compiled - requested)
+            } finally {
+                outDir.deleteRecursively()
             }
-            if (exit == ExitCode.INTERNAL_ERROR || plan.collector.exceptions.isNotEmpty()) {
-                return sliceFailed(IllegalStateException(plan.collector.exceptions.firstOrNull() ?: "slice compile exited with $exit"), snapshot)
-            }
-            val result = plan.result(exit)
-            val errored = result.errorFiles.keys.mapTo(HashSet()) { canonicalOrSelf(File(it)) }
-            mergeSlice(plan, compiled, removed, errored)
-            SliceOutcome.Checked(result, compiled)
-        } finally {
-            outDir.deleteRecursively()
         }
+        @Suppress("UNREACHABLE_CODE") error("unreachable")
     }
 
     private fun sliceFailed(cause: Throwable, snapshot: Snapshot): SliceOutcome {

@@ -36,20 +36,24 @@ import java.util.concurrent.ConcurrentLinkedQueue
  * Passes the frontend's output on and tells [onDone] with the compilation's message collector. It runs only when
  * the frontend finished without a compiler error: the phase before it stops the pipeline otherwise.
  */
-private class FrontendDonePhase(private val onDone: (CompilerConfiguration) -> Unit) :
+private class FrontendDonePhase(private val onDone: (CompilerConfiguration) -> Boolean) :
     PipelinePhase<JvmFrontendPipelineArtifact, JvmFrontendPipelineArtifact>(name = "KritFrontendDone") {
-    override fun executePhase(input: JvmFrontendPipelineArtifact): JvmFrontendPipelineArtifact {
-        onDone(input.configuration)
-        return input
-    }
+    /** Null ends the pipeline here: [onDone] says the backend must not run. */
+    override fun executePhase(input: JvmFrontendPipelineArtifact): JvmFrontendPipelineArtifact? =
+        if (onDone(input.configuration)) input else null
 }
 
 /**
  * The stock K2 JVM phases (configuration, frontend, fir2ir, backend, output), with a marker after the frontend.
  * The frontend is the same phase [dev.jasonpearson.krit.fir.runner.FrontendOnlyJvmPipeline] runs, so everything up
  * to the marker reports exactly what a frontend-only check reports.
+ *
+ * Two phases of the compiler's own JVM chain are left out. `FrontendFilesForPluginsGenerationPipelinePhase` lets
+ * compiler plugins generate source files for the frontend; krit's plugin generates none, and the frontend-only
+ * pipeline that is today's check does not run it either. `JvmSerializeCommonMetadataPipelinePhase` writes common
+ * metadata for multiplatform compilations, which never get a snapshot (`expect`/`actual` falls back).
  */
-private class SnapshotJvmPipeline(private val frontendDone: (CompilerConfiguration) -> Unit) : AbstractCliPipeline<K2JVMCompilerArguments>() {
+private class SnapshotJvmPipeline(private val frontendDone: (CompilerConfiguration) -> Boolean) : AbstractCliPipeline<K2JVMCompilerArguments>() {
     override val defaultPerformanceManager: PerformanceManager =
         PerformanceManagerImpl(JvmPlatforms.defaultJvmPlatform, "Kotlin to JVM Compiler (snapshot)")
 
@@ -103,16 +107,21 @@ internal class SnapshotBuild(val snapshot: Snapshot, private val lookups: Compil
             }
         }
         val pipeline = SnapshotJvmPipeline { configuration ->
-            frontendClean = true
-            // Without the buffer to flush the frontend's messages cannot be told from the backend's: let all through.
-            val buffer = configuration.messageCollector as? GroupingMessageCollector
-            if (buffer != null) {
-                FirDiagnosticsCompilerResultsReporter.reportToMessageCollector(configuration.diagnosticsCollector, configuration)
-                buffer.flush()
-                dropping = true
+            // Without the buffer to flush the frontend's messages cannot be told from the backend's: fail closed,
+            // no backend and no snapshot, instead of letting backend messages reach the verdict.
+            val buffer = (configuration.messageCollector as? GroupingMessageCollector)
+                ?.takeUnless { IncrementalTestHook.hideMessageBuffer }
+            if (buffer == null) {
+                failure = IllegalStateException("the compiler's message buffer is not available; no snapshot")
+                return@SnapshotJvmPipeline false
             }
+            frontendClean = true
+            FirDiagnosticsCompilerResultsReporter.reportToMessageCollector(configuration.diagnosticsCollector, configuration)
+            buffer.flush()
+            dropping = true
             lookups?.freeze()
             IncrementalTestHook.onStage?.invoke(IncrementalStage.SNAPSHOT_BACKEND)
+            true
         }
         val exit = try {
             pipeline.execute(args, services, gate)
@@ -122,7 +131,10 @@ internal class SnapshotBuild(val snapshot: Snapshot, private val lookups: Compil
             failure = t
             ExitCode.OK
         }
-        if (!frontendClean) return exit
+        if (!frontendClean) {
+            // Ended at the marker without a backend: the frontend's messages went out normally at the end.
+            return if (failure != null) ExitCode.OK else exit
+        }
         if (failure == null && exit != ExitCode.OK) failure = IllegalStateException("snapshot backend exited with $exit")
         if (failure == null) {
             try {

@@ -14,11 +14,13 @@ import kotlin.test.assertTrue
 /**
  * Constructs whose meaning could change when part of the module comes from class files instead of source (the
  * spike's `Shapes`). Each case builds a base module and its snapshot, applies an edit, and compares the verdict of
- * the files in the slice, checked alone against the snapshot, with a plain full check of the edited module.
+ * the files in the slice, checked against the snapshot, with a plain full check of the edited module.
  *
- * Most constructs are identical. The ones that are not (a new sealed subclass whose parent is not in the slice, a
- * redeclaration whose other side is not) are the structural rules the planner adds to its dirty set: the case that
- * puts the other side in the slice must be identical again.
+ * `sliceCheck` compiles the requested files plus what it needs to be sound (binary-stale files, the inheritors of a
+ * sealed parent); a case lists those as [Case.expands]. Most constructs are identical to a full check. Two are not,
+ * and stay with the caller: a new sealed subclass whose parent is not in the slice, and a redeclaration whose other
+ * side is not. Those are the structural rules the planner adds to its dirty set, and the case that puts the other
+ * side in the slice is identical again.
  */
 class SliceShapesTest {
     @TempDir lateinit var tmp: Path
@@ -35,6 +37,8 @@ class SliceShapesTest {
         /** Files outside the slice (by name) whose full verdict changed with the edit: what a slice cannot see. */
         val outside: Set<String> = emptySet(),
         val expectFindings: Boolean = false,
+        /** Files (by name) `sliceCheck` adds to the requested slice on its own. */
+        val expands: Set<String> = emptySet(),
     )
 
     private val cases = listOf(
@@ -168,6 +172,20 @@ class SliceShapesTest {
             errors = setOf("A.kt", "B.kt"),
         ),
         Case(
+            "sealed-parent-in-slice-subclass-in-snapshot",
+            mapOf(
+                "a/S.kt" to "package p\n\nsealed interface U\nclass D1 : U\n",
+                "a/S2.kt" to "package p\n\nclass D2 : U\n",
+                "b/W.kt" to "package p\n\nfun h(u: U): Int = when (u) { is D1 -> 1; is D2 -> 2 }\n",
+            ),
+            // Dropping a branch is an error. A sealed parent compiled alone would not know D2, and the when would
+            // look exhaustive: the slice has to bring in the inheritor on its own.
+            mapOf("b/W.kt" to "package p\n\nfun h(u: U): Int = when (u) { is D1 -> 1 }\n"),
+            listOf("a/S.kt", "b/W.kt"),
+            errors = setOf("W.kt"),
+            expands = setOf("S2.kt"),
+        ),
+        Case(
             "inline-and-const",
             mapOf(
                 "a/A.kt" to "package p\n\nconst val TAG: String = \"a-very-long-log-tag-name-over-23\"\nconst val N: Int = 3\n" +
@@ -207,8 +225,10 @@ class SliceShapesTest {
 
             val slice = c.slice.map { canon(File(src, it).path) }
             val outcome = session.sliceCheck(3, slice.map { FileRef(it) }, emptySet())
-            val inc = (outcome as? SliceOutcome.Checked)?.result
+            val checked = outcome as? SliceOutcome.Checked
                 ?: error("${c.name}: the slice fell back: ${(outcome as SliceOutcome.Fallback).reason}")
+            val inc = checked.result
+            assertEquals(c.expands, checked.added.map { File(it).name }.toSet(), "${c.name}: files the slice added on its own")
 
             for (f in slice) {
                 val name = File(f).name
@@ -252,6 +272,9 @@ class SliceShapesTest {
     @Test fun conflictingOverloadIsSeenFromTheSliceSide() = run(cases.first { it.name == "conflicting-overloads" })
 
     @Test fun conflictingOverloadWithBothSidesInTheSliceMatchesAFullCheck() = run(cases.first { it.name == "conflicting-overloads-both-in-slice" })
+
+    @Test fun aSealedParentInTheSliceBringsItsInheritorsFromTheSnapshot() =
+        run(cases.first { it.name == "sealed-parent-in-slice-subclass-in-snapshot" })
 
     @Test fun inlineFunctionsAndConstantsFromTheSnapshot() = run(cases.first { it.name == "inline-and-const" })
 

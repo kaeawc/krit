@@ -18,9 +18,11 @@ import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Module name of snapshot and slice compiles. A slice only sees the module's own binaries (and so `internal`,
- * sealed hierarchies and facades resolve as in a full compile) when it is compiled under the module name the
- * snapshot was built with; the name also names `META-INF/<name>.kotlin_module` in the snapshot.
+ * Module name of snapshot and slice compiles. It names `META-INF/<name>.kotlin_module` in the snapshot, which the
+ * slice's incremental cache serves, and keeps the module-name-dependent parts of class files (the mangled names of
+ * `internal` members) the same in the snapshot and in anything a slice compiles. Both compiles use it so they
+ * cannot disagree; no frontend construct in the test suite fails without it (the mechanism that makes `internal`
+ * and sealed hierarchies resolve is the incremental-compilation scope, not the name).
  */
 internal const val SNAPSHOT_MODULE_NAME = "krit-incremental"
 
@@ -41,8 +43,15 @@ internal enum class SliceFallback(val message: String) {
 
 /** What a slice check came to: verdicts for the compiled files, or the reason the planner must run a full check. */
 internal sealed interface SliceOutcome {
-    /** [result] is today's per-file shape for the [compiled] files (canonical paths). */
-    class Checked(val result: dev.jasonpearson.krit.fir.runner.BatchResult, val compiled: Set<String>) : SliceOutcome
+    /**
+     * [result] is today's per-file shape for the [compiled] files (canonical paths): the requested files plus
+     * [added], which the slice needed to be sound (binary-stale files, the inheritors of a sealed parent).
+     */
+    class Checked(
+        val result: dev.jasonpearson.krit.fir.runner.BatchResult,
+        val compiled: Set<String>,
+        val added: Set<String> = emptySet(),
+    ) : SliceOutcome
 
     class Fallback(val reason: SliceFallback, val cause: Throwable? = null) : SliceOutcome
 }
@@ -58,6 +67,9 @@ internal enum class IncrementalStage {
 
 internal object IncrementalTestHook {
     @Volatile var onStage: ((IncrementalStage) -> Unit)? = null
+
+    /** Makes the snapshot marker believe the compiler's message buffer is not available. */
+    @Volatile var hideMessageBuffer = false
 }
 
 /**
@@ -82,10 +94,6 @@ internal class Snapshot(val root: File) {
         private set
 
     @Synchronized fun fileCount(): Int = outputs.size
-
-    @Synchronized fun classFileCount(): Int = outputs.values.sumOf { it.size }
-
-    @Synchronized fun hasOutputsFor(source: String): Boolean = outputs.containsKey(canonicalPath(source))
 
     fun moduleMapping(): ByteArray? = mapping
 
@@ -129,7 +137,8 @@ internal class Snapshot(val root: File) {
         try {
             for (source in sources) {
                 val rels = outputs[canonicalPath(source)] ?: continue
-                // Recorded first: whatever was moved before a failure is still restored by unpark.
+                // Recorded before the moves, so that if one of them fails the files moved so far are the ones
+                // `unpark` (run by `parked`, in `finally`) tries to put back; it skips files that never moved.
                 parkedOutputs[canonicalPath(source)] = rels
                 for (rel in rels) move(File(dir, rel), File(aside, rel))
             }
@@ -158,6 +167,7 @@ internal class Snapshot(val root: File) {
     @Synchronized
     fun delete() {
         outputs.clear(); parkedOutputs.clear(); mapping = null
+        SnapshotStorage.release(root)
         root.deleteRecursively()
     }
 
@@ -205,42 +215,124 @@ internal class SnapshotComponents(private val snapshot: Snapshot) : IncrementalC
 
 /**
  * Where snapshots live: a krit-owned directory in the per-user cache (the same place as the Go side's
- * `os.UserCacheDir()/krit`), never the user's project. Each snapshot gets its own directory named after the
- * process, so a snapshot left behind by a daemon that died is swept by the next one.
+ * `os.UserCacheDir()/krit`), never the user's project.
+ *
+ * Each snapshot has its own directory, and its owner holds an OS file lock on `.lock` inside it for as long as the
+ * snapshot exists. A directory whose lock can be taken has no owner any more (the process died, however it died)
+ * and is swept by the next process to create a snapshot. Liveness is the lock and not a process id, so processes in
+ * different pid namespaces that share a cache volume (containers) never delete each other's live snapshots. A
+ * directory without a lock file is one whose owner has not made it yet, or an interrupted one: it is swept only
+ * when it is older than [LOCKLESS_GRACE_MILLIS].
  */
 internal object SnapshotStorage {
     private const val DIR_NAME = "fir-snapshots"
+    private const val LOCK_NAME = ".lock"
+    const val LOCKLESS_GRACE_MILLIS = 10 * 60 * 1000L
+
     private val sequence = AtomicInteger()
     private val pid = ProcessHandle.current().pid()
     private val hookInstalled = java.util.concurrent.atomic.AtomicBoolean()
-    private val used = java.util.concurrent.ConcurrentHashMap.newKeySet<File>()
+
+    // This process's snapshot roots and the lock channels it holds on them; closing a channel releases its lock.
+    private val held = java.util.concurrent.ConcurrentHashMap<File, java.nio.channels.FileChannel>()
 
     /** `KRIT_FIR_CACHE_DIR` (or `-Dkrit.fir.cache.dir`) wins; otherwise the per-user cache dir plus `krit`. */
-    fun cacheDir(): File {
-        System.getProperty("krit.fir.cache.dir")?.takeIf { it.isNotBlank() }?.let { return File(it) }
-        System.getenv("KRIT_FIR_CACHE_DIR")?.takeIf { it.isNotBlank() }?.let { return File(it) }
-        val home = System.getProperty("user.home").orEmpty()
-        val os = System.getProperty("os.name").orEmpty().lowercase()
+    fun cacheDir(): File = cacheDirFor(
+        property = System.getProperty("krit.fir.cache.dir"),
+        env = System.getenv("KRIT_FIR_CACHE_DIR"),
+        os = System.getProperty("os.name").orEmpty(),
+        home = System.getProperty("user.home").orEmpty(),
+        xdgCacheHome = System.getenv("XDG_CACHE_HOME"),
+        localAppData = System.getenv("LOCALAPPDATA"),
+        tmpDir = System.getProperty("java.io.tmpdir").orEmpty(),
+        user = System.getProperty("user.name").orEmpty(),
+    )
+
+    /** The precedence of [cacheDir] over explicit inputs: property, then env, then the OS default. */
+    fun cacheDirFor(
+        property: String?, env: String?, os: String, home: String, xdgCacheHome: String?, localAppData: String?,
+        tmpDir: String, user: String,
+    ): File {
+        property?.takeIf { it.isNotBlank() }?.let { return File(it) }
+        env?.takeIf { it.isNotBlank() }?.let { return File(it) }
+        val system = os.lowercase()
         val base = when {
-            os.contains("win") -> System.getenv("LOCALAPPDATA")?.takeIf { it.isNotBlank() }?.let(::File)
-            os.contains("mac") -> home.takeIf { it.isNotBlank() }?.let { File(it, "Library/Caches") }
-            else -> System.getenv("XDG_CACHE_HOME")?.takeIf { it.isNotBlank() }?.let(::File)
+            system.contains("win") -> localAppData?.takeIf { it.isNotBlank() }?.let(::File)
+            system.contains("mac") -> home.takeIf { it.isNotBlank() }?.let { File(it, "Library/Caches") }
+            else -> xdgCacheHome?.takeIf { it.isNotBlank() }?.let(::File)
                 ?: home.takeIf { it.isNotBlank() }?.let { File(it, ".cache") }
         }
-        return if (base != null) File(base, "krit")
-        else File(System.getProperty("java.io.tmpdir"), "krit-${System.getProperty("user.name").orEmpty()}")
+        return if (base != null) File(base, "krit") else File(tmpDir, "krit-$user")
     }
 
-    /** Creates an empty private directory for one snapshot under [cacheDir] (or [parent]'s `fir-snapshots`). */
+    /**
+     * Creates an empty private directory for one snapshot under [parent] (default [cacheDir]) and locks it for this
+     * process. Sweeps the directories of dead owners first.
+     */
     fun newSnapshotRoot(parent: File? = null): File {
         val snapshots = File(parent ?: cacheDir(), DIR_NAME)
         createPrivateDirectories(snapshots.toPath())
-        sweepDeadProcesses(snapshots)
-        used += snapshots
+        sweepDead(snapshots)
         installCleanupHook()
         val root = File(snapshots, "p$pid-${sequence.incrementAndGet()}-${java.lang.Long.toHexString(System.nanoTime())}")
         createPrivateDirectories(root.toPath())
+        val channel = java.nio.channels.FileChannel.open(
+            File(root, LOCK_NAME).toPath(),
+            java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE,
+        )
+        try {
+            channel.tryLock() ?: throw IOException("could not lock $root")
+        } catch (e: Throwable) {
+            channel.close()
+            root.deleteRecursively()
+            throw e
+        }
+        held[root] = channel
         return root
+    }
+
+    /** Releases this process's lock on [root] (the directory is deleted by the caller). */
+    fun release(root: File) {
+        try { held.remove(root)?.close() } catch (_: IOException) {}
+    }
+
+    /**
+     * Deletes the snapshot directories under [snapshots] that nobody owns. Returns how many it deleted. A directory
+     * is kept when this process holds it, when another process holds its lock, or when it has no lock file yet and
+     * is younger than [LOCKLESS_GRACE_MILLIS].
+     */
+    fun sweepDead(snapshots: File): Int {
+        var removed = 0
+        for (child in snapshots.listFiles().orEmpty()) {
+            if (!child.isDirectory || held.containsKey(child)) continue
+            val lockFile = File(child, LOCK_NAME)
+            if (!lockFile.isFile) {
+                if (System.currentTimeMillis() - child.lastModified() > LOCKLESS_GRACE_MILLIS) {
+                    child.deleteRecursively(); removed++
+                }
+                continue
+            }
+            val channel = try {
+                java.nio.channels.FileChannel.open(lockFile.toPath(), java.nio.file.StandardOpenOption.WRITE)
+            } catch (_: IOException) { continue }
+            try {
+                // null: another process holds it; OverlappingFileLockException: this JVM does.
+                val lock = try { channel.tryLock() } catch (_: java.nio.channels.OverlappingFileLockException) { null }
+                if (lock != null) { child.deleteRecursively(); removed++ }
+            } catch (_: IOException) {
+            } finally {
+                try { channel.close() } catch (_: IOException) {}
+            }
+        }
+        return removed
+    }
+
+    /** Deletes this process's snapshot directories: what the shutdown hook runs. Other processes' are not touched. */
+    fun removeOwned() {
+        for (root in held.keys.toList()) {
+            release(root)
+            root.deleteRecursively()
+        }
     }
 
     private fun createPrivateDirectories(path: Path) {
@@ -251,20 +343,8 @@ internal object SnapshotStorage {
         }
     }
 
-    // Directories "p<pid>-..." of processes that no longer run.
-    private fun sweepDeadProcesses(snapshots: File) {
-        for (child in snapshots.listFiles().orEmpty()) {
-            val owner = child.name.removePrefix("p").substringBefore('-').toLongOrNull() ?: continue
-            if (owner != pid && !ProcessHandle.of(owner).isPresent) child.deleteRecursively()
-        }
-    }
-
     private fun installCleanupHook() {
         if (!hookInstalled.compareAndSet(false, true)) return
-        Runtime.getRuntime().addShutdownHook(Thread {
-            for (snapshots in used) for (child in snapshots.listFiles().orEmpty()) {
-                if (child.name.startsWith("p$pid-")) child.deleteRecursively()
-            }
-        })
+        Runtime.getRuntime().addShutdownHook(Thread { removeOwned() })
     }
 }

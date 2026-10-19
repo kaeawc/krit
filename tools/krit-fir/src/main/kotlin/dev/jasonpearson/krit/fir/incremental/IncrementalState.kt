@@ -186,7 +186,8 @@ internal open class IncrementalState {
      * the last commit, lose theirs. [errorFiles] are the compiled files that had a compiler error.
      *
      * [changeOf] describes the move of each compiled and removed file in this commit (with its previous surface)
-     * and reports every other file as unchanged. Binary staleness is updated for the compiled files: see
+     * and reports every other file as unchanged. It covers the latest commit only: a planner that runs several
+     * waves of slices must consume the changes of each wave before the next one. Binary staleness is updated for the compiled files: see
      * [binaryStale]. [compileKey] stays; [verdictKey] becomes the slice's.
      */
     @Synchronized
@@ -302,7 +303,7 @@ internal open class IncrementalState {
 
     /**
      * True when so many files have to be kept in every slice that a re-snapshot (one full compile with the
-     * backend, see `AnalysisSession.resnapshot`) is cheaper: at least [minFiles] binary-stale or removed files, and
+     * backend, a full `AnalysisSession.check`) is cheaper: at least [minFiles] binary-stale or removed files, and
      * more than [maxFraction] of the files the snapshot was built from.
      */
     @Synchronized
@@ -343,6 +344,25 @@ internal open class IncrementalState {
 
     /** Files that declare [symbol] (a class is `Sym(scope, name)`), usually one; more than one is a redeclaration. */
     @Synchronized fun filesDeclaring(symbol: Sym): Set<String> = HashSet(declFiles[symbol].orEmpty())
+
+    /**
+     * [files] plus, for every sealed class or interface declared in them, the files of all its direct and indirect
+     * subclasses (the closure over the whole sealed hierarchy). A sealed parent compiled from source only knows the
+     * inheritors that are in source too, so it must be compiled with all of them: otherwise its surface (which
+     * lists the inheritors) moves with the slice and exhaustiveness over it is wrong. [current] gives the surfaces
+     * of files just compiled, which win over the recorded ones.
+     */
+    @Synchronized
+    fun withSealedInheritors(files: Collection<String>, current: Map<String, FileSurface> = emptyMap()): Set<String> {
+        val out = files.mapTo(LinkedHashSet()) { canonicalPath(it) }
+        val queue = ArrayDeque(out)
+        while (queue.isNotEmpty()) {
+            val file = queue.removeFirst()
+            val surface = current[file] ?: surfaces[file] ?: continue
+            for (cls in surface.sealed) for (sub in subclassFiles[cls].orEmpty()) if (out.add(sub)) queue.add(sub)
+        }
+        return out
+    }
 
     /** Files that declare a class with [supertypeFqName] among its supertypes (type arguments ignored). */
     @Synchronized fun subclassFilesOf(supertypeFqName: String): Set<String> = HashSet(subclassFiles[supertypeFqName].orEmpty())

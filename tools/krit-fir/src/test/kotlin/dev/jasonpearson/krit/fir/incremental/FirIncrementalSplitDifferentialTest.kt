@@ -242,12 +242,18 @@ class FirIncrementalSplitDifferentialTest {
         val session = session(record = true)
         try {
             val full = session.check(1, requested, emptySet(), ruleConfigs)
-            // Compile errors: no snapshot to compare against.
-            if (session.incrementalState.snapshot == null) return emptyList()
-            r.compared++
+            // The check that builds the snapshot must give the verdicts of a plain check, snapshot or not.
             for (p in files) {
                 if (ref.verdictOf(p).key() != full.verdictOf(p).key()) r.coldDiffs += "${File(p).name}: ${ref.verdictOf(p)} vs ${full.verdictOf(p)}"
             }
+            if (session.incrementalState.snapshot == null) {
+                // Compile errors (or expect/actual) have no snapshot to compare against; a clean module must have one.
+                if (ref.errorFiles.isEmpty() && session.incrementalState.fallbackReason() != SliceFallback.EXPECT_ACTUAL) {
+                    r.coldDiffs += "${sources.keys.first()}: a clean module got no snapshot (${session.incrementalState.fallbackReason()})"
+                }
+                return emptyList()
+            }
+            r.compared++
 
             val diffs = ArrayList<PieceDiff>()
             for (p in files) {

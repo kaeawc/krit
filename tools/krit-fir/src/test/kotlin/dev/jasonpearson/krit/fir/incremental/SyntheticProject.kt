@@ -14,6 +14,13 @@ import java.util.Random
  * a package, or its removal), sealed (a new `Shape` subclass), hot (a signature edit of a file every app file in
  * the first [hotDependents] uses), rename (a lib function renamed together with its callers) and renameBreak /
  * renameRepair (the declaration renamed alone, which breaks its callers, and then the callers following).
+ *
+ * A Serializable chain (`lib.p4.SerBase`, a sealed class implementing `java.io.Serializable` with nested classes, a
+ * middle class `SerMid` and an app leaf, and Throwable subclasses in `app.p4.Fails` whose supertype names hit the set
+ * through nested or top-level classes named `Error`, `Exception` and `Throwable`) exercises
+ * SerialVersionUIDInSerializableClass, whose verdicts depend on the module-wide set of names reaching Serializable.
+ * The serAdd, serNested, serRename, serReparent, serErr and serDelete edits move that set ([SET_MOVING]); serBody
+ * does not.
  */
 internal class SyntheticProject(val root: File, val total: Int, seed: Long = 7L, val hotDependents: Int = 0) {
     val libDir = File(root, "lib")
@@ -36,6 +43,13 @@ internal class SyntheticProject(val root: File, val total: Int, seed: Long = 7L,
     private var hotLong = false
     private var shadowSeq = 0
     private var shapeExtra = 0
+    private var serBodyN = 0
+    private var serNestedException = false // SerBase has a nested class named Exception
+    private var serNestedThrowable = false // the nested Fault is renamed Throwable
+    private var serReparented = false // SerMid extends SerPlain instead of SerBase
+    private var serErrorFile = false // a top-level class named Error that implements Serializable exists
+    private var serAddSeq = 0
+    private val serAdded = ArrayList<String>()
 
     val sourceDirs: List<String> get() = listOf(libDir.path, appDir.path)
 
@@ -113,7 +127,38 @@ internal class SyntheticProject(val root: File, val total: Int, seed: Long = 7L,
         put(File(appDir, "p1/ShapeUser.kt").path, shapeUserText())
         put(absPath, absText())
         put(absImplPath, absImplText())
+        put(serBasePath, serBaseText())
+        put(serMidPath, serMidText())
+        put(failsPath, failsText())
     }
+
+    private val serBasePath = File(libDir, "p4/SerBase.kt").path
+    private val serMidPath = File(libDir, "p4/SerMid.kt").path
+    private val serErrorPath = File(libDir, "p5/Error.kt").path
+    private val failsPath = File(appDir, "p4/Fails.kt").path
+
+    private fun serBaseText(): String {
+        val nested = if (serNestedThrowable) "Throwable" else "Fault"
+        val sb = StringBuilder("package lib.p4\n\nsealed class SerBase : java.io.Serializable {\n")
+        sb.append("    companion object { private const val serialVersionUID = 1L }\n\n")
+        sb.append("    class $nested(val m: String) : SerBase()\n")
+        if (serNestedException) sb.append("    class Exception(val m: String) : SerBase()\n")
+        sb.append("    fun v(): Int = $serBodyN\n}\n")
+        return sb.toString()
+    }
+
+    private fun serMidText() =
+        "package lib.p4\n\nopen class SerPlain\n\nopen class SerMid : ${if (serReparented) "SerPlain()" else "SerBase()"}\n"
+
+    // Throwable subclasses (and a leaf reaching Serializable through SerMid): which of them the rule flags depends on
+    // the set of names, which other files decide.
+    private fun failsText() = "package app.p4\n\n" +
+        "class Fail0 : kotlin.Error(\"e\")\n" +
+        "class Fail1 : kotlin.Exception(\"e\")\n" +
+        "class Fail2 : RuntimeException(\"e\")\n" +
+        "class Fail4 : kotlin.Throwable(\"e\")\n" +
+        "class Holder {\n    class Inner : kotlin.Error(\"e\")\n}\n" +
+        "class SerLeaf : lib.p4.SerMid()\n"
 
     private val absPath = File(libDir, "p3/Abs.kt").path
     private val absImplPath = File(appDir, "p3/AbsImpl.kt").path
@@ -292,6 +337,47 @@ internal class SyntheticProject(val root: File, val total: Int, seed: Long = 7L,
                 }
                 return apply("body")
             }
+            "serBody" -> {
+                serBodyN++
+                put(serBasePath, serBaseText())
+                return Edit(kind, listOf(serBasePath))
+            }
+            "serNested" -> {
+                serNestedException = !serNestedException
+                put(serBasePath, serBaseText())
+                return Edit(kind, listOf(serBasePath))
+            }
+            "serRename" -> {
+                serNestedThrowable = !serNestedThrowable
+                put(serBasePath, serBaseText())
+                return Edit(kind, listOf(serBasePath))
+            }
+            "serReparent" -> {
+                serReparented = !serReparented
+                put(serMidPath, serMidText())
+                return Edit(kind, listOf(serMidPath))
+            }
+            "serErr" -> {
+                serErrorFile = !serErrorFile
+                if (serErrorFile) {
+                    put(serErrorPath, "package lib.p5\n\nclass Error : java.io.Serializable\n")
+                    return Edit(kind, emptyList(), added = listOf(serErrorPath))
+                }
+                remove(serErrorPath)
+                return Edit(kind, emptyList(), deleted = listOf(serErrorPath))
+            }
+            "serAdd" -> {
+                val p = File(libDir, "p4/SerN${serAddSeq++}.kt").path
+                serAdded += p
+                put(p, "package lib.p4\n\nclass ${File(p).nameWithoutExtension} : SerBase()\n")
+                return Edit(kind, emptyList(), added = listOf(p))
+            }
+            "serDelete" -> {
+                if (serAdded.isEmpty()) return apply("serErr")
+                val p = serAdded.removeAt(0)
+                remove(p)
+                return Edit(kind, emptyList(), deleted = listOf(p))
+            }
             "rename" -> {
                 val i = liveLib()
                 renamed += i
@@ -325,6 +411,11 @@ internal class SyntheticProject(val root: File, val total: Int, seed: Long = 7L,
 
     /** True between a renameBreak and its repair: the module has unresolved references. */
     val brokenByRename: Boolean get() = pendingRepair != null || pendingSuccessor != null
+
+    companion object {
+        /** The edit kinds that move the module-wide set of class names reaching Serializable. */
+        val SET_MOVING = setOf("serAdd", "serNested", "serRename", "serReparent", "serErr", "serDelete")
+    }
 
     /** The files that exist now, absolute. */
     fun files(): List<String> = texts.keys.toList()

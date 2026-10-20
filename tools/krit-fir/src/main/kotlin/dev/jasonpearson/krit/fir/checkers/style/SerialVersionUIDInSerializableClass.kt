@@ -1,8 +1,11 @@
 package dev.jasonpearson.krit.fir.checkers.style
 
-import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
-import dev.jasonpearson.krit.fir.compilationFiles
+import dev.jasonpearson.krit.fir.ClassNameFact
+import dev.jasonpearson.krit.fir.FirRuleContext
+import dev.jasonpearson.krit.fir.classNameFacts
+import dev.jasonpearson.krit.fir.serializableReachedNames
+import dev.jasonpearson.krit.fir.supertypeNames
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
@@ -10,7 +13,6 @@ import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
-import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -27,10 +29,8 @@ import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
-import org.jetbrains.kotlin.fir.types.FirTypeRef
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
-import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
@@ -85,7 +85,6 @@ import java.util.WeakHashMap
 internal object SerialVersionUIDInSerializableClass :
     FirRegularClassChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "SerialVersionUIDInSerializableClass"
-    override val wholeCompilationTier = compilationFiles("Walks every source file in the compilation (firProvider.getFirFilesByPackage) to find classes that transitively reach Serializable.")
     override val declarationCheckers = object : DeclarationCheckers() {
         override val regularClassCheckers = setOf(SerialVersionUIDInSerializableClass)
     }
@@ -194,62 +193,34 @@ internal object SerialVersionUIDInSerializableClass :
         return names.any { it in serializableNames }
     }
 
-    // The identifiers written in a supertype reference, backticks removed.
-    // An implicit supertype (`Any`, an enum's `Enum`) has no written name.
-    private fun supertypeNames(ref: FirTypeRef, out: MutableSet<String>) {
-        val source = ref.source ?: return
-        if (source.kind !is KtRealSourceElementKind) return
-        fun walk(node: LighterASTNode) {
-            if (node.tokenType == KtTokens.IDENTIFIER) {
-                out += source.treeStructure.toString(node).toString().removeSurrounding("`")
-                return
-            }
-            for (child in lightChildren(source, node)) walk(child)
+    // Per compile session, keyed also by the external facts the compile was given (identity): a slice supplies
+    // the recorded facts of the files it does not compile from source, a full compile supplies none.
+    private class CachedNames(val external: List<ClassNameFact>?, val names: Set<String>)
+
+    private val serializableNamesBySession = WeakHashMap<FirSession, CachedNames>()
+
+    // Simple names of the Kotlin classes of the module that reach `Serializable` by supertype names, the way Go's
+    // resolver follows them: a class whose supertypes name `Serializable`, or name another such class. The facts
+    // come from the source files of this compilation plus, in a slice, the recorded facts of the module's other
+    // files ([FirRuleCompileContext.externalClassNameFacts]); a full compile holds every Kotlin source of the
+    // project, as Go's index does.
+    private fun serializableSourceClassNames(session: FirSession): Set<String> {
+        val external = FirRuleContext.current()?.externalClassNameFacts
+        return synchronized(serializableNamesBySession) {
+            val cached = serializableNamesBySession[session]
+            if (cached != null && cached.external === external) return@synchronized cached.names
+            computeSerializableSourceClassNames(session, external).also { serializableNamesBySession[session] = CachedNames(external, it) }
         }
-        walk(source.lighterASTNode)
     }
 
-    private val serializableNamesBySession = WeakHashMap<FirSession, Set<String>>()
-
-    // Simple names of the Kotlin source classes in this compilation that
-    // reach `Serializable` by supertype names, the way Go's resolver follows
-    // them: a class whose supertypes name `Serializable`, or name another
-    // such class. Computed once per session: the compilation holds every
-    // Kotlin source of the project, as Go's index does.
-    private fun serializableSourceClassNames(session: FirSession): Set<String> =
-        synchronized(serializableNamesBySession) {
-            serializableNamesBySession.getOrPut(session) { computeSerializableSourceClassNames(session) }
-        }
-
-    private fun computeSerializableSourceClassNames(session: FirSession): Set<String> {
-        val classes = ArrayList<Pair<String, Set<String>>>()
-        val collector = object : FirVisitorVoid() {
-            override fun visitElement(element: FirElement) {
-                element.acceptChildren(this)
-            }
-
-            override fun visitRegularClass(regularClass: FirRegularClass) {
-                val names = HashSet<String>()
-                for (ref in regularClass.superTypeRefs) supertypeNames(ref, names)
-                classes += regularClass.name.asString() to names
-                regularClass.acceptChildren(this)
-            }
-        }
+    private fun computeSerializableSourceClassNames(session: FirSession, external: List<ClassNameFact>?): Set<String> {
+        val facts = ArrayList<ClassNameFact>()
+        external?.let { facts += it }
         val provider = session.firProvider
         for (pkg in provider.symbolProvider.symbolNamesProvider.getPackageNames().orEmpty()) {
-            for (file in provider.getFirFilesByPackage(FqName(pkg))) file.accept(collector)
+            for (file in provider.getFirFilesByPackage(FqName(pkg))) facts += classNameFacts(file)
         }
-        val reached = hashSetOf(SERIALIZABLE)
-        do {
-            var changed = false
-            for ((name, names) in classes) {
-                if (name !in reached && names.any { it in reached }) {
-                    reached += name
-                    changed = true
-                }
-            }
-        } while (changed)
-        return reached
+        return serializableReachedNames(facts)
     }
 
     // Go reports the declaration's first line: its modifier list (annotations

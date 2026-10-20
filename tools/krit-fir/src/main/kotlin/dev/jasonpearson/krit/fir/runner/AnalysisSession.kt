@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.runner
 
 import dev.jasonpearson.krit.fir.CheckRequest
+import dev.jasonpearson.krit.fir.ClassNameFact
 import dev.jasonpearson.krit.fir.FirRuleCompileContext
 import dev.jasonpearson.krit.fir.SdkLevels
 import dev.jasonpearson.krit.fir.FirRuleContext
@@ -383,6 +384,9 @@ class AnalysisSession(
         return if (incrementalState.compileKey != compileKey()) SliceFallback.STATE_CHANGED else null
     }
 
+    /** Test seam: a slice withholds the external class-name facts, which must make the rule differ from a full compile. */
+    @Volatile internal var withheldExternalFacts = false
+
     /**
      * Checks [dirtyFiles] against the module's binary snapshot: the files are compiled from source through the
      * stock frontend with the snapshot as the module's own previous output, and every other file of the module
@@ -414,6 +418,10 @@ class AnalysisSession(
      *  - a redeclaration or conflicting overload is only seen when both sides are in the slice;
      *  - verdicts of the whole-compilation tiered rules (`FirRule.wholeCompilationTier`) are not those of a full
      *    compile on a slice and must not be trusted; step 4 decides how they are served;
+     *  - SerialVersionUIDInSerializableClass is served on a slice: the recorded class-name facts of the module files
+     *    outside the slice reach it through `FirRuleCompileContext.externalClassNameFacts`. A slice that moves the
+     *    set of names reaching `Serializable` (`IncrementalState.serializableNames`) makes verdicts outside it
+     *    stale, which the planner detects;
      *  - a module that uses `expect`/`actual` has no snapshot ([SliceFallback.EXPECT_ACTUAL]).
      */
     internal fun sliceCheck(
@@ -437,8 +445,12 @@ class AnalysisSession(
             val deleted = removedFiles.mapTo(HashSet()) { canonicalOrSelf(File(it)) }
             val (present, missing) = wanted.partition { File(it).isFile && it !in deleted }
             val removed = (removedFiles + missing).mapTo(LinkedHashSet()) { canonicalOrSelf(File(it)) }
+            // The module files this slice reads as binaries have no source for a rule that indexes classes by name:
+            // hand it their recorded facts. Hidden files (deleted since) are not part of the module any more.
+            val external = incrementalState.classFactsExcluding(present.map { canonicalOrSelf(File(it)) } + removed + removedFiles.map { canonicalOrSelf(File(it)) })
             val plan = CheckPlan(
                 id, present.map { refs[it] ?: spellings[it] ?: FileRef(it) }, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, null, emptySet(),
+                externalClassNameFacts = external.takeUnless { withheldExternalFacts },
             )
             val sources = plan.compiled.map { it.path }
             plan.startRecording(sources)
@@ -532,6 +544,7 @@ class AnalysisSession(
         private val testFiles: Set<String>, private val scanPaths: Map<String, String>, private val sdkLevels: Map<String, SdkLevels>,
         module: ModuleCompilation?,
         ownedSources: Set<String>,
+        externalClassNameFacts: List<ClassNameFact>? = null,
     ) {
         val excluded: List<FileRef>
         val compiled: List<FileRef>
@@ -552,7 +565,7 @@ class AnalysisSession(
         private val ruleContext = FirRuleCompileContext(
             enabledRules, ruleConfigs, testFiles = testFiles,
             files = compiled.mapTo(LinkedHashSet()) { it.path }, scanPaths = scanPaths,
-            sdkLevels = sdkLevels,
+            sdkLevels = sdkLevels, externalClassNameFacts = externalClassNameFacts,
         )
 
         // Incremental recording of this compile; null unless the session records.

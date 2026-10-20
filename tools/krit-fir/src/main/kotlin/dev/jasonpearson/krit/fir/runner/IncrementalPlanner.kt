@@ -188,6 +188,11 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
         val packagesAtRisk = (deleted + changed).mapNotNullTo(LinkedHashSet()) { state.surfaceOf(it)?.pkg }
         val carried = state.binaryStale()
 
+        // Verdicts of SerialVersionUIDInSerializableClass depend on the module-wide set of names reaching Serializable.
+        // The set is captured and compared whatever rules this request enables: a request without the rule still
+        // moves the recorded facts, and a later request with it would trust verdicts that no longer hold.
+        val serializableBefore = state.serializableNames()
+
         val limits = session.plannerLimits
         val threshold = limits.threshold(module.size)
         val removedPending = LinkedHashSet(deleted)
@@ -214,6 +219,14 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
             if (state.compileKey == null || verdicts.generation != state.generation) throw GiveUp(FullReason.STATE_LOST, "the slice's facts were dropped")
             if (checked.result.ownedCompilerError != null) throw GiveUp(FullReason.GLOBAL_COMPILER_ERROR, checked.result.ownedCompilerError)
             c.compiled += checked.compiled
+            // Slices see the rest of the module's classes through recorded facts, so they are right while the set
+            // stands; if a slice moved it, files outside the slices may hold a stale verdict and the full check
+            // decides. Wave 1 compiles the edit, so it is the wave that normally moves the set and the run stops
+            // there; later waves are checked too, since a file saved on disk mid-request is compiled at its new
+            // content by whichever wave reaches it. The set is cached until some file's facts change, so this is cheap.
+            if (state.serializableNames() != serializableBefore) {
+                throw GiveUp(FullReason.SERIALIZABLE_NAMES_CHANGED, "the set of class names reaching Serializable changed")
+            }
             for (added in checked.added) if (added in staleBefore) c.addedByStaleness++ else c.addedBySealedClosure++
 
             // The state's changes cover this wave only: consume them now.

@@ -91,6 +91,12 @@ internal enum class FullReason {
 
     /** A requested file has no valid verdict and cannot be compiled (it is not a file on disk). */
     MISSING_VERDICT,
+
+    /**
+     * SerialVersionUIDInSerializableClass is enabled and a slice moved the set of class names that reach
+     * `Serializable` by supertype names, so verdicts of files outside the slice may be wrong.
+     */
+    SERIALIZABLE_NAMES_CHANGED,
     EXCEPTION,
 }
 

@@ -2,6 +2,7 @@
 
 package dev.jasonpearson.krit.fir.incremental
 
+import dev.jasonpearson.krit.fir.classNameFacts
 import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirSession
@@ -152,7 +153,9 @@ internal class SurfaceFileChecker(private val recording: CompileRecording) : Fir
         try {
             val path = declaration.sourceFile?.path ?: return
             SurfaceTestHook.beforeFile?.invoke(path)
-            recording.surfaces[canonicalPath(path)] = Surface.file(declaration, context.session)
+            val key = canonicalPath(path)
+            recording.surfaces[key] = Surface.file(declaration, context.session)
+            recording.classFacts[key] = classNameFacts(declaration)
         } catch (e: Throwable) {
             if (!isIsolatable(e)) throw e
             recording.fail(e)

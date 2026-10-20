@@ -45,9 +45,10 @@ import kotlin.test.assertTrue
  * safe controls (const values, literal-null initializers, annotation defaults) must not differ at all.
  *
  * With the full corpus (no sampling or filter) the run also fails when it is vacuous: too few rules produced
- * findings, or no known-differing scenario (a tiered rule, SerialVersionUIDInSerializableClass) differed, which
- * means the harness stopped loading the plugin or the snapshot. Since #873 narrowed the rules that read other
- * files' bodies, only tiered rules may differ, and the piece differences of the 15 narrowed rules must be 0.
+ * findings, or the known-differing scenario (the one that withholds the recorded class-name facts from the slice)
+ * did not differ, which means the harness stopped loading the plugin or the snapshot. No built-in rule is tiered
+ * any more (#873 narrowed the rules that read other files' bodies, #876 serves SerialVersionUIDInSerializableClass
+ * from recorded facts), so every piece difference must be 0 except that scenario's.
  *
  * Runtime: a few minutes, so it is tagged [TAG] and runs in its own Gradle task (`incrementalDifferentialTest`),
  * not in `test`. `-Pkrit.fir.differential.sample=N` keeps every Nth scenario (deterministic, sorted by path);
@@ -87,12 +88,12 @@ class FirIncrementalSplitDifferentialTest {
             val scenarioFailures = ArrayList<String>()
             val scenarios = crossFileScenarios.filter { only == null || it.name.contains(only) || it.rule.contains(only) }
             for (s in scenarios) {
-                val diffs = diffModule(s.files, cp, File(work, "scenario"), s.config, result)
+                val diffs = diffModule(s.files, cp, File(work, "scenario"), s.config, result, withholdExternalFacts = s.withholdExternalFacts)
                 val byRule = TreeMap<String, MutableList<String>>()
                 for (d in diffs) for ((rule, what) in d.byRule) byRule.getOrPut(rule) { ArrayList() }.add("${d.file}: $what")
                 println("## scenario '${s.name}': ${if (byRule.isEmpty()) "same" else "differs in " + byRule.keys}")
                 for ((rule, xs) in byRule) {
-                    if (rule !in tiered) scenarioFailures += "${s.name}: $rule differs but is not tiered: ${xs.first()}"
+                    if (rule !in tiered && !(s.withholdExternalFacts && rule == s.rule)) scenarioFailures += "${s.name}: $rule differs but is not tiered: ${xs.first()}"
                 }
                 val ownRule = byRule[s.rule].orEmpty()
                 if (s.differs && ownRule.isEmpty()) {
@@ -121,16 +122,14 @@ class FirIncrementalSplitDifferentialTest {
                     "Only ${result.exercised.size} rules produced findings (expected at least $MIN_EXERCISED_RULES): " +
                         "the harness probably stopped loading the krit plugin.",
                 )
-                // Since #873 only the tiered rules (SerialVersionUIDInSerializableClass) may differ, and the single-file
-                // split need not produce any difference at all. The harness stays non-vacuous through a known-differing
-                // scenario: it must differ on a slice (checked above), which it only does if the slice compile reads
-                // the snapshot.
-                // SerialVersionUIDInSerializableClass is currently the only known-differing scenario. A follow-up
-                // that narrows it must add a replacement known-differing scenario, or this guard fails.
+                // No built-in rule is tiered, so no piece may differ, and the single-file split need not produce any
+                // difference at all. The harness stays non-vacuous through the withheld-facts scenario: it must
+                // differ on a slice (checked above), which it only does if the slice compile reads the snapshot.
+                // It is the only known-differing scenario; removing it leaves this guard failing.
                 assertTrue(
                     scenarios.any { it.differs },
                     "No cross-file scenario is known to differ between the full and the slice compile, so nothing " +
-                        "shows that the slice compile reads the snapshot. Keep one for a tiered rule.",
+                        "shows that the slice compile reads the snapshot. Keep the withheld-facts scenario.",
                 )
             }
             val untiered = result.diffByRule.filterKeys { it !in tiered }
@@ -229,6 +228,7 @@ class FirIncrementalSplitDifferentialTest {
         ruleConfigs: Map<String, Map<String, Any?>>,
         r: Result,
         tagPrefix: String = "",
+        withholdExternalFacts: Boolean = false,
     ): List<PieceDiff> {
         val root = rootDir.also { it.deleteRecursively(); it.mkdirs() }
         val srcDir = File(root, "src")
@@ -262,6 +262,7 @@ class FirIncrementalSplitDifferentialTest {
                 return emptyList()
             }
             r.compared++
+            session.withheldExternalFacts = withholdExternalFacts
 
             val diffs = ArrayList<PieceDiff>()
             for (p in files) {

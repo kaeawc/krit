@@ -89,12 +89,14 @@ tasks.shadowJar {
 }
 
 val differentialTag = "incremental-differential"
+// Research harness for the tiered rules (#740 tiered-rules study); never part of `test`.
+val tieredResearchTag = "tiered-research"
 
 tasks.test {
     useJUnitPlatform {
         // The split differential compiles thousands of module slices; it runs in
         // its own task (incrementalDifferentialTest) and CI step.
-        excludeTags(differentialTag)
+        excludeTags(differentialTag, tieredResearchTag)
     }
     // AnalysisSessionAnalyzeTest drives the embedded K2 compiler and
     // needs the krit-fir plugin classes on the plugin classpath. Point
@@ -131,6 +133,30 @@ tasks.register<Test>("incrementalDifferentialTest") {
         findProperty(name)?.let { systemProperty(name, it.toString()) }
     }
     maxHeapSize = "2g"
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStandardStreams = true
+    }
+}
+
+// Tiered-rules study (#740): TieredResearch (edit replay, -Pkrit.fir.tiered.mode=synthetic|kritfir|static) and
+// TieredDepthProbeTest (chain depth per rule). Prints tables; asserts only that the harness ran.
+tasks.register<Test>("tieredResearchTest") {
+    description = "Research harness: tiered-rule strategies against fresh full compiles."
+    group = "verification"
+    useJUnitPlatform { includeTags(tieredResearchTag) }
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    dependsOn("jar", ":krit-rule-api:generateRuleApiVersion")
+    val pluginJar = tasks.named("jar", Jar::class.java).flatMap { it.archiveFile }
+    systemProperty("krit.fir.plugin.jar", pluginJar.get().asFile.absolutePath)
+    systemProperty("krit.fir.cache.dir", layout.buildDirectory.dir("test-krit-cache").get().asFile.absolutePath)
+    for (name in listOf("mode", "edits", "size", "seed", "depths", "ungated", "roots", "stubs", "only")) {
+        findProperty("krit.fir.tiered.$name")?.let { systemProperty("krit.fir.tiered.$name", it.toString()) }
+    }
+    outputs.upToDateWhen { false }
+    maxHeapSize = "4g"
     testLogging {
         events("failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL

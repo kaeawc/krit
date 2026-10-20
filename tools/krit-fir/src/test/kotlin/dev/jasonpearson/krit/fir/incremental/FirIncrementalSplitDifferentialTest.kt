@@ -125,6 +125,8 @@ class FirIncrementalSplitDifferentialTest {
                 // split need not produce any difference at all. The harness stays non-vacuous through a known-differing
                 // scenario: it must differ on a slice (checked above), which it only does if the slice compile reads
                 // the snapshot.
+                // SerialVersionUIDInSerializableClass is currently the only known-differing scenario. A follow-up
+                // that narrows it must add a replacement known-differing scenario, or this guard fails.
                 assertTrue(
                     scenarios.any { it.differs },
                     "No cross-file scenario is known to differ between the full and the slice compile, so nothing " +

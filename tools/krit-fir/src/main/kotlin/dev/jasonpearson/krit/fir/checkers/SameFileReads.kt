@@ -76,18 +76,23 @@ fun FirPropertySymbol.initializerInCheckedFile(): FirExpression? =
     initializerIn(context.containingFileSymbol, context.session)
 
 /**
- * What a rule may follow to find this property's value: its own initializer when the property lies in the file
- * under check, and the evaluated value of a `const` otherwise (class files keep it). The evaluated value is
- * what a class file holds, so a `const val X = 2 * 1000L` is a literal 2000 on a slice and on a full compile
- * alike. Null for every other property of another file: its initializer is unknown.
+ * What a rule may follow to find this property's value: the evaluated value of a `const`, wherever it is
+ * declared (class files keep it), and otherwise the property's own initializer when it lies in the file under
+ * check. The evaluated value is what a class file holds, so a `const val X = 2 * 1000L` is a literal 2000 on a
+ * slice and on a full compile alike, and in the file under check as well. Null for every other property of
+ * another file: its initializer is unknown.
  */
 @OptIn(SymbolInternals::class)
 fun FirPropertySymbol.followableInitializer(file: FirFileSymbol?, session: FirSession): FirExpression? {
+    // A const is evaluated wherever it is declared, so a rule reads the same value from the file under check and
+    // from another file (`const val X = 2 * 1000L` is a literal 2000 in both).
+    if (isConst) {
+        val evaluated = (FirExpressionEvaluator.evaluatePropertyInitializer(fir, session) as? FirEvaluatorResult.Evaluated)
+            ?.result as? FirExpression
+        return evaluated ?: resolvedInitializer
+    }
     if (isDeclaredInFile(file, session)) return resolvedInitializer
-    if (!isConst) return null
-    val evaluated = (FirExpressionEvaluator.evaluatePropertyInitializer(fir, session) as? FirEvaluatorResult.Evaluated)
-        ?.result as? FirExpression
-    return evaluated ?: resolvedInitializer
+    return null
 }
 
 /** [followableInitializer] for the file [context] is checking. */

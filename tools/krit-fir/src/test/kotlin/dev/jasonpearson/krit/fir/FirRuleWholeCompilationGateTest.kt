@@ -104,7 +104,7 @@ class FirRuleWholeCompilationGateTest {
         AllowedRead("SameFileReads", "if (isDeclaredInFile(file, session)) return resolvedInitializer", Why.LOCAL,
             "guarded by isDeclaredInFile: only a declaration of the file under check"),
         AllowedRead("SameFileReads", "return evaluated ?: resolvedInitializer", Why.CONST,
-            "reached only for a const outside the file under check; the evaluated value is what a class file holds"),
+            "reached only for a const, wherever it is declared; the evaluated value is what a class file holds"),
         AllowedRead("SameFileReads", "if (isDeclaredInFile(file, session)) fir.body else null", Why.LOCAL,
             "guarded by isDeclaredInFile: only a declaration of the file under check"),
         AllowedRead("GetSignatures", "val propertySource = property.source ?: return true", Why.LOCAL,

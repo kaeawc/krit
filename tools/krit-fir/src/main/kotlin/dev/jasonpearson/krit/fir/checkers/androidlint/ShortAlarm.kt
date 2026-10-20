@@ -68,7 +68,9 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  * member of `android.app.AlarmManager` (or a subclass); an extension on
  * AlarmManager whose third parameter is a Long; a function whose body it
  * cannot read (Java, a library, an interface member, or a function of another
- * file: a class file keeps no body), as Go does; or a Kotlin wrapper of the
+ * file: a class file keeps no body) whose signature looks like an alarm API
+ * (a `PendingIntent` or `AlarmManager.OnAlarmListener` parameter, or an
+ * `AlarmManager` receiver or parameter), as Go does; or a Kotlin wrapper of the
  * same file whose body passes its third parameter into the interval of one of
  * these, directly or through a local or member `var` it may have stored the
  * parameter in (ShortAlarmForwarding).
@@ -82,7 +84,9 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  *   the call) sets no alarm interval from the literal, so it is not reported
  *   (ShortAlarmLookalike, ShortAlarmThirdParty, ShortAlarmForwarding). That holds
  *   for a lookalike declared in the file under check; one of another file shows
- *   no body, so it is reported like a library function, as Go reports it.
+ *   no body, so only its signature is read (a class file keeps it): it is reported when that looks like an
+ *   alarm API (a wrapper with a PendingIntent parameter), not otherwise (an unrelated
+ *   `Poller.setRepeating(name, delay, intervalMs, task: Runnable)`).
  * - Recall: FIR reads the literal's value, so an interval Go cannot parse is
  *   reported: a literal with underscores (`5_000L`), a hex or binary literal,
  *   a parenthesized literal, and a reference to a Kotlin `const val` whose
@@ -102,6 +106,8 @@ internal object ShortAlarm : FirFunctionCallChecker(MppCheckerKind.Common), FirR
     private const val MINIMUM_INTERVAL = 60_000L
     private const val INTERVAL_INDEX = 2
     private val alarmManager = ClassId(FqName("android.app"), Name.identifier("AlarmManager"))
+    private val pendingIntent = ClassId(FqName("android.app"), Name.identifier("PendingIntent"))
+    private val onAlarmListener = ClassId(FqName("android.app"), FqName("AlarmManager.OnAlarmListener"), false)
     private val alarmManagerType = alarmManager.constructClassLikeType(emptyArray(), isMarkedNullable = true)
     private val repeatingSetters = setOf(Name.identifier("setRepeating"), Name.identifier("setInexactRepeating"))
     private val integralKinds = setOf(
@@ -154,8 +160,24 @@ internal object ShortAlarm : FirFunctionCallChecker(MppCheckerKind.Common), FirR
             return true
         }
         if (!seen.add(original)) return false
-        val body = bodyOf(original) ?: return true
+        val body = bodyOf(original) ?: return looksLikeAlarmApi(original)
         return passesToInterval(ParameterFlow(body, parameter), seen)
+    }
+
+    // Whether a function whose body cannot be read (another file, a library, Java, an abstract member) has the
+    // signature of an alarm API: a value parameter of type PendingIntent or AlarmManager.OnAlarmListener, or an
+    // AlarmManager as its dispatch receiver, extension receiver or a parameter. Only signature facts are read, which
+    // a class file keeps, so a slice compile and a full compile agree.
+    context(context: CheckerContext)
+    private fun looksLikeAlarmApi(function: FirNamedFunctionSymbol): Boolean {
+        val owner = function.getContainingClassSymbol()
+        if (owner != null && isAlarmManager(owner)) return true
+        function.resolvedReceiverType?.let { if (it.isSubtypeOf(alarmManagerType, context.session)) return true }
+        return function.valueParameterSymbols.any { parameter ->
+            val type = parameter.resolvedReturnType.fullyExpandedType().lowerBoundIfFlexible()
+            type.classId == pendingIntent || type.classId == onAlarmListener ||
+                type.isSubtypeOf(alarmManagerType, context.session)
+        }
     }
 
     // The body of a wrapper declared in the file under check. A function of another file has no readable body

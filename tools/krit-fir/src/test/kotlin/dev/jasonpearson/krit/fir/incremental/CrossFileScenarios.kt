@@ -187,11 +187,32 @@ internal val crossFileScenarios = listOf(
         differs = false,
     ),
     CrossFileScenario(
-        "JdbcStatementExecute control: non-const static val in B (computed across files)", "JdbcStatementExecute",
+        "JdbcStatementExecute control: non-const val in B (unknown across files, quiet)", "JdbcStatementExecute",
         mapOf(
             "B.kt" to "package p\nval QUERY: String = \"SELECT 1\"\n",
             "A.kt" to "package p\nimport java.sql.Statement\nfun run(s: Statement) { s.execute(QUERY) }\n",
         ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "JdbcStatementExecute control: object member val in B plus a literal (unknown across files, quiet)", "JdbcStatementExecute",
+        mapOf(
+            "B.kt" to "package p\nobject Queries { val selectAll = \"SELECT * FROM t\" }\n",
+            "A.kt" to "package p\nimport java.sql.Statement\nfun run(s: Statement) { s.execute(Queries.selectAll + \" LIMIT 1\") }\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "ShortAlarm control: unrelated Poller.setRepeating in B (signature is not an alarm API)", "ShortAlarm",
+        mapOf(
+            "B.kt" to "package p\nclass Poller { fun setRepeating(name: String, delay: Long, intervalMs: Long, task: Runnable) {} }\n",
+            "A.kt" to "package p\nfun f(x: Poller, r: Runnable) { x.setRepeating(\"n\", 0L, 5000L, r) }\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "GetSignatures control: project val GET_SIGNATURES = 0 in B (lookalike, quiet)", "GetSignatures",
+        mapOf("B.kt" to "package p\nval GET_SIGNATURES = 0\n", "A.kt" to signatureUse("GET_SIGNATURES")),
         differs = false,
     ),
     CrossFileScenario(

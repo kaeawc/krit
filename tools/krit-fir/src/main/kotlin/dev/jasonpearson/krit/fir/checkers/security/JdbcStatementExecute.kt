@@ -114,8 +114,10 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *   (a literal of any kind, a `const val`, a final `val` of the same file
  *   initialized with one, an `if`/`when` over those, a literal with an escaped
  *   `\$`, or a `+` of those) is not built from non-static data, so it is not
- *   reported. A non-const `val` of another file is computed, as Go reads any
- *   lower-case operand: a class file keeps no initializer. A
+ *   reported. A non-const `val` of another file is not reported either: a class
+ *   file keeps no initializer, so its value is unknown, and unknown is quiet on a slice and on a full compile
+ *   alike (`object Queries { val selectAll = "SELECT ..." }` in another file; this also silences a val of
+ *   another file that is computed by a function). A
  *   receiver that is not a `Statement` (a lookalike Go binds to an earlier
  *   `createStatement()` declaration of the same name in another scope) and
  *   a project extension whose first parameter is not SQL text (a query
@@ -344,12 +346,14 @@ internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Com
                     ?: return false
                 when {
                     property.isConst -> true
-                    !property.isVal || property.hasDelegate || property.resolvedStatus.isExpect -> false
+                    !property.isVal || property.resolvedStatus.isExpect -> false
+                    // A val of another file: a class file keeps no initializer, so its value is unknown. Unknown is
+                    // quiet, decided without the declaration's source (delegate, getter), so a slice compile and a
+                    // full compile agree.
+                    !property.isDeclaredInCheckedFile() -> true
+                    property.hasDelegate -> false
                     !property.isLocal && property.resolvedStatus.modality != Modality.FINAL -> false
                     property.getterSymbol?.isDefault == false -> false
-                    // A val of another file is computed, as Go reads any lower-case operand: a class file keeps
-                    // no initializer, so only a const (above) or a val of the file under check is static.
-                    !property.isDeclaredInCheckedFile() -> false
                     else -> property.initializerInCheckedFile()?.let { isStaticValue(it, depth + 1) } == true
                 }
             }

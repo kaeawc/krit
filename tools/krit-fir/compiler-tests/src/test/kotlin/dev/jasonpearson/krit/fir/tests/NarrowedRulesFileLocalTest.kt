@@ -99,6 +99,15 @@ class NarrowedRulesFileLocalTest {
         )
     }
 
+    // A concatenated const tag is evaluated in the file under check as it is across files.
+    @Test fun longLogTagConcatenatedConstSameFileAndAcross() {
+        val rule = "LongLogTag"
+        val const = "const val TAG = \"AVeryLongTag\" + \"ThatExceedsTheLimit\"\n"
+        val use = "import android.util.Log\nfun log() { Log.d(TAG, \"m\") }\n"
+        assertEquals(listOf("All.kt" to 4), findings(rule, one("package p\nimport android.util.Log\n$const" + use.removePrefix("import android.util.Log\n"))))
+        assertEquals(listOf("A.kt" to 3), findings(rule, mapOf("B.kt" to "package p\n$const", "A.kt" to "package p\n$use")))
+    }
+
     // The message of a const tag declared in another file spells the constant's value: a class file has no source
     // text. The same literal in the file under check is spelled as written, as Go prints it.
     @Test fun longLogTagEscapeSequenceIsSpelledByValueAcrossFiles() {
@@ -139,10 +148,32 @@ class NarrowedRulesFileLocalTest {
         val computed = "fun run(s: Statement, t: String) { s.execute(\"SELECT \" + t) }"
         assertEquals(listOf("All.kt" to 4), findings(rule, one("$header\n$computed\n")))
         assertEquals(emptyList(), findings(rule, one("$header\nval QUERY: String = \"SELECT 1\"\n$use\n")))
-        // Go treats a name it cannot see as computed, and a class file keeps no initializer.
+        // A val of another file has an unknown value (a class file keeps no initializer): unknown is quiet, on a
+        // slice and on a full compile alike.
+        assertEquals(
+            emptyList(),
+            findings(rule, mapOf("B.kt" to "package p\nval QUERY: String = \"SELECT 1\"\n", "A.kt" to "$header\n$use\n")),
+        )
+        // The shape of a project query holder: an object member val, a lower-case top-level val plus a literal, and a
+        // val built from other vals, all in another file.
+        val holder = "package p\nobject Queries { val selectAll = \"SELECT * FROM t\" }\nval base = \"SELECT\"\nval cols = base + \" a\"\n"
+        for (call in listOf("Queries.selectAll", "base + \" FROM t\"", "cols", "cols + \" FROM t\"")) {
+            assertEquals(
+                emptyList(),
+                findings(
+                    rule,
+                    mapOf("B.kt" to holder, "A.kt" to "$header\nfun run(s: Statement) { s.execute($call) }\n"),
+                ),
+                call,
+            )
+        }
+        // A genuinely computed argument is still reported next to the other-file val.
         assertEquals(
             listOf("A.kt" to 4),
-            findings(rule, mapOf("B.kt" to "package p\nval QUERY: String = \"SELECT 1\"\n", "A.kt" to "$header\n$use\n")),
+            findings(
+                rule,
+                mapOf("B.kt" to holder, "A.kt" to "$header\nfun run(s: Statement, t: String) { s.execute(Queries.selectAll + t) }\n"),
+            ),
         )
         assertEquals(
             emptyList(),
@@ -188,6 +219,25 @@ class NarrowedRulesFileLocalTest {
         assertEquals(
             listOf("A.kt" to 5),
             findings(rule, mapOf("B.kt" to "$header$wrapper", "A.kt" to "$header\n$use")),
+        )
+        // A function of another file named like the setter is reported only when its signature looks like an alarm
+        // API; an unrelated scheduler is quiet, and a wrapper with a PendingIntent parameter that ignores its
+        // interval still reports (no body is read).
+        val poller = "package p\nclass Poller { fun setRepeating(name: String, delay: Long, intervalMs: Long, task: Runnable) {} }\n"
+        assertEquals(
+            emptyList(),
+            findings(
+                rule,
+                mapOf("B.kt" to poller, "A.kt" to "package p\nfun p(x: Poller, r: Runnable) { x.setRepeating(\"n\", 0L, 5000L, r) }\n"),
+            ),
+        )
+        // A const interval is a value a class file keeps, evaluated; the same const in the file under check is too.
+        assertEquals(
+            listOf("All.kt" to 6),
+            findings(
+                rule,
+                one("$header\nconst val EVERY = 5 * 1000L\nfun h(am: AlarmManager, pi: PendingIntent) { am.setRepeating(0, 0L, EVERY, pi) }\n"),
+            ),
         )
         // A const interval is a value a class file keeps, evaluated.
         assertEquals(
@@ -272,6 +322,34 @@ class NarrowedRulesFileLocalTest {
         assertEquals(
             emptyList(),
             findings(rule, mapOf("B.kt" to "$header$sameFile", "A.kt" to "$header$use")),
+        )
+        // The same const in the file under check is evaluated alike.
+        assertEquals(listOf("All.kt" to 4), findings(rule, one("${header}const val SIG = 1 shl 6\n$use")))
+        // A project val named GET_SIGNATURES in another file is a lookalike, not the platform flag; the real
+        // PackageManager.GET_SIGNATURES still reports.
+        assertEquals(
+            emptyList(),
+            findings(
+                rule,
+                mapOf(
+                    "B.kt" to "package p\nval GET_SIGNATURES = 0\n",
+                    "A.kt" to "$header\nfun g(pm: PackageManager) { pm.getPackageInfo(\"x\", GET_SIGNATURES) }\n",
+                ),
+            ),
+        )
+        assertEquals(
+            emptyList(),
+            findings(
+                rule,
+                mapOf(
+                    "B.kt" to "package p\nobject Flags { val GET_SIGNATURES = 0 }\n",
+                    "A.kt" to "$header\nfun g(pm: PackageManager) { pm.getPackageInfo(\"x\", Flags.GET_SIGNATURES) }\n",
+                ),
+            ),
+        )
+        assertEquals(
+            listOf("All.kt" to 4),
+            findings(rule, one("$header\nfun g(pm: PackageManager) { pm.getPackageInfo(\"x\", PackageManager.GET_SIGNATURES) }\n")),
         )
         // A const keeps its value in a class file, also one that is an expression.
         for (value in listOf("64", "0x40 or 1", "1 shl 6")) {

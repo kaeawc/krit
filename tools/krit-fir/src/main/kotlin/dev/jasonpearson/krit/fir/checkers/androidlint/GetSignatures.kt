@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.followableInitializer
+import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtNodeTypes
@@ -51,6 +52,7 @@ import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
+import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFieldSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFileSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
@@ -130,6 +132,7 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
     private const val GET_SIGNATURES_BIT = 0x40L
     private val getPackageInfo = Name.identifier("getPackageInfo")
     private val getSignatures = Name.identifier("GET_SIGNATURES")
+    private val packageManager = ClassId(FqName("android.content.pm"), Name.identifier("PackageManager"))
     private val sdkInt = Name.identifier("SDK_INT")
     private const val SDK_INT_SPELLING = "Build.VERSION.SDK_INT"
     private val flagsParameter = Name.identifier("flags")
@@ -516,9 +519,18 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
             is FirFieldSymbol -> original.fir.initializer
             else -> null
         }
+        // A project property of another file without a readable value (a non-const val) is a lookalike: only a
+        // member of PackageManager is the platform flag.
+        if (initializer == null && symbol.unwrapFakeOverrides() is FirPropertySymbol &&
+            !symbol.isDeclaredInCheckedFile() && !isPackageManagerMember(symbol)
+        ) return false
         val value = initializer?.let { constantValue(it, 0) } ?: return true
         return value and GET_SIGNATURES_BIT != 0L
     }
+
+    context(context: CheckerContext)
+    private fun isPackageManagerMember(symbol: FirCallableSymbol<*>): Boolean =
+        symbol.getContainingClassSymbol()?.classId == packageManager
 
     // A Kotlin property whose value may include the flag: its initializer,
     // and for a local var the assignments that may reach [read]. A property

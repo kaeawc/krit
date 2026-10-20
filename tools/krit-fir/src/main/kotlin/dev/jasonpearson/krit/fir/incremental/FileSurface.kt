@@ -44,6 +44,8 @@ internal data class FileSurface(
     val supers: Map<String, List<String>>,
     /** Fully qualified names of the sealed classes and interfaces declared in the file. */
     val sealed: Set<String> = emptySet(),
+    /** The file's package; "" for the root package. Not part of [decls], so it never makes a surface "change". */
+    val pkg: String = "",
 ) {
     companion object {
         /** Changed lookup symbols between [old] and [new]; class-header changes also return the class scope. */
@@ -67,7 +69,7 @@ internal object Surface {
         val sealed = HashSet<String>()
         val pkg = f.packageDirective.packageFqName.asString()
         for (d in f.declarations) visit(d, pkg, acc, supers, sealed, session)
-        return FileSurface(acc.mapValues { (_, v) -> hash(v.sorted().joinToString("\n")) }, supers, sealed)
+        return FileSurface(acc.mapValues { (_, v) -> hash(v.sorted().joinToString("\n")) }, supers, sealed, pkg)
     }
 
     private fun visible(d: FirMemberDeclaration) = d.status.visibility != Visibilities.Private

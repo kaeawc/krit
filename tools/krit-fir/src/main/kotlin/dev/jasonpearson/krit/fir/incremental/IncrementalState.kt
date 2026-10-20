@@ -144,6 +144,7 @@ internal open class IncrementalState {
     private val classFile = HashMap<String, String>()
     private val declFiles = HashMap<Sym, MutableSet<String>>()
     private val subclassFiles = HashMap<String, MutableSet<String>>()
+    private val packageFiles = HashMap<String, MutableSet<String>>() // package -> files that declare it
     private val subclassNames = HashMap<String, MutableSet<String>>() // erased supertype -> fq names of classes extending it
 
     // The binary snapshot of the module and what became of it since it was built.
@@ -233,8 +234,9 @@ internal open class IncrementalState {
     }
 
     private fun rebuildDeclarationIndexes() {
-        classFile.clear(); declFiles.clear(); subclassFiles.clear(); subclassNames.clear()
+        classFile.clear(); declFiles.clear(); subclassFiles.clear(); subclassNames.clear(); packageFiles.clear()
         for ((file, surface) in surfaces) {
+            packageFiles.getOrPut(surface.pkg) { HashSet() }.add(file)
             for (key in surface.decls.keys) declFiles.getOrPut(plain(key)) { HashSet() }.add(file)
             for ((cls, supers) in surface.supers) {
                 classFile[cls] = file
@@ -256,7 +258,7 @@ internal open class IncrementalState {
     open fun reset() {
         compileKey = null; verdictKey = null
         surfaces.clear(); contentHashes.clear(); index.clear(); changes = HashMap(); commits = 0
-        classFile.clear(); declFiles.clear(); subclassFiles.clear(); subclassNames.clear()
+        classFile.clear(); declFiles.clear(); subclassFiles.clear(); subclassNames.clear(); packageFiles.clear()
         releaseSnapshot()
     }
 
@@ -329,7 +331,7 @@ internal open class IncrementalState {
         sha1Hex(s.decls.entries.map { "${it.key}=${it.value}" }.sorted().joinToString("\n").toByteArray())
 
     companion object {
-        const val DEFAULT_STALE_FRACTION = 0.10
+        const val DEFAULT_STALE_FRACTION = 0.05
         const val DEFAULT_STALE_MIN_FILES = 16
         private val UNCHANGED = SurfaceChange(emptySet(), emptySet(), null)
     }
@@ -428,6 +430,9 @@ internal open class IncrementalState {
         out -= changed
         return out
     }
+
+    /** True when some recorded file declares [pkg] ("" is the root package). */
+    @Synchronized fun packageDeclared(pkg: String): Boolean = packageFiles[pkg].orEmpty().isNotEmpty()
 
     /** The recorded declaration surface of [file], or null when the file is not recorded. */
     @Synchronized fun surfaceOf(file: String): FileSurface? = surfaces[canonicalPath(file)]

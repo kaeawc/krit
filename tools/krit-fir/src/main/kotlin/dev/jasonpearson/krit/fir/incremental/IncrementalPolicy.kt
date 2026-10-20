@@ -48,10 +48,17 @@ internal enum class BuiltInTieredPolicy : TieredRulePolicy {
 internal data class PlannerLimits(
     /** More waves than this fall back to the full compile. */
     val maxWaves: Int = 8,
-    /** A cumulative dirty set above this fraction of the module falls back to the full compile... */
-    val dirtyFraction: Double = 0.15,
+    /**
+     * A cumulative dirty set above this fraction of the module falls back to the full compile... A slice costs about
+     * 150 ms plus a few ms per compiled file, and the fallback a full compile plus a snapshot, so break-even is
+     * well above this. Only files the waves add count: the binary-stale files every slice carries do not.
+     */
+    val dirtyFraction: Double = 0.25,
     /** ...but never below this many files. */
-    val minDirtyFiles: Int = 32,
+    val minDirtyFiles: Int = 64,
+    /** Binary-stale and removed files kept in every slice: above this fraction of the module (and [staleMinFiles]) the next request re-snapshots. */
+    val staleFraction: Double = IncrementalState.DEFAULT_STALE_FRACTION,
+    val staleMinFiles: Int = IncrementalState.DEFAULT_STALE_MIN_FILES,
 ) {
     fun threshold(moduleFiles: Int): Int = maxOf(minDirtyFiles, Math.ceil(moduleFiles * dirtyFraction).toInt())
 }
@@ -72,6 +79,12 @@ internal enum class FullReason {
 
     /** A wave's compile reported a location-less compiler error, which gates every file of a full compile. */
     GLOBAL_COMPILER_ERROR,
+
+    /**
+     * A deleted or re-packaged file left a package with no declaring file in the module. A star import of it
+     * records no lookup, and the snapshot keeps the empty package directory, so an importer's error is invisible.
+     */
+    PACKAGE_REMOVED,
 
     /** The recorded facts were dropped or fell out of step with the verdict cache. */
     STATE_LOST,

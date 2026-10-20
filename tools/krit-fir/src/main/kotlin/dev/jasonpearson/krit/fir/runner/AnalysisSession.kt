@@ -274,6 +274,8 @@ class AnalysisSession(
         testFiles: Set<String>, scanPaths: Map<String, String>, sdkLevels: Map<String, SdkLevels>,
         module: ModuleCompilation? = null,
         ownedSources: Set<String> = emptySet(),
+        // False: a plain check that records nothing, builds no snapshot and leaves the incremental state alone.
+        record: Boolean = true,
     ): BatchResult {
         val plan = CheckPlan(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, module, ownedSources)
         if (plan.compiled.isEmpty() && module == null) return plan.emptyResult()
@@ -282,7 +284,7 @@ class AnalysisSession(
             val sources = module?.sources ?: compilationFiles(plan.compiled.map { it.path })
             val args = compilationArguments(sources, outDir, module)
             // A session runs many module compiles; only the legacy whole-session compile is recorded.
-            if (module == null) plan.startRecording(sources)
+            if (module == null && record) plan.startRecording(sources)
             val build = if (module == null) plan.prepareSnapshot(args, sources) else null
             compileModule(args, listOf(plan.collector), plan.contexts(), skipEmptySources = true, frontendOnly = module == null,
                 recording = plan.recording, build = build).also { plan.commitRecording(it, build) }
@@ -431,7 +433,9 @@ class AnalysisSession(
         for (stale in incrementalState.binaryStale()) refs.putIfAbsent(stale, FileRef(stale))
         var wanted = incrementalState.withSealedInheritors(refs.keys + removedFiles.map { canonicalOrSelf(File(it)) })
         while (true) {
-            val (present, missing) = wanted.partition { File(it).isFile }
+            // A deleted file that is still on disk (it left the module, e.g. no longer requested) is not compiled.
+            val deleted = removedFiles.mapTo(HashSet()) { canonicalOrSelf(File(it)) }
+            val (present, missing) = wanted.partition { File(it).isFile && it !in deleted }
             val removed = (removedFiles + missing).mapTo(LinkedHashSet()) { canonicalOrSelf(File(it)) }
             val plan = CheckPlan(
                 id, present.map { refs[it] ?: spellings[it] ?: FileRef(it) }, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, null, emptySet(),

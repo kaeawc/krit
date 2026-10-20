@@ -38,8 +38,13 @@ import java.io.File
  * slice ([AnalysisSession.needsResnapshot]), a [TieredRulePolicy][dev.jasonpearson.krit.fir.incremental.TieredRulePolicy]
  * that asks for it, a dirty set above [PlannerLimits.threshold][dev.jasonpearson.krit.fir.incremental.PlannerLimits],
  * more waves than [PlannerLimits.maxWaves][dev.jasonpearson.krit.fir.incremental.PlannerLimits], a location-less
- * compiler error, lost state, and any exception. A verdict is never taken from the cache unless its file's content
- * hash and verdict key match; when a requested file has none it was compiled, or the request falls back.
+ * compiler error, a package that lost its last declaring file, lost state, and any exception.
+ *
+ * What makes a cached verdict reusable is that nothing it depends on changed: its file's content hash and verdict
+ * key match (necessary, not sufficient), and no wave's dirty set reached it (lookup dependents, subclass scopes,
+ * redeclarations, supertypes and subclasses of every surface that changed). A requested file that has no matching
+ * entry is compiled in wave 1, or the request falls back. Dependents the lookups cannot see (a star import of a
+ * vanished package) are the fallbacks' job.
  *
  * Known gap: a rule error without a file (a checker that threw outside any file) is reported on every compiled file
  * of a full check, but only on the files of a slice.
@@ -89,17 +94,26 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
         }
         when (decision) {
             is TieredDecision.UseFullCompile ->
-                return finish(runFull(request, enabledRules, counters), PlanPath.FULL, FullReason.TIERED_RULES, decision.reason, counters, start)
+                // The planner diffs against the state's own recorded hashes, so a request that bypasses the state
+                // (no recording, no snapshot, no commit) leaves it correct, and costs what a plain check costs.
+                return finish(
+                    session.checkCompilation(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, record = false),
+                    PlanPath.FULL, FullReason.TIERED_RULES, decision.reason, counters, start)
             is TieredDecision.RunIncrementally -> {
                 // "All rules" stays the empty set a request spells it with: plugin rules are not in the discovery.
                 val rules = if (decision.rules == enabledIds) enabledRules else decision.rules
+                val commitsBefore = session.fullCommits
                 val gaveUp = try {
                     val result = attempt(request, rules, counters)
                     return finish(result, PlanPath.INCREMENTAL, null, null, counters, start)
                 } catch (g: GiveUp) {
                     g
                 } catch (e: Throwable) {
-                    if (!isIsolatable(e)) throw e
+                    if (!isIsolatable(e)) {
+                        // Cancelled or interrupted between waves: the waves already merged are a half-applied edit.
+                        if (counters.partial && session.fullCommits == commitsBefore) session.resetIncremental()
+                        throw e
+                    }
                     System.err.println("krit-fir: incremental planning failed (${e.javaClass.name}: ${e.message}); using the full compile")
                     GiveUp(FullReason.EXCEPTION, "${e.javaClass.simpleName}: ${e.message}")
                 }
@@ -138,7 +152,11 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
             throw GiveUp(FullReason.STATE_LOST, "verdicts at generation ${session.verdicts.generation}, state at ${state.generation}")
         }
         session.sliceFallback()?.let { throw GiveUp(FullReason.SLICE_UNAVAILABLE, it.name) }
-        if (session.needsResnapshot()) throw GiveUp(FullReason.NEEDS_RESNAPSHOT, "binary-stale and removed files passed the bound")
+        // A module with a compile error cannot be snapshotted (the backend never runs), so a full check would only
+        // pay for nothing: carry the stale files until the module is clean again.
+        if (session.needsResnapshot(session.plannerLimits.staleFraction, session.plannerLimits.staleMinFiles) &&
+            session.verdicts.firstError(emptyList()) == null
+        ) throw GiveUp(FullReason.NEEDS_RESNAPSHOT, "binary-stale and removed files passed the bound")
 
         IncrementalTestHook.onStage?.invoke(IncrementalStage.PLAN)
         val shape = session.shapeOf(r.id, r.files, rules, r.ruleConfigs, r.testFiles, r.scanPaths, r.sdkLevels)
@@ -166,6 +184,9 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
         }
         c.changed = changed.size; c.new = newFiles.size; c.deleted = deleted.size; c.unverdicted = unverdicted.size
         refreshSuppliedHashes(requested, changed, verdicts)
+        // Packages a deleted or edited file declared: if none is left afterwards, star importers are stale.
+        val packagesAtRisk = (deleted + changed).mapNotNullTo(LinkedHashSet()) { state.surfaceOf(it)?.pkg }
+        val carried = state.binaryStale()
 
         val limits = session.plannerLimits
         val threshold = limits.threshold(module.size)
@@ -173,7 +194,8 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
         var todo: Set<String> = LinkedHashSet<String>().apply { addAll(changed); addAll(newFiles); addAll(unverdicted) }
         while (todo.isNotEmpty() || removedPending.isNotEmpty()) {
             if (c.waves >= limits.maxWaves) throw GiveUp(FullReason.WAVE_LIMIT, "more than ${limits.maxWaves} waves")
-            val dirty = LinkedHashSet(c.compiled).apply { addAll(todo) }
+            // The binary-stale files every slice carries are not the edit's: only what the edit made dirty counts.
+            val dirty = LinkedHashSet(c.compiled).apply { addAll(todo); removeAll(carried) }
             if (dirty.size > threshold) throw GiveUp(FullReason.THRESHOLD, "${dirty.size} dirty files, threshold $threshold of ${module.size}")
 
             val staleBefore = state.binaryStale()
@@ -205,6 +227,9 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
             todo = next
         }
 
+        for (pkg in packagesAtRisk) {
+            if (!state.packageDeclared(pkg)) throw GiveUp(FullReason.PACKAGE_REMOVED, "package '$pkg' has no declaring file left")
+        }
         return assemble(r.id, shape, requested, keys, state.contentHashes())
             ?: throw GiveUp(FullReason.MISSING_VERDICT, "a requested file has no valid verdict after the waves")
     }

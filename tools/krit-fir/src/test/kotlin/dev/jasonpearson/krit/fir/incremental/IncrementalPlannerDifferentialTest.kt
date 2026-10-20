@@ -34,9 +34,14 @@ class IncrementalPlannerDifferentialTest {
         private val FILES = System.getProperty("krit.fir.planner.files")?.toInt() ?: 600
         private val EDITS = System.getProperty("krit.fir.planner.edits")?.toInt() ?: 40
 
+        private val STALE_FRACTION = System.getProperty("krit.fir.planner.staleFraction")?.toDouble()
+        private val STALE_MIN = System.getProperty("krit.fir.planner.staleMin")?.toInt()
+
         private val CYCLE = listOf(
             "body", "sig", "add", "overload", "comment", "sealed", "delete", "rename", "renameBreak", "renameRepair",
-            "shadow", "body", "deleteBreak", "deleteRepair", "sig", "shadow", "add", "comment", "sealed", "body",
+            "shadow", "redeclare", "abstractBreak", "abstractRepair", "multi", "deleteBreak", "deleteRepair", "sig", "redeclare", "multi",
+            "body", "add", "redeclare", "comment", "sealed", "multi", "abstractBreak", "abstractRepair", "overload", "shadow",
+            "redeclare", "delete", "rename", "sig", "multi", "body", "redeclare", "sealed", "comment", "body",
         )
     }
 
@@ -52,9 +57,25 @@ class IncrementalPlannerDifferentialTest {
             .also { it.snapshotRootOverride = tmp.resolve("snapshots").toFile(); it.tieredRulePolicy = BuiltInTieredPolicy.EXCLUDE_TIERED }
         val reference = AnalysisSession(project.sourceDirs, listOf(testStdlib), incrementalRecording = false, incrementalPlanning = false)
 
+        if (STALE_FRACTION != null || STALE_MIN != null) {
+            planned.plannerLimits = planned.plannerLimits.copy(
+                staleFraction = STALE_FRACTION ?: planned.plannerLimits.staleFraction,
+                staleMinFiles = STALE_MIN ?: planned.plannerLimits.staleMinFiles,
+            )
+        }
+
         var edit = 0
-        fun requests(supplyHashes: Boolean) = project.files().sorted().map {
-            FileRef(it, if (supplyHashes) sha1Hex(File(it).readBytes()) else "")
+        val sampler = java.util.Random(5)
+        // Every request names all files, or half of them chosen at random: with the files the edit touched left out
+        // (a changed file that is not requested), or with them.
+        fun requests(supplyHashes: Boolean, edited: List<String>): List<FileRef> {
+            val all = project.files().sorted()
+            val picked = when (edit % 4) {
+                1 -> all.filter { it !in edited && sampler.nextBoolean() }
+                3 -> all.filter { it in edited || sampler.nextBoolean() }
+                else -> all
+            }
+            return picked.map { FileRef(it, if (supplyHashes) sha1Hex(File(it).readBytes()) else "") }
         }
 
         val log = StringBuilder()
@@ -63,10 +84,11 @@ class IncrementalPlannerDifferentialTest {
         var engaged = 0
         val fallbacks = ArrayList<String>()
         var staleVerdicts = 0
+        val incrementalTimes = ArrayList<Long>()
 
-        fun step(label: String) {
+        fun step(label: String, edited: List<String> = emptyList()) {
             // Alternate the request shape: with and without the content hashes Go supplies.
-            val files = requests(supplyHashes = edit % 2 == 0)
+            val files = requests(supplyHashes = edit % 2 == 0, edited = edited)
             val t0 = System.nanoTime()
             val got = planned.check(edit.toLong(), files, emptySet())
             val tInc = (System.nanoTime() - t0) / 1_000_000
@@ -77,7 +99,7 @@ class IncrementalPlannerDifferentialTest {
             staleVerdicts += stale.size
             val plan = assertNotNull(planned.lastPlan)
             if (edit > 0) {
-                incrementalTotal += tInc; fullTotal += tFull
+                incrementalTotal += tInc; fullTotal += tFull; incrementalTimes += tInc
                 if (plan.path == PlanPath.INCREMENTAL) engaged++ else fallbacks += "e$edit $label: ${plan.reason} ${plan.detail}"
             }
             log.append("e$edit %-12s %-11s inc=%5d ms full=%5d ms dirty=%3d waves=%d changed=%d new=%d del=%d unverdicted=%d stale=%d%n".format(
@@ -92,15 +114,17 @@ class IncrementalPlannerDifferentialTest {
         assertEquals(FullReason.COLD, planned.lastPlan!!.reason)
         for (i in 1..EDITS) {
             val kind = CYCLE[(i - 1) % CYCLE.size]
-            project.apply(kind)
-            step(kind)
+            val change = project.apply(kind)
+            step(kind, change.changed + change.added + change.deleted)
         }
         println(log)
+        val incTimes = incrementalTimes.sorted()
+        println("planned p50=${incTimes[incTimes.size / 2]} ms p95=${incTimes[(incTimes.size * 95 / 100).coerceAtMost(incTimes.size - 1)]} ms stale-bound=(${planned.plannerLimits.staleFraction}, ${planned.plannerLimits.staleMinFiles})")
         println("incremental total=${incrementalTotal} ms, fresh full total=${fullTotal} ms over $EDITS edits; engaged=$engaged fallbacks=$fallbacks")
         assertEquals(0, staleVerdicts)
         // The planner engages for (nearly) every edit; a full compile is allowed only to refresh the snapshot.
         assertTrue(engaged >= EDITS * 9 / 10, "the planner took the incremental path for $engaged of $EDITS edits: $fallbacks\n$log")
-        assertTrue(fallbacks.all { "NEEDS_RESNAPSHOT" in it || "THRESHOLD" in it }, fallbacks.toString())
+        assertTrue(fallbacks.all { "NEEDS_RESNAPSHOT" in it || "THRESHOLD" in it || "PACKAGE_REMOVED" in it }, fallbacks.toString())
         planned.dispose()
         reference.dispose()
     }

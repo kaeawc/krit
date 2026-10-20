@@ -153,7 +153,7 @@ tasks.register<Test>("incrementalPlannerTest") {
     inputs.file(pluginJar)
     systemProperty("krit.fir.plugin.jar", pluginJar.get().asFile.absolutePath)
     systemProperty("krit.fir.cache.dir", layout.buildDirectory.dir("test-krit-cache").get().asFile.absolutePath)
-    for (name in listOf("krit.fir.planner.files", "krit.fir.planner.edits")) {
+    for (name in listOf("krit.fir.planner.files", "krit.fir.planner.edits", "krit.fir.planner.staleFraction", "krit.fir.planner.staleMin")) {
         findProperty(name)?.let { systemProperty(name, it.toString()) }
     }
     maxHeapSize = "3g"

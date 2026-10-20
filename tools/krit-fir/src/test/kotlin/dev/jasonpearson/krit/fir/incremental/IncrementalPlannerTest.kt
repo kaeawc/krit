@@ -366,6 +366,35 @@ class IncrementalPlannerTest {
         assertEquals(PlanPath.INCREMENTAL, session.plan.path)
     }
 
+    @Test fun aTieredFallbackIsAPlainCheckThatLeavesTheStateAlone() {
+        probeModule()
+        val session = planned()
+        val tiered = rules + tieredRule
+        val first = session.checkAll(ruleIds = tiered)
+        assertEquals(FullReason.TIERED_RULES, session.plan.reason)
+        assertNull(session.incrementalState.compileKey, "no recording")
+        assertNull(session.incrementalState.snapshot, "no snapshot is built")
+        assertEquals(0, session.incrementalState.generation)
+        assertEquals(0, session.verdicts.size)
+        assertEquals(0, session.fullCommits)
+        assertSameAsFull(first, fullCheck(ruleIds = tiered))
+        // With a state from an earlier request, a tiered request does not change it either.
+        session.checkAll(ruleIds = rules)
+        val generation = session.incrementalState.generation
+        val snapshot = session.incrementalState.snapshot
+        write("Use.kt", "package p\n\nfun u() { protocolProbe(); base(); base() }\n")
+        val second = session.checkAll(ruleIds = tiered)
+        assertEquals(FullReason.TIERED_RULES, session.plan.reason)
+        assertEquals(generation, session.incrementalState.generation)
+        assertTrue(snapshot === session.incrementalState.snapshot)
+        assertSameAsFull(second, fullCheck(ruleIds = tiered))
+        // The state still diffs correctly against what changed in between.
+        val third = session.checkAll(ruleIds = rules)
+        assertEquals(PlanPath.INCREMENTAL, session.plan.path)
+        assertEquals(1, session.plan.changedFiles)
+        assertSameAsFull(third, fullCheck())
+    }
+
     @Test fun excludeTieredRunsOnlyTheOthersAndStaysIncremental() {
         probeModule()
         val session = planned()
@@ -512,6 +541,27 @@ class IncrementalPlannerTest {
         assertEquals(PlanPath.INCREMENTAL, session.plan.path)
     }
 
+    @Test fun staleFilesPastTheBoundAreCarriedWhileTheModuleHasAnError() {
+        for (i in 0 until 40) write("F$i.kt", "package p\n\nfun f$i(): Int = $i\n")
+        val session = planned()
+        session.plannerLimits = session.plannerLimits.copy(minDirtyFiles = 64)
+        session.checkAll()
+        for (i in 0 until 20) write("F$i.kt", "package p\n\nfun f$i(): Long = ${i}L\n")
+        write("Broken.kt", "package p\n\nfun broken() { missing() }\n")
+        session.checkAll()
+        assertTrue(session.incrementalState.binaryStale().size >= 16)
+        // A re-snapshot cannot succeed while the module has an error: the request stays incremental.
+        val result = session.checkAll()
+        assertEquals(PlanPath.INCREMENTAL, session.plan.path)
+        assertSameAsFull(result, fullCheck())
+        write("Broken.kt", "package p\n\nfun broken() {}\n")
+        session.checkAll()
+        assertEquals(PlanPath.INCREMENTAL, session.plan.path)
+        // Clean again: now the bound applies.
+        session.checkAll()
+        assertEquals(FullReason.NEEDS_RESNAPSHOT, session.plan.reason)
+    }
+
     @Test fun aDirtySetAboveTheThresholdIsAFullCheck() {
         for (i in 0 until 10) write("F$i.kt", "package p\n\nfun f$i(): Int = $i\nfun probe$i() { protocolProbe() }\n")
         write("Api.kt", "package p\n\nfun protocolProbe() {}\n")
@@ -527,8 +577,8 @@ class IncrementalPlannerTest {
         with(session.plan) { assertEquals(PlanPath.FULL, path); assertEquals(FullReason.THRESHOLD, reason) }
         assertSameAsFull(result, fullCheck())
         assertEquals(3, PlannerLimits(dirtyFraction = 0.2, minDirtyFiles = 1).threshold(11))
-        assertEquals(32, PlannerLimits().threshold(100), "the minimum file count wins in a small module")
-        assertEquals(150, PlannerLimits().threshold(1000))
+        assertEquals(64, PlannerLimits().threshold(100), "the minimum file count wins in a small module")
+        assertEquals(250, PlannerLimits().threshold(1000))
     }
 
     @Test fun moreWavesThanTheLimitIsAFullCheck() {

@@ -111,7 +111,18 @@ internal class SyntheticProject(val root: File, val total: Int, seed: Long = 7L,
         for (j in 0 until appCount) put(appPath(j), appText(j))
         put(File(libDir, "p1/Shape.kt").path, shapeText(0))
         put(File(appDir, "p1/ShapeUser.kt").path, shapeUserText())
+        put(absPath, absText())
+        put(absImplPath, absImplText())
     }
+
+    private val absPath = File(libDir, "p3/Abs.kt").path
+    private val absImplPath = File(appDir, "p3/AbsImpl.kt").path
+    private var absLib = 0
+    private var absImpl = 0
+    private var redeclStage = 0
+
+    private fun absText() = "package lib.p3\n\nabstract class Abs {\n    abstract fun m$absLib(): Int\n}\n"
+    private fun absImplText() = "package app.p3\n\nimport lib.p3.Abs\n\nclass AbsImpl : Abs() {\n    override fun m$absImpl(): Int = 1\n}\n"
 
     private fun shapeText(extra: Int): String {
         val sb = StringBuilder("package lib.p1\n\nsealed interface Shape\nclass Circle : Shape\nclass Square : Shape\n")
@@ -232,6 +243,48 @@ internal class SyntheticProject(val root: File, val total: Int, seed: Long = 7L,
                 val p = File(libDir, "p1/Shape.kt").path
                 put(p, shapeText(shapeExtra))
                 return Edit(kind, listOf(p))
+            }
+            "redeclare" -> {
+                val pkg = File(appDir, "p2")
+                val a = File(pkg, "RedeclA.kt").path
+                val b = File(pkg, "RedeclB.kt").path
+                val text = "package app.p2\n\nfun redecl(): Int = 1\n"
+                val stage = redeclStage
+                redeclStage = (redeclStage + 1) % 4
+                return when (stage) {
+                    0 -> { put(a, text); Edit(kind, emptyList(), added = listOf(a)) }
+                    1 -> { put(b, text); Edit(kind, emptyList(), added = listOf(b)) }
+                    2 -> { remove(b); Edit(kind, emptyList(), deleted = listOf(b)) }
+                    else -> { remove(a); Edit(kind, emptyList(), deleted = listOf(a)) }
+                }
+            }
+            "abstractBreak" -> {
+                absLib++
+                put(absPath, absText())
+                return Edit(kind, listOf(absPath))
+            }
+            "abstractRepair" -> {
+                absImpl = absLib
+                put(absImplPath, absImplText())
+                return Edit(kind, listOf(absImplPath))
+            }
+            "multi" -> {
+                // An app file whose chain predecessor's inferred type moves with a signature edit of a lib file,
+                // edited in the same request: the file is compiled first, its dependency only changes a wave later.
+                repeat(50) {
+                    val j = liveApp()
+                    val pred = j - 1
+                    if (j % 3 == 0 || j < 1 || pred in deletedOriginals || appPath(pred) !in texts) return@repeat
+                    val i = refs(pred)[0]
+                    if (i in renamed || i in declarationRenamed || i == 0) return@repeat
+                    sigState[i] = sigState[i] != true
+                    put(libPath(i), libText(i))
+                    val (v, noisy) = bodyState[j] ?: (3 to (j % 25 == 0))
+                    bodyState[j] = (v + 1) to noisy
+                    put(appPath(j), appText(j, v + 1, noisy))
+                    return Edit(kind, listOf(libPath(i), appPath(j)))
+                }
+                return apply("body")
             }
             "rename" -> {
                 val i = liveLib()

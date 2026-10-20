@@ -275,6 +275,51 @@ internal open class IncrementalState {
         releaseSnapshot()
     }
 
+    // ---- persistence --------------------------------------------------------------------------------------
+
+    /**
+     * The persistable image of the state (see [BundleCodec]), or null when there is nothing worth keeping: no commit
+     * yet, or no usable snapshot (a state without one cannot serve a slice, so a bundle of it would only be a cold
+     * start with extra steps). The maps are copied; their values are immutable.
+     */
+    @Synchronized
+    fun exportImage(): PersistedState? {
+        val key = compileKey ?: return null
+        val snap = snapshotOrNull ?: return null
+        if (snap.corrupt || commits == 0) return null
+        val lookups = HashMap<String, Set<Sym>>(index.files.size * 2)
+        for (file in index.files) lookups[file] = index.lookupsOf(file)
+        return PersistedState(
+            key, verdictKey, commits, HashMap(surfaces), HashMap(contentHashes), HashMap(classFacts), lookups,
+            PersistedSnapshot(snap.outputsCopy(), HashMap(snapshotSurfaceHashes), HashSet(binaryStaleFiles), HashSet(removedFiles)),
+        )
+    }
+
+    /**
+     * Replaces the state with a persisted image and the [snapshot] whose class files it describes (already restored,
+     * see [Snapshot.restore]); the declaration indexes are rebuilt from the surfaces. Returns false, leaving the state
+     * reset, when the image is not one a commit could have produced. The surface changes of the latest commit are not part of an image: a
+     * loaded state reports none, like a state nothing has been committed to since.
+     */
+    @Synchronized
+    fun restoreImage(image: PersistedState, snapshot: Snapshot): Boolean {
+        reset()
+        if (image.generation < 1) return false
+        compileKey = image.compileKey
+        verdictKey = image.verdictKey
+        surfaces.putAll(image.surfaces)
+        contentHashes.putAll(image.contentHashes)
+        classFacts.putAll(image.classFacts)
+        for ((file, syms) in image.lookups) index.update(file, syms)
+        rebuildDeclarationIndexes()
+        commits = image.generation
+        snapshotOrNull = snapshot
+        snapshotSurfaceHashes.putAll(image.snapshot.surfaceHashes)
+        binaryStaleFiles.addAll(image.snapshot.binaryStale)
+        removedFiles.addAll(image.snapshot.removed)
+        return true
+    }
+
     // ---- binary snapshot ----------------------------------------------------------------------------------
 
     /**

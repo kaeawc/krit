@@ -100,6 +100,25 @@ internal class Snapshot(val root: File) {
 
     fun moduleMapping(): ByteArray? = mapping
 
+    /** The source -> class files map (relative to [dir]), copied: what a persisted bundle records of this snapshot. */
+    @Synchronized fun outputsCopy(): Map<String, List<String>> = HashMap(outputs)
+
+    /**
+     * Takes over a persisted snapshot's source -> class files map once its class files are in [dir] (see
+     * [BundleStore]). Returns false, adopting nothing, when a recorded class file is not there: the copy is damaged.
+     */
+    @Synchronized
+    fun restore(recorded: Map<String, List<String>>): Boolean {
+        // A bundle is a file in the project tree: its paths are data, and parking moves files by them.
+        for (rels in recorded.values) for (rel in rels) {
+            val path = try { Path.of(rel) } catch (_: Exception) { return false }
+            if (path.isAbsolute || path.normalize().startsWith("..") || !File(dir, rel).isFile) return false
+        }
+        outputs.clear(); outputs.putAll(recorded)
+        mapping = File(dir, "META-INF/$SNAPSHOT_MODULE_NAME.kotlin_module").takeIf { it.isFile }?.readBytes()
+        return true
+    }
+
     /** Takes over the compile's [reported] outputs (canonical source -> absolute output paths) and its module mapping. */
     @Synchronized
     fun adopt(reported: Map<String, List<String>>) {

@@ -103,6 +103,9 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
                 // "All rules" stays the empty set a request spells it with: plugin rules are not in the discovery.
                 val rules = if (decision.rules == enabledIds) enabledRules else decision.rules
                 val commitsBefore = session.fullCommits
+                // A cold session starts from the bundle persisted for its compile key, if any: from here on it is
+                // a session that paused while files changed, which the content-hash diff below handles.
+                try { session.loadPersistedIfCold() } catch (e: Throwable) { if (!isIsolatable(e)) throw e }
                 val gaveUp = try {
                     val result = attempt(request, rules, counters)
                     return finish(result, PlanPath.INCREMENTAL, null, null, counters, start)

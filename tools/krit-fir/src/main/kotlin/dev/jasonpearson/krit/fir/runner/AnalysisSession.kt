@@ -12,6 +12,7 @@ import dev.jasonpearson.krit.fir.incremental.CompileRecording
 import dev.jasonpearson.krit.fir.incremental.CompileRecordingRegistry
 import dev.jasonpearson.krit.fir.incremental.FingerprintBuilder
 import dev.jasonpearson.krit.fir.incremental.BuiltInTieredPolicy
+import dev.jasonpearson.krit.fir.incremental.BundleStore
 import dev.jasonpearson.krit.fir.incremental.CachedVerdict
 import dev.jasonpearson.krit.fir.incremental.IncrementalStage
 import dev.jasonpearson.krit.fir.incremental.IncrementalState
@@ -153,6 +154,46 @@ class AnalysisSession(
         private set
 
     private val planner by lazy { IncrementalPlanner(this) }
+
+    /**
+     * Persists the incremental state across processes when the caller supplied a directory (see
+     * [configurePersistence]); null keeps everything in memory, as without the feature.
+     */
+    @Volatile internal var persistence: BundlePersistence? = null
+        private set
+
+    private val persistenceLock = Any()
+
+    /**
+     * Turns persistence of the incremental bundle on under [root] (`{repo}/.krit/fir-incremental`), or off with null
+     * (no directory supplied, `--no-cache`): a session without a root neither reads nor writes a bundle. Needs the
+     * planner. Switching roots flushes what was pending to the old one first.
+     */
+    fun configurePersistence(root: File?) {
+        synchronized(persistenceLock) {
+            val wanted = root?.takeIf { plannerEnabled }?.absoluteFile?.normalize()
+            val current = persistence
+            if (current?.store?.root == wanted) return
+            // Moving to another root writes what was pending to the old one; turning it off (--no-cache) drops it.
+            if (wanted == null) current?.discard() else current?.close()
+            persistence = wanted?.let { BundlePersistence(this, BundleStore(it)) }
+            // A state that is already warm (e.g. after requests that bypassed the cache) gets written eventually.
+            if (persistence != null && incrementalState.compileKey != null) persistence?.markDirty(afterFullCheck = false)
+        }
+    }
+
+    /** Writes any pending persisted bundle now; for shutdown and tests. */
+    internal fun flushPersistence() { persistence?.flush() }
+
+    /** The planner found the session cold: load the persisted bundle of its compile key, if there is one. Holds [snapshotLock]. */
+    internal fun loadPersistedIfCold() {
+        val persisted = persistence ?: return
+        if (incrementalState.compileKey != null) return
+        persisted.loadOnce()
+    }
+
+    /** The key of this session's compiler facts as of now; what a persisted bundle is filed under. */
+    internal fun compileKeyNow(): String = compileKey()
 
     /** Parent of the snapshot directories, for tests; null uses the per-user krit cache dir. */
     internal var snapshotRootOverride: File? = null
@@ -298,7 +339,10 @@ class AnalysisSession(
             if (module == null) outDir.deleteRecursively()
         }
         val result = plan.result(exitCode)
-        if (module == null && plannerEnabled && plan.committed) storeFullVerdicts(plan, result)
+        if (module == null && plannerEnabled && plan.committed) {
+            storeFullVerdicts(plan, result)
+            persistence?.markDirty(afterFullCheck = true)
+        }
         return result
     }
 
@@ -524,6 +568,7 @@ class AnalysisSession(
                     storeVerdicts(result, compiledRefs, plan.verdictKeys)
                     verdicts.sync(incrementalState.generation)
                 }
+                persistence?.markDirty(afterFullCheck = false)
             }
         } catch (e: Throwable) {
             if (!isIsolatable(e)) throw e
@@ -1005,6 +1050,8 @@ class AnalysisSession(
 
     fun dispose() {
         retainedModuleRunner?.dispose(); retainedModuleRunner = null
+        // Writes the bundle of a state still waiting for its debounced write, before the state goes.
+        try { synchronized(persistenceLock) { persistence?.close(); persistence = null } } catch (_: Throwable) {}
         // Also deletes the snapshot directory.
         resetIncremental()
     }

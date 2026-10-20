@@ -359,6 +359,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                         request.rules.toSet(), request.ruleConfigs, request.testFiles, request.scanPaths,
                         request.sdkLevels)
                 } else {
+                    activeSession.configurePersistence(request.incrementalDir?.let(::JavaFile))
                     activeSession.check(request.id, request.files, request.rules.toSet(), request.ruleConfigs,
                         request.testFiles, request.scanPaths, request.sdkLevels)
                 }
@@ -492,6 +493,10 @@ data class CheckRequest(
     // (e.g. NEEDS_MANIFEST on a pure-Kotlin library).
     val projectPayloads: ProjectPayloads = ProjectPayloads.EMPTY,
     val modules: List<ModuleSpec> = emptyList(),
+    // `check` only: the directory the incremental bundle may be persisted in
+    // ({repo}/.krit/fir-incremental). Absent (no repo, `--no-cache`) means the
+    // session neither reads nor writes one.
+    val incrementalDir: String? = null,
     // `analyzeWithCheck` only: the `check` request the oracle compile also
     // answers (#810), carried under the `kritSharedCheck` key.
     val sharedCheck: CheckRequest? = null,
@@ -612,6 +617,7 @@ fun parseRequest(request: String, liftEmbedded: Boolean = true): CheckRequest {
     val classpath = extractStringArray(json, "classpath") ?: emptyList()
     val jvmTarget = extractString(json, "jvmTarget").orEmpty()
     val kotlinArgs = extractStringArray(json, "kotlinArgs") ?: emptyList()
+    val incrementalDir = extractString(json, "incrementalDir")?.takeIf { it.isNotBlank() }
     val rules = extractStringArray(json, "rules") ?: emptyList()
     val pluginJars = extractStringArray(json, "jars") ?: emptyList()
     val ruleIds = extractStringArray(json, "ruleIds")
@@ -623,7 +629,7 @@ fun parseRequest(request: String, liftEmbedded: Boolean = true): CheckRequest {
         id = id, command = command, files = files, sourceDirs = sourceDirs, classpath = classpath,
         jvmTarget = jvmTarget, kotlinArgs = kotlinArgs, rules = rules, ruleConfigs = ruleConfigs, testFiles = testFiles,
         scanPaths = scanPaths, sdkLevels = sdkLevels, pluginJars = pluginJars, path = path, source = source,
-        ruleIds = ruleIds, projectPayloads = payloads,
+        ruleIds = ruleIds, projectPayloads = payloads, incrementalDir = incrementalDir,
     )
 }
 

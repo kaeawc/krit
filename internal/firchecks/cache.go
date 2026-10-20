@@ -97,6 +97,16 @@ func CacheDir(repoDir string) (string, error) {
 	return dir, nil
 }
 
+// IncrementalDir returns {repoDir}/.krit/fir-incremental, where krit-fir
+// persists its incremental-checking bundle. It is not created here: krit-fir
+// creates it when it first writes. Empty repoDir yields "" (no persistence).
+func IncrementalDir(repoDir string) string {
+	if repoDir == "" {
+		return ""
+	}
+	return filepath.Join(repoDir, ".krit", "fir-incremental")
+}
+
 // entryPath returns the sharded JSON path for a file's entry.
 func entryPath(cacheDir, filePath, contentHash string) string {
 	key := hashutil.HashHex([]byte(filePath + "\x00" + contentHash))

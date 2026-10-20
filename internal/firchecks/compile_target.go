@@ -12,6 +12,12 @@ import (
 type CompileTarget struct {
 	JvmTarget string
 	Kotlin    gradlemodel.KotlinSettings
+	// IncrementalDir is where krit-fir may persist its incremental-checking
+	// bundle ({repo}/.krit/fir-incremental), so a new daemon or a one-shot run
+	// starts warm. Empty disables both reading and writing (--no-cache, no
+	// repo). It does not change what the compiler reports, so it is not part
+	// of sameCompileTarget, the daemon registry key or any fingerprint.
+	IncrementalDir string
 }
 
 // firstTarget returns the optional trailing CompileTarget argument.

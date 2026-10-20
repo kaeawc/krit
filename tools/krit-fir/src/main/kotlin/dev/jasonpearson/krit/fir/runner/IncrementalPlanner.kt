@@ -219,11 +219,12 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
             if (state.compileKey == null || verdicts.generation != state.generation) throw GiveUp(FullReason.STATE_LOST, "the slice's facts were dropped")
             if (checked.result.ownedCompilerError != null) throw GiveUp(FullReason.GLOBAL_COMPILER_ERROR, checked.result.ownedCompilerError)
             c.compiled += checked.compiled
-            // Only wave 1 compiles files whose content changed, so it is the one that can move the set: stop there
-            // rather than after the last wave. Slices see the rest of the module's classes through recorded facts, so
-            // they are right while the set stands; if the edit moved it, files outside the slices may hold a stale
-            // verdict and the full check decides.
-            if (c.waves == 1 && state.serializableNames() != serializableBefore) {
+            // Slices see the rest of the module's classes through recorded facts, so they are right while the set
+            // stands; if a slice moved it, files outside the slices may hold a stale verdict and the full check
+            // decides. Wave 1 compiles the edit, so it is the wave that normally moves the set and the run stops
+            // there; later waves are checked too, since a file saved on disk mid-request is compiled at its new
+            // content by whichever wave reaches it. The set is cached until some file's facts change, so this is cheap.
+            if (state.serializableNames() != serializableBefore) {
                 throw GiveUp(FullReason.SERIALIZABLE_NAMES_CHANGED, "the set of class names reaching Serializable changed")
             }
             for (added in checked.added) if (added in staleBefore) c.addedByStaleness++ else c.addedBySealedClosure++

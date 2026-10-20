@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
@@ -95,6 +96,33 @@ func CacheDir(repoDir string) (string, error) {
 		return "", fmt.Errorf("create fir cache dir: %w", err)
 	}
 	return dir, nil
+}
+
+// IncrementalDir returns {repoDir}/.krit/fir-incremental, where krit-fir
+// persists its incremental-checking bundle. It is not created here: krit-fir
+// creates it when it first writes. Empty repoDir yields "" (no persistence).
+func IncrementalDir(repoDir string) string {
+	if repoDir == "" {
+		return ""
+	}
+	return filepath.Join(repoDir, ".krit", "fir-incremental")
+}
+
+func init() {
+	cacheutil.Register(incrementalBundleCache{})
+}
+
+// incrementalBundleCache lets --clear-cache remove the persisted incremental
+// bundles ({repo}/.krit/fir-incremental). os.RemoveAll does not follow links.
+type incrementalBundleCache struct{}
+
+func (incrementalBundleCache) Name() string { return "fir-incremental" }
+func (incrementalBundleCache) Clear(ctx cacheutil.ClearContext) error {
+	dir := IncrementalDir(ctx.RepoDir)
+	if dir == "" {
+		return nil
+	}
+	return os.RemoveAll(dir)
 }
 
 // entryPath returns the sharded JSON path for a file's entry.

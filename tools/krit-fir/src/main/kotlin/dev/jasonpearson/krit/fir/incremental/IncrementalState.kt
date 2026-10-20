@@ -70,14 +70,25 @@ internal class FingerprintBuilder {
     }
 
     /**
-     * Path, size and modification time: cheap, and changes whenever the classpath entry is rebuilt. A directory
-     * (compiled classes of an upstream module) is walked and each regular file's relative path, size and
-     * modification time is included, sorted; the root's own mtime does not change when nested files are rewritten.
-     * Contents are never read.
+     * Path, size and modification time: cheap, and changes whenever the classpath entry is rebuilt. A zip or jar file
+     * also contributes [ZipDigest] of its central directory, which holds the CRC-32 of every entry, so replacing a jar
+     * by one of the same size and timestamp but other contents still changes the key (a persisted bundle outlives the
+     * process, and nothing else would notice). A directory (compiled classes of an upstream module) is walked and each
+     * regular file's relative path, size and modification time is included, sorted; the root's own mtime does not
+     * change when nested files are rewritten. File contents inside a directory are not read: build tools rewrite
+     * class files with new timestamps, and hashing a whole output tree on every compile-key computation would cost
+     * more than the bundle saves.
      */
     fun addFileIdentity(label: String, path: String): FingerprintBuilder {
         val f = File(path)
-        if (!f.isDirectory) return add(label, listOf(canonicalPath(path), if (f.isFile) f.length() else -1L, f.lastModified()))
+        if (!f.isDirectory) {
+            if (!f.isFile) return add(label, listOf(canonicalPath(path), -1L, f.lastModified()))
+            val size = f.length()
+            val modified = f.lastModified()
+            val parts = ArrayList<Any>(listOf(canonicalPath(path), size, modified))
+            if (ZipDigest.looksLikeZip(path)) parts += ZipDigest.of(f, size, modified)
+            return add(label, parts)
+        }
         val root = f.toPath()
         val entries = f.walkTopDown().filter { it.isFile }
             .map { "${root.relativize(it.toPath())}|${it.length()}|${it.lastModified()}" }.sorted().toList()
@@ -93,6 +104,128 @@ internal class FingerprintBuilder {
         is Set<*> -> value.map { render(it) }.sorted().joinToString(",", "[", "]")
         is Iterable<*> -> value.joinToString(",", "(", ")") { render(it) }
         else -> value.toString()
+    }
+}
+
+/**
+ * A digest of a zip or jar file's central directory: every entry's name, sizes, CRC-32 and timestamps, in a few
+ * kilobytes to megabytes read from the end of the file, instead of the whole archive. A rebuilt archive with other
+ * contents has other CRCs. Cached per path, size and modification time, so a classpath is read once per process.
+ * Anything the reader does not understand digests to a fixed marker (the size and mtime still count).
+ */
+internal object ZipDigest {
+    private const val EOCD_SIGNATURE = 0x06054b50
+    private const val ZIP64_LOCATOR_SIGNATURE = 0x07064b50
+    private const val ZIP64_EOCD_SIGNATURE = 0x06064b50
+    private const val EOCD_MIN = 22
+    private const val MAX_COMMENT = 0xFFFF
+    private const val MAX_CACHE = 20_000
+
+    private data class Key(val path: String, val size: Long, val modified: Long)
+
+    // Keyed by path, size and mtime, so inside one live process a jar replaced by one of the same size and mtime keeps
+    // its old digest (the bundle this guards is read by the next process, which starts with an empty cache). When the
+    // cache reaches MAX_CACHE entries it is cleared whole and refilled by the entries that are used next.
+
+    private val cache = ConcurrentHashMap<Key, String>()
+
+    /** Forgets what was read, as a new process would. For tests. */
+    internal fun clearCache() = cache.clear()
+
+    fun looksLikeZip(path: String): Boolean {
+        val name = path.lowercase()
+        return name.endsWith(".jar") || name.endsWith(".zip") || name.endsWith(".aar") || name.endsWith(".klib")
+    }
+
+    fun of(file: File, size: Long = file.length(), modified: Long = file.lastModified()): String {
+        val key = Key(canonicalPath(file.path), size, modified)
+        cache[key]?.let { return it }
+        val digest = try { compute(file, size) } catch (_: Exception) { "unreadable" }
+        if (cache.size >= MAX_CACHE) cache.clear()
+        cache[key] = digest
+        return digest
+    }
+
+    private const val CD_SIGNATURE = 0x02014b50
+
+    private fun compute(file: File, size: Long): String = java.io.RandomAccessFile(file, "r").use { raf ->
+        if (size < EOCD_MIN) return@use "not-a-zip"
+        val tailLength = minOf(size, (EOCD_MIN + MAX_COMMENT).toLong()).toInt()
+        val tailStart = size - tailLength
+        val tail = ByteArray(tailLength)
+        raf.seek(tailStart)
+        raf.readFully(tail)
+        val buf = java.nio.ByteBuffer.wrap(tail).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        var sawCandidate = false
+        var emptyDirectory = false
+        // End-record candidates, last first. A candidate counts when its comment reaches exactly to the end of the file
+        // (as in java.util.zip) and the bytes where its central directory should start are a central directory header:
+        // a lookalike at the end of the comment fails that, and the search goes on to the real one.
+        for (i in tailLength - EOCD_MIN downTo 0) {
+            if (buf.getInt(i) != EOCD_SIGNATURE || i + EOCD_MIN + (buf.getShort(i + 20).toInt() and 0xFFFF) != tailLength) continue
+            sawCandidate = true
+            var cdSize = buf.getInt(i + 12).toLong() and 0xFFFFFFFFL
+            var entries = (buf.getShort(i + 10).toInt() and 0xFFFF).toLong()
+            // The directory ends where its end record begins. Offsets recorded in the archive are relative to the start
+            // of the archive, which is not the start of the file when data is prepended (launcher-script jars).
+            var cdEnd = tailStart + i
+            if (cdSize == 0xFFFFFFFFL || (buf.getInt(i + 16).toLong() and 0xFFFFFFFFL) == 0xFFFFFFFFL || entries == 0xFFFFL) {
+                val rec = zip64Record(raf, buf, tailStart, i) ?: continue
+                cdEnd = rec.at; cdSize = rec.cdSize; entries = rec.entries
+            }
+            if (cdSize == 0L && entries == 0L) { emptyDirectory = true; continue }
+            val cdStart = cdEnd - cdSize
+            if (cdSize < 0 || cdStart < 0 || cdEnd > size) continue
+            val head = ByteArray(4)
+            raf.seek(cdStart)
+            raf.readFully(head)
+            if (java.nio.ByteBuffer.wrap(head).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt(0) != CD_SIGNATURE) continue
+            return@use digestOf(raf, cdStart, cdSize) ?: "short-directory"
+        }
+        // An archive with no entries has an empty directory, which is a fine thing to digest if nothing else qualified.
+        if (emptyDirectory) return@use digestOf(raf, 0, 0) ?: "short-directory"
+        if (sawCandidate) "bad-directory" else "not-a-zip"
+    }
+
+    private class Zip64Record(val at: Long, val cdSize: Long, val entries: Long)
+
+    // The zip64 end record that goes with the plain end record at [eocd] of the tail: it ends where the locator, which
+    // sits just before the plain record, begins. It is 56 bytes unless it carries an extensible data sector, so it is
+    // found by its signature and a size field that reaches exactly to the locator, and it cannot start before the
+    // offset the locator records (the archive may be preceded by data, never the other way round).
+    private fun zip64Record(raf: java.io.RandomAccessFile, buf: java.nio.ByteBuffer, tailStart: Long, eocd: Int): Zip64Record? {
+        val locator = eocd - 20
+        if (locator < 0 || buf.getInt(locator) != ZIP64_LOCATOR_SIGNATURE) return null
+        val locatorAt = tailStart + locator
+        val recorded = buf.getLong(locator + 8)
+        val from = maxOf(0L, locatorAt - 56 - 65_536)
+        val window = ByteArray((locatorAt - from).toInt())
+        if (window.size < 56) return null
+        raf.seek(from)
+        raf.readFully(window)
+        val w = java.nio.ByteBuffer.wrap(window).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        for (q in window.size - 56 downTo 0) {
+            if (w.getInt(q) != ZIP64_EOCD_SIGNATURE) continue
+            val declared = w.getLong(q + 4)
+            if (declared < 44 || from + q + 12 + declared != locatorAt || from + q < recorded) continue
+            return Zip64Record(from + q, w.getLong(q + 40), w.getLong(q + 32))
+        }
+        return null
+    }
+
+    private fun digestOf(raf: java.io.RandomAccessFile, start: Long, length: Long): String? {
+        val sha = MessageDigest.getInstance("SHA-256")
+        sha.update(length.toString().toByteArray())
+        raf.seek(start)
+        val chunk = ByteArray(64 * 1024)
+        var left = length
+        while (left > 0) {
+            val n = raf.read(chunk, 0, minOf(left, chunk.size.toLong()).toInt())
+            if (n < 0) return null
+            sha.update(chunk, 0, n)
+            left -= n
+        }
+        return hex(sha.digest())
     }
 }
 
@@ -273,6 +406,51 @@ internal open class IncrementalState {
         surfaces.clear(); contentHashes.clear(); classFacts.clear(); reachedNames = null; index.clear(); changes = HashMap(); commits = 0
         classFile.clear(); declFiles.clear(); subclassFiles.clear(); subclassNames.clear(); packageFiles.clear()
         releaseSnapshot()
+    }
+
+    // ---- persistence --------------------------------------------------------------------------------------
+
+    /**
+     * The persistable image of the state (see [BundleCodec]), or null when there is nothing worth keeping: no commit
+     * yet, or no usable snapshot (a state without one cannot serve a slice, so a bundle of it would only be a cold
+     * start with extra steps). The maps are copied; their values are immutable.
+     */
+    @Synchronized
+    fun exportImage(): PersistedState? {
+        val key = compileKey ?: return null
+        val snap = snapshotOrNull ?: return null
+        if (snap.corrupt || commits == 0) return null
+        val lookups = HashMap<String, Set<Sym>>(index.files.size * 2)
+        for (file in index.files) lookups[file] = index.lookupsOf(file)
+        return PersistedState(
+            key, verdictKey, commits, HashMap(surfaces), HashMap(contentHashes), HashMap(classFacts), lookups,
+            PersistedSnapshot(snap.outputsCopy(), HashMap(snapshotSurfaceHashes), HashSet(binaryStaleFiles), HashSet(removedFiles)),
+        )
+    }
+
+    /**
+     * Replaces the state with a persisted image and the [snapshot] whose class files it describes (already restored,
+     * see [Snapshot.restore]); the declaration indexes are rebuilt from the surfaces. Returns false, leaving the state
+     * reset, when the image is not one a commit could have produced. The surface changes of the latest commit are not part of an image: a
+     * loaded state reports none, like a state nothing has been committed to since.
+     */
+    @Synchronized
+    fun restoreImage(image: PersistedState, snapshot: Snapshot): Boolean {
+        reset()
+        if (image.generation < 1) return false
+        compileKey = image.compileKey
+        verdictKey = image.verdictKey
+        surfaces.putAll(image.surfaces)
+        contentHashes.putAll(image.contentHashes)
+        classFacts.putAll(image.classFacts)
+        for ((file, syms) in image.lookups) index.update(file, syms)
+        rebuildDeclarationIndexes()
+        commits = image.generation
+        snapshotOrNull = snapshot
+        snapshotSurfaceHashes.putAll(image.snapshot.surfaceHashes)
+        binaryStaleFiles.addAll(image.snapshot.binaryStale)
+        removedFiles.addAll(image.snapshot.removed)
+        return true
     }
 
     // ---- binary snapshot ----------------------------------------------------------------------------------

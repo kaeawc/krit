@@ -11,7 +11,10 @@ import dev.jasonpearson.krit.fir.FirRuleErrors
 import dev.jasonpearson.krit.fir.incremental.CompileRecording
 import dev.jasonpearson.krit.fir.incremental.CompileRecordingRegistry
 import dev.jasonpearson.krit.fir.incremental.FingerprintBuilder
+import dev.jasonpearson.krit.fir.incremental.PersistedState
+import dev.jasonpearson.krit.fir.incremental.PersistedVerdict
 import dev.jasonpearson.krit.fir.incremental.BuiltInTieredPolicy
+import dev.jasonpearson.krit.fir.incremental.BundleStore
 import dev.jasonpearson.krit.fir.incremental.CachedVerdict
 import dev.jasonpearson.krit.fir.incremental.IncrementalStage
 import dev.jasonpearson.krit.fir.incremental.IncrementalState
@@ -153,6 +156,46 @@ class AnalysisSession(
         private set
 
     private val planner by lazy { IncrementalPlanner(this) }
+
+    /**
+     * Persists the incremental state across processes when the caller supplied a directory (see
+     * [configurePersistence]); null keeps everything in memory, as without the feature.
+     */
+    @Volatile internal var persistence: BundlePersistence? = null
+        private set
+
+    private val persistenceLock = Any()
+
+    /**
+     * Turns persistence of the incremental bundle on under [root] (`{repo}/.krit/fir-incremental`), or off with null
+     * (no directory supplied, `--no-cache`): a session without a root neither reads nor writes a bundle. Needs the
+     * planner. Switching roots flushes what was pending to the old one first.
+     */
+    fun configurePersistence(root: File?) {
+        synchronized(persistenceLock) {
+            val wanted = root?.takeIf { plannerEnabled }?.absoluteFile?.normalize()
+            val current = persistence
+            if (current?.store?.root == wanted) return
+            // Moving to another root writes what was pending to the old one; turning it off (--no-cache) drops it.
+            if (wanted == null) current?.discard() else current?.close()
+            persistence = wanted?.let { BundlePersistence(this, BundleStore(it)) }
+            // A state that is already warm (e.g. after requests that bypassed the cache) gets written eventually.
+            if (persistence != null && incrementalState.compileKey != null) persistence?.markDirty(afterFullCheck = false)
+        }
+    }
+
+    /** Writes any pending persisted bundle now; for shutdown and tests. */
+    internal fun flushPersistence() { persistence?.flush() }
+
+    /** The planner found the session cold: load the persisted bundle of its compile key, if there is one. Holds [snapshotLock]. */
+    internal fun loadPersistedIfCold() {
+        val persisted = persistence ?: return
+        if (incrementalState.compileKey != null) return
+        persisted.loadOnce()
+    }
+
+    /** The key of this session's compiler facts as of now; what a persisted bundle is filed under. */
+    internal fun compileKeyNow(): String = compileKey()
 
     /** Parent of the snapshot directories, for tests; null uses the per-user krit cache dir. */
     internal var snapshotRootOverride: File? = null
@@ -298,7 +341,10 @@ class AnalysisSession(
             if (module == null) outDir.deleteRecursively()
         }
         val result = plan.result(exitCode)
-        if (module == null && plannerEnabled && plan.committed) storeFullVerdicts(plan, result)
+        if (module == null && plannerEnabled && plan.committed) {
+            storeFullVerdicts(plan, result)
+            persistence?.markDirty(afterFullCheck = true)
+        }
         return result
     }
 
@@ -524,6 +570,7 @@ class AnalysisSession(
                     storeVerdicts(result, compiledRefs, plan.verdictKeys)
                     verdicts.sync(incrementalState.generation)
                 }
+                persistence?.markDirty(afterFullCheck = false)
             }
         } catch (e: Throwable) {
             if (!isIsolatable(e)) throw e
@@ -740,6 +787,39 @@ class AnalysisSession(
     private fun isScript(path: String): Boolean = !path.endsWith(".kt")
 
     private val canonicalSourceDirs: Set<String> by lazy { sourceDirs.map { canonicalOrSelf(File(it)) }.toSet() }
+
+    /**
+     * The first file a persisted bundle names that is neither under this session's source directories nor under
+     * [repoDir] (the repository the bundle directory belongs to), or null. Go builds the source directories from the
+     * `kotlin`/`java` directories below the scan roots, while the requested files are every `.kt` the scan collected,
+     * so ordinary runs have files in the state that are outside the former and inside the latter. The state's paths are
+     * canonical, as are the roots. Verdict files and the paths of their findings must be files of the state, or lie
+     * under the roots (they may be spelled as the request spelled them).
+     */
+    internal fun pathOutsideSources(state: PersistedState, verdicts: List<PersistedVerdict>, repoDir: File?): String? {
+        val roots = (canonicalSourceDirs + listOfNotNull(repoDir?.let { canonicalOrSelf(it) })).map { java.nio.file.Path.of(it) }
+        fun outside(path: String): Boolean {
+            val p = try { java.nio.file.Path.of(path).normalize() } catch (_: Exception) { return true }
+            return !p.isAbsolute || roots.none { p.startsWith(it) }
+        }
+        val snap = state.snapshot
+        for (paths in listOf(
+            state.contentHashes.keys, state.surfaces.keys, state.classFacts.keys, state.lookups.keys,
+            snap.outputs.keys, snap.surfaceHashes.keys, snap.binaryStale, snap.removed,
+        )) for (path in paths) if (outside(path)) return path
+        // Verdicts are keyed by the spelling of the request (Go's absolute, not canonical, paths), so they are resolved
+        // before they are compared with the canonical roots and state; each distinct spelling once.
+        val resolved = HashMap<String, String>()
+        fun foreign(path: String): Boolean {
+            val canonical = resolved.getOrPut(path) { canonicalOrSelf(File(path)) }
+            return canonical !in state.contentHashes && outside(canonical)
+        }
+        for (v in verdicts) {
+            if (foreign(v.file)) return v.file
+            for (f in v.entry.verdict.findings) if (foreign(f.path)) return f.path
+        }
+        return null
+    }
 
     /**
      * Run a K2 frontend compilation to collect oracle-style per-class
@@ -1005,6 +1085,8 @@ class AnalysisSession(
 
     fun dispose() {
         retainedModuleRunner?.dispose(); retainedModuleRunner = null
+        // Writes the bundle of a state still waiting for its debounced write, before the state goes.
+        try { synchronized(persistenceLock) { persistence?.close(); persistence = null } } catch (_: Throwable) {}
         // Also deletes the snapshot directory.
         resetIncremental()
     }

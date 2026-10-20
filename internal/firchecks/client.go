@@ -107,6 +107,10 @@ type firDaemonRequest struct {
 	// after the fixed fields; krit-fir also blanks it out before its
 	// nest-blind field extraction so option names cannot shadow them.
 	RuleConfigs map[string]any `json:"ruleConfigs,omitempty"`
+	// IncrementalDir is the directory krit-fir may persist its incremental
+	// checking bundle in; absent (--no-cache, no repo) means krit-fir neither
+	// reads nor writes one.
+	IncrementalDir string `json:"incrementalDir,omitempty"`
 }
 
 // FileFacts is what Go knows about the requested files that the checkers
@@ -553,6 +557,10 @@ func encodeCheckRequest(id int64, files []fileRef, sourceDirs, classpath, rules 
 		ScanPaths:   absoluteKeys(facts.ScanPaths),
 		SDKLevels:   absoluteKeys(facts.SDKLevels),
 		RuleConfigs: wireRuleConfigs(ruleConfigs),
+	}
+	if target.IncrementalDir != "" {
+		// The daemon's working directory is not the caller's.
+		req.IncrementalDir = oracle.AbsolutePath(target.IncrementalDir)
 	}
 	data, err := json.Marshal(req)
 	if err != nil {

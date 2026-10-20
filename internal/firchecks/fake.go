@@ -147,7 +147,11 @@ func (p *ProductionFirChecker) Check(files []string, sourceDirs, classpath, rule
 
 // CompileTarget is the checker's JVM target and Kotlin settings as one value.
 func (p *ProductionFirChecker) CompileTarget() CompileTarget {
-	return CompileTarget{JvmTarget: p.JvmTarget, Kotlin: p.Kotlin}
+	target := CompileTarget{JvmTarget: p.JvmTarget, Kotlin: p.Kotlin}
+	if !p.NoCache {
+		target.IncrementalDir = IncrementalDir(p.RepoDir)
+	}
+	return target
 }
 
 // Compile-time check.

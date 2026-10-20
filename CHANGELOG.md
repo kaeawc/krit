@@ -5,6 +5,11 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Incremental FIR checking (`KRIT_FIR_INCREMENTAL=1`) persists its state, verdicts and binary
+  snapshot to `.krit/fir-incremental/<compile key>/` (supplied by krit, bypassed by
+  `--no-cache`), so a restarted daemon or a one-shot run serves its first check
+  after a few edits by slice compile instead of a cold full check. Corrupt,
+  truncated, version- or key-mismatched bundles fall back to the cold check.
 - Linux fanotify watcher backend for the daemon: filesystem-wide kernel mark
   with FAN_REPORT_DFID_NAME + open_by_handle_at path resolution.
   Auto-selected on Linux when `CAP_SYS_ADMIN` + `CAP_DAC_READ_SEARCH` are

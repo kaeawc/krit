@@ -2,7 +2,8 @@ package dev.jasonpearson.krit.fir.checkers.i18n
 
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
-import dev.jasonpearson.krit.fir.otherDeclarationBodies
+import dev.jasonpearson.krit.fir.checkers.bodyInCheckedFile
+import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -29,7 +30,6 @@ import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedBaseSymbol
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
-import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
@@ -55,6 +55,10 @@ import org.jetbrains.kotlin.util.getChildren
 //   that the receiver's text starts with `DateTimeFormatter.ISO_` (or `RFC_`,
 //   `BASIC_ISO_`); FIR traces the receiver back to where its value comes from
 //   (see [origin]);
+// - a formatter held by a val, an extension, or a getter is traced through its
+//   initializer or single-expression body only where it is declared in the
+//   file under check; one declared in another file is not traced (a class file
+//   keeps neither), so the verdict is the same on a slice;
 // - the finding is reported on the line where the whole qualified call starts
 //   (the receiver's first line), as Go reports on its call_expression.
 //
@@ -76,7 +80,6 @@ import org.jetbrains.kotlin.util.getChildren
 //   (LocaleGetDefaultForFormattingRecall.kt, LocaleGetDefaultForFormattingTest).
 internal object LocaleGetDefaultForFormatting : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "LocaleGetDefaultForFormatting"
-    override val wholeCompilationTier = otherDeclarationBodies("Reads a helper's single-return body (function.fir.body) and the resolvedInitializer of a top-level val declared elsewhere.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(LocaleGetDefaultForFormatting)
     }
@@ -156,6 +159,7 @@ internal object LocaleGetDefaultForFormatting : FirFunctionCallChecker(MppChecke
     // formatter does not), and a final custom getter through its
     // single-expression body. An open property or extension may be overridden
     // with another formatter, so it is not traced.
+    context(context: CheckerContext)
     private fun origin(expression: FirExpression, holes: Set<FirBasedSymbol<*>>, budget: Int): Origin {
         if (budget <= 0) return Origin.OTHER
         val next = budget - 1
@@ -177,6 +181,7 @@ internal object LocaleGetDefaultForFormatting : FirFunctionCallChecker(MppChecke
         }
     }
 
+    context(context: CheckerContext)
     private fun callOrigin(call: FirFunctionCall, holes: Set<FirBasedSymbol<*>>, budget: Int): Origin {
         val symbol = call.calleeReference.toResolvedCallableSymbol() ?: return Origin.OTHER
         val id = symbol.callableId
@@ -210,6 +215,7 @@ internal object LocaleGetDefaultForFormatting : FirFunctionCallChecker(MppChecke
         return origin(receiver, holes, budget)
     }
 
+    context(context: CheckerContext)
     private fun propertyOrigin(
         access: FirPropertyAccessExpression,
         holes: Set<FirBasedSymbol<*>>,
@@ -224,7 +230,7 @@ internal object LocaleGetDefaultForFormatting : FirFunctionCallChecker(MppChecke
             val getter = symbol.getterSymbol
             if (getter == null || getter.isDefault) {
                 if (symbol.isVal && !symbol.hasDelegate) {
-                    symbol.resolvedInitializer?.let { return origin(it, emptySet(), budget) }
+                    symbol.initializerInCheckedFile()?.let { return origin(it, emptySet(), budget) }
                 }
             } else {
                 val result = bodyResult(getter)
@@ -242,6 +248,7 @@ internal object LocaleGetDefaultForFormatting : FirFunctionCallChecker(MppChecke
 
     // A scope function or extension whose body traced to [result]: its own
     // receiver ([Origin.HOLE]) continues the trace at the call's [receiver].
+    context(context: CheckerContext)
     private fun through(result: Origin, receiver: FirExpression, holes: Set<FirBasedSymbol<*>>, budget: Int): Origin =
         if (result == Origin.HOLE) origin(receiver, holes, budget) else result
 
@@ -258,11 +265,12 @@ internal object LocaleGetDefaultForFormatting : FirFunctionCallChecker(MppChecke
     private fun lambdaResult(lambda: FirAnonymousFunction): FirExpression? =
         unwrapReturn(lambda.body?.statements?.lastOrNull())
 
-    // The result of a source function or getter whose body is a single
-    // expression or return; null for a library function or a block body.
-    @OptIn(SymbolInternals::class)
+    // The result of a function or getter of the file under check whose body is
+    // a single expression or return; null for a function of another file (a
+    // class file keeps no body), a library function, or a block body.
+    context(context: CheckerContext)
     private fun bodyResult(function: FirFunctionSymbol<*>): FirExpression? =
-        unwrapReturn(function.fir.body?.statements?.singleOrNull())
+        unwrapReturn(function.bodyInCheckedFile()?.statements?.singleOrNull())
 
     private fun unwrapReturn(statement: FirStatement?): FirExpression? =
         if (statement is FirReturnExpression) statement.result else statement as? FirExpression

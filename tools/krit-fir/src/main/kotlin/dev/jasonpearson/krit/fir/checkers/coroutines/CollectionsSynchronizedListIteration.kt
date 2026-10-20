@@ -2,7 +2,8 @@ package dev.jasonpearson.krit.fir.checkers.coroutines
 
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
-import dev.jasonpearson.krit.fir.otherDeclarationBodies
+import dev.jasonpearson.krit.fir.checkers.delegateInCheckedFile
+import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
@@ -37,7 +38,6 @@ import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
-import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
@@ -90,7 +90,6 @@ import org.jetbrains.kotlin.name.StandardClassIds
 //   iterate a `java.util.Collections` wrapper there.
 internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "CollectionsSynchronizedListIteration"
-    override val wholeCompilationTier = otherDeclarationBodies("Reads the resolvedInitializer of a property holding the synchronized wrapper, which may be declared in another file.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(CollectionsSynchronizedListIteration)
     }
@@ -336,6 +335,7 @@ internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(Mp
     // body initializes with it.
     // An inner loop over such a value counts only when it does not report
     // the wrapper itself.
+    context(context: CheckerContext)
     private fun iteratesWrapperInBody(iteratorCall: FirFunctionCall, path: List<FirElement>): Boolean {
         val index = path.indexOfLast { it === iteratorCall }
         val variable = path.getOrNull(index - 1) as? FirVariable ?: return false
@@ -380,6 +380,7 @@ internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(Mp
         return found
     }
 
+    context(context: CheckerContext)
     private fun iteratesInBody(
         access: FirQualifiedAccessExpression,
         holdsWrapper: (FirExpression) -> Boolean,
@@ -399,8 +400,10 @@ internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(Mp
 
     // The iterable is a `val` holding a wrapper, directly or through a view or
     // adapter that iterates it lazily.
+    context(context: CheckerContext)
     private fun iteratesWrapperValue(iterable: FirExpression): Boolean = heldWrapperSymbol(iterable) != null
 
+    context(context: CheckerContext)
     private fun heldWrapperSymbol(iterable: FirExpression): FirPropertySymbol? {
         var current = unwrapValue(iterable)
         while (current is FirQualifiedAccessExpression) {
@@ -410,24 +413,26 @@ internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(Mp
                 Use.Iterates -> symbol?.name in iteratorMembers
                 else -> false
             }
-            if (!adapts) return (symbol as? FirPropertySymbol)?.takeIf(::holdsWrapper)
+            if (!adapts) return (symbol as? FirPropertySymbol)?.takeIf { holdsWrapper(it) }
             current = unwrapValue(current.explicitReceiver ?: return null)
         }
         return null
     }
 
     // A read-only property whose value is the wrapper its initializer
-    // creates: a `val` that is not open and has no explicit getter.
-    @OptIn(SymbolInternals::class)
+    // creates: a `val` that is not open and has no explicit getter. Only a
+    // property of the file under check shows its initializer or delegate (a
+    // class file keeps neither), so one of another file holds no wrapper.
+    context(context: CheckerContext)
     private fun holdsWrapper(symbol: FirPropertySymbol): Boolean {
         if (symbol.isVar) return false
         if (symbol.resolvedStatus.modality == Modality.OPEN || symbol.resolvedStatus.modality == Modality.ABSTRACT) {
             return false
         }
         if (symbol.getterSymbol?.isDefault == false && !symbol.hasDelegate) return false
-        val initializer = symbol.resolvedInitializer
+        val initializer = symbol.initializerInCheckedFile()
         if (initializer != null && isWrapperCall(unwrapValue(initializer))) return true
-        val delegate = symbol.delegate ?: return false
+        val delegate = symbol.delegateInCheckedFile() ?: return false
         var lazy = false
         var wrapper = false
         delegate.accept(object : FirVisitorVoid() {

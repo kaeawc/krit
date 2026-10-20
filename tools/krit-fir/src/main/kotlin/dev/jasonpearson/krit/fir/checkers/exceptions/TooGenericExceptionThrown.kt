@@ -1,13 +1,11 @@
 package dev.jasonpearson.krit.fir.checkers.exceptions
 
 import dev.jasonpearson.krit.fir.FirRule
-import dev.jasonpearson.krit.fir.otherDeclarationBodies
 import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
-import org.jetbrains.kotlin.KtPsiSourceElement
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -15,6 +13,7 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirExpressionChecker
+import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
 import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirCatch
 import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
@@ -29,6 +28,7 @@ import org.jetbrains.kotlin.fir.expressions.FirTryExpression
 import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
 import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
+import org.jetbrains.kotlin.fir.moduleData
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.references.toResolvedVariableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
@@ -43,7 +43,6 @@ import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.psi.KtElement
 
 /**
  * Port of the Go TooGenericExceptionThrown rule: a `throw` of a newly
@@ -63,10 +62,11 @@ import org.jetbrains.kotlin.psi.KtElement
  * configured name counts for every library class of that name, however it is
  * written or imported (`java.io.IOException(..)`, a star import, or a
  * `kotlin.*` alias of a `java.util` class such as `NoSuchElementException`):
- * Go's resolver cannot resolve those and reports them. A class declared in a
- * Kotlin source of the compilation is a project class, which Go finds in its
- * class index and skips, so it is never generic. Go's index holds no Java
- * declarations, so a Java class counts even when it is compiled from source.
+ * Go's resolver cannot resolve those and reports them. A Kotlin class of this
+ * module (compiled from a source file, or read from the module's own class
+ * files) is a project class, which Go finds in its class index and skips, so
+ * it is never generic. Go's index holds no Java declarations, so a Java class
+ * counts even when it is compiled from source.
  *
  * Exemptions mirrored from Go: test files and `.gradle.kts` scripts, and a
  * constructor that passes the parameter of the nearest `catch` enclosing it
@@ -103,7 +103,6 @@ import org.jetbrains.kotlin.psi.KtElement
 internal object TooGenericExceptionThrown :
     FirExpressionChecker<FirThrowExpression>(MppCheckerKind.Common), FirRule {
     override val ruleId = "TooGenericExceptionThrown"
-    override val wholeCompilationTier = otherDeclarationBodies("Uses symbol.source to tell a project exception class (Kotlin source of this compilation) from a library class when exceptionNames lists a non-default name; a class from the snapshot has no source.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val throwExpressionCheckers = setOf(TooGenericExceptionThrown)
     }
@@ -210,17 +209,22 @@ internal object TooGenericExceptionThrown :
         // unresolved), and never for a class declared in Kotlin source (Go
         // finds it in its class index, which holds Kotlin declarations only).
         val symbol = type.lookupTag.toRegularClassSymbol(context.session) ?: return null
-        return name.takeUnless { declaredInKotlinSource(symbol) }
+        return name.takeUnless { declaredInThisModule(symbol) }
     }
 
-    // Whether [symbol] is declared in a Kotlin file of this compilation: its
-    // source is a real element of the Kotlin light tree (how the compiler
-    // parses Kotlin sources) or of Kotlin PSI. A library class has no source,
-    // and a Java class compiled from a source root has a Java PSI element.
-    private fun declaredInKotlinSource(symbol: FirRegularClassSymbol): Boolean {
-        val source = symbol.source ?: return false
-        if (source.kind !is KtRealSourceElementKind) return false
-        return source !is KtPsiSourceElement || source.psi is KtElement
+    // Whether [symbol] is a Kotlin class of this module: compiled from a Kotlin
+    // file of the compilation, or loaded from the class files of this module's
+    // own earlier compile (an incremental slice reads the files it does not
+    // recompile that way). Both have the module's own module data; a library
+    // class has its library's. Go's class index holds Kotlin declarations
+    // only, so a Java class is never one, even when compiled from a source
+    // root. The decision uses the declaration's module, not its source: a class
+    // file carries no source, and the verdict must not depend on which files a
+    // compile has in source.
+    context(context: CheckerContext)
+    private fun declaredInThisModule(symbol: FirRegularClassSymbol): Boolean {
+        if (symbol.origin is FirDeclarationOrigin.Java) return false
+        return symbol.origin == FirDeclarationOrigin.Source || symbol.moduleData == context.session.moduleData
     }
 
     // Whether [call] passes the catch parameter itself as an argument.

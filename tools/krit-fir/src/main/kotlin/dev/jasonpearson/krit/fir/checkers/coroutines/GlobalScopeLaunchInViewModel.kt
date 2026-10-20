@@ -1,7 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.coroutines
 
 import dev.jasonpearson.krit.fir.FirRule
-import dev.jasonpearson.krit.fir.otherDeclarationBodies
+import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -54,7 +54,9 @@ import org.jetbrains.kotlin.text
  *   `object GlobalScope`, or a val named `GlobalScope` initialized with a new
  *   scope (`CoroutineScope(...)`, `MainScope()`, `scope + context`).
  * - Recall: FIR also reports a receiver that is `GlobalScope` under another
- *   spelling (an import or type alias, a val or local initialized with it, a
+ *   spelling (an import or type alias, a val of the same file or a local
+ *   initialized with it (a val of another file has no initializer to read, as
+ *   in a class file, so its value is unknown and Go's name test decides), a
  *   cast, `!!`, parentheses, backticks, `this`), a backticked class name, and
  *   a builder imported under an alias. Go reads names only.
  * - The message names the resolved builder, so `async` imported as `launch`
@@ -62,7 +64,6 @@ import org.jetbrains.kotlin.text
  */
 internal object GlobalScopeLaunchInViewModel : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "GlobalScopeLaunchInViewModel"
-    override val wholeCompilationTier = otherDeclarationBodies("Follows the resolvedInitializer of a final val (CoroutineScope = GlobalScope) declared in another file; a binary has no initializer.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(GlobalScopeLaunchInViewModel)
     }
@@ -144,7 +145,8 @@ internal object GlobalScopeLaunchInViewModel : FirFunctionCallChecker(MppChecker
                 if (!symbol.isVal || symbol.isLateInit || symbol.hasDelegate) return null
                 if (!symbol.isLocal && !symbol.isFinal) return null
                 if (symbol.getterSymbol?.isDefault == false) return null
-                val initializer = symbol.resolvedInitializer ?: return null
+                // A val of another file shows no initializer, as in a class file: its value is unknown.
+                val initializer = symbol.initializerInCheckedFile() ?: return null
                 holdsGlobalScope(initializer, depth + 1)
             }
             is FirFunctionCall -> {

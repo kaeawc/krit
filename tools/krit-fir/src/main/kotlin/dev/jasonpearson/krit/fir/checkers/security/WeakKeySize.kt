@@ -2,7 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.security
 
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
-import dev.jasonpearson.krit.fir.otherDeclarationBodies
+import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.significantChildren
@@ -102,7 +102,8 @@ import org.jetbrains.kotlin.name.SpecialNames
  * block, accessor, or property initializer) made on the object the call reads
  * the property from (the same class `this`, object, variable, or scope-function
  * receiver). A final member or top-level `val` with an initializer and a
- * default getter takes the algorithm of its initializer. When the variable's
+ * default getter declared in the same file takes the algorithm of its initializer (one
+ * of another file is not read: a class file keeps no initializer). When the variable's
  * own writes name no algorithm (a lambda parameter, a reassignment with an
  * unknown algorithm), the checker reads the generator as Go does: the first
  * literal getInstance before the call in the nearest named function whose
@@ -111,14 +112,15 @@ import org.jetbrains.kotlin.name.SpecialNames
  * Deliberate differences from Go, pinned by goldens. Go matches the variable
  * by name and the getInstance receiver by spelling; FIR resolves both:
  * - Recall (Go misses these true positives, WeakKeySizeGoMisses,
- *   WeakKeySizeDeclaredName, WeakKeySizeCrossFileTest): the getInstance
+ *   WeakKeySizeDeclaredName): the getInstance
  *   receiver spelled through an import alias, a typealias, or parentheses, or
  *   in a file that also declares an unrelated class named KeyGenerator or
  *   KeyPairGenerator; a `const val` algorithm; a write outside Go's enclosing
  *   function_declaration (a local variable used in a local function, local
  *   class or anonymous object method, a variable in an init block, property
  *   initializer or getter, or constructor parameter default); a final member
- *   or top-level `val` initialized with getInstance, in the file or another;
+ *   or top-level `val` initialized with getInstance, in the file (a generator
+ *   held by a `val` of another file is not followed, WeakKeySizeCrossFileTest);
  *   a `when` subject variable; a later conditional write whose algorithm makes
  *   the size weak; a variable named like one declared earlier in the
  *   function; a destructuring entry whose own operand is weak; an annotated,
@@ -134,7 +136,6 @@ import org.jetbrains.kotlin.name.SpecialNames
  */
 internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "WeakKeySize"
-    override val wholeCompilationTier = otherDeclarationBodies("Reads the resolvedInitializer of a top-level val key size declared in another file.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(WeakKeySize)
     }
@@ -198,7 +199,10 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
         access: FirPropertyAccessExpression,
         callStart: Int,
     ): List<String> {
-        val own = if (symbol is FirPropertySymbol && !isLocal(symbol) && isFinalInitializedVal(symbol)) {
+        // A property of another file is read as a class file has it, with no initializer: its algorithm is unknown.
+        val own = if (symbol is FirPropertySymbol && !isLocal(symbol) && symbol.isDeclaredInCheckedFile() &&
+            isFinalInitializedVal(symbol)
+        ) {
             val writes = Writes().also { symbol.fir.accept(it) }
             writes.of(symbol, local = false, owner = null).firstOrNull()?.let { writes.value(it).algorithms }.orEmpty()
         } else {

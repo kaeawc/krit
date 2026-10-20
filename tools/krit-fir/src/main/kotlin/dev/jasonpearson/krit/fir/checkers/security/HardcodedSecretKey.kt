@@ -1,7 +1,10 @@
 package dev.jasonpearson.krit.fir.checkers.security
 
 import dev.jasonpearson.krit.fir.FirRule
-import dev.jasonpearson.krit.fir.otherDeclarationBodies
+import dev.jasonpearson.krit.fir.checkers.bodyInCheckedFile
+import dev.jasonpearson.krit.fir.checkers.delegateInCheckedFile
+import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
+import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
@@ -32,7 +35,6 @@ import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
-import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFieldSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
@@ -102,7 +104,6 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  */
 internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "HardcodedSecretKey"
-    override val wholeCompilationTier = otherDeclarationBodies("Reads the resolvedInitializer of a non-local, non-const property (key bytes in a top-level or object val) declared elsewhere.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(HardcodedSecretKey)
     }
@@ -125,6 +126,7 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
         report(expression.source, MESSAGE)
     }
 
+    context(context: CheckerContext)
     private fun isHardcodedKey(key: FirExpression, walk: Walk): Boolean =
         isLiteralByteArrayOf(key) || isStringBytes(key, walk) || containsLiteralBase64Decode(key, walk)
 
@@ -166,6 +168,7 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
     // Starts with a string literal and holds a string-to-bytes conversion call
     // made directly on a hardcoded string literal, or is a `.bytes` read on one
     // (Go matches `".bytes` only at the end of the argument).
+    context(context: CheckerContext)
     private fun isStringBytes(expression: FirExpression, walk: Walk): Boolean {
         if (expression is FirPropertyAccessExpression && expression.calleeReference.name.asString() == "bytes") {
             return expression.explicitReceiver?.let { isLiteralReceiver(it, walk) } == true
@@ -187,16 +190,19 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
         return startsWithString && converts
     }
 
+    context(context: CheckerContext)
     private fun isLiteralStringConversion(call: FirFunctionCall, walk: Walk): Boolean =
         call.calleeReference.name.asString() in stringToBytes &&
             call.explicitReceiver?.let { isLiteralReceiver(it, walk) } == true
 
     // A hardcoded string written directly before the dot, as in Go's `".name`.
+    context(context: CheckerContext)
     private fun isLiteralReceiver(receiver: FirExpression, walk: Walk): Boolean =
         isConstantString(receiver, walk) && receiver.source?.text?.endsWith("\"") == true
 
     // Any `<...>Base64.decode(x)` or `<...>Base64.getDecoder().decode(x)` inside
     // the expression whose input `x` is a hardcoded value or its bytes.
+    context(context: CheckerContext)
     private fun containsLiteralBase64Decode(expression: FirExpression, walk: Walk): Boolean {
         var found = false
         expression.accept(object : FirVisitorVoid() {
@@ -212,6 +218,7 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
         return found
     }
 
+    context(context: CheckerContext)
     private fun isLiteralBase64Decode(call: FirFunctionCall, walk: Walk): Boolean {
         if (call.calleeReference.name.asString() != "decode") return false
         val receiver = call.explicitReceiver ?: return false
@@ -249,6 +256,7 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
     //    scope function's result, since the key is the literal whenever that
     //    branch runs;
     //  - any of these under a cast, a smart cast, or `!!`.
+    context(context: CheckerContext)
     private fun isHardcoded(expression: FirExpression, walk: Walk): Boolean {
         if (walk.depth >= MAX_DEPTH) return false
         walk.depth++
@@ -270,6 +278,7 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
         }
     }
 
+    context(context: CheckerContext)
     private fun isHardcodedCall(call: FirFunctionCall, walk: Walk): Boolean {
         val arguments = flatArguments(call)
         if (isLiteralBuilder(call)) return arguments.isNotEmpty() && arguments.all { isHardcoded(it, walk) }
@@ -318,6 +327,7 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
         }
     }
 
+    context(context: CheckerContext)
     private fun isHardcodedLambdaResult(argument: FirExpression?, walk: Walk): Boolean {
         val lambda = argument?.let(::strip) as? FirAnonymousFunctionExpression ?: return false
         val body = lambda.anonymousFunction.body ?: return false
@@ -325,6 +335,7 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
     }
 
     // The value a block produces is its last statement.
+    context(context: CheckerContext)
     private fun isHardcodedResult(block: FirBlock, walk: Walk): Boolean {
         val result = when (val last = block.statements.lastOrNull()) {
             is FirReturnExpression -> last.result
@@ -354,19 +365,24 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
     // hardcoded too (`key += "x"`, `key = OTHER_KEY`), since any of them may
     // be the value read; `key = loadKey()` disqualifies it. A lateinit var
     // has no initializer.
-    @OptIn(SymbolInternals::class)
+    //
+    // Only a declaration in the file under check is followed (a const needs no
+    // following): the initializer, getter, or delegate of a property in another
+    // file is not read, as a class file keeps none of them.
+    context(context: CheckerContext)
     private fun isFixedRead(access: FirPropertyAccessExpression, walk: Walk): Boolean =
         when (val symbol = access.calleeReference.toResolvedCallableSymbol()) {
             is FirPropertySymbol -> when {
                 symbol.isConst -> true
                 symbol.callableId?.classId in charsetOwners -> true
                 symbol.isLateInit -> false
+                !symbol.isDeclaredInCheckedFile() -> false
                 else -> walk.property(symbol) {
                     val declared = when {
-                        symbol.hasDelegate -> isHardcodedLazy(symbol.delegate, walk)
+                        symbol.hasDelegate -> isHardcodedLazy(symbol.delegateInCheckedFile(), walk)
                         symbol.getterSymbol?.isDefault == false ->
-                            symbol.getterSymbol?.fir?.body?.let { isHardcodedResult(it, walk) } == true
-                        else -> symbol.resolvedInitializer?.let { isHardcoded(it, walk) } == true
+                            symbol.getterSymbol?.bodyInCheckedFile()?.let { isHardcodedResult(it, walk) } == true
+                        else -> symbol.initializerInCheckedFile()?.let { isHardcoded(it, walk) } == true
                     }
                     declared && (!isLocalVar(symbol) || walk.reassigning(symbol) {
                         reassignmentsAll(symbol, walk.assignedLocalValues()) { isHardcoded(it, walk) }
@@ -380,6 +396,7 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
         }
 
     // `by lazy { hardcoded }`.
+    context(context: CheckerContext)
     private fun isHardcodedLazy(delegate: FirExpression?, walk: Walk): Boolean {
         val call = delegate as? FirFunctionCall ?: return false
         if (call.calleeReference.toResolvedCallableSymbol()?.callableId != lazyId) return false
@@ -453,6 +470,7 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
         (expression is FirLiteralExpression && expression.value is String) || expression is FirStringConcatenationCall
 
     // A string literal, or a template whose entries are all hardcoded.
+    context(context: CheckerContext)
     private fun isConstantString(expression: FirExpression, walk: Walk): Boolean = when (expression) {
         is FirLiteralExpression -> expression.value is String
         is FirStringConcatenationCall -> isHardcoded(expression, walk)

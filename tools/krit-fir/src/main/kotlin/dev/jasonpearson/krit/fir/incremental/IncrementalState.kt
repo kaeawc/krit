@@ -112,8 +112,8 @@ internal class SurfaceChange(val symbols: Set<Sym>, val scopes: Set<String>, val
 
 /**
  * Incremental facts of one [dev.jasonpearson.krit.fir.runner.AnalysisSession]: per-file content hashes and
- * declaration-surface hashes, and the reverse index of what each file's last compile looked up. Nothing
- * consumes it yet; the slice-compile planner will.
+ * declaration-surface hashes, and the reverse index of what each file's last compile looked up. The
+ * slice-compile planner (`IncrementalPlanner`) reads it.
  *
  * Every [commit] is a whole-module compile and replaces the per-file facts. The facts are compiler facts, so a
  * commit under a different [compileKey] (compiler, sources, classpath, settings) resets the state first. The
@@ -144,6 +144,7 @@ internal open class IncrementalState {
     private val classFile = HashMap<String, String>()
     private val declFiles = HashMap<Sym, MutableSet<String>>()
     private val subclassFiles = HashMap<String, MutableSet<String>>()
+    private val subclassNames = HashMap<String, MutableSet<String>>() // erased supertype -> fq names of classes extending it
 
     // The binary snapshot of the module and what became of it since it was built.
     private var snapshotOrNull: Snapshot? = null
@@ -232,12 +233,15 @@ internal open class IncrementalState {
     }
 
     private fun rebuildDeclarationIndexes() {
-        classFile.clear(); declFiles.clear(); subclassFiles.clear()
+        classFile.clear(); declFiles.clear(); subclassFiles.clear(); subclassNames.clear()
         for ((file, surface) in surfaces) {
             for (key in surface.decls.keys) declFiles.getOrPut(plain(key)) { HashSet() }.add(file)
             for ((cls, supers) in surface.supers) {
                 classFile[cls] = file
-                for (s in supers) subclassFiles.getOrPut(erase(s)) { HashSet() }.add(file)
+                for (s in supers) {
+                    subclassFiles.getOrPut(erase(s)) { HashSet() }.add(file)
+                    subclassNames.getOrPut(erase(s)) { HashSet() }.add(cls)
+                }
             }
         }
     }
@@ -252,7 +256,7 @@ internal open class IncrementalState {
     open fun reset() {
         compileKey = null; verdictKey = null
         surfaces.clear(); contentHashes.clear(); index.clear(); changes = HashMap(); commits = 0
-        classFile.clear(); declFiles.clear(); subclassFiles.clear()
+        classFile.clear(); declFiles.clear(); subclassFiles.clear(); subclassNames.clear()
         releaseSnapshot()
     }
 
@@ -333,6 +337,9 @@ internal open class IncrementalState {
     @Synchronized fun files(): Set<String> = HashSet(surfaces.keys)
 
     @Synchronized fun contentHash(file: String): String? = contentHashes[canonicalPath(file)]
+
+    /** The content hash of every recorded file, keyed by canonical path. */
+    @Synchronized fun contentHashes(): Map<String, String> = HashMap(contentHashes)
 
     /** Digest of [file]'s recorded declaration surface, or null when the file is not recorded. */
     @Synchronized fun surfaceHash(file: String): String? = surfaces[canonicalPath(file)]?.let(::hashOf)
@@ -419,6 +426,77 @@ internal open class IncrementalState {
             out += index.dependents(change.symbols, change.scopes)
         }
         out -= changed
+        return out
+    }
+
+    /** The recorded declaration surface of [file], or null when the file is not recorded. */
+    @Synchronized fun surfaceOf(file: String): FileSurface? = surfaces[canonicalPath(file)]
+
+    /** Fully qualified names of the classes that extend [classFqName], directly or through other classes. */
+    private fun subclassesTransitive(classFqName: String): Set<String> {
+        val seen = LinkedHashSet<String>()
+        val stack = ArrayDeque(listOf(classFqName))
+        while (stack.isNotEmpty()) for (sub in subclassNames[stack.removeLast()].orEmpty()) if (seen.add(sub)) stack += sub
+        return seen
+    }
+
+    /**
+     * [dependentsOf] for a planner, with one more rule: a member that changed on a class also changed on every
+     * subclass, because a call through a subclass looks the name up in the subclass's scope and never in the
+     * class that declares it.
+     */
+    @Synchronized fun dependentsWithSubclassScopes(changedFiles: Collection<String>): Set<String> {
+        val changed = changedFiles.mapTo(HashSet()) { canonicalPath(it) }
+        val out = HashSet<String>()
+        for (file in changed) {
+            val change = changes[file] ?: SurfaceChange.of(null, surfaces[file])
+            val symbols = HashSet(change.symbols)
+            val scopes = HashSet(change.scopes)
+            for (sym in change.symbols) {
+                if (sym.scope.isEmpty()) continue
+                for (sub in subclassesTransitive(sym.scope)) symbols += Sym(sub, sym.name)
+            }
+            for (scope in change.scopes) scopes += subclassesTransitive(scope)
+            out += index.dependents(symbols, scopes)
+        }
+        out -= changed
+        return out
+    }
+
+    /**
+     * The files a surface change reaches that lookups cannot see, for the files of the latest commit
+     * ([changeOf] covers that commit only). For each declaration that was added, removed or changed:
+     *  - a class: the declaring files of its supertypes, before and after (a sealed parent's binary lists its
+     *    inheritors);
+     *  - a top-level declaration: every other file that declares the same name (a redeclaration or conflicting
+     *    overload is only seen with both sides in source, and disappears when one side goes);
+     *  - a member (or a class): the files of all subclasses of the class that owns it (an implementer of an
+     *    abstract member that was renamed never looks the new name up).
+     * [files] are excluded from the result.
+     */
+    @Synchronized fun structuralDependentsOf(files: Collection<String>): Set<String> {
+        val given = files.mapTo(HashSet()) { canonicalPath(it) }
+        val out = HashSet<String>()
+        for (file in given) {
+            val change = changes[file] ?: SurfaceChange.of(null, surfaces[file])
+            if (change.isEmpty) continue
+            val before = change.previous
+            val after = surfaces[file]
+            val old = before?.decls.orEmpty()
+            val new = after?.decls.orEmpty()
+            for (key in old.keys + new.keys) {
+                if (old[key] == new[key]) continue
+                val isClass = key.name.startsWith(FileSurface.CLASS_MARK)
+                val fq = if (isClass) (if (key.scope.isEmpty()) "" else key.scope + ".") + key.name.removePrefix(FileSurface.CLASS_MARK) else null
+                if (fq != null) {
+                    for (super_ in before?.supers?.get(fq).orEmpty() + after?.supers?.get(fq).orEmpty()) classFile[erase(super_)]?.let(out::add)
+                }
+                if (classFile[key.scope] == null) declFiles[plain(key)]?.let(out::addAll)
+                val owner = fq ?: key.scope
+                if (classFile[owner] != null) for (sub in subclassesTransitive(owner)) classFile[sub]?.let(out::add)
+            }
+        }
+        out -= given
         return out
     }
 }

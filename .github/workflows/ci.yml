@@ -331,6 +331,14 @@ jobs:
       - name: Split differential (incremental FIR tiering)
         working-directory: tools/krit-fir
         run: ./gradlew --no-daemon incrementalDifferentialTest --stacktrace
+      # The planner differential (IncrementalPlannerDifferentialTest) runs about
+      # 600 synthetic files through 40 mixed edits and asserts that every
+      # planned check equals a fresh full check, with the planner engaged.
+      # It takes about 2 minutes, so `test` excludes it and it runs as its
+      # own step.
+      - name: Planner differential (incremental FIR checks)
+        working-directory: tools/krit-fir
+        run: ./gradlew --no-daemon incrementalPlannerTest --stacktrace
       - name: Upload krit-fir test reports
         if: failure()
         uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
@@ -339,6 +347,7 @@ jobs:
           path: |
             tools/krit-fir/build/reports/tests/test/
             tools/krit-fir/build/reports/tests/incrementalDifferentialTest/
+            tools/krit-fir/build/reports/tests/incrementalPlannerTest/
             tools/krit-fir/compiler-tests/build/reports/tests/test/
 
   # oracle-backend-parity drives both JVM oracles (krit-types and

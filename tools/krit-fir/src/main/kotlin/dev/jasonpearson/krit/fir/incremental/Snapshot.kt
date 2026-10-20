@@ -56,8 +56,11 @@ internal sealed interface SliceOutcome {
     class Fallback(val reason: SliceFallback, val cause: Throwable? = null) : SliceOutcome
 }
 
-/** The two points a test can make fail on purpose; null in production. */
+/** The points a test can make fail on purpose; null in production. */
 internal enum class IncrementalStage {
+    /** The planner, after it checked that it can serve the request and before it looks at the files. */
+    PLAN,
+
     /** The backend run that writes the snapshot, after a clean frontend. */
     SNAPSHOT_BACKEND,
 

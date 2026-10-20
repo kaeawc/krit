@@ -9,6 +9,7 @@ import dev.jasonpearson.krit.fir.plugins.PluginResponse
 import dev.jasonpearson.krit.fir.plugins.PluginRuleRegistry
 import dev.jasonpearson.krit.fir.plugins.PluginRuleRunner
 import dev.jasonpearson.krit.fir.plugins.ProjectPayloads
+import dev.jasonpearson.krit.fir.incremental.BundleStore
 import dev.jasonpearson.krit.fir.runner.AnalysisSession
 import dev.jasonpearson.krit.fir.runner.KotlinCompilerSettings
 import dev.jasonpearson.krit.fir.runner.BatchResult
@@ -359,7 +360,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                         request.rules.toSet(), request.ruleConfigs, request.testFiles, request.scanPaths,
                         request.sdkLevels)
                 } else {
-                    activeSession.configurePersistence(request.incrementalDir?.let(::JavaFile))
+                    activeSession.configurePersistence(BundleStore.trustedRoot(request.incrementalDir))
                     activeSession.check(request.id, request.files, request.rules.toSet(), request.ruleConfigs,
                         request.testFiles, request.scanPaths, request.sdkLevels)
                 }

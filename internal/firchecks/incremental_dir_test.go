@@ -2,9 +2,12 @@ package firchecks
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/cacheutil"
 )
 
 func incrementalDirOf(t *testing.T, target CompileTarget) (string, bool) {
@@ -54,5 +57,32 @@ func TestIncrementalDirIsNotPartOfTheCompileIdentity(t *testing.T) {
 	}
 	if strings.Contains(a.registrySuffix(), "incremental") {
 		t.Fatal("registry suffix leaks the directory")
+	}
+}
+
+func TestClearCacheRemovesThePersistedIncrementalBundles(t *testing.T) {
+	repo := t.TempDir()
+	dir := IncrementalDir(repo)
+	if err := os.MkdirAll(filepath.Join(dir, "v1-abc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "v1-abc", "bundle.bin"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sibling := filepath.Join(repo, ".krit", "fir-cache")
+	if err := os.MkdirAll(sibling, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := cacheutil.ClearAll(cacheutil.ClearContext{RepoDir: repo}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("fir-incremental survived --clear-cache: %v", err)
+	}
+	if _, err := os.Stat(sibling); err != nil {
+		t.Fatalf("clearing the bundles must leave other caches alone: %v", err)
+	}
+	if err := cacheutil.ClearAll(cacheutil.ClearContext{}); err != nil {
+		t.Fatalf("no repo is a no-op: %v", err)
 	}
 }

@@ -3,12 +3,12 @@ package dev.jasonpearson.krit.fir.runner
 import dev.jasonpearson.krit.fir.incremental.BundleCodec
 import dev.jasonpearson.krit.fir.incremental.BundleRejected
 import dev.jasonpearson.krit.fir.incremental.BundleStore
+import dev.jasonpearson.krit.fir.incremental.PersistedState
 import dev.jasonpearson.krit.fir.incremental.PersistedVerdict
 import dev.jasonpearson.krit.fir.incremental.Snapshot
 import dev.jasonpearson.krit.fir.incremental.SnapshotStorage
 import dev.jasonpearson.krit.fir.isIsolatable
 import java.io.File
-import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
@@ -38,9 +38,13 @@ internal sealed interface BundleLoad {
  *
  * **Write timing.** A full check schedules a write [FULL_DELAY_MILLIS] after it returns; a slice merge schedules one
  * [debounceMillis] after the last merge, and never later than [MAX_DELAY_MILLIS] after the first unwritten one. All run
- * on one background thread; a write takes the session's snapshot lock only to encode the state (and to copy the
- * classes after a full check), and does its file I/O outside it. [flush] (used by [AnalysisSession.dispose]) writes
- * whatever is pending, synchronously.
+ * on one background thread. A write holds the session's snapshot lock only to take an immutable image of the state
+ * and the verdicts, and to check afterwards that the working snapshot did not change while its classes were copied;
+ * encoding and all file I/O happen outside it, so a check never waits for a write. The copy of the classes (once per
+ * snapshot, after a full check) is the one thing that reads the working snapshot without the lock: slices park files
+ * in it, so [Snapshot.epoch] is read before and after, and a copy that overlapped a change is thrown away and retried
+ * ([MAX_UNLOCKED_COPY_ATTEMPTS] times, then once under the lock so that a busy session cannot starve its own bundle).
+ * [flush] (used by [AnalysisSession.dispose]) writes whatever is pending, synchronously.
  *
  * Nothing here throws into a check: a failed read is a [BundleLoad.Miss], a failed write is logged once and dropped.
  */
@@ -55,15 +59,22 @@ internal class BundlePersistence(private val session: AnalysisSession, val store
     @Volatile var lastLoadMillis = -1L
         private set
 
+    /** Test seams on the writer thread: after the classes were copied (before the copy is checked), and before publishing. */
+    @Volatile internal var testHookAfterCopy: (() -> Unit)? = null
+    @Volatile internal var testHookBeforePublish: (() -> Unit)? = null
+
     /** Bundles published by this session. */
     @Volatile var writes = 0
         private set
 
     private var loadAttempted = false
 
-    // The working snapshot whose classes are in the bundle under [persistedId].
+    // The working snapshot whose classes are in the bundle under [persistedId]. Guarded by the session's snapshot lock.
     private var persistedFor: Snapshot? = null
     private var persistedId: String? = null
+
+    // Copies of the working snapshot that overlapped a change and were thrown away. Guarded by [writeLock].
+    private var tornCopies = 0
 
     private val lock = Any()
     private var pending: ScheduledFuture<*>? = null
@@ -98,6 +109,10 @@ internal class BundlePersistence(private val session: AnalysisSession, val store
             val key = session.compileKeyNow()
             val bundle = store.read(key)
             if (bundle.snapshotId.isEmpty()) throw BundleRejected(BundleRejected.Reason.SNAPSHOT_MISSING, "bundle has no snapshot")
+            // A bundle is a file in the project tree: a path in it that is not one of this session's sources is not ours.
+            session.pathOutsideSourceDirs(bundle.state)?.let {
+                throw BundleRejected(BundleRejected.Reason.STATE_MISMATCH, "the state names a file outside the source directories: $it")
+            }
             // The state and the verdicts are one file and were written together; this guards a writer bug, not a race.
             if (bundle.verdictGeneration != bundle.state.generation) {
                 throw BundleRejected(BundleRejected.Reason.STATE_MISMATCH, "verdicts at generation ${bundle.verdictGeneration}, state at ${bundle.state.generation}")
@@ -127,6 +142,10 @@ internal class BundlePersistence(private val session: AnalysisSession, val store
         } catch (r: BundleRejected) {
             discard(working, attached)
             return BundleLoad.Miss(r.reason, r.message)
+        } catch (_: OutOfMemoryError) {
+            // A bundle is untrusted input: running out of heap on it is a miss, never a failed check.
+            discard(working, attached)
+            return BundleLoad.Miss(BundleRejected.Reason.IO, "out of memory loading the bundle")
         } catch (e: Throwable) {
             if (!isIsolatable(e)) throw e
             discard(working, attached)
@@ -168,13 +187,22 @@ internal class BundlePersistence(private val session: AnalysisSession, val store
         flush()
     }
 
-    /** Stops without writing what is pending: the caller no longer wants this root written (`--no-cache`). */
+    /**
+     * Stops without writing what is pending: the caller no longer wants this root written (`--no-cache`). A write that
+     * is in flight is stopped too: when this returns, nothing more is published (a publish that was already
+     * committing is waited for; it finishes before this returns).
+     */
     fun discard() {
         closed = true
+        synchronized(commitGate) { discarded = true }
         synchronized(lock) { pending?.cancel(false); pending = null; dirty = false }
     }
 
     private val writeLock = Any()
+
+    // Held by [BundleStore.publish] while it commits, and by [discard] while it flips [discarded].
+    private val commitGate = Any()
+    @Volatile private var discarded = false
 
     private fun runPending() {
         synchronized(writeLock) {
@@ -197,45 +225,68 @@ internal class BundlePersistence(private val session: AnalysisSession, val store
 
     /** Encodes the session's current state and publishes it; false when there was nothing to write. */
     private fun writeBundle(): Boolean {
-        if (session.persistence !== this) return false
+        if (session.persistence !== this || discarded) return false
         var stage: File? = null
-        val key: String
-        val id: String
-        val bytes: ByteArray
-        val snapshot: Snapshot
         try {
+            val key: String
+            val id: String
+            val image: PersistedState
+            val entries: List<PersistedVerdict>
+            val verdictGeneration: Int
+            val snapshot: Snapshot
+            var copyEpoch = -1L // >= 0: the classes still have to be copied, and this is the snapshot's epoch at the image
             synchronized(session.snapshotLock) {
                 val state = session.incrementalState
-                val image = state.exportImage() ?: return false
+                image = state.exportImage() ?: return false
                 key = session.compileKeyNow()
                 if (image.compileKey != key) return false
                 val verdicts = session.verdicts
                 // A cache that fell out of step with the state is not trusted by the planner, so it is not saved.
                 if (verdicts.generation != state.generation) return false
                 snapshot = state.snapshot ?: return false
-                val reuse = persistedFor === snapshot && persistedId != null
-                if (reuse) {
+                entries = verdicts.files().mapNotNull { f -> verdicts.get(f)?.let { PersistedVerdict(f, it) } }
+                verdictGeneration = verdicts.generation
+                if (persistedFor === snapshot && persistedId != null) {
                     id = persistedId!!
                 } else {
-                    id = UUID.randomUUID().toString().replace("-", "")
-                    stage = store.newStage(key)
-                    BundleStore.copyTree(snapshot.dir, checkNotNull(stage))
+                    id = BundleCodec.newSnapshotId()
+                    if (tornCopies >= MAX_UNLOCKED_COPY_ATTEMPTS) {
+                        stage = store.newStage(key).also { BundleStore.copyTree(snapshot.dir, it) }
+                    } else {
+                        copyEpoch = snapshot.epoch
+                    }
                 }
-                val entries = verdicts.files().mapNotNull { f -> verdicts.get(f)?.let { PersistedVerdict(f, it) } }
-                bytes = BundleCodec.encode(key, id, image, entries, verdicts.generation)
             }
-            val published = store.publish(key, bytes, id, stage)
+            if (copyEpoch >= 0) {
+                val staged = store.newStage(key).also { stage = it }
+                // The working snapshot is not locked: if a slice parks files meanwhile the copy is torn (or throws).
+                val failure = try { BundleStore.copyTree(snapshot.dir, staged); null } catch (e: java.io.IOException) { e }
+                testHookAfterCopy?.invoke()
+                val stable = synchronized(session.snapshotLock) {
+                    session.incrementalState.snapshot === snapshot && snapshot.epoch == copyEpoch && !snapshot.corrupt
+                }
+                if (!stable) {
+                    tornCopies++
+                    if (!discarded) markDirty(afterFullCheck = false)
+                    return false
+                }
+                if (failure != null) throw failure
+            }
+            tornCopies = 0
+            val bytes = BundleCodec.encode(key, id, image, entries, verdictGeneration)
+            testHookBeforePublish?.invoke()
+            val published = store.publish(key, bytes, id, stage, commitGate) { !discarded }
             if (published) {
                 synchronized(session.snapshotLock) { persistedFor = snapshot; persistedId = id }
                 writes++
-            } else {
+            } else if (!discarded) {
                 // The lock was busy, or the classes of a reused id are gone: stage them afresh next time.
-                if (stage == null) { persistedFor = null; persistedId = null }
+                if (stage == null) synchronized(session.snapshotLock) { persistedFor = null; persistedId = null }
                 markDirty(afterFullCheck = false)
             }
             return published
         } finally {
-            stage?.takeIf { it.exists() }?.deleteRecursively()
+            stage?.takeIf { it.exists() }?.let { BundleStore.deleteTree(it.toPath(), it.parentFile.toPath()) }
         }
     }
 
@@ -243,6 +294,7 @@ internal class BundlePersistence(private val session: AnalysisSession, val store
         const val DEBOUNCE_MILLIS = 2_000L
         const val MAX_DELAY_MILLIS = 30_000L
         const val FULL_DELAY_MILLIS = 50L
+        const val MAX_UNLOCKED_COPY_ATTEMPTS = 2
         private val DEBUG = System.getenv("KRIT_FIR_INCREMENTAL_DEBUG") == "1"
 
         // One daemon thread for every session's writes; a session's writes are serialised by its own lock.

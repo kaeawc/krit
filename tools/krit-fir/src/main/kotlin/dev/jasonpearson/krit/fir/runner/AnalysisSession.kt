@@ -11,6 +11,7 @@ import dev.jasonpearson.krit.fir.FirRuleErrors
 import dev.jasonpearson.krit.fir.incremental.CompileRecording
 import dev.jasonpearson.krit.fir.incremental.CompileRecordingRegistry
 import dev.jasonpearson.krit.fir.incremental.FingerprintBuilder
+import dev.jasonpearson.krit.fir.incremental.PersistedState
 import dev.jasonpearson.krit.fir.incremental.BuiltInTieredPolicy
 import dev.jasonpearson.krit.fir.incremental.BundleStore
 import dev.jasonpearson.krit.fir.incremental.CachedVerdict
@@ -785,6 +786,24 @@ class AnalysisSession(
     private fun isScript(path: String): Boolean = !path.endsWith(".kt")
 
     private val canonicalSourceDirs: Set<String> by lazy { sourceDirs.map { canonicalOrSelf(File(it)) }.toSet() }
+
+    /**
+     * The first file a persisted [state] names that is not under this session's source directories, or null. The
+     * state's paths are canonical, as are the roots, so the check is lexical.
+     */
+    internal fun pathOutsideSourceDirs(state: PersistedState): String? {
+        val roots = canonicalSourceDirs.map { java.nio.file.Path.of(it) }
+        fun outside(path: String): Boolean {
+            val p = try { java.nio.file.Path.of(path).normalize() } catch (_: Exception) { return true }
+            return !p.isAbsolute || roots.none { p.startsWith(it) }
+        }
+        val snap = state.snapshot
+        for (paths in listOf(
+            state.contentHashes.keys, state.surfaces.keys, state.classFacts.keys, state.lookups.keys,
+            snap.outputs.keys, snap.surfaceHashes.keys, snap.binaryStale, snap.removed,
+        )) for (path in paths) if (outside(path)) return path
+        return null
+    }
 
     /**
      * Run a K2 frontend compilation to collect oracle-style per-class

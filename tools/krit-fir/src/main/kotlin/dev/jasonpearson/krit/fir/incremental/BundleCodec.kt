@@ -64,7 +64,24 @@ internal object BundleCodec {
     private const val MAGIC = 0x4B464942 // "KFIB"
     private const val END_MAGIC = 0x4B454E44 // "KEND"
 
+    /** The ids [newSnapshotId] makes: 32 lower-case hex digits. The id names a directory, so nothing else is accepted. */
+    private val SNAPSHOT_ID = Regex("[0-9a-f]{32}")
+
+    fun isSnapshotId(id: String): Boolean = SNAPSHOT_ID.matches(id)
+
+    fun newSnapshotId(): String = java.util.UUID.randomUUID().toString().replace("-", "")
+
+    /** Estimated heap bytes one decoded element (a map entry, a set member, a list slot) costs. */
+    private const val ELEMENT_COST = 64L
+
+    /** Estimated heap bytes of a decoded string beyond its characters. */
+    private const val STRING_COST = 56L
+
+    /** The share of the heap a decode may be estimated to take; a file that needs more is rejected before it is built. */
+    fun defaultDecodeBudget(): Long = Runtime.getRuntime().maxMemory() / 3
+
     fun encode(compileKey: String, snapshotId: String, state: PersistedState, verdicts: Collection<PersistedVerdict>, verdictGeneration: Int): ByteArray {
+        require(isSnapshotId(snapshotId)) { "not a snapshot id: $snapshotId" }
         val strings = StringTable()
         val body = Writer()
         writeState(body, strings, state)
@@ -90,11 +107,18 @@ internal object BundleCodec {
         r.expect(MAGIC); r.int(); r.string()
     } catch (_: Exception) { null }
 
+    /** The snapshot id in the header of a bundle (its first bytes suffice), or null if there is none or it is malformed. The checksum is not checked. */
+    fun peekSnapshotId(bytes: ByteArray): String? = try {
+        val r = Reader(bytes, bytes.size)
+        r.expect(MAGIC); r.int(); r.string()
+        r.string().takeIf { isSnapshotId(it) }
+    } catch (_: Exception) { null }
+
     /**
      * Decodes [bytes], which must be a bundle of [compileKey]. Throws [BundleRejected] for anything else: a version
      * this build does not write, another key, a truncated or damaged file.
      */
-    fun decode(bytes: ByteArray, compileKey: String): DecodedBundle {
+    fun decode(bytes: ByteArray, compileKey: String, memoryBudget: Long = defaultDecodeBudget()): DecodedBundle {
         try {
             if (bytes.size < 12) throw BundleRejected(BundleRejected.Reason.TRUNCATED, "shorter than a header")
             val head = Reader(bytes, bytes.size)
@@ -110,11 +134,13 @@ internal object BundleCodec {
             val crc = CRC32().also { it.update(bytes, 0, end) }.value
             if (crc != storedCrc) throw BundleRejected(BundleRejected.Reason.CORRUPT, "checksum mismatch")
 
-            val r = Reader(bytes, end)
+            val r = Reader(bytes, end, memoryBudget)
             r.int(); r.int()
             val key = r.string()
             if (key != compileKey) throw BundleRejected(BundleRejected.Reason.COMPILE_KEY, "bundle of another compile key")
             val snapshotId = r.string()
+            // The id is a directory name: anything but what the writer makes could point out of the bundle.
+            if (!isSnapshotId(snapshotId)) throw BundleRejected(BundleRejected.Reason.CORRUPT, "malformed snapshot id")
             val generation = r.varint()
             val verdictGeneration = r.varint()
             val bodyLength = r.int()
@@ -126,6 +152,9 @@ internal object BundleCodec {
             return DecodedBundle(state, verdicts, verdictGeneration, snapshotId)
         } catch (e: BundleRejected) {
             throw e
+        } catch (_: OutOfMemoryError) {
+            // The budget makes this unlikely; if the heap is that full anyway, the bundle is a miss, never a failed check.
+            throw BundleRejected(BundleRejected.Reason.IO, "out of memory decoding the bundle")
         } catch (e: Exception) {
             // A damaged length or index that got past the checks: still a rejection, never an error to the caller.
             throw BundleRejected(BundleRejected.Reason.CORRUPT, "${e.javaClass.simpleName}: ${e.message}")
@@ -184,8 +213,8 @@ internal object BundleCodec {
     }
 
     private fun readState(r: Reader, strings: Array<String>, compileKey: String, generation: Int): PersistedState {
-        fun str() = strings.getOrNull(r.varint()) ?: throw BundleRejected(BundleRejected.Reason.CORRUPT, "string index out of range")
-        fun strOrNull(): String? = str().takeIf { it !== NULL_STRING }
+        fun str() = r.str(strings)
+        fun strOrNull() = r.strOrNull(strings)
         val verdictKey = strOrNull()
 
         val contentHashes = HashMap<String, String>()
@@ -268,8 +297,8 @@ internal object BundleCodec {
     }
 
     private fun readVerdicts(r: Reader, strings: Array<String>): List<PersistedVerdict> {
-        fun str() = strings.getOrNull(r.varint()) ?: throw BundleRejected(BundleRejected.Reason.CORRUPT, "string index out of range")
-        fun strOrNull(): String? = str().takeIf { it !== NULL_STRING }
+        fun str() = r.str(strings)
+        fun strOrNull() = r.strOrNull(strings)
         val out = ArrayList<PersistedVerdict>()
         repeat(r.count()) {
             val file = str()
@@ -294,18 +323,17 @@ internal object BundleCodec {
 
     // ---- strings --------------------------------------------------------------------------------------------------
 
-    // Stands for a null string; compared by identity, so no real string can be mistaken for it.
-    private val NULL_STRING = String(charArrayOf('\u0000', 'n', 'u', 'l', 'l'))
+    // Slot 0 of the string table is the null marker. It is a slot, not a value: no string, whatever its characters,
+    // is ever written there, and a reader of a non-null field refuses it.
+    private const val NULL_SLOT = 0
 
     private class StringTable {
         private val ids = HashMap<String, Int>()
-        private val order = ArrayList<String>()
-
-        init { id(NULL_STRING) }
+        private val order = ArrayList<String>().also { it.add("") } // slot 0: the null marker
 
         fun id(s: String?): Int {
-            val key = s ?: NULL_STRING
-            return ids.getOrPut(key) { order.add(key); order.size - 1 }
+            if (s == null) return NULL_SLOT
+            return ids.getOrPut(s) { order.add(s); order.size - 1 }
         }
 
         fun write(w: Writer) {
@@ -315,10 +343,9 @@ internal object BundleCodec {
     }
 
     private fun readStrings(r: Reader): Array<String> {
-        val n = r.count()
+        val n = r.countStrings()
         if (n < 1) throw BundleRejected(BundleRejected.Reason.CORRUPT, "empty string table")
-        // Slot 0 is the null marker: its bytes are written like any string's and are not used.
-        return Array(n) { i -> String(r.bytes(), StandardCharsets.UTF_8).let { if (i == 0) NULL_STRING else it } }
+        return Array(n) { r.stringBounded() }
     }
 
     // ---- bytes ----------------------------------------------------------------------------------------------------
@@ -364,8 +391,43 @@ internal object BundleCodec {
         fun append(other: Writer) { ensure(other.len); System.arraycopy(other.buf, 0, buf, len, other.len); len += other.len }
     }
 
-    private class Reader(private val buf: ByteArray, private val limit: Int) {
+    private class Reader(private val buf: ByteArray, private val limit: Int, private var budget: Long = Long.MAX_VALUE) {
         private var pos = 0
+
+        /** Charges the estimated heap cost of what is about to be built; a file that would take more than the budget is damage. */
+        private fun charge(cost: Long) {
+            budget -= cost
+            if (budget < 0) throw BundleRejected(BundleRejected.Reason.CORRUPT, "too large to decode within the memory budget")
+        }
+
+        fun str(strings: Array<String>): String {
+            val i = varint()
+            if (i == NULL_SLOT || i >= strings.size) throw BundleRejected(BundleRejected.Reason.CORRUPT, "string index out of range")
+            return strings[i]
+        }
+
+        fun strOrNull(strings: Array<String>): String? {
+            val i = varint()
+            if (i == NULL_SLOT) return null
+            if (i >= strings.size) throw BundleRejected(BundleRejected.Reason.CORRUPT, "string index out of range")
+            return strings[i]
+        }
+
+        /** The size of the string table: its slots are charged as strings, the reference array as references. */
+        fun countStrings(): Int {
+            val n = varint()
+            if (n < 0 || n > remaining()) throw BundleRejected(BundleRejected.Reason.CORRUPT, "count $n exceeds the bytes left")
+            charge(n * 8L)
+            return n
+        }
+
+        /** One table string, charged for the object and its characters. */
+        fun stringBounded(): String {
+            val n = varint()
+            need(n)
+            charge(STRING_COST + n)
+            return String(buf, pos, n, StandardCharsets.UTF_8).also { pos += n }
+        }
 
         fun position() = pos
         fun remaining() = limit - pos
@@ -414,6 +476,7 @@ internal object BundleCodec {
         fun count(): Int {
             val n = varint()
             if (n < 0 || n > remaining()) throw BundleRejected(BundleRejected.Reason.CORRUPT, "count $n exceeds the bytes left")
+            charge(n * ELEMENT_COST)
             return n
         }
 

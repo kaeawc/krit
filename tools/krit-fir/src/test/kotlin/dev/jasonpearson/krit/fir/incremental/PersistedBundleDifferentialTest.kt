@@ -23,6 +23,10 @@ import kotlin.test.assertTrue
  * with no incremental state, file by file: findings, compiler-error gate and rule errors. That first check must also be
  * served from the loaded bundle: incrementally, or by a documented fallback (never COLD).
  *
+ * A second run restarts after every step, with edits that delete files, rename them, remove sealed subclasses and move
+ * signatures: the state that is persisted is then the product of a slice merge that deleted files or changed surfaces
+ * (`removed`, `binaryStale` and the snapshot's surface hashes are not empty), not of a full check.
+ *
  * Tagged [IncrementalPlannerDifferentialTest.TAG]: it runs in `incrementalPlannerTest`, not in `test`.
  */
 @Tag(IncrementalPlannerDifferentialTest.TAG)
@@ -39,6 +43,11 @@ class PersistedBundleDifferentialTest {
             "body", "add", "redeclare", "comment", "sealed", "multi", "abstractBreak", "abstractRepair", "overload", "shadow",
             "redeclare", "delete", "rename", "sig", "multi", "body", "redeclare", "sealed", "comment", "body",
         )
+        // Surface changes, deletions and renames, one after the other: every restart follows a slice merge of one.
+        private val MERGE_HEAVY_CYCLE = listOf(
+            "delete", "sealed", "rename", "sig", "deleteBreak", "deleteRepair", "renameBreak", "renameRepair", "redeclare",
+            "abstractBreak", "abstractRepair", "overload", "delete", "shadow", "sealed", "add", "multi", "delete",
+        )
         private val ALLOWED_FALLBACKS = setOf(
             FullReason.NEEDS_RESNAPSHOT, FullReason.THRESHOLD, FullReason.PACKAGE_REMOVED, FullReason.SERIALIZABLE_NAMES_CHANGED,
             FullReason.SLICE_UNAVAILABLE, FullReason.GLOBAL_COMPILER_ERROR,
@@ -47,7 +56,13 @@ class PersistedBundleDifferentialTest {
 
     @TempDir lateinit var tmp: Path
 
-    @Test fun restartedSessionsEqualFreshFullChecksAcrossAMixedEditRun() {
+    @Test fun restartedSessionsEqualFreshFullChecksAcrossAMixedEditRun() =
+        drive(restartEvery = 3, cycle = CYCLE, edits = EDITS, minLoadedIncremental = 7)
+
+    @Test fun restartingAfterEverySliceMergeOfDeletionsAndSurfaceChangesEqualsFreshFullChecks() =
+        drive(restartEvery = 1, cycle = MERGE_HEAVY_CYCLE, edits = minOf(EDITS, 30), minLoadedIncremental = 5)
+
+    private fun drive(restartEvery: Int, cycle: List<String>, edits: Int, minLoadedIncremental: Int) {
         val src = tmp.resolve("src").toFile()
         val project = SyntheticProject(src, FILES).also { it.generate() }
         val root = tmp.resolve("fir-incremental").toFile()
@@ -60,7 +75,7 @@ class PersistedBundleDifferentialTest {
         val reference = AnalysisSession(project.sourceDirs, listOf(testStdlib), incrementalRecording = false, incrementalPlanning = false)
 
         var edit = 0
-        var cycle = 0
+        var cursor = 0
         var staleVerdicts = 0
         var restarts = 0
         var loads = 0
@@ -107,10 +122,10 @@ class PersistedBundleDifferentialTest {
         }
 
         step("cold", afterRestart = false, expectLoad = false)
-        while (edit <= EDITS) {
-            val restart = edit % 3 == 0
-            val edits = if (restart) 1 + (edit / 3) % 3 else 1
-            val kinds = (0 until edits).map { CYCLE[cycle++ % CYCLE.size] }
+        while (edit <= edits) {
+            val restart = edit % restartEvery == 0
+            val count = if (restart) 1 + (edit / restartEvery) % 3 else 1
+            val kinds = (0 until count).map { cycle[cursor++ % cycle.size] }
             for (kind in kinds) project.apply(kind)
             var expectLoad = false
             if (restart) {
@@ -131,7 +146,7 @@ class PersistedBundleDifferentialTest {
         assertEquals(0, staleVerdicts)
         assertTrue(restarts >= 10, "the run restarted $restarts times")
         assertTrue(loads >= restarts * 7 / 10, "only $loads of $restarts restarts loaded a bundle\n$log")
-        assertTrue(loadedIncremental >= loads * 7 / 10, "only $loadedIncremental of $loads loaded sessions served their first check incrementally: $fallbacks\n$log")
+        assertTrue(loadedIncremental >= loads * minLoadedIncremental / 10, "only $loadedIncremental of $loads loaded sessions served their first check incrementally: $fallbacks\n$log")
         planned.dispose()
         reference.dispose()
     }

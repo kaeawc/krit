@@ -25,8 +25,14 @@ class BundleStoreTest {
         PersistedSnapshot(emptyMap(), emptyMap(), emptySet(), emptySet()),
     )
 
+    /** A valid snapshot id (32 hex digits) standing for the readable name [name]. */
+    private fun sid(name: String) = java.security.MessageDigest.getInstance("MD5").digest(name.toByteArray()).joinToString("") { "%02x".format(it) }
+
     private fun bytes(key: String, id: String, generation: Int = 1) =
-        BundleCodec.encode(key, id, state(key, generation), emptyList(), generation)
+        BundleCodec.encode(key, sid(id), state(key, generation), emptyList(), generation)
+
+    private fun BundleStore.pub(key: String, id: String, staged: File?, generation: Int = 1) =
+        publish(key, bytes(key, id, generation), sid(id), staged)
 
     private fun stage(store: BundleStore, key: String, marker: String): File =
         store.newStage(key).also { File(it, "A.class").writeText(marker) }
@@ -34,10 +40,10 @@ class BundleStoreTest {
     @Test fun aPublishedBundleReadsBackWithItsClasses() {
         val store = BundleStore(root)
         val key = keyOf(1)
-        assertTrue(store.publish(key, bytes(key, "id1"), "id1", stage(store, key, "classes-1")))
+        assertTrue(store.pub(key, "id1", stage(store, key, "classes-1")))
         val back = store.read(key)
-        assertEquals("id1", back.snapshotId)
-        assertEquals("classes-1", File(store.classesDir(key, "id1"), "A.class").readText())
+        assertEquals(sid("id1"), back.snapshotId)
+        assertEquals("classes-1", File(store.classesDir(key, sid("id1")), "A.class").readText())
         assertEquals(emptyList(), store.dir(key).list()!!.filter { it.startsWith(".") }, "no staging or temp leftovers")
     }
 
@@ -49,36 +55,36 @@ class BundleStoreTest {
     @Test fun aSlicePublishReusesTheClassesAndRefusesWhenTheyAreGone() {
         val store = BundleStore(root)
         val key = keyOf(1)
-        assertTrue(store.publish(key, bytes(key, "id1"), "id1", stage(store, key, "x")))
-        assertTrue(store.publish(key, bytes(key, "id1", 2), "id1", null))
+        assertTrue(store.pub(key, "id1", stage(store, key, "x")))
+        assertTrue(store.pub(key, "id1", null, 2))
         assertEquals(2, store.read(key).state.generation)
-        store.classesDir(key, "id1").deleteRecursively()
-        assertFalse(store.publish(key, bytes(key, "id1", 3), "id1", null), "a bundle must not name classes that are not there")
+        store.classesDir(key, sid("id1")).deleteRecursively()
+        assertFalse(store.pub(key, "id1", null, 3), "a bundle must not name classes that are not there")
         assertEquals(2, store.read(key).state.generation, "and the old one stays")
     }
 
     @Test fun aNewSnapshotKeepsThePreviousClassesForReadersOfTheOldBundle() {
         val store = BundleStore(root)
         val key = keyOf(1)
-        store.publish(key, bytes(key, "a"), "a", stage(store, key, "a"))
-        store.publish(key, bytes(key, "b"), "b", stage(store, key, "b"))
-        assertTrue(store.classesDir(key, "a").isDirectory && store.classesDir(key, "b").isDirectory)
-        store.publish(key, bytes(key, "c"), "c", stage(store, key, "c"))
-        assertEquals(setOf("classes-b", "classes-c"), store.dir(key).list()!!.filter { it.startsWith("classes-") }.toSet())
+        store.pub(key, "a", stage(store, key, "a"))
+        store.pub(key, "b", stage(store, key, "b"))
+        assertTrue(store.classesDir(key, sid("a")).isDirectory && store.classesDir(key, sid("b")).isDirectory)
+        store.pub(key, "c", stage(store, key, "c"))
+        assertEquals(setOf("classes-${sid("b")}", "classes-${sid("c")}"), store.dir(key).list()!!.filter { it.startsWith("classes-") }.toSet())
     }
 
     @Test fun onlyTheMostRecentBundlesAreKept() {
         val store = BundleStore(root, keep = 3)
         for (i in 1..6) {
             val key = keyOf(i)
-            assertTrue(store.publish(key, bytes(key, "s$i"), "s$i", stage(store, key, "$i")))
+            assertTrue(store.pub(key, "s$i", stage(store, key, "$i")))
             store.bundleFile(key).setLastModified(1_000_000L + i * 10_000L)
         }
         val left = root.listFiles()!!.filter { it.isDirectory }.map { it.name }.toSet()
         assertEquals(setOf(keyOf(4), keyOf(5), keyOf(6)).map { "v${BundleCodec.VERSION}-$it" }.toSet(), left)
         assertEquals(emptyList(), root.listFiles()!!.filter { it.name.endsWith(".lock") && it.name.removeSuffix(".lock") !in left })
         // The newest survive and still read.
-        for (i in 4..6) assertEquals("s$i", store.read(keyOf(i)).snapshotId)
+        for (i in 4..6) assertEquals(sid("s$i"), store.read(keyOf(i)).snapshotId)
     }
 
     @Test fun anOlderFormatVersionIsEvictedLikeAnyOtherBundle() {
@@ -86,14 +92,14 @@ class BundleStoreTest {
         File(root, "v0-${keyOf(0)}").also { it.mkdirs(); File(it, "bundle.bin").writeText("old"); it.setLastModified(1) }
         File(root, "v0-${keyOf(0)}/bundle.bin").setLastModified(1)
         val key = keyOf(1)
-        assertTrue(store.publish(key, bytes(key, "s"), "s", stage(store, key, "x")))
+        assertTrue(store.pub(key, "s", stage(store, key, "x")))
         assertFalse(File(root, "v0-${keyOf(0)}").exists())
     }
 
     @Test fun aBundleBeingWrittenIsNotEvicted() {
         val store = BundleStore(root, keep = 1)
         val old = keyOf(1)
-        store.publish(old, bytes(old, "s"), "s", stage(store, old, "x"))
+        store.pub(old, "s", stage(store, old, "x"))
         store.bundleFile(old).setLastModified(1_000L)
         val held = CountDownLatch(1)
         val release = CountDownLatch(1)
@@ -102,7 +108,7 @@ class BundleStoreTest {
         }.also { it.start() }
         assertTrue(held.await(5, TimeUnit.SECONDS))
         val key = keyOf(2)
-        store.publish(key, bytes(key, "t"), "t", stage(store, key, "y"))
+        store.pub(key, "t", stage(store, key, "y"))
         assertTrue(store.dir(old).isDirectory, "the bundle a writer holds is left alone")
         release.countDown(); holder.join()
         store.evict()
@@ -139,7 +145,7 @@ class BundleStoreTest {
                     val id = "w$w-r$r"
                     val generation = 1 + w * rounds + r
                     try {
-                        store.publish(key, bytes(key, id, generation), id, stage(store, key, "$w/$r"))
+                        store.pub(key, id, stage(store, key, "$w/$r"), generation)
                     } catch (t: Throwable) { failures += t }
                 }
             }
@@ -158,7 +164,7 @@ class BundleStoreTest {
     @Test fun aSecondProcessHoldingTheLockMakesAWriterWaitForItNotCorruptTheBundle() {
         val store = BundleStore(root)
         val key = keyOf(1)
-        store.publish(key, bytes(key, "a"), "a", stage(store, key, "a"))
+        store.pub(key, "a", stage(store, key, "a"))
         val lockFile = File(root, "v${BundleCodec.VERSION}-$key.lock")
         val source = tmp.resolve("Hold.java").toFile()
         source.writeText(
@@ -182,9 +188,9 @@ class BundleStoreTest {
         try {
             assertEquals("locked", process.inputStream.bufferedReader().readLine())
             val t0 = System.nanoTime()
-            assertTrue(store.publish(key, bytes(key, "b", 2), "b", stage(store, key, "b")))
+            assertTrue(store.pub(key, "b", stage(store, key, "b"), 2))
             assertTrue((System.nanoTime() - t0) / 1_000_000 >= 1000, "the writer waited for the other process")
-            assertEquals("b", store.read(key).snapshotId)
+            assertEquals(sid("b"), store.read(key).snapshotId)
         } finally {
             process.destroy()
         }

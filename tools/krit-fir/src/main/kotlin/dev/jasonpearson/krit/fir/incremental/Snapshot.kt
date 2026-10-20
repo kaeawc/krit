@@ -96,6 +96,14 @@ internal class Snapshot(val root: File) {
     @Volatile var corrupt = false
         private set
 
+    /**
+     * Counts the changes to the files of [dir] (parking, putting back, adopting a compile's outputs, restoring,
+     * deleting). A reader that copies the directory without holding the lock that serialises those changes reads the
+     * epoch before and after: if it moved, the copy may be torn and is thrown away.
+     */
+    @Volatile var epoch = 0L
+        private set
+
     @Synchronized fun fileCount(): Int = outputs.size
 
     fun moduleMapping(): ByteArray? = mapping
@@ -109,6 +117,7 @@ internal class Snapshot(val root: File) {
      */
     @Synchronized
     fun restore(recorded: Map<String, List<String>>): Boolean {
+        epoch++
         // A bundle is a file in the project tree: its paths are data, and parking moves files by them.
         for (rels in recorded.values) for (rel in rels) {
             val path = try { Path.of(rel) } catch (_: Exception) { return false }
@@ -122,6 +131,7 @@ internal class Snapshot(val root: File) {
     /** Takes over the compile's [reported] outputs (canonical source -> absolute output paths) and its module mapping. */
     @Synchronized
     fun adopt(reported: Map<String, List<String>>) {
+        epoch++
         outputs.clear()
         val base = dir.toPath().toAbsolutePath().normalize()
         val canonicalBase = try { dir.canonicalFile.toPath() } catch (_: IOException) { base }
@@ -156,6 +166,7 @@ internal class Snapshot(val root: File) {
 
     @Synchronized
     fun park(sources: Collection<String>) {
+        epoch++
         try {
             for (source in sources) {
                 val rels = outputs[canonicalPath(source)] ?: continue
@@ -172,6 +183,7 @@ internal class Snapshot(val root: File) {
 
     @Synchronized
     fun unpark() {
+        epoch++
         var failure: IOException? = null
         for ((_, rels) in parkedOutputs) {
             for (rel in rels) {
@@ -188,6 +200,7 @@ internal class Snapshot(val root: File) {
     /** Deletes the snapshot from disk. */
     @Synchronized
     fun delete() {
+        epoch++
         outputs.clear(); parkedOutputs.clear(); mapping = null
         SnapshotStorage.release(root)
         root.deleteRecursively()

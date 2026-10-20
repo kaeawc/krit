@@ -70,14 +70,25 @@ internal class FingerprintBuilder {
     }
 
     /**
-     * Path, size and modification time: cheap, and changes whenever the classpath entry is rebuilt. A directory
-     * (compiled classes of an upstream module) is walked and each regular file's relative path, size and
-     * modification time is included, sorted; the root's own mtime does not change when nested files are rewritten.
-     * Contents are never read.
+     * Path, size and modification time: cheap, and changes whenever the classpath entry is rebuilt. A zip or jar file
+     * also contributes [ZipDigest] of its central directory, which holds the CRC-32 of every entry, so replacing a jar
+     * by one of the same size and timestamp but other contents still changes the key (a persisted bundle outlives the
+     * process, and nothing else would notice). A directory (compiled classes of an upstream module) is walked and each
+     * regular file's relative path, size and modification time is included, sorted; the root's own mtime does not
+     * change when nested files are rewritten. File contents inside a directory are not read: build tools rewrite
+     * class files with new timestamps, and hashing a whole output tree on every compile-key computation would cost
+     * more than the bundle saves.
      */
     fun addFileIdentity(label: String, path: String): FingerprintBuilder {
         val f = File(path)
-        if (!f.isDirectory) return add(label, listOf(canonicalPath(path), if (f.isFile) f.length() else -1L, f.lastModified()))
+        if (!f.isDirectory) {
+            if (!f.isFile) return add(label, listOf(canonicalPath(path), -1L, f.lastModified()))
+            val size = f.length()
+            val modified = f.lastModified()
+            val parts = ArrayList<Any>(listOf(canonicalPath(path), size, modified))
+            if (ZipDigest.looksLikeZip(path)) parts += ZipDigest.of(f, size, modified)
+            return add(label, parts)
+        }
         val root = f.toPath()
         val entries = f.walkTopDown().filter { it.isFile }
             .map { "${root.relativize(it.toPath())}|${it.length()}|${it.lastModified()}" }.sorted().toList()
@@ -93,6 +104,82 @@ internal class FingerprintBuilder {
         is Set<*> -> value.map { render(it) }.sorted().joinToString(",", "[", "]")
         is Iterable<*> -> value.joinToString(",", "(", ")") { render(it) }
         else -> value.toString()
+    }
+}
+
+/**
+ * A digest of a zip or jar file's central directory: every entry's name, sizes, CRC-32 and timestamps, in a few
+ * kilobytes to megabytes read from the end of the file, instead of the whole archive. A rebuilt archive with other
+ * contents has other CRCs. Cached per path, size and modification time, so a classpath is read once per process.
+ * Anything the reader does not understand digests to a fixed marker (the size and mtime still count).
+ */
+internal object ZipDigest {
+    private const val EOCD_SIGNATURE = 0x06054b50
+    private const val ZIP64_LOCATOR_SIGNATURE = 0x07064b50
+    private const val ZIP64_EOCD_SIGNATURE = 0x06064b50
+    private const val EOCD_MIN = 22
+    private const val MAX_COMMENT = 0xFFFF
+    private const val MAX_CACHE = 20_000
+
+    private data class Key(val path: String, val size: Long, val modified: Long)
+
+    private val cache = ConcurrentHashMap<Key, String>()
+
+    /** Forgets what was read, as a new process would. For tests. */
+    internal fun clearCache() = cache.clear()
+
+    fun looksLikeZip(path: String): Boolean {
+        val name = path.lowercase()
+        return name.endsWith(".jar") || name.endsWith(".zip") || name.endsWith(".aar") || name.endsWith(".klib")
+    }
+
+    fun of(file: File, size: Long = file.length(), modified: Long = file.lastModified()): String {
+        val key = Key(canonicalPath(file.path), size, modified)
+        cache[key]?.let { return it }
+        val digest = try { compute(file, size) } catch (_: Exception) { "unreadable" }
+        if (cache.size >= MAX_CACHE) cache.clear()
+        cache[key] = digest
+        return digest
+    }
+
+    private fun compute(file: File, size: Long): String = java.io.RandomAccessFile(file, "r").use { raf ->
+        if (size < EOCD_MIN) return@use "not-a-zip"
+        val tailLength = minOf(size, (EOCD_MIN + MAX_COMMENT).toLong()).toInt()
+        val tail = ByteArray(tailLength)
+        raf.seek(size - tailLength)
+        raf.readFully(tail)
+        val buf = java.nio.ByteBuffer.wrap(tail).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        var eocd = -1
+        for (i in tailLength - EOCD_MIN downTo 0) if (buf.getInt(i) == EOCD_SIGNATURE) { eocd = i; break }
+        if (eocd < 0) return@use "not-a-zip"
+        var cdSize = buf.getInt(eocd + 12).toLong() and 0xFFFFFFFFL
+        var cdOffset = buf.getInt(eocd + 16).toLong() and 0xFFFFFFFFL
+        val entries = buf.getShort(eocd + 10).toInt() and 0xFFFF
+        if (cdSize == 0xFFFFFFFFL || cdOffset == 0xFFFFFFFFL || entries == 0xFFFF) {
+            // zip64: the locator sits just before the end record and points at the zip64 end record.
+            val locator = eocd - 20
+            if (locator >= 0 && buf.getInt(locator) == ZIP64_LOCATOR_SIGNATURE) {
+                val zip64At = buf.getLong(locator + 8)
+                val rec = ByteArray(56)
+                raf.seek(zip64At)
+                raf.readFully(rec)
+                val z = java.nio.ByteBuffer.wrap(rec).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                if (z.getInt(0) == ZIP64_EOCD_SIGNATURE) { cdSize = z.getLong(40); cdOffset = z.getLong(48) }
+            }
+        }
+        if (cdOffset < 0 || cdSize < 0 || cdOffset + cdSize > size) return@use "bad-directory"
+        val sha = MessageDigest.getInstance("SHA-256")
+        sha.update(cdSize.toString().toByteArray())
+        raf.seek(cdOffset)
+        val chunk = ByteArray(64 * 1024)
+        var left = cdSize
+        while (left > 0) {
+            val n = raf.read(chunk, 0, minOf(left, chunk.size.toLong()).toInt())
+            if (n < 0) return@use "short-directory"
+            sha.update(chunk, 0, n)
+            left -= n
+        }
+        hex(sha.digest())
     }
 }
 

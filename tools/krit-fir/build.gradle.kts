@@ -89,12 +89,14 @@ tasks.shadowJar {
 }
 
 val differentialTag = "incremental-differential"
+val plannerTag = "incremental-planner"
+val benchTag = "incremental-bench"
 
 tasks.test {
     useJUnitPlatform {
         // The split differential compiles thousands of module slices; it runs in
         // its own task (incrementalDifferentialTest) and CI step.
-        excludeTags(differentialTag)
+        excludeTags(differentialTag, plannerTag, benchTag)
     }
     // AnalysisSessionAnalyzeTest drives the embedded K2 compiler and
     // needs the krit-fir plugin classes on the plugin classpath. Point
@@ -131,6 +133,56 @@ tasks.register<Test>("incrementalDifferentialTest") {
         findProperty(name)?.let { systemProperty(name, it.toString()) }
     }
     maxHeapSize = "2g"
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStandardStreams = true
+    }
+}
+
+// IncrementalPlannerDifferentialTest: about 600 synthetic files and 40 mixed edits; after each one the planned
+// check must equal a fresh full check. Tuning: -Pkrit.fir.planner.files=N, -Pkrit.fir.planner.edits=N.
+tasks.register<Test>("incrementalPlannerTest") {
+    description = "Planner differential: incremental checks equal fresh full checks over a mixed edit run."
+    group = "verification"
+    useJUnitPlatform { includeTags(plannerTag) }
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    dependsOn("jar")
+    val pluginJar = tasks.named("jar", Jar::class.java).flatMap { it.archiveFile }
+    inputs.file(pluginJar)
+    systemProperty("krit.fir.plugin.jar", pluginJar.get().asFile.absolutePath)
+    systemProperty("krit.fir.cache.dir", layout.buildDirectory.dir("test-krit-cache").get().asFile.absolutePath)
+    for (name in listOf("krit.fir.planner.files", "krit.fir.planner.edits", "krit.fir.planner.staleFraction", "krit.fir.planner.staleMin")) {
+        findProperty(name)?.let { systemProperty(name, it.toString()) }
+    }
+    maxHeapSize = "3g"
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStandardStreams = true
+    }
+}
+
+// IncrementalPlannerBench: p50/p95 per edit, planned vs full. Not a test; run by hand under a lock on a shared machine:
+// -Pkrit.fir.bench.files=N (synthetic) or -Pkrit.fir.bench.real=dir1,dir2 (real sources), -Pkrit.fir.bench.edits=N,
+// -Pkrit.fir.bench.policy=exclude|default.
+tasks.register<Test>("incrementalBench") {
+    description = "Timing of planned vs full checks (see IncrementalPlannerBench)."
+    group = "verification"
+    useJUnitPlatform { includeTags(benchTag) }
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    dependsOn("jar")
+    outputs.upToDateWhen { false }
+    val pluginJar = tasks.named("jar", Jar::class.java).flatMap { it.archiveFile }
+    inputs.file(pluginJar)
+    systemProperty("krit.fir.plugin.jar", pluginJar.get().asFile.absolutePath)
+    systemProperty("krit.fir.cache.dir", layout.buildDirectory.dir("test-krit-cache").get().asFile.absolutePath)
+    for (name in listOf("files", "real", "edits", "policy", "out", "classpath", "hashes", "fullEvery")) {
+        findProperty("krit.fir.bench.$name")?.let { systemProperty("krit.fir.bench.$name", it.toString()) }
+    }
+    maxHeapSize = (findProperty("krit.fir.bench.heap") as String?) ?: "6g"
     testLogging {
         events("failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL

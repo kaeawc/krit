@@ -20,8 +20,10 @@ internal fun canonicalPath(path: String): String =
  * or classifier scope it searches, whether or not the lookup succeeds, so a later declaration that would
  * shadow or overload is covered too. Passed to the compiler through `Services`.
  *
- * `ImportTracker` is intentionally not wired: the lookup of an imported name already arrives here, in the
- * scope the import names, so imports add no dependency this tracker misses.
+ * `ImportTracker` is intentionally not wired: the lookup of an explicitly imported name already arrives here, in the
+ * scope the import names. A star import that no lookup goes through (the importer uses nothing from the package)
+ * is not recorded: if the package disappears the importer's error is invisible here, so the planner watches for a
+ * package that loses its last declaring file and uses the full compile (see `FullReason.PACKAGE_REMOVED`).
  */
 internal class CompileLookups : LookupTracker {
     val byFile = ConcurrentHashMap<String, MutableSet<Sym>>()

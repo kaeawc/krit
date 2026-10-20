@@ -10,16 +10,23 @@ import dev.jasonpearson.krit.fir.FirRuleErrors
 import dev.jasonpearson.krit.fir.incremental.CompileRecording
 import dev.jasonpearson.krit.fir.incremental.CompileRecordingRegistry
 import dev.jasonpearson.krit.fir.incremental.FingerprintBuilder
+import dev.jasonpearson.krit.fir.incremental.BuiltInTieredPolicy
+import dev.jasonpearson.krit.fir.incremental.CachedVerdict
 import dev.jasonpearson.krit.fir.incremental.IncrementalStage
 import dev.jasonpearson.krit.fir.incremental.IncrementalState
 import dev.jasonpearson.krit.fir.incremental.IncrementalTestHook
 import dev.jasonpearson.krit.fir.incremental.SNAPSHOT_MODULE_NAME
 import dev.jasonpearson.krit.fir.incremental.SliceFallback
 import dev.jasonpearson.krit.fir.incremental.SliceOutcome
+import dev.jasonpearson.krit.fir.incremental.PlanTelemetry
+import dev.jasonpearson.krit.fir.incremental.PlannerLimits
 import dev.jasonpearson.krit.fir.incremental.Snapshot
 import dev.jasonpearson.krit.fir.incremental.SnapshotBuild
 import dev.jasonpearson.krit.fir.incremental.SnapshotComponents
 import dev.jasonpearson.krit.fir.incremental.SnapshotStorage
+import dev.jasonpearson.krit.fir.incremental.TieredRulePolicy
+import dev.jasonpearson.krit.fir.incremental.VerdictCache
+import dev.jasonpearson.krit.fir.incremental.VerdictKeys
 import dev.jasonpearson.krit.fir.incremental.contentHashesOf
 import dev.jasonpearson.krit.fir.incremental.incrementalRecordingFromEnv
 import dev.jasonpearson.krit.fir.isIsolatable
@@ -118,7 +125,33 @@ class AnalysisSession(
      * ([sliceCheck]). A failure to build it loses the snapshot only; the check's result is the same either way.
      */
     val incrementalSnapshot: Boolean = incrementalRecording,
+    /**
+     * Serves [check] from [incrementalState] and its snapshot when possible (see [IncrementalPlanner]); needs
+     * [incrementalRecording] and [incrementalSnapshot]. Off keeps `check` the whole-module compile it is without the
+     * feature. Defaults to `KRIT_FIR_INCREMENTAL=1`.
+     */
+    val incrementalPlanning: Boolean = incrementalRecordingFromEnv(),
 ) {
+
+    /** True when [check] goes through the planner. */
+    internal val plannerEnabled: Boolean get() = incrementalPlanning && incrementalRecording && incrementalSnapshot
+
+    /** How the planner serves tiered rules; the default is the safe full compile. */
+    @Volatile internal var tieredRulePolicy: TieredRulePolicy = BuiltInTieredPolicy.FULL_IF_TIERED_ENABLED
+
+    @Volatile internal var plannerLimits = PlannerLimits()
+
+    /** What the latest planned [check] came to; null before the first one and when the planner is off. */
+    @Volatile internal var lastPlan: PlanTelemetry? = null
+
+    /** Per-file verdicts of the module, in step with [incrementalState] (see [VerdictCache]). Touched under [snapshotLock]. */
+    internal val verdicts = VerdictCache()
+
+    /** Whole-module commits to [incrementalState] so far; lets the planner see whether a full compile replaced it. */
+    @Volatile internal var fullCommits = 0
+        private set
+
+    private val planner by lazy { IncrementalPlanner(this) }
 
     /** Parent of the snapshot directories, for tests; null uses the per-user krit cache dir. */
     internal var snapshotRootOverride: File? = null
@@ -128,7 +161,7 @@ class AnalysisSession(
 
     // Serializes whatever touches the snapshot directory: slice compiles (which move files in it), and the commits
     // of a whole-module compile (which replace and delete it).
-    private val snapshotLock = Any()
+    internal val snapshotLock = Any()
 
     /** Per-file surface hashes, lookup reverse index and content hashes of this session's last recorded check compile. */
     internal var incrementalState = IncrementalState()
@@ -146,11 +179,16 @@ class AnalysisSession(
 
     // Recording is best-effort: whatever goes wrong with it drops the recorded facts and never touches the verdict.
     private fun recordingFailed(cause: Throwable) {
-        try { synchronized(snapshotLock) { incrementalState.reset() } } catch (_: Throwable) {}
+        try { resetIncremental() } catch (_: Throwable) {}
         if (!recordingFailureLogged) {
             recordingFailureLogged = true
             System.err.println("krit-fir: incremental recording failed and was dropped (${cause.javaClass.name}: ${cause.message})")
         }
+    }
+
+    /** Drops every recorded fact, the snapshot and the verdicts: the next planned check is a cold full check. */
+    internal fun resetIncremental() {
+        synchronized(snapshotLock) { incrementalState.reset(); verdicts.clear() }
     }
 
     private val compilationJvmTarget: String = resolveJvmTarget(jvmTarget)
@@ -226,6 +264,7 @@ class AnalysisSession(
         scanPaths: Map<String, String> = emptyMap(),
         sdkLevels: Map<String, SdkLevels> = emptyMap(),
     ): BatchResult {
+        if (plannerEnabled) return planner.serve(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels)
         return checkCompilation(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels)
     }
 
@@ -235,6 +274,8 @@ class AnalysisSession(
         testFiles: Set<String>, scanPaths: Map<String, String>, sdkLevels: Map<String, SdkLevels>,
         module: ModuleCompilation? = null,
         ownedSources: Set<String> = emptySet(),
+        // False: a plain check that records nothing, builds no snapshot and leaves the incremental state alone.
+        record: Boolean = true,
     ): BatchResult {
         val plan = CheckPlan(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, module, ownedSources)
         if (plan.compiled.isEmpty() && module == null) return plan.emptyResult()
@@ -243,7 +284,7 @@ class AnalysisSession(
             val sources = module?.sources ?: compilationFiles(plan.compiled.map { it.path })
             val args = compilationArguments(sources, outDir, module)
             // A session runs many module compiles; only the legacy whole-session compile is recorded.
-            if (module == null) plan.startRecording(sources)
+            if (module == null && record) plan.startRecording(sources)
             val build = if (module == null) plan.prepareSnapshot(args, sources) else null
             compileModule(args, listOf(plan.collector), plan.contexts(), skipEmptySources = true, frontendOnly = module == null,
                 recording = plan.recording, build = build).also { plan.commitRecording(it, build) }
@@ -255,8 +296,73 @@ class AnalysisSession(
             plan.discardSnapshot()
             if (module == null) outDir.deleteRecursively()
         }
-        return plan.result(exitCode)
+        val result = plan.result(exitCode)
+        if (module == null && plannerEnabled && plan.committed) storeFullVerdicts(plan, result)
+        return result
     }
+
+    // The verdicts of a whole-module check that just replaced the state: every requested file's, and nothing else.
+    private fun storeFullVerdicts(plan: CheckPlan, result: BatchResult) {
+        try {
+            synchronized(snapshotLock) {
+                verdicts.clear()
+                storeVerdicts(result, plan.compiled, plan.verdictKeys)
+                verdicts.sync(incrementalState.generation)
+            }
+        } catch (e: Throwable) {
+            if (!isIsolatable(e)) throw e
+            verdicts.clear()
+        }
+    }
+
+    // Splits [result] into the verdict of each compiled file, keyed by canonical path and the state's content hash.
+    private fun storeVerdicts(result: BatchResult, compiled: List<FileRef>, keys: VerdictKeys) {
+        val findings = result.findings.groupBy { canonicalOrSelf(File(it.path)) }
+        val errors = result.errorFiles.entries.associate { canonicalOrSelf(File(it.key)) to it.value }
+        val ruleErrors = HashMap<String, MutableMap<String, String>>()
+        for ((rule, byPath) in result.ruleErrors) {
+            for ((path, message) in byPath) ruleErrors.getOrPut(canonicalOrSelf(File(path))) { HashMap() }[rule] = message
+        }
+        for (ref in compiled) {
+            val file = canonicalOrSelf(File(ref.path))
+            val hash = incrementalState.contentHash(file)
+            if (hash == null) { verdicts.remove(file); continue }
+            verdicts.put(
+                file,
+                VerdictCache.Entry(
+                    hash, ref.contentHash.takeIf { it.isNotBlank() }, keys.of(file),
+                    CachedVerdict(findings[file].orEmpty(), errors[file], ruleErrors[file].orEmpty()),
+                ),
+            )
+        }
+    }
+
+    private var lastKeys: Pair<List<Any>, VerdictKeys>? = null
+
+    // The same request inputs (by identity) give the same keys: a planner's waves share one canonicalisation.
+    internal fun verdictKeysFor(
+        enabledRules: Set<String>, ruleConfigs: Map<String, Map<String, Any?>>,
+        testFiles: Set<String>, scanPaths: Map<String, String>, sdkLevels: Map<String, SdkLevels>,
+    ): VerdictKeys {
+        val inputs = listOf<Any>(enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels)
+        lastKeys?.let { (seen, keys) -> if (seen.indices.all { seen[it] === inputs[it] }) return keys }
+        return VerdictKeys(enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels).also { lastKeys = inputs to it }
+    }
+
+    /** The files [check] would compile for [files], and the part of its result that does not depend on the compile. */
+    internal class RequestShape(val compiled: List<FileRef>, val skeleton: BatchResult)
+
+    internal fun shapeOf(
+        id: Long, files: List<FileRef>, enabledRules: Set<String>, ruleConfigs: Map<String, Map<String, Any?>>,
+        testFiles: Set<String>, scanPaths: Map<String, String>, sdkLevels: Map<String, SdkLevels>,
+    ): RequestShape {
+        val plan = CheckPlan(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, null, emptySet())
+        return RequestShape(plan.compiled, plan.emptyResult())
+    }
+
+    /** The module's files for a request that names [requested]: the walked sources plus those, canonical paths. */
+    internal fun moduleFilesFor(requested: List<String>): Set<String> =
+        compilationFiles(requested).mapTo(LinkedHashSet()) { canonicalOrSelf(File(it)) }
 
     /**
      * True when the files kept in every slice (binary-stale or deleted since the snapshot) passed the bound: the
@@ -317,6 +423,7 @@ class AnalysisSession(
         scanPaths: Map<String, String> = emptyMap(),
         sdkLevels: Map<String, SdkLevels> = emptyMap(),
         removedFiles: Collection<String> = emptyList(),
+        spellings: Map<String, FileRef> = emptyMap(),
     ): SliceOutcome = synchronized(snapshotLock) {
         sliceFallback()?.let { return SliceOutcome.Fallback(it) }
         val snapshot = incrementalState.snapshot ?: return SliceOutcome.Fallback(SliceFallback.NO_SNAPSHOT)
@@ -326,10 +433,12 @@ class AnalysisSession(
         for (stale in incrementalState.binaryStale()) refs.putIfAbsent(stale, FileRef(stale))
         var wanted = incrementalState.withSealedInheritors(refs.keys + removedFiles.map { canonicalOrSelf(File(it)) })
         while (true) {
-            val (present, missing) = wanted.partition { File(it).isFile }
+            // A deleted file that is still on disk (it left the module, e.g. no longer requested) is not compiled.
+            val deleted = removedFiles.mapTo(HashSet()) { canonicalOrSelf(File(it)) }
+            val (present, missing) = wanted.partition { File(it).isFile && it !in deleted }
             val removed = (removedFiles + missing).mapTo(LinkedHashSet()) { canonicalOrSelf(File(it)) }
             val plan = CheckPlan(
-                id, present.map { refs[it] ?: FileRef(it) }, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, null, emptySet(),
+                id, present.map { refs[it] ?: spellings[it] ?: FileRef(it) }, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, null, emptySet(),
             )
             val sources = plan.compiled.map { it.path }
             plan.startRecording(sources)
@@ -337,7 +446,7 @@ class AnalysisSession(
             val compiled = sources.mapTo(LinkedHashSet()) { canonicalOrSelf(File(it)) }
             if (sources.isEmpty()) {
                 // Only deletions (or files krit never compiles): nothing to compile.
-                if (removed.isNotEmpty()) mergeSlice(plan, compiled, removed, emptySet())
+                if (removed.isNotEmpty()) mergeSlice(plan, compiled, removed, emptySet(), plan.compiled, plan.emptyResult())
                 return SliceOutcome.Checked(plan.emptyResult(), compiled, compiled - requested)
             }
             val outDir = Files.createTempDirectory("krit-fir-slice-out-").toFile()
@@ -367,7 +476,7 @@ class AnalysisSession(
                 }
                 val result = plan.result(exit)
                 val errored = result.errorFiles.keys.mapTo(HashSet()) { canonicalOrSelf(File(it)) }
-                mergeSlice(plan, compiled, removed, errored)
+                mergeSlice(plan, compiled, removed, errored, plan.compiled, result)
                 return SliceOutcome.Checked(result, compiled, compiled - requested)
             } finally {
                 outDir.deleteRecursively()
@@ -386,13 +495,23 @@ class AnalysisSession(
 
     // Best-effort like all recording: if the facts cannot be merged they are dropped (and with them the snapshot),
     // and the verdict, which is already computed, is returned unchanged.
-    private fun mergeSlice(plan: CheckPlan, compiled: Set<String>, removed: Set<String>, errored: Set<String>) {
+    private fun mergeSlice(
+        plan: CheckPlan, compiled: Set<String>, removed: Set<String>, errored: Set<String>,
+        compiledRefs: List<FileRef>, result: BatchResult,
+    ) {
         try {
             val recorded = plan.recording
             if (recorded == null || recorded.failed) {
                 recordingFailed(recorded?.failure ?: IllegalStateException("recording failed"))
             } else {
+                // The verdict cache follows the state only while it was in step with it before this commit.
+                val inStep = plannerEnabled && verdicts.generation == incrementalState.generation
                 incrementalState.commitSlice(recorded, compiled, removed, errored)
+                if (inStep) {
+                    for (file in removed) verdicts.remove(file)
+                    storeVerdicts(result, compiledRefs, plan.verdictKeys)
+                    verdicts.sync(incrementalState.generation)
+                }
             }
         } catch (e: Throwable) {
             if (!isIsolatable(e)) throw e
@@ -409,8 +528,8 @@ class AnalysisSession(
      */
     private inner class CheckPlan(
         val id: Long, files: List<FileRef>, val enabledRules: Set<String>,
-        ruleConfigs: Map<String, Map<String, Any?>>,
-        testFiles: Set<String>, scanPaths: Map<String, String>, sdkLevels: Map<String, SdkLevels>,
+        private val ruleConfigs: Map<String, Map<String, Any?>>,
+        private val testFiles: Set<String>, private val scanPaths: Map<String, String>, private val sdkLevels: Map<String, SdkLevels>,
         module: ModuleCompilation?,
         ownedSources: Set<String>,
     ) {
@@ -440,6 +559,13 @@ class AnalysisSession(
         var recording: CompileRecording? = null
             private set
         private val requestVerdictKey: String by lazy { verdictKey(enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels) }
+
+        /** Per-file verdict keys of this request. */
+        val verdictKeys: VerdictKeys by lazy { verdictKeysFor(enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels) }
+
+        /** True once this plan's recording replaced the state. */
+        var committed = false
+            private set
 
         // The snapshot this plan's compile is writing, until the state takes it over.
         private var pendingSnapshot: Snapshot? = null
@@ -502,6 +628,9 @@ class AnalysisSession(
                     build?.failure?.let { snapshotFailed(it) }
                     synchronized(snapshotLock) {
                         incrementalState.commit(recorded)
+                        verdicts.clear()
+                        fullCommits++
+                        committed = true
                         val snapshot = build?.takeIf { it.built }?.snapshot
                         incrementalState.attachSnapshot(snapshot, noSnapshotReason)
                         if (snapshot != null) pendingSnapshot = null
@@ -829,7 +958,9 @@ class AnalysisSession(
     internal fun rebuild(
         sourceDirs: List<String>, classpath: List<String>, jvmTarget: String, kotlinArgs: List<String> = this.kotlinArgs,
     ): AnalysisSession =
-        AnalysisSession(sourceDirs, classpath, jvmTarget, kotlinArgs, incrementalRecording, incrementalSnapshot).also {
+        AnalysisSession(sourceDirs, classpath, jvmTarget, kotlinArgs, incrementalRecording, incrementalSnapshot, incrementalPlanning).also {
+            it.tieredRulePolicy = tieredRulePolicy
+            it.plannerLimits = plannerLimits
             it.retainedModuleRunner = retainedModuleRunner
             retainedModuleRunner = null
         }
@@ -862,7 +993,7 @@ class AnalysisSession(
     fun dispose() {
         retainedModuleRunner?.dispose(); retainedModuleRunner = null
         // Also deletes the snapshot directory.
-        synchronized(snapshotLock) { incrementalState.reset() }
+        resetIncremental()
     }
 
     companion object {

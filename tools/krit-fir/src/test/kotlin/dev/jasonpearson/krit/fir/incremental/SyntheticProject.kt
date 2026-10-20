@@ -201,7 +201,13 @@ internal class SyntheticProject(val root: File, val total: Int, seed: Long = 7L,
             "delete", "deleteBreak" -> {
                 if (kind == "delete" && addedApps.isNotEmpty() && rnd.nextBoolean()) {
                     val j = addedApps.removeAt(rnd.nextInt(addedApps.size))
+                    deletedOriginals += j // its chain successor must stop importing it, as for an original
                     remove(appPath(j))
+                    val successor = j + 1
+                    if (successor % 3 != 0 && appPath(successor) in texts) {
+                        rewriteApp(successor)
+                        return Edit(kind, listOf(appPath(successor)), deleted = listOf(appPath(j)))
+                    }
                     return Edit(kind, emptyList(), deleted = listOf(appPath(j)))
                 }
                 // A referenced original: its chain successor imports it.

@@ -103,25 +103,31 @@ class IncrementalPlannerBench {
 
         val fullEvery = prop("fullEvery")?.toInt() ?: maxOf(1, edits / 10)
         val warm = 3
-        class Sample(val kind: String, val incMs: Long, val fullMs: Long?, val path: PlanPath, val reason: FullReason?, val dirty: Int, val waves: Int)
+        class Sample(val kind: String, val incMs: Long, val fullMs: Long?, val path: PlanPath, val reason: FullReason?, val dirty: Int, val waves: Int, val fullFirst: Boolean)
         val samples = ArrayList<Sample>()
         val realState = RealEdits(sourceDirs, rnd)
         for (i in 1..(warm + edits)) {
             val kind = if (project != null) SYNTHETIC_KINDS[(i - 1) % SYNTHETIC_KINDS.size].also { project.apply(it) } else realState.next()
             val request = files()
-            val s0 = System.nanoTime()
-            planned.check(i.toLong(), request, rules)
-            val incMs = (System.nanoTime() - s0) / 1_000_000
+            // The timed full check alternates between running before and after the planned one, so neither always
+            // gets the other's warm caches.
+            val timedFull = i > warm && (i - warm) % fullEvery == 0
+            val fullFirst = timedFull && ((i - warm) / fullEvery) % 2 == 1
             var fullMs: Long? = null
-            if (i > warm && (i - warm) % fullEvery == 0) {
+            fun runFull() {
                 val f0 = System.nanoTime()
                 plain.check(i.toLong(), request, plainRules)
                 fullMs = (System.nanoTime() - f0) / 1_000_000
             }
+            if (fullFirst) runFull()
+            val s0 = System.nanoTime()
+            planned.check(i.toLong(), request, rules)
+            val incMs = (System.nanoTime() - s0) / 1_000_000
+            if (timedFull && !fullFirst) runFull()
             val plan = planned.lastPlan!!
-            if (i > warm) samples += Sample(kind, incMs, fullMs, plan.path, plan.reason, plan.dirtyFiles, plan.waves)
+            if (i > warm) samples += Sample(kind, incMs, fullMs, plan.path, plan.reason, plan.dirtyFiles, plan.waves, fullFirst)
             say("e$i %-12s planned=%6d ms %s%s dirty=%d waves=%d%s".format(kind, incMs, plan.path, plan.reason?.let { " ($it ${plan.detail})" } ?: "",
-                plan.dirtyFiles, plan.waves, fullMs?.let { " full=$it ms" } ?: ""))
+                plan.dirtyFiles, plan.waves, fullMs?.let { " full=$it ms (${if (fullFirst) "full first" else "planned first"})" } ?: ""))
         }
         val inc = samples.map { it.incMs }
         val full = samples.mapNotNull { it.fullMs }

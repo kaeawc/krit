@@ -179,7 +179,7 @@ tasks.register<Test>("incrementalBench") {
     inputs.file(pluginJar)
     systemProperty("krit.fir.plugin.jar", pluginJar.get().asFile.absolutePath)
     systemProperty("krit.fir.cache.dir", layout.buildDirectory.dir("test-krit-cache").get().asFile.absolutePath)
-    for (name in listOf("files", "real", "edits", "policy", "out", "classpath", "hashes")) {
+    for (name in listOf("files", "real", "edits", "policy", "out", "classpath", "hashes", "fullEvery")) {
         findProperty("krit.fir.bench.$name")?.let { systemProperty("krit.fir.bench.$name", it.toString()) }
     }
     maxHeapSize = (findProperty("krit.fir.bench.heap") as String?) ?: "6g"

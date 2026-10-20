@@ -39,6 +39,7 @@ class IncrementalPlannerSerializableTest {
             .also { it.snapshotRootOverride = snaps; sessions += it }
 
     private fun AnalysisSession.checkRule(ruleIds: Set<String> = setOf(rule)) = check(1, refs(), ruleIds)
+    private fun AnalysisSession.checkOnly(file: String, ruleIds: Set<String>) = check(1, listOf(FileRef(File(src, file).path)), ruleIds)
     private fun full(ruleIds: Set<String> = setOf(rule)): BatchResult =
         plainSession(src).also { sessions += it }.check(99, refs(), ruleIds)
 
@@ -176,14 +177,84 @@ class IncrementalPlannerSerializableTest {
         assertEquals(PlanPath.FULL, session.plan.path)
     }
 
-    @Test fun theSameEditsAreIncrementalWhenTheRuleIsNotEnabled() {
+    // The recorded facts move whatever rules a request enables, so the set check does not depend on the rule.
+    @Test fun anEditThatMovesTheSetFallsBackEvenWhenTheRuleIsNotEnabled() {
         module()
         val session = planned()
         val other = setOf("ProtocolProbe")
         session.checkRule(other)
         write("Resource.kt", resource(serializable = false))
+        val result = session.checkRule(other)
+        assertEquals(PlanPath.FULL, session.plan.path, "${session.plan}")
+        assertEquals(FullReason.SERIALIZABLE_NAMES_CHANGED, session.plan.reason)
+        assertSameAsFull(result, other)
+        // Renaming the nested class and adding a joining class move it too.
+        write("Resource.kt", resource(serializable = true))
+        session.checkRule(other)
+        write("Resource.kt", resource(error = "Failure"))
+        session.checkRule(other)
+        assertEquals(FullReason.SERIALIZABLE_NAMES_CHANGED, session.plan.reason, "${session.plan}")
+        write("Extra.kt", "package model\n\nclass Late : Resource()\n")
+        session.checkRule(other)
+        assertEquals(FullReason.SERIALIZABLE_NAMES_CHANGED, session.plan.reason, "${session.plan}")
+    }
+
+    @Test fun anEditThatDoesNotMoveTheSetStaysIncrementalWhenTheRuleIsNotEnabled() {
+        module()
+        val session = planned()
+        val other = setOf("ProtocolProbe")
+        session.checkRule(other)
+        write("Other.kt", "package app\n\nfun other(): Int = 7\n")
         session.checkRule(other)
         assertEquals(PlanPath.INCREMENTAL, session.plan.path, "${session.plan}")
+        // A body edit in a file of the chain keeps the set too.
+        write("Resource.kt", resource().replace("1L", "2L"))
+        val result = session.checkRule(other)
+        assertEquals(PlanPath.INCREMENTAL, session.plan.path, "${session.plan}")
+        assertSameAsFull(result, other)
+    }
+
+    // Regression: check with the rule, edit Resource.kt to not be Serializable and check only with the rule off, then
+    // check with the rule on again. The middle request moved the recorded facts; trusting it would leave Failures.kt
+    // with the verdict that still had a finding (or, in the other direction, without one).
+    @Test fun ruleOnThenAnEditWithTheRuleOffThenRuleOnAgreesWithAFullCheck() {
+        module()
+        val session = planned()
+        val other = setOf("ProtocolProbe")
+        assertEquals(listOf("Failures.kt" to 3, "Resource.kt" to 8), session.checkRule().reported())
+        write("Resource.kt", resource(serializable = false))
+        // Only the edited file is requested, so no other file's verdict is recomputed under the rule set without the rule.
+        session.checkOnly("Resource.kt", other)
+        assertEquals(FullReason.SERIALIZABLE_NAMES_CHANGED, session.plan.reason, "${session.plan}")
+        val on = session.checkRule()
+        assertEquals(emptyList(), on.reported())
+        assertSameAsFull(on)
+    }
+
+    // The same sequence in the direction that makes a finding appear: Resource.kt becomes Serializable while the rule
+    // is off, and Failures.kt (not touched) must gain the finding.
+    @Test fun aClassBecomingSerializableWhileTheRuleIsOffIsSeenWhenItIsOnAgain() {
+        write("Resource.kt", resource(serializable = false))
+        write("Failures.kt", failures)
+        write("Other.kt", "package app\n\nfun other(): Int = 1\n")
+        val session = planned()
+        assertEquals(emptyList(), session.checkRule().reported())
+        write("Resource.kt", resource(serializable = true))
+        session.checkOnly("Resource.kt", setOf("ProtocolProbe"))
+        assertEquals(FullReason.SERIALIZABLE_NAMES_CHANGED, session.plan.reason, "${session.plan}")
+        val on = session.checkRule()
+        assertEquals(listOf("Failures.kt" to 3, "Resource.kt" to 8), on.reported())
+        assertSameAsFull(on)
+    }
+
+    @Test fun theSetCheckStopsTheRunRightAfterTheFirstWave() {
+        module()
+        val session = planned()
+        session.checkRule()
+        write("Resource.kt", resource(serializable = false))
+        session.checkRule()
+        assertEquals(FullReason.SERIALIZABLE_NAMES_CHANGED, session.plan.reason)
+        assertEquals(1, session.plan.waves, "${session.plan}")
     }
 
     @Test fun theStateRecordsFactsPerFileAndDropsThemWithTheFile() {

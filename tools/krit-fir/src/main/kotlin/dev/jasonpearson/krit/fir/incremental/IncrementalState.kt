@@ -219,15 +219,19 @@ internal open class IncrementalState {
         for (file in removedSet) next[file] = SurfaceChange.of(surfaces[file], null)
         changes = next
 
+        var factsChanged = false
         for (file in removedSet) {
-            surfaces.remove(file); contentHashes.remove(file); index.remove(file); classFacts.remove(file)
+            surfaces.remove(file); contentHashes.remove(file); index.remove(file)
+            if (classFacts.remove(file) != null) factsChanged = true
             binaryStaleFiles.remove(file)
             if (file in snapshotSurfaceHashes) removedFiles += file
         }
         for (file in compiledSet) {
             recording.surfaces[file]?.let { surfaces[file] = it } ?: surfaces.remove(file)
             recording.contentHashes[file]?.let { contentHashes[file] = it } ?: contentHashes.remove(file)
-            recording.classFacts[file]?.let { classFacts[file] = it } ?: classFacts.remove(file)
+            val facts = recording.classFacts[file]
+            if (facts != classFacts[file]) factsChanged = true
+            if (facts != null) classFacts[file] = facts else classFacts.remove(file)
             index.update(file, recording.lookups.byFile[file] ?: emptySet())
             removedFiles.remove(file)
             if (snapshotOrNull != null) {
@@ -236,7 +240,8 @@ internal open class IncrementalState {
                 if (file in errored || builtFrom == null || now != builtFrom) binaryStaleFiles += file else binaryStaleFiles -= file
             }
         }
-        reachedNames = null
+        // The reached-name set is a function of the facts alone: keep it when no compiled file's facts moved.
+        if (factsChanged) reachedNames = null
         rebuildDeclarationIndexes()
         commits++
     }

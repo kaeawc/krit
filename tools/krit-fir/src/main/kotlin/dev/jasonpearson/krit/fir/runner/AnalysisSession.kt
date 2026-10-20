@@ -384,6 +384,9 @@ class AnalysisSession(
         return if (incrementalState.compileKey != compileKey()) SliceFallback.STATE_CHANGED else null
     }
 
+    /** Test seam: a slice withholds the external class-name facts, which must make the rule differ from a full compile. */
+    @Volatile internal var withheldExternalFacts = false
+
     /**
      * Checks [dirtyFiles] against the module's binary snapshot: the files are compiled from source through the
      * stock frontend with the snapshot as the module's own previous output, and every other file of the module
@@ -421,9 +424,6 @@ class AnalysisSession(
      *    stale, which the planner detects;
      *  - a module that uses `expect`/`actual` has no snapshot ([SliceFallback.EXPECT_ACTUAL]).
      */
-    /** Test seam: a slice withholds the external class-name facts, which must make the rule differ from a full compile. */
-    @Volatile internal var withheldExternalFacts = false
-
     internal fun sliceCheck(
         id: Long, dirtyFiles: List<FileRef>, enabledRules: Set<String>,
         ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),

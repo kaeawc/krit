@@ -189,8 +189,9 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
         val carried = state.binaryStale()
 
         // Verdicts of SerialVersionUIDInSerializableClass depend on the module-wide set of names reaching Serializable.
-        val serializableEnabled = FirRuleDiscovery.enabled(FirRuleCompileContext(rules)).any { it.ruleId == SERIALIZABLE_RULE_ID }
-        val serializableBefore = if (serializableEnabled) state.serializableNames() else emptySet()
+        // The set is captured and compared whatever rules this request enables: a request without the rule still
+        // moves the recorded facts, and a later request with it would trust verdicts that no longer hold.
+        val serializableBefore = state.serializableNames()
 
         val limits = session.plannerLimits
         val threshold = limits.threshold(module.size)
@@ -218,6 +219,13 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
             if (state.compileKey == null || verdicts.generation != state.generation) throw GiveUp(FullReason.STATE_LOST, "the slice's facts were dropped")
             if (checked.result.ownedCompilerError != null) throw GiveUp(FullReason.GLOBAL_COMPILER_ERROR, checked.result.ownedCompilerError)
             c.compiled += checked.compiled
+            // Only wave 1 compiles files whose content changed, so it is the one that can move the set: stop there
+            // rather than after the last wave. Slices see the rest of the module's classes through recorded facts, so
+            // they are right while the set stands; if the edit moved it, files outside the slices may hold a stale
+            // verdict and the full check decides.
+            if (c.waves == 1 && state.serializableNames() != serializableBefore) {
+                throw GiveUp(FullReason.SERIALIZABLE_NAMES_CHANGED, "the set of class names reaching Serializable changed")
+            }
             for (added in checked.added) if (added in staleBefore) c.addedByStaleness++ else c.addedBySealedClosure++
 
             // The state's changes cover this wave only: consume them now.
@@ -231,11 +239,6 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
             todo = next
         }
 
-        // Slices see the rest of the module's classes through recorded facts, so they are right while the set stands.
-        // If the edit moved it, files outside the slices may hold a stale verdict: the full check decides.
-        if (serializableEnabled && state.serializableNames() != serializableBefore) {
-            throw GiveUp(FullReason.SERIALIZABLE_NAMES_CHANGED, "the set of class names reaching Serializable changed")
-        }
         for (pkg in packagesAtRisk) {
             if (!state.packageDeclared(pkg)) throw GiveUp(FullReason.PACKAGE_REMOVED, "package '$pkg' has no declaring file left")
         }
@@ -292,6 +295,5 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
     private companion object {
         val DEBUG = System.getenv("KRIT_FIR_INCREMENTAL_DEBUG") == "1"
         const val PARALLEL_HASH_FROM = 256
-        const val SERIALIZABLE_RULE_ID = "SerialVersionUIDInSerializableClass"
     }
 }

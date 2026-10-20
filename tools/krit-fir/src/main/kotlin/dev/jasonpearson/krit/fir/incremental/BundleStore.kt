@@ -247,7 +247,11 @@ internal class BundleStore(
                 warn("ignoring incrementalDir $path: it cannot be resolved; persistence is off for this request")
                 return null
             }
-            if (!File(path).isAbsolute || canonical.name != "fir-incremental" || canonical.parentFile?.name != ".krit") {
+            // The directory must be where `<repo>/.krit/fir-incremental` is once the repository (and only the repository)
+            // is resolved: a `.krit` or `fir-incremental` that is a link to somewhere else is refused.
+            val repo = try { File(path).toPath().normalize().parent?.parent?.toFile()?.canonicalFile } catch (_: IOException) { null }
+            if (!File(path).isAbsolute || canonical.name != "fir-incremental" || canonical.parentFile?.name != ".krit" ||
+                repo == null || canonical != File(repo, ".krit/fir-incremental")) {
                 warn("ignoring incrementalDir $path: it is not an absolute .krit/fir-incremental directory; persistence is off for this request")
                 return null
             }

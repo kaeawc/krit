@@ -146,6 +146,8 @@ internal object ZipDigest {
         return digest
     }
 
+    private const val CD_SIGNATURE = 0x02014b50
+
     private fun compute(file: File, size: Long): String = java.io.RandomAccessFile(file, "r").use { raf ->
         if (size < EOCD_MIN) return@use "not-a-zip"
         val tailLength = minOf(size, (EOCD_MIN + MAX_COMMENT).toLong()).toInt()
@@ -154,46 +156,76 @@ internal object ZipDigest {
         raf.seek(tailStart)
         raf.readFully(tail)
         val buf = java.nio.ByteBuffer.wrap(tail).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-        // The end record is the last one whose comment length reaches exactly to the end of the file, as in
-        // java.util.zip: a lookalike signature inside the comment does not qualify.
-        var eocd = -1
+        var sawCandidate = false
+        var emptyDirectory = false
+        // End-record candidates, last first. A candidate counts when its comment reaches exactly to the end of the file
+        // (as in java.util.zip) and the bytes where its central directory should start are a central directory header:
+        // a lookalike at the end of the comment fails that, and the search goes on to the real one.
         for (i in tailLength - EOCD_MIN downTo 0) {
-            if (buf.getInt(i) == EOCD_SIGNATURE && i + EOCD_MIN + (buf.getShort(i + 20).toInt() and 0xFFFF) == tailLength) { eocd = i; break }
-        }
-        if (eocd < 0) return@use "not-a-zip"
-        var cdSize = buf.getInt(eocd + 12).toLong() and 0xFFFFFFFFL
-        // The central directory ends where its end record begins. Offsets recorded in the archive are relative to the
-        // start of the archive, which is not the start of the file when data is prepended (launcher-script jars).
-        var cdEnd = tailStart + eocd
-        val entries = buf.getShort(eocd + 10).toInt() and 0xFFFF
-        if (cdSize == 0xFFFFFFFFL || (buf.getInt(eocd + 16).toLong() and 0xFFFFFFFFL) == 0xFFFFFFFFL || entries == 0xFFFF) {
-            // zip64: the locator sits just before the end record; the zip64 end record sits just before the locator.
-            val locator = eocd - 20
-            if (locator >= 0 && buf.getInt(locator) == ZIP64_LOCATOR_SIGNATURE) {
-                val recAt = tailStart + locator - 56
-                if (recAt >= 0) {
-                    val rec = ByteArray(56)
-                    raf.seek(recAt)
-                    raf.readFully(rec)
-                    val z = java.nio.ByteBuffer.wrap(rec).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-                    if (z.getInt(0) == ZIP64_EOCD_SIGNATURE) { cdSize = z.getLong(40); cdEnd = recAt }
-                }
+            if (buf.getInt(i) != EOCD_SIGNATURE || i + EOCD_MIN + (buf.getShort(i + 20).toInt() and 0xFFFF) != tailLength) continue
+            sawCandidate = true
+            var cdSize = buf.getInt(i + 12).toLong() and 0xFFFFFFFFL
+            var entries = (buf.getShort(i + 10).toInt() and 0xFFFF).toLong()
+            // The directory ends where its end record begins. Offsets recorded in the archive are relative to the start
+            // of the archive, which is not the start of the file when data is prepended (launcher-script jars).
+            var cdEnd = tailStart + i
+            if (cdSize == 0xFFFFFFFFL || (buf.getInt(i + 16).toLong() and 0xFFFFFFFFL) == 0xFFFFFFFFL || entries == 0xFFFFL) {
+                val rec = zip64Record(raf, buf, tailStart, i) ?: continue
+                cdEnd = rec.at; cdSize = rec.cdSize; entries = rec.entries
             }
+            if (cdSize == 0L && entries == 0L) { emptyDirectory = true; continue }
+            val cdStart = cdEnd - cdSize
+            if (cdSize < 0 || cdStart < 0 || cdEnd > size) continue
+            val head = ByteArray(4)
+            raf.seek(cdStart)
+            raf.readFully(head)
+            if (java.nio.ByteBuffer.wrap(head).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt(0) != CD_SIGNATURE) continue
+            return@use digestOf(raf, cdStart, cdSize) ?: "short-directory"
         }
-        val cdStart = cdEnd - cdSize
-        if (cdSize < 0 || cdStart < 0 || cdEnd > size) return@use "bad-directory"
+        // An archive with no entries has an empty directory, which is a fine thing to digest if nothing else qualified.
+        if (emptyDirectory) return@use digestOf(raf, 0, 0) ?: "short-directory"
+        if (sawCandidate) "bad-directory" else "not-a-zip"
+    }
+
+    private class Zip64Record(val at: Long, val cdSize: Long, val entries: Long)
+
+    // The zip64 end record that goes with the plain end record at [eocd] of the tail: it ends where the locator, which
+    // sits just before the plain record, begins. It is 56 bytes unless it carries an extensible data sector, so it is
+    // found by its signature and a size field that reaches exactly to the locator, and it cannot start before the
+    // offset the locator records (the archive may be preceded by data, never the other way round).
+    private fun zip64Record(raf: java.io.RandomAccessFile, buf: java.nio.ByteBuffer, tailStart: Long, eocd: Int): Zip64Record? {
+        val locator = eocd - 20
+        if (locator < 0 || buf.getInt(locator) != ZIP64_LOCATOR_SIGNATURE) return null
+        val locatorAt = tailStart + locator
+        val recorded = buf.getLong(locator + 8)
+        val from = maxOf(0L, locatorAt - 56 - 65_536)
+        val window = ByteArray((locatorAt - from).toInt())
+        if (window.size < 56) return null
+        raf.seek(from)
+        raf.readFully(window)
+        val w = java.nio.ByteBuffer.wrap(window).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        for (q in window.size - 56 downTo 0) {
+            if (w.getInt(q) != ZIP64_EOCD_SIGNATURE) continue
+            val declared = w.getLong(q + 4)
+            if (declared < 44 || from + q + 12 + declared != locatorAt || from + q < recorded) continue
+            return Zip64Record(from + q, w.getLong(q + 40), w.getLong(q + 32))
+        }
+        return null
+    }
+
+    private fun digestOf(raf: java.io.RandomAccessFile, start: Long, length: Long): String? {
         val sha = MessageDigest.getInstance("SHA-256")
-        sha.update(cdSize.toString().toByteArray())
-        raf.seek(cdStart)
+        sha.update(length.toString().toByteArray())
+        raf.seek(start)
         val chunk = ByteArray(64 * 1024)
-        var left = cdSize
+        var left = length
         while (left > 0) {
             val n = raf.read(chunk, 0, minOf(left, chunk.size.toLong()).toInt())
-            if (n < 0) return@use "short-directory"
+            if (n < 0) return null
             sha.update(chunk, 0, n)
             left -= n
         }
-        hex(sha.digest())
+        return hex(sha.digest())
     }
 }
 

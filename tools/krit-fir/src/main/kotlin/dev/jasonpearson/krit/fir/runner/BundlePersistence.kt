@@ -111,7 +111,8 @@ internal class BundlePersistence(private val session: AnalysisSession, val store
             val bundle = store.read(key)
             if (bundle.snapshotId.isEmpty()) throw BundleRejected(BundleRejected.Reason.SNAPSHOT_MISSING, "bundle has no snapshot")
             // A bundle is a file in the project tree: a path in it that is not one of this session's sources is not ours.
-            val repoDir = store.root.parentFile?.parentFile // <repo>/.krit/fir-incremental
+            // <repo>/.krit/fir-incremental names its repository; any other root trusts only the source directories.
+            val repoDir = store.root.parentFile?.takeIf { store.root.name == "fir-incremental" && it.name == ".krit" }?.parentFile
             session.pathOutsideSources(bundle.state, bundle.verdicts, repoDir)?.let {
                 throw BundleRejected(BundleRejected.Reason.STATE_MISMATCH, "the bundle names a file outside the source directories and the repository: $it")
             }

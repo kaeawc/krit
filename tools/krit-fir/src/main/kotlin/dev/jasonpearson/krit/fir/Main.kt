@@ -356,6 +356,8 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
         when (request.command) {
             "check", "analyzeModules" -> withActiveSession(request, session) { activeSession ->
                 val result = if (request.modules.isNotEmpty()) {
+                    // Module scans are not persisted: do not inherit the previous request's root.
+                    activeSession.configurePersistence(null)
                     activeSession.analyzeModules(request.id, request.modules, request.files.map { it.path },
                         request.rules.toSet(), request.ruleConfigs, request.testFiles, request.scanPaths,
                         request.sdkLevels)

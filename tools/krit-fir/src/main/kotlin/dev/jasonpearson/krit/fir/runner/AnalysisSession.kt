@@ -807,9 +807,16 @@ class AnalysisSession(
             state.contentHashes.keys, state.surfaces.keys, state.classFacts.keys, state.lookups.keys,
             snap.outputs.keys, snap.surfaceHashes.keys, snap.binaryStale, snap.removed,
         )) for (path in paths) if (outside(path)) return path
+        // Verdicts are keyed by the spelling of the request (Go's absolute, not canonical, paths), so they are resolved
+        // before they are compared with the canonical roots and state; each distinct spelling once.
+        val resolved = HashMap<String, String>()
+        fun foreign(path: String): Boolean {
+            val canonical = resolved.getOrPut(path) { canonicalOrSelf(File(path)) }
+            return canonical !in state.contentHashes && outside(canonical)
+        }
         for (v in verdicts) {
-            if (v.file !in state.contentHashes && outside(v.file)) return v.file
-            for (f in v.entry.verdict.findings) if (f.path != v.file && f.path !in state.contentHashes && outside(f.path)) return f.path
+            if (foreign(v.file)) return v.file
+            for (f in v.entry.verdict.findings) if (foreign(f.path)) return f.path
         }
         return null
     }

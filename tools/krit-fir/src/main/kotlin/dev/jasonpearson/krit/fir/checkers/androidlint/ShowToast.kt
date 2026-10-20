@@ -2,7 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
-import dev.jasonpearson.krit.fir.otherDeclarationBodies
+import dev.jasonpearson.krit.fir.checkers.initializerIn
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
@@ -11,6 +11,7 @@ import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
+import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
@@ -86,7 +87,9 @@ import org.jetbrains.kotlin.name.Name
 //   class or named object (a companion object counts as its outer class).
 // Anything else is reported: a toast returned, passed to another function,
 // stored in a collection, or created as a bare statement. The finding is on
-// the first line of the call, with Go's message.
+// the first line of the call, with Go's message. A property assigned here but
+// declared in another file is followed as one with no initializer (a class
+// file keeps none).
 //
 // Deliberate differences from Go, each pinned in the golden data:
 // - Recall: the call is identified by resolution, so a fully qualified
@@ -112,7 +115,6 @@ import org.jetbrains.kotlin.name.Name
 //   before the only `show` is still reported, as in Go (ShowToastOverwrite).
 internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "ShowToast"
-    override val wholeCompilationTier = otherDeclarationBodies("onlyStore reads the resolvedInitializer of a non-local property assigned in this file but declared in another; a binary has no initializer, so the property is wrongly treated as never initialized.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(ShowToast)
     }
@@ -150,7 +152,7 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
         val file = context.containingFileSymbol?.fir ?: return
         val path = pathTo(file, expression) ?: return
         if (goShown(expression, path)) return
-        if (Flow(file).shown(expression, path, FLOW_BUDGET)) return
+        if (Flow(file, context.session).shown(expression, path, FLOW_BUDGET)) return
         report(expression.source, MESSAGE)
     }
 
@@ -347,7 +349,7 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
     // scope function (into its lambda's receiver or parameter, and on
     // through `also`/`apply`/`takeIf`/`takeUnless`), and into a variable
     // (initializer or assignment), whose later reads are followed in turn.
-    private class Flow(private val file: FirFile) {
+    private class Flow(private val file: FirFile, private val session: FirSession) {
 
         fun shown(occurrence: FirExpression, path: List<FirElement>, budget: Int): Boolean {
             if (budget <= 0) return false
@@ -479,7 +481,9 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
                 if (receiver != null && receiver !is FirThisReceiverExpression) return false
             }
             if (store !is FirProperty) {
-                val initializer = variable.resolvedInitializer
+                // A property of another file shows no initializer, as in a class file, so it counts as
+                // initialized with null there.
+                val initializer = variable.initializerIn(file.symbol, session)
                 if (initializer != null && !(initializer is FirLiteralExpression && initializer.value == null)) return false
             }
             return !visit(file) { element, _ ->

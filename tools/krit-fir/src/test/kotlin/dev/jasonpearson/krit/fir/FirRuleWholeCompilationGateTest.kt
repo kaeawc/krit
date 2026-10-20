@@ -1,5 +1,6 @@
 package dev.jasonpearson.krit.fir
 
+import dev.jasonpearson.krit.fir.checkers.protocol.TieredProbe
 import org.junit.jupiter.api.Test
 import java.io.File
 import kotlin.test.assertEquals
@@ -105,6 +106,61 @@ class FirRuleWholeCompilationGateTest {
             "the compile's own source files; the other files arrive as externalClassNameFacts"),
         AllowedRead("WorldReadableFiles", "val scope = klass.fir.scopeProvider.getStaticScope(klass.fir, context.session, context.scopeSession)", Why.CONST,
             "reads the static scope (member signatures and supertypes) of an imported class, which class files keep; no body or initializer is read"),
+        // Narrowed rules (#873): a rule reads another declaration only through SameFileReads, or at a spot proven below.
+        AllowedRead("SameFileReads", "(origin == FirDeclarationOrigin.Source && session.firProvider.getContainingFile(this)?.symbol == file)", Why.LOCAL,
+            "the test that decides whether a symbol lies in the file under check: it reads which file contains the symbol, no body or initializer"),
+        AllowedRead("SameFileReads", "if (isDeclaredInFile(file, session)) resolvedInitializer else null", Why.LOCAL,
+            "guarded by isDeclaredInFile: only a declaration of the file under check"),
+        AllowedRead("SameFileReads", "if (isDeclaredInFile(file, session)) return resolvedInitializer", Why.LOCAL,
+            "guarded by isDeclaredInFile: only a declaration of the file under check"),
+        AllowedRead("SameFileReads", "return evaluated ?: resolvedInitializer", Why.CONST,
+            "reached only for a const, wherever it is declared; the evaluated value is what a class file holds"),
+        AllowedRead("SameFileReads", "if (isDeclaredInFile(file, session)) fir.body else null", Why.LOCAL,
+            "guarded by isDeclaredInFile: only a declaration of the file under check"),
+        AllowedRead("GetSignatures", "val propertySource = property.source ?: return true", Why.LOCAL,
+            "accessorInsideDeclaration compares a property met on the call's enclosing path (context.containingElements) with its accessor"),
+        AllowedRead("GetSignatures", "val accessorSource = accessor.source?.takeIf { it.kind == KtRealSourceElementKind } ?: return true", Why.LOCAL,
+            "the accessor of that same enclosing property"),
+        AllowedRead("GetSignatures", "is FirFieldSymbol -> if (symbol.fir.isVal) symbol.fir.initializer else null", Why.CONST,
+            "a Java field: its constant value is kept in class files (and a Java source file is never in the snapshot)"),
+        AllowedRead("GetSignatures", "is FirFieldSymbol -> original.fir.initializer", Why.CONST,
+            "a Java field: its constant value is kept in class files"),
+        AllowedRead("GetSignatures", "val rootFir = root.fir", Why.LOCAL,
+            "root is the outermost non-class declaration enclosing the call (context.containingDeclarations)"),
+        AllowedRead("GetSignatures", "?: (listOfNotNull(symbol.resolvedInitializer) + assignedValues(symbol, rootFir))", Why.LOCAL,
+            "this branch is reached only for a local var (localVar), declared in the enclosing declaration"),
+        AllowedRead("LongLogTag", "val file = context.containingFileSymbol?.fir ?: return null", Why.LOCAL,
+            "containingFileSymbol is the file under check"),
+        AllowedRead("LongLogTag", "root.fir.accept(scan)", Why.LOCAL,
+            "root is the outermost non-class declaration enclosing the call (context.containingDeclarations)"),
+        AllowedRead("LongLogTag", "if (scan.assignments.isEmpty()) return variable.resolvedInitializer", Why.LOCAL,
+            "localVarValue is reached only for a local var (symbol.isLocal && !symbol.isVal)"),
+        AllowedRead("LongLogTag", "return if (deferred >= 0) null else variable.resolvedInitializer", Why.LOCAL,
+            "localVarValue is reached only for a local var (symbol.isLocal && !symbol.isVal)"),
+        AllowedRead("SharedFlowWithoutReplay", "return symbol.resolvedInitializer", Why.LOCAL,
+            "localValInitializer returns early unless symbol.isLocal"),
+        AllowedRead("ShowToast", "val file = context.containingFileSymbol?.fir ?: return", Why.LOCAL,
+            "containingFileSymbol is the file under check"),
+        AllowedRead("WeakKeySize", "val writes = Writes().also { symbol.fir.accept(it) }", Why.LOCAL,
+            "reached only when symbol.isDeclaredInCheckedFile() (algorithmsReaching)"),
+        AllowedRead("WeakKeySize", "val property = symbol.fir", Why.LOCAL,
+            "isFinalInitializedVal is called only after symbol.isDeclaredInCheckedFile() (algorithmsReaching)"),
+        AllowedRead("WeakKeySize", "return symbol.isVal && property.initializer != null && property.delegate == null &&", Why.LOCAL,
+            "reads the FirProperty taken on the previous line, under the same guard"),
+        AllowedRead("WeakKeySize", "val writes = Writes().also { region.fir.accept(it) }", Why.LOCAL,
+            "region is a declaration enclosing the call (context.containingDeclarations)"),
+        AllowedRead("WeakKeySize", "val writes = Writes().also { function.fir.accept(it) }", Why.LOCAL,
+            "function is a named function enclosing the call (context.containingDeclarations)"),
+        AllowedRead("WeakKeySize", "applyLambda(symbol.fir.initializer)?.let { return lambdaKey(it, depth + 1) }", Why.LOCAL,
+            "guarded by symbol.isLocal && symbol.isVal"),
+        AllowedRead("WeakKeySize", "return constantValue(symbol.resolvedInitializer, depth + 1)", Why.CONST,
+            "constantString returns early unless symbol.isConst; a const value is kept in class files"),
+        AllowedRead("WorldWriteableFiles", "val source = resolved.source ?: continue", Why.LOCAL,
+            "an import of the file under check (FirFile.imports)"),
+        AllowedRead("WorldWriteableFiles", "val default = if (symbol.isDeclaredInCheckedFile()) symbol.fir.defaultValue else null", Why.LOCAL,
+            "guarded by isDeclaredInCheckedFile"),
+        AllowedRead("WorldWriteableFiles", "val literal = symbol.resolvedInitializer as? FirLiteralExpression ?: return Value.Unknown", Why.CONST,
+            "a Java field: its constant value is kept in class files"),
     )
 
     private class Hit(val file: File, val line: String, val compilationWide: Boolean)
@@ -190,16 +246,23 @@ class FirRuleWholeCompilationGateTest {
         }
     }
 
-    @Test fun theRulesTheDifferentialsFoundAreTiered() {
-        // Findings doc section 8.1 (single-file split) plus the cross-file probes of the review.
-        val found = listOf(
+    @Test fun onlyTheRulesThatCannotBeNarrowedAreTiered() {
+        // The 15 rules the differentials found (findings doc section 8.1 and the cross-file probes) read other
+        // files' bodies; #873 narrowed them to the file under check plus what class files keep, so they run on
+        // slices. SerialVersionUIDInSerializableClass walked every source file of the module; #876 gives a slice
+        // the recorded class-name facts of the files it does not compile, so it is served too. No built-in rule is
+        // tiered; the tiered-rule tests use the test-only TieredProbe.
+        val narrowed = listOf(
             "CollectionsSynchronizedListIteration", "HardcodedSecretKey", "JdbcStatementExecute",
-            "LocaleGetDefaultForFormatting", "LongLogTag",
-            "SharedFlowWithoutReplay", "ShortAlarm", "StaticIv", "WeakKeySize", "WorldWriteableFiles",
-            "SecureRandom", "ShowToast", "GetSignatures", "TooGenericExceptionThrown", "GlobalScopeLaunchInViewModel",
+            "LocaleGetDefaultForFormatting", "LongLogTag", "SharedFlowWithoutReplay", "ShortAlarm", "StaticIv",
+            "WeakKeySize", "WorldWriteableFiles", "SecureRandom", "ShowToast", "GetSignatures",
+            "TooGenericExceptionThrown", "GlobalScopeLaunchInViewModel",
         )
         val tiered = FirRuleDiscovery.wholeCompilationRuleIds()
-        assertTrue(tiered.containsAll(found), "missing: ${found - tiered.toSet()}")
+        val ids = FirRuleDiscovery.rules.map { it.ruleId }
+        assertTrue(ids.containsAll(narrowed), "rule missing: ${narrowed - ids.toSet()}")
+        assertTrue(tiered.none { it in narrowed }, "narrowed rules must not be tiered: ${tiered.filter { it in narrowed }}")
+        assertTrue(tiered.isEmpty(), "no built-in rule is tiered: $tiered")
         // Served on slices through recorded class-name facts, so it is not tiered any more.
         assertFalse("SerialVersionUIDInSerializableClass" in tiered)
     }
@@ -210,9 +273,15 @@ class FirRuleWholeCompilationGateTest {
         assertFalse(plain.requiresWholeCompilation)
         assertFalse(FirRuleDiscovery.rules.first { it.ruleId == "InjectDispatcher" }.requiresWholeCompilation)
         assertFalse(FirRuleDiscovery.rules.first { it.ruleId == "SerialVersionUIDInSerializableClass" }.requiresWholeCompilation)
-        val tiered = FirRuleDiscovery.rules.first { it.ruleId == "LongLogTag" }
-        assertTrue(tiered.requiresWholeCompilation)
-        assertNotNull(tiered.wholeCompilationTier)
+        assertFalse(FirRuleDiscovery.rules.first { it.ruleId == "LongLogTag" }.requiresWholeCompilation)
+        // The test-only probe is the one rule with an override, and only while armed.
+        val probe = FirRuleDiscovery.rules.first { it.ruleId == TieredProbe.ruleId }
+        assertFalse(probe.requiresWholeCompilation)
+        TieredProbe.armed {
+            assertTrue(probe.requiresWholeCompilation)
+            assertNotNull(probe.wholeCompilationTier)
+            assertEquals(listOf(TieredProbe.ruleId), FirRuleDiscovery.wholeCompilationRuleIds())
+        }
     }
 
     @Test fun scannerIgnoresCommentsAndStringsAndFlagsRealReads() {

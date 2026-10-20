@@ -45,7 +45,10 @@ import kotlin.test.assertTrue
  * safe controls (const values, literal-null initializers, annotation defaults) must not differ at all.
  *
  * With the full corpus (no sampling or filter) the run also fails when it is vacuous: too few rules produced
- * findings, or no piece differed, which means the harness stopped loading the plugin or the snapshot.
+ * findings, or the known-differing scenario (the one that withholds the recorded class-name facts from the slice)
+ * did not differ, which means the harness stopped loading the plugin or the snapshot. No built-in rule is tiered
+ * any more (#873 narrowed the rules that read other files' bodies, #876 serves SerialVersionUIDInSerializableClass
+ * from recorded facts), so every piece difference must be 0 except that scenario's.
  *
  * Runtime: a few minutes, so it is tagged [TAG] and runs in its own Gradle task (`incrementalDifferentialTest`),
  * not in `test`. `-Pkrit.fir.differential.sample=N` keeps every Nth scenario (deterministic, sorted by path);
@@ -119,10 +122,14 @@ class FirIncrementalSplitDifferentialTest {
                     "Only ${result.exercised.size} rules produced findings (expected at least $MIN_EXERCISED_RULES): " +
                         "the harness probably stopped loading the krit plugin.",
                 )
+                // No built-in rule is tiered, so no piece may differ, and the single-file split need not produce any
+                // difference at all. The harness stays non-vacuous through the withheld-facts scenario: it must
+                // differ on a slice (checked above), which it only does if the slice compile reads the snapshot.
+                // It is the only known-differing scenario; removing it leaves this guard failing.
                 assertTrue(
-                    result.pieceDiffs > 0,
-                    "No piece differed between the full and the slice compile. The tiered rules are known to differ, " +
-                        "so the slice compile is probably not reading the snapshot.",
+                    scenarios.any { it.differs },
+                    "No cross-file scenario is known to differ between the full and the slice compile, so nothing " +
+                        "shows that the slice compile reads the snapshot. Keep the withheld-facts scenario.",
                 )
             }
             val untiered = result.diffByRule.filterKeys { it !in tiered }

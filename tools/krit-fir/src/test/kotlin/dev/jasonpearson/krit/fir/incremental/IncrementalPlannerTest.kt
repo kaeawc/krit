@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.incremental
 
 import dev.jasonpearson.krit.fir.FirRuleDiscovery
+import dev.jasonpearson.krit.fir.checkers.protocol.TieredProbe
 import dev.jasonpearson.krit.fir.SdkLevels
 import dev.jasonpearson.krit.fir.runner.AnalysisSession
 import dev.jasonpearson.krit.fir.runner.BatchResult
@@ -346,9 +347,10 @@ class IncrementalPlannerTest {
 
     // ---- tiered rules ---------------------------------------------------------------------------------------------
 
-    private val tieredRule get() = FirRuleDiscovery.wholeCompilationRuleIds().first()
+    // No built-in rule is tiered, so these tests arm the test-only TieredProbe (a rule with no checkers).
+    private val tieredRule get() = TieredProbe.ruleId
 
-    @Test fun theDefaultPolicyUsesTheFullCompileWheneverATieredRuleIsEnabled() {
+    @Test fun theDefaultPolicyUsesTheFullCompileWheneverATieredRuleIsEnabled() = TieredProbe.armed {
         probeModule()
         val session = planned()
         session.checkAll(ruleIds = rules + tieredRule)
@@ -366,7 +368,7 @@ class IncrementalPlannerTest {
         assertEquals(PlanPath.INCREMENTAL, session.plan.path)
     }
 
-    @Test fun aTieredFallbackIsAPlainCheckThatLeavesTheStateAlone() {
+    @Test fun aTieredFallbackIsAPlainCheckThatLeavesTheStateAlone() = TieredProbe.armed {
         probeModule()
         val session = planned()
         val tiered = rules + tieredRule
@@ -395,7 +397,7 @@ class IncrementalPlannerTest {
         assertSameAsFull(third, fullCheck())
     }
 
-    @Test fun excludeTieredRunsOnlyTheOthersAndStaysIncremental() {
+    @Test fun excludeTieredRunsOnlyTheOthersAndStaysIncremental() = TieredProbe.armed {
         probeModule()
         val session = planned()
         session.tieredRulePolicy = BuiltInTieredPolicy.EXCLUDE_TIERED
@@ -419,7 +421,13 @@ class IncrementalPlannerTest {
         session.checkAll()
         assertEquals(PlanPath.INCREMENTAL, session.plan.path)
         assertEquals(1, seen.size)
-        assertEquals(FirRuleDiscovery.wholeCompilationRuleIds().toSet(), seen.single().second)
+        assertEquals(emptySet(), seen.single().second, "no built-in rule is tiered")
+        TieredProbe.armed {
+            // The policy sees the tiered ids of the moment: the armed probe.
+            write("Use.kt", "package p\n\nfun u() { protocolProbe(); base() }\n")
+            session.checkAll()
+            assertEquals(setOf(TieredProbe.ruleId), seen.last().second)
+        }
         session.tieredRulePolicy = TieredRulePolicy { _, _ -> error("policy boom") }
         val result = session.checkAll()
         assertEquals(FullReason.TIERED_RULES, session.plan.reason)

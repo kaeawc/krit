@@ -1,7 +1,10 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
-import dev.jasonpearson.krit.fir.otherDeclarationBodies
+import dev.jasonpearson.krit.fir.checkers.bodyInCheckedFile
+import dev.jasonpearson.krit.fir.checkers.delegateInCheckedFile
+import dev.jasonpearson.krit.fir.checkers.followableInitializer
+import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.importedNameSource
 import dev.jasonpearson.krit.fir.support.lightChildren
@@ -82,7 +85,8 @@ import org.jetbrains.kotlin.name.StandardClassIds
 //   findings (see [Value]): a const-evaluable value without the
 //   world-writeable bit (0x2), or a parameter without a world-writeable
 //   default. A value FIR cannot see (a var, an abstract or open property, a
-//   function-call initializer, a binary property) is reported, as Go does.
+//   function-call initializer, a binary property, a non-const property of
+//   another file: a class file keeps no initializer) is reported, as Go does.
 //
 // Deliberate differences from Go, each pinned in the golden data:
 // - Recall: a read through an import alias (`import ...MODE_WORLD_WRITEABLE as WW`,
@@ -99,7 +103,6 @@ import org.jetbrains.kotlin.name.StandardClassIds
 //   name (a property's declared name excepted).
 internal object WorldWriteableFiles : FirQualifiedAccessExpressionChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "WorldWriteableFiles"
-    override val wholeCompilationTier = otherDeclarationBodies("Reads a getter body or resolvedInitializer of a mode constant holder that is not const, declared in another file.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val qualifiedAccessExpressionCheckers = setOf(WorldWriteableFiles)
         override val callCheckers = setOf(NamedArguments)
@@ -323,19 +326,23 @@ internal object WorldWriteableFiles : FirQualifiedAccessExpressionChecker(MppChe
         }
     }
 
-    @OptIn(SymbolInternals::class)
+    //
+    // Only a property of the file under check is read: a class file keeps
+    // neither a getter body, a delegate, nor an initializer, so a property
+    // of another file is unknown unless it is a const (whose value a class
+    // file keeps). Go reports such a name, so does this.
     context(context: CheckerContext)
     private fun declaredPropertyValue(property: FirPropertySymbol, seen: MutableSet<FirVariableSymbol<*>>): Value {
         val getter = property.getterSymbol?.takeUnless { it.isDefault }
-        val delegate = property.delegate
+        val delegate = property.delegateInCheckedFile()
         val declared = when {
             getter != null -> {
-                val body = getter.fir.body
+                val body = getter.bodyInCheckedFile()
                 val single = (body?.statements?.singleOrNull() as? FirReturnExpression)?.result
                 if (single != null) evaluate(single, seen) else if (body != null && readsConstant(body)) Value.ReadsConstant else Value.Unknown
             }
             delegate != null -> if (readsConstant(delegate)) Value.ReadsConstant else Value.Unknown
-            else -> property.resolvedInitializer?.let { evaluate(it, seen) } ?: Value.Unknown
+            else -> property.followableInitializer()?.let { evaluate(it, seen) } ?: Value.Unknown
         }
         if (declared == Value.ReadsConstant) return declared
         // Another value can replace the declared one: a var is reassigned, and
@@ -361,7 +368,7 @@ internal object WorldWriteableFiles : FirQualifiedAccessExpressionChecker(MppChe
     @OptIn(SymbolInternals::class)
     context(context: CheckerContext)
     private fun parameterValue(symbol: FirValueParameterSymbol, seen: MutableSet<FirVariableSymbol<*>>): Value {
-        val default = symbol.fir.defaultValue
+        val default = if (symbol.isDeclaredInCheckedFile()) symbol.fir.defaultValue else null
         if (default != null) {
             if (!seen.add(symbol)) return Value.Unknown
             try {
@@ -486,7 +493,6 @@ internal object WorldWriteableFiles : FirQualifiedAccessExpressionChecker(MppChe
     private fun readsConstant(element: FirElement): Boolean =
         readsConstant(element, HashSet())
 
-    @OptIn(SymbolInternals::class)
     context(context: CheckerContext)
     private fun readsConstant(element: FirElement, seen: MutableSet<FirPropertySymbol>): Boolean {
         var found = false
@@ -502,9 +508,9 @@ internal object WorldWriteableFiles : FirQualifiedAccessExpressionChecker(MppChe
                     val property = (read?.unwrapFakeOverrides() as? FirPropertySymbol)
                     if (property != null && seen.add(property)) {
                         val values = listOfNotNull(
-                            property.resolvedInitializer,
-                            property.delegate,
-                            property.getterSymbol?.takeUnless { it.isDefault }?.fir?.body,
+                            property.followableInitializer(),
+                            property.delegateInCheckedFile(),
+                            property.getterSymbol?.takeUnless { it.isDefault }?.bodyInCheckedFile(),
                         )
                         if (values.any { readsConstant(it, seen) }) {
                             found = true

@@ -1,7 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
-import dev.jasonpearson.krit.fir.otherDeclarationBodies
+import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtNodeTypes
@@ -108,8 +108,9 @@ import org.jetbrains.kotlin.text
 //   earlier in the function, in any scope, and also matches `x.flags` against
 //   a local `flags` (GetSignaturesDivergence).
 // - Recall: a variable is followed wherever the flags value reads it, through
-//   any number of variables, member and top-level vals, and assignments to a
-//   local var, in any enclosing scope; Go only follows a local val or var
+//   any number of variables, member and top-level vals of the same file (of
+//   another file only a const, the one value a class file keeps), and
+//   assignments to a local var, in any enclosing scope; Go only follows a local val or var
 //   named by the whole argument, through its initializer, inside the nearest
 //   named function. An import alias of GET_SIGNATURES, a binary literal, a
 //   constant expression with the bit (`-1`, `0x20 + 0x20`,
@@ -119,7 +120,6 @@ import org.jetbrains.kotlin.text
 //   lambda are reported (GetSignaturesRecall).
 internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "GetSignatures"
-    override val wholeCompilationTier = otherDeclarationBodies("Reads the resolvedInitializer of a non-const val (the flags value, or a val named GET_SIGNATURES) declared in another file; only const values survive in a binary.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(GetSignatures)
     }
@@ -338,17 +338,17 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
                 val symbol = element.calleeReference.toResolvedCallableSymbol()
                 when {
                     symbol != null && isGetSignatures(symbol) -> true
-                    element.explicitReceiver?.let(::mentionsGetSignatures) == true -> true
+                    element.explicitReceiver?.let { mentionsGetSignatures(it) } == true -> true
                     symbol is FirPropertySymbol -> variableCarriesFlag(symbol.unwrapFakeOverrides(), element, seen)
                     else -> false
                 }
             }
             is FirWhenExpression ->
-                element.subjectVariable?.let(::mentionsGetSignatures) == true ||
+                element.subjectVariable?.let { mentionsGetSignatures(it) } == true ||
                     element.branches.any { mentionsGetSignatures(it.condition) || carriesFlag(it.result, seen) }
             is FirBlock -> {
                 val statements = element.statements
-                statements.dropLast(1).any(::mentionsGetSignatures) ||
+                statements.dropLast(1).any { mentionsGetSignatures(it) } ||
                     statements.lastOrNull()?.let { carriesFlag(it, seen) } == true
             }
             is FirTypeOperatorCall ->
@@ -381,7 +381,7 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
                 // `inv()` clears every bit its operand sets.
                 "inv" -> false
                 // `x and m` keeps only the bits of a constant mask.
-                "and" -> operands.none(::clearsFlag) && operands.any { carriesFlag(it, seen) }
+                "and" -> operands.none { clearsFlag(it) } && operands.any { carriesFlag(it, seen) }
                 else -> operands.any { carriesFlag(it, seen) }
             }
         }
@@ -406,6 +406,7 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
     private fun isKotlinLibrary(packageName: FqName): Boolean =
         packageName == kotlin || packageName.asString().startsWith("kotlin.")
 
+    context(context: CheckerContext)
     private fun containsFlagLiteral(element: FirElement): Boolean {
         var found = false
         element.accept(object : FirVisitorVoid() {
@@ -429,6 +430,7 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
     }
 
     // A constant without the 0x40 bit.
+    context(context: CheckerContext)
     private fun clearsFlag(operand: FirExpression): Boolean =
         constantValue(operand, 0)?.let { it and GET_SIGNATURES_BIT == 0L } == true
 
@@ -461,6 +463,7 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
     // constant, or bitwise and additive operators and conversions of them.
     // Every folded operation keeps the low bits the same whatever the width.
     @OptIn(SymbolInternals::class)
+    context(context: CheckerContext)
     private fun constantValue(element: FirElement, depth: Int): Long? {
         if (depth > 32) return null
         return when (element) {
@@ -490,7 +493,7 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
             }
             is FirQualifiedAccessExpression -> {
                 val initializer = when (val symbol = element.calleeReference.toResolvedCallableSymbol()?.unwrapFakeOverrides()) {
-                    is FirPropertySymbol -> if (symbol.isConst) symbol.resolvedInitializer else null
+                    is FirPropertySymbol -> if (symbol.isConst) symbol.followableInitializer() else null
                     is FirFieldSymbol -> if (symbol.fir.isVal) symbol.fir.initializer else null
                     else -> null
                 }
@@ -504,10 +507,12 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
     // is a constant that is not the flag (a project constant that merely
     // shares the name).
     @OptIn(SymbolInternals::class)
+    context(context: CheckerContext)
     private fun isGetSignatures(symbol: FirCallableSymbol<*>): Boolean {
         if (symbol.name != getSignatures) return false
         val initializer = when (val original = symbol.unwrapFakeOverrides()) {
-            is FirPropertySymbol -> original.resolvedInitializer
+            // A property of another file shows its initializer only when it is a const.
+            is FirPropertySymbol -> original.followableInitializer()
             is FirFieldSymbol -> original.fir.initializer
             else -> null
         }
@@ -526,7 +531,8 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
         val getter = symbol.getterSymbol
         if (getter != null && !getter.isDefault) return false
         if (!symbol.isLocal && !symbol.isVal) return false
-        if (!localVar) return symbol.resolvedInitializer?.let { carriesFlag(it, seen) } == true
+        // A val of another file is followed only when it is a const: a class file keeps no other initializer.
+        if (!localVar) return symbol.followableInitializer()?.let { carriesFlag(it, seen) } == true
         // A local var's whole scope lies in the outermost enclosing
         // non-class declaration.
         val root = context.containingDeclarations.firstOrNull { it !is FirClassLikeSymbol<*> && it !is FirFileSymbol }
@@ -627,6 +633,7 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
 
     // Whether [element] reads GET_SIGNATURES anywhere, other than inverted
     // (`GET_SIGNATURES.inv()` is a mask that clears the flag).
+    context(context: CheckerContext)
     private fun mentionsGetSignatures(element: FirElement): Boolean {
         var found = false
         element.accept(object : FirVisitorVoid() {

@@ -1,7 +1,9 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
-import dev.jasonpearson.krit.fir.otherDeclarationBodies
+import dev.jasonpearson.krit.fir.checkers.bodyInCheckedFile
+import dev.jasonpearson.krit.fir.checkers.followableInitializer
+import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -72,10 +74,13 @@ import org.jetbrains.kotlin.text
 //   `android.util.Log.d(...)`, an import alias or typealias of Log, and a
 //   statically imported `d(...)` are reported (LongLogTagRecall). Go needs
 //   the receiver to be spelled `Log`. A tag property initialized with a
-//   parenthesized literal (LongLogTagRecall), declared in another file
-//   (LongLogTagCrossFileTest), or reaching a literal through properties of
+//   parenthesized literal (LongLogTagRecall), a `const` declared in another
+//   file (LongLogTagCrossFileTest; the message spells its decoded value, since
+//   a class file keeps no source), or reaching a literal through properties of
 //   other names (LongLogTagRecallChain) is resolved too; Go reads only bare
-//   literals in the calling file, under the referenced name.
+//   literals in the calling file, under the referenced name. A non-const
+//   property of another file is not followed (a class file keeps no
+//   initializer), so such a tag is left alone.
 // - Precision: a project or local class or object named Log is not
 //   android.util.Log and has no tag limit (LongLogTagLookalike); Go only
 //   filters it out when the Kotlin oracle is running. Go finds a referenced
@@ -97,7 +102,6 @@ import org.jetbrains.kotlin.text
 //   Go only (LongLogTagDivergence).
 internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "LongLogTag"
-    override val wholeCompilationTier = otherDeclarationBodies("Reads the resolvedInitializer of a non-const tag val and a tag getter's body, which another file's binary does not carry (const tags are in metadata).")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(LongLogTag)
     }
@@ -119,20 +123,26 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
             ?.firstOrNull { it.value.symbol == tagParameter }
             ?.key
             ?: return
-        val literal = tagLiteral(argument, HashSet()) ?: return
-        val value = literal.value as? String ?: return
+        val tag = tagLiteral(argument, HashSet()) ?: return
+        val value = tag.literal.value as? String ?: return
         if (value.length <= MAX_TAG_LENGTH) return
-        report(expression.source, "Log tag \"${spelling(literal, value)}\" exceeds the 23 character limit.")
+        report(expression.source, "Log tag \"${spelling(tag, value)}\" exceeds the 23 character limit.")
     }
+
+    // The literal that gives a tag its value. [foreign] is set when it is the
+    // value of a `const` declared in another file: a class file keeps only the
+    // value, so the message spells that value for a compile that has the file in
+    // source and one that has its class file alike.
+    private class Tag(val literal: FirLiteralExpression, val foreign: Boolean = false)
 
     // The literal that gives the tag its value: the argument itself, or the
     // literal the property it reads resolves to. FIR drops parentheses around
     // either one; an interpolated template is not a literal. A safe call
     // (`screen?.tag`) passes the property's value whenever it passes a tag.
     context(context: CheckerContext)
-    private fun tagLiteral(argument: FirExpression, path: MutableSet<FirPropertySymbol>): FirLiteralExpression? {
+    private fun tagLiteral(argument: FirExpression, path: MutableSet<FirPropertySymbol>): Tag? {
         val expression = unwrap(argument)
-        if (expression is FirLiteralExpression) return expression
+        if (expression is FirLiteralExpression) return Tag(expression)
         if (expression !is FirPropertyAccessExpression) return null
         val symbol = expression.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol ?: return null
         return propertyLiteral(symbol.unwrapFakeOverrides(), expression, path)
@@ -149,7 +159,7 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
         symbol: FirPropertySymbol,
         use: FirElement,
         path: MutableSet<FirPropertySymbol>,
-    ): FirLiteralExpression? {
+    ): Tag? {
         if (!path.add(symbol)) return null
         try {
             ownLiteral(symbol, use, path)?.let { return it }
@@ -162,21 +172,26 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
         }
     }
 
+    //
+    // Only a property of the file under check is followed through its
+    // initializer or getter; a property of another file gives its value only
+    // when it is a `const` (a class file keeps no other initializer).
     context(context: CheckerContext)
     private fun ownLiteral(
         symbol: FirPropertySymbol,
         use: FirElement,
         path: MutableSet<FirPropertySymbol>,
-    ): FirLiteralExpression? {
+    ): Tag? {
         if (symbol.hasDelegate) return null
         val getter = symbol.getterSymbol
         if (getter != null && !getter.isDefault && !returnsField(getter)) return null
         val value = if (symbol.isLocal && !symbol.isVal) {
             localVarValue(symbol, use) ?: return null
         } else {
-            symbol.resolvedInitializer ?: return null
+            symbol.followableInitializer() ?: return null
         }
-        return tagLiteral(value, path)
+        val tag = tagLiteral(value, path) ?: return null
+        return if (symbol.isDeclaredInCheckedFile()) tag else Tag(tag.literal, foreign = true)
     }
 
     // The first override of [symbol] declared in this file, in source order,
@@ -185,7 +200,7 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
     // tags, so no class id is resolved from a local or anonymous class.
     @OptIn(SymbolInternals::class, DirectDeclarationsAccess::class)
     context(context: CheckerContext)
-    private fun overrideLiteral(symbol: FirPropertySymbol, path: MutableSet<FirPropertySymbol>): FirLiteralExpression? {
+    private fun overrideLiteral(symbol: FirPropertySymbol, path: MutableSet<FirPropertySymbol>): Tag? {
         val ownerId = symbol.containingClassLookupTag()?.classId ?: return null
         val file = context.containingFileSymbol?.fir ?: return null
         val overrides = ArrayList<FirProperty>()
@@ -201,9 +216,9 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
             }
         })
         for (override in overrides) {
-            val literal = propertyLiteral(override.symbol, override, path) ?: continue
-            val value = literal.value as? String ?: continue
-            if (value.length > MAX_TAG_LENGTH) return literal
+            val tag = propertyLiteral(override.symbol, override, path) ?: continue
+            val value = tag.literal.value as? String ?: continue
+            if (value.length > MAX_TAG_LENGTH) return tag
         }
         return null
     }
@@ -291,9 +306,9 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
 
     // A custom getter that only returns the backing field (`get() = field`)
     // still yields the initializer's value, so it keeps the finding.
-    @OptIn(SymbolInternals::class)
+    context(context: CheckerContext)
     private fun returnsField(getter: FirFunctionSymbol<*>): Boolean {
-        val statement = getter.fir.body?.statements?.singleOrNull()
+        val statement = getter.bodyInCheckedFile()?.statements?.singleOrNull()
         val result = if (statement is FirReturnExpression) statement.result else statement
         val access = result as? FirPropertyAccessExpression ?: return false
         return access.calleeReference.toResolvedCallableSymbol() is FirBackingFieldSymbol
@@ -314,8 +329,11 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
 
     // The literal's source text between its quotes (escape sequences
     // undecoded), which is how Go prints the tag; the runtime value when the
-    // literal has no source, such as a constant from a library.
-    private fun spelling(literal: FirLiteralExpression, value: String): String {
+    // literal has no source, such as a constant from a library, and for the
+    // constant of another file, whose source a class file does not keep.
+    private fun spelling(tag: Tag, value: String): String {
+        if (tag.foreign) return value
+        val literal = tag.literal
         val text = literal.source?.text?.toString()?.trim() ?: return value
         return when {
             text.length >= 6 && text.startsWith(RAW_QUOTE) && text.endsWith(RAW_QUOTE) ->

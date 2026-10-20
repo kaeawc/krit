@@ -2,7 +2,8 @@ package dev.jasonpearson.krit.fir.checkers.security
 
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
-import dev.jasonpearson.krit.fir.otherDeclarationBodies
+import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
+import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
@@ -110,9 +111,11 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *   parameter bounded by `Statement`, and a `Statement` subtype (including
  *   an object expression or a local class).
  * - Precision: a "computed" SQL argument whose value is fixed in the source
- *   (a literal of any kind, a `const val`, a final `val` initialized with
- *   one, an `if`/`when` over those, a literal with an escaped `\$`, or a `+`
- *   of those) is not built from non-static data, so it is not reported. A
+ *   (a literal of any kind, a `const val`, a final `val` of the same file
+ *   initialized with one, an `if`/`when` over those, a literal with an escaped
+ *   `\$`, or a `+` of those) is not built from non-static data, so it is not
+ *   reported. A non-const `val` of another file is computed, as Go reads any
+ *   lower-case operand: a class file keeps no initializer. A
  *   receiver that is not a `Statement` (a lookalike Go binds to an earlier
  *   `createStatement()` declaration of the same name in another scope) and
  *   a project extension whose first parameter is not SQL text (a query
@@ -120,7 +123,6 @@ import org.jetbrains.kotlin.name.StandardClassIds
  */
 internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "JdbcStatementExecute"
-    override val wholeCompilationTier = otherDeclarationBodies("Reads the resolvedInitializer of a property to decide whether the SQL is static; the property may be declared in another file.")
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(JdbcStatementExecute)
     }
@@ -324,6 +326,7 @@ internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Com
     // kind, a const, an if or when whose every branch is one, a `+` or
     // template of those, or a val that cannot be overridden or recomputed
     // (no delegate, no custom getter) initialized with one.
+    context(context: CheckerContext)
     private fun isStaticValue(expression: FirExpression, depth: Int): Boolean {
         if (depth > MAX_DEPTH) return false
         return when (expression) {
@@ -344,7 +347,10 @@ internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Com
                     !property.isVal || property.hasDelegate || property.resolvedStatus.isExpect -> false
                     !property.isLocal && property.resolvedStatus.modality != Modality.FINAL -> false
                     property.getterSymbol?.isDefault == false -> false
-                    else -> property.resolvedInitializer?.let { isStaticValue(it, depth + 1) } == true
+                    // A val of another file is computed, as Go reads any lower-case operand: a class file keeps
+                    // no initializer, so only a const (above) or a val of the file under check is static.
+                    !property.isDeclaredInCheckedFile() -> false
+                    else -> property.initializerInCheckedFile()?.let { isStaticValue(it, depth + 1) } == true
                 }
             }
             is FirFunctionCall -> {

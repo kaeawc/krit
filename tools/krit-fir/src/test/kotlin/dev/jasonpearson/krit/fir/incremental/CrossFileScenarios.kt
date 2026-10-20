@@ -6,7 +6,10 @@ package dev.jasonpearson.krit.fir.incremental
  * file B. Here B is the declaration and A the use; each file is compiled alone against the snapshot of the other.
  *
  * [differs] scenarios are cases where [rule] is known to give a different verdict on a slice, so the rule must be
- * tiered. The others are safe controls: [rule] must give the same verdict, tiered or not.
+ * tiered. The others are safe controls: [rule] must give the same verdict, tiered or not. The rules that read other
+ * files' bodies were narrowed to the file under check and to what class files keep (#873), so their scenarios are
+ * controls; the depth chains below (A uses, B forwards, C holds the fact) are the research's probes, which needed
+ * every file of the chain in source before the narrowing. SerialVersionUIDInSerializableClass stays tiered.
  */
 internal class CrossFileScenario(
     val name: String,
@@ -24,20 +27,20 @@ private fun signatureUse(flags: String) = GET_SIGNATURES_USE.format(flags)
 
 internal val crossFileScenarios = listOf(
     CrossFileScenario(
-        "SecureRandom: top-level Random-typed val holding a SecureRandom", "SecureRandom",
+        "SecureRandom control: top-level Random-typed val holding a SecureRandom in B (not followed)", "SecureRandom",
         mapOf(
             "B.kt" to "package p\nimport java.security.SecureRandom\nimport java.util.Random\nval rng: Random = SecureRandom()\n",
             "A.kt" to "package p\nfun f() { rng.setSeed(1L) }\n",
         ),
-        differs = true,
+        differs = false,
     ),
     CrossFileScenario(
-        "ShowToast: var with a non-null initializer in B, assigned and shown in A", "ShowToast",
+        "ShowToast control: var with a non-null initializer in B (followed as a class file has it), assigned and shown in A", "ShowToast",
         mapOf(
             "B.kt" to TOAST_HEADER + "lateinit var ctx: Context\nvar saved: Toast? = Toast.makeText(ctx, \"x\", 0)\n",
             "A.kt" to TOAST_HEADER + "fun g(c: Context) {\n    saved = Toast.makeText(c, \"y\", 0)\n    saved?.show()\n}\n",
         ),
-        differs = true,
+        differs = false,
     ),
     CrossFileScenario(
         "ShowToast control: var = null in B (a literal null initializer)", "ShowToast",
@@ -48,25 +51,25 @@ internal val crossFileScenarios = listOf(
         differs = false,
     ),
     CrossFileScenario(
-        "GetSignatures: non-const val holding GET_SIGNATURES in B", "GetSignatures",
+        "GetSignatures control: non-const val holding GET_SIGNATURES in B", "GetSignatures",
         mapOf(
             "B.kt" to "package p\nimport android.content.pm.PackageManager\nval SIG_FLAGS = PackageManager.GET_SIGNATURES\n",
             "A.kt" to signatureUse("SIG_FLAGS"),
         ),
-        differs = true,
+        differs = false,
     ),
     CrossFileScenario(
-        "GetSignatures: non-const val SIG = 64 in B", "GetSignatures",
+        "GetSignatures control: non-const val SIG = 64 in B", "GetSignatures",
         mapOf("B.kt" to "package p\nval SIG = 64\n", "A.kt" to signatureUse("SIG")),
-        differs = true,
+        differs = false,
     ),
     CrossFileScenario(
-        "GetSignatures: lookalike non-const GET_SIGNATURES = 0 in an object in B", "GetSignatures",
+        "GetSignatures control: lookalike non-const GET_SIGNATURES = 0 in an object in B", "GetSignatures",
         mapOf(
             "B.kt" to "package p\nobject Flags { val GET_SIGNATURES = 0 }\n",
             "A.kt" to signatureUse("Flags.GET_SIGNATURES"),
         ),
-        differs = true,
+        differs = false,
     ),
     CrossFileScenario(
         "GetSignatures control: const val SIG = 64 in B", "GetSignatures",
@@ -87,28 +90,28 @@ internal val crossFileScenarios = listOf(
         differs = false,
     ),
     CrossFileScenario(
-        "GlobalScopeLaunchInViewModel: val appScope: CoroutineScope = GlobalScope in B", "GlobalScopeLaunchInViewModel",
+        "GlobalScopeLaunchInViewModel control: val appScope: CoroutineScope = GlobalScope in B", "GlobalScopeLaunchInViewModel",
         mapOf(
             "B.kt" to "package p\nimport kotlinx.coroutines.CoroutineScope\nimport kotlinx.coroutines.GlobalScope\nval appScope: CoroutineScope = GlobalScope\n",
             "A.kt" to "package p\nimport kotlinx.coroutines.launch\nclass FooViewModel { fun f() { appScope.launch { } } }\n",
         ),
-        differs = true,
+        differs = false,
     ),
     CrossFileScenario(
-        "GlobalScopeLaunchInViewModel: lookalike val GlobalScope = MainScope() in B", "GlobalScopeLaunchInViewModel",
+        "GlobalScopeLaunchInViewModel control: lookalike val GlobalScope = MainScope() in B", "GlobalScopeLaunchInViewModel",
         mapOf(
             "B.kt" to "package p\nimport kotlinx.coroutines.CoroutineScope\nimport kotlinx.coroutines.MainScope\nval GlobalScope: CoroutineScope = MainScope()\n",
             "A.kt" to "package p\nimport kotlinx.coroutines.launch\nclass FooViewModel { fun f() { GlobalScope.launch { } } }\n",
         ),
-        differs = true,
+        differs = false,
     ),
     CrossFileScenario(
-        "TooGenericExceptionThrown: configured name matches a project class in B", "TooGenericExceptionThrown",
+        "TooGenericExceptionThrown control: configured name matches a project class in B", "TooGenericExceptionThrown",
         mapOf(
             "B.kt" to "package p\nclass CustomException : RuntimeException()\n",
             "A.kt" to "package p\nfun f() { throw CustomException() }\n",
         ),
-        differs = true,
+        differs = false,
         config = mapOf(
             "TooGenericExceptionThrown" to mapOf(
                 "exceptionNames" to listOf("Exception", "Throwable", "Error", "RuntimeException", "CustomException"),
@@ -143,5 +146,224 @@ internal val crossFileScenarios = listOf(
                 "    // " + "x".repeat(60) + "\n    // " + "x".repeat(60) + "\n}\n",
         ),
         differs = false,
+    ),
+    // Consts whose class-file value differs from the source expression: a class file keeps the evaluated value,
+    // so a rule must read an evaluated const of another file the same way on a slice and on a full compile.
+    CrossFileScenario(
+        "GetSignatures control: const val SIG = 1 shl 6 in B (evaluated value)", "GetSignatures",
+        mapOf("B.kt" to "package p\nconst val SIG = 1 shl 6\n", "A.kt" to signatureUse("SIG")),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "ShortAlarm control: const val EVERY = 5 * 1000L in B (evaluated value)", "ShortAlarm",
+        mapOf(
+            "B.kt" to "package p\nconst val EVERY = 5 * 1000L\n",
+            "A.kt" to "package p\nimport android.app.AlarmManager\nimport android.app.PendingIntent\nfun f(am: AlarmManager, pi: PendingIntent) { am.setRepeating(0, 0L, EVERY, pi) }\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "ShortAlarm control: wrapper declared in B ignores its interval (no body is read across files)", "ShortAlarm",
+        mapOf(
+            "B.kt" to "package p\nimport android.app.PendingIntent\nobject Sched { fun setRepeating(t: Int, at: Long, every: Long, pi: PendingIntent) { println(t) } }\n",
+            "A.kt" to "package p\nimport android.app.PendingIntent\nfun f(pi: PendingIntent) { Sched.setRepeating(0, 0L, 5000L, pi) }\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "WorldWriteableFiles control: const val MODE_WORLD_WRITEABLE = 1 shl 1 in B", "WorldWriteableFiles",
+        mapOf(
+            "B.kt" to "package p\nconst val MODE_WORLD_WRITEABLE = 1 shl 1\n",
+            "A.kt" to "package p\nfun mode() = MODE_WORLD_WRITEABLE\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "WorldWriteableFiles control: non-const val MODE_WORLD_WRITEABLE = 0 in B (unknown, reported as Go does)", "WorldWriteableFiles",
+        mapOf(
+            "B.kt" to "package p\nobject B { val MODE_WORLD_WRITEABLE = 0 }\n",
+            "A.kt" to "package p\nfun mode() = B.MODE_WORLD_WRITEABLE\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "JdbcStatementExecute control: non-const static val in B (computed across files)", "JdbcStatementExecute",
+        mapOf(
+            "B.kt" to "package p\nval QUERY: String = \"SELECT 1\"\n",
+            "A.kt" to "package p\nimport java.sql.Statement\nfun run(s: Statement) { s.execute(QUERY) }\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "JdbcStatementExecute control: const val query in B (static across files)", "JdbcStatementExecute",
+        mapOf(
+            "B.kt" to "package p\nconst val QUERY = \"SELECT 1\"\n",
+            "A.kt" to "package p\nimport java.sql.Statement\nfun run(s: Statement) { s.execute(QUERY) }\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "TooGenericExceptionThrown control: configured name matches a Java class (reported either way)", "TooGenericExceptionThrown",
+        mapOf(
+            "A.kt" to "package p\nfun f() { throw java.io.IOException() }\n",
+        ),
+        differs = false,
+        config = mapOf(
+            "TooGenericExceptionThrown" to mapOf(
+                "exceptionNames" to listOf("Exception", "Throwable", "Error", "RuntimeException", "IOException"),
+            ),
+        ),
+    ),
+    CrossFileScenario(
+        "HardcodedSecretKey chain over 4 files (A uses, the last holds the fact)", "HardcodedSecretKey",
+        mapOf(
+            "A.kt" to "package p\nimport javax.crypto.spec.SecretKeySpec\nfun key() = SecretKeySpec(java.util.Base64.getDecoder().decode(B.K1), \"AES\")\n",
+            "B.kt" to "package p\nobject B { val K1: String = C.K2 }\n",
+            "C.kt" to "package p\nobject C { val K2: String = D.K3 }\n",
+            "D.kt" to "package p\nobject D { val K3: String = \"c2VjcmV0a2V5MTIzNDU2Nw==\" }\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "StaticIv chain over 3 files (A uses, the last holds the fact)", "StaticIv",
+        mapOf(
+            "A.kt" to "package p\nimport javax.crypto.spec.IvParameterSpec\nfun iv() = IvParameterSpec(\"\${B.P}\".toByteArray())\n",
+            "B.kt" to "package p\nobject B { val P: String = \"\${C.Q}\" }\n",
+            "C.kt" to "package p\nobject C { val Q: String = \"0123456789abcdef\" }\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "WeakKeySize chain over 2 files (A uses, the last holds the fact)", "WeakKeySize",
+        mapOf(
+            "A.kt" to "package p\nfun weak() { gen.init(64) }\n",
+            "B.kt" to "package p\nimport javax.crypto.KeyGenerator\nval gen: KeyGenerator = KeyGenerator.getInstance(\"AES\")\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "LongLogTag chain over 3 files (A uses, the last holds the fact)", "LongLogTag",
+        mapOf(
+            "A.kt" to "package p\nimport android.util.Log\nfun log() { Log.d(B.TAG, \"m\") }\n",
+            "B.kt" to "package p\nobject B { val TAG: String = C.TAG }\n",
+            "C.kt" to "package p\nobject C { val TAG: String = \"AVeryLongTagThatExceedsTheLimit\" }\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "LongLogTag: const tag with an escape sequence in B (the message spells the decoded value)", "LongLogTag",
+        mapOf(
+            "A.kt" to "package p\nimport android.util.Log\nfun log() { Log.d(Tags.T, \"m\") }\n",
+            "B.kt" to "package p\nobject Tags { const val T = \"Tag\\u0041VeryLongTagThatExceedsTheLimit\" }\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "LocaleGetDefaultForFormatting chain over 3 files (A uses, the last holds the fact)", "LocaleGetDefaultForFormatting",
+        mapOf(
+            "A.kt" to "package p\nimport java.util.Locale\nfun fmt() = F1.withLocale(Locale.getDefault())\n",
+            "B.kt" to "package p\nimport java.time.format.DateTimeFormatter\nval F1: DateTimeFormatter = F0\n",
+            "C.kt" to "package p\nimport java.time.format.DateTimeFormatter\nval F0: DateTimeFormatter = DateTimeFormatter.ISO_DATE\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "JdbcStatementExecute chain over 3 files (A uses, the last holds the fact)", "JdbcStatementExecute",
+        mapOf(
+            "A.kt" to "package p\nimport java.sql.Statement\nfun run(s: Statement) { s.execute(B.query) }\n",
+            "B.kt" to "package p\nobject B { val query: String = C.base }\n",
+            "C.kt" to "package p\nobject C { val base: String = \"SELECT 1\" }\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "CollectionsSynchronizedListIteration chain over 2 files (A uses, the last holds the fact)", "CollectionsSynchronizedListIteration",
+        mapOf(
+            "A.kt" to "package p\nfun dump() { for (x in items) println(x) }\n",
+            "B.kt" to "package p\nimport java.util.Collections\nval items: MutableList<String> = Collections.synchronizedList(ArrayList())\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "SharedFlowWithoutReplay chain over 3 files (A uses, the last holds the fact)", "SharedFlowWithoutReplay",
+        mapOf(
+            "A.kt" to "package p\nclass Vm { val events = factory1<Int>() }\n",
+            "B.kt" to "package p\nimport kotlinx.coroutines.flow.MutableSharedFlow\nfun <T> factory1(): MutableSharedFlow<T> = factory2()\n",
+            "C.kt" to "package p\nimport kotlinx.coroutines.flow.MutableSharedFlow\nfun <T> factory2(): MutableSharedFlow<T> = MutableSharedFlow()\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "ShortAlarm chain over 3 files (A uses, the last holds the fact)", "ShortAlarm",
+        mapOf(
+            "A.kt" to "package p\nimport android.app.PendingIntent\nfun schedule(pi: PendingIntent) { Sched.setRepeating(0, 0L, 5000L, pi) }\n",
+            "B.kt" to "package p\nimport android.app.PendingIntent\nobject Sched { fun setRepeating(t: Int, at: Long, every: Long, pi: PendingIntent) { Inner.setRepeating(t, at, every, pi) } }\n",
+            "C.kt" to "package p\nimport android.app.AlarmManager\nimport android.app.PendingIntent\nobject Inner {\n  private fun am(): AlarmManager = TODO()\n  fun setRepeating(t: Int, at: Long, every: Long, pi: PendingIntent) { println(t) }\n}\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "WorldWriteableFiles chain over 3 files (A uses, the last holds the fact)", "WorldWriteableFiles",
+        mapOf(
+            "A.kt" to "package p\nfun mode() = B.MODE_WORLD_WRITEABLE\n",
+            "B.kt" to "package p\nobject B { val MODE_WORLD_WRITEABLE: Int = C.MODE }\n",
+            "C.kt" to "package p\nobject C { val MODE: Int = 0 }\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "SecureRandom chain over 2 files (A uses, the last holds the fact)", "SecureRandom",
+        mapOf(
+            "A.kt" to "package p\nfun seed() { rng.setSeed(1L) }\n",
+            "B.kt" to "package p\nimport java.security.SecureRandom\nimport java.util.Random\nval rng: Random = SecureRandom()\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "ShowToast chain over 2 files (A uses, the last holds the fact)", "ShowToast",
+        mapOf(
+            "A.kt" to "package p\nimport android.widget.Toast\nimport android.content.Context\nfun g(c: Context) {\n    saved = Toast.makeText(c, \"y\", 0)\n    saved?.show()\n}\n",
+            "B.kt" to "package p\nimport android.widget.Toast\nimport android.content.Context\nlateinit var ctx: Context\nvar saved: Toast? = Toast.makeText(ctx, \"x\", 0)\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "GetSignatures chain over 3 files (A uses, the last holds the fact)", "GetSignatures",
+        mapOf(
+            "A.kt" to "package p\nimport android.content.pm.PackageManager\nfun f(pm: PackageManager) { pm.getPackageInfo(\"x\", FLAGS) }\n",
+            "B.kt" to "package p\nval FLAGS = SIG\n",
+            "C.kt" to "package p\nimport android.content.pm.PackageManager\nval SIG = PackageManager.GET_SIGNATURES\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "GlobalScopeLaunchInViewModel chain over 3 files (A uses, the last holds the fact)", "GlobalScopeLaunchInViewModel",
+        mapOf(
+            "A.kt" to "package p\nimport kotlinx.coroutines.launch\nclass FooViewModel { fun f() { appScope.launch { } } }\n",
+            "B.kt" to "package p\nimport kotlinx.coroutines.CoroutineScope\nval appScope: CoroutineScope = rootScope\n",
+            "C.kt" to "package p\nimport kotlinx.coroutines.CoroutineScope\nimport kotlinx.coroutines.GlobalScope\nval rootScope: CoroutineScope = GlobalScope\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "TooGenericExceptionThrown chain over 2 files (A uses, the last holds the fact)", "TooGenericExceptionThrown",
+        mapOf(
+            "A.kt" to "package p\nfun f() { throw CustomException() }\n",
+            "B.kt" to "package p\nclass CustomException : RuntimeException()\n",
+        ),
+        differs = false,
+        config = mapOf(
+            "TooGenericExceptionThrown" to mapOf(
+                "exceptionNames" to listOf("Exception", "Throwable", "Error", "RuntimeException", "CustomException"),
+            ),
+        ),
+    ),
+    CrossFileScenario(
+        "SerialVersionUIDInSerializableClass: Error subclass reaching Serializable only through another file (still tiered)", "SerialVersionUIDInSerializableClass",
+        mapOf(
+            "A.kt" to "package app\nclass FatalFailure(msg: String) : kotlin.Error(msg)\n",
+            "B.kt" to "package model\nsealed class Resource : java.io.Serializable {\n  companion object { private const val serialVersionUID = 1L }\n  data class Error(val message: String) : Resource()\n}\n",
+        ),
+        differs = true,
     ),
 )

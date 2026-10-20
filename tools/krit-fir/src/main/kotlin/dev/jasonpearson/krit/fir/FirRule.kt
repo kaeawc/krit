@@ -36,6 +36,13 @@ interface FirRule {
      * and resolve other symbols through `symbolProvider` (class and signature
      * metadata, which a snapshot keeps).
      *
+     * Prefer narrowing the rule to tiering it: follow an initializer, body, or
+     * delegate only for a declaration of the file under check, through the
+     * helpers in `checkers/SameFileReads.kt` (`initializerInCheckedFile`,
+     * `bodyInCheckedFile`, `followableInitializer` for a `const`), and treat
+     * every other declaration as a class file shows it. Such a rule needs no
+     * tier and runs on incremental slices.
+     *
      * `FirRuleWholeCompilationGateTest` keeps this in step with the rule's
      * source, and the split differential tests check it against slice compiles.
      * Known gap neither can see: SOURCE-retention annotations are absent from

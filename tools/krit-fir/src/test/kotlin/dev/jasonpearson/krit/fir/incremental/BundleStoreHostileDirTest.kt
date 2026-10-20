@@ -154,6 +154,32 @@ class BundleStoreHostileDirTest {
         assertEquals(setOf("precious.txt", "sub"), v.list()!!.toSet(), "nothing was added to the target")
     }
 
+    @Test fun aLockFileThatIsAFifoNeverHangsAWriter() {
+        val store = BundleStore(root)
+        val k = keyOf(1)
+        root.mkdirs()
+        val lock = File(root, "v1-$k.lock")
+        val made = try { ProcessBuilder("mkfifo", lock.path).start().waitFor() == 0 } catch (_: Exception) { false }
+        org.junit.jupiter.api.Assumptions.assumeTrue(made && !System.getProperty("os.name").lowercase().contains("win"), "no mkfifo here")
+        val done = java.util.concurrent.atomic.AtomicReference<Boolean?>()
+        val t = Thread { done.set(publish(store, k, "a")) }.also { it.isDaemon = true; it.start() }
+        t.join(20_000)
+        assertFalse(t.isAlive, "the writer is stuck on the FIFO")
+        assertEquals(false, done.get(), "nothing is published without a usable lock")
+        assertFalse(store.bundleFile(k).exists())
+    }
+
+    @Test fun aBundleDirectoryThatIsALinkIsNotReadFrom() {
+        val store = BundleStore(root)
+        val k = keyOf(1)
+        publish(store, k, "a")
+        val real = File(root, "real-copy")
+        assertTrue(store.dir(k).renameTo(real))
+        link(store.dir(k), real)
+        assertEquals(BundleRejected.Reason.IO, assertFailsWith<BundleRejected> { store.read(k) }.reason)
+        assertNull(store.readableClassesDir(k, sid("a")))
+    }
+
     @Test fun aBundleFileThatIsALinkIsNotRead() {
         val store = BundleStore(root)
         val k = keyOf(1)

@@ -12,6 +12,7 @@ import dev.jasonpearson.krit.fir.incremental.CompileRecording
 import dev.jasonpearson.krit.fir.incremental.CompileRecordingRegistry
 import dev.jasonpearson.krit.fir.incremental.FingerprintBuilder
 import dev.jasonpearson.krit.fir.incremental.PersistedState
+import dev.jasonpearson.krit.fir.incremental.PersistedVerdict
 import dev.jasonpearson.krit.fir.incremental.BuiltInTieredPolicy
 import dev.jasonpearson.krit.fir.incremental.BundleStore
 import dev.jasonpearson.krit.fir.incremental.CachedVerdict
@@ -788,11 +789,15 @@ class AnalysisSession(
     private val canonicalSourceDirs: Set<String> by lazy { sourceDirs.map { canonicalOrSelf(File(it)) }.toSet() }
 
     /**
-     * The first file a persisted [state] names that is not under this session's source directories, or null. The
-     * state's paths are canonical, as are the roots, so the check is lexical.
+     * The first file a persisted bundle names that is neither under this session's source directories nor under
+     * [repoDir] (the repository the bundle directory belongs to), or null. Go builds the source directories from the
+     * `kotlin`/`java` directories below the scan roots, while the requested files are every `.kt` the scan collected,
+     * so ordinary runs have files in the state that are outside the former and inside the latter. The state's paths are
+     * canonical, as are the roots. Verdict files and the paths of their findings must be files of the state, or lie
+     * under the roots (they may be spelled as the request spelled them).
      */
-    internal fun pathOutsideSourceDirs(state: PersistedState): String? {
-        val roots = canonicalSourceDirs.map { java.nio.file.Path.of(it) }
+    internal fun pathOutsideSources(state: PersistedState, verdicts: List<PersistedVerdict>, repoDir: File?): String? {
+        val roots = (canonicalSourceDirs + listOfNotNull(repoDir?.let { canonicalOrSelf(it) })).map { java.nio.file.Path.of(it) }
         fun outside(path: String): Boolean {
             val p = try { java.nio.file.Path.of(path).normalize() } catch (_: Exception) { return true }
             return !p.isAbsolute || roots.none { p.startsWith(it) }
@@ -802,6 +807,10 @@ class AnalysisSession(
             state.contentHashes.keys, state.surfaces.keys, state.classFacts.keys, state.lookups.keys,
             snap.outputs.keys, snap.surfaceHashes.keys, snap.binaryStale, snap.removed,
         )) for (path in paths) if (outside(path)) return path
+        for (v in verdicts) {
+            if (v.file !in state.contentHashes && outside(v.file)) return v.file
+            for (f in v.entry.verdict.findings) if (f.path != v.file && f.path !in state.contentHashes && outside(f.path)) return f.path
+        }
         return null
     }
 

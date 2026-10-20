@@ -67,6 +67,29 @@ class ClasspathIdentityTest {
         assertNotEquals("not-a-zip", ZipDigest.of(a))
     }
 
+    @Test fun aLookalikeEndRecordInsideTheCommentIsNotTheEndRecord() {
+        // 22 bytes that read as an end record with an empty directory, then two more bytes: java.util.zip would not
+        // take it (its comment length does not reach the end of the file), and it must not stand for the archive.
+        val fake = "PK\u0005\u0006" + "\u0000".repeat(18) + "xx"
+        val a = jar("a.jar", "AAAAAAAA", comment = "c".repeat(100) + fake)
+        val b = jar("b.jar", "BBBBBBBB", comment = "c".repeat(100) + fake)
+        assertNotEquals(ZipDigest.of(a), ZipDigest.of(b))
+        assertNotEquals("not-a-zip", ZipDigest.of(a))
+        assertNotEquals("bad-directory", ZipDigest.of(a))
+    }
+
+    @Test fun dataPrependedToAnArchiveDoesNotMoveTheDirectory() {
+        val plain = jar("plain.jar", "AAAAAAAA")
+        val launcher = tmp.resolve("launcher.jar").toFile()
+        launcher.writeBytes("#!/bin/sh\nexec java -jar \"$0\" \"$@\"\n".repeat(7).toByteArray() + plain.readBytes())
+        launcher.setLastModified(stamp)
+        ZipDigest.clearCache()
+        assertEquals(ZipDigest.of(plain), ZipDigest.of(launcher), "the same central directory, wherever the archive starts")
+        val other = jar("other.jar", "BBBBBBBB")
+        val otherLauncher = tmp.resolve("launcher2.jar").toFile().also { it.writeBytes("#!/bin/sh\n".repeat(30).toByteArray() + other.readBytes()) }
+        assertNotEquals(ZipDigest.of(launcher), ZipDigest.of(otherLauncher))
+    }
+
     @Test fun somethingThatIsNotAZipStillHasAKeyAndNeverThrows() {
         val bogus = tmp.resolve("bogus.jar").toFile().also { it.writeText("not a zip at all, just text".repeat(10)); it.setLastModified(stamp) }
         val tiny = tmp.resolve("tiny.jar").toFile().also { it.writeText("x"); it.setLastModified(stamp) }

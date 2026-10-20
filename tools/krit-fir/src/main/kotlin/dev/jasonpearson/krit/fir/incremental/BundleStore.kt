@@ -56,6 +56,14 @@ internal class BundleStore(
 
     fun bundleFile(compileKey: String): File = File(dir(compileKey), BUNDLE_NAME)
 
+    /** The classes of a bundle for reading; null when its directory or the classes are links or missing. */
+    fun readableClassesDir(compileKey: String, id: String): File? {
+        val dir = dir(compileKey).toPath()
+        val classes = classesDir(compileKey, id).toPath()
+        if (Files.isSymbolicLink(dir) || !Files.isDirectory(classes, LinkOption.NOFOLLOW_LINKS)) return null
+        return classes.toFile()
+    }
+
     fun classesDir(compileKey: String, id: String): File {
         require(BundleCodec.isSnapshotId(id)) { "not a snapshot id: $id" }
         return File(dir(compileKey), "$CLASSES_PREFIX$id")
@@ -67,6 +75,8 @@ internal class BundleStore(
     fun read(compileKey: String): DecodedBundle {
         val file = bundleFile(compileKey)
         val path = file.toPath()
+        // As on the write side: a link in place of the bundle directory is not followed, it is a miss.
+        if (Files.isSymbolicLink(dir(compileKey).toPath())) throw BundleRejected(BundleRejected.Reason.IO, "the bundle directory is a symbolic link")
         val bytes = try {
             val attrs = Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
             if (!attrs.isRegularFile) throw BundleRejected(BundleRejected.Reason.IO, "bundle.bin is not a regular file")
@@ -255,6 +265,10 @@ internal class BundleStore(
             val mutex = mutexes.computeIfAbsent(try { lockFile.canonicalPath } catch (_: IOException) { lockFile.absolutePath }) { ReentrantLock() }
             if (!mutex.tryLock(waitMillis, TimeUnit.MILLISECONDS)) return null
             try {
+                // A planted FIFO or device would block the open for ever: only a regular file (or none) is a lock.
+                val existing = try { Files.readAttributes(lockFile.toPath(), BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS) }
+                    catch (_: NoSuchFileException) { null } catch (_: IOException) { return null }
+                if (existing != null && !existing.isRegularFile) return null
                 val channel = try {
                     FileChannel.open(lockFile.toPath(), StandardOpenOption.CREATE, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)
                 } catch (_: IOException) { return null }

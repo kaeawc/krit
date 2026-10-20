@@ -123,6 +123,10 @@ internal object ZipDigest {
 
     private data class Key(val path: String, val size: Long, val modified: Long)
 
+    // Keyed by path, size and mtime, so inside one live process a jar replaced by one of the same size and mtime keeps
+    // its old digest (the bundle this guards is read by the next process, which starts with an empty cache). When the
+    // cache reaches MAX_CACHE entries it is cleared whole and refilled by the entries that are used next.
+
     private val cache = ConcurrentHashMap<Key, String>()
 
     /** Forgets what was read, as a new process would. For tests. */
@@ -145,32 +149,42 @@ internal object ZipDigest {
     private fun compute(file: File, size: Long): String = java.io.RandomAccessFile(file, "r").use { raf ->
         if (size < EOCD_MIN) return@use "not-a-zip"
         val tailLength = minOf(size, (EOCD_MIN + MAX_COMMENT).toLong()).toInt()
+        val tailStart = size - tailLength
         val tail = ByteArray(tailLength)
-        raf.seek(size - tailLength)
+        raf.seek(tailStart)
         raf.readFully(tail)
         val buf = java.nio.ByteBuffer.wrap(tail).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        // The end record is the last one whose comment length reaches exactly to the end of the file, as in
+        // java.util.zip: a lookalike signature inside the comment does not qualify.
         var eocd = -1
-        for (i in tailLength - EOCD_MIN downTo 0) if (buf.getInt(i) == EOCD_SIGNATURE) { eocd = i; break }
+        for (i in tailLength - EOCD_MIN downTo 0) {
+            if (buf.getInt(i) == EOCD_SIGNATURE && i + EOCD_MIN + (buf.getShort(i + 20).toInt() and 0xFFFF) == tailLength) { eocd = i; break }
+        }
         if (eocd < 0) return@use "not-a-zip"
         var cdSize = buf.getInt(eocd + 12).toLong() and 0xFFFFFFFFL
-        var cdOffset = buf.getInt(eocd + 16).toLong() and 0xFFFFFFFFL
+        // The central directory ends where its end record begins. Offsets recorded in the archive are relative to the
+        // start of the archive, which is not the start of the file when data is prepended (launcher-script jars).
+        var cdEnd = tailStart + eocd
         val entries = buf.getShort(eocd + 10).toInt() and 0xFFFF
-        if (cdSize == 0xFFFFFFFFL || cdOffset == 0xFFFFFFFFL || entries == 0xFFFF) {
-            // zip64: the locator sits just before the end record and points at the zip64 end record.
+        if (cdSize == 0xFFFFFFFFL || (buf.getInt(eocd + 16).toLong() and 0xFFFFFFFFL) == 0xFFFFFFFFL || entries == 0xFFFF) {
+            // zip64: the locator sits just before the end record; the zip64 end record sits just before the locator.
             val locator = eocd - 20
             if (locator >= 0 && buf.getInt(locator) == ZIP64_LOCATOR_SIGNATURE) {
-                val zip64At = buf.getLong(locator + 8)
-                val rec = ByteArray(56)
-                raf.seek(zip64At)
-                raf.readFully(rec)
-                val z = java.nio.ByteBuffer.wrap(rec).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-                if (z.getInt(0) == ZIP64_EOCD_SIGNATURE) { cdSize = z.getLong(40); cdOffset = z.getLong(48) }
+                val recAt = tailStart + locator - 56
+                if (recAt >= 0) {
+                    val rec = ByteArray(56)
+                    raf.seek(recAt)
+                    raf.readFully(rec)
+                    val z = java.nio.ByteBuffer.wrap(rec).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                    if (z.getInt(0) == ZIP64_EOCD_SIGNATURE) { cdSize = z.getLong(40); cdEnd = recAt }
+                }
             }
         }
-        if (cdOffset < 0 || cdSize < 0 || cdOffset + cdSize > size) return@use "bad-directory"
+        val cdStart = cdEnd - cdSize
+        if (cdSize < 0 || cdStart < 0 || cdEnd > size) return@use "bad-directory"
         val sha = MessageDigest.getInstance("SHA-256")
         sha.update(cdSize.toString().toByteArray())
-        raf.seek(cdOffset)
+        raf.seek(cdStart)
         val chunk = ByteArray(64 * 1024)
         var left = cdSize
         while (left > 0) {

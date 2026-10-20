@@ -43,7 +43,8 @@ internal sealed interface BundleLoad {
  * encoding and all file I/O happen outside it, so a check never waits for a write. The copy of the classes (once per
  * snapshot, after a full check) is the one thing that reads the working snapshot without the lock: slices park files
  * in it, so [Snapshot.epoch] is read before and after, and a copy that overlapped a change is thrown away and retried
- * ([MAX_UNLOCKED_COPY_ATTEMPTS] times, then once under the lock so that a busy session cannot starve its own bundle).
+ * ([MAX_UNLOCKED_COPY_ATTEMPTS] times; after that the next attempt copies under the lock, so a check can then wait for one
+ * classes copy, which keeps a busy session from starving its own bundle).
  * [flush] (used by [AnalysisSession.dispose]) writes whatever is pending, synchronously.
  *
  * Nothing here throws into a check: a failed read is a [BundleLoad.Miss], a failed write is logged once and dropped.
@@ -110,15 +111,16 @@ internal class BundlePersistence(private val session: AnalysisSession, val store
             val bundle = store.read(key)
             if (bundle.snapshotId.isEmpty()) throw BundleRejected(BundleRejected.Reason.SNAPSHOT_MISSING, "bundle has no snapshot")
             // A bundle is a file in the project tree: a path in it that is not one of this session's sources is not ours.
-            session.pathOutsideSourceDirs(bundle.state)?.let {
-                throw BundleRejected(BundleRejected.Reason.STATE_MISMATCH, "the state names a file outside the source directories: $it")
+            val repoDir = store.root.parentFile?.parentFile // <repo>/.krit/fir-incremental
+            session.pathOutsideSources(bundle.state, bundle.verdicts, repoDir)?.let {
+                throw BundleRejected(BundleRejected.Reason.STATE_MISMATCH, "the bundle names a file outside the source directories and the repository: $it")
             }
             // The state and the verdicts are one file and were written together; this guards a writer bug, not a race.
             if (bundle.verdictGeneration != bundle.state.generation) {
                 throw BundleRejected(BundleRejected.Reason.STATE_MISMATCH, "verdicts at generation ${bundle.verdictGeneration}, state at ${bundle.state.generation}")
             }
-            val classes = store.classesDir(key, bundle.snapshotId)
-            if (!classes.isDirectory) throw BundleRejected(BundleRejected.Reason.SNAPSHOT_MISSING, "no class directory ${classes.name}")
+            val classes = store.readableClassesDir(key, bundle.snapshotId)
+                ?: throw BundleRejected(BundleRejected.Reason.SNAPSHOT_MISSING, "no class directory for ${bundle.snapshotId}")
             working = Snapshot(SnapshotStorage.newSnapshotRoot(session.snapshotRootOverride))
             try {
                 BundleStore.copyTree(classes, working.dir)
@@ -251,7 +253,9 @@ internal class BundlePersistence(private val session: AnalysisSession, val store
                 } else {
                     id = BundleCodec.newSnapshotId()
                     if (tornCopies >= MAX_UNLOCKED_COPY_ATTEMPTS) {
-                        stage = store.newStage(key).also { BundleStore.copyTree(snapshot.dir, it) }
+                        val staged = store.newStage(key)
+                        stage = staged // before the copy, so that a copy that throws is cleaned up
+                        BundleStore.copyTree(snapshot.dir, staged)
                     } else {
                         copyEpoch = snapshot.epoch
                     }

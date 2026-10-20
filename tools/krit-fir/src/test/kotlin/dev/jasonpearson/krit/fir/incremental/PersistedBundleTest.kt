@@ -24,7 +24,7 @@ class PersistedBundleTest {
 
     private val src get() = tmp.resolve("src").toFile()
     private val snaps get() = tmp.resolve("snapshots").toFile()
-    private val root get() = tmp.resolve("fir-incremental").toFile()
+    private val root get() = tmp.resolve("repo/.krit/fir-incremental").toFile()
     private val rules = setOf("ProtocolProbe")
     private val sessions = ArrayList<AnalysisSession>()
 
@@ -338,6 +338,39 @@ class PersistedBundleTest {
             rewrite(evil)
             assertColdFullCheckAfter(BundleRejected.Reason.STATE_MISMATCH)
         }
+    }
+
+    @Test fun aVerdictForAFileOutsideTheStateAndTheRootsIsRejected() {
+        probeModule()
+        val key = persistAColdCheck()
+        val file = bundleFile(key)
+        val decoded = BundleCodec.decode(file.readBytes(), key)
+        val real = decoded.verdicts.first()
+        val outside = tmp.resolve("elsewhere/Evil.kt").toString()
+        val forged = decoded.verdicts + PersistedVerdict(outside, real.entry)
+        file.writeBytes(BundleCodec.encode(key, decoded.snapshotId, decoded.state, forged, decoded.verdictGeneration))
+        assertColdFullCheckAfter(BundleRejected.Reason.STATE_MISMATCH)
+        // A finding whose path is outside is rejected the same way.
+        val f = real.entry.verdict.findings.firstOrNull() ?: dev.jasonpearson.krit.fir.runner.Finding(real.file, 1, 1, 0, 0, "R", "warning", "m", 1.0)
+        val moved = VerdictCache.Entry(real.entry.contentHash, real.entry.suppliedHash, real.entry.verdictKey,
+            CachedVerdict(listOf(dev.jasonpearson.krit.fir.runner.Finding(outside, f.line, f.col, f.startByte, f.endByte, f.rule, f.severity, f.message, f.confidence)), null, emptyMap()))
+        file.writeBytes(BundleCodec.encode(key, decoded.snapshotId, decoded.state, decoded.verdicts.drop(1) + PersistedVerdict(real.file, moved), decoded.verdictGeneration))
+        assertColdFullCheckAfter(BundleRejected.Reason.STATE_MISMATCH)
+    }
+
+    @Test fun aBundleDirectoryThatIsALinkOnReadIsAColdCheck() {
+        probeModule()
+        val key = persistAColdCheck()
+        val dir = File(root, "v${BundleCodec.VERSION}-$key")
+        val moved = File(root, "moved-away")
+        assertTrue(dir.renameTo(moved))
+        java.nio.file.Files.createSymbolicLink(dir.toPath(), moved.toPath())
+        val restarted = session()
+        restarted.checkAll()
+        assertTrue((restarted.persistence!!.lastLoad as BundleLoad.Miss).reason == BundleRejected.Reason.IO, "${restarted.persistence!!.lastLoad}")
+        assertEquals(FullReason.COLD, restarted.plan.reason)
+        restarted.dispose(); sessions.remove(restarted)
+        assertTrue(moved.isDirectory)
     }
 
     @Test fun verdictsOutOfStepWithTheStateAreNotTrusted() {

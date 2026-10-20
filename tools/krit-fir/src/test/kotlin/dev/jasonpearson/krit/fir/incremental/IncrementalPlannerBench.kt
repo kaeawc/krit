@@ -18,8 +18,8 @@ import java.util.Random
  *  - `files`: comma-separated sizes of synthetic modules (default 600);
  *  - `real`: comma-separated source directories checked as they are (copied first), instead of synthetic modules;
  *  - `edits`: measured edits per module (default 30), after 3 warm-up edits;
- *  - `policy`: `exclude` (default; tiered rules excluded, so the planner engages) or `default` (all rules, so the
- *    planner falls back to the full compile and the overhead of asking is what is measured);
+ *  - `policy`: `exclude` (default; tiered rules excluded) or `default` (all rules). No built-in rule is tiered any
+ *    more, so both engage the planner; `default` is the production policy;
  *  - `hashes`: `true` (default) supplies content hashes as Go does; `false` makes the planner hash the module;
  *  - `fullEvery`: a full check is timed on every Nth edit (default so that about 10 are timed);
  *  - `classpath`: `test` (default for `real`) uses the test JVM's own libraries, else the stdlib only;

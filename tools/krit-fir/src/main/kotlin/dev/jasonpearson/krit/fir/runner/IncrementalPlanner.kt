@@ -188,6 +188,10 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
         val packagesAtRisk = (deleted + changed).mapNotNullTo(LinkedHashSet()) { state.surfaceOf(it)?.pkg }
         val carried = state.binaryStale()
 
+        // Verdicts of SerialVersionUIDInSerializableClass depend on the module-wide set of names reaching Serializable.
+        val serializableEnabled = FirRuleDiscovery.enabled(FirRuleCompileContext(rules)).any { it.ruleId == SERIALIZABLE_RULE_ID }
+        val serializableBefore = if (serializableEnabled) state.serializableNames() else emptySet()
+
         val limits = session.plannerLimits
         val threshold = limits.threshold(module.size)
         val removedPending = LinkedHashSet(deleted)
@@ -227,6 +231,11 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
             todo = next
         }
 
+        // Slices see the rest of the module's classes through recorded facts, so they are right while the set stands.
+        // If the edit moved it, files outside the slices may hold a stale verdict: the full check decides.
+        if (serializableEnabled && state.serializableNames() != serializableBefore) {
+            throw GiveUp(FullReason.SERIALIZABLE_NAMES_CHANGED, "the set of class names reaching Serializable changed")
+        }
         for (pkg in packagesAtRisk) {
             if (!state.packageDeclared(pkg)) throw GiveUp(FullReason.PACKAGE_REMOVED, "package '$pkg' has no declaring file left")
         }
@@ -283,5 +292,6 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
     private companion object {
         val DEBUG = System.getenv("KRIT_FIR_INCREMENTAL_DEBUG") == "1"
         const val PARALLEL_HASH_FROM = 256
+        const val SERIALIZABLE_RULE_ID = "SerialVersionUIDInSerializableClass"
     }
 }

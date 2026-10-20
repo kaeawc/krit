@@ -1,5 +1,7 @@
 package dev.jasonpearson.krit.fir.incremental
 
+import dev.jasonpearson.krit.fir.ClassNameFact
+import dev.jasonpearson.krit.fir.serializableReachedNames
 import java.io.File
 import java.security.MessageDigest
 import java.util.HexFormat
@@ -18,6 +20,7 @@ import java.util.concurrent.ConcurrentHashMap
 internal class CompileRecording(val compileKey: String, val verdictKey: String, val contentHashes: Map<String, String>) {
     val lookups = CompileLookups()
     val surfaces = ConcurrentHashMap<String, FileSurface>()
+    val classFacts = ConcurrentHashMap<String, List<ClassNameFact>>()
 
     @Volatile var failure: Throwable? = null
         private set
@@ -136,6 +139,8 @@ internal open class IncrementalState {
 
     private val surfaces = HashMap<String, FileSurface>()
     private val contentHashes = HashMap<String, String>()
+    private val classFacts = HashMap<String, List<ClassNameFact>>()
+    private var reachedNames: Set<String>? = null // derived from classFacts, computed on demand
     private val index = LookupIndex()
     private var changes = HashMap<String, SurfaceChange>()
     private var commits = 0
@@ -175,6 +180,7 @@ internal open class IncrementalState {
         changes = next
         surfaces.clear(); surfaces.putAll(recording.surfaces)
         contentHashes.clear(); contentHashes.putAll(recording.contentHashes)
+        classFacts.clear(); classFacts.putAll(recording.classFacts); reachedNames = null
         // Rebuilt from this recording alone, so a file that lost all its lookups keeps none.
         index.clear()
         for (file in recording.surfaces.keys) index.update(file, recording.lookups.byFile[file] ?: emptySet())
@@ -214,13 +220,14 @@ internal open class IncrementalState {
         changes = next
 
         for (file in removedSet) {
-            surfaces.remove(file); contentHashes.remove(file); index.remove(file)
+            surfaces.remove(file); contentHashes.remove(file); index.remove(file); classFacts.remove(file)
             binaryStaleFiles.remove(file)
             if (file in snapshotSurfaceHashes) removedFiles += file
         }
         for (file in compiledSet) {
             recording.surfaces[file]?.let { surfaces[file] = it } ?: surfaces.remove(file)
             recording.contentHashes[file]?.let { contentHashes[file] = it } ?: contentHashes.remove(file)
+            recording.classFacts[file]?.let { classFacts[file] = it } ?: classFacts.remove(file)
             index.update(file, recording.lookups.byFile[file] ?: emptySet())
             removedFiles.remove(file)
             if (snapshotOrNull != null) {
@@ -229,6 +236,7 @@ internal open class IncrementalState {
                 if (file in errored || builtFrom == null || now != builtFrom) binaryStaleFiles += file else binaryStaleFiles -= file
             }
         }
+        reachedNames = null
         rebuildDeclarationIndexes()
         commits++
     }
@@ -257,7 +265,7 @@ internal open class IncrementalState {
     @Synchronized
     open fun reset() {
         compileKey = null; verdictKey = null
-        surfaces.clear(); contentHashes.clear(); index.clear(); changes = HashMap(); commits = 0
+        surfaces.clear(); contentHashes.clear(); classFacts.clear(); reachedNames = null; index.clear(); changes = HashMap(); commits = 0
         classFile.clear(); declFiles.clear(); subclassFiles.clear(); subclassNames.clear(); packageFiles.clear()
         releaseSnapshot()
     }
@@ -335,6 +343,25 @@ internal open class IncrementalState {
         const val DEFAULT_STALE_MIN_FILES = 16
         private val UNCHANGED = SurfaceChange(emptySet(), emptySet(), null)
     }
+
+    /**
+     * The recorded class-name facts of every file except [excluding] (canonical paths), for a slice to hand to
+     * rules as the facts of the module files it does not compile from source.
+     */
+    @Synchronized
+    fun classFactsExcluding(excluding: Collection<String>): List<ClassNameFact> {
+        val skip = excluding.toHashSet()
+        val out = ArrayList<ClassNameFact>()
+        for ((file, facts) in classFacts) if (file !in skip) out += facts
+        return out
+    }
+
+    /**
+     * The class names that reach `Serializable` by supertype names, over the recorded facts of the whole module
+     * (see [serializableReachedNames]). Derived from the facts, so it follows every commit and slice merge.
+     */
+    @Synchronized
+    fun serializableNames(): Set<String> = reachedNames ?: serializableReachedNames(classFacts.values.asSequence().flatten().asIterable()).also { reachedNames = it }
 
     @Synchronized fun files(): Set<String> = HashSet(surfaces.keys)
 

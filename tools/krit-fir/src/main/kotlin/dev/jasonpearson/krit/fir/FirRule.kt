@@ -124,6 +124,12 @@ data class FirRuleCompileContext(
     val scanPaths: Map<String, String> = emptyMap(),
     /** Requested file -> its resolved SDK levels, for the files with a known level. */
     val sdkLevels: Map<String, SdkLevels> = emptyMap(),
+    /**
+     * Class-name facts of the module files this compile does not read from source, for rules that index every
+     * class by name. Set by an incremental slice from the facts recorded for those files; null in a full compile,
+     * where every file is source.
+     */
+    val externalClassNameFacts: List<ClassNameFact>? = null,
 ) {
     // The compiler may spell a file differently from the request (absolute,
     // symlinks resolved), so fall back to canonical paths, memoized per path.

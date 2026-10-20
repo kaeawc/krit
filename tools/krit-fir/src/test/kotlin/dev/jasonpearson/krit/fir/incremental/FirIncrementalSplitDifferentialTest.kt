@@ -85,12 +85,12 @@ class FirIncrementalSplitDifferentialTest {
             val scenarioFailures = ArrayList<String>()
             val scenarios = crossFileScenarios.filter { only == null || it.name.contains(only) || it.rule.contains(only) }
             for (s in scenarios) {
-                val diffs = diffModule(s.files, cp, File(work, "scenario"), s.config, result)
+                val diffs = diffModule(s.files, cp, File(work, "scenario"), s.config, result, withholdExternalFacts = s.withholdExternalFacts)
                 val byRule = TreeMap<String, MutableList<String>>()
                 for (d in diffs) for ((rule, what) in d.byRule) byRule.getOrPut(rule) { ArrayList() }.add("${d.file}: $what")
                 println("## scenario '${s.name}': ${if (byRule.isEmpty()) "same" else "differs in " + byRule.keys}")
                 for ((rule, xs) in byRule) {
-                    if (rule !in tiered) scenarioFailures += "${s.name}: $rule differs but is not tiered: ${xs.first()}"
+                    if (rule !in tiered && !(s.withholdExternalFacts && rule == s.rule)) scenarioFailures += "${s.name}: $rule differs but is not tiered: ${xs.first()}"
                 }
                 val ownRule = byRule[s.rule].orEmpty()
                 if (s.differs && ownRule.isEmpty()) {
@@ -221,6 +221,7 @@ class FirIncrementalSplitDifferentialTest {
         ruleConfigs: Map<String, Map<String, Any?>>,
         r: Result,
         tagPrefix: String = "",
+        withholdExternalFacts: Boolean = false,
     ): List<PieceDiff> {
         val root = rootDir.also { it.deleteRecursively(); it.mkdirs() }
         val srcDir = File(root, "src")
@@ -254,6 +255,7 @@ class FirIncrementalSplitDifferentialTest {
                 return emptyList()
             }
             r.compared++
+            session.withheldExternalFacts = withholdExternalFacts
 
             val diffs = ArrayList<PieceDiff>()
             for (p in files) {

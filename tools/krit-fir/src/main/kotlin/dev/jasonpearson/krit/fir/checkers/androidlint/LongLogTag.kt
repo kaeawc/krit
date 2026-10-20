@@ -5,6 +5,9 @@ import dev.jasonpearson.krit.fir.checkers.bodyInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.lightChildren
+import org.jetbrains.kotlin.KtNodeTypes
+import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
@@ -334,13 +337,26 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
     private fun spelling(tag: Tag, value: String): String {
         if (tag.foreign) return value
         val literal = tag.literal
-        val text = literal.source?.text?.toString()?.trim() ?: return value
+        val source = literal.source ?: return value
+        // A const of the file under check is evaluated like one of another file, so the literal it gives may have
+        // the source of the whole initializer (a concatenation or a template of other consts): only a plain string
+        // literal is spelled by its text, anything folded by the evaluator is spelled by its value.
+        if (!isPlainStringLiteral(source)) return value
+        val text = source.text?.toString()?.trim() ?: return value
         return when {
             text.length >= 6 && text.startsWith(RAW_QUOTE) && text.endsWith(RAW_QUOTE) ->
                 text.substring(RAW_QUOTE.length, text.length - RAW_QUOTE.length)
             text.length >= 2 && text.startsWith(QUOTE) && text.endsWith(QUOTE) ->
                 text.substring(QUOTE.length, text.length - QUOTE.length)
             else -> value
+        }
+    }
+
+    // A string literal with no template entry: the one source whose text between the quotes is the tag as written.
+    private fun isPlainStringLiteral(source: KtSourceElement): Boolean {
+        if (source.elementType != KtNodeTypes.STRING_TEMPLATE) return false
+        return lightChildren(source, source.lighterASTNode).none {
+            it.tokenType == KtNodeTypes.SHORT_STRING_TEMPLATE_ENTRY || it.tokenType == KtNodeTypes.LONG_STRING_TEMPLATE_ENTRY
         }
     }
 

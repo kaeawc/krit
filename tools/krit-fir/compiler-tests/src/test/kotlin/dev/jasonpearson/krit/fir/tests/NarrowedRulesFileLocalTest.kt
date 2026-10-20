@@ -106,6 +106,13 @@ class NarrowedRulesFileLocalTest {
         val use = "import android.util.Log\nfun log() { Log.d(TAG, \"m\") }\n"
         assertEquals(listOf("All.kt" to 4), findings(rule, one("package p\nimport android.util.Log\n$const" + use.removePrefix("import android.util.Log\n"))))
         assertEquals(listOf("A.kt" to 3), findings(rule, mapOf("B.kt" to "package p\n$const", "A.kt" to "package p\n$use")))
+        // A folded const is spelled by its value in the file under check, as across files (not by the source text of
+        // the concatenation or of the template).
+        val folded = "const val P = \"AVeryLongTag\"\nconst val TAG = \"\${P}ThatExceedsTheLimit\"\n"
+        for (constants in listOf(const, folded)) {
+            val message = diags(rule, one("package p\nimport android.util.Log\n$constants" + use.removePrefix("import android.util.Log\n"))).single().message
+            assertTrue(message.contains("Log tag \"AVeryLongTagThatExceedsTheLimit\" exceeds"), message)
+        }
     }
 
     // The message of a const tag declared in another file spells the constant's value: a class file has no source

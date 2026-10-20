@@ -22,9 +22,11 @@ interface FirRule {
      * that put it there and the reason. Build it with [compilationFiles] or
      * [otherDeclarationBodies].
      *
-     * The incremental runner (#865) will compile only the dirty files and take
-     * the rest of the module from a binary snapshot, and will check tiered
-     * rules only on a full compile. Nothing consumes the tier yet.
+     * The incremental planner (#865, `IncrementalPlanner`) compiles only the
+     * dirty files and takes the rest of the module from a binary snapshot, so
+     * a tiered rule's verdict is right only on a full compile. A
+     * `TieredRulePolicy` decides what the planner does when one is enabled;
+     * by default it uses the full compile.
      *
      * Set it when the rule iterates the compilation's files
      * (`session.firProvider.getFirFiles*`), or reads another declaration's body

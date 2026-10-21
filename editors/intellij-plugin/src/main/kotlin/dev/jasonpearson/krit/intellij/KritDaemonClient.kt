@@ -63,6 +63,11 @@ class KritDaemonClient(private val socketPath: Path) {
         val channel = SocketChannel.open(StandardProtocolFamily.UNIX)
         try {
             channel.connect(UnixDomainSocketAddress.of(socketPath))
+            // Nothing is written until the listener is confirmed to be ours
+            // (mirrors dialVerified in internal/daemon/client.go).
+            if (!isPeerTrusted(socketPath, peerUser(channel), currentUser())) {
+                throw IOException("krit daemon socket $socketPath is not owned by the current user")
+            }
         } catch (t: IOException) {
             channel.close()
             throw t
@@ -103,6 +108,65 @@ class KritDaemonClient(private val socketPath: Path) {
         // falls back to a short per-user socket (mirrors internal/daemon).
         private const val MAX_SOCKET_PATH = 100
         private const val POINTER_MAX_SIZE = 4096L
+
+        private fun currentUser(): String = System.getProperty("user.name") ?: ""
+
+        /** Path length in UTF-8 bytes, as Go's len() sees it. */
+        internal fun socketPathBytes(path: String): Int = path.toByteArray(StandardCharsets.UTF_8).size
+
+        /**
+         * User of the process listening on [channel] via SO_PEERCRED (JDK 17+,
+         * Linux), or null when the option is unavailable on this JDK/platform.
+         */
+        private fun peerUser(channel: SocketChannel): String? {
+            return try {
+                channel.getOption(jdk.net.ExtendedSocketOptions.SO_PEERCRED)?.user()?.name
+            } catch (_: UnsupportedOperationException) {
+                null
+            } catch (_: IOException) {
+                null
+            } catch (_: LinkageError) {
+                null
+            }
+        }
+
+        /**
+         * Decides whether the listener may receive data. A known peer user must
+         * equal [currentUser]; when peer credentials are unavailable the socket
+         * file and its directory must be private to the current user.
+         */
+        internal fun isPeerTrusted(
+            socketPath: Path,
+            peerUser: String?,
+            currentUser: String,
+            fsSafe: (Path) -> Boolean = { isSocketLocationPrivate(it, currentUser) },
+        ): Boolean = if (peerUser != null) peerUser == currentUser else fsSafe(socketPath)
+
+        /**
+         * The socket file and its parent directory are real (non-symlink),
+         * owned by [user], and the directory is not group/world writable.
+         */
+        internal fun isSocketLocationPrivate(sock: Path, user: String = currentUser()): Boolean {
+            return try {
+                val noFollow = LinkOption.NOFOLLOW_LINKS
+                val dir = sock.parent ?: return false
+                if (Files.getOwner(sock, noFollow).name != user) return false
+                val dirAttrs = Files.readAttributes(
+                    dir, java.nio.file.attribute.BasicFileAttributes::class.java, noFollow,
+                )
+                if (!dirAttrs.isDirectory) return false
+                if (Files.getOwner(dir, noFollow).name != user) return false
+                val perms = Files.getPosixFilePermissions(dir, noFollow)
+                perms.none {
+                    it == java.nio.file.attribute.PosixFilePermission.GROUP_WRITE ||
+                        it == java.nio.file.attribute.PosixFilePermission.OTHERS_WRITE
+                }
+            } catch (_: IOException) {
+                false
+            } catch (_: UnsupportedOperationException) {
+                false
+            }
+        }
         private val FALLBACK_SOCK_NAME = Regex("^[0-9a-f]{16}\\.sock$")
 
         /**
@@ -115,9 +179,11 @@ class KritDaemonClient(private val socketPath: Path) {
         fun socketPathFor(projectDir: java.io.File): Path {
             val root = normalizeRoot(projectDir.toPath())
             val conventional = root.resolve(".krit").resolve("daemon.sock")
-            if (conventional.toString().length <= MAX_SOCKET_PATH) return conventional
+            if (socketPathBytes(conventional.toString()) <= MAX_SOCKET_PATH) return conventional
             val pointed = readSocketPointer(root) ?: return conventional
-            return if (Files.exists(pointed)) pointed else conventional
+            // Defence in depth against a pointer planted by an untrusted checkout:
+            // only follow it into a private, user-owned directory.
+            return if (Files.exists(pointed) && isSocketLocationPrivate(pointed)) pointed else conventional
         }
 
         internal fun fallbackSocketName(root: Path): String {
@@ -144,7 +210,7 @@ class KritDaemonClient(private val socketPath: Path) {
                 val owner = Files.getOwner(pointer, noFollow).name
                 if (owner != System.getProperty("user.name")) return null
                 val text = String(Files.readAllBytes(pointer), StandardCharsets.UTF_8).trim()
-                if (text.isEmpty() || text.length > MAX_SOCKET_PATH || text.contains('\u0000')) return null
+                if (text.isEmpty() || socketPathBytes(text) > MAX_SOCKET_PATH || text.contains('\u0000')) return null
                 val sock = Paths.get(text)
                 if (!sock.isAbsolute) return null
                 val name = sock.fileName?.toString() ?: return null

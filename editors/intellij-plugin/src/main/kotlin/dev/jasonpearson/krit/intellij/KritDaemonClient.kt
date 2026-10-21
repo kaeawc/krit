@@ -13,7 +13,9 @@ import java.nio.channels.Channels
 import java.nio.channels.SocketChannel
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
+import java.nio.file.Paths
 
 // Direct Unix-socket client for the krit daemon. Per-call dial — the
 // Go-side client (internal/daemon/client.go) uses the same pattern and
@@ -97,7 +99,66 @@ class KritDaemonClient(private val socketPath: Path) {
     }
 
     companion object {
-        fun socketPathFor(projectDir: java.io.File): Path =
-            projectDir.toPath().resolve(".krit").resolve("daemon.sock")
+        // Longest unix socket path the daemon binds directly; beyond this it
+        // falls back to a short per-user socket (mirrors internal/daemon).
+        private const val MAX_SOCKET_PATH = 100
+        private const val POINTER_MAX_SIZE = 4096L
+        private val FALLBACK_SOCK_NAME = Regex("^[0-9a-f]{16}\\.sock$")
+
+        /**
+         * Resolves the daemon socket the same way the Go client does: when
+         * `<root>/.krit/daemon.sock` is too long to bind, the daemon records
+         * its fallback socket in `<root>/.krit/daemon.sock.path`. That pointer
+         * is honored only if it passes the same checks as the Go side and the
+         * socket exists; otherwise the conventional path is returned.
+         */
+        fun socketPathFor(projectDir: java.io.File): Path {
+            val root = normalizeRoot(projectDir.toPath())
+            val conventional = root.resolve(".krit").resolve("daemon.sock")
+            if (conventional.toString().length <= MAX_SOCKET_PATH) return conventional
+            val pointed = readSocketPointer(root) ?: return conventional
+            return if (Files.exists(pointed)) pointed else conventional
+        }
+
+        internal fun fallbackSocketName(root: Path): String {
+            val sum = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(normalizeRoot(root).toString().toByteArray(StandardCharsets.UTF_8))
+            return sum.take(8).joinToString("") { "%02x".format(it) } + ".sock"
+        }
+
+        private fun normalizeRoot(root: Path): Path {
+            val abs = root.toAbsolutePath().normalize()
+            return try {
+                abs.toRealPath()
+            } catch (_: IOException) {
+                abs
+            }
+        }
+
+        private fun readSocketPointer(root: Path): Path? {
+            val pointer = root.resolve(".krit").resolve("daemon.sock.path")
+            try {
+                val noFollow = LinkOption.NOFOLLOW_LINKS
+                val attrs = Files.readAttributes(pointer, java.nio.file.attribute.BasicFileAttributes::class.java, noFollow)
+                if (!attrs.isRegularFile || attrs.size() > POINTER_MAX_SIZE) return null
+                val owner = Files.getOwner(pointer, noFollow).name
+                if (owner != System.getProperty("user.name")) return null
+                val text = String(Files.readAllBytes(pointer), StandardCharsets.UTF_8).trim()
+                if (text.isEmpty() || text.length > MAX_SOCKET_PATH || text.contains('\u0000')) return null
+                val sock = Paths.get(text)
+                if (!sock.isAbsolute) return null
+                val name = sock.fileName?.toString() ?: return null
+                val dir = sock.parent?.fileName?.toString() ?: return null
+                if (!FALLBACK_SOCK_NAME.matches(name) || name != fallbackSocketName(root)) return null
+                if (dir != "krit" && !dir.startsWith("krit-")) return null
+                return sock
+            } catch (_: IOException) {
+                return null
+            } catch (_: java.nio.file.InvalidPathException) {
+                return null
+            } catch (_: UnsupportedOperationException) {
+                return null
+            }
+        }
     }
 }

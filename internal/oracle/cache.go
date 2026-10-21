@@ -106,7 +106,15 @@ func recordOracleDir(cacheDir string) {
 // for krit-fir, the JVM target; it compiled without them before, so entries
 // it wrote for a project with a configured classpath carry facts resolved
 // without it.
-const CacheVersion = 13
+// v14: krit-types entries record NameDigest, the digest of the visible
+// top-level declarations in other files that the entry's file mentioned when
+// it was analyzed (see declLedger). Entries written before it cannot be
+// checked against declarations added, removed, or re-signed since, and would
+// be served stale to a caller that a new overload now changes. The bump needs
+// no cachePayloadVersion counterpart in internal/cache: the facts an entry
+// holds are unchanged, and the incremental findings cache already keys on the
+// oracle fact hash.
+const CacheVersion = 14
 
 // ApproximationFIRWholeCompilation marks entries written by krit-fir, whose
 // every run returns facts for the whole compilation.
@@ -156,6 +164,13 @@ type CacheEntry struct {
 	// is unchanged: a dependency outside the classified files changed, a
 	// file was deleted, or a library moved.
 	CompilationFingerprint string `json:"compilation_fingerprint,omitempty"`
+	// NameDigest is the digest of the declarations in other files that this
+	// file mentioned and could see when its facts were computed (see
+	// declLedger.digest). Empty means there were none. A hit whose digest
+	// against the current ledger differs is re-analyzed: a declaration it
+	// can see was added, removed, or re-signed, which its dependency closure
+	// cannot notice. Set on krit-types entries only.
+	NameDigest string `json:"name_digest,omitempty"`
 	// Crashed marks this entry as a poison marker: the file with this
 	// exact content deterministically crashes krit-types during analysis.
 	// FileResult and PerFileDeps are nil for crash entries; they contribute
@@ -196,7 +211,10 @@ func CacheDir(repoDir string) (string, error) {
 		// Settings-scoped entry directories are versioned with the root: a jar
 		// or schema change removes them, and `krit cache clear` removes the root.
 		ExtraDirs: []string{legacyScopesDir},
-		Tokens:    tokens,
+		// The declared-name ledger describes the sources the entries were
+		// analyzed against; it goes with them.
+		ExtraFiles: []string{declLedgerFile},
+		Tokens:     tokens,
 	}
 	if _, err := vd.Open(); err != nil {
 		return "", fmt.Errorf("create cache dir: %w", err)
@@ -663,6 +681,19 @@ type CacheDepsFile struct {
 	// analysis. The caller sets it for whole-compilation backends; it is
 	// never read from the backend's JSON.
 	CompilationFingerprint string `json:"-"`
+	// NameDigests maps an analyzed path to the NameDigest its new entry
+	// records. The caller fills it from the declared-name ledger before the
+	// entries are written; it is never read from the backend's JSON.
+	NameDigests map[string]string `json:"-"`
+}
+
+// nameDigest returns the NameDigest to stamp on path's entry, or "" when f is
+// nil or has none.
+func (f *CacheDepsFile) nameDigest(path string) string {
+	if f == nil {
+		return ""
+	}
+	return f.NameDigests[path]
 }
 
 // approximation returns f's approximation, or "" when f is nil.
@@ -872,6 +903,7 @@ type freshOracleEntryJob struct {
 	perFileDeps      map[string]*Class
 	approximation    string
 	compilation      string
+	nameDigest       string
 	crashed          bool
 	crashError       string
 }
@@ -976,6 +1008,7 @@ func freshOracleEntryJobs(fresh *Data, deps *CacheDepsFile) []freshOracleEntryJo
 			perFileDeps:      perFileDeps,
 			approximation:    approx,
 			compilation:      deps.compilationFingerprint(),
+			nameDigest:       deps.nameDigest(path),
 		})
 	}
 	if deps != nil {
@@ -1207,6 +1240,7 @@ func WriteFreshEntriesWithTrackerScopedV2(
 			},
 			Approximation:                 approx,
 			CompilationFingerprint:        deps.compilationFingerprint(),
+			NameDigest:                    deps.nameDigest(path),
 			CallFilterFingerprint:         callFilterFingerprint,
 			DeclarationProfileFingerprint: declarationProfileFingerprint,
 		}
@@ -1586,6 +1620,7 @@ func WriteFreshEntriesToStoreWithTrackerScopedV2(
 			PerFileDeps:                   perFileDeps,
 			Approximation:                 approx,
 			CompilationFingerprint:        deps.compilationFingerprint(),
+			NameDigest:                    deps.nameDigest(path),
 			CallFilterFingerprint:         callFilterFingerprint,
 			DeclarationProfileFingerprint: declarationProfileFingerprint,
 			Closure: CacheClosure{

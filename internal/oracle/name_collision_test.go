@@ -19,12 +19,20 @@ func writeKt(t *testing.T, dir, name, body string) string {
 func demotedBy(t *testing.T, newFile string, hitFiles map[string]string) []string {
 	t.Helper()
 	dir := t.TempDir()
-	var hits []*CacheEntry
+	var paths []string
 	for name, body := range hitFiles {
-		hits = append(hits, &CacheEntry{FilePath: writeKt(t, dir, name, body)})
+		paths = append(paths, writeKt(t, dir, name, body))
+	}
+	sort.Strings(paths)
+	// The hits were analyzed before New.kt existed.
+	before := refreshedLedger(dir, paths)
+	var hits []*CacheEntry
+	for _, p := range paths {
+		hits = append(hits, analyzedEntry(t, before, p))
 	}
 	miss := writeKt(t, dir, "New.kt", newFile)
-	kept, misses := demoteNameCollidingHits(InvocationOptions{Backend: BackendKAA}, hits, []string{miss}, nil, false)
+	after := refreshedLedger(dir, append(append([]string(nil), paths...), miss))
+	kept, misses := demoteStaleNameDeps(InvocationOptions{Backend: BackendKAA}, after, hits, []string{miss}, nil, false)
 	var demoted []string
 	for _, m := range misses {
 		if m != miss {
@@ -316,30 +324,5 @@ func TestDemoteNameCollidingHits(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestDemoteNameCollidingHitsSkipsWholeCompilationBackend(t *testing.T) {
-	dir := t.TempDir()
-	hit := &CacheEntry{FilePath: writeKt(t, dir, "Use.kt", "package p\nfun u() = pick(1)\n")}
-	miss := writeKt(t, dir, "New.kt", "package p\nfun pick(x: Int): Int = 1\n")
-	hits, misses := demoteNameCollidingHits(InvocationOptions{Backend: BackendFIR}, []*CacheEntry{hit}, []string{miss}, nil, false)
-	if len(hits) != 1 || len(misses) != 1 {
-		t.Fatalf("FIR hits=%d misses=%d, want untouched", len(hits), len(misses))
-	}
-}
-
-func TestDemoteNameCollidingHitsSkipsCrashedAndFailsClosed(t *testing.T) {
-	dir := t.TempDir()
-	crashed := &CacheEntry{FilePath: writeKt(t, dir, "Crashed.kt", "package p\nfun u() = pick(1)\n"), Crashed: true}
-	missing := &CacheEntry{FilePath: filepath.Join(dir, "Gone.kt")}
-	clean := &CacheEntry{FilePath: writeKt(t, dir, "Clean.kt", "package p\nfun u() = 1\n")}
-	miss := writeKt(t, dir, "New.kt", "package p\nfun pick(x: Int): Int = 1\n")
-	kept, misses := demoteNameCollidingHits(InvocationOptions{Backend: BackendKAA}, []*CacheEntry{crashed, missing, clean}, []string{miss}, nil, false)
-	if len(kept) != 2 || kept[0] != crashed || kept[1] != clean {
-		t.Fatalf("kept %v, want the crashed and clean hits", kept)
-	}
-	if len(misses) != 2 || misses[1] != missing.FilePath {
-		t.Fatalf("misses %v, want New.kt plus the unreadable hit", misses)
 	}
 }

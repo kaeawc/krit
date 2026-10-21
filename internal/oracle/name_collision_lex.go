@@ -1,14 +1,15 @@
 package oracle
 
-// identifiersUsed returns which of the wanted names appear as identifiers in
-// Kotlin source outside comments. Line, block (nested), and KDoc comments are
-// skipped. Plain string text is skipped too, but string templates (`$name`
-// and `${...}`) are scanned as code, so a name used only in a template still
-// counts. Character literals are skipped. The scan is lexical, not a parse:
-// it errs toward reporting a name rather than missing one.
-func identifiersUsed(content []byte, wanted map[string]bool) map[string]bool {
-	l := &kotlinLexer{content: content, wanted: wanted, found: map[string]bool{}, stack: []lexFrame{{mode: lexCode}}}
-	for l.i < len(content) && len(l.found) < len(wanted) {
+// allIdentifiers returns every identifier appearing in Kotlin source outside
+// comments, plus the gate tokens (`->`, and the keywords `by`, `in`, `for`,
+// `val`, `var`, which lex as identifiers). Line, block (nested), and KDoc
+// comments are skipped. Plain string text is skipped too, but string templates
+// (`$name` and `${...}`) are scanned as code, so a name used only in a template
+// still counts. Character literals are skipped. The scan is lexical, not a
+// parse: it errs toward reporting a name rather than missing one.
+func allIdentifiers(content []byte) map[string]bool {
+	l := &kotlinLexer{content: content, found: map[string]bool{}, stack: []lexFrame{{mode: lexCode}}}
+	for l.i < len(content) {
 		if l.stack[len(l.stack)-1].mode == lexCode {
 			l.codeStep()
 		} else {
@@ -37,12 +38,11 @@ type kotlinLexer struct {
 	content []byte
 	i       int
 	stack   []lexFrame
-	wanted  map[string]bool
 	found   map[string]bool
 }
 
 func (l *kotlinLexer) record(id []byte) {
-	if l.wanted[string(id)] {
+	if !l.found[string(id)] {
 		l.found[string(id)] = true
 	}
 }

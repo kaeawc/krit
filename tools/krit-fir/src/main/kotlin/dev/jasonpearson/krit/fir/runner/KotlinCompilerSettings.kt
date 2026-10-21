@@ -66,6 +66,7 @@ data class KotlinCompilerSettings(
         /** Flag name to whether it takes a `=value`. */
         internal val ALLOWLIST: Map<String, Boolean> = mapOf(
             "-Xannotation-default-target" to true, // allowlist:
+            "-Xannotation-target-all" to false, // allowlist:
             "-Xcontext-parameters" to false, // allowlist:
             "-Xcontext-receivers" to false, // allowlist:
             "-Xcontext-sensitive-resolution" to false, // allowlist:

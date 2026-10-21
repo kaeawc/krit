@@ -124,13 +124,13 @@ func firJar(t *testing.T) (jar, stdlib string) {
 // one krit-fir run, with the stdlib and the compiled Java stubs on the
 // classpath. ErrorFiles lists requested files with compile errors, stubs
 // included; Crashed lists files lost to a compiler crash.
-func firInvoke(t *testing.T, rules []string, files []string) *firchecks.Result {
+func firInvoke(t *testing.T, rules []string, files []string, target ...firchecks.CompileTarget) *firchecks.Result {
 	t.Helper()
 	jar, stdlib := firJar(t)
 	stubs, stubClasspath := firStubLibrary(t)
 	all := append(append([]string{}, stubs...), files...)
 	classpath := append([]string{stdlib}, stubClasspath...)
-	res, err := firchecks.InvokeCached(jar, all, nil, classpath, rules, nil, firchecks.FileFacts{}, "", false, false)
+	res, err := firchecks.InvokeCached(jar, all, nil, classpath, rules, nil, firchecks.FileFacts{}, "", false, false, target...)
 	if err != nil {
 		t.Fatalf("krit-fir invoke: %v", err)
 	}

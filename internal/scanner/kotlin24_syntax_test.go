@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -150,5 +151,62 @@ func TestBackingFieldNormalizationIsNarrow(t *testing.T) {
 	f := parseKotlinSnippet(t, "class C {\n  fun f() = 1\n  other = 2\n}\n")
 	if n := len(f.FlatTree.NodesOfType(internNodeType(ExplicitBackingFieldNodeType))); n != 0 {
 		t.Fatalf("explicit_backing_field nodes = %d, want 0", n)
+	}
+}
+
+// functionParents maps each function_declaration name to the type of its
+// parent node, which shows whether a function is still a member of its class.
+func functionParents(f *File) map[string]string {
+	out := map[string]string{}
+	for _, idx := range f.FlatTree.NodesOfType(internNodeType("function_declaration")) {
+		parent, _ := f.FlatParent(idx)
+		out[f.FlatChildTextOrEmpty(idx, "simple_identifier")] = f.FlatType(parent)
+	}
+	return out
+}
+
+// Named context parameters on class members (#785). One such member leaves
+// the class body intact, with an error-flagged property_declaration for the
+// `context(...)` list in front of the function. Two or more members with a
+// named context parameter in one class break the class: it keeps no body and
+// every member is left at the top level of the file. Old-style context
+// receivers `context(Logger)` do not. Both backends see the full class (the
+// tests/parity Kotlin 2.4 fixtures compare them); only an upgrade of the
+// vendored grammar fixes this. When it does, update this test and
+// docs/kotlin-syntax-support.md.
+func TestNamedContextParametersInClassBody(t *testing.T) {
+	const header = "interface Logger\nclass C {\n"
+	named := func(name string) string {
+		return "    context(logger: Logger)\n    fun " + name + "() { }\n"
+	}
+	cases := []struct {
+		name    string
+		members string
+		parents map[string]string
+	}{
+		{
+			name:    "one named context member",
+			members: named("f") + "    fun g() { }\n",
+			parents: map[string]string{"f": "class_body", "g": "class_body"},
+		},
+		{
+			name:    "two named context members",
+			members: named("f") + named("g") + "    fun h() { }\n",
+			parents: map[string]string{"f": "source_file", "g": "source_file", "h": "source_file"},
+		},
+		{
+			name:    "context receivers are unaffected",
+			members: "    context(Logger)\n    fun f() { }\n    context(Logger)\n    fun g() { }\n",
+			parents: map[string]string{"f": "class_body", "g": "class_body"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := parseKotlinSnippet(t, header+tc.members+"}\n")
+			got := functionParents(f)
+			if !reflect.DeepEqual(got, tc.parents) {
+				t.Errorf("function parents = %v, want %v", got, tc.parents)
+			}
+		})
 	}
 }

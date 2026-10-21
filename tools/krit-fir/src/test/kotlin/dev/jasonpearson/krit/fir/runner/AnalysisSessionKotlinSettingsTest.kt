@@ -70,6 +70,21 @@ class AnalysisSessionKotlinSettingsTest {
         assertEquals(emptyMap(), errorsFor(WHEN_GUARD, listOf("-language-version=2.1", "-api-version=2.1", "-XXLanguage:+WhenGuards")))
     }
 
+    // `@all:` is a Kotlin 2.4 language feature; a project pinned to 2.2 or 2.3 opts in with
+    // -Xannotation-target-all, which must therefore be one of the flags krit applies.
+    @Test fun annotationAllTargetFollowsTheProjectsLanguageLevelAndFlag() {
+        assertEquals(emptyMap(), errorsFor(ANNOTATION_ALL_TARGET, emptyList()), "embedded 2.4 default")
+        assertEquals(emptyMap(), errorsFor(ANNOTATION_ALL_TARGET, listOf("-language-version=2.4", "-api-version=2.4")))
+        for (level in listOf("2.2", "2.3")) {
+            val pinned = listOf("-language-version=$level", "-api-version=$level")
+            val older = errorsFor(ANNOTATION_ALL_TARGET, pinned)
+            assertEquals(setOf("A.kt"), older.keys, "a project pinned to $level has no @all:")
+            assertTrue("annotation all use site target" in older.getValue("A.kt"), older.toString())
+            assertEquals(emptyMap(), errorsFor(ANNOTATION_ALL_TARGET, pinned + "-Xannotation-target-all"),
+                "the flag enables @all: on $level")
+        }
+    }
+
     @Test fun optInMarkersAreAppliedFromTheProjectSettings() {
         assertEquals(setOf("A.kt"), errorsFor(OPT_IN, emptyList()).keys)
         assertEquals(emptyMap(), errorsFor(OPT_IN, listOf("-opt-in=p.Experimental")))
@@ -189,6 +204,13 @@ class AnalysisSessionKotlinSettingsTest {
             @Target(AnnotationTarget.VALUE_PARAMETER, AnnotationTarget.PROPERTY)
             annotation class Tag
             class Box(@Tag val label: String)
+        """.trimIndent()
+
+        val ANNOTATION_ALL_TARGET = """
+            package p
+            @Target(AnnotationTarget.PROPERTY, AnnotationTarget.VALUE_PARAMETER)
+            annotation class Tag
+            class Box(@all:Tag val label: String)
         """.trimIndent()
 
         val OPT_IN = """

@@ -46,7 +46,7 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 				Package:    pkg,
 				FQN:        fqn,
 				Owner:      owner,
-				Signature:  symbolSignature(owner, name, kotlinFunctionArity(file, idx)),
+				Signature:  kotlinFunctionSignature(owner, name, file, idx),
 				Arity:      kotlinFunctionArity(file, idx),
 				IsOverride: file.FlatHasModifier(idx, "override"),
 				IsMain:     name == "main",

@@ -386,7 +386,7 @@ public final class Widget {
 	if render.Visibility != "protected" || render.Arity != 2 {
 		t.Fatalf("render visibility/arity = %q/%d, want protected/2", render.Visibility, render.Arity)
 	}
-	if render.Signature != "com.example.widgets.Widget#render/2" {
+	if render.Signature != "com.example.widgets.Widget#render/2(int,String):void" {
 		t.Fatalf("render signature = %q", render.Signature)
 	}
 

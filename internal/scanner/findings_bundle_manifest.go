@@ -51,7 +51,9 @@ func StatFile(path string) (FileStat, bool) {
 // OracleFacts run fingerprint the delta planner compares.
 // v3 → v4: property signatures include the declared type, so persisted
 // StructuralFPs/AbiHashes from the old algorithm must not be mixed with new.
-const findingsBundleManifestVersion = 4
+// v4 → v5: function, method, constructor and Java field signatures include
+// declared types, so persisted StructuralFPs from v4 must not be mixed with new.
+const findingsBundleManifestVersion = 5
 
 type FindingsBundleManifest struct {
 	Version          int                 `json:"version"`

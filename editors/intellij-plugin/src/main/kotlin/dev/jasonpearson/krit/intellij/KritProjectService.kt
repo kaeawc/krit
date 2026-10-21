@@ -57,13 +57,24 @@ class KritProjectService(private val project: Project) : Disposable {
 
     private val missingBinaryNotified = AtomicBoolean(false)
 
+    // Scans shell out to the krit binary; unit tests never run one.
+    private val scansEnabled = !ApplicationManager.getApplication().isUnitTestMode
+
     init {
         EditorFactory.getInstance().eventMulticaster.addDocumentListener(documentListener, this)
-        scheduleScan(0)
+        // Light-fixture tests seed findings directly; an initial scan would
+        // race with the seed and overwrite it (no krit binary in tests).
+        if (scansEnabled) {
+            scheduleScan(0)
+        }
     }
 
     fun findingsFor(path: String): List<KritFinding> {
         return findingsByFile[canonicalPath(path)].orEmpty()
+    }
+
+    internal fun seedFindingsForTest(path: String, findings: List<KritFinding>) {
+        findingsByFile = findingsByFile + (canonicalPath(path) to findings)
     }
 
     fun applyFix(fixLevel: String?, findingId: String) {
@@ -256,6 +267,9 @@ class KritProjectService(private val project: Project) : Disposable {
     }
 
     private fun shouldTriggerScan(file: VirtualFile): Boolean {
+        if (!scansEnabled) {
+            return false
+        }
         if (!isSupportedSourceFile(file)) {
             return false
         }

@@ -1,3 +1,4 @@
+import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.intellij.platform.gradle.extensions.intellijPlatform
 
 plugins {
@@ -25,11 +26,18 @@ dependencies {
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:6.0.3")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 
+    // BasePlatformTestCase (src/test/.../KritAnnotatorIntegrationTest) is a
+    // JUnit 3/4 style test. The vintage engine lets the JUnit Platform that
+    // runs the Jupiter tests above also discover and run it.
+    testImplementation("junit:junit:4.13.2")
+    testRuntimeOnly("org.junit.vintage:junit-vintage-engine:6.0.3")
+
     intellijPlatform {
         intellijIdea("2025.3")
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.kotlin")
         pluginVerifier()
+        testFramework(TestFrameworkType.Platform)
     }
 }
 

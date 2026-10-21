@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/kaeawc/krit/internal/daemon"
@@ -147,7 +146,9 @@ func spawnDaemon(binary, repo, socket string, idleTimeout time.Duration, clientB
 		args = append(args, "--client-binary-hash", clientBinaryHash)
 	}
 	cmd := exec.CommandContext(context.Background(), binary, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := detachProcess(cmd); err != nil {
+		return 0, err
+	}
 	cmd.Stdin = nil
 	cmd.Stdout = log
 	cmd.Stderr = log

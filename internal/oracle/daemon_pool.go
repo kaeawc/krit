@@ -57,8 +57,13 @@ func ConnectOrStartDaemonPool(jarPath string, sourceDirs []string, classpath []s
 	}
 	pool := &DaemonPool{Requested: size, Members: make([]*Daemon, 0, size)}
 	connected := make([]*Daemon, size)
+	hash := daemonRegistryKeyKT(jarPath, sourceDirs, kt, classpath...)
+	// rejected[slot] is the PID of the record this call decides against; the
+	// stop re-validates it under the registry lock.
+	rejected := make([]int, size)
 	allConnected := true
 	for slot := 0; slot < size; slot++ {
+		rejected[slot], _ = registeredDaemonPID(hash, slot)
 		d, err := connectExistingDaemonSlotKT(jarPath, sourceDirs, kt, verbose, slot, classpath...)
 		if err != nil {
 			allConnected = false
@@ -77,7 +82,9 @@ func ConnectOrStartDaemonPool(jarPath string, sourceDirs []string, classpath []s
 			continue
 		}
 
-		cleanStaleDaemonSlotKT(jarPath, sourceDirs, kt, verbose, slot, classpath...)
+		if rejected[slot] != 0 {
+			stopDaemonSlotIf(hash, slot, rejected[slot], verbose)
+		}
 		d, err := StartDaemonWithPortSlot(jarPath, sourceDirs, classpath, verbose, slot, WithKotlinSettings(kt), WithBackend(cfg.backend))
 		if err != nil {
 			_ = pool.Release()

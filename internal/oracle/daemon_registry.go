@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kaeawc/krit/internal/fslock"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
@@ -244,21 +246,120 @@ func writePIDFile(pid, port int, sourcesHash string) error {
 	return writePIDFileSlot(pid, port, sourcesHash, 0)
 }
 
+// writePIDFileSlot publishes a daemon under the per-key registry lock. It
+// returns errDaemonRegistryBusy when the lock is not obtained and
+// errDaemonRegistryOwned when another live daemon already holds the key; in
+// both cases nothing was written and the caller keeps its daemon private.
 func writePIDFileSlot(pid, port int, sourcesHash string, slot int) error {
-	pidPath := daemonPIDPathForSlot(sourcesHash, slot)
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(pid)+"\n"), 0644); err != nil {
-		return fmt.Errorf("write pid file: %w", err)
+	// Never write without the per-key lock: another publisher's port and PID
+	// files would interleave with ours.
+	release, ok := claimDaemonRegistry(sourcesHash, slot)
+	if !ok {
+		return errDaemonRegistryBusy
 	}
-	portPath := daemonPortPathForSlot(sourcesHash, slot)
-	if err := os.WriteFile(portPath, []byte(strconv.Itoa(port)+"\n"), 0644); err != nil {
-		// Roll back the .pid we just wrote so future invocations don't
-		// see an orphan .pid pointing at the now-killed daemon process
-		// and waste a connect attempt before falling through to
-		// cleanStaleDaemon.
-		_ = os.Remove(pidPath)
+	defer release()
+	return writePIDFileSlotClaimed(pid, port, sourcesHash, slot)
+}
+
+// errDaemonRegistryBusy reports that the per-key publication lock was not
+// obtained (contention timeout or lock-file failure), so nothing was written.
+var errDaemonRegistryBusy = errors.New("daemon registry publication lock not obtained")
+
+// errDaemonRegistryOwned reports that another live daemon is already
+// registered for the key, so nothing was written.
+var errDaemonRegistryOwned = errors.New("daemon registry key already owned by another live daemon")
+
+// writePIDFileSlotClaimed writes the record; the caller holds the claim. The
+// PID file is the discoverability marker and is written last, after the port,
+// and every file is replaced atomically (temp file + rename): a lock-free
+// reader that sees a PID therefore sees a complete record, and never a torn
+// file. Any previous PID file is removed first so a half-replaced record is
+// never discoverable.
+func writePIDFileSlotClaimed(pid, port int, sourcesHash string, slot int) error {
+	// Re-read the registered PID now that the lock is held: another live
+	// daemon already registered for this key is never displaced.
+	if registered, found := registeredDaemonPID(sourcesHash, slot); found && registered != pid && daemonServes(sourcesHash, slot, registered) {
+		return errDaemonRegistryOwned
+	}
+	pidPath := daemonPIDPathForSlot(sourcesHash, slot)
+	_ = os.Remove(pidPath)
+	if err := fsutil.WriteFileAtomic(daemonPortPathForSlot(sourcesHash, slot), []byte(strconv.Itoa(port)+"\n"), 0o644); err != nil {
+		// Roll back so future invocations don't see an orphan record
+		// pointing at a daemon the caller is about to kill.
+		removeDaemonRegistryFiles(sourcesHash, slot)
 		return fmt.Errorf("write port file: %w", err)
 	}
+	if err := fsutil.WriteFileAtomic(pidPath, []byte(strconv.Itoa(pid)+"\n"), 0o644); err != nil {
+		removeDaemonRegistryFiles(sourcesHash, slot)
+		return fmt.Errorf("write pid file: %w", err)
+	}
 	return nil
+}
+
+func daemonLockPath(sourcesHash string, slot int) string {
+	return daemonPIDPathForSlot(sourcesHash, slot) + ".lock"
+}
+
+// How long stopDaemonSlotIf waits for SIGTERM, then after SIGKILL, while it
+// holds the per-key lock.
+var (
+	daemonStopTermWait = 5 * time.Second
+	daemonStopKillWait = 3 * time.Second
+)
+
+// daemonClaimWait bounds how long anyone waits for the per-key lock. It must
+// exceed the longest the lock is legitimately held, a stop's term+kill waits:
+// otherwise every publisher queued behind a stop would give up and stay
+// private. The margin covers the slower publish writes and scheduling delays.
+var daemonClaimWait = daemonStopTermWait + daemonStopKillWait + 3*time.Second
+
+// claimDaemonRegistry takes the per-key lock: an OS advisory lock, so exactly
+// one process checks-and-publishes (or stops) at a time and the kernel
+// releases it if the holder dies. It gives up after daemonClaimWait; the
+// caller then stays private, or leaves the record alone.
+func claimDaemonRegistry(sourcesHash string, slot int) (release func(), ok bool) {
+	return fslock.Acquire(daemonLockPath(sourcesHash, slot), daemonClaimWait)
+}
+
+// registeredDaemonPID reads the PID the registry names for the key.
+func registeredDaemonPID(sourcesHash string, slot int) (int, bool) {
+	data, err := os.ReadFile(daemonPIDPathForSlot(sourcesHash, slot))
+	if err != nil {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	return pid, err == nil && pid > 0
+}
+
+// daemonServes reports whether the registered PID is demonstrably the
+// daemon: the process is alive AND the record's port accepts a connection. A
+// bare live PID proves little, since a PID can be reused by an unrelated
+// process after a crash or reboot; such a record is replaceable.
+func daemonServes(sourcesHash string, slot int, pid int) bool {
+	if !isProcessAlive(pid) {
+		return false
+	}
+	data, err := os.ReadFile(daemonPortPathForSlot(sourcesHash, slot))
+	if err != nil {
+		return false
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || port <= 0 {
+		return false
+	}
+	conn, err := (&net.Dialer{Timeout: 500 * time.Millisecond}).DialContext(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+// removeDaemonRegistryFiles deletes a record, the PID marker first so the
+// record is never discoverable while half deleted. The caller holds the lock.
+func removeDaemonRegistryFiles(sourcesHash string, slot int) {
+	os.Remove(daemonPIDPathForSlot(sourcesHash, slot))
+	os.Remove(daemonPortPathForSlot(sourcesHash, slot))
 }
 
 // removePIDFile removes the PID and port files for the daemon
@@ -267,9 +368,30 @@ func removePIDFile(sourcesHash string) {
 	removePIDFileSlot(sourcesHash, 0)
 }
 
+// removePIDFileSlot deletes the slot's record under the per-key lock. If the
+// lock cannot be taken the record is left alone: it is being published or
+// replaced by someone else.
 func removePIDFileSlot(sourcesHash string, slot int) {
-	os.Remove(daemonPIDPathForSlot(sourcesHash, slot))
-	os.Remove(daemonPortPathForSlot(sourcesHash, slot))
+	release, ok := claimDaemonRegistry(sourcesHash, slot)
+	if !ok {
+		return
+	}
+	defer release()
+	removeDaemonRegistryFiles(sourcesHash, slot)
+}
+
+// removeDaemonRegistryIfOwned deletes the record under the lock, and only if
+// the PID file still names pid, so a daemon never deletes the record of the
+// successor that replaced it.
+func removeDaemonRegistryIfOwned(sourcesHash string, slot int, pid int) {
+	release, ok := claimDaemonRegistry(sourcesHash, slot)
+	if !ok {
+		return
+	}
+	defer release()
+	if current, found := registeredDaemonPID(sourcesHash, slot); found && current == pid {
+		removeDaemonRegistryFiles(sourcesHash, slot)
+	}
 }
 
 // isProcessAlive checks whether a process with the given PID is running.
@@ -312,12 +434,12 @@ func dialDaemonAddr(addr string, timeout time.Duration) (net.Conn, error) {
 }
 
 // connectDaemonTCP dials the daemon's TCP port and returns a buffered scanner over it.
-// Cleans up pidFile on connect failure.
+// Removes the daemon's own registry record on connect failure.
 func connectDaemonTCP(cmd *exec.Cmd, port int, srcHash string, slot int) (net.Conn, *bufio.Scanner, error) {
 	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		cmd.Process.Kill()
-		removePIDFileSlot(srcHash, slot)
+		removeDaemonRegistryIfOwned(srcHash, slot, cmd.Process.Pid)
 		return nil, nil, fmt.Errorf("connect to new daemon: %w", err)
 	}
 	reader := bufio.NewScanner(conn)
@@ -533,36 +655,71 @@ func cleanStaleDaemonSlotKT(jarPath string, sourceDirs []string, kt gradlemodel.
 	stopDaemonSlot(hash, slot, verbose)
 }
 
+// stopDaemonSlot stops whatever daemon the slot's record names. See
+// stopDaemonSlotIf.
 func stopDaemonSlot(hash string, slot int, verbose bool) {
-	pidData, err := os.ReadFile(daemonPIDPathForSlot(hash, slot))
-	if err != nil {
-		// No PID file or unreadable — nothing to clean
-		removePIDFileSlot(hash, slot)
-		return
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(pidData)))
-	if err != nil || pid <= 0 {
-		removePIDFileSlot(hash, slot)
-		return
-	}
+	stopDaemonSlotIf(hash, slot, 0, verbose)
+}
 
+// stopDaemonSlotIf stops the daemon registered under hash and removes its
+// record, but only under the per-key lock and, when expect is non-zero, only
+// if the record still names expect. It reports whether it acted.
+//
+// Every destructive registry path goes through here (or
+// removeDaemonRegistryIfOwned) so a publisher holding the lock is never raced:
+// when the lock cannot be taken the record is treated as being published or
+// replaced and nothing is killed or deleted. The caller then starts its own
+// daemon, which publishes under the same lock or stays private.
+func stopDaemonSlotIf(hash string, slot int, expect int, verbose bool) bool {
+	release, ok := claimDaemonRegistry(hash, slot)
+	if !ok {
+		if verbose {
+			reporter().Verbosef("verbose: daemon registry %s slot %d is locked by another process; not stopping its daemon\n", hash, slot)
+		}
+		return false
+	}
+	defer release()
+
+	pid, found := registeredDaemonPID(hash, slot)
+	if !found {
+		// No PID marker means no discoverable daemon; clear any leftovers of
+		// a publication that never completed.
+		removeDaemonRegistryFiles(hash, slot)
+		return true
+	}
+	if expect != 0 && pid != expect {
+		if verbose {
+			reporter().Verbosef("verbose: daemon registry %s slot %d now names PID %d, not %d; leaving it\n", hash, slot, pid, expect)
+		}
+		return false
+	}
 	if !isProcessAlive(pid) {
 		if verbose {
 			reporter().Verbosef("verbose: Cleaning up stale daemon slot %d PID file (PID %d no longer alive)\n", slot, pid)
 		}
-		removePIDFileSlot(hash, slot)
-		return
+		removeDaemonRegistryFiles(hash, slot)
+		return true
+	}
+	// Publication writes the port before the PID, so a record that names a
+	// PID but no usable port is not one a publisher left behind: it is torn
+	// or foreign. Drop it without signalling anything.
+	if _, err := readPIDFileSlot(hash, slot); err != nil {
+		if verbose {
+			reporter().Verbosef("verbose: Dropping incomplete daemon registry %s slot %d without signalling PID %d: %v\n", hash, slot, pid, err)
+		}
+		removeDaemonRegistryFiles(hash, slot)
+		return true
 	}
 
-	// Process is alive but we couldn't connect — it's stuck. Kill it.
+	// Process is alive but we couldn't use it — it's stuck. Kill it.
 	if verbose {
 		reporter().Verbosef("verbose: Killing unresponsive daemon slot %d (PID %d)\n", slot, pid)
 	}
 
 	proc, err := os.FindProcess(pid)
 	if err != nil {
-		removePIDFileSlot(hash, slot)
-		return
+		removeDaemonRegistryFiles(hash, slot)
+		return true
 	}
 
 	// SIGTERM, then SIGKILL after timeout. The PID file is only removed
@@ -572,18 +729,18 @@ func stopDaemonSlot(hash string, slot int, verbose bool) {
 	// "SIGKILL needs more than a few hundred ms" case (loaded host,
 	// kernel reaping lag) with a longer bounded loop.
 	_ = proc.Signal(syscall.SIGTERM)
-	if waitUntilDead(pid, 5*time.Second) {
-		removePIDFileSlot(hash, slot)
-		return
+	if waitUntilDead(pid, daemonStopTermWait) {
+		removeDaemonRegistryFiles(hash, slot)
+		return true
 	}
 
 	if verbose {
 		reporter().Verbosef("verbose: SIGTERM ignored by daemon slot %d (PID %d); sending SIGKILL\n", slot, pid)
 	}
 	_ = proc.Signal(syscall.SIGKILL)
-	if waitUntilDead(pid, 3*time.Second) {
-		removePIDFileSlot(hash, slot)
-		return
+	if waitUntilDead(pid, daemonStopKillWait) {
+		removeDaemonRegistryFiles(hash, slot)
+		return true
 	}
 
 	// SIGKILL didn't take effect within the bound — best-effort report
@@ -592,7 +749,8 @@ func stopDaemonSlot(hash string, slot int, verbose bool) {
 	// a brief window where the new daemon's port-0 bind dodges the
 	// zombie's old port (port-0 always picks an unused one).
 	reporter().Verbosef("verbose: daemon slot %d (PID %d) survived SIGKILL within timeout; PID file removed regardless\n", slot, pid)
-	removePIDFileSlot(hash, slot)
+	removeDaemonRegistryFiles(hash, slot)
+	return true
 }
 
 // retireSupersededDaemons removes only entries for this path, sources and
@@ -767,15 +925,23 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 		reporter().Verbosef("verbose: Daemon started on port %d (PID %d)\n", ready.Port, cmd.Process.Pid)
 	}
 
+	unpublished := false
 	if err := writePIDFileSlot(cmd.Process.Pid, ready.Port, srcHash, slot); err != nil {
-		cmd.Process.Kill()
-		// writePIDFileSlot already rolls back .pid on .port failure,
-		// but defensively remove both here so a partial write from a
-		// future writer (e.g. .pid+.port both written, then a
-		// follow-on bookkeeping step fails) can't leave stale entries
-		// pointing at a daemon we just killed.
-		removePIDFileSlot(srcHash, slot)
-		return nil, fmt.Errorf("write PID file: %w", err)
+		if errors.Is(err, errDaemonRegistryBusy) || errors.Is(err, errDaemonRegistryOwned) {
+			// The key is being published by, or already belongs to, another
+			// process. Leave its record alone and keep this daemon private.
+			if verbose {
+				reporter().Verbosef("verbose: daemon registry for %s slot %d is locked or owned by another process (%v); keeping the daemon private\n", srcHash, slot, err)
+			}
+			unpublished = true
+		} else {
+			cmd.Process.Kill()
+			// writePIDFileSlot already rolls back its partial write, but
+			// remove any record naming this PID too, so nothing is left
+			// pointing at a daemon we just killed.
+			removeDaemonRegistryIfOwned(srcHash, slot, cmd.Process.Pid)
+			return nil, fmt.Errorf("write PID file: %w", err)
+		}
 	}
 
 	conn, reader, err := connectDaemonTCP(cmd, ready.Port, srcHash, slot)
@@ -793,6 +959,7 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 		nextID:       1,
 		started:      true,
 		shared:       false,
+		unpublished:  unpublished,
 		slot:         slot,
 		sourcesHash:  srcHash,
 		sourceDirs:   sourceDirs,
@@ -817,6 +984,11 @@ func ConnectOrStartDaemon(jarPath string, sourceDirs []string, classpath []strin
 	// pair. The jar is part of the registry key so a running
 	// krit-types daemon isn't reused when the caller asks for
 	// krit-fir (or vice versa).
+	hash := daemonRegistryKeyKT(jarPath, sourceDirs, kt, classpath...)
+	// rejected is the PID of the record this call decides against. The stop
+	// below re-validates it under the registry lock, so a record another
+	// process published in the meantime is never killed.
+	rejected, _ := registeredDaemonPID(hash, 0)
 	if d, err := connectExistingDaemonSlotKT(jarPath, sourceDirs, kt, verbose, 0, classpath...); err == nil {
 		d.backend = cfg.backend
 		return d, nil
@@ -825,7 +997,9 @@ func ConnectOrStartDaemon(jarPath string, sourceDirs []string, classpath []strin
 
 	// Clean up this (jar, repo)'s stale daemon entry (if any). Other
 	// registry entries are left alone.
-	cleanStaleDaemonSlotKT(jarPath, sourceDirs, kt, verbose, 0, classpath...)
+	if rejected != 0 {
+		stopDaemonSlotIf(hash, 0, rejected, verbose)
+	}
 
 	// Start a new persistent daemon.
 	d, err := StartDaemonWithPort(jarPath, sourceDirs, classpath, verbose, WithKotlinSettings(kt), WithBackend(cfg.backend))

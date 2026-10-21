@@ -46,6 +46,21 @@ func TestArgvIsDaemonFor(t *testing.T) {
 		{"wrong binary", []string{"sleep", "--repo", root}, false},
 		{"serve wrong flag", []string{"krit", "serve", "--repo", root}, false},
 		{"empty", nil, false},
+		{"single dash", []string{"krit-daemon", "-repo", root}, true},
+		{"single dash equals", []string{"krit-daemon", "-repo=" + root}, true},
+		{"value flags before", []string{"krit-daemon", "--socket", "s", "--repo", root, "-v"}, true},
+		{"repeated last wins other", []string{"krit-daemon", "--repo", root, "--repo", other}, false},
+		{"repeated last wins this", []string{"krit-daemon", "--repo", other, "--repo", root}, true},
+		{"serve repeated last other", []string{"krit", "serve", "--root", root, "--root=" + other}, false},
+		{"after double dash", []string{"krit-daemon", "--", "--repo", root}, false},
+		{"after positional", []string{"krit-daemon", "extra", "--repo", root}, false},
+		{"positional after root", []string{"krit-daemon", "--repo", root, "extra"}, false},
+		{"serve after positional", []string{"krit", "serve", "x", "--root", root}, false},
+		{"root as socket value", []string{"krit-daemon", "--socket", "--repo", "--repo", other}, false},
+		{"unknown flag", []string{"krit-daemon", "--repo", root, "--bogus"}, false},
+		{"serve unknown flag", []string{"krit", "serve", "--root", root, "--bogus", "x"}, false},
+		{"serve stop", []string{"krit", "serve", "--root", root, "--stop"}, false},
+		{"serve default root", []string{"krit", "serve"}, false},
 	}
 	for _, c := range cases {
 		if got := argvIsDaemonFor(c.argv, root); got != c.want {

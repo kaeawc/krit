@@ -224,3 +224,31 @@ func TestAbiHash_PropertyDeclaredType(t *testing.T) {
 		t.Fatal("definitely-non-null declared type must change the ABI hash")
 	}
 }
+
+// A bare-identifier initializer must not become the property's ABI name:
+// `val f: T = x` and `val g: T = x` are different properties, and editing the
+// initializer alone must not change the hash.
+func TestAbiHash_PropertyNamedByDeclarationNotInitializer(t *testing.T) {
+	top := func(name, init string) string {
+		return hashOf(t, "package p\n\nval "+name+": Int = "+init)
+	}
+	if top("f", "x") == top("g", "x") {
+		t.Fatal("renaming a top-level property initialized from a bare identifier must change the ABI hash")
+	}
+	if top("f", "x") != top("f", "y") {
+		t.Fatal("changing only the bare-identifier initializer must not change the ABI hash")
+	}
+	member := func(name, init string) string {
+		return hashOf(t, "package p\n\nclass R { val "+name+": Int = "+init+" }")
+	}
+	if member("f", "x") == member("g", "x") {
+		t.Fatal("renaming a member property initialized from a bare identifier must change the ABI hash")
+	}
+	if member("f", "x") != member("f", "y") {
+		t.Fatal("changing only the bare-identifier initializer must not change the ABI hash")
+	}
+	sigs := ExtractAbiSignatures([]*scanner.File{parseSource(t, "package p\n\nval f: Int = x\n")})
+	if len(sigs) != 1 || sigs[0].FQN != "p.f" {
+		t.Fatalf("signatures = %+v, want single p.f", sigs)
+	}
+}

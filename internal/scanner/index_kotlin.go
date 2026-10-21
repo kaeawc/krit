@@ -118,12 +118,7 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 				(parentType != "statements" || !hasFlatAncestorType(file, parent, "class_body")) {
 				return
 			}
-			name := file.FlatChildTextOrEmpty(idx, "simple_identifier")
-			if name == "" {
-				if varDecl, ok := file.FlatFindChild(idx, "variable_declaration"); ok {
-					name = file.FlatChildTextOrEmpty(varDecl, "simple_identifier")
-				}
-			}
+			name := file.PropertyNameFlat(idx)
 			if name == "" || name == "_" {
 				return
 			}

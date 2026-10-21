@@ -778,7 +778,9 @@ func declarationName(file *scanner.File, idx uint32) string {
 		return ""
 	}
 	switch file.FlatType(idx) {
-	case "function_declaration", "property_declaration", "variable_declaration", "parameter":
+	case "property_declaration":
+		return file.PropertyNameFlat(idx)
+	case "function_declaration", "variable_declaration", "parameter":
 		if name := file.FlatChildTextOrEmpty(idx, "simple_identifier"); name != "" {
 			return name
 		}

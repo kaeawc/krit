@@ -15,7 +15,10 @@ import (
 // AbiHashVersion is mixed into the hash input. Bump when the canonical
 // signature encoding changes so consumers invalidate cached hashes on
 // krit upgrade.
-const AbiHashVersion uint32 = 2
+//
+// v3: properties initialized from a bare identifier (`val f: T = x`) were
+// hashed under the initializer's name instead of their own.
+const AbiHashVersion uint32 = 3
 
 // abiAnnotationAllowlist is the set of annotations that affect the binary
 // surface and are therefore folded into the hash. Annotations outside this
@@ -506,12 +509,7 @@ func extractProperty(file *scanner.File, idx uint32, pkg string) (AbiSignature, 
 	if parentType != "source_file" && parentType != "class_body" {
 		return AbiSignature{}, false
 	}
-	name := file.FlatChildTextOrEmpty(idx, "simple_identifier")
-	if name == "" {
-		if varDecl, ok := file.FlatFindChild(idx, "variable_declaration"); ok {
-			name = file.FlatChildTextOrEmpty(varDecl, "simple_identifier")
-		}
-	}
+	name := file.PropertyNameFlat(idx)
 	if name == "" || name == "_" {
 		return AbiSignature{}, false
 	}

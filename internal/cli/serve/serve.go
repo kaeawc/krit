@@ -1031,6 +1031,7 @@ func registerVerbs(srv *daemon.Server, state *daemonState) {
 		xfile := state.workspace.CrossFileStats()
 		return daemon.StatusResult{
 			Ready:           true,
+			PID:             os.Getpid(),
 			Root:            state.root,
 			Modules:         state.moduleCount(),
 			Files:           state.fileCount(),

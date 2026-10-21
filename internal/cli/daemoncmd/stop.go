@@ -43,6 +43,13 @@ func runStop(args []string) int {
 		return 0
 	}
 
+	if ok, reason := verifyDaemonPID(repo, pid); !ok {
+		fmt.Fprintf(os.Stderr, "krit daemon stop: %s names a process that is not this repo's krit daemon: %s\n"+
+			"  Refusing to signal pid %d. If the pid file is stale or foreign, remove it with: rm %s\n",
+			pidPath, reason, pid, pidPath)
+		return 1
+	}
+
 	code := stopProcess(pid, *timeoutFlag)
 	_ = removePIDFile(pidPath)
 	return code

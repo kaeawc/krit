@@ -406,3 +406,26 @@ func TestEnsureOracleDaemonForRestartsWhenClassDirectoryChangesInPlace(t *testin
 		t.Fatalf("a recompiled class directory reused the stale daemon (starts %d)", len(rec.classpaths))
 	}
 }
+
+func TestOracleClasspathFingerprintFollowsSymlinkedClassDirectory(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real-classes")
+	class := filepath.Join(real, "com", "example", "Lib.class")
+	if err := os.MkdirAll(filepath.Dir(class), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(class, []byte("v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "classes")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	before := oracleClasspathFingerprint([]string{link})
+	if err := os.WriteFile(class, []byte("v2-recompiled"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if after := oracleClasspathFingerprint([]string{link}); after == before {
+		t.Fatal("recompiling a class under a symlinked classpath directory did not change the fingerprint")
+	}
+}

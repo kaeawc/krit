@@ -775,7 +775,12 @@ func oracleClasspathFingerprint(classpath []string) string {
 			fmt.Fprintf(h, "%d\x00%d\n", info.Size(), info.ModTime().UnixNano())
 			continue
 		}
-		_ = filepath.WalkDir(entry, func(path string, d os.DirEntry, walkErr error) error {
+		// WalkDir does not descend into a root that is a symlink.
+		walkEntry := entry
+		if resolved, resolveErr := filepath.EvalSymlinks(entry); resolveErr == nil {
+			walkEntry = resolved
+		}
+		_ = filepath.WalkDir(walkEntry, func(path string, d os.DirEntry, walkErr error) error {
 			if walkErr == nil && !d.IsDir() {
 				if fi, infoErr := d.Info(); infoErr == nil {
 					fmt.Fprintf(h, "%s\x00%d\x00%d\n", path, fi.Size(), fi.ModTime().UnixNano())

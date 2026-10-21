@@ -226,8 +226,10 @@ object KritRunner {
         } catch (t: java.io.IOException) {
             // IOException at start() typically means the binary disappeared
             // between resolver lookup and exec. Treat it as MissingBinary
-            // so the status surface stays consistent.
-            log.warn("krit $label process start failed for ${projectDir.path}", t)
+            // so the status surface stays consistent. The user-facing
+            // notification comes from notifyMissingBinaryOnce, so keep this
+            // at debug to avoid repeated warn lines.
+            log.debug("krit $label process start failed for ${projectDir.path}", t)
             RunOutcome.MissingBinary
         } catch (t: Throwable) {
             log.warn("krit $label failed for ${projectDir.path}", t)

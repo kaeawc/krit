@@ -170,3 +170,57 @@ func TestReconnectDoesNotStopBusyDaemon(t *testing.T) {
 		t.Fatalf("busy daemon's registry entry changed: pid=%d ok=%v", got, ok)
 	}
 }
+
+// silentListener accepts connections and never answers, like a busy daemon or
+// an unrelated program that does not speak the protocol.
+func silentListener(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = conn.Close() })
+		}
+	}()
+	return listener.Addr().(*net.TCPAddr).Port
+}
+
+// A stale record whose PID was reused and whose old port is now held by an
+// unrelated program that accepts but never answers is not a busy daemon: the
+// PID is unproven, so the record is dropped (without signalling) instead of
+// being kept and making every later run wait out the ping timeout.
+func TestReconnectDropsUnprovenRecordWhosePortIsSilent(t *testing.T) {
+	isolateRegistry(t)
+	calls := failStart(t)
+	old := firPingTimeout
+	firPingTimeout = 150 * time.Millisecond
+	t.Cleanup(func() { firPingTimeout = old })
+	jar, sources, key := testFirKey(t)
+	pid := livePIDs(t, 1)[0]
+	writeRawFirRecord(t, key, pid, silentListener(t), firAOTMeta{PID: pid, Verified: true, StartTime: "1"})
+
+	if _, err := connectExistingFirDaemon(key, false); err == nil || errors.Is(err, errFirDaemonBusy) {
+		t.Fatalf("connectExistingFirDaemon error = %v, want a non-busy rejection", err)
+	}
+	oldTerm, oldKill := firStopTermWait, firStopKillWait
+	firStopTermWait, firStopKillWait = 100*time.Millisecond, 50*time.Millisecond
+	t.Cleanup(func() { firStopTermWait, firStopKillWait = oldTerm, oldKill })
+
+	if _, err := connectOrStartFirDaemon("", jar, sources, nil, false); err == nil || *calls != 1 {
+		t.Fatalf("expected a fresh daemon start (calls=%d, err=%v)", *calls, err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if !processAlive(pid) {
+		t.Fatal("an unrelated process owning the reused PID was signalled")
+	}
+	if _, ok := registeredFirPID(key); ok {
+		t.Fatal("stale record with an unproven PID was kept")
+	}
+}

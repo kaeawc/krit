@@ -1132,10 +1132,12 @@ func connectExistingFirDaemon(hash string, verbose bool) (*FirDaemon, error) {
 	}
 	if err := d.Ping(); err != nil {
 		conn.Close()
-		if errors.Is(err, errFirPingTimeout) {
+		if errors.Is(err, errFirPingTimeout) && firPIDProven(aotMeta, pid) {
 			// The port accepted the connection but the answer is late: a
 			// daemon serves one client at a time, so it is most likely busy
-			// with another krit run. That is not a dead daemon.
+			// with another krit run. That is not a dead daemon. Only a PID
+			// proven to be the registered daemon counts: a reused PID whose
+			// old port another program now holds is a stale record to drop.
 			return nil, fmt.Errorf("%w: %w", errFirDaemonBusy, err)
 		}
 		return nil, fmt.Errorf("fir daemon not responsive: %w", err)

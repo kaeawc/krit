@@ -599,8 +599,12 @@ type oracleDaemonEntry struct {
 	// roots are the walked scan roots before any context is applied; daemons
 	// for the same jar and roots under another context retire each other.
 	roots []string
-	// classpath is the classpath the daemon was started with (krit-fir only).
+	// classpath is the classpath the daemon was started with.
 	classpath []string
+	// classpathFP fingerprints the classpath entries' size and mtime when the
+	// daemon started. The key holds only the path strings, so a jar rebuilt in
+	// place must retire the daemon, whose session still holds the old classes.
+	classpathFP string
 	// kotlin is the compiler settings the daemon was launched with; a daemon
 	// for other settings would answer with other facts, so it is part of the key.
 	kotlin gradlemodel.KotlinSettings
@@ -720,11 +724,12 @@ func (s *daemonState) ensureOracleDaemonFor(scanPaths []string, backend oracle.B
 		sourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(oracle.FilterFIRSourceDirs(roots), octx.ExtraSourceDirs))
 	}
 	key := jarPath + "\x00" + strings.Join(sourceDirs, "\x00") + "\x00" + kt.Identity() + "\x00" + strings.Join(classpath, "\x00")
+	classpathFP := oracleClasspathFingerprint(classpath)
 
 	s.oracleDaemonMu.Lock()
 	defer s.oracleDaemonMu.Unlock()
 	if entry, ok := s.oracleDaemonByKey[key]; ok {
-		if entry != nil && entry.jarIdentity == oracle.JarIdentity(jarPath) {
+		if entry != nil && entry.jarIdentity == oracle.JarIdentity(jarPath) && entry.classpathFP == classpathFP {
 			return entry.daemon, nil
 		}
 		_ = entry.close()
@@ -734,7 +739,7 @@ func (s *daemonState) ensureOracleDaemonFor(scanPaths []string, backend oracle.B
 	if err != nil {
 		return nil, fmt.Errorf("start oracle daemon: %w", err)
 	}
-	s.oracleDaemonByKey[key] = &oracleDaemonEntry{daemon: d, jarPath: jarPath, jarIdentity: oracle.JarIdentity(jarPath), sourceDirs: sourceDirs, roots: roots, classpath: classpath, kotlin: kt, backend: served}
+	s.oracleDaemonByKey[key] = &oracleDaemonEntry{daemon: d, jarPath: jarPath, jarIdentity: oracle.JarIdentity(jarPath), sourceDirs: sourceDirs, roots: roots, classpath: classpath, classpathFP: classpathFP, kotlin: kt, backend: served}
 	// A resident krit-types JVM costs 1-2 GB. A daemon for the same jar and scan
 	// roots under another context (Kotlin settings, classpath, source roots) can no
 	// longer be reached once the project's context changed, so retire it instead of
@@ -747,6 +752,15 @@ func (s *daemonState) ensureOracleDaemonFor(scanPaths []string, backend oracle.B
 		delete(s.oracleDaemonByKey, otherKey)
 	}
 	return d, nil
+}
+
+// oracleClasspathFingerprint is the size/mtime fingerprint of a resident
+// daemon's classpath entries, matching what the on-disk daemon registry keys on.
+func oracleClasspathFingerprint(classpath []string) string {
+	if len(classpath) == 0 {
+		return ""
+	}
+	return gradlemodel.ClasspathFingerprint(oracle.AbsolutePaths(classpath))
 }
 
 // pingOracleDaemon checks the liveness of every cached daemon and
@@ -764,7 +778,8 @@ func (s *daemonState) pingOracleDaemon() {
 		if entry == nil || entry.daemon == nil {
 			continue
 		}
-		if entry.jarIdentity == oracle.JarIdentity(entry.jarPath) && entry.daemon.Ping() == nil {
+		currentClasspathFP := oracleClasspathFingerprint(entry.classpath)
+		if entry.jarIdentity == oracle.JarIdentity(entry.jarPath) && entry.classpathFP == currentClasspathFP && entry.daemon.Ping() == nil {
 			continue
 		}
 		// Failed ping → close and rebuild. Closing a dead daemon is
@@ -778,6 +793,7 @@ func (s *daemonState) pingOracleDaemon() {
 		}
 		entry.daemon = d
 		entry.jarIdentity = oracle.JarIdentity(entry.jarPath)
+		entry.classpathFP = currentClasspathFP
 	}
 }
 

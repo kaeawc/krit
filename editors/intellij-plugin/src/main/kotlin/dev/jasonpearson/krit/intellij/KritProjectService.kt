@@ -40,7 +40,7 @@ class KritProjectService(private val project: Project) : Disposable {
             val file = FileDocumentManager.getInstance().getFile(event.document) ?: return
             if (shouldTriggerScan(file)) {
                 pendingFiles.add(file.path)
-                scheduleScan(CHANGE_DEBOUNCE_MS)
+                scheduleScan(KritScanDebounce.effectiveMs(KritSettingsState.getSafely()?.state?.debounceMs))
             }
         }
     }
@@ -291,7 +291,6 @@ class KritProjectService(private val project: Project) : Disposable {
     }
 
     companion object {
-        private const val CHANGE_DEBOUNCE_MS = 1_000L
         private val GENERATED_OR_BUILD_PATH_PARTS = listOf(
             "/.gradle/",
             "/.idea/",

@@ -14,6 +14,9 @@ class KritSettingsState : PersistentStateComponent<KritSettingsState.Snapshot> {
         var binaryPath: String = "",
         var fixLevel: String = DEFAULT_FIX_LEVEL,
         var configPath: String = "",
+        // Persisted state written before this field existed deserialises with
+        // the constructor default, so upgrades keep the 1s behaviour.
+        var debounceMs: Int = KritScanDebounce.DEFAULT_MS,
     )
 
     @Volatile

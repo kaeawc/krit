@@ -4,6 +4,7 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
+import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -53,10 +54,17 @@ class KritSettingsConfigurable : Configurable {
             )
         }
 
+        private val debounceField = JBTextField().apply {
+            toolTipText = "Delay after the last edit before Krit rescans (minimum " +
+                "${KritScanDebounce.MIN_MS} ms, default ${KritScanDebounce.DEFAULT_MS} ms). " +
+                "Lower is more responsive but uses more CPU; higher is lighter on large projects."
+        }
+
         val panel: JPanel = FormBuilder.createFormBuilder()
             .addLabeledComponent("Krit binary:", binaryField)
             .addLabeledComponent("Default fix level:", fixLevelCombo)
             .addLabeledComponent("Config file:", configField)
+            .addLabeledComponent("Scan debounce (ms):", debounceField)
             .addComponentFillVertically(JPanel(), 0)
             .panel
 
@@ -64,12 +72,14 @@ class KritSettingsConfigurable : Configurable {
             binaryField.text = state.binaryPath
             fixLevelCombo.selectedItem = state.fixLevel.ifBlank { KritSettingsState.DEFAULT_FIX_LEVEL }
             configField.text = state.configPath
+            debounceField.text = KritScanDebounce.clamp(state.debounceMs).toString()
         }
 
         fun save(): KritSettingsState.Snapshot = KritSettingsState.Snapshot(
             binaryPath = binaryField.text.trim(),
             fixLevel = (fixLevelCombo.selectedItem as? String) ?: KritSettingsState.DEFAULT_FIX_LEVEL,
             configPath = configField.text.trim(),
+            debounceMs = KritScanDebounce.fromInput(debounceField.text),
         )
 
         fun isModified(state: KritSettingsState.Snapshot): Boolean = save() != state

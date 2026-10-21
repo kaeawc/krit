@@ -62,6 +62,10 @@ class KritDaemonClient(private val socketPath: Path) {
     private fun openChannel(): SocketChannel {
         val channel = SocketChannel.open(StandardProtocolFamily.UNIX)
         try {
+            // connect() follows symlinks, so refuse a planted link up front.
+            if (isSymlink(socketPath)) {
+                throw IOException("krit daemon socket $socketPath is a symbolic link")
+            }
             channel.connect(UnixDomainSocketAddress.of(socketPath))
             // Nothing is written until the listener is confirmed to be ours
             // (mirrors dialVerified in internal/daemon/client.go).
@@ -139,8 +143,33 @@ class KritDaemonClient(private val socketPath: Path) {
             socketPath: Path,
             peerUser: String?,
             currentUser: String,
-            fsSafe: (Path) -> Boolean = { isSocketLocationPrivate(it, currentUser) },
+            fsSafe: (Path) -> Boolean = {
+                isSocketFileOwnedBy(it, currentUser) && isSocketLocationPrivate(it, currentUser)
+            },
         ): Boolean = if (peerUser != null) peerUser == currentUser else fsSafe(socketPath)
+
+        private fun isSymlink(path: Path): Boolean = try {
+            Files.readAttributes(path, java.nio.file.attribute.BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+                .isSymbolicLink
+        } catch (_: IOException) {
+            false
+        }
+
+        /**
+         * [sock] itself (not what it points to) is a non-symlink special file,
+         * which is what a Unix socket reports as, owned by [user].
+         */
+        internal fun isSocketFileOwnedBy(sock: Path, user: String = currentUser()): Boolean {
+            return try {
+                val noFollow = LinkOption.NOFOLLOW_LINKS
+                val attrs = Files.readAttributes(sock, java.nio.file.attribute.BasicFileAttributes::class.java, noFollow)
+                !attrs.isSymbolicLink && attrs.isOther && Files.getOwner(sock, noFollow).name == user
+            } catch (_: IOException) {
+                false
+            } catch (_: UnsupportedOperationException) {
+                false
+            }
+        }
 
         /**
          * The socket file and its parent directory are real (non-symlink),

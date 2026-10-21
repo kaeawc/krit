@@ -140,6 +140,45 @@ class KritDaemonSocketPathTest {
     }
 
     @Test
+    fun `symlink at the socket path inside a private dir is rejected`() {
+        val realDir = Files.createTempDirectory("krit-real-")
+        try {
+            val target = realDir.resolve("other.sock")
+            java.nio.channels.ServerSocketChannel.open(java.net.StandardProtocolFamily.UNIX).use { server ->
+                server.bind(java.net.UnixDomainSocketAddress.of(target))
+                val link = shortDir.resolve(KritDaemonClient.fallbackSocketName(base))
+                Files.createSymbolicLink(link, target)
+                // The directory checks alone are satisfied, so only the socket check can catch it.
+                assertTrue(KritDaemonClient.isSocketLocationPrivate(link))
+                assertFalse(KritDaemonClient.isSocketFileOwnedBy(link))
+                assertFalse(KritDaemonClient.isPeerTrusted(link, null, System.getProperty("user.name")))
+                assertFalse(KritDaemonClient(link).available())
+            }
+        } finally {
+            realDir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `real socket owned by the current user passes the filesystem fallback`() {
+        val sock = shortDir.resolve(KritDaemonClient.fallbackSocketName(base))
+        java.nio.channels.ServerSocketChannel.open(java.net.StandardProtocolFamily.UNIX).use { server ->
+            server.bind(java.net.UnixDomainSocketAddress.of(sock))
+            val user = System.getProperty("user.name")
+            assertTrue(KritDaemonClient.isSocketFileOwnedBy(sock))
+            assertFalse(KritDaemonClient.isSocketFileOwnedBy(sock, "someone-else"))
+            assertTrue(KritDaemonClient.isPeerTrusted(sock, null, user))
+        }
+    }
+
+    @Test
+    fun `regular file at the socket path is not a socket`() {
+        val file = shortDir.resolve("plain.sock").also { Files.createFile(it) }
+        assertFalse(KritDaemonClient.isSocketFileOwnedBy(file))
+        assertFalse(KritDaemonClient.isPeerTrusted(file, null, System.getProperty("user.name")))
+    }
+
+    @Test
     fun `socket path bytes counts utf-8 bytes not chars`() {
         assertEquals(3, KritDaemonClient.socketPathBytes("a\u00e9"))
         assertEquals(5, KritDaemonClient.socketPathBytes("\u00e9\u00e9a"))

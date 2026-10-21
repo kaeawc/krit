@@ -56,6 +56,29 @@
       instance="dev.jasonpearson.krit.intellij.KritSettingsConfigurable"/>
   </extensions>
 
+  <actions>
+    <action
+      id="Krit.AnalyzeFile"
+      class="dev.jasonpearson.krit.intellij.KritAnalyzeFileAction"
+      text="Krit: Analyze File"
+      description="Run Krit on the selected file now, without waiting for the edit debounce">
+      <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+      <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+    </action>
+    <action
+      id="Krit.AnalyzeProject"
+      class="dev.jasonpearson.krit.intellij.KritAnalyzeProjectAction"
+      text="Krit: Analyze Project"
+      description="Run Krit on the whole project now">
+      <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+    </action>
+    <group id="Krit.ToolsMenu" text="Krit" popup="true">
+      <reference ref="Krit.AnalyzeFile"/>
+      <reference ref="Krit.AnalyzeProject"/>
+      <add-to-group group-id="ToolsMenu" anchor="last"/>
+    </group>
+  </actions>
+
   <extensions defaultExtensionNs="org.jetbrains.kotlin">
     <supportsKotlinPluginMode supportsK2="true"/>
   </extensions>

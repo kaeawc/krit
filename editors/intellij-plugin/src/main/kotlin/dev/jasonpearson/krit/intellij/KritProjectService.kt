@@ -66,6 +66,24 @@ class KritProjectService(private val project: Project) : Disposable {
         return findingsByFile[canonicalPath(path)].orEmpty()
     }
 
+    // Entry points for the Analyze Project / Analyze File actions. Both
+    // skip the document-change debounce and re-arm the missing-binary
+    // notification so an explicit user request is never met with silence.
+    fun analyzeNow() {
+        missingBinaryNotified.set(false)
+        // A non-empty pending set would turn the run into a changed-file
+        // refresh; the full scan below covers those files anyway.
+        pendingFiles.clear()
+        scheduleScan(0)
+    }
+
+    fun analyzeFiles(paths: Collection<String>) {
+        if (paths.isEmpty()) return
+        missingBinaryNotified.set(false)
+        pendingFiles.addAll(paths)
+        scheduleScan(0)
+    }
+
     fun applyFix(fixLevel: String?, findingId: String) {
         executor.execute {
             if (project.isDisposed || !running.compareAndSet(false, true)) {

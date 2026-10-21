@@ -1446,8 +1446,14 @@ func loadWarmCrossFindings(args ProjectArgs, host ProjectHostState, warm warmAna
 	// from. After a delete or rename every remaining file can still be a
 	// per-file cache hit (or a lexically irrelevant miss), so compare the
 	// indexed Kotlin/Java paths with the current ones before any reuse.
-	// XML inputs are not compared: that would need a content walk.
 	if !meta.CoversSourcePaths(crossIndexSourcePaths(args, warm)) {
+		return false, nil
+	}
+	// XML layouts, manifests and navigation graphs feed class references into
+	// the same index, and an XML edit leaves every Kotlin/Java per-file cache
+	// entry valid. Compare their content hashes too. The daemon's resident
+	// XML loader makes this free until a watcher event bumps its version.
+	if !meta.CoversXMLFiles(warmXMLFiles(host, warm)) {
 		return false, nil
 	}
 	if warm.result != nil && warm.result.TotalFiles > 0 && warm.result.TotalCached != warm.result.TotalFiles {
@@ -3741,6 +3747,18 @@ func oracleFilterFingerprint(activeRules []*api.Rule, kotlinFiles []*scanner.Fil
 // before it trusts source-path lists taken from that manifest.
 func DirtyPathsAllInManifest(dirty []string, manifest map[string]string, scanRoots []string) bool {
 	return dirtyPathsAllInManifest(dirty, manifest, scanRoots)
+}
+
+// warmXMLFiles loads the XML files the cross-file index fingerprints, through
+// the host's resident loader when it has one, the way IndexPhase does.
+func warmXMLFiles(host ProjectHostState, warm warmAnalysisCachePlan) []*scanner.XMLCacheFile {
+	build := func() []*scanner.XMLCacheFile {
+		return scanner.LoadXMLFilesForCache(filesForPaths(warm.kotlinPaths, scanner.LangKotlin))
+	}
+	if host.XMLFilesLoader != nil {
+		return host.XMLFilesLoader(build)
+	}
+	return build()
 }
 
 // crossIndexSourcePaths returns the Kotlin and Java source paths the

@@ -904,6 +904,31 @@ func (m CrossFileCacheMeta) CoversSourcePaths(paths []string) bool {
 	return n == len(want)
 }
 
+// CoversXMLFiles reports whether the XML files recorded in the metadata are
+// exactly xmlFiles, by path and content hash. XML layouts, manifests and
+// navigation graphs contribute class references to the index, so an edited,
+// added or deleted one changes cross-file results even when every Kotlin and
+// Java file is unchanged.
+func (m CrossFileCacheMeta) CoversXMLFiles(xmlFiles []*XMLCacheFile) bool {
+	want := make(map[string]string, len(xmlFiles))
+	for _, f := range xmlFiles {
+		if f != nil {
+			want[f.Path] = f.Hash
+		}
+	}
+	n := 0
+	for _, e := range m.Entries {
+		if !strings.EqualFold(filepath.Ext(e.Path), ".xml") {
+			continue
+		}
+		if hash, ok := want[e.Path]; !ok || hash != e.Hash {
+			return false
+		}
+		n++
+	}
+	return n == len(want)
+}
+
 // LoadCrossFileCacheIndex returns a fully-assembled CodeIndex (symbols,
 // references, lookup maps, and bloom filter) when the on-disk
 // fingerprint matches. A miss — missing files, version mismatch,

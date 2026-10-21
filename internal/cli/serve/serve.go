@@ -680,7 +680,7 @@ func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Back
 type oracleDaemonContext struct {
 	Kotlin gradlemodel.KotlinSettings
 	// Classpath is the resolved oracle classpath (Gradle model plus config).
-	// Used by krit-fir only; krit-types ignores it today.
+	// Both backends start and key on it.
 	Classpath []string
 	// ExtraSourceDirs are the Gradle-model source roots added to the walked
 	// ones (krit-fir only).
@@ -712,11 +712,12 @@ func (s *daemonState) ensureOracleDaemonFor(scanPaths []string, backend oracle.B
 		served = oracle.BackendFIR
 	}
 	roots := oracle.FindSourceDirs(scanPaths)
-	sourceDirs, classpath := roots, []string(nil)
+	// Both backends start and key on the request's classpath, so a daemon
+	// started without one is never reused for a request that has one.
+	sourceDirs, classpath := roots, octx.Classpath
 	if served == oracle.BackendFIR {
 		// The checker's context: FilterFIRSourceDirs(Union(Filter(roots), extra)).
 		sourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(oracle.FilterFIRSourceDirs(roots), octx.ExtraSourceDirs))
-		classpath = octx.Classpath
 	}
 	key := jarPath + "\x00" + strings.Join(sourceDirs, "\x00") + "\x00" + kt.Identity() + "\x00" + strings.Join(classpath, "\x00")
 

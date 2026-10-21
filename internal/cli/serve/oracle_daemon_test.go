@@ -311,3 +311,48 @@ func TestEnsureOracleDaemonForCompilesInTheCheckersContext(t *testing.T) {
 		t.Fatalf("%d daemons resident, want the superseded one retired", n)
 	}
 }
+
+// krit-types starts and is keyed with the request's classpath too (#852): a
+// daemon started without one must not serve a request that has one, and the
+// ping-restart keeps the classpath.
+func TestEnsureOracleDaemonForKAAUsesAndKeysOnClasspath(t *testing.T) {
+	root := t.TempDir()
+	jar := filepath.Join(root, "krit-types.jar")
+	if err := os.WriteFile(jar, []byte("A"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KRIT_TYPES_JAR", jar)
+	state := newDaemonState(root)
+	t.Cleanup(state.closeOracleDaemons)
+	rec := &recordingStarter{}
+	state.oracleDaemonStarter = rec
+
+	none, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendKAA, oracleDaemonContext{})
+	if err != nil || none == nil {
+		t.Fatalf("daemon=%v err=%v", none, err)
+	}
+	ctx := oracleDaemonContext{Classpath: []string{"/m/a.jar"}}
+	withCP, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendKAA, ctx)
+	if err != nil || withCP == none || len(rec.classpaths) != 2 {
+		t.Fatalf("a request with a classpath reused the daemon started without one (starts %d)", len(rec.classpaths))
+	}
+	if got := rec.classpaths[1]; !slices.Equal(got, ctx.Classpath) {
+		t.Fatalf("KAA daemon classpath = %v, want %v", got, ctx.Classpath)
+	}
+	if d, _ := state.ensureOracleDaemonFor([]string{root}, oracle.BackendKAA, ctx); d != withCP || len(rec.classpaths) != 2 {
+		t.Fatal("the same classpath must reuse the resident daemon")
+	}
+	// A dead daemon is restarted with the classpath it was started with.
+	state.oracleDaemonByKey = map[string]*oracleDaemonEntry{}
+	state.oracleDaemonByKey["k"] = &oracleDaemonEntry{
+		daemon:      &oracle.Daemon{},
+		jarPath:     jar,
+		jarIdentity: oracle.JarIdentity(jar),
+		classpath:   ctx.Classpath,
+		backend:     oracle.BackendKAA,
+	}
+	state.pingOracleDaemon()
+	if got := rec.classpaths[len(rec.classpaths)-1]; !slices.Equal(got, ctx.Classpath) {
+		t.Fatalf("ping restart classpath = %v, want %v", got, ctx.Classpath)
+	}
+}

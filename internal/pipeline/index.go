@@ -939,6 +939,10 @@ func recordResidentOracleBackend(tracker perf.Tracker, backend oracle.Backend, d
 	})
 }
 
+// invokeOracleDaemon starts the krit-types daemon; a seam so tests can observe
+// the classpath the --daemon path starts it with.
+var invokeOracleDaemon = oracle.InvokeDaemonWithClasspath
+
 // runDaemonOracle starts a daemon, analyzes all files, and wraps base in
 // a CompositeResolver. Returns the updated resolver.
 func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scanPaths []string, loadOracleFilterFiles func() []*scanner.File, oracleTracker perf.Tracker, base typeinfer.TypeResolver, result *IndexResult) typeinfer.TypeResolver {
@@ -954,7 +958,7 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 	} else {
 		var daemonErr error
 		oracleTracker.TrackVoid("jvmStart", func() {
-			d, daemonErr = oracle.InvokeDaemon(scanPaths, in.Verbose, oracle.WithKotlinSettings(in.OracleKotlin))
+			d, daemonErr = invokeOracleDaemon(scanPaths, in.OracleClasspath, in.Verbose, oracle.WithKotlinSettings(in.OracleKotlin))
 		})
 		if daemonErr != nil {
 			in.warnf("warning: daemon: %v\n", daemonErr)

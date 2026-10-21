@@ -856,13 +856,19 @@ func (d *Daemon) Close() error {
 
 // Ping sends a ping request to verify the daemon is responsive.
 func (d *Daemon) Ping() error {
+	return d.pingWithin(daemonRequestTimeout())
+}
+
+// pingWithin is Ping with an explicit response deadline.
+func (d *Daemon) pingWithin(timeout time.Duration) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	result, err := d.sendResult("ping", nil)
+	resp, err := d.sendWithin("ping", nil, timeout)
 	if err != nil {
 		return err
 	}
+	result := resp.Result
 
 	if result == nil {
 		return fmt.Errorf("ping returned nil result")

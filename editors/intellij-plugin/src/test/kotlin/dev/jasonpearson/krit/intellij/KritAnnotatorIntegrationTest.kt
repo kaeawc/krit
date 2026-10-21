@@ -10,27 +10,30 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 // never run -- KritProjectService skips its scans in unit-test mode and the
 // findings are seeded directly. Runs through the JUnit vintage engine.
 class KritAnnotatorIntegrationTest : BasePlatformTestCase() {
-    // "fun bad() = " is 12 chars, so `println` starts at 0-based offset 12
-    // (krit's 1-based column 13) and spans 7 chars. <caret> is stripped by
-    // configureByText and leaves the caret on the finding.
-    private val source = "fun bad() = <caret>println(\"x\")\n"
-    private val tokenStart = 12
-    private val tokenEnd = 19
+    // XML is part of the core platform, so the annotator registered for
+    // language="XML" runs in the light fixture without depending on the
+    // bundled Kotlin plugin loading in the test sandbox. `LinearLayout`
+    // starts at 0-based offset 1 (krit's 1-based column 2) and spans 12
+    // chars. <caret> is stripped by configureByText.
+    private val fileName = "main.xml"
+    private val source = "<<caret>LinearLayout/>\n"
+    private val tokenStart = 1
+    private val tokenEnd = 13
 
     private fun finding(severity: String = "warning", fixable: Boolean = false) = KritFinding(
-        file = "Foo.kt",
+        file = fileName,
         line = 1,
-        column = 13,
-        ruleSet = "style",
-        rule = "PrintlnInProduction",
+        column = 2,
+        ruleSet = "android",
+        rule = "UselessParent",
         severity = severity,
-        message = "println in production code",
+        message = "This LinearLayout is useless",
         fixable = fixable,
         fixLevel = if (fixable) "idiomatic" else null,
     )
 
     private fun configureWithSeed(finding: KritFinding) {
-        myFixture.configureByText("Foo.kt", source)
+        myFixture.configureByText(fileName, source)
         val path = myFixture.file.virtualFile.path
         project.service<KritProjectService>().seedFindingsForTest(path, listOf(finding))
     }
@@ -38,8 +41,16 @@ class KritAnnotatorIntegrationTest : BasePlatformTestCase() {
     // The inspection and the external annotator both render findings, so
     // the same message can legitimately appear more than once. Assert on the
     // set of matching highlights rather than an exact count.
-    private fun kritHighlights(finding: KritFinding) =
-        myFixture.doHighlighting().filter { it.description == finding.displayMessage }
+    private fun kritHighlights(finding: KritFinding): List<com.intellij.codeInsight.daemon.impl.HighlightInfo> {
+        val all = myFixture.doHighlighting()
+        lastDiagnostics = "language=${myFixture.file.language.id} " +
+            "path=${myFixture.file.virtualFile.path} " +
+            "seeded=${project.service<KritProjectService>().findingsFor(myFixture.file.virtualFile.path).size} " +
+            "highlights=${all.map { "${it.severity}:${it.description}" }}"
+        return all.filter { it.description == finding.displayMessage }
+    }
+
+    private var lastDiagnostics = ""
 
     fun `test annotator renders warning finding from project service`() {
         val finding = finding()
@@ -47,12 +58,12 @@ class KritAnnotatorIntegrationTest : BasePlatformTestCase() {
 
         val highlights = kritHighlights(finding)
 
-        assertTrue("expected a krit highlight for ${finding.displayMessage}", highlights.isNotEmpty())
+        assertTrue("expected a krit highlight for ${finding.displayMessage}; $lastDiagnostics", highlights.isNotEmpty())
         for (info in highlights) {
             assertEquals(HighlightSeverity.WARNING, info.severity)
             assertEquals(tokenStart, info.startOffset)
             assertEquals(tokenEnd, info.endOffset)
-            assertEquals("println", info.text)
+            assertEquals("LinearLayout", info.text)
         }
     }
 
@@ -62,12 +73,12 @@ class KritAnnotatorIntegrationTest : BasePlatformTestCase() {
 
         val highlights = kritHighlights(finding)
 
-        assertTrue("expected a krit highlight for ${finding.displayMessage}", highlights.isNotEmpty())
+        assertTrue("expected a krit highlight for ${finding.displayMessage}; $lastDiagnostics", highlights.isNotEmpty())
         assertTrue(highlights.all { it.severity == HighlightSeverity.ERROR })
     }
 
     fun `test file without seeded findings has no krit highlights`() {
-        myFixture.configureByText("Foo.kt", source)
+        myFixture.configureByText(fileName, source)
 
         val krit = myFixture.doHighlighting().filter { it.description?.startsWith("Krit ") == true }
 

@@ -792,6 +792,9 @@ func reassignedViaEnclosingTypeQualifierFlat(file *scanner.File, scope uint32, n
 			if !hasMutation {
 				return
 			}
+			if file.FlatType(child) == "prefix_expression" {
+				target = prefixMutationOperandFlat(file, target)
+			}
 		default:
 			return
 		}
@@ -878,10 +881,49 @@ func reassignedPrefixNameFlat(file *scanner.File, idx uint32) (string, bool) {
 			continue
 		}
 		if hasMutation && file.FlatIsNamed(child) {
-			return reassignedLocalOrThisNameFlat(file, child)
+			return reassignedLocalOrThisNameFlat(file, prefixMutationOperandFlat(file, child))
 		}
 	}
 	return "", false
+}
+
+// prefixMutationOperandFlat returns the real target of a prefix `++`/`--`.
+// tree-sitter-kotlin attaches the prefix operator to a whole binary
+// expression (`++count <= max` parses as `++(count <= max)`), but Kotlin
+// prefix operators bind tighter than every binary operator, so the mutated
+// operand is the leftmost operand of that expression.
+func prefixMutationOperandFlat(file *scanner.File, operand uint32) uint32 {
+	for operand != 0 {
+		switch file.FlatType(operand) {
+		case "comparison_expression", "equality_expression", "additive_expression",
+			"multiplicative_expression", "range_expression", "infix_expression",
+			"elvis_expression", "conjunction_expression", "disjunction_expression",
+			"check_expression", "as_expression":
+			if file.FlatNamedChildCount(operand) == 0 {
+				return operand
+			}
+			operand = file.FlatNamedChild(operand, 0)
+		default:
+			return operand
+		}
+	}
+	return operand
+}
+
+// companionEnclosingClassBodyFlat returns the class_body of the class that
+// declares the companion object owning classBody, or 0 when classBody is not
+// a companion object's body. Companion members are accessible unqualified
+// from the enclosing class, so writes there reassign them.
+func companionEnclosingClassBodyFlat(file *scanner.File, classBody uint32) uint32 {
+	companion, ok := file.FlatParent(classBody)
+	if !ok || file.FlatType(companion) != "companion_object" {
+		return 0
+	}
+	outerBody, ok := file.FlatParent(companion)
+	if !ok || file.FlatType(outerBody) != "class_body" {
+		return 0
+	}
+	return outerBody
 }
 
 // MayBeConstantRule detects top-level vals that could be const.

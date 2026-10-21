@@ -20,6 +20,11 @@ class KritAnnotatorIntegrationTest : BasePlatformTestCase() {
     private val tokenStart = 1
     private val tokenEnd = 13
 
+    override fun setUp() {
+        super.setUp()
+        project.service<KritProjectService>().clearFindingsForTest()
+    }
+
     private fun finding(severity: String = "warning", fixable: Boolean = false) = KritFinding(
         file = fileName,
         line = 1,
@@ -85,14 +90,17 @@ class KritAnnotatorIntegrationTest : BasePlatformTestCase() {
         assertTrue("unexpected krit highlights: $krit", krit.isEmpty())
     }
 
-    fun `test suppress intention is offered at the finding`() {
+    // Suppression writes @Suppress / @SuppressWarnings on a Kotlin or Java
+    // declaration; an XML file has no such owner, so the intention must not
+    // be offered there even though the finding itself is highlighted.
+    fun `test suppress intention is not offered without a declaration owner`() {
         val finding = finding()
         configureWithSeed(finding)
         myFixture.doHighlighting()
 
         val texts = myFixture.availableIntentions.map { it.text }
 
-        assertTrue("expected suppress intention in $texts", KritSuppress.titleFor(finding.rule) in texts)
+        assertFalse("unexpected suppress intention in $texts", KritSuppress.titleFor(finding.rule) in texts)
     }
 
     fun `test apply fix intention is offered for fixable finding`() {

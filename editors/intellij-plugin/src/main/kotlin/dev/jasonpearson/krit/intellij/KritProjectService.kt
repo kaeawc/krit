@@ -77,6 +77,12 @@ class KritProjectService(private val project: Project) : Disposable {
         findingsByFile = findingsByFile + (canonicalPath(path) to findings)
     }
 
+    // Light-fixture tests share one project, and so this service, across
+    // test methods; clear seeded findings so one test's seed can't leak.
+    internal fun clearFindingsForTest() {
+        findingsByFile = emptyMap()
+    }
+
     fun applyFix(fixLevel: String?, findingId: String) {
         executor.execute {
             if (project.isDisposed || !running.compareAndSet(false, true)) {

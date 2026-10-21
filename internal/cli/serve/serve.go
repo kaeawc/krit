@@ -601,8 +601,8 @@ type oracleDaemonEntry struct {
 	roots []string
 	// classpath is the classpath the daemon was started with.
 	classpath []string
-	// classpathFP fingerprints the classpath entries' size and mtime when the
-	// daemon started. The key holds only the path strings, so a jar rebuilt in
+	// classpathFP fingerprints the classpath entries' size and mtime (walking
+	// class directories) when the daemon started. The key holds only the path strings, so a jar rebuilt in
 	// place must retire the daemon, whose session still holds the old classes.
 	classpathFP string
 	// kotlin is the compiler settings the daemon was launched with; a daemon
@@ -755,12 +755,37 @@ func (s *daemonState) ensureOracleDaemonFor(scanPaths []string, backend oracle.B
 }
 
 // oracleClasspathFingerprint is the size/mtime fingerprint of a resident
-// daemon's classpath entries, matching what the on-disk daemon registry keys on.
+// daemon's classpath entries. Jars are stat'd. Directory entries (Gradle
+// exports dependent modules' class-output directories) are walked, because
+// recompiling a module overwrites .class files without touching the
+// directory's own size or mtime.
 func oracleClasspathFingerprint(classpath []string) string {
 	if len(classpath) == 0 {
 		return ""
 	}
-	return gradlemodel.ClasspathFingerprint(oracle.AbsolutePaths(classpath))
+	h := sha256.New()
+	for _, entry := range oracle.AbsolutePaths(classpath) {
+		fmt.Fprintf(h, "%s\x00", entry)
+		info, err := os.Stat(entry)
+		if err != nil {
+			_, _ = io.WriteString(h, "missing\n")
+			continue
+		}
+		if !info.IsDir() {
+			fmt.Fprintf(h, "%d\x00%d\n", info.Size(), info.ModTime().UnixNano())
+			continue
+		}
+		_ = filepath.WalkDir(entry, func(path string, d os.DirEntry, walkErr error) error {
+			if walkErr == nil && !d.IsDir() {
+				if fi, infoErr := d.Info(); infoErr == nil {
+					fmt.Fprintf(h, "%s\x00%d\x00%d\n", path, fi.Size(), fi.ModTime().UnixNano())
+				}
+			}
+			return nil
+		})
+		_, _ = io.WriteString(h, "\n")
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // pingOracleDaemon checks the liveness of every cached daemon and

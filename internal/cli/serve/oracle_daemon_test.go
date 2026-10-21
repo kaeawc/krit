@@ -356,3 +356,53 @@ func TestEnsureOracleDaemonForKAAUsesAndKeysOnClasspath(t *testing.T) {
 		t.Fatalf("ping restart classpath = %v, want %v", got, ctx.Classpath)
 	}
 }
+
+func TestEnsureOracleDaemonForRestartsWhenClassDirectoryChangesInPlace(t *testing.T) {
+	root := t.TempDir()
+	jar := filepath.Join(root, "krit-types.jar")
+	if err := os.WriteFile(jar, []byte("A"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KRIT_TYPES_JAR", jar)
+	classes := filepath.Join(root, "lib", "build", "classes")
+	class := filepath.Join(classes, "com", "example", "Lib.class")
+	if err := os.MkdirAll(filepath.Dir(class), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(class, []byte("v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dirInfo := func() os.FileInfo {
+		info, err := os.Stat(classes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return info
+	}
+	before := dirInfo()
+	state := newDaemonState(root)
+	t.Cleanup(state.closeOracleDaemons)
+	rec := &recordingStarter{}
+	state.oracleDaemonStarter = rec
+	ctx := oracleDaemonContext{Classpath: []string{classes}}
+
+	first, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendKAA, ctx)
+	if err != nil || first == nil {
+		t.Fatalf("daemon=%v err=%v", first, err)
+	}
+	// Recompile the module: overwrite a nested .class file in place. The
+	// classpath directory itself keeps its size and mtime.
+	if err := os.WriteFile(class, []byte("v2-recompiled"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(classes, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if after := dirInfo(); after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
+		t.Fatalf("test setup: class directory stat changed (%v -> %v)", before.ModTime(), after.ModTime())
+	}
+	rebuilt, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendKAA, ctx)
+	if err != nil || rebuilt == first || len(rec.classpaths) != 2 {
+		t.Fatalf("a recompiled class directory reused the stale daemon (starts %d)", len(rec.classpaths))
+	}
+}

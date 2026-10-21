@@ -926,6 +926,86 @@ func companionEnclosingClassBodyFlat(file *scanner.File, classBody uint32) uint3
 	return outerBody
 }
 
+// companionMemberWrittenFromOuterFlat reports whether the enclosing class
+// body writes name as an unqualified companion member. A write only counts
+// when no declaration between it and the outer class body (a local, a
+// parameter, a loop variable, or an outer-class member of the same name)
+// shadows the companion property, since Kotlin resolves those first.
+func companionMemberWrittenFromOuterFlat(file *scanner.File, outerBody uint32, name string) bool {
+	found := false
+	file.FlatWalkAllNodes(outerBody, func(n uint32) {
+		if found {
+			return
+		}
+		var got string
+		var ok bool
+		switch file.FlatType(n) {
+		case "assignment", "assignment_expression", "augmented_assignment":
+			if file.FlatChildCount(n) == 0 {
+				return
+			}
+			got, ok = reassignedLocalOrThisNameFlat(file, file.FlatChild(n, 0))
+		case "postfix_expression":
+			got, ok = reassignedPostfixNameFlat(file, n)
+		case "prefix_expression":
+			got, ok = reassignedPrefixNameFlat(file, n)
+		default:
+			return
+		}
+		if ok && got == name && !nameShadowedBeforeFlat(file, n, outerBody, name) {
+			found = true
+		}
+	})
+	return found
+}
+
+// nameShadowedBeforeFlat reports whether a declaration of name in node's
+// scopes, up to and including stop, hides an outer property of that name at
+// node: a property declared earlier in an enclosing block or class body, a
+// function or lambda parameter, or a for-loop variable.
+func nameShadowedBeforeFlat(file *scanner.File, node, stop uint32, name string) bool {
+	nodeStart := file.FlatStartByte(node)
+	for cur := node; ; {
+		p, ok := file.FlatParent(cur)
+		if !ok {
+			return false
+		}
+		for i := 0; i < file.FlatChildCount(p); i++ {
+			c := file.FlatChild(p, i)
+			switch file.FlatType(c) {
+			case "property_declaration":
+				if file.FlatStartByte(c) >= nodeStart {
+					continue
+				}
+				for j := 0; j < file.FlatChildCount(c); j++ {
+					d := file.FlatChild(c, j)
+					if file.FlatType(d) == "variable_declaration" && extractIdentifierFlat(file, d) == name {
+						return true
+					}
+				}
+			case "variable_declaration":
+				if extractIdentifierFlat(file, c) == name {
+					return true
+				}
+			case "function_value_parameters", "lambda_parameters":
+				for j := 0; j < file.FlatChildCount(c); j++ {
+					param := file.FlatChild(c, j)
+					switch file.FlatType(param) {
+					case "parameter", "variable_declaration":
+						if extractIdentifierFlat(file, param) == name {
+							return true
+						}
+					}
+				}
+			}
+		}
+		if p == stop {
+			return false
+		}
+		cur = p
+	}
+}
+
 // MayBeConstantRule detects top-level vals that could be const.
 type MayBeConstantRule struct {
 	FlatDispatchBase

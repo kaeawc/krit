@@ -623,6 +623,58 @@ class Ime {
 	}
 }
 
+func TestVarCouldBeVal_OuterLocalShadowingCompanionMemberIsNotAReassignment(t *testing.T) {
+	// Kotlin resolves a local variable or an outer-class member before an
+	// implicit companion member, so writes to those do not reassign the
+	// companion property of the same name.
+	cases := map[string]string{
+		"local var": `
+package test
+class Counter {
+    fun tick(): Int {
+        var count = 0
+        count++
+        return count
+    }
+
+    companion object {
+        private var count = 0
+        fun read(): Int = count
+    }
+}
+`,
+		"outer class member": `
+package test
+class Counter {
+    private var count = 0
+
+    fun tick() {
+        count++
+    }
+
+    companion object {
+        private var count = 0
+        fun read(): Int = count
+    }
+}
+`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) {
+			findings := runRuleByName(t, "VarCouldBeVal", code)
+			flagged := false
+			for _, f := range findings {
+				if strings.Contains(f.Message, "'var count'") {
+					flagged = true
+				}
+			}
+			if !flagged {
+				t.Fatalf("expected the companion 'var count' to be flagged, got %v", findings)
+			}
+		})
+	}
+}
+
 func TestVarCouldBeVal_CompanionMemberOnlyReadByEnclosingClassIsFlagged(t *testing.T) {
 	findings := runRuleByName(t, "VarCouldBeVal", `
 package test

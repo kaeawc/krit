@@ -509,7 +509,7 @@ func registerStyleVarCouldBeVal() {
 			reassigned := r.reassignedNamesFlat(parent, file)[varName]
 			if !reassigned && isClassLevel {
 				if outerBody := companionEnclosingClassBodyFlat(file, parent); outerBody != 0 {
-					reassigned = r.reassignedNamesFlat(outerBody, file)[varName]
+					reassigned = companionMemberWrittenFromOuterFlat(file, outerBody, varName)
 				}
 			}
 			if !reassigned && !isLocal {

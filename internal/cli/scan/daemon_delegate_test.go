@@ -921,3 +921,26 @@ func TestBuildDaemonAnalyzeArgs_SendsCallerCwd(t *testing.T) {
 		t.Errorf("Paths = %v, want the caller's spelling [sub]", args.Paths)
 	}
 }
+
+// TestTryDaemonDelegate_UnsupportedPlatformFallsThroughImmediately covers
+// the Windows contract: no connect, no spawn, no wait.
+func TestTryDaemonDelegate_UnsupportedPlatformFallsThroughImmediately(t *testing.T) {
+	orig := daemonSupported
+	daemonSupported = func() bool { return false }
+	t.Cleanup(func() { daemonSupported = orig })
+	root := newRoot(t)
+	f := freshScanFlags(t)
+	stubEnsureDaemonForScan(t, func(string, daemonclient.SpawnOptions) (*daemonclient.Client, bool, error) {
+		t.Fatal("ensureDaemonForScan must not be called when daemon mode is unsupported")
+		return nil, false, nil
+	})
+
+	start := time.Now()
+	handled, _ := tryDaemonDelegate(f, []string{root}, root)
+	if handled {
+		t.Fatal("expected fall-through to in-process when daemon mode is unsupported")
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("delegation took %s; want an immediate decision", d)
+	}
+}

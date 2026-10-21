@@ -25,7 +25,14 @@ var (
 	startPollEvery   = 50 * time.Millisecond
 )
 
+// daemonSupported is a test seam over daemon.Supported.
+var daemonSupported = daemon.Supported
+
 func runStart(args []string) int {
+	if !daemonSupported() {
+		fmt.Fprintf(os.Stderr, "krit daemon start: %v\n", daemon.ErrUnsupported)
+		return 1
+	}
 	fs := flag.NewFlagSet("daemon start", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	repoFlag := addRepoFlag(fs)
@@ -124,6 +131,10 @@ func resolveDaemonBinary(explicit string) (string, error) {
 // the parent terminal (e.g. closing the shell) doesn't take the
 // daemon down with it.
 func spawnDaemon(binary, repo, socket string, idleTimeout time.Duration, clientBinaryHash string) (int, error) {
+	// Check the platform before any filesystem setup (.krit dir, log file).
+	if !daemonSupported() {
+		return 0, daemon.ErrUnsupported
+	}
 	dotKrit := filepath.Join(repo, ".krit")
 	if err := os.MkdirAll(dotKrit, 0o755); err != nil {
 		return 0, fmt.Errorf("prepare .krit dir: %w", err)

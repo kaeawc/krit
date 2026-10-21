@@ -4,6 +4,8 @@ package daemon
 
 import "io/fs"
 
-// ownedByCurrentUser always reports true on Windows: files carry no Unix
-// uid, and the pointer file lives in the user's private profile directory.
-func ownedByCurrentUser(fs.FileInfo) bool { return true }
+// ownedByCurrentUser always reports false on Windows: files carry no Unix
+// uid, so ownership cannot be verified, and daemon mode is unsupported there.
+// Returning false keeps pointer-file reads and removals from trusting an
+// unverified file.
+func ownedByCurrentUser(fs.FileInfo) bool { return false }

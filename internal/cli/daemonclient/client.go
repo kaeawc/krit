@@ -133,6 +133,11 @@ func IsUnsupportedOracleBackend(err error) bool {
 	return err != nil && strings.Contains(err.Error(), daemon.ErrUnsupportedOracleBackendPrefix)
 }
 
+// daemonSupported is a test seam over daemon.Supported. When false,
+// EnsureRunning and EnsureCompatible return immediately without probing
+// sockets or spawning a process.
+var daemonSupported = daemon.Supported
+
 // EnsureCompatible discovers a running daemon, compares its
 // reported binary hash against the running CLI's, and shuts the
 // daemon down + (when opts.AutoRestart is true) spawns a fresh one
@@ -141,6 +146,9 @@ func IsUnsupportedOracleBackend(err error) bool {
 // nil with ok=false when no daemon is running and AutoRestart is
 // false — callers fall back to in-process.
 func EnsureCompatible(repoRoot string, opts SpawnOptions) (*Client, bool, error) {
+	if !daemonSupported() {
+		return nil, false, nil
+	}
 	c, ok, derr := discoverChecked(repoRoot)
 	if derr != nil {
 		// A daemon owns the path but serves another root: never spawn
@@ -287,6 +295,13 @@ type SpawnOptions struct {
 // (e.g. tests) should send `daemon.VerbShutdown` explicitly before
 // exiting.
 func EnsureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
+	if !daemonSupported() {
+		return nil, daemon.ErrUnsupported
+	}
+	return ensureRunning(repoRoot, opts)
+}
+
+func ensureRunning(repoRoot string, opts SpawnOptions) (*Client, error) {
 	c, ok, derr := discoverChecked(repoRoot)
 	if derr != nil {
 		return nil, derr

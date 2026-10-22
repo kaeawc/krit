@@ -382,7 +382,17 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 	// below re-validates it under the registry lock, so a record another
 	// process published in the meantime is never killed.
 	rejected, _ := registeredFirPID(srcHash)
-	if d, err := connectExistingFirDaemon(srcHash, verbose); err == nil {
+	d, err := connectExistingFirDaemon(srcHash, verbose)
+	if errors.Is(err, errFirDaemonBusy) {
+		// A busy daemon is serving another run. Leave it registered and
+		// running, and use a private daemon for this run instead: stopping it
+		// would kill the other run's request and lose its JVM warm-up.
+		if verbose {
+			reporter().Verbosef("verbose: krit-fir daemon for %s is busy; starting a private daemon for this run\n", srcHash)
+		}
+		rejected = 0
+	}
+	if err == nil {
 		if d.aotVerified {
 			d.role = role
 			d.target = compile
@@ -397,7 +407,7 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 	if rejected != 0 {
 		stopFirDaemonIf(srcHash, rejected, verbose)
 	}
-	d, err := StartFirDaemonWithPort(jarPath, verbose, compile)
+	d, err = startFirDaemon(jarPath, verbose, compile)
 	if err != nil {
 		return nil, fmt.Errorf("start persistent fir daemon: %w", err)
 	}
@@ -616,6 +626,21 @@ func (r *CheckResponse) toCallerSpelling(spelling oracle.PathSpelling) {
 	}
 }
 
+// firPingTimeout bounds how long Ping waits for the answer. Tests shorten it.
+var firPingTimeout = 5 * time.Second
+
+// startFirDaemon launches a daemon; tests replace it to avoid a real JVM.
+var startFirDaemon = StartFirDaemonWithPort
+
+// errFirPingTimeout reports a ping on an open connection that went
+// unanswered.
+var errFirPingTimeout = errors.New("fir daemon ping timed out")
+
+// errFirDaemonBusy reports a registered daemon whose port accepted the
+// connection but did not answer a ping in time. It is alive and, serving one
+// client at a time, probably busy; it must not be stopped.
+var errFirDaemonBusy = errors.New("fir daemon busy")
+
 // Ping verifies the daemon is responsive.
 func (d *FirDaemon) Ping() error {
 	d.mu.Lock()
@@ -653,8 +678,8 @@ func (d *FirDaemon) Ping() error {
 			return fmt.Errorf("fir daemon not responsive")
 		}
 		return nil
-	case <-time.After(5 * time.Second):
-		return fmt.Errorf("fir daemon ping timed out")
+	case <-time.After(firPingTimeout):
+		return errFirPingTimeout
 	}
 }
 
@@ -889,6 +914,11 @@ type firAOTMeta struct {
 	// canary passed on this PID's JVM, so reconnecting krit runs can reuse
 	// the daemon without repeating it.
 	Verified bool `json:"verified,omitempty"`
+	// StartTime is the process start time of PID when it was registered. It
+	// proves identity before the registry's PID is ever signalled: a PID
+	// reused by an unrelated process has a different start time. Records
+	// without it are unproven and their PID is never signalled.
+	StartTime string `json:"startTime,omitempty"`
 }
 
 // unknownAOTState stands in for the cache path of a reconnected daemon whose
@@ -897,7 +927,14 @@ const unknownAOTState = "unknown: registry metadata unreadable"
 
 // writeFirAOTMeta replaces the metadata atomically (temp file + rename), so a
 // concurrent reader sees the old or the new record, never a torn one.
+//
+// A record without a start time is stamped with the live one for meta.PID.
+// Every caller writes metadata for a daemon it launched or that the PID file
+// still names, so the live process is that daemon.
 func writeFirAOTMeta(sourcesHash string, meta firAOTMeta) error {
+	if meta.StartTime == "" {
+		meta.StartTime = firProcessStart(meta.PID)
+	}
 	data, err := json.Marshal(meta)
 	if err != nil {
 		return err
@@ -1095,6 +1132,14 @@ func connectExistingFirDaemon(hash string, verbose bool) (*FirDaemon, error) {
 	}
 	if err := d.Ping(); err != nil {
 		conn.Close()
+		if errors.Is(err, errFirPingTimeout) && firPIDProven(aotMeta, pid) {
+			// The port accepted the connection but the answer is late: a
+			// daemon serves one client at a time, so it is most likely busy
+			// with another krit run. That is not a dead daemon. Only a PID
+			// proven to be the registered daemon counts: a reused PID whose
+			// old port another program now holds is a stale record to drop.
+			return nil, fmt.Errorf("%w: %w", errFirDaemonBusy, err)
+		}
 		return nil, fmt.Errorf("fir daemon not responsive: %w", err)
 	}
 	if verbose {
@@ -1147,6 +1192,17 @@ func stopFirDaemonIf(hash string, expect int, verbose bool) bool {
 	if ferr != nil || !firPIDAlive(pid) {
 		if verbose {
 			reporter().Verbosef("verbose: Cleaning stale krit-fir daemon PID file (PID %d not alive)\n", pid)
+		}
+		removeFirRegistryFiles(hash)
+		return true
+	}
+	// A live PID alone proves nothing: after a crash or reboot it may belong
+	// to an unrelated process of the same user. Signal it only when the start
+	// time recorded at publication still matches; otherwise drop the record
+	// and leave the process alone.
+	if meta, found := readFirAOTMeta(hash); !found || !firPIDProven(meta, pid) {
+		if verbose {
+			reporter().Verbosef("verbose: Dropping krit-fir registry %s without signalling PID %d: cannot prove it is the daemon\n", hash, pid)
 		}
 		removeFirRegistryFiles(hash)
 		return true

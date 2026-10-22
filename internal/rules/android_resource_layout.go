@@ -5,6 +5,7 @@ package rules
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
@@ -597,10 +598,26 @@ func (r *InconsistentLayoutResourceRule) Confidence() float64 { return api.Confi
 
 func (r *InconsistentLayoutResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for name, configs := range idx.LayoutConfigs {
+	// Iterate layout names and configuration qualifiers in sorted order so the
+	// reference configuration, the anchor file of each finding, and the
+	// finding order are identical between runs. Map iteration order is random.
+	names := make([]string, 0, len(idx.LayoutConfigs))
+	for name := range idx.LayoutConfigs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		configs := idx.LayoutConfigs[name]
 		if len(configs) < 2 {
 			continue
 		}
+		qualifiers := make([]string, 0, len(configs))
+		for qualifier := range configs {
+			qualifiers = append(qualifiers, qualifier)
+		}
+		// The default configuration ("") sorts first and becomes the
+		// reference; findings anchor on the other configurations' files.
+		sort.Strings(qualifiers)
 
 		// Gather root types, view counts, and child counts per qualifier.
 		type configInfo struct {
@@ -612,8 +629,9 @@ func (r *InconsistentLayoutResourceRule) check(ctx *api.Context) {
 			rootLine   int
 		}
 		var infos []configInfo
-		for qualifier, layout := range configs {
-			if layout.RootView == nil {
+		for _, qualifier := range qualifiers {
+			layout := configs[qualifier]
+			if layout == nil || layout.RootView == nil {
 				continue
 			}
 			q := qualifier

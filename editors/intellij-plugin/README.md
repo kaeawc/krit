@@ -13,6 +13,7 @@ annotations and inspections.
 - Severity mapping for `error`, `warning`, and `info`
 - Project-wide background Krit runs every 5 seconds, skipping ticks while a prior run is active
 - Native quick fix action for fixable findings; it invokes `krit --fix --fix-level idiomatic`
+- `Krit: Analyze File` (editor and project view context menus) and `Krit: Analyze Project` (project view context menu), also under `Tools → Krit`; both scan immediately instead of waiting for the edit debounce
 
 ## Local Development
 

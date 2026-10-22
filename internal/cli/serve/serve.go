@@ -93,11 +93,24 @@ func kritVersion() string { return Version }
 // binary).
 var binaryHashCache atomic.Pointer[string]
 
+// daemonSupported is a test seam over daemon.Supported.
+var daemonSupported = daemon.Supported
+
 // runServeSubcommand implements `krit serve`. Long-lived process that
 // warms the module graph and exposes build-integration verbs over a Unix
 // socket. `krit serve --stop` sends a shutdown request to an existing
 // daemon at --socket.
 func Run(args []string) int {
+	// Fail before parsing, resolving sockets, taking the repo lock, or
+	// listening.
+	if !daemonSupported() {
+		fmt.Fprintf(os.Stderr, "krit serve: %v\n", daemon.ErrUnsupported)
+		return 1
+	}
+	return run(args)
+}
+
+func run(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	rootFlag := fs.String("root", ".", "Project root")

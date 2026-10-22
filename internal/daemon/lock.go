@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 )
 
 const (
@@ -48,9 +47,9 @@ func AcquireRepoLock(repoDir string) (*RepoLock, error) {
 		return nil, fmt.Errorf("daemon: open lock file: %w", err)
 	}
 
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if held, err := tryLockFile(f); err != nil {
 		_ = f.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) {
+		if held {
 			return nil, ErrAlreadyHeld
 		}
 		return nil, fmt.Errorf("daemon: flock: %w", err)
@@ -75,10 +74,10 @@ func RepoLockHeld(repoDir string) bool {
 		return false
 	}
 	defer func() { _ = f.Close() }()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		return errors.Is(err, syscall.EWOULDBLOCK)
+	if held, err := tryLockFile(f); err != nil {
+		return held
 	}
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	unlockFile(f)
 	return false
 }
 

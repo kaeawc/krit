@@ -218,3 +218,48 @@ func TestNormalizeTypeText(t *testing.T) {
 		}
 	}
 }
+
+func TestFileStructuralFingerprint_JavaInterfaceConstantType(t *testing.T) {
+	if javaFingerprint(t, "public interface I { int value = 1; }") ==
+		javaFingerprint(t, "public interface I { long value = 1; }") {
+		t.Fatal("interface constant type change must move the fingerprint")
+	}
+	if javaFingerprint(t, "public interface I { String[] v = null; }") ==
+		javaFingerprint(t, "public interface I { String v[][] = null; }") {
+		t.Fatal("interface constant array dimensions must move the fingerprint")
+	}
+	if javaFingerprint(t, "public interface I { int value = 1; }") !=
+		javaFingerprint(t, "public interface I { int value = 2; }") {
+		t.Fatal("interface constant initializer edit must not move the fingerprint")
+	}
+}
+
+func TestFileStructuralFingerprint_JavaRecordComponentTypes(t *testing.T) {
+	if javaFingerprint(t, "public record R(int[] x) {}") ==
+		javaFingerprint(t, "public record R(int[][] x) {}") {
+		t.Fatal("record component type change must move the fingerprint")
+	}
+	if javaFingerprint(t, "public record R(int x) { R { } }") ==
+		javaFingerprint(t, "public record R(long x) { R { } }") {
+		t.Fatal("record with compact constructor: component type change must move the fingerprint")
+	}
+	if javaFingerprint(t, "public record R(int x) { int twice() { return x * 2; } }") !=
+		javaFingerprint(t, "public record R(int x) { int twice() { return x * 3; } }") {
+		t.Fatal("record method body edit must not move the fingerprint")
+	}
+	if javaFingerprint(t, "public record R(int x) {}") !=
+		javaFingerprint(t, "public record R(int   x) {}") {
+		t.Fatal("record whitespace edit must not move the fingerprint")
+	}
+}
+
+func TestFileStructuralFingerprint_JavaMethodReturnDimensions(t *testing.T) {
+	if javaFingerprint(t, "public class A { String f()[] { return null; } }") ==
+		javaFingerprint(t, "public class A { String f()[][] { return null; } }") {
+		t.Fatal("C-style return dimensions after parameters must move the fingerprint")
+	}
+	if javaFingerprint(t, "public class A { String f()[] { int n = 1; return null; } }") !=
+		javaFingerprint(t, "public class A { String f()[] { int n = 2; return null; } }") {
+		t.Fatal("method body edit must not move the fingerprint")
+	}
+}

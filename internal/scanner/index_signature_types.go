@@ -216,8 +216,33 @@ func javaMethodSignature(owner, name string, file *File, idx uint32, arity int, 
 	ret := ""
 	if !constructor {
 		ret = javaDeclaredType(file, idx)
+		if ret != "" {
+			// C-style dimensions after the parameter list: `String f()[]`.
+			ret += javaDimensions(file, idx)
+		}
 	}
-	return typedSignature(base, "", javaFormalParameterTypes(file, idx), ret)
+	params := javaFormalParameterTypes(file, idx)
+	if file.FlatType(idx) == "compact_constructor_declaration" {
+		// A compact constructor has no parameter list of its own; it takes
+		// the enclosing record's components.
+		for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+			if file.FlatType(p) == "record_declaration" {
+				params = javaFormalParameterTypes(file, p)
+				break
+			}
+		}
+	}
+	return typedSignature(base, "", params, ret)
+}
+
+// javaClassSignature returns the class-like symbol signature: the FQN, plus
+// the component types for a record so component type edits move the
+// structural fingerprint.
+func javaClassSignature(file *File, idx uint32, fqn string) string {
+	if file.FlatType(idx) != "record_declaration" {
+		return fqn
+	}
+	return typedSignature(fqn, "", javaFormalParameterTypes(file, idx), "")
 }
 
 // javaFieldSignature appends the declared field type (and the declarator's

@@ -1,6 +1,7 @@
 package oracle
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -57,11 +58,22 @@ func ConnectOrStartDaemonPool(jarPath string, sourceDirs []string, classpath []s
 	}
 	pool := &DaemonPool{Requested: size, Members: make([]*Daemon, 0, size)}
 	connected := make([]*Daemon, size)
+	hash := daemonRegistryKeyKT(jarPath, sourceDirs, kt, classpath...)
+	// rejected[slot] is the PID of the record this call decides against; the
+	// stop re-validates it under the registry lock.
+	rejected := make([]int, size)
 	allConnected := true
 	for slot := 0; slot < size; slot++ {
+		rejected[slot], _ = registeredDaemonPID(hash, slot)
 		d, err := connectExistingDaemonSlotKT(jarPath, sourceDirs, kt, verbose, slot, classpath...)
 		if err != nil {
 			allConnected = false
+			if errors.Is(err, errDaemonBusy) {
+				rejected[slot] = 0
+				if verbose {
+					reporter().Verbosef("verbose: krit-types daemon slot %d is busy; starting a private daemon for this run\n", slot)
+				}
+			}
 			continue
 		}
 		d.backend = cfg.backend
@@ -77,8 +89,13 @@ func ConnectOrStartDaemonPool(jarPath string, sourceDirs []string, classpath []s
 			continue
 		}
 
-		cleanStaleDaemonSlotKT(jarPath, sourceDirs, kt, verbose, slot, classpath...)
-		d, err := StartDaemonWithPortSlot(jarPath, sourceDirs, classpath, verbose, slot, WithKotlinSettings(kt), WithBackend(cfg.backend))
+		if rejected[slot] != 0 {
+			stopDaemonSlotIf(hash, slot, rejected[slot], verbose)
+		}
+		// A slot whose daemon is busy with another run is left registered
+		// (rejected is 0 for it); the daemon started here cannot publish
+		// over it and stays private to this pool.
+		d, err := startDaemonWithPortSlot(jarPath, sourceDirs, classpath, verbose, slot, WithKotlinSettings(kt), WithBackend(cfg.backend))
 		if err != nil {
 			_ = pool.Release()
 			for _, pending := range connected[slot+1:] {

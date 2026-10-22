@@ -65,8 +65,8 @@ func (d *Daemon) retireLocked() {
 		_ = d.cmd.Process.Kill()
 		_ = d.cmd.Wait()
 	}
-	if d.port != 0 && d.sourcesHash != "" {
-		removePIDFileSlot(d.sourcesHash, d.slot)
+	if d.port != 0 && d.sourcesHash != "" && !d.unpublished && d.cmd != nil && d.cmd.Process != nil {
+		removeDaemonRegistryIfOwned(d.sourcesHash, d.slot, d.cmd.Process.Pid)
 	}
 	if d.conn != nil {
 		_ = d.conn.Close()

@@ -32,6 +32,11 @@ type Daemon struct {
 	started bool
 	shared  bool // true if this daemon was connected to (not started by us)
 	slot    int  // daemon-pool slot; 0 is the legacy single-daemon slot
+	// unpublished marks a daemon we started but did not register, because
+	// the registry key was locked or already owned by another live daemon.
+	// It is private to this process: Release shuts it down, and it never
+	// touches the registry record that belongs to someone else.
+	unpublished bool
 	// sourcesHash is the full registry key for the jar, sourceDirs and
 	// classpath this Daemon serves. MatchesRepo checks it against the
 	// current jar identity. Empty string means unknown.
@@ -760,7 +765,7 @@ func (d *Daemon) Checkpoint() error {
 // shuts the daemon down on exit (losing all the warmup benefit),
 // Release() leaves it alive.
 func (d *Daemon) Release() error {
-	if d.cmd != nil && !d.shared && jvmaot.IsRecording(d.cmd.Args) {
+	if d.cmd != nil && !d.shared && (d.unpublished || jvmaot.IsRecording(d.cmd.Args)) {
 		return d.Close()
 	}
 	d.mu.Lock()
@@ -799,6 +804,7 @@ func (d *Daemon) Close() error {
 	port := d.port
 	srcHash := d.sourcesHash
 	slot := d.slot
+	unpublished := d.unpublished
 	// Send the shutdown verb under the lock so sendOnce doesn't reject
 	// it (we just flipped started=false). Only the caller that won the
 	// claim gets to talk to the JVM here.
@@ -833,11 +839,11 @@ func (d *Daemon) Close() error {
 		}
 	}
 	// Clean up PID files if this was a persistent daemon we started.
-	// Only the caller that won the started claim removes the PID file
-	// so the loser doesn't tear down a successor daemon that took the
-	// slot in between.
-	if claimedShutdown && port != 0 && srcHash != "" {
-		removePIDFileSlot(srcHash, slot)
+	// Only the caller that won the started claim removes the record, and
+	// only while it still names this daemon, so the loser doesn't tear
+	// down a successor daemon that took the slot in between.
+	if claimedShutdown && port != 0 && srcHash != "" && !unpublished && cmd != nil && cmd.Process != nil {
+		removeDaemonRegistryIfOwned(srcHash, slot, cmd.Process.Pid)
 	}
 	if conn != nil {
 		conn.Close()
@@ -850,13 +856,19 @@ func (d *Daemon) Close() error {
 
 // Ping sends a ping request to verify the daemon is responsive.
 func (d *Daemon) Ping() error {
+	return d.pingWithin(daemonRequestTimeout())
+}
+
+// pingWithin is Ping with an explicit response deadline.
+func (d *Daemon) pingWithin(timeout time.Duration) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	result, err := d.sendResult("ping", nil)
+	resp, err := d.sendWithin("ping", nil, timeout)
 	if err != nil {
 		return err
 	}
+	result := resp.Result
 
 	if result == nil {
 		return fmt.Errorf("ping returned nil result")

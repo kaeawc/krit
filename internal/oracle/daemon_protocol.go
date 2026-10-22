@@ -14,6 +14,9 @@ import (
 
 var errBreakerOpen = errors.New("daemon: circuit breaker open")
 
+// errDaemonRequestTimeout marks a request the daemon did not answer in time.
+var errDaemonRequestTimeout = errors.New("daemon request timed out")
+
 // handshakeNoiseError is returned by waitPipeReady / waitPortReady when the
 // daemon's first stdout line is JVM unified-log output (typically a `[cds]`
 // or `[aot]` warning) instead of the expected JSON ready message. Callers
@@ -87,6 +90,11 @@ func daemonRequestTimeout() time.Duration {
 // The analyzeWithDeps path needs Errors + CacheDeps siblings of Result so
 // it calls send directly.
 func (d *Daemon) send(method string, params map[string]interface{}) (*daemonResponse, error) {
+	return d.sendWithin(method, params, daemonRequestTimeout())
+}
+
+// sendWithin is send with an explicit response deadline.
+func (d *Daemon) sendWithin(method string, params map[string]interface{}, timeout time.Duration) (*daemonResponse, error) {
 	if !d.started {
 		return nil, fmt.Errorf("daemon not started")
 	}
@@ -94,7 +102,7 @@ func (d *Daemon) send(method string, params map[string]interface{}) (*daemonResp
 	if !d.breakerAdmit() {
 		return nil, errBreakerOpen
 	}
-	resp, err := d.sendOnce(method, params)
+	resp, err := d.sendOnceWithin(method, params, timeout)
 	d.breakerRecord(err)
 	return resp, err
 }
@@ -122,6 +130,10 @@ func (d *Daemon) breakerRecord(err error) {
 }
 
 func (d *Daemon) sendOnce(method string, params map[string]interface{}) (*daemonResponse, error) {
+	return d.sendOnceWithin(method, params, daemonRequestTimeout())
+}
+
+func (d *Daemon) sendOnceWithin(method string, params map[string]interface{}, timeout time.Duration) (*daemonResponse, error) {
 	id := d.nextID
 	d.nextID++
 
@@ -159,7 +171,6 @@ func (d *Daemon) sendOnce(method string, params map[string]interface{}) (*daemon
 		resultCh <- scanResult{err: d.stdout.Err()}
 	}()
 
-	timeout := daemonRequestTimeout()
 	var line string
 	select {
 	case res := <-resultCh:
@@ -179,7 +190,7 @@ func (d *Daemon) sendOnce(method string, params map[string]interface{}) (*daemon
 			_ = d.cmd.Process.Kill()
 		}
 		d.started = false
-		return nil, fmt.Errorf("daemon request timed out after %s (method=%s); daemon killed, falling back to tree-sitter", timeout, method)
+		return nil, fmt.Errorf("%w after %s (method=%s); daemon killed, falling back to tree-sitter", errDaemonRequestTimeout, timeout, method)
 	}
 
 	var resp daemonResponse

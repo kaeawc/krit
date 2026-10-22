@@ -31,7 +31,7 @@ func collectJavaDeclarationsFlat(file *File, symbols *[]Symbol) {
 				Package:    pkg,
 				FQN:        fqn,
 				Owner:      owner,
-				Signature:  fqn,
+				Signature:  javaClassSignature(file, idx, fqn),
 				IsTest:     javaDeclarationHasTestAnnotation(file, idx),
 				IsStatic:   file.FlatHasModifier(idx, "static"),
 				IsFinal:    file.FlatHasModifier(idx, "final"),
@@ -56,7 +56,7 @@ func collectJavaDeclarationsFlat(file *File, symbols *[]Symbol) {
 				Package:    pkg,
 				FQN:        symbolFQN(pkg, owner, name),
 				Owner:      owner,
-				Signature:  symbolSignature(owner, name, arity),
+				Signature:  javaMethodSignature(owner, name, file, idx, arity, false),
 				Arity:      arity,
 				IsTest:     javaDeclarationHasTestAnnotation(file, idx),
 				IsStatic:   file.FlatHasModifier(idx, "static"),
@@ -82,11 +82,11 @@ func collectJavaDeclarationsFlat(file *File, symbols *[]Symbol) {
 				Package:    pkg,
 				FQN:        symbolFQN(pkg, owner, name),
 				Owner:      owner,
-				Signature:  symbolSignature(owner, name, arity),
+				Signature:  javaMethodSignature(owner, name, file, idx, arity, true),
 				Arity:      arity,
 				IsTest:     javaDeclarationHasTestAnnotation(file, idx),
 			})
-		case "field_declaration":
+		case "field_declaration", "constant_declaration":
 			collectJavaFieldDeclarations(file, idx, pkg, symbols)
 		}
 	})
@@ -169,7 +169,7 @@ func collectJavaFieldDeclarations(file *File, idx uint32, pkg string, symbols *[
 			Package:    pkg,
 			FQN:        symbolFQN(pkg, owner, name),
 			Owner:      owner,
-			Signature:  symbolSignature(owner, name, 0),
+			Signature:  javaFieldSignature(owner, name, file, idx, child),
 			Arity:      0,
 			IsStatic:   file.FlatHasModifier(idx, "static"),
 			IsFinal:    file.FlatHasModifier(idx, "final"),

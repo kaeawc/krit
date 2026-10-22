@@ -102,7 +102,9 @@ func (crossFileShardsRegistered) Stats() cacheutil.CacheStats {
 // unreachable key (a miss) instead of being reloaded and re-stamped.
 // v10: Kotlin property symbols are named from variable_declaration, not from a
 // bare-identifier initializer (`val f: T = x` was indexed as `x`).
-const crossFileShardVersion = 10
+// v11: function, method, constructor and Java field signatures carry declared
+// parameter, return and field types.
+const crossFileShardVersion = 11
 
 // Per-shard bloom sizing. Every shard's bloom uses these exact
 // (m, k) parameters so they can be unioned with BloomFilter.Merge,

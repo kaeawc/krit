@@ -161,3 +161,57 @@ func TestRunProject_BodyOnlyEdit_WarmMatchesClean_Daemon(t *testing.T) {
 		t.Errorf("daemon warm findings = %d, want 1: body edit finding dropped by bundle replay", warm)
 	}
 }
+
+// Regression tests for #839: a public function/field type change used to be
+// invisible to the structural fingerprint, so the delta planner treated it as
+// a body-only edit and kept the prior bundle for dependents.
+
+func structuralPlan(t *testing.T, dir, edited, before, after string) scanner.DeltaPlan {
+	t.Helper()
+	path := filepath.Join(dir, edited)
+	fingerprint := func(src string) scanner.RunFingerprint {
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var kt, java []*scanner.File
+		if filepath.Ext(path) == ".java" {
+			f, err := scanner.ParseJavaFile(context.Background(), path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			java = append(java, f)
+		} else {
+			f, err := scanner.ParseFile(context.Background(), path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			kt = append(kt, f)
+		}
+		return scanner.RunFingerprint{CrossFile: crossFileStructuralFingerprint(kt, java, nil, nil)}
+	}
+	prev := fingerprint(before)
+	cur := fingerprint(after)
+	return scanner.ConservativeDeltaPlanner{}.Plan(prev, cur, []string{path})
+}
+
+func TestDeltaPlanner_TypedAPIChangeIsNotBodyEdit(t *testing.T) {
+	cases := []struct {
+		name, file, before, after string
+		reuse                     bool
+	}{
+		{"kotlin param type", "Lib.kt", "package demo\nfun f(x: Int): String = \"\"\n", "package demo\nfun f(x: Long): String = \"\"\n", false},
+		{"kotlin return nullability", "Lib.kt", "package demo\nfun f(x: Int): String = \"\"\n", "package demo\nfun f(x: Int): String? = null\n", false},
+		{"java field type", "Lib.java", "package demo;\npublic class Lib { public String name; }\n", "package demo;\npublic class Lib { public Integer name; }\n", false},
+		{"java method return", "Lib.java", "package demo;\npublic class Lib { public String f() { return null; } }\n", "package demo;\npublic class Lib { public Integer f() { return null; } }\n", false},
+		{"kotlin body only", "Lib.kt", "package demo\nfun f(x: Int): String = \"a\"\n", "package demo\nfun f(x: Int): String = \"b\"\n", true},
+		{"java body only", "Lib.java", "package demo;\npublic class Lib { public String f() { return null; } }\n", "package demo;\npublic class Lib { public String f() { return \"s\"; } }\n", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			plan := structuralPlan(t, t.TempDir(), tc.file, tc.before, tc.after)
+			if plan.ReusePrevious != tc.reuse {
+				t.Fatalf("ReusePrevious = %v, want %v", plan.ReusePrevious, tc.reuse)
+			}
+		})
+	}
+}

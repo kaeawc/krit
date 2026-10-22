@@ -84,7 +84,12 @@ func TestConnectOrStartFirDaemonReplacedJarIsNotReused(t *testing.T) {
 	if connections.Load() != before {
 		t.Fatal("old listener received a new connection")
 	}
-	if err := cmd.Process.Signal(os.Interrupt); err == nil {
+	// The retirement saw the process die as soon as it became a zombie, which
+	// can be before the Wait goroutine above has reaped it; a signal sent in
+	// that window still succeeds. Wait for the reap before asserting.
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
 		t.Fatal("superseded process remained alive")
 	}
 	if _, err := os.Stat(firPIDPath(oldKey)); !os.IsNotExist(err) {

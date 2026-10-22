@@ -139,7 +139,6 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		if dirty == nil {
 			in.Host.SourceSetDirty = []string{}
 			in.Host.AnalysisCacheDirty = []string{}
-			state.distrustUnvouchedEmptyDirtySet(&in)
 		} else {
 			in.Host.SourceSetDirty = dirty
 			in.Host.AnalysisCacheDirty = dirty
@@ -193,34 +192,6 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		includeColumns:  args.IncludeColumns,
 		releaseLock:     state.analyzeMu.Unlock,
 	}, nil
-}
-
-// distrustEmptyDirtySet withdraws the two shortcuts that take an empty dirty
-// set to mean "nothing changed": the analysis cache is then validated against
-// each file instead of trusted, and files are parsed from disk instead of
-// taken from the resident parse cache.
-//
-// It is for a warm call whose drained dirty set is empty although the source
-// stats are no longer vouched for. The watcher bumps the source-mtime version
-// on every event but touches the path only after dropping the file's resident
-// state, and a later write of a burst touches nothing until its debounce
-// fires, so a call can land between the two with the edit not yet reported.
-// Trusting the empty set there analyses a stale tree or replays the edited
-// file's cached findings, and saves the result under the new content's
-// fingerprint, which the next call (now dirty) hits and replays (#832).
-func distrustEmptyDirtySet(host *pipeline.ProjectHostState) {
-	host.AnalysisCacheDirty = nil
-	host.ResidentFiles = nil
-}
-
-// distrustUnvouchedEmptyDirtySet applies distrustEmptyDirtySet to a warm call
-// that drained an empty dirty set unless the source stats were verified at the
-// current watcher version (see pipeline.WorkspaceState.BundleStatsClean).
-func (s *daemonState) distrustUnvouchedEmptyDirtySet(in *pipeline.ProjectInput) {
-	key := scanner.FindingsBundleManifestKey(in.Host.FindingsBundleCacheRoot, in.Args.Paths)
-	if !s.workspace.BundleStatsClean(key) {
-		distrustEmptyDirtySet(&in.Host)
-	}
 }
 
 type streamingAnalyzeResponse struct {

@@ -84,13 +84,20 @@ func excludedByDefault(path string) bool {
 // enumeration sees (DefaultPrunedDir + gitignore + krit-types
 // default exclude patterns, plus testData/test-resources).
 func CollectKtFiles(sourceDirs []string) ([]string, error) {
+	kt, _, err := collectSourceFiles(sourceDirs)
+	return kt, err
+}
+
+// collectSourceFiles is CollectKtFiles that also returns the Java sources
+// under the same roots, filtered the same way. The declared-name ledger needs
+// them: a Java type can collide with a name a Kotlin file uses.
+func collectSourceFiles(sourceDirs []string) (out, java []string, err error) {
 	seen := map[string]bool{}
-	var out []string
 	ignoreMatchers := make(map[string]*fileignore.Matcher)
 	for _, root := range sourceDirs {
-		rootInfo, err := os.Stat(root)
-		if err != nil {
-			return nil, err
+		rootInfo, statErr := os.Stat(root)
+		if statErr != nil {
+			return nil, nil, statErr
 		}
 		matcher := fileignore.MatcherForPath(root, rootInfo, ignoreMatchers)
 		walkErr := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
@@ -113,7 +120,8 @@ func CollectKtFiles(sourceDirs []string) ([]string, error) {
 			// cache path to silently drop .kts files that the plain
 			// Invoke path would have analyzed.
 			name := info.Name()
-			if !strings.HasSuffix(name, ".kt") && !strings.HasSuffix(name, ".kts") {
+			isJava := strings.HasSuffix(name, ".java")
+			if !isJava && !strings.HasSuffix(name, ".kt") && !strings.HasSuffix(name, ".kts") {
 				return nil
 			}
 			if matcher.Ignored(p, false) {
@@ -126,14 +134,18 @@ func CollectKtFiles(sourceDirs []string) ([]string, error) {
 				return nil
 			}
 			seen[p] = true
-			out = append(out, p)
+			if isJava {
+				java = append(java, p)
+			} else {
+				out = append(out, p)
+			}
 			return nil
 		})
 		if walkErr != nil {
-			return nil, walkErr
+			return nil, nil, walkErr
 		}
 	}
-	return out, nil
+	return out, java, nil
 }
 
 // InvokeCached is the cache-aware variant of Invoke. It walks sourceDirs,
@@ -500,12 +512,15 @@ func InvokeCachedWithOptions(
 		addOracleInstant(tracker, "cacheBypass", nil, map[string]string{"reason": "cacheDirInit"})
 		return InvokeWithFilesWithOptions(jarPath, sourceDirs, outputPath, filterListPath, verbose, opts)
 	}
+	// The declared-name ledger describes source, not facts, so it lives at the
+	// cache root and is shared by every classpath and settings scope below it.
+	ledgerPath := filepath.Join(cacheDir, declLedgerFile)
 	cacheDir = legacyEntryDirForRun(s, cacheDir, opts)
 
-	var ktFiles []string
+	var ktFiles, javaFiles []string
 	if err := trackOracle(tracker, "collectKtFiles", func() error {
 		var err error
-		ktFiles, err = CollectKtFiles(sourceDirs)
+		ktFiles, javaFiles, err = collectSourceFiles(sourceDirs)
 		return err
 	}); err != nil || len(ktFiles) == 0 {
 		if verbose {
@@ -524,6 +539,11 @@ func InvokeCachedWithOptions(
 
 	compilation := wholeCompilationFingerprint(opts, sourceDirs, jarPath, tracker)
 
+	// Refresh the declared-name ledger from every collected source before the
+	// oracle filter list narrows the files: a file the filter drops can still
+	// declare a name a cached caller uses.
+	ledger := refreshDeclLedger(opts, ledgerPath, sourceDirs, ktFiles, javaFiles, tracker)
+
 	if filterListPath != "" {
 		ktFiles = applyOracleFilter(ktFiles, filterListPath, tracker, verbose)
 	}
@@ -536,7 +556,8 @@ func InvokeCachedWithOptions(
 	if len(forcedInScan) > 0 {
 		misses = append(misses, forcedInScan...)
 	}
-	hits, misses = demoteNameCollidingHits(opts, hits, misses, tracker, verbose)
+	hits, misses = demoteStaleNameDeps(opts, ledger, hits, misses, tracker, verbose)
+	ledger.save()
 	misses = requestCompilationRefresh(opts, hits, misses, compilation, tracker, verbose)
 	classifyElapsed := time.Since(startClassify)
 	perf.AddEntryDetails(tracker, "cacheClassify", classifyElapsed, map[string]int64{
@@ -587,7 +608,7 @@ func InvokeCachedWithOptions(
 		_ = os.Remove(missDepsPath)
 	}()
 
-	freshData, depsFile, usedDaemon, err := runMissAnalysis(
+	freshData, depsFile, usedDaemon, err := missAnalyzer(
 		jarPath, sourceDirs, misses,
 		missListPath, missFreshPath, missDepsPath, verbose, tracker, opts,
 	)
@@ -603,6 +624,8 @@ func InvokeCachedWithOptions(
 	}
 
 	stampCacheDeps(depsFile, opts, compilation)
+	ledger.stampNameDigests(freshData, depsFile)
+	ledger.save()
 	if depsFile == nil {
 		if verbose {
 			reporter().Verbosef("verbose: no cache deps returned; cache not updated\n")
@@ -1182,6 +1205,10 @@ func runKritTypesCachedShardedWithRunner(
 
 	return fresh, deps, nil
 }
+
+// missAnalyzer analyzes the misses. It is runMissAnalysis except in tests,
+// which substitute recorded facts for the JVM.
+var missAnalyzer = runMissAnalysis
 
 // runMissAnalysis runs the miss-list analysis. The default cold-miss path is
 // one-shot krit-types with in-JVM file parallelism; explicit daemon settings

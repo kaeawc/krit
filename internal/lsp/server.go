@@ -1117,24 +1117,26 @@ func flatNodeToSymbol(file *scanner.File, idx uint32) *DocumentSymbol {
 
 	name := ""
 	var nameNode uint32
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		child := file.FlatChild(idx, i)
-		switch file.FlatType(child) {
-		case "simple_identifier", "type_identifier":
-			name = file.FlatNodeText(child)
-			nameNode = child
-		case "variable_declaration":
-			for j := 0; j < file.FlatChildCount(child); j++ {
-				gc := file.FlatChild(child, j)
-				if file.FlatType(gc) == "simple_identifier" {
-					name = file.FlatNodeText(gc)
-					nameNode = gc
-					break
-				}
+	if nodeType == "property_declaration" {
+		// The name lives in variable_declaration; a direct simple_identifier
+		// child is the initializer (`val f: T = x`), not the property name.
+		if varDecl, ok := file.FlatFindChild(idx, "variable_declaration"); ok {
+			if id, ok := file.FlatFindChild(varDecl, "simple_identifier"); ok {
+				name = file.FlatNodeText(id)
+				nameNode = id
 			}
 		}
-		if name != "" {
-			break
+	} else {
+		for i := 0; i < file.FlatChildCount(idx); i++ {
+			child := file.FlatChild(idx, i)
+			switch file.FlatType(child) {
+			case "simple_identifier", "type_identifier":
+				name = file.FlatNodeText(child)
+				nameNode = child
+			}
+			if name != "" {
+				break
+			}
 		}
 	}
 	if name == "" {

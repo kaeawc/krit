@@ -140,7 +140,9 @@ func TestRunStopForcesAfterGrace(t *testing.T) {
 	// Spawn a process that ignores SIGTERM so we have to fall through
 	// to SIGKILL. `sh -c 'trap "" TERM; sleep 30'` traps and discards
 	// SIGTERM.
-	cmd := exec.Command("/bin/sh", "-c", "trap '' TERM; sleep 30")
+	cmd := exec.Command("/bin/sh")
+	// The trailing ":" stops the shell from exec-ing sleep directly.
+	cmd.Args = []string{"krit-daemon", "-c", "trap '' TERM; sleep 30; :"}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start victim: %v", err)
 	}
@@ -149,6 +151,16 @@ func TestRunStopForcesAfterGrace(t *testing.T) {
 		_, _ = cmd.Process.Wait()
 	})
 	pid := cmd.Process.Pid
+	// Present the argv `krit daemon start` uses; the stand-in shell cannot
+	// carry flags the real krit-daemon would accept.
+	origArgv := readArgv
+	readArgv = func(p int) ([]string, error) {
+		if p == pid {
+			return []string{"krit-daemon", "--repo", dir}, nil
+		}
+		return origArgv(p)
+	}
+	t.Cleanup(func() { readArgv = origArgv })
 	if err := writePIDFile(pidFilePath(dir), pid); err != nil {
 		t.Fatal(err)
 	}

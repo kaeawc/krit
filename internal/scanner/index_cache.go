@@ -89,9 +89,11 @@ func recordCrossFileDisk(paths crossFileCachePaths, entries int) {
 // overlays so one-file edits do not force rewriting payload.gob.
 // v9: normalized Kotlin annotations change indexed declaration flags.
 // v10: Kotlin property signatures carry the declared type and extension receiver.
-// v11: function, method, constructor and Java field signatures carry declared
+// v11: Kotlin property symbols are named from variable_declaration, not from a
+// bare-identifier initializer (`val f: T = x` was indexed as `x`).
+// v12: function, method, constructor and Java field signatures carry declared
 // parameter, return and field types.
-const CrossFileCacheVersion = 11
+const CrossFileCacheVersion = 12
 
 // bloomLibraryVersion is the pinned bits-and-blooms/bloom/v3 version.
 // It is mixed into the cross-file fingerprint so a library upgrade

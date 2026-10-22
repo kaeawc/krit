@@ -28,6 +28,36 @@ jobs:
       - name: Oracle filter fingerprint gate
         run: go run ./internal/devtools/oraclefpcheck
 
+  # Cross-vet the whole tree (including test files) for Windows so untagged
+  # Unix-only syscalls (Flock, Stat_t, Setsid, ...) fail CI instead of
+  # breaking the Windows release build. tree-sitter needs cgo, so use the
+  # mingw-w64 cross toolchain rather than CGO_ENABLED=0.
+  windows-vet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install mingw-w64
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+      - name: Vet for windows/amd64
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "1"
+          CC: x86_64-w64-mingw32-gcc
+          CXX: x86_64-w64-mingw32-g++
+        run: go vet ./...
+      - name: Build krit.exe for windows/amd64
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "1"
+          CC: x86_64-w64-mingw32-gcc
+          CXX: x86_64-w64-mingw32-g++
+        run: go build -o krit.exe ./cmd/krit/
+
   test:
     runs-on: ubuntu-latest
     steps:

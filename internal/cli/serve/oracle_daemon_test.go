@@ -311,3 +311,121 @@ func TestEnsureOracleDaemonForCompilesInTheCheckersContext(t *testing.T) {
 		t.Fatalf("%d daemons resident, want the superseded one retired", n)
 	}
 }
+
+// krit-types starts and is keyed with the request's classpath too (#852): a
+// daemon started without one must not serve a request that has one, and the
+// ping-restart keeps the classpath.
+func TestEnsureOracleDaemonForKAAUsesAndKeysOnClasspath(t *testing.T) {
+	root := t.TempDir()
+	jar := filepath.Join(root, "krit-types.jar")
+	if err := os.WriteFile(jar, []byte("A"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KRIT_TYPES_JAR", jar)
+	state := newDaemonState(root)
+	t.Cleanup(state.closeOracleDaemons)
+	rec := &recordingStarter{}
+	state.oracleDaemonStarter = rec
+
+	none, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendKAA, oracleDaemonContext{})
+	if err != nil || none == nil {
+		t.Fatalf("daemon=%v err=%v", none, err)
+	}
+	ctx := oracleDaemonContext{Classpath: []string{"/m/a.jar"}}
+	withCP, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendKAA, ctx)
+	if err != nil || withCP == none || len(rec.classpaths) != 2 {
+		t.Fatalf("a request with a classpath reused the daemon started without one (starts %d)", len(rec.classpaths))
+	}
+	if got := rec.classpaths[1]; !slices.Equal(got, ctx.Classpath) {
+		t.Fatalf("KAA daemon classpath = %v, want %v", got, ctx.Classpath)
+	}
+	if d, _ := state.ensureOracleDaemonFor([]string{root}, oracle.BackendKAA, ctx); d != withCP || len(rec.classpaths) != 2 {
+		t.Fatal("the same classpath must reuse the resident daemon")
+	}
+	// A dead daemon is restarted with the classpath it was started with.
+	state.oracleDaemonByKey = map[string]*oracleDaemonEntry{}
+	state.oracleDaemonByKey["k"] = &oracleDaemonEntry{
+		daemon:      &oracle.Daemon{},
+		jarPath:     jar,
+		jarIdentity: oracle.JarIdentity(jar),
+		classpath:   ctx.Classpath,
+		backend:     oracle.BackendKAA,
+	}
+	state.pingOracleDaemon()
+	if got := rec.classpaths[len(rec.classpaths)-1]; !slices.Equal(got, ctx.Classpath) {
+		t.Fatalf("ping restart classpath = %v, want %v", got, ctx.Classpath)
+	}
+}
+
+func TestEnsureOracleDaemonForRestartsWhenClassDirectoryChangesInPlace(t *testing.T) {
+	root := t.TempDir()
+	jar := filepath.Join(root, "krit-types.jar")
+	if err := os.WriteFile(jar, []byte("A"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KRIT_TYPES_JAR", jar)
+	classes := filepath.Join(root, "lib", "build", "classes")
+	class := filepath.Join(classes, "com", "example", "Lib.class")
+	if err := os.MkdirAll(filepath.Dir(class), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(class, []byte("v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dirInfo := func() os.FileInfo {
+		info, err := os.Stat(classes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return info
+	}
+	before := dirInfo()
+	state := newDaemonState(root)
+	t.Cleanup(state.closeOracleDaemons)
+	rec := &recordingStarter{}
+	state.oracleDaemonStarter = rec
+	ctx := oracleDaemonContext{Classpath: []string{classes}}
+
+	first, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendKAA, ctx)
+	if err != nil || first == nil {
+		t.Fatalf("daemon=%v err=%v", first, err)
+	}
+	// Recompile the module: overwrite a nested .class file in place. The
+	// classpath directory itself keeps its size and mtime.
+	if err := os.WriteFile(class, []byte("v2-recompiled"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(classes, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if after := dirInfo(); after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
+		t.Fatalf("test setup: class directory stat changed (%v -> %v)", before.ModTime(), after.ModTime())
+	}
+	rebuilt, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendKAA, ctx)
+	if err != nil || rebuilt == first || len(rec.classpaths) != 2 {
+		t.Fatalf("a recompiled class directory reused the stale daemon (starts %d)", len(rec.classpaths))
+	}
+}
+
+func TestOracleClasspathFingerprintFollowsSymlinkedClassDirectory(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real-classes")
+	class := filepath.Join(real, "com", "example", "Lib.class")
+	if err := os.MkdirAll(filepath.Dir(class), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(class, []byte("v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "classes")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	before := oracleClasspathFingerprint([]string{link})
+	if err := os.WriteFile(class, []byte("v2-recompiled"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if after := oracleClasspathFingerprint([]string{link}); after == before {
+		t.Fatal("recompiling a class under a symlinked classpath directory did not change the fingerprint")
+	}
+}

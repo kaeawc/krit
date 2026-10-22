@@ -93,11 +93,24 @@ func kritVersion() string { return Version }
 // binary).
 var binaryHashCache atomic.Pointer[string]
 
+// daemonSupported is a test seam over daemon.Supported.
+var daemonSupported = daemon.Supported
+
 // runServeSubcommand implements `krit serve`. Long-lived process that
 // warms the module graph and exposes build-integration verbs over a Unix
 // socket. `krit serve --stop` sends a shutdown request to an existing
 // daemon at --socket.
 func Run(args []string) int {
+	// Fail before parsing, resolving sockets, taking the repo lock, or
+	// listening.
+	if !daemonSupported() {
+		fmt.Fprintf(os.Stderr, "krit serve: %v\n", daemon.ErrUnsupported)
+		return 1
+	}
+	return run(args)
+}
+
+func run(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	rootFlag := fs.String("root", ".", "Project root")
@@ -599,8 +612,12 @@ type oracleDaemonEntry struct {
 	// roots are the walked scan roots before any context is applied; daemons
 	// for the same jar and roots under another context retire each other.
 	roots []string
-	// classpath is the classpath the daemon was started with (krit-fir only).
+	// classpath is the classpath the daemon was started with.
 	classpath []string
+	// classpathFP fingerprints the classpath entries' size and mtime (walking
+	// class directories) when the daemon started. The key holds only the path strings, so a jar rebuilt in
+	// place must retire the daemon, whose session still holds the old classes.
+	classpathFP string
 	// kotlin is the compiler settings the daemon was launched with; a daemon
 	// for other settings would answer with other facts, so it is part of the key.
 	kotlin gradlemodel.KotlinSettings
@@ -680,7 +697,7 @@ func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Back
 type oracleDaemonContext struct {
 	Kotlin gradlemodel.KotlinSettings
 	// Classpath is the resolved oracle classpath (Gradle model plus config).
-	// Used by krit-fir only; krit-types ignores it today.
+	// Both backends start and key on it.
 	Classpath []string
 	// ExtraSourceDirs are the Gradle-model source roots added to the walked
 	// ones (krit-fir only).
@@ -712,18 +729,20 @@ func (s *daemonState) ensureOracleDaemonFor(scanPaths []string, backend oracle.B
 		served = oracle.BackendFIR
 	}
 	roots := oracle.FindSourceDirs(scanPaths)
-	sourceDirs, classpath := roots, []string(nil)
+	// Both backends start and key on the request's classpath, so a daemon
+	// started without one is never reused for a request that has one.
+	sourceDirs, classpath := roots, octx.Classpath
 	if served == oracle.BackendFIR {
 		// The checker's context: FilterFIRSourceDirs(Union(Filter(roots), extra)).
 		sourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(oracle.FilterFIRSourceDirs(roots), octx.ExtraSourceDirs))
-		classpath = octx.Classpath
 	}
 	key := jarPath + "\x00" + strings.Join(sourceDirs, "\x00") + "\x00" + kt.Identity() + "\x00" + strings.Join(classpath, "\x00")
+	classpathFP := oracleClasspathFingerprint(classpath)
 
 	s.oracleDaemonMu.Lock()
 	defer s.oracleDaemonMu.Unlock()
 	if entry, ok := s.oracleDaemonByKey[key]; ok {
-		if entry != nil && entry.jarIdentity == oracle.JarIdentity(jarPath) {
+		if entry != nil && entry.jarIdentity == oracle.JarIdentity(jarPath) && entry.classpathFP == classpathFP {
 			return entry.daemon, nil
 		}
 		_ = entry.close()
@@ -733,7 +752,7 @@ func (s *daemonState) ensureOracleDaemonFor(scanPaths []string, backend oracle.B
 	if err != nil {
 		return nil, fmt.Errorf("start oracle daemon: %w", err)
 	}
-	s.oracleDaemonByKey[key] = &oracleDaemonEntry{daemon: d, jarPath: jarPath, jarIdentity: oracle.JarIdentity(jarPath), sourceDirs: sourceDirs, roots: roots, classpath: classpath, kotlin: kt, backend: served}
+	s.oracleDaemonByKey[key] = &oracleDaemonEntry{daemon: d, jarPath: jarPath, jarIdentity: oracle.JarIdentity(jarPath), sourceDirs: sourceDirs, roots: roots, classpath: classpath, classpathFP: classpathFP, kotlin: kt, backend: served}
 	// A resident krit-types JVM costs 1-2 GB. A daemon for the same jar and scan
 	// roots under another context (Kotlin settings, classpath, source roots) can no
 	// longer be reached once the project's context changed, so retire it instead of
@@ -746,6 +765,45 @@ func (s *daemonState) ensureOracleDaemonFor(scanPaths []string, backend oracle.B
 		delete(s.oracleDaemonByKey, otherKey)
 	}
 	return d, nil
+}
+
+// oracleClasspathFingerprint is the size/mtime fingerprint of a resident
+// daemon's classpath entries. Jars are stat'd. Directory entries (Gradle
+// exports dependent modules' class-output directories) are walked, because
+// recompiling a module overwrites .class files without touching the
+// directory's own size or mtime.
+func oracleClasspathFingerprint(classpath []string) string {
+	if len(classpath) == 0 {
+		return ""
+	}
+	h := sha256.New()
+	for _, entry := range oracle.AbsolutePaths(classpath) {
+		fmt.Fprintf(h, "%s\x00", entry)
+		info, err := os.Stat(entry)
+		if err != nil {
+			_, _ = io.WriteString(h, "missing\n")
+			continue
+		}
+		if !info.IsDir() {
+			fmt.Fprintf(h, "%d\x00%d\n", info.Size(), info.ModTime().UnixNano())
+			continue
+		}
+		// WalkDir does not descend into a root that is a symlink.
+		walkEntry := entry
+		if resolved, resolveErr := filepath.EvalSymlinks(entry); resolveErr == nil {
+			walkEntry = resolved
+		}
+		_ = filepath.WalkDir(walkEntry, func(path string, d os.DirEntry, walkErr error) error {
+			if walkErr == nil && !d.IsDir() {
+				if fi, infoErr := d.Info(); infoErr == nil {
+					fmt.Fprintf(h, "%s\x00%d\x00%d\n", path, fi.Size(), fi.ModTime().UnixNano())
+				}
+			}
+			return nil
+		})
+		_, _ = io.WriteString(h, "\n")
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // pingOracleDaemon checks the liveness of every cached daemon and
@@ -763,7 +821,8 @@ func (s *daemonState) pingOracleDaemon() {
 		if entry == nil || entry.daemon == nil {
 			continue
 		}
-		if entry.jarIdentity == oracle.JarIdentity(entry.jarPath) && entry.daemon.Ping() == nil {
+		currentClasspathFP := oracleClasspathFingerprint(entry.classpath)
+		if entry.jarIdentity == oracle.JarIdentity(entry.jarPath) && entry.classpathFP == currentClasspathFP && entry.daemon.Ping() == nil {
 			continue
 		}
 		// Failed ping → close and rebuild. Closing a dead daemon is
@@ -777,6 +836,7 @@ func (s *daemonState) pingOracleDaemon() {
 		}
 		entry.daemon = d
 		entry.jarIdentity = oracle.JarIdentity(entry.jarPath)
+		entry.classpathFP = currentClasspathFP
 	}
 }
 
@@ -1031,6 +1091,7 @@ func registerVerbs(srv *daemon.Server, state *daemonState) {
 		xfile := state.workspace.CrossFileStats()
 		return daemon.StatusResult{
 			Ready:           true,
+			PID:             os.Getpid(),
 			Root:            state.root,
 			Modules:         state.moduleCount(),
 			Files:           state.fileCount(),

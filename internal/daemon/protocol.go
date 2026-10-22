@@ -109,7 +109,10 @@ type AbiHashResult struct {
 
 // StatusResult reports daemon readiness and basic warm-up stats.
 type StatusResult struct {
-	Ready       bool    `json:"ready"`
+	Ready bool `json:"ready"`
+	// PID is the daemon process id, so `krit daemon stop` can confirm a
+	// pid file names the daemon that answers on the socket.
+	PID         int     `json:"pid,omitempty"`
 	Root        string  `json:"root"`
 	Modules     int     `json:"modules"`
 	Files       int     `json:"files"`

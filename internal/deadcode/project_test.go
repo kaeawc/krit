@@ -183,3 +183,39 @@ fun main(api: JavaApi) {
 		t.Errorf("expected trulyUnused Java method to be reported, got %+v", findings)
 	}
 }
+
+// A property initialized from a bare identifier (`val f: T = x`) must be
+// indexed under its own name, not the initializer's: otherwise the dead
+// property hides behind the live `seed` and is never reported.
+func TestAnalyzeProject_PropertyWithBareIdentifierInitializerKeepsOwnName(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src", "main", "kotlin")
+
+	writeFile(t, filepath.Join(src, "App.kt"), `
+package com.acme
+
+val seed: Int = 1
+val deadTopLevel: Int = seed
+
+fun main(args: Array<String>) {
+    println(seed)
+}
+
+class Holder {
+    val deadMember: Int = seed
+}
+`)
+
+	findings, err := AnalyzeProject(dir, ProjectOptions{Paths: []string{dir}})
+	if err != nil {
+		t.Fatalf("AnalyzeProject: %v", err)
+	}
+	for _, name := range []string{"deadTopLevel", "deadMember"} {
+		if findFinding(findings, name) == nil {
+			t.Errorf("expected %s to be reported as dead, got %+v", name, findings)
+		}
+	}
+	if f := findFinding(findings, "seed"); f != nil {
+		t.Errorf("seed is referenced from main and must not be reported, got %+v", f)
+	}
+}

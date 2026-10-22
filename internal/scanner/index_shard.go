@@ -100,9 +100,11 @@ func (crossFileShardsRegistered) Stats() cacheutil.CacheStats {
 // v9: Kotlin property signatures carry the declared type and receiver. The
 // version is now mixed into shardKey, so a bump makes every older shard an
 // unreachable key (a miss) instead of being reloaded and re-stamped.
-// v10: function, method, constructor and Java field signatures carry declared
+// v10: Kotlin property symbols are named from variable_declaration, not from a
+// bare-identifier initializer (`val f: T = x` was indexed as `x`).
+// v11: function, method, constructor and Java field signatures carry declared
 // parameter, return and field types.
-const crossFileShardVersion = 10
+const crossFileShardVersion = 11
 
 // Per-shard bloom sizing. Every shard's bloom uses these exact
 // (m, k) parameters so they can be unioned with BloomFilter.Merge,

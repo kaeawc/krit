@@ -205,6 +205,9 @@ func (a *analyzer) analyzeBatchViaDaemon(paths []string, contents [][]byte) ([]s
 // nothing is running and auto-spawn is enabled, EnsureRunning is
 // attempted. Returns nil for in-process fallback.
 func (a *analyzer) connectClient() *daemonclient.Client {
+	if !daemon.Supported() {
+		return nil
+	}
 	if c, ok := daemonclient.Discover(a.root); ok {
 		return c
 	}

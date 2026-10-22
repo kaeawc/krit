@@ -1,8 +1,7 @@
 package daemon
 
-// Socket location. NOTE: the daemon package is Unix-only today (lock.go
-// uses syscall.Flock without build tags), so Unix-only syscalls are used
-// freely here.
+// Socket location. Platform-specific ownership checks live in
+// socketpath_unix.go and socketpath_windows.go.
 
 import (
 	"crypto/sha256"
@@ -13,7 +12,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 
 	"github.com/kaeawc/krit/internal/fsutil"
 )
@@ -195,7 +193,7 @@ func readPointerFile(pointer string) (string, bool) {
 	if err != nil || !fi.Mode().IsRegular() || fi.Size() > pointerMaxSize {
 		return "", false
 	}
-	if st, ok := fi.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != os.Getuid() {
+	if !ownedByCurrentUser(fi) {
 		return "", false
 	}
 	data, err := os.ReadFile(pointer)

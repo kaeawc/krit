@@ -4,9 +4,15 @@ import (
 	"flag"
 	"fmt"
 	"os"
+
+	"github.com/kaeawc/krit/internal/daemon"
 )
 
 func runRestart(args []string) int {
+	if !daemonSupported() {
+		fmt.Fprintf(os.Stderr, "krit daemon restart: %v\n", daemon.ErrUnsupported)
+		return 1
+	}
 	fs := flag.NewFlagSet("daemon restart", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	repoFlag := addRepoFlag(fs)

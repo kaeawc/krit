@@ -472,6 +472,23 @@ func (f *File) FlatChildTextOrEmpty(parent uint32, childType string) string {
 	return f.FlatNodeText(idx)
 }
 
+// PropertyNameFlat returns the declared name of a property_declaration node.
+// tree-sitter-kotlin nests the name inside a variable_declaration child; a
+// bare-identifier initializer (`val f: T = x`) is a direct simple_identifier
+// child of the property_declaration and must never be mistaken for the name.
+// Destructuring declarations (`val (a, b) = pair`) bind several names and
+// return "".
+func (f *File) PropertyNameFlat(idx uint32) string {
+	if f == nil || f.FlatTree == nil || idx == 0 {
+		return ""
+	}
+	varDecl, ok := f.FlatFindChild(idx, "variable_declaration")
+	if !ok {
+		return ""
+	}
+	return f.FlatChildTextOrEmpty(varDecl, "simple_identifier")
+}
+
 // FlatChildBytesOrNil mirrors FlatChildTextOrEmpty for the []byte form.
 func (f *File) FlatChildBytesOrNil(parent uint32, childType string) []byte {
 	idx, ok := f.FlatFindChild(parent, childType)

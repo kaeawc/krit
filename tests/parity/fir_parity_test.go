@@ -212,8 +212,10 @@ func checkCrossRuleParity(t *testing.T, root string, rules []string, fixtures []
 // findings by file plus the fixtures with compile errors. K2 reports no
 // warnings once any file in the compilation has an error, and KRIT_RULE is a
 // warning, so one broken fixture would silence every checker. The fixtures
-// that failed are therefore dropped and the rest recompiled.
-func runParityBatch(t *testing.T, rules []string, fixtures []firFixture) (map[string][]scanner.Finding, map[string]string) {
+// that failed are therefore dropped and the rest recompiled. An optional
+// target compiles under explicit Kotlin settings instead of the embedded
+// compiler's defaults.
+func runParityBatch(t *testing.T, rules []string, fixtures []firFixture, target ...firchecks.CompileTarget) (map[string][]scanner.Finding, map[string]string) {
 	t.Helper()
 	firByPath := map[string][]scanner.Finding{}
 	crashed := map[string]string{}
@@ -224,7 +226,7 @@ func runParityBatch(t *testing.T, rules []string, fixtures []firFixture) (map[st
 	if len(files) == 0 {
 		return firByPath, crashed
 	}
-	res := firInvoke(t, rules, files)
+	res := firInvoke(t, rules, files, target...)
 	if broken := brokenFixtures(res); len(broken) > 0 {
 		crashed = broken
 		var compiling []string
@@ -236,7 +238,7 @@ func runParityBatch(t *testing.T, rules []string, fixtures []firFixture) (map[st
 		if len(compiling) == 0 {
 			return firByPath, crashed
 		}
-		res = firInvoke(t, rules, compiling)
+		res = firInvoke(t, rules, compiling, target...)
 		if broken := brokenFixtures(res); len(broken) > 0 {
 			t.Fatalf("krit-fir still reports compile errors after dropping the broken fixtures: %v", broken)
 		}

@@ -112,6 +112,7 @@ func TestKotlinFlagAllowlistAndProtectedArgs(t *testing.T) {
 		"-Xcontext-parameters",
 		"-Xexplicit-backing-fields",
 		"-Xannotation-default-target=param-property",
+		"-Xannotation-target-all", // `@all:` below Kotlin 2.4
 		"-XXLanguage:+ContextParameters",
 		"-XXLanguage:-ExplicitBackingFields",
 		"-XXLanguage:+ContextParameters", // repeated toggle keeps the last position
@@ -134,6 +135,7 @@ func TestKotlinFlagAllowlistAndProtectedArgs(t *testing.T) {
 		"-Xno-param-assertions",
 		"-Werror",
 		"-Xcontext-parameters=true",
+		"-Xannotation-target-all=true",
 		"-Xannotation-default-target",
 		"-Xannotation-default-target=a b",
 		"-XXLanguage:+Bad Feature",
@@ -142,6 +144,7 @@ func TestKotlinFlagAllowlistAndProtectedArgs(t *testing.T) {
 	got := ClassifyKotlinArgs(args)
 	wantFlags := []string{
 		"-Xcontext-parameters", "-Xexplicit-backing-fields", "-Xannotation-default-target=param-property",
+		"-Xannotation-target-all",
 		"-XXLanguage:-ExplicitBackingFields", "-XXLanguage:+ContextParameters", "-Xjvm-default=all",
 	}
 	if !reflect.DeepEqual(got.Flags, wantFlags) {
@@ -155,7 +158,7 @@ func TestKotlinFlagAllowlistAndProtectedArgs(t *testing.T) {
 			t.Errorf("%q not reported as managed: %v", protected, got.Rejected)
 		}
 	}
-	for _, unsupported := range []string{"-Xno-param-assertions", "-Werror", "-Xcontext-parameters=true",
+	for _, unsupported := range []string{"-Xno-param-assertions", "-Werror", "-Xcontext-parameters=true", "-Xannotation-target-all=true",
 		"-Xannotation-default-target (", "-Xannotation-default-target=a b", "-XXLanguage:+Bad Feature"} {
 		if !strings.Contains(joined, unsupported) {
 			t.Errorf("%q not reported as rejected: %v", unsupported, got.Rejected)

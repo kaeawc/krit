@@ -81,8 +81,9 @@ requesting module's settings.)
 Only settings that change how source is analyzed are applied: the language
 and API level, opt-ins, progressive mode, and these flags:
 
-`-Xannotation-default-target=`, `-Xcontext-parameters`, `-Xcontext-receivers`,
-`-Xcontext-sensitive-resolution`, `-Xconsistent-data-class-copy-visibility`,
+`-Xannotation-default-target=`, `-Xannotation-target-all`, `-Xcontext-parameters`,
+`-Xcontext-receivers`, `-Xcontext-sensitive-resolution`,
+`-Xconsistent-data-class-copy-visibility`,
 `-Xdata-flow-based-exhaustiveness`, `-Xenhance-type-parameter-types-to-def-not-null`,
 `-Xexplicit-backing-fields`, `-Xexpect-actual-classes`, `-Xjsr305=`,
 `-Xjvm-default=`, `-Xmulti-dollar-interpolation`, `-Xnested-type-aliases`,

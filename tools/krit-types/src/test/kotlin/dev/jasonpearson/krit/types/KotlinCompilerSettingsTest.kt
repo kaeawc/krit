@@ -30,6 +30,15 @@ class KotlinCompilerSettingsTest {
         assertEquals(s.copy(warnings = emptyList()), KotlinCompilerSettings.parse(s.arguments).copy(warnings = emptyList()))
     }
 
+    // `@all:` needs -Xannotation-target-all on a project pinned below Kotlin 2.4.
+    @Test
+    fun annotationTargetAllFlagIsApplied() {
+        val s = KotlinCompilerSettings.parse(listOf("-language-version=2.3", "-api-version=2.3", "-Xannotation-target-all"))
+        assertEquals(listOf("-Xannotation-target-all"), s.flags)
+        assertTrue(s.warnings.isEmpty(), s.warnings.toString())
+        assertTrue(KotlinCompilerSettings.parse(listOf("-Xannotation-target-all=true")).warnings.single().contains("takes no value"))
+    }
+
     @Test
     fun protectedArgumentsAndUnsupportedFlagsAreReportedNotApplied() {
         val s = KotlinCompilerSettings.parse(listOf(

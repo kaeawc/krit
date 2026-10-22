@@ -171,6 +171,7 @@ const (
 // a Go test keeps the three lists equal.
 var kotlinFlagAllowlist = map[string]kotlinFlagKind{
 	"-Xannotation-default-target":                    flagValued,
+	"-Xannotation-target-all":                        flagBoolean,
 	"-Xcontext-parameters":                           flagBoolean,
 	"-Xcontext-receivers":                            flagBoolean,
 	"-Xcontext-sensitive-resolution":                 flagBoolean,

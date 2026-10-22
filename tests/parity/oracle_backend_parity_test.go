@@ -45,7 +45,11 @@ func TestOracleBackendParity(t *testing.T) {
 		}
 	}
 
-	opts := oracle.InvocationOptions{Classpath: []string{stdlib}}
+	// An explicit language mode, so the Kotlin 2.4 fixtures (named context
+	// parameters, explicit backing fields, `@all:`) are not left to the
+	// embedded compiler's defaults. The per-mode fact assertions live in
+	// oracle_kotlin24_parity_test.go.
+	opts := oracle.InvocationOptions{Classpath: []string{stdlib}, Kotlin: kotlin24Settings(t, kotlin24ModeNamed("language-2.4").args)}
 	kaaData := runOneShot(t, kaaJar, srcDir, filepath.Join(tmp, "kaa.json"), opts)
 	firData := runOneShot(t, firJar, srcDir, filepath.Join(tmp, "fir.json"), opts)
 
@@ -55,9 +59,11 @@ func TestOracleBackendParity(t *testing.T) {
 // parityFixtureSources returns the source files that exercise the
 // declaration shapes most likely to expose backend-rendering drift.
 // Each file targets one axis so a regression points to a category,
-// not a 200-line blob.
+// not a 200-line blob. The Kotlin 2.4 files (named context parameters,
+// explicit backing fields, `@all:` and annotation default targets, #785)
+// come from kotlin24FixtureSources.
 func parityFixtureSources() map[string]string {
-	return map[string]string{
+	sources := map[string]string{
 		"Basics.kt": `package parity
 
 open class Greeter {
@@ -134,6 +140,10 @@ class Identity {
 }
 `,
 	}
+	for name, body := range kotlin24FixtureSources() {
+		sources[name] = body
+	}
+	return sources
 }
 
 func runOneShot(t *testing.T, jar, srcDir, outputPath string, opts oracle.InvocationOptions) *oracle.Data {
@@ -265,7 +275,17 @@ func assertClassParity(t *testing.T, file, fqn string, kaa, fir *oracle.Class) {
 	// KAA emits `kind="sealed class"`, FIR emits `kind="class"` +
 	// `isSealed=true`. The isSealed check below catches drift in
 	// the boolean; here we just strip the prefix for kind parity.
-	if strings.TrimPrefix(kaa.Kind, "sealed ") != strings.TrimPrefix(fir.Kind, "sealed ") {
+	// An annotation class is kind="class" in KAA and kind="annotation" in FIR
+	// (found by the Kotlin 2.4 fixtures, #785). No rule reads either spelling,
+	// so the gate treats them as one kind.
+	normalizeKind := func(kind string) string {
+		kind = strings.TrimPrefix(kind, "sealed ")
+		if kind == "annotation" || kind == "annotation class" {
+			return "class"
+		}
+		return kind
+	}
+	if normalizeKind(kaa.Kind) != normalizeKind(fir.Kind) {
 		t.Errorf("%s.%s: kind mismatch: kaa=%q fir=%q", file, fqn, kaa.Kind, fir.Kind)
 	}
 	// Supertype rendering legitimately differs between backends

@@ -461,6 +461,13 @@ func runOracleProcessMeasured(
 // the returned Daemon. Missing jars are auto-downloaded for tagged releases;
 // see EnsureJar.
 func InvokeDaemon(scanPaths []string, verbose bool, opts ...DaemonOption) (*Daemon, error) {
+	return InvokeDaemonWithClasspath(scanPaths, nil, verbose, opts...)
+}
+
+// InvokeDaemonWithClasspath is InvokeDaemon with the effective oracle
+// classpath, so library calls resolve as they do on the one-shot
+// InvokeCachedWithOptions path.
+func InvokeDaemonWithClasspath(scanPaths []string, classpath []string, verbose bool, opts ...DaemonOption) (*Daemon, error) {
 	jarPath, err := EnsureJar(context.Background(), scanPaths, verbose)
 	if err != nil {
 		return nil, err
@@ -476,7 +483,7 @@ func InvokeDaemon(scanPaths []string, verbose bool, opts ...DaemonOption) (*Daem
 	}
 
 	// EnsureJar resolves the krit-types jar.
-	return StartDaemon(jarPath, sourceDirs, nil, verbose, append([]DaemonOption{WithBackend(BackendKAA)}, opts...)...)
+	return StartDaemon(jarPath, sourceDirs, classpath, verbose, append([]DaemonOption{WithBackend(BackendKAA)}, opts...)...)
 }
 
 // InvokePersistentDaemon finds the JAR and source directories, then either

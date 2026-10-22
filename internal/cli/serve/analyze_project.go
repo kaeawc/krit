@@ -507,7 +507,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	case !args.NoTypeOracle:
 		oracleDaemon, err = s.ensureOracleDaemonFor(paths, backend, oracleContextFor(args))
 	case len(args.CustomRuleJars) > 0:
-		oracleDaemon, err = s.ensureOracleDaemon(paths, oracle.BackendKAA, args.OracleKotlin)
+		oracleDaemon, err = s.ensureOracleDaemonFor(paths, oracle.BackendKAA, oracleContextFor(args))
 	}
 	if err != nil {
 		// Best-effort degrade: a failed daemon start shouldn't fail

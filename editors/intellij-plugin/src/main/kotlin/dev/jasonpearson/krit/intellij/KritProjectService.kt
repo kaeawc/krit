@@ -35,12 +35,22 @@ class KritProjectService(private val project: Project) : Disposable {
         }
     private var pendingScan: ScheduledFuture<*>? = null
     private val pendingFiles = ConcurrentHashMap.newKeySet<String>()
+    // Bumped on every document change that schedules a scan. A running scan
+    // captures the value it started under and abandons itself (killing the
+    // krit process / dropping the daemon reply) once a newer edit arrives.
+    private val scanGeneration = KritScanGeneration()
+
+    // Set when a project-wide scan was cancelled before publishing, so the
+    // next scan does a full refresh instead of only the edited files.
+    @Volatile
+    private var projectRescanPending = false
     private val documentListener = object : BulkAwareDocumentListener {
         override fun documentChanged(event: DocumentEvent) {
             val file = FileDocumentManager.getInstance().getFile(event.document) ?: return
             if (shouldTriggerScan(file)) {
+                scanGeneration.bump()
                 pendingFiles.add(file.path)
-                scheduleScan(CHANGE_DEBOUNCE_MS)
+                scheduleScan(KritScanDebounce.effectiveMs(KritSettingsState.getSafely()?.state?.debounceMs))
             }
         }
     }
@@ -81,6 +91,24 @@ class KritProjectService(private val project: Project) : Disposable {
     // test methods; clear seeded findings so one test's seed can't leak.
     internal fun clearFindingsForTest() {
         findingsByFile = emptyMap()
+    }
+
+    // Entry points for the Analyze Project / Analyze File actions. Both
+    // skip the document-change debounce and re-arm the missing-binary
+    // notification so an explicit user request is never met with silence.
+    fun analyzeNow() {
+        missingBinaryNotified.set(false)
+        // A non-empty pending set would turn the run into a changed-file
+        // refresh; the full scan below covers those files anyway.
+        pendingFiles.clear()
+        scheduleScan(0)
+    }
+
+    fun analyzeFiles(paths: Collection<String>) {
+        if (paths.isEmpty()) return
+        missingBinaryNotified.set(false)
+        pendingFiles.addAll(paths)
+        scheduleScan(0)
     }
 
     fun applyFix(fixLevel: String?, findingId: String) {
@@ -128,11 +156,22 @@ class KritProjectService(private val project: Project) : Disposable {
             return
         }
         try {
+            val generation = scanGeneration.current()
+            val isCancelled = { scanGeneration.isSuperseded(generation) }
             val targets = drainPendingFiles()
-            if (targets.isEmpty()) {
-                refreshFindings()
-            } else {
-                refreshChangedFiles(targets)
+            val full = targets.isEmpty() || projectRescanPending
+            if (full) {
+                if (!refreshFindings(isCancelled)) {
+                    // Superseded: keep the edited files queued for the scan
+                    // that replaces this one and remember to redo the project.
+                    projectRescanPending = true
+                    pendingFiles.addAll(targets)
+                    return
+                }
+                projectRescanPending = false
+            }
+            if (targets.isNotEmpty() && !refreshChangedFiles(targets, isCancelled)) {
+                pendingFiles.addAll(targets)
             }
         } catch (t: Throwable) {
             log.warn("krit project runner failed", t)
@@ -149,9 +188,13 @@ class KritProjectService(private val project: Project) : Disposable {
         return snapshot
     }
 
-    private fun refreshFindings() {
+    // Returns false when the scan was superseded (or cancelled) and nothing was
+    // published; the status is left at Scanning for the superseding scan.
+    private fun refreshFindings(isCancelled: () -> Boolean = { false }): Boolean {
         transition(KritState.Scanning)
-        when (val outcome = KritRunner.analyzeProject(project)) {
+        val outcome = KritRunner.analyzeProject(project, isCancelled)
+        if (outcome is KritRunner.AnalyzeOutcome.Cancelled || isCancelled()) return false
+        when (outcome) {
             is KritRunner.AnalyzeOutcome.Success -> {
                 findingsByFile = outcome.report.findings.groupBy {
                     canonicalPath(it.file, project.basePath)
@@ -168,11 +211,14 @@ class KritProjectService(private val project: Project) : Disposable {
             is KritRunner.AnalyzeOutcome.Failure -> {
                 transition(KritState.Error(outcome.message))
             }
+            is KritRunner.AnalyzeOutcome.Cancelled -> return false
         }
         restartHighlighting()
+        return true
     }
 
-    private fun refreshChangedFiles(paths: Set<String>) {
+    // Returns false when the scan was superseded and nothing was published.
+    private fun refreshChangedFiles(paths: Set<String>, isCancelled: () -> Boolean = { false }): Boolean {
         // Per-file rescans replace findings for each changed file in the
         // running map; other files' findings are untouched. Errors and
         // missing-binary on any one file bubble up to the state surface
@@ -183,7 +229,9 @@ class KritProjectService(private val project: Project) : Disposable {
         for (path in paths) {
             val canonical = canonicalPath(path, project.basePath)
             val liveContent = readLiveDocument(path)
-            when (val outcome = KritRunner.analyzeFile(project, path, liveContent)) {
+            val outcome = KritRunner.analyzeFile(project, path, liveContent, isCancelled)
+            if (outcome is KritRunner.AnalyzeOutcome.Cancelled || isCancelled()) return false
+            when (outcome) {
                 is KritRunner.AnalyzeOutcome.Success -> {
                     val grouped = outcome.report.findings.groupBy {
                         canonicalPath(it.file, project.basePath)
@@ -194,18 +242,20 @@ class KritProjectService(private val project: Project) : Disposable {
                     transition(KritState.MissingBinary)
                     notifyMissingBinaryOnce()
                     restartHighlighting()
-                    return
+                    return true
                 }
                 is KritRunner.AnalyzeOutcome.Failure -> {
                     transition(KritState.Error(outcome.message))
                     restartHighlighting()
-                    return
+                    return true
                 }
+                is KritRunner.AnalyzeOutcome.Cancelled -> return false
             }
         }
         findingsByFile = updated
         transition(KritState.Idle(updated.values.sumOf { it.size }))
         restartHighlighting()
+        return true
     }
 
     // Returns the in-editor buffer text for path when one is open in the
@@ -311,7 +361,6 @@ class KritProjectService(private val project: Project) : Disposable {
     }
 
     companion object {
-        private const val CHANGE_DEBOUNCE_MS = 1_000L
         private val GENERATED_OR_BUILD_PATH_PARTS = listOf(
             "/.gradle/",
             "/.idea/",

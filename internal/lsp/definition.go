@@ -230,21 +230,7 @@ func extractDeclNameFlat(file *scanner.File, idx uint32) string {
 }
 
 func extractPropertyNameFlat(file *scanner.File, idx uint32) string {
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		child := file.FlatChild(idx, i)
-		if file.FlatType(child) == "simple_identifier" {
-			return file.FlatNodeText(child)
-		}
-		if file.FlatType(child) == "variable_declaration" {
-			for j := 0; j < file.FlatChildCount(child); j++ {
-				gc := file.FlatChild(child, j)
-				if file.FlatType(gc) == "simple_identifier" {
-					return file.FlatNodeText(gc)
-				}
-			}
-		}
-	}
-	return ""
+	return file.PropertyNameFlat(idx)
 }
 
 func flatNodeToLocation(file *scanner.File, idx uint32, uri string, name string) *Location {

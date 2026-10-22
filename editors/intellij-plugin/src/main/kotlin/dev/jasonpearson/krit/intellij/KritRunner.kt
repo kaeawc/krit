@@ -11,7 +11,10 @@ import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ProjectRootManager
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 object KritRunner {
     private val log = Logger.getInstance(KritRunner::class.java)
@@ -20,10 +23,13 @@ object KritRunner {
         data class Success(val report: KritReport, val rawJson: String) : AnalyzeOutcome()
         object MissingBinary : AnalyzeOutcome()
         data class Failure(val message: String) : AnalyzeOutcome()
+        // The caller's isCancelled check fired (a newer scan superseded this
+        // one); any in-flight work was torn down and no result is available.
+        object Cancelled : AnalyzeOutcome()
     }
 
-    fun analyzeProject(project: Project): AnalyzeOutcome =
-        runAnalyze(project, target = null, label = "project analysis")
+    fun analyzeProject(project: Project, isCancelled: () -> Boolean = NEVER_CANCELLED): AnalyzeOutcome =
+        runAnalyze(project, target = null, label = "project analysis", isCancelled = isCancelled)
 
     // Single-file scan. When a daemon socket is reachable at
     // <repo>/.krit/daemon.sock, sends an analyze-buffer request directly
@@ -36,20 +42,27 @@ object KritRunner {
     // daemon analyses exactly what the user sees rather than the
     // on-disk snapshot. CLI fallback reads from disk because krit's
     // positional-path argument expects a real file.
-    fun analyzeFile(project: Project, filePath: String, liveContent: String? = null): AnalyzeOutcome {
+    fun analyzeFile(
+        project: Project,
+        filePath: String,
+        liveContent: String? = null,
+        isCancelled: () -> Boolean = NEVER_CANCELLED,
+    ): AnalyzeOutcome {
         val projectDir = project.baseDir() ?: return AnalyzeOutcome.Failure("project has no base path")
-        val daemonOutcome = tryDaemonAnalyzeBuffer(projectDir, filePath, liveContent)
+        val daemonOutcome = tryDaemonAnalyzeBuffer(projectDir, filePath, liveContent, isCancelled)
         if (daemonOutcome != null) {
             return daemonOutcome
         }
-        return runAnalyze(project, target = filePath, label = "file analysis")
+        return runAnalyze(project, target = filePath, label = "file analysis", isCancelled = isCancelled)
     }
 
     private fun tryDaemonAnalyzeBuffer(
         projectDir: File,
         filePath: String,
         liveContent: String?,
+        isCancelled: () -> Boolean,
     ): AnalyzeOutcome? {
+        if (isCancelled()) return AnalyzeOutcome.Cancelled
         val socketPath = KritDaemonClient.socketPathFor(projectDir)
         if (!Files.exists(socketPath)) return null
         val content = liveContent ?: try {
@@ -57,12 +70,36 @@ object KritRunner {
         } catch (_: java.io.IOException) {
             return null
         }
-        val findings = try {
+        // The daemon protocol has no cancel verb, so a superseded call is not
+        // aborted server-side. Run the blocking socket call on a helper thread
+        // and stop waiting (interrupting it, which closes the channel) once
+        // cancelled; the late result is dropped.
+        val call = daemonCalls.submit<List<KritFinding>?> {
             KritDaemonClient(socketPath).analyzeBuffer(filePath, content)
-        } catch (t: Throwable) {
+        }
+        var result: List<KritFinding>? = null
+        val waited = try {
+            KritScanWait.await(Long.MAX_VALUE, KritScanWait.POLL_INTERVAL_MS, isCancelled) { ms ->
+                try {
+                    result = call.get(ms, TimeUnit.MILLISECONDS)
+                    true
+                } catch (_: TimeoutException) {
+                    false
+                }
+            }
+        } catch (t: ExecutionException) {
             log.debug("krit daemon analyze-buffer threw, falling back to CLI", t)
             return null
-        } ?: return null
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            call.cancel(true)
+            return AnalyzeOutcome.Cancelled
+        }
+        if (waited == KritWaitResult.Cancelled) {
+            call.cancel(true)
+            return AnalyzeOutcome.Cancelled
+        }
+        val findings = result ?: return null
         // rawJson is intentionally empty: the daemon path doesn't carry
         // suggested-fix metadata for apply-suggestion. Per-file scans
         // refresh after each apply-fix anyway, so lastReportJson is
@@ -70,7 +107,12 @@ object KritRunner {
         return AnalyzeOutcome.Success(KritReport(findings), "")
     }
 
-    private fun runAnalyze(project: Project, target: String?, label: String): AnalyzeOutcome {
+    private fun runAnalyze(
+        project: Project,
+        target: String?,
+        label: String,
+        isCancelled: () -> Boolean = NEVER_CANCELLED,
+    ): AnalyzeOutcome {
         val projectDir = project.baseDir() ?: return AnalyzeOutcome.Failure("project has no base path")
         val binary = KritBinaryResolver.find() ?: return AnalyzeOutcome.MissingBinary
         val scanPath = target ?: projectDir.absolutePath
@@ -87,7 +129,7 @@ object KritRunner {
             )
             // krit exits non-zero when it reports findings; trust the output
             // file as long as it exists rather than the exit code.
-            val result = runKrit(project, projectDir, command, classpath, ANALYZE_TIMEOUT_SECONDS, label) { exit, _ ->
+            val result = runKrit(project, projectDir, command, classpath, ANALYZE_TIMEOUT_SECONDS, label, isCancelled) { exit, _ ->
                 exit == 0 || (exit == 1 && output.isFile)
             }
             when (result) {
@@ -97,6 +139,7 @@ object KritRunner {
                 }
                 is RunOutcome.MissingBinary -> AnalyzeOutcome.MissingBinary
                 is RunOutcome.Failed -> AnalyzeOutcome.Failure(result.message)
+                is RunOutcome.Cancelled -> AnalyzeOutcome.Cancelled
             }
         } catch (t: Throwable) {
             log.warn("krit $label failed for ${projectDir.path}", t)
@@ -163,6 +206,7 @@ object KritRunner {
     private sealed class RunOutcome {
         object Ok : RunOutcome()
         object MissingBinary : RunOutcome()
+        object Cancelled : RunOutcome()
         data class Failed(val message: String) : RunOutcome()
     }
 
@@ -173,8 +217,10 @@ object KritRunner {
         classpath: List<File>,
         timeoutSeconds: Long,
         label: String,
+        isCancelled: () -> Boolean = NEVER_CANCELLED,
         isSuccess: (exit: Int, stderr: String) -> Boolean,
     ): RunOutcome {
+        if (isCancelled()) return RunOutcome.Cancelled
         return try {
             val builder = ProcessBuilder(command)
                 .directory(projectDir)
@@ -197,7 +243,20 @@ object KritRunner {
             if (!javaHome.isNullOrBlank()) builder.environment()["JAVA_HOME"] = javaHome
             val process = builder.start()
 
-            if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
+            val waited = KritScanWait.await(
+                TimeUnit.SECONDS.toMillis(timeoutSeconds),
+                KritScanWait.POLL_INTERVAL_MS,
+                isCancelled,
+            ) { ms -> process.waitFor(ms, TimeUnit.MILLISECONDS) }
+            if (waited == KritWaitResult.Cancelled) {
+                // Superseded by a newer scan: kill and reap the process so no
+                // zombie krit is left behind, and report no result.
+                process.destroyForcibly()
+                process.waitFor()
+                log.debug("krit $label cancelled for ${projectDir.path}")
+                return RunOutcome.Cancelled
+            }
+            if (waited == KritWaitResult.TimedOut) {
                 process.destroyForcibly()
                 val msg = "krit $label timed out after ${timeoutSeconds}s"
                 log.warn("$msg for ${projectDir.path}")
@@ -226,8 +285,10 @@ object KritRunner {
         } catch (t: java.io.IOException) {
             // IOException at start() typically means the binary disappeared
             // between resolver lookup and exec. Treat it as MissingBinary
-            // so the status surface stays consistent.
-            log.warn("krit $label process start failed for ${projectDir.path}", t)
+            // so the status surface stays consistent. The user-facing
+            // notification comes from notifyMissingBinaryOnce, so keep this
+            // at debug to avoid repeated warn lines.
+            log.debug("krit $label process start failed for ${projectDir.path}", t)
             RunOutcome.MissingBinary
         } catch (t: Throwable) {
             log.warn("krit $label failed for ${projectDir.path}", t)
@@ -238,6 +299,12 @@ object KritRunner {
     private fun Project.baseDir(): File? {
         val base = basePath ?: return null
         return File(base)
+    }
+
+    private val NEVER_CANCELLED: () -> Boolean = { false }
+
+    private val daemonCalls = Executors.newCachedThreadPool { runnable ->
+        Thread(runnable, "krit-daemon-call").apply { isDaemon = true }
     }
 
     private const val ANALYZE_TIMEOUT_SECONDS = 120L

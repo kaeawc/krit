@@ -2,10 +2,9 @@ package oracle
 
 import (
 	"bytes"
-	"context"
-	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -74,177 +73,88 @@ func gatesFor(name string) opGate {
 	return opGate{}
 }
 
-// Known limits of demoteNameCollidingHits:
+// Known limits of the name-collision check:
 //
-//   - The oracle filter list can drop a declaring file that has no rule
-//     identifiers, so it is never a miss and its names are never collected
-//     (https://github.com/kaeawc/krit/issues/847).
-//   - The check is run-local: it only sees the files analyzed in this run. A
-//     partial or subpath scan that analyzes the new file caches it, so a
-//     later full scan finds no miss and never demotes the callers
-//     (https://github.com/kaeawc/krit/issues/847).
-//   - Declaring Java sources are not scanned; only Kotlin files contribute
-//     names, though Java classes can also add overload candidates.
-//   - Deleted files are not considered. Removing a declaration can change
-//     resolution only for callers that resolved to it, and those carry the
-//     deleted file in their closure.
+//   - A declaration only counts when the scanner's flat-AST index reports it
+//     as a visible top-level one: members, locals, and private declarations
+//     never do. Java sources contribute their top-level types only.
+//   - The mention side is lexical (see identifiersUsed), so a name in a string
+//     template or on an unrelated receiver can re-analyze a file once.
+//   - The ledger describes the files a scan collected. A file outside every
+//     scanned root keeps the record of the last scan that covered it; if it
+//     changed since, the change is noticed by the next scan that covers it.
+//   - A cached entry's facts still depend on which files the analysis saw;
+//     the digest covers the declarations the ledger knows, not the scan
+//     universe a file was analyzed in.
 
+// declEntry is a (package, name) pair of a visible top-level declaration.
 type declEntry struct {
 	pkg, name string
-	operator  bool
 }
 
-// declaredSet is the set of top-level names the changed files declare.
-type declaredSet struct {
-	entries []declEntry
-}
-
-// demoteNameCollidingHits moves cached KAA hits back to the miss list when a
-// file being re-analyzed this run declares a top-level name the hit uses
-// from a scope that can see it.
+// demoteStaleNameDeps moves cached KAA hits back to the miss list when the
+// declarations visible to them changed since their facts were computed.
 //
 // A krit-types cache entry's dependency closure records only the
-// declarations its file already resolved to. A new file that adds an overload
-// (or a same-named function, extension, property, or type) in the same
-// package, or in one the file imports, can change what a cached caller
-// resolves to without touching anything in that caller's closure, so
-// closure verification alone keeps the caller's stale facts. The files
-// analyzed this run are exactly the ones that are new or changed (everything
-// else verified as a hit), so their top-level declared names are the names
-// that may have appeared. A hit is demoted when it
+// declarations its file already resolved to. A declaration added later in a
+// scope the file can see (an overload in its package, a same-named function,
+// extension, property, or type in an imported package) can change what a
+// cached caller resolves to without touching anything in that caller's
+// closure, so closure verification alone keeps stale facts. Each entry
+// therefore stores NameDigest, the digest of the ledger items its file
+// mentioned and could see when it was analyzed (see declLedger), and a hit
+// whose digest against the current ledger differs is demoted. That covers
+// declarations that are new, deleted, or re-signed, whether the declaring file
+// was analyzed in this run, an earlier invocation, or not at all (an oracle
+// filter list can drop it): the ledger is refreshed from every collected
+// source file before any of that is decided.
 //
-//   - mentions such a name as an identifier outside comments, or, for an
-//     `operator` declaration, contains a syntax pattern that calls it (see
-//     operatorGates), and
-//   - is in the declaring package, imports the name (explicitly, by
-//     wildcard, or through a default import), or spells it
-//     package-qualified, and
-//   - cannot be read, which fails closed.
-//
-// The test is deliberately conservative on the hit side (lexical, so a name
-// in a string template or an unrelated receiver's member can demote a hit)
-// and precise on the declaring side (flat-AST top-level, non-private
-// declarations only). Over-invalidation costs one re-analysis of that file;
-// an unrelated added file demotes nothing. After re-analysis the new file is
-// in the caller's closure, so later edits of it invalidate through the
-// ordinary closure check.
+// A hit is compared through the same visibility rules as before: the
+// declaring package is the file's own, a default-import package, imported
+// explicitly or by wildcard, or spelled package-qualified; operator functions
+// also count when the file contains syntax that calls them (see
+// operatorGates). A hit that cannot be read fails closed, and a crashed entry
+// has nothing to go stale.
 //
 // Whole-compilation backends already refresh every file's facts together and
 // are not affected.
-func demoteNameCollidingHits(opts InvocationOptions, hits []*CacheEntry, misses []string, tracker perf.Tracker, verbose bool) ([]*CacheEntry, []string) {
-	if opts.Backend.ReturnsWholeCompilation() || len(hits) == 0 || len(misses) == 0 {
+func demoteStaleNameDeps(opts InvocationOptions, ledger *declLedger, hits []*CacheEntry, misses []string, tracker perf.Tracker, verbose bool) ([]*CacheEntry, []string) {
+	if ledger == nil || opts.Backend.ReturnsWholeCompilation() || len(hits) == 0 {
 		return hits, misses
 	}
-	declared := declaredNamesOf(misses)
-	if len(declared.entries) == 0 {
-		return hits, misses
-	}
+	start := time.Now()
+	stale := make([]bool, len(hits))
+	runParallel(len(hits), func(i int) {
+		hit := hits[i]
+		if hit.Crashed {
+			return
+		}
+		current, ok := ledger.currentDigest(hit.FilePath)
+		stale[i] = !ok || current != hit.NameDigest
+	})
 	kept := make([]*CacheEntry, 0, len(hits))
 	var demoted []string
-	for _, hit := range hits {
-		if !hit.Crashed && hitSeesDeclaredName(hit.FilePath, declared) {
+	for i, hit := range hits {
+		if stale[i] {
 			demoted = append(demoted, hit.FilePath)
 			continue
 		}
 		kept = append(kept, hit)
 	}
+	addOracleEntry(tracker, "nameDigestVerify", start, map[string]int64{
+		"hits":     int64(len(hits)),
+		"demoted":  int64(len(demoted)),
+		"computed": ledger.computed.Load(),
+	}, nil)
 	if len(demoted) == 0 {
 		return hits, misses
 	}
 	sort.Strings(demoted)
 	addOracleInstant(tracker, "nameCollisionInvalidated", map[string]int64{"files": int64(len(demoted))}, nil)
 	if verbose {
-		reporter().Verbosef("verbose: cache classify: %d hit(s) use a name declared by a changed file; re-analyzing\n", len(demoted))
+		reporter().Verbosef("verbose: cache classify: %d hit(s) see a declaration that changed since they were analyzed; re-analyzing\n", len(demoted))
 	}
 	return kept, append(append([]string(nil), misses...), demoted...)
-}
-
-// declaredNamesOf collects the visible top-level names the given Kotlin
-// files declare. Files that cannot be parsed contribute nothing; they are
-// already misses and the closure check covers their callers.
-func declaredNamesOf(paths []string) declaredSet {
-	var set declaredSet
-	seen := map[declEntry]int{}
-	for _, path := range paths {
-		if !strings.HasSuffix(path, ".kt") {
-			continue
-		}
-		file, err := scanner.ParseFile(context.Background(), path)
-		if err != nil {
-			continue
-		}
-		pkg, decls := scanner.TopLevelDeclaredNames(file)
-		for _, d := range decls {
-			key := declEntry{pkg: pkg, name: d.Name}
-			if i, ok := seen[key]; ok {
-				set.entries[i].operator = set.entries[i].operator || d.Operator
-				continue
-			}
-			seen[key] = len(set.entries)
-			set.entries = append(set.entries, declEntry{pkg: pkg, name: d.Name, operator: d.Operator})
-		}
-	}
-	return set
-}
-
-// hitSeesDeclaredName reports whether the file at path uses one of the
-// declared names from a scope that can see it. The checks run cheapest
-// first: raw substring and syntax-pattern presence, then the lexical
-// identifier scan only for names that are present, then the header prefix
-// (package and imports) only for names actually mentioned.
-func hitSeesDeclaredName(path string, declared declaredSet) bool {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		// Fail closed: a hit we cannot inspect cannot be trusted.
-		return true
-	}
-	// wanted holds the identifiers and gate tokens the lexical scan looks
-	// for; gated marks entries whose raw syntax gate is already present.
-	wanted := map[string]bool{}
-	gated := make([]bool, len(declared.entries))
-	anyGated := false
-	for i, e := range declared.entries {
-		if bytes.Contains(content, []byte(e.name)) {
-			wanted[e.name] = true
-		}
-		if !e.operator {
-			continue
-		}
-		gate := gatesFor(e.name)
-		for _, g := range gate.raw {
-			if bytes.Contains(content, []byte(g)) {
-				gated[i] = true
-				anyGated = true
-				break
-			}
-		}
-		for _, tok := range gate.tokens {
-			wanted[tok] = true
-		}
-	}
-	if len(wanted) == 0 && !anyGated {
-		return false
-	}
-	var used map[string]bool
-	if len(wanted) > 0 {
-		used = identifiersUsed(content, wanted)
-	}
-	var header scanner.SourceHeader
-	headerRead := false
-	for i, e := range declared.entries {
-		viaToken := e.operator && anyToken(used, gatesFor(e.name).tokens)
-		if !used[e.name] && !gated[i] && !viaToken {
-			continue
-		}
-		if !headerRead {
-			header = scanner.ParseSourceHeader(content)
-			headerRead = true
-		}
-		if declaredNameVisible(header, e, content) {
-			return true
-		}
-	}
-	return false
 }
 
 func anyToken(used map[string]bool, tokens []string) bool {

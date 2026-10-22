@@ -19,6 +19,9 @@ import (
 
 var ensureDaemonForScan = daemonclient.EnsureCompatible
 
+// daemonSupported is a test seam over daemon.Supported.
+var daemonSupported = daemon.Supported
+
 // tryDaemonDelegate attempts to dispatch the current scan through a
 // compatible krit daemon, starting or replacing one when needed.
 // handled=true means the daemon produced the output and the caller
@@ -28,6 +31,11 @@ var ensureDaemonForScan = daemonclient.EnsureCompatible
 // accepted for delegation.
 func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int) {
 	if f == nil || *f.NoDaemon {
+		return false, 0
+	}
+	// Unsupported platforms (Windows) never connect, spawn, or wait: the
+	// scan goes straight to in-process analysis.
+	if !daemonSupported() {
 		return false, 0
 	}
 	resolveDepthForDelegation(f, flag.CommandLine, paths)

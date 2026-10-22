@@ -69,6 +69,14 @@ type RunFingerprint struct {
 	// analyzed under. Empty means the embedded compiler defaults and is omitted
 	// from FindingsBundleKey for parity with bundles written before it existed.
 	CompilerSettings string
+	// XMLInputs hashes the content of the XML files that feed cross-file and
+	// Android rules: class-reference layouts, navigation graphs, menus and
+	// manifests, plus the Android resource directories. SourceSet, CrossFile
+	// and Android cover only Kotlin/Java content and Gradle paths, so without
+	// this an XML-only edit would replay stale findings. Empty means the
+	// project has no such XML and is omitted from FindingsBundleKey for parity
+	// with bundles written before it existed.
+	XMLInputs string
 }
 
 type FindingsBundleStore interface {
@@ -100,7 +108,8 @@ func (ConservativeDeltaPlanner) Plan(previous, current RunFingerprint, changed [
 		previous.OracleFacts == current.OracleFacts &&
 		previous.Android == current.Android &&
 		previous.LibraryFacts == current.LibraryFacts &&
-		previous.CompilerSettings == current.CompilerSettings
+		previous.CompilerSettings == current.CompilerSettings &&
+		previous.XMLInputs == current.XMLInputs
 	if !stable {
 		return DeltaPlan{ChangedPaths: changed, AffectedPaths: changed}
 	}
@@ -285,6 +294,9 @@ func FindingsBundleKey(fp RunFingerprint) string {
 	writeFingerprintField(h, fp.LibraryFacts)
 	if fp.CompilerSettings != "" {
 		writeFingerprintField(h, fp.CompilerSettings)
+	}
+	if fp.XMLInputs != "" {
+		writeFingerprintField(h, fp.XMLInputs)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

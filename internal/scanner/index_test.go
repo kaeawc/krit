@@ -333,6 +333,58 @@ class Holder { val z = 2 }
 	}
 }
 
+// Regression: a property whose initializer is a bare identifier
+// (`val f: T = x`) has that identifier as a direct simple_identifier child of
+// property_declaration. The symbol must carry the property's own name.
+func TestCollectDeclarationsFlat_PropertyNameNotInitializerIdentifier(t *testing.T) {
+	src := []byte(`package demo
+
+val f: T = x
+val count = total
+var a = b
+val (d1, d2) = pair
+
+class Holder {
+    val g: T = y
+    val size = length
+    var c = d
+}
+`)
+	parser := GetKotlinParser()
+	defer PutKotlinParser(parser)
+	tree, err := parser.ParseCtx(context.Background(), nil, src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	file := NewParsedFile("demo.kt", src, tree)
+
+	var symbols []Symbol
+	collectDeclarationsFlat(file, &symbols)
+
+	byName := map[string]Symbol{}
+	for _, s := range symbols {
+		if s.Kind == "property" {
+			byName[s.Name] = s
+		}
+	}
+	for _, want := range []string{"f", "count", "a", "g", "size", "c"} {
+		if _, ok := byName[want]; !ok {
+			t.Errorf("missing property %q in %+v", want, symbolNames(symbols))
+		}
+	}
+	for _, bad := range []string{"x", "total", "b", "pair", "y", "length", "d"} {
+		if _, ok := byName[bad]; ok {
+			t.Errorf("initializer identifier %q indexed as a property: %+v", bad, symbolNames(symbols))
+		}
+	}
+	if s, ok := byName["g"]; ok && s.FQN != "demo.Holder.g" {
+		t.Errorf("member FQN = %q, want demo.Holder.g", s.FQN)
+	}
+	if s, ok := byName["f"]; ok && s.FQN != "demo.f" {
+		t.Errorf("top-level FQN = %q, want demo.f", s.FQN)
+	}
+}
+
 func TestCollectJavaDeclarationsFlat_IndexesClassMembersAndMetadata(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "Widget.java")
@@ -386,7 +438,7 @@ public final class Widget {
 	if render.Visibility != "protected" || render.Arity != 2 {
 		t.Fatalf("render visibility/arity = %q/%d, want protected/2", render.Visibility, render.Arity)
 	}
-	if render.Signature != "com.example.widgets.Widget#render/2" {
+	if render.Signature != "com.example.widgets.Widget#render/2(int,String):void" {
 		t.Fatalf("render signature = %q", render.Signature)
 	}
 

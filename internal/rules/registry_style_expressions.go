@@ -475,6 +475,14 @@ func registerStyleVarCouldBeVal() {
 			}
 			isLocal := file.FlatType(parent) == "statements"
 			isClassLevel := file.FlatType(parent) == "class_body"
+			if isLocal && unusedVariablePropertyHasVisibilityModifier(file, idx) {
+				// A local variable cannot carry a visibility modifier: this is
+				// a member property whose class body tree-sitter misparsed as
+				// a function or lambda body (e.g. a primary constructor on the
+				// line after the class name). Its writes through a receiver
+				// are outside this scope, so it cannot be judged here.
+				return
+			}
 			if isClassLevel {
 				if flatSubtreeHasNodeType(file, parent, "ERROR") {
 					return
@@ -499,6 +507,11 @@ func registerStyleVarCouldBeVal() {
 				return
 			}
 			reassigned := r.reassignedNamesFlat(parent, file)[varName]
+			if !reassigned && isClassLevel {
+				if outerBody := companionEnclosingClassBodyFlat(file, parent); outerBody != 0 {
+					reassigned = companionMemberWrittenFromOuterFlat(file, outerBody, varName)
+				}
+			}
 			if !reassigned && !isLocal {
 				// A class/object/companion member may be reassigned through a
 				// qualified write (`EnclosingType.member = ...`) from a sibling

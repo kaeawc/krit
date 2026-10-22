@@ -485,6 +485,143 @@ fun outer(x: Int) {
 `,
 			wantHits: 1,
 		},
+		{
+			// tree-sitter-kotlin parses the receiver of a bound callable
+			// reference as a type_identifier.
+			name: "bound callable reference receiver counts",
+			code: `
+package test
+class Buffer { fun execute(block: () -> Unit) = block() }
+private fun replay(buffer: Buffer, run: ((() -> Unit) -> Unit) -> Unit) {
+    run(buffer::execute)
+}
+`,
+			wantHits: 0,
+		},
+		{
+			name: "class literal receiver counts",
+			code: `
+package test
+private fun track(screen: Any) {
+    println(screen::class.simpleName ?: screen::class.java.name)
+}
+`,
+			wantHits: 0,
+		},
+		{
+			// Guard: a callable reference receiver shadowed by a lambda
+			// parameter is not a use of the outer parameter.
+			name: "shadowed callable reference receiver does not count",
+			code: `
+package test
+private fun replay(buffer: String, items: List<String>) {
+    items.forEach { buffer -> println(buffer::length) }
+}
+`,
+			wantHits: 1,
+		},
+		{
+			// tree-sitter-kotlin lexes `!isAuthenticated` / `!inProgress` in a
+			// subject-less when condition as the `!is` / `!in` operators.
+			name: "negated is/in-prefixed name in when condition counts",
+			code: `
+package test
+fun start(isAuthenticated: Boolean, inProgress: Boolean): Int {
+    return when {
+        !isAuthenticated -> 1
+        !inProgress -> 2
+        else -> 3
+    }
+}
+`,
+			wantHits: 0,
+		},
+		{
+			// Guard: a real `!is` type test with whitespace is not a use of a
+			// parameter whose name happens to be `is` + the type name.
+			name: "spaced negated type test does not count",
+			code: `
+package test
+class Authenticated
+fun start(value: Any, isAuthenticated: Boolean): Int {
+    return when (value) {
+        !is Authenticated -> 1
+        else -> 2
+    }
+}
+`,
+			wantHits: 1,
+		},
+		{
+			// tree-sitter-kotlin cannot parse "fun interface"; the body lands
+			// in a top-level lambda, so default members look like local
+			// functions of a lambda.
+			name: "fun interface default members parsed into a top-level lambda are excluded",
+			code: `
+package test
+fun interface ResultSink {
+    suspend fun send(requestId: String?, success: Boolean)
+
+    suspend fun sendPinned(requestId: String?, pin: Int) = send(requestId, true)
+
+    suspend fun sendCleared(requestId: String?, cleared: Int) = send(requestId, true)
+}
+`,
+			wantHits: 0,
+		},
+		{
+			// When the first member is the abstract one, the header parses as
+			// a function declaration and later default members become
+			// top-level function siblings.
+			name: "fun interface default members parsed as top-level siblings are excluded",
+			code: `
+package test
+fun interface DisplayProvider {
+  fun isAvailable(displayId: Int): Boolean
+
+  fun unsupportedReason(displayId: Int): String? = null
+}
+
+private fun afterInterface(unused: Int) {
+    println("still checked")
+}
+`,
+			wantHits: 1,
+		},
+		{
+			// Error recovery after a "fun interface" can swallow the next
+			// interface into a top-level expression.
+			name: "members of a declaration swallowed by a top-level expression are excluded",
+			code: `
+package test
+
+/**
+ * Tells the renderer's decoded-image cache that stored assets changed. [ids] names the assets whose
+ * bytes were added, replaced or removed; null means every asset (a clear or a session change).
+ * Called after the store monitor and the put lock are released, on the thread that made the change,
+ * before that call returns. A listener may therefore call back into the store (` + "`lookup`, `read`" + `)
+ * without deadlocking; it must still be quick, since it runs on the caller's thread.
+ */
+fun interface PrototypeAssetChangeListener {
+  fun onAssetsChanged(ids: Set<String>?)
+}
+
+/** What the renderer needs from the store: metadata, bytes, and a change signal. */
+interface PrototypeAssetSource {
+  fun lookup(id: String): PrototypeAssetInfo?
+
+  /** Call off the main thread. Null when unknown, or when the OS evicted the file. */
+  fun read(id: String): ByteArray?
+
+  /** The stored file for [id] (fonts load from a path); null when unknown or not file-backed. */
+  fun file(id: String): File? = null
+
+  /** Replaces the single registered listener; null unregisters. */
+  fun setChangeListener(listener: PrototypeAssetChangeListener?)
+}
+`,
+			wantHits: 0,
+		},
 	}
 
 	for _, tt := range tests {

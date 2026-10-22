@@ -546,6 +546,185 @@ private class DelegatingScope(inner: Scope) : Scope by inner {
 	}
 }
 
+func TestVarCouldBeVal_SkipsMemberPropertiesInMisparsedClassBody(t *testing.T) {
+	// tree-sitter-kotlin cannot attach a primary constructor that starts on
+	// the line after the class name (`class X\ninternal constructor(...)` or
+	// `class X\n@JvmOverloads\nconstructor(...)`), so the class body is parsed
+	// as a function or lambda body and its member properties look local. A
+	// local variable can never carry a visibility modifier, so such a
+	// property is a member written elsewhere through a receiver.
+	cases := map[string]string{
+		"constructor on next line": `
+package test
+class Frame
+class Server {
+    class Client
+    internal constructor(
+        internal val id: Int,
+    ) {
+        internal var pendingCount = 0
+    }
+
+    fun enqueue(client: Client) {
+        client.pendingCount++
+    }
+}
+`,
+		"annotated constructor on next line": `
+package test
+class Checker
+@JvmOverloads
+constructor(
+  private val getenv: (String) -> String? = System::getenv,
+) : Runnable {
+  private var sleeper: (Long) -> Unit = { ms -> Thread.sleep(ms) }
+
+  internal constructor(
+    getenv: (String) -> String?,
+    sleeper: (Long) -> Unit,
+  ) : this(getenv) {
+    this.sleeper = sleeper
+  }
+
+  override fun run() = sleeper(1L)
+}
+`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) {
+			if findings := runRuleByName(t, "VarCouldBeVal", code); len(findings) != 0 {
+				t.Fatalf("expected no findings for member property in misparsed class body, got %d: %v", len(findings), findings)
+			}
+		})
+	}
+}
+
+func TestVarCouldBeVal_TreatsOuterClassWriteToCompanionMemberAsReassignment(t *testing.T) {
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+class Ime {
+    fun onCreate() {
+        instance = this
+    }
+
+    fun onDestroy() {
+        if (instance === this) instance = null
+    }
+
+    companion object {
+        @Volatile private var instance: Ime? = null
+
+        fun current(): Ime? = instance
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for companion member assigned from the enclosing class, got %d", len(findings))
+	}
+}
+
+func TestVarCouldBeVal_OuterLocalShadowingCompanionMemberIsNotAReassignment(t *testing.T) {
+	// Kotlin resolves a local variable or an outer-class member before an
+	// implicit companion member, so writes to those do not reassign the
+	// companion property of the same name.
+	cases := map[string]string{
+		"local var": `
+package test
+class Counter {
+    fun tick(): Int {
+        var count = 0
+        count++
+        return count
+    }
+
+    companion object {
+        private var count = 0
+        fun read(): Int = count
+    }
+}
+`,
+		"outer class member": `
+package test
+class Counter {
+    private var count = 0
+
+    fun tick() {
+        count++
+    }
+
+    companion object {
+        private var count = 0
+        fun read(): Int = count
+    }
+}
+`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) {
+			findings := runRuleByName(t, "VarCouldBeVal", code)
+			flagged := false
+			for _, f := range findings {
+				if strings.Contains(f.Message, "'var count'") {
+					flagged = true
+				}
+			}
+			if !flagged {
+				t.Fatalf("expected the companion 'var count' to be flagged, got %v", findings)
+			}
+		})
+	}
+}
+
+func TestVarCouldBeVal_CompanionMemberOnlyReadByEnclosingClassIsFlagged(t *testing.T) {
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+class Ime {
+    fun read(): Ime? = instance
+
+    companion object {
+        private var instance: Ime? = null
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding for companion member that is never reassigned, got %d", len(findings))
+	}
+}
+
+func TestVarCouldBeVal_TreatsPrefixIncrementInsideComparisonAsReassignment(t *testing.T) {
+	// tree-sitter-kotlin parses `++count <= max` as `++(count <= max)`; the
+	// increment target is the leftmost operand of the binary expression.
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+fun guard(nodes: List<Int>, max: Int) {
+    var count = 0
+    var other = 0
+    fun visit(node: Int) {
+        require(++count <= max) { "limit exceeded" }
+        if (--other + node > max) return
+    }
+    nodes.forEach { visit(it) }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for vars mutated by prefix increment inside a binary expression, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestVarCouldBeVal_PrefixIncrementOfOtherOperandIsNotReassignment(t *testing.T) {
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+fun guard(max: Int) {
+    var count = 0
+    var limit = max
+    if (++count <= limit) println(limit)
+}
+`)
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, "limit") {
+		t.Fatalf("expected exactly one finding for the right-hand operand var, got %v", findings)
+	}
+}
+
 func TestVarCouldBeVal_HonorsIgnoreLateinitVar(t *testing.T) {
 	// IgnoreLateinitVar was previously a dead config — exposed in
 	// metadata but never consulted. The check unconditionally skipped

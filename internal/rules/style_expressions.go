@@ -792,6 +792,9 @@ func reassignedViaEnclosingTypeQualifierFlat(file *scanner.File, scope uint32, n
 			if !hasMutation {
 				return
 			}
+			if file.FlatType(child) == "prefix_expression" {
+				target = prefixMutationOperandFlat(file, target)
+			}
 		default:
 			return
 		}
@@ -878,10 +881,129 @@ func reassignedPrefixNameFlat(file *scanner.File, idx uint32) (string, bool) {
 			continue
 		}
 		if hasMutation && file.FlatIsNamed(child) {
-			return reassignedLocalOrThisNameFlat(file, child)
+			return reassignedLocalOrThisNameFlat(file, prefixMutationOperandFlat(file, child))
 		}
 	}
 	return "", false
+}
+
+// prefixMutationOperandFlat returns the real target of a prefix `++`/`--`.
+// tree-sitter-kotlin attaches the prefix operator to a whole binary
+// expression (`++count <= max` parses as `++(count <= max)`), but Kotlin
+// prefix operators bind tighter than every binary operator, so the mutated
+// operand is the leftmost operand of that expression.
+func prefixMutationOperandFlat(file *scanner.File, operand uint32) uint32 {
+	for operand != 0 {
+		switch file.FlatType(operand) {
+		case "comparison_expression", "equality_expression", "additive_expression",
+			"multiplicative_expression", "range_expression", "infix_expression",
+			"elvis_expression", "conjunction_expression", "disjunction_expression",
+			"check_expression", "as_expression":
+			if file.FlatNamedChildCount(operand) == 0 {
+				return operand
+			}
+			operand = file.FlatNamedChild(operand, 0)
+		default:
+			return operand
+		}
+	}
+	return operand
+}
+
+// companionEnclosingClassBodyFlat returns the class_body of the class that
+// declares the companion object owning classBody, or 0 when classBody is not
+// a companion object's body. Companion members are accessible unqualified
+// from the enclosing class, so writes there reassign them.
+func companionEnclosingClassBodyFlat(file *scanner.File, classBody uint32) uint32 {
+	companion, ok := file.FlatParent(classBody)
+	if !ok || file.FlatType(companion) != "companion_object" {
+		return 0
+	}
+	outerBody, ok := file.FlatParent(companion)
+	if !ok || file.FlatType(outerBody) != "class_body" {
+		return 0
+	}
+	return outerBody
+}
+
+// companionMemberWrittenFromOuterFlat reports whether the enclosing class
+// body writes name as an unqualified companion member. A write only counts
+// when no declaration between it and the outer class body (a local, a
+// parameter, a loop variable, or an outer-class member of the same name)
+// shadows the companion property, since Kotlin resolves those first.
+func companionMemberWrittenFromOuterFlat(file *scanner.File, outerBody uint32, name string) bool {
+	found := false
+	file.FlatWalkAllNodes(outerBody, func(n uint32) {
+		if found {
+			return
+		}
+		var got string
+		var ok bool
+		switch file.FlatType(n) {
+		case "assignment", "assignment_expression", "augmented_assignment":
+			if file.FlatChildCount(n) == 0 {
+				return
+			}
+			got, ok = reassignedLocalOrThisNameFlat(file, file.FlatChild(n, 0))
+		case "postfix_expression":
+			got, ok = reassignedPostfixNameFlat(file, n)
+		case "prefix_expression":
+			got, ok = reassignedPrefixNameFlat(file, n)
+		default:
+			return
+		}
+		if ok && got == name && !nameShadowedBeforeFlat(file, n, outerBody, name) {
+			found = true
+		}
+	})
+	return found
+}
+
+// nameShadowedBeforeFlat reports whether a declaration of name in node's
+// scopes, up to and including stop, hides an outer property of that name at
+// node: a property declared earlier in an enclosing block or class body, a
+// function or lambda parameter, or a for-loop variable.
+func nameShadowedBeforeFlat(file *scanner.File, node, stop uint32, name string) bool {
+	nodeStart := file.FlatStartByte(node)
+	for cur := node; ; {
+		p, ok := file.FlatParent(cur)
+		if !ok {
+			return false
+		}
+		for i := 0; i < file.FlatChildCount(p); i++ {
+			c := file.FlatChild(p, i)
+			switch file.FlatType(c) {
+			case "property_declaration":
+				if file.FlatStartByte(c) >= nodeStart {
+					continue
+				}
+				for j := 0; j < file.FlatChildCount(c); j++ {
+					d := file.FlatChild(c, j)
+					if file.FlatType(d) == "variable_declaration" && extractIdentifierFlat(file, d) == name {
+						return true
+					}
+				}
+			case "variable_declaration":
+				if extractIdentifierFlat(file, c) == name {
+					return true
+				}
+			case "function_value_parameters", "lambda_parameters":
+				for j := 0; j < file.FlatChildCount(c); j++ {
+					param := file.FlatChild(c, j)
+					switch file.FlatType(param) {
+					case "parameter", "variable_declaration":
+						if extractIdentifierFlat(file, param) == name {
+							return true
+						}
+					}
+				}
+			}
+		}
+		if p == stop {
+			return false
+		}
+		cur = p
+	}
 }
 
 // MayBeConstantRule detects top-level vals that could be const.

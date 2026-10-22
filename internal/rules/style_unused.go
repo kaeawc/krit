@@ -122,10 +122,170 @@ func unusedParameterUsageFlat(file *scanner.File, scope uint32, paramIdx uint32,
 			break
 		}
 	}
+	if !used && !unknown {
+		used = unusedParameterMisparsedReferenceFlat(file, scope, paramIdx, paramName)
+	}
 	if !used && !unknown && unusedParameterErrorSubtreeMentionsNameFlat(file, scope, paramName) {
 		unknown = true
 	}
 	return used, unknown
+}
+
+// unusedParameterMisparsedReferenceFlat finds parameter reads that
+// tree-sitter-kotlin does not expose as simple identifiers:
+//
+//   - the receiver of a bound callable reference or class literal
+//     (`buffer::execute`, `screen::class`) parses as a type_identifier;
+//   - `!isReady` / `!inProgress` in a when condition lexes as the `!is` /
+//     `!in` operator glued to the rest of the name (`!is Ready`), producing
+//     a type_test or range_test instead of a negated identifier.
+func unusedParameterMisparsedReferenceFlat(file *scanner.File, scope uint32, paramIdx uint32, name string) bool {
+	found := false
+	check := func(ref uint32) {
+		if !found && unusedParameterSameFileDeclarationMatchFlat(file, scope, paramIdx, ref, name) {
+			found = true
+		}
+	}
+	file.FlatWalkNodes(scope, "callable_reference", func(ref uint32) {
+		receiver := file.FlatFirstChild(ref)
+		if receiver == 0 || file.FlatType(receiver) != "type_identifier" ||
+			strings.Trim(file.FlatNodeText(receiver), "`") != name {
+			return
+		}
+		if next := file.FlatNextSib(receiver); next == 0 || file.FlatType(next) != "::" {
+			return
+		}
+		check(receiver)
+	})
+	for _, testType := range []string{"type_test", "range_test"} {
+		if found {
+			break
+		}
+		file.FlatWalkNodes(scope, testType, func(test uint32) {
+			if misLexed, ok := misLexedNegatedIdentifierFlat(file, test); ok && misLexed == name {
+				check(test)
+			}
+		})
+	}
+	return found
+}
+
+// misLexedNegatedIdentifierFlat recovers the identifier from a type_test or
+// range_test whose `!is` / `!in` operator token is immediately followed, with
+// no whitespace, by the operand: tree-sitter-kotlin lexes `!isReady` as
+// `!is Ready` and `!inProgress` as `!in Progress`, while Kotlin reads them as
+// the negated identifiers `isReady` and `inProgress`.
+func misLexedNegatedIdentifierFlat(file *scanner.File, test uint32) (string, bool) {
+	op := file.FlatFirstChild(test)
+	if op == 0 {
+		return "", false
+	}
+	prefix := ""
+	switch file.FlatType(op) {
+	case "!is":
+		prefix = "is"
+	case "!in":
+		prefix = "in"
+	default:
+		return "", false
+	}
+	operand := file.FlatNextSib(op)
+	if operand == 0 || file.FlatStartByte(operand) != file.FlatEndByte(op) {
+		return "", false
+	}
+	leaf := operand
+	for file.FlatType(leaf) != "type_identifier" && file.FlatType(leaf) != "simple_identifier" {
+		leaf = file.FlatFirstChild(leaf)
+		if leaf == 0 {
+			return "", false
+		}
+	}
+	if file.FlatStartByte(leaf) != file.FlatEndByte(op) {
+		return "", false
+	}
+	return prefix + file.FlatNodeText(leaf), true
+}
+
+// unusedParameterInMisparsedDeclarationFlat reports whether a function's
+// enclosing declaration was lost to tree-sitter-kotlin error recovery, so its
+// owner (and with it whether the function is an overridable interface
+// member) cannot be determined from the tree. The grammar cannot parse
+// `fun interface`: its members land in a top-level lambda or expression, or
+// become top-level function siblings of the mangled header, and error
+// recovery can swallow the declarations that follow as well.
+func unusedParameterInMisparsedDeclarationFlat(file *scanner.File, fn uint32) bool {
+	if file == nil || fn == 0 {
+		return false
+	}
+	if flatIsFunInterfaceHeader(file, fn) {
+		return true
+	}
+	top := fn
+	for {
+		p, ok := file.FlatParent(top)
+		if !ok {
+			return false
+		}
+		if file.FlatType(p) == "source_file" {
+			break
+		}
+		top = p
+	}
+	switch file.FlatType(top) {
+	case "function_declaration", "class_declaration", "object_declaration",
+		"property_declaration", "type_alias":
+	default:
+		// A Kotlin source file holds only declarations at the top level;
+		// scripts may hold statements, where a lambda can declare a local
+		// function legitimately.
+		return !strings.HasSuffix(file.Path, ".kts")
+	}
+	if top != fn {
+		return false
+	}
+	// A top-level function whose earlier siblings reach a `fun interface`
+	// header before the interface's closing brace is a member of it.
+	for sib, ok := file.FlatPrevSibling(fn); ok && sib != 0; sib, ok = file.FlatPrevSibling(sib) {
+		switch file.FlatType(sib) {
+		case "}", "lambda_literal":
+			// A closing brace ends the interface body; a top-level lambda
+			// already holds the body of an earlier header.
+			return false
+		case "ERROR":
+			if flatIsFunInterfaceHeader(file, sib) {
+				return true
+			}
+			if file.FlatHasChildOfType(sib, "}") {
+				return false
+			}
+		case "function_declaration":
+			if flatIsFunInterfaceHeader(file, sib) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// flatIsFunInterfaceHeader reports whether node is the error-recovered
+// header of a `fun interface` declaration: a `fun` keyword immediately
+// followed by `interface` parsed as a type or identifier.
+func flatIsFunInterfaceHeader(file *scanner.File, node uint32) bool {
+	for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "fun" {
+			continue
+		}
+		next := file.FlatNextSib(child)
+		if next == 0 {
+			return false
+		}
+		switch file.FlatType(next) {
+		case "user_type", "type_identifier", "simple_identifier":
+			return file.FlatNodeTextEquals(next, "interface")
+		}
+		return false
+	}
+	return false
 }
 
 // unusedParameterErrorSubtreeMentionsNameFlat reports whether any ERROR node

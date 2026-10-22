@@ -90,6 +90,9 @@ func registerStyleUnusedRules() {
 				if summary.body == 0 {
 					return
 				}
+				if unusedParameterInMisparsedDeclarationFlat(file, idx) {
+					return
+				}
 				bodyText := file.FlatNodeText(summary.body)
 				trimmedBody := strings.TrimSpace(bodyText)
 				if trimmedBody == "= Unit" || trimmedBody == "{}" || trimmedBody == "{ }" {

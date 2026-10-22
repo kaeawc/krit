@@ -43,8 +43,14 @@ jobs:
       - name: Install mingw-w64
         timeout-minutes: 5
         run: |
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+          # The runner image usually ships the cross compilers; only reach
+          # for apt (which can hang on mirror trouble) when they are missing.
+          if command -v x86_64-w64-mingw32-gcc >/dev/null && command -v x86_64-w64-mingw32-g++ >/dev/null; then
+            echo "mingw-w64 already installed"
+          else
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+          fi
       - name: Vet for windows/amd64
         env:
           GOOS: windows

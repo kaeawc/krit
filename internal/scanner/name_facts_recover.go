@@ -18,13 +18,7 @@ func visibleTopLevelName(file *File, child uint32) (name string, operator bool) 
 		if file.FlatHasModifier(child, "private") {
 			return "", false
 		}
-		name = file.FlatChildTextOrEmpty(child, "simple_identifier")
-		if name == "" {
-			if varDecl, ok := file.FlatFindChild(child, "variable_declaration"); ok {
-				name = file.FlatChildTextOrEmpty(varDecl, "simple_identifier")
-			}
-		}
-		return name, file.FlatHasModifier(child, "operator")
+		return file.PropertyNameFlat(child), file.FlatHasModifier(child, "operator")
 	case "class_declaration", "object_declaration", "type_alias":
 		if file.FlatHasModifier(child, "private") {
 			return "", false

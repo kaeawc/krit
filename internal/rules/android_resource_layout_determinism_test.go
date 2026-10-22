@@ -102,3 +102,85 @@ func TestInconsistentLayoutDeterministicAnchor(t *testing.T) {
 		}
 	}
 }
+
+// TestInconsistentLayoutNoDefaultReference covers the path where a layout has
+// no unqualified configuration. The reference is then the lexicographically
+// first qualifier ("land"), and findings anchor on the remaining
+// configurations ("night", "v21"), never on the reference file itself.
+func TestInconsistentLayoutNoDefaultReference(t *testing.T) {
+	r := findResourceRule(t, "InconsistentLayout")
+
+	qualifiers := []string{"v21", "night", "land"}
+	roots := map[string]string{"land": "RootB", "night": "RootC", "v21": "RootD"}
+	build := func() *android.ResourceIndex {
+		idx := &android.ResourceIndex{
+			Layouts:       make(map[string]*android.Layout),
+			LayoutConfigs: make(map[string]map[string]*android.Layout),
+			Strings:       make(map[string]string),
+			Colors:        make(map[string]string),
+			Dimensions:    make(map[string]string),
+			Styles:        make(map[string]*android.Style),
+			StringArrays:  make(map[string][]string),
+			Plurals:       make(map[string]map[string]string),
+			Integers:      make(map[string]string),
+			Booleans:      make(map[string]string),
+			IDs:           make(map[string]bool),
+		}
+		configs := make(map[string]*android.Layout)
+		for _, q := range qualifiers {
+			configs[q] = &android.Layout{
+				Name:     "main",
+				FilePath: "res/layout-" + q + "/main.xml",
+				RootView: &android.View{
+					Type:       roots[q],
+					Line:       1,
+					Attributes: map[string]string{},
+				},
+			}
+		}
+		idx.LayoutConfigs["main"] = configs
+		return idx
+	}
+
+	type flat struct {
+		file string
+		line int
+		msg  string
+	}
+	run := func() []flat {
+		findings := runResourceRule(r, build())
+		out := make([]flat, 0, len(findings))
+		for _, f := range findings {
+			out = append(out, flat{f.File, f.Line, f.Message})
+		}
+		return out
+	}
+
+	want := run()
+	if len(want) != 2 {
+		t.Fatalf("expected 2 findings, got %d: %+v", len(want), want)
+	}
+	for _, f := range want {
+		if !strings.Contains(f.msg, "'RootB' in land") {
+			t.Errorf("expected 'land' as reference in message, got %q", f.msg)
+		}
+		if strings.Contains(f.file, "res/layout-land/") {
+			t.Errorf("finding anchored on the reference file %s", f.file)
+		}
+	}
+	if !strings.Contains(want[0].file, "res/layout-night/") || !strings.Contains(want[1].file, "res/layout-v21/") {
+		t.Errorf("expected anchors night then v21, got %q then %q", want[0].file, want[1].file)
+	}
+
+	for i := 0; i < 50; i++ {
+		got := run()
+		if len(got) != len(want) {
+			t.Fatalf("iteration %d: expected %d findings, got %d", i, len(want), len(got))
+		}
+		for j := range want {
+			if got[j] != want[j] {
+				t.Fatalf("iteration %d: finding %d changed between runs:\n  first: %+v\n  now:   %+v", i, j, want[j], got[j])
+			}
+		}
+	}
+}

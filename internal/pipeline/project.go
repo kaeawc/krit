@@ -3,6 +3,7 @@ package pipeline
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -2050,7 +2051,7 @@ func runDispatchOrLoadBundle(
 		// and ApplyDelta against the prior bundle. Opt-in
 		// (KRIT_AFFECTED_SET_REPLAY) and #608 gated inside.
 		asStart := time.Now()
-		asD, asC, asReason, asErr := tryAffectedSetDispatch(ctx, args, host, indexResult, parseResult, manifest)
+		asD, asC, asReason, asErr := tryAffectedSetDispatchXMLStable(ctx, args, host, indexResult, parseResult, runFP, manifest)
 		// reason is "hit" when the path fired, else the bail label explaining
 		// why it fell back to full dispatch — self-explaining in the perf JSON
 		// (hit vs miss is derivable from reason == replayHit).
@@ -2151,6 +2152,7 @@ func runFingerprintDiffFields(prior, current scanner.RunFingerprint) []string {
 	add("android", prior.Android, current.Android)
 	add("libraryFacts", prior.LibraryFacts, current.LibraryFacts)
 	add("compilerSettings", prior.CompilerSettings, current.CompilerSettings)
+	add("xmlInputs", prior.XMLInputs, current.XMLInputs)
 	return changed
 }
 
@@ -2609,6 +2611,10 @@ func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, t
 	track("projectFingerprints", func() {
 		androidFP, libraryFactsFP = preparseProjectFingerprints(args, host)
 	})
+	var xmlFP string
+	track("xmlInputs", func() {
+		xmlFP = xmlInputsFingerprint(host, preparseAndroidProject(args, host), kotlinPaths)
+	})
 	fp := scanner.RunFingerprint{
 		Version:          args.Version,
 		Rules:            rulesHash,
@@ -2619,6 +2625,7 @@ func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, t
 		Android:          androidFP,
 		LibraryFacts:     libraryFactsFP,
 		CompilerSettings: args.OracleKotlin.Identity(),
+		XMLInputs:        xmlFP,
 	}
 	if fp != prior.Fingerprint {
 		return scanner.RunFingerprint{}, nil, nil, false
@@ -2819,6 +2826,78 @@ func cachedDetectAndroidProject(args ProjectArgs, host ProjectHostState) *androi
 	return host.AndroidProjectCache(androidProjectFingerprint(args.Paths), func() *android.Project {
 		return android.DetectProject(args.Paths)
 	})
+}
+
+// preparseAndroidProject returns the Android project the pre-parse
+// fingerprints are computed from, resolved the way preparseProjectFingerprints
+// does.
+func preparseAndroidProject(args ProjectArgs, host ProjectHostState) *android.Project {
+	if host.PrebuiltAndroidProject != nil {
+		return host.PrebuiltAndroidProject
+	}
+	return cachedDetectAndroidProject(args, host)
+}
+
+func fileSetPaths(files []*scanner.File) []string {
+	paths := make([]string, 0, len(files))
+	for _, f := range files {
+		if f != nil {
+			paths = append(paths, f.Path)
+		}
+	}
+	return paths
+}
+
+// xmlInputsFingerprint hashes the XML inputs that feed cross-file and Android
+// rules, so the findings bundle cannot outlive an XML-only edit (layouts,
+// manifests and navigation graphs contribute class references to the code
+// index; manifests and res/ directories feed the Android rules). It returns
+// "" when the project has none, which keeps the bundle key unchanged for
+// projects without XML.
+//
+// The class-reference XML set comes from the host's resident XMLFilesLoader
+// when wired, so a warm daemon run re-reads nothing until the watcher bumps
+// the XML version. The manifests and res/ directories are hashed through the
+// stat-keyed hashutil memo, which re-reads only files whose size or mtime
+// moved. kotlinPaths only locates the module roots for the XML walk.
+func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotlinPaths []string) string {
+	build := func() []*scanner.XMLCacheFile {
+		return scanner.LoadXMLFilesForCache(filesForPaths(kotlinPaths, scanner.LangKotlin))
+	}
+	var xmlFiles []*scanner.XMLCacheFile
+	if host.XMLFilesLoader != nil {
+		xmlFiles = host.XMLFilesLoader(build)
+	} else {
+		xmlFiles = build()
+	}
+	var manifests, resDirs []string
+	if project != nil {
+		manifests = append(manifests, project.ManifestPaths...)
+		resDirs = project.ResDirs
+	}
+	if len(xmlFiles) == 0 && len(manifests) == 0 && len(resDirs) == 0 {
+		return ""
+	}
+	h := hashutil.Hasher().New()
+	for _, f := range xmlFiles {
+		if f == nil {
+			continue
+		}
+		_, _ = h.Write([]byte(f.Path))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(f.Hash))
+		_, _ = h.Write([]byte{0})
+	}
+	_, _ = h.Write([]byte{1})
+	if len(manifests) > 0 {
+		sort.Strings(manifests)
+		_, _ = h.Write([]byte(AndroidPhase{}.manifestBundleFingerprint(manifests)))
+	}
+	_, _ = h.Write([]byte{2})
+	if len(resDirs) > 0 {
+		_, _ = h.Write([]byte(mergedResourceIndexFingerprint(resDirs)))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func preparseProjectFingerprints(args ProjectArgs, host ProjectHostState) (string, string) {
@@ -3220,6 +3299,7 @@ const (
 	replayBailNonSource       = "non_source"       // affected file is not Kotlin/Java/XML
 	replayBailParseFailed     = "parse_failed"     // parseFilesByPath errored
 	replayBailParseIncomplete = "parse_incomplete" // a dependent never came back parsed
+	replayBailXMLChanged      = "xml_changed"      // XML inputs differ from the prior run
 )
 
 // affectedSetReplayEnabled reports whether the affected-set replay dispatch
@@ -3267,6 +3347,27 @@ func dropFindingsByRule(fc scanner.FindingColumns, ruleIDs map[string]bool) scan
 	return fc.FilterRows(func(row int) bool {
 		return !ruleIDs[fc.RuleAt(row)]
 	})
+}
+
+// tryAffectedSetDispatchXMLStable runs tryAffectedSetDispatch only when the
+// XML inputs match the prior run's. The affected set is derived from Kotlin and
+// Java edits, so an XML edit made alongside them could change findings of a
+// file outside it, and the prior bundle would carry the stale rows forward.
+func tryAffectedSetDispatchXMLStable(
+	ctx context.Context,
+	args ProjectArgs,
+	host ProjectHostState,
+	indexResult IndexResult,
+	parseResult ParseResult,
+	runFP scanner.RunFingerprint,
+	manifest deltaManifestData,
+) (DispatchResult, CrossFileResult, string, error) {
+	if manifest.enabled && manifest.manifestKey != "" {
+		if prior, ok := loadBundleManifest(host, manifest.manifestKey); ok && prior.Fingerprint.XMLInputs != runFP.XMLInputs {
+			return DispatchResult{}, CrossFileResult{}, replayBailXMLChanged, nil
+		}
+	}
+	return tryAffectedSetDispatch(ctx, args, host, indexResult, parseResult, manifest)
 }
 
 // tryAffectedSetDispatch generalizes tryDeltaDispatch from a single changed
@@ -3456,6 +3557,7 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 		Android:          androidFP,
 		LibraryFacts:     libraryFactsFP,
 		CompilerSettings: args.OracleKotlin.Identity(),
+		XMLInputs:        xmlInputsFingerprint(host, preparseAndroidProject(args, host), fileSetPaths(parseResult.KotlinFiles)),
 	}
 	// Look up the prior manifest once — daemon callers wire
 	// FindingsBundleManifestLoader to an in-memory cache so this is
@@ -3554,6 +3656,7 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 	if indexResult.LibraryFacts != nil {
 		fp.LibraryFacts = indexResult.LibraryFacts.Fingerprint()
 	}
+	fp.XMLInputs = xmlInputsFingerprint(host, indexResult.AndroidProject, fileSetPaths(parseResult.KotlinFiles))
 	return fp, true
 }
 

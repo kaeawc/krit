@@ -48,7 +48,11 @@ func newWarmCrossHarness(t *testing.T, ruleID string, files map[string]string) *
 
 func (h *warmCrossHarness) write(name, body string) {
 	h.t.Helper()
-	if err := os.WriteFile(filepath.Join(h.dir, name), []byte(body), 0o644); err != nil {
+	path := filepath.Join(h.dir, name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		h.t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		h.t.Fatal(err)
 	}
 }

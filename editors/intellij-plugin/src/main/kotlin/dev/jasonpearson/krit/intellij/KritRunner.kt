@@ -114,7 +114,7 @@ object KritRunner {
         isCancelled: () -> Boolean = NEVER_CANCELLED,
     ): AnalyzeOutcome {
         val projectDir = project.baseDir() ?: return AnalyzeOutcome.Failure("project has no base path")
-        val binary = KritBinaryResolver.find() ?: return AnalyzeOutcome.MissingBinary
+        val binary = KritBinaryResolver.find(project) ?: return AnalyzeOutcome.MissingBinary
         val scanPath = target ?: projectDir.absolutePath
         val classpath = KritClasspathResolver.resolve(project)
         val output = File.createTempFile("krit-intellij-", ".json")
@@ -152,7 +152,7 @@ object KritRunner {
     fun fixFinding(project: Project, fixLevel: String?, findingId: String): Boolean {
         if (findingId.isBlank()) return false
         val projectDir = project.baseDir() ?: return false
-        val binary = KritBinaryResolver.find() ?: return false
+        val binary = KritBinaryResolver.find(project) ?: return false
         val classpath = KritClasspathResolver.resolve(project)
         val level = KritFixLabels.normalizeFixLevel(fixLevel)
         val command = listOf(
@@ -175,7 +175,7 @@ object KritRunner {
         reportJson: String,
     ): Boolean {
         val projectDir = project.baseDir() ?: return false
-        val binary = KritBinaryResolver.find() ?: return false
+        val binary = KritBinaryResolver.find(project) ?: return false
         val classpath = KritClasspathResolver.resolve(project)
         if (reportJson.isBlank()) {
             log.warn("krit apply-suggestion skipped: no cached report for ${projectDir.path}")

@@ -60,6 +60,45 @@ class KritBinaryResolverSettingsTest {
         assertNull(found)
     }
 
+    @Test
+    fun `project override wins over the application setting`() {
+        val projectBinary = makeExecutable("from-project")
+        val appBinary = makeExecutable("from-settings")
+        val found = KritBinaryResolver.find(
+            env = mapOf("PATH" to ""),
+            props = { null },
+            settings = { appBinary.absolutePath },
+            projectSettings = { projectBinary.absolutePath },
+        )
+        assertEquals(projectBinary.canonicalFile, found?.canonicalFile)
+    }
+
+    @Test
+    fun `blank project override falls through to the application setting`() {
+        val appBinary = makeExecutable("from-settings")
+        val found = KritBinaryResolver.find(
+            env = mapOf("PATH" to ""),
+            props = { null },
+            settings = { appBinary.absolutePath },
+            projectSettings = { " " },
+        )
+        assertEquals(appBinary.canonicalFile, found?.canonicalFile)
+    }
+
+    @Test
+    fun `non-executable project override returns null without falling through`() {
+        val nonExec = Files.createTempFile("krit-project-not-exec", ".txt").toFile()
+        nonExec.deleteOnExit()
+        val appBinary = makeExecutable("from-settings")
+        val found = KritBinaryResolver.find(
+            env = mapOf("PATH" to ""),
+            props = { null },
+            settings = { appBinary.absolutePath },
+            projectSettings = { nonExec.absolutePath },
+        )
+        assertNull(found)
+    }
+
     private fun makeExecutable(name: String): File {
         val dir = Files.createTempDirectory("krit-settings-$name").toFile()
         dir.deleteOnExit()

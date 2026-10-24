@@ -16,6 +16,8 @@ import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.WindowManager
+import com.intellij.codeInspection.InspectionProfile
+import com.intellij.profile.codeInspection.ProfileChangeAdapter
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -44,8 +46,15 @@ class KritProjectService(private val project: Project) : Disposable {
     // next scan does a full refresh instead of only the edited files.
     @Volatile
     private var projectRescanPending = false
+    // False while every Krit inspection is disabled in the active inspection
+    // profile. Automatic scans pause then; explicit Analyze actions still run.
+    @Volatile
+    private var inspectionsEnabled = true
+    private val explicitRequest = AtomicBoolean(false)
+
     private val documentListener = object : BulkAwareDocumentListener {
         override fun documentChanged(event: DocumentEvent) {
+            if (!inspectionsEnabled) return
             val file = FileDocumentManager.getInstance().getFile(event.document) ?: return
             if (shouldTriggerScan(file)) {
                 scanGeneration.bump()
@@ -75,6 +84,40 @@ class KritProjectService(private val project: Project) : Disposable {
         // Light-fixture tests seed findings directly; an initial scan would
         // race with the seed and overwrite it (no krit binary in tests).
         if (scansEnabled) {
+            project.messageBus.connect(this).subscribe(
+                ProfileChangeAdapter.TOPIC,
+                object : ProfileChangeAdapter {
+                    override fun profileChanged(profile: InspectionProfile) = onInspectionProfileChanged()
+                    override fun profileActivated(oldProfile: InspectionProfile?, profile: InspectionProfile?) =
+                        onInspectionProfileChanged()
+                },
+            )
+            inspectionsEnabled = KritInspectionToggle.anyEnabled(project)
+            if (inspectionsEnabled) {
+                scheduleScan(0)
+            } else {
+                projectRescanPending = true
+            }
+        }
+    }
+
+    // Pauses automatic scans when the last Krit inspection is disabled and
+    // runs a full refresh as soon as one is enabled again, instead of waiting
+    // for the next edit.
+    private fun onInspectionProfileChanged() {
+        if (project.isDisposed) return
+        val enabled = KritInspectionToggle.anyEnabled(project)
+        val wasEnabled = inspectionsEnabled
+        inspectionsEnabled = enabled
+        if (!enabled) {
+            synchronized(scanLock) {
+                pendingScan?.cancel(false)
+                pendingScan = null
+            }
+            return
+        }
+        if (!wasEnabled) {
+            projectRescanPending = true
             scheduleScan(0)
         }
     }
@@ -98,6 +141,7 @@ class KritProjectService(private val project: Project) : Disposable {
     // notification so an explicit user request is never met with silence.
     fun analyzeNow() {
         missingBinaryNotified.set(false)
+        explicitRequest.set(true)
         // A non-empty pending set would turn the run into a changed-file
         // refresh; the full scan below covers those files anyway.
         pendingFiles.clear()
@@ -107,6 +151,7 @@ class KritProjectService(private val project: Project) : Disposable {
     fun analyzeFiles(paths: Collection<String>) {
         if (paths.isEmpty()) return
         missingBinaryNotified.set(false)
+        explicitRequest.set(true)
         pendingFiles.addAll(paths)
         scheduleScan(0)
     }
@@ -151,10 +196,14 @@ class KritProjectService(private val project: Project) : Disposable {
     }
 
     private fun runIfIdle() {
+        // An explicit Analyze action runs even with the inspections off; an
+        // automatic scan does not.
+        if (!inspectionsEnabled && !explicitRequest.get()) return
         if (project.isDisposed || !running.compareAndSet(false, true)) {
             rerunAfterCurrent.set(true)
             return
         }
+        explicitRequest.set(false)
         try {
             val generation = scanGeneration.current()
             val isCancelled = { scanGeneration.isSuperseded(generation) }

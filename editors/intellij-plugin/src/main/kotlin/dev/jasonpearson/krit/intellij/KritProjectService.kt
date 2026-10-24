@@ -118,9 +118,19 @@ class KritProjectService(private val project: Project) : Disposable {
             // than leave warnings on code the user goes on to edit. The
             // external annotator reads this map regardless of the toggles.
             if (wasEnabled) {
-                findingsByFile = emptyMap()
-                lastReportJson = ""
-                restartHighlighting()
+                // Supersede a scan that is already running so it stops at its
+                // next cancellation check, and clear on the scan thread so the
+                // clear lands after anything that scan still publishes.
+                scanGeneration.bump()
+                try {
+                    executor.execute {
+                        findingsByFile = emptyMap()
+                        lastReportJson = ""
+                        restartHighlighting()
+                    }
+                } catch (_: java.util.concurrent.RejectedExecutionException) {
+                    // Disposed concurrently; nothing left to clear.
+                }
             }
             return
         }

@@ -54,8 +54,11 @@ class KritProjectService(private val project: Project) : Disposable {
 
     private val documentListener = object : BulkAwareDocumentListener {
         override fun documentChanged(event: DocumentEvent) {
-            if (!inspectionsEnabled) return
             val file = FileDocumentManager.getInstance().getFile(event.document) ?: return
+            if (!inspectionsEnabled) {
+                if (shouldTriggerScan(file)) dropFindingsWhilePaused(file.path)
+                return
+            }
             if (shouldTriggerScan(file)) {
                 scanGeneration.bump()
                 pendingFiles.add(file.path)
@@ -101,9 +104,29 @@ class KritProjectService(private val project: Project) : Disposable {
         }
     }
 
+    // While scans are paused nothing refreshes an edited file, so findings
+    // from an explicit Analyze run would go stale under the user's edits.
+    // Supersede any scan still running and drop the edited file's findings on
+    // the scan thread, so the drop lands after anything that scan publishes.
+    private fun dropFindingsWhilePaused(path: String) {
+        scanGeneration.bump()
+        try {
+            executor.execute {
+                val canonical = canonicalPath(path, project.basePath)
+                if (findingsByFile.containsKey(canonical)) {
+                    findingsByFile = findingsByFile - canonical
+                    restartHighlighting()
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Disposed concurrently.
+        }
+    }
+
     // Pauses automatic scans (and clears the findings they would have kept
-    // fresh) when the last Krit inspection is disabled, and runs a full refresh as soon as one is enabled again, instead of waiting
-    // for the next edit.
+    // fresh) when the last Krit inspection is disabled, and runs a full
+    // refresh as soon as one is enabled again, instead of waiting for the
+    // next edit.
     private fun onInspectionProfileChanged() {
         if (project.isDisposed) return
         val enabled = KritInspectionToggle.anyEnabled(project)

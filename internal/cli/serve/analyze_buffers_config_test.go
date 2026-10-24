@@ -73,7 +73,10 @@ func TestAnalyzeBuffers_ReportsOnlyPerFileRules(t *testing.T) {
 	for _, r := range api.Registry {
 		byID[r.ID] = r
 	}
-	projectScope := api.NeedsCrossFile | api.NeedsModuleIndex | api.NeedsManifest | api.NeedsResources | api.NeedsGradle
+	// The daemon's buffer analyzer has no resolver or oracle, so rules that
+	// need type information return early and must not be listed either.
+	projectScope := api.NeedsCrossFile | api.NeedsModuleIndex | api.NeedsManifest | api.NeedsResources | api.NeedsGradle |
+		api.NeedsResolver | api.NeedsOracle
 	for _, id := range evaluated {
 		r := byID[id]
 		if r == nil {
@@ -81,7 +84,7 @@ func TestAnalyzeBuffers_ReportsOnlyPerFileRules(t *testing.T) {
 			continue
 		}
 		if r.Needs&projectScope != 0 {
-			t.Errorf("rule %s needs project context (%v) but is listed as evaluated on buffers", id, r.Needs)
+			t.Errorf("rule %s needs project context or type info (%v) but is listed as evaluated on buffers", id, r.Needs)
 		}
 	}
 }

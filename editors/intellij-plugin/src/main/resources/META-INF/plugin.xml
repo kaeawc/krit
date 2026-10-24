@@ -54,6 +54,11 @@
       id="dev.jasonpearson.krit.settings"
       displayName="Krit"
       instance="dev.jasonpearson.krit.intellij.KritSettingsConfigurable"/>
+    <projectConfigurable
+      parentId="dev.jasonpearson.krit.settings"
+      id="dev.jasonpearson.krit.settings.project"
+      displayName="Project"
+      instance="dev.jasonpearson.krit.intellij.KritProjectSettingsConfigurable"/>
   </extensions>
 
   <actions>

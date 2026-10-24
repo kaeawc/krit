@@ -266,7 +266,8 @@ class KritProjectService(private val project: Project) : Disposable {
             // meantime scans only its files.
             val full = targets.isEmpty() || (projectRescanPending && inspectionsEnabled)
             if (full) {
-                if (!refreshFindings(isCancelled)) {
+                // The edited files get their own buffer scan just below.
+                if (!refreshFindings(isCancelled, skipBuffers = targets)) {
                     // Superseded: keep the edited files queued for the scan
                     // that replaces this one and remember to redo the project.
                     projectRescanPending = true
@@ -295,17 +296,26 @@ class KritProjectService(private val project: Project) : Disposable {
 
     // Returns false when the scan was superseded (or cancelled) and nothing was
     // published; the status is left at Scanning for the superseding scan.
-    private fun refreshFindings(isCancelled: () -> Boolean = { false }): Boolean {
+    //
+    // The project scan reads files from disk, so it then re-analyzes the
+    // editor buffers that have unsaved changes and lets their findings win,
+    // except for paths in skipBuffers, which the caller scans itself.
+    private fun refreshFindings(
+        isCancelled: () -> Boolean = { false },
+        skipBuffers: Set<String> = emptySet(),
+    ): Boolean {
         transition(KritState.Scanning)
         val outcome = KritRunner.analyzeProject(project, isCancelled)
         if (outcome is KritRunner.AnalyzeOutcome.Cancelled || isCancelled()) return false
         when (outcome) {
             is KritRunner.AnalyzeOutcome.Success -> {
-                findingsByFile = outcome.report.findings.groupBy {
+                val onDisk = outcome.report.findings.groupBy {
                     canonicalPath(it.file, project.basePath)
                 }
+                val merged = overlayUnsavedBuffers(onDisk, skipBuffers, isCancelled) ?: return false
+                findingsByFile = merged
                 lastReportJson = outcome.rawJson
-                transition(KritState.Idle(outcome.report.findings.size))
+                transition(KritState.Idle(merged.values.sumOf { it.size }))
             }
             is KritRunner.AnalyzeOutcome.MissingBinary -> {
                 findingsByFile = emptyMap()
@@ -371,6 +381,38 @@ class KritProjectService(private val project: Project) : Disposable {
         transition(KritState.Idle(updated.values.sumOf { it.size }))
         restartHighlighting()
         return true
+    }
+
+    // Analyzes every unsaved, scannable editor buffer through the daemon and
+    // lays the results over onDisk. Returns null when cancelled. Without a
+    // running daemon the buffers can't be analyzed (the CLI reads only files,
+    // and saving them for the scan would change the user's files), so onDisk
+    // is returned as is.
+    private fun overlayUnsavedBuffers(
+        onDisk: Map<String, List<KritFinding>>,
+        skipBuffers: Set<String>,
+        isCancelled: () -> Boolean,
+    ): Map<String, List<KritFinding>>? {
+        val skip = skipBuffers.mapTo(HashSet()) { canonicalPath(it, project.basePath) }
+        val buffers = unsavedBuffers().filterKeys { canonicalPath(it, project.basePath) !in skip }
+        if (buffers.isEmpty()) return onDisk
+        val outcomes = KritRunner.analyzeFilesWithDaemon(project, buffers, isCancelled) ?: return onDisk
+        val byCanonical = outcomes.mapKeys { (path, _) -> canonicalPath(path, project.basePath) }
+        return KritUnsavedBuffers.overlay(onDisk, byCanonical) { canonicalPath(it, project.basePath) }
+    }
+
+    // Path to text for each open document with unsaved changes that a scan
+    // would cover.
+    private fun unsavedBuffers(): Map<String, String?> {
+        if (project.isDisposed) return emptyMap()
+        return ReadAction.compute<Map<String, String?>, RuntimeException> {
+            val documents = FileDocumentManager.getInstance()
+            documents.unsavedDocuments.mapNotNull { document ->
+                val file = documents.getFile(document) ?: return@mapNotNull null
+                if (!file.isInLocalFileSystem || !shouldTriggerScan(file)) return@mapNotNull null
+                file.path to document.text
+            }.toMap()
+        }
     }
 
     // Returns the in-editor buffer text for path when one is open in the

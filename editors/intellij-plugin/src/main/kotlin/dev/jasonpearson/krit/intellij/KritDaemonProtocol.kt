@@ -27,6 +27,22 @@ object KritDaemonProtocol {
         val content: String,
     )
 
+    data class AnalyzeBuffersArgs(
+        val buffers: List<AnalyzeBufferArgs>,
+    )
+
+    // One slot per requested buffer, in request order. A buffer-level
+    // failure sets error and leaves findings empty (AnalyzeBufferEntry).
+    data class AnalyzeBufferEntry(
+        @SerializedName("findings") val findings: JsonObject? = null,
+        @SerializedName("cache_hit") val cacheHit: Boolean = false,
+        @SerializedName("error") val error: String? = null,
+    )
+
+    data class AnalyzeBuffersData(
+        @SerializedName("results") val results: List<AnalyzeBufferEntry>? = null,
+    )
+
     data class AnalyzeBufferData(
         @SerializedName("findings") val findings: JsonObject? = null,
         @SerializedName("cache_hit") val cacheHit: Boolean = false,

@@ -11,6 +11,7 @@ package rules
 import (
 	"context"
 	"runtime/pprof"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -790,6 +791,36 @@ func (d *Dispatcher) collectAllRules() []*api.Rule {
 	addAll(d.gradleRules)
 	addAll(d.aggregateRules)
 	return out
+}
+
+// SingleFileRuleIDs returns the IDs of the rules Run evaluates on a file:
+// node-dispatched and line rules that this dispatcher's resolver setup does
+// not skip. Cross-file, module-aware, Android, Gradle, and aggregate rules
+// are left out because Run never calls them. Buffer clients use the list to
+// tell which of a project scan's findings a buffer result replaces.
+func (d *Dispatcher) SingleFileRuleIDs() []string {
+	seen := make(map[*api.Rule]bool)
+	var ids []string
+	add := func(rs []*api.Rule) {
+		for _, r := range rs {
+			if r == nil || seen[r] {
+				continue
+			}
+			seen[r] = true
+			if _, ok := d.resolveForRule(r); !ok {
+				continue
+			}
+			ids = append(ids, r.ID)
+		}
+	}
+	add(d.nodeDispatchRules)
+	for _, bucket := range d.flatTypeRules {
+		add(bucket)
+	}
+	add(d.allNodeRules)
+	add(d.lineRules)
+	sort.Strings(ids)
+	return ids
 }
 
 // Stats returns per-family rule counts for logging.

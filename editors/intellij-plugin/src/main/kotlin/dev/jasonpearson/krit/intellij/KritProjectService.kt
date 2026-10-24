@@ -384,7 +384,8 @@ class KritProjectService(private val project: Project) : Disposable {
     }
 
     // Analyzes every unsaved, scannable editor buffer through the daemon and
-    // lays the results over onDisk. Returns null when cancelled. Without a
+    // lays the results over onDisk (for the per-file rules the daemon ran;
+    // see KritUnsavedBuffers.overlay). Returns null when cancelled. Without a
     // running daemon the buffers can't be analyzed (the CLI reads only files,
     // and saving them for the scan would change the user's files), so onDisk
     // is returned as is.
@@ -396,9 +397,11 @@ class KritProjectService(private val project: Project) : Disposable {
         val skip = skipBuffers.mapTo(HashSet()) { canonicalPath(it, project.basePath) }
         val buffers = unsavedBuffers().filterKeys { canonicalPath(it, project.basePath) !in skip }
         if (buffers.isEmpty()) return onDisk
-        val outcomes = KritRunner.analyzeFilesWithDaemon(project, buffers, isCancelled) ?: return onDisk
-        val byCanonical = outcomes.mapKeys { (path, _) -> canonicalPath(path, project.basePath) }
-        return KritUnsavedBuffers.overlay(onDisk, byCanonical) { canonicalPath(it, project.basePath) }
+        val scan = KritRunner.scanBuffersWithDaemon(project, buffers, isCancelled) ?: return onDisk
+        val byCanonical = scan.outcomes.mapKeys { (path, _) -> canonicalPath(path, project.basePath) }
+        return KritUnsavedBuffers.overlay(onDisk, byCanonical, scan.evaluatedRules) {
+            canonicalPath(it, project.basePath)
+        }
     }
 
     // Path to text for each open document with unsaved changes that a scan

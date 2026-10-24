@@ -121,9 +121,21 @@ object KritRunner {
         project: Project,
         liveContents: Map<String, String?>,
         isCancelled: () -> Boolean = NEVER_CANCELLED,
-    ): Map<String, AnalyzeOutcome>? {
-        if (liveContents.isEmpty()) return emptyMap()
-        if (isCancelled()) return liveContents.mapValues { AnalyzeOutcome.Cancelled }
+    ): Map<String, AnalyzeOutcome>? = scanBuffersWithDaemon(project, liveContents, isCancelled)?.outcomes
+
+    // An analyze-buffers result: an outcome per analyzed path, and the IDs
+    // of the rules the daemon evaluated (null when it didn't say).
+    data class BufferScan(val outcomes: Map<String, AnalyzeOutcome>, val evaluatedRules: Set<String>?)
+
+    // analyzeFilesWithDaemon, keeping the evaluated rule IDs the daemon
+    // reports alongside the outcomes.
+    fun scanBuffersWithDaemon(
+        project: Project,
+        liveContents: Map<String, String?>,
+        isCancelled: () -> Boolean = NEVER_CANCELLED,
+    ): BufferScan? {
+        if (liveContents.isEmpty()) return BufferScan(emptyMap(), null)
+        if (isCancelled()) return BufferScan(liveContents.mapValues { AnalyzeOutcome.Cancelled }, null)
         val projectDir = project.baseDir() ?: return null
         val socketPath = KritDaemonClient.socketPathFor(projectDir)
         if (!Files.exists(socketPath)) return null
@@ -135,11 +147,11 @@ object KritRunner {
             }
             content?.let { path to it }
         }
-        if (entries.isEmpty()) return emptyMap()
+        if (entries.isEmpty()) return BufferScan(emptyMap(), null)
         val client = daemonClientFor(project, socketPath) ?: return null
         // Same cancellation model as tryDaemonAnalyzeBuffer.
-        val call = daemonCalls.submit<List<KritDaemonClient.BufferResult>?> { client.analyzeBuffers(entries) }
-        var results: List<KritDaemonClient.BufferResult>? = null
+        val call = daemonCalls.submit<KritDaemonClient.BufferBatch?> { client.analyzeBufferBatch(entries) }
+        var results: KritDaemonClient.BufferBatch? = null
         val waited = try {
             KritScanWait.await(Long.MAX_VALUE, KritScanWait.POLL_INTERVAL_MS, isCancelled) { ms ->
                 try {
@@ -155,23 +167,23 @@ object KritRunner {
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             call.cancel(true)
-            return liveContents.mapValues { AnalyzeOutcome.Cancelled }
+            return BufferScan(liveContents.mapValues { AnalyzeOutcome.Cancelled }, null)
         }
         if (waited == KritWaitResult.Cancelled) {
             call.cancel(true)
-            return liveContents.mapValues { AnalyzeOutcome.Cancelled }
+            return BufferScan(liveContents.mapValues { AnalyzeOutcome.Cancelled }, null)
         }
         val batch = results ?: return null
         val outcomes = LinkedHashMap<String, AnalyzeOutcome>()
         entries.forEachIndexed { i, (path, _) ->
-            when (val result = batch[i]) {
+            when (val result = batch.results[i]) {
                 is KritDaemonClient.BufferResult.Findings ->
                     outcomes[path] = AnalyzeOutcome.Success(KritReport(result.findings), "")
                 is KritDaemonClient.BufferResult.Error ->
                     log.debug("krit daemon could not analyze $path: ${result.message}")
             }
         }
-        return outcomes
+        return BufferScan(outcomes, batch.evaluatedRules)
     }
 
     // The project's shared daemon client, or null when the project is gone.

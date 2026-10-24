@@ -101,8 +101,8 @@ class KritProjectService(private val project: Project) : Disposable {
         }
     }
 
-    // Pauses automatic scans when the last Krit inspection is disabled and
-    // runs a full refresh as soon as one is enabled again, instead of waiting
+    // Pauses automatic scans (and clears the findings they would have kept
+    // fresh) when the last Krit inspection is disabled, and runs a full refresh as soon as one is enabled again, instead of waiting
     // for the next edit.
     private fun onInspectionProfileChanged() {
         if (project.isDisposed) return
@@ -113,6 +113,14 @@ class KritProjectService(private val project: Project) : Disposable {
             synchronized(scanLock) {
                 pendingScan?.cancel(false)
                 pendingScan = null
+            }
+            // No scan will refresh these while paused, so drop them rather
+            // than leave warnings on code the user goes on to edit. The
+            // external annotator reads this map regardless of the toggles.
+            if (wasEnabled) {
+                findingsByFile = emptyMap()
+                lastReportJson = ""
+                restartHighlighting()
             }
             return
         }

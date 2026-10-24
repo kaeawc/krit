@@ -126,6 +126,11 @@ class KritProjectService(private val project: Project) : Disposable {
                     executor.execute {
                         findingsByFile = emptyMap()
                         lastReportJson = ""
+                        // A scan cancelled by the pause left the widget at
+                        // Scanning; nothing replaces it while paused.
+                        if (state is KritState.Scanning || state is KritState.Idle) {
+                            transition(KritState.Idle(0))
+                        }
                         restartHighlighting()
                     }
                 } catch (_: java.util.concurrent.RejectedExecutionException) {
@@ -226,7 +231,10 @@ class KritProjectService(private val project: Project) : Disposable {
             val generation = scanGeneration.current()
             val isCancelled = { scanGeneration.isSuperseded(generation) }
             val targets = drainPendingFiles()
-            val full = targets.isEmpty() || projectRescanPending
+            // A project refresh left pending while the inspections were off
+            // waits for them to come back on; an explicit Analyze File in the
+            // meantime scans only its files.
+            val full = targets.isEmpty() || (projectRescanPending && inspectionsEnabled)
             if (full) {
                 if (!refreshFindings(isCancelled)) {
                     // Superseded: keep the edited files queued for the scan

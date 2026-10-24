@@ -29,13 +29,38 @@ import java.nio.file.Paths
 // becomes a null return so callers can fall back to the CLI invocation
 // path. We do NOT crash the IDE on a daemon hiccup, and a daemon restart
 // mid-session reconnects on the next call.
-class KritDaemonClient(private val socketPath: Path) : AutoCloseable {
+//
+// Binary handshake: when [expectedBinaryHash] yields a hash (the SHA-256 of
+// the krit binary the plugin would run), each new connection first asks the
+// daemon's `status` for the hash of the binary it was started from. On a
+// mismatch the client stops using the daemon (every call returns null, so
+// callers use the CLI) and reports it once through [onBinaryMismatch] until
+// [resetBinaryCheck]. An empty hash on either side means "no opinion".
+class KritDaemonClient(
+    private val socketPath: Path,
+    private val expectedBinaryHash: () -> String? = { null },
+    private val onBinaryMismatch: (daemonHash: String, clientHash: String) -> Unit = { _, _ -> },
+) : AutoCloseable {
     private val log = Logger.getInstance(KritDaemonClient::class.java)
     private val gson = Gson()
 
     // Guarded by `this`. The reader is tied to the channel it wraps.
     private var channel: SocketChannel? = null
     private var reader: BufferedReader? = null
+    // Whether the open channel passed the binary handshake. Guarded by `this`.
+    private var verified = false
+    // Set by a failed handshake; the daemon is skipped until reset.
+    @Volatile
+    var binaryMismatch = false
+        private set
+
+    // Forgets a mismatch (after the daemon was restarted) so the next call
+    // dials and checks again.
+    @Synchronized
+    fun resetBinaryCheck() {
+        binaryMismatch = false
+        invalidate()
+    }
 
     fun available(): Boolean {
         if (!Files.exists(socketPath)) return false
@@ -95,9 +120,14 @@ class KritDaemonClient(private val socketPath: Path) : AutoCloseable {
 
     @Synchronized
     private fun call(verb: String, args: JsonObject?): JsonObject? {
+        if (binaryMismatch) return null
         for (attempt in 1..2) {
             try {
                 obtain()
+                if (!verified) {
+                    if (!verifyBinary()) return null
+                    verified = true
+                }
                 writeRequest(channel!!, verb, args)
                 return readResponse(reader!!)
             } catch (_: ClosedByInterruptException) {
@@ -131,6 +161,24 @@ class KritDaemonClient(private val socketPath: Path) : AutoCloseable {
         runCatching { channel?.close() }
         channel = null
         reader = null
+        verified = false
+    }
+
+    // Requires the monitor and an open channel. Returns false (after
+    // recording the mismatch) when the daemon runs a different krit binary;
+    // true when the hashes match or either side has no hash to compare.
+    private fun verifyBinary(): Boolean {
+        val expected = runCatching { expectedBinaryHash() }.getOrNull()?.takeIf { it.isNotBlank() } ?: return true
+        writeRequest(channel!!, KritDaemonProtocol.VERB_STATUS, null)
+        val data = readResponse(reader!!) ?: return true
+        val daemonHash = gson.fromJson(data, KritDaemonProtocol.StatusData::class.java)
+            ?.binaryHash?.takeIf { it.isNotBlank() } ?: return true
+        if (daemonHash == expected) return true
+        binaryMismatch = true
+        invalidate()
+        log.info("krit daemon at $socketPath runs a different krit binary (daemon=$daemonHash plugin=$expected)")
+        runCatching { onBinaryMismatch(daemonHash, expected) }
+        return false
     }
 
     private fun openChannel(): SocketChannel {

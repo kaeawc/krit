@@ -113,10 +113,16 @@ class KritProjectService(private val project: Project) : Disposable {
         try {
             executor.execute {
                 val canonical = canonicalPath(path, project.basePath)
-                if (findingsByFile.containsKey(canonical)) {
+                val dropped = findingsByFile.containsKey(canonical)
+                if (dropped) {
                     findingsByFile = findingsByFile - canonical
-                    restartHighlighting()
                 }
+                // A scan the bump cancelled left the widget at Scanning, and
+                // no automatic scan will replace it while paused.
+                if (dropped || state is KritState.Scanning) {
+                    transition(KritState.Idle(findingsByFile.values.sumOf { it.size }))
+                }
+                if (dropped) restartHighlighting()
             }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
             // Disposed concurrently.

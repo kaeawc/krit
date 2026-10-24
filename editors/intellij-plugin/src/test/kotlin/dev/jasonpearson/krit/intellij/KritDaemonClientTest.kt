@@ -230,6 +230,38 @@ class KritDaemonClientTest {
     }
 
     @Test
+    fun `a replaced daemon with a matching binary is picked up after the retry interval`() {
+        val daemonHash = AtomicReference("old")
+        server = MockDaemonServer.start(socketPath, keepAlive = true) { verb, _ ->
+            if (verb == KritDaemonProtocol.VERB_STATUS) okResponse("""{"binary_hash":"${daemonHash.get()}"}""")
+            else okResponse(singleFindingColumnsPayload())
+        }
+        var now = 0L
+        val mismatches = AtomicInteger()
+        KritDaemonClient(
+            socketPath,
+            expectedBinaryHash = { "new" },
+            onBinaryMismatch = { _, _ -> mismatches.incrementAndGet() },
+            mismatchRetryMs = 1_000,
+            clock = { now },
+        ).use { client ->
+            assertNull(client.analyzeBuffer("/x.kt", ""))
+            // Within the retry interval the daemon isn't contacted again.
+            now = 500
+            assertNull(client.analyzeBuffer("/x.kt", ""))
+            // Still mismatched after the interval: no second report.
+            now = 1_500
+            assertNull(client.analyzeBuffer("/x.kt", ""))
+            // The CLI fallback (or the user) replaced the daemon.
+            daemonHash.set("new")
+            now = 3_000
+            assertEquals(1, client.analyzeBuffer("/x.kt", "")?.size)
+            assertFalse(client.binaryMismatch)
+        }
+        assertEquals(1, mismatches.get())
+    }
+
+    @Test
     fun `no expected hash skips the handshake`() {
         val verbs = java.util.Collections.synchronizedList(mutableListOf<String>())
         server = MockDaemonServer.start(socketPath, keepAlive = true) { verb, _ ->

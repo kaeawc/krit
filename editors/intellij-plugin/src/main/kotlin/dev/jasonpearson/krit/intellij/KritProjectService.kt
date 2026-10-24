@@ -347,13 +347,11 @@ class KritProjectService(private val project: Project) : Disposable {
         return daemonClient
     }
 
-    private val binaryMismatchNotified = AtomicBoolean(false)
-
     // The daemon was started by a different krit binary than this project
     // resolves (an upgrade mid-session, or a daemon from another install).
-    // Scans already fall back to the CLI; offer to restart the daemon.
+    // Scans already fall back to the CLI; offer to restart the daemon. The
+    // client reports each mismatch once, until the daemon matches again.
     private fun notifyBinaryMismatchOnce() {
-        if (!binaryMismatchNotified.compareAndSet(false, true)) return
         ApplicationManager.getApplication().invokeLater {
             if (project.isDisposed) return@invokeLater
             NotificationGroupManager.getInstance()
@@ -374,7 +372,6 @@ class KritProjectService(private val project: Project) : Disposable {
             if (project.isDisposed) return@executeOnPooledThread
             val restarted = KritRunner.restartDaemon(project)
             synchronized(this) { daemonClient?.resetBinaryCheck() }
-            binaryMismatchNotified.set(false)
             if (!restarted) {
                 ApplicationManager.getApplication().invokeLater {
                     if (project.isDisposed) return@invokeLater

@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.intellij
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
+import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
@@ -440,10 +441,55 @@ class KritProjectService(private val project: Project) : Disposable {
         if (disposed) return null
         if (daemonClientSocket != socketPath) {
             daemonClient?.close()
-            daemonClient = KritDaemonClient(socketPath)
+            daemonClient = KritDaemonClient(
+                socketPath,
+                expectedBinaryHash = { KritBinaryResolver.find(project)?.let { KritBinaryHash.of(it) } },
+                onBinaryMismatch = { _, _ -> notifyBinaryMismatchOnce() },
+            )
             daemonClientSocket = socketPath
         }
         return daemonClient
+    }
+
+    // The daemon was started by a different krit binary than this project
+    // resolves (an upgrade mid-session, or a daemon from another install).
+    // Scans already fall back to the CLI; offer to restart the daemon. The
+    // client reports each mismatch once, until the daemon matches again.
+    private fun notifyBinaryMismatchOnce() {
+        ApplicationManager.getApplication().invokeLater {
+            if (project.isDisposed) return@invokeLater
+            NotificationGroupManager.getInstance()
+                .getNotificationGroup("Krit")
+                .createNotification(
+                    "Krit daemon runs a different krit binary",
+                    "The running daemon was started by another krit binary than this project uses, " +
+                        "so Krit is using the CLI instead. Restart the daemon to use it again.",
+                    NotificationType.WARNING,
+                )
+                .addAction(NotificationAction.createSimpleExpiring("Restart daemon") { restartDaemon() })
+                .notify(project)
+        }
+    }
+
+    private fun restartDaemon() {
+        ApplicationManager.getApplication().executeOnPooledThread {
+            if (project.isDisposed) return@executeOnPooledThread
+            val restarted = KritRunner.restartDaemon(project)
+            synchronized(this) { daemonClient?.resetBinaryCheck() }
+            if (!restarted) {
+                ApplicationManager.getApplication().invokeLater {
+                    if (project.isDisposed) return@invokeLater
+                    NotificationGroupManager.getInstance()
+                        .getNotificationGroup("Krit")
+                        .createNotification(
+                            "Krit daemon restart failed",
+                            "Run `krit daemon restart` in the project directory; see the IDE log for details.",
+                            NotificationType.ERROR,
+                        )
+                        .notify(project)
+                }
+            }
+        }
     }
 
     @Volatile

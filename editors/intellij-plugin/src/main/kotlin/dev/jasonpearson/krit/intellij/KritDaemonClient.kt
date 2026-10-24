@@ -47,8 +47,10 @@ class KritDaemonClient(
     // Guarded by `this`. The reader is tied to the channel it wraps.
     private var channel: SocketChannel? = null
     private var reader: BufferedReader? = null
-    // Whether the open channel passed the binary handshake. Guarded by `this`.
-    private var verified = false
+    // The plugin-side hash the open channel was last verified against ("" when
+    // none was expected), or null when the channel hasn't been checked.
+    // Guarded by `this`.
+    private var verifiedHash: String? = null
     // Set by a failed handshake; the daemon is skipped until reset.
     @Volatile
     var binaryMismatch = false
@@ -124,9 +126,13 @@ class KritDaemonClient(
         for (attempt in 1..2) {
             try {
                 obtain()
-                if (!verified) {
-                    if (!verifyBinary()) return null
-                    verified = true
+                // Re-checked whenever the resolved binary changes (a settings
+                // change or an in-place upgrade), not only on a new connection.
+                // The hash is cached, so this is cheap when nothing changed.
+                val expected = runCatching { expectedBinaryHash() }.getOrNull()?.takeIf { it.isNotBlank() } ?: ""
+                if (verifiedHash != expected) {
+                    if (!verifyBinary(expected)) return null
+                    verifiedHash = expected
                 }
                 writeRequest(channel!!, verb, args)
                 return readResponse(reader!!)
@@ -161,14 +167,14 @@ class KritDaemonClient(
         runCatching { channel?.close() }
         channel = null
         reader = null
-        verified = false
+        verifiedHash = null
     }
 
     // Requires the monitor and an open channel. Returns false (after
     // recording the mismatch) when the daemon runs a different krit binary;
     // true when the hashes match or either side has no hash to compare.
-    private fun verifyBinary(): Boolean {
-        val expected = runCatching { expectedBinaryHash() }.getOrNull()?.takeIf { it.isNotBlank() } ?: return true
+    private fun verifyBinary(expected: String): Boolean {
+        if (expected.isEmpty()) return true
         writeRequest(channel!!, KritDaemonProtocol.VERB_STATUS, null)
         val data = readResponse(reader!!) ?: return true
         val daemonHash = gson.fromJson(data, KritDaemonProtocol.StatusData::class.java)

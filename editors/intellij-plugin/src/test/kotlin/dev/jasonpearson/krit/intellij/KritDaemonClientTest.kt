@@ -198,6 +198,38 @@ class KritDaemonClientTest {
     }
 
     @Test
+    fun `a changed plugin binary is re-checked on the open connection`() {
+        val verbs = java.util.Collections.synchronizedList(mutableListOf<String>())
+        server = MockDaemonServer.start(socketPath, keepAlive = true) { verb, _ ->
+            verbs.add(verb)
+            if (verb == KritDaemonProtocol.VERB_STATUS) okResponse("""{"binary_hash":"old"}""")
+            else okResponse(singleFindingColumnsPayload())
+        }
+        var pluginHash = "old"
+        val mismatches = AtomicInteger()
+        KritDaemonClient(
+            socketPath,
+            expectedBinaryHash = { pluginHash },
+            onBinaryMismatch = { _, _ -> mismatches.incrementAndGet() },
+        ).use { client ->
+            assertEquals(1, client.analyzeBuffer("/x.kt", "")?.size)
+            assertEquals(1, client.analyzeBuffer("/x.kt", "")?.size)
+            pluginHash = "new" // e.g. the project's krit binary was upgraded
+            assertNull(client.analyzeBuffer("/x.kt", ""))
+        }
+        assertEquals(1, mismatches.get())
+        assertEquals(
+            listOf(
+                KritDaemonProtocol.VERB_STATUS,
+                KritDaemonProtocol.VERB_ANALYZE_BUFFER,
+                KritDaemonProtocol.VERB_ANALYZE_BUFFER,
+                KritDaemonProtocol.VERB_STATUS,
+            ),
+            verbs.toList(),
+        )
+    }
+
+    @Test
     fun `no expected hash skips the handshake`() {
         val verbs = java.util.Collections.synchronizedList(mutableListOf<String>())
         server = MockDaemonServer.start(socketPath, keepAlive = true) { verb, _ ->

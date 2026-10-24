@@ -10,6 +10,7 @@ import java.net.StandardProtocolFamily
 import java.net.UnixDomainSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.Channels
+import java.nio.channels.ClosedByInterruptException
 import java.nio.channels.SocketChannel
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -17,24 +18,32 @@ import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.Paths
 
-// Direct Unix-socket client for the krit daemon. Per-call dial — the
-// Go-side client (internal/daemon/client.go) uses the same pattern and
-// it's plenty fast on Unix sockets. Reusing a long-lived connection is
-// a future optimisation if profiling shows the dial cost matters.
+// Direct Unix-socket client for the krit daemon. One connection is held
+// open and reused across calls (the daemon serves many line-delimited
+// requests per connection), so a burst of edits doesn't dial a fresh
+// socket per scan. KritProjectService owns one client per daemon socket
+// and closes it on dispose.
 //
-// Resilience model: any IOException becomes a null return so callers
-// can fall back to the CLI invocation path. We do NOT crash the IDE on
-// a daemon hiccup.
-class KritDaemonClient(private val socketPath: Path) {
+// Resilience model: when a write or read fails, the connection is dropped,
+// a fresh one is dialed and the call is retried once. A second failure
+// becomes a null return so callers can fall back to the CLI invocation
+// path. We do NOT crash the IDE on a daemon hiccup, and a daemon restart
+// mid-session reconnects on the next call.
+class KritDaemonClient(private val socketPath: Path) : AutoCloseable {
     private val log = Logger.getInstance(KritDaemonClient::class.java)
     private val gson = Gson()
+
+    // Guarded by `this`. The reader is tied to the channel it wraps.
+    private var channel: SocketChannel? = null
+    private var reader: BufferedReader? = null
 
     fun available(): Boolean {
         if (!Files.exists(socketPath)) return false
         return try {
-            openChannel().use { /* dial only */ }
+            synchronized(this) { obtain() }
             true
         } catch (_: IOException) {
+            synchronized(this) { invalidate() }
             false
         }
     }
@@ -47,16 +56,81 @@ class KritDaemonClient(private val socketPath: Path) {
         return KritColumnarFindingsDecoder.decode(payload.findings)
     }
 
-    private fun call(verb: String, args: JsonObject?): JsonObject? {
-        return try {
-            openChannel().use { channel ->
-                writeRequest(channel, verb, args)
-                readResponse(channel)
-            }
-        } catch (t: IOException) {
-            log.debug("krit daemon call failed for $verb: ${t.message}")
-            null
+    /**
+     * Analyzes several buffers in one analyze-buffers request. Returns one
+     * result per entry, in order, or null when the call failed as a whole (no
+     * daemon, transport error, or a reply that doesn't match the request), so
+     * the caller can fall back. A buffer the daemon could not analyze comes
+     * back as [BufferResult.Error] without failing the rest of the batch.
+     */
+    fun analyzeBuffers(entries: List<Pair<String, String>>): List<BufferResult>? {
+        if (entries.isEmpty()) return emptyList()
+        val buffers = entries.map { (path, content) -> KritDaemonProtocol.AnalyzeBufferArgs(path, content) }
+        val args = gson.toJsonTree(KritDaemonProtocol.AnalyzeBuffersArgs(buffers)).asJsonObject
+        val data = call(KritDaemonProtocol.VERB_ANALYZE_BUFFERS, args) ?: return null
+        val payload = gson.fromJson(data, KritDaemonProtocol.AnalyzeBuffersData::class.java) ?: return null
+        val results = payload.results.orEmpty()
+        if (results.size != entries.size) {
+            log.debug("krit daemon analyze-buffers returned ${results.size} results for ${entries.size} buffers")
+            return null
         }
+        return results.map { entry ->
+            if (!entry.error.isNullOrEmpty()) {
+                BufferResult.Error(entry.error)
+            } else {
+                BufferResult.Findings(KritColumnarFindingsDecoder.decode(entry.findings))
+            }
+        }
+    }
+
+    sealed class BufferResult {
+        data class Findings(val findings: List<KritFinding>) : BufferResult()
+        data class Error(val message: String) : BufferResult()
+    }
+
+    @Synchronized
+    override fun close() {
+        invalidate()
+    }
+
+    @Synchronized
+    private fun call(verb: String, args: JsonObject?): JsonObject? {
+        for (attempt in 1..2) {
+            try {
+                obtain()
+                writeRequest(channel!!, verb, args)
+                return readResponse(reader!!)
+            } catch (_: ClosedByInterruptException) {
+                // The caller abandoned this call (a newer scan superseded
+                // it); the interrupt closed the channel. Don't redial.
+                invalidate()
+                return null
+            } catch (t: IOException) {
+                invalidate()
+                if (attempt == 2 || Thread.currentThread().isInterrupted) {
+                    log.debug("krit daemon call failed for $verb: ${t.message}")
+                    return null
+                }
+            }
+        }
+        return null
+    }
+
+    // Requires the monitor. Returns the open channel, dialing one if needed.
+    private fun obtain(): SocketChannel {
+        channel?.let { if (it.isOpen) return it }
+        invalidate()
+        val opened = openChannel()
+        channel = opened
+        reader = BufferedReader(InputStreamReader(Channels.newInputStream(opened), StandardCharsets.UTF_8))
+        return opened
+    }
+
+    // Requires the monitor.
+    private fun invalidate() {
+        runCatching { channel?.close() }
+        channel = null
+        reader = null
     }
 
     private fun openChannel(): SocketChannel {
@@ -93,12 +167,13 @@ class KritDaemonClient(private val socketPath: Path) {
         }
     }
 
-    private fun readResponse(channel: SocketChannel): JsonObject? {
+    private fun readResponse(reader: BufferedReader): JsonObject? {
         // The daemon writes one JSON object per response terminated by \n,
         // but a single analyze-buffer reply can run to tens of KB on a
-        // chatty file — read a full line, not a fixed-size buffer.
-        val reader = BufferedReader(InputStreamReader(Channels.newInputStream(channel), StandardCharsets.UTF_8))
-        val line = reader.readLine() ?: return null
+        // chatty file — read a full line, not a fixed-size buffer. EOF means
+        // the daemon closed the connection (restart, idle exit): that is a
+        // transport failure, so the caller redials.
+        val line = reader.readLine() ?: throw IOException("krit daemon closed the connection")
         val response = gson.fromJson(line, KritDaemonProtocol.Response::class.java) ?: return null
         if (!response.ok) {
             log.debug("krit daemon error: ${response.error}")

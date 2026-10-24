@@ -11,6 +11,7 @@ import java.nio.channels.ServerSocketChannel
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -87,13 +88,79 @@ class KritDaemonClientTest {
         assertNull(KritDaemonClient(socketPath).analyzeBuffer("/x.kt", ""))
     }
 
+    @Test
+    fun `consecutive calls reuse one connection`() {
+        server = MockDaemonServer.start(socketPath, keepAlive = true) { _, _ -> okResponse(singleFindingColumnsPayload()) }
+        KritDaemonClient(socketPath).use { client ->
+            repeat(5) { assertEquals(1, client.analyzeBuffer("/repo/X.kt", "fun a() {}\n")?.size) }
+        }
+        assertEquals(1, server!!.accepted.get())
+    }
+
+    @Test
+    fun `a connection the daemon closed is redialed and the call retried`() {
+        // The default mock closes each connection after one reply, as a
+        // restarted or idle-exited daemon would; every later call must still
+        // succeed on a fresh dial instead of failing on the dead socket.
+        server = MockDaemonServer.start(socketPath) { _, _ -> okResponse(singleFindingColumnsPayload()) }
+        KritDaemonClient(socketPath).use { client ->
+            repeat(3) { assertEquals(1, client.analyzeBuffer("/repo/X.kt", "")?.size) }
+        }
+        assertEquals(3, server!!.accepted.get())
+    }
+
+    @Test
+    fun `close drops the connection and a later call dials again`() {
+        server = MockDaemonServer.start(socketPath, keepAlive = true) { _, _ -> okResponse(emptyColumnsPayload()) }
+        val client = KritDaemonClient(socketPath)
+        assertTrue(client.analyzeBuffer("/x.kt", "") != null)
+        client.close()
+        assertTrue(client.analyzeBuffer("/x.kt", "") != null)
+        client.close()
+        assertEquals(2, server!!.accepted.get())
+    }
+
+    @Test
+    fun `analyzeBuffers sends one request and keeps per-buffer errors local`() {
+        val requests = AtomicReference<String>()
+        server = MockDaemonServer.start(socketPath) { verb, line ->
+            requests.set("$verb $line")
+            okResponse(
+                """{"results":[""" +
+                    """{"findings":${singleFindingColumns()},"cache_hit":false},""" +
+                    """{"cache_hit":false,"error":"parse failed"}""" +
+                    """]}""",
+            )
+        }
+        val results = KritDaemonClient(socketPath).use { client ->
+            client.analyzeBuffers(listOf("/repo/X.kt" to "fun a() {}\n", "/repo/Y.kt" to "fun ("))
+        }
+        assertTrue(requests.get().startsWith(KritDaemonProtocol.VERB_ANALYZE_BUFFERS + " "))
+        assertTrue(requests.get().contains("/repo/Y.kt"))
+        assertEquals(2, results?.size)
+        val first = results!![0] as KritDaemonClient.BufferResult.Findings
+        assertEquals("rule.id", first.findings.single().rule)
+        assertEquals(KritDaemonClient.BufferResult.Error("parse failed"), results[1])
+        assertEquals(1, server!!.accepted.get())
+    }
+
+    @Test
+    fun `analyzeBuffers returns null when the reply does not match the request`() {
+        server = MockDaemonServer.start(socketPath) { _, _ -> okResponse("""{"results":[]}""") }
+        val results = KritDaemonClient(socketPath).use { it.analyzeBuffers(listOf("/x.kt" to "")) }
+        assertNull(results)
+    }
+
     private fun emptyColumnsPayload(): String =
         """{"findings":{},"cache_hit":false}"""
 
     private fun singleFindingColumnsPayload(): String =
-        """{"findings":{"files":["/repo/X.kt"],"ruleSets":["rs"],"rules":["rule.id"],"messages":["m"],""" +
+        """{"findings":${singleFindingColumns()},"cache_hit":false}"""
+
+    private fun singleFindingColumns(): String =
+        """{"files":["/repo/X.kt"],"ruleSets":["rs"],"rules":["rule.id"],"messages":["m"],""" +
             """"fileIdx":[0],"line":[1],"col":[1],"ruleSetIdx":[0],"ruleIdx":[0],"severityID":[1],""" +
-            """"messageIdx":[0],"confidence":[80],"n":1},"cache_hit":false}"""
+            """"messageIdx":[0],"confidence":[80],"n":1}"""
 
     // Daemon writes one JSON object per response terminated by \n. Strip
     // any embedded newlines so tests can author pretty-printed JSON in
@@ -105,6 +172,7 @@ class KritDaemonClientTest {
 private class MockDaemonServer private constructor(
     private val server: ServerSocketChannel,
     private val thread: Thread,
+    val accepted: AtomicInteger,
 ) : AutoCloseable {
     @Volatile
     private var running = true
@@ -117,12 +185,17 @@ private class MockDaemonServer private constructor(
     }
 
     companion object {
+        // keepAlive serves requests on a connection until the client closes
+        // it, like the real daemon; otherwise each connection is closed after
+        // one reply. accepted counts the connections dialed.
         fun start(
             socketPath: Path,
+            keepAlive: Boolean = false,
             respond: (verb: String, requestLine: String) -> String,
         ): MockDaemonServer {
             val server = ServerSocketChannel.open(StandardProtocolFamily.UNIX)
             server.bind(UnixDomainSocketAddress.of(socketPath))
+            val accepted = AtomicInteger()
             val thread = Thread {
                 while (true) {
                     val conn = try {
@@ -130,22 +203,27 @@ private class MockDaemonServer private constructor(
                     } catch (_: IOException) {
                         return@Thread
                     }
+                    accepted.incrementAndGet()
                     try {
                         val reader = BufferedReader(
                             InputStreamReader(Channels.newInputStream(conn), StandardCharsets.UTF_8),
                         )
-                        val requestLine = reader.readLine() ?: continue
-                        // Cheap verb extraction — doesn't need a JSON parser
-                        // for the test fixture. Pattern: {"verb":"…"}.
-                        val verb = Regex("\"verb\"\\s*:\\s*\"([^\"]+)\"")
-                            .find(requestLine)?.groupValues?.getOrNull(1)
-                            .orEmpty()
-                        val response = respond(verb, requestLine)
-                        val bytes = response.toByteArray(StandardCharsets.UTF_8)
-                        var buf = ByteBuffer.wrap(bytes)
-                        while (buf.hasRemaining()) {
-                            conn.write(buf)
-                        }
+                        do {
+                            val requestLine = reader.readLine() ?: break
+                            // Cheap verb extraction — doesn't need a JSON parser
+                            // for the test fixture. Pattern: {"verb":"…"}.
+                            val verb = Regex("\"verb\"\\s*:\\s*\"([^\"]+)\"")
+                                .find(requestLine)?.groupValues?.getOrNull(1)
+                                .orEmpty()
+                            val response = respond(verb, requestLine)
+                            val bytes = response.toByteArray(StandardCharsets.UTF_8)
+                            var buf = ByteBuffer.wrap(bytes)
+                            while (buf.hasRemaining()) {
+                                conn.write(buf)
+                            }
+                        } while (keepAlive)
+                    } catch (_: IOException) {
+                        // Client went away mid-request; wait for the next one.
                     } finally {
                         runCatching { conn.close() }
                     }
@@ -153,7 +231,7 @@ private class MockDaemonServer private constructor(
             }
             thread.isDaemon = true
             thread.start()
-            return MockDaemonServer(server, thread)
+            return MockDaemonServer(server, thread, accepted)
         }
     }
 }

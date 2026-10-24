@@ -49,7 +49,7 @@ object KritRunner {
         isCancelled: () -> Boolean = NEVER_CANCELLED,
     ): AnalyzeOutcome {
         val projectDir = project.baseDir() ?: return AnalyzeOutcome.Failure("project has no base path")
-        val daemonOutcome = tryDaemonAnalyzeBuffer(projectDir, filePath, liveContent, isCancelled)
+        val daemonOutcome = tryDaemonAnalyzeBuffer(project, projectDir, filePath, liveContent, isCancelled)
         if (daemonOutcome != null) {
             return daemonOutcome
         }
@@ -57,6 +57,7 @@ object KritRunner {
     }
 
     private fun tryDaemonAnalyzeBuffer(
+        project: Project,
         projectDir: File,
         filePath: String,
         liveContent: String?,
@@ -74,8 +75,9 @@ object KritRunner {
         // aborted server-side. Run the blocking socket call on a helper thread
         // and stop waiting (interrupting it, which closes the channel) once
         // cancelled; the late result is dropped.
+        val client = daemonClientFor(project, socketPath) ?: return null
         val call = daemonCalls.submit<List<KritFinding>?> {
-            KritDaemonClient(socketPath).analyzeBuffer(filePath, content)
+            client.analyzeBuffer(filePath, content)
         }
         var result: List<KritFinding>? = null
         val waited = try {
@@ -105,6 +107,77 @@ object KritRunner {
         // refresh after each apply-fix anyway, so lastReportJson is
         // never consumed for daemon-served updates.
         return AnalyzeOutcome.Success(KritReport(findings), "")
+    }
+
+    // Batched form of the daemon path in analyzeFile, for a change window
+    // that touched several files: one analyze-buffers request instead of one
+    // round trip per file. liveContents maps each path to its in-editor text
+    // (null reads the file from disk). Returns an outcome per path the daemon
+    // analyzed; paths it could not (a per-buffer error, an unreadable file)
+    // are left out so the caller can retry them one by one. Returns null when
+    // no daemon answered, and a map holding only Cancelled when a newer scan
+    // superseded this one.
+    fun analyzeFilesWithDaemon(
+        project: Project,
+        liveContents: Map<String, String?>,
+        isCancelled: () -> Boolean = NEVER_CANCELLED,
+    ): Map<String, AnalyzeOutcome>? {
+        if (liveContents.isEmpty()) return emptyMap()
+        if (isCancelled()) return liveContents.mapValues { AnalyzeOutcome.Cancelled }
+        val projectDir = project.baseDir() ?: return null
+        val socketPath = KritDaemonClient.socketPathFor(projectDir)
+        if (!Files.exists(socketPath)) return null
+        val entries = liveContents.mapNotNull { (path, live) ->
+            val content = live ?: try {
+                File(path).readText()
+            } catch (_: java.io.IOException) {
+                null
+            }
+            content?.let { path to it }
+        }
+        if (entries.isEmpty()) return emptyMap()
+        val client = daemonClientFor(project, socketPath) ?: return null
+        // Same cancellation model as tryDaemonAnalyzeBuffer.
+        val call = daemonCalls.submit<List<KritDaemonClient.BufferResult>?> { client.analyzeBuffers(entries) }
+        var results: List<KritDaemonClient.BufferResult>? = null
+        val waited = try {
+            KritScanWait.await(Long.MAX_VALUE, KritScanWait.POLL_INTERVAL_MS, isCancelled) { ms ->
+                try {
+                    results = call.get(ms, TimeUnit.MILLISECONDS)
+                    true
+                } catch (_: TimeoutException) {
+                    false
+                }
+            }
+        } catch (t: ExecutionException) {
+            log.debug("krit daemon analyze-buffers threw, falling back", t)
+            return null
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            call.cancel(true)
+            return liveContents.mapValues { AnalyzeOutcome.Cancelled }
+        }
+        if (waited == KritWaitResult.Cancelled) {
+            call.cancel(true)
+            return liveContents.mapValues { AnalyzeOutcome.Cancelled }
+        }
+        val batch = results ?: return null
+        val outcomes = LinkedHashMap<String, AnalyzeOutcome>()
+        entries.forEachIndexed { i, (path, _) ->
+            when (val result = batch[i]) {
+                is KritDaemonClient.BufferResult.Findings ->
+                    outcomes[path] = AnalyzeOutcome.Success(KritReport(result.findings), "")
+                is KritDaemonClient.BufferResult.Error ->
+                    log.debug("krit daemon could not analyze $path: ${result.message}")
+            }
+        }
+        return outcomes
+    }
+
+    // The project's shared daemon client, or null when the project is gone.
+    private fun daemonClientFor(project: Project, socketPath: java.nio.file.Path): KritDaemonClient? {
+        if (project.isDisposed) return null
+        return project.getService(KritProjectService::class.java)?.daemonClientFor(socketPath)
     }
 
     private fun runAnalyze(

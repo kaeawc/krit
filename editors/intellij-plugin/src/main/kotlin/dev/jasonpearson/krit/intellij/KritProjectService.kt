@@ -17,6 +17,7 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.WindowManager
 import java.io.File
+import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
@@ -226,10 +227,20 @@ class KritProjectService(private val project: Project) : Disposable {
         // failure mode in the status bar.
         transition(KritState.Scanning)
         val updated = findingsByFile.toMutableMap()
+        // Several changed files go to the daemon in one analyze-buffers
+        // request. Files it didn't answer for (no daemon, a per-buffer error)
+        // fall through to the one-by-one path below, which still ends in the
+        // CLI when no daemon is running.
+        val batched = if (paths.size > 1) {
+            KritRunner.analyzeFilesWithDaemon(project, paths.associateWith { readLiveDocument(it) }, isCancelled)
+                .orEmpty()
+        } else {
+            emptyMap()
+        }
         for (path in paths) {
             val canonical = canonicalPath(path, project.basePath)
-            val liveContent = readLiveDocument(path)
-            val outcome = KritRunner.analyzeFile(project, path, liveContent, isCancelled)
+            val outcome = batched[path]
+                ?: KritRunner.analyzeFile(project, path, readLiveDocument(path), isCancelled)
             if (outcome is KritRunner.AnalyzeOutcome.Cancelled || isCancelled()) return false
             when (outcome) {
                 is KritRunner.AnalyzeOutcome.Success -> {
@@ -314,12 +325,38 @@ class KritProjectService(private val project: Project) : Disposable {
         }
     }
 
+    // One daemon client (and so one open socket) per daemon socket path for
+    // the life of the project. A changed socket path (the daemon moved to its
+    // fallback socket) replaces the client.
+    private var daemonClient: KritDaemonClient? = null
+    private var daemonClientSocket: Path? = null
+
+    @Synchronized
+    internal fun daemonClientFor(socketPath: Path): KritDaemonClient? {
+        if (disposed) return null
+        if (daemonClientSocket != socketPath) {
+            daemonClient?.close()
+            daemonClient = KritDaemonClient(socketPath)
+            daemonClientSocket = socketPath
+        }
+        return daemonClient
+    }
+
+    @Volatile
+    private var disposed = false
+
     override fun dispose() {
         synchronized(scanLock) {
             pendingScan?.cancel(false)
             pendingScan = null
         }
         executor.shutdownNow()
+        synchronized(this) {
+            disposed = true
+            daemonClient?.close()
+            daemonClient = null
+            daemonClientSocket = null
+        }
     }
 
     private fun shouldTriggerScan(file: VirtualFile): Boolean {

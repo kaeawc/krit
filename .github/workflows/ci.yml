@@ -40,11 +40,30 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      # The Azure Ubuntu mirror sometimes serves these ~144 MB at about one
+      # package a minute, which hits the 5-minute cap below before any Go
+      # code runs. Keep the .debs in the Actions cache so most runs install
+      # without touching the mirror; a cache miss downloads and saves them.
+      - name: Cache mingw-w64 packages
+        id: cache-mingw
+        uses: actions/cache@v6
+        with:
+          path: ~/mingw-debs
+          key: mingw-w64-debs-${{ runner.os }}-${{ runner.arch }}-noble-v1
       - name: Install mingw-w64
         timeout-minutes: 5
         run: |
+          # A cached set that no longer installs (a newer runner image)
+          # falls back to the mirror, as on a cache miss.
+          if [ "${{ steps.cache-mingw.outputs.cache-hit }}" = "true" ] \
+            && ls ~/mingw-debs/*.deb >/dev/null 2>&1 \
+            && sudo apt-get install -y ~/mingw-debs/*.deb; then
+            exit 0
+          fi
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+          mkdir -p ~/mingw-debs
+          cp /var/cache/apt/archives/*mingw*.deb ~/mingw-debs/
       - name: Vet for windows/amd64
         env:
           GOOS: windows
@@ -518,10 +537,10 @@ jobs:
           KRIT_TYPES_JAR: ${{ github.workspace }}/tools/krit-types/build/libs/krit-types.jar
         run: |
           set -o pipefail
-          go test ./tests/parity/ -count=1 -timeout 30m -run 'TestOracleBackendParity|TestOracleKotlin24|TestFirKotlin24Parity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative|TestKAAOracleCacheRefreshes' -v | tee parity.log
+          go test ./tests/parity/ -count=1 -timeout 30m -run 'TestOracleBackendParity|TestOracleKotlin24|TestFirKotlin24Parity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative|TestKAAOracleCacheRefreshes|TestKAADaemonResolvesLibraryCallsLikeOneShot' -v | tee parity.log
           # Top-level tests only: an exempt rule's subtest may skip. The
           # daemon relative-path tests' per-backend subtests must all run.
-          if grep -qE -- '--- SKIP: (TestOracleKotlin24[A-Za-z]+|TestFirKotlin24Parity|TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative[A-Za-z]+(/(fir|kaa)(-symlink)?)?|TestKAAOracleCacheRefreshes[A-Za-z]+) \(' parity.log; then
+          if grep -qE -- '--- SKIP: (TestOracleKotlin24[A-Za-z]+|TestFirKotlin24Parity|TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative[A-Za-z]+(/(fir|kaa)(-symlink)?)?|TestKAAOracleCacheRefreshes[A-Za-z]+|TestKAADaemonResolvesLibraryCallsLikeOneShot) \(' parity.log; then
             echo "::error::a FIR parity/property/fuzz test skipped; the CI parity job must execute them"
             exit 1
           fi

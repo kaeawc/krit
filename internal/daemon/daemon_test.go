@@ -1,9 +1,11 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -143,4 +145,38 @@ func waitClosed(s *Server) <-chan struct{} {
 		close(ch)
 	}()
 	return ch
+}
+
+// TestIdleTimeoutStopsWithAnOpenIdleConnection pins the shutdown path for
+// clients that keep one connection open across requests (the IntelliJ
+// plugin does). Stop waits for every connection goroutine, so a goroutine
+// still blocked reading an idle connection must be released when the
+// server stops, or the daemon never exits and keeps its repo lock.
+func TestIdleTimeoutStopsWithAnOpenIdleConnection(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "d.sock")
+	srv := NewServer(socket)
+	srv.IdleTimeout = 100 * time.Millisecond
+	srv.Register("echo", func(_ context.Context, _ json.RawMessage) (any, error) {
+		return "ok", nil
+	})
+	if err := srv.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	conn, err := net.Dial("unix", socket)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte(`{"verb":"echo"}` + "\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := bufio.NewReader(conn).ReadBytes('\n'); err != nil {
+		t.Fatalf("read reply: %v", err)
+	}
+	// The connection stays open and idle from here on.
+	select {
+	case <-time.After(2 * time.Second):
+		t.Fatalf("server did not stop with an idle connection still open")
+	case <-waitClosed(srv):
+	}
 }

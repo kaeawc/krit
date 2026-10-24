@@ -253,6 +253,17 @@ object KritRunner {
         return runKrit(project, projectDir, command, classpath, FIX_TIMEOUT_SECONDS, "fix") { exit, _ -> exit == 0 } is RunOutcome.Ok
     }
 
+    // Restarts this project's daemon with the krit binary the project
+    // resolves, so its binary hash matches the plugin's again.
+    fun restartDaemon(project: Project): Boolean {
+        val projectDir = project.baseDir() ?: return false
+        val binary = KritBinaryResolver.find(project) ?: return false
+        val command = listOf(binary.absolutePath, "daemon", "restart", "--repo", projectDir.absolutePath)
+        return runKrit(project, projectDir, command, emptyList(), DAEMON_RESTART_TIMEOUT_SECONDS, "daemon restart") { exit, _ ->
+            exit == 0
+        } is RunOutcome.Ok
+    }
+
     fun applySuggestion(
         project: Project,
         findingId: String,
@@ -395,4 +406,5 @@ object KritRunner {
     private const val ANALYZE_TIMEOUT_SECONDS = 120L
     private const val FIX_TIMEOUT_SECONDS = 120L
     private const val APPLY_SUGGESTION_TIMEOUT_SECONDS = 60L
+    private const val DAEMON_RESTART_TIMEOUT_SECONDS = 60L
 }

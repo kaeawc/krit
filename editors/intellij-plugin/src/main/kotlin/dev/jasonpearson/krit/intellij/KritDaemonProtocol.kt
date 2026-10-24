@@ -10,6 +10,7 @@ import com.google.gson.annotations.SerializedName
 object KritDaemonProtocol {
     const val VERB_ANALYZE_BUFFER = "analyze-buffer"
     const val VERB_ANALYZE_BUFFERS = "analyze-buffers"
+    const val VERB_STATUS = "status"
 
     data class Request(
         val verb: String,
@@ -20,6 +21,12 @@ object KritDaemonProtocol {
         val ok: Boolean = false,
         val error: String = "",
         val data: JsonObject? = null,
+    )
+
+    // Subset of the daemon's StatusResult the plugin reads. binary_hash is
+    // the SHA-256 of the krit binary the daemon was started from.
+    data class StatusData(
+        @SerializedName("binary_hash") val binaryHash: String? = null,
     )
 
     data class AnalyzeBufferArgs(

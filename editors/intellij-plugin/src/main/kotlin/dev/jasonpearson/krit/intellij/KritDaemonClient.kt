@@ -29,13 +29,47 @@ import java.nio.file.Paths
 // becomes a null return so callers can fall back to the CLI invocation
 // path. We do NOT crash the IDE on a daemon hiccup, and a daemon restart
 // mid-session reconnects on the next call.
-class KritDaemonClient(private val socketPath: Path) : AutoCloseable {
+//
+// Binary handshake: when [expectedBinaryHash] yields a hash (the SHA-256 of
+// the krit binary the plugin would run), each new connection first asks the
+// daemon's `status` for the hash of the binary it was started from. On a
+// mismatch the client stops using the daemon (calls return null, so callers
+// use the CLI) and reports it through [onBinaryMismatch]. It re-checks at most
+// every [mismatchRetryMs], since the daemon may be replaced by a matching one
+// (the CLI fallback auto-restarts a mismatched daemon), and resumes when the
+// hashes match; a mismatch is reported again only after such a recovery.
+// An empty hash on either side means "no opinion".
+class KritDaemonClient(
+    private val socketPath: Path,
+    private val expectedBinaryHash: () -> String? = { null },
+    private val onBinaryMismatch: (daemonHash: String, clientHash: String) -> Unit = { _, _ -> },
+    private val mismatchRetryMs: Long = 30_000,
+    private val clock: () -> Long = System::currentTimeMillis,
+) : AutoCloseable {
     private val log = Logger.getInstance(KritDaemonClient::class.java)
     private val gson = Gson()
 
     // Guarded by `this`. The reader is tied to the channel it wraps.
     private var channel: SocketChannel? = null
     private var reader: BufferedReader? = null
+    // The plugin-side hash the open channel was last verified against ("" when
+    // none was expected), or null when the channel hasn't been checked.
+    // Guarded by `this`.
+    private var verifiedHash: String? = null
+    // Set by a failed handshake; the daemon is skipped until the next re-check.
+    @Volatile
+    var binaryMismatch = false
+        private set
+    // When the last handshake failed (clock time). Guarded by `this`.
+    private var mismatchAt = 0L
+
+    // Forgets a mismatch (after the daemon was restarted) so the next call
+    // dials and checks again.
+    @Synchronized
+    fun resetBinaryCheck() {
+        binaryMismatch = false
+        invalidate()
+    }
 
     fun available(): Boolean {
         if (!Files.exists(socketPath)) return false
@@ -106,9 +140,18 @@ class KritDaemonClient(private val socketPath: Path) : AutoCloseable {
 
     @Synchronized
     private fun call(verb: String, args: JsonObject?): JsonObject? {
+        if (binaryMismatch && clock() - mismatchAt < mismatchRetryMs) return null
         for (attempt in 1..2) {
             try {
                 obtain()
+                // Re-checked whenever the resolved binary changes (a settings
+                // change or an in-place upgrade), not only on a new connection.
+                // The hash is cached, so this is cheap when nothing changed.
+                val expected = runCatching { expectedBinaryHash() }.getOrNull()?.takeIf { it.isNotBlank() } ?: ""
+                if (verifiedHash != expected) {
+                    if (!verifyBinary(expected)) return null
+                    verifiedHash = expected
+                }
                 writeRequest(channel!!, verb, args)
                 return readResponse(reader!!)
             } catch (_: ClosedByInterruptException) {
@@ -142,6 +185,34 @@ class KritDaemonClient(private val socketPath: Path) : AutoCloseable {
         runCatching { channel?.close() }
         channel = null
         reader = null
+        verifiedHash = null
+    }
+
+    // Requires the monitor and an open channel. Returns false (after
+    // recording the mismatch) when the daemon runs a different krit binary;
+    // true when the hashes match or either side has no hash to compare.
+    private fun verifyBinary(expected: String): Boolean {
+        if (expected.isEmpty()) {
+            binaryMismatch = false
+            return true
+        }
+        writeRequest(channel!!, KritDaemonProtocol.VERB_STATUS, null)
+        val data = readResponse(reader!!) ?: return true
+        val daemonHash = gson.fromJson(data, KritDaemonProtocol.StatusData::class.java)
+            ?.binaryHash?.takeIf { it.isNotBlank() }
+        if (daemonHash == null || daemonHash == expected) {
+            binaryMismatch = false
+            return true
+        }
+        val newlyMismatched = !binaryMismatch
+        binaryMismatch = true
+        mismatchAt = clock()
+        invalidate()
+        if (newlyMismatched) {
+            log.info("krit daemon at $socketPath runs a different krit binary (daemon=$daemonHash plugin=$expected)")
+            runCatching { onBinaryMismatch(daemonHash, expected) }
+        }
+        return false
     }
 
     private fun openChannel(): SocketChannel {

@@ -48,6 +48,14 @@ class KritUnsavedBuffersTest {
     }
 
     @Test
+    fun `buffer findings from rules outside the evaluated set are ignored`() {
+        // A type-aware rule the daemon ran on its resolver-free fallback: its
+        // disk finding stays and its buffer finding is not added beside it.
+        val merged = overlay(mapOf("/repo/A.kt" to success(finding("/repo/A.kt", 9, "DeadCode"))))!!
+        assertEquals(listOf(finding("/repo/A.kt", 9, "DeadCode")), merged["/repo/A.kt"])
+    }
+
+    @Test
     fun `a file left with no findings is dropped`() {
         val merged = overlay(mapOf("/repo/B.kt" to success()))!!
         assertEquals(setOf("/repo/A.kt"), merged.keys)

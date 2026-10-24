@@ -12,7 +12,8 @@ object KritUnsavedBuffers {
     // The daemon runs only per-file rules on a buffer; cross-file, module,
     // Android, and Gradle rules need the whole project. So a buffer result
     // replaces only the disk findings of the rules in evaluatedRules, and the
-    // project scan's findings for every other rule stay. A daemon that
+    // project scan's findings for every other rule stay. Buffer findings from
+    // rules outside that set are dropped. A daemon that
     // doesn't report evaluatedRules (null or empty) leaves base unchanged,
     // as does a buffer the daemon could not analyze (no outcome, or a
     // Failure): the user sees the last saved state rather than a gap.
@@ -28,7 +29,12 @@ object KritUnsavedBuffers {
         for ((path, outcome) in outcomes) {
             if (outcome !is KritRunner.AnalyzeOutcome.Success) continue
             val kept = base[path].orEmpty().filter { it.rule !in evaluatedRules }
-            val fromBuffer = outcome.report.findings.filter { canonical(it.file) == path }
+            // The daemon can still return findings for rules it ran without
+            // the facts they need (a type-aware rule's fallback path); those
+            // rules keep their disk findings, so drop their buffer findings.
+            val fromBuffer = outcome.report.findings.filter {
+                it.rule in evaluatedRules && canonical(it.file) == path
+            }
             val combined = kept + fromBuffer
             if (combined.isEmpty()) merged.remove(path) else merged[path] = combined
         }

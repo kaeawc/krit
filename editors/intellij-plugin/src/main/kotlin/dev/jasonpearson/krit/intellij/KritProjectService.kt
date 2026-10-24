@@ -17,7 +17,7 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.codeInspection.InspectionProfile
-import com.intellij.profile.codeInspection.ProfileChangeAdapter
+import com.intellij.profile.ProfileChangeAdapter
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors

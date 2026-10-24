@@ -2239,11 +2239,21 @@ func tryLoadFindingsBundleBeforeParse(
 		}
 	}
 
-	var cached *scanner.FindingColumns
+	// Resident copy first: the daemon stashes the bundle in memory as
+	// soon as an analyze finishes but writes it to disk on the
+	// background-save worker, so a warm call that arrives before that
+	// write lands would otherwise miss here and fall through to a full
+	// parse.
+	fpKey := scanner.FindingsBundleKey(fp)
+	cached := residentBundleLookup(host, fpKey)
 	loadFn := func() {
+		if cached != nil {
+			return
+		}
 		c, found := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, fp)
-		if found {
+		if found && c != nil {
 			cached = c
+			residentBundleStash(host, fpKey, c)
 		} else {
 			ok = false
 		}

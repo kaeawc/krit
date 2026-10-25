@@ -97,8 +97,16 @@ class KritDaemonClient(
      * the caller can fall back. A buffer the daemon could not analyze comes
      * back as [BufferResult.Error] without failing the rest of the batch.
      */
-    fun analyzeBuffers(entries: List<Pair<String, String>>): List<BufferResult>? {
-        if (entries.isEmpty()) return emptyList()
+    fun analyzeBuffers(entries: List<Pair<String, String>>): List<BufferResult>? =
+        analyzeBufferBatch(entries)?.results
+
+    /**
+     * [analyzeBuffers], plus the IDs of the rules the daemon evaluated on the
+     * buffers ([BufferBatch.evaluatedRules]; null from a daemon too old to
+     * report them).
+     */
+    fun analyzeBufferBatch(entries: List<Pair<String, String>>): BufferBatch? {
+        if (entries.isEmpty()) return BufferBatch(emptyList(), null)
         val buffers = entries.map { (path, content) -> KritDaemonProtocol.AnalyzeBufferArgs(path, content) }
         val args = gson.toJsonTree(KritDaemonProtocol.AnalyzeBuffersArgs(buffers)).asJsonObject
         val data = call(KritDaemonProtocol.VERB_ANALYZE_BUFFERS, args) ?: return null
@@ -108,14 +116,17 @@ class KritDaemonClient(
             log.debug("krit daemon analyze-buffers returned ${results.size} results for ${entries.size} buffers")
             return null
         }
-        return results.map { entry ->
+        val decoded = results.map { entry ->
             if (!entry.error.isNullOrEmpty()) {
                 BufferResult.Error(entry.error)
             } else {
                 BufferResult.Findings(KritColumnarFindingsDecoder.decode(entry.findings))
             }
         }
+        return BufferBatch(decoded, payload.rules?.toSet())
     }
+
+    data class BufferBatch(val results: List<BufferResult>, val evaluatedRules: Set<String>?)
 
     sealed class BufferResult {
         data class Findings(val findings: List<KritFinding>) : BufferResult()

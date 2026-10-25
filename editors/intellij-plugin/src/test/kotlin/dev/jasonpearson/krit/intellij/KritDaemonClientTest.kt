@@ -145,6 +145,26 @@ class KritDaemonClientTest {
     }
 
     @Test
+    fun `analyzeBufferBatch reports the rules the daemon evaluated`() {
+        server = MockDaemonServer.start(socketPath) { _, _ ->
+            okResponse("""{"results":[{"findings":${singleFindingColumns()},"cache_hit":false}],"rules":["A","B"]}""")
+        }
+        val batch = KritDaemonClient(socketPath).use { it.analyzeBufferBatch(listOf("/repo/X.kt" to "")) }
+        assertEquals(setOf("A", "B"), batch?.evaluatedRules)
+        assertEquals(1, batch?.results?.size)
+    }
+
+    @Test
+    fun `analyzeBufferBatch leaves evaluatedRules null for a daemon that omits them`() {
+        server = MockDaemonServer.start(socketPath) { _, _ ->
+            okResponse("""{"results":[{"findings":${singleFindingColumns()},"cache_hit":false}]}""")
+        }
+        val batch = KritDaemonClient(socketPath).use { it.analyzeBufferBatch(listOf("/repo/X.kt" to "")) }
+        assertNull(batch?.evaluatedRules)
+        assertEquals(1, batch?.results?.size)
+    }
+
+    @Test
     fun `analyzeBuffers returns null when the reply does not match the request`() {
         server = MockDaemonServer.start(socketPath) { _, _ -> okResponse("""{"results":[]}""") }
         val results = KritDaemonClient(socketPath).use { it.analyzeBuffers(listOf("/x.kt" to "")) }

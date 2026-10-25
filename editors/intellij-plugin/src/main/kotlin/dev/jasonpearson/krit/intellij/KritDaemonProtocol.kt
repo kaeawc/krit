@@ -48,6 +48,9 @@ object KritDaemonProtocol {
 
     data class AnalyzeBuffersData(
         @SerializedName("results") val results: List<AnalyzeBufferEntry>? = null,
+        // IDs of the rules the buffer scan evaluated. Daemons that predate
+        // the field leave it out.
+        @SerializedName("rules") val rules: List<String>? = null,
     )
 
     data class AnalyzeBufferData(

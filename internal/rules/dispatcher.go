@@ -11,6 +11,7 @@ package rules
 import (
 	"context"
 	"runtime/pprof"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -790,6 +791,47 @@ func (d *Dispatcher) collectAllRules() []*api.Rule {
 	addAll(d.gradleRules)
 	addAll(d.aggregateRules)
 	return out
+}
+
+// SingleFileRuleIDs returns the IDs of the rules Run fully evaluates on a
+// file: node-dispatched and line rules whose type information this
+// dispatcher can supply. Cross-file, module-aware, Android, Gradle, and
+// aggregate rules are left out because Run never calls them. So are rules
+// that need a resolver when there is none, or oracle facts when no oracle
+// is wired: Run still calls many of them, but they return early without
+// those facts, so their findings in a full project scan would be lost if a
+// client treated them as re-evaluated. Buffer clients use the list to tell
+// which of a project scan's findings a buffer result replaces.
+func (d *Dispatcher) SingleFileRuleIDs() []string {
+	_, hasOracle := d.typeResolver.(fallbackAware)
+	seen := make(map[*api.Rule]bool)
+	var ids []string
+	add := func(rs []*api.Rule) {
+		for _, r := range rs {
+			if r == nil || seen[r] {
+				continue
+			}
+			seen[r] = true
+			if _, ok := d.resolveForRule(r); !ok {
+				continue
+			}
+			if r.Needs.Has(api.NeedsResolver) && d.typeResolver == nil {
+				continue
+			}
+			if r.Needs.HasAny(api.NeedsOracle) && !hasOracle {
+				continue
+			}
+			ids = append(ids, r.ID)
+		}
+	}
+	add(d.nodeDispatchRules)
+	for _, bucket := range d.flatTypeRules {
+		add(bucket)
+	}
+	add(d.allNodeRules)
+	add(d.lineRules)
+	sort.Strings(ids)
+	return ids
 }
 
 // Stats returns per-family rule counts for logging.

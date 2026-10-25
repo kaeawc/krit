@@ -175,6 +175,13 @@ type AnalyzeBuffersArgs struct {
 // batch instead of one bad file failing the whole call.
 type AnalyzeBuffersResult struct {
 	Results []AnalyzeBufferEntry `json:"results"`
+	// Rules lists the IDs of the rules the buffer analysis evaluates:
+	// the per-file rules active under the project config. Project-scope
+	// rules (cross-file, module, Android, Gradle) are not run on buffers,
+	// so a client merging buffer results into a project scan keeps the
+	// project scan's findings for any rule not listed here. Daemons that
+	// predate this field leave it empty.
+	Rules []string `json:"rules,omitempty"`
 }
 
 // AnalyzeBufferEntry is one slot in AnalyzeBuffersResult.Results.

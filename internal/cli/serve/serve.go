@@ -30,6 +30,7 @@ import (
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/pipeline"
+	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -307,9 +308,11 @@ type daemonState struct {
 	workspace *pipeline.WorkspaceState
 	// analyzer is the shared per-file rule dispatcher. Built lazily on
 	// the first analyze-buffer call so daemons that only do abi-hash
-	// or status don't pay the rule-registration cost.
-	analyzerOnce sync.Once
-	analyzer     *pipeline.SingleFileAnalyzer
+	// or status don't pay the rule-registration cost, and rebuilt when
+	// the config it was built from (analyzerCfg) is reloaded. Guarded
+	// by analyzeMu.
+	analyzer    *pipeline.SingleFileAnalyzer
+	analyzerCfg *config.Config
 
 	// parseCacheOnce gates lazy construction of the resident parse
 	// cache. The first analyze-project verb call builds one via
@@ -945,12 +948,27 @@ func (s *daemonState) InvalidateConfig() {
 	s.configDirty.Store(true)
 }
 
-// singleFileAnalyzer returns the lazily-built shared analyzer.
-func (s *daemonState) singleFileAnalyzer() *pipeline.SingleFileAnalyzer {
-	s.analyzerOnce.Do(func() {
-		s.analyzer = pipeline.NewSingleFileAnalyzer(nil, nil)
-	})
-	return s.analyzer
+// bufferAnalyzer returns the shared per-file analyzer, built from the
+// project's config so buffer findings honor the same rule selection and
+// options as analyze-project. Callers must hold analyzeMu:
+// rules.ApplyConfig writes the rules package's global config state, which
+// analyze-project also writes and reads.
+func (s *daemonState) bufferAnalyzer() (*pipeline.SingleFileAnalyzer, error) {
+	cfg, err := s.ensureConfig()
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+	// Re-apply on every call: another verb may have applied different
+	// settings since, and the dispatcher reads them at run time.
+	rules.ApplyConfig(cfg)
+	if s.analyzer == nil || s.analyzerCfg != cfg {
+		experimental := cfg.GetTopLevelBool("experimental", false)
+		strict := cfg.GetTopLevelBool("strict", false)
+		active := rules.ActiveRulesV2(nil, nil, false, experimental, strict)
+		s.analyzer = pipeline.NewSingleFileAnalyzer(active, nil)
+		s.analyzerCfg = cfg
+	}
+	return s.analyzer, nil
 }
 
 // parseCacheFor returns the daemon-resident *scanner.ParseCache,
@@ -1174,11 +1192,17 @@ func handleAnalyzeBuffer(ctx context.Context, state *daemonState, raw json.RawMe
 		}
 	}
 
+	state.analyzeMu.Lock()
+	defer state.analyzeMu.Unlock()
+	analyzer, err := state.bufferAnalyzer()
+	if err != nil {
+		return nil, err
+	}
 	file, hit, err := state.workspace.ParseFileWithHit(ctx, args.Path, []byte(args.Content))
 	if err != nil {
 		return nil, fmt.Errorf("parse: %w", err)
 	}
-	columns := state.singleFileAnalyzer().AnalyzeFileColumns(file)
+	columns := analyzer.AnalyzeFileColumns(file)
 	body, err := json.Marshal(columns)
 	if err != nil {
 		return nil, fmt.Errorf("marshal findings: %w", err)
@@ -1197,7 +1221,12 @@ func handleAnalyzeBuffers(ctx context.Context, state *daemonState, raw json.RawM
 			return nil, fmt.Errorf("decode args: %w", err)
 		}
 	}
-	analyzer := state.singleFileAnalyzer()
+	state.analyzeMu.Lock()
+	defer state.analyzeMu.Unlock()
+	analyzer, err := state.bufferAnalyzer()
+	if err != nil {
+		return nil, err
+	}
 	results := make([]daemon.AnalyzeBufferEntry, len(args.Buffers))
 	for i, buf := range args.Buffers {
 		file, hit, err := state.workspace.ParseFileWithHit(ctx, buf.Path, []byte(buf.Content))
@@ -1213,7 +1242,7 @@ func handleAnalyzeBuffers(ctx context.Context, state *daemonState, raw json.RawM
 		}
 		results[i] = daemon.AnalyzeBufferEntry{Findings: body, CacheHit: hit}
 	}
-	return daemon.AnalyzeBuffersResult{Results: results}, nil
+	return daemon.AnalyzeBuffersResult{Results: results, Rules: analyzer.Dispatcher.SingleFileRuleIDs()}, nil
 }
 
 // resolveAbiHashTargetForDaemon mirrors resolveAbiHashTarget but uses the

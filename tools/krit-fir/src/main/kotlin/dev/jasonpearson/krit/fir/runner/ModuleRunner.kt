@@ -23,6 +23,10 @@ data class ModuleSpec(
     val compilerArgs: List<String> = emptyList(),
     val jvmTarget: String = "1.8",
     val fragments: List<ModuleFragment> = emptyList(),
+    /** The module's Kotlin compiler plugin jars (see [CompilerPlugins]); krit-fir's own plugin is always added. */
+    val compilerPluginClasspath: List<String> = emptyList(),
+    /** The module's compiler plugin options, `plugin:<id>:<key>=<value>`. */
+    val compilerPluginOptions: List<String> = emptyList(),
 ) {
     internal val edges get() = (dependsOn + friends).distinct()
     internal val roots get() = (sourceRoots + generatedSourceRoots + fragments.flatMap { it.sourceRoots }).distinct()
@@ -47,6 +51,8 @@ internal data class ModuleCompilation(
     val spec: ModuleSpec,
     val extraArgs: List<String>,
     val legacy: Boolean = false,
+    /** The compiled modules' own compiler plugins, already [CompilerPlugins.verified]. */
+    val plugins: CompilerPlugins = CompilerPlugins.EMPTY,
 ) {
     fun configure(args: K2JVMCompilerArguments, sessionJvmTarget: String = resolveJvmTarget("")) {
         args.classpath = effectiveClasspath(classpath).joinToString(File.pathSeparator)
@@ -220,7 +226,7 @@ internal class ModuleRunner(
         val sources = modules.associate { it.id to moduleSources(it) }
         val args = modules.associate { it.id to filterModuleArgs(it.compilerArgs) }
         // Reported per module, so an argument that is ignored is never silent.
-        val warnings = modules.flatMap { module ->
+        val warnings = modules.flatMapTo(mutableListOf()) { module ->
             KotlinCompilerSettings.parse(args.getValue(module.id)).warnings.map { "krit-fir: module ${module.id}: $it" }
         }
         val orderedIds = components.flatten().map { it.id }
@@ -260,6 +266,9 @@ internal class ModuleRunner(
                 testFiles.filter { File(it).canonicalPath in relevant }.sorted(),
                 scanPaths.filterKeys { File(it).canonicalPath in relevant },
                 sdkLevels.filterKeys { File(it).canonicalPath in relevant }))
+            // A component compiles with its modules' plugins; a set the compiler cannot load is reported and left out.
+            val plugins = componentPlugins(component).verified(component.flatMap { it.classpath })
+            plugins.warnings.mapTo(warnings) { "krit-fir: module ${component.first().id}: $it" }
             val old = cache[component.first().id]
             val dirty = old == null || old.hash != hash || old.findingsKey != findingsKey || !old.output.isDirectory
             val cached = if (!dirty) old else {
@@ -284,7 +293,8 @@ internal class ModuleRunner(
                     val cp = component.flatMap { it.classpath } + orderedIds.filter { it in reachable }
                         .mapNotNull { cache[it]?.output?.path }.distinct() + merged.flatMap { it.classpath }
                     val invocation = ModuleCompilation(paths, output, cp, friends.mapNotNull { cache[it]?.output?.path },
-                        spec, args.getValue(component.first().id), legacy = cycle || capped)
+                        spec, args.getValue(component.first().id), legacy = cycle || capped,
+                        plugins = plugins)
                     ids.forEach { compiledSources[it] = paths.toList() }
                     beforeCompile(invocation)
                     val session = AnalysisSession(spec.roots, cp, sessionJvmTarget)
@@ -338,6 +348,11 @@ internal class ModuleRunner(
             results.flatMap { it.errorFiles.entries }.associate { it.toPair() } + unknown.associateWith { "Not owned by any module" },
             ruleErrors, statuses, deciding, warnings = warnings)
     }
+
+    /** The plugins of every module compiled together (one module, or a dependency cycle), in module order. */
+    private fun componentPlugins(component: List<ModuleSpec>): CompilerPlugins = CompilerPlugins.of(
+        component.flatMap { it.compilerPluginClasspath }, component.flatMap { it.compilerPluginOptions },
+    )
 
     private fun reconcileOutputs() {
         val live = cache.values.map { it.output }.toSet()
@@ -419,9 +434,11 @@ internal class ModuleRunner(
         for (module in modules) {
             value(listOf(module.id, module.platform, module.kind, module.sourceRoots, module.generatedSourceRoots,
                 module.classpath, module.dependsOn, module.friends, args.getValue(module.id), module.jvmTarget,
-                module.fragments.map { listOf(it.name, it.sourceRoots, it.refines) }))
+                module.fragments.map { listOf(it.name, it.sourceRoots, it.refines) },
+                module.compilerPluginClasspath, module.compilerPluginOptions))
             sources.getValue(module.id).forEach { content(File(it)) }
             module.classpath.forEach { content(File(it), true) }
+            module.compilerPluginClasspath.forEach { content(File(it), true) }
         }
         return hash.digest().joinToString("") { "%02x".format(it) }
     }

@@ -27,6 +27,10 @@ type ModuleSpec struct {
 	CompilerArgs         []string         `json:"compilerArgs"`
 	JVMTarget            string           `json:"jvmTarget,omitempty"`
 	Fragments            []ModuleFragment `json:"fragments,omitempty"`
+	// CompilerPluginClasspath and CompilerPluginOptions are this module's own
+	// Kotlin compiler plugins (gradlemodel.CompilerPlugins).
+	CompilerPluginClasspath []string `json:"compilerPluginClasspath,omitempty"`
+	CompilerPluginOptions   []string `json:"compilerPluginOptions,omitempty"`
 }
 
 // AnalyzeModulesRequest is the protocol-only module check request. Consumers
@@ -66,7 +70,8 @@ func ModuleID(project, sourceSet string) string { return project + ":" + sourceS
 // carries only its own source set's compiler arguments: the settings of one
 // module are never applied to another, and a source set the model said nothing
 // about gets no compiler arguments (the embedded compiler's defaults), exactly
-// like the whole-repo path. Krit-owned arguments cannot reach CompilerArgs:
+// like the whole-repo path; the same holds for its compiler plugins.
+// Krit-owned arguments cannot reach CompilerArgs:
 // they are rendered from KotlinSettings, which only holds allowlisted
 // settings. Test and androidTest source sets see their project's main source
 // set as a friend, and project dependencies map to the dependency's main
@@ -87,6 +92,7 @@ func ModuleSpecsFromModel(m *gradlemodel.Model) []ModuleSpec {
 	var specs []ModuleSpec
 	for _, p := range m.Projects {
 		for _, s := range p.SourceSets {
+			kotlin := gradlemodel.ResolveKotlinSettings(s.Kotlin)
 			spec := ModuleSpec{
 				ID:                   ModuleID(p.Path, s.Name),
 				Platform:             s.Platform,
@@ -96,8 +102,11 @@ func ModuleSpecsFromModel(m *gradlemodel.Model) []ModuleSpec {
 				Classpath:            moduleClasspath(s),
 				DependsOn:            []string{},
 				Friends:              []string{},
-				CompilerArgs:         nonNil(gradlemodel.ResolveKotlinSettings(s.Kotlin).CompilerArgs()),
+				CompilerArgs:         nonNil(kotlin.CompilerArgs()),
 				JVMTarget:            s.JvmTarget,
+				// Like the compiler arguments, a module's plugins are its own.
+				CompilerPluginClasspath: kotlin.Plugins.Classpath,
+				CompilerPluginOptions:   kotlin.Plugins.Options,
 			}
 			for _, dep := range s.ProjectDeps {
 				if id, ok := mainOf[dep]; ok && id != spec.ID {

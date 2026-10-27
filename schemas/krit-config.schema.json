@@ -10742,6 +10742,41 @@
         }
       }
     },
+    "oracle": {
+      "description": "JVM type oracle and FIR compilation settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "description": "Type oracle backend: fir (krit-fir, the default) or kaa (krit-types).",
+          "type": "string"
+        },
+        "classpath": {
+          "description": "Jars added to the classpath the JVM-backed type oracle and FIR checks compile against.",
+          "type": "array",
+          "items": {
+            "description": "Path of a compile classpath jar.",
+            "type": "string"
+          }
+        },
+        "compilerPluginOptions": {
+          "description": "Options of the configured compiler plugins.",
+          "type": "array",
+          "items": {
+            "description": "A plugin option, plugin:\u003cid\u003e:\u003ckey\u003e=\u003cvalue\u003e.",
+            "type": "string"
+          }
+        },
+        "compilerPlugins": {
+          "description": "Kotlin compiler plugin jars (kotlinx.serialization, Compose, ...) krit-fir loads in addition to the Gradle model's.",
+          "type": "array",
+          "items": {
+            "description": "Absolute path of a Kotlin compiler plugin jar.",
+            "type": "string"
+          }
+        }
+      }
+    },
     "performance": {
       "description": "Configuration for the performance ruleset.",
       "type": "object",

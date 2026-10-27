@@ -189,6 +189,18 @@ oracle:
     - libs/android.jar
 ```
 
+`oracle.compilerPlugins` lists Kotlin compiler plugin jars (kotlinx.serialization,
+Compose, Parcelize, ...) that `krit-fir` loads in addition to those of the
+Gradle model, and `oracle.compilerPluginOptions` their options as
+`plugin:<id>:<key>=<value>`. Use them when there is no Gradle model; see
+[Kotlin compiler settings](kotlin-compiler-settings.md#compiler-plugins).
+
+```yaml
+oracle:
+  compilerPlugins:
+    - /path/to/kotlin-serialization-compiler-plugin-embeddable-2.4.21.jar
+```
+
 The Kotlin standard library is supplied automatically when the effective
 classpath does not already include a Kotlin stdlib jar. Other libraries, such
 as the Android SDK, AndroidX, and application dependencies, still need to be

@@ -96,7 +96,8 @@ class SliceCompileTest {
         assertTrue(plain.errorFiles.isNotEmpty())
         assertEquals(plain.errorFiles, on.errorFiles)
         assertNull(session.incrementalState.snapshot)
-        assertEquals(SliceFallback.NO_SNAPSHOT, session.sliceFallback())
+        assertEquals(SliceFallback.COMPILE_ERRORS, session.sliceFallback(), "the compile errors are the reason, not a missing build")
+        assertEquals("COMPILE_ERRORS: compile errors in 1 file", session.sliceFallbackDescription())
         assertEquals(1, session.incrementalState.generation, "the recording is still committed")
         assertTrue(snaps.resolve("fir-snapshots").listFiles().orEmpty().isEmpty(), "no directory is left behind")
     }

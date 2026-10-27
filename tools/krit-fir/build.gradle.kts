@@ -23,6 +23,17 @@ val bundledKotlinStdlib by configurations.creating {
     isCanBeResolved = true
 }
 
+// A real compiler plugin and its runtime for the compiler-plugin tests (CompilerPluginsTest): the embeddable build,
+// which is what a project's Gradle model exports (KGP compiles with the embeddable compiler).
+val testCompilerPlugin by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+val testCompilerPluginRuntime by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
 val bundledStdlibResources = layout.buildDirectory.dir("generated/kotlin-stdlib-resources")
 val copyKotlinStdlib by tasks.registering(Copy::class) {
     from(bundledKotlinStdlib)
@@ -52,6 +63,9 @@ dependencies {
     // The plugin loader inspects ServiceLoader-discovered impls of these
     // types against the daemon's compatible SDK version.
     implementation(project(":krit-rule-api"))
+
+    add(testCompilerPlugin.name, "org.jetbrains.kotlin:kotlin-serialization-compiler-plugin-embeddable:$kotlinVersion") { isTransitive = false }
+    add(testCompilerPluginRuntime.name, "org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.11.0") { isTransitive = false }
 
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
     testImplementation(kotlin("test"))
@@ -112,6 +126,15 @@ tasks.test {
     )
     // Sessions that snapshot a module write under krit's cache dir: keep tests out of the user's.
     systemProperty("krit.fir.cache.dir", layout.buildDirectory.dir("test-krit-cache").get().asFile.absolutePath)
+    inputs.files(testCompilerPlugin, testCompilerPluginRuntime).withPropertyName("testCompilerPlugins")
+    val pluginJars = files(testCompilerPlugin)
+    val pluginRuntime = files(testCompilerPluginRuntime)
+    jvmArgumentProviders += CommandLineArgumentProvider {
+        listOf(
+            "-Dkrit.fir.test.serializationPlugin=" + pluginJars.singleFile.absolutePath,
+            "-Dkrit.fir.test.serializationRuntime=" + pluginRuntime.singleFile.absolutePath,
+        )
+    }
 }
 
 // FirIncrementalSplitDifferentialTest: a full-vs-slice compile of the compiler-test

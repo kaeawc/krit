@@ -25,6 +25,8 @@ independently, so an older plugin still exports what it has):
 | `freeCompilerArgs` | Raw `freeCompilerArgs`, in order (later flags win). |
 | `progressiveMode` | `true` when progressive mode is on. |
 | `pluginVersion` | The Kotlin Gradle plugin version, used only to derive a default. |
+| `compilerPluginClasspath` | The compile task's compiler plugin jars (`pluginClasspath`), in order. |
+| `compilerPluginOptions` | Its plugin options (`pluginOptions`) as `plugin:<id>:<key>=<value>`, in order. |
 
 The exporter never fills in defaults. Krit reads schema 1 and 2 models; a
 schema 1 model (older plugin) has no `kotlin` objects. A source set with no Kotlin
@@ -76,6 +78,68 @@ Changing one module's settings recompiles only that module. (A module that
 falls back to compiling an upstream module's sources from source uses the
 requesting module's settings.)
 
+## Compiler plugins
+
+Compiler plugins (kotlinx.serialization, Compose, Parcelize, all-open, no-arg,
+Metro, ...) generate declarations the frontend resolves against, such as
+`Foo.serializer()`. Without them a module that uses one compiles with errors:
+the files that use generated API land in `errorFiles`, and a module with
+compiler errors gets no binary snapshot, so incremental FIR
+(`KRIT_FIR_INCREMENTAL=1`) never engages on it.
+
+`krit-fir` therefore loads the project's plugins next to its own. They are a
+krit-owned field (`KotlinSettings.Plugins`), never compiler arguments: `-Xplugin`
+and `-P` stay protected. Per source set Krit takes the compile task's
+`compilerPluginClasspath` and `compilerPluginOptions` and:
+
+* leaves out the Kotlin Gradle plugin's own scripting support
+  (`kotlin-scripting-*`, `kotlin-script-runtime`, and their `kotlin-stdlib`,
+  `annotations` and `kotlinx-coroutines-core` dependencies), which KGP puts on
+  every compilation: `krit-fir` does not compile scripts, and the embeddable
+  scripting plugin cannot load into its compiler (one note says so);
+* rejects, with the reason, a jar that does not exist, an option that is not
+  `plugin:<id>:<key>=<value>`, and the Compose `reportsDestination` /
+  `metricsDestination` options (Krit must not write build reports);
+* applies no option without a plugin jar.
+
+The whole-repo compilation loads the **union** of every source set's plugins: a
+plugin only acts on declarations that use it, so loading it for the whole
+repository lets the source sets that need it compile cleanly without changing
+the others. One plugin artifact is never loaded in two versions (the first is
+kept, with a note), and an option whose values differ between source sets is
+left at the plugin default (with a note). A module compilation
+(`analyzeModules`) loads only its own module's plugins.
+
+Without a Gradle model, list the plugin jars in `krit.yml` (see
+[configuration](configuration.md#oracle-classpath)):
+
+```yaml
+oracle:
+  compilerPlugins:
+    - /path/to/kotlin-serialization-compiler-plugin-embeddable-2.4.21.jar
+  compilerPluginOptions:
+    - plugin:org.jetbrains.kotlinx.serialization:disableIntrinsic=true
+```
+
+These are added to the model's plugins and filtered the same way.
+
+`krit-fir` loads the plugins once in a probe compile (a one-line file, per
+plugin set and process). A set its compiler cannot load (a plugin built
+against an incompatible Kotlin compiler, or a broken jar) is left out: the
+session analyzes as it did before plugins existed, logs `krit-fir: compiler
+plugins not loaded, analyzing without them (...)` and returns it as a response
+`warning`. Gradle exports the embeddable plugin builds (KGP compiles with the
+embeddable compiler); `krit-fir` embeds the plain compiler, and the
+kotlinx.serialization embeddable plugin loads into it. A plugin whose
+frontend references relocated IntelliJ classes would not, and is reported by
+the probe. `krit-types` (the Kotlin Analysis API oracle) does not load compiler
+plugins.
+
+When a module still compiles with errors (no plugin information, or a plugin
+that could not be loaded), the incremental planner says why it fell back: the
+`firCheckBroker` perf entry reads `full (slice_unavailable: COMPILE_ERRORS:
+compile errors in 6 files)` instead of `full (slice_unavailable)`.
+
 ## The allowlist
 
 Only settings that change how source is analyzed are applied: the language
@@ -124,6 +188,7 @@ likewise not applied. `-progressive=false` turns progressive mode off.
 | FIR checker daemon | `--kotlin-arg` at launch and `kotlinArgs` on each check request; a request whose effective settings differ rebuilds the session. |
 | `krit serve` daemon | `oracle_kotlin` in the analyze-project request. |
 | `analyzeModules` | per module, in `ModuleSpec.compilerArgs`. |
+| Compiler plugins (`krit-fir` only) | `--compiler-plugin JAR` / `--compiler-plugin-option plugin:<id>:<key>=<value>` at launch, `compilerPluginClasspath` / `compilerPluginOptions` on check requests and per `ModuleSpec`. A `krit-fir` jar that predates them gets the other settings and a one-time warning. |
 
 The persistent oracle daemons (`krit-types` and `krit-fir` oracle, their pool,
 and `krit serve`'s resident daemon) are keyed on the settings: a daemon is
@@ -156,6 +221,12 @@ keys are unchanged) is part of:
   miss names `compilerSettings` among the changed components.
 
 Notes, rejected arguments and opt-in order do not affect the identity.
+Compiler plugins add each jar's path, size and modification time and every
+option, so a plugin added, removed, upgraded or rebuilt in place is a
+settings change; settings without plugins keep their identity. Inside
+`krit-fir`, the incremental compile key (and with it the persisted bundle in
+`.krit/fir-incremental`) also takes each loaded plugin jar's file identity,
+including its entries' CRCs, and every option.
 
 ## Known limits
 

@@ -114,7 +114,11 @@ data class BatchResult(
  * How the incremental planner served a check, for the response: [path] is "incremental" or "full", [reason] why a
  * full check was needed (null when incremental), [dirtyFiles] the files its slices compiled.
  */
-data class PlanSummary(val path: String, val reason: String?, val dirtyFiles: Int, val totalMillis: Long)
+data class PlanSummary(
+    val path: String, val reason: String?, val dirtyFiles: Int, val totalMillis: Long,
+    /** More about [reason] where it helps the caller act: why no slice compile was available. */
+    val detail: String? = null,
+)
 
 // Holds the current session config. When sourceDirs or classpath change the Go side sends a
 // "rebuild" command which disposes this session and creates a new one.
@@ -143,6 +147,11 @@ class AnalysisSession(
      * feature. Defaults to `KRIT_FIR_INCREMENTAL=1`.
      */
     val incrementalPlanning: Boolean = incrementalRecordingFromEnv(),
+    /**
+     * The project's Kotlin compiler plugins, registered after krit-fir's own on every non-module compilation (a
+     * module compilation takes its module's own, see [ModuleCompilation]). Empty keeps today's behavior.
+     */
+    val compilerPlugins: CompilerPlugins = CompilerPlugins.EMPTY,
 ) {
 
     /** True when [check] goes through the planner. */
@@ -256,6 +265,18 @@ class AnalysisSession(
 
     // Path to the running fat JAR — used to register our FIR plugin with the embedded compiler.
     private val selfJar: String? = resolveSelfJar()
+
+    // The project's plugins as the embedded compiler can load them: probed once on first use, empty (with a warning)
+    // when they cannot be loaded, so the session keeps the no-plugin behavior instead of failing every file.
+    private val verifiedPlugins = lazy { compilerPlugins.verified(classpath) }
+
+    /** The compiler plugins every non-module compilation of this session registers. */
+    internal val effectivePlugins: CompilerPlugins get() = verifiedPlugins.value
+
+    /** Why a supplied compiler plugin or option is not applied; surfaced in the response like [kotlinSettingsWarnings]. */
+    val compilerPluginWarnings: List<String>
+        get() = (if (verifiedPlugins.isInitialized()) verifiedPlugins.value.warnings else compilerPlugins.warnings)
+            .map { "krit-fir: $it" }
 
     // Collect all .kt files from sourceDirs. K2 needs all sources for correct type
     // resolution even when checking a subset. Re-walked on every compile because the
@@ -436,6 +457,13 @@ class AnalysisSession(
     internal fun sliceFallback(): SliceFallback? {
         incrementalState.fallbackReason()?.let { return it }
         return if (incrementalState.compileKey != compileKey()) SliceFallback.STATE_CHANGED else null
+    }
+
+    /** [sliceFallback] for telemetry: its name, plus what the state knows about it (`COMPILE_ERRORS: compile errors in 6 files`). */
+    internal fun sliceFallbackDescription(): String? {
+        val fallback = sliceFallback() ?: return null
+        val detail = incrementalState.fallbackDetail().takeIf { fallback == incrementalState.fallbackReason() }
+        return if (detail == null) fallback.name else "${fallback.name}: $detail"
     }
 
     /** Test seam: a slice withholds the external class-name facts, which must make the rule differ from a full compile. */
@@ -700,7 +728,17 @@ class AnalysisSession(
                         fullCommits++
                         committed = true
                         val snapshot = build?.takeIf { it.built }?.snapshot
-                        incrementalState.attachSnapshot(snapshot, noSnapshotReason)
+                        // A compile with errors never reaches the backend: say so, with how many files, so the
+                        // planner's fallback is visible as more than "no snapshot" (a missing compiler plugin, say).
+                        val erroneous = build != null && !build.built && !build.frontendClean && build.failure == null
+                        if (erroneous) {
+                            val files = collector.errorFiles.size
+                            val detail = if (files > 0) "compile errors in $files file${if (files == 1) "" else "s"}"
+                                else "a compiler error not tied to a file"
+                            incrementalState.attachSnapshot(null, SliceFallback.COMPILE_ERRORS, detail)
+                        } else {
+                            incrementalState.attachSnapshot(snapshot, noSnapshotReason)
+                        }
                         if (snapshot != null) pendingSnapshot = null
                     }
                 }
@@ -947,7 +985,8 @@ class AnalysisSession(
             requested.isEmpty() || requested.map { canonicalOrSelf(File(it)) } == own.map { canonicalOrSelf(File(it)) }
         return sameFiles(request.sourceDirs, sourceDirs) && sameFiles(request.classpath, classpath) &&
             (request.jvmTarget.isEmpty() || request.jvmTarget == jvmTarget) &&
-            (request.kotlinArgs.isEmpty() || KotlinCompilerSettings.parse(request.kotlinArgs).identity == kotlinSettings.identity)
+            (request.kotlinArgs.isEmpty() || KotlinCompilerSettings.parse(request.kotlinArgs).identity == kotlinSettings.identity) &&
+            (request.compilerPluginClasspath.isEmpty() || request.compilerPlugins().identity == compilerPlugins.identity)
     }
 
     private fun canonicalSet(paths: List<String>): Set<String> = paths.mapTo(HashSet()) { canonicalOrSelf(File(it)) }
@@ -1012,14 +1051,15 @@ class AnalysisSession(
         // Extended compiler checkers remain off, preserving the oracle's diagnostic subset.
         suppressWarnings = false
         reportAllWarnings = true
-        if (selfJar != null) pluginClasspaths = arrayOf(selfJar)
+        (module?.plugins ?: effectivePlugins).applyTo(this, selfJar)
         module?.configure(this, compilationJvmTarget)
         if (module == null) argumentsHook?.invoke(this)
     }
 
     /**
      * Key of the compiler facts (lookups, surfaces): the compiler and plugin builds, this session's sources,
-     * classpath (with file identity), JVM target and Kotlin settings. A different key resets [incrementalState].
+     * classpath (with file identity), JVM target, Kotlin settings and the project's compiler plugins (each jar's file
+     * identity and every option). A different key resets [incrementalState] and files a persisted bundle elsewhere.
      */
     private fun compileKey(): String {
         val builder = FingerprintBuilder()
@@ -1028,6 +1068,7 @@ class AnalysisSession(
             .add("jvmTarget", compilationJvmTarget)
             .add("kotlinSettings", kotlinSettings.identity)
         selfJar?.let { builder.addFileIdentity("plugin", it) }
+        effectivePlugins.addTo(builder)
         for (entry in effectiveClasspath(classpath)) builder.addFileIdentity("classpath", entry)
         return builder.build()
     }
@@ -1106,8 +1147,12 @@ class AnalysisSession(
 
     internal fun rebuild(
         sourceDirs: List<String>, classpath: List<String>, jvmTarget: String, kotlinArgs: List<String> = this.kotlinArgs,
+        compilerPlugins: CompilerPlugins = this.compilerPlugins,
     ): AnalysisSession =
-        AnalysisSession(sourceDirs, classpath, jvmTarget, kotlinArgs, incrementalRecording, incrementalSnapshot, incrementalPlanning).also {
+        AnalysisSession(
+            sourceDirs, classpath, jvmTarget, kotlinArgs, incrementalRecording, incrementalSnapshot, incrementalPlanning,
+            compilerPlugins,
+        ).also {
             it.tieredRulePolicy = tieredRulePolicy
             it.plannerLimits = plannerLimits
             it.retainedModuleRunner = retainedModuleRunner

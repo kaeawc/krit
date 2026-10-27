@@ -67,6 +67,13 @@ internal class DepTracker {
     val crashedFiles: Map<String, String>
         get() = crashes
 
+    /** The wire view of what was recorded. */
+    fun view(): OracleResponse.CacheDepsView = OracleResponse.CacheDepsView(
+        depPathsByFile = depPathsByFile,
+        perFileDeps = perFileDeps,
+        crashedFiles = crashedFiles,
+    )
+
     /** True iff no per-file deps or crashes have been recorded yet. */
     fun isEmpty(): Boolean = depPaths.isEmpty() && depsByFile.isEmpty() && crashes.isEmpty()
 }

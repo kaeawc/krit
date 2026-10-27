@@ -54,6 +54,7 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
     private class Request(
         val id: Long, val files: List<FileRef>, val ruleConfigs: Map<String, Map<String, Any?>>,
         val testFiles: Set<String>, val scanPaths: Map<String, String>, val sdkLevels: Map<String, SdkLevels>,
+        val withOracle: Boolean,
     )
 
     private class Counters {
@@ -78,16 +79,18 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
     /**
      * [fullCompile], when given, runs the request's full check instead of [AnalysisSession.checkCompilation]: with
      * the enabled rules and whether to record (false for the tiered-rule bypass). `analyzeWithCheck` uses it to make
-     * the full check the compile it shares with the oracle.
+     * the full check the compile it shares with the oracle. [withOracle] runs the oracle on every slice too, so the
+     * session's oracle facts stay current and the caller can answer the oracle without a whole-module compile.
      */
     fun serve(
         id: Long, files: List<FileRef>, enabledRules: Set<String>,
         ruleConfigs: Map<String, Map<String, Any?>>, testFiles: Set<String>,
         scanPaths: Map<String, String>, sdkLevels: Map<String, SdkLevels>,
+        withOracle: Boolean = false,
         fullCompile: ((rules: Set<String>, record: Boolean) -> BatchResult)?,
     ): BatchResult = synchronized(session.snapshotLock) {
         val start = System.nanoTime()
-        val request = Request(id, files, ruleConfigs, testFiles, scanPaths, sdkLevels)
+        val request = Request(id, files, ruleConfigs, testFiles, scanPaths, sdkLevels, withOracle)
         val counters = Counters()
 
         val enabledIds = FirRuleDiscovery.enabled(FirRuleCompileContext(enabledRules)).mapTo(LinkedHashSet()) { it.ruleId }
@@ -223,7 +226,7 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
             val t0 = System.nanoTime()
             val outcome = session.sliceCheck(
                 r.id, todo.map { requested[it] ?: FileRef(it) }, rules, r.ruleConfigs, r.testFiles, r.scanPaths, r.sdkLevels,
-                removedPending, requested,
+                removedPending, requested, withOracle = r.withOracle,
             )
             c.waveMillis += (System.nanoTime() - t0) / 1_000_000
             val checked = when (outcome) {

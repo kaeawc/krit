@@ -31,6 +31,16 @@ internal class OracleCollector {
      */
     val depTracker: DepTracker = DepTracker()
 
+    /**
+     * Slice compiles only (#740): resolves a supertype the compile read as a binary from the incremental snapshot
+     * to the module file declaring it and that class's projection, as a whole-module compile would have recorded
+     * them from source. Returns null for a class that is not the module's (a library class). Null outside slices.
+     */
+    var binarySupertype: ((fqn: String) -> Pair<String, ClassPayload>?)? = null
+
+    /** Set when [binarySupertype] knew the declaring file but had no projection: this compile's deps are partial. */
+    var binarySupertypeMissed: Boolean = false
+
     fun addClass(filePath: String, payload: ClassPayload) {
         perFile.getOrPut(filePath) { mutableListOf() }.add(payload)
         // The `dependencies` map mirrors krit-types' cross-file class

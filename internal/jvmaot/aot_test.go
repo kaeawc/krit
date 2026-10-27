@@ -292,3 +292,24 @@ func TestRecordingFinalizesOnlyOnCleanExit(t *testing.T) {
 		t.Fatalf("bad profile finalized: %v", err)
 	}
 }
+
+// A launch that must not record (its launcher may never see the JVM exit)
+// starts without AOT when there is no cache, and leaves no lock or temp.
+func TestNoRecordLaunchWithoutCacheStartsWithoutAOT(t *testing.T) {
+	jar, token, config, cache := aotSetup(t)
+	args, added := appendArgs(nil, "missing-java", jar, token, "fir", 27, false, nil, false)
+	if added || IsRecording(args) || strings.Contains(strings.Join(args, " "), "-XX:AOT") {
+		t.Fatalf("no-record launch = %v, %v", args, added)
+	}
+	for _, p := range []string{buildLockPath(cache), config} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatalf("%s left behind: %v", p, err)
+		}
+	}
+	// The recording launch still records.
+	args, added = appendArgs(nil, "missing-java", jar, token, "fir", 27, false, nil, true)
+	if !added || !IsRecording(args) {
+		t.Fatalf("recording launch = %v, %v", args, added)
+	}
+	FinalizeRecording(args, false)
+}

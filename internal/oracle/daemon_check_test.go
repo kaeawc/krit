@@ -348,3 +348,41 @@ func TestAnalyzeAllWithCheckSkipsTheCheckOnceCancelled(t *testing.T) {
 		t.Fatalf("requests = %s delivered=%v", got, delivered)
 	}
 }
+
+// A daemon this process launched from a Leyden AOT cache shares its check only
+// with krit-fir's canary mark (#768); the oracle facts are still used.
+func TestAnalyzeAllWithCheckRequiresTheCanaryMarkFromAnAOTDaemon(t *testing.T) {
+	marked := strings.TrimSuffix(checkResponseBody, "}") + `,"aotCanary":true}`
+	for _, tc := range []struct {
+		name, check string
+		aot         bool
+		want        bool
+	}{
+		{"no AOT", checkResponseBody, false, true},
+		{"AOT unmarked", checkResponseBody, true, false},
+		{"AOT marked", marked, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, _ := newCheckDaemon(t, func(_ string, id int) string {
+				return fmt.Sprintf(`{"id":%d,"result":%s,"check":%s}`, id, emptyOracleResult, tc.check)
+			})
+			if tc.aot {
+				d.aotCachePath = "/c.aot"
+			}
+			var delivered []string
+			var declined string
+			rider := testRider(checkRequestBody, &delivered)
+			rider.Decline = func(reason string) { declined = reason }
+			data, err := d.AnalyzeAllWithCheck(nil, rider)
+			if err != nil || data == nil {
+				t.Fatalf("data=%v err=%v", data, err)
+			}
+			if got := len(delivered) == 1; got != tc.want {
+				t.Fatalf("delivered=%v want %v (declined %q)", delivered, tc.want, declined)
+			}
+			if !tc.want && !strings.Contains(declined, "AOT") {
+				t.Fatalf("declined = %q", declined)
+			}
+		})
+	}
+}

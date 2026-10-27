@@ -190,21 +190,49 @@ func daemonRequestTimeout() time.Duration {
 // daemon runs in oracle.DaemonWorkDir: it may outlive this invocation and
 // serve krit runs from other directories, so every path it is sent is
 // absolute (see Check) and nothing may resolve against its working directory.
+//
+// The JVM uses the Leyden AOT cache when the JDK supports it. A cache can
+// pass its provenance checks and still restore a JVM whose checkers report
+// nothing (#768), so no AOT launch is trusted before its canary passes
+// (aot_canary.go): checkFirWithRecovery for the checker role,
+// verifyOracleRoleAOT for the oracle role. A failed canary disables the
+// cache for the process and relaunches without it.
 func StartFirDaemonWithPort(jarPath string, verbose bool, target ...CompileTarget) (*FirDaemon, error) {
-	// A valid Leyden cache can restore FIR with registered checkers that emit
-	// zero findings (#768). The cause is not found, so launch FIR without AOT
-	// for both one-shot and shared daemons. checkFirWithRecovery's canary
-	// (aot_canary.go) is the guard to rely on when this is re-enabled.
-	return startFirDaemonWithAOT(jarPath, verbose, false, target...)
+	return startFirDaemonWithAOT(jarPath, verbose, true, target...)
 }
 
+// startFirOracleDaemon launches an oracle-role daemon: it may use a Leyden
+// AOT cache but never records one, since nobody closes it (see
+// jvmaot.AppendCachedArgs). The checker role records instead. Tests replace
+// it to avoid a real JVM.
+var startFirOracleDaemon = func(jarPath string, verbose bool, target ...CompileTarget) (*FirDaemon, error) {
+	return startFirDaemonWithAOTMode(jarPath, verbose, firAOTNoRecord, target...)
+}
+
+// firAOTMode is how a krit-fir launch may use the Leyden AOT cache.
+type firAOTMode int
+
+const (
+	firAOTOff      firAOTMode = iota // never
+	firAOTFull                       // use, build, or record a profile
+	firAOTNoRecord                   // use or build, never record
+)
+
 func startFirDaemonWithAOT(jarPath string, verbose, allowAOT bool, target ...CompileTarget) (*FirDaemon, error) {
+	mode := firAOTOff
+	if allowAOT {
+		mode = firAOTFull
+	}
+	return startFirDaemonWithAOTMode(jarPath, verbose, mode, target...)
+}
+
+func startFirDaemonWithAOTMode(jarPath string, verbose bool, mode firAOTMode, target ...CompileTarget) (*FirDaemon, error) {
 	javaPath, err := oracle.JavaPath()
 	if err != nil {
 		return nil, fmt.Errorf("java not found in PATH: %w", err)
 	}
 
-	args := buildFirJVMArgsWithAOT(jarPath, javaPath, oracle.CachedJDKMajorVersion(), verbose, allowAOT)
+	args := buildFirJVMArgsWithAOTMode(jarPath, javaPath, oracle.CachedJDKMajorVersion(), verbose, mode)
 	if t := firstTarget(target); t.JvmTarget != "" {
 		args = append(args, "--jvm-target", t.JvmTarget)
 	}
@@ -294,18 +322,21 @@ func firAOTCacheArg(args []string) string {
 }
 
 func buildFirJVMArgs(jarPath, javaPath string, jdkMajor int) []string {
-	return buildFirJVMArgsWithAOT(jarPath, javaPath, jdkMajor, false, false)
+	return buildFirJVMArgsWithAOTMode(jarPath, javaPath, jdkMajor, false, firAOTFull)
 }
 
-func buildFirJVMArgsWithAOT(jarPath, javaPath string, jdkMajor int, verbose, allowAOT bool) []string {
+func buildFirJVMArgsWithAOTMode(jarPath, javaPath string, jdkMajor int, verbose bool, mode firAOTMode) []string {
 	args := []string{
 		"-XX:+UseG1GC",
 		"-XX:+UseStringDeduplication",
 		"-Xms512m",
 		"-Xmx1g",
 	}
-	if allowAOT {
+	switch mode {
+	case firAOTFull:
 		args, _ = jvmaot.AppendArgs(args, javaPath, oracle.AbsolutePath(jarPath), "fir", jdkMajor, verbose, reporter().Verbosef)
+	case firAOTNoRecord:
+		args, _ = jvmaot.AppendCachedArgs(args, javaPath, oracle.AbsolutePath(jarPath), "fir", jdkMajor, verbose, reporter().Verbosef)
 	}
 	return append(args, "-jar", oracle.AbsolutePath(jarPath), "--daemon", "--port", "0")
 }
@@ -407,7 +438,11 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 	if rejected != 0 {
 		stopFirDaemonIf(srcHash, rejected, verbose)
 	}
-	d, err = startFirDaemon(jarPath, verbose, compile)
+	start := startFirDaemon
+	if role != firCheckRole {
+		start = startFirOracleDaemon
+	}
+	d, err = start(jarPath, verbose, compile)
 	if err != nil {
 		return nil, fmt.Errorf("start persistent fir daemon: %w", err)
 	}
@@ -418,6 +453,11 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 		d.conn.Close()
 		killAndReap(d.cmd)
 		return nil, fmt.Errorf("write fir PID file: %w", err)
+	}
+	if role != firCheckRole && d.aotCachePath != "" {
+		// The checker role verifies on its first check (checkFirWithRecovery);
+		// the oracle role's requests have no such hook, so verify here.
+		return verifyOracleRoleAOT(d, jarPath, srcHash, role, compile, verbose)
 	}
 	return d, nil
 }

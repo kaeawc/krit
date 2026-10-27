@@ -226,7 +226,10 @@ would compile exactly the oracle's sources; the pass then reuses that response
 for any request with the same rules, options, and file facts whose sources
 have not changed since. Anything else, including an oracle served by its
 cache or by a persistent daemon, leaves the pass to compile on its own as
-before. `-v` reports `fir check: reusing the oracle compilation's check`, and
+before. A krit-fir JVM launched from a Leyden AOT cache shares a check only
+after its own canary passed (see the FIR AOT section of `benchmarking.md`);
+otherwise `firCheckRider` reads `aotUnverified` and the pass compiles on its
+own. `-v` reports `fir check: reusing the oracle compilation's check`, and
 `--perf` records `firCheckRider` under the oracle's JVM entry.
 
 **Which files FIR decides.** For each checked file the response says whether

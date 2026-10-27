@@ -67,7 +67,7 @@ func TestZeroRegisteredFIRRulesDiscardsAOTAndRetries(t *testing.T) {
 	retries := 0
 	startFirWithoutAOT = func(_ string, _ bool, _ ...CompileTarget) (*FirDaemon, error) {
 		retries++
-		args := buildFirJVMArgsWithAOT(jar, "missing-java", 27, false, false)
+		args := buildFirJVMArgsWithAOTMode(jar, "missing-java", 27, false, firAOTOff)
 		for _, arg := range args {
 			if strings.HasPrefix(arg, "-XX:AOT") || strings.HasPrefix(arg, "-Xlog:aot") {
 				t.Fatalf("retry contains AOT: %v", args)

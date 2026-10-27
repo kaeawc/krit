@@ -14,7 +14,7 @@ import (
 	"github.com/kaeawc/krit/internal/jvmaot"
 )
 
-func TestFirJVMArgsIgnoreLeydenCacheWhenSupported(t *testing.T) {
+func TestFirJVMArgsUseLeydenCacheWhenSupported(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	jar := filepath.Join(t.TempDir(), "krit-fir.jar")
 	if err := os.WriteFile(jar, []byte("jar bytes"), 0o644); err != nil {
@@ -41,34 +41,28 @@ func TestFirJVMArgsIgnoreLeydenCacheWhenSupported(t *testing.T) {
 	}
 
 	args := buildFirJVMArgs(jar, "missing-java", 25)
-	if containsJVMArg(args, "-XX:AOTCache="+cachePath) {
-		t.Fatalf("FIR launcher used a cache with unverified verdicts: %v", args)
-	}
-	for _, arg := range args {
-		if strings.Contains(arg, "AOT") || strings.Contains(arg, "aot") {
-			t.Fatalf("FIR launcher used Leyden option %q: %v", arg, args)
-		}
+	// AOT launches are trusted only after their canary (aot_canary.go).
+	if !containsJVMArg(args, "-XX:AOTCache="+cachePath) {
+		t.Fatalf("supported JDK args missing AOT cache %q: %v", cachePath, args)
 	}
 	if !containsJVMArg(args, "-Xmx1g") {
 		t.Fatalf("checker args missing oracle-aligned heap cap: %v", args)
 	}
 }
 
-// A structurally valid Leyden cache can restore FIR with registered rules but
-// silently suppress all their findings. A cold daemon must not record or use
-// such a cache; the ordinary parity tests exercise the resulting verdicts.
-func TestFirJVMArgsDoNotRecordLeydenOnSupportedJDK(t *testing.T) {
+// Without a cache, a supported JDK records the class profile the cache is
+// built from on a later launch.
+func TestFirJVMArgsRecordLeydenProfileOnSupportedJDK(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	jar := filepath.Join(t.TempDir(), "krit-fir.jar")
 	if err := os.WriteFile(jar, []byte("jar bytes"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	args := buildFirJVMArgs(jar, "missing-java", 27)
-	for _, arg := range args {
-		if strings.Contains(arg, "AOT") || strings.Contains(arg, "aot") {
-			t.Fatalf("FIR launcher records or uses Leyden cache: %v", args)
-		}
+	if !containsJVMArg(args, "-XX:AOTMode=record") || !jvmaot.IsRecording(args) {
+		t.Fatalf("cold FIR launch does not record a Leyden profile: %v", args)
 	}
+	jvmaot.FinalizeRecording(args, false)
 }
 
 func TestFirJVMArgsSkipLeydenOnUnsupportedJDK(t *testing.T) {

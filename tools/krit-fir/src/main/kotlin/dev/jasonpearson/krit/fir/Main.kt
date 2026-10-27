@@ -190,13 +190,15 @@ internal fun runOneShot(
     val (outcome, checked) = if (checkRequest == null) {
         session.analyzeFull(files) to null
     } else {
+        AotSelfCheck.prepare()
         session.analyzeWithCheck(files, checkRequest)
     }
     // The cache-deps and check files are written first: the Go caller treats
     // a non-empty --output as "done" and may stop waiting for the process
     // after a grace period, so they must already be on disk by then.
-    if (checked != null && !checkOutPath.isNullOrBlank()) {
-        java.io.File(checkOutPath).writeText(buildCheckResponse(checked))
+    val sharedCheck = checked?.let { markSharedCheck(buildCheckResponse(it)) }
+    if (sharedCheck != null && !checkOutPath.isNullOrBlank()) {
+        java.io.File(checkOutPath).writeText(sharedCheck)
     }
     if (!cacheDepsOutPath.isNullOrBlank()) {
         java.io.File(cacheDepsOutPath).writeText(
@@ -394,7 +396,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                     newSession,
                 )
             }
-            "canary" -> RequestResult.Response(handleCanary(request.id))
+            "canary" -> RequestResult.Response(handleCanary(request.id, canaryWantsOracleFacts(trimmed)))
             "ping" -> {
                 val uptime = System.currentTimeMillis() - startTime
                 RequestResult.Response("""{"id":${request.id},"result":{"ok":true,"uptime":$uptime}}""")
@@ -667,9 +669,11 @@ internal fun handleAnalyzeWithCheck(request: CheckRequest, session: AnalysisSess
     val files = request.files.map { it.path }
     val check = request.sharedCheck
     if (check == null) return OracleResponse.buildAnalyze(request.id, session.analyze(files))
+    AotSelfCheck.prepare()
     val (outcome, checked) = session.analyzeWithCheck(files, check)
     val oracle = OracleResponse.buildAnalyze(request.id, outcome.result)
-    return oracle.dropLast(1) + ",\"check\":" + (checked?.let { withWarnings(buildCheckResponse(it), session, check.jvmTarget, it.warnings) } ?: "null") + "}"
+    val shared = checked?.let { markSharedCheck(withWarnings(buildCheckResponse(it), session, check.jvmTarget, it.warnings)) }
+    return oracle.dropLast(1) + ",\"check\":" + (shared ?: "null") + "}"
 }
 
 internal fun handleAnalyzeFile(request: CheckRequest, session: AnalysisSession): String {

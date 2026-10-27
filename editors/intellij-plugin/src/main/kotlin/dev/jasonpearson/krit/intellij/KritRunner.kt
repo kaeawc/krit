@@ -64,6 +64,9 @@ object KritRunner {
         isCancelled: () -> Boolean,
     ): AnalyzeOutcome? {
         if (isCancelled()) return AnalyzeOutcome.Cancelled
+        // The daemon reads only the project root's config; an override
+        // needs the CLI.
+        if (configOverride(project) != null) return null
         val socketPath = KritDaemonClient.socketPathFor(projectDir)
         if (!Files.exists(socketPath)) return null
         val content = liveContent ?: try {
@@ -137,6 +140,7 @@ object KritRunner {
         if (liveContents.isEmpty()) return BufferScan(emptyMap(), null)
         if (isCancelled()) return BufferScan(liveContents.mapValues { AnalyzeOutcome.Cancelled }, null)
         val projectDir = project.baseDir() ?: return null
+        if (configOverride(project) != null) return null
         val socketPath = KritDaemonClient.socketPathFor(projectDir)
         if (!Files.exists(socketPath)) return null
         val entries = liveContents.mapNotNull { (path, live) ->
@@ -210,8 +214,7 @@ object KritRunner {
                 "-o",
                 output.absolutePath,
                 "-q",
-                scanPath,
-            )
+            ) + KritConfigOverride.cliArgs(configOverride(project)) + scanPath
             // krit exits non-zero when it reports findings; trust the output
             // file as long as it exists rather than the exit code.
             val result = runKrit(project, projectDir, command, classpath, ANALYZE_TIMEOUT_SECONDS, label, isCancelled) { exit, _ ->
@@ -248,8 +251,7 @@ object KritRunner {
             "--finding-id",
             findingId,
             "-q",
-            projectDir.absolutePath,
-        )
+        ) + KritConfigOverride.cliArgs(configOverride(project)) + projectDir.absolutePath
         return runKrit(project, projectDir, command, classpath, FIX_TIMEOUT_SECONDS, "fix") { exit, _ -> exit == 0 } is RunOutcome.Ok
     }
 
@@ -457,6 +459,9 @@ object KritRunner {
             RunOutcome.Failed(t.message ?: "unknown error")
         }
     }
+
+    // The "Config file" setting for project, or null when unset.
+    fun configOverride(project: Project): String? = KritSettingsState.configOverride(project.basePath)
 
     private fun Project.baseDir(): File? {
         val base = basePath ?: return null

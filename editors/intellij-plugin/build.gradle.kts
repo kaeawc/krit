@@ -56,8 +56,9 @@ intellijPlatform {
             tracks scan state in the status bar, and reads the IDE's resolved
             classpath so type-aware (KAA / FIR) rules match CI behaviour.
 
-            Configure the Krit binary, default fix level, and config file
-            override under Settings → Tools → Krit.
+            Configure the Krit binary, maximum fix level, and config file
+            override under Settings → Tools → Krit, and turn individual Krit
+            rules on or off under Settings → Inspections → Krit.
             """.trimIndent(),
         )
 

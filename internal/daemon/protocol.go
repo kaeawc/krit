@@ -541,6 +541,9 @@ type ListRulesArgs struct {
 	Maturity string `json:"maturity,omitempty"`
 	// TaxonomyID filters by --cwe (CWE / OWASP / SEI-CERT / MITRE).
 	TaxonomyID string `json:"taxonomy,omitempty"`
+	// Format is "json" for the --list-rules --format json document;
+	// empty means the text table.
+	Format string `json:"format,omitempty"`
 }
 
 // ListExperimentsArgs mirrors the --list-experiments flag knobs.

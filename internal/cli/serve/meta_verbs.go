@@ -32,7 +32,7 @@ func handleListRules(_ context.Context, _ *daemonState, raw json.RawMessage) (an
 		}
 	}
 	var stdout, stderr bytes.Buffer
-	code, _ := scan.PrintListRules(&stdout, &stderr, args.Verbose, args.Maturity, args.TaxonomyID, nil, nil)
+	code, _ := scan.PrintListRules(&stdout, &stderr, args.Verbose, args.Maturity, args.TaxonomyID, args.Format, nil, nil)
 	return daemon.MetaResult{
 		Stdout:   stdout.Bytes(),
 		Stderr:   stderr.Bytes(),

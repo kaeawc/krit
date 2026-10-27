@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.intellij
 
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.options.Configurable
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
 import com.intellij.ui.components.JBCheckBox
@@ -25,7 +26,17 @@ class KritSettingsConfigurable : Configurable {
     override fun isModified(): Boolean = form?.isModified(KritSettingsState.get().state) ?: false
 
     override fun apply() {
-        form?.let { KritSettingsState.get().update(it.save()) }
+        val f = form ?: return
+        val before = KritSettingsState.get().state.copy()
+        val next = f.save()
+        KritSettingsState.get().update(next)
+        val configChanged = before.configPath != next.configPath
+        if (configChanged || before.fixLevel != next.fixLevel) {
+            for (project in ProjectManager.getInstance().openProjects) {
+                if (project.isDisposed) continue
+                project.getServiceIfCreated(KritProjectService::class.java)?.settingsChanged(configChanged)
+            }
+        }
     }
 
     override fun reset() {
@@ -45,7 +56,10 @@ class KritSettingsConfigurable : Configurable {
                 FileChooserDescriptorFactory.createSingleFileDescriptor(),
             )
         }
-        private val fixLevelCombo = ComboBox(arrayOf("cosmetic", "idiomatic", "semantic"))
+        private val fixLevelCombo = ComboBox(KritFixLabels.FIX_LEVELS.toTypedArray()).apply {
+            toolTipText = "Most invasive krit autofix the quick fixes apply (krit --fix-level): cosmetic, " +
+                "idiomatic, or semantic. Fixes above it are not offered. Rule suggestions are always offered."
+        }
         private val configField = TextFieldWithBrowseButton().apply {
             addBrowseFolderListener(
                 "Select Krit Config File",
@@ -53,6 +67,9 @@ class KritSettingsConfigurable : Configurable {
                 null,
                 FileChooserDescriptorFactory.createSingleFileDescriptor(),
             )
+            toolTipText = "Passed to krit as --config instead of the project's krit.yml / .krit.yml. " +
+                "A relative path resolves against each project's root. While set, scans use the krit " +
+                "CLI instead of the daemon, which only reads the project's own krit.yml."
         }
 
         private val debounceField = JBTextField().apply {
@@ -69,7 +86,7 @@ class KritSettingsConfigurable : Configurable {
 
         val panel: JPanel = FormBuilder.createFormBuilder()
             .addLabeledComponent("Krit binary:", binaryField)
-            .addLabeledComponent("Default fix level:", fixLevelCombo)
+            .addLabeledComponent("Maximum fix level:", fixLevelCombo)
             .addLabeledComponent("Config file:", configField)
             .addLabeledComponent("Scan debounce (ms):", debounceField)
             .addComponent(startDaemonBox)

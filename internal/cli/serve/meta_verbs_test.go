@@ -35,6 +35,32 @@ func TestListRulesVerb_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestListRulesVerb_JSONFormat pins that Format "json" reaches the daemon
+// handler, so a daemon-routed `--list-rules --format json` gets the same
+// JSON document as the in-process listing.
+func TestListRulesVerb_JSONFormat(t *testing.T) {
+	socket, _ := startServerForTest(t)
+
+	var got daemon.MetaResult
+	if err := daemon.Call(socket, daemon.VerbListRules, daemon.ListRulesArgs{Format: "json"}, &got); err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	if got.ExitCode != 0 {
+		t.Fatalf("expected exit 0, got %d (stderr=%q)", got.ExitCode, string(got.Stderr))
+	}
+	var doc struct {
+		Rules []struct {
+			ID string `json:"id"`
+		} `json:"rules"`
+	}
+	if err := json.Unmarshal(got.Stdout, &doc); err != nil {
+		t.Fatalf("stdout is not the JSON rule list: %v (prefix %q)", err, firstLine(string(got.Stdout)))
+	}
+	if len(doc.Rules) == 0 {
+		t.Fatal("expected rules in the JSON rule list")
+	}
+}
+
 // TestListRulesVerb_BadMaturityReturnsExitCode2 pins the no-os.Exit
 // refactor: the daemon must surface bad-maturity errors via
 // MetaResult.ExitCode + Stderr instead of crashing the process.

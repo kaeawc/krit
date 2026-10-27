@@ -102,8 +102,10 @@ class KritProjectService(private val project: Project) : Disposable {
                 ProfileChangeAdapter.TOPIC,
                 object : ProfileChangeAdapter {
                     override fun profileChanged(profile: InspectionProfile) = onInspectionProfileChanged()
-                    override fun profileActivated(oldProfile: InspectionProfile?, profile: InspectionProfile?) =
+                    override fun profileActivated(oldProfile: InspectionProfile?, profile: InspectionProfile?) {
                         onInspectionProfileChanged()
+                        installRuleInspections()
+                    }
                 },
             )
             project.messageBus.connect(this).subscribe(
@@ -121,6 +123,32 @@ class KritProjectService(private val project: Project) : Disposable {
                 projectRescanPending = true
             }
             startDaemonIfNeeded()
+            installRuleInspections()
+        }
+    }
+
+    // Adds one inspection per krit rule (Settings → Inspections → Krit →
+    // <category>) to the inspection profiles. Reading the rule list may run
+    // krit (once per binary; it is cached), so it happens off the EDT; the
+    // profiles are changed on the EDT.
+    private fun installRuleInspections() {
+        try {
+            ApplicationManager.getApplication().executeOnPooledThread {
+                if (project.isDisposed) return@executeOnPooledThread
+                val rules = KritRules.forProject(project)
+                if (rules.isEmpty()) return@executeOnPooledThread
+                ApplicationManager.getApplication().invokeLater({
+                    try {
+                        KritRuleProfiles.install(project, rules)
+                    } catch (e: com.intellij.openapi.progress.ProcessCanceledException) {
+                        throw e
+                    } catch (t: RuntimeException) {
+                        log.warn("krit per-rule inspections could not be added", t)
+                    }
+                }, project.disposed)
+            }
+        } catch (t: Throwable) {
+            log.debug("krit rule list load not scheduled", t)
         }
     }
 
@@ -134,7 +162,8 @@ class KritProjectService(private val project: Project) : Disposable {
         } else if (event is VFileMoveEvent) {
             paths.add(event.newPath)
         }
-        return KritConfigFiles.anyProjectConfig(base, paths)
+        val override = KritRunner.configOverride(project)
+        return KritConfigFiles.anyProjectConfig(base, paths) || paths.any { KritConfigOverride.isOverride(override, it) }
     }
 
     // The config changes which rules run and how, so every file's findings
@@ -149,6 +178,15 @@ class KritProjectService(private val project: Project) : Disposable {
         projectRescanPending = true
         if (!inspectionsEnabled) return
         scheduleScan(KritScanDebounce.effectiveMs(KritSettingsState.getSafely()?.state?.debounceMs))
+    }
+
+    // Settings → Tools → Krit changed: a different config file changes every
+    // file's findings, so rescan the project; the fix level only changes
+    // which quick fixes are offered, so re-highlight.
+    fun settingsChanged(configChanged: Boolean) {
+        if (!scansEnabled) return
+        if (configChanged) onConfigChanged()
+        restartHighlighting()
     }
 
     // While scans are paused nothing refreshes an edited file, so findings
@@ -222,8 +260,15 @@ class KritProjectService(private val project: Project) : Disposable {
     }
 
     fun findingsFor(path: String): List<KritFinding> {
-        return findingsByFile[canonicalPath(path)].orEmpty()
+        val map = findingsByFile
+        if (map.isEmpty()) return emptyList()
+        return map[editorPathCanonical.computeIfAbsent(path) { canonicalPath(it) }].orEmpty()
     }
+
+    // Editor (VFS) path to canonical path. Every per-rule inspection asks
+    // findingsFor about each highlighted file, so resolve each path once
+    // rather than once per rule.
+    private val editorPathCanonical = ConcurrentHashMap<String, String>()
 
     internal fun seedFindingsForTest(path: String, findings: List<KritFinding>) {
         findingsByFile = findingsByFile + (canonicalPath(path) to findings)
@@ -686,6 +731,9 @@ class KritProjectService(private val project: Project) : Disposable {
     private fun startDaemonIfNeeded() {
         if (KritSettingsState.getSafely()?.state?.startDaemon == false) return
         val base = project.basePath ?: return
+        // With a config override every scan uses the CLI (the daemon reads
+        // only the project's own krit.yml), so a daemon would sit unused.
+        if (KritRunner.configOverride(project) != null) return
         if (!daemonOwnership.beginStart()) return
         try {
             ApplicationManager.getApplication().executeOnPooledThread {

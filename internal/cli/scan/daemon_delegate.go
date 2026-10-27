@@ -333,6 +333,7 @@ func callMetaVerb(client *daemonclient.Client, f *scanFlags, paths []string, ver
 			Verbose:    *f.Verbose,
 			Maturity:   *f.Maturity,
 			TaxonomyID: *f.ListRulesCWE,
+			Format:     listRulesFormat(f, flag.CommandLine),
 		})
 	case metaVerbListExperiments:
 		// Mirror runner_state.go's effectiveFormat resolution so

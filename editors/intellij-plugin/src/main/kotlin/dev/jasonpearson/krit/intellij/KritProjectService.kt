@@ -474,7 +474,12 @@ class KritProjectService(private val project: Project) : Disposable {
         // one-by-one path below, which ends in the CLI when no daemon runs.
         val scan = KritRunner.scanBuffersWithDaemon(project, paths.associateWith { contentFor(it) }, isCancelled)
         if (requireFixedRule && !KritFixTargets.perFileRescanCovers(fixedRule, scan?.evaluatedRules)) {
-            if (scan?.outcomes?.values?.any { it is KritRunner.AnalyzeOutcome.Cancelled } == true) return false
+            if (scan?.outcomes?.values?.any { it is KritRunner.AnalyzeOutcome.Cancelled } == true) {
+                // Superseded before the project refresh: the retry must still
+                // rescan the project, or the fixed finding lingers.
+                projectRescanPending = true
+                return false
+            }
             if (!refreshFindings(isCancelled)) {
                 projectRescanPending = true
                 return false

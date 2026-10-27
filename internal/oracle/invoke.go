@@ -283,6 +283,7 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	}
 	defer rider.cleanup()
 	args = append(args, riderArgs...)
+	rider.noteLaunch(args)
 	callFilterPath, cleanupCallFilter, err := writeCallFilterArg(opts, tracker)
 	if err != nil {
 		return "", fmt.Errorf("call filter: %w", err)

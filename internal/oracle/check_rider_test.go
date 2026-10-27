@@ -165,3 +165,39 @@ func TestCheckRiderSkipsDeliveryAfterAFailedProcess(t *testing.T) {
 		t.Fatal("delivered a response from a failed oracle process")
 	}
 }
+
+// A check that rode on a JVM launched from a Leyden AOT cache is delivered
+// only with krit-fir's canary mark (#768): a jar that predates the
+// self-check, or a JVM whose canary failed, leaves the pass to check on its
+// own behind its own canary.
+func TestCheckRiderRequiresTheCanaryMarkFromAnAOTLaunch(t *testing.T) {
+	cases := []struct {
+		name     string
+		args     []string
+		response string
+		want     bool
+	}{
+		{"no AOT", []string{"-Xmx1g", "-jar", "krit-fir.jar"}, `{"id":1,"rules":["R"]}`, true},
+		{"AOT unmarked", []string{"-XX:AOTCache=/c.aot", "-jar", "krit-fir.jar"}, `{"id":1,"rules":["R"]}`, false},
+		{"AOT canary failed mark", []string{"-XX:AOTCache=/c.aot", "-jar", "krit-fir.jar"}, `{"id":1,"rules":["R"],"aotCanary":false}`, false},
+		{"AOT marked", []string{"-XX:AOTCache=/c.aot", "-jar", "krit-fir.jar"}, `{"id":1,"rules":["R"],"aotCanary":true}`, true},
+		{"recording", []string{"-XX:AOTMode=record", "-XX:AOTConfiguration=/c.aotconf.tmp.1", "-jar", "krit-fir.jar"}, `{"id":1,"rules":["R"]}`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "check-out.json")
+			if err := os.WriteFile(out, []byte(tc.response), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			delivered := false
+			run := &checkRiderRun{deliver: func([]byte) { delivered = true }, outPath: out}
+			run.noteLaunch(tc.args)
+			run.finish(perf.New(false), nil)
+			if delivered != tc.want {
+				t.Fatalf("delivered = %v, want %v", delivered, tc.want)
+			}
+		})
+	}
+	var none *checkRiderRun
+	none.noteLaunch([]string{"-XX:AOTCache=/c.aot"}) // nil-safe
+}

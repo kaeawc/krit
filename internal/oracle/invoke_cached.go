@@ -830,6 +830,7 @@ func runKritTypesCached(
 	extraJVMArgs := configuredExtraJVMArgs(opts)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgs)
 	recordKritTypesJVMArgs(tracker, extraJVMArgs)
+	rider.noteLaunch(args)
 	if parallelArg := experimentalParallelFilesArg(); len(parallelArg) > 0 {
 		args = append(args, parallelArg...)
 	}

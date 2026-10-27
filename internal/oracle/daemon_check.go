@@ -75,10 +75,15 @@ func (d *Daemon) AnalyzeAllWithCheck(callFilter *CallTargetFilterSummary, rider 
 	if err != nil {
 		return nil, err
 	}
-	if resp.Check != nil && len(*resp.Check) > 0 {
-		deliver(*resp.Check)
-	} else {
+	switch {
+	case resp.Check == nil || len(*resp.Check) == 0:
 		rider.decline("krit-fir did not share the compile")
+	case d.aotCachePath != "" && !sharedCheckVerified(*resp.Check):
+		// See sharedCheckVerified: a JVM launched from an AOT cache shares a
+		// check only once its own canary passed.
+		rider.decline("AOT-launched krit-fir did not verify the shared check")
+	default:
+		deliver(*resp.Check)
 	}
 	return data, nil
 }

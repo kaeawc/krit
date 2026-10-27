@@ -163,7 +163,7 @@ seven alternating runs each:
 
 The scan rows compare JDK 21 (no AOT) with JDK 25 reusing the cache. The runs
 that record the profile and build the cache are slower (20.1s and 14.6s for
-the first row on that machine); that cost is paid once per jar and JDK.
+the `--fir` scan row on that machine); that cost is paid once per jar and JDK.
 
 Findings were identical in every run, with and without AOT, in both roles, and
 for checks shared with the oracle compile (`firCheckRider` status `shared`

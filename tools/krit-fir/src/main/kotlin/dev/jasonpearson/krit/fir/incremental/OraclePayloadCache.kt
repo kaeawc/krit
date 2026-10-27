@@ -31,6 +31,9 @@ internal class OraclePayloadCache {
 
     private val entries = HashMap<String, Entry>()
 
+    // The file order of the last whole-module oracle compile, which an assembled answer keeps, so it reads like one.
+    private val order = LinkedHashSet<String>()
+
     /** The [IncrementalState.generation] this cache was last brought up to; -1 when it holds nothing usable. */
     var generation: Int = -1
         private set
@@ -43,7 +46,10 @@ internal class OraclePayloadCache {
 
     fun remove(file: String) { entries.remove(file) }
 
-    fun clear() { entries.clear(); generation = -1 }
+    fun clear() { entries.clear(); order.clear(); generation = -1 }
+
+    /** Records the file order (canonical paths) of a whole-module oracle compile. */
+    fun recordOrder(files: Collection<String>) { order.clear(); order.addAll(files) }
 
     fun sync(stateGeneration: Int) { generation = stateGeneration }
 
@@ -52,16 +58,19 @@ internal class OraclePayloadCache {
         entries[file]?.payload?.declarations?.firstOrNull { it.fqn == fqn }
 
     /**
-     * The oracle answer for [files] (canonical path to the spelling the response uses, in compilation order) from
+     * The oracle answer for [files] (canonical path to the spelling the response uses) from
      * the cached entries; null when one has no entry for its current content [hashes]. `dependencies` is rebuilt as
-     * a compile builds it: every declared class by FQN, the first declaration winning.
+     * a compile builds it: every declared class by FQN, the first declaration winning. Files come in the order of
+     * the last whole-module compile, new files after them in the order of [files].
      */
     fun assemble(files: Map<String, String>, hashes: Map<String, String>): Assembled? {
         val out = LinkedHashMap<String, FilePayload>(files.size)
         val dependencies = LinkedHashMap<String, ClassPayload>()
         val depPaths = LinkedHashMap<String, Set<String>>()
         val perFileDeps = LinkedHashMap<String, Map<String, ClassPayload>>()
-        for ((file, spelling) in files) {
+        val ordered = order.filter { it in files } + files.keys.filter { it !in order }
+        for (file in ordered) {
+            val spelling = files.getValue(file)
             val entry = entries[file] ?: return null
             if (entry.contentHash != hashes[file]) return null
             out[spelling] = entry.payload

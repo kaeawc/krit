@@ -409,9 +409,11 @@ class AnalysisSession(
      */
     private fun storeOraclePayloads(
         result: AnalyzeResult, deps: OracleResponse.CacheDepsView, files: Collection<String>, hashes: Map<String, String>,
+        wholeModule: Boolean = false,
     ) {
         fun byCanonical(map: Map<String, *>) = map.keys.associateBy { canonicalOrSelf(File(it)) }
         val payloadKeys = byCanonical(result.files)
+        if (wholeModule) oraclePayloads.recordOrder(payloadKeys.keys)
         val depKeys = byCanonical(deps.depPathsByFile)
         val perFileKeys = byCanonical(deps.perFileDeps)
         for (file in files) {
@@ -1051,7 +1053,7 @@ class AnalysisSession(
                 val recorded = incrementalState.contentHashes()
                 if (plannerEnabled && incrementalState.compileKey != null && recorded == before && contentHashesOf(sources) == before) {
                     oraclePayloads.clear()
-                    storeOraclePayloads(outcome.result, outcome.cacheDeps, before.keys, recorded)
+                    storeOraclePayloads(outcome.result, outcome.cacheDeps, before.keys, recorded, wholeModule = true)
                     oraclePayloads.sync(incrementalState.generation)
                 }
             }
@@ -1067,7 +1069,7 @@ class AnalysisSession(
         try {
             synchronized(snapshotLock) {
                 oraclePayloads.clear()
-                storeOraclePayloads(outcome.result, outcome.cacheDeps, sources.map { canonicalOrSelf(File(it)) }, incrementalState.contentHashes())
+                storeOraclePayloads(outcome.result, outcome.cacheDeps, sources.map { canonicalOrSelf(File(it)) }, incrementalState.contentHashes(), wholeModule = true)
                 oraclePayloads.sync(incrementalState.generation)
             }
         } catch (e: Throwable) {

@@ -68,4 +68,23 @@ class KritFixTargetsTest {
         val f = finding("/repo/A.kt", listOf(suggestion))
         assertEquals(setOf("/repo/B.kt"), KritFixTargets.forSuggestion(listOf(f), f.findingId, "s1", "/repo"))
     }
+
+    @Test
+    fun `per-file rescan stands in only for rules it re-evaluates`() {
+        val perFile = setOf("MagicNumber", "UnnecessaryApply")
+        assertEquals(true, KritFixTargets.perFileRescanCovers("MagicNumber", perFile))
+        // DeadCode is project-only: its fixed finding would survive a
+        // per-file rescan, so a project scan must follow the fix.
+        assertEquals(false, KritFixTargets.perFileRescanCovers("DeadCode", perFile))
+        assertEquals(false, KritFixTargets.perFileRescanCovers("MagicNumber", null))
+        assertEquals(false, KritFixTargets.perFileRescanCovers("MagicNumber", emptySet()))
+        assertEquals(false, KritFixTargets.perFileRescanCovers(null, perFile))
+    }
+
+    @Test
+    fun `ruleOf finds the fixed finding's rule`() {
+        val f = finding("/repo/A.kt")
+        assertEquals("MagicNumber", KritFixTargets.ruleOf(listOf(f), f.findingId))
+        assertNull(KritFixTargets.ruleOf(listOf(f), "Other:/repo/A.kt:1:1"))
+    }
 }

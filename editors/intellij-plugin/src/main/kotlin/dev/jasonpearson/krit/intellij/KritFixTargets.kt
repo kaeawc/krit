@@ -50,4 +50,18 @@ object KritFixTargets {
         }
         return absolute.toPath().normalize().toString()
     }
+
+    /** The rule of the finding with [findingId], or null when it isn't among [findings]. */
+    fun ruleOf(findings: Iterable<KritFinding>, findingId: String): String? =
+        findings.firstOrNull { it.findingId == findingId }?.rule
+
+    /**
+     * Whether a per-file rescan can stand in for a project scan after fixing
+     * a finding of [fixedRule]: only when the scan re-evaluates that rule.
+     * A buffer scan runs only per-file rules ([evaluatedRules]); a
+     * project-only rule's fixed finding (DeadCode, say) would otherwise
+     * survive the rescan. Unknown rule or rule set means a project scan.
+     */
+    fun perFileRescanCovers(fixedRule: String?, evaluatedRules: Set<String>?): Boolean =
+        fixedRule != null && !evaluatedRules.isNullOrEmpty() && fixedRule in evaluatedRules
 }

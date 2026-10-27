@@ -263,13 +263,11 @@ class KritProjectService(private val project: Project) : Disposable {
                 return@execute
             }
             try {
-                val targets = KritFixTargets.forFix(
-                    findingsByFile.values.flatten(),
-                    findingId,
-                    project.basePath,
-                )
+                val findings = findingsByFile.values.flatten()
+                val targets = KritFixTargets.forFix(findings, findingId, project.basePath)
+                val rule = KritFixTargets.ruleOf(findings, findingId)
                 if (KritRunner.fixFinding(project, fixLevel, findingId)) {
-                    refreshAfterFix(targets)
+                    refreshAfterFix(targets, rule)
                 }
             } catch (t: Throwable) {
                 log.warn("krit per-finding fix runner failed", t)
@@ -293,7 +291,8 @@ class KritProjectService(private val project: Project) : Disposable {
             }
             try {
                 if (KritRunner.applySuggestion(project, findingId, suggestionId, cachedReport)) {
-                    refreshAfterFix(suggestionTargets(cachedReport, findingId, suggestionId))
+                    val rule = KritFixTargets.ruleOf(KritJsonParser.parse(cachedReport).findings, findingId)
+                    refreshAfterFix(suggestionTargets(cachedReport, findingId, suggestionId), rule)
                 }
             } catch (t: Throwable) {
                 log.warn("krit apply-suggestion runner failed", t)
@@ -336,9 +335,11 @@ class KritProjectService(private val project: Project) : Disposable {
     }
 
     // After a fix wrote to disk: rescan only the files it wrote (through the
-    // daemon when one runs), or the whole project when they aren't known.
-    // Runs on the scan thread with `running` held.
-    private fun refreshAfterFix(targets: Set<String>?) {
+    // daemon when one runs), or the whole project when they aren't known or
+    // the per-file scan doesn't re-evaluate fixedRule (see
+    // KritFixTargets.perFileRescanCovers). Runs on the scan thread with
+    // `running` held.
+    private fun refreshAfterFix(targets: Set<String>?, fixedRule: String?) {
         if (targets.isNullOrEmpty()) {
             refreshFindings()
             return
@@ -352,6 +353,8 @@ class KritProjectService(private val project: Project) : Disposable {
             targets,
             isCancelled = { scanGeneration.isSuperseded(generation) },
             contentFor = { null },
+            fixedRule = fixedRule,
+            requireFixedRule = true,
         )
         if (!rescanned) {
             pendingFiles.addAll(targets)
@@ -451,6 +454,11 @@ class KritProjectService(private val project: Project) : Disposable {
         paths: Set<String>,
         isCancelled: () -> Boolean = { false },
         contentFor: (String) -> String? = ::readLiveDocument,
+        // After a fix: when the daemon scan doesn't re-evaluate fixedRule (or
+        // no daemon answered), refresh the whole project instead, so the
+        // fixed finding of a project-only rule doesn't linger.
+        fixedRule: String? = null,
+        requireFixedRule: Boolean = false,
     ): Boolean {
         // Per-file rescans replace findings for each changed file in the
         // running map; other files' findings are untouched. Errors and
@@ -465,6 +473,15 @@ class KritProjectService(private val project: Project) : Disposable {
         // answer for (no daemon, a per-buffer error) fall through to the
         // one-by-one path below, which ends in the CLI when no daemon runs.
         val scan = KritRunner.scanBuffersWithDaemon(project, paths.associateWith { contentFor(it) }, isCancelled)
+        if (requireFixedRule && !KritFixTargets.perFileRescanCovers(fixedRule, scan?.evaluatedRules)) {
+            if (scan?.outcomes?.values?.any { it is KritRunner.AnalyzeOutcome.Cancelled } == true) return false
+            if (!refreshFindings(isCancelled)) {
+                projectRescanPending = true
+                return false
+            }
+            projectRescanPending = false
+            return true
+        }
         val batched = scan?.outcomes.orEmpty()
         for (path in paths) {
             val canonical = canonicalPath(path, project.basePath)

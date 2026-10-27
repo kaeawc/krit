@@ -128,8 +128,9 @@ func resolveCompilerPlugins(classpath, options []string, otherJars bool) (plugin
 
 // WithCompilerPlugins adds plugins configured outside the Gradle model (krit.yml
 // `oracle.compilerPlugins`) to s, filtered like the model's
-// (ResolveCompilerPlugins) and merged with any the model supplied
-// (mergeCompilerPlugins). source names the origin in notes.
+// (ResolveCompilerPlugins). Its jars merge with the model's like source sets
+// (mergeCompilerPlugins); its options are appended to the model's. source
+// names the origin in notes.
 func (s KotlinSettings) WithCompilerPlugins(classpath, options []string, source string) KotlinSettings {
 	if len(classpath) == 0 && len(options) == 0 {
 		return s
@@ -143,8 +144,28 @@ func (s KotlinSettings) WithCompilerPlugins(classpath, options []string, source 
 	for _, r := range rejected {
 		s.Rejected = append(s.Rejected, source+": "+r)
 	}
-	merged, mergeNotes := mergeCompilerPlugins([]KotlinSettings{s, {Plugins: plugins}})
-	s.Plugins = merged
+	// The jars merge like source sets (one version per artifact). The options do
+	// not: krit.yml adds to the model's options rather than being a second source
+	// set whose disagreeing values would drop both. Exact duplicates are removed.
+	jars, mergeNotes := mergeCompilerPlugins([]KotlinSettings{
+		{Plugins: CompilerPlugins{Classpath: s.Plugins.Classpath}},
+		{Plugins: CompilerPlugins{Classpath: plugins.Classpath}},
+	})
+	merged := append([]string(nil), s.Plugins.Options...)
+	seen := map[string]bool{}
+	for _, option := range merged {
+		seen[option] = true
+	}
+	for _, option := range plugins.Options {
+		if !seen[option] {
+			seen[option] = true
+			merged = append(merged, option)
+		}
+	}
+	if jars.IsZero() {
+		merged = nil
+	}
+	s.Plugins = CompilerPlugins{Classpath: jars.Classpath, Options: merged}
 	s.Notes = append(s.Notes, mergeNotes...)
 	return s
 }

@@ -243,3 +243,19 @@ func TestWithCompilerPluginsAppliesOptionsToModelJars(t *testing.T) {
 		t.Fatalf("orphan = %+v", orphan)
 	}
 }
+
+// krit.yml options add to the model's: a krit.yml value for a key the model
+// also sets is kept next to the model's, not dropped with it as if the two
+// were disagreeing source sets.
+func TestWithCompilerPluginsKeepsModelAndConfiguredValuesOfOneKey(t *testing.T) {
+	dir := t.TempDir()
+	model := touchJar(t, dir, "kotlin-allopen-compiler-plugin-embeddable-2.4.21.jar")
+	s := KotlinSettings{Plugins: CompilerPlugins{Classpath: []string{model}, Options: []string{"plugin:x:k=A", "plugin:x:o=1"}}}
+	got := s.WithCompilerPlugins(nil, []string{"plugin:x:k=B", "plugin:x:o=1"}, "krit.yml")
+	if want := []string{"plugin:x:k=A", "plugin:x:o=1", "plugin:x:k=B"}; !reflect.DeepEqual(got.Plugins.Options, want) {
+		t.Fatalf("options = %v want %v", got.Plugins.Options, want)
+	}
+	if strings.Contains(strings.Join(got.Notes, "\n"), "differs across source sets") {
+		t.Fatalf("notes = %v", got.Notes)
+	}
+}

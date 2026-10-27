@@ -11,6 +11,7 @@ import dev.jasonpearson.krit.fir.plugins.PluginRuleRunner
 import dev.jasonpearson.krit.fir.plugins.ProjectPayloads
 import dev.jasonpearson.krit.fir.incremental.BundleStore
 import dev.jasonpearson.krit.fir.runner.AnalysisSession
+import dev.jasonpearson.krit.fir.incremental.incrementalRecordingFromEnv
 import dev.jasonpearson.krit.fir.runner.KotlinCompilerSettings
 import dev.jasonpearson.krit.fir.runner.BatchResult
 import dev.jasonpearson.krit.fir.runner.ModuleSpec
@@ -164,8 +165,12 @@ internal fun runOneShot(
     cacheDepsOutPath: String?,
     checkRequestPath: String? = null,
     checkOutPath: String? = null,
+    incremental: Boolean = incrementalRecordingFromEnv(),
+    snapshotRoot: java.io.File? = null,
 ) {
-    val session = AnalysisSession(sources, classpath, jvmTarget, kotlinArgs)
+    val session = AnalysisSession(
+        sources, classpath, jvmTarget, kotlinArgs, incrementalRecording = incremental, incrementalPlanning = incremental,
+    ).also { it.snapshotRootOverride = snapshotRoot }
     session.kotlinSettingsWarnings.forEach { System.err.println(it) }
     val files = if (filesListPath.isNullOrBlank()) {
         emptyList()
@@ -197,6 +202,14 @@ internal fun runOneShot(
         java.io.File(cacheDepsOutPath).writeText(
             dev.jasonpearson.krit.fir.oracle.OracleResponse.buildCacheDeps(outcome.cacheDeps),
         )
+    }
+    // The process ends after this run, so the incremental bundle a shared check compile left pending (#880) is
+    // written now, and before --output for the same reason as the files above; the snapshot directory goes with
+    // the session.
+    try {
+        session.dispose()
+    } catch (e: Exception) {
+        System.err.println("krit-fir: could not write the incremental bundle (${e.message})")
     }
     java.io.File(outputPath).writeText(dev.jasonpearson.krit.fir.oracle.OracleResponse.buildOneShot(outcome.result))
     System.err.println("Wrote $outputPath")
@@ -746,7 +759,12 @@ fun buildCheckResponse(result: BatchResult): String {
         val deciding = result.decidingModules.entries.joinToString(",", "{", "}") { (path, module) -> "${jsonStr(path)}:${jsonStr(module)}" }
         """, "modules":$statuses,"decidingModules":$deciding"""
     }
-    return """{"id":${result.id},"succeeded":${result.succeeded},"skipped":${result.skipped},"findings":[$findingsJson],"rules":$rulesJson,"crashed":$crashedJson,"errorFiles":$errorFilesJson,"ruleErrors":$ruleErrorsJson$moduleJson}"""
+    // How the incremental planner served the check, when it ran: "incremental", or "full" with the reason.
+    val planJson = result.plan?.let { plan ->
+        val reason = plan.reason?.let { ""","reason":${jsonStr(it)}""" }.orEmpty()
+        ""","incremental":{"path":${jsonStr(plan.path)}$reason,"dirtyFiles":${plan.dirtyFiles},"totalMs":${plan.totalMillis}}"""
+    }.orEmpty()
+    return """{"id":${result.id},"succeeded":${result.succeeded},"skipped":${result.skipped},"findings":[$findingsJson],"rules":$rulesJson,"crashed":$crashedJson,"errorFiles":$errorFilesJson,"ruleErrors":$ruleErrorsJson$moduleJson$planJson}"""
 }
 
 // ── Minimal JSON parsing (no external deps) ───────────────────────────────────

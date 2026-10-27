@@ -235,3 +235,41 @@ func TestPrefetchedResponseKeepsItsWarning(t *testing.T) {
 		t.Fatalf("warnings = %v", res.Warnings)
 	}
 }
+
+// #880: krit-fir's account of how its incremental planner served the shared
+// check reaches the pass's result, so the firCheckBroker perf entry can show it.
+func TestPrefetchedResponseKeepsItsIncrementalPlan(t *testing.T) {
+	p := newPrefetchProject(t)
+	prefetch := NewPrefetch(p.opts)
+	p.checker.Prefetch = prefetch
+	rider := prefetch.Rider(p.jar, []string{p.src}, []string{p.jar}, CompileTarget{})
+	_, deliver := rider.Prepare()
+	var resp map[string]any
+	if err := json.Unmarshal(p.response(verdictRule), &resp); err != nil {
+		t.Fatal(err)
+	}
+	resp["incremental"] = map[string]any{"path": "full", "reason": "cold", "dirtyFiles": 0, "totalMs": 1200}
+	data, _ := json.Marshal(resp)
+	deliver(data)
+	stubMisses(t, false)
+
+	res := p.check(t, []string{p.a}, []string{verdictRule})
+	if res.Incremental == nil || res.Incremental.String() != "full (cold)" {
+		t.Fatalf("incremental = %+v", res.Incremental)
+	}
+}
+
+func TestIncrementalPlanString(t *testing.T) {
+	for _, tc := range []struct {
+		plan *IncrementalPlan
+		want string
+	}{
+		{nil, ""},
+		{&IncrementalPlan{Path: "incremental", DirtyFiles: 2}, "incremental"},
+		{&IncrementalPlan{Path: "full", Reason: "threshold"}, "full (threshold)"},
+	} {
+		if got := tc.plan.String(); got != tc.want {
+			t.Errorf("%+v.String() = %q, want %q", tc.plan, got, tc.want)
+		}
+	}
+}

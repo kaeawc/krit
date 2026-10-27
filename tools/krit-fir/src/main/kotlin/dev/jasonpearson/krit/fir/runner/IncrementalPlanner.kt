@@ -75,10 +75,16 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
     /** Control flow: the request is served by the full compile instead. */
     private class GiveUp(val reason: FullReason, val detail: String? = null) : RuntimeException(detail, null, false, false)
 
+    /**
+     * [fullCompile], when given, runs the request's full check instead of [AnalysisSession.checkCompilation]: with
+     * the enabled rules and whether to record (false for the tiered-rule bypass). `analyzeWithCheck` uses it to make
+     * the full check the compile it shares with the oracle.
+     */
     fun serve(
         id: Long, files: List<FileRef>, enabledRules: Set<String>,
         ruleConfigs: Map<String, Map<String, Any?>>, testFiles: Set<String>,
         scanPaths: Map<String, String>, sdkLevels: Map<String, SdkLevels>,
+        fullCompile: ((rules: Set<String>, record: Boolean) -> BatchResult)?,
     ): BatchResult = synchronized(session.snapshotLock) {
         val start = System.nanoTime()
         val request = Request(id, files, ruleConfigs, testFiles, scanPaths, sdkLevels)
@@ -97,7 +103,8 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
                 // The planner diffs against the state's own recorded hashes, so a request that bypasses the state
                 // (no recording, no snapshot, no commit) leaves it correct, and costs what a plain check costs.
                 return finish(
-                    session.checkCompilation(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, record = false),
+                    fullCompile?.invoke(enabledRules, false)
+                        ?: session.checkCompilation(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, record = false),
                     PlanPath.FULL, FullReason.TIERED_RULES, decision.reason, counters, start)
             is TieredDecision.RunIncrementally -> {
                 // "All rules" stays the empty set a request spells it with: plugin rules are not in the discovery.
@@ -120,17 +127,20 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
                     System.err.println("krit-fir: incremental planning failed (${e.javaClass.name}: ${e.message}); using the full compile")
                     GiveUp(FullReason.EXCEPTION, "${e.javaClass.simpleName}: ${e.message}")
                 }
-                return finish(runFull(request, rules, counters), PlanPath.FULL, gaveUp.reason, gaveUp.detail, counters, start)
+                return finish(runFull(request, rules, counters, fullCompile), PlanPath.FULL, gaveUp.reason, gaveUp.detail, counters, start)
             }
         }
     }
 
     // The whole-module check, which replaces the state and rebuilds the snapshot. If waves already changed the state
     // and the full check did not replace it (it crashed or recorded nothing), the half-applied state is dropped.
-    private fun runFull(r: Request, rules: Set<String>, c: Counters): BatchResult {
+    private fun runFull(
+        r: Request, rules: Set<String>, c: Counters, fullCompile: ((Set<String>, Boolean) -> BatchResult)?,
+    ): BatchResult {
         val before = session.fullCommits
         try {
-            return session.checkCompilation(r.id, r.files, rules, r.ruleConfigs, r.testFiles, r.scanPaths, r.sdkLevels)
+            return fullCompile?.invoke(rules, true)
+                ?: session.checkCompilation(r.id, r.files, rules, r.ruleConfigs, r.testFiles, r.scanPaths, r.sdkLevels)
         } finally {
             if (c.partial && session.fullCommits == before) session.resetIncremental()
         }
@@ -145,7 +155,7 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
         )
         session.lastPlan = telemetry
         if (DEBUG) System.err.println(telemetry)
-        return result
+        return result.copy(plan = PlanSummary(path.name.lowercase(), reason?.name?.lowercase(), c.compiled.size, telemetry.totalMillis))
     }
 
     private fun attempt(r: Request, rules: Set<String>, c: Counters): BatchResult {

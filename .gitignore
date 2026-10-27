@@ -49,6 +49,7 @@ editors/vscode/out/
 /krit*.json
 /krit*.txt
 benchmarks/
+!docs/benchmarks/
 
 # Krit cache (generated during analysis)
 .krit-cache

@@ -459,19 +459,17 @@ class KritProjectService(private val project: Project) : Disposable {
         // failure mode in the status bar.
         transition(KritState.Scanning)
         val updated = findingsByFile.toMutableMap()
-        // Several changed files go to the daemon in one analyze-buffers
-        // request. Files it didn't answer for (no daemon, a per-buffer error)
-        // fall through to the one-by-one path below, which still ends in the
-        // CLI when no daemon is running.
-        val batched = if (paths.size > 1) {
-            KritRunner.analyzeFilesWithDaemon(project, paths.associateWith { contentFor(it) }, isCancelled)
-                .orEmpty()
-        } else {
-            emptyMap()
-        }
+        // The changed files go to the daemon in one analyze-buffers request,
+        // which also says which (per-file) rules it ran, so findings of the
+        // project-only rules it skipped survive the rescan. Files it didn't
+        // answer for (no daemon, a per-buffer error) fall through to the
+        // one-by-one path below, which ends in the CLI when no daemon runs.
+        val scan = KritRunner.scanBuffersWithDaemon(project, paths.associateWith { contentFor(it) }, isCancelled)
+        val batched = scan?.outcomes.orEmpty()
         for (path in paths) {
             val canonical = canonicalPath(path, project.basePath)
-            val outcome = batched[path]
+            val fromBatch = batched[path]
+            val outcome = fromBatch
                 ?: KritRunner.analyzeFile(project, path, contentFor(path), isCancelled)
             if (outcome is KritRunner.AnalyzeOutcome.Cancelled || isCancelled()) return false
             when (outcome) {
@@ -479,7 +477,12 @@ class KritProjectService(private val project: Project) : Disposable {
                     val grouped = outcome.report.findings.groupBy {
                         canonicalPath(it.file, project.basePath)
                     }
-                    updated[canonical] = grouped[canonical] ?: emptyList()
+                    val merged = KritUnsavedBuffers.mergeFileScan(
+                        prior = updated[canonical].orEmpty(),
+                        scanned = grouped[canonical].orEmpty(),
+                        evaluatedRules = if (fromBatch != null) scan?.evaluatedRules else null,
+                    )
+                    if (merged.isEmpty()) updated.remove(canonical) else updated[canonical] = merged
                 }
                 is KritRunner.AnalyzeOutcome.MissingBinary -> {
                     transition(KritState.MissingBinary)

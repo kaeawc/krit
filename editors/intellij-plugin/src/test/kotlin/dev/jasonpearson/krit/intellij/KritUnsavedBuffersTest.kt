@@ -88,4 +88,34 @@ class KritUnsavedBuffersTest {
             ),
         )
     }
+
+    @Test
+    fun `a per-file rescan keeps findings of rules it did not run`() {
+        // A post-fix or post-edit daemon rescan runs only per-file rules, so
+        // a cross-file finding such as DeadCode must survive it.
+        val prior = onDisk.getValue("/repo/A.kt")
+        val scanned = listOf(finding("/repo/A.kt", 4), finding("/repo/A.kt", 5, "MaxLineLength"))
+        assertEquals(
+            listOf(finding("/repo/A.kt", 9, "DeadCode")) + scanned,
+            KritUnsavedBuffers.mergeFileScan(prior, scanned, perFile),
+        )
+    }
+
+    @Test
+    fun `a per-file rescan drops findings of rules outside its evaluated set`() {
+        val scanned = listOf(finding("/repo/A.kt", 4), finding("/repo/A.kt", 6, "TypeAwareRule"))
+        assertEquals(
+            listOf(finding("/repo/A.kt", 4)),
+            KritUnsavedBuffers.mergeFileScan(emptyList(), scanned, perFile),
+        )
+    }
+
+    @Test
+    fun `a rescan without evaluated rules replaces the file's findings`() {
+        // CLI runs and daemons too old to report their rules.
+        val prior = onDisk.getValue("/repo/A.kt")
+        val scanned = listOf(finding("/repo/A.kt", 4))
+        assertEquals(scanned, KritUnsavedBuffers.mergeFileScan(prior, scanned, null))
+        assertEquals(scanned, KritUnsavedBuffers.mergeFileScan(prior, scanned, emptySet()))
+    }
 }

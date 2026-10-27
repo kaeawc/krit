@@ -355,3 +355,24 @@ func javaCatchOnlyRethrowsVar(file *scanner.File, catchNode uint32, varName stri
 	}
 	return statementCount == 1 && rethrows
 }
+
+// hasLaterCatchSibling reports whether catchNode (a Kotlin catch_block or a
+// Java catch_clause) is followed by another catch of the same try.
+//
+// RethrowCaughtException uses this to skip rethrow-only catches that guard a
+// later handler. A later catch can only intercept the rethrown exception when
+// its type is a supertype of (or overlaps with) the earlier type. Proving two
+// types unrelated needs a type hierarchy, and a later catch of the identical
+// type is unreachable (a compile error in Java), so any later catch is treated
+// as one that would otherwise catch the exception. This keeps the rule
+// precise without type information; it only gives up findings in the rare
+// case where the earlier rethrow-only catch is followed by an unrelated type.
+func hasLaterCatchSibling(file *scanner.File, catchNode uint32) bool {
+	kind := file.FlatType(catchNode)
+	for sib := file.FlatNextSib(catchNode); sib != 0; sib = file.FlatNextSib(sib) {
+		if file.FlatType(sib) == kind {
+			return true
+		}
+	}
+	return false
+}

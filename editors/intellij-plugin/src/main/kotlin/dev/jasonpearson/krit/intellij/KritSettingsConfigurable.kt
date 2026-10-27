@@ -4,6 +4,7 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
+import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
 import javax.swing.JComponent
@@ -60,11 +61,18 @@ class KritSettingsConfigurable : Configurable {
                 "Lower is more responsive but uses more CPU; higher is lighter on large projects."
         }
 
+        private val startDaemonBox = JBCheckBox("Start a krit daemon for this project").apply {
+            toolTipText = "When a project opens and no krit daemon is running for it, start one so " +
+                "per-file scans skip process startup. Krit stops it again when the project closes; " +
+                "a daemon you started yourself is left running."
+        }
+
         val panel: JPanel = FormBuilder.createFormBuilder()
             .addLabeledComponent("Krit binary:", binaryField)
             .addLabeledComponent("Default fix level:", fixLevelCombo)
             .addLabeledComponent("Config file:", configField)
             .addLabeledComponent("Scan debounce (ms):", debounceField)
+            .addComponent(startDaemonBox)
             .addComponentFillVertically(JPanel(), 0)
             .panel
 
@@ -73,6 +81,7 @@ class KritSettingsConfigurable : Configurable {
             fixLevelCombo.selectedItem = state.fixLevel.ifBlank { KritSettingsState.DEFAULT_FIX_LEVEL }
             configField.text = state.configPath
             debounceField.text = KritScanDebounce.clamp(state.debounceMs).toString()
+            startDaemonBox.isSelected = state.startDaemon
         }
 
         fun save(): KritSettingsState.Snapshot = KritSettingsState.Snapshot(
@@ -80,6 +89,7 @@ class KritSettingsConfigurable : Configurable {
             fixLevel = (fixLevelCombo.selectedItem as? String) ?: KritSettingsState.DEFAULT_FIX_LEVEL,
             configPath = configField.text.trim(),
             debounceMs = KritScanDebounce.fromInput(debounceField.text),
+            startDaemon = startDaemonBox.isSelected,
         )
 
         fun isModified(state: KritSettingsState.Snapshot): Boolean = save() != state

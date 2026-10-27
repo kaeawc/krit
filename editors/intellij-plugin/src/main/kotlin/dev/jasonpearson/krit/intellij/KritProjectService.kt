@@ -16,6 +16,11 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.vfs.newvfs.BulkFileListener
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent
+import com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent
+import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.codeInspection.InspectionProfile
 import com.intellij.profile.ProfileChangeAdapter
@@ -53,6 +58,10 @@ class KritProjectService(private val project: Project) : Disposable {
     @Volatile
     private var inspectionsEnabled = true
     private val explicitRequest = AtomicBoolean(false)
+
+    // The daemon this project started on open, if any, with the binary to stop
+    // it with on close. Declared before init, which starts the daemon.
+    private val daemonOwnership = KritDaemonOwnership<File>()
 
     private val documentListener = object : BulkAwareDocumentListener {
         override fun documentChanged(event: DocumentEvent) {
@@ -97,13 +106,49 @@ class KritProjectService(private val project: Project) : Disposable {
                         onInspectionProfileChanged()
                 },
             )
+            project.messageBus.connect(this).subscribe(
+                VirtualFileManager.VFS_CHANGES,
+                object : BulkFileListener {
+                    override fun after(events: List<VFileEvent>) {
+                        if (events.any { touchesProjectConfig(it) }) onConfigChanged()
+                    }
+                },
+            )
             inspectionsEnabled = KritInspectionToggle.anyEnabled(project)
             if (inspectionsEnabled) {
                 scheduleScan(0)
             } else {
                 projectRescanPending = true
             }
+            startDaemonIfNeeded()
         }
+    }
+
+    // A created, edited, deleted, or renamed krit.yml / .krit.yml at the
+    // project root (where the CLI looks for it; see config.Filenames).
+    private fun touchesProjectConfig(event: VFileEvent): Boolean {
+        val base = project.basePath ?: return false
+        val paths = mutableListOf<String?>(event.path)
+        if (event is VFilePropertyChangeEvent && event.isRename) {
+            paths.add(event.newPath)
+        } else if (event is VFileMoveEvent) {
+            paths.add(event.newPath)
+        }
+        return KritConfigFiles.anyProjectConfig(base, paths)
+    }
+
+    // The config changes which rules run and how, so every file's findings
+    // may change: queue a full project scan, debounced like an edit (saving
+    // krit.yml while typing fires several events). Edited files already
+    // queued stay queued. While the inspections are off the rescan waits for
+    // them to come back on, as onInspectionProfileChanged does.
+    private fun onConfigChanged() {
+        if (project.isDisposed) return
+        // A scan still running was configured by the old file.
+        scanGeneration.bump()
+        projectRescanPending = true
+        if (!inspectionsEnabled) return
+        scheduleScan(KritScanDebounce.effectiveMs(KritSettingsState.getSafely()?.state?.debounceMs))
     }
 
     // While scans are paused nothing refreshes an edited file, so findings
@@ -217,8 +262,13 @@ class KritProjectService(private val project: Project) : Disposable {
                 return@execute
             }
             try {
+                val targets = KritFixTargets.forFix(
+                    findingsByFile.values.flatten(),
+                    findingId,
+                    project.basePath,
+                )
                 if (KritRunner.fixFinding(project, fixLevel, findingId)) {
-                    refreshFindings()
+                    refreshAfterFix(targets)
                 }
             } catch (t: Throwable) {
                 log.warn("krit per-finding fix runner failed", t)
@@ -238,7 +288,7 @@ class KritProjectService(private val project: Project) : Disposable {
             }
             try {
                 if (KritRunner.applySuggestion(project, findingId, suggestionId, cachedReport)) {
-                    refreshFindings()
+                    refreshAfterFix(suggestionTargets(cachedReport, findingId, suggestionId))
                 }
             } catch (t: Throwable) {
                 log.warn("krit apply-suggestion runner failed", t)
@@ -246,6 +296,42 @@ class KritProjectService(private val project: Project) : Disposable {
                 running.set(false)
                 scheduleRequestedRerun()
             }
+        }
+    }
+
+    // The files a suggestion's edits target, read from the report krit applied
+    // it from, or null when the report doesn't say.
+    private fun suggestionTargets(reportJson: String, findingId: String, suggestionId: String): Set<String>? {
+        val report = try {
+            KritJsonParser.parse(reportJson)
+        } catch (t: Exception) {
+            log.debug("krit apply-suggestion: cached report unreadable, rescanning the project", t)
+            return null
+        }
+        return KritFixTargets.forSuggestion(report.findings, findingId, suggestionId, project.basePath)
+    }
+
+    // After a fix wrote to disk: rescan only the files it wrote (through the
+    // daemon when one runs), or the whole project when they aren't known.
+    // Runs on the scan thread with `running` held.
+    private fun refreshAfterFix(targets: Set<String>?) {
+        if (targets.isNullOrEmpty()) {
+            refreshFindings()
+            return
+        }
+        // Let the editors pick up krit's write; the reload's document events
+        // queue a per-file scan of their own.
+        LocalFileSystem.getInstance().refreshIoFiles(targets.map { File(it) }, true, false, null)
+        val generation = scanGeneration.current()
+        // Analyze what krit wrote, not an editor buffer that hasn't reloaded.
+        val rescanned = refreshChangedFiles(
+            targets,
+            isCancelled = { scanGeneration.isSuperseded(generation) },
+            contentFor = { null },
+        )
+        if (!rescanned) {
+            pendingFiles.addAll(targets)
+            rerunAfterCurrent.set(true)
         }
     }
 
@@ -334,7 +420,14 @@ class KritProjectService(private val project: Project) : Disposable {
     }
 
     // Returns false when the scan was superseded and nothing was published.
-    private fun refreshChangedFiles(paths: Set<String>, isCancelled: () -> Boolean = { false }): Boolean {
+    //
+    // contentFor gives the text to analyze for a path (null reads the file
+    // from disk); by default the open editor buffer.
+    private fun refreshChangedFiles(
+        paths: Set<String>,
+        isCancelled: () -> Boolean = { false },
+        contentFor: (String) -> String? = ::readLiveDocument,
+    ): Boolean {
         // Per-file rescans replace findings for each changed file in the
         // running map; other files' findings are untouched. Errors and
         // missing-binary on any one file bubble up to the state surface
@@ -347,7 +440,7 @@ class KritProjectService(private val project: Project) : Disposable {
         // fall through to the one-by-one path below, which still ends in the
         // CLI when no daemon is running.
         val batched = if (paths.size > 1) {
-            KritRunner.analyzeFilesWithDaemon(project, paths.associateWith { readLiveDocument(it) }, isCancelled)
+            KritRunner.analyzeFilesWithDaemon(project, paths.associateWith { contentFor(it) }, isCancelled)
                 .orEmpty()
         } else {
             emptyMap()
@@ -355,7 +448,7 @@ class KritProjectService(private val project: Project) : Disposable {
         for (path in paths) {
             val canonical = canonicalPath(path, project.basePath)
             val outcome = batched[path]
-                ?: KritRunner.analyzeFile(project, path, readLiveDocument(path), isCancelled)
+                ?: KritRunner.analyzeFile(project, path, contentFor(path), isCancelled)
             if (outcome is KritRunner.AnalyzeOutcome.Cancelled || isCancelled()) return false
             when (outcome) {
                 is KritRunner.AnalyzeOutcome.Success -> {
@@ -537,6 +630,56 @@ class KritProjectService(private val project: Project) : Disposable {
         }
     }
 
+    // On project open: start a daemon for the project when the setting allows
+    // it and none answers on the project's socket. Runs off the EDT (`krit
+    // daemon start` waits for the daemon to come up); a missing binary or a
+    // failed start just leaves scans on the CLI path.
+    private fun startDaemonIfNeeded() {
+        if (KritSettingsState.getSafely()?.state?.startDaemon == false) return
+        val base = project.basePath ?: return
+        if (!daemonOwnership.beginStart()) return
+        try {
+            ApplicationManager.getApplication().executeOnPooledThread {
+                var startedWith: File? = null
+                try {
+                    startedWith = startDaemon(File(base))
+                } catch (t: Throwable) {
+                    log.warn("krit daemon start failed", t)
+                } finally {
+                    if (daemonOwnership.finishStart(startedWith)) {
+                        // The project closed while the daemon came up.
+                        startedWith?.let { KritRunner.stopDaemonAsync(File(base), it) }
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            daemonOwnership.finishStart(null)
+            log.debug("krit daemon start not scheduled", t)
+        }
+    }
+
+    // Returns the binary that started a new daemon, or null when none was
+    // started (one already answers, the binary is missing, the start failed).
+    private fun startDaemon(projectDir: File): File? {
+        if (project.isDisposed) return null
+        val socket = KritDaemonClient.socketPathFor(projectDir)
+        // A throwaway client: this runs while the constructor may still be
+        // initializing the shared one.
+        if (KritDaemonClient(socket).use { it.available() }) return null
+        val binary = KritBinaryResolver.find(project) ?: return null
+        return when (KritRunner.startDaemon(project, binary)) {
+            KritDaemonStart.Result.STARTED -> {
+                log.info("krit daemon started for ${projectDir.path}")
+                binary
+            }
+            KritDaemonStart.Result.ALREADY_RUNNING -> null
+            KritDaemonStart.Result.FAILED -> {
+                log.info("krit daemon could not be started for ${projectDir.path}; scans use the CLI")
+                null
+            }
+        }
+    }
+
     @Volatile
     private var disposed = false
 
@@ -551,6 +694,12 @@ class KritProjectService(private val project: Project) : Disposable {
             daemonClient?.close()
             daemonClient = null
             daemonClientSocket = null
+        }
+        // Stop the daemon only if this project started it. The stop command
+        // runs detached from dispose, which only waits for it to be launched.
+        val base = project.basePath
+        daemonOwnership.release()?.let { binary ->
+            if (base != null) KritRunner.stopDaemonAsync(File(base), binary)
         }
     }
 

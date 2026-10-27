@@ -32,6 +32,12 @@ class KritSettingsStateTest {
     }
 
     @Test
+    fun `daemon start is on by default, including for older persisted state`() {
+        assertEquals(true, KritSettingsState.Snapshot().startDaemon)
+        assertEquals(true, KritSettingsState.Snapshot(binaryPath = "/opt/krit/krit", debounceMs = 250).startDaemon)
+    }
+
+    @Test
     fun `update replaces the snapshot in place`() {
         // The Configurable's apply() round-trips through update(), so this
         // pins the contract that a subsequent state read returns the new

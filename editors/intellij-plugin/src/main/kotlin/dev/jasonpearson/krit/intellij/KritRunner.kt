@@ -264,6 +264,70 @@ object KritRunner {
         } is RunOutcome.Ok
     }
 
+    // Starts a daemon for this project with binary (`krit daemon start`),
+    // which waits until the daemon's socket is ready. Reports whether this
+    // call launched the daemon or found one already running for the repo.
+    fun startDaemon(project: Project, binary: File): KritDaemonStart.Result {
+        val projectDir = project.baseDir() ?: return KritDaemonStart.Result.FAILED
+        val command = listOf(binary.absolutePath, "daemon", "start", "--repo", projectDir.absolutePath)
+        var stdout = ""
+        var exit = -1
+        val outcome = runKrit(
+            project,
+            projectDir,
+            command,
+            emptyList(),
+            DAEMON_START_TIMEOUT_SECONDS,
+            "daemon start",
+            stdoutSink = { stdout = it },
+        ) { code, _ ->
+            exit = code
+            code == 0
+        }
+        if (outcome !is RunOutcome.Ok) return KritDaemonStart.Result.FAILED
+        return KritDaemonStart.classify(exit, stdout)
+    }
+
+    // Stops this project's daemon (`krit daemon stop`) without waiting for it:
+    // the stop command runs on its own and is reaped on a background thread,
+    // which gives up waiting after DAEMON_STOP_REAP_SECONDS. Safe to call while
+    // the project is being disposed: it reads no project state. Returns false
+    // when the command could not be started.
+    fun stopDaemonAsync(projectDir: File, binary: File): Boolean {
+        val command = listOf(
+            binary.absolutePath,
+            "daemon",
+            "stop",
+            "--repo",
+            projectDir.absolutePath,
+            "--timeout",
+            "${DAEMON_STOP_GRACE_SECONDS}s",
+        )
+        val process = try {
+            ProcessBuilder(command)
+                .directory(projectDir)
+                .redirectErrorStream(true)
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .start()
+        } catch (t: java.io.IOException) {
+            log.debug("krit daemon stop could not start for ${projectDir.path}", t)
+            return false
+        }
+        Thread({
+            try {
+                if (!process.waitFor(DAEMON_STOP_REAP_SECONDS, TimeUnit.SECONDS)) {
+                    log.warn("krit daemon stop did not finish within ${DAEMON_STOP_REAP_SECONDS}s for ${projectDir.path}")
+                    process.destroyForcibly()
+                } else if (process.exitValue() != 0) {
+                    log.info("krit daemon stop exited ${process.exitValue()} for ${projectDir.path}")
+                }
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
+        }, "krit-daemon-stop").apply { isDaemon = true }.start()
+        return true
+    }
+
     fun applySuggestion(
         project: Project,
         findingId: String,
@@ -314,6 +378,7 @@ object KritRunner {
         timeoutSeconds: Long,
         label: String,
         isCancelled: () -> Boolean = NEVER_CANCELLED,
+        stdoutSink: ((String) -> Unit)? = null,
         isSuccess: (exit: Int, stderr: String) -> Boolean,
     ): RunOutcome {
         if (isCancelled()) return RunOutcome.Cancelled
@@ -360,6 +425,7 @@ object KritRunner {
             }
 
             val stderr = process.errorStream.bufferedReader().readText()
+            if (stdoutSink != null) stdoutSink(process.inputStream.bufferedReader().readText())
             val exit = process.exitValue()
             if (exit == 2) {
                 val msg = stderr.trim().ifBlank { "krit preflight failed (exit code 2)" }
@@ -407,4 +473,8 @@ object KritRunner {
     private const val FIX_TIMEOUT_SECONDS = 120L
     private const val APPLY_SUGGESTION_TIMEOUT_SECONDS = 60L
     private const val DAEMON_RESTART_TIMEOUT_SECONDS = 60L
+    // `krit daemon start` itself gives up after 30s waiting for the socket.
+    private const val DAEMON_START_TIMEOUT_SECONDS = 45L
+    private const val DAEMON_STOP_GRACE_SECONDS = 3L
+    private const val DAEMON_STOP_REAP_SECONDS = 5L
 }

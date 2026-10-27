@@ -159,6 +159,11 @@ type AnalyzeBufferArgs struct {
 type AnalyzeBufferResult struct {
 	Findings json.RawMessage `json:"findings"`
 	CacheHit bool            `json:"cache_hit"`
+	// FixLevels maps the rule ID of each finding that carries an autofix
+	// to the rule's fix level ("cosmetic", "idiomatic", "semantic"): the
+	// value `krit -f json` reports as fixLevel, which the columnar
+	// findings don't carry. Daemons that predate the field leave it out.
+	FixLevels map[string]string `json:"fix_levels,omitempty"`
 }
 
 // AnalyzeBuffersArgs is the batched form of AnalyzeBufferArgs. The
@@ -189,6 +194,8 @@ type AnalyzeBufferEntry struct {
 	Findings json.RawMessage `json:"findings,omitempty"`
 	CacheHit bool            `json:"cache_hit"`
 	Error    string          `json:"error,omitempty"`
+	// FixLevels is AnalyzeBufferResult.FixLevels for this buffer.
+	FixLevels map[string]string `json:"fix_levels,omitempty"`
 }
 
 // AnalyzeProjectArgs drives the analyze-project verb. The verb runs

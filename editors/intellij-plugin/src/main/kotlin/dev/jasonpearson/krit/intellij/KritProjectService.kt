@@ -256,6 +256,7 @@ class KritProjectService(private val project: Project) : Disposable {
     }
 
     fun applyFix(fixLevel: String?, findingId: String) {
+        saveDocumentsBeforeExternalWrite()
         executor.execute {
             if (project.isDisposed || !running.compareAndSet(false, true)) {
                 rerunAfterCurrent.set(true)
@@ -280,7 +281,11 @@ class KritProjectService(private val project: Project) : Disposable {
     }
 
     fun applySuggestion(findingId: String, suggestionId: String) {
-        val cachedReport = lastReportJson
+        saveDocumentsBeforeExternalWrite()
+        // The finding the user picked may come from a per-file (daemon) scan
+        // newer than the last project report, so hand krit a report holding
+        // that finding as the plugin has it; fall back to the project report.
+        val cachedReport = reportForSuggestion(findingId, suggestionId) ?: lastReportJson
         executor.execute {
             if (project.isDisposed || !running.compareAndSet(false, true)) {
                 rerunAfterCurrent.set(true)
@@ -297,6 +302,25 @@ class KritProjectService(private val project: Project) : Disposable {
                 scheduleRequestedRerun()
             }
         }
+    }
+
+    // krit edits files on disk, and the findings of an unsaved file came from
+    // its editor buffer (offsets, finding IDs), so save first; this also
+    // keeps the IDE from treating krit's write as a conflicting change.
+    // Quick fixes and intentions call in on the EDT.
+    private fun saveDocumentsBeforeExternalWrite() {
+        if (!ApplicationManager.getApplication().isDispatchThread) return
+        FileDocumentManager.getInstance().saveAllDocuments()
+    }
+
+    // A one-finding JSON report (the CLI's shape, which `krit
+    // apply-suggestion` reads) for the current finding with findingId, or
+    // null when no current finding has that suggestion.
+    private fun reportForSuggestion(findingId: String, suggestionId: String): String? {
+        val finding = findingsByFile.values.asSequence().flatten().firstOrNull {
+            it.findingId == findingId && it.suggestedFixes.any { s -> s.id == suggestionId }
+        } ?: return null
+        return KritJsonParser.reportJson(listOf(finding))
     }
 
     // The files a suggestion's edits target, read from the report krit applied

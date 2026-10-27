@@ -1,8 +1,10 @@
 package dev.jasonpearson.krit.intellij
 
+import com.google.gson.JsonParseException
 import com.google.gson.JsonParser
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class KritColumnarFindingsDecoderTest {
@@ -126,5 +128,41 @@ class KritColumnarFindingsDecoderTest {
         val findings = KritColumnarFindingsDecoder.decode(JsonParser.parseString(payload).asJsonObject)
         assertEquals(listOf("info", "error"), findings.map { it.severity })
         assertEquals(listOf(0.0, 2.0), findings.map { it.confidence })
+    }
+
+    private fun row(severity: String, confidence: String, extra: String = "") = """
+        {
+            "files":["/x.kt"],"ruleSets":["rs"],"rules":["r"],"messages":["a"],
+            "fileIdx":[0],"line":[1],"col":[1],"ruleSetIdx":[0],"ruleIdx":[0],
+            "severityID":$severity,"messageIdx":[0],"confidence":$confidence$extra
+        }
+    """.trimIndent()
+
+    @Test
+    fun `a malformed byte column fails the decode instead of defaulting`() {
+        // Defaulting would report every row as info with no confidence; the
+        // throw makes the daemon caller fall back to the CLI.
+        listOf(
+            row("\"not base64!\"", "\"VQ==\""),
+            row("\"AQ==\"", "\"%%%\""),
+            row("{}", "\"VQ==\""),
+            row("\"AQE=\"", "\"VQ==\""), // two severities for one row
+        ).forEach { payload ->
+            assertFailsWith<JsonParseException>(payload) {
+                KritColumnarFindingsDecoder.decode(JsonParser.parseString(payload).asJsonObject)
+            }
+        }
+    }
+
+    @Test
+    fun `fix references outside their pools fail the decode`() {
+        listOf(
+            row("\"AQ==\"", "\"VQ==\"", ",\"fixPool\":[],\"fixStart\":[1]"),
+            row("\"AQ==\"", "\"VQ==\"", ",\"suggestedFixPool\":[],\"suggestedFixStart\":[1],\"suggestedFixCount\":[1]"),
+        ).forEach { payload ->
+            assertFailsWith<JsonParseException>(payload) {
+                KritColumnarFindingsDecoder.decode(JsonParser.parseString(payload).asJsonObject)
+            }
+        }
     }
 }

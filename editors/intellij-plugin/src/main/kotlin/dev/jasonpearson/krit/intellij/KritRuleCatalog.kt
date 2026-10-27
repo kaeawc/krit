@@ -52,6 +52,9 @@ class KritRuleCatalog(
     private val gson = Gson()
     private val memory = ConcurrentHashMap<Key, List<KritRuleInfo>>()
 
+    // Guards the disk cache and fetches; the memory map is read without it.
+    private val lock = Any()
+
     /**
      * The rules of [binary]: from memory, then disk, then by running it.
      * Null when the binary can't produce a list (missing, too old to print
@@ -60,26 +63,36 @@ class KritRuleCatalog(
     fun rulesFor(binary: File): List<KritRuleInfo>? {
         val key = Key.of(binary)
         memory[key]?.let { return it }
-        readDisk(key)?.let {
-            memory[key] = it
-            return it
+        // Cold path: one loader at a time, so concurrent callers (several
+        // projects opening) neither run krit twice nor share the per-key
+        // temp file in writeDisk.
+        synchronized(lock) {
+            memory[key]?.let { return it }
+            readDisk(key)?.let {
+                memory[key] = it
+                return it
+            }
+            return load(binary, key)
         }
-        return load(binary, key)
     }
 
     /** The cached rules of [binary], without running it; null when not cached. */
     fun cachedRulesFor(binary: File): List<KritRuleInfo>? {
         val key = Key.of(binary)
         memory[key]?.let { return it }
-        return readDisk(key)?.also { memory[key] = it }
+        synchronized(lock) {
+            return memory[key] ?: readDisk(key)?.also { memory[key] = it }
+        }
     }
 
     /** Drops [binary]'s cached list and fetches it again. */
     fun refresh(binary: File): List<KritRuleInfo>? {
         val key = Key.of(binary)
-        memory.remove(key)
-        cacheDir?.let { File(it, key.fileName()).delete() }
-        return load(binary, key)
+        synchronized(lock) {
+            memory.remove(key)
+            cacheDir?.let { File(it, key.fileName()).delete() }
+            return load(binary, key)
+        }
     }
 
     private fun load(binary: File, key: Key): List<KritRuleInfo>? {

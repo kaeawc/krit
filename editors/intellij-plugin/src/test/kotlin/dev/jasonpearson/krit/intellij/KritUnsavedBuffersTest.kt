@@ -118,4 +118,13 @@ class KritUnsavedBuffersTest {
         assertEquals(scanned, KritUnsavedBuffers.mergeFileScan(prior, scanned, null))
         assertEquals(scanned, KritUnsavedBuffers.mergeFileScan(prior, scanned, emptySet()))
     }
+
+    @Test
+    fun `buffers that can't be analyzed lose their disk findings`() {
+        assertSame(onDisk, KritUnsavedBuffers.withoutBuffers(onDisk, emptySet()))
+        assertEquals(
+            mapOf("/repo/B.kt" to onDisk.getValue("/repo/B.kt")),
+            KritUnsavedBuffers.withoutBuffers(onDisk, setOf("/repo/A.kt", "/repo/C.kt")),
+        )
+    }
 }

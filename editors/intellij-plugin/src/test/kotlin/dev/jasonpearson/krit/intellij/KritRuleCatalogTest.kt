@@ -150,4 +150,30 @@ class KritRuleCatalogTest {
         assertEquals(1, calls.size)
         assertNull(catalog(cacheDir = null).cachedRulesFor(binary))
     }
+
+    @Test
+    fun `concurrent cold loads run krit once and leave a readable cache`() {
+        val cacheDir = File(dir, "cache")
+        val fetches = java.util.concurrent.atomic.AtomicInteger()
+        val catalog = KritRuleCatalog(cacheDir) {
+            fetches.incrementAndGet()
+            Thread.sleep(50)
+            ruleJson("A", "B")
+        }
+        val start = java.util.concurrent.CountDownLatch(1)
+        val results = java.util.concurrent.ConcurrentLinkedQueue<List<String>?>()
+        val threads = (1..8).map {
+            Thread {
+                start.await()
+                results += catalog.rulesFor(binary)?.map { it.id }
+            }.apply { start() }
+        }
+        start.countDown()
+        threads.forEach { it.join() }
+
+        assertEquals(1, fetches.get())
+        assertEquals(List(8) { listOf("A", "B") }, results.toList())
+        assertEquals(listOf("A", "B"), catalog(cacheDir).cachedRulesFor(binary)!!.map { it.id })
+        assertEquals(emptyList(), cacheDir.listFiles()!!.filter { it.name.endsWith(".tmp") })
+    }
 }

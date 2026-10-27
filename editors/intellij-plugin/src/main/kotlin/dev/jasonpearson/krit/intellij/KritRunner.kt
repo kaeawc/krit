@@ -431,14 +431,17 @@ object KritRunner {
             val exit = process.exitValue()
             if (exit == 2) {
                 val msg = stderr.trim().ifBlank { "krit preflight failed (exit code 2)" }
-                ApplicationManager.getApplication().invokeLater {
-                    if (!project.isDisposed) {
-                        NotificationGroupManager.getInstance().getNotificationGroup("Krit")
-                            .createNotification("Krit configuration error", msg, NotificationType.ERROR)
-                            .notify(project)
-                    }
-                }
+                notifyConfigError(project, msg)
                 return RunOutcome.Failed(msg)
+            }
+            // krit only warns when it can't load an explicit --config and
+            // goes on with no config at all, so its findings wouldn't
+            // reflect the configured file: report the run as failed.
+            if ("--config" in command) {
+                KritConfigOverride.loadFailure(stderr)?.let { msg ->
+                    notifyConfigError(project, msg)
+                    return RunOutcome.Failed(msg)
+                }
             }
             if (!isSuccess(exit, stderr)) {
                 val msg = "krit $label exited $exit: ${stderr.lineSequence().firstOrNull().orEmpty()}"
@@ -462,6 +465,16 @@ object KritRunner {
 
     // The "Config file" setting for project, or null when unset.
     fun configOverride(project: Project): String? = KritSettingsState.configOverride(project.basePath)
+
+    private fun notifyConfigError(project: Project, msg: String) {
+        ApplicationManager.getApplication().invokeLater {
+            if (!project.isDisposed) {
+                NotificationGroupManager.getInstance().getNotificationGroup("Krit")
+                    .createNotification("Krit configuration error", msg, NotificationType.ERROR)
+                    .notify(project)
+            }
+        }
+    }
 
     private fun Project.baseDir(): File? {
         val base = basePath ?: return null

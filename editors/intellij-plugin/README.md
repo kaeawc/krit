@@ -36,7 +36,7 @@ Project` (per project):
 |---|---|
 | Krit binary | The krit executable. A project value overrides the application value (see the resolution order below). |
 | Maximum fix level | The most invasive autofix the quick fixes apply: `cosmetic`, `idiomatic` (default, like krit's own `--fix-level`), or `semantic`. Autofixes above it are not offered; rule suggestions always are. |
-| Config file | Passed to krit as `--config` instead of the project's `krit.yml` / `.krit.yml`. A relative path resolves against each project's root. The krit daemon only reads the project's own config, so while this is set the plugin runs scans and fixes through the CLI (`--no-daemon`) and does not start a daemon. Editing that file rescans the project. |
+| Config file | Passed to krit as `--config` instead of the project's `krit.yml` / `.krit.yml`. A relative path resolves against each project's root. The krit daemon only reads the project's own config, so while this is set the plugin runs scans and fixes through the CLI (`--no-daemon`) and does not start a daemon. The CLI reads only saved files, so a file with unsaved edits shows no Krit findings until it is saved (saving rescans it), rather than findings for the old text. If krit can't load the file (missing, unreadable, invalid YAML) the scan fails with a "Krit configuration error" notification instead of showing findings from krit's defaults. Editing that file rescans the project. |
 | Scan debounce (ms) | Delay after the last edit before a rescan (minimum 100). |
 | Start a krit daemon for this project | See above. |
 
@@ -52,7 +52,8 @@ through a project profile.
 The rule list is cached per krit binary (by its path, size, and modification
 time) in memory and under the IDE system directory (`krit/rule-lists`), so
 krit runs for it once per binary rather than on every project open. Replacing
-the binary (an upgrade, a different path in settings) reads the list again.
+the binary in place (an upgrade) reads the list again on the next project
+open; choosing a different binary in settings reads its list right away.
 `Tools → Krit → Krit: Refresh Rule List` drops the cached list and reads it
 again; it adds inspections for new rules right away, while rules krit no
 longer has leave the tree on the next IDE restart. A krit too old to print the

@@ -31,10 +31,13 @@ class KritSettingsConfigurable : Configurable {
         val next = f.save()
         KritSettingsState.get().update(next)
         val configChanged = before.configPath != next.configPath
-        if (configChanged || before.fixLevel != next.fixLevel) {
+        val binaryChanged = before.binaryPath != next.binaryPath
+        if (configChanged || binaryChanged || before.fixLevel != next.fixLevel) {
             for (project in ProjectManager.getInstance().openProjects) {
                 if (project.isDisposed) continue
-                project.getServiceIfCreated(KritProjectService::class.java)?.settingsChanged(configChanged)
+                val service = project.getServiceIfCreated(KritProjectService::class.java) ?: continue
+                if (binaryChanged) service.binaryChanged()
+                if (configChanged || before.fixLevel != next.fixLevel) service.settingsChanged(configChanged)
             }
         }
     }
@@ -69,7 +72,8 @@ class KritSettingsConfigurable : Configurable {
             )
             toolTipText = "Passed to krit as --config instead of the project's krit.yml / .krit.yml. " +
                 "A relative path resolves against each project's root. While set, scans use the krit " +
-                "CLI instead of the daemon, which only reads the project's own krit.yml."
+                "CLI instead of the daemon, which only reads the project's own krit.yml, and files with " +
+                "unsaved edits show no Krit findings until they are saved."
         }
 
         private val debounceField = JBTextField().apply {

@@ -378,21 +378,14 @@ type ListedRules struct {
 // the filters apply the same way and verboseFlag is ignored (every field
 // is always present).
 func PrintListRules(stdoutW, stderrW io.Writer, verboseFlag bool, maturityFilter, taxonomyID, format string, customRuleJars []string, paths []string) (int, bool) {
-	var maturity api.Maturity
-	maturityFilterSet := false
-	if maturityFilter != "" {
-		m, ok := api.ParseMaturity(maturityFilter)
-		if !ok {
-			fmt.Fprintf(stderrW, "error: unknown --maturity value %q; valid: stable, experimental, deprecated\n", maturityFilter)
-			return 2, false
-		}
-		maturity = m
-		maturityFilterSet = true
+	maturityPtr, ok := parseListMaturity(stderrW, maturityFilter)
+	if !ok {
+		return 2, false
 	}
 
 	registry := api.Registry
-	if maturityFilterSet {
-		registry = api.MaturityFilter(registry, maturity)
+	if maturityPtr != nil {
+		registry = api.MaturityFilter(registry, *maturityPtr)
 	}
 	w := stdoutW
 
@@ -402,7 +395,8 @@ func PrintListRules(stdoutW, stderrW io.Writer, verboseFlag bool, maturityFilter
 		matcher = api.TaxonomyMatcher{IDs: []string{taxonomyID}}
 	}
 	if format == "json" {
-		return writeListRulesJSON(w, stderrW, registry, matcher, listPluginRuleDescriptors(customRuleJars, paths))
+		plugins := filterPluginRules(listPluginRuleDescriptors(customRuleJars, paths), taxonomyID != "", maturityPtr)
+		return writeListRulesJSON(w, stderrW, registry, matcher, plugins)
 	}
 	if taxonomyID != "" {
 		fmt.Fprintf(w, "Available rules (filtered by taxonomy ID %q):\n", taxonomyID)
@@ -445,7 +439,7 @@ func PrintListRules(stdoutW, stderrW io.Writer, verboseFlag bool, maturityFilter
 			}
 		}
 	}
-	pluginRules := listPluginRuleDescriptors(customRuleJars, paths)
+	pluginRules := filterPluginRules(listPluginRuleDescriptors(customRuleJars, paths), taxonomyID != "", maturityPtr)
 	for _, r := range pluginRules {
 		if verboseFlag {
 			sdk := r.SDKVersion
@@ -467,6 +461,44 @@ func PrintListRules(stdoutW, stderrW io.Writer, verboseFlag bool, maturityFilter
 	return 0, true
 }
 
+// parseListMaturity parses the --maturity filter: nil when unset, and
+// ok=false (after writing the error to stderrW) for an unknown value.
+func parseListMaturity(stderrW io.Writer, maturityFilter string) (*api.Maturity, bool) {
+	if maturityFilter == "" {
+		return nil, true
+	}
+	m, ok := api.ParseMaturity(maturityFilter)
+	if !ok {
+		fmt.Fprintf(stderrW, "error: unknown --maturity value %q; valid: stable, experimental, deprecated\n", maturityFilter)
+		return nil, false
+	}
+	return &m, true
+}
+
+// filterPluginRules applies the --list-rules filters to custom-rule plugin
+// descriptors. Plugin descriptors carry no taxonomy data, so a taxonomy
+// filter (--cwe) excludes them all; a maturity filter keeps those whose
+// declared maturity matches.
+func filterPluginRules(in []oracle.PluginRuleDescriptor, taxonomyFilter bool, maturity *api.Maturity) []oracle.PluginRuleDescriptor {
+	if taxonomyFilter {
+		return nil
+	}
+	if maturity == nil {
+		return in
+	}
+	var out []oracle.PluginRuleDescriptor
+	for _, r := range in {
+		declared := r.Maturity
+		if declared == "" {
+			declared = "stable" // descriptors without a maturity are stable
+		}
+		if m, ok := api.ParseMaturity(declared); ok && m == *maturity {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // writeListRulesJSON writes the --list-rules --format json document for
 // registry (after the taxonomy filter) and any plugin rules.
 func writeListRulesJSON(w, stderrW io.Writer, registry []*api.Rule, matcher api.TaxonomyMatcher, pluginRules []oracle.PluginRuleDescriptor) (int, bool) {
@@ -479,7 +511,7 @@ func writeListRulesJSON(w, stderrW io.Writer, registry []*api.Rule, matcher api.
 			ID:            r.ID,
 			Category:      r.Category,
 			Severity:      string(r.Sev),
-			DefaultActive: rules.IsDefaultActive(r.ID),
+			DefaultActive: rules.DeclaredDefaultActive(r),
 			Precision:     rules.V2RulePrecision(r).String(),
 			Maturity:      r.Maturity.String(),
 			Description:   r.Description,

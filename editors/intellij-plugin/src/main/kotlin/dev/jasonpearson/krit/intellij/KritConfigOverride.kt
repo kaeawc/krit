@@ -35,6 +35,19 @@ object KritConfigOverride {
         if (override == null) emptyList() else listOf("--config", override, "--no-daemon")
 
     /**
+     * krit's report that it couldn't load the config, from its stderr: the
+     * `warning: config: ...` line (internal/cli/scan loadScanConfig), without
+     * the "warning: " prefix; null when there is none. With an explicit
+     * --config that failed to load, krit carries on with no config, so the
+     * plugin treats the run as failed.
+     */
+    fun loadFailure(stderr: String): String? =
+        stderr.lineSequence().map { it.trim() }.firstOrNull { it.startsWith(CONFIG_WARNING) }
+            ?.removePrefix("warning: ")
+
+    private const val CONFIG_WARNING = "warning: config:"
+
+    /**
      * True when [path] (a system-independent path, as the VFS reports it) is
      * the override file, so editing it rescans like editing krit.yml.
      */

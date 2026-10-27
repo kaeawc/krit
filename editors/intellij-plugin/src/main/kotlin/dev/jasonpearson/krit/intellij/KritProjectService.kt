@@ -18,6 +18,7 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.newvfs.BulkFileListener
+import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent
 import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent
@@ -113,6 +114,7 @@ class KritProjectService(private val project: Project) : Disposable {
                 object : BulkFileListener {
                     override fun after(events: List<VFileEvent>) {
                         if (events.any { touchesProjectConfig(it) }) onConfigChanged()
+                        rescanSavedFilesUnderOverride(events)
                     }
                 },
             )
@@ -152,6 +154,21 @@ class KritProjectService(private val project: Project) : Disposable {
         }
     }
 
+    // With a config override, a file with unsaved edits isn't analyzed (the
+    // CLI reads only disk, and the daemon can't take the override), so its
+    // findings are dropped while it is modified. Saving it rescans it here.
+    private fun rescanSavedFilesUnderOverride(events: List<VFileEvent>) {
+        if (!inspectionsEnabled || KritRunner.configOverride(project) == null) return
+        val saved = events.filterIsInstance<VFileContentChangeEvent>()
+            .map { it.file }
+            .filter { it.isValid && shouldTriggerScan(it) }
+            .map { it.path }
+        if (saved.isEmpty()) return
+        scanGeneration.bump()
+        pendingFiles.addAll(saved)
+        scheduleScan(KritScanDebounce.effectiveMs(KritSettingsState.getSafely()?.state?.debounceMs))
+    }
+
     // A created, edited, deleted, or renamed krit.yml / .krit.yml at the
     // project root (where the CLI looks for it; see config.Filenames).
     private fun touchesProjectConfig(event: VFileEvent): Boolean {
@@ -183,6 +200,13 @@ class KritProjectService(private val project: Project) : Disposable {
     // Settings → Tools → Krit changed: a different config file changes every
     // file's findings, so rescan the project; the fix level only changes
     // which quick fixes are offered, so re-highlight.
+    // The krit binary setting changed: read the new binary's rule list and
+    // add inspections for its rules.
+    fun binaryChanged() {
+        if (!scansEnabled) return
+        installRuleInspections()
+    }
+
     fun settingsChanged(configChanged: Boolean) {
         if (!scansEnabled) return
         if (configChanged) onConfigChanged()
@@ -533,8 +557,20 @@ class KritProjectService(private val project: Project) : Disposable {
             return true
         }
         val batched = scan?.outcomes.orEmpty()
+        // Under a config override modified buffers can't be analyzed (see
+        // overlayUnsavedBuffers); after a fix (contentFor reads disk) the
+        // files were saved first, so this only applies to edits.
+        val deferred = if (!requireFixedRule && KritRunner.configOverride(project) != null) {
+            unsavedPaths(paths)
+        } else {
+            emptySet()
+        }
         for (path in paths) {
             val canonical = canonicalPath(path, project.basePath)
+            if (path in deferred) {
+                updated.remove(canonical)
+                continue
+            }
             val fromBatch = batched[path]
             val outcome = fromBatch
                 ?: KritRunner.analyzeFile(project, path, contentFor(path), isCancelled)
@@ -582,6 +618,13 @@ class KritProjectService(private val project: Project) : Disposable {
         skipBuffers: Set<String>,
         isCancelled: () -> Boolean,
     ): Map<String, List<KritFinding>>? {
+        if (KritRunner.configOverride(project) != null) {
+            // No buffer-aware scan under an override: drop the disk findings
+            // of modified files rather than show them as current. Saving a
+            // file rescans it (rescanSavedFilesUnderOverride).
+            val unsaved = unsavedBuffers().keys.mapTo(HashSet()) { canonicalPath(it, project.basePath) }
+            return KritUnsavedBuffers.withoutBuffers(onDisk, unsaved)
+        }
         val skip = skipBuffers.mapTo(HashSet()) { canonicalPath(it, project.basePath) }
         val buffers = unsavedBuffers().filterKeys { canonicalPath(it, project.basePath) !in skip }
         if (buffers.isEmpty()) return onDisk
@@ -589,6 +632,18 @@ class KritProjectService(private val project: Project) : Disposable {
         val byCanonical = scan.outcomes.mapKeys { (path, _) -> canonicalPath(path, project.basePath) }
         return KritUnsavedBuffers.overlay(onDisk, byCanonical, scan.evaluatedRules) {
             canonicalPath(it, project.basePath)
+        }
+    }
+
+    // The paths among paths whose open document has unsaved changes.
+    private fun unsavedPaths(paths: Set<String>): Set<String> {
+        if (project.isDisposed) return emptySet()
+        return ReadAction.compute<Set<String>, RuntimeException> {
+            val documents = FileDocumentManager.getInstance()
+            val fs = LocalFileSystem.getInstance()
+            paths.filterTo(HashSet()) { path ->
+                fs.findFileByPath(path)?.let { documents.isFileModified(it) } == true
+            }
         }
     }
 

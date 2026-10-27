@@ -43,4 +43,17 @@ class KritConfigOverrideTest {
         assertFalse(KritConfigOverride.isOverride(override, File(base, "krit.yml").path))
         assertFalse(KritConfigOverride.isOverride(null, File(base, "config/krit.yml").path))
     }
+
+    @Test
+    fun `a config that failed to load is reported from krit's warning`() {
+        val stderr = "info: something\n" +
+            "warning: config: loading config /x/krit.yml: open /x/krit.yml: no such file or directory\n" +
+            "warning: unrelated\n"
+        assertEquals(
+            "config: loading config /x/krit.yml: open /x/krit.yml: no such file or directory",
+            KritConfigOverride.loadFailure(stderr),
+        )
+        assertNull(KritConfigOverride.loadFailure("warning: unknown --max-cost value \"x\"\n"))
+        assertNull(KritConfigOverride.loadFailure(""))
+    }
 }

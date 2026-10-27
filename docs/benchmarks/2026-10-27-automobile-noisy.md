@@ -17,8 +17,12 @@ in all five cache states. The raw data is in
 - `*.summary.md`: the harness summaries.
 - `budget-inputs.csv`: the per-state spread and budgets used below, generated
   by `budgets.py` from the `results.json` files. Run it with
-  `python3 -I budgets.py <out.csv> <results.json>[:states] ...`.
+  `python3 -I budgets.py <out.csv> <results.json>[:states] ...`. The script
+  names each source after the directory that holds its `results.json`, so put
+  each file in a directory named after its invocation (for example
+  `fir-oracle/results.json`).
 - `conditions.txt`: `uptime` and `free -m` before and after each invocation.
+- `krit.yml`: the exact corpus config, placed untracked at the corpus root.
 
 ## Machine and inputs
 
@@ -31,7 +35,7 @@ in all five cache states. The raw data is in
 | Helper jars | `krit-fir.jar` `ed864bea…` and `krit-types.jar` `3a2ded77…` (from `make fir-jar types-jar`, passed through `KRIT_FIR_JAR` and `KRIT_TYPES_JAR`) |
 | Toolchain | Go 1.27.1, OpenJDK 21.0.12.1 (no Leyden AOT), Kotlin 2.4.20 |
 | Corpus | `kaeawc/auto-mobile@5d51ab06` (shallow clone), scanned from the repo root |
-| Corpus config | An untracked `krit.yml` that sets `oracle.classpath` to kotlinx-coroutines-core-jvm 1.8.0, kotlinx-serialization-core-jvm 1.11.0 and kotlinx-serialization-json-jvm 1.11.0. There is no exported Gradle model, so Android and Compose symbols stay unresolved |
+| Corpus config | An untracked `krit.yml` (copied here as `krit.yml`) that sets `oracle.classpath` to kotlinx-coroutines-core-jvm 1.8.0, kotlinx-serialization-core-jvm 1.11.0 and kotlinx-serialization-json-jvm 1.11.0. There is no exported Gradle model, so Android and Compose symbols stay unresolved |
 | Edit file | `android/test-plan-validation/src/main/kotlin/dev/jasonpearson/automobile/validation/ToolResultModels.kt` |
 
 The `structural.results.json` metadata names krit revision `1f5b7b8c`. That
@@ -200,8 +204,12 @@ accepted non-cold run matched its clean-scan checksum.
   - The FIR daemons' lifetime peak RSS is 5.4–6.9 GB. That is krit serve plus
     krit-fir, and it includes the fill compile.
   - In-process FIR runs peak at 2.9–3.1 GB.
-  - A resident FIR daemon on this corpus therefore needs about 2× the memory
-    of a one-shot scan.
+  - These are lifetime high-water marks (`VmHWM`) of each process, summed.
+    krit serve and krit-fir may not reach their peaks at the same moment, so
+    the sum is an upper bound on what the daemon needs at once, not a
+    measurement of it.
+  - Even so, the summed peaks are about 2× a one-shot scan's peak. Sampling
+    the combined RSS over time would show the real concurrent demand.
 - **An outlier in structural warm-daemon.** Run 2 took 17.2 s. Almost all of
   it (16.5 s) was in `bundleHit/sourcePaths`, against 5–8 ms in the other
   runs. That run happened at load 17. It is worth checking on a quiet machine

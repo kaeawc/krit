@@ -1,6 +1,8 @@
 """Summarize benchanalysis results.json files: spread, phases, budgets.
 
 usage: python3 -I budgets.py out.csv results.json[:state,state] ...
+Each results.json must sit in a directory named after its invocation;
+that name becomes the CSV source column.
 Budgets: median x1.5 for wall and CPU, x1.25 for RSS, 1 s floor, rounded
 up to two significant figures. Daemon states (warm-daemon, body-edit,
 abi-edit) budget daemon CPU and RSS; cold and warm-disk budget the krit
@@ -11,7 +13,15 @@ import json, math, sys, csv
 DAEMON_STATES = {"warm-daemon", "body-edit", "abi-edit"}
 STATES = ["cold", "warm-disk", "warm-daemon", "body-edit", "abi-edit"]
 WALL_FACTOR, CPU_FACTOR, RSS_FACTOR, FLOOR_MS = 1.5, 1.5, 1.25, 1000
-PHASES = ["typeOracle", "typeOracle/jvmAnalyze", "firCheck", "dispatch", "crossFileAnalysis", "parse"]
+# CSV column label -> phase keys as recorded in phasesMs (first present wins).
+PHASES = {
+    "typeOracle": ["indexPhaseRun/typeOracle", "typeOracle"],
+    "typeOracle/jvmAnalyze": ["indexPhaseRun/typeOracle/jvmAnalyze", "typeOracle/jvmAnalyze"],
+    "firCheck": ["firCheck"],
+    "dispatch": ["dispatchPhaseRun", "dispatch"],
+    "crossFileAnalysis": ["crossFileAnalysis"],
+    "parse": ["parse"],
+}
 
 def pct(v, p):
     # nearest-rank, same as the harness
@@ -73,8 +83,8 @@ def main():
                        load1_min=min(loads) if loads else None, load1_max=max(loads) if loads else None,
                        oracle_skip=",".join(sorted({r.get("oracleSkip") for r in acc if r.get("oracleSkip")})),
                        findings=",".join(str(x) for x in sorted({r.get("findings") for r in acc})))
-            for ph in PHASES:
-                v = [r.get("phasesMs", {}).get(ph) for r in acc]
+            for ph, keys in PHASES.items():
+                v = [next((r.get("phasesMs", {})[k] for k in keys if k in r.get("phasesMs", {})), None) for r in acc]
                 v = [x for x in v if x is not None]
                 row["phase:" + ph] = pct(v, 50)
             if wall:

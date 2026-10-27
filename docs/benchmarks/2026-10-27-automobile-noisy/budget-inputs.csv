@@ -1,21 +1,21 @@
 mode,state,source,accepted,measured,rejected,min,p25,median,p75,p90,max,cpu_median,rss_median_mb,daemon_cpu_median,daemon_rss_median_mb,load1_min,load1_max,oracle_skip,findings,phase:typeOracle,phase:typeOracle/jvmAnalyze,phase:firCheck,phase:dispatch,phase:crossFileAnalysis,phase:parse,budget_wall_ms,budget_basis,budget_cpu_ms,budget_rss_mb
-structural,cold,structural-cold-rerun,5,5,,30921,31327,31682,31989,32733,32733,102506,1868,,,2.1,3.46,,3890,,,,,26848,4062,48000,process,160000,2400
+structural,cold,structural-cold-rerun,5,5,,30921,31327,31682,31989,32733,32733,102506,1868,,,2.1,3.46,,3890,,,,16218,26848,4062,48000,process,160000,2400
 structural,warm-disk,structural-rerun,5,5,,2773,2925,3092,3135,5220,5220,4951,661,,,3.3,4.03,,3890,,,,,2265,428,4700,process,7500,830
 structural,warm-daemon,structural,5,5,,108,129,207,223,17191,17191,88,27,40,763,9.35,21.96,,3890,,,,,,,1000,daemon,1000,960
 structural,body-edit,structural,5,5,,258,288,333,352,474,474,88,27,250,2043,6.78,12.37,,3890,,,,,102,17,1000,daemon,1000,2600
-structural,abi-edit,structural,5,5,,271,287,302,321,438,438,90,27,190,1983,7.06,11.58,,3891,,,,,85,14,1000,daemon,1000,2500
-kaa-oracle,cold,kaa-oracle+kaa-oracle-cold-rerun,8,8,,144405,147239,149361,151007,154700,154700,535859,3785,,,2.9,6.12,,3845,,,,,24639,4524,230000,process,810000,4800
-kaa-oracle,warm-disk,kaa-oracle,5,5,,4582,4592,4648,4653,5414,5414,7639,1038,,,5.04,5.47,findings-bundle-hit,3845,,,,,2689,398,7000,process,12000,1300
+structural,abi-edit,structural,5,5,,271,287,302,321,438,438,90,27,190,1983,7.06,11.58,,3891,,,,35,85,14,1000,daemon,1000,2500
+kaa-oracle,cold,kaa-oracle+kaa-oracle-cold-rerun,8,8,,144405,147239,149361,151007,154700,154700,535859,3785,,,2.9,6.12,,3845,119353,119353,,15589,24639,4524,230000,process,810000,4800
+kaa-oracle,warm-disk,kaa-oracle,5,5,,4582,4592,4648,4653,5414,5414,7639,1038,,,5.04,5.47,findings-bundle-hit,3845,0,,,,2689,398,7000,process,12000,1300
 kaa-oracle,warm-daemon,kaa-oracle,0,5,findings differ from a clean scan (3846 vs 3845 findings),,,,,,,,,,,,,,,,,,,,,,,,
 kaa-oracle,body-edit,kaa-oracle,0,5,findings differ from a clean scan (3846 vs 3845 findings),,,,,,,,,,,,,,,,,,,,,,,,
 kaa-oracle,abi-edit,kaa-oracle,0,5,findings differ from a clean scan (3847 vs 3846 findings),,,,,,,,,,,,,,,,,,,,,,,,
-fir-oracle,cold,fir-oracle,3,3,,130380,130380,131673,132300,132300,132300,378572,2931,,,3.05,3.37,,4047,,,,,25752,5063,200000,process,570000,3700
-fir-oracle,warm-disk,fir-oracle,3,3,,6755,6755,7477,7694,7694,7694,12485,1447,,,3.04,3.32,findings-bundle-hit,4047,,,,,2574,467,12000,process,19000,1900
+fir-oracle,cold,fir-oracle,3,3,,130380,130380,131673,132300,132300,132300,378572,2931,,,3.05,3.37,,4047,100271,100270,,15506,25752,5063,200000,process,570000,3700
+fir-oracle,warm-disk,fir-oracle,3,3,,6755,6755,7477,7694,7694,7694,12485,1447,,,3.04,3.32,findings-bundle-hit,4047,0,,,,2574,467,12000,process,19000,1900
 fir-oracle,warm-daemon,fir-oracle,3,3,,2929,2929,3139,3239,3239,3239,85,27,4270,5403,2.55,3.32,findings-bundle-hit,4047,,,,,,,4800,daemon,6500,6800
-fir-oracle,body-edit,fir-oracle,3,3,,56326,56326,59862,74451,74451,74451,91,27,110780,6179,2.97,3.12,,4047,,,,,56833,13,90000,daemon,170000,7800
-fir-oracle,abi-edit,fir-oracle,3,3,,69150,69150,70178,71290,71290,71290,80,27,152790,6134,2.88,3.27,,4048,,,,,67010,9,110000,daemon,230000,7700
-fir-checkers,cold,fir-checkers,3,3,,138918,138918,139619,141872,141872,141872,393582,3066,,,2.99,3.24,,4010,,,726,,25653,5250,210000,process,600000,3900
-fir-checkers,warm-disk,fir-checkers,3,3,,8421,8421,8835,9112,9112,9112,18584,1317,,,2.94,3.23,findings-bundle-hit,4010,,,160,,2609,402,14000,process,28000,1700
-fir-checkers,warm-daemon,fir-checkers,3,3,,68087,68087,69289,70630,70630,70630,157,38,146500,6875,2.91,3.4,,4010,,,141,,62853,358,110000,daemon,220000,8600
-fir-checkers,body-edit,fir-checkers,3,3,,71856,71856,76420,79327,79327,79327,137,38,151810,6066,2.7,3.32,,4010,,,67810,,70566,15,120000,daemon,230000,7600
-fir-checkers,abi-edit,fir-checkers,3,3,,80162,80162,84605,87201,87201,87201,151,38,170770,6258,2.87,3.22,,4011,,,75765,,78718,13,130000,daemon,260000,7900
+fir-oracle,body-edit,fir-oracle,3,3,,56326,56326,59862,74451,74451,74451,91,27,110780,6179,2.97,3.12,,4047,55631,52933,,,56833,13,90000,daemon,170000,7800
+fir-oracle,abi-edit,fir-oracle,3,3,,69150,69150,70178,71290,71290,71290,80,27,152790,6134,2.88,3.27,,4048,66225,63711,,,67010,9,110000,daemon,230000,7700
+fir-checkers,cold,fir-checkers,3,3,,138918,138918,139619,141872,141872,141872,393582,3066,,,2.99,3.24,,4010,104360,104360,726,15540,25653,5250,210000,process,600000,3900
+fir-checkers,warm-disk,fir-checkers,3,3,,8421,8421,8835,9112,9112,9112,18584,1317,,,2.94,3.23,findings-bundle-hit,4010,0,,160,,2609,402,14000,process,28000,1700
+fir-checkers,warm-daemon,fir-checkers,3,3,,68087,68087,69289,70630,70630,70630,157,38,146500,6875,2.91,3.4,,4010,62305,59919,141,,62853,358,110000,daemon,220000,8600
+fir-checkers,body-edit,fir-checkers,3,3,,71856,71856,76420,79327,79327,79327,137,38,151810,6066,2.7,3.32,,4010,69463,67092,67810,,70566,15,120000,daemon,230000,7600
+fir-checkers,abi-edit,fir-checkers,3,3,,80162,80162,84605,87201,87201,87201,151,38,170770,6258,2.87,3.22,,4011,77671,74901,75765,,78718,13,130000,daemon,260000,7900

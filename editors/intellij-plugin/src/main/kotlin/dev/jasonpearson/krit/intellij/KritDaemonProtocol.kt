@@ -1,8 +1,10 @@
 package dev.jasonpearson.krit.intellij
 
 import com.google.gson.Gson
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.annotations.SerializedName
+import java.util.Base64
 
 // Wire types for krit's line-delimited JSON daemon protocol. See
 // `internal/daemon/protocol.go` on the Go side — verb names and
@@ -87,14 +89,18 @@ object KritColumnarFindingsDecoder {
         val col: List<Int> = emptyList(),
         val ruleSetIdx: List<Int> = emptyList(),
         val ruleIdx: List<Int> = emptyList(),
-        val severityID: List<Int> = emptyList(),
+        // Go marshals these []uint8 columns as base64 strings; a JSON array
+        // of numbers is accepted too. See byteColumn.
+        val severityID: JsonElement? = null,
         val messageIdx: List<Int> = emptyList(),
-        val confidence: List<Int> = emptyList(),
+        val confidence: JsonElement? = null,
         val n: Int = 0,
     ) {
         fun toFindings(): List<KritFinding> {
             val rowCount = rowCount()
             if (rowCount == 0) return emptyList()
+            val severities = byteColumn(severityID)
+            val confidences = byteColumn(confidence)
             return (0 until rowCount).map { row ->
                 KritFinding(
                     file = lookup(files, fileIdx, row).orEmpty(),
@@ -102,9 +108,9 @@ object KritColumnarFindingsDecoder {
                     column = col.getOrElse(row) { 0 },
                     ruleSet = lookup(ruleSets, ruleSetIdx, row).orEmpty(),
                     rule = lookup(rules, ruleIdx, row).orEmpty(),
-                    severity = decodeSeverity(severityID.getOrElse(row) { SEVERITY_INFO }),
+                    severity = decodeSeverity(severities.getOrElse(row) { SEVERITY_INFO }),
                     message = lookup(messages, messageIdx, row).orEmpty(),
-                    confidence = (confidence.getOrElse(row) { 0 }) / 100.0,
+                    confidence = (confidences.getOrElse(row) { 0 }) / 100.0,
                 )
             }
         }
@@ -114,6 +120,20 @@ object KritColumnarFindingsDecoder {
         private fun lookup(pool: List<String>, indexes: List<Int>, row: Int): String? {
             val idx = indexes.getOrNull(row) ?: return null
             return pool.getOrNull(idx)
+        }
+
+        // encoding/json writes a []byte (and so []uint8) as a base64 string,
+        // not an array; values are unsigned bytes.
+        private fun byteColumn(element: JsonElement?): List<Int> = when {
+            element == null || element.isJsonNull -> emptyList()
+            element.isJsonArray -> element.asJsonArray.map { it.asInt }
+            element.isJsonPrimitive && element.asJsonPrimitive.isString ->
+                try {
+                    Base64.getDecoder().decode(element.asString).map { it.toInt() and 0xFF }
+                } catch (_: IllegalArgumentException) {
+                    emptyList()
+                }
+            else -> emptyList()
         }
 
         private fun decodeSeverity(id: Int): String = when (id) {

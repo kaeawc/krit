@@ -90,4 +90,41 @@ class KritColumnarFindingsDecoderTest {
         assertEquals(3, findings.size)
         assertEquals(listOf(1, 2, 3), findings.map { it.line })
     }
+
+    @Test
+    fun `byte columns decode from the base64 strings Go writes`() {
+        // encoding/json marshals the []uint8 severityID and confidence
+        // columns as base64 strings. This is a payload a real daemon sent
+        // for analyze-buffer ("AQ==" = [1], "VQ==" = [85]).
+        val payload = """
+            {
+                "files":["/repo/Foo.kt"],"ruleSets":["release-engineering"],
+                "rules":["PrintlnInProduction"],
+                "messages":["println/print in production code; use a logging framework instead."],
+                "fileIdx":[0],"line":[3],"col":[2],"ruleSetIdx":[0],"ruleIdx":[0],
+                "severityID":"AQ==","messageIdx":[0],"confidence":"VQ==",
+                "fixStart":[0],"binaryFixStart":[0]
+            }
+        """.trimIndent()
+        val f = KritColumnarFindingsDecoder.decode(JsonParser.parseString(payload).asJsonObject).single()
+        assertEquals("warning", f.severity)
+        assertEquals(0.85, f.confidence)
+        assertEquals("PrintlnInProduction", f.rule)
+        assertEquals(3, f.line)
+    }
+
+    @Test
+    fun `base64 byte columns are unsigned and per row`() {
+        // "AAI=" = [0, 2]; "AMg=" = [0, 200] (200 must not read as -56).
+        val payload = """
+            {
+                "files":["/x.kt"],"ruleSets":["rs"],"rules":["r"],"messages":["a","b"],
+                "fileIdx":[0,0],"line":[1,2],"col":[1,1],"ruleSetIdx":[0,0],"ruleIdx":[0,0],
+                "severityID":"AAI=","messageIdx":[0,1],"confidence":"AMg="
+            }
+        """.trimIndent()
+        val findings = KritColumnarFindingsDecoder.decode(JsonParser.parseString(payload).asJsonObject)
+        assertEquals(listOf("info", "error"), findings.map { it.severity })
+        assertEquals(listOf(0.0, 2.0), findings.map { it.confidence })
+    }
 }

@@ -119,6 +119,13 @@ func registerExceptionsRules() {
 				if caughtVar == "" {
 					return
 				}
+				// A rethrow-only catch followed by another catch clause of the
+				// same try is an intentional "let this type escape" guard: it
+				// keeps the later (typically broader) handler from swallowing
+				// it, so removing it would change behavior.
+				if hasLaterCatchSibling(file, idx) {
+					return
+				}
 				if file.Language == scanner.LangJava {
 					if javaCatchOnlyRethrowsVar(file, idx, caughtVar) {
 						ctx.EmitAt(file.FlatRow(idx)+1, 1,

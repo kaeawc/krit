@@ -447,6 +447,107 @@ class Example {
 	}
 }
 
+// Regression for #669: a rethrow-only catch followed by another catch of the
+// same try deliberately lets that type escape the later handler.
+func TestExc_RethrowCaughtException_LaterCatchSuppresses(t *testing.T) {
+	findings := runRuleByName(t, "RethrowCaughtException", `
+fun test() {
+    try {
+        doWork()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log(e)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when a later catch would swallow the exception, got %d", len(findings))
+	}
+}
+
+func TestExc_RethrowCaughtException_LastCatchStillFlagged(t *testing.T) {
+	findings := runRuleByName(t, "RethrowCaughtException", `
+fun test() {
+    try {
+        doWork()
+    } catch (e: IOException) {
+        log(e)
+    } catch (e: Exception) {
+        throw e
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding for rethrow-only last catch, got %d", len(findings))
+	}
+	if findings[0].Line != 7 {
+		t.Fatalf("expected finding on line 7, got %d", findings[0].Line)
+	}
+}
+
+func TestExc_RethrowCaughtException_JavaLaterCatchSuppresses(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "RethrowCaughtException", `
+package test;
+class Example {
+  void run() throws Exception {
+    try {
+      work();
+    } catch (java.io.IOException e) {
+      throw e;
+    } catch (Exception e) {
+      log(e);
+    }
+    try {
+      work();
+    } catch (java.io.IOException | java.sql.SQLException e) {
+      throw e;
+    } catch (Exception e) {
+      log(e);
+    } finally {
+      done();
+    }
+    try {
+      work();
+    } catch (java.io.IOException e) {
+      log(e);
+    } catch (Exception e) {
+      throw e;
+    }
+  }
+  void work() throws Exception {}
+  void log(Exception e) {}
+  void done() {}
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the last-catch rethrow to be flagged, got %d", len(findings))
+	}
+	if findings[0].Line != 25 {
+		t.Fatalf("expected finding on line 25, got %d", findings[0].Line)
+	}
+}
+
+func TestExc_RethrowCaughtException_JavaFixtures(t *testing.T) {
+	root := fixtureRoot(t)
+
+	t.Run("positive", func(t *testing.T) {
+		file := parseJavaFixture(t, filepath.Join(root, "positive", "exceptions", "RethrowCaughtException.java"))
+		findings := runRuleByNameOnFile(t, "RethrowCaughtException", file)
+		if len(findings) != 2 {
+			t.Fatalf("expected 2 Java findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative", func(t *testing.T) {
+		file := parseJavaFixture(t, filepath.Join(root, "negative", "exceptions", "RethrowCaughtException.java"))
+		findings := runRuleByNameOnFile(t, "RethrowCaughtException", file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 Java findings, got %d", len(findings))
+		}
+	})
+}
+
 // --- ReturnFromFinally ---
 
 func TestExc_ReturnFromFinally_Positive(t *testing.T) {

@@ -223,3 +223,23 @@ func TestWithCompilerPluginsAddsConfiguredPlugins(t *testing.T) {
 		t.Fatalf("alone = %+v", alone)
 	}
 }
+
+// krit.yml may configure only options for a plugin the Gradle model supplies:
+// they apply to the model's jar instead of being dropped as orphans. With no
+// jar from either source they are still not applied.
+func TestWithCompilerPluginsAppliesOptionsToModelJars(t *testing.T) {
+	dir := t.TempDir()
+	model := touchJar(t, dir, "kotlin-serialization-compiler-plugin-embeddable-2.4.21.jar")
+	s := KotlinSettings{Plugins: CompilerPlugins{Classpath: []string{model}, Options: []string{"plugin:a:b=c"}}}
+	got := s.WithCompilerPlugins(nil, []string{"plugin:org.jetbrains.kotlinx.serialization:disableIntrinsic=true"}, "krit.yml")
+	if !reflect.DeepEqual(got.Plugins.Classpath, []string{model}) {
+		t.Fatalf("classpath = %v", got.Plugins.Classpath)
+	}
+	if want := []string{"plugin:a:b=c", "plugin:org.jetbrains.kotlinx.serialization:disableIntrinsic=true"}; !reflect.DeepEqual(got.Plugins.Options, want) {
+		t.Fatalf("options = %v want %v (notes %v)", got.Plugins.Options, want, got.Notes)
+	}
+	orphan := KotlinSettings{}.WithCompilerPlugins(nil, []string{"plugin:a:b=c"}, "krit.yml")
+	if !orphan.IsZero() || len(orphan.Plugins.Options) != 0 || !strings.Contains(strings.Join(orphan.Notes, "\n"), "no compiler plugin jar") {
+		t.Fatalf("orphan = %+v", orphan)
+	}
+}

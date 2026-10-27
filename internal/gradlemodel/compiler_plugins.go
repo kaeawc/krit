@@ -74,6 +74,13 @@ var outputPluginOptions = map[string]bool{
 // is in rejected with the reason). Options without any plugin jar are not
 // applied.
 func ResolveCompilerPlugins(classpath, options []string) (plugins CompilerPlugins, notes, rejected []string) {
+	return resolveCompilerPlugins(classpath, options, false)
+}
+
+// resolveCompilerPlugins is ResolveCompilerPlugins; otherJars says plugin jars
+// from another source (the Gradle model, for krit.yml options) are loaded too,
+// so options are not orphaned just because this list has no jar of its own.
+func resolveCompilerPlugins(classpath, options []string, otherJars bool) (plugins CompilerPlugins, notes, rejected []string) {
 	seen := map[string]bool{}
 	skipped := 0
 	for _, raw := range classpath {
@@ -112,7 +119,7 @@ func ResolveCompilerPlugins(classpath, options []string) (plugins CompilerPlugin
 			plugins.Options = append(plugins.Options, option)
 		}
 	}
-	if plugins.IsZero() && len(plugins.Options) > 0 {
+	if plugins.IsZero() && !otherJars && len(plugins.Options) > 0 {
 		notes = append(notes, fmt.Sprintf("%d compiler plugin option(s) not applied: no compiler plugin jar is loaded", len(plugins.Options)))
 		plugins.Options = nil
 	}
@@ -127,7 +134,9 @@ func (s KotlinSettings) WithCompilerPlugins(classpath, options []string, source 
 	if len(classpath) == 0 && len(options) == 0 {
 		return s
 	}
-	plugins, notes, rejected := ResolveCompilerPlugins(classpath, options)
+	// Options may configure a plugin the model supplies: they are orphaned only
+	// when neither krit.yml nor the model loads any jar.
+	plugins, notes, rejected := resolveCompilerPlugins(classpath, options, !s.Plugins.IsZero())
 	for _, note := range notes {
 		s.Notes = append(s.Notes, source+": "+note)
 	}

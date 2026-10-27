@@ -40,6 +40,9 @@ type Result struct {
 	// Warnings are krit-fir's notes that part of the request was not applied
 	// (unsupported Kotlin compiler settings, an unsupported JVM target).
 	Warnings []string
+	// Incremental is how krit-fir's planner served the compiled part of the
+	// check; nil when every file came from the cache or the planner is off.
+	Incremental *IncrementalPlan
 }
 
 func newResult() *Result {
@@ -83,6 +86,9 @@ func (r *Result) addResponse(resp *CheckResponse) {
 		}
 	}
 	r.addRules(resp.Rules)
+	if resp.Incremental != nil {
+		r.Incremental = resp.Incremental
+	}
 }
 
 func (r *Result) addRules(rules []string) {

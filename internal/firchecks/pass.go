@@ -159,7 +159,13 @@ func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
 		if opts.Broker != nil {
 			// Recorded once the pass has its answer, so "shared" means the
 			// pass really used the oracle's compile.
-			perf.AddEntryDetails(sub, "firCheckBroker", 0, nil, map[string]string{"outcome": opts.Broker.Outcome()})
+			details := map[string]string{"outcome": opts.Broker.Outcome()}
+			if result != nil && result.Incremental != nil {
+				// How krit-fir's incremental planner served the check: on
+				// the shared compile or on the pass's own.
+				details["incremental"] = result.Incremental.String()
+			}
+			perf.AddEntryDetails(sub, "firCheckBroker", 0, nil, details)
 		}
 		perf.AddEntryDetails(sub, "firCheckOutcome", 0, map[string]int64{
 			"files": int64(len(requested)),

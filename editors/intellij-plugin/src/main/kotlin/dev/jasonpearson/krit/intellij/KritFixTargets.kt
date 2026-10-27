@@ -64,4 +64,19 @@ object KritFixTargets {
      */
     fun perFileRescanCovers(fixedRule: String?, evaluatedRules: Set<String>?): Boolean =
         fixedRule != null && !evaluatedRules.isNullOrEmpty() && fixedRule in evaluatedRules
+
+    /**
+     * [findings] (keyed by canonical path) without the files a failed fix
+     * may have written: [targets] mapped through [canonical], or every
+     * file when the targets aren't known.
+     */
+    fun withoutTargets(
+        findings: Map<String, List<KritFinding>>,
+        targets: Set<String>?,
+        canonical: (String) -> String,
+    ): Map<String, List<KritFinding>> {
+        if (targets == null) return emptyMap()
+        if (targets.isEmpty()) return findings
+        return findings - targets.mapTo(HashSet(), canonical)
+    }
 }

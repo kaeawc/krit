@@ -335,8 +335,21 @@ class KritProjectService(private val project: Project) : Disposable {
                 val findings = findingsByFile.values.flatten()
                 val targets = KritFixTargets.forFix(findings, findingId, project.basePath)
                 val rule = KritFixTargets.ruleOf(findings, findingId)
-                if (KritRunner.fixFinding(project, fixLevel, findingId)) {
-                    refreshAfterFix(targets, rule)
+                when (val result = KritRunner.fixFinding(project, fixLevel, findingId)) {
+                    is KritRunner.FixResult.Applied -> refreshAfterFix(targets, rule)
+                    // Nothing was written; the findings still describe the
+                    // files. Say why the fix didn't run.
+                    is KritRunner.FixResult.NotRun ->
+                        result.message?.let { transition(KritState.Error(it)) }
+                    // krit ran and may have written the target files: their
+                    // findings can't be trusted, so drop them and rescan.
+                    is KritRunner.FixResult.Failed -> {
+                        findingsByFile = KritFixTargets.withoutTargets(findingsByFile, targets) {
+                            canonicalPath(it, project.basePath)
+                        }
+                        restartHighlighting()
+                        refreshAfterFix(targets, rule)
+                    }
                 }
             } catch (t: Throwable) {
                 log.warn("krit per-finding fix runner failed", t)

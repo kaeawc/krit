@@ -48,6 +48,21 @@ object KritConfigOverride {
     private const val CONFIG_WARNING = "warning: config:"
 
     /**
+     * Why `krit --validate-config --config <override>` rejects the
+     * override, or null when it passed. krit exits 0 even when the file
+     * couldn't be loaded (it only warns), so the warning counts as a
+     * failure; exit 1 means validation errors, reported on stderr as
+     * `[error] ...` lines.
+     */
+    fun preflightFailure(exit: Int, stderr: String): String? {
+        loadFailure(stderr)?.let { return it }
+        if (exit == 0) return null
+        val errors = stderr.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+        return errors.firstOrNull { it.contains("error", ignoreCase = true) } ?: errors.firstOrNull()
+            ?: "krit config validation failed (exit code $exit)"
+    }
+
+    /**
      * True when [path] (a system-independent path, as the VFS reports it) is
      * the override file, so editing it rescans like editing krit.yml.
      */

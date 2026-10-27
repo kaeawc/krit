@@ -87,4 +87,19 @@ class KritFixTargetsTest {
         assertEquals("MagicNumber", KritFixTargets.ruleOf(listOf(f), f.findingId))
         assertNull(KritFixTargets.ruleOf(listOf(f), "Other:/repo/A.kt:1:1"))
     }
+
+    @Test
+    fun `a failed fix drops the findings of the files it may have written`() {
+        fun f(file: String) = KritFinding(file = file, line = 1, column = 1, ruleSet = "s", rule = "R", severity = "warning", message = "m")
+        val findings = mapOf("/repo/A.kt" to listOf(f("/repo/A.kt")), "/repo/B.kt" to listOf(f("/repo/B.kt")))
+        val canonical: (String) -> String = { if (it.startsWith("/")) it else "/repo/$it" }
+
+        kotlin.test.assertEquals(
+            mapOf("/repo/B.kt" to findings.getValue("/repo/B.kt")),
+            KritFixTargets.withoutTargets(findings, setOf("A.kt"), canonical),
+        )
+        // Unknown targets: any file may have changed.
+        kotlin.test.assertEquals(emptyMap(), KritFixTargets.withoutTargets(findings, null, canonical))
+        kotlin.test.assertSame(findings, KritFixTargets.withoutTargets(findings, emptySet(), canonical))
+    }
 }

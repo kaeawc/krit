@@ -64,6 +64,9 @@ object KritRunner {
         isCancelled: () -> Boolean,
     ): AnalyzeOutcome? {
         if (isCancelled()) return AnalyzeOutcome.Cancelled
+        // The daemon reads only the project root's config; an override
+        // needs the CLI.
+        if (configOverride(project) != null) return null
         val socketPath = KritDaemonClient.socketPathFor(projectDir)
         if (!Files.exists(socketPath)) return null
         val content = liveContent ?: try {
@@ -137,6 +140,7 @@ object KritRunner {
         if (liveContents.isEmpty()) return BufferScan(emptyMap(), null)
         if (isCancelled()) return BufferScan(liveContents.mapValues { AnalyzeOutcome.Cancelled }, null)
         val projectDir = project.baseDir() ?: return null
+        if (configOverride(project) != null) return null
         val socketPath = KritDaemonClient.socketPathFor(projectDir)
         if (!Files.exists(socketPath)) return null
         val entries = liveContents.mapNotNull { (path, live) ->
@@ -210,8 +214,7 @@ object KritRunner {
                 "-o",
                 output.absolutePath,
                 "-q",
-                scanPath,
-            )
+            ) + KritConfigOverride.cliArgs(configOverride(project)) + scanPath
             // krit exits non-zero when it reports findings; trust the output
             // file as long as it exists rather than the exit code.
             val result = runKrit(project, projectDir, command, classpath, ANALYZE_TIMEOUT_SECONDS, label, isCancelled) { exit, _ ->
@@ -234,10 +237,27 @@ object KritRunner {
         }
     }
 
-    fun fixFinding(project: Project, fixLevel: String?, findingId: String): Boolean {
-        if (findingId.isBlank()) return false
-        val projectDir = project.baseDir() ?: return false
-        val binary = KritBinaryResolver.find(project) ?: return false
+    // How a `krit --fix` run went. NotRun: krit wasn't started (no binary,
+    // or the config override failed its preflight), so no file changed.
+    // Failed: krit ran but the run failed or reported a problem afterwards,
+    // so files may have changed.
+    sealed class FixResult {
+        object Applied : FixResult()
+        data class NotRun(val message: String?) : FixResult()
+        data class Failed(val message: String) : FixResult()
+    }
+
+    fun fixFinding(project: Project, fixLevel: String?, findingId: String): FixResult {
+        if (findingId.isBlank()) return FixResult.NotRun(null)
+        val projectDir = project.baseDir() ?: return FixResult.NotRun(null)
+        val binary = KritBinaryResolver.find(project) ?: return FixResult.NotRun(null)
+        val override = configOverride(project)
+        // krit carries on with no config when an explicit --config can't be
+        // loaded, and --fix would then rewrite files under the wrong rules
+        // before the run's warning could be seen. Check the file first.
+        if (override != null) {
+            checkConfigOverride(project, projectDir, binary, override)?.let { return FixResult.NotRun(it) }
+        }
         val classpath = KritClasspathResolver.resolve(project)
         val level = KritFixLabels.normalizeFixLevel(fixLevel)
         val command = listOf(
@@ -248,9 +268,43 @@ object KritRunner {
             "--finding-id",
             findingId,
             "-q",
-            projectDir.absolutePath,
-        )
-        return runKrit(project, projectDir, command, classpath, FIX_TIMEOUT_SECONDS, "fix") { exit, _ -> exit == 0 } is RunOutcome.Ok
+        ) + KritConfigOverride.cliArgs(override) + projectDir.absolutePath
+        return when (val outcome = runKrit(project, projectDir, command, classpath, FIX_TIMEOUT_SECONDS, "fix") { exit, _ -> exit == 0 }) {
+            is RunOutcome.Ok -> FixResult.Applied
+            is RunOutcome.MissingBinary -> FixResult.NotRun(null)
+            is RunOutcome.Cancelled -> FixResult.Failed("krit fix cancelled")
+            is RunOutcome.Failed -> FixResult.Failed(outcome.message)
+        }
+    }
+
+    // Runs `krit --validate-config --config <override> --no-daemon` and
+    // returns why the override can't be used (also shown as a "Krit
+    // configuration error" notification), or null when it loads and
+    // validates.
+    private fun checkConfigOverride(project: Project, projectDir: File, binary: File, override: String): String? {
+        val command = listOf(binary.absolutePath, "--validate-config") + KritConfigOverride.cliArgs(override)
+        var exitCode = -1
+        var errText = ""
+        val outcome = runKrit(project, projectDir, command, emptyList(), CONFIG_CHECK_TIMEOUT_SECONDS, "config check") { exit, stderr ->
+            exitCode = exit
+            errText = stderr
+            exit == 0
+        }
+        return when (outcome) {
+            is RunOutcome.Ok -> null
+            // runKrit already notified for exit 2 and for a config load
+            // warning (those return before isSuccess runs); exit 1 is
+            // validation errors.
+            is RunOutcome.Failed -> if (exitCode == 1) {
+                val msg = KritConfigOverride.preflightFailure(exitCode, errText) ?: outcome.message
+                notifyConfigError(project, msg)
+                msg
+            } else {
+                outcome.message
+            }
+            is RunOutcome.MissingBinary -> "krit binary not found"
+            is RunOutcome.Cancelled -> "krit config check cancelled"
+        }
     }
 
     // Restarts this project's daemon with the krit binary the project
@@ -429,14 +483,17 @@ object KritRunner {
             val exit = process.exitValue()
             if (exit == 2) {
                 val msg = stderr.trim().ifBlank { "krit preflight failed (exit code 2)" }
-                ApplicationManager.getApplication().invokeLater {
-                    if (!project.isDisposed) {
-                        NotificationGroupManager.getInstance().getNotificationGroup("Krit")
-                            .createNotification("Krit configuration error", msg, NotificationType.ERROR)
-                            .notify(project)
-                    }
-                }
+                notifyConfigError(project, msg)
                 return RunOutcome.Failed(msg)
+            }
+            // krit only warns when it can't load an explicit --config and
+            // goes on with no config at all, so its findings wouldn't
+            // reflect the configured file: report the run as failed.
+            if ("--config" in command) {
+                KritConfigOverride.loadFailure(stderr)?.let { msg ->
+                    notifyConfigError(project, msg)
+                    return RunOutcome.Failed(msg)
+                }
             }
             if (!isSuccess(exit, stderr)) {
                 val msg = "krit $label exited $exit: ${stderr.lineSequence().firstOrNull().orEmpty()}"
@@ -458,6 +515,19 @@ object KritRunner {
         }
     }
 
+    // The "Config file" setting for project, or null when unset.
+    fun configOverride(project: Project): String? = KritSettingsState.configOverride(project.basePath)
+
+    private fun notifyConfigError(project: Project, msg: String) {
+        ApplicationManager.getApplication().invokeLater {
+            if (!project.isDisposed) {
+                NotificationGroupManager.getInstance().getNotificationGroup("Krit")
+                    .createNotification("Krit configuration error", msg, NotificationType.ERROR)
+                    .notify(project)
+            }
+        }
+    }
+
     private fun Project.baseDir(): File? {
         val base = basePath ?: return null
         return File(base)
@@ -471,6 +541,7 @@ object KritRunner {
 
     private const val ANALYZE_TIMEOUT_SECONDS = 120L
     private const val FIX_TIMEOUT_SECONDS = 120L
+    private const val CONFIG_CHECK_TIMEOUT_SECONDS = 30L
     private const val APPLY_SUGGESTION_TIMEOUT_SECONDS = 60L
     private const val DAEMON_RESTART_TIMEOUT_SECONDS = 60L
     // `krit daemon start` itself gives up after 30s waiting for the socket.

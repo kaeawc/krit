@@ -163,7 +163,7 @@ func newRunner(f *scanFlags, sess *Session) (*runner, int, bool) {
 
 	applyEditorConfigOverrides(cfg, *f.EditorConfig, flag.Args())
 
-	runListRulesFlag(*f.List, *f.Verbose, *f.Maturity, *f.ListRulesCWE, parseCustomRuleJars(*f.CustomRuleJars), flag.Args())
+	runListRulesFlag(*f.List, *f.Verbose, *f.Maturity, *f.ListRulesCWE, listRulesFormat(f, flag.CommandLine), parseCustomRuleJars(*f.CustomRuleJars), flag.Args())
 
 	maxFixLevel, ok := resolveMaxFixLevel(f)
 	if !ok {

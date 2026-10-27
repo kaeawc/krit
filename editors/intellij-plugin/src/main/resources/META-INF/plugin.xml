@@ -77,9 +77,15 @@
       description="Run Krit on the whole project now">
       <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
     </action>
+    <action
+      id="Krit.RefreshRules"
+      class="dev.jasonpearson.krit.intellij.KritRefreshRulesAction"
+      text="Krit: Refresh Rule List"
+      description="Re-read the krit binary's rule list for the per-rule inspections"/>
     <group id="Krit.ToolsMenu" text="Krit" popup="true">
       <reference ref="Krit.AnalyzeFile"/>
       <reference ref="Krit.AnalyzeProject"/>
+      <reference ref="Krit.RefreshRules"/>
       <add-to-group group-id="ToolsMenu" anchor="last"/>
     </group>
   </actions>

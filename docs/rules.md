@@ -27,6 +27,10 @@ are auto-fixable.
 | Android Source     | Android-specific Kotlin/Java code patterns |
 
 `krit --list-rules` prints the full list with IDs and default thresholds.
+`krit --list-rules --format json` prints it as JSON (`{"rules": [...]}`, one
+object per rule with `id`, `category`, `severity`, `defaultActive`,
+`fixable`, `fixLevel`, `precision`, `maturity`, and `description`) for editor
+integrations and scripts; `--cwe` and `--maturity` filter it the same way.
 
 ## Compose-aware defaults
 

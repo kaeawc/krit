@@ -55,4 +55,11 @@ object KritUnsavedBuffers {
         if (evaluatedRules.isNullOrEmpty()) return scanned
         return prior.filter { it.rule !in evaluatedRules } + scanned.filter { it.rule in evaluatedRules }
     }
+
+    // base without the findings of paths (canonical), for buffers that
+    // can't be analyzed: a config override sends every scan through the
+    // CLI, which reads only the saved file, so those findings would describe
+    // text the editor no longer shows.
+    fun withoutBuffers(base: Map<String, List<KritFinding>>, paths: Set<String>): Map<String, List<KritFinding>> =
+        if (paths.isEmpty()) base else base - paths
 }

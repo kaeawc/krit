@@ -15,7 +15,9 @@ in all five cache states. The raw data is in
 
 - `*.results.json`: the harness output with every run, minified.
 - `*.summary.md`: the harness summaries.
-- `budget-inputs.csv`: the per-state spread and budget inputs used below.
+- `budget-inputs.csv`: the per-state spread and budgets used below, generated
+  by `budgets.py` from the `results.json` files. Run it with
+  `python3 -I budgets.py <out.csv> <results.json>[:states] ...`.
 - `conditions.txt`: `uptime` and `free -m` before and after each invocation.
 
 ## Machine and inputs
@@ -160,7 +162,7 @@ accepted non-cold run matched its clean-scan checksum.
   - The rule gives up when a supertype doesn't resolve, which is what happens
     in-process. In the daemon path, the resolver or oracle facts evidently
     resolve those supertypes without their abstract members.
-  - This needs its own issue. kaa-oracle has no daemon numbers until it is
+  - Tracked in #956. kaa-oracle has no daemon numbers until it is
     fixed.
 
 ## Bottleneck
@@ -181,7 +183,7 @@ accepted non-cold run matched its clean-scan checksum.
     with a stdlib-only classpath. This run declares 3 kotlinx jars. The rerun
     at load about 3–5 reproduced 147–152 s, so the difference is not load.
   - The cause is not isolated. It could be the classpath, the krit-types
-    changes since `4143cd21`, or both.
+    changes since `4143cd21`, or both. Tracked in #958.
 - **The FIR edit path still recompiles the module (#740).**
   - Body-edit costs about 60 s and abi-edit about 70 s for fir-oracle, with
     111–153 daemon CPU-s.
@@ -193,7 +195,7 @@ accepted non-cold run matched its clean-scan checksum.
   - The findings-bundle cache reports a hit for that request.
   - fir-oracle in the same state is served from the bundle in 3.1 s.
   - So the daemon's `--fir` path reruns the FIR compile even when nothing
-    changed. This needs its own issue.
+    changed. Tracked in #957.
 - **Daemon memory (#810).**
   - The FIR daemons' lifetime peak RSS is 5.4–6.9 GB. That is krit serve plus
     krit-fir, and it includes the fill compile.

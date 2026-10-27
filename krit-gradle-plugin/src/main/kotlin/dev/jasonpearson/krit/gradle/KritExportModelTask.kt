@@ -50,6 +50,9 @@ abstract class KritModelSourceSet {
     @get:Input abstract val kotlinFreeCompilerArgs: ListProperty<String>
     @get:Input abstract val kotlinProgressiveMode: Property<Boolean>
     @get:Input abstract val kotlinPluginVersion: Property<String>
+    // The compile task's compiler plugin jars (in KGP's order) and `plugin:<id>:<key>=<value>` options.
+    @get:Classpath abstract val kotlinCompilerPluginClasspath: ConfigurableFileCollection
+    @get:Input abstract val kotlinCompilerPluginOptions: ListProperty<String>
 }
 
 /** Model schema written by [KritExportModelTask]. Schema 1 had no `kotlin` object. */
@@ -94,6 +97,9 @@ abstract class KritExportModelTask : DefaultTask() {
                         "freeCompilerArgs" to sourceSet.kotlinFreeCompilerArgs.getOrElse(emptyList()),
                         "progressiveMode" to sourceSet.kotlinProgressiveMode.getOrElse(false),
                         "pluginVersion" to sourceSet.kotlinPluginVersion.getOrElse(""),
+                        // Order is kept: it is the order KGP hands plugins and options to the compiler.
+                        "compilerPluginClasspath" to sourceSet.kotlinCompilerPluginClasspath.files.map(::modelPath).distinct(),
+                        "compilerPluginOptions" to sourceSet.kotlinCompilerPluginOptions.getOrElse(emptyList()),
                     )
                 }
             }

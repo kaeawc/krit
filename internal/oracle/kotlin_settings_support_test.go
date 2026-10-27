@@ -75,3 +75,49 @@ func TestKotlinLaunchArgsSkipJarsThatPredateTheFlag(t *testing.T) {
 		t.Fatalf("daemon launch args for an old jar: %v", got)
 	}
 }
+
+// Compiler plugins go to a krit-fir jar that understands them as flags of
+// their own; krit-types never loads compiler plugins, and a krit-fir jar that
+// predates them gets the settings without the plugins rather than failing to
+// start on an unknown flag.
+func TestKotlinLaunchArgsRenderCompilerPluginsForKritFir(t *testing.T) {
+	dir := t.TempDir()
+	kt := gradlemodel.KotlinSettings{LanguageVersion: "2.3", Plugins: gradlemodel.CompilerPlugins{
+		Classpath: []string{"/plugins/serialization.jar"}, Options: []string{"plugin:s:k=v"},
+	}}
+	settings := []string{"--kotlin-arg", "-language-version=2.3"}
+	plugins := []string{"--compiler-plugin", "/plugins/serialization.jar", "--compiler-plugin-option", "plugin:s:k=v"}
+
+	fir := writeJar(t, dir, "fir.jar", "dev/jasonpearson/krit/fir/runner/KotlinCompilerSettings.class", "dev/jasonpearson/krit/fir/runner/CompilerPlugins.class")
+	oldFir := writeJar(t, dir, "old-fir.jar", "dev/jasonpearson/krit/fir/runner/KotlinCompilerSettings.class")
+	types := writeJar(t, dir, "types.jar", "dev/jasonpearson/krit/types/KotlinCompilerSettings.class")
+	if !JarSupportsCompilerPlugins(fir) || JarSupportsCompilerPlugins(oldFir) || JarSupportsCompilerPlugins(types) {
+		t.Fatal("plugin support detection")
+	}
+	if got, want := KotlinLaunchArgs(fir, kt), append(append([]string{}, settings...), plugins...); !reflect.DeepEqual(got, want) {
+		t.Fatalf("krit-fir args = %v want %v", got, want)
+	}
+	for _, jar := range []string{oldFir, types} {
+		if got := KotlinLaunchArgs(jar, kt); !reflect.DeepEqual(got, settings) {
+			t.Fatalf("%s args = %v want %v", filepath.Base(jar), got, settings)
+		}
+	}
+	onlyPlugins := gradlemodel.KotlinSettings{Plugins: kt.Plugins}
+	if got := KotlinLaunchArgs(fir, onlyPlugins); !reflect.DeepEqual(got, plugins) {
+		t.Fatalf("plugins without other settings = %v", got)
+	}
+	if got := KotlinLaunchArgs(types, onlyPlugins); len(got) != 0 {
+		t.Fatalf("krit-types must not be sent plugins: %v", got)
+	}
+	opts := InvocationOptions{Backend: BackendFIR, Kotlin: kt}
+	if got := compileContextArgs(fir, opts); !reflect.DeepEqual(got[len(got)-4:], plugins) {
+		t.Fatalf("one-shot args = %v", got)
+	}
+	if got := appendDaemonJarArgsKT(nil, fir, nil, nil, kt, "--daemon"); !reflect.DeepEqual(got[len(got)-4:], plugins) {
+		t.Fatalf("daemon launch args = %v", got)
+	}
+	// The daemon registry key follows the plugins.
+	if daemonRegistryKeyKT(fir, []string{dir}, kt) == daemonRegistryKeyKT(fir, []string{dir}, gradlemodel.KotlinSettings{LanguageVersion: "2.3"}) {
+		t.Fatal("a daemon launched with plugins must not answer for one without")
+	}
+}

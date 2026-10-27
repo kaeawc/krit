@@ -443,7 +443,8 @@ class IncrementalPlannerTest {
         val session = planned()
         session.checkAll()
         val result = session.checkAll()
-        with(session.plan) { assertEquals(PlanPath.FULL, path); assertEquals(FullReason.SLICE_UNAVAILABLE, reason); assertEquals("NO_SNAPSHOT", detail) }
+        with(session.plan) { assertEquals(PlanPath.FULL, path); assertEquals(FullReason.SLICE_UNAVAILABLE, reason); assertEquals("COMPILE_ERRORS: compile errors in 1 file", detail) }
+        assertEquals("COMPILE_ERRORS: compile errors in 1 file", result.plan?.detail, "the reason reaches the response")
         assertSameAsFull(result, fullCheck())
         // Once the module is clean, the full check that serves the next request builds the snapshot again.
         write("Broken.kt", "package p\n\nfun broken() {}\n")

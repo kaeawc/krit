@@ -796,3 +796,38 @@ func TestValidateConfig_AnalysisDepth(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateConfig_Oracle(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		section interface{}
+		wantErr bool
+	}{
+		{"classpath and plugins", map[string]interface{}{
+			"backend":               "fir",
+			"classpath":             []interface{}{"/libs/a.jar"},
+			"compilerPlugins":       []interface{}{"/plugins/kotlin-serialization-compiler-plugin-embeddable-2.4.21.jar"},
+			"compilerPluginOptions": []interface{}{"plugin:org.jetbrains.kotlinx.serialization:disableIntrinsic=true"},
+		}, false},
+		{"empty classpath", map[string]interface{}{"classpath": []interface{}{}}, false},
+		{"plugins not strings", map[string]interface{}{"compilerPlugins": 5}, true},
+		{"unknown key", map[string]interface{}{"plugins": []interface{}{"/a.jar"}}, true},
+		{"not an object", "fir", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.NewConfig()
+			cfg.Data()["oracle"] = tc.section
+			gotErr := false
+			for _, e := range ValidateConfig(cfg) {
+				gotErr = gotErr || e.Level == "error"
+			}
+			if gotErr != tc.wantErr {
+				t.Errorf("error = %v, want %v: %v", gotErr, tc.wantErr, ValidateConfig(cfg))
+			}
+		})
+	}
+	props := GenerateSchema(nil).Properties["oracle"]
+	if props == nil || props.Properties["compilerPlugins"] == nil || props.Properties["compilerPluginOptions"] == nil {
+		t.Fatal("the schema must describe oracle.compilerPlugins and oracle.compilerPluginOptions")
+	}
+}

@@ -441,6 +441,29 @@ class KritExportModelTest {
     }
 
     @Test
+    fun `compiler plugin classpath and options export in KGP order`() {
+        val root = File(directory, "compiler-plugins").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"compiler-plugins\"\n")
+        File(root, "build.gradle.kts").writeText("plugins { id(\"com.android.library\"); id(\"dev.jasonpearson.krit\") }\n")
+        File(root, "android.jar").writeBytes(byteArrayOf())
+        val plugins = File(root, "plugins").also { it.mkdirs() }
+        val scripting = File(plugins, "kotlin-scripting-compiler-embeddable-2.4.21.jar").apply { writeBytes(byteArrayOf()) }
+        val serialization = File(plugins, "kotlin-serialization-compiler-plugin-embeddable-2.4.21.jar").apply { writeBytes(byteArrayOf()) }
+        runWithFakeAndroid(root, "kritExportModel", "-PfakeCompilerPlugins=1", "--configuration-cache")
+        val cached = runWithFakeAndroid(root, "kritExportModel", "-PfakeCompilerPlugins=1", "--configuration-cache")
+        assertTrue(cached.output.contains("Reusing configuration cache."), cached.output)
+        @Suppress("UNCHECKED_CAST")
+        val kotlin = sourceSets(File(root, ".krit/gradle-model/_root.json")).single { it["kind"] == "main" }["kotlin"] as Map<String, Any>
+        // krit filters KGP's scripting support out; the exporter keeps the task's classpath as is.
+        assertEquals(listOf(modelPath(scripting), modelPath(serialization)), kotlin["compilerPluginClasspath"])
+        assertEquals(listOf(
+            "plugin:org.jetbrains.kotlinx.serialization:disableIntrinsic=true",
+            "plugin:org.jetbrains.kotlin.allopen:annotation=a.Open",
+            "plugin:org.jetbrains.kotlin.allopen:annotation=b.Open",
+        ), kotlin["compilerPluginOptions"])
+    }
+
+    @Test
     fun `plugin version falls back to coreLibrariesVersion when KGP version is unavailable`() {
         val root = File(directory, "kotlin-settings-fallback").also { it.mkdirs() }
         File(root, "settings.gradle.kts").writeText("rootProject.name = \"kotlin-settings-fallback\"\n")
@@ -477,6 +500,8 @@ class KritExportModelTest {
         assertEquals(emptyList<String>(), kotlin["freeCompilerArgs"])
         assertEquals(false, kotlin["progressiveMode"])
         assertEquals("", kotlin["pluginVersion"])
+        assertEquals(emptyList<String>(), kotlin["compilerPluginClasspath"])
+        assertEquals(emptyList<String>(), kotlin["compilerPluginOptions"])
     }
 
     @Test

@@ -210,6 +210,32 @@ func loadGradleKotlinSettings(paths []string, explicit string, disabled, verbose
 	return settings
 }
 
+// withConfiguredCompilerPlugins adds the compiler plugins krit.yml declares
+// (`oracle.compilerPlugins`, `oracle.compilerPluginOptions`) to the model's
+// settings, for builds without a Gradle model or plugins it does not export.
+func withConfiguredCompilerPlugins(settings gradlemodel.KotlinSettings, cfg *config.Config, verbose bool, out io.Writer) gradlemodel.KotlinSettings {
+	if cfg == nil {
+		return settings
+	}
+	oc := cfg.Oracle()
+	if len(oc.CompilerPlugins) == 0 && len(oc.CompilerPluginOptions) == 0 {
+		return settings
+	}
+	before := len(settings.Notes)
+	rejectedBefore := len(settings.Rejected)
+	settings = settings.WithCompilerPlugins(oc.CompilerPlugins, oc.CompilerPluginOptions, "krit.yml oracle.compilerPlugins")
+	if verbose {
+		fmt.Fprintf(out, "krit.yml: kotlin compiler plugins: %s\n", settings.Plugins.Describe())
+		for _, note := range settings.Notes[before:] {
+			fmt.Fprintf(out, "krit.yml: kotlin compiler settings: %s\n", note)
+		}
+		for _, rejected := range settings.Rejected[rejectedBefore:] {
+			fmt.Fprintf(out, "krit.yml: kotlin compiler settings: not applied: %s\n", rejected)
+		}
+	}
+	return settings
+}
+
 func maxJvmTarget(a, b string) string {
 	parse := func(s string) int {
 		if len(s) > 2 && s[:2] == "1." {

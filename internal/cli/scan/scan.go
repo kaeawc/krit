@@ -272,6 +272,7 @@ func Run() int {
 		// read the compile context (source roots, JVM target) from the model,
 		// but the language level and opt-ins must reach the compiler either way.
 		f.modelKotlin = loadGradleKotlinSettings(flag.Args(), *f.GradleModel, *f.NoGradleModel, *f.Verbose, os.Stderr)
+		f.modelKotlin = withConfiguredCompilerPlugins(f.modelKotlin, quietScanConfig(f), *f.Verbose, os.Stderr)
 	}
 	if handled, code := tryDaemonDelegate(f, flag.Args(), repoDir); handled {
 		return code

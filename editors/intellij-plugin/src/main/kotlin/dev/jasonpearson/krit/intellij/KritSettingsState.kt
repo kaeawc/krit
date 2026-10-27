@@ -17,6 +17,9 @@ class KritSettingsState : PersistentStateComponent<KritSettingsState.Snapshot> {
         // Persisted state written before this field existed deserialises with
         // the constructor default, so upgrades keep the 1s behaviour.
         var debounceMs: Int = KritScanDebounce.DEFAULT_MS,
+        // Start a krit daemon on project open when none is running (and stop
+        // it on close). On by default; older persisted state gets the default.
+        var startDaemon: Boolean = true,
     )
 
     @Volatile

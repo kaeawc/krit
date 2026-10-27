@@ -31,6 +31,7 @@ import (
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
+	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -1207,7 +1208,40 @@ func handleAnalyzeBuffer(ctx context.Context, state *daemonState, raw json.RawMe
 	if err != nil {
 		return nil, fmt.Errorf("marshal findings: %w", err)
 	}
-	return daemon.AnalyzeBufferResult{Findings: body, CacheHit: hit}, nil
+	return daemon.AnalyzeBufferResult{Findings: body, CacheHit: hit, FixLevels: fixLevelsFor(&columns)}, nil
+}
+
+var (
+	ruleFixLevelsOnce sync.Once
+	ruleFixLevels     map[string]string
+)
+
+// fixLevelsFor returns, for each rule with an autofix in columns, the fix
+// level `krit -f json` reports as the finding's fixLevel (the rule's
+// registered level), or nil when no finding has an autofix.
+func fixLevelsFor(columns *scanner.FindingColumns) map[string]string {
+	ruleFixLevelsOnce.Do(func() {
+		ruleFixLevels = make(map[string]string, len(api.Registry))
+		for _, r := range api.Registry {
+			if lvl, ok := rules.GetV2FixLevel(r); ok {
+				ruleFixLevels[r.ID] = lvl.String()
+			}
+		}
+	})
+	var out map[string]string
+	for row := 0; row < columns.Len(); row++ {
+		if !columns.HasFix(row) {
+			continue
+		}
+		rule := columns.RuleAt(row)
+		if lvl, ok := ruleFixLevels[rule]; ok {
+			if out == nil {
+				out = make(map[string]string)
+			}
+			out[rule] = lvl
+		}
+	}
+	return out
 }
 
 // handleAnalyzeBuffers runs handleAnalyzeBuffer's logic for every entry
@@ -1240,7 +1274,7 @@ func handleAnalyzeBuffers(ctx context.Context, state *daemonState, raw json.RawM
 			results[i] = daemon.AnalyzeBufferEntry{Error: "marshal findings: " + err.Error()}
 			continue
 		}
-		results[i] = daemon.AnalyzeBufferEntry{Findings: body, CacheHit: hit}
+		results[i] = daemon.AnalyzeBufferEntry{Findings: body, CacheHit: hit, FixLevels: fixLevelsFor(&columns)}
 	}
 	return daemon.AnalyzeBuffersResult{Results: results, Rules: analyzer.Dispatcher.SingleFileRuleIDs()}, nil
 }

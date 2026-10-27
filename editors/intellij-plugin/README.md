@@ -14,6 +14,9 @@ annotations and inspections.
 - Project-wide background Krit runs every 5 seconds, skipping ticks while a prior run is active
 - Native quick fix action for fixable findings; it invokes `krit --fix --fix-level idiomatic`
 - `Krit: Analyze File` (editor and project view context menus) and `Krit: Analyze Project` (project view context menu), also under `Tools → Krit`; both scan immediately instead of waiting for the edit debounce
+- Per-file rescans after an edit or a fix go through the project's krit daemon when one is running (`analyze-buffer` over its Unix socket), and through the CLI otherwise
+- On project open the plugin starts a daemon (`krit daemon start --repo <project>`, which needs `krit-daemon` next to `krit`) when none is running, and stops it on close; a daemon you started yourself is left running. Turn this off with `Settings → Tools → Krit → Start a krit daemon for this project`
+- Creating, editing, or deleting `krit.yml` / `.krit.yml` at the project root rescans the project
 
 ## Local Development
 

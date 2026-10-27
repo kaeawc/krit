@@ -204,7 +204,8 @@ and never count toward timings.
   per-cache hit and miss counts, the findings count and checksum, rule count,
   `error:`/`warning:` lines, and the applied edit.
 - Metadata: start time, corpus path and git revision (and whether it's dirty),
-  krit revision and binary hash and `--version`, SHA-256 of every helper jar
+  krit revision (the VCS stamp `go build` embeds in the benchmarked binary,
+  falling back to the harness's working checkout) and binary hash and `--version`, SHA-256 of every helper jar
   krit could pick up, Go, Java and Kotlin versions, OS, CPU count, load
   average, the corpus's build files, and the harness options.
 
@@ -228,6 +229,12 @@ least five measured runs; the summary reports median, p90 and min–max.
 Missing classpath entries (for example an Android project without its Gradle
 model) change what the oracle resolves; check the jar and classpath warnings
 recorded with each run before comparing results across machines.
+
+## Published results
+
+- [2026-10-27, AutoMobile, noisy shared container](benchmarks/2026-10-27-automobile-noisy.md):
+  all four modes and five states, raw `results.json`, and provisional budgets
+  derived from medians. Re-derive the budgets on a quiet machine.
 
 The older scripts are still available: `scripts/benchmark-oracle.sh` (one cold
 KAA run with the JVM-internal breakdown) and `scripts/bench-oracle-backend.sh`

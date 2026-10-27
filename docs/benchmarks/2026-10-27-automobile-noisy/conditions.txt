@@ -1,0 +1,84 @@
+== structural start 2026-10-27T15:50:21Z
+ 15:50:21 up  1:34,  0 user,  load average: 3.32, 4.93, 7.01
+               total        used        free      shared  buff/cache   available
+Mem:           16091       13309        1489          14        1636        2781
+Swap:              0           0           0
+4
+== structural end 2026-10-27T16:30:43Z
+ 16:30:43 up  2:14,  0 user,  load average: 6.79, 8.97, 12.89
+               total        used        free      shared  buff/cache   available
+Mem:           16091       10804        3862          14        1769        5286
+Swap:              0           0           0
+== kaa-oracle start 2026-10-27T16:30:48Z
+ 16:30:48 up  2:14,  0 user,  load average: 6.65, 8.90, 12.85
+               total        used        free      shared  buff/cache   available
+Mem:           16091        9437        5430          14        1567        6653
+Swap:              0           0           0
+4
+== kaa-oracle start 2026-10-27T17:12:47Z
+ 17:12:47 up  2:56,  0 user,  load average: 3.99, 8.14, 9.52
+               total        used        free      shared  buff/cache   available
+Mem:           16091        4783        8612          14        3043       11307
+Swap:              0           0           0
+4
+== kaa-oracle end 2026-10-27T18:45:46Z
+ 18:45:46 up  4:29,  0 user,  load average: 4.98, 4.50, 4.25
+               total        used        free      shared  buff/cache   available
+Mem:           16091        3923       10552          14        1964       12167
+Swap:              0           0           0
+== structural start 2026-10-27T18:45:50Z
+ 18:45:50 up  4:29,  0 user,  load average: 4.66, 4.45, 4.23
+               total        used        free      shared  buff/cache   available
+Mem:           16091        3216       11516          14        1707       12874
+Swap:              0           0           0
+4
+== structural end 2026-10-27T18:49:35Z
+ 18:49:35 up  4:33,  0 user,  load average: 3.42, 3.86, 4.03
+               total        used        free      shared  buff/cache   available
+Mem:           16091        3227        8537          14        4675       12863
+Swap:              0           0           0
+== fir-oracle start 2026-10-27T18:49:38Z
+ 18:49:38 up  4:33,  0 user,  load average: 3.22, 3.81, 4.01
+               total        used        free      shared  buff/cache   available
+Mem:           16091        3195        8888          14        4356       12895
+Swap:              0           0           0
+4
+== fir-oracle end 2026-10-27T19:40:20Z
+ 19:40:20 up  5:24,  0 user,  load average: 3.17, 2.93, 2.90
+               total        used        free      shared  buff/cache   available
+Mem:           16091        3392        9539          14        3509       12699
+Swap:              0           0           0
+== fir-checkers start 2026-10-27T19:40:23Z
+ 19:40:23 up  5:24,  0 user,  load average: 3.17, 2.93, 2.90
+               total        used        free      shared  buff/cache   available
+Mem:           16091        2463       10784          14        3191       13627
+Swap:              0           0           0
+4
+== fir-checkers end 2026-10-27T20:39:13Z
+ 20:39:13 up  6:23,  0 user,  load average: 2.98, 2.78, 2.77
+               total        used        free      shared  buff/cache   available
+Mem:           16091        1884       10234          14        4320       14206
+Swap:              0           0           0
+ALLDONE
+== structural start 2026-10-27T20:39:34Z
+ 20:39:34 up  6:23,  0 user,  load average: 2.20, 2.62, 2.71
+               total        used        free      shared  buff/cache   available
+Mem:           16091         825       11622          14        3992       15265
+Swap:              0           0           0
+4
+== structural end 2026-10-27T20:42:20Z
+ 20:42:20 up  6:26,  0 user,  load average: 3.54, 3.02, 2.85
+               total        used        free      shared  buff/cache   available
+Mem:           16091         852       11277          14        4311       15239
+Swap:              0           0           0
+== kaa-oracle start 2026-10-27T20:42:29Z
+ 20:42:29 up  6:26,  0 user,  load average: 3.07, 2.93, 2.82
+               total        used        free      shared  buff/cache   available
+Mem:           16091         824       11623          14        3992       15266
+Swap:              0           0           0
+4
+== kaa-oracle end 2026-10-27T20:50:06Z
+ 20:50:06 up  6:34,  0 user,  load average: 5.75, 5.22, 4.00
+               total        used        free      shared  buff/cache   available
+Mem:           16091         883       11187          14        4369       15207
+Swap:              0           0           0

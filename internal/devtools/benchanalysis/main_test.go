@@ -454,3 +454,16 @@ func TestDaemonGoneWaitsForPIDAndSocket(t *testing.T) {
 		t.Fatal("recorded live pid ignored once the pid file is gone")
 	}
 }
+
+func TestBinaryVCSWithoutStampFallsBack(t *testing.T) {
+	if _, _, ok := binaryVCS(filepath.Join(t.TempDir(), "missing")); ok {
+		t.Fatal("a missing binary has no VCS stamp")
+	}
+	notGo := filepath.Join(t.TempDir(), "krit")
+	if err := os.WriteFile(notGo, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := binaryVCS(notGo); ok {
+		t.Fatal("a non-Go binary has no VCS stamp")
+	}
+}

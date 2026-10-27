@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/gradlemodel"
 )
 
@@ -110,5 +111,37 @@ func TestDaemonForwardsKotlinSettings(t *testing.T) {
 	args := buildDaemonAnalyzeArgs(f, []string{t.TempDir()})
 	if args.OracleKotlin.Identity() != f.modelKotlin.Identity() || args.OracleKotlin.Identity() == "" {
 		t.Fatalf("daemon request lost the Kotlin settings: %+v", args.OracleKotlin)
+	}
+}
+
+// krit.yml's oracle.compilerPlugins reach the compile settings without a
+// Gradle model, filtered like the model's, and verbose output says what loads.
+func TestWithConfiguredCompilerPlugins(t *testing.T) {
+	dir := t.TempDir()
+	jar := filepath.Join(dir, "kotlin-serialization-compiler-plugin-embeddable-2.4.21.jar")
+	if err := os.WriteFile(jar, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.NewConfigFromData(map[string]interface{}{
+		"oracle": map[string]interface{}{
+			"compilerPlugins":       []interface{}{jar, filepath.Join(dir, "kotlin-scripting-compiler-embeddable-2.4.21.jar")},
+			"compilerPluginOptions": []interface{}{"plugin:org.jetbrains.kotlinx.serialization:disableIntrinsic=true"},
+		},
+	})
+	var out bytes.Buffer
+	got := withConfiguredCompilerPlugins(gradlemodel.KotlinSettings{}, cfg, true, &out)
+	if !reflect.DeepEqual(got.Plugins.Classpath, []string{jar}) || len(got.Plugins.Options) != 1 {
+		t.Fatalf("plugins = %+v", got.Plugins)
+	}
+	if !strings.Contains(out.String(), "kotlin compiler plugins: kotlin-serialization-compiler-plugin-embeddable-2.4.21.jar") ||
+		!strings.Contains(out.String(), "scripting support") {
+		t.Fatalf("verbose output = %q", out.String())
+	}
+	none := withConfiguredCompilerPlugins(gradlemodel.KotlinSettings{LanguageVersion: "2.3"}, config.NewConfigFromData(nil), true, &out)
+	if !none.Plugins.IsZero() || none.LanguageVersion != "2.3" {
+		t.Fatalf("no configured plugins changed the settings: %+v", none)
+	}
+	if withConfiguredCompilerPlugins(gradlemodel.KotlinSettings{}, nil, false, &out).IsZero() != true {
+		t.Fatal("nil config")
 	}
 }

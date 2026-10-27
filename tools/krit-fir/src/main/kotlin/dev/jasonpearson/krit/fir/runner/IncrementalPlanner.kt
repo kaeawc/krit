@@ -155,7 +155,10 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
         )
         session.lastPlan = telemetry
         if (DEBUG) System.err.println(telemetry)
-        return result.copy(plan = PlanSummary(path.name.lowercase(), reason?.name?.lowercase(), c.compiled.size, telemetry.totalMillis))
+        // Only the slice fallback's detail goes on the wire: it names a cause the user can act on (compile errors),
+        // where the other details are internal (exception text, generations).
+        return result.copy(plan = PlanSummary(path.name.lowercase(), reason?.name?.lowercase(), c.compiled.size, telemetry.totalMillis,
+            detail.takeIf { reason == FullReason.SLICE_UNAVAILABLE }))
     }
 
     private fun attempt(r: Request, rules: Set<String>, c: Counters): BatchResult {
@@ -164,7 +167,7 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
         if (session.verdicts.generation != state.generation) {
             throw GiveUp(FullReason.STATE_LOST, "verdicts at generation ${session.verdicts.generation}, state at ${state.generation}")
         }
-        session.sliceFallback()?.let { throw GiveUp(FullReason.SLICE_UNAVAILABLE, it.name) }
+        session.sliceFallbackDescription()?.let { throw GiveUp(FullReason.SLICE_UNAVAILABLE, it) }
         // A module with a compile error cannot be snapshotted (the backend never runs), so a full check would only
         // pay for nothing: carry the stale files until the module is clean again.
         if (session.needsResnapshot(session.plannerLimits.staleFraction, session.plannerLimits.staleMinFiles) &&

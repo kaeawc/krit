@@ -28,7 +28,14 @@ func settingsVariants() map[string]gradlemodel.KotlinSettings {
 		"optin":    vary(func(s *gradlemodel.KotlinSettings) { s.OptIns = append(s.OptIns, "b.B") }),
 		"flag":     vary(func(s *gradlemodel.KotlinSettings) { s.Flags = []string{"-Xexplicit-backing-fields"} }),
 		"progress": vary(func(s *gradlemodel.KotlinSettings) { s.Progressive = true }),
-		"none":     {},
+		"plugin": vary(func(s *gradlemodel.KotlinSettings) {
+			s.Plugins = gradlemodel.CompilerPlugins{Classpath: []string{"/plugins/serialization.jar"}}
+		}),
+		"pluginOption": vary(func(s *gradlemodel.KotlinSettings) {
+			s.Plugins = gradlemodel.CompilerPlugins{Classpath: []string{"/plugins/serialization.jar"}, Options: []string{"plugin:s:k=v"}}
+		}),
+		"onlyPlugin": {Plugins: gradlemodel.CompilerPlugins{Classpath: []string{"/plugins/serialization.jar"}}},
+		"none":       {},
 	}
 }
 
@@ -193,5 +200,89 @@ func TestModuleSpecsFromModelKeepSettingsPerSourceSet(t *testing.T) {
 	encoded, err := json.Marshal(AnalyzeModulesRequest{ID: 1, Command: "analyzeModules", Modules: specs})
 	if err != nil || !strings.Contains(string(encoded), `"compilerArgs":[]`) {
 		t.Fatalf("encoded request: %v %s", err, encoded)
+	}
+}
+
+// Compiler plugins reach krit-fir in fields of their own, absolute (the
+// daemon's working directory is not the caller's), never as compiler arguments.
+func TestCheckRequestCarriesCompilerPlugins(t *testing.T) {
+	settings := gradlemodel.KotlinSettings{Plugins: gradlemodel.CompilerPlugins{
+		Classpath: []string{"plugins/serialization.jar"}, Options: []string{"plugin:org.jetbrains.kotlinx.serialization:disableIntrinsic=true"},
+	}}
+	data, _, err := encodeCheckRequest(7, []fileRef{{Path: "/p/A.kt"}}, nil, nil, nil, nil, FileFacts{}, CompileTarget{Kotlin: settings})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var req struct {
+		KotlinArgs              []string `json:"kotlinArgs"`
+		CompilerPluginClasspath []string `json:"compilerPluginClasspath"`
+		CompilerPluginOptions   []string `json:"compilerPluginOptions"`
+	}
+	if err := json.Unmarshal(data, &req); err != nil {
+		t.Fatal(err)
+	}
+	abs, _ := filepath.Abs("plugins/serialization.jar")
+	if len(req.KotlinArgs) != 0 || !reflect.DeepEqual(req.CompilerPluginClasspath, []string{abs}) ||
+		!reflect.DeepEqual(req.CompilerPluginOptions, settings.Plugins.Options) {
+		t.Fatalf("request = %+v", req)
+	}
+	data, _, err = encodeCheckRequest(8, []fileRef{{Path: "/p/A.kt"}}, nil, nil, nil, nil, FileFacts{}, CompileTarget{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "compilerPlugin") {
+		t.Fatalf("absent plugins must be omitted: %s", data)
+	}
+}
+
+func TestModuleSpecsFromModelKeepPluginsPerSourceSet(t *testing.T) {
+	root := t.TempDir()
+	jar := filepath.Join(root, "kotlin-serialization-compiler-plugin-embeddable-2.4.21.jar")
+	if err := os.WriteFile(jar, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "model")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`{"schema":2,"projects":[{"path":":p","dir":%q,"sourceSets":[
+		{"name":"main","kind":"main","kotlin":{"compilerPluginClasspath":[%q,%q],"compilerPluginOptions":["plugin:s:k=v"]}},
+		{"name":"test","kind":"test","kotlin":{}}]}]}`, root, filepath.Join(root, "kotlin-scripting-compiler-embeddable-2.4.21.jar"), jar)
+	if err := os.WriteFile(filepath.Join(dir, "p.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model, _, err := gradlemodel.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]ModuleSpec{}
+	for _, s := range ModuleSpecsFromModel(model) {
+		by[s.ID] = s
+	}
+	if main := by[":p:main"]; !reflect.DeepEqual(main.CompilerPluginClasspath, []string{jar}) ||
+		!reflect.DeepEqual(main.CompilerPluginOptions, []string{"plugin:s:k=v"}) {
+		t.Fatalf("main = %+v", main)
+	}
+	if test := by[":p:test"]; len(test.CompilerPluginClasspath) != 0 || len(test.CompilerPluginOptions) != 0 {
+		t.Fatalf("a module's plugins must not reach another: %+v", test)
+	}
+	for _, arg := range by[":p:main"].CompilerArgs {
+		if strings.Contains(arg, "plugin") {
+			t.Fatalf("plugins reached compilerArgs: %v", by[":p:main"].CompilerArgs)
+		}
+	}
+}
+
+func TestIncrementalPlanStringCarriesTheSliceFallbackDetail(t *testing.T) {
+	var resp CheckResponse
+	if err := json.Unmarshal([]byte(`{"id":1,"succeeded":1,"skipped":0,"findings":[],
+		"incremental":{"path":"full","reason":"slice_unavailable","detail":"COMPILE_ERRORS: compile errors in 6 files","dirtyFiles":0,"totalMs":5}}`), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := resp.Incremental.String(), "full (slice_unavailable: COMPILE_ERRORS: compile errors in 6 files)"; got != want {
+		t.Fatalf("plan = %q want %q", got, want)
+	}
+	if got := (&IncrementalPlan{Path: "full", Reason: "cold"}).String(); got != "full (cold)" {
+		t.Fatalf("plan = %q", got)
 	}
 }

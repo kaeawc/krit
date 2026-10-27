@@ -266,6 +266,18 @@ func loadScanConfig(f *scanFlags) *config.Config {
 	return cfg
 }
 
+// quietScanConfig loads the scan's config like loadScanConfig without
+// printing its warnings, for reads made before the scan session (which loads
+// and reports it) exists.
+func quietScanConfig(f *scanFlags) *config.Config {
+	userCfgPath := *f.Config
+	if userCfgPath == "" {
+		userCfgPath = detectConfigForScanArgs(flag.Args())
+	}
+	cfg, _ := config.LoadAndMergeDefaults(userCfgPath, flag.Args()...)
+	return cfg
+}
+
 // resolveMaxCost resolves the effective --max-cost / maxCost: filter.
 // CLI value wins; falls back to the top-level config key. Returns
 // (cost, true) when a filter should be applied. Unknown tokens log a

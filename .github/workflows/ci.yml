@@ -53,15 +53,19 @@ jobs:
       - name: Install mingw-w64
         timeout-minutes: 5
         run: |
+          # Install the cached .debs with dpkg, which only reads local files.
+          # On cache hits, `apt-get install ~/mingw-debs/*.deb` was seen in CI
+          # fetching the whole ~144 MB set from the mirror again and timing out.
           # A cached set that no longer installs (a newer runner image)
           # falls back to the mirror, as on a cache miss.
           if [ "${{ steps.cache-mingw.outputs.cache-hit }}" = "true" ] \
             && ls ~/mingw-debs/*.deb >/dev/null 2>&1 \
-            && sudo apt-get install -y ~/mingw-debs/*.deb; then
+            && sudo dpkg -i ~/mingw-debs/*.deb \
+            && command -v x86_64-w64-mingw32-gcc >/dev/null; then
             exit 0
           fi
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y -f gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
           mkdir -p ~/mingw-debs
           cp /var/cache/apt/archives/*mingw*.deb ~/mingw-debs/
       - name: Vet for windows/amd64

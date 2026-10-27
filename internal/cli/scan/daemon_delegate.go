@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/cli/daemonclient"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
@@ -46,7 +47,7 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 		}
 		return runDaemonMetaVerb(client, f, paths, verb)
 	}
-	if !daemonCompatibleFlags(f) {
+	if !daemonCompatibleFlags(f) || !configServedByDaemon(f, repoDir) {
 		return false, 0
 	}
 	if *f.DaemonSocket != "" {
@@ -640,6 +641,28 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 	// it, so the bypass is gone. buildDaemonAnalyzeArgs forwards
 	// *f.OracleBackend verbatim; the daemon picks the jar per call.
 	return true
+}
+
+// configServedByDaemon reports whether the daemon would analyze with the
+// config the user asked for. The analyze-project wire carries no config
+// path: the daemon always loads the krit.yml / .krit.yml at its repo root.
+// An explicit --config naming any other file must run in-process, or the
+// daemon would silently apply the wrong config.
+func configServedByDaemon(f *scanFlags, repoDir string) bool {
+	if f.Config == nil || *f.Config == "" {
+		return true
+	}
+	rootCfg := clishared.FindConfigInDir(repoDir)
+	if rootCfg == "" {
+		return false
+	}
+	return sameFile(*f.Config, rootCfg)
+}
+
+func sameFile(a, b string) bool {
+	ai, errA := os.Stat(a)
+	bi, errB := os.Stat(b)
+	return errA == nil && errB == nil && os.SameFile(ai, bi)
 }
 
 // buildDaemonAnalyzeArgs translates the scan-flag set into the

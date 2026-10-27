@@ -23,6 +23,11 @@ type KotlinOptions struct {
 	// PluginVersion is the Kotlin Gradle plugin version, used only to derive the
 	// language version Gradle itself would have used when none is configured.
 	PluginVersion string `json:"pluginVersion"`
+	// CompilerPluginClasspath and CompilerPluginOptions are the compile task's
+	// compiler plugin jars and `plugin:<id>:<key>=<value>` options (see
+	// CompilerPlugins). Absent in a model exported before they existed.
+	CompilerPluginClasspath []string `json:"compilerPluginClasspath,omitempty"`
+	CompilerPluginOptions   []string `json:"compilerPluginOptions,omitempty"`
 }
 
 // KotlinSettings is the effective, allowlist-filtered set of Kotlin compiler
@@ -40,6 +45,10 @@ type KotlinSettings struct {
 	// Flags are the allowlisted -X / -XXLanguage: flags in application order
 	// (a later flag wins over an earlier contradictory one).
 	Flags []string `json:"flags,omitempty"`
+	// Plugins are the compiler plugins krit-fir loads. They are not compiler
+	// arguments: CompilerArgs never renders them, and they reach krit-fir in
+	// fields of their own.
+	Plugins CompilerPlugins `json:"plugins,omitzero"`
 
 	// Notes explain defaulting decisions and Rejected lists every compiler
 	// argument that was not applied, with the reason. Neither is part of the
@@ -51,7 +60,8 @@ type KotlinSettings struct {
 
 // IsZero reports whether no setting would reach the compiler.
 func (s KotlinSettings) IsZero() bool {
-	return s.LanguageVersion == "" && s.APIVersion == "" && len(s.OptIns) == 0 && !s.Progressive && len(s.Flags) == 0
+	return s.LanguageVersion == "" && s.APIVersion == "" && len(s.OptIns) == 0 && !s.Progressive && len(s.Flags) == 0 &&
+		s.Plugins.IsZero()
 }
 
 // kotlinSettingsIdentityVersion changes when the identity encoding or the
@@ -61,6 +71,8 @@ const kotlinSettingsIdentityVersion = 1
 // Identity is a canonical string for the semantic settings, "" for the zero
 // value (so projects without a model keep their existing cache keys). Notes
 // and Rejected are excluded; opt-ins are sorted; flags keep application order.
+// Compiler plugins add their jars' file identity and options, and only when
+// there are any, so settings without plugins keep their identity.
 func (s KotlinSettings) Identity() string {
 	if s.IsZero() {
 		return ""
@@ -72,6 +84,7 @@ func (s KotlinSettings) Identity() string {
 	b.WriteString(strings.Join(sortedUnique(s.OptIns), "\x1f"))
 	b.WriteString("|flags=")
 	b.WriteString(strings.Join(s.Flags, "\x1f"))
+	b.WriteString(s.Plugins.identity())
 	return b.String()
 }
 
@@ -110,7 +123,11 @@ func (s KotlinSettings) Describe() string {
 	if s.IsZero() {
 		return "embedded compiler defaults"
 	}
-	return strings.Join(s.CompilerArgs(), " ")
+	args := s.CompilerArgs()
+	if !s.Plugins.IsZero() {
+		args = append(args, "compiler plugins: "+s.Plugins.Describe())
+	}
+	return strings.Join(args, " ")
 }
 
 var (
@@ -457,6 +474,11 @@ func ResolveKotlinSettings(opts *KotlinOptions) KotlinSettings {
 		}
 	}
 	s.OptIns = sortedUnique(append(optIns, parsed.optIns...))
+
+	plugins, notes, rejected := ResolveCompilerPlugins(opts.CompilerPluginClasspath, opts.CompilerPluginOptions)
+	s.Plugins = plugins
+	s.Notes = append(s.Notes, notes...)
+	s.Rejected = append(s.Rejected, rejected...)
 	return s
 }
 
@@ -512,6 +534,10 @@ func MergeKotlinSettings(sets []KotlinSettings, labels []string) KotlinSettings 
 	out.APIVersion = uniform("apiVersion", func(s KotlinSettings) string { return s.APIVersion })
 	progressive := uniform("progressive", func(s KotlinSettings) string { return fmt.Sprint(s.Progressive) })
 	out.Progressive = progressive == "true"
+
+	var pluginNotes []string
+	out.Plugins, pluginNotes = mergeCompilerPlugins(sets)
+	out.Notes = append(out.Notes, pluginNotes...)
 
 	out.OptIns = intersect(sets, func(s KotlinSettings) []string { return s.OptIns })
 	out.Flags = intersect(sets, func(s KotlinSettings) []string { return s.Flags })

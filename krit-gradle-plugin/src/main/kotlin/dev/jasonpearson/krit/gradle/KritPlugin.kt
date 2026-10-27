@@ -11,6 +11,7 @@ import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.api.provider.Provider
 import org.gradle.api.file.RegularFile
 import org.gradle.api.artifacts.Configuration
+import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.compile.JavaCompile
 import java.io.File
@@ -570,6 +571,48 @@ class KritPlugin : Plugin<Project> {
         )
     }
 
+    /**
+     * The compile task's compiler plugin classpath (KGP's `pluginClasspath`: the applied compiler plugins, plus
+     * KGP's own scripting support, which krit filters out), read lazily like the compiler options. Empty without
+     * a Kotlin compile task or on a KGP that lacks the property.
+     */
+    private fun compilerPluginClasspath(project: Project, compileTask: String): Provider<FileCollection> {
+        if (!project.tasks.names.contains(compileTask)) return project.provider { project.files() }
+        val task = project.tasks.named(compileTask)
+        val none = project.files()
+        return project.provider {
+            runCatching { reflect(task.get(), "getPluginClasspath") as? FileCollection }.getOrNull() ?: none
+        }
+    }
+
+    /**
+     * The compile task's compiler plugin options as `plugin:<id>:<key>=<value>`, from KGP's `pluginOptions`
+     * (`CompilerPluginConfig.allOptions()`, KGP 1.7+), in the order KGP passes them. An option that cannot be read
+     * is left out; a KGP without the property exports none.
+     */
+    private fun compilerPluginOptions(project: Project, compileTask: String): Provider<List<String>> {
+        if (!project.tasks.names.contains(compileTask)) return project.provider { emptyList() }
+        val task = project.tasks.named(compileTask)
+        return project.provider { runCatching { readCompilerPluginOptions(task.get()) }.getOrElse { emptyList() } }
+    }
+
+    private fun readCompilerPluginOptions(task: Any): List<String> {
+        val raw = reflect(task, "getPluginOptions")
+        val configs = ((if (raw is Provider<*>) raw.orNull else raw) as? Iterable<*>)?.filterNotNull().orEmpty()
+        val out = mutableListOf<String>()
+        configs.forEach { config ->
+            val all = runCatching { config.javaClass.getMethod("allOptions").invoke(config) }.getOrNull() as? Map<*, *>
+            all?.entries?.forEach { entry ->
+                (entry.value as? Iterable<*>)?.filterNotNull()?.forEach { option ->
+                    val key = runCatching { reflect(option, "getKey").toString() }.getOrNull()
+                    val value = runCatching { reflect(option, "getValue").toString() }.getOrNull()
+                    if (key != null && value != null) out += "plugin:${entry.key}:$key=$value"
+                }
+            }
+        }
+        return out
+    }
+
     private fun androidRJar(project: Project, variant: String, kind: String, major: Int): Provider<List<String>> {
         val libraryMain = kind == "main" && project.plugins.hasPlugin(ANDROID_LIBRARY_PLUGIN_ID)
         val runtimeFolders = listOf("compile_and_runtime_not_namespaced_r_class_jar",
@@ -641,6 +684,8 @@ class KritPlugin : Plugin<Project> {
                 kotlinFreeCompilerArgs.set(kotlinOptions.map { it.freeCompilerArgs })
                 kotlinProgressiveMode.set(kotlinOptions.map { it.progressiveMode })
                 kotlinPluginVersion.set(kotlinOptions.map { it.pluginVersion })
+                kotlinCompilerPluginClasspath.from(compilerPluginClasspath(project, spec.compileTask))
+                kotlinCompilerPluginOptions.set(compilerPluginOptions(project, spec.compileTask))
                 val externalArtifacts = spec.configuration.incoming.artifactView {
                     if (spec.platform == "android") {
                         attributes.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "android-classes-jar")

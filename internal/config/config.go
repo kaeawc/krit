@@ -61,6 +61,12 @@ type OracleConfig struct {
 	// surfaced as a CLI error rather than silently falling back.
 	Backend   string
 	Classpath []string
+	// CompilerPlugins are Kotlin compiler plugin jars krit-fir loads in
+	// addition to those of the Gradle model (oracle.compilerPlugins), and
+	// CompilerPluginOptions their `plugin:<id>:<key>=<value>` options
+	// (oracle.compilerPluginOptions). For builds without a Gradle model.
+	CompilerPlugins       []string
+	CompilerPluginOptions []string
 }
 
 // FIRConfig controls which Go findings retain authority after a FIR pass.
@@ -623,8 +629,10 @@ func (c *Config) LSP() LSPConfig {
 // Oracle returns the typed `oracle:` block.
 func (c *Config) Oracle() OracleConfig {
 	return OracleConfig{
-		Backend:   c.GetTopLevelString("oracle", "backend", ""),
-		Classpath: c.GetTopLevelStringList("oracle", "classpath"),
+		Backend:               c.GetTopLevelString("oracle", "backend", ""),
+		Classpath:             c.GetTopLevelStringList("oracle", "classpath"),
+		CompilerPlugins:       c.GetTopLevelStringList("oracle", "compilerPlugins"),
+		CompilerPluginOptions: c.GetTopLevelStringList("oracle", "compilerPluginOptions"),
 	}
 }
 

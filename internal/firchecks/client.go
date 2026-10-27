@@ -90,7 +90,12 @@ type firDaemonRequest struct {
 	// re-filters them through its own allowlist; an empty list leaves the
 	// embedded compiler's defaults in force.
 	KotlinArgs []string `json:"kotlinArgs,omitempty"`
-	Rules      []string `json:"rules,omitempty"`
+	// CompilerPluginClasspath and CompilerPluginOptions are the project's
+	// Kotlin compiler plugins (gradlemodel.CompilerPlugins), sent in fields of
+	// their own rather than as compiler arguments. Absent keeps the session's.
+	CompilerPluginClasspath []string `json:"compilerPluginClasspath,omitempty"`
+	CompilerPluginOptions   []string `json:"compilerPluginOptions,omitempty"`
+	Rules                   []string `json:"rules,omitempty"`
 	// TestFiles is the subset of Files (spelled exactly as in Files) that
 	// krit classifies as test sources (scanner.IsTestFile, honoring the
 	// configured test paths); checkers read it through FirRule.isTestFile.
@@ -595,18 +600,21 @@ func (d *FirDaemon) exchangeLocked(data []byte) (string, error) {
 func encodeCheckRequest(id int64, files []fileRef, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, facts FileFacts, target CompileTarget) ([]byte, oracle.PathSpelling, error) {
 	requested, spelling := absoluteFileRefs(files)
 	req := firDaemonRequest{
-		ID:          id,
-		Command:     "check",
-		Files:       requested,
-		SourceDirs:  oracle.AbsolutePaths(sourceDirs),
-		Classpath:   oracle.AbsolutePaths(classpath),
-		JvmTarget:   target.JvmTarget,
-		KotlinArgs:  target.kotlinArgs(),
-		Rules:       rules,
-		TestFiles:   oracle.AbsolutePaths(facts.TestFiles),
-		ScanPaths:   absoluteKeys(facts.ScanPaths),
-		SDKLevels:   absoluteKeys(facts.SDKLevels),
-		RuleConfigs: wireRuleConfigs(ruleConfigs),
+		ID:         id,
+		Command:    "check",
+		Files:      requested,
+		SourceDirs: oracle.AbsolutePaths(sourceDirs),
+		Classpath:  oracle.AbsolutePaths(classpath),
+		JvmTarget:  target.JvmTarget,
+		KotlinArgs: target.kotlinArgs(),
+		// The daemon's working directory is not the caller's.
+		CompilerPluginClasspath: oracle.AbsolutePaths(target.Kotlin.Plugins.Classpath),
+		CompilerPluginOptions:   target.Kotlin.Plugins.Options,
+		Rules:                   rules,
+		TestFiles:               oracle.AbsolutePaths(facts.TestFiles),
+		ScanPaths:               absoluteKeys(facts.ScanPaths),
+		SDKLevels:               absoluteKeys(facts.SDKLevels),
+		RuleConfigs:             wireRuleConfigs(ruleConfigs),
 	}
 	if target.IncrementalDir != "" {
 		// The daemon's working directory is not the caller's.

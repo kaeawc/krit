@@ -20,6 +20,13 @@ func (e ValidationError) String() string {
 	return fmt.Sprintf("[%s] %s: %s", e.Level, e.Path, e.Message)
 }
 
+// sectionValidators check the top-level settings sections that are not rule sets.
+var sectionValidators = map[string]func(interface{}) []ValidationError{
+	"analysis": validateAnalysis,
+	"fir":      validateFIR,
+	"oracle":   validateOracle,
+}
+
 // ValidateConfig checks a Config for unknown rulesets, unknown rules,
 // unknown config keys, and type mismatches. It returns a slice of errors/warnings.
 func ValidateConfig(cfg *config.Config) []ValidationError {
@@ -55,12 +62,8 @@ func ValidateConfig(cfg *config.Config) []ValidationError {
 		if key == "config" {
 			continue
 		}
-		if key == "analysis" {
-			errs = append(errs, validateAnalysis(val)...)
-			continue
-		}
-		if key == "fir" {
-			errs = append(errs, validateFIR(val)...)
+		if validate, ok := sectionValidators[key]; ok {
+			errs = append(errs, validate(val)...)
 			continue
 		}
 		if key == "module_template" {
@@ -155,6 +158,37 @@ func validateFIR(raw interface{}) []ValidationError {
 		if option != "goAuthoritativeRules" {
 			errs = append(errs, ValidationError{Path: path, Message: fmt.Sprintf("unknown config key '%s' in fir", option), Level: "error"})
 		} else if typeErr := checkType(path, value, OptionTypeStringSlice); typeErr != nil {
+			errs = append(errs, *typeErr)
+		}
+	}
+	return errs
+}
+
+// validateOracle checks the top-level oracle block: backend is a string, the
+// rest are string lists.
+func validateOracle(raw interface{}) []ValidationError {
+	section, ok := raw.(map[string]interface{})
+	if !ok {
+		return []ValidationError{{Path: "oracle", Message: fmt.Sprintf("expected object, got %T", raw), Level: "error"}}
+	}
+	types := map[string]OptionType{
+		"backend":               OptionTypeString,
+		"classpath":             OptionTypeStringSlice,
+		"compilerPlugins":       OptionTypeStringSlice,
+		"compilerPluginOptions": OptionTypeStringSlice,
+	}
+	keys := make([]string, 0, len(section))
+	for option := range section {
+		keys = append(keys, option)
+	}
+	sort.Strings(keys)
+	var errs []ValidationError
+	for _, option := range keys {
+		path := "oracle." + option
+		want, known := types[option]
+		if !known {
+			errs = append(errs, ValidationError{Path: path, Message: fmt.Sprintf("unknown config key '%s' in oracle", option), Level: "error"})
+		} else if typeErr := checkType(path, section[option], want); typeErr != nil {
 			errs = append(errs, *typeErr)
 		}
 	}

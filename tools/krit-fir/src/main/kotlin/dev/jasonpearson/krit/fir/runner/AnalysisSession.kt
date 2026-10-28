@@ -972,7 +972,55 @@ class AnalysisSession(
      * `analyzeWithDeps` RPC envelope can populate the per-file
      * dependency closure.
      */
-    fun analyzeFull(files: List<String>): AnalyzeOutcome = analyzeCompilation(compilationFiles(files), null)
+    fun analyzeFull(files: List<String>): AnalyzeOutcome {
+        lastOracleFromCache = false
+        val sources = compilationFiles(files)
+        if (!plannerEnabled) return analyzeCompilation(sources, null)
+        oracleFromCacheIfUnchanged(sources)?.let { return it }
+        val before = contentHashesOf(sources)
+        val key = PlainOracleKey(sources, before, compileKey())
+        lastPlainOracle?.takeIf { it.first == key }?.let { lastOracleFromCache = true; return it.second }
+        lastPlainOracle = null
+        var exitCode = ExitCode.OK
+        val outcome = analyzeCompilation(sources, null) { exitCode = it }
+        // Kept only when the compiler finished (an internal error may leave the facts incomplete) and no source
+        // changed while it compiled.
+        lastPlainOracle = if (exitCode != ExitCode.INTERNAL_ERROR && contentHashesOf(sources) == before) key to outcome else null
+        return outcome
+    }
+
+    /** What a plain oracle compile's answer depends on: the requested sources as spelled, their content, the compile key. */
+    private data class PlainOracleKey(val sources: List<String>, val contentHashes: Map<String, String>, val compileKey: String)
+
+    /**
+     * The last plain oracle compile's answer (#957). The incremental state is recorded only by a compile that also
+     * checks, so a session that has none (a restarted daemon whose check is served by the Go check cache, or a module
+     * scan that is not persisted) would otherwise compile the whole module for every unchanged oracle request.
+     */
+    @Volatile private var lastPlainOracle: Pair<PlainOracleKey, AnalyzeOutcome>? = null
+
+    /**
+     * The oracle answer for [sources] from the incremental state's cached facts, when nothing the state recorded
+     * changed since: every source still hashes to what the state recorded (no file added or removed either), the
+     * compile key is the same, and the facts are in step with the state. Null otherwise, and the caller compiles.
+     *
+     * This serves an oracle-only request on an unchanged module (#957): a daemon scan whose FIR check is served by
+     * the check cache still asks the oracle, and without this the oracle compiled the whole module every time.
+     * A session that has not loaded its persisted bundle yet loads it first, when it knows where it is.
+     */
+    private fun oracleFromCacheIfUnchanged(sources: List<String>): AnalyzeOutcome? {
+        try {
+            synchronized(snapshotLock) { loadPersistedIfCold() }
+        } catch (e: Throwable) {
+            if (!isIsolatable(e)) throw e
+        }
+        val now = contentHashesOf(sources)
+        synchronized(snapshotLock) {
+            if (incrementalState.compileKey == null || incrementalState.compileKey != compileKey()) return null
+            if (incrementalState.contentHashes() != now) return null
+        }
+        return oracleFromCache(sources)
+    }
 
     /**
      * [analyzeFull] for [files] and [check] for [checkRequest] from one K2

@@ -217,6 +217,8 @@ type IndexInput struct {
 	// it on every path: when the oracle will not run, when it has run, and
 	// when it declines to carry the check.
 	FIRCheckBroker *firchecks.Broker
+	// FIRIncrementalDir: see ProjectHostState.FIRIncrementalDir.
+	FIRIncrementalDir string
 	// PrebuiltOracleDaemon, when non-nil, is reused by runDaemonOracle
 	// instead of calling oracle.InvokeDaemon. The serve daemon's
 	// ensureOracleDaemon supplies a *oracle.Daemon kept alive across
@@ -1005,6 +1007,23 @@ type daemonAnalyzer interface {
 	AnalyzeFilesWithCallFilter(files []string, callFilter *oracle.CallTargetFilterSummary) (*oracle.Data, error)
 }
 
+// incrementalDirAnalyzer is a daemon whose full analysis can name krit-fir's
+// persisted incremental bundle (#957).
+type incrementalDirAnalyzer interface {
+	AnalyzeAllWithCallFilterIn(callFilter *oracle.CallTargetFilterSummary, incrementalDir string) (*oracle.Data, error)
+}
+
+// analyzeAllPlain is the daemon's full analysis without a check, naming the
+// incremental bundle directory when the request has one and the daemon can.
+func analyzeAllPlain(in IndexInput, d daemonAnalyzer, callFilterPtr *oracle.CallTargetFilterSummary) (*oracle.Data, error) {
+	if dir := in.FIRIncrementalDir; dir != "" {
+		if withDir, ok := d.(incrementalDirAnalyzer); ok {
+			return withDir.AnalyzeAllWithCallFilterIn(callFilterPtr, dir)
+		}
+	}
+	return d.AnalyzeAllWithCallFilter(callFilterPtr)
+}
+
 // daemonCheckAnalyzer is what a daemon needs to answer the --fir pass's check
 // from its compilation (#810): the combined request, and the registry facts
 // that say the daemon compiles in the pass's context.
@@ -1021,13 +1040,13 @@ func analyzeAllCarryingCheck(in IndexInput, d daemonAnalyzer, callFilterPtr *ora
 	carrier, ok := d.(daemonCheckAnalyzer)
 	if !ok {
 		in.FIRCheckBroker.Done("oracle daemon cannot carry a check")
-		return d.AnalyzeAllWithCallFilter(callFilterPtr)
+		return analyzeAllPlain(in, d, callFilterPtr)
 	}
 	rider := in.FIRCheckBroker.Claim(func(jarPath string, sourceDirs []string, kt gradlemodel.KotlinSettings, classpath []string) bool {
 		return carrier.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...)
 	})
 	if rider == nil {
-		return d.AnalyzeAllWithCallFilter(callFilterPtr)
+		return analyzeAllPlain(in, d, callFilterPtr)
 	}
 	data, err := carrier.AnalyzeAllWithCheck(callFilterPtr, rider)
 	if err != nil {
@@ -1079,7 +1098,7 @@ func daemonAnalyze(in IndexInput, d daemonAnalyzer, scanPaths []string, callFilt
 		perf.AddEntryDetails(oracleTracker, "daemonPartialReanalyze", 0, map[string]int64{
 			"stalePaths": int64(len(in.StaleOraclePaths)),
 		}, nil)
-		analyzeAll := func() (*oracle.Data, error) { return d.AnalyzeAllWithCallFilter(callFilterPtr) }
+		analyzeAll := func() (*oracle.Data, error) { return analyzeAllPlain(in, d, callFilterPtr) }
 		fresh, err := d.AnalyzeFilesWithCallFilter(in.StaleOraclePaths, callFilterPtr)
 		if err != nil {
 			in.warnf("warning: daemon analyzeFiles (fallback to analyzeAll): %v\n", err)

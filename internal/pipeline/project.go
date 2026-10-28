@@ -193,6 +193,11 @@ type ProjectHostState struct {
 	// returned, whatever the oracle did, so the pass never waits on an oracle
 	// that is not going to answer.
 	FIRCheckBroker *firchecks.Broker
+	// FIRIncrementalDir is krit-fir's persisted incremental bundle directory
+	// for this request ({repo}/.krit/fir-incremental), empty under --no-cache.
+	// Oracle-only daemon requests carry it so a restarted daemon serves an
+	// unchanged module from the bundle (#957).
+	FIRIncrementalDir string
 	// Tracker, when non-nil, wraps expensive sub-phases for --perf.
 	Tracker perf.Tracker
 	// ParseCache, when non-nil, is consulted by ParsePhase to skip
@@ -1063,6 +1068,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		Tracker:                  host.Tracker,
 		Verbose:                  host.Reporter.VerboseEnabled(),
 		FIRCheckBroker:           host.FIRCheckBroker,
+		FIRIncrementalDir:        host.FIRIncrementalDir,
 		BuildCodeIndex:           buildCodeIndex,
 		CrossFileParentTracker:   crossTracker,
 		CrossFileJobsFlag:        args.Workers,

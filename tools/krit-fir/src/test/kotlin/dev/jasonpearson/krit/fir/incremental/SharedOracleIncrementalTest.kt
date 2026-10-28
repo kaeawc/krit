@@ -1,6 +1,8 @@
 package dev.jasonpearson.krit.fir.incremental
 
 import dev.jasonpearson.krit.fir.CheckRequest
+import dev.jasonpearson.krit.fir.RequestResult
+import dev.jasonpearson.krit.fir.handleRequestLine
 import dev.jasonpearson.krit.fir.runner.AnalysisSession
 import dev.jasonpearson.krit.fir.runner.AnalyzeOutcome
 import dev.jasonpearson.krit.fir.runner.BundleLoad
@@ -263,5 +265,73 @@ class SharedOracleIncrementalTest {
         assertTrue(restarted.persistence!!.lastLoad is BundleLoad.Loaded, "the state still loads: ${restarted.persistence!!.lastLoad}")
         assertFalse(restarted.lastOracleFromCache, "the tampered facts are not used: the oracle compiles and refills")
         assertSameAsFresh(got)
+    }
+
+    @Test fun anOracleOnlyRequestOnAnUnchangedModuleIsServedFromTheFacts() {
+        module()
+        val s = session()
+        s.shared()
+        // #957: the check is served by its own cache, so only the oracle is asked. Nothing changed: no compile.
+        val unchanged = s.analyzeFull(paths())
+        assertTrue(s.lastOracleFromCache, "an unchanged module is answered from the facts")
+        assertSameAsFresh(unchanged)
+
+        write("Use.kt", "package p\n\nfun use(s: Sub): Int = s.size() + 6\n")
+        val edited = s.analyzeFull(paths())
+        assertFalse(s.lastOracleFromCache, "an edit the state has not seen compiles")
+        assertSameAsFresh(edited)
+
+        write("Extra.kt", "package p\n\nfun extra(): Int = 1\n")
+        val added = s.analyzeFull(paths())
+        assertFalse(s.lastOracleFromCache, "an added file compiles")
+        assertSameAsFresh(added)
+    }
+
+    @Test fun aSessionWithoutStateAnswersARepeatedOracleOnlyRequestFromItsLastCompile() {
+        module()
+        // No check ever ran here (a restarted daemon whose check the Go cache serves): there is no incremental state.
+        val s = session()
+        assertSameAsFresh(s.analyzeFull(paths()))
+        assertFalse(s.lastOracleFromCache)
+        val again = s.analyzeFull(paths())
+        assertTrue(s.lastOracleFromCache, "nothing changed since the last plain compile")
+        assertSameAsFresh(again)
+
+        write("Use.kt", "package p\n\nfun use(s: Sub): Int = s.size() + 7\n")
+        val edited = s.analyzeFull(paths())
+        assertFalse(s.lastOracleFromCache, "an edit compiles")
+        assertSameAsFresh(edited)
+        assertSameAsFresh(s.analyzeFull(paths()))
+        assertTrue(s.lastOracleFromCache)
+
+        File(src, "Other.kt").delete()
+        assertSameAsFresh(s.analyzeFull(paths()))
+        assertFalse(s.lastOracleFromCache, "a deleted file compiles")
+    }
+
+    @Test fun anOracleOnlyRequestWithoutPlanningCompiles() {
+        module()
+        val s = session(planning = false)
+        s.analyzeFull(paths())
+        s.analyzeFull(paths())
+        assertFalse(s.lastOracleFromCache)
+    }
+
+    @Test fun aRestartedProcessAnswersAnOracleOnlyRequestFromTheBundleItNames() {
+        module()
+        session().apply { shared(); flushPersistence() }.dispose()
+
+        val unnamed = session()
+        unnamed.analyzeFull(paths())
+        assertFalse(unnamed.lastOracleFromCache, "a session that was never told where the bundle is compiles")
+
+        val restarted = session()
+        val line = """{"id":3,"command":"analyzeAll","incrementalDir":"${root.path}"}"""
+        val response = handleRequestLine(line, restarted, 0)
+        assertTrue(response is RequestResult.Response && "\"result\"" in response.json, "response: $response")
+        assertTrue(restarted.persistence!!.lastLoad is BundleLoad.Loaded, "load: ${restarted.persistence!!.lastLoad}")
+        assertTrue(restarted.lastOracleFromCache, "the analyzeAll request named the bundle: no compile")
+        assertSameAsFresh(restarted.analyzeFull(paths()))
+        assertTrue(restarted.lastOracleFromCache)
     }
 }

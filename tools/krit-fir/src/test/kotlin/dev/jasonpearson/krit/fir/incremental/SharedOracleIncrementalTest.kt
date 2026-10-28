@@ -222,6 +222,25 @@ class SharedOracleIncrementalTest {
         assertSameAsFresh(warm)
     }
 
+    @Test fun aRestartAfterADeletedFileStillServesFromThePersistedFacts() {
+        module()
+        val first = session()
+        first.shared()
+        // Deleted and handled incrementally: the persisted facts must not keep naming it.
+        File(src, "Other.kt").delete()
+        assertSameAsFresh(first.shared())
+        assertTrue(first.lastOracleFromCache)
+        first.flushPersistence()
+        first.dispose()
+
+        write("Use.kt", "package p\n\nfun use(s: Sub): Int = s.size() + 5\n")
+        val restarted = session()
+        val got = restarted.shared()
+        assertTrue(restarted.persistence!!.lastLoad is BundleLoad.Loaded, "load: ${restarted.persistence!!.lastLoad}")
+        assertTrue(restarted.lastOracleFromCache, "the facts persisted after the deletion are used")
+        assertSameAsFresh(got)
+    }
+
     @Test fun oracleFactsThatNameAFileOutsideTheModuleAreLeftOutOfTheLoad() {
         module()
         val first = session()

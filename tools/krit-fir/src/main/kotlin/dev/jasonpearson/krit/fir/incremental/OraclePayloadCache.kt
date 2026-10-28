@@ -52,7 +52,7 @@ internal class OraclePayloadCache {
 
     fun put(file: String, entry: Entry) { entries[file] = entry }
 
-    fun remove(file: String) { entries.remove(file) }
+    fun remove(file: String) { entries.remove(file); order.remove(file) }
 
     fun clear() { entries.clear(); order.clear(); generation = -1 }
 
@@ -60,6 +60,17 @@ internal class OraclePayloadCache {
     fun recordOrder(files: Collection<String>) { order.clear(); order.addAll(files) }
 
     fun sync(stateGeneration: Int) { generation = stateGeneration }
+
+    /** An immutable image of the cache for the bundle (#740); entries are immutable, so sharing them is safe. */
+    fun export(): PersistedOracle = PersistedOracle(generation, order.filter { it in entries }, LinkedHashMap(entries))
+
+    /** Replaces the cache with a persisted image, as of state generation [stateGeneration]. */
+    fun restore(image: PersistedOracle, stateGeneration: Int) {
+        clear()
+        entries.putAll(image.entries)
+        order.addAll(image.order)
+        generation = stateGeneration
+    }
 
     /**
      * The source-side annotations of every annotated callable the module declares outside [excluding] (canonical

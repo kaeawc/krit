@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.runner
 import dev.jasonpearson.krit.fir.incremental.BundleCodec
 import dev.jasonpearson.krit.fir.incremental.BundleRejected
 import dev.jasonpearson.krit.fir.incremental.BundleStore
+import dev.jasonpearson.krit.fir.incremental.PersistedOracle
 import dev.jasonpearson.krit.fir.incremental.PersistedState
 import dev.jasonpearson.krit.fir.incremental.PersistedVerdict
 import dev.jasonpearson.krit.fir.incremental.Snapshot
@@ -16,7 +17,7 @@ import java.util.concurrent.TimeUnit
 
 /** What loading a persisted bundle into a cold session came to. */
 internal sealed interface BundleLoad {
-    /** The state, the verdicts and the snapshot of the bundle are the session's now. */
+    /** The state, the verdicts, the snapshot and (when the bundle had them in step) the oracle facts are the session's now. */
     object Loaded : BundleLoad
 
     /** Nothing was loaded and the session is as it was: the next check is today's cold full check. */
@@ -139,6 +140,10 @@ internal class BundlePersistence(private val session: AnalysisSession, val store
             verdicts.clear()
             for (v in bundle.verdicts) verdicts.put(v.file, v.entry)
             verdicts.sync(state.generation)
+            // The oracle facts are an optimisation on top: facts that do not match the state are left out, and the
+            // first warm request compiles the oracle and refills them, as without them.
+            val oracle = bundle.oracle?.takeIf { it.generation == bundle.state.generation && namesOnlyModuleFiles(it, bundle.state) }
+            if (oracle != null) session.oraclePayloads.restore(oracle, state.generation) else session.oraclePayloads.clear()
             persistedFor = working
             persistedId = bundle.snapshotId
             return BundleLoad.Loaded
@@ -156,10 +161,19 @@ internal class BundlePersistence(private val session: AnalysisSession, val store
         }
     }
 
+    // Every file the oracle facts name must be one the state records: a bundle is untrusted input.
+    private fun namesOnlyModuleFiles(oracle: PersistedOracle, state: PersistedState): Boolean {
+        val known = state.contentHashes.keys
+        return oracle.order.all { it in known } && oracle.entries.all { (file, entry) ->
+            file in known && entry.depPaths.all { it in known } && entry.perFileDeps.values.all { it in known }
+        }
+    }
+
     // A half-loaded session is a cold one: the state (and with it the working snapshot it owns) is reset.
     private fun discard(working: Snapshot?, attached: Boolean) {
         session.incrementalState.reset()
         session.verdicts.clear()
+        session.oraclePayloads.clear()
         persistedFor = null; persistedId = null
         if (working != null) try { working.delete() } catch (_: Exception) {}
     }
@@ -236,6 +250,7 @@ internal class BundlePersistence(private val session: AnalysisSession, val store
             val image: PersistedState
             val entries: List<PersistedVerdict>
             val verdictGeneration: Int
+            val oracle: PersistedOracle?
             val snapshot: Snapshot
             var copyEpoch = -1L // >= 0: the classes still have to be copied, and this is the snapshot's epoch at the image
             synchronized(session.snapshotLock) {
@@ -249,6 +264,8 @@ internal class BundlePersistence(private val session: AnalysisSession, val store
                 snapshot = state.snapshot ?: return false
                 entries = verdicts.files().mapNotNull { f -> verdicts.get(f)?.let { PersistedVerdict(f, it) } }
                 verdictGeneration = verdicts.generation
+                // Oracle facts out of step with the state are not trusted on load either, so they are not written.
+                oracle = session.oraclePayloads.takeIf { it.generation == state.generation }?.export()
                 if (persistedFor === snapshot && persistedId != null) {
                     id = persistedId!!
                 } else {
@@ -278,7 +295,7 @@ internal class BundlePersistence(private val session: AnalysisSession, val store
                 if (failure != null) throw failure
             }
             tornCopies = 0
-            val bytes = BundleCodec.encode(key, id, image, entries, verdictGeneration)
+            val bytes = BundleCodec.encode(key, id, image, entries, verdictGeneration, oracle)
             testHookBeforePublish?.invoke()
             val published = store.publish(key, bytes, id, stage, commitGate) { !discarded }
             if (published) {

@@ -14,6 +14,10 @@ All notable changes to Krit will be documented in this file.
   longer.
 
 ### Added
+- The incremental FIR bundle (`.krit/fir-incremental/`) now also keeps the type
+  oracle's per-file facts (bundle format version 2). A restarted daemon answers
+  its first warm `--fir` scan from slice compiles instead of compiling the whole
+  module for the oracle. Version 1 bundles are replaced on the first check.
 - Incremental FIR checking persists its state, verdicts and binary
   snapshot to `.krit/fir-incremental/<compile key>/` (supplied by krit, bypassed by
   `--no-cache`), so a restarted daemon or a one-shot run serves its first check

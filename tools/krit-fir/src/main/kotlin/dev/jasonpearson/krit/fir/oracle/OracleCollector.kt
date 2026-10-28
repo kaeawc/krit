@@ -31,6 +31,38 @@ internal class OracleCollector {
      */
     val depTracker: DepTracker = DepTracker()
 
+    /**
+     * Slice compiles only (#740): resolves a supertype the compile read as a binary from the incremental snapshot
+     * to the module file declaring it and that class's projection, as a whole-module compile would have recorded
+     * them from source. Returns null for a class that is not the module's (a library class). Null outside slices.
+     */
+    var binarySupertype: ((fqn: String) -> Pair<String, ClassPayload>?)? = null
+
+    /** Set when [binarySupertype] knew the declaring file but had no projection: this compile's deps are partial. */
+    var binarySupertypeMissed: Boolean = false
+
+    /**
+     * Slice compiles only (#740): the source-side annotations of a callee the compile read as a binary, by
+     * [calleeSignature]; null when the module's source declares none for it (or it is not the module's).
+     */
+    var binaryCalleeAnnotations: ((signature: String) -> List<String>?)? = null
+
+    /** Set when a binary callee's key was [AMBIGUOUS_ANNOTATIONS]: this compile's facts are not trusted. */
+    var binaryCalleeAmbiguous: Boolean = false
+
+    /** Whether to record [declaredAnnotations]: on while the session keeps oracle facts for incremental use. */
+    var recordDeclarations: Boolean = false
+
+    private val declaredByFile = LinkedHashMap<String, LinkedHashMap<String, List<String>>>()
+
+    /** Per file, the annotations of each annotated function and constructor it declares (see [recordDeclaredAnnotations]). */
+    val declaredAnnotations: Map<String, Map<String, List<String>>> get() = declaredByFile
+
+    fun addDeclaredAnnotations(filePath: String, signature: String, annotations: List<String>) {
+        val declared = declaredByFile.getOrPut(filePath) { LinkedHashMap() }
+        declared[signature] = mergeDeclared(declared[signature], annotations)
+    }
+
     fun addClass(filePath: String, payload: ClassPayload) {
         perFile.getOrPut(filePath) { mutableListOf() }.add(payload)
         // The `dependencies` map mirrors krit-types' cross-file class

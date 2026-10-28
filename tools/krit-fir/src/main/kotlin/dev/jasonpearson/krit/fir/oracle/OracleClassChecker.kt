@@ -100,7 +100,14 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
         for (ref in regular.superTypeRefs) {
             val cone = (ref as? FirResolvedTypeRef)?.coneType as? ConeClassLikeType ?: continue
             val symbol = cone.lookupTag.toRegularClassSymbol(session) ?: continue
-            if (symbol.origin != FirDeclarationOrigin.Source) continue
+            if (symbol.origin != FirDeclarationOrigin.Source) {
+                // A slice compile reads the module's other files as binaries: record what their source would have.
+                val (depFile, payload) = collector.binarySupertype?.invoke(symbol.classId.asFqNameString()) ?: continue
+                if (depFile == forFile) continue
+                collector.depTracker.recordDepPath(forFile, depFile)
+                collector.depTracker.recordPerFileDep(forFile, symbol.classId.asFqNameString(), payload)
+                continue
+            }
             val containingFile = provider.getContainingFile(symbol) ?: continue
             val depFile = containingFile.sourceFile?.path ?: continue
             if (depFile == forFile) continue

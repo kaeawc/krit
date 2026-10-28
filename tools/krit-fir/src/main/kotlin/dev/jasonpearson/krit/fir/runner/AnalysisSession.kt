@@ -11,6 +11,7 @@ import dev.jasonpearson.krit.fir.FirRuleErrors
 import dev.jasonpearson.krit.fir.incremental.CompileRecording
 import dev.jasonpearson.krit.fir.incremental.CompileRecordingRegistry
 import dev.jasonpearson.krit.fir.incremental.FingerprintBuilder
+import dev.jasonpearson.krit.fir.incremental.OraclePayloadCache
 import dev.jasonpearson.krit.fir.incremental.PersistedState
 import dev.jasonpearson.krit.fir.incremental.PersistedVerdict
 import dev.jasonpearson.krit.fir.incremental.BuiltInTieredPolicy
@@ -81,6 +82,8 @@ internal fun resolveJvmTarget(declared: String, jdkFeature: Int = Runtime.versio
 data class AnalyzeOutcome(
     val result: AnalyzeResult,
     val cacheDeps: OracleResponse.CacheDepsView,
+    /** Per file, the source-side annotations of its annotated callables; recorded only for incremental use. */
+    val declaredAnnotations: Map<String, Map<String, List<String>>> = emptyMap(),
 )
 
 data class BatchResult(
@@ -168,6 +171,16 @@ class AnalysisSession(
     /** Per-file verdicts of the module, in step with [incrementalState] (see [VerdictCache]). Touched under [snapshotLock]. */
     internal val verdicts = VerdictCache()
 
+    /**
+     * Per-file oracle facts of the module, in step with [incrementalState] like [verdicts] (see [OraclePayloadCache]):
+     * what lets a warm `analyzeWithCheck` answer the oracle without a whole-module compile. Touched under [snapshotLock].
+     */
+    internal val oraclePayloads = OraclePayloadCache()
+
+    /** Whether the latest `analyzeWithCheck` answered the oracle from [oraclePayloads]; for tests and telemetry. */
+    @Volatile internal var lastOracleFromCache = false
+        private set
+
     /** Whole-module commits to [incrementalState] so far; lets the planner see whether a full compile replaced it. */
     @Volatile internal var fullCommits = 0
         private set
@@ -249,7 +262,7 @@ class AnalysisSession(
 
     /** Drops every recorded fact, the snapshot and the verdicts: the next planned check is a cold full check. */
     internal fun resetIncremental() {
-        synchronized(snapshotLock) { incrementalState.reset(); verdicts.clear() }
+        synchronized(snapshotLock) { incrementalState.reset(); verdicts.clear(); oraclePayloads.clear() }
     }
 
     private val compilationJvmTarget: String = resolveJvmTarget(jvmTarget)
@@ -337,7 +350,7 @@ class AnalysisSession(
         scanPaths: Map<String, String> = emptyMap(),
         sdkLevels: Map<String, SdkLevels> = emptyMap(),
     ): BatchResult {
-        if (plannerEnabled) return planner.serve(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, null)
+        if (plannerEnabled) return planner.serve(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, fullCompile = null)
         return checkCompilation(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels)
     }
 
@@ -389,6 +402,41 @@ class AnalysisSession(
             if (!isIsolatable(e)) throw e
             verdicts.clear()
         }
+    }
+
+    /**
+     * Stores the oracle facts, `cacheDeps` edges and declared annotations [outcome] holds for each of [files]
+     * (canonical paths) under its content hash in [hashes]; a file the compile gave no facts, or that has no hash,
+     * loses its entry. False when a supertype edge names a class the state cannot place in a file: the caller drops
+     * the cache. Holds [snapshotLock].
+     */
+    private fun storeOraclePayloads(
+        outcome: AnalyzeOutcome, files: Collection<String>, hashes: Map<String, String>, wholeModule: Boolean = false,
+    ): Boolean {
+        val result = outcome.result
+        val deps = outcome.cacheDeps
+        fun byCanonical(map: Map<String, *>) = map.keys.associateBy { canonicalOrSelf(File(it)) }
+        val payloadKeys = byCanonical(result.files)
+        if (wholeModule) oraclePayloads.recordOrder(payloadKeys.keys)
+        val depKeys = byCanonical(deps.depPathsByFile)
+        val perFileKeys = byCanonical(deps.perFileDeps)
+        val declaredKeys = byCanonical(outcome.declaredAnnotations)
+        for (file in files) {
+            val hash = hashes[file]
+            val payload = payloadKeys[file]?.let { result.files[it] }
+            if (hash == null || payload == null) { oraclePayloads.remove(file); continue }
+            val supertypes = LinkedHashMap<String, String>()
+            for (fqn in perFileKeys[file]?.let { deps.perFileDeps[it] }.orEmpty().keys) {
+                supertypes[fqn] = incrementalState.fileDeclaring(fqn) ?: return false
+            }
+            oraclePayloads.put(file, OraclePayloadCache.Entry(
+                hash, payload,
+                depPaths = depKeys[file]?.let { deps.depPathsByFile[it] }.orEmpty().map { canonicalOrSelf(File(it)) },
+                perFileDeps = supertypes,
+                declaredAnnotations = declaredKeys[file]?.let { outcome.declaredAnnotations[it] }.orEmpty(),
+            ))
+        }
+        return true
     }
 
     // Splits [result] into the verdict of each compiled file, keyed by canonical path and the state's content hash.
@@ -514,6 +562,7 @@ class AnalysisSession(
         sdkLevels: Map<String, SdkLevels> = emptyMap(),
         removedFiles: Collection<String> = emptyList(),
         spellings: Map<String, FileRef> = emptyMap(),
+        withOracle: Boolean = false,
     ): SliceOutcome = synchronized(snapshotLock) {
         sliceFallback()?.let { return SliceOutcome.Fallback(it) }
         val snapshot = incrementalState.snapshot ?: return SliceOutcome.Fallback(SliceFallback.NO_SNAPSHOT)
@@ -540,7 +589,9 @@ class AnalysisSession(
             val compiled = sources.mapTo(LinkedHashSet()) { canonicalOrSelf(File(it)) }
             if (sources.isEmpty()) {
                 // Only deletions (or files krit never compiles): nothing to compile.
-                if (removed.isNotEmpty()) mergeSlice(plan, compiled, removed, emptySet(), plan.compiled, plan.emptyResult())
+                if (removed.isNotEmpty()) {
+                    mergeSlice(plan, compiled, removed, emptySet(), plan.compiled, plan.emptyResult(), OracleCollector().takeIf { withOracle })
+                }
                 return SliceOutcome.Checked(plan.emptyResult(), compiled, compiled - requested)
             }
             val outDir = Files.createTempDirectory("krit-fir-slice-out-").toFile()
@@ -550,9 +601,30 @@ class AnalysisSession(
                 args.moduleName = SNAPSHOT_MODULE_NAME
                 args.classpath = listOfNotNull(args.classpath, snapshot.dir.path).joinToString(File.pathSeparator)
                 val hidden = sources + removed + incrementalState.removedSinceSnapshot()
+                // The oracle's facts for the compiled files, from the same frontend run (#740): registered as
+                // analyzeCompilation registers them for the shared compile.
+                val oracle = if (withOracle) OracleCollector() else null
+                if (oracle != null) {
+                    oracle.recordDeclarations = true
+                    oracle.binarySupertype = { fqn ->
+                        incrementalState.fileDeclaring(fqn)?.let { file ->
+                            oraclePayloads.declaration(file, fqn)?.let { file to it }
+                                ?: run { oracle.binarySupertypeMissed = true; null }
+                        }
+                    }
+                    val declared by lazy { oraclePayloads.declaredAnnotationIndex(compiled) }
+                    oracle.binaryCalleeAnnotations = { signature -> declared[signature] }
+                }
+                val messages = listOfNotNull(
+                    oracle?.let { o -> OracleDiagnosticMessageCollector(o, args.freeArgs.associateBy { File(it).canonicalPath }) },
+                    plan.collector,
+                )
+                val contexts = listOfNotNull(
+                    oracle?.let { o -> CompilationContext({ OracleCollectorRegistry.begin(o) }, { OracleCollectorRegistry.end() }) },
+                ) + plan.contexts()
                 val exit = try {
                     snapshot.parked(hidden) {
-                        compileModule(args, listOf(plan.collector), plan.contexts(), frontendOnly = true, recording = recording, slice = snapshot)
+                        compileModule(args, messages, contexts, frontendOnly = true, recording = recording, slice = snapshot)
                     }
                 } catch (e: Throwable) {
                     if (!isIsolatable(e)) throw e
@@ -570,7 +642,7 @@ class AnalysisSession(
                 }
                 val result = plan.result(exit)
                 val errored = result.errorFiles.keys.mapTo(HashSet()) { canonicalOrSelf(File(it)) }
-                mergeSlice(plan, compiled, removed, errored, plan.compiled, result)
+                mergeSlice(plan, compiled, removed, errored, plan.compiled, result, oracle)
                 return SliceOutcome.Checked(result, compiled, compiled - requested)
             } finally {
                 outDir.deleteRecursively()
@@ -591,7 +663,7 @@ class AnalysisSession(
     // and the verdict, which is already computed, is returned unchanged.
     private fun mergeSlice(
         plan: CheckPlan, compiled: Set<String>, removed: Set<String>, errored: Set<String>,
-        compiledRefs: List<FileRef>, result: BatchResult,
+        compiledRefs: List<FileRef>, result: BatchResult, oracle: OracleCollector? = null,
     ) {
         try {
             val recorded = plan.recording
@@ -600,11 +672,22 @@ class AnalysisSession(
             } else {
                 // The verdict cache follows the state only while it was in step with it before this commit.
                 val inStep = plannerEnabled && verdicts.generation == incrementalState.generation
+                // The oracle facts follow the state the same way; a slice that did not run the oracle leaves them
+                // a generation behind, which makes them unusable until a whole-module oracle compile refills them.
+                val oracleInStep = oracle != null && plannerEnabled && oraclePayloads.generation == incrementalState.generation
                 incrementalState.commitSlice(recorded, compiled, removed, errored)
                 if (inStep) {
                     for (file in removed) verdicts.remove(file)
                     storeVerdicts(result, compiledRefs, plan.verdictKeys)
                     verdicts.sync(incrementalState.generation)
+                }
+                if (oracleInStep) {
+                    for (file in removed) oraclePayloads.remove(file)
+                    val stored = !oracle.binarySupertypeMissed && !oracle.binaryCalleeAmbiguous && storeOraclePayloads(
+                        AnalyzeOutcome(oracle.toResult(), oracle.depTracker.view(), oracle.declaredAnnotations), compiled,
+                        incrementalState.contentHashes(),
+                    )
+                    if (stored) oraclePayloads.sync(incrementalState.generation) else oraclePayloads.clear()
                 }
                 persistence?.markDirty(afterFullCheck = false)
             }
@@ -725,6 +808,7 @@ class AnalysisSession(
                     synchronized(snapshotLock) {
                         incrementalState.commit(recorded)
                         verdicts.clear()
+                        oraclePayloads.clear()
                         fullCommits++
                         committed = true
                         val snapshot = build?.takeIf { it.built }?.snapshot
@@ -911,10 +995,14 @@ class AnalysisSession(
      * shared: the planner's full check becomes this shared compile, which then also records the incremental state,
      * builds the binary snapshot (the backend runs after the frontend that produced both the oracle facts and the
      * verdicts) and persists the bundle under the request's `incrementalDir`. So a cold scan costs one compile plus
-     * the snapshot backend, and a warm one is served from slices, with the oracle compiling alone (frontend only, no
-     * checkers). Without the planner the shared compile records nothing and leaves the state as it is.
+     * the snapshot backend, and a warm one is served from slices. The slices run the oracle too, and the oracle is
+     * answered from the per-file facts they and the full checks recorded ([oraclePayloads], #740); only when those
+     * are missing or out of step (a restarted process, a check-only slice) does the oracle compile alone (frontend
+     * only, no checkers), which refills them. Without the planner the shared compile records nothing and leaves the
+     * state as it is.
      */
     fun analyzeWithCheck(files: List<String>, checkRequest: CheckRequest): Pair<AnalyzeOutcome, BatchResult?> {
+        lastOracleFromCache = false
         val walked = currentSourceFiles()
         val oracleSources = compilationFiles(files, walked)
         val rules = checkRequest.rules.toSet()
@@ -934,7 +1022,7 @@ class AnalysisSession(
         val checked = try {
             planner.serve(
                 checkRequest.id, checkRequest.files, rules, checkRequest.ruleConfigs,
-                checkRequest.testFiles, checkRequest.scanPaths, checkRequest.sdkLevels,
+                checkRequest.testFiles, checkRequest.scanPaths, checkRequest.sdkLevels, withOracle = true,
             ) { enabledRules, record ->
                 val (outcome, result) = sharedCompile(files, oracleSources, planFor(enabledRules), record)
                 // A shared compile that fell back to the oracle alone has no check: the planner's full check
@@ -950,8 +1038,59 @@ class AnalysisSession(
             System.err.println("krit-fir: incremental shared check failed (${e.message}); compiling the oracle alone")
             return (sharedOutcome ?: analyzeFull(files)) to null
         }
-        // Served from slices (or cached verdicts): the oracle still needs its own compile.
-        return (sharedOutcome ?: analyzeFull(files)) to checked
+        // Served from slices (or cached verdicts): the slices ran the oracle too, so its facts come from the cache;
+        // without them (a cold cache, or one a check-only slice left behind) it compiles on its own.
+        return (sharedOutcome ?: oracleFromCache(oracleSources) ?: analyzeFullRefilling(files, oracleSources)) to checked
+    }
+
+    /**
+     * The oracle answer for [sources] from the cached facts, when they are in step with the state and every file has
+     * an entry for the content the state recorded; null otherwise (#740).
+     */
+    private fun oracleFromCache(sources: List<String>): AnalyzeOutcome? = synchronized(snapshotLock) {
+        if (incrementalState.compileKey == null || oraclePayloads.generation != incrementalState.generation) return null
+        val spelled = LinkedHashMap<String, String>()
+        for (path in sources) spelled.putIfAbsent(canonicalOrSelf(File(path)), path)
+        val assembled = oraclePayloads.assemble(spelled, incrementalState.contentHashes()) ?: return null
+        lastOracleFromCache = true
+        AnalyzeOutcome(assembled.result, assembled.cacheDeps)
+    }
+
+    /**
+     * [analyzeFull], which also refills the cached oracle facts when the state describes exactly the content it
+     * compiled: a cache that is out of step (a restarted process, check-only slices) is then current again.
+     */
+    private fun analyzeFullRefilling(files: List<String>, sources: List<String>): AnalyzeOutcome {
+        val before = contentHashesOf(sources)
+        val outcome = analyzeFull(files)
+        try {
+            synchronized(snapshotLock) {
+                val recorded = incrementalState.contentHashes()
+                if (plannerEnabled && incrementalState.compileKey != null && recorded == before && contentHashesOf(sources) == before) {
+                    oraclePayloads.clear()
+                    if (storeOraclePayloads(outcome, before.keys, recorded, wholeModule = true)) oraclePayloads.sync(incrementalState.generation)
+                    else oraclePayloads.clear()
+                }
+            }
+        } catch (e: Throwable) {
+            if (!isIsolatable(e)) throw e
+            synchronized(snapshotLock) { oraclePayloads.clear() }
+        }
+        return outcome
+    }
+
+    /** The oracle facts of a shared full check that just replaced the state. Holds [snapshotLock]. */
+    private fun storeFullOracle(outcome: AnalyzeOutcome, sources: List<String>) {
+        try {
+            synchronized(snapshotLock) {
+                oraclePayloads.clear()
+                val stored = storeOraclePayloads(outcome, sources.map { canonicalOrSelf(File(it)) }, incrementalState.contentHashes(), wholeModule = true)
+                if (stored) oraclePayloads.sync(incrementalState.generation) else oraclePayloads.clear()
+            }
+        } catch (e: Throwable) {
+            if (!isIsolatable(e)) throw e
+            synchronized(snapshotLock) { oraclePayloads.clear() }
+        }
     }
 
     /**
@@ -975,6 +1114,7 @@ class AnalysisSession(
         val result = plan.result(exitCode)
         if (record && plannerEnabled && plan.committed) {
             storeFullVerdicts(plan, result)
+            storeFullOracle(outcome, oracleSources)
             persistence?.markDirty(afterFullCheck = true)
         }
         return outcome to result
@@ -994,7 +1134,7 @@ class AnalysisSession(
     private fun analyzeCompilation(
         sources: List<String>, check: CheckPlan?, record: Boolean = false, onExit: (ExitCode) -> Unit = {},
     ): AnalyzeOutcome {
-        val collector = OracleCollector()
+        val collector = OracleCollector().apply { recordDeclarations = plannerEnabled }
         val outDir = Files.createTempDirectory("krit-fir-oracle-out-").toFile()
         try {
             val args = compilationArguments(sources, outDir)
@@ -1021,14 +1161,8 @@ class AnalysisSession(
         } finally {
             outDir.deleteRecursively()
         }
-        val tracker = collector.depTracker
         return AnalyzeOutcome(
-            result = collector.toResult(),
-            cacheDeps = OracleResponse.CacheDepsView(
-                depPathsByFile = tracker.depPathsByFile,
-                perFileDeps = tracker.perFileDeps,
-                crashedFiles = tracker.crashedFiles,
-            ),
+            result = collector.toResult(), cacheDeps = collector.depTracker.view(), declaredAnnotations = collector.declaredAnnotations,
         )
     }
 

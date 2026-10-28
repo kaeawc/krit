@@ -980,9 +980,12 @@ class AnalysisSession(
         val before = contentHashesOf(sources)
         val key = PlainOracleKey(sources, before, compileKey())
         lastPlainOracle?.takeIf { it.first == key }?.let { lastOracleFromCache = true; return it.second }
-        val outcome = analyzeCompilation(sources, null)
-        // Kept only when no source changed while it compiled.
-        lastPlainOracle = if (contentHashesOf(sources) == before) key to outcome else null
+        lastPlainOracle = null
+        var exitCode = ExitCode.OK
+        val outcome = analyzeCompilation(sources, null) { exitCode = it }
+        // Kept only when the compiler finished (an internal error may leave the facts incomplete) and no source
+        // changed while it compiled.
+        lastPlainOracle = if (exitCode != ExitCode.INTERNAL_ERROR && contentHashesOf(sources) == before) key to outcome else null
         return outcome
     }
 

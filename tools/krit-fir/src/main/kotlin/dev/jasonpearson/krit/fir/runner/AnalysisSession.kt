@@ -1068,8 +1068,13 @@ class AnalysisSession(
                 val recorded = incrementalState.contentHashes()
                 if (plannerEnabled && incrementalState.compileKey != null && recorded == before && contentHashesOf(sources) == before) {
                     oraclePayloads.clear()
-                    if (storeOraclePayloads(outcome, before.keys, recorded, wholeModule = true)) oraclePayloads.sync(incrementalState.generation)
-                    else oraclePayloads.clear()
+                    if (storeOraclePayloads(outcome, before.keys, recorded, wholeModule = true)) {
+                        oraclePayloads.sync(incrementalState.generation)
+                        // The refilled facts go into the bundle, so the next restart does not compile the oracle again.
+                        persistence?.markDirty(afterFullCheck = false)
+                    } else {
+                        oraclePayloads.clear()
+                    }
                 }
             }
         } catch (e: Throwable) {

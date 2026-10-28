@@ -39,8 +39,12 @@ class OracleIncrementalDifferentialTest {
         val src = tmp.resolve("src").toFile()
         val project = SyntheticProject(src, FILES).also { it.generate() }
         val rules = FirRuleDiscovery.rules.map { it.ruleId }
-        val planned = AnalysisSession(project.sourceDirs, listOf(testStdlib), incrementalRecording = true, incrementalPlanning = true)
+        val bundles = tmp.resolve("repo/.krit/fir-incremental").toFile()
+        fun plannedSession() = AnalysisSession(project.sourceDirs, listOf(testStdlib), incrementalRecording = true, incrementalPlanning = true)
             .also { it.snapshotRootOverride = tmp.resolve("snapshots").toFile() }
+        var planned = plannedSession()
+        var restarts = 0
+        var restartsFromCache = 0
         val reference = AnalysisSession(project.sourceDirs, listOf(testStdlib), incrementalRecording = false, incrementalPlanning = false)
 
         val log = StringBuilder()
@@ -51,7 +55,8 @@ class OracleIncrementalDifferentialTest {
 
         fun step(label: String) {
             val files = project.files().sorted()
-            val request = CheckRequest(id = edit.toLong(), command = "check", files = files.map { FileRef(it) }, rules = rules)
+            val request = CheckRequest(id = edit.toLong(), command = "check", files = files.map { FileRef(it) }, rules = rules,
+                incrementalDir = bundles.path)
             val t0 = System.nanoTime()
             val (got, checked) = planned.analyzeWithCheck(files, request)
             val tPlanned = (System.nanoTime() - t0) / 1_000_000
@@ -73,16 +78,28 @@ class OracleIncrementalDifferentialTest {
         }
 
         step("cold")
-        for (kind in CYCLE) {
+        for ((i, kind) in CYCLE.withIndex()) {
             project.apply(kind)
-            step(kind)
+            // Every few edits the process restarts: the next request starts from the persisted bundle, oracle facts
+            // included, so it must still equal a fresh compile.
+            val restart = i % 4 == 3
+            if (restart) {
+                planned.flushPersistence()
+                planned.dispose()
+                planned = plannedSession()
+                restarts++
+            }
+            step(if (restart) "$kind (restart)" else kind)
+            if (restart && planned.lastOracleFromCache) restartsFromCache++
         }
         println(log)
-        println("oracle differential: $incrementalSteps incremental checks, $fromCache answered from cached facts, $mismatches mismatches")
+        println("oracle differential: $incrementalSteps incremental checks, $fromCache answered from cached facts, $mismatches mismatches, " +
+            "$restarts restarts ($restartsFromCache answered from persisted facts)")
         assertEquals(0, mismatches)
         assertTrue(incrementalSteps > CYCLE.size / 2, "the planner engaged on only $incrementalSteps of ${CYCLE.size} edits\n$log")
         // A served-from-slices request uses the cached facts unless they were a generation behind.
         assertTrue(fromCache >= incrementalSteps * 9 / 10, "only $fromCache of $incrementalSteps incremental checks used the cached facts\n$log")
+        assertTrue(restartsFromCache > 0, "no restart answered the oracle from the persisted facts\n$log")
         planned.dispose()
         reference.dispose()
     }

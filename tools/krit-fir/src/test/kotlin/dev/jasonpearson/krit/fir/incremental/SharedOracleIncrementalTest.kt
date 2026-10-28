@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.incremental
 import dev.jasonpearson.krit.fir.CheckRequest
 import dev.jasonpearson.krit.fir.runner.AnalysisSession
 import dev.jasonpearson.krit.fir.runner.AnalyzeOutcome
+import dev.jasonpearson.krit.fir.runner.BundleLoad
 import dev.jasonpearson.krit.fir.runner.FileRef
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
@@ -204,18 +205,44 @@ class SharedOracleIncrementalTest {
         assertSameAsFresh(warm)
     }
 
-    @Test fun aRestartedProcessRefillsOnceThenServesFromSlices() {
+    @Test fun aRestartedProcessServesTheOracleFromThePersistedFacts() {
         module()
         session().apply { shared(); flushPersistence() }.dispose()
 
         write("Use.kt", "package p\n\nfun use(s: Sub): Int = s.size() + 2\n")
         val restarted = session()
-        assertSameAsFresh(restarted.shared())
-        assertFalse(restarted.lastOracleFromCache, "facts are not persisted: the first warm request compiles the oracle")
+        val first = restarted.shared()
+        assertTrue(restarted.persistence!!.lastLoad is BundleLoad.Loaded, "load: ${restarted.persistence!!.lastLoad}")
+        assertTrue(restarted.lastOracleFromCache, "the bundle carries the oracle facts: no whole-module oracle compile")
+        assertSameAsFresh(first)
 
         write("Use.kt", "package p\n\nfun use(s: Sub): Int = s.size() + 3\n")
         val warm = restarted.shared()
         assertTrue(restarted.lastOracleFromCache)
         assertSameAsFresh(warm)
+    }
+
+    @Test fun oracleFactsThatNameAFileOutsideTheModuleAreLeftOutOfTheLoad() {
+        module()
+        val first = session()
+        first.shared()
+        first.flushPersistence()
+        val key = first.compileKeyNow()
+        first.dispose()
+        // Tamper with the persisted facts only: one entry now names a file the state does not record.
+        val store = BundleStore(root)
+        val file = store.bundleFile(key)
+        val bundle = BundleCodec.decode(file.readBytes(), key)
+        val oracle = bundle.oracle!!
+        val entries = LinkedHashMap(oracle.entries).apply { put("/elsewhere/Evil.kt", values.first()) }
+        file.writeBytes(BundleCodec.encode(key, bundle.snapshotId, bundle.state, bundle.verdicts, bundle.verdictGeneration,
+            PersistedOracle(oracle.generation, oracle.order, entries)))
+
+        write("Use.kt", "package p\n\nfun use(s: Sub): Int = s.size() + 4\n")
+        val restarted = session()
+        val got = restarted.shared()
+        assertTrue(restarted.persistence!!.lastLoad is BundleLoad.Loaded, "the state still loads: ${restarted.persistence!!.lastLoad}")
+        assertFalse(restarted.lastOracleFromCache, "the tampered facts are not used: the oracle compiles and refills")
+        assertSameAsFresh(got)
     }
 }

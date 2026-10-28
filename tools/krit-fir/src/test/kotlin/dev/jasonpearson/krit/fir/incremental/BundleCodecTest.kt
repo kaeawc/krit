@@ -1,6 +1,13 @@
 package dev.jasonpearson.krit.fir.incremental
 
 import dev.jasonpearson.krit.fir.ClassNameFact
+import dev.jasonpearson.krit.fir.oracle.AMBIGUOUS_ANNOTATIONS
+import dev.jasonpearson.krit.fir.oracle.ClassPayload
+import dev.jasonpearson.krit.fir.oracle.DiagnosticPayload
+import dev.jasonpearson.krit.fir.oracle.ExpressionPayload
+import dev.jasonpearson.krit.fir.oracle.FilePayload
+import dev.jasonpearson.krit.fir.oracle.MemberPayload
+import dev.jasonpearson.krit.fir.oracle.ParamPayload
 import dev.jasonpearson.krit.fir.runner.Finding
 import org.junit.jupiter.api.Test
 import java.util.Random
@@ -78,6 +85,76 @@ class BundleCodecTest {
             assertEquals(want.entry.verdict.findings, got.entry.verdict.findings)
             assertEquals(want.entry.verdict.error, got.entry.verdict.error)
             assertEquals(want.entry.verdict.ruleErrors, got.entry.verdict.ruleErrors)
+        }
+    }
+
+    // Every field of the oracle payloads, the flag combinations, nulls and the ambiguity marker (#740).
+    private fun oracleSample(): PersistedOracle {
+        val files = (0 until 6).map { "/src/F$it.kt" }
+        fun payload(i: Int) = FilePayload(
+            packageName = "p$i",
+            declarations = listOf(ClassPayload(
+                fqn = "p$i.C", kind = "class", supertypes = listOf("p.Base", "kotlin.Comparable<p$i.C>"),
+                isSealed = i % 2 == 0, isData = i % 3 == 0, isOpen = true, isAbstract = i == 4, visibility = "internal",
+                typeParameters = listOf("T"),
+                members = listOf(MemberPayload("f", "function", "kotlin.String", nullable = i % 2 == 1, visibility = "private",
+                    isOverride = i == 2, isAbstract = false, params = listOf(ParamPayload("x", "kotlin.Int", nullable = true), ParamPayload("y", "T")),
+                    annotations = listOf("kotlin.Deprecated"))),
+                annotations = listOf("kotlin.Suppress"), jarPath = if (i == 3) "/lib/x.jar" else null,
+            )),
+            expressions = mapOf(
+                "1:2" to ExpressionPayload("kotlin.Int", nullable = i == 1, startByte = 3, endByte = 9, callTarget = "p.f",
+                    callTargetResolved = true, callTargetSuspend = i == 2, annotations = listOf("p.Marker")),
+                "4:5" to ExpressionPayload("kotlin.Unit"),
+            ),
+            diagnostics = listOf(DiagnosticPayload("UNRESOLVED_REFERENCE", "ERROR", "Unresolved \"x\" ünï", 4, 7, 30, -1)),
+            lambdaSuspendByLineCol = mapOf("6:1" to true, "7:2" to false),
+        )
+        val entries = files.withIndex().associate { (i, f) ->
+            f to OraclePayloadCache.Entry(
+                "hash-$f", payload(i), depPaths = if (i > 0) listOf(files[0]) else emptyList(),
+                perFileDeps = if (i > 0) mapOf("p0.C" to files[0]) else emptyMap(),
+                declaredAnnotations = mapOf("p$i.f|||" to listOf("p.Marker"), "p$i.g|||" to emptyList(), "p$i.h|||" to AMBIGUOUS_ANNOTATIONS),
+            )
+        }
+        return PersistedOracle(7, files.reversed(), entries)
+    }
+
+    @Test fun oracleFactsRoundTrip() {
+        val (state, verdicts) = sample()
+        val oracle = oracleSample()
+        val back = BundleCodec.decode(BundleCodec.encode(key, SNAP, state, verdicts, 7, oracle), key).oracle!!
+        assertEquals(oracle.generation, back.generation)
+        assertEquals(oracle.order, back.order)
+        assertEquals(oracle.entries.keys.toList(), back.entries.keys.toList())
+        for ((file, want) in oracle.entries) {
+            val got = back.entries.getValue(file)
+            assertEquals(want.contentHash, got.contentHash)
+            assertEquals(want.payload, got.payload, file)
+            assertEquals(want.depPaths, got.depPaths)
+            assertEquals(want.perFileDeps, got.perFileDeps)
+            assertEquals(want.declaredAnnotations.keys, got.declaredAnnotations.keys)
+            for ((signature, list) in want.declaredAnnotations) {
+                if (list === AMBIGUOUS_ANNOTATIONS) assertTrue(got.declaredAnnotations[signature] === AMBIGUOUS_ANNOTATIONS, "the marker keeps its identity")
+                else assertEquals(list, got.declaredAnnotations[signature])
+            }
+        }
+        // Without facts the section is a single marker, and none come back.
+        assertNull(BundleCodec.decode(BundleCodec.encode(key, SNAP, state, verdicts, 7), key).oracle)
+    }
+
+    @Test fun aDamagedOrTruncatedOracleSectionIsRejected() {
+        val (state, verdicts) = sample()
+        val bytes = BundleCodec.encode(key, SNAP, state, verdicts, 7, oracleSample())
+        for (length in 0 until bytes.size step 11) {
+            assertFailsWith<BundleRejected>("length $length") { BundleCodec.decode(bytes.copyOf(length), key) }
+        }
+        val rnd = Random(11)
+        repeat(300) {
+            val damaged = bytes.copyOf()
+            val at = rnd.nextInt(damaged.size)
+            damaged[at] = (damaged[at].toInt() xor (1 + rnd.nextInt(255))).toByte()
+            assertFailsWith<BundleRejected>("byte $at") { BundleCodec.decode(damaged, key) }
         }
     }
 
@@ -186,7 +263,7 @@ class BundleCodecTest {
         val head = java.io.ByteArrayOutputStream().also { h -> var v = n; while (v >= 0x80) { h.write((v and 0x7F) or 0x80); v = v ushr 7 }; h.write(v) }
         body.write(head.toByteArray())
         body.write(ByteArray(strings)) // each string: length 0
-        body.write(ByteArray(10)) // verdictKey null, eight empty collections, no verdicts
+        body.write(ByteArray(11)) // verdictKey null, eight empty collections, no verdicts, no oracle facts
         int(body.size())
         out.write(body.toByteArray())
         val bytes = out.toByteArray()

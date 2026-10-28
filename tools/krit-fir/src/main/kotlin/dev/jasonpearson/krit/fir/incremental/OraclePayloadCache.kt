@@ -61,6 +61,17 @@ internal class OraclePayloadCache {
 
     fun sync(stateGeneration: Int) { generation = stateGeneration }
 
+    /** An immutable image of the cache for the bundle (#740); entries are immutable, so sharing them is safe. */
+    fun export(): PersistedOracle = PersistedOracle(generation, order.toList(), LinkedHashMap(entries))
+
+    /** Replaces the cache with a persisted image, as of state generation [stateGeneration]. */
+    fun restore(image: PersistedOracle, stateGeneration: Int) {
+        clear()
+        entries.putAll(image.entries)
+        order.addAll(image.order)
+        generation = stateGeneration
+    }
+
     /**
      * The source-side annotations of every annotated callable the module declares outside [excluding] (canonical
      * paths): what a slice that reads those files as class files reports for calls to them.

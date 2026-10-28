@@ -82,6 +82,8 @@ internal fun resolveJvmTarget(declared: String, jdkFeature: Int = Runtime.versio
 data class AnalyzeOutcome(
     val result: AnalyzeResult,
     val cacheDeps: OracleResponse.CacheDepsView,
+    /** Per file, the source-side annotations of its annotated callables; recorded only for incremental use. */
+    val declaredAnnotations: Map<String, Map<String, List<String>>> = emptyMap(),
 )
 
 data class BatchResult(
@@ -403,29 +405,38 @@ class AnalysisSession(
     }
 
     /**
-     * Stores the oracle facts and `cacheDeps` edges [result] and [deps] hold for each of [files] (canonical paths)
-     * under its content hash in [hashes]; a file the compile gave no facts, or that has no hash, loses its entry.
-     * Holds [snapshotLock].
+     * Stores the oracle facts, `cacheDeps` edges and declared annotations [outcome] holds for each of [files]
+     * (canonical paths) under its content hash in [hashes]; a file the compile gave no facts, or that has no hash,
+     * loses its entry. False when a supertype edge names a class the state cannot place in a file: the caller drops
+     * the cache. Holds [snapshotLock].
      */
     private fun storeOraclePayloads(
-        result: AnalyzeResult, deps: OracleResponse.CacheDepsView, files: Collection<String>, hashes: Map<String, String>,
-        wholeModule: Boolean = false,
-    ) {
+        outcome: AnalyzeOutcome, files: Collection<String>, hashes: Map<String, String>, wholeModule: Boolean = false,
+    ): Boolean {
+        val result = outcome.result
+        val deps = outcome.cacheDeps
         fun byCanonical(map: Map<String, *>) = map.keys.associateBy { canonicalOrSelf(File(it)) }
         val payloadKeys = byCanonical(result.files)
         if (wholeModule) oraclePayloads.recordOrder(payloadKeys.keys)
         val depKeys = byCanonical(deps.depPathsByFile)
         val perFileKeys = byCanonical(deps.perFileDeps)
+        val declaredKeys = byCanonical(outcome.declaredAnnotations)
         for (file in files) {
             val hash = hashes[file]
             val payload = payloadKeys[file]?.let { result.files[it] }
             if (hash == null || payload == null) { oraclePayloads.remove(file); continue }
+            val supertypes = LinkedHashMap<String, String>()
+            for (fqn in perFileKeys[file]?.let { deps.perFileDeps[it] }.orEmpty().keys) {
+                supertypes[fqn] = incrementalState.fileDeclaring(fqn) ?: return false
+            }
             oraclePayloads.put(file, OraclePayloadCache.Entry(
                 hash, payload,
                 depPaths = depKeys[file]?.let { deps.depPathsByFile[it] }.orEmpty().map { canonicalOrSelf(File(it)) },
-                perFileDeps = perFileKeys[file]?.let { deps.perFileDeps[it] }.orEmpty(),
+                perFileDeps = supertypes,
+                declaredAnnotations = declaredKeys[file]?.let { outcome.declaredAnnotations[it] }.orEmpty(),
             ))
         }
+        return true
     }
 
     // Splits [result] into the verdict of each compiled file, keyed by canonical path and the state's content hash.
@@ -593,11 +604,16 @@ class AnalysisSession(
                 // The oracle's facts for the compiled files, from the same frontend run (#740): registered as
                 // analyzeCompilation registers them for the shared compile.
                 val oracle = if (withOracle) OracleCollector() else null
-                oracle?.binarySupertype = { fqn ->
-                    incrementalState.fileDeclaring(fqn)?.let { file ->
-                        oraclePayloads.declaration(file, fqn)?.let { file to it }
-                            ?: run { oracle.binarySupertypeMissed = true; null }
+                if (oracle != null) {
+                    oracle.recordDeclarations = true
+                    oracle.binarySupertype = { fqn ->
+                        incrementalState.fileDeclaring(fqn)?.let { file ->
+                            oraclePayloads.declaration(file, fqn)?.let { file to it }
+                                ?: run { oracle.binarySupertypeMissed = true; null }
+                        }
                     }
+                    val declared by lazy { oraclePayloads.declaredAnnotationIndex(compiled) }
+                    oracle.binaryCalleeAnnotations = { signature -> declared[signature] }
                 }
                 val messages = listOfNotNull(
                     oracle?.let { o -> OracleDiagnosticMessageCollector(o, args.freeArgs.associateBy { File(it).canonicalPath }) },
@@ -666,13 +682,12 @@ class AnalysisSession(
                     verdicts.sync(incrementalState.generation)
                 }
                 if (oracleInStep) {
-                    if (oracle.binarySupertypeMissed) {
-                        oraclePayloads.clear()
-                    } else {
-                        for (file in removed) oraclePayloads.remove(file)
-                        storeOraclePayloads(oracle.toResult(), oracle.depTracker.view(), compiled, incrementalState.contentHashes())
-                        oraclePayloads.sync(incrementalState.generation)
-                    }
+                    for (file in removed) oraclePayloads.remove(file)
+                    val stored = !oracle.binarySupertypeMissed && storeOraclePayloads(
+                        AnalyzeOutcome(oracle.toResult(), oracle.depTracker.view(), oracle.declaredAnnotations), compiled,
+                        incrementalState.contentHashes(),
+                    )
+                    if (stored) oraclePayloads.sync(incrementalState.generation) else oraclePayloads.clear()
                 }
                 persistence?.markDirty(afterFullCheck = false)
             }
@@ -1053,8 +1068,8 @@ class AnalysisSession(
                 val recorded = incrementalState.contentHashes()
                 if (plannerEnabled && incrementalState.compileKey != null && recorded == before && contentHashesOf(sources) == before) {
                     oraclePayloads.clear()
-                    storeOraclePayloads(outcome.result, outcome.cacheDeps, before.keys, recorded, wholeModule = true)
-                    oraclePayloads.sync(incrementalState.generation)
+                    if (storeOraclePayloads(outcome, before.keys, recorded, wholeModule = true)) oraclePayloads.sync(incrementalState.generation)
+                    else oraclePayloads.clear()
                 }
             }
         } catch (e: Throwable) {
@@ -1069,8 +1084,8 @@ class AnalysisSession(
         try {
             synchronized(snapshotLock) {
                 oraclePayloads.clear()
-                storeOraclePayloads(outcome.result, outcome.cacheDeps, sources.map { canonicalOrSelf(File(it)) }, incrementalState.contentHashes(), wholeModule = true)
-                oraclePayloads.sync(incrementalState.generation)
+                val stored = storeOraclePayloads(outcome, sources.map { canonicalOrSelf(File(it)) }, incrementalState.contentHashes(), wholeModule = true)
+                if (stored) oraclePayloads.sync(incrementalState.generation) else oraclePayloads.clear()
             }
         } catch (e: Throwable) {
             if (!isIsolatable(e)) throw e
@@ -1119,7 +1134,7 @@ class AnalysisSession(
     private fun analyzeCompilation(
         sources: List<String>, check: CheckPlan?, record: Boolean = false, onExit: (ExitCode) -> Unit = {},
     ): AnalyzeOutcome {
-        val collector = OracleCollector()
+        val collector = OracleCollector().apply { recordDeclarations = plannerEnabled }
         val outDir = Files.createTempDirectory("krit-fir-oracle-out-").toFile()
         try {
             val args = compilationArguments(sources, outDir)
@@ -1146,7 +1161,9 @@ class AnalysisSession(
         } finally {
             outDir.deleteRecursively()
         }
-        return AnalyzeOutcome(result = collector.toResult(), cacheDeps = collector.depTracker.view())
+        return AnalyzeOutcome(
+            result = collector.toResult(), cacheDeps = collector.depTracker.view(), declaredAnnotations = collector.declaredAnnotations,
+        )
     }
 
     /** Shared defaults for legacy oracle/checker and module compiles. Output ownership stays with the caller. */

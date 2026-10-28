@@ -41,6 +41,24 @@ internal class OracleCollector {
     /** Set when [binarySupertype] knew the declaring file but had no projection: this compile's deps are partial. */
     var binarySupertypeMissed: Boolean = false
 
+    /**
+     * Slice compiles only (#740): the source-side annotations of a callee the compile read as a binary, by
+     * [calleeSignature]; null when the module's source declares none for it (or it is not the module's).
+     */
+    var binaryCalleeAnnotations: ((signature: String) -> List<String>?)? = null
+
+    /** Whether to record [declaredAnnotations]: on while the session keeps oracle facts for incremental use. */
+    var recordDeclarations: Boolean = false
+
+    private val declaredByFile = LinkedHashMap<String, LinkedHashMap<String, List<String>>>()
+
+    /** Per file, the annotations of each annotated function and constructor it declares (see [recordDeclaredAnnotations]). */
+    val declaredAnnotations: Map<String, Map<String, List<String>>> get() = declaredByFile
+
+    fun addDeclaredAnnotations(filePath: String, signature: String, annotations: List<String>) {
+        declaredByFile.getOrPut(filePath) { LinkedHashMap() }.putIfAbsent(signature, annotations)
+    }
+
     fun addClass(filePath: String, payload: ClassPayload) {
         perFile.getOrPut(filePath) { mutableListOf() }.add(payload)
         // The `dependencies` map mirrors krit-types' cross-file class

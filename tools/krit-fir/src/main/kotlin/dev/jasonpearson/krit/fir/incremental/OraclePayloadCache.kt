@@ -19,11 +19,18 @@ import dev.jasonpearson.krit.fir.oracle.OracleResponse
  * projections), which Go's oracle cache invalidates on. Paths are canonical; [assemble] spells them as the request.
  */
 internal class OraclePayloadCache {
+    /**
+     * [perFileDeps] names, per supertype FQN, the module file declaring it: the projection is taken from that file's
+     * entry when an answer is assembled, so an edit to the supertype that leaves this file alone (a private member,
+     * which no dependent's surface sees) still shows. [declaredAnnotations] are the source-side annotations of the
+     * file's annotated functions and constructors, by `calleeSignature`.
+     */
     class Entry(
         val contentHash: String,
         val payload: FilePayload,
         val depPaths: List<String> = emptyList(),
-        val perFileDeps: Map<String, ClassPayload> = emptyMap(),
+        val perFileDeps: Map<String, String> = emptyMap(),
+        val declaredAnnotations: Map<String, List<String>> = emptyMap(),
     )
 
     /** An oracle answer assembled from the cache, in the shapes a compile returns. */
@@ -53,6 +60,19 @@ internal class OraclePayloadCache {
 
     fun sync(stateGeneration: Int) { generation = stateGeneration }
 
+    /**
+     * The source-side annotations of every annotated callable the module declares outside [excluding] (canonical
+     * paths): what a slice that reads those files as class files reports for calls to them.
+     */
+    fun declaredAnnotationIndex(excluding: Set<String>): Map<String, List<String>> {
+        val out = HashMap<String, List<String>>()
+        for ((file, entry) in entries) {
+            if (file in excluding) continue
+            for ((signature, annotations) in entry.declaredAnnotations) out.putIfAbsent(signature, annotations)
+        }
+        return out
+    }
+
     /** The recorded projection of class [fqn] declared in [file], or null. */
     fun declaration(file: String, fqn: String): ClassPayload? =
         entries[file]?.payload?.declarations?.firstOrNull { it.fqn == fqn }
@@ -76,7 +96,11 @@ internal class OraclePayloadCache {
             out[spelling] = entry.payload
             for (declaration in entry.payload.declarations) dependencies.putIfAbsent(declaration.fqn, declaration)
             if (entry.depPaths.isNotEmpty()) depPaths[spelling] = entry.depPaths.mapTo(LinkedHashSet()) { files[it] ?: it }
-            if (entry.perFileDeps.isNotEmpty()) perFileDeps[spelling] = entry.perFileDeps
+            if (entry.perFileDeps.isNotEmpty()) {
+                val projections = LinkedHashMap<String, ClassPayload>()
+                for ((fqn, declaring) in entry.perFileDeps) projections[fqn] = declaration(declaring, fqn) ?: return null
+                perFileDeps[spelling] = projections
+            }
         }
         return Assembled(
             AnalyzeResult(files = out, dependencies = dependencies),

@@ -103,6 +103,38 @@ class SharedOracleIncrementalTest {
         assertSameAsFresh(s.shared())
     }
 
+    @Test fun aCalleeReadAsABinaryKeepsItsSourceRetentionAnnotations() {
+        // Class files drop SOURCE-retention annotations; a caller compiled alone must still report them.
+        write("Ann.kt", "package p\n\n@Target(AnnotationTarget.FUNCTION, AnnotationTarget.CONSTRUCTOR)\n" +
+            "@Retention(AnnotationRetention.SOURCE)\nannotation class Marker\n\n" +
+            "@Marker\nfun target(): Int = 1\n\n@Suppress(\"unused\")\n@Deprecated(\"x\")\nfun both(x: Int): Int = x\n\n" +
+            "class Holder @Marker constructor(val v: Int) {\n    @Marker fun member(s: String): Int = s.length\n}\n")
+        write("Caller.kt", "package p\n\nfun caller(): Int {\n    val a = target()\n    val b = both(1)\n    val h = Holder(2)\n    return a + b + h.member(\"a\")\n}\n")
+        val s = session()
+        assertSameAsFresh(s.shared())
+        write("Caller.kt", "package p\n\nfun caller(): Int {\n    val a = target()\n    val b = both(2)\n    val h = Holder(3)\n    return a + b + h.member(\"bb\")\n}\n")
+        val warm = s.shared()
+        assertTrue(s.lastOracleFromCache, "the caller alone is compiled, against Ann.kt as a class file")
+        val calls = warm.result.files.getValue(p("Caller.kt")).expressions.values
+        assertTrue(calls.any { it.callTarget == "p.target" && "p.Marker" in it.annotations }, calls.toString())
+        assertTrue(calls.any { it.callTarget == "p.both" && "kotlin.Suppress" in it.annotations }, calls.toString())
+        assertTrue(calls.any { it.callTarget == "p.Holder.member" && "p.Marker" in it.annotations }, calls.toString())
+        assertSameAsFresh(warm)
+    }
+
+    @Test fun aPrivateMemberEditInASupertypeRefreshesTheSubclassEdges() {
+        // A private member is not part of Base's surface, so Sub is not compiled again, yet the projection of Base
+        // that Sub's edges carry lists it.
+        write("Base.kt", "package p\n\nopen class Base {\n    open fun size(): Int = helper()\n    private fun helper(): Int = 1\n}\n\ninterface Named { val name: String }\n")
+        write("Sub.kt", "package p\n\nclass Sub : Base(), Named {\n    override val name: String = \"s\"\n}\n")
+        val s = session()
+        assertSameAsFresh(s.shared())
+        write("Base.kt", "package p\n\nopen class Base {\n    open fun size(): Int = helper().toInt()\n    private fun helper(): Long = 1\n}\n\ninterface Named { val name: String }\n")
+        val warm = s.shared()
+        assertTrue(s.lastOracleFromCache)
+        assertSameAsFresh(warm)
+    }
+
     @Test fun addedAndDeletedFilesFollow() {
         module()
         val s = session()

@@ -4,7 +4,7 @@ import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
-import org.jetbrains.kotlin.fir.declarations.toAnnotationClassId
+import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
 import org.jetbrains.kotlin.fir.declarations.utils.isSuspend
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
@@ -56,8 +56,11 @@ internal object OracleExpressionChecker : FirFunctionCallChecker(MppCheckerKind.
                 callTarget = fqn
                 callTargetResolved = true
                 callTargetSuspend = callee.isSuspend
-                annotations = callee.annotations.mapNotNull {
-                    it.toAnnotationClassId(context.session)?.asSingleFqName()?.asString()
+                annotations = calleeAnnotationFqns(callee, context.session)
+                // A slice reads the module's other files as class files, which drop SOURCE-retention annotations:
+                // report the callee's source-side list instead (#740).
+                if (callee.origin != FirDeclarationOrigin.Source) {
+                    collector.binaryCalleeAnnotations?.let { lookup -> calleeSignature(callee)?.let(lookup)?.let { annotations = it } }
                 }
             }
         }

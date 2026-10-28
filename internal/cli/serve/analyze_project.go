@@ -662,6 +662,12 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 		// The oracle daemon and the pass compile the same module; the broker
 		// lets the oracle's compile answer the pass's check too (#810).
 		in.Host.FIRCheckBroker = firchecks.NewBroker()
+		if !args.NoCache {
+			// An oracle-only request (the check served by its cache) still
+			// lets krit-fir load its bundle and answer an unchanged module
+			// without a compile (#957).
+			in.Host.FIRIncrementalDir = firchecks.IncrementalDir(repoDir)
+		}
 	}
 	if args.NoTypeOracle {
 		// No oracle run in this request, so there is no compile to share.

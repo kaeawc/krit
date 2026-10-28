@@ -197,10 +197,26 @@ func (d *Daemon) AnalyzeAll() (*Data, error) {
 // AnalyzeAllWithCallFilter sends a full analysis request for all files,
 // optionally narrowing call-target resolution in the JVM oracle.
 func (d *Daemon) AnalyzeAllWithCallFilter(callFilter *CallTargetFilterSummary) (*Data, error) {
+	return d.AnalyzeAllWithCallFilterIn(callFilter, "")
+}
+
+// AnalyzeAllWithCallFilterIn is AnalyzeAllWithCallFilter that also names the
+// directory of krit-fir's persisted incremental bundle (#957). krit-fir then
+// loads it into a cold session and answers an unchanged module's oracle from
+// the cached facts instead of compiling it. Empty sends no directory, as
+// --no-cache requires, and so does a daemon not launched as krit-fir.
+func (d *Daemon) AnalyzeAllWithCallFilterIn(callFilter *CallTargetFilterSummary, incrementalDir string) (*Data, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	params := callFilterParams(callFilter)
+	if incrementalDir != "" && d.backend == BackendFIR {
+		if params == nil {
+			params = map[string]interface{}{}
+		}
+		// The daemon's working directory is not the caller's.
+		params["incrementalDir"] = AbsolutePath(incrementalDir)
+	}
 	result, err := d.sendResult("analyzeAll", params)
 	if err != nil {
 		return nil, err

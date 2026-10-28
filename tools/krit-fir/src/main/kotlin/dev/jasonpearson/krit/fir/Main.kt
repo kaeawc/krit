@@ -426,6 +426,9 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 } else {
                     request.files.map { it.path }
                 }
+                // An oracle-only request names the bundle root so a restarted daemon can answer an unchanged module
+                // from it (#957). Without one, the root the last check named stays in force.
+                request.incrementalDir?.let { activeSession.configurePersistence(BundleStore.trustedRoot(it)) }
                 val response = if (request.command == "analyzeWithDeps") {
                     val outcome = activeSession.analyzeFull(analyzeFiles)
                     OracleResponse.buildAnalyzeWithDeps(request.id, outcome.result, outcome.cacheDeps)

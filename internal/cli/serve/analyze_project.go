@@ -665,8 +665,9 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 		if !args.NoCache {
 			// An oracle-only request (the check served by its cache) still
 			// lets krit-fir load its bundle and answer an unchanged module
-			// without a compile (#957).
-			in.Host.FIRIncrementalDir = firchecks.IncrementalDir(repoDir)
+			// without a compile (#957). The directory is the one the pass's
+			// checker persists to (scan.NewFIRChecker), not the daemon root.
+			in.Host.FIRIncrementalDir = firchecks.IncrementalDir(oracle.FindRepoDir(paths))
 		}
 	}
 	if args.NoTypeOracle {

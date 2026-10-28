@@ -287,6 +287,28 @@ class SharedOracleIncrementalTest {
         assertSameAsFresh(added)
     }
 
+    @Test fun aSessionWithoutStateAnswersARepeatedOracleOnlyRequestFromItsLastCompile() {
+        module()
+        // No check ever ran here (a restarted daemon whose check the Go cache serves): there is no incremental state.
+        val s = session()
+        assertSameAsFresh(s.analyzeFull(paths()))
+        assertFalse(s.lastOracleFromCache)
+        val again = s.analyzeFull(paths())
+        assertTrue(s.lastOracleFromCache, "nothing changed since the last plain compile")
+        assertSameAsFresh(again)
+
+        write("Use.kt", "package p\n\nfun use(s: Sub): Int = s.size() + 7\n")
+        val edited = s.analyzeFull(paths())
+        assertFalse(s.lastOracleFromCache, "an edit compiles")
+        assertSameAsFresh(edited)
+        assertSameAsFresh(s.analyzeFull(paths()))
+        assertTrue(s.lastOracleFromCache)
+
+        File(src, "Other.kt").delete()
+        assertSameAsFresh(s.analyzeFull(paths()))
+        assertFalse(s.lastOracleFromCache, "a deleted file compiles")
+    }
+
     @Test fun anOracleOnlyRequestWithoutPlanningCompiles() {
         module()
         val s = session(planning = false)

@@ -975,9 +975,26 @@ class AnalysisSession(
     fun analyzeFull(files: List<String>): AnalyzeOutcome {
         lastOracleFromCache = false
         val sources = compilationFiles(files)
-        if (plannerEnabled) oracleFromCacheIfUnchanged(sources)?.let { return it }
-        return analyzeCompilation(sources, null)
+        if (!plannerEnabled) return analyzeCompilation(sources, null)
+        oracleFromCacheIfUnchanged(sources)?.let { return it }
+        val before = contentHashesOf(sources)
+        val key = PlainOracleKey(sources, before, compileKey())
+        lastPlainOracle?.takeIf { it.first == key }?.let { lastOracleFromCache = true; return it.second }
+        val outcome = analyzeCompilation(sources, null)
+        // Kept only when no source changed while it compiled.
+        lastPlainOracle = if (contentHashesOf(sources) == before) key to outcome else null
+        return outcome
     }
+
+    /** What a plain oracle compile's answer depends on: the requested sources as spelled, their content, the compile key. */
+    private data class PlainOracleKey(val sources: List<String>, val contentHashes: Map<String, String>, val compileKey: String)
+
+    /**
+     * The last plain oracle compile's answer (#957). The incremental state is recorded only by a compile that also
+     * checks, so a session that has none (a restarted daemon whose check is served by the Go check cache, or a module
+     * scan that is not persisted) would otherwise compile the whole module for every unchanged oracle request.
+     */
+    @Volatile private var lastPlainOracle: Pair<PlainOracleKey, AnalyzeOutcome>? = null
 
     /**
      * The oracle answer for [sources] from the incremental state's cached facts, when nothing the state recorded

@@ -21,8 +21,10 @@ run_test() {
         echo -e "${RED}FAIL${NC}"
         FAIL=$((FAIL + 1))
         echo "    --- output ---"
-        # The tail alone can hide which package failed in a long run.
-        grep -E '^(--- FAIL|FAIL|panic:)' "$log" | sed 's/^/    /' | head -40 || true
+        # The tail alone can hide which package failed in a long run. Keep
+        # each failing test's own messages (`file_test.go:N: ...`) too:
+        # without them a flaky failure cannot be told apart (#954).
+        grep -E '^([[:space:]]*--- FAIL|FAIL|panic:)|^[[:space:]]+[[:alnum:]_./-]+_test\.go:[0-9]+:' "$log" | sed 's/^/    /' | head -80 || true
         echo "    ..."
         sed 's/^/    /' "$log" | tail -30
         echo "    --- end ---"

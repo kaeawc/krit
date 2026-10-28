@@ -84,8 +84,8 @@ Compiler plugins (kotlinx.serialization, Compose, Parcelize, all-open, no-arg,
 Metro, ...) generate declarations the frontend resolves against, such as
 `Foo.serializer()`. Without them a module that uses one compiles with errors:
 the files that use generated API land in `errorFiles`, and a module with
-compiler errors gets no binary snapshot, so incremental FIR
-(`KRIT_FIR_INCREMENTAL=1`) never engages on it.
+compiler errors gets no binary snapshot, so incremental FIR checking
+(on by default) never engages on it.
 
 `krit-fir` therefore loads the project's plugins next to its own. They are a
 krit-owned field (`KotlinSettings.Plugins`), never compiler arguments: `-Xplugin`

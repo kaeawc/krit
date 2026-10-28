@@ -135,7 +135,7 @@ class AnalysisSession(
     /**
      * Records what incremental checking needs from each whole-module check compile: the compiler's lookups
      * and every file's declaration surface, kept in [incrementalState]. Off keeps the compile exactly as it
-     * is without the feature. Defaults to `KRIT_FIR_INCREMENTAL=1`.
+     * is without the feature. On by default; `KRIT_FIR_INCREMENTAL=0` turns it off.
      */
     val incrementalRecording: Boolean = incrementalRecordingFromEnv(),
     /**
@@ -147,7 +147,7 @@ class AnalysisSession(
     /**
      * Serves [check] from [incrementalState] and its snapshot when possible (see [IncrementalPlanner]); needs
      * [incrementalRecording] and [incrementalSnapshot]. Off keeps `check` the whole-module compile it is without the
-     * feature. Defaults to `KRIT_FIR_INCREMENTAL=1`.
+     * feature. On by default; `KRIT_FIR_INCREMENTAL=0` turns it off.
      */
     val incrementalPlanning: Boolean = incrementalRecordingFromEnv(),
     /**

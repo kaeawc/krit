@@ -42,8 +42,14 @@ internal object CompileRecordingRegistry {
     fun end() = active.remove()
 }
 
-/** `KRIT_FIR_INCREMENTAL=1` turns recording on for sessions that do not choose explicitly. */
-internal fun incrementalRecordingFromEnv(): Boolean = System.getenv("KRIT_FIR_INCREMENTAL") == "1"
+/**
+ * Incremental checking is on for sessions that do not choose explicitly (#740); `KRIT_FIR_INCREMENTAL=0` (or
+ * `false`, `off`) turns it off.
+ */
+internal fun incrementalRecordingFromEnv(): Boolean = incrementalEnabled(System.getenv("KRIT_FIR_INCREMENTAL"))
+
+/** Whether a `KRIT_FIR_INCREMENTAL` value leaves incremental checking on: anything but an explicit off. */
+internal fun incrementalEnabled(value: String?): Boolean = value?.trim()?.lowercase() !in setOf("0", "false", "off")
 
 /** Lower-case hex of the first [length] bytes of [bytes]. */
 internal fun hex(bytes: ByteArray, length: Int = bytes.size): String = HexFormat.of().formatHex(bytes, 0, length)

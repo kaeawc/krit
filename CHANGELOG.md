@@ -4,8 +4,17 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Incremental FIR checking is now on by default (#740). After the first
+  whole-module compile, `--fir` scans compile only the edited files and the
+  files that depend on them, for the FIR checkers and for the type oracle. Set
+  `KRIT_FIR_INCREMENTAL=0` to turn it off. On a 182-file module, warm `--fir`
+  daemon scans took about 2 s instead of 6–10 s, with the same findings. The
+  first compile of a module also builds the binary snapshot, so it takes
+  longer.
+
 ### Added
-- Incremental FIR checking (`KRIT_FIR_INCREMENTAL=1`) persists its state, verdicts and binary
+- Incremental FIR checking persists its state, verdicts and binary
   snapshot to `.krit/fir-incremental/<compile key>/` (supplied by krit, bypassed by
   `--no-cache`), so a restarted daemon or a one-shot run serves its first check
   after a few edits by slice compile instead of a cold full check. Corrupt,

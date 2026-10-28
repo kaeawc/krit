@@ -190,7 +190,7 @@ near-zero on a warm run.
 
 | Flag | What it disables |
 |---|---|
-| `--no-cache` | Incremental analysis cache (findings reuse) and the `--fir` check cache `.krit/fir-cache` and the `KRIT_FIR_INCREMENTAL=1` bundle `.krit/fir-incremental` (neither read nor written; applies to daemon-delegated scans too) |
+| `--no-cache` | Incremental analysis cache (findings reuse) and the `--fir` check cache `.krit/fir-cache` and the incremental FIR bundle `.krit/fir-incremental` (neither read nor written; applies to daemon-delegated scans too) |
 | `--no-parse-cache` | Tree-sitter parse-tree cache |
 | `--no-resource-cache` | Android values-XML ResourceIndex cache |
 | `--no-cross-file-cache` | Cross-file index cache |

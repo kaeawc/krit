@@ -33,7 +33,7 @@ class IncrementalRecordingTest {
     private fun write(name: String, text: String): File = tmp.resolve(name).toFile().apply { writeText(text) }
 
     private fun newSession(record: Boolean = true) =
-        AnalysisSession(listOf(tmp.toString()), listOf(stdlib), incrementalRecording = record)
+        AnalysisSession(listOf(tmp.toString()), listOf(stdlib), incrementalRecording = record, incrementalPlanning = false)
 
     private fun allFiles(): List<String> =
         tmp.toFile().listFiles { f -> f.extension == "kt" }!!.map { it.absolutePath }.sorted()
@@ -234,7 +234,7 @@ class IncrementalRecordingTest {
         baseline()
         val extra = tmp.resolve("extra-classes").toFile().apply { mkdirs() }
         val entry = File(extra, "B.class").apply { writeText("x") }
-        val session = AnalysisSession(listOf(tmp.resolve("src").toString()), listOf(stdlib, extra.path), incrementalRecording = true)
+        val session = AnalysisSession(listOf(tmp.resolve("src").toString()), listOf(stdlib, extra.path), incrementalRecording = true, incrementalPlanning = false)
         File(tmp.resolve("src").toFile().apply { mkdirs() }, "A.kt").writeText("package a\nfun a() = 1\n")
         val files = listOf(FileRef(tmp.resolve("src/A.kt").toString()))
         session.check(1, files, emptySet())
@@ -250,7 +250,7 @@ class IncrementalRecordingTest {
         val nested = File(extra, "pkg/deep/A.class").apply { parentFile.mkdirs(); writeText("v1") }
         val src = tmp.resolve("src").toFile().apply { mkdirs() }
         File(src, "A.kt").writeText("package a\nfun a() = 1\n")
-        val session = AnalysisSession(listOf(src.path), listOf(stdlib, extra.path), incrementalRecording = true)
+        val session = AnalysisSession(listOf(src.path), listOf(stdlib, extra.path), incrementalRecording = true, incrementalPlanning = false)
         val files = listOf(FileRef(File(src, "A.kt").path))
         session.check(1, files, emptySet())
         val before = session.incrementalState.compileKey

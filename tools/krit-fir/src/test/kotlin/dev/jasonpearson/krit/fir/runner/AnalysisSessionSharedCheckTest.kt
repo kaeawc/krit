@@ -39,8 +39,9 @@ class AnalysisSessionSharedCheckTest {
     private fun request(files: List<String>, rules: List<String> = listOf("ProtocolProbe")) =
         CheckRequest(id = 7, command = "check", files = files.map { FileRef(it) }, rules = rules)
 
-    // Findings arrive in compiler report order; compare them as a set.
-    private fun normalized(result: BatchResult) = result.copy(findings = result.findings.sortedWith(
+    // Findings arrive in compiler report order; compare them as a set. The planner's account (with its timing) is
+    // not part of the verdict.
+    private fun normalized(result: BatchResult) = result.copy(plan = null, findings = result.findings.sortedWith(
         compareBy({ it.path }, { it.line }, { it.col }, { it.rule }),
     ))
 

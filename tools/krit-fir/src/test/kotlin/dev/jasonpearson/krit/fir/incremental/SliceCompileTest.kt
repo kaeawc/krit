@@ -262,7 +262,7 @@ class SliceCompileTest {
     @Test fun aChangedClasspathEntryMakesTheSnapshotUnusable() {
         write("A.kt", "package a\nfun a() = 1\n")
         val extra = tmp.resolve("extra-classes").toFile().apply { mkdirs() }
-        val session = AnalysisSession(listOf(src.path), listOf(testStdlib, extra.path), incrementalRecording = true)
+        val session = AnalysisSession(listOf(src.path), listOf(testStdlib, extra.path), incrementalRecording = true, incrementalPlanning = false)
         session.snapshotRootOverride = snaps
         session.check(1, refs("A.kt"), emptySet())
         assertEquals(null, session.sliceFallback())

@@ -21,15 +21,17 @@ internal fun calleeAnnotationFqns(symbol: FirCallableSymbol<*>, session: FirSess
 
 /**
  * A key for a callable that is the same whether the compile reads its declaration from source or from a class file:
- * its callable id, receiver type and value parameter types, of the declaration a fake override stands for.
+ * its callable id, context parameter, receiver and value parameter types, of the declaration a fake override
+ * stands for.
  */
 internal fun calleeSignature(symbol: FirCallableSymbol<*>): String? {
     val original = symbol.unwrapFakeOverrides()
     val id = original.callableId ?: return null
+    val context = original.contextParameterSymbols.joinToString(",") { it.resolvedReturnType.renderFqn() }
     val receiver = original.resolvedReceiverType?.renderFqn().orEmpty()
     val params = (original as? FirFunctionSymbol<*>)?.valueParameterSymbols
         ?.joinToString(",") { it.resolvedReturnType.renderFqn() }.orEmpty()
-    return "$id|$receiver|$params"
+    return "$id|$context|$receiver|$params"
 }
 
 /**

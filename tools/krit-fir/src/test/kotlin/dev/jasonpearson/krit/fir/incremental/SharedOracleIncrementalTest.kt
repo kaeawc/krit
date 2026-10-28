@@ -39,8 +39,8 @@ class SharedOracleIncrementalTest {
         write("Other.kt", "package p\n\nfun other(): String? = if (use(Sub()) > 1) \"x\" else null\n")
     }
 
-    private fun session(planning: Boolean = true): AnalysisSession =
-        AnalysisSession(listOf(src.path), listOf(testStdlib), incrementalRecording = planning, incrementalPlanning = planning)
+    private fun session(planning: Boolean = true, kotlinArgs: List<String> = emptyList()): AnalysisSession =
+        AnalysisSession(listOf(src.path), listOf(testStdlib), kotlinArgs = kotlinArgs, incrementalRecording = planning, incrementalPlanning = planning)
             .also { it.snapshotRootOverride = snaps; sessions += it }
 
     private fun request() = CheckRequest(id = 7, command = "check", files = paths().map { FileRef(it) }, rules = emptyList(), incrementalDir = root.path)
@@ -51,10 +51,11 @@ class SharedOracleIncrementalTest {
         return outcome
     }
 
-    private fun fresh(): AnalyzeOutcome = plainSession(src).also { sessions += it }.analyzeFull(paths())
+    private fun fresh(kotlinArgs: List<String> = emptyList()): AnalyzeOutcome =
+        session(planning = false, kotlinArgs = kotlinArgs).analyzeFull(paths())
 
-    private fun assertSameAsFresh(got: AnalyzeOutcome) {
-        val want = fresh()
+    private fun assertSameAsFresh(got: AnalyzeOutcome, kotlinArgs: List<String> = emptyList()) {
+        val want = fresh(kotlinArgs)
         assertEquals(want.result.files.keys.sorted(), got.result.files.keys.sorted())
         for ((path, payload) in want.result.files) assertEquals(payload, got.result.files[path], path)
         assertEquals(want.result.dependencies.toSortedMap(), got.result.dependencies.toSortedMap())
@@ -120,6 +121,22 @@ class SharedOracleIncrementalTest {
         assertTrue(calls.any { it.callTarget == "p.both" && "kotlin.Suppress" in it.annotations }, calls.toString())
         assertTrue(calls.any { it.callTarget == "p.Holder.member" && "p.Marker" in it.annotations }, calls.toString())
         assertSameAsFresh(warm)
+    }
+
+    @Test fun overloadsThatDifferOnlyInContextParametersKeepTheirOwnAnnotations() {
+        val args = listOf("-Xcontext-parameters")
+        write("Ann.kt", "package p\n\n@Retention(AnnotationRetention.SOURCE)\nannotation class First\n\n" +
+            "@Retention(AnnotationRetention.SOURCE)\nannotation class Second\n\nclass A\nclass B\n\n" +
+            "@First\ncontext(a: A) fun target(): Int = 1\n\n@Second\ncontext(b: B) fun target(): Int = 2\n")
+        write("Caller.kt", "package p\n\nfun caller(): Int {\n    val x = with(B()) { target() }\n    return x\n}\n")
+        val s = session(kotlinArgs = args)
+        assertSameAsFresh(s.shared(), args)
+        write("Caller.kt", "package p\n\nfun caller(): Int {\n    val x = with(B()) { target() }\n    return x + 1\n}\n")
+        val warm = s.shared()
+        assertTrue(s.lastOracleFromCache)
+        val call = warm.result.files.getValue(p("Caller.kt")).expressions.values.single { it.callTarget == "p.target" }
+        assertEquals(listOf("p.Second"), call.annotations)
+        assertSameAsFresh(warm, args)
     }
 
     @Test fun aPrivateMemberEditInASupertypeRefreshesTheSubclassEdges() {

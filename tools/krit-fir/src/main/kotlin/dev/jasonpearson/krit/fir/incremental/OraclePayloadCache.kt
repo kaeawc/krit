@@ -4,6 +4,7 @@ import dev.jasonpearson.krit.fir.oracle.AnalyzeResult
 import dev.jasonpearson.krit.fir.oracle.ClassPayload
 import dev.jasonpearson.krit.fir.oracle.FilePayload
 import dev.jasonpearson.krit.fir.oracle.OracleResponse
+import dev.jasonpearson.krit.fir.oracle.mergeDeclared
 
 /**
  * The per-file oracle facts of an [IncrementalState]'s module, so a warm `analyzeWithCheck` can answer the oracle
@@ -68,7 +69,7 @@ internal class OraclePayloadCache {
         val out = HashMap<String, List<String>>()
         for ((file, entry) in entries) {
             if (file in excluding) continue
-            for ((signature, annotations) in entry.declaredAnnotations) out.putIfAbsent(signature, annotations)
+            for ((signature, annotations) in entry.declaredAnnotations) out[signature] = mergeDeclared(out[signature], annotations)
         }
         return out
     }

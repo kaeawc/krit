@@ -139,6 +139,20 @@ class SharedOracleIncrementalTest {
         assertSameAsFresh(warm, args)
     }
 
+    @Test fun genericOverloadsThatDifferOnlyInBoundsKeepTheirOwnAnnotations() {
+        write("Ann.kt", "package p\n\n@Retention(AnnotationRetention.SOURCE)\nannotation class Numeric\n\n" +
+            "@Numeric\nfun <T : Number> target(x: T): Int = 1\n\nfun <T : CharSequence> target(x: T): Int = 2\n")
+        write("Caller.kt", "package p\n\nfun caller(): Int {\n    val a = target(1)\n    val b = target(\"s\")\n    return a + b\n}\n")
+        val s = session()
+        assertSameAsFresh(s.shared())
+        write("Caller.kt", "package p\n\nfun caller(): Int {\n    val a = target(2)\n    val b = target(\"t\")\n    return a + b\n}\n")
+        val warm = s.shared()
+        assertTrue(s.lastOracleFromCache)
+        val calls = warm.result.files.getValue(p("Caller.kt")).expressions.values.filter { it.callTarget == "p.target" }
+        assertEquals(listOf(listOf("p.Numeric"), emptyList()), calls.sortedBy { it.startByte }.map { it.annotations })
+        assertSameAsFresh(warm)
+    }
+
     @Test fun aPrivateMemberEditInASupertypeRefreshesTheSubclassEdges() {
         // A private member is not part of Base's surface, so Sub is not compiled again, yet the projection of Base
         // that Sub's edges carry lists it.

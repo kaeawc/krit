@@ -47,6 +47,9 @@ internal class OracleCollector {
      */
     var binaryCalleeAnnotations: ((signature: String) -> List<String>?)? = null
 
+    /** Set when a binary callee's key was [AMBIGUOUS_ANNOTATIONS]: this compile's facts are not trusted. */
+    var binaryCalleeAmbiguous: Boolean = false
+
     /** Whether to record [declaredAnnotations]: on while the session keeps oracle facts for incremental use. */
     var recordDeclarations: Boolean = false
 
@@ -56,7 +59,8 @@ internal class OracleCollector {
     val declaredAnnotations: Map<String, Map<String, List<String>>> get() = declaredByFile
 
     fun addDeclaredAnnotations(filePath: String, signature: String, annotations: List<String>) {
-        declaredByFile.getOrPut(filePath) { LinkedHashMap() }.putIfAbsent(signature, annotations)
+        val declared = declaredByFile.getOrPut(filePath) { LinkedHashMap() }
+        declared[signature] = mergeDeclared(declared[signature], annotations)
     }
 
     fun addClass(filePath: String, payload: ClassPayload) {

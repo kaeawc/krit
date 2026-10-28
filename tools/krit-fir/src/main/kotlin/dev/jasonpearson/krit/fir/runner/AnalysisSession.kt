@@ -683,7 +683,7 @@ class AnalysisSession(
                 }
                 if (oracleInStep) {
                     for (file in removed) oraclePayloads.remove(file)
-                    val stored = !oracle.binarySupertypeMissed && storeOraclePayloads(
+                    val stored = !oracle.binarySupertypeMissed && !oracle.binaryCalleeAmbiguous && storeOraclePayloads(
                         AnalyzeOutcome(oracle.toResult(), oracle.depTracker.view(), oracle.declaredAnnotations), compiled,
                         incrementalState.contentHashes(),
                     )

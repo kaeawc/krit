@@ -60,7 +60,9 @@ internal object OracleExpressionChecker : FirFunctionCallChecker(MppCheckerKind.
                 // A slice reads the module's other files as class files, which drop SOURCE-retention annotations:
                 // report the callee's source-side list instead (#740).
                 if (callee.origin != FirDeclarationOrigin.Source) {
-                    collector.binaryCalleeAnnotations?.let { lookup -> calleeSignature(callee)?.let(lookup)?.let { annotations = it } }
+                    val declared = collector.binaryCalleeAnnotations?.let { lookup -> calleeSignature(callee)?.let(lookup) }
+                    if (declared === AMBIGUOUS_ANNOTATIONS) collector.binaryCalleeAmbiguous = true
+                    else if (declared != null) annotations = declared
                 }
             }
         }

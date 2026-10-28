@@ -115,7 +115,9 @@ class AnalysisSessionSharedCheckTest {
 
         assertTrue(output.length() > 0)
         val expected = buildCheckResponse(AnalysisSession(listOf(root), listOf(stdlib)).check(3, paths.map { FileRef(it) }, setOf("ProtocolProbe")))
-        assertEquals(expected.length, checkOut.readText().length, checkOut.readText())
+        // Each compile reports its own planner time; only the rest of the response must agree.
+        fun withoutTiming(response: String) = response.replace(Regex("\"totalMs\":\\d+"), "\"totalMs\":0")
+        assertEquals(withoutTiming(expected).length, withoutTiming(checkOut.readText()).length, checkOut.readText())
         assertTrue("\"ProtocolProbe\"" in checkOut.readText())
 
         // A request for another compilation leaves --check-out unwritten.

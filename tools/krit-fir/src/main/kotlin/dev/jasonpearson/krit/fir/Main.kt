@@ -813,14 +813,53 @@ fun extractLong(json: String, key: String): Long? =
 
 fun extractString(json: String, key: String): String? =
     Regex(""""$key"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"""").find(json)
-        ?.groupValues?.get(1)?.replace("\\\"", "\"")?.replace("\\\\", "\\")
+        ?.groupValues?.get(1)?.let(::unescapeJsonString)
+
+/**
+ * Decodes the body of a JSON string literal (the text between its quotes).
+ * Every JSON escape is honoured: an `analyzeFile` request ships the file's
+ * source as one string, so `\n` must become a real newline for line numbers
+ * and PSI offsets to match the file on disk.
+ */
+fun unescapeJsonString(raw: String): String {
+    if ('\\' !in raw) return raw
+    val sb = StringBuilder(raw.length)
+    var i = 0
+    while (i < raw.length) {
+        val c = raw[i]
+        if (c != '\\' || i + 1 >= raw.length) {
+            sb.append(c)
+            i++
+            continue
+        }
+        when (val esc = raw[i + 1]) {
+            'n' -> sb.append('\n')
+            'r' -> sb.append('\r')
+            't' -> sb.append('\t')
+            'b' -> sb.append('\b')
+            'f' -> sb.append('\u000C')
+            'u' -> {
+                val code = raw.substring(i + 2, minOf(i + 6, raw.length)).takeIf { it.length == 4 }?.toIntOrNull(16)
+                if (code == null) {
+                    sb.append(esc)
+                } else {
+                    sb.append(code.toChar())
+                    i += 4
+                }
+            }
+            else -> sb.append(esc) // '"', '\\', '/', and anything unexpected
+        }
+        i += 2
+    }
+    return sb.toString()
+}
 
 fun extractStringArray(json: String, key: String): List<String>? {
     val arrayPat = Regex(""""$key"\s*:\s*\[([^\]]*)]""")
     val arrayBody = arrayPat.find(json)?.groupValues?.get(1) ?: return null
     if (arrayBody.isBlank()) return emptyList()
     return Regex(""""([^"\\]*(?:\\.[^"\\]*)*)"""").findAll(arrayBody).map {
-        it.groupValues[1].replace("\\\"", "\"").replace("\\\\", "\\")
+        unescapeJsonString(it.groupValues[1])
     }.toList()
 }
 
@@ -860,7 +899,7 @@ fun extractFileRefs(json: String): List<FileRef> {
             element.startsWith("{") ->
                 FileRef(extractString(element, "path") ?: "", extractString(element, "contentHash") ?: "")
             element.startsWith("\"") && element.length >= 2 ->
-                FileRef(element.substring(1, element.length - 1).replace("\\\"", "\"").replace("\\\\", "\\"))
+                FileRef(unescapeJsonString(element.substring(1, element.length - 1)))
             else -> null
         }
     }

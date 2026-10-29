@@ -43,7 +43,6 @@ func ExpandStaleOraclePaths(s *store.FileStore, cacheDir string, allPaths, chang
 		scanPaths := storeScanPaths(cacheDir, "")
 		scopes = map[string]StoreScope{
 			ApproximationFIRWholeCompilation: NewStoreScopeWithSettings(BackendFIR, FindBackendJar(BackendFIR, scanPaths), es.Classpath, es.JvmTarget, es.Kotlin),
-			ApproximationKAATaggedReferences: NewStoreScopeWithSettings(BackendKAA, FindBackendJar(BackendKAA, scanPaths), es.Classpath, es.JvmTarget, es.Kotlin),
 		}
 	}
 	paths := append([]string(nil), allPaths...)
@@ -58,9 +57,7 @@ func ExpandStaleOraclePaths(s *store.FileStore, cacheDir string, allPaths, chang
 		}
 		var entries []*CacheEntry
 		if s != nil {
-			// The freshness gate has no selected backend yet. Union both
-			// namespaces so neither backend's dependents are lost.
-			for _, approximation := range []string{ApproximationFIRWholeCompilation, ApproximationKAATaggedReferences} {
+			for _, approximation := range []string{ApproximationFIRWholeCompilation} {
 				release := BindStoreScope(s, scopes[approximation])
 				entry, loadErr := LoadEntryFromStore(s, hash, cacheDir, approximation)
 				release()

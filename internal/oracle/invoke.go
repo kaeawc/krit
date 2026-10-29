@@ -54,11 +54,11 @@ func invokeGraceExitFrom(r env.Reader) time.Duration {
 	return 15 * time.Second
 }
 
-// FindJar locates the krit-types shadow JAR without downloading; see
+// FindJar locates the krit-fir shadow JAR without downloading; see
 // FindBackendJar for the lookup order. Use EnsureJar instead when the caller
 // should auto-download a missing jar for the current krit release.
 func FindJar(scanPaths []string) string {
-	return FindBackendJar(BackendKAA, scanPaths)
+	return FindBackendJar(BackendFIR, scanPaths)
 }
 
 // nonJVMSourceSetFamilies are the Kotlin Multiplatform target families that
@@ -483,8 +483,7 @@ func InvokeDaemonWithClasspath(scanPaths []string, classpath []string, verbose b
 		reporter().Verbosef("verbose: Found %d source directories for daemon\n", len(sourceDirs))
 	}
 
-	// EnsureJar resolves the krit-types jar.
-	return StartDaemon(jarPath, sourceDirs, classpath, verbose, append([]DaemonOption{WithBackend(BackendKAA)}, opts...)...)
+	return StartDaemon(jarPath, sourceDirs, classpath, verbose, append([]DaemonOption{WithBackend(BackendFIR)}, opts...)...)
 }
 
 // InvokePersistentDaemon finds the JAR and source directories, then either

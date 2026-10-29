@@ -29,11 +29,11 @@ import (
 // per-version cache file under ~/.krit/jars/.
 //
 // Empty or "dev" disables auto-download: developer builds compile the jars
-// in-tree via `./gradlew shadowJar` under tools/krit-types or tools/krit-fir.
+// in-tree via `./gradlew shadowJar` under tools/krit-fir.
 var Version = ""
 
 // NoJarDownloadEnv disables jar auto-download when set to "1". Air-gapped
-// CI can pre-seed ~/.krit/jars or set KRIT_TYPES_JAR / KRIT_FIR_JAR instead.
+// CI can pre-seed ~/.krit/jars or set KRIT_FIR_JAR instead.
 const NoJarDownloadEnv = "KRIT_NO_JAR_DOWNLOAD"
 
 // releaseDownloadBase is the GitHub release download root. A package var so
@@ -63,25 +63,18 @@ func downloadSkipped(reason string) error {
 	return fmt.Errorf("%w: %s", ErrJarDownloadSkipped, reason)
 }
 
-// jarBaseName is the jar's file stem: "krit-types" for KAA, "krit-fir" for
-// FIR. The release asset, install cache file, and in-tree build output all
-// derive from it.
+// jarBaseName is the jar's file stem, "krit-fir". The release asset, install
+// cache file, and in-tree build output all derive from it.
 func (b Backend) jarBaseName() string {
 	return strings.TrimSuffix(b.JarName(), ".jar")
 }
 
-// JarEnvVar names the environment variable that overrides the backend's jar
-// location: KRIT_TYPES_JAR for KAA, KRIT_FIR_JAR for FIR.
-func (b Backend) JarEnvVar() string {
-	if b == BackendFIR {
-		return "KRIT_FIR_JAR"
-	}
-	return "KRIT_TYPES_JAR"
-}
+// JarEnvVar names the environment variable that overrides the jar location.
+func (b Backend) JarEnvVar() string { return "KRIT_FIR_JAR" }
 
 // FindBackendJar locates the backend's shadow jar without downloading.
 // Checked in order:
-//  1. The backend's env override (KRIT_TYPES_JAR / KRIT_FIR_JAR) when the
+//  1. The env override (KRIT_FIR_JAR) when the
 //     file exists
 //  2. Installed jars under ~/.krit/jars/ — version-pinned then unversioned
 //  3. ~/.krit/<jar> (legacy, pre-#300 install location)
@@ -156,10 +149,10 @@ func FindBackendJar(b Backend, scanPaths []string) string {
 	return ""
 }
 
-// EnsureJar returns the krit-types jar path, downloading the matching release
+// EnsureJar returns the krit-fir jar path, downloading the matching release
 // asset when needed. See EnsureBackendJar.
 func EnsureJar(ctx context.Context, scanPaths []string, verbose bool) (string, error) {
-	return EnsureBackendJar(ctx, BackendKAA, scanPaths, verbose)
+	return EnsureBackendJar(ctx, BackendFIR, scanPaths, verbose)
 }
 
 // EnsureBackendJar returns the backend's jar path, downloading the matching
@@ -254,11 +247,9 @@ func downloadReleaseJar(ctx context.Context, b Backend, tag, asset, target strin
 }
 
 // ResolveOracleJar returns the jar for the requested oracle backend,
-// downloading it on tagged releases (see EnsureBackendJar). When the krit-fir
-// jar cannot be had on a tagged release but a krit-types jar is already
-// installed, it falls back to the KAA backend and returns a warning saying so;
-// callers must use the returned backend, since cache entries are scoped to it.
-// Dev builds never fall back: they select the backend whose jar was built.
+// downloading it on tagged releases (see EnsureBackendJar). warning is
+// always "" now that there is no other backend to fall back to; it stays in
+// the signature for callers that report it.
 //
 // On failure jarPath is "" and err explains why; err wraps
 // ErrJarDownloadSkipped when no download was attempted.
@@ -267,13 +258,7 @@ func ResolveOracleJar(ctx context.Context, b Backend, scanPaths []string, verbos
 		b = DefaultBackend
 	}
 	jarPath, err = EnsureBackendJar(ctx, b, scanPaths, verbose)
-	if err == nil || b != BackendFIR || !IsReleaseBuild() {
-		return jarPath, b, "", err
-	}
-	if kaa := FindJar(scanPaths); kaa != "" {
-		return kaa, BackendKAA, fmt.Sprintf("%v; falling back to the krit-types (KAA) oracle backend at %s", err, kaa), nil
-	}
-	return "", b, "", err
+	return jarPath, b, "", err
 }
 
 // IsReleaseBuild reports whether this binary is a tagged release, the only

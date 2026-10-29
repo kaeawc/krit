@@ -650,35 +650,20 @@ func (e *oracleDaemonEntry) close() error {
 	return e.daemon.Close()
 }
 
-// oracleJarForBackend picks the JVM jar the resident oracle daemon
-// runs: krit-fir for BackendFIR (the default backend) and krit-types for
-// every other value, including "" and unknown backends, so the caller does not
-// reproduce the routing logic. Returns "" when neither jar is
-// installed; callers degrade to "oracle disabled".
-func oracleJarForBackend(scanPaths []string, backend oracle.Backend) string {
-	switch backend {
-	case oracle.BackendFIR:
-		// FIR is the default backend, so tagged releases download a
-		// missing krit-fir jar rather than silently running without it.
-		jarPath, _ := oracle.EnsureBackendJar(context.Background(), oracle.BackendFIR, scanPaths, false)
-		return jarPath
-	default:
-		return oracle.FindJar(scanPaths)
-	}
+// oracleJarForBackend picks the krit-fir jar the resident oracle daemon runs.
+// Tagged releases download a missing jar rather than silently running
+// without it. Returns "" when the jar cannot be had; callers degrade to
+// "oracle disabled".
+func oracleJarForBackend(scanPaths []string, _ oracle.Backend) string {
+	jarPath, _ := oracle.EnsureBackendJar(context.Background(), oracle.BackendFIR, scanPaths, false)
+	return jarPath
 }
 
-// ensureOracleDaemon lazy-starts (or reuses) the JVM daemon backing
-// the requested backend for the given scan paths. BackendKAA spawns
-// krit-types via oracle.FindJar; BackendFIR spawns krit-fir via
-// oracle.EnsureBackendJar. Returns (nil, nil) when the matching JAR
-// cannot be located — callers treat that as "oracle disabled" and
-// the verb proceeds without type resolution.
-//
-// Each (jarPath, sourceDirs) pair gets its own cache entry, so a
-// project that flips between FIR and KAA reaches each backend
-// without trampling the other's resident state. The on-the-wire
-// protocol is the same for both jars (see #559), so the
-// defaultOracleDaemonStarter implementation is reused verbatim.
+// ensureOracleDaemon lazy-starts (or reuses) the krit-fir daemon for the
+// given scan paths. Returns (nil, nil) when the jar cannot be located —
+// callers treat that as "oracle disabled" and the verb proceeds without type
+// resolution. Each (jarPath, sourceDirs, settings, classpath) gets its own
+// cache entry.
 //
 // Wired into the analyze-project verb path: buildProjectInput threads
 // the returned handle into ProjectHostState.OracleDaemon and flips
@@ -701,10 +686,10 @@ func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Back
 type oracleDaemonContext struct {
 	Kotlin gradlemodel.KotlinSettings
 	// Classpath is the resolved oracle classpath (Gradle model plus config).
-	// Both backends start and key on it.
+	// The daemon starts and keys on it.
 	Classpath []string
 	// ExtraSourceDirs are the Gradle-model source roots added to the walked
-	// ones (krit-fir only).
+	// ones.
 	ExtraSourceDirs []string
 }
 
@@ -727,19 +712,14 @@ func (s *daemonState) ensureOracleDaemonFor(scanPaths []string, backend oracle.B
 		// re-walk the filesystem on every call.
 		return nil, nil
 	}
-	// oracleJarForBackend picks krit-fir for FIR and krit-types otherwise.
-	served := oracle.BackendKAA
-	if backend == oracle.BackendFIR {
-		served = oracle.BackendFIR
-	}
+	served := oracle.BackendFIR
 	roots := oracle.FindSourceDirs(scanPaths)
-	// Both backends start and key on the request's classpath, so a daemon
-	// started without one is never reused for a request that has one.
-	sourceDirs, classpath := roots, octx.Classpath
-	if served == oracle.BackendFIR {
-		// The checker's context: FilterFIRSourceDirs(Union(Filter(roots), extra)).
-		sourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(oracle.FilterFIRSourceDirs(roots), octx.ExtraSourceDirs))
-	}
+	// The daemon starts and keys on the request's classpath, so a daemon
+	// started without one is never reused for a request that has one. Its
+	// source roots are the checker's context:
+	// FilterFIRSourceDirs(Union(Filter(roots), extra)).
+	classpath := octx.Classpath
+	sourceDirs := oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(oracle.FilterFIRSourceDirs(roots), octx.ExtraSourceDirs))
 	key := jarPath + "\x00" + strings.Join(sourceDirs, "\x00") + "\x00" + kt.Identity() + "\x00" + strings.Join(classpath, "\x00")
 	classpathFP := oracleClasspathFingerprint(classpath)
 

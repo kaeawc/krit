@@ -680,18 +680,12 @@ func requestCompilationRefresh(opts InvocationOptions, hits []*CacheEntry, misse
 
 // stampCacheDeps records which backend and compilation produced depsFile, so
 // the entries written from it say what Go ran rather than what the jar
-// reported about itself. A krit-types jar that predates tagged edges reports
-// the legacy approximation and no propagating edges; its entries keep that
-// legacy tag, so their closures walk every edge and no lookup trusts them.
+// reported about itself.
 func stampCacheDeps(depsFile *CacheDepsFile, opts InvocationOptions, compilation string) {
 	if depsFile == nil || opts.Backend == "" {
 		return
 	}
-	if opts.Backend == BackendKAA && depsFile.Approximation != ApproximationKAATaggedReferences {
-		depsFile.Approximation = ApproximationSymbolResolvedSources
-	} else {
-		depsFile.Approximation = opts.Backend.CacheApproximation()
-	}
+	depsFile.Approximation = opts.Backend.CacheApproximation()
 	depsFile.CompilationFingerprint = compilation
 }
 

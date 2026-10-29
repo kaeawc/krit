@@ -331,10 +331,6 @@ func (w *CacheWriter) buildEntryData(memo *oracleCacheHashMemo, job freshOracleE
 		entry.Crashed = true
 		entry.CrashError = job.crashError
 	} else {
-		if closureOverCap(job.approximation, job.depPaths) {
-			w.closuresOverCap.Add(1)
-			return nil, nil, false, false
-		}
 		w.recordDepPaths(job.depPaths)
 		fpStart := time.Now()
 		fp, err := closureFingerprintWithMemo(job.depPaths, memo)

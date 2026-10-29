@@ -19,7 +19,7 @@ import (
 	"github.com/kaeawc/krit/internal/perf"
 )
 
-// Daemon manages a long-lived krit-types JVM process for on-demand type resolution.
+// Daemon manages a long-lived krit-fir JVM process for on-demand type resolution.
 type Daemon struct {
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
@@ -146,7 +146,7 @@ type daemonResponse struct {
 	// the analyzeWithDeps method. Nil for legacy methods.
 	CacheDeps *json.RawMessage `json:"cacheDeps,omitempty"`
 	// Timings is an optional perf.TimingEntry array emitted by newer
-	// krit-types daemon methods for request-level deep dives.
+	// krit-fir daemon methods for request-level deep dives.
 	Timings *json.RawMessage `json:"timings,omitempty"`
 	// Check is the rule-check response an analyzeWithCheck request asked the
 	// same compilation to produce (#810). Nil for every other method, and
@@ -210,7 +210,7 @@ func (d *Daemon) AnalyzeAllWithCallFilterIn(callFilter *CallTargetFilterSummary,
 	defer d.mu.Unlock()
 
 	params := callFilterParams(callFilter)
-	if incrementalDir != "" && d.backend == BackendFIR {
+	if incrementalDir != "" {
 		if params == nil {
 			params = map[string]interface{}{}
 		}
@@ -228,7 +228,7 @@ func (d *Daemon) AnalyzeAllWithCallFilterIn(callFilter *CallTargetFilterSummary,
 
 // AnalyzeFilesWithCallFilter asks the daemon to analyze only the listed
 // .kt paths and return their updated oracle facts. Unlike
-// AnalyzeAllWithCallFilter, the JVM tool reuses its resident KAA build
+// AnalyzeAllWithCallFilter, the JVM tool reuses its resident oracle build
 // session and re-runs analysis only for the requested file subset —
 // callers are responsible for merging the returned facts into any
 // fuller state they hold. The empty file list is treated as a no-op
@@ -278,7 +278,7 @@ func (d *Daemon) AnalyzeFilesWithCallFilter(files []string, callFilter *CallTarg
 }
 
 // callFilterParams packs a CallTargetFilterSummary into the wire
-// representation the krit-types daemon expects. Returns nil when the
+// representation the krit-fir daemon expects. Returns nil when the
 // filter is nil/disabled — both analyzeAll and analyzeFiles tolerate
 // the omitted-filter case server-side.
 func callFilterParams(callFilter *CallTargetFilterSummary) map[string]interface{} {
@@ -293,34 +293,6 @@ func callFilterParams(callFilter *CallTargetFilterSummary) map[string]interface{
 	}
 }
 
-// DecompileJar asks krit-types to produce Kotlin source for a class resolved
-// from the daemon's library module.
-func (d *Daemon) DecompileJar(jarPath, fqn string) (string, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	result, err := d.sendResult("decompileJar", map[string]interface{}{
-		"jarPath": AbsolutePath(jarPath),
-		"fqn":     fqn,
-	})
-	if err != nil {
-		return "", err
-	}
-	var resp struct {
-		Text string `json:"text"`
-	}
-	if result == nil {
-		return "", fmt.Errorf("decompileJar returned nil result")
-	}
-	if err := json.Unmarshal(*result, &resp); err != nil {
-		return "", fmt.Errorf("unmarshal decompileJar response: %w", err)
-	}
-	if resp.Text == "" {
-		return "", fmt.Errorf("decompileJar returned empty text")
-	}
-	return resp.Text, nil
-}
-
 // PluginRuleDescriptor is the daemon-reported metadata for one Kotlin
 // custom rule loaded from a plugin jar.
 type PluginRuleDescriptor struct {
@@ -333,19 +305,19 @@ type PluginRuleDescriptor struct {
 	SDKVersion string   `json:"sdkVersion,omitempty"`
 }
 
-// ListPluginsResult is the result payload for the krit-types listPlugins verb.
+// ListPluginsResult is the result payload for the krit-fir listPlugins verb.
 type ListPluginsResult struct {
 	Rules       []PluginRuleDescriptor `json:"rules"`
 	Diagnostics []PluginLoadDiagnostic `json:"diagnostics,omitempty"`
 }
 
-// AnalyzePluginFileResult is the result payload for the krit-types analyzeFile verb.
+// AnalyzePluginFileResult is the result payload for the krit-fir analyzeFile verb.
 type AnalyzePluginFileResult struct {
 	Findings []PluginFinding   `json:"findings"`
 	Errors   map[string]string `json:"errors,omitempty"`
 }
 
-// PluginDiagLevel mirrors PluginLoadDiagnostic.Level on the krit-types
+// PluginDiagLevel mirrors PluginLoadDiagnostic.Level on the krit-fir
 // Kotlin side (lowercased enum name). Typed so a switch over
 // d.Level gets exhaustiveness help and a typo like "WARN" fails at
 // compile time.
@@ -427,9 +399,9 @@ func (d *Daemon) ListPlugins(jars []string) (ListPluginsResult, error) {
 // PluginGradleProfile is the wire payload that backs `RuleContext.gradle`
 // on the Kotlin side. The shape is intentionally narrow — see
 // `GradleContext` in tools/krit-rule-api for the rule-facing surface and
-// `GradleProfilePayload` in tools/krit-types for the daemon-side mirror.
+// `GradleProfilePayload` in tools/krit-fir for the daemon-side mirror.
 // SDK ints rely on `omitempty` to drop the "absent" case from the wire;
-// the krit-types parser reads any non-negative int and rejects negatives
+// the krit-fir parser reads any non-negative int and rejects negatives
 // defensively. `Deps` carries "group:name:version" strings.
 type PluginGradleProfile struct {
 	MinSdk            int      `json:"minSdk,omitempty"`
@@ -443,7 +415,7 @@ type PluginGradleProfile struct {
 
 // PluginManifestProfile is the wire payload that backs `RuleContext.manifest`
 // on the Kotlin side. See `ManifestContext` in tools/krit-rule-api for the
-// rule-facing surface and `ManifestProfilePayload` in tools/krit-types for
+// rule-facing surface and `ManifestProfilePayload` in tools/krit-fir for
 // the daemon-side mirror. ExportedActivities / ExportedServices /
 // ExportedReceivers are the subsets of the corresponding name lists that
 // declare `android:exported="true"`; the Kotlin side builds a HashSet on
@@ -749,23 +721,6 @@ func waitForCmdExit(cmd *exec.Cmd) error {
 		<-done //nolint:errcheck // killed above, so the exit error is expected
 		return fmt.Errorf("daemon did not exit within timeout, killed")
 	}
-}
-
-// Checkpoint asks the daemon to create a CRaC checkpoint.  If the JDK does not
-// support CRaC the daemon returns an error which we silently ignore.
-func (d *Daemon) Checkpoint() error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	_, err := d.sendResult("checkpoint", nil)
-	if err != nil {
-		// CRaC not available is expected on most JDKs — degrade silently.
-		if strings.Contains(err.Error(), "CRaC not available") {
-			return nil
-		}
-		return err
-	}
-	return nil
 }
 
 // Release drops this Go-side handle to the daemon but leaves the

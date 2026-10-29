@@ -8,7 +8,7 @@ import (
 
 // deriveAnnotatedDeclarationCalleeNames extracts a conservative lexical
 // callee allowlist from raw Kotlin files. It intentionally works on raw
-// source bytes because this runs before the parser and before krit-types.
+// source bytes because this runs before the parser and before krit-fir.
 // Missed names can drop oracle-only findings, so when the scanner sees an
 // annotated declaration shape but cannot recover its name it returns
 // uncertain=true and the caller falls back to the broad JVM call pass.

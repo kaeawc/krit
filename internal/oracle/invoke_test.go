@@ -57,7 +57,7 @@ func TestFindJar_FindsJarInProjectDir(t *testing.T) {
 	if err := os.MkdirAll(kritDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	jarPath := filepath.Join(kritDir, "krit-types.jar")
+	jarPath := filepath.Join(kritDir, "krit-fir.jar")
 	if err := os.WriteFile(jarPath, []byte("fake"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -66,27 +66,14 @@ func TestFindJar_FindsJarInProjectDir(t *testing.T) {
 	if result == "" {
 		t.Fatal("expected FindJar to find the jar")
 	}
-	if filepath.Base(result) != "krit-types.jar" {
-		t.Errorf("expected filename krit-types.jar, got %q", filepath.Base(result))
-	}
-}
-
-func TestFindJar_EnvOverride(t *testing.T) {
-	isolateJarLookup(t)
-	tmp := t.TempDir()
-	jarPath := filepath.Join(tmp, "custom-types.jar")
-	if err := os.WriteFile(jarPath, []byte("fake"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("KRIT_TYPES_JAR", jarPath)
-	if got := FindJar(nil); got != jarPath {
-		t.Errorf("KRIT_TYPES_JAR override: got %q, want %q", got, jarPath)
+	if filepath.Base(result) != "krit-fir.jar" {
+		t.Errorf("expected filename krit-fir.jar, got %q", filepath.Base(result))
 	}
 }
 
 func TestFindJar_EnvOverrideMissingFileFallsThrough(t *testing.T) {
 	isolateJarLookup(t)
-	t.Setenv("KRIT_TYPES_JAR", "/nonexistent/path/to/krit-types.jar")
+	t.Setenv("KRIT_FIR_JAR", "/nonexistent/path/to/krit-fir.jar")
 	if got := FindJar(nil); got != "" {
 		t.Errorf("expected fall-through when env path missing, got %q", got)
 	}
@@ -99,8 +86,8 @@ func TestFindJar_VersionPinnedInstall(t *testing.T) {
 	if err := os.MkdirAll(jarsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	pinned := filepath.Join(jarsDir, "krit-types-v1.2.3.jar")
-	unversioned := filepath.Join(jarsDir, "krit-types.jar")
+	pinned := filepath.Join(jarsDir, "krit-fir-v1.2.3.jar")
+	unversioned := filepath.Join(jarsDir, "krit-fir.jar")
 	if err := os.WriteFile(pinned, []byte("pin"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -536,8 +523,8 @@ func TestRunOracleProcess_NonZeroExitCapturesStderr(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-zero exit, got nil")
 	}
-	if !strings.Contains(err.Error(), "krit-types failed") {
-		t.Errorf("expected error to mention krit-types, got %q", err)
+	if !strings.Contains(err.Error(), "krit-fir failed") {
+		t.Errorf("expected error to mention krit-fir, got %q", err)
 	}
 	if !strings.Contains(err.Error(), "FirPropertyImpl") {
 		t.Errorf("expected error to include captured stderr (FirPropertyImpl), got %q", err)

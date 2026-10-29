@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/config"
@@ -11,11 +12,12 @@ func TestOracleBackendResolution(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name      string
-		flagValue string
-		yamlValue string
-		want      oracle.Backend
-		wantErr   bool
+		name       string
+		flagValue  string
+		yamlValue  string
+		want       oracle.Backend
+		wantErr    bool
+		errContain string
 	}{
 		{
 			name: "neither set falls through to default",
@@ -28,15 +30,22 @@ func TestOracleBackendResolution(t *testing.T) {
 		},
 		{
 			name:      "flag wins over config",
-			flagValue: "kaa",
-			yamlValue: "fir",
-			want:      oracle.BackendKAA,
+			flagValue: "fir",
+			yamlValue: "nonsense",
+			want:      oracle.BackendFIR,
 		},
 		{
-			name:      "flag wins even with reversed roles",
-			flagValue: "fir",
-			yamlValue: "kaa",
-			want:      oracle.BackendFIR,
+			name:       "removed kaa flag surfaces removed-backend error",
+			flagValue:  "kaa",
+			yamlValue:  "fir",
+			wantErr:    true,
+			errContain: "was removed",
+		},
+		{
+			name:       "removed krit-types config surfaces removed-backend error",
+			yamlValue:  "krit-types",
+			wantErr:    true,
+			errContain: "was removed",
 		},
 		{
 			name:      "alias canonicalization passes through",
@@ -65,6 +74,9 @@ func TestOracleBackendResolution(t *testing.T) {
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error for flag=%q yaml=%q, got backend=%q", tc.flagValue, tc.yamlValue, got)
+				}
+				if tc.errContain != "" && !strings.Contains(err.Error(), tc.errContain) {
+					t.Fatalf("error %q does not contain %q", err, tc.errContain)
 				}
 				return
 			}

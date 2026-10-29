@@ -71,9 +71,9 @@ class OracleDispatchTest {
 
     @Test
     fun analyzeWithDepsCommandUsesFlatEnvelopeWithCacheDeps() {
-        // analyzeWithDeps uses krit-types' flat envelope shape:
+        // analyzeWithDeps uses a flat envelope shape:
         // `result` / `errors` / `cacheDeps` as siblings. The
-        // `cacheDeps` field always carries the krit-types preamble
+        // `cacheDeps` field always carries the protocol preamble
         // (`version`, `approximation`) so the Go-side client can
         // detect the new-protocol daemon even when no per-file deps
         // have been recorded.
@@ -107,9 +107,8 @@ class OracleDispatchTest {
     @Test
     fun listPluginsCommandReturnsEmptyRulesWhenNoJarsProvided() {
         // Zero pluginJars → the registry has nothing to load, and the
-        // response carries an empty `rules` array. The shape mirrors
-        // krit-types' buildListPluginsResponse so a single Go-side
-        // client parses either backend's payload with one struct.
+        // response carries an empty `rules` array, in the shape the
+        // Go-side plugin client decodes.
         val request = """{"id":20,"command":"listPlugins"}"""
         val result = handleRequestLine(request, session, startTime = 0L)
         val response = (result as RequestResult.Response).json

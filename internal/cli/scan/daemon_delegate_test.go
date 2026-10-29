@@ -480,7 +480,7 @@ func TestTryDaemonDelegate_ListRulesRoutesViaMetaVerb(t *testing.T) {
 
 // TestTryDaemonDelegate_ListRulesWithCustomJarsFallsThrough pins the
 // CustomRuleJars carve-out: --custom-rule-jars requires the
-// krit-types JVM the daemon doesn't manage on behalf of meta queries,
+// oracle JVM the daemon doesn't manage on behalf of meta queries,
 // so the CLI must fall back to in-process even with a daemon
 // reachable.
 func TestTryDaemonDelegate_ListRulesWithCustomJarsFallsThrough(t *testing.T) {

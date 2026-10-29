@@ -109,7 +109,7 @@ func TestMavenCoordinatesAndSources(t *testing.T) {
 	if got := mavenJarURL("https://repo/", "krit-fir", "1.2.3"); got != "https://repo/dev/jasonpearson/krit/krit-fir/1.2.3/krit-fir-1.2.3.jar" {
 		t.Fatal(got)
 	}
-	for _, b := range []Backend{BackendKAA, BackendFIR} {
+	for _, b := range []Backend{BackendFIR} {
 		sources, err := jarSources(b, "v1.2.3")
 		if err != nil {
 			t.Fatal(err)
@@ -240,7 +240,7 @@ func TestEnsureBackendJarSources(t *testing.T) {
 		mirror, failAll bool
 	}{
 		{"central fallback fir", BackendFIR, false, false},
-		{"mirror only kaa", BackendKAA, true, false},
+		{"mirror only fir", BackendFIR, true, false},
 		{"all fail fir", BackendFIR, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

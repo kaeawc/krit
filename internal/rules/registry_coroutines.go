@@ -98,9 +98,8 @@ func collectInOnCreateOracleConfirmed(lookup oracle.Lookup, file *scanner.File, 
 // collectInOnCreateFlowPackage prefixes every `collect` the rule cares
 // about: a member of a Flow-family type (`Flow.collect`,
 // `SharedFlow.collect`, `MutableStateFlow.collect`) or the package-level
-// extension, spelled `kotlinx.coroutines.flow.collect` by krit-fir and
-// `kotlinx.coroutines.flow.FlowKt.collect` by krit-types. The krit-fir
-// checker draws the same line. Project-local `collect` methods on unrelated
+// extension, spelled `kotlinx.coroutines.flow.collect` by krit-fir. The
+// krit-fir checker draws the same line. Project-local `collect` methods on unrelated
 // types resolve outside the package and are filtered out.
 const collectInOnCreateFlowPackage = "kotlinx.coroutines.flow."
 
@@ -1171,7 +1170,7 @@ func registerCoroutinesWithContextInSuspendFunctionNoop() {
 	// `withContext`. The actual check is entirely source-visible — it relies
 	// on the kotlinx.coroutines.withContext import (or wildcard), absence of
 	// a local function shadowing the name, the bare-identifier call shape,
-	// and a navigation-chain match for Dispatchers.X. No KAA/type-info fact
+	// and a navigation-chain match for Dispatchers.X. No oracle/type-info fact
 	// is required, so the rule now declares zero capabilities.
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),

@@ -1605,7 +1605,7 @@ fun convert(unknownReceiver: String?): String {
 	}
 }
 
-// Pins NeedsOracleExprType + ExprPositions on the rule.
+// Pins NeedsOracleExprType on the rule.
 func TestCastNullableToNonNullableType_DeclaresOracleExprType(t *testing.T) {
 	var rule *api.Rule
 	for _, r := range api.Registry {
@@ -1619,9 +1619,6 @@ func TestCastNullableToNonNullableType_DeclaresOracleExprType(t *testing.T) {
 	}
 	if !rule.Needs.Has(api.NeedsOracleExprType) {
 		t.Errorf("missing NeedsOracleExprType: Needs=%b", rule.Needs)
-	}
-	if rule.ExprPositions == nil {
-		t.Error("ExprPositions selector must be set so the oracle pre-resolves cast LHS positions")
 	}
 }
 

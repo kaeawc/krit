@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/perf"
@@ -75,32 +74,6 @@ func TestReadOneShotMissResult_RespellsFactsAndDeps(t *testing.T) {
 	assertRelativeResult(t, data, deps, []string{a, b}, filepath.Join("src", "Dep.kt"))
 }
 
-// The sharded one-shot path re-spells each shard's result before merging.
-func TestShardedOneShot_RespellsFactsAndDeps(t *testing.T) {
-	dir := chdirProject(t, map[string]string{"src/A.kt": "class A\n", "src/B.kt": "class B\n"})
-	a, b := filepath.Join("src", "A.kt"), filepath.Join("src", "B.kt")
-	runner := func(_ string, _ []string, listPath, freshPath, depsPath string, _ bool, _ perf.Tracker) error {
-		list, err := os.ReadFile(listPath)
-		if err != nil {
-			return err
-		}
-		var files []string
-		for _, line := range strings.Fields(string(list)) {
-			if !filepath.IsAbs(line) {
-				t.Errorf("shard --files entry %q is not absolute", line)
-			}
-			files = append(files, line)
-		}
-		writeAbsoluteJVMResult(t, freshPath, depsPath, files, filepath.Join(dir, "src", "Dep.kt"))
-		return nil
-	}
-	fresh, deps, err := runKritTypesCachedShardedWithRunner("jar", []string{"src"}, []string{a, b}, 2, false, perf.New(false), runner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertRelativeResult(t, fresh, deps, []string{a, b}, filepath.Join("src", "Dep.kt"))
-}
-
 // The oracle filter list holds absolute paths; a relative scan root's files
 // must still intersect with it.
 func TestApplyOracleFilter_RelativeFilesMatchAbsoluteList(t *testing.T) {
@@ -151,7 +124,7 @@ func TestTypesJSONSatisfiesForPaths_KeyBase(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"version":1}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	scope := StoreScope{Backend: BackendKAA}
+	scope := StoreScope{Backend: BackendFIR}
 	rel, abs := []string{"."}, []string{dir}
 	if err := RecordTypesFactsForPaths(path, false, rel, scope); err != nil {
 		t.Fatal(err)

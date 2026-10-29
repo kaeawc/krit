@@ -8,8 +8,8 @@ Go-first static analyzer for Kotlin, Java, and Android projects. Krit parses
 source with tree-sitter, runs rules through the checked-in v2 registry and
 single-pass AST dispatcher, and emits JSON, SARIF, Checkstyle, LSP, MCP, and
 autofix output. Source-level inference handles most type-aware checks; rules
-can opt into JVM-backed Kotlin Analysis API/FIR helper facts (`tools/krit-types/`,
-`tools/krit-fir/`, `tools/krit-java-facts/`) when source analysis is not enough.
+can opt into JVM-backed FIR helper facts (`tools/krit-fir/`,
+`tools/krit-java-facts/`) when source analysis is not enough.
 
 ## Key Rules
 
@@ -44,11 +44,11 @@ can opt into JVM-backed Kotlin Analysis API/FIR helper facts (`tools/krit-types/
   `go test` the executable is the package's `.test` binary; it ignores
   verbs like `serve`, reruns its whole suite, reaches the same spawn,
   and launches another copy without bound.
-- For local JVM helpers, run `make fir-jar` or `make types-jar` from the
-  repository root. These build a shadow jar once per source hash under
+- For local JVM helpers, run `make fir-jar` from the repository root.
+  This builds a shadow jar once per source hash under
   `~/.krit/jars/dev/<hash>/`, shared by worktrees. The Go jar locator uses
-  that cache before a worktree-local `build/libs` jar; explicit `KRIT_FIR_JAR`
-  and `KRIT_TYPES_JAR` overrides still take precedence.
+  that cache before a worktree-local `build/libs` jar; an explicit `KRIT_FIR_JAR`
+  override still takes precedence.
 - Use tree-sitter AST/flat nodes for structural analysis and regex only for
   line-oriented checks.
 - New rules use the v2 pipeline: implement the local rule struct with the
@@ -124,7 +124,7 @@ harness from parsing the fixture.
 - `internal/android/`, `internal/tsxml/` - Android manifests, resources, icons,
   Gradle/XML analysis
 - `internal/typeinfer/`, `internal/oracle/`, `internal/firchecks/` -
-  source-level Kotlin/Java type inference, Kotlin Analysis API daemon, FIR
+  source-level Kotlin/Java type inference, krit-fir type-oracle daemon, FIR
   helper integration
 - `internal/librarymodel/`, `internal/javafacts/` - library / Gradle catalog
   profile facts and Java source facts
@@ -134,7 +134,7 @@ harness from parsing the fixture.
   config, incremental cache, schema generation, and timing
 - `tests/fixtures/` - positive, negative, and fixable rule fixtures, organized
   by category (`a11y`, `android`, `coroutines`, `performance`, ...)
-- `tools/krit-types/`, `tools/krit-fir/`, `tools/krit-java-facts/` - JVM-backed
+- `tools/krit-fir/`, `tools/krit-java-facts/` - JVM-backed
   helpers for compiler-grade facts
 - `krit-gradle-plugin/`, `playground/`, `docs/`, `editors/`, `homebrew/`,
   `scoop/`, `winget/` - integrations, samples, docs, and package manifests

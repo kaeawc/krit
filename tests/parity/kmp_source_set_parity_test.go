@@ -100,28 +100,17 @@ actual fun lockLabel(): String = "android-native"
 `,
 }
 
-// TestKMPSourceSetParity pins both oracle backends on a KMP project against
+// TestKMPSourceSetParity pins the FIR oracle on a KMP project against
 // kotlinc's JVM compilation of it (K2JVMCompiler with -Xmulti-platform
 // -Xexpect-actual-classes -Xcommon-sources=<commonMain and concurrentMain
 // files> over the commonMain, concurrentMain, and jvmMain files), which
-// reports exactly the warnings in wantFIR below and no errors.
-//
-// krit-fir must match that ground truth. krit-types does NOT reach parity:
-// the source-set filter removes the conflicting JS/Native actuals, but it
-// still analyzes every root as one Analysis API module with no common /
-// platform split, so every call through an expect declaration stays
-// unresolved and loses its warning. That gap is asserted explicitly
-// (wantKAA) rather than skipped, so a change in either direction is noticed;
-// docs/oracle-kmp-source-sets.md documents it.
+// reports exactly the warnings in want below and no errors. krit-fir must
+// match that ground truth; docs/oracle-kmp-source-sets.md documents it.
 func TestKMPSourceSetParity(t *testing.T) {
 	root := repoRoot(t)
-	kaaJar := oracle.FindJar([]string{root})
-	if kaaJar == "" {
-		t.Skip("krit-types jar not found; run `cd tools/krit-types && ./gradlew shadowJar` to enable")
-	}
 	firJar := firchecks.FindFirJar([]string{root})
 	if firJar == "" || !isExecutableJar(firJar) {
-		t.Skip("krit-fir executable jar not found; run `cd tools/krit-fir && ./gradlew shadowJar` to enable")
+		t.Skip("krit-fir executable jar not found; run `make fir-jar` to enable")
 	}
 	stdlib := findKotlinStdlib()
 	if stdlib == "" {
@@ -148,11 +137,9 @@ func TestKMPSourceSetParity(t *testing.T) {
 	}
 
 	opts := oracle.InvocationOptions{Classpath: []string{stdlib}}
-	tmp := t.TempDir()
-	kaa := runOneShotDirs(t, kaaJar, sourceDirs, filepath.Join(tmp, "kaa.json"), opts)
-	fir := runOneShotDirs(t, firJar, sourceDirs, filepath.Join(tmp, "fir.json"), opts)
+	fir := runOneShotDirs(t, firJar, sourceDirs, filepath.Join(t.TempDir(), "fir.json"), opts)
 
-	wantFIR := []string{
+	want := []string{
 		"Common.kt:12:UNNECESSARY_SAFE_CALL",
 		"Common.kt:18:USELESS_ELVIS",
 		"Common.kt:25:UNNECESSARY_SAFE_CALL",
@@ -160,23 +147,12 @@ func TestKMPSourceSetParity(t *testing.T) {
 		"Common.kt:31:USELESS_ELVIS",
 		"Concurrent.kt:5:UNNECESSARY_SAFE_CALL",
 	}
-	wantKAA := wantFIR[:3]
 	wantFiles := []string{"commonMain/Common.kt", "concurrentMain/Concurrent.kt", "jvmMain/Platform.kt"}
-
-	for _, tc := range []struct {
-		name string
-		data *oracle.Data
-		want []string
-	}{
-		{"krit-fir", fir, wantFIR},
-		{"krit-types", kaa, wantKAA},
-	} {
-		if got := oracleFileSets(tc.data); !reflect.DeepEqual(got, wantFiles) {
-			t.Errorf("%s returned facts for %v, want only %v", tc.name, got, wantFiles)
-		}
-		if got := oracleDiagnostics(tc.data); !reflect.DeepEqual(got, tc.want) {
-			t.Errorf("%s diagnostics = %v, want %v", tc.name, got, tc.want)
-		}
+	if got := oracleFileSets(fir); !reflect.DeepEqual(got, wantFiles) {
+		t.Errorf("krit-fir returned facts for %v, want only %v", got, wantFiles)
+	}
+	if got := oracleDiagnostics(fir); !reflect.DeepEqual(got, want) {
+		t.Errorf("krit-fir diagnostics = %v, want %v", got, want)
 	}
 }
 

@@ -54,7 +54,7 @@ intellijPlatform {
             This plugin renders Krit findings as editor annotations and
             inspections, offers a per-finding fix and a Suppress quick-fix,
             tracks scan state in the status bar, and reads the IDE's resolved
-            classpath so type-aware (KAA / FIR) rules match CI behaviour.
+            classpath so type-aware (FIR oracle) rules match CI behaviour.
 
             Configure the Krit binary, maximum fix level, and config file
             override under Settings → Tools → Krit, and turn individual Krit

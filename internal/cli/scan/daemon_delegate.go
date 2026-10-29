@@ -261,7 +261,7 @@ func writeDaemonFindings(f *scanFlags, res daemon.AnalyzeProjectResult, start ti
 //
 // dump-types is "meta" in the routing sense (short-circuits before
 // rule dispatch, writes a single artifact, captured stderr replayed
-// on the CLI) even though the daemon does invoke the krit-types JVM
+// on the CLI) even though the daemon does invoke the krit-fir JVM
 // to produce it — same as the in-process --output-types flow.
 type metaVerbName int
 
@@ -286,7 +286,7 @@ const (
 func metaVerbForFlags(f *scanFlags) (metaVerbName, bool) {
 	switch {
 	case *f.List:
-		// CustomRuleJars requires the krit-types JVM the daemon
+		// CustomRuleJars requires the krit-fir JVM the daemon
 		// doesn't manage on behalf of meta queries; defer to
 		// in-process so plugin descriptors still surface.
 		if *f.CustomRuleJars != "" {
@@ -633,13 +633,8 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 			return false
 		}
 	}
-	// `--oracle-backend` historically bypassed daemon delegation
-	// because the wire didn't carry the backend selection — the
-	// daemon always used krit-types via oracle.FindJar, so delegating
-	// would silently drop the user's choice. AnalyzeProjectArgs.OracleBackend
-	// now ships the value over the wire and the serve handler honors
-	// it, so the bypass is gone. buildDaemonAnalyzeArgs forwards
-	// *f.OracleBackend verbatim; the daemon picks the jar per call.
+	// `--oracle-backend` is forwarded verbatim by buildDaemonAnalyzeArgs;
+	// the serve handler validates it, so it never forces in-process.
 	return true
 }
 

@@ -15,9 +15,9 @@ import (
 )
 
 // SourceHash hashes build inputs by relative path and contents. The shared
-// rule API and bundled notice/license files are inputs to both helper jars.
+// rule API and bundled notice/license files are inputs to the helper jar.
 func SourceHash(root, tool string) (string, error) {
-	if tool != "krit-fir" && tool != "krit-types" {
+	if tool != "krit-fir" {
 		return "", fmt.Errorf("unsupported dev jar %q", tool)
 	}
 	paths := []string{
@@ -106,7 +106,7 @@ func CheckoutRoot(tool string, scanPaths []string) string {
 
 // DirEnv overrides the shared development jar cache root, which otherwise
 // defaults to ~/.krit/jars/dev. Tests point it at a temp dir so a jar built
-// with `make fir-jar` or `make types-jar` can't leak into jar lookups.
+// with `make fir-jar` can't leak into jar lookups.
 const DirEnv = "KRIT_DEV_JAR_DIR"
 
 // CacheDir returns the shared development jar cache root: $KRIT_DEV_JAR_DIR

@@ -38,9 +38,8 @@ class FirOracleResolverTest {
 
     @Test
     fun unresolvedCallReturnsNullEvenWithLexicalFallbackEntry() {
-        // krit-types' AnalysisApiResolver returns null when the symbol
-        // graph couldn't recover an FQN. We do the same: only resolved
-        // FQNs surface; lexical-fallback entries don't.
+        // The resolver returns null when the symbol graph couldn't
+        // recover an FQN: only resolved FQNs surface; lexical-fallback entries don't.
         val source = "package x\n\nfun caller() {\n    mystery()\n}\n"
         val table = FileOffsetTable(source)
         val expressions = mapOf(
@@ -83,8 +82,8 @@ class FirOracleResolverTest {
     @Test
     fun unknownCallSiteReturnsNull() {
         // Empty expression map → resolver has nothing to surface and
-        // returns null/false. Mirrors krit-types' behavior when the
-        // call wasn't resolvable in this file's analysis.
+        // returns null/false, as when the call wasn't resolvable in
+        // this file's analysis.
         val source = "package x\n\nfun caller() {\n    target()\n}\n"
         val table = FileOffsetTable(source)
         val (parsed, call) = parseSourceAndFirstCall(source)
@@ -201,8 +200,8 @@ class FirOracleResolverTest {
             )
             assertFalse(nonSuspendResolver.isLambdaSuspend(foundLambda))
 
-            // Empty map → conservative false. Matches krit-types'
-            // "unresolved → false" contract so rules don't see a
+            // Empty map → conservative false. The
+            // "unresolved → false" contract means rules don't see a
             // spurious "suspend" for lambdas the oracle didn't visit.
             val noDataResolver = FirOracleResolver(
                 expressionsByKey = emptyMap(),

@@ -213,9 +213,7 @@ func printDoctor(w io.Writer, version string) {
 	} else {
 		fmt.Fprintln(w, "  cwebp: not found (optional — needed for --fix-binary WebP)")
 	}
-	for _, b := range []oracle.Backend{oracle.BackendFIR, oracle.BackendKAA} {
-		fmt.Fprintf(w, "  %s\n", oracleJarStatus(b))
-	}
+	fmt.Fprintf(w, "  %s\n", oracleJarStatus(oracle.BackendFIR))
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "  Everything looks good!")
 }
@@ -574,8 +572,8 @@ type outputTypesOpts struct {
 	Paths         []string
 }
 
-// runOutputTypesFlag handles --output-types: a standalone krit-types dump
-// that bypasses rules entirely. Locates the krit-types jar, finds Kotlin
+// runOutputTypesFlag handles --output-types: a standalone type-oracle dump
+// that bypasses rules entirely. Locates the krit-fir jar, finds Kotlin
 // source directories, and writes the oracle JSON to the requested path.
 // No-op when opts.OutputPath is empty; otherwise terminates the process.
 func runOutputTypesFlag(opts outputTypesOpts) {
@@ -609,7 +607,7 @@ type RunOutputTypesOpts struct {
 }
 
 // RunOutputTypesTo performs the --output-types dump: locates the
-// krit-types jar, finds Kotlin source directories under opts.Paths,
+// krit-fir jar, finds Kotlin source directories under opts.Paths,
 // and writes the oracle JSON to opts.OutputPath. Diagnostic / error
 // lines are written to errOut. Returns the exit code the CLI should
 // use (0 on success, 1 on dump error, 2 on missing jar / no sources).
@@ -638,15 +636,13 @@ func RunOutputTypesTo(errOut io.Writer, opts RunOutputTypesOpts) int {
 	if opts.NoCacheOracle {
 		_, err = oracle.Invoke(jarPath, sourceDirs, opts.OutputPath, opts.Verbose)
 	} else {
-		// EnsureJar resolves krit-types; scope the cache to it so a dump
-		// never serves facts krit-fir cached.
 		invocationStore := opts.Store
 		if invocationStore != nil {
 			invocationStore = invocationStore.Clone()
 		}
-		releaseStoreScope := oracle.BindStoreScope(invocationStore, oracle.NewStoreScope(oracle.BackendKAA, jarPath))
+		releaseStoreScope := oracle.BindStoreScope(invocationStore, oracle.NewStoreScope(oracle.BackendFIR, jarPath))
 		_, err = oracle.InvokeCachedWithOptions(jarPath, sourceDirs, oracle.FindRepoDir(opts.Paths), opts.OutputPath, "", opts.Verbose, invocationStore,
-			oracle.InvocationOptions{Backend: oracle.BackendKAA})
+			oracle.InvocationOptions{Backend: oracle.BackendFIR})
 		releaseStoreScope()
 	}
 	if err != nil {

@@ -5,103 +5,56 @@ import (
 	"strings"
 )
 
-// Backend identifies which JVM-side daemon krit invokes for the
-// type-oracle role: krit-types (the long-standing KAA-backed daemon)
-// or krit-fir (the K2/FIR-backed daemon shipped alongside it).
-//
-// Both backends speak the same analyze / analyzeAll / analyzeFiles /
-// analyzeWithDeps RPCs (see tools/krit-fir/.../OracleResponse.kt for
-// parity), so the Go-side oracle client deserializes either backend's
-// response with the same struct. Switching between them is a JAR
-// resolution decision: which daemon do we spawn?
+// Backend identifies the JVM-side daemon krit invokes for the type-oracle
+// role. krit-fir (K2/FIR) is the only backend; the krit-types (Kotlin
+// Analysis API) backend was removed. The type stays so cache scopes, daemon
+// registry keys and the `--oracle-backend` / `oracle.backend` setting keep a
+// single spelling.
 type Backend string
 
 const (
-	// BackendKAA is the krit-types daemon — Kotlin Analysis API
-	// backed. The historical default and the only backend before
-	// krit-fir landed; retained as a selectable fallback
-	// (`--oracle-backend=kaa`) now that FIR is the default.
-	BackendKAA Backend = "kaa"
-
-	// BackendFIR is the krit-fir daemon — K2/FIR backed. The default
-	// backend, and required for rules that opt into
-	// Capability.NEEDS_FIR. It is a drop-in replacement for KAA
-	// thanks to oracle-protocol parity: the declaration surface is
-	// guarded by TestOracleBackendParity and the expression surface
-	// (types, nullability, call targets, suspend markers,
-	// diagnostics) by TestFirOracleFactContract.
+	// BackendFIR is the krit-fir daemon — K2/FIR backed.
 	BackendFIR Backend = "fir"
 
-	// DefaultBackend is FIR. The CI parity gates that previously
-	// blocked the flip have shipped, so krit spawns the K2/FIR daemon
-	// by default; KAA stays reachable via `--oracle-backend=kaa` or
-	// `oracle.backend: kaa` for fallback.
+	// DefaultBackend is the only backend.
 	DefaultBackend Backend = BackendFIR
 )
 
-// ParseBackend accepts the canonical lower-case spellings plus
-// common aliases. Unknown values surface as a typed error so callers
-// can render a useful message — `--oracle-backend=foo` shouldn't
-// silently fall back to a default.
+// ParseBackend accepts the krit-fir spellings. The removed krit-types
+// spellings get an error saying so, rather than a silent switch.
 func ParseBackend(raw string) (Backend, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "":
-		return DefaultBackend, nil
-	case "kaa", "krit-types", "types":
-		return BackendKAA, nil
-	case "fir", "krit-fir", "k2":
+	case "", "fir", "krit-fir", "k2":
 		return BackendFIR, nil
+	case "kaa", "krit-types", "types":
+		return "", fmt.Errorf("oracle backend %q was removed: krit-fir is the only type-oracle backend; drop the setting or use fir", raw)
 	default:
-		return "", fmt.Errorf("unknown oracle backend %q: want one of kaa, fir", raw)
+		return "", fmt.Errorf("unknown oracle backend %q: want fir", raw)
 	}
 }
 
-// String renders the canonical wire form for the backend (matching
-// the value users set on the CLI / in krit.yml). Useful for error
-// messages and verbose logging.
+// String renders the canonical wire form for the backend.
 func (b Backend) String() string {
-	switch b {
-	case BackendKAA, BackendFIR:
-		return string(b)
-	case "":
+	if b == "" {
 		return string(DefaultBackend)
-	default:
-		return string(b)
 	}
+	return string(b)
 }
 
-// JarName returns the canonical jar filename the backend expects on
-// disk — `krit-types.jar` for KAA, `krit-fir.jar` for FIR. Centralized
-// here so the discovery helper, the auto-download installer, and the
-// CI parity job share one source of truth.
-func (b Backend) JarName() string {
-	switch b {
-	case BackendFIR:
-		return "krit-fir.jar"
-	default:
-		return "krit-types.jar"
-	}
-}
+// JarName returns the canonical jar filename.
+func (b Backend) JarName() string { return "krit-fir.jar" }
 
 // ReturnsWholeCompilation reports whether one analysis run returns fresh facts
 // for every file in the compilation, whatever subset was requested. krit-fir
-// compiles every source file on each request and reports them all, so any run
-// refreshes the whole cache. krit-types analyzes only the requested files.
-func (b Backend) ReturnsWholeCompilation() bool {
-	return b == BackendFIR
-}
+// compiles every source file on each request and reports them all.
+func (b Backend) ReturnsWholeCompilation() bool { return true }
 
-// CacheApproximation names how the backend's cache entries were produced. An
-// entry written by the other backend never satisfies a lookup: its facts and
-// its dependency closure were computed differently. An unset backend returns
-// "", which accepts any entry.
+// CacheApproximation names how the backend's cache entries were produced.
+// Entries any other way (written by the removed krit-types backend) never
+// satisfy a lookup. An unset backend returns "", which accepts any entry.
 func (b Backend) CacheApproximation() string {
-	switch b {
-	case BackendFIR:
-		return ApproximationFIRWholeCompilation
-	case BackendKAA:
-		return ApproximationKAATaggedReferences
-	default:
+	if b == "" {
 		return ""
 	}
+	return ApproximationFIRWholeCompilation
 }

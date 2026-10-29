@@ -16,7 +16,7 @@ import (
 
 // firAnalyzeResponse is the envelope krit-fir's OracleResponse.buildAnalyze
 // produces. Result mirrors oracle.Data so a Go-side consumer parses
-// the same fields the krit-types daemon ships.
+// the same fields the krit-fir daemon ships.
 type firAnalyzeResponse struct {
 	ID     int64        `json:"id"`
 	Result *oracle.Data `json:"result"`
@@ -25,7 +25,7 @@ type firAnalyzeResponse struct {
 
 // firAnalyzeWithDepsResponse is the flat envelope krit-fir produces for
 // the analyzeWithDeps command — result, errors, and cacheDeps are
-// siblings (not nested), matching krit-types' buildDaemonResponseWithDeps.
+// siblings (not nested), matching the krit-fir oracle's analyzeWithDeps response.
 type firAnalyzeWithDepsResponse struct {
 	ID        int64                 `json:"id"`
 	Result    *oracle.Data          `json:"result"`

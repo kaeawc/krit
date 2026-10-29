@@ -88,7 +88,7 @@ const (
 	// do not affect JSON / SARIF output. (Aspect.)
 	NeedsConcurrent
 
-	// Oracle fact-category bits. Each names a single class of KAA fact
+	// Oracle fact-category bits. Each names a single class of oracle fact
 	// the rule consumes. Declaring narrow bits lets the bridge skip JVM
 	// extraction work no rule asked for: declaration walk, JAR closure,
 	// compiler diagnostics, etc. Use the umbrella NeedsOracle only as a
@@ -103,7 +103,7 @@ const (
 	// extraction.
 	NeedsOracleSuspendMarkers
 	// NeedsOracleExprType requests expression type / nullability at
-	// selected positions (LookupExpression / ExprPositions).
+	// selected positions (LookupExpression).
 	NeedsOracleExprType
 	// NeedsOracleExprAnnotations requests annotation FQNs at expression
 	// positions (e.g. @CheckResult on the resolved callable).
@@ -124,7 +124,7 @@ const (
 	// NeedsOracleMemberAnnotations requests member-level annotation
 	// FQNs. Implies NeedsOracleMembers when projected.
 	NeedsOracleMemberAnnotations
-	// NeedsOracleDiagnostics requests KAA compiler diagnostics
+	// NeedsOracleDiagnostics requests oracle compiler diagnostics
 	// (UNREACHABLE_CODE, USELESS_ELVIS, etc.). Skipped JVM-side when no
 	// active rule declares this bit.
 	NeedsOracleDiagnostics
@@ -306,13 +306,13 @@ func (l RuleLevel) String() string {
 }
 
 // NeedsTypeInfo is a source type-information alias for NeedsResolver only:
-// rules that need KAA must declare NeedsOracle or explicit oracle metadata
+// rules that need oracle must declare NeedsOracle or explicit oracle metadata
 // (Oracle, OracleCallTargets, OracleDeclarationNeeds, diagnostics). This keeps
 // source-level AT/typeinfer rules from accidentally widening the Kotlin
 // Analysis API workload.
 //
 // Prefer NeedsResolver for new rules unless the implementation consumes
-// KAA-only facts.
+// oracle-only facts.
 const NeedsTypeInfo Capabilities = NeedsResolver
 
 // TypeInfoBackend is a per-rule hint telling the dispatcher which
@@ -687,9 +687,9 @@ type OracleFilter struct {
 	ThoroughOnlyAllFiles bool
 }
 
-// OracleDeclarationProfile narrows which KAA symbol fields the JVM extracts
+// OracleDeclarationProfile narrows which oracle symbol fields the JVM extracts
 // for this rule. The pipeline takes the union across all active rules before
-// passing --declaration-profile to krit-types; a nil value means "no opinion"
+// passing --declaration-profile to krit-fir; a nil value means "no opinion"
 // (the rule does not constrain extraction). If every active oracle rule
 // supplies a non-nil profile, the JVM skips fields outside the union and may
 // run significantly faster.
@@ -978,7 +978,7 @@ type Rule struct {
 	// OracleDeclarationNeeds, when non-nil, declares which declaration
 	// fields this rule reads from the JVM oracle. The pipeline unions these
 	// across all active rules to compute the --declaration-profile flag
-	// passed to krit-types. A nil value means the rule has not opted in to
+	// passed to krit-fir. A nil value means the rule has not opted in to
 	// narrowing (conservative: treated as needing all fields for the union).
 	// Rules that only use expression-level APIs (LookupCallTarget,
 	// LookupExpression) and never touch the declarations map should set
@@ -1026,22 +1026,6 @@ type Rule struct {
 	// leave this nil.
 	Aggregate *Aggregate
 
-	// ExprPositions optionally returns FlatNode indices whose oracle
-	// expression types this rule wants resolved before dispatch runs.
-	// Used by the targeted-resolution pre-pass under --depth=thorough:
-	// the pipeline walks every file once, accumulates the union of
-	// requested positions across rules, sends them to krit-types in a
-	// single batched RPC, then injects the resulting types into the
-	// oracle's expression map. Rules then query ctx.Resolver normally
-	// during dispatch and find the precomputed facts via
-	// CompositeResolver.ResolveByNameFlat.
-	//
-	// Selectors must be cheap (AST-only, no resolver calls) — they are
-	// invoked for every file regardless of whether any positions match.
-	// Returning nil or an empty slice skips the file. A nil ExprPositions
-	// means the rule does not participate in targeted resolution.
-	ExprPositions ExpressionPositionSelector
-
 	// Descriptor metadata (formerly only on RuleDescriptor returned by
 	// Meta()). Rules may set these directly on the Rule literal at
 	// registration time instead of implementing MetaProvider. The
@@ -1070,11 +1054,6 @@ type Rule struct {
 	// See RuleDescriptor.LanguageSupport.
 	LanguageSupport map[string]LanguageSupport
 }
-
-// ExpressionPositionSelector returns FlatNode indices in file whose
-// oracle expression type a rule wants resolved before dispatch. See
-// Rule.ExprPositions for the contract and lifecycle.
-type ExpressionPositionSelector func(file *scanner.File) []uint32
 
 // Aggregate describes the three-phase lifecycle of an aggregate rule:
 // Collect is called for each matching node during the AST walk; Finalize

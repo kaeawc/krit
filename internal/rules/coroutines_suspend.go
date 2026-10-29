@@ -10,7 +10,7 @@ import (
 // RedundantSuspendModifierRule detects suspend functions with no suspend calls inside.
 // With type inference: uses ResolveNode on call expressions to check if the call
 // target is a suspend function, beyond the hardcoded known list.
-// With oracle: uses KAA call-target metadata to distinguish resolved suspend
+// With oracle: uses oracle call-target metadata to distinguish resolved suspend
 // calls from resolved non-suspend calls, with known FQN/name fallbacks for older
 // oracle payloads.
 type RedundantSuspendModifierRule struct {

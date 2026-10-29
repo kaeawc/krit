@@ -55,8 +55,8 @@ class AnalysisSessionCacheDepsTest {
     @Test
     fun supertypeInSameFileIsNotRecordedAsDep() {
         // A class that extends another class in the SAME file should
-        // not list itself as a dep path; krit-types' DepTracker skips
-        // self-references and we mirror that.
+        // not list itself as a dep path; DepTracker skips
+        // self-references.
         val path = writeKt(
             "Same.kt",
             """

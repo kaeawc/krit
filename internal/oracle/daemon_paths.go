@@ -105,7 +105,7 @@ func AbsoluteRequestPaths(paths []string) ([]string, PathSpelling) {
 }
 
 // Caller returns the caller's spelling of a path the daemon reported. A
-// daemon may echo a path with forward slashes (krit-types' virtual file
+// daemon may echo a path with forward slashes (krit-fir's virtual file
 // system does on Windows), so the path is matched in native form.
 func (s PathSpelling) Caller(path string) string {
 	native := filepath.FromSlash(path)
@@ -171,7 +171,6 @@ func (s PathSpelling) CallerCacheDeps(c *CacheDepsFile) {
 			continue
 		}
 		entry.DepPaths = s.CallerPaths(entry.DepPaths)
-		entry.PropagatingDepPaths = s.CallerPaths(entry.PropagatingDepPaths)
 	}
 	c.Crashed = CallerKeys(s, c.Crashed)
 }

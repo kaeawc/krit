@@ -67,12 +67,10 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		return nil, fmt.Errorf("%s (daemon=%s client=%s)", daemon.ErrBinaryHashMismatchPrefix, daemonHash, args.ClientBinaryHash)
 	}
 
-	// Validate the requested oracle backend up front so the
-	// daemon-resident OracleDaemon spawn picks the right jar.
-	// ensureOracleDaemon routes BackendKAA to krit-types and
-	// BackendFIR to krit-fir; unrecognised spellings surface as a
-	// typed ErrUnsupportedOracleBackendPrefix so the CLI falls back
-	// to in-process via runDaemonAnalyze.
+	// Validate the requested oracle backend up front. Unrecognised or
+	// removed spellings (such as "kaa") surface as a typed
+	// ErrUnsupportedOracleBackendPrefix so the CLI falls back to
+	// in-process via runDaemonAnalyze, which reports the error.
 	backend, err := oracle.ParseBackend(args.OracleBackend)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", daemon.ErrUnsupportedOracleBackendPrefix, err)
@@ -456,9 +454,8 @@ func (w *analyzeRespWriter) Write(p []byte) (int, error) {
 // buildProjectInput translates wire args into a pipeline.ProjectInput
 // against daemon-resident state. The function is the single seam
 // where CLI-flag-style knobs (rule lists, format) are wired into the
-// pipeline's typed value inputs. backend selects which JVM jar the
-// resident OracleDaemon spawns (krit-types vs krit-fir); the value
-// is parsed/validated upstream in handleAnalyzeProject.
+// pipeline's typed value inputs. backend is parsed/validated upstream
+// in handleAnalyzeProject.
 func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend oracle.Backend) (pipeline.ProjectInput, error) {
 	cfg, err := s.ensureConfig()
 	if err != nil {
@@ -518,8 +515,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	}
 
 	// OracleDaemon is daemon-resident: lazy-started on first request
-	// when the matching jar (krit-types for BackendKAA, krit-fir for
-	// BackendFIR) is found. nil daemon means oracle stays disabled
+	// when the krit-fir jar is found. nil daemon means oracle stays disabled
 	// (no JVM, no behavior change). Per-verb ping happens at the
 	// call boundary in handleAnalyzeProject.
 	//
@@ -527,16 +523,13 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	// resident JVM stays cached for other requests, but this one neither
 	// starts nor consults it, matching an in-process scan.
 	//
-	// Custom Kotlin rule jars run inside the krit-types JVM, so a
-	// --no-type-oracle request that carries them still gets a krit-types
+	// Custom Kotlin rule jars run inside the krit-fir JVM, so a
+	// --no-type-oracle request that carries them still gets a daemon
 	// handle for the plugin RPCs (OracleEnabled stays false), as an
 	// in-process scan does.
 	var oracleDaemon *oracle.Daemon
-	switch {
-	case !args.NoTypeOracle:
+	if !args.NoTypeOracle || len(args.CustomRuleJars) > 0 {
 		oracleDaemon, err = s.ensureOracleDaemonFor(paths, backend, oracleContextFor(args))
-	case len(args.CustomRuleJars) > 0:
-		oracleDaemon, err = s.ensureOracleDaemonFor(paths, oracle.BackendKAA, oracleContextFor(args))
 	}
 	if err != nil {
 		// Best-effort degrade: a failed daemon start shouldn't fail

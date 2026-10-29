@@ -15,6 +15,7 @@ import (
 	"github.com/kaeawc/krit/internal/devjar"
 )
 
+// EnsureJar resolves krit-fir, the only backend.
 func TestEnsureJar_DevBuildReturnsHelpfulError(t *testing.T) {
 	isolateJarLookup(t)
 	// Version stays "" → versionTag() returns "" → no release URL → error.
@@ -23,7 +24,7 @@ func TestEnsureJar_DevBuildReturnsHelpfulError(t *testing.T) {
 		t.Fatal("expected error for dev build with no jar")
 	}
 	msg := err.Error()
-	for _, want := range []string{"krit-types.jar not found", "KRIT_TYPES_JAR", "./gradlew shadowJar"} {
+	for _, want := range []string{"krit-fir.jar not found", "KRIT_FIR_JAR", "tools/krit-fir && ./gradlew shadowJar"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("error message missing %q: %s", want, msg)
 		}
@@ -51,22 +52,19 @@ func TestJarReleaseURL_NormalisesVersion(t *testing.T) {
 	t.Cleanup(func() { Version = prev })
 
 	Version = "1.2.3"
-	if got, want := jarReleaseURL(BackendKAA), "https://github.com/kaeawc/krit/releases/download/v1.2.3/krit-types-v1.2.3.jar"; got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
 	if got, want := jarReleaseURL(BackendFIR), "https://github.com/kaeawc/krit/releases/download/v1.2.3/krit-fir-v1.2.3.jar"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	Version = "v1.2.3"
-	if got, want := jarReleaseURL(BackendKAA), "https://github.com/kaeawc/krit/releases/download/v1.2.3/krit-types-v1.2.3.jar"; got != want {
+	if got, want := jarReleaseURL(BackendFIR), "https://github.com/kaeawc/krit/releases/download/v1.2.3/krit-fir-v1.2.3.jar"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	Version = "dev"
-	if got := jarReleaseURL(BackendKAA); got != "" {
+	if got := jarReleaseURL(BackendFIR); got != "" {
 		t.Errorf("dev build should not have a release URL, got %q", got)
 	}
 	Version = ""
-	if got := jarReleaseURL(BackendKAA); got != "" {
+	if got := jarReleaseURL(BackendFIR); got != "" {
 		t.Errorf("empty version should not have a release URL, got %q", got)
 	}
 }
@@ -81,9 +79,9 @@ func TestFindBackendJar_FIREnvOverride(t *testing.T) {
 	if got := FindBackendJar(BackendFIR, nil); got != jarPath {
 		t.Errorf("KRIT_FIR_JAR override: got %q, want %q", got, jarPath)
 	}
-	// The FIR override never satisfies a krit-types lookup.
-	if got := FindJar(nil); got != "" {
-		t.Errorf("KRIT_FIR_JAR leaked into the krit-types lookup: %q", got)
+	// FindJar resolves krit-fir, the only backend.
+	if got := FindJar(nil); got != jarPath {
+		t.Errorf("FindJar with KRIT_FIR_JAR override: got %q, want %q", got, jarPath)
 	}
 }
 
@@ -131,7 +129,7 @@ func TestFindBackendJar_FIRInProjectDir(t *testing.T) {
 }
 
 func TestFindBackendJar_DevCacheThenLocalBuild(t *testing.T) {
-	for _, backend := range []Backend{BackendFIR, BackendKAA} {
+	for _, backend := range []Backend{BackendFIR} {
 		t.Run(backend.String(), func(t *testing.T) {
 			isolateJarLookup(t)
 			project := t.TempDir()
@@ -237,7 +235,7 @@ func TestEnsureBackendJar_ChecksumMismatchInstallsNothing(t *testing.T) {
 func TestEnsureBackendJar_RequiresChecksumEntry(t *testing.T) {
 	isolateJarLookup(t)
 	jar := []byte("jar")
-	releaseServer(t, map[string][]byte{"krit-fir-v1.2.3.jar": jar}, checksumLine("krit-types-v1.2.3.jar", jar))
+	releaseServer(t, map[string][]byte{"krit-fir-v1.2.3.jar": jar}, checksumLine("unrelated-v1.2.3.jar", jar))
 	if _, err := EnsureBackendJar(context.Background(), BackendFIR, nil, false); err == nil || !strings.Contains(err.Error(), "no checksum listed") {
 		t.Fatalf("expected missing-checksum error, got %v", err)
 	}
@@ -283,28 +281,9 @@ func TestEnsureBackendJar_SkipsDownload(t *testing.T) {
 	}
 }
 
-func TestResolveOracleJar_FallsBackToInstalledKAAJar(t *testing.T) {
-	isolateJarLookup(t)
-	releaseServer(t, nil, "") // krit-fir asset unavailable
-	kaa := filepath.Join(t.TempDir(), "krit-types.jar")
-	if err := os.WriteFile(kaa, []byte("kaa"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("KRIT_TYPES_JAR", kaa)
-
-	jarPath, used, warning, err := ResolveOracleJar(context.Background(), BackendFIR, nil, false)
-	if err != nil {
-		t.Fatalf("ResolveOracleJar: %v", err)
-	}
-	if jarPath != kaa || used != BackendKAA {
-		t.Errorf("got (%q, %s), want (%q, kaa)", jarPath, used, kaa)
-	}
-	if !strings.Contains(warning, "krit-fir.jar") || !strings.Contains(warning, "KAA") {
-		t.Errorf("warning should name the missing jar and the fallback: %q", warning)
-	}
-}
-
-func TestResolveOracleJar_DevBuildNeverFallsBack(t *testing.T) {
+// The removed krit-types backend's jar is never used in place of a missing
+// krit-fir jar.
+func TestResolveOracleJar_IgnoresKritTypesJar(t *testing.T) {
 	isolateJarLookup(t)
 	kaa := filepath.Join(t.TempDir(), "krit-types.jar")
 	if err := os.WriteFile(kaa, []byte("kaa"), 0o644); err != nil {

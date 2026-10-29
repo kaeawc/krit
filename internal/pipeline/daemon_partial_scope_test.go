@@ -20,7 +20,7 @@ func TestPartialMergeRequiresTheRunsCompileScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	scopeOf := func(lv string) oracle.StoreScope {
-		return oracle.NewStoreScopeWithSettings(oracle.BackendKAA, "", nil, "", gradlemodel.KotlinSettings{LanguageVersion: lv, APIVersion: lv})
+		return oracle.NewStoreScopeWithSettings(oracle.BackendFIR, "", nil, "", gradlemodel.KotlinSettings{LanguageVersion: lv, APIVersion: lv})
 	}
 	v20, v22 := scopeOf("2.0"), scopeOf("2.2")
 

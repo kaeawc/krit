@@ -851,7 +851,7 @@ func (d *Dispatcher) Stats() (dispatched, lineRules, crossFile, moduleAware int)
 
 // ReportMissingCapabilities emits one diagnostic line per rule whose
 // declared capabilities cannot be satisfied by the dispatcher's current
-// wiring: NeedsResolver without a resolver, or an explicit KAA consumer when
+// wiring: NeedsResolver without a resolver, or an explicit oracle consumer when
 // the caller indicates no oracle is configured.
 //
 // The log format is:

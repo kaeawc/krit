@@ -119,16 +119,16 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # Build the JVM sidecar shaded jars once and stage them for the
-  # release funnel: krit-fir (the default oracle backend) and krit-types
-  # (the KAA backend, --daemon, --custom-rule-jars). Released CLIs
-  # auto-download the asset matching their version, verified against
-  # checksums.txt; see internal/oracle.EnsureBackendJar.
+  # Build the JVM sidecar shaded jar once and stage it for the release
+  # funnel: krit-fir, the type-oracle backend (also serves --daemon and
+  # --custom-rule-jars). Released CLIs auto-download the asset matching
+  # their version, verified against checksums.txt; see
+  # internal/oracle.EnsureBackendJar.
   build-jvm-jars:
     strategy:
       fail-fast: false
       matrix:
-        tool: [krit-types, krit-fir]
+        tool: [krit-fir]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

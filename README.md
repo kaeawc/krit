@@ -1,8 +1,8 @@
 # Krit
 
 Go-first static analysis for Kotlin, Java, and Android. Krit uses tree-sitter
-for fast source analysis and can call JVM-backed Kotlin Analysis API/FIR helper
-tools for type-aware checks when a project needs them.
+for fast source analysis and can call the JVM-backed krit-fir (K2 FIR) helper
+for type-aware checks when a project needs them.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/kaeawc/krit/main/install.sh | sh
@@ -18,7 +18,7 @@ That's it. Run it in any Kotlin, Java, or Android project and get findings in se
 - **SARIF / JSON / Checkstyle / plain** output
 - **LSP + MCP servers** — editor diagnostics and AI agent integration
 - **Cross-file dead code** via bloom-filtered indexing across Kotlin, Java, and XML
-- **Optional JVM analysis** through `krit-types`/KAA and FIR helper processes for checks that need compiler-grade facts
+- **Optional JVM analysis** through the krit-fir (K2 FIR) helper process for checks that need compiler-grade facts
 
 ## Install
 
@@ -37,7 +37,7 @@ scoop install krit
 go install github.com/kaeawc/krit/cmd/krit@latest
 ```
 
-See [docs/install.md](docs/install.md) for the full set of install options and companion tools (`krit-lsp`, `krit-mcp`, `krit-types`, and `krit-fir`).
+See [docs/install.md](docs/install.md) for the full set of install options and companion tools (`krit-lsp`, `krit-mcp`, and `krit-fir`).
 
 ## First run
 

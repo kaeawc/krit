@@ -38,6 +38,19 @@ class WireJsonTest {
         assertEquals("Unresolved reference\n'x'", PayloadParsers.extractString(response, "/src/C.kt"))
     }
 
+    @Test fun analyzeFileSourceDecodesEveryJsonEscape() {
+        // Custom rules see the file through `source`: every escape must
+        // decode, or a multi-line file arrives as one line and findings and
+        // PSI offsets all land on line 1.
+        val request = parseRequest(
+            """{"id":7,"command":"analyzeFile","path":"C:\\src\\A.kt",""" +
+                """"source":"package a\n\nfun f() {\r\n\tprintln(\"x\\y\")\n}\u00e9\/"}""",
+        )
+        assertEquals("C:\\src\\A.kt", request.path)
+        assertEquals("package a\n\nfun f() {\r\n\tprintln(\"x\\y\")\n}\u00e9/", request.source)
+        assertEquals(5, request.source!!.lines().size)
+    }
+
     @Test fun ruleConfigOptionNamesNeverShadowTopLevelRequestFields() {
         val request = parseRequest(
             """{"id":4,"command":"check","files":[{"path":"/src/A.kt"}],"rules":["ProtocolProbe"],""" +

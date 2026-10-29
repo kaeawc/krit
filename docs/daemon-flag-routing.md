@@ -110,8 +110,8 @@ worth it for a one-shot bootstrap command.
 
 `runDoctorFlag` at `internal/cli/scan/early_exits.go:159` reports diagnostics
 about the *calling* CLI's environment: the binary's version, `exec.LookPath`
-results for `java` and `cwebp`, and whether `tools/krit-types/.../krit-types.jar`
-or `~/.krit/krit-types.jar` exist on disk. Routing through the daemon would
+results for `java` and `cwebp`, and whether the `krit-fir` oracle jar
+exists on disk. Routing through the daemon would
 report the daemon process's PATH and binary version, which can drift from the
 shell the user just ran the command in. For a diagnostic command that is
 actively wrong.
@@ -265,7 +265,7 @@ routable) but stay in-process for distinct reasons.
 `--output-types` routes through the daemon's `dump-types` meta verb
 (`handleDumpTypes` at `internal/cli/serve/meta_verbs.go`). The verb runs
 `scan.RunOutputTypesTo` against the requested scan paths, which locates
-`krit-types.jar`, invokes the JVM (or honours `--no-cache-oracle` to bypass
+the `krit-fir` jar, invokes the JVM (or honours `--no-cache-oracle` to bypass
 the cache), and writes the resulting oracle JSON to the path the CLI provides.
 The CLI absolutizes `--output-types` before forwarding (same convention as
 `--input-types` and `--cpuprofile` / `--memprofile`) so the daemon — which has

@@ -17,8 +17,7 @@ import (
 //
 // This is a krit-owned field of its own, never a compiler argument: `-Xplugin`
 // and `-P` stay outside the KotlinSettings allowlist, and krit-fir registers
-// these after its own plugin. krit-types (the Kotlin Analysis API oracle) does
-// not load compiler plugins.
+// these after its own plugin.
 type CompilerPlugins struct {
 	Classpath []string `json:"classpath,omitempty"`
 	Options   []string `json:"options,omitempty"`

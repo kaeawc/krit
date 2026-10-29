@@ -635,7 +635,7 @@ func (c *Client) ValidateConfig(args daemon.ValidateConfigArgs) (daemon.MetaResu
 // OracleFilterFingerprint dispatches the oracle-filter-fingerprint
 // verb. The daemon walks the requested paths, builds the active rule
 // set, and emits the JSON fingerprint report the CI drift gate
-// consumes — without invoking the krit-types JVM.
+// consumes — without invoking the krit-fir JVM.
 func (c *Client) OracleFilterFingerprint(args daemon.OracleFilterFingerprintArgs) (daemon.MetaResult, error) {
 	if c == nil {
 		return daemon.MetaResult{}, errors.New("daemonclient: nil client")
@@ -648,7 +648,7 @@ func (c *Client) OracleFilterFingerprint(args daemon.OracleFilterFingerprintArgs
 }
 
 // DumpTypes dispatches the dump-types verb (CLI's --output-types).
-// The daemon runs krit-types against the requested scan paths and
+// The daemon runs krit-fir against the requested scan paths and
 // writes the oracle JSON dump to args.OutputPath, which must be
 // absolute. Captured stderr / exit code is replayed by the CLI so
 // daemon-routed and in-process --output-types invocations stay

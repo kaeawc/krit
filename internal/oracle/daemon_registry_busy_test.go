@@ -52,42 +52,6 @@ func TestConnectOrStartDaemon_BusyDaemonGetsPrivateDaemon(t *testing.T) {
 	}
 }
 
-// In a pool, only the busy slot is replaced by a private daemon; the busy
-// daemon keeps its record and the other slots connect as usual.
-func TestConnectOrStartDaemonPool_BusySlotGetsPrivateDaemon(t *testing.T) {
-	isolateDaemonRegistry(t)
-	t.Setenv("KRIT_TYPES_REQUEST_TIMEOUT", "300ms")
-	const poolJar = "unused.jar"
-	key := daemonRegistryKey(poolJar, testSourceDirs)
-	fake := NewFakeDaemon(t)
-	t.Cleanup(fake.Close)
-	busyPID := testLivePID(t)
-	busyPort := silentDaemonPort(t)
-	if err := writePIDFileSlot(os.Getpid(), fake.Port, key, 0); err != nil {
-		t.Fatal(err)
-	}
-	if err := writePIDFileSlot(busyPID, busyPort, key, 1); err != nil {
-		t.Fatal(err)
-	}
-	starts := recordingStarter(t)
-
-	pool, err := ConnectOrStartDaemonPool(poolJar, testSourceDirs, nil, 2, false)
-	if err != nil {
-		t.Fatalf("ConnectOrStartDaemonPool: %v", err)
-	}
-	defer pool.Release()
-
-	if pool.Connected != 1 || pool.Started != 1 || len(*starts) != 1 || (*starts)[0] != 1 {
-		t.Fatalf("pool = %+v starts=%v, want slot 0 reused and slot 1 started privately", pool, *starts)
-	}
-	if !isProcessAlive(busyPID) {
-		t.Fatal("busy slot's daemon was killed")
-	}
-	if info, rerr := readPIDFileSlot(key, 1); rerr != nil || info.PID != busyPID || info.Port != busyPort {
-		t.Fatalf("busy slot's record changed: info=%+v err=%v", info, rerr)
-	}
-}
-
 // A record whose recorded start time no longer matches the live process names
 // a reused PID: it is dropped, and the process is left alone.
 func TestConnectOrStartDaemon_MismatchedStartTimeIsNotSignalled(t *testing.T) {

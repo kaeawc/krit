@@ -47,7 +47,6 @@ func (s *Server) configureWorkspaceIndexer() {
 			s.indexMu.Lock()
 			s.oracleDaemon = d
 			s.indexMu.Unlock()
-			s.installDaemonDecompiler(d)
 			if s.OracleRefresh == nil {
 				s.OracleRefresh = func(uri string, _ []byte) {
 					if idx := s.oracleIndex(); idx != nil {

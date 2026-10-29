@@ -283,7 +283,7 @@ func registerPotentialbugsMiscRules() {
 				if !r.RestrictToConfig && isKnownFunctionalOp &&
 					ignoredReturnValueFunctionalFallbackHasReceiverEvidence(file, idx) {
 					// No resolver/oracle evidence matched. Keep the historical
-					// tree-sitter-only heuristic for no-KAA runs, but require
+					// tree-sitter-only heuristic for no-oracle runs, but require
 					// structural receiver evidence so local side-effect APIs named
 					// map/filter/etc. do not get flagged solely by callee name.
 					ctx.EmitAt(line, col,

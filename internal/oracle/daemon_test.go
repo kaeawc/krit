@@ -1000,72 +1000,9 @@ func TestCdsArchivePath_MissingJar(t *testing.T) {
 	}
 }
 
-func TestCracCheckpointPath_ValidJar(t *testing.T) {
-	tmpDir := t.TempDir()
-	jarPath := filepath.Join(tmpDir, "test.jar")
-	os.WriteFile(jarPath, []byte("fake jar content"), 0644)
-
-	path, err := cracCheckpointPath(jarPath)
-	if err != nil {
-		t.Fatalf("cracCheckpointPath error: %v", err)
-	}
-
-	if !strings.HasSuffix(path, ".crac") {
-		t.Errorf("expected .crac suffix, got %q", path)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Checkpoint mock test
 // ---------------------------------------------------------------------------
-
-func TestDaemon_Checkpoint_CRaCNotAvailable_Mock(t *testing.T) {
-	d, reqReader, respWriter := newMockDaemon(t)
-
-	go func() {
-		sc := bufio.NewScanner(reqReader)
-		if !sc.Scan() {
-			return
-		}
-		var req daemonRequest
-		json.Unmarshal([]byte(sc.Text()), &req)
-
-		if req.Method != "checkpoint" {
-			t.Errorf("expected checkpoint, got %q", req.Method)
-		}
-
-		// Simulate CRaC not available (typical response from non-CRaC JDK)
-		resp := fmt.Sprintf(`{"id": %d, "error": "CRaC not available"}`, req.ID) + "\n"
-		respWriter.Write([]byte(resp))
-	}()
-
-	// Checkpoint should return nil (graceful degradation) when CRaC is not available
-	err := d.Checkpoint()
-	if err != nil {
-		t.Fatalf("Checkpoint should degrade gracefully, got error: %v", err)
-	}
-}
-
-func TestDaemon_Checkpoint_Success_Mock(t *testing.T) {
-	d, reqReader, respWriter := newMockDaemon(t)
-
-	go func() {
-		sc := bufio.NewScanner(reqReader)
-		if !sc.Scan() {
-			return
-		}
-		var req daemonRequest
-		json.Unmarshal([]byte(sc.Text()), &req)
-
-		resp := fmt.Sprintf(`{"id": %d, "result": {"ok": true, "restored": true}}`, req.ID) + "\n"
-		respWriter.Write([]byte(resp))
-	}()
-
-	err := d.Checkpoint()
-	if err != nil {
-		t.Fatalf("Checkpoint error: %v", err)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // Ping mock tests

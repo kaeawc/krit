@@ -167,11 +167,11 @@ func TestAnalyzeAllCarryingCheckDeclines(t *testing.T) {
 // module on its own and the broker says so at once.
 func TestDaemonAnalyzePartialReanalyzeDeclinesTheCheck(t *testing.T) {
 	root := t.TempDir()
-	jar := filepath.Join(root, "krit-types.jar")
+	jar := filepath.Join(root, "krit-fir.jar")
 	if err := os.WriteFile(jar, []byte("A"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("KRIT_TYPES_JAR", jar)
+	t.Setenv("KRIT_FIR_JAR", jar)
 	scanPaths := []string{root}
 	typesPath := oracle.CachePath(scanPaths)
 	if err := os.MkdirAll(filepath.Dir(typesPath), 0o755); err != nil {
@@ -180,7 +180,7 @@ func TestDaemonAnalyzePartialReanalyzeDeclinesTheCheck(t *testing.T) {
 	if err := oracle.WriteTypesJSON(typesPath, &oracle.Data{Version: 1, Files: map[string]*oracle.File{}}); err != nil {
 		t.Fatal(err)
 	}
-	in := IndexInput{OracleBackend: oracle.BackendKAA, StaleOraclePaths: []string{filepath.Join(root, "A.kt")}}
+	in := IndexInput{OracleBackend: oracle.BackendFIR, StaleOraclePaths: []string{filepath.Join(root, "A.kt")}}
 	scope, ok := oracleTypesScope(in, scanPaths)
 	if !ok {
 		t.Fatal("no scope")

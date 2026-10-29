@@ -169,41 +169,6 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 	}
 }
 
-// ExpressionPositions mirrors check()'s receiver gates: safe-call
-// (`?.`) navigations with a bare identifier receiver. Dotted and
-// chained safe-calls are skipped because the rule's bare-name lookup
-// cannot consume them.
-func (r *UnnecessarySafeCallRule) ExpressionPositions(file *scanner.File) []uint32 {
-	if file == nil {
-		return nil
-	}
-	var out []uint32
-	file.FlatWalkNodes(0, "navigation_expression", func(idx uint32) {
-		if !flatNavigationHasSafeCall(file, idx) {
-			return
-		}
-		if file.FlatChildCount(idx) < 2 {
-			return
-		}
-		receiver := file.FlatChild(idx, 0)
-		if receiver == 0 {
-			return
-		}
-		if flatNavigationHasSafeCall(file, receiver) {
-			return
-		}
-		receiverText := file.FlatNodeText(receiver)
-		if strings.Contains(receiverText, ".") {
-			return
-		}
-		if strings.TrimSpace(receiverText) == "" {
-			return
-		}
-		out = append(out, idx)
-	})
-	return out
-}
-
 func unnecessarySafeCallShouldSkipReceiver(file *scanner.File, idx uint32, name string, structural bool) bool {
 	if name == "this" {
 		return unnecessarySafeCallNullableReceiverFlat(file, idx, structural) ||

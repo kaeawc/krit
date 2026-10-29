@@ -9,7 +9,7 @@ import (
 
 func main() {
 	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: krit-dev-jar-hash krit-fir|krit-types")
+		fmt.Fprintln(os.Stderr, "usage: krit-dev-jar-hash krit-fir")
 		os.Exit(2)
 	}
 	root := devjar.CheckoutRoot(os.Args[1], nil)

@@ -51,7 +51,7 @@ If Gradle or dependency extraction is incomplete, rules that depend on library a
 For each suspected issue:
 
 1. Confirm the registry entry has accurate `NodeTypes`, `Languages`, `Needs`, fix level, confidence, and implementation.
-2. Confirm the rule uses the narrowest available evidence: AST, imports, source inference, project profile, cross-file index, module index, or KAA.
+2. Confirm the rule uses the narrowest available evidence: AST, imports, source inference, project profile, cross-file index, module index, or the krit-fir oracle.
 3. Add the regression fixture that would have failed before the fix.
 4. Include Java/Kotlin parity fixtures when the rule supports both languages.
 5. Run focused tests first, then full validation when the change is no longer local.

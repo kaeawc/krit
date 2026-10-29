@@ -17,14 +17,15 @@ func TestPrintDoctorReportsOracleJarsAndDefaultConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("KRIT_FIR_JAR", fir)
-	t.Setenv("KRIT_TYPES_JAR", "")
 
 	var out bytes.Buffer
 	printDoctor(&out, "dev")
 	got := out.String()
+	if strings.Contains(got, "krit-types") {
+		t.Errorf("doctor output must not list the removed krit-types jar:\n%s", got)
+	}
 	for _, want := range []string{
 		"krit-fir: " + fir + " (default oracle backend)",
-		"krit-types: ",
 		"default config: ",
 		"javac: ",
 	} {

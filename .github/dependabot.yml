@@ -42,12 +42,10 @@ updates:
       day: monday
     labels: [dependencies, docs]
 
-  # JVM helpers (Gradle). krit-types and krit-fir both include
-  # tools/krit-rule-api as a subproject, so they must be bumped together or
-  # the shared build sees two Kotlin plugin versions.
+  # JVM helper (Gradle). krit-fir includes tools/krit-rule-api as a
+  # subproject, so the shared build must see one Kotlin plugin version.
   - package-ecosystem: gradle
     directories:
-      - /tools/krit-types
       - /tools/krit-fir
     schedule:
       interval: weekly
@@ -58,7 +56,7 @@ updates:
         update-types: [minor, patch]
     ignore:
       # The embedded Kotlin compiler / Analysis API version is pinned across
-      # krit-types, krit-fir, krit-rule-api, krit-custom-rule-plugin and the
+      # krit-fir, krit-rule-api, krit-custom-rule-plugin and the
       # FIR checker surface; upgrade it as a deliberate migration. The
       # IntelliJ-flavored coroutines build tracks the compiler's bundled copy.
       - dependency-name: "org.jetbrains.kotlin*"
@@ -87,7 +85,7 @@ updates:
         update-types: [minor, patch]
     ignore:
       # The Kotlin Gradle plugin must match KOTLIN_COMPILER_VERSION, which
-      # tracks the krit-types compiler; upgrade with the Kotlin migration.
+      # tracks the krit-fir compiler; upgrade with the Kotlin migration.
       - dependency-name: "org.jetbrains.kotlin*"
 
   # Settings plugin (auto-applies krit across multi-project builds)

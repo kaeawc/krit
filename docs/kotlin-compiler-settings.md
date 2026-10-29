@@ -1,7 +1,6 @@
 # Kotlin compiler settings
 
-Krit analyzes Kotlin with an embedded Kotlin 2.4 compiler (`krit-fir`, and
-`krit-types` for the Kotlin Analysis API fallback). A project pinned to an older
+Krit analyzes Kotlin with an embedded Kotlin 2.4 compiler (`krit-fir`). A project pinned to an older
 language or API level, or that enables an opt-in or an experimental feature,
 must be analyzed under *its* semantics, not the embedded compiler's defaults:
 annotation-target defaults, context parameters, explicit backing fields, `when`
@@ -9,7 +8,7 @@ guards and opt-in requirements all change what the compiler reports.
 
 Krit therefore reads the project's effective Kotlin settings from the Gradle
 model, carries them per source set through the Go pipeline, applies an
-allowlisted subset in both backends, and folds them into every cache identity.
+allowlisted subset in `krit-fir`, and folds them into every cache identity.
 
 ## What is exported
 
@@ -132,8 +131,7 @@ plugins not loaded, analyzing without them (...)` and returns it as a response
 embeddable compiler); `krit-fir` embeds the plain compiler, and the
 kotlinx.serialization embeddable plugin loads into it. A plugin whose
 frontend references relocated IntelliJ classes would not, and is reported by
-the probe. `krit-types` (the Kotlin Analysis API oracle) does not load compiler
-plugins.
+the probe.
 
 When a module still compiles with errors (no plugin information, or a plugin
 that could not be loaded), the incremental planner says why it fell back: the
@@ -167,8 +165,8 @@ is **reported, not applied**: Krit lists each one with the reason in verbose
 output and `--perf`, and `krit-fir` returns a `warning` in the response and
 logs it on stderr.
 
-The allowlist exists in three copies kept equal by a Go test: `internal/gradlemodel/kotlin_settings.go`,
-`KotlinCompilerSettings.kt` in `tools/krit-fir` and in `tools/krit-types`.
+The allowlist exists in two copies kept equal by a Go test: `internal/gradlemodel/kotlin_settings.go`
+and `KotlinCompilerSettings.kt` in `tools/krit-fir`.
 
 ### Language levels the embedded compiler no longer supports
 
@@ -184,17 +182,16 @@ likewise not applied. `-progressive=false` turns progressive mode off.
 
 | Consumer | How |
 | --- | --- |
-| Oracle (`krit-fir` / `krit-types` one-shot) | `--kotlin-arg ARG`, repeated, plus the cache scope below. |
+| Oracle (`krit-fir` one-shot) | `--kotlin-arg ARG`, repeated, plus the cache scope below. |
 | FIR checker daemon | `--kotlin-arg` at launch and `kotlinArgs` on each check request; a request whose effective settings differ rebuilds the session. |
 | `krit serve` daemon | `oracle_kotlin` in the analyze-project request. |
 | `analyzeModules` | per module, in `ModuleSpec.compilerArgs`. |
 | Compiler plugins (`krit-fir` only) | `--compiler-plugin JAR` / `--compiler-plugin-option plugin:<id>:<key>=<value>` at launch, `compilerPluginClasspath` / `compilerPluginOptions` on check requests and per `ModuleSpec`. A `krit-fir` jar that predates them gets the other settings and a one-time warning. |
 
-The persistent oracle daemons (`krit-types` and `krit-fir` oracle, their pool,
-and `krit serve`'s resident daemon) are keyed on the settings: a daemon is
+The persistent oracle daemons (the `krit-fir` oracle and `krit serve`'s resident daemon) are keyed on the settings: a daemon is
 launched with `--kotlin-arg`, reused only for identical settings, and a settings
-change starts another. A `krit-types` / `krit-fir` jar that predates
-`--kotlin-arg` (for example via `KRIT_TYPES_JAR`) is detected from its contents;
+change starts another. A `krit-fir` jar that predates
+`--kotlin-arg` (for example via `KRIT_FIR_JAR`) is detected from its contents;
 Krit then leaves the flags off, warns once, and the oracle keeps working under
 that jar's embedded defaults. `-Xnullability-annotations=` and `-Xjsr305=` values
 may contain `@`.
@@ -206,7 +203,7 @@ affected results. The canonical settings identity
 (`KotlinSettings.Identity`; empty for the embedded defaults, so existing cache
 keys are unchanged) is part of:
 
-* the oracle store scope (`oracle.NewStoreScopeWithSettings`) for both backends,
+* the oracle store scope (`oracle.NewStoreScopeWithSettings`),
   the facts sidecar of a cached `types.json` (so a settings-only change cannot
   reuse it), and the legacy per-file entry directory used without `.krit/store`
   (keyed by the settings identity alone, under `types-cache/scopes/<hash>` in
@@ -235,7 +232,7 @@ including its entries' CRCs, and every option.
   settings come from the model there.
 * The legacy per-file entries are not keyed by classpath or JVM target (tracked
   in issue #827); only the store scope is.
-* The language server's workspace index uses the resident Kotlin Analysis API
+* The language server's workspace index uses the resident `krit-fir` oracle
   daemon, which is started once per jar and source roots and does not receive
   the settings; a scan does.
 * Per-source-set `languageSettings` declared only on a Kotlin Multiplatform

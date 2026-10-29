@@ -10,25 +10,18 @@ import (
 	"github.com/kaeawc/krit/internal/oracle"
 )
 
-// TestFirOracleFactContract is the FIR-side safety gate for making the
-// FIR backend the default oracle.
+// TestFirOracleFactContract is the FIR oracle's expression-surface gate.
 //
-// The pre-existing TestOracleBackendParity gate only compares the
-// *declaration* surface (class kind, supertypes, sealed/data/abstract
-// flags, member names) across KAA and FIR. It deliberately says nothing
-// about the *expression* surface — expression types, nullability,
-// resolved call targets, suspend markers, and compiler diagnostics —
-// because the two backends diverge structurally there in one-shot mode
-// (KAA emits expressions only for filter-requested positions; FIR
-// populates them eagerly). Those expression facts are exactly what the
-// type-aware rules read.
+// TestFirOracleDeclarationContract covers the *declaration* surface (class
+// kind, supertypes, sealed/data/abstract flags, member names). This test
+// covers the *expression* surface — expression types, nullability, resolved
+// call targets, suspend markers, and compiler diagnostics — which is exactly
+// what the type-aware rules read.
 //
-// Rather than pin FIR's behaviour to the backend being retired, this
-// test asserts FIR delivers each load-bearing fact directly, against a
-// fixture with known shapes. If a krit-fir change silently drops
-// expression types, nullability projection, call-target resolution,
-// suspend detection, or diagnostics, this fails before the default
-// flip can ship a regression.
+// It asserts FIR delivers each load-bearing fact directly, against a fixture
+// with known shapes. If a krit-fir change silently drops expression types,
+// nullability projection, call-target resolution, suspend detection, or
+// diagnostics, this fails before the regression ships.
 //
 // Assertions key on semantic criteria (call-target FQN suffix, declared
 // type, nullability) rather than brittle line:col offsets, so the gate

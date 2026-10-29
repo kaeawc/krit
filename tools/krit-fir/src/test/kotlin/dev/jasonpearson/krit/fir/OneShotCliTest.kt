@@ -39,9 +39,8 @@ class OneShotCliTest {
 
     @Test
     fun extractCliValueAcceptsAliasFlags() {
-        // Short alias matches just like the long form so the parser
-        // is symmetric with krit-types' `--output` / `-o` and
-        // `--classpath` / `-cp`.
+        // Short alias matches just like the long form:
+        // `--output` / `-o` and `--classpath` / `-cp`.
         val args = arrayOf("-o", "/tmp/out.json", "-cp", "/jars/single.jar")
         assertEquals("/tmp/out.json", extractCliValue(args, "--output", "-o"))
         assertEquals("/jars/single.jar", extractCliValue(args, "--classpath", "-cp"))

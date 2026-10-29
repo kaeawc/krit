@@ -8,7 +8,7 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// RuleNeedsKotlinOracle reports whether a rule is an actual KAA
+// RuleNeedsKotlinOracle reports whether a rule is an actual oracle
 // consumer. The narrow NeedsOracle* bits (or the umbrella alias) are
 // the single source of truth — rules must declare the fact categories
 // they consume so the bridge can compute a tight workload union.
@@ -27,7 +27,7 @@ func RuleNeedsKotlinOracle(r *api.Rule) bool {
 // OracleFactUnion returns the OR of NeedsOracle* bits across the
 // active rule set. This is the single place rule descriptors are
 // translated into the JVM workload mask consumed by InvocationOptions:
-// rules opt into specific KAA fact categories (call targets, suspend
+// rules opt into specific oracle fact categories (call targets, suspend
 // markers, supertypes, members, diagnostics, library closure) and the
 // pipeline's --no-diagnostics / --declaration-profile flags follow.
 func OracleFactUnion(enabled []*api.Rule) api.Capabilities {
@@ -43,7 +43,7 @@ func OracleFactUnion(enabled []*api.Rule) api.Capabilities {
 
 // NeedsOracleDeclarationWalk reports whether any active rule consumes a
 // fact that requires the JVM-side declaration walk (members, signatures,
-// supertypes, class/member annotations). When false, krit-types can
+// supertypes, class/member annotations). When false, krit-fir can
 // skip declaration extraction entirely.
 func NeedsOracleDeclarationWalk(enabled []*api.Rule) bool {
 	declarationBits := api.NeedsOracleSupertypes |
@@ -55,13 +55,13 @@ func NeedsOracleDeclarationWalk(enabled []*api.Rule) bool {
 }
 
 // NeedsOracleLibraryClasses reports whether any active rule needs the
-// JAR / library closure (Dependencies map). When false, krit-types can
+// JAR / library closure (Dependencies map). When false, krit-fir can
 // skip the library walk.
 func NeedsOracleLibraryClasses(enabled []*api.Rule) bool {
 	return OracleFactUnion(enabled).HasAny(api.NeedsOracleLibraryClasses)
 }
 
-// KotlinOracleRulesV2 returns the active subset that should contribute to KAA
+// KotlinOracleRulesV2 returns the active subset that should contribute to oracle
 // file selection, call-target filtering, declaration export, and diagnostics.
 func KotlinOracleRulesV2(enabled []*api.Rule) []*api.Rule {
 	out := make([]*api.Rule, 0, len(enabled))
@@ -194,7 +194,7 @@ func ruleDeclarationProfile(r *api.Rule) oracle.DeclarationProfile {
 }
 
 // NeedsOracleDiagnostics reports whether active rules should request
-// expensive compiler diagnostics from krit-types. Driven by the
+// expensive compiler diagnostics from krit-fir. Driven by the
 // OracleFactUnion: a rule must declare NeedsOracleDiagnostics (or the
 // umbrella NeedsOracle) to opt in.
 func NeedsOracleDiagnostics(enabled []*api.Rule) bool {

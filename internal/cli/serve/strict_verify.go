@@ -161,7 +161,7 @@ func (r *strictVerifyAnalyzeResponse) WriteRawResponse(ctx context.Context, w io
 //
 //   - The parse cache is freshly constructed for the baseline only, so
 //     stale memoised parses can't mask a daemon-side bug.
-//   - The oracle daemon (krit-types or krit-fir, picked from
+//   - The oracle daemon (krit-fir, picked from
 //     args.OracleBackend) is shared with the daemon call. The
 //     out-of-process JVM is itself a daemon-resident piece whose
 //     correctness is independent of krit's resident state, and

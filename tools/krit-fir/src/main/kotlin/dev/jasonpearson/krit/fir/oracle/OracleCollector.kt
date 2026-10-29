@@ -65,10 +65,10 @@ internal class OracleCollector {
 
     fun addClass(filePath: String, payload: ClassPayload) {
         perFile.getOrPut(filePath) { mutableListOf() }.add(payload)
-        // The `dependencies` map mirrors krit-types' cross-file class
-        // index — keyed by FQN so the Go-side oracle can resolve a
-        // symbol without walking every file. First-wins on duplicate
-        // FQNs across files; matches krit-types' behavior.
+        // The `dependencies` map is a cross-file class index — keyed
+        // by FQN so the Go-side oracle can resolve a symbol without
+        // walking every file. First-wins on duplicate FQNs across
+        // files, so the Go-side resolver sees a stable choice.
         dependencies.putIfAbsent(payload.fqn, payload)
     }
 
@@ -78,9 +78,8 @@ internal class OracleCollector {
 
     /**
      * Add an expression payload for [filePath] under [key]
-     * ("line:col"). First-wins on duplicate keys — matches krit-types'
-     * dedup behavior where overlapping call expressions at the same
-     * source position are reported once.
+     * ("line:col"). First-wins on duplicate keys, so overlapping call
+     * expressions at the same source position are reported once.
      */
     fun addExpression(filePath: String, key: String, payload: ExpressionPayload) {
         val map = expressionsByFile.getOrPut(filePath) { LinkedHashMap() }
@@ -108,8 +107,8 @@ internal class OracleCollector {
 
     /**
      * Append a diagnostic payload for [filePath]. Insertion order is
-     * preserved so the wire payload is deterministic; krit-types' JSON
-     * shape doesn't dedup diagnostics either (a file can legitimately
+     * preserved so the wire payload is deterministic; diagnostics are
+     * not deduplicated (a file can legitimately
      * carry multiple instances of the same factory at different sites).
      */
     fun addDiagnostic(filePath: String, payload: DiagnosticPayload) {
@@ -142,8 +141,8 @@ internal class OracleCollector {
     /**
      * Build the final [AnalyzeResult] from buffered data. Files that
      * had no class declarations but did have a package directive still
-     * appear with an empty `declarations` list — matches krit-types'
-     * behavior of emitting one `FileResult` per visited Kotlin file.
+     * appear with an empty `declarations` list, so there is one file
+     * entry per visited Kotlin file.
      */
     fun toResult(): AnalyzeResult {
         val allFilePaths =

@@ -10,7 +10,7 @@ import (
 
 // close flushes parse / xml / resource caches and the oracle cache
 // writer under the "cacheBackgroundFlush" tracker label, then stops the
-// CPU profile and closes the krit-types daemon if one was launched.
+// CPU profile and closes the krit-fir daemon if one was launched.
 //
 // Idempotent: subsequent calls are no-ops. The cache flush ordering is
 // load-bearing for the perfTiming JSON tree (parseCacheFlush →

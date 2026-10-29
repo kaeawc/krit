@@ -105,9 +105,7 @@ func helperJars() map[string]string {
 			candidates = append(candidates, matches...)
 		}
 	}
-	for _, tool := range []string{"krit-fir", "krit-types"} {
-		candidates = append(candidates, filepath.Join("tools", tool, "build", "libs", tool+".jar"))
-	}
+	candidates = append(candidates, filepath.Join("tools", "krit-fir", "build", "libs", "krit-fir.jar"))
 	for _, path := range candidates {
 		if sum := fileSHA256(path); sum != "" {
 			out[path] = sum

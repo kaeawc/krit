@@ -18,7 +18,7 @@ the produced jar through `dependencies { kritCustomRules(project(":custom-rules"
 
 Both rules are pure line-scan implementations using the `KritRule` SPI from
 `dev.jasonpearson.krit:krit-rule-api`. They illustrate the simplest path
-(no Kotlin Analysis API dependency) and skip strings / block comments to
+(no compiler/type-oracle dependency) and skip strings / block comments to
 avoid common lexical false positives.
 
 ## How the plugin pipeline works
@@ -70,16 +70,16 @@ The host build wires in two local artifacts:
 - The `krit` Go binary (`make build` at the repo root or
   `go build -o krit ./cmd/krit/`). Without it the plugin falls back to the
   binary published on GitHub Releases.
-- The `krit-types` JVM daemon jar
-  (`cd tools/krit-types && ./gradlew shadowJar`). The custom-rule loader
-  spawns this jar to host the rule classes; set `KRIT_TYPES_JAR` to its
+- The `krit-fir` JVM jar
+  (`cd tools/krit-fir && ./gradlew shadowJar`). The custom-rule loader
+  spawns this jar to host the rule classes; set `KRIT_FIR_JAR` to its
   path or `brew install krit` to enable auto-download.
 
 Then run the host project's `kritCheck`:
 
 ```bash
 cd playground/kotlin-webservice
-KRIT_TYPES_JAR=$PWD/../../tools/krit-types/build/libs/krit-types.jar \
+KRIT_FIR_JAR=$PWD/../../tools/krit-fir/build/libs/krit-fir.jar \
   ./gradlew kritCheck
 ```
 

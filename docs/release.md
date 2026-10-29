@@ -5,7 +5,7 @@ Krit ships from `v*` tags:
 - **GitHub Releases** — every `v*` tag. `krit_<version>_<os>_<arch>.tar.gz`
   archives (`.zip` on Windows, `krit_<version>_linux_musl_amd64.tar.gz`
   for musl) bundling `krit`, `krit-lsp`, and `krit-mcp`, plus SBOMs, the
-  `krit-types` jar, and a signed `checksums.txt`. Tags with a prerelease
+  `krit-fir` jar, and a signed `checksums.txt`. Tags with a prerelease
   suffix (`-nightly.*`, `-rc1`, ...) are marked as GitHub prereleases.
   Owned by [`release.yml`](../.github/workflows/release.yml). The Gradle
   plugin, VS Code extension, and `install.sh` all download these archives
@@ -18,8 +18,8 @@ Krit ships from `v*` tags:
 - **Maven Central** — stable `vX.Y.Z` tags only.
   `dev.jasonpearson.krit:krit-rule-api` so external rule authors can
   compile against the SPI without vendoring the analyzer, plus the
-  self-contained `:krit-types` and `:krit-fir` oracle jars (see
-  [Oracle jars on Maven Central](#oracle-jars-on-maven-central) below).
+  self-contained `:krit-fir` oracle jar (see
+  [Oracle jar on Maven Central](#oracle-jar-on-maven-central) below).
   Owned by
   [`publish-maven-central.yml`](../.github/workflows/publish-maven-central.yml).
 - **Gradle Plugin Portal** — `dev.jasonpearson.krit` Gradle plugin
@@ -121,7 +121,7 @@ Outputs land in `tools/krit-rule-api/build/staging-deploy/`.
 To stage a deployment for inspection without publishing it, dispatch
 `publish-maven-central.yml` manually and leave `publishing_type` at its
 default, `user_managed` (or set it explicitly). The workflow publishes
-and stages all three artifacts for real, then calls
+and stages both artifacts for real, then calls
 `scripts/release/central-portal-upload.sh`, which POSTs to Central's
 `/manual/upload` transfer endpoint with `publishing_type=user_managed`.
 That moves the OSSRH staging deployment into the Central Portal, where
@@ -145,28 +145,25 @@ the job's `if` condition.
   on a non-tag ref, or a manual dispatch from a branch omitted the
   version input. Dispatch again with the desired version.
 
-## Oracle jars on Maven Central
+## Oracle jar on Maven Central
 
-The Kotlin Analysis API and FIR oracle helpers `krit` shells out to are
-also published to Maven Central as self-contained fat jars:
+The FIR oracle helper `krit` shells out to is also published to Maven
+Central as a self-contained fat jar, `dev.jasonpearson.krit:krit-fir`.
 
-- `dev.jasonpearson.krit:krit-types`
-- `dev.jasonpearson.krit:krit-fir`
-
-Each publication uses the shadow jar as its main artifact and ships a
+The publication uses the shadow jar as its main artifact and ships a
 dependency-free POM, so consumers don't need access to JetBrains'
-`intellij-dependencies` repository, which hosts the Kotlin compiler and
-Analysis API modules these jars bundle and that Maven Central itself
-cannot resolve. The jars carry `META-INF/LICENSE-krit.txt` (Krit's own
+`intellij-dependencies` repository, which hosts the Kotlin compiler
+modules the jar bundles and that Maven Central itself
+cannot resolve. The jar carries `META-INF/LICENSE-krit.txt` (Krit's own
 license) and `META-INF/THIRD_PARTY_NOTICES.txt` (notices for the bundled
-Apache-2.0 compiler/Analysis API) so the bundled code stays attributed.
+Apache-2.0 Kotlin compiler) so the bundled code stays attributed.
 
-`publish-maven-central.yml` publishes `krit-types` and `krit-fir` to the
+`publish-maven-central.yml` publishes `krit-fir` to the
 `centralPortal` repository right after `krit-rule-api`, on the same
 stable-tag or dispatch trigger, then runs its finalize step
-(`scripts/release/central-portal-upload.sh`) once for all three
+(`scripts/release/central-portal-upload.sh`) once for both
 artifacts together — see [Dry-running the workflow](#dry-running-the-workflow)
-for what that finalize step does. Publishing either shadow jar to
+for what that finalize step does. Publishing the shadow jar to
 `centralPortal` with a non-SNAPSHOT version fails fast if `SIGNING_KEY`
 or `SIGNING_PASSWORD` is missing, the same guard
 `krit-rule-api` uses.

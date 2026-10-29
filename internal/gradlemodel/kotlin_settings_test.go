@@ -270,10 +270,9 @@ func TestEffectiveKotlinSettingsOnNilAndEmptyModel(t *testing.T) {
 	}
 }
 
-// helperSources are the two Kotlin copies of the settings allowlist and parser.
+// helperSources are the Kotlin copies of the settings allowlist and parser.
 var helperSources = map[string]string{
-	"krit-fir":   "../../tools/krit-fir/src/main/kotlin/dev/jasonpearson/krit/fir/runner/KotlinCompilerSettings.kt",
-	"krit-types": "../../tools/krit-types/src/main/kotlin/dev/jasonpearson/krit/types/KotlinCompilerSettings.kt",
+	"krit-fir": "../../tools/krit-fir/src/main/kotlin/dev/jasonpearson/krit/fir/runner/KotlinCompilerSettings.kt",
 }
 
 func readHelper(t *testing.T, name string) string {
@@ -299,9 +298,8 @@ func kotlinStringSet(t *testing.T, text, name string) map[string]bool {
 	return out
 }
 
-// TestKotlinSettingsMatchHelpers keeps the three copies of the allowlist, the
-// protected sets and the validation regexes (Go, krit-fir, krit-types) exactly
-// equal, so a flag Go sends is never silently dropped by a helper and a helper
+// TestKotlinSettingsMatchHelpers keeps the copies of the allowlist, the
+// protected sets and the validation regexes (Go, krit-fir) exactly equal, so a flag Go sends is never silently dropped by a helper and a helper
 // never accepts what Go rejects.
 func TestKotlinSettingsMatchHelpers(t *testing.T) {
 	wantAllow := map[string]bool{}
@@ -320,7 +318,6 @@ func TestKotlinSettingsMatchHelpers(t *testing.T) {
 		"VERSION": versionRe.String(), "OPT_IN": optInRe.String(),
 		"FLAG_VALUE": flagValueRe.String(), "LANGUAGE_TOGGLE": languageRe.String(),
 	}
-	companions := map[string]string{}
 	for name := range helperSources {
 		text := readHelper(t, name)
 		gotAllow := map[string]bool{}
@@ -352,14 +349,6 @@ func TestKotlinSettingsMatchHelpers(t *testing.T) {
 				t.Errorf("%s does not protect the %s prefix", name, prefix)
 			}
 		}
-		idx := strings.Index(text, "companion object {")
-		if idx < 0 {
-			t.Fatalf("%s has no companion object", name)
-		}
-		companions[name] = text[idx:]
-	}
-	if companions["krit-fir"] != companions["krit-types"] {
-		t.Error("the companion-object blocks of the two Kotlin helper copies differ; they must stay identical")
 	}
 }
 

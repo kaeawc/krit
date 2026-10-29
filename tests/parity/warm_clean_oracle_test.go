@@ -19,9 +19,8 @@ import (
 	"github.com/kaeawc/krit/internal/perf"
 )
 
-// wcBackend describes one compiler-backed oracle for the warm-vs-clean matrix.
-// Each backend is compared with its own clean baseline; the two backends are
-// never compared with each other.
+// wcBackend describes the compiler-backed oracle for the warm-vs-clean
+// matrix. Each run is compared with its own clean baseline.
 type wcBackend struct {
 	name    string
 	backend oracle.Backend
@@ -32,60 +31,35 @@ type wcBackend struct {
 	classpath func() ([]string, string)
 }
 
-func wcBackends() []wcBackend {
-	return []wcBackend{
-		{
-			name:    "fir",
-			backend: oracle.BackendFIR,
-			jarEnv:  oracle.BackendFIR.JarEnvVar(),
-			jar: func(root string) string {
-				jar := firchecks.FindFirJar([]string{root})
-				if jar == "" || !isExecutableJar(jar) {
-					return ""
-				}
-				return jar
-			},
-			classpath: func() ([]string, string) { return nil, "" },
+func wcFIRBackend() wcBackend {
+	return wcBackend{
+		name:    "fir",
+		backend: oracle.BackendFIR,
+		jarEnv:  oracle.BackendFIR.JarEnvVar(),
+		jar: func(root string) string {
+			jar := firchecks.FindFirJar([]string{root})
+			if jar == "" || !isExecutableJar(jar) {
+				return ""
+			}
+			return jar
 		},
-		{
-			name:    "kaa",
-			backend: oracle.BackendKAA,
-			jarEnv:  oracle.BackendKAA.JarEnvVar(),
-			jar: func(root string) string {
-				jar := oracle.FindJar([]string{root})
-				if jar == "" || !isExecutableKAAJar(jar) {
-					return ""
-				}
-				return jar
-			},
-			// kotlin.Deprecated lives in the stdlib, which krit-types does not
-			// bundle into its analysis classpath.
-			classpath: func() ([]string, string) {
-				stdlib := findKotlinStdlib()
-				if stdlib == "" {
-					return nil, "kotlin-stdlib jar not found in Gradle cache; set KOTLIN_STDLIB_JAR"
-				}
-				return []string{stdlib}, ""
-			},
-		},
+		classpath: func() ([]string, string) { return nil, "" },
 	}
 }
 
-// TestWarmCleanMutationFIR and TestWarmCleanMutationKAA drive the real helper
-// jars through the oracle cache (one-shot and persistent-daemon paths, absolute
-// and relative scan roots). They follow the oracle-backend-parity job's
-// contract: a missing jar skips the top-level test, and that job fails the run
-// on a top-level skip, so the matrix cannot silently stop running in CI.
-func TestWarmCleanMutationFIR(t *testing.T) { runWarmCleanOracleMatrix(t, wcBackends()[0]) }
-
-func TestWarmCleanMutationKAA(t *testing.T) { runWarmCleanOracleMatrix(t, wcBackends()[1]) }
+// TestWarmCleanMutationFIR drives the real krit-fir helper jar through the
+// oracle cache (one-shot and persistent-daemon paths, absolute and relative
+// scan roots). It follows the oracle-backend-parity job's contract: a missing
+// jar skips the top-level test, and that job fails the run on a top-level
+// skip, so the matrix cannot silently stop running in CI.
+func TestWarmCleanMutationFIR(t *testing.T) { runWarmCleanOracleMatrix(t, wcFIRBackend()) }
 
 func runWarmCleanOracleMatrix(t *testing.T, be wcBackend) {
 	wcRequireMatrix(t)
 	root := repoRoot(t)
 	jar := be.jar(root)
 	if jar == "" {
-		t.Skipf("%s executable helper jar not found; build tools/krit-%s with `./gradlew shadowJar`", be.name, map[string]string{"fir": "fir", "kaa": "types"}[be.name])
+		t.Skipf("%s executable helper jar not found; run `make fir-jar`", be.name)
 	}
 	jar, err := filepath.Abs(jar)
 	if err != nil {
@@ -481,14 +455,13 @@ func (c *wcOracleCase) addEntries(t *testing.T, snap wcSnapshot, root string, in
 	hits, _ := oracle.ClassifyFilesScopedV3(cacheDir, files, "", "", c.mx.be.backend.CacheApproximation())
 	for _, h := range hits {
 		deps := wcNormPaths(root, h.Closure.DepPaths)
-		prop := wcNormPaths(root, h.Closure.PropagatingDepPaths)
 		perFile := make([]string, 0, len(h.PerFileDeps))
 		for fqn := range h.PerFileDeps {
 			perFile = append(perFile, fqn)
 		}
 		sort.Strings(perFile)
-		snap["entry|"+wcNormPath(root, h.FilePath)] = fmt.Sprintf("closure=%v propagating=%v perFileDeps=%v crashed=%v wholeCompilationStamp=%v",
-			deps, prop, perFile, h.Crashed, h.CompilationFingerprint != "")
+		snap["entry|"+wcNormPath(root, h.FilePath)] = fmt.Sprintf("closure=%v perFileDeps=%v crashed=%v wholeCompilationStamp=%v",
+			deps, perFile, h.Crashed, h.CompilationFingerprint != "")
 	}
 }
 

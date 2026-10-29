@@ -57,7 +57,7 @@ import java.nio.file.Files
 data class FileRef(val path: String, val contentHash: String = "")
 
 internal val prunedSourceDirectoryNames = setOf(
-    ".git", ".krit", ".krit-cache", ".krit-types", ".gradle", ".idea", ".kotlin", ".claude", ".codex", ".grit",
+    ".git", ".krit", ".krit-cache", ".gradle", ".idea", ".kotlin", ".claude", ".codex", ".grit",
 )
 
 // Prefer the highest target this embedded compiler knows that the current JDK
@@ -954,8 +954,8 @@ class AnalysisSession(
     /**
      * Run a K2 frontend compilation to collect oracle-style per-class
      * projections for `files` (or every source in `sourceDirs` when
-     * `files` is empty). The result mirrors krit-types' analyze /
-     * analyzeAll JSON shape — classes captured during compilation feed
+     * `files` is empty). The result matches the analyze / analyzeAll
+     * JSON shape — classes captured during compilation feed
      * through the dispatched [OracleClassChecker] into an
      * [OracleCollector], which the orchestrator drains here.
      *

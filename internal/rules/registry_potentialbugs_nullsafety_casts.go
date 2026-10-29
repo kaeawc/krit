@@ -48,7 +48,6 @@ func registerPotentialbugsNullsafetyCastsRules() {
 			NodeTypes: []string{"as_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic,
 			Needs:                  api.NeedsTypeInfo | api.NeedsOracleExprType,
 			TypeInfo:               api.TypeInfoHint{PreferBackend: api.PreferAny, Required: true},
-			ExprPositions:          r.ExpressionPositions,
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Implementation:         r,
 			Check:                  r.check,

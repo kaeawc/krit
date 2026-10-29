@@ -3,11 +3,11 @@ package dev.jasonpearson.krit.fir.oracle
 /**
  * Daemon-response builders for the oracle-style RPC methods (`analyze`,
  * `analyzeAll`, `analyzeFiles`, `analyzeWithDeps`). The wire shape
- * mirrors `buildDaemonResponse` in krit-types' `Main.kt` so a single
- * Go-side client can talk to either backend.
+ * matches the response envelope the Go oracle client (internal/oracle)
+ * decodes.
  *
  * Per-file payloads come in as a structured [AnalyzeResult]; the
- * serialization preserves the krit-types JSON shape regardless of how
+ * serialization preserves the same JSON shape regardless of how
  * populated the result is. Callers handing [AnalyzeResult.EMPTY] get an
  * envelope shell with empty `files` and `dependencies` maps; callers
  * handing a populated result get the same envelope with the per-file
@@ -16,16 +16,15 @@ package dev.jasonpearson.krit.fir.oracle
 object OracleResponse {
 
     /**
-     * Build the krit-types-compatible envelope for the legacy
-     * `analyze` / `analyzeAll` / `analyzeFiles` RPC. Errors carried on
-     * [result] are nested inside the `result` object to match
-     * krit-types' `buildDaemonResponse` shape.
+     * Build the envelope for the legacy `analyze` / `analyzeAll` /
+     * `analyzeFiles` RPC. Errors carried on [result] are nested inside
+     * the `result` object.
      */
     /**
      * Build the one-shot CLI output shape — just the result body, no
-     * RPC `{"id":N,"result":...}` envelope. Mirrors krit-types'
-     * `buildJsonCompact(files, deps)` so the Go-side oracle reader
-     * parses either backend's `--output` file with the same struct.
+     * RPC `{"id":N,"result":...}` envelope, so the Go-side oracle
+     * reader parses the `--output` file with the same struct as a
+     * daemon `result`.
      */
     fun buildOneShot(result: AnalyzeResult = AnalyzeResult.EMPTY): String {
         val sb = StringBuilder()
@@ -55,8 +54,7 @@ object OracleResponse {
 
     /**
      * Build the flat-envelope response shape used by `analyzeWithDeps`.
-     * Mirrors krit-types' `buildDaemonResponseWithDeps`: `result`,
-     * `errors`, and `cacheDeps` are siblings rather than nested inside
+     * `result`, `errors`, and `cacheDeps` are siblings rather than nested inside
      * `result`. The `cacheDeps` field carries the per-file dependency
      * closure ([cacheDeps]) so the Go-side cache layer can invalidate
      * entries when one of a file's source dependencies changes; if no
@@ -103,7 +101,7 @@ object OracleResponse {
     /**
      * The standalone cacheDeps document the one-shot CLI writes to
      * `--cache-deps-out`: the same shape as the `analyzeWithDeps` envelope's
-     * `cacheDeps` field and krit-types' `--cache-deps-out` file.
+     * `cacheDeps` field.
      */
     fun buildCacheDeps(view: CacheDepsView): String =
         StringBuilder().also { appendCacheDeps(it, view) }.toString()

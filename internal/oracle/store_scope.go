@@ -30,14 +30,14 @@ func NewStoreScopeWithTarget(backend Backend, jarPath string, classpath []string
 }
 
 // NewStoreScopeWithSettings includes the compilation target and the project's
-// effective Kotlin compiler settings in cache identity, for either backend.
+// effective Kotlin compiler settings in cache identity.
 // The language level, API level, opt-ins and semantic flags change the facts a
 // compilation produces without changing any source or classpath entry, so a
 // settings-only change must read as a different scope. Zero settings leave the
 // identity exactly as it was before settings existed.
 func NewStoreScopeWithSettings(backend Backend, jarPath string, classpath []string, jvmTarget string, settings gradlemodel.KotlinSettings) StoreScope {
 	scope := NewStoreScope(backend, jarPath, classpath)
-	targeted := backend == BackendFIR && jvmTarget != ""
+	targeted := jvmTarget != ""
 	settingsID := settings.Identity()
 	if !targeted && settingsID == "" {
 		return scope

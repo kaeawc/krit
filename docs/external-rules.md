@@ -120,7 +120,7 @@ class NoTodoRule : KritRule {
   directly; they fall through to the supplied default when the option
   is absent or the wrong type.
 - `resolver: Resolver?` — narrow, type-aware queries backed by the
-  Kotlin Analysis API. Non-null when the rule declared
+  krit-fir (K2 FIR) oracle. Non-null when the rule declared
   `Capability.NEEDS_RESOLVER` and the daemon successfully prepared a
   session for the current file. Methods (see `Resolver` Kdoc):
   `isSuspendCall(KtCallExpression)`, `resolvedCallFqName(...)`,
@@ -272,8 +272,8 @@ krit --custom-rule-jars my-rules/build/libs/my-rules-0.1.0-krit-rules.jar src/
 ```
 
 `--custom-rule-jars` keeps Krit on the in-process path (the
-daemon-eligibility gate routes around it), so first runs do not need
-the prebuilt `krit-types` daemon on disk.
+daemon-eligibility gate routes around it); the rule jar is hosted by the
+`krit-fir` helper jar.
 
 ## Per-rule configuration (`pluginRules`)
 
@@ -326,14 +326,14 @@ copy-pasteable diagnostic.
 
 | Capability | Status | What it gives you |
 | --- | --- | --- |
-| `NEEDS_RESOLVER` | **supported** | Populates `RuleContext.resolver` with the [`Resolver`](#) bridge. Methods: `isSuspendCall`, `resolvedCallFqName`, `isLambdaSuspend`, `expressionType`. Each call opens a Kotlin Analysis API session — expect microsecond-class overhead per query. |
+| `NEEDS_RESOLVER` | **supported** | Populates `RuleContext.resolver` with the [`Resolver`](#) bridge. Methods: `isSuspendCall`, `resolvedCallFqName`, `isLambdaSuspend`, `expressionType`. Answers come from facts the krit-fir oracle pass already collected for the file, so queries are cheap lookups. |
 | `NEEDS_PARSED_FILES` | **supported (implicit)** | The daemon always parses the Kotlin file before invoking `check()` and exposes the result on `KritFile.ktFile`. Declaring it is a forward-compatible hint; omitting it changes nothing today. |
 | `NEEDS_GRADLE` | **supported** | Populates `RuleContext.gradle` with a `GradleContext`. Properties: `minSdk`, `targetSdk`, `compileSdk`, `kotlinVersion`, `javaTargetVersion`, `agpVersion`. Methods: `hasDependency(group, name)`, `dependencyVersion(group, name)`. Null when the project has no Gradle build files. |
 | `NEEDS_MANIFEST` | **supported** | Populates `RuleContext.manifest` with a `ManifestContext`. Properties: `packageName`, `minSdk`, `targetSdk`. Methods: `hasPermission(name)`, `hasActivity(name)`, `isActivityExported(name)`, plus the matching `hasService`/`isServiceExported`/`hasReceiver`/`isReceiverExported` pairs. Null when the project has no `AndroidManifest.xml`. |
 | `NEEDS_RESOURCES` | **supported** | Populates `RuleContext.resources` with a `ResourcesContext`. Methods: `stringValue(name)`, `hasString(name)`, `colorValue(name)`, `dimensionValue(name)`, `hasDrawable(name)`, `hasLayout(name)`, `hasId(name)`. Null when the project has no Android `res/` directory. |
 | `NEEDS_MODULE_INDEX` | **supported** | Populates `RuleContext.moduleIndex` with a `ModuleIndexContext`. Properties: `modulePaths`. Methods: `directoryOf(modulePath)`, `dependenciesOf(modulePath)`, `sourceRootsOf(modulePath)`. Null when the project has no Gradle modules. |
 | `NEEDS_CROSS_FILE` | **supported** | Populates `RuleContext.crossFile` with a `CrossFileContext`. Methods: `declarationByFqn(fqn)`, `referenceFiles(name)`, `isReferenced(name)` (non-comment references only). Null when the daemon's cross-file pass did not run. The wire payload can be sizable on large projects — declare this capability only when the rule genuinely needs whole-project visibility. |
-| `NEEDS_FIR` | **FIR-backend only** | Opts the rule into the K2 frontend IR. Methods on `Resolver` that have no KAA implementation throw `NotImplementedError("FIR backend required …")` when called against the krit-types (KAA) backend; declaring this capability moves the failure from runtime mid-analysis to deterministic load-time refusal. FIR is the default backend, so these rules load normally; they fail to load only when KAA is explicitly selected via `--oracle-backend=kaa`, with a diagnostic naming the flag they need to flip back. Use this when a rule depends on FIR-only surface — most rules should leave it off and stick to the always-implementable `Resolver` methods. |
+| `NEEDS_FIR` | **supported** | Opts the rule into the K2 frontend IR. krit-fir is the only oracle backend, so rules declaring it always load; the declaration documents that the rule depends on FIR-specific `Resolver` surface. Most rules can leave it off. |
 
 ### What a load failure looks like
 
@@ -346,17 +346,6 @@ error: krit-rule-api: /tmp/acme-rules.jar: rule jar declares capabilities
 the daemon does not yet provide to plugin rules; the rule would run
 without the facts it asked for. Remove the declaration(s) or wait for
 support. Unsupported: [acme.NoTodo: NEEDS_TIME_TRAVEL]
-```
-
-A jar declaring `NEEDS_FIR` against the KAA backend gets a different,
-backend-specific message:
-
-```
-error: krit-rule-api: /tmp/acme-rules.jar: rule jar declares FIR-only
-capabilities the krit-types (KAA) backend cannot provide. Run with
-`--oracle-backend=fir` so the krit-fir backend hosts the rule, or
-remove the FIR-only declaration if the rule does not actually need it.
-Unsupported: [acme.NeedsFirRule: NEEDS_FIR]
 ```
 
 The diagnostic surfaces on the same channels as the SDK-compat verdict:
@@ -399,8 +388,8 @@ Adding a new capability is a minor-version change on `krit-rule-api`:
 extend the `Capability` enum, grow `RuleContext` with the matching
 `XxxContext` interface, mirror the wire payload on both sides
 (`PluginXxxProfile` in `internal/oracle/daemon.go`,
-`XxxProfilePayload` in `tools/krit-types/.../Main.kt`), wire the
-extractor and the `PayloadXxxContext` impl in `PluginRules.kt`, add
+`XxxProfilePayload` in `tools/krit-fir/.../plugins/PayloadContexts.kt`), wire the
+extractor and the `PayloadXxxContext` impl in `tools/krit-fir/.../plugins/`, add
 the per-project builder in `internal/pipeline/custom_kotlin_rules.go`,
 add the value to `PluginCapabilities.SUPPORTED`, and update the matrix
 above. Existing rule jars that already declared the capability start
@@ -446,12 +435,12 @@ until the SDK stabilizes.
 
 **Resolver surface.** `Resolver` is the narrowest surface we could
 ship that still lets rules express type-aware checks. We intentionally
-do not expose `KaSession`, `KaSymbol`, or other JetBrains-internal
-types — the Kotlin Analysis API is itself unstable across compiler
+do not expose FIR symbols, sessions, or other JetBrains-internal
+types — the Kotlin compiler's internals are unstable across compiler
 versions, and direct exposure would couple every rule jar to the exact
-analysis-api-for-ide version Krit links. The methods on `Resolver`
+Kotlin compiler version Krit links. The methods on `Resolver`
 will grow in source-compatible ways (new methods, new defaults); the
-underlying KAA calls may change without notice between Krit releases.
+underlying FIR calls may change without notice between Krit releases.
 
 **SDK version.** Krit publishes `dev.jasonpearson.krit:krit-rule-api`
 to Maven Central in lockstep with each Krit release (see
@@ -582,7 +571,7 @@ options remain open:
   notoriously brittle (toolchain pinning, race-detector incompatibility,
   no reload on macOS). Not a good fit.
 - **Sidecar process**: spawn a rule provider over a stable IPC contract
-  (similar to `tools/krit-types/`). Most flexible, biggest implementation
+  (similar to `tools/krit-fir/`). Most flexible, biggest implementation
   cost (RPC schema, lifecycle, performance).
 - **WASM rule sandbox**: portable, sandboxed, slower than native. Open
   question whether the API surface (`scanner.File`, `FlatTree`, oracle

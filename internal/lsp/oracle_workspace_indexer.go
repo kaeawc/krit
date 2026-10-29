@@ -21,7 +21,7 @@ func (o OracleWorkspaceIndexer) BuildWorkspaceIndex(ctx context.Context, root st
 		if o.Fallback != nil {
 			return o.Fallback.BuildWorkspaceIndex(ctx, root, progress)
 		}
-		return nil, fmt.Errorf("krit-types.jar not found")
+		return nil, fmt.Errorf("krit-fir.jar not found")
 	}
 	if progress != nil {
 		progress(0, 1)

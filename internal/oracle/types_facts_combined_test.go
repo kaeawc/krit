@@ -16,7 +16,7 @@ func TestTypesFactsSatisfiedOnlyWhenKeyBaseAndSettingsScopeBothMatch(t *testing.
 		t.Fatal(err)
 	}
 	scopeOf := func(lv string) StoreScope {
-		return NewStoreScopeWithSettings(BackendKAA, "", nil, "", gradlemodel.KotlinSettings{LanguageVersion: lv, APIVersion: lv})
+		return NewStoreScopeWithSettings(BackendFIR, "", nil, "", gradlemodel.KotlinSettings{LanguageVersion: lv, APIVersion: lv})
 	}
 	abs := []string{filepath.Dir(typesPath)}
 	rel := []string{"."}

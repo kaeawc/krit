@@ -237,7 +237,6 @@ func wcKritEnv(home string) []string {
 	for _, kv := range os.Environ() {
 		switch {
 		case strings.HasPrefix(kv, "HOME="),
-			strings.HasPrefix(kv, "KRIT_TYPES_JAR="),
 			strings.HasPrefix(kv, "KRIT_FIR_JAR="),
 			strings.HasPrefix(kv, "KRIT_DAEMON_CACHE="):
 		default:

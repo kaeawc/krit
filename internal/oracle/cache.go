@@ -1,6 +1,6 @@
 package oracle
 
-// On-disk incremental cache for the krit-types oracle.
+// On-disk incremental cache for the krit-fir oracle.
 //
 // Each source .kt file's analysis result is stored as a content-addressable
 // JSON entry keyed by the content hash of its bytes. The primary disk backend
@@ -106,6 +106,8 @@ func recordOracleDir(cacheDir string) {
 // for krit-fir, the JVM target; it compiled without them before, so entries
 // it wrote for a project with a configured classpath carry facts resolved
 // without it.
+// v15: the krit-types (KAA) backend was removed; its entries (tagged or
+// legacy approximations) must never be served.
 // v14: krit-types entries record NameDigest, the digest of the visible
 // top-level declarations in other files that the entry's file mentioned when
 // it was analyzed (see declLedger). Entries written before it cannot be
@@ -114,22 +116,15 @@ func recordOracleDir(cacheDir string) {
 // no cachePayloadVersion counterpart in internal/cache: the facts an entry
 // holds are unchanged, and the incremental findings cache already keys on the
 // oracle fact hash.
-const CacheVersion = 14
+const CacheVersion = 15
+
+// legacyDeclLedgerFile is the declared-name ledger the removed krit-types
+// backend kept at the cache root. Listed so cache resets still remove it.
+const legacyDeclLedgerFile = "decl-ledger.json"
 
 // ApproximationFIRWholeCompilation marks entries written by krit-fir, whose
 // every run returns facts for the whole compilation.
 const ApproximationFIRWholeCompilation = "fir-whole-compilation"
-
-// ApproximationSymbolResolvedSources marks legacy, untagged krit-types entries.
-const ApproximationSymbolResolvedSources = "symbol-resolved-sources"
-
-// ApproximationKAATaggedReferences marks krit-types entries whose edges reach
-// every source file declaring a symbol the analyzed file resolves, each edge
-// tagged propagating or not. A dependency's own dependencies matter to a
-// dependent only through its propagating edges, which krit-types records from
-// signatures, annotations, parameter defaults, and bodies whose type is
-// inferred (or that are const, inline, or declare a contract).
-const ApproximationKAATaggedReferences = "kaa-tagged-references"
 
 // CacheEntry is one file's cached oracle analysis. The JSON field names
 // are intentionally short because there can be tens of thousands of these
@@ -164,31 +159,22 @@ type CacheEntry struct {
 	// is unchanged: a dependency outside the classified files changed, a
 	// file was deleted, or a library moved.
 	CompilationFingerprint string `json:"compilation_fingerprint,omitempty"`
-	// NameDigest is the digest of the declarations in other files that this
-	// file mentioned and could see when its facts were computed (see
-	// declLedger.digest). Empty means there were none. A hit whose digest
-	// against the current ledger differs is re-analyzed: a declaration it
-	// can see was added, removed, or re-signed, which its dependency closure
-	// cannot notice. Set on krit-types entries only.
-	NameDigest string `json:"name_digest,omitempty"`
 	// Crashed marks this entry as a poison marker: the file with this
-	// exact content deterministically crashes krit-types during analysis.
+	// exact content deterministically crashes krit-fir during analysis.
 	// FileResult and PerFileDeps are nil for crash entries; they contribute
 	// nothing to the assembled oracle. ClassifyFiles still returns them as
 	// hits so the caller skips JVM launch. Invalidated automatically on a
 	// content-hash change (content edit) or a CacheVersion bump (Kotlin or
-	// krit-types upgrade).
+	// krit-fir upgrade).
 	Crashed    bool   `json:"crashed,omitempty"`
 	CrashError string `json:"crash_error,omitempty"`
 }
 
 // CacheClosure records this file's transitive source-file dependencies and the
-// fingerprint computed over their content at write time. PropagatingDepPaths
-// retains the direct edges through which a dependent's closure may continue.
+// fingerprint computed over their content at write time.
 type CacheClosure struct {
-	DepPaths            []string `json:"dep_paths"`
-	PropagatingDepPaths []string `json:"propagating_dep_paths,omitempty"`
-	Fingerprint         string   `json:"fingerprint"`
+	DepPaths    []string `json:"dep_paths"`
+	Fingerprint string   `json:"fingerprint"`
 }
 
 // CacheDir returns the cache root for a repo. The directory is created if
@@ -211,9 +197,9 @@ func CacheDir(repoDir string) (string, error) {
 		// Settings-scoped entry directories are versioned with the root: a jar
 		// or schema change removes them, and `krit cache clear` removes the root.
 		ExtraDirs: []string{legacyScopesDir},
-		// The declared-name ledger describes the sources the entries were
-		// analyzed against; it goes with them.
-		ExtraFiles: []string{declLedgerFile},
+		// The declared-name ledger of the removed krit-types backend goes with
+		// the entries it described.
+		ExtraFiles: []string{legacyDeclLedgerFile},
 		Tokens:     tokens,
 	}
 	if _, err := vd.Open(); err != nil {
@@ -486,7 +472,7 @@ func writeEntryData(cacheDir string, entry *CacheEntry, data []byte) error {
 // The returned `hits` slice has one entry per hit with `FilePath` already
 // set to the canonical path (synthesized if the stored entry was written
 // for a content-identical but differently-named file). The `misses` slice
-// contains the subset of `paths` that need to be sent to krit-types.
+// contains the subset of `paths` that need to be sent to krit-fir.
 func ClassifyFiles(cacheDir string, paths []string) (hits []*CacheEntry, misses []string) {
 	return ClassifyFilesScoped(cacheDir, paths, "")
 }
@@ -588,7 +574,7 @@ func ClassifyFilesScopedV3(cacheDir string, paths []string, callFilterFingerprin
 }
 
 // AssembleOracle builds an Data from a set of cache hits plus any
-// freshly-analyzed files from a krit-types run. Dependencies are unioned
+// freshly-analyzed files from a krit-fir run. Dependencies are unioned
 // across all sources, with cache hits losing to fresh data on conflict
 // (fresh wins so a re-analysis with new classpath is reflected).
 // Crashed (poison) entries contribute nothing — they're in `hits` only so
@@ -627,49 +613,8 @@ func AssembleOracle(hits []*CacheEntry, fresh *Data) *Data {
 	return out
 }
 
-// mergeData combines per-shard `*Data` results into a single result.
-//
-// Disjointness invariant: callers (currently `splitMissesForKAA`)
-// produce shards whose Files keys do not overlap. If a future shard
-// strategy violates that, the merge would silently last-write-wins on
-// collisions in goroutine-completion order — non-deterministic.
-//
-// We enforce the invariant explicitly: a duplicate key panics with a
-// clear message. Today this is unreachable; tomorrow it surfaces the
-// bug at the producer rather than letting silent non-determinism
-// propagate into oracle facts and downstream type inference. See #33.
-//
-// Dependencies use last-write-wins because that's the documented
-// merge semantic for jar-resolved class facts (see mergeCachedClasses
-// callers): they are intentionally idempotent across shards.
-func mergeData(parts ...*Data) *Data {
-	out := &Data{
-		Version:      1,
-		Files:        map[string]*File{},
-		Dependencies: map[string]*Class{},
-	}
-	for _, part := range parts {
-		if part == nil {
-			continue
-		}
-		if out.KotlinVersion == "" {
-			out.KotlinVersion = part.KotlinVersion
-		}
-		for path, file := range part.Files {
-			if _, dup := out.Files[path]; dup {
-				panic(fmt.Sprintf("oracle: mergeData received non-disjoint Files key %q across shards (#33 disjointness invariant)", path))
-			}
-			out.Files[path] = file
-		}
-		for fqn, cls := range part.Dependencies {
-			out.Dependencies[fqn] = cls
-		}
-	}
-	return out
-}
-
 // CacheDepsFile is the schema of the --cache-deps-out JSON emitted by
-// krit-types. Keys in Files are source file paths. Crashed maps a file
+// krit-fir. Keys in Files are source file paths. Crashed maps a file
 // path to the short error string for files whose analyzeKtFile outer
 // catch fired — those get poison-marker entries instead of regular ones.
 type CacheDepsFile struct {
@@ -681,19 +626,6 @@ type CacheDepsFile struct {
 	// analysis. The caller sets it for whole-compilation backends; it is
 	// never read from the backend's JSON.
 	CompilationFingerprint string `json:"-"`
-	// NameDigests maps an analyzed path to the NameDigest its new entry
-	// records. The caller fills it from the declared-name ledger before the
-	// entries are written; it is never read from the backend's JSON.
-	NameDigests map[string]string `json:"-"`
-}
-
-// nameDigest returns the NameDigest to stamp on path's entry, or "" when f is
-// nil or has none.
-func (f *CacheDepsFile) nameDigest(path string) string {
-	if f == nil {
-		return ""
-	}
-	return f.NameDigests[path]
 }
 
 // approximation returns f's approximation, or "" when f is nil.
@@ -715,21 +647,12 @@ func (f *CacheDepsFile) compilationFingerprint() string {
 
 // CacheDepsEntry is one file's dep-closure fragment.
 type CacheDepsEntry struct {
-	DepPaths            []string          `json:"depPaths"`
-	PropagatingDepPaths []string          `json:"propagatingDepPaths,omitempty"`
-	PerFileDeps         map[string]*Class `json:"perFileDeps"`
-}
-
-// tagged reports whether f's fragments carry propagating-edge tags, which
-// krit-types records (see ApproximationKAATaggedReferences).
-func (f *CacheDepsFile) tagged() bool {
-	return f != nil && f.Approximation == ApproximationKAATaggedReferences
+	DepPaths    []string          `json:"depPaths"`
+	PerFileDeps map[string]*Class `json:"perFileDeps"`
 }
 
 // transitiveDepPaths returns owner's closure: every direct dependency, plus
-// whatever each dependency's meaning can in turn depend on. From a dependency
-// the walk continues only through its propagating edges when its fragment or
-// cache entry is tagged, and through all of its edges otherwise. Fragments
+// whatever each dependency's meaning can in turn depend on. Fragments
 // emitted by this analysis take precedence; a dependency the analysis did not
 // emit falls back to its already-written CacheEntry. A sorted result makes
 // closure persistence deterministic; seen starts with owner so mutual
@@ -754,18 +677,10 @@ func transitiveDepPaths(owner string, direct []string, deps *CacheDepsFile, load
 		closure = append(closure, path)
 		var next []string
 		if entry := entries[path]; entry != nil {
-			if deps.tagged() {
-				next = append(next, entry.PropagatingDepPaths...)
-			} else {
-				next = append(next, entry.DepPaths...)
-			}
+			next = append(next, entry.DepPaths...)
 		} else if load != nil {
 			if entry := load(path); entry != nil {
-				if entry.Approximation == ApproximationKAATaggedReferences {
-					next = append(next, entry.Closure.PropagatingDepPaths...)
-				} else {
-					next = append(next, entry.Closure.DepPaths...)
-				}
+				next = append(next, entry.Closure.DepPaths...)
 			}
 		}
 		sort.Strings(next)
@@ -773,29 +688,6 @@ func transitiveDepPaths(owner string, direct []string, deps *CacheDepsFile, load
 	}
 	sort.Strings(closure)
 	return closure
-}
-
-// propagatingDirect returns the direct propagating edges to persist for a
-// fragment, so a later partial analysis can continue a closure through this
-// file, or nil for untagged fragments.
-func propagatingDirect(deps *CacheDepsFile, entry *CacheDepsEntry) []string {
-	if !deps.tagged() || entry == nil {
-		return nil
-	}
-	return append([]string(nil), entry.PropagatingDepPaths...)
-}
-
-// maxPersistedClosure bounds how many dependency paths one entry may persist.
-// Closures are stored per entry, so a file reaching a hub-dense part of the
-// project would otherwise grow storage quadratically. An entry over the cap is
-// not written: the file misses every run, which is always correct.
-const maxPersistedClosure = 2000
-
-// closureOverCap reports whether a closure is too large to persist. Only tagged
-// krit-types closures are capped; krit-fir entries are refreshed through the
-// compilation fingerprint, and their closures are persisted as before.
-func closureOverCap(approximation string, depPaths []string) bool {
-	return approximation == ApproximationKAATaggedReferences && len(depPaths) > maxPersistedClosure
 }
 
 func closureEntryLoader(s *store.FileStore, cacheDir string, approximation ...string) func(string) *CacheEntry {
@@ -832,45 +724,6 @@ func closureEntryLoader(s *store.FileStore, cacheDir string, approximation ...st
 	}
 }
 
-// mergeCacheDeps is the CacheDepsFile counterpart of mergeData. The
-// same disjointness invariant applies: callers split files across
-// shards by path so per-shard `Files` and `Crashed` maps are unique.
-// A future overlapping shard strategy would otherwise silently
-// last-write-wins on goroutine completion order — see #33.
-func mergeCacheDeps(parts ...*CacheDepsFile) *CacheDepsFile {
-	var sawPart bool
-	out := &CacheDepsFile{
-		Version: 1,
-		Files:   map[string]*CacheDepsEntry{},
-		Crashed: map[string]string{},
-	}
-	for _, part := range parts {
-		if part == nil {
-			continue
-		}
-		sawPart = true
-		if out.Approximation == "" {
-			out.Approximation = part.Approximation
-		}
-		for path, entry := range part.Files {
-			if _, dup := out.Files[path]; dup {
-				panic(fmt.Sprintf("oracle: mergeCacheDeps received non-disjoint Files key %q across shards (#33 disjointness invariant)", path))
-			}
-			out.Files[path] = entry
-		}
-		for path, msg := range part.Crashed {
-			if _, dup := out.Crashed[path]; dup {
-				panic(fmt.Sprintf("oracle: mergeCacheDeps received non-disjoint Crashed key %q across shards (#33 disjointness invariant)", path))
-			}
-			out.Crashed[path] = msg
-		}
-	}
-	if !sawPart {
-		return nil
-	}
-	return out
-}
-
 type freshEntryWriteStats struct {
 	requestedFiles       int64
 	crashFiles           int64
@@ -896,16 +749,14 @@ type freshEntrySize struct {
 }
 
 type freshOracleEntryJob struct {
-	path             string
-	fileResult       *File
-	depPaths         []string
-	propagatingPaths []string
-	perFileDeps      map[string]*Class
-	approximation    string
-	compilation      string
-	nameDigest       string
-	crashed          bool
-	crashError       string
+	path          string
+	fileResult    *File
+	depPaths      []string
+	perFileDeps   map[string]*Class
+	approximation string
+	compilation   string
+	crashed       bool
+	crashError    string
 }
 
 type oracleCacheHashMemo struct {
@@ -1001,14 +852,12 @@ func freshOracleEntryJobs(fresh *Data, deps *CacheDepsFile) []freshOracleEntryJo
 			perFileDeps = cloneOracleClassMap(depEntry.PerFileDeps)
 		}
 		jobs = append(jobs, freshOracleEntryJob{
-			path:             path,
-			fileResult:       fr,
-			depPaths:         depPaths,
-			propagatingPaths: propagatingDirect(deps, depEntry),
-			perFileDeps:      perFileDeps,
-			approximation:    approx,
-			compilation:      deps.compilationFingerprint(),
-			nameDigest:       deps.nameDigest(path),
+			path:          path,
+			fileResult:    fr,
+			depPaths:      depPaths,
+			perFileDeps:   perFileDeps,
+			approximation: approx,
+			compilation:   deps.compilationFingerprint(),
 		})
 	}
 	if deps != nil {
@@ -1126,7 +975,7 @@ func (s *freshEntryWriteStats) emit(t perf.Tracker, storeBacked bool) {
 	}
 }
 
-// LoadCacheDeps reads the --cache-deps-out JSON produced by krit-types.
+// LoadCacheDeps reads the --cache-deps-out JSON produced by krit-fir.
 func LoadCacheDeps(path string) (*CacheDepsFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -1139,7 +988,7 @@ func LoadCacheDeps(path string) (*CacheDepsFile, error) {
 	return &cdf, nil
 }
 
-// WriteFreshEntries writes cache entries for the files that krit-types
+// WriteFreshEntries writes cache entries for the files that krit-fir
 // just analyzed. For each fresh FileResult, it looks up the corresponding
 // dep fragment in the CacheDepsFile, computes the closure fingerprint
 // from the current disk state of the dep paths, and writes an atomic
@@ -1208,11 +1057,6 @@ func WriteFreshEntriesWithTrackerScopedV2(
 			depPaths = transitiveDepPaths(path, depEntry.DepPaths, deps, loadClosure)
 			perFileDeps = depEntry.PerFileDeps
 		}
-		if closureOverCap(deps.approximation(), depPaths) {
-			stats.skipped++
-			stats.closuresOverCap++
-			continue
-		}
 		stats.recordDepPaths(depPaths)
 		fpStart := time.Now()
 		fp, err := closureFingerprint(depPaths, hashCache)
@@ -1234,13 +1078,11 @@ func WriteFreshEntriesWithTrackerScopedV2(
 			FileResult:  fr,
 			PerFileDeps: perFileDeps,
 			Closure: CacheClosure{
-				DepPaths:            depPaths,
-				PropagatingDepPaths: propagatingDirect(deps, depEntry),
-				Fingerprint:         fp,
+				DepPaths:    depPaths,
+				Fingerprint: fp,
 			},
 			Approximation:                 approx,
 			CompilationFingerprint:        deps.compilationFingerprint(),
-			NameDigest:                    deps.nameDigest(path),
 			CallFilterFingerprint:         callFilterFingerprint,
 			DeclarationProfileFingerprint: declarationProfileFingerprint,
 		}
@@ -1332,9 +1174,7 @@ func oracleVersionHash(backend Backend, scanPaths []string) [16]byte {
 }
 
 func oracleJarTokens(scanPaths []string) string {
-	fir := FindBackendJar(BackendFIR, scanPaths)
-	kaa := FindBackendJar(BackendKAA, scanPaths)
-	return "fir:" + buildid.JarToken(fir) + "|kaa:" + buildid.JarToken(kaa)
+	return "fir:" + buildid.JarToken(FindBackendJar(BackendFIR, scanPaths))
 }
 
 // oracleStoreKey builds the store.Key for a given content hash (hex string).
@@ -1370,12 +1210,8 @@ func LoadEntryFromStore(s *store.FileStore, contentHash string, scope ...string)
 	data, ok := s.Get(key)
 	if !ok && backend == "" && len(scope) > 0 {
 		// Callers without a selected backend (for example reverse-closure
-		// expansion) probe both independent backend namespaces.
-		for _, candidate := range []Backend{BackendFIR, BackendKAA} {
-			if data, ok = s.Get(oracleStoreKey(contentHash, candidate, scanPaths)); ok {
-				break
-			}
-		}
+		// expansion) probe the krit-fir namespace.
+		data, ok = s.Get(oracleStoreKey(contentHash, BackendFIR, scanPaths))
 	}
 	if !ok {
 		return nil, nil
@@ -1422,8 +1258,6 @@ func backendForApproximation(approximation string) Backend {
 	switch approximation {
 	case ApproximationFIRWholeCompilation:
 		return BackendFIR
-	case ApproximationKAATaggedReferences, ApproximationSymbolResolvedSources:
-		return BackendKAA
 	default:
 		return ""
 	}
@@ -1599,11 +1433,6 @@ func WriteFreshEntriesToStoreWithTrackerScopedV2(
 			depPaths = transitiveDepPaths(path, depEntry.DepPaths, deps, loadClosure)
 			perFileDeps = depEntry.PerFileDeps
 		}
-		if closureOverCap(deps.approximation(), depPaths) {
-			stats.skipped++
-			stats.closuresOverCap++
-			continue
-		}
 		stats.recordDepPaths(depPaths)
 		fpStart := time.Now()
 		fp, err := closureFingerprint(depPaths, hashCache)
@@ -1620,13 +1449,11 @@ func WriteFreshEntriesToStoreWithTrackerScopedV2(
 			PerFileDeps:                   perFileDeps,
 			Approximation:                 approx,
 			CompilationFingerprint:        deps.compilationFingerprint(),
-			NameDigest:                    deps.nameDigest(path),
 			CallFilterFingerprint:         callFilterFingerprint,
 			DeclarationProfileFingerprint: declarationProfileFingerprint,
 			Closure: CacheClosure{
-				DepPaths:            depPaths,
-				PropagatingDepPaths: propagatingDirect(deps, depEntry),
-				Fingerprint:         fp,
+				DepPaths:    depPaths,
+				Fingerprint: fp,
 			},
 		}
 		entry.V = CacheVersion

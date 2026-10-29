@@ -141,52 +141,6 @@ func (r *NullableToStringCallRule) checkNullableStringTemplate(ctx *api.Context)
 	}
 }
 
-// ExpressionPositions collects resolver query positions for both rule
-// paths in a single FlatWalkAllNodes pass: zero-arg `.toString()` call
-// receivers (not safe-call) and string-template interpolation
-// expressions. Single walk avoids three sequential AST scans at
-// --depth=thorough.
-func (r *NullableToStringCallRule) ExpressionPositions(file *scanner.File) []uint32 {
-	if file == nil {
-		return nil
-	}
-	var out []uint32
-	file.FlatWalkAllNodes(0, func(idx uint32) {
-		switch file.FlatType(idx) {
-		case "call_expression":
-			if flatCallExpressionName(file, idx) != "toString" {
-				return
-			}
-			nav, args := flatCallExpressionParts(file, idx)
-			if nav == 0 || flatCallHasArguments(file, args) {
-				return
-			}
-			if flatNavigationLastSuffixOperator(file, nav) == "?." {
-				return
-			}
-			receiver := flatUnwrapParenExpr(file, flatNullCheckNavigationReceiver(file, nav))
-			if receiver == 0 {
-				return
-			}
-			switch file.FlatType(receiver) {
-			case "simple_identifier", "this_expression", "call_expression", "navigation_expression":
-				out = append(out, receiver)
-			}
-		case "interpolated_identifier":
-			out = append(out, idx)
-		case "interpolated_expression":
-			if file.FlatNamedChildCount(idx) == 0 {
-				return
-			}
-			expr := flatUnwrapParenExpr(file, file.FlatNamedChild(idx, 0))
-			if expr != 0 {
-				out = append(out, expr)
-			}
-		}
-	})
-	return out
-}
-
 func flatCallHasArguments(file *scanner.File, args uint32) bool {
 	return file != nil && args != 0 && file.FlatNamedChildCount(args) > 0
 }

@@ -1,6 +1,6 @@
 // Package binsymbols defines the seam through which Krit consumes
 // class metadata that lives outside the source workspace — JARs, AARs,
-// stdlib stubs, or KAA-backed oracle responses.
+// stdlib stubs, or type oracle responses.
 //
 // The package is intentionally narrow: it owns the Class shape that
 // callers (typeinfer, rules) consult when source-side lookups miss,

@@ -72,18 +72,6 @@ jobs:
           ./gradlew --no-daemon \
             publishAllPublicationsToStagingDirRepository \
             publishAllPublicationsToCentralPortalRepository
-      - name: Publish krit-types to Sonatype Central Portal
-        working-directory: tools/krit-types
-        env:
-          KRIT_VERSION: ${{ steps.version.outputs.version }}
-          SIGNING_KEY: ${{ secrets.MAVEN_CENTRAL_SIGNING_KEY }}
-          SIGNING_PASSWORD: ${{ secrets.MAVEN_CENTRAL_SIGNING_PASSWORD }}
-          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
-          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
-        run: |
-          ./gradlew --no-daemon \
-            :publishAllPublicationsToStagingDirRepository \
-            :publishAllPublicationsToCentralPortalRepository
       - name: Publish krit-fir to Sonatype Central Portal
         working-directory: tools/krit-fir
         env:
@@ -110,7 +98,6 @@ jobs:
           name: oracle-jars-${{ steps.version.outputs.version }}
           path: |
             tools/krit-rule-api/build/staging-deploy/
-            tools/krit-types/build/staging-deploy/
             tools/krit-fir/build/staging-deploy/
           if-no-files-found: warn
           retention-days: 14

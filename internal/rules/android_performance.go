@@ -48,7 +48,7 @@ var drawAllocationAllocTypes = map[string]bool{
 // eliminating the prior regex/brace-scan false positives from string
 // literals, comments, and multi-line signatures. Unqualified type-name
 // matching against the fixed allow-list keeps this pattern-based
-// without KAA type resolution. Classified per roadmap/17.
+// without oracle type resolution. Classified per roadmap/17.
 func (r *DrawAllocationRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *DrawAllocationRule) check(ctx *api.Context) {

@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "publisher": "kaeawc",
   "repository": { "type": "git", "url": "https://github.com/kaeawc/krit.git", "directory": "editors/vscode" },
-  "engines": { "vscode": "^1.85.0" },
+  "engines": { "vscode": "^1.91.0" },
   "categories": ["Linters", "Programming Languages"],
   "activationEvents": ["onLanguage:kotlin", "onUri"],
   "main": "./out/extension.js",
@@ -44,7 +44,7 @@
     "package": "npm run compile && npm run bundle && vsce package"
   },
   "dependencies": {
-    "vscode-languageclient": "^10.1.2"
+    "vscode-languageclient": "^11.0.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

@@ -24,10 +24,10 @@ func TestClasspathChangesStoreScopeAndTypesFreshness(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := NewStoreScope(BackendFIR, "", []string{jar})
-	if err := RecordTypesFacts(types, false, before); err != nil {
+	if err := RecordTypesFacts(types, before); err != nil {
 		t.Fatal(err)
 	}
-	if !TypesJSONSatisfies(types, false, before, buildid.Token()) {
+	if !TypesJSONSatisfies(types, before, buildid.Token()) {
 		t.Fatal("fresh types rejected")
 	}
 	time.Sleep(time.Millisecond)
@@ -38,7 +38,7 @@ func TestClasspathChangesStoreScopeAndTypesFreshness(t *testing.T) {
 	if before.version == after.version {
 		t.Fatal("store version unchanged")
 	}
-	if TypesJSONSatisfies(types, false, after, buildid.Token()) {
+	if TypesJSONSatisfies(types, after, buildid.Token()) {
 		t.Fatal("stale types accepted")
 	}
 }

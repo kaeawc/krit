@@ -130,7 +130,7 @@ func TestFirOracleCacheRefreshesAfterUnclassifiedChange(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				hits, _ := oracle.ClassifyFilesScopedV3(cacheDir, []string{use}, "", "", oracle.BackendFIR.CacheApproximation())
+				hits, _ := oracle.ClassifyFilesWithApproximation(cacheDir, []string{use}, oracle.BackendFIR.CacheApproximation())
 				if len(hits) != 1 || hits[0].CompilationFingerprint == "" {
 					t.Fatalf("cold run did not cache Use.kt for krit-fir: hits=%d", len(hits))
 				}

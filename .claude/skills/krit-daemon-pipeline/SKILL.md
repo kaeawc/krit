@@ -14,7 +14,7 @@ Each scan flows through phases the dispatcher schedules after the required index
 - `CodeIndex` — source symbol/reference index
 - `TypeResolver` — source-level type resolution
 - `AnalysisCache` — per-file analysis output (write-back, lookup-side)
-- Oracle (krit-fir) lifecycle — resident JVM, oracle call filter classification cache
+- Oracle (krit-fir) lifecycle — resident JVM serving oracle facts across scans
 - Findings-bundle cache — full-hit short-circuit when a bundle has not changed
 
 The `ConservativeDeltaPlanner` decides which files genuinely need rework after an edit. "Body-only" edits (structural fingerprint unchanged) take the delta path: the edited file is re-dispatched and its findings are merged into the prior bundle. Replaying the whole prior bundle is unsafe because the edited file's own findings can change (#823).
@@ -45,7 +45,7 @@ Useful fields:
 
 - total duration vs per-phase duration (parse, dispatch, cross-file, android, gradle, aggregate, output)
 - oracle-related: type-oracle phase, JVM analyze phase, oracle files analyzed
-- daemon-only: ResolverHit, OracleFilterHit, bundle hit/miss components
+- daemon-only: ResolverHit, bundle hit/miss components
 
 When a bundle misses, `diag(pipeline) report bundle miss components` (#144) emits the reason. Read that before guessing.
 

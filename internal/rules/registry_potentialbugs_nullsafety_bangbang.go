@@ -28,16 +28,9 @@ func registerPotentialbugsNullsafetyBangbangRules() {
 				api.NeedsOracleCallTargets |
 				api.NeedsOracleSupertypes |
 				api.NeedsOracleMembers,
-			Oracle: &api.OracleFilter{Identifiers: []string{"!!"}},
-			OracleCallTargets: &api.OracleCallTargetFilter{
-				CalleeNames:         []string{"get"},
-				LexicalSkipByCallee: map[string][]string{"get": {"*"}},
-			},
-			// Checks class hierarchy (ClassShell+Supertypes) to verify Map type,
-			// and reads member types via mapMemberType() for navigation expressions.
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{ClassShell: true, Supertypes: true, Members: true},
-			Implementation:         r,
-			Check:                  r.check,
+			Oracle:         &api.OracleFilter{Identifiers: []string{"!!"}},
+			Implementation: r,
+			Check:          r.check,
 		})
 	}
 }

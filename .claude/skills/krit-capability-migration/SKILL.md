@@ -35,7 +35,7 @@ Prefer the narrowest capability that proves the finding. Dropping `NeedsOracle` 
 1. Find rules that may involve the oracle:
 
 ```bash
-rg -n "NeedsOracle|NeedsTypeInfo|OracleCallTargets|OracleDeclarationNeeds|PreferOracle" internal/rules/registry_*.go internal/rules/*.go
+rg -n "NeedsOracle|NeedsTypeInfo|PreferOracle" internal/rules/registry_*.go internal/rules/*.go
 ```
 
 2. Write down the exact fact being requested: call target, annotations, suspend marker, expression type/nullability, supertypes, members, or diagnostics.

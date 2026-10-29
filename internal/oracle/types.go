@@ -16,7 +16,7 @@ type File struct {
 	Diagnostics  []*Diagnostic              `json:"diagnostics,omitempty"` // compiler diagnostics
 }
 
-// Diagnostic holds a compiler diagnostic emitted by the Kotlin Analysis API.
+// Diagnostic holds a compiler diagnostic emitted by the krit-fir oracle.
 type Diagnostic struct {
 	FactoryName string `json:"factoryName"` // e.g. "UNREACHABLE_CODE", "USELESS_ELVIS"
 	Severity    string `json:"severity"`    // "ERROR", "WARNING", "INFO"

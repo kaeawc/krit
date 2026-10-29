@@ -245,12 +245,6 @@ type ProjectHostState struct {
 	// files, so mismatches force a complete rebuild rather than a
 	// stale-entry leak. *WorkspaceState satisfies this interface.
 	ResolverCache ResolverCache
-	// OracleFilterCache, when non-nil and Args.OracleEnabled is true,
-	// memoizes the oracle CallTargetFilterSummary across calls.
-	// RunProject computes the filter once per file-set + rule-set
-	// fingerprint and threads it into IndexInput.PrebuiltOracleCallFilter.
-	// *WorkspaceState satisfies this interface.
-	OracleFilterCache OracleFilterCache
 	// AndroidProjectCache, when non-nil, memoizes the detected
 	// *android.Project across calls. IndexPhase.detectAndroidProject
 	// consults the slot before falling through to android.DetectProject
@@ -1086,7 +1080,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		OracleKotlin:        args.OracleKotlin,
 		Thorough:            args.TargetedResolution,
 	}
-	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)
+	wireOracleHandles(&indexInput, args, host)
 	if warm.result == nil {
 		wireAnalysisCacheLookup(&indexInput, args, host)
 	}
@@ -1575,7 +1569,7 @@ func wireAnalysisCacheLookup(in *IndexInput, args ProjectArgs, host ProjectHostS
 // the caller opted in via args.OracleEnabled and the host supplied a
 // daemon handle. Extracted from RunProject to keep its cyclomatic
 // complexity manageable.
-func wireOracleHandles(in *IndexInput, args ProjectArgs, host ProjectHostState, kotlinFiles []*scanner.File) {
+func wireOracleHandles(in *IndexInput, args ProjectArgs, host ProjectHostState) {
 	if !args.OracleEnabled {
 		return
 	}
@@ -1596,14 +1590,6 @@ func wireOracleHandles(in *IndexInput, args ProjectArgs, host ProjectHostState, 
 	in.UseDaemon = true
 	in.PrebuiltOracleDaemon = host.OracleDaemon
 	in.OracleScanPaths = args.Paths
-	if host.OracleFilterCache == nil {
-		return
-	}
-	fp := oracleFilterFingerprint(args.ActiveRules, kotlinFiles)
-	in.PrebuiltOracleCallFilter = host.OracleFilterCache(fp, func() *oracle.CallTargetFilterSummary {
-		summary := rules.BuildOracleCallTargetFilterV2ForFiles(args.ActiveRules, kotlinFiles)
-		return &summary
-	})
 }
 
 // deltaManifestData carries the precomputed per-file inputs the delta
@@ -3801,29 +3787,6 @@ func dirtyPathSet(dirty []string) map[string]bool {
 		set[p] = true
 	}
 	return set
-}
-
-// oracleFilterFingerprint hashes the active rule IDs together with
-// the sorted (path, content-hash) tuples of every Kotlin file. Both
-// inputs feed BuildOracleCallTargetFilterV2ForFiles; either changing
-// invalidates the cached filter.
-func oracleFilterFingerprint(activeRules []*api.Rule, kotlinFiles []*scanner.File) string {
-	ruleIDs := make([]string, 0, len(activeRules))
-	for _, r := range activeRules {
-		if r != nil {
-			ruleIDs = append(ruleIDs, r.ID)
-		}
-	}
-	sort.Strings(ruleIDs)
-	fileEntries := make([]string, 0, len(kotlinFiles))
-	for _, f := range kotlinFiles {
-		if f == nil {
-			continue
-		}
-		fileEntries = append(fileEntries, f.Path+"\x00"+hashutil.Default().HashContent(f.Path, f.Content))
-	}
-	sort.Strings(fileEntries)
-	return hashutil.HashHex([]byte(strings.Join(ruleIDs, "\x01") + "\x02" + strings.Join(fileEntries, "\x01")))
 }
 
 // DirtyPathsAllInManifest reports whether every watcher-dirty path names a file

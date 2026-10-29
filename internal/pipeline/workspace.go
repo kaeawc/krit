@@ -12,7 +12,6 @@ import (
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
-	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -65,7 +64,6 @@ type WorkspaceState struct {
 	codeIndex      xfileSlot[*scanner.CodeIndex]
 	dependents     xfileSlot[*scanner.DependentsIndex]
 	resolver       xfileSlot[typeinfer.TypeResolver]
-	oracleFilter   xfileSlot[*oracle.CallTargetFilterSummary]
 	androidProject xfileSlot[*android.Project]
 
 	gradleMu       sync.Mutex
@@ -758,7 +756,6 @@ func (w *WorkspaceState) InvalidateAll() {
 	w.codeIndex = xfileSlot[*scanner.CodeIndex]{}
 	w.dependents = xfileSlot[*scanner.DependentsIndex]{}
 	w.resolver = xfileSlot[typeinfer.TypeResolver]{}
-	w.oracleFilter = xfileSlot[*oracle.CallTargetFilterSummary]{}
 	w.androidProject = xfileSlot[*android.Project]{}
 	w.xfileMu.Unlock()
 	w.gradleMu.Lock()
@@ -899,7 +896,6 @@ type CrossFileStats struct {
 	HasCodeIndex    bool
 	HasDependents   bool
 	HasResolver     bool
-	HasOracleFilter bool
 }
 
 // CrossFileStats returns a snapshot of the cross-file slots.
@@ -914,7 +910,6 @@ func (w *WorkspaceState) CrossFileStats() CrossFileStats {
 		HasCodeIndex:    w.codeIndex.present,
 		HasDependents:   w.dependents.present,
 		HasResolver:     w.resolver.present,
-		HasOracleFilter: w.oracleFilter.present,
 	}
 }
 
@@ -1329,47 +1324,6 @@ func (w *WorkspaceState) InvalidateResolver() {
 	}
 	w.xfileMu.Lock()
 	w.resolver = xfileSlot[typeinfer.TypeResolver]{}
-	w.xfileMu.Unlock()
-}
-
-// OracleFilter memoizes the oracle CallTargetFilterSummary across
-// calls. Same semantics as Resolver: build only fires on a
-// fingerprint mismatch; concurrent races converge on a single cached
-// pointer. nil receiver always builds (no caching).
-func (w *WorkspaceState) OracleFilter(fingerprint string, build func() *oracle.CallTargetFilterSummary) *oracle.CallTargetFilterSummary {
-	if w == nil || fingerprint == "" {
-		return build()
-	}
-	w.xfileMu.Lock()
-	if w.oracleFilter.present && w.oracleFilter.fingerprint == fingerprint {
-		v := w.oracleFilter.value
-		w.xfileMu.Unlock()
-		return v
-	}
-	w.xfileMu.Unlock()
-
-	v := build()
-
-	w.xfileMu.Lock()
-	if w.oracleFilter.present && w.oracleFilter.fingerprint == fingerprint {
-		v = w.oracleFilter.value
-	} else {
-		w.oracleFilter = xfileSlot[*oracle.CallTargetFilterSummary]{fingerprint: fingerprint, value: v, present: true}
-	}
-	w.xfileMu.Unlock()
-	return v
-}
-
-// InvalidateOracleFilter drops the cached oracle filter. The watcher's
-// per-Kotlin-edit invalidation hook calls this so the next analyze
-// rebuilds. The fingerprint check would catch this anyway; this is
-// belt-and-suspenders symmetric with the other slot invalidators.
-func (w *WorkspaceState) InvalidateOracleFilter() {
-	if w == nil {
-		return
-	}
-	w.xfileMu.Lock()
-	w.oracleFilter = xfileSlot[*oracle.CallTargetFilterSummary]{}
 	w.xfileMu.Unlock()
 }
 

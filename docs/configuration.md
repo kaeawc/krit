@@ -206,10 +206,6 @@ classpath does not already include a Kotlin stdlib jar. Other libraries, such
 as the Android SDK, AndroidX, and application dependencies, still need to be
 listed explicitly for their types to resolve.
 
-## Experimental performance knobs
-
-Kotlin compiler diagnostics are disabled in the default type-oracle path because `collectDiagnostics()` is expensive on large projects and most type-aware rules use FlatNode or expression facts instead. Pass `--oracle-diagnostics` when you need diagnostic-backed oracle findings such as compiler-proven unreachable code or impossible casts.
-
 ## Migrating from detekt
 
 Krit accepts detekt-style rule names, config keys, suppression prefixes, and baseline XML files:

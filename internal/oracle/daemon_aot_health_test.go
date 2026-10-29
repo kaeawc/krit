@@ -48,7 +48,7 @@ func TestAOTDaemonWithEmptyAnalysisIsRetired(t *testing.T) {
 			if method == "analyzeWithDeps" {
 				_, _, err = d.AnalyzeWithDeps([]string{"/src/A.kt"})
 			} else {
-				_, err = d.AnalyzeFilesWithCallFilter([]string{"/src/A.kt"}, nil)
+				_, err = d.AnalyzeFiles([]string{"/src/A.kt"})
 			}
 			if !errors.Is(err, ErrOracleAOTDegraded) {
 				t.Fatalf("err = %v, want ErrOracleAOTDegraded", err)
@@ -97,7 +97,7 @@ func TestAOTDaemonReportedErrorsAreNotDegraded(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			cache := aotCacheFiles(t)
 			d, _ := aotDaemon(t, cache, func(int) string { return body })
-			if _, err := d.AnalyzeFilesWithCallFilter([]string{"/src/A.kt"}, nil); err != nil {
+			if _, err := d.AnalyzeFiles([]string{"/src/A.kt"}); err != nil {
 				t.Fatalf("explained empty answer treated as degraded: %v", err)
 			}
 			if _, err := os.Stat(cache); err != nil {

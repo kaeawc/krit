@@ -89,14 +89,14 @@ const (
 	NeedsConcurrent
 
 	// Oracle fact-category bits. Each names a single class of oracle fact
-	// the rule consumes. Declaring narrow bits lets the bridge skip JVM
-	// extraction work no rule asked for: declaration walk, JAR closure,
-	// compiler diagnostics, etc. Use the umbrella NeedsOracle only as a
-	// transitional declaration when migrating off the legacy bit.
+	// the rule consumes. Any of them makes the rule an oracle consumer
+	// (it contributes to oracle file selection), and the ruleslinter pins
+	// each oracle lookup a rule makes to the matching bit. Use the umbrella
+	// NeedsOracle only as a transitional declaration when migrating off the
+	// legacy bit.
 
 	// NeedsOracleCallTargets requests resolved overload FQN / receiver
-	// type for call expressions selected by OracleCallTargetFilter.
-	// Pair with a non-nil OracleCallTargets to narrow the JVM-side scan.
+	// type for call expressions (LookupCallTarget).
 	NeedsOracleCallTargets
 	// NeedsOracleSuspendMarkers requests the suspend / inline / operator
 	// properties on the resolved callable. Independent of declaration
@@ -109,29 +109,25 @@ const (
 	// positions (e.g. @CheckResult on the resolved callable).
 	NeedsOracleExprAnnotations
 	// NeedsOracleSupertypes requests the supertype walk for declaration
-	// symbols. Implies ClassShell when projected onto the declaration
-	// profile.
+	// symbols.
 	NeedsOracleSupertypes
 	// NeedsOracleMembers requests the member list for declaration
-	// symbols. Implied by NeedsOracleMemberSignatures and
-	// NeedsOracleMemberAnnotations.
+	// symbols.
 	NeedsOracleMembers
 	// NeedsOracleMemberSignatures requests parameter / return-type
-	// rendering for members. Implies NeedsOracleMembers when projected.
+	// rendering for members.
 	NeedsOracleMemberSignatures
 	// NeedsOracleClassAnnotations requests class-level annotation FQNs.
 	NeedsOracleClassAnnotations
 	// NeedsOracleMemberAnnotations requests member-level annotation
-	// FQNs. Implies NeedsOracleMembers when projected.
+	// FQNs.
 	NeedsOracleMemberAnnotations
 	// NeedsOracleDiagnostics requests oracle compiler diagnostics
-	// (UNREACHABLE_CODE, USELESS_ELVIS, etc.). Skipped JVM-side when no
-	// active rule declares this bit.
+	// (UNREACHABLE_CODE, USELESS_ELVIS, etc.).
 	NeedsOracleDiagnostics
 	// NeedsOracleLibraryClasses requests the JAR / library closure
 	// (Dependencies map) — required for resolving against types that
-	// do not appear in source. Skipped JVM-side when no active rule
-	// declares this bit.
+	// do not appear in source.
 	NeedsOracleLibraryClasses
 
 	// NeedsRuntimeEvidence requests the per-run runtime trace overlay
@@ -306,10 +302,9 @@ func (l RuleLevel) String() string {
 }
 
 // NeedsTypeInfo is a source type-information alias for NeedsResolver only:
-// rules that need oracle must declare NeedsOracle or explicit oracle metadata
-// (Oracle, OracleCallTargets, OracleDeclarationNeeds, diagnostics). This keeps
-// source-level AT/typeinfer rules from accidentally widening the Kotlin
-// Analysis API workload.
+// rules that need oracle must declare NeedsOracle or the narrow NeedsOracle*
+// bits they consume. This keeps source-level AT/typeinfer rules from
+// accidentally widening the oracle workload.
 //
 // Prefer NeedsResolver for new rules unless the implementation consumes
 // oracle-only facts.
@@ -453,7 +448,7 @@ const (
 	// module index, including parsed-files and aggregate rules whose
 	// inputs require a cross-file build phase.
 	CostCrossFile
-	// CostOracle covers rules that require the Kotlin Analysis API
+	// CostOracle covers rules that require the krit-fir type
 	// oracle (any NeedsOracle* bit) or that pin a TypeInfo backend
 	// requiring resolved facts.
 	CostOracle
@@ -687,62 +682,6 @@ type OracleFilter struct {
 	ThoroughOnlyAllFiles bool
 }
 
-// OracleDeclarationProfile narrows which oracle symbol fields the JVM extracts
-// for this rule. The pipeline takes the union across all active rules before
-// passing --declaration-profile to krit-fir; a nil value means "no opinion"
-// (the rule does not constrain extraction). If every active oracle rule
-// supplies a non-nil profile, the JVM skips fields outside the union and may
-// run significantly faster.
-//
-// Rules that only use LookupCallTarget or LookupExpression (expression-level
-// APIs) and never walk the declarations map should set an empty struct
-// OracleDeclarationProfile{} — this signals the rule contributes no
-// declaration interest and allows the union to stay narrow.
-//
-// Fields mirror oracle.DeclarationProfile (no import needed here; the bridge
-// in oracle_filter_bridge.go converts).
-type OracleDeclarationProfile struct {
-	ClassShell              bool
-	Supertypes              bool
-	ClassAnnotations        bool
-	Members                 bool
-	MemberSignatures        bool
-	MemberAnnotations       bool
-	SourceDependencyClosure bool
-}
-
-// OracleCallTargetFilter declares which call targets a rule may ask the
-// JVM oracle to resolve via LookupCallTarget. Nil means the rule does not
-// contribute call-target interest. AllCalls is conservative and disables
-// callee-name filtering when the rule is enabled.
-type OracleCallTargetFilter struct {
-	AllCalls bool
-	// DiscardedOnly means the rule only needs call targets for calls whose
-	// result is used as a standalone statement.
-	DiscardedOnly bool
-	// TargetFQNs are fully-qualified callable targets the rule may query.
-	// The Go bridge derives their simple names for the JVM-side lexical
-	// callee filter.
-	TargetFQNs []string
-	// CalleeNames are lexical callee names the rule may query directly.
-	CalleeNames []string
-	// LexicalHintsByCallee optionally adds cheap file-level evidence that
-	// must be present before the JVM resolves broad call names. Absence keeps
-	// name-only behavior for that callee.
-	LexicalHintsByCallee map[string][]string
-	// LexicalSkipByCallee optionally declares cheap receiver evidence where
-	// the Go rule can classify the call structurally and does not need a JVM
-	// call target for that site.
-	LexicalSkipByCallee map[string][]string
-	// AnnotatedIdentifiers asks the bridge to derive CalleeNames from
-	// source declarations annotated with these annotation identifiers.
-	// This is for rules that call LookupCallTarget only so they can call
-	// LookupAnnotations on annotated symbols; it avoids resolving every
-	// call expression when the annotated declaration names are knowable
-	// from raw source.
-	AnnotatedIdentifiers []string
-}
-
 // NeverNeedsOracle returns true when the filter declares the rule is
 // purely tree-sitter and will never consult the oracle. Conservatively
 // considers the ThoroughOnly* fields — at thorough the rule may still
@@ -849,8 +788,7 @@ type Rule struct {
 
 	// LexicalCalleeNames narrows call_expression dispatch to calls whose
 	// syntactic callee name matches one of these names. It is intentionally
-	// lexical and AST-only; semantic call-target filtering for the Kotlin
-	// oracle remains in OracleCallTargets below.
+	// lexical and AST-only.
 	LexicalCalleeNames []string
 
 	// Languages declares which source languages this rule applies to.
@@ -969,21 +907,6 @@ type Rule struct {
 
 	// Oracle filtering (nil = conservative AllFiles default)
 	Oracle *OracleFilter
-
-	// OracleCallTargets optionally narrows JVM call-target resolution to
-	// lexical callees this rule can consume. Broad consumers set
-	// AllCalls=true, which disables the optimization for the active rule set.
-	OracleCallTargets *OracleCallTargetFilter
-
-	// OracleDeclarationNeeds, when non-nil, declares which declaration
-	// fields this rule reads from the JVM oracle. The pipeline unions these
-	// across all active rules to compute the --declaration-profile flag
-	// passed to krit-fir. A nil value means the rule has not opted in to
-	// narrowing (conservative: treated as needing all fields for the union).
-	// Rules that only use expression-level APIs (LookupCallTarget,
-	// LookupExpression) and never touch the declarations map should set
-	// &OracleDeclarationProfile{} (empty, no fields needed).
-	OracleDeclarationNeeds *OracleDeclarationProfile
 
 	// TypeInfo carries per-rule routing hints for type-information
 	// lookups. Zero value (PreferAny, Required=false) is backwards

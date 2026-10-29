@@ -94,7 +94,7 @@ func binaryVCS(bin string) (rev string, modified, ok bool) {
 func helperJars() map[string]string {
 	out := map[string]string{}
 	var candidates []string
-	for _, env := range []string{"KRIT_FIR_JAR", "KRIT_TYPES_JAR"} {
+	for _, env := range []string{"KRIT_FIR_JAR"} {
 		if v := os.Getenv(env); v != "" {
 			candidates = append(candidates, v)
 		}

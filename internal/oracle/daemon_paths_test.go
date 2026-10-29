@@ -249,7 +249,7 @@ func TestAnalyzeAndAnalyzeAllMapFilesToCallerSpelling(t *testing.T) {
 	for name, call := range map[string]func() (*Data, error){
 		"analyze":      func() (*Data, error) { return d.Analyze([]string{rel}) },
 		"analyzeAll":   d.AnalyzeAll,
-		"analyzeFiles": func() (*Data, error) { return d.AnalyzeFilesWithCallFilter([]string{rel}, nil) },
+		"analyzeFiles": func() (*Data, error) { return d.AnalyzeFiles([]string{rel}) },
 	} {
 		data, err := call()
 		if err != nil {

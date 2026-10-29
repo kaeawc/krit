@@ -69,11 +69,6 @@ func WithOracle(f *OracleFilter) FakeOption {
 	return func(r *Rule) { r.Oracle = f }
 }
 
-// WithOracleCallTargets sets the oracle call-target filter.
-func WithOracleCallTargets(f *OracleCallTargetFilter) FakeOption {
-	return func(r *Rule) { r.OracleCallTargets = f }
-}
-
 // WithLibraryFacts marks the fake rule as reading project library facts.
 func WithLibraryFacts() FakeOption {
 	return func(r *Rule) { r.NeedsLibraryFacts = true }

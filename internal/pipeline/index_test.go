@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/oracle"
@@ -18,38 +17,6 @@ import (
 func TestIndexPhase_Name(t *testing.T) {
 	if (IndexPhase{}).Name() != "index" {
 		t.Fatalf("Name = %q, want index", (IndexPhase{}).Name())
-	}
-}
-
-func TestCallTargetFilterPerfAttrsIncludesDisabledBy(t *testing.T) {
-	attrs := callTargetFilterPerfAttrs(oracle.CallTargetFilterSummary{
-		Fingerprint: "abc123",
-		DisabledBy:  []string{"Deprecation", "IgnoredReturnValue"},
-	})
-
-	if attrs["fingerprint"] != "abc123" {
-		t.Fatalf("fingerprint attr = %q, want abc123", attrs["fingerprint"])
-	}
-	if attrs["disabledBy"] != "Deprecation,IgnoredReturnValue" {
-		t.Fatalf("disabledBy attr = %q", attrs["disabledBy"])
-	}
-	if _, ok := attrs["disabledByTruncated"]; ok {
-		t.Fatalf("disabledByTruncated present for short list: %v", attrs)
-	}
-}
-
-func TestCallTargetFilterPerfAttrsCapsDisabledBy(t *testing.T) {
-	disabledBy := make([]string, 30)
-	for i := range disabledBy {
-		disabledBy[i] = "Rule"
-	}
-	attrs := callTargetFilterPerfAttrs(oracle.CallTargetFilterSummary{DisabledBy: disabledBy})
-
-	if attrs["disabledByTruncated"] != "1" {
-		t.Fatalf("disabledByTruncated = %q, want 1", attrs["disabledByTruncated"])
-	}
-	if got := strings.Count(attrs["disabledBy"], "Rule"); got != 25 {
-		t.Fatalf("disabledBy attr has %d entries, want 25: %q", got, attrs["disabledBy"])
 	}
 }
 

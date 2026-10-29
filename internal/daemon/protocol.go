@@ -438,10 +438,6 @@ type AnalyzeProjectStats struct {
 	// the verb ran; the run may have rebuilt mid-verb on fingerprint
 	// mismatch.
 	ResolverHit bool `json:"resolver_hit"`
-	// OracleFilterHit reports whether the resident oracle call-filter
-	// slot was populated at verb entry. Useful for confirming that
-	// PR-C's filter cache is warm after the first oracle-enabled call.
-	OracleFilterHit bool `json:"oracle_filter_hit"`
 	// DirtyFiles is the count of files Touched in WorkspaceState
 	// since the last analyze-project call (drained at the start of
 	// this call). Useful for clients that want to show "N files

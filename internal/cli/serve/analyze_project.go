@@ -266,7 +266,6 @@ func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Wr
 		CodeIndexHit:      xfile.HasCodeIndex,
 		LibraryFactsHit:   xfile.HasLibraryFacts,
 		ResolverHit:       xfile.HasResolver,
-		OracleFilterHit:   xfile.HasOracleFilter,
 		DirtyFiles:        r.dirtyN,
 		Cold:              r.cold,
 		ParseHits:         res.ParseHits,
@@ -609,7 +608,6 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 			CodeIndexCache:      s.workspace.CodeIndex,
 			XMLFilesLoader:      s.workspace.XMLFiles,
 			ResolverCache:       s.workspace.Resolver,
-			OracleFilterCache:   s.workspace.OracleFilter,
 			AndroidProjectCache: s.workspace.AndroidProject,
 			DaemonCaches: pipeline.DaemonCaches{
 				CodeIndexSnapshotLoader:  s.workspace.LoadCodeIndexSnapshot,

@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"sort"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -310,15 +309,6 @@ var closeableTypeFQNs = map[string]bool{
 	"java.util.zip.GZIPOutputStream": true,
 	"java.util.zip.ZipInputStream":   true,
 	"java.util.zip.ZipOutputStream":  true,
-}
-
-func closeableConstructorCallees() []string {
-	callees := make([]string, 0, len(closeableTypes))
-	for name := range closeableTypes {
-		callees = append(callees, name)
-	}
-	sort.Strings(callees)
-	return callees
 }
 
 func missingUseCalleeIdentFlat(file *scanner.File, idx uint32) string {

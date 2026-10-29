@@ -139,10 +139,7 @@ func printOracleBenchEnv(data map[string]any) {
 	fmt.Printf("total_ms=%d\n", numberValue(data["durationMs"]))
 	fmt.Printf("oracle_ms=%d\n", timingMS(timings, "indexPhaseRun", "typeOracle"))
 	fmt.Printf("jvm_ms=%d\n", timingMS(timings, "indexPhaseRun", "typeOracle", "jvmAnalyze"))
-	fmt.Printf("process_ms=%d\n", timingMS(timings, "indexPhaseRun", "typeOracle", "jvmAnalyze", "kritTypesProcess"))
-	fmt.Printf("build_ms=%d\n", timingMS(timings, "indexPhaseRun", "typeOracle", "jvmAnalyze", "kotlinTimings", "kotlinBuildSession"))
-	fmt.Printf("analyze_ms=%d\n", timingMS(timings, "indexPhaseRun", "typeOracle", "jvmAnalyze", "kotlinTimings", "kotlinAnalyzeFiles"))
-	fmt.Printf("json_build_ms=%d\n", timingMS(timings, "indexPhaseRun", "typeOracle", "jvmAnalyze", "kotlinTimings", "kotlinOracleJsonBuild"))
+	fmt.Printf("process_ms=%d\n", timingMS(timings, "indexPhaseRun", "typeOracle", "jvmAnalyze", "oracleProcess"))
 	fmt.Printf("parse_ms=%d\n", timingMS(timings, "parse"))
 	fmt.Printf("type_idx_ms=%d\n", timingMS(timings, "indexPhaseRun", "typeIndex"))
 	fmt.Printf("rule_exec_ms=%d\n", timingMS(timings, "ruleExecution"))
@@ -150,14 +147,8 @@ func printOracleBenchEnv(data map[string]any) {
 	fmt.Printf("rules=%d\n", ruleCount(data))
 
 	filter := metrics("indexPhaseRun", "typeOracle", "jvmAnalyze", "oracleFilterSummary")
-	call := metrics("indexPhaseRun", "typeOracle", "jvmAnalyze", "oracleCallFilterSummary")
-	analyze := metrics("indexPhaseRun", "typeOracle", "jvmAnalyze", "kotlinTimings", "kotlinAnalyzeSummary")
-	rss := metrics("indexPhaseRun", "typeOracle", "jvmAnalyze", "kritTypesProcessResources")
+	rss := metrics("indexPhaseRun", "typeOracle", "jvmAnalyze", "oracleProcessResources")
 	fmt.Printf("filter_files=%v/%v\n", metric(filter, "markedFiles"), metric(filter, "totalFiles"))
-	fmt.Printf("callee_names=%v\n", metric(call, "calleeNames"))
-	fmt.Printf("lexical_hints=%v\n", metric(call, "lexicalHints"))
-	fmt.Printf("lexical_skips=%v\n", metric(call, "lexicalSkips"))
-	fmt.Printf("kt_files_analyzed=%v\n", metric(analyze, "files"))
 	fmt.Printf("peak_rss_mb=%v\n", metric(rss, "peakRSSMB"))
 }
 

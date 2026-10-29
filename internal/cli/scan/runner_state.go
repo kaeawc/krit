@@ -531,7 +531,6 @@ func (r *runner) runOracleIndex() (int, error) {
 			NoCacheOracle:       *r.f.NoCacheOracle,
 			NoOracleFilter:      *r.f.NoOracleFilter,
 			Thorough:            r.depthPreset == DepthThorough,
-			OracleDiagnostics:   *r.f.OracleDiagnostics,
 			UseDaemon:           *r.f.Daemon,
 			OracleBackend:       oracleBackend,
 			OracleClasspath:     oracleClasspath,

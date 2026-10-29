@@ -187,14 +187,8 @@ func registerAndroidCorrectnessChecksWrongViewCast() {
 		Needs: api.NeedsTypeInfo |
 			api.NeedsOracleCallTargets |
 			api.NeedsOracleSupertypes,
-		Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava},
-		OracleCallTargets: &api.OracleCallTargetFilter{
-			CalleeNames: []string{"findViewById", "requireViewById"},
-		},
-		// Checks whether the cast target is assignable to the receiver view type;
-		// needs the class hierarchy but not member signatures.
-		OracleDeclarationNeeds: &api.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
-		Confidence:             r.Confidence(), Implementation: r,
+		Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+		Confidence: r.Confidence(), Implementation: r,
 		Check: r.check,
 	})
 }
@@ -227,12 +221,8 @@ func registerAndroidCorrectnessChecksRange() {
 		NodeTypes:  []string{"call_expression"},
 		Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 		Confidence: r.Confidence(), Implementation: r,
-		Oracle:            &api.OracleFilter{Identifiers: []string{"IntRange", "FloatRange", "Color", "setAlpha", "setProgress", "setRotation"}},
-		OracleCallTargets: &api.OracleCallTargetFilter{CalleeNames: []string{"argb", "rgb", "setAlpha", "setProgress", "setRotation"}},
-		// Uses LookupCallTarget to verify the method is a framework target;
-		// allowed ranges come from hardcoded tables, not oracle annotations.
-		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
-		Check:                  r.check,
+		Oracle: &api.OracleFilter{Identifiers: []string{"IntRange", "FloatRange", "Color", "setAlpha", "setProgress", "setRotation"}},
+		Check:  r.check,
 	})
 }
 
@@ -470,15 +460,7 @@ func registerAndroidCorrectnessChecksObjectAnimatorBinding() {
 			api.NeedsOracleMembers,
 		Confidence: r.Confidence(), Implementation: r,
 		Oracle: &api.OracleFilter{Identifiers: []string{"ObjectAnimator", "ofFloat", "ofInt", "ofObject"}},
-		OracleCallTargets: &api.OracleCallTargetFilter{TargetFQNs: []string{
-			"android.animation.ObjectAnimator.ofFloat",
-			"android.animation.ObjectAnimator.ofInt",
-			"android.animation.ObjectAnimator.ofObject",
-		}},
-		// Checks member names for the property/setter (Members), traverses
-		// the class hierarchy to confirm the target is a View (ClassShell+Supertypes).
-		OracleDeclarationNeeds: &api.OracleDeclarationProfile{ClassShell: true, Supertypes: true, Members: true},
-		Check:                  r.check,
+		Check:  r.check,
 	})
 }
 

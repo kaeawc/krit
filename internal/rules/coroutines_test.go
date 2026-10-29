@@ -172,7 +172,7 @@ class ExampleActivity {
 	}
 }
 
-// Pins NeedsOracleCallTargets + OracleCallTargets filter on the rule.
+// Pins NeedsOracleCallTargets on the rule.
 func TestCollectInOnCreateWithoutLifecycle_DeclaresOracleCallTargets(t *testing.T) {
 	var rule *api.Rule
 	for _, r := range api.Registry {
@@ -186,9 +186,6 @@ func TestCollectInOnCreateWithoutLifecycle_DeclaresOracleCallTargets(t *testing.
 	}
 	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
 		t.Errorf("missing NeedsOracleCallTargets: Needs=%b", rule.Needs)
-	}
-	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
-		t.Errorf("OracleCallTargets must list `collect`, got %+v", rule.OracleCallTargets)
 	}
 }
 
@@ -845,7 +842,7 @@ suspend fun loadData() {
 	}
 }
 
-// Pins the post-migration capability shape: TypeInfo + OracleCallTargets, single-file only.
+// Pins the post-migration capability shape: TypeInfo + NeedsOracleCallTargets, single-file only.
 func TestInjectDispatcher_DeclaresOracleCallTargets(t *testing.T) {
 	rule := buildRuleIndex()["InjectDispatcher"]
 	if rule == nil {
@@ -860,9 +857,6 @@ func TestInjectDispatcher_DeclaresOracleCallTargets(t *testing.T) {
 	if rule.Needs.Has(api.NeedsParsedFiles) || rule.Needs.Has(api.NeedsCrossFile) ||
 		rule.Needs.Has(api.NeedsModuleIndex) {
 		t.Errorf("InjectDispatcher should be single-file only; got Needs=%b", rule.Needs)
-	}
-	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
-		t.Fatalf("InjectDispatcher OracleCallTargets must declare callee names; got %+v", rule.OracleCallTargets)
 	}
 }
 
@@ -1738,9 +1732,9 @@ func TestMutableStateInObject_NoTypeOracleCapability(t *testing.T) {
 			continue
 		}
 		if rule.Needs.Has(api.NeedsResolver) || rule.Needs.Has(api.NeedsTypeInfo) || rule.Needs.Has(api.NeedsOracle) ||
-			rule.Oracle != nil || rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil {
-			t.Fatalf("MutableStateInObject should remain AST-only, got Needs=%b Oracle=%+v CallTargets=%+v DeclarationNeeds=%+v",
-				rule.Needs, rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+			rule.Oracle != nil {
+			t.Fatalf("MutableStateInObject should remain AST-only, got Needs=%b Oracle=%+v",
+				rule.Needs, rule.Oracle)
 		}
 		return
 	}
@@ -2147,9 +2141,9 @@ func TestWithContextInSuspendFunctionNoop_StaysASTOnly(t *testing.T) {
 	if rule.Needs != 0 {
 		t.Fatalf("WithContextInSuspendFunctionNoop Needs=%v, want 0 (AST + imports only)", rule.Needs)
 	}
-	if rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil || rule.Oracle != nil {
-		t.Fatalf("WithContextInSuspendFunctionNoop unexpectedly carries oracle metadata: %+v %+v %+v",
-			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+	if rule.Oracle != nil {
+		t.Fatalf("WithContextInSuspendFunctionNoop unexpectedly carries oracle metadata: %+v",
+			rule.Oracle)
 	}
 }
 

@@ -102,13 +102,9 @@ func registerAndroidCorrectnessCommitPrefEdits() {
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression", "method_invocation"},
 		Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMediumHigh, Implementation: r,
-		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-		OracleCallTargets: &api.OracleCallTargetFilter{
-			CalleeNames: []string{"edit"},
-		},
-		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
-		JavaFacts:              &api.JavaFactProfile{ReceiverTypesForCallees: []string{"edit"}},
-		NeedsLibraryFacts:      true,
+		Needs:             api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+		JavaFacts:         &api.JavaFactProfile{ReceiverTypesForCallees: []string{"edit"}},
+		NeedsLibraryFacts: true,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if file.FlatType(idx) == "method_invocation" {
@@ -170,13 +166,9 @@ func registerAndroidCorrectnessCommitTransaction() {
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression", "method_invocation"},
 		Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMediumHigh, Implementation: r,
-		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-		OracleCallTargets: &api.OracleCallTargetFilter{
-			CalleeNames: []string{"beginTransaction"},
-		},
-		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
-		JavaFacts:              &api.JavaFactProfile{ReceiverTypesForCallees: []string{"beginTransaction"}},
-		NeedsLibraryFacts:      true,
+		Needs:             api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+		JavaFacts:         &api.JavaFactProfile{ReceiverTypesForCallees: []string{"beginTransaction"}},
+		NeedsLibraryFacts: true,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if file.FlatType(idx) == "method_invocation" {
@@ -250,13 +242,9 @@ func registerAndroidCorrectnessCheckResult() {
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression", "method_invocation"},
 		Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMediumHigh, Implementation: r,
-		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-		OracleCallTargets: &api.OracleCallTargetFilter{
-			CalleeNames: []string{"animate", "buildUpon", "edit", "format", "trim", "replace"},
-		},
-		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
-		JavaFacts:              &api.JavaFactProfile{ReturnTypesForCallees: []string{"animate", "buildUpon", "edit", "format", "trim", "replace"}},
-		NeedsLibraryFacts:      true,
+		Needs:             api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+		JavaFacts:         &api.JavaFactProfile{ReturnTypesForCallees: []string{"animate", "buildUpon", "edit", "format", "trim", "replace"}},
+		NeedsLibraryFacts: true,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if strings.HasSuffix(file.Path, ".gradle.kts") {

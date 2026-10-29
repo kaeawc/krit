@@ -119,10 +119,6 @@ func registerAndroidSourceRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"as_expression"}, Confidence: api.ConfidenceHigher, Implementation: r,
 			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-			OracleCallTargets: &api.OracleCallTargetFilter{
-				CalleeNames: []string{"getSystemService"},
-			},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// First named child is the source expression; we want
@@ -188,10 +184,6 @@ func registerAndroidSourceRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigh, Implementation: r,
 			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-			OracleCallTargets: &api.OracleCallTargetFilter{
-				CalleeNames: []string{"makeText"},
-			},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "makeText" {
@@ -341,10 +333,6 @@ func registerAndroidSourceRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-			OracleCallTargets: &api.OracleCallTargetFilter{
-				CalleeNames: []string{"v", "d", "i", "w", "e", "wtf"},
-			},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isReceiverNamed(file, idx, "Log") || !logMethodNames[flatCallExpressionName(file, idx)] {
@@ -384,10 +372,6 @@ func registerAndroidSourceRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-			OracleCallTargets: &api.OracleCallTargetFilter{
-				CalleeNames: []string{"v", "d", "i", "w", "e", "wtf"},
-			},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if scanner.IsTestFile(file.Path) {

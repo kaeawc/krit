@@ -18,10 +18,6 @@ func registerAccessibilityRules() {
 			NodeTypes:  []string{"call_expression", "assignment"},
 			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Confidence: api.ConfidenceMedium, Implementation: r,
-			OracleCallTargets: &api.OracleCallTargetFilter{CalleeNames: []string{
-				"ofArgb", "ofFloat", "ofInt", "ofObject", "setDuration",
-			}},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if animatorDurationScaleReferenced(ctx, idx) {

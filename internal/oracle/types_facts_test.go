@@ -9,29 +9,24 @@ import (
 	"github.com/kaeawc/krit/internal/gradlemodel"
 )
 
-func TestTypesJSONHasDiagnostics(t *testing.T) {
+func TestTypesJSONSatisfiesNeedsCurrentRecord(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "types.json")
 	if err := os.WriteFile(path, []byte(`{"version":1}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	scope := storeScopeForToken(BackendFIR, "jar-x")
 
-	if TypesJSONHasDiagnostics(path) {
-		t.Fatal("types.json without a facts record must not be trusted to hold diagnostics")
+	if TypesJSONSatisfies(path, scope, "") {
+		t.Fatal("types.json without a facts record must not be trusted")
 	}
 
-	if err := RecordTypesFacts(path, true); err != nil {
+	if err := RecordTypesFacts(path, scope); err != nil {
 		t.Fatal(err)
 	}
-	if TypesJSONHasDiagnostics(path) {
-		t.Fatal("types.json recorded with diagnostics omitted reported as having them")
-	}
-
-	if err := RecordTypesFacts(path, false); err != nil {
-		t.Fatal(err)
-	}
-	if !TypesJSONHasDiagnostics(path) {
-		t.Fatal("types.json recorded with diagnostics reported as lacking them")
+	rec, ok := readTypesFacts(path)
+	if !ok || !TypesJSONSatisfies(path, scope, rec.BuildToken) {
+		t.Fatal("types.json with a matching record was not reusable")
 	}
 
 	// Another writer (for example an older krit) replaces types.json
@@ -43,7 +38,7 @@ func TestTypesJSONHasDiagnostics(t *testing.T) {
 	if err := os.Chtimes(path, later, later); err != nil {
 		t.Fatal(err)
 	}
-	if TypesJSONHasDiagnostics(path) {
+	if TypesJSONSatisfies(path, scope, rec.BuildToken) {
 		t.Fatal("record for a replaced types.json must not vouch for the new file")
 	}
 }
@@ -54,17 +49,17 @@ func TestTypesJSONSatisfiesBuildAndBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := storeScopeForToken(BackendFIR, "jar-x")
-	if err := RecordTypesFacts(path, false, scope); err != nil {
+	if err := RecordTypesFacts(path, scope); err != nil {
 		t.Fatal(err)
 	}
 	rec, ok := readTypesFacts(path)
-	if !ok || !TypesJSONSatisfies(path, true, scope, rec.BuildToken) {
+	if !ok || !TypesJSONSatisfies(path, scope, rec.BuildToken) {
 		t.Fatal("matching facts record was not reusable")
 	}
-	if TypesJSONSatisfies(path, true, scope, "different-build") {
+	if TypesJSONSatisfies(path, scope, "different-build") {
 		t.Fatal("different build reused types.json")
 	}
-	if TypesJSONSatisfies(path, true, storeScopeForToken(BackendFIR, "jar-y"), rec.BuildToken) {
+	if TypesJSONSatisfies(path, storeScopeForToken(BackendFIR, "jar-y"), rec.BuildToken) {
 		t.Fatal("different jar reused types.json")
 	}
 }
@@ -78,21 +73,21 @@ func TestTypesJSONSatisfiesRejectsSettingsOnlyChange(t *testing.T) {
 	}
 	v20 := NewStoreScopeWithSettings(BackendFIR, "", nil, "17", gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"})
 	v22 := NewStoreScopeWithSettings(BackendFIR, "", nil, "17", gradlemodel.KotlinSettings{LanguageVersion: "2.2", APIVersion: "2.2"})
-	if err := RecordTypesFacts(path, false, v20); err != nil {
+	if err := RecordTypesFacts(path, v20); err != nil {
 		t.Fatal(err)
 	}
 	rec, _ := readTypesFacts(path)
-	if !TypesJSONSatisfies(path, false, v20, rec.BuildToken) {
+	if !TypesJSONSatisfies(path, v20, rec.BuildToken) {
 		t.Fatal("same settings must reuse")
 	}
-	if TypesJSONSatisfies(path, false, v22, rec.BuildToken) {
+	if TypesJSONSatisfies(path, v22, rec.BuildToken) {
 		t.Fatal("settings-only change reused a stale types.json")
 	}
 	other := NewStoreScopeWithSettings(BackendFIR, "", nil, "21", gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"})
-	if TypesJSONSatisfies(path, false, other, rec.BuildToken) {
+	if TypesJSONSatisfies(path, other, rec.BuildToken) {
 		t.Fatal("JVM target change reused types.json")
 	}
-	if TypesJSONSatisfies(path, false, NewStoreScopeWithSettings(BackendFIR, "", nil, "", gradlemodel.KotlinSettings{}), rec.BuildToken) {
+	if TypesJSONSatisfies(path, NewStoreScopeWithSettings(BackendFIR, "", nil, "", gradlemodel.KotlinSettings{}), rec.BuildToken) {
 		t.Fatal("no-settings scope matched a settings record")
 	}
 }

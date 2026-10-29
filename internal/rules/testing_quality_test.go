@@ -404,7 +404,7 @@ func TestAssertNullableWithNotNullAssertion_UsesLocalASTOnly(t *testing.T) {
 	if rule.Needs != 0 {
 		t.Fatalf("AssertNullableWithNotNullAssertion should remain AST-only, got needs %v", rule.Needs)
 	}
-	if rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil || rule.Oracle != nil {
+	if rule.Oracle != nil {
 		t.Fatal("AssertNullableWithNotNullAssertion should not declare oracle metadata")
 	}
 }
@@ -887,7 +887,7 @@ func TestRunBlockingInTest_UsesLocalASTOnly(t *testing.T) {
 	if rule.Needs != 0 {
 		t.Fatalf("RunBlockingInTest should remain AST-only, got needs %v", rule.Needs)
 	}
-	if rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil || rule.Oracle != nil {
+	if rule.Oracle != nil {
 		t.Fatal("RunBlockingInTest should not declare oracle metadata")
 	}
 }
@@ -2692,7 +2692,7 @@ func TestTestWithoutAssertion_UsesLocalASTOnly(t *testing.T) {
 	if rule.Needs != 0 {
 		t.Fatalf("TestWithoutAssertion should remain AST-only, got needs %v", rule.Needs)
 	}
-	if rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil || rule.Oracle != nil {
+	if rule.Oracle != nil {
 		t.Fatal("TestWithoutAssertion should not declare oracle metadata")
 	}
 }

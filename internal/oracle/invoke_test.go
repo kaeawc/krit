@@ -27,7 +27,6 @@ func isolateJarLookup(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv(devjar.DirEnv, "")
-	t.Setenv("KRIT_TYPES_JAR", "")
 	t.Setenv("KRIT_FIR_JAR", "")
 	t.Setenv(jarRepositoryEnv, "")
 	t.Setenv(NoJarDownloadEnv, "")
@@ -672,12 +671,12 @@ func TestInvokeTimeoutFrom(t *testing.T) {
 		want time.Duration
 	}{
 		{name: "unset uses default", r: env.Map{}, want: 15 * time.Minute},
-		{name: "empty uses default", r: env.Map{"KRIT_TYPES_TIMEOUT": ""}, want: 15 * time.Minute},
-		{name: "invalid uses default", r: env.Map{"KRIT_TYPES_TIMEOUT": "garbage"}, want: 15 * time.Minute},
-		{name: "zero uses default", r: env.Map{"KRIT_TYPES_TIMEOUT": "0s"}, want: 15 * time.Minute},
-		{name: "negative uses default", r: env.Map{"KRIT_TYPES_TIMEOUT": "-1s"}, want: 15 * time.Minute},
-		{name: "valid override", r: env.Map{"KRIT_TYPES_TIMEOUT": "30m"}, want: 30 * time.Minute},
-		{name: "seconds override", r: env.Map{"KRIT_TYPES_TIMEOUT": "45s"}, want: 45 * time.Second},
+		{name: "empty uses default", r: env.Map{"KRIT_ORACLE_TIMEOUT": ""}, want: 15 * time.Minute},
+		{name: "invalid uses default", r: env.Map{"KRIT_ORACLE_TIMEOUT": "garbage"}, want: 15 * time.Minute},
+		{name: "zero uses default", r: env.Map{"KRIT_ORACLE_TIMEOUT": "0s"}, want: 15 * time.Minute},
+		{name: "negative uses default", r: env.Map{"KRIT_ORACLE_TIMEOUT": "-1s"}, want: 15 * time.Minute},
+		{name: "valid override", r: env.Map{"KRIT_ORACLE_TIMEOUT": "30m"}, want: 30 * time.Minute},
+		{name: "seconds override", r: env.Map{"KRIT_ORACLE_TIMEOUT": "45s"}, want: 45 * time.Second},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -698,10 +697,10 @@ func TestInvokeGraceExitFrom(t *testing.T) {
 		want time.Duration
 	}{
 		{name: "unset uses default", r: env.Map{}, want: 15 * time.Second},
-		{name: "zero is allowed", r: env.Map{"KRIT_TYPES_GRACE_EXIT": "0s"}, want: 0},
-		{name: "negative uses default", r: env.Map{"KRIT_TYPES_GRACE_EXIT": "-1s"}, want: 15 * time.Second},
-		{name: "garbage uses default", r: env.Map{"KRIT_TYPES_GRACE_EXIT": "abc"}, want: 15 * time.Second},
-		{name: "valid override", r: env.Map{"KRIT_TYPES_GRACE_EXIT": "5s"}, want: 5 * time.Second},
+		{name: "zero is allowed", r: env.Map{"KRIT_ORACLE_GRACE_EXIT": "0s"}, want: 0},
+		{name: "negative uses default", r: env.Map{"KRIT_ORACLE_GRACE_EXIT": "-1s"}, want: 15 * time.Second},
+		{name: "garbage uses default", r: env.Map{"KRIT_ORACLE_GRACE_EXIT": "abc"}, want: 15 * time.Second},
+		{name: "valid override", r: env.Map{"KRIT_ORACLE_GRACE_EXIT": "5s"}, want: 5 * time.Second},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

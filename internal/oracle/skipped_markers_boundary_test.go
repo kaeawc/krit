@@ -27,7 +27,7 @@ func TestWriteSkippedPoisonEntries_FilesAtTheLimitAreUnexplained(t *testing.T) {
 	}
 	captureWarnings(t)
 
-	writeSkippedPoisonEntries(nil, cacheDir, []string{tmp}, files, &Data{Files: map[string]*File{}}, &CacheDepsFile{}, "", "", perf.New(false), false)
+	writeSkippedPoisonEntries(nil, cacheDir, []string{tmp}, files, &Data{Files: map[string]*File{}}, &CacheDepsFile{}, perf.New(false), false)
 
 	if hits, _ := ClassifyFiles(cacheDir, files); len(hits) != 0 {
 		t.Fatalf("files at the limit must not get markers, hits=%d", len(hits))

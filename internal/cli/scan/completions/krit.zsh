@@ -22,7 +22,6 @@ _krit() {
         '--daemon[Enable persistent type oracle daemon]' \
         '--gradle-model[Exported Gradle model directory]:dir:_directories' \
         '--no-gradle-model[Disable Gradle model discovery]' \
-        '--oracle-diagnostics[Collect Kotlin compiler diagnostics in the type oracle]' \
         '--input-types[Load pre-built type oracle JSON]:file:_files -g "*.json"' \
         '--output-types[Output type oracle JSON]:file:_files -g "*.json"' \
         '--baseline[Baseline file]:file:_files -g "*.xml"' \

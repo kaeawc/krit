@@ -32,7 +32,7 @@ func TestOracleOneShotRelativeRootMatchesAbsoluteRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hits, misses := oracle.ClassifyFilesScopedV3(cacheDir, []string{relA, relB}, "", "", opts.Backend.CacheApproximation())
+	hits, misses := oracle.ClassifyFilesWithApproximation(cacheDir, []string{relA, relB}, opts.Backend.CacheApproximation())
 	if len(hits) != 2 || len(misses) != 0 {
 		t.Fatalf("cache: hits=%d misses=%v", len(hits), misses)
 	}

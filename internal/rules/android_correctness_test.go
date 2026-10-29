@@ -377,7 +377,7 @@ fun save() {
 	}
 }
 
-// Pins NeedsOracleCallTargets + OracleCallTargets filter on the rule.
+// Pins NeedsOracleCallTargets on the rule.
 func TestCommitPrefEdits_DeclaresOracleCallTargets(t *testing.T) {
 	var rule *api.Rule
 	for _, r := range api.Registry {
@@ -391,9 +391,6 @@ func TestCommitPrefEdits_DeclaresOracleCallTargets(t *testing.T) {
 	}
 	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
 		t.Errorf("missing NeedsOracleCallTargets: Needs=%b", rule.Needs)
-	}
-	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
-		t.Errorf("OracleCallTargets must list `edit`, got %+v", rule.OracleCallTargets)
 	}
 }
 
@@ -585,7 +582,7 @@ fun show() {
 	}
 }
 
-// Pins NeedsOracleCallTargets + OracleCallTargets filter on the rule.
+// Pins NeedsOracleCallTargets on the rule.
 func TestCommitTransaction_DeclaresOracleCallTargets(t *testing.T) {
 	var rule *api.Rule
 	for _, r := range api.Registry {
@@ -599,9 +596,6 @@ func TestCommitTransaction_DeclaresOracleCallTargets(t *testing.T) {
 	}
 	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
 		t.Errorf("missing NeedsOracleCallTargets: Needs=%b", rule.Needs)
-	}
-	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
-		t.Errorf("OracleCallTargets must list `beginTransaction`, got %+v", rule.OracleCallTargets)
 	}
 }
 
@@ -855,9 +849,6 @@ func TestCheckResult_DeclaresOracleCallTargets(t *testing.T) {
 	}
 	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
 		t.Errorf("missing NeedsOracleCallTargets: Needs=%b", rule.Needs)
-	}
-	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
-		t.Errorf("OracleCallTargets must list the watched callees, got %+v", rule.OracleCallTargets)
 	}
 }
 

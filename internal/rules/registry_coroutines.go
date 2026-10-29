@@ -47,10 +47,6 @@ func registerCoroutinesCollectInOnCreateWithoutLifecycle() {
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-		OracleCallTargets: &api.OracleCallTargetFilter{
-			CalleeNames: []string{"collect"},
-		},
-		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			navExpr, _ := flatCallExpressionParts(file, idx)
@@ -185,11 +181,6 @@ func registerCoroutinesInjectDispatcher() {
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-		OracleCallTargets: &api.OracleCallTargetFilter{
-			CalleeNames: injectDispatcherOracleCalleeNames(r.DispatcherNames),
-		},
-		// No declaration export needed.
-		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if scanner.IsTestFile(file.Path) {
@@ -249,16 +240,6 @@ func registerCoroutinesInjectDispatcher() {
 	})
 }
 
-// injectDispatcherOracleCalleeNames returns the dispatcher names
-// plus their getter-shape JVM equivalents.
-func injectDispatcherOracleCalleeNames(names []string) []string {
-	out := make([]string, 0, 2*len(names))
-	for _, name := range names {
-		out = append(out, name, "get"+name)
-	}
-	return out
-}
-
 // injectDispatcherOracleConfirmed returns true when either (a) no oracle is
 // available, or (b) the oracle cannot resolve the dispatcher reference (empty
 // target). The dispatcher is a navigation_expression the oracle does not key
@@ -302,13 +283,6 @@ func registerCoroutinesRedundantSuspendModifier() {
 		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 		Needs:  api.NeedsTypeInfo | api.NeedsOracleCallTargets | api.NeedsOracleSuspendMarkers,
 		Oracle: &api.OracleFilter{Identifiers: []string{"suspend"}},
-		OracleCallTargets: &api.OracleCallTargetFilter{
-			CalleeNames:          redundantSuspendCallTargetCallees(),
-			LexicalHintsByCallee: redundantSuspendCallTargetLexicalHints(),
-		},
-		// Uses expression-level call metadata only; never walks the
-		// declarations map.
-		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			var oracleLookup oracle.Lookup
@@ -544,7 +518,6 @@ func registerCoroutinesSuspendFunSwallowedCancellation() {
 		Needs: api.NeedsTypeInfo |
 			api.NeedsOracleCallTargets |
 			api.NeedsOracleSuspendMarkers,
-		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			caughtType := extractCaughtTypeNameFlat(file, idx)
@@ -1166,7 +1139,7 @@ func registerCoroutinesSupervisorScopeInEventHandler() {
 func registerCoroutinesWithContextInSuspendFunctionNoop() {
 	r := &WithContextInSuspendFunctionNoopRule{BaseRule: BaseRule{RuleName: "WithContextInSuspendFunctionNoop", RuleSetName: "coroutines", Sev: "info", Desc: "Detects nested withContext calls using the same dispatcher as the parent, which is redundant."}}
 	// Capability narrowing: this rule was previously declared
-	// NeedsTypeInfo|NeedsOracleCallTargets with an OracleCallTargetFilter for
+	// NeedsTypeInfo|NeedsOracleCallTargets for
 	// `withContext`. The actual check is entirely source-visible — it relies
 	// on the kotlinx.coroutines.withContext import (or wildcard), absence of
 	// a local function shadowing the name, the bare-identifier call shape,
@@ -1246,8 +1219,6 @@ func registerCoroutinesMainDispatcherInLibraryCode() {
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		Needs:      api.NeedsModuleIndex | api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 		Confidence: r.Confidence(), Implementation: r,
-		OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"Main"}},
-		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
-		Check:                  r.check,
+		Check: r.check,
 	})
 }

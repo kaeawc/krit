@@ -190,6 +190,12 @@ func TestInvokeCached_HitsCarryErrorFilesAndRules(t *testing.T) {
 	if want := []string{"InjectDispatcher"}; !reflect.DeepEqual(res.Rules, want) {
 		t.Fatalf("Rules = %v, want %v", res.Rules, want)
 	}
+	if res.responseApplied {
+		t.Fatal("all-cache-hit result reports a response as applied")
+	}
+	if got := incrementalFIRDiagnostic(res, false, ""); got != "" {
+		t.Fatalf("all-cache-hit diagnostic = %q, want no message", got)
+	}
 }
 
 // krit-fir compiles the whole module, so editing a file that is not itself

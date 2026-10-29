@@ -68,7 +68,9 @@ func TestOracleOneShotRelativeRootMatchesAbsoluteRoot(t *testing.T) {
 }
 
 // A narrowed oracle filter (the absolute paths of the files the active rules
-// need) must still select files on a relative scan root.
+// need) must still select files on a relative scan root. krit-fir answers for
+// the whole compilation, so files outside the filter may come back too, but
+// every key must keep the caller's relative spelling.
 func TestOracleOneShotRelativeRootNarrowedFilter(t *testing.T) {
 	jar, opts := oneShotRelativeSetup(t)
 	cwd, err := os.Getwd()
@@ -80,8 +82,13 @@ func TestOracleOneShotRelativeRootNarrowedFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 	rel := runOneShotCached(t, jar, []string{filepath.Join("src", "main", "kotlin")}, list, opts)
-	if len(rel.Files) != 1 || rel.Files[relA] == nil {
-		t.Fatalf("narrowed relative run files = %v, want only %q", keys(rel.Files), relA)
+	if rel.Files[relA] == nil {
+		t.Fatalf("narrowed relative run files = %v, want %q", keys(rel.Files), relA)
+	}
+	for path := range rel.Files {
+		if filepath.IsAbs(path) {
+			t.Fatalf("narrowed relative run keyed %q absolutely; files = %v", path, keys(rel.Files))
+		}
 	}
 	if !hasDiagnostic(rel.Files[relA], "UNNECESSARY_NOT_NULL_ASSERTION") {
 		t.Fatalf("narrowed relative run lost the diagnostic: %+v", rel.Files[relA])

@@ -16,7 +16,7 @@ A rule can be implemented at three levels. Pick the cheapest one that is correct
    rule needs resolved facts that source analysis cannot get reliably: types,
    nullability, resolved call targets, supertypes across modules, suspend markers.
    Checkers live in `tools/krit-fir/.../checkers/` and currently surface only
-   through the opt-in `--fir` pass (see [The `--fir` pass](#the---fir-pass)).
+   through the default-on `--fir` pass (see [The `--fir` pass](#the---fir-pass)).
 3. **Go rule on the source AST.** Imports and the local syntax tree are enough.
 
 A Go rule that declares `NeedsTypeInfo`, `NeedsResolver`, or `NeedsOracle*` and runs
@@ -198,10 +198,10 @@ required to register a checker.
 
 ## The `--fir` pass
 
-`krit --fir` (off by default; `--no-fir` turns it back off) runs the FIR
-checkers after the Go rules and lets the compiler decide wherever it can.
-`krit --daemon --fir` forwards the flag, and `--no-fir-daemon`, to the daemon,
-which runs the same pass.
+The FIR checker pass runs by default after the Go rules and lets the compiler
+decide wherever it can. Pass `--no-fir` to disable it; `--fir` explicitly
+enables it. `krit --daemon --fir` forwards the setting, and
+`--no-fir-daemon`, to the daemon, which runs the same pass.
 
 **Compile context.** The checkers compile the whole module the way the oracle
 does: every Kotlin file under the JVM source roots (`src/<set>/kotlin` and

@@ -103,15 +103,18 @@ Generated repo-local state lives under `.krit/` by default. The incremental anal
 
 ## FIR scan requirements
 
-CLI scans run the FIR checker by default, including `krit --daemon`. Before
-analyzing files, Krit requires Java 21 or newer, a resolvable `krit-fir.jar`,
+CLI scans run the FIR checker by default, including `krit --daemon`. Pass
+`--no-fir` to disable it. Before analyzing files, Krit requires Java 21 or
+newer, a resolvable `krit-fir.jar`,
 and a declared classpath source. If any requirement is missing, the scan exits
 with code `2` and one actionable `error: FIR requires ...` message on stderr.
-Pass `--no-fir` to run the previous Go-only checker path.
+With `--no-fir`, Krit uses the previous Go-only checker path.
 
 For Gradle projects, run `kritExportModel` (the Gradle plugin's `kritCheck`
 task already depends on it). Krit discovers `.krit/gradle-model/`; a stale
-model or missing classpath jars produces a warning and analysis continues.
+model or classpath jars missing on disk produces a warning and analysis
+continues. Missing jars may be unbuilt project module outputs; build those
+modules or rerun `kritExportModel`.
 For an explicit model location use `--gradle-model DIR`. An empty exported
 classpath is valid.
 

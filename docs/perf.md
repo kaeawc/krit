@@ -172,9 +172,11 @@ they're skipped instead of running with degraded data.
 ### `--no-fir`
 
 Disables the FIR checker pass (separate krit-fir JVM subprocess). FIR is
-opt-in to begin with; use this to override a config that turned it on. The
-pass compiles the whole module on a cache miss, and any source edit misses
-the FIR findings cache for every file; see
+enabled by default; use this flag to disable it. Incremental FIR checking is
+also on by default (see [Cache location](configuration.md#cache-location)):
+it recompiles only changed files and their dependents when it can (for example,
+when the previous module compile completed without errors); otherwise it falls
+back to a full compile. See
 [The `--fir` pass](fir-checker-candidates.md#the---fir-pass).
 
 ### `--no-fir-daemon`
@@ -208,11 +210,14 @@ unchanged. Replacing the jar starts a fresh helper and stops the old one for
 that project.
 
 The oracle cache stores each Kotlin file's compiler facts and reuses them while
-the file is unchanged. krit-fir compiles every source file on each run and
-reports facts for all of them, so any run refreshes the whole cache. Each cached
-entry also records the compilation it came from: every Kotlin file's path
-and content, the classpath, and the krit-fir jar. When nothing krit needs
-has changed but the compilation has (for example, a file outside the oracle
+the file is unchanged. With incremental FIR checking enabled, krit-fir
+recompiles only changed files and their dependents when it can (for example,
+when the previous module compile completed without errors); otherwise it falls
+back to a full compile. It reports facts for all source files, so any run can
+refresh the whole cache.
+Each cached entry also records the compilation it came from: every Kotlin
+file's path and content, the classpath, and the krit-fir jar. When nothing krit
+needs has changed but the compilation has (for example, a file outside the oracle
 filter was edited or deleted, or a library was updated), krit runs the
 compiler once to refresh the cache.
 

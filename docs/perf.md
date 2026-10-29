@@ -235,6 +235,11 @@ go tool pprof -http=:8080 cpu.prof
 go tool pprof -http=:8080 mem.prof
 ```
 
+Verbose `--fir` scans print an `incremental FIR:` line when planner or
+compiler-error telemetry is available, and explain when `--no-cache` disables
+snapshot persistence. The same message appears as the `incremental` detail on
+the `firCheckOutcome` perf entry; an all-cache-hit run has no planner line.
+
 In daemon mode `--cpuprofile` and `--memprofile` profile the daemon process,
 not the short-lived CLI. Pair with `--no-daemon` if you want to profile a
 single in-process run instead.

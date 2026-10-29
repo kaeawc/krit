@@ -52,6 +52,9 @@ All notable changes to Krit will be documented in this file.
   Krit-owned arguments were already dropped.
 
 ### Changed
+- Verbose `--fir` and `--perf` output now explains why incremental FIR
+  checking did not engage, including planner reasons, compiler-error gating,
+  `KRIT_FIR_INCREMENTAL` opt-out, and `--no-cache` (#971).
 - `krit daemon: ready` startup line now reports the resolved watcher
   backend (`watcher=fsnotify` / `watcher=fanotify` / `watcher=off`).
 - Homebrew, Scoop, and Maven Central (`krit-rule-api`) publishing only

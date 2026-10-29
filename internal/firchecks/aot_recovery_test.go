@@ -43,7 +43,7 @@ func fakeAOTDaemonFunc(t *testing.T, respond func(line string) string, args ...s
 		t.Fatal(err)
 	}
 	cmd.Args = append(cmd.Args, args...)
-	return &FirDaemon{cmd: cmd, conn: client, reader: bufio.NewScanner(client), nextID: 1, started: true, aotCachePath: firAOTCacheArg(cmd.Args)}
+	return &FirDaemon{cmd: cmd, conn: client, reader: bufio.NewReader(client), nextID: 1, started: true, aotCachePath: firAOTCacheArg(cmd.Args)}
 }
 
 func TestZeroRegisteredFIRRulesDiscardsAOTAndRetries(t *testing.T) {

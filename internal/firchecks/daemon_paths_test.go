@@ -134,8 +134,7 @@ func pipeFirDaemon(t *testing.T, respond func(req firDaemonRequest) string) *Fir
 			_, _ = server.Write([]byte(respond(req) + "\n"))
 		}
 	}()
-	reader := bufio.NewScanner(client)
-	reader.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	reader := bufio.NewReader(client)
 	return &FirDaemon{conn: client, reader: reader, nextID: 1, started: true, shared: true}
 }
 
@@ -231,8 +230,7 @@ func TestCheckSendsAbsolutePathsAndKeepsCallerSpelling(t *testing.T) {
 		})
 		_, _ = server.Write(append(resp, '\n'))
 	}()
-	reader := bufio.NewScanner(client)
-	reader.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	reader := bufio.NewReader(client)
 	d := &FirDaemon{conn: client, reader: reader, nextID: 1, started: true, shared: true}
 
 	resp, err := d.Check([]fileRef{{Path: relFile, ContentHash: "h"}},

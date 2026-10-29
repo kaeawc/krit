@@ -153,7 +153,7 @@ func TestRequestTimeoutKillReapsTheDaemon(t *testing.T) {
 		for sc.Scan() {
 		}
 	}()
-	d := &FirDaemon{cmd: cmd, conn: client, reader: bufio.NewScanner(client), nextID: 1, started: true}
+	d := &FirDaemon{cmd: cmd, conn: client, reader: bufio.NewReader(client), nextID: 1, started: true}
 	if _, err := d.Check([]fileRef{{Path: "/src/A.kt"}}, nil, nil, []string{"InjectDispatcher"}, nil, FileFacts{}); err == nil {
 		t.Fatal("expected a timeout")
 	}

@@ -40,7 +40,7 @@ import (
 type FirDaemon struct {
 	cmd     *exec.Cmd
 	conn    net.Conn
-	reader  *bufio.Scanner
+	reader  *bufio.Reader
 	logFile *os.File
 	mu      sync.Mutex
 	port    int
@@ -299,8 +299,7 @@ func startFirDaemonWithAOTMode(jarPath string, verbose bool, mode firAOTMode, ta
 		return nil, fmt.Errorf("connect to fir daemon port %d: %w", ready.Port, err)
 	}
 
-	reader := bufio.NewScanner(conn)
-	reader.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	reader := bufio.NewReader(conn)
 
 	d := &FirDaemon{
 		cmd:          cmd,
@@ -562,27 +561,23 @@ func (d *FirDaemon) exchangeLocked(data []byte) (string, error) {
 
 	type scanResult struct {
 		line string
-		ok   bool
 		err  error
 	}
 	resultCh := make(chan scanResult, 1)
 	go func() {
-		if d.reader.Scan() {
-			resultCh <- scanResult{line: d.reader.Text(), ok: true}
-			return
-		}
-		resultCh <- scanResult{err: d.reader.Err()}
+		line, err := readFirDaemonLine(d.reader)
+		resultCh <- scanResult{line: line, err: err}
 	}()
 
 	timeout := daemonRequestTimeout()
 	var line string
 	select {
 	case res := <-resultCh:
-		if !res.ok {
-			if res.err != nil {
-				return "", fmt.Errorf("read from fir daemon: %w", res.err)
+		if res.err != nil {
+			if errors.Is(res.err, io.EOF) {
+				return "", fmt.Errorf("fir daemon closed stdout unexpectedly")
 			}
-			return "", fmt.Errorf("fir daemon closed stdout unexpectedly")
+			return "", fmt.Errorf("read from fir daemon: %w", res.err)
 		}
 		line = res.line
 	case <-time.After(timeout):
@@ -590,6 +585,20 @@ func (d *FirDaemon) exchangeLocked(data []byte) (string, error) {
 		d.started = false
 		return "", fmt.Errorf("fir daemon request timed out after %s; daemon killed", timeout)
 	}
+	return line, nil
+}
+
+// There is deliberately no response-size cap: this is a local trusted daemon,
+// unlike the oracle reader, which caps responses at 512 MiB.
+func readFirDaemonLine(reader *bufio.Reader) (string, error) {
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		if !errors.Is(err, io.EOF) || len(line) == 0 {
+			return "", err
+		}
+	}
+	line = strings.TrimSuffix(line, "\n")
+	line = strings.TrimSuffix(line, "\r")
 	return line, nil
 }
 
@@ -714,11 +723,12 @@ func (d *FirDaemon) Ping() error {
 	}
 	ch := make(chan scanResult, 1)
 	go func() {
-		if d.reader.Scan() {
-			ch <- scanResult{line: d.reader.Text(), ok: true}
+		line, err := readFirDaemonLine(d.reader)
+		if err == nil {
+			ch <- scanResult{line: line, ok: true}
 			return
 		}
-		ch <- scanResult{err: d.reader.Err()}
+		ch <- scanResult{err: err}
 	}()
 	select {
 	case res := <-ch:
@@ -1156,8 +1166,7 @@ func connectExistingFirDaemon(hash string, verbose bool) (*FirDaemon, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect to fir daemon port %d: %w", port, err)
 	}
-	reader := bufio.NewScanner(conn)
-	reader.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	reader := bufio.NewReader(conn)
 
 	d := &FirDaemon{
 		conn:        conn,

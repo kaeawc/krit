@@ -8,7 +8,9 @@ package firchecks
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/kaeawc/krit/internal/oracle"
@@ -156,25 +158,21 @@ func (d *FirDaemon) sendAndReceive(req firDaemonRequest) (string, error) {
 
 	type scanResult struct {
 		line string
-		ok   bool
 		err  error
 	}
 	ch := make(chan scanResult, 1)
 	go func() {
-		if d.reader.Scan() {
-			ch <- scanResult{line: d.reader.Text(), ok: true}
-			return
-		}
-		ch <- scanResult{err: d.reader.Err()}
+		line, err := readFirDaemonLine(d.reader)
+		ch <- scanResult{line: line, err: err}
 	}()
 	timeout := daemonRequestTimeout()
 	select {
 	case res := <-ch:
-		if !res.ok {
-			if res.err != nil {
-				return "", fmt.Errorf("read from fir daemon: %w", res.err)
+		if res.err != nil {
+			if errors.Is(res.err, io.EOF) {
+				return "", fmt.Errorf("fir daemon closed stdout unexpectedly")
 			}
-			return "", fmt.Errorf("fir daemon closed stdout unexpectedly")
+			return "", fmt.Errorf("read from fir daemon: %w", res.err)
 		}
 		return res.line, nil
 	case <-time.After(timeout):

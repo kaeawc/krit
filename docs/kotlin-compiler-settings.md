@@ -63,12 +63,20 @@ it silently:
 ### Whole-repo compilations and module compilations
 
 The oracle and the FIR checker pass compile the whole repository as one
-compilation today, so only one set of settings can apply. Krit applies a field
-**only when every source set agrees on it**; it never takes one module's value
-and imposes it on another. Where source sets disagree (or one has no settings)
-that field keeps the embedded default and a note names the disagreeing source
-sets. Opt-ins and flags use the intersection: only what every source set
-enables is applied.
+compilation today, so only one set of settings can apply. Krit applies language
+version, API version and progressive mode **only when every source set agrees**.
+Where source sets disagree (or one has no settings), that field keeps the
+embedded default and a note names the disagreeing source sets. Semantic flags
+use the intersection: only what every source set enables is applied.
+
+Opt-ins use the **sorted, deduplicated union**: every marker enabled by any
+source set is applied, even when another source set has no opt-ins. Opt-ins
+only suppress experimental-API diagnostics; the intersection can falsely
+report "This API is experimental" for code whose source set already enables
+the required marker. The union avoids those false errors, but can hide a real
+missing opt-in in another source set. A note reports differing opt-ins and
+this trade-off; the whole-repo compilation cannot validate each source set's
+opt-in requirements independently.
 
 For per-module `analyzeModules` requests, `ModuleSpecsFromModel` builds one
 `ModuleSpec` per source set whose `compilerArgs` hold that source set's own

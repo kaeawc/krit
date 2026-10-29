@@ -484,11 +484,11 @@ func ResolveKotlinSettings(opts *KotlinOptions) KotlinSettings {
 
 // MergeKotlinSettings combines the settings of several source sets for a
 // compilation that spans all of them (the whole-repo oracle and FIR passes).
-// labels names each set for notes. A setting is applied only when every source
-// set agrees on it; it is never taken from one source set and imposed on
-// another. Where they disagree (or one set has none), that field stays at the
-// embedded compiler's default and a note says which sets disagreed. Opt-ins and
-// flags use the intersection: only what every source set enables.
+// labels names each set for notes. Versions and progressive mode are applied
+// only when every source set agrees; otherwise they stay at the embedded
+// compiler's default with a note. Semantic flags use the intersection. Opt-ins
+// use a sorted union to avoid false experimental-API errors, at the cost of
+// potentially hiding a missing opt-in in another source set.
 func MergeKotlinSettings(sets []KotlinSettings, labels []string) KotlinSettings {
 	if len(sets) == 0 {
 		return KotlinSettings{}
@@ -539,18 +539,21 @@ func MergeKotlinSettings(sets []KotlinSettings, labels []string) KotlinSettings 
 	out.Plugins, pluginNotes = mergeCompilerPlugins(sets)
 	out.Notes = append(out.Notes, pluginNotes...)
 
-	out.OptIns = intersect(sets, func(s KotlinSettings) []string { return s.OptIns })
+	for _, settings := range sets {
+		out.OptIns = append(out.OptIns, settings.OptIns...)
+	}
+	out.OptIns = sortedUnique(out.OptIns)
+	for index, settings := range sets {
+		if len(sortedUnique(settings.OptIns)) < len(out.OptIns) {
+			out.Notes = append(out.Notes, fmt.Sprintf("opt-ins differ across source sets (e.g. %s is missing opt-ins enabled elsewhere); all opt-ins enabled by any source set are applied to avoid false experimental-API errors; missing opt-ins in other source sets may be hidden", label(index)))
+			break
+		}
+	}
 	out.Flags = intersect(sets, func(s KotlinSettings) []string { return s.Flags })
-	for _, kind := range []struct {
-		name string
-		got  []string
-		get  func(KotlinSettings) []string
-	}{{"opt-ins", out.OptIns, func(s KotlinSettings) []string { return s.OptIns }}, {"flags", out.Flags, func(s KotlinSettings) []string { return s.Flags }}} {
-		for i, s := range sets {
-			if len(kind.get(s)) > len(kind.got) {
-				out.Notes = append(out.Notes, fmt.Sprintf("%s differ across source sets (e.g. %s); only those enabled by every source set are applied", kind.name, label(i)))
-				break
-			}
+	for index, settings := range sets {
+		if len(settings.Flags) > len(out.Flags) {
+			out.Notes = append(out.Notes, fmt.Sprintf("flags differ across source sets (e.g. %s); only those enabled by every source set are applied", label(index)))
+			break
 		}
 	}
 	// Surface what was not applied exactly once.
@@ -649,7 +652,8 @@ func (m *Model) KotlinSettingsBySourceSet() []SourceSetKotlinSettings {
 			// A schema 2 source set with no `kotlin` object has no Kotlin compile
 			// task (Java-only): it analyzes no Kotlin, so it neither sets nor vetoes
 			// a setting. A schema 1 source set may simply predate the field, so it
-			// stays "unknown" and keeps the conservative merge.
+			// stays "unknown": absent versions and flags are handled conservatively,
+			// while declared opt-ins are still unioned across source sets.
 			if s.Kotlin == nil && p.SchemaVersion >= 2 {
 				continue
 			}

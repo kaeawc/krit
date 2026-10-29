@@ -155,8 +155,8 @@ func loadGradleCompileContext(paths []string, explicit string, disabled bool) (d
 // loadGradleKotlinSettings resolves the effective Kotlin compiler settings
 // from the discovered (or explicit) Gradle models, merging every source set of
 // every model for the whole-repo compilations the oracle and FIR passes run.
-// A source set's settings are never applied to another: fields the source sets
-// disagree on stay at the embedded compiler's default (see
+// Disagreeing versions and progressive mode stay at the embedded compiler's
+// default; semantic flags are intersected and opt-ins are unioned (see
 // gradlemodel.MergeKotlinSettings). No model yields the zero settings, i.e.
 // the embedded compiler's own defaults, and verbose output says so.
 func loadGradleKotlinSettings(paths []string, explicit string, disabled, verbose bool, out io.Writer) gradlemodel.KotlinSettings {

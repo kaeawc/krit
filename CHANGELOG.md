@@ -5,6 +5,9 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Changed
+- Opt-ins from any source set now apply to the whole-repo compile (#972),
+  avoiding false "This API is experimental" errors. This can hide a missing
+  opt-in in another source set.
 - Incremental FIR checking is now on by default (#740). After the first
   whole-module compile, `--fir` scans compile only the edited files and the
   files that depend on them, for the FIR checkers and for the type oracle. Set

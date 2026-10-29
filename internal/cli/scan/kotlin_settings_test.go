@@ -74,7 +74,7 @@ func TestLoadGradleKotlinSettings(t *testing.T) {
 	}
 }
 
-func TestLoadGradleKotlinSettingsDoesNotMixSourceSets(t *testing.T) {
+func TestLoadGradleKotlinSettingsUnionsOptInsWithoutMixingVersions(t *testing.T) {
 	root := t.TempDir()
 	writeKotlinModel(t, root, map[string]string{
 		"main": `{"languageVersion":"2.0","apiVersion":"2.0","optIn":["a.A"]}`,
@@ -82,11 +82,14 @@ func TestLoadGradleKotlinSettingsDoesNotMixSourceSets(t *testing.T) {
 	})
 	var out bytes.Buffer
 	got := loadGradleKotlinSettings([]string{root}, "", false, true, &out)
-	if got.LanguageVersion != "" || got.APIVersion != "" || len(got.OptIns) != 0 {
-		t.Fatalf("source sets disagree, so none of their settings may be applied to the whole repo: %+v", got)
+	if got.LanguageVersion != "" || got.APIVersion != "" || len(got.OptIns) != 1 || got.OptIns[0] != "a.A" {
+		t.Fatalf("source sets disagree, so only their opt-in union may be applied: %+v", got)
 	}
 	if !strings.Contains(out.String(), "languageVersion differs across source sets") || !strings.Contains(out.String(), ":test") {
 		t.Fatalf("the disagreement must be visible:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), ":test is missing opt-ins enabled elsewhere") || !strings.Contains(out.String(), "missing opt-ins in other source sets may be hidden") {
+		t.Fatalf("verbose output must explain which source set lacks opt-ins and the union trade-off:\n%s", out.String())
 	}
 }
 

@@ -40,11 +40,21 @@ class DepEdgeResolutionTest {
 
     @Test fun companionInvokeDependsOnTheClassFile() = assertEdges("CompanionInvokeUse.kt", "Guarded.kt")
 
-    // Known gap, pinned as-is: `r()` on a value reference resolves (by symbol)
-    // to the variable, not to the invoke operator, so an extension `invoke`
-    // in another file is not an edge. Closing it would change the cache
-    // contract and is out of scope for the resolution-API migration.
-    @Test fun implicitInvokeOnAReferenceDoesNotReachTheInvokeOperator() = assertEdges("InvokeUse.kt", "Rx.kt")
+    // `r()` on a value reference resolves (by symbol) to the variable; the
+    // extension `invoke` it calls is reached through the call (#934).
+    @Test fun implicitInvokeOnAReferenceDependsOnTheInvokeOperator() = assertEdges("InvokeUse.kt", "Rx.kt", "InvokeOps.kt")
+
+    @Test fun implicitInvokeOnAParenthesizedValueDependsOnTheInvokeOperator() =
+        assertEdges("InvokeParenUse.kt", "Rx.kt", "InvokeOps.kt")
+
+    @Test fun implicitInvokeOnACallResultDependsOnTheInvokeOperator() =
+        assertEdges("InvokeChainUse.kt", "Rx.kt", "InvokeOps.kt", "InvokeMaker.kt")
+
+    // A function-typed value's `invoke` is the stdlib's: no source edge beyond the value's own.
+    @Test fun invokingAFunctionTypedValueAddsNoEdge() = assertEdges("LambdaInvokeUse.kt")
+
+    // An ordinary call is an edge to the function only, not to an unrelated `invoke`.
+    @Test fun anOrdinaryCallDoesNotReachAnInvokeOperator() = assertEdges("PlainCallUse.kt", "InvokeMaker.kt", "Rx.kt")
 
     // --- operators ---
 
@@ -180,6 +190,11 @@ class DepEdgeResolutionTest {
             "CtorUse.kt" to "package p\nfun useCtor() { Made(1) }",
             "CompanionInvokeUse.kt" to "package p\nfun useCompanion() { Guarded() }",
             "InvokeUse.kt" to "package p\nfun useInvoke(r: RInvoke) { r() }",
+            "InvokeParenUse.kt" to "package p\nfun useParenInvoke(r: RInvoke) { (r)() }",
+            "InvokeMaker.kt" to "package p\nfun makeInvokable(): RInvoke = RInvoke()",
+            "InvokeChainUse.kt" to "package p\nfun useChainInvoke() { makeInvokable()() }",
+            "LambdaInvokeUse.kt" to "package p\nfun useLambda(f: () -> Int) { f() }",
+            "PlainCallUse.kt" to "package p\nfun usePlain() { makeInvokable() }",
             "PlusUse.kt" to "package p\nfun usePlus(a: RPlus, b: RPlus) { a + b }",
             "AssignUse.kt" to "package p\nfun useAssign(a: RAssign, b: RAssign) { a += b }",
             "IncUse.kt" to "package p\nfun useInc(a: RInc) { var x = a; x++ }",

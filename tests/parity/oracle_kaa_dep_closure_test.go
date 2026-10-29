@@ -215,6 +215,11 @@ func TestKAAOracleCacheRefreshesConventionAndCandidateDependents(t *testing.T) {
 		convention("iteration", "operator fun Box.iterator(): Iterator<Int> = listOf(1).iterator()", "fun use(a: Box) { for (x in a) {} }"),
 		convention("delegation", "operator fun Box.getValue(t: Any?, p: kotlin.reflect.KProperty<*>): Int = 1", "fun use(a: Box) { val v: Int by a }"),
 		convention("destructuring", "operator fun Box.component1(): Int = 1", "fun use(a: Box) { val (x) = a }"),
+		// a() resolves (by name) to the parameter; krit-types reaches the
+		// extension invoke through the call (#934). The declaration ledger's
+		// operator gate also catches this edit, so this guards the end-to-end
+		// refresh; DepEdgeResolutionTest pins the edge itself.
+		convention("implicit-invoke", "operator fun Box.invoke(): Int = 1", "fun use(a: Box) = a()"),
 		{
 			// helper("x") does not resolve, so helper(Int) is only a
 			// candidate of the failed call. Deprecating it still reaches

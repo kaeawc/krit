@@ -50,6 +50,12 @@ class DepEdgeResolutionTest {
     @Test fun implicitInvokeOnACallResultDependsOnTheInvokeOperator() =
         assertEdges("InvokeChainUse.kt", "Rx.kt", "InvokeOps.kt", "InvokeMaker.kt")
 
+    @Test fun implicitInvokeOnAnObjectDependsOnTheInvokeOperator() =
+        assertEdges("ObjectInvokeUse.kt", "Registry.kt", "RegistryInvokeOps.kt")
+
+    @Test fun implicitInvokeOnACompanionDependsOnTheInvokeOperator() =
+        assertEdges("CompanionExtInvokeUse.kt", "WithCompanion.kt", "CompanionInvokeOps.kt")
+
     // A function-typed value's `invoke` is the stdlib's: no source edge beyond the value's own.
     @Test fun invokingAFunctionTypedValueAddsNoEdge() = assertEdges("LambdaInvokeUse.kt")
 
@@ -195,6 +201,12 @@ class DepEdgeResolutionTest {
             "InvokeChainUse.kt" to "package p\nfun useChainInvoke() { makeInvokable()() }",
             "LambdaInvokeUse.kt" to "package p\nfun useLambda(f: () -> Int) { f() }",
             "PlainCallUse.kt" to "package p\nfun usePlain() { makeInvokable() }",
+            "Registry.kt" to "package p\nobject Registry",
+            "RegistryInvokeOps.kt" to "package p\noperator fun Registry.invoke(): Int = 1",
+            "ObjectInvokeUse.kt" to "package p\nfun useObjectInvoke() { Registry() }",
+            "WithCompanion.kt" to "package p\nclass WithCompanion private constructor() { companion object }",
+            "CompanionInvokeOps.kt" to "package p\noperator fun WithCompanion.Companion.invoke(): Int = 1",
+            "CompanionExtInvokeUse.kt" to "package p\nfun useCompanionInvoke() { WithCompanion() }",
             "PlusUse.kt" to "package p\nfun usePlus(a: RPlus, b: RPlus) { a + b }",
             "AssignUse.kt" to "package p\nfun useAssign(a: RAssign, b: RAssign) { a += b }",
             "IncUse.kt" to "package p\nfun useInc(a: RInc) { var x = a; x++ }",

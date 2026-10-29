@@ -193,10 +193,11 @@ internal fun KaSession.recordResolvedDependencyEdges(file: KtFile, tracker: DepT
             return
         }
         recordAll(symbols, propagating)
-        // Only a callee that names a value can be an implicit invoke, so an
-        // ordinary call pays for no second resolution.
+        // Only a callee that names a value, an object or a class (its
+        // companion) can be an implicit invoke; an ordinary call resolves to a
+        // function or constructor and pays for no second resolution.
         val call = element.parent as? KtCallExpression
-        if (call != null && call.calleeExpression === element && symbols.any { it is KaVariableSymbol }) {
+        if (call != null && call.calleeExpression === element && symbols.any { it is KaVariableSymbol || it is KaClassLikeSymbol }) {
             resolveCall(call, propagating)
         }
     }

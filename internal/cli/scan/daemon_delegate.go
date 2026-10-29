@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/cli/daemonclient"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
@@ -46,7 +47,7 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 		}
 		return runDaemonMetaVerb(client, f, paths, verb)
 	}
-	if !daemonCompatibleFlags(f) {
+	if !daemonCompatibleFlags(f) || !configServedByDaemon(f, repoDir) {
 		return false, 0
 	}
 	if *f.DaemonSocket != "" {
@@ -260,7 +261,7 @@ func writeDaemonFindings(f *scanFlags, res daemon.AnalyzeProjectResult, start ti
 //
 // dump-types is "meta" in the routing sense (short-circuits before
 // rule dispatch, writes a single artifact, captured stderr replayed
-// on the CLI) even though the daemon does invoke the krit-types JVM
+// on the CLI) even though the daemon does invoke the krit-fir JVM
 // to produce it — same as the in-process --output-types flow.
 type metaVerbName int
 
@@ -285,7 +286,7 @@ const (
 func metaVerbForFlags(f *scanFlags) (metaVerbName, bool) {
 	switch {
 	case *f.List:
-		// CustomRuleJars requires the krit-types JVM the daemon
+		// CustomRuleJars requires the krit-fir JVM the daemon
 		// doesn't manage on behalf of meta queries; defer to
 		// in-process so plugin descriptors still surface.
 		if *f.CustomRuleJars != "" {
@@ -333,6 +334,7 @@ func callMetaVerb(client *daemonclient.Client, f *scanFlags, paths []string, ver
 			Verbose:    *f.Verbose,
 			Maturity:   *f.Maturity,
 			TaxonomyID: *f.ListRulesCWE,
+			Format:     listRulesFormat(f, flag.CommandLine),
 		})
 	case metaVerbListExperiments:
 		// Mirror runner_state.go's effectiveFormat resolution so
@@ -631,14 +633,31 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 			return false
 		}
 	}
-	// `--oracle-backend` historically bypassed daemon delegation
-	// because the wire didn't carry the backend selection — the
-	// daemon always used krit-types via oracle.FindJar, so delegating
-	// would silently drop the user's choice. AnalyzeProjectArgs.OracleBackend
-	// now ships the value over the wire and the serve handler honors
-	// it, so the bypass is gone. buildDaemonAnalyzeArgs forwards
-	// *f.OracleBackend verbatim; the daemon picks the jar per call.
+	// `--oracle-backend` is forwarded verbatim by buildDaemonAnalyzeArgs;
+	// the serve handler validates it, so it never forces in-process.
 	return true
+}
+
+// configServedByDaemon reports whether the daemon would analyze with the
+// config the user asked for. The analyze-project wire carries no config
+// path: the daemon always loads the krit.yml / .krit.yml at its repo root.
+// An explicit --config naming any other file must run in-process, or the
+// daemon would silently apply the wrong config.
+func configServedByDaemon(f *scanFlags, repoDir string) bool {
+	if f.Config == nil || *f.Config == "" {
+		return true
+	}
+	rootCfg := clishared.FindConfigInDir(repoDir)
+	if rootCfg == "" {
+		return false
+	}
+	return sameFile(*f.Config, rootCfg)
+}
+
+func sameFile(a, b string) bool {
+	ai, errA := os.Stat(a)
+	bi, errB := os.Stat(b)
+	return errA == nil && errB == nil && os.SameFile(ai, bi)
 }
 
 // buildDaemonAnalyzeArgs translates the scan-flag set into the

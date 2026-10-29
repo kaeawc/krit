@@ -15,7 +15,7 @@ import (
 // for #125 PR-B: when host.OracleDaemon is supplied and
 // args.OracleEnabled is true, IndexInput.PrebuiltOracleDaemon flows
 // through to runDaemonOracle. The test stops short of actually
-// invoking the JVM (no krit-types.jar in test env) by ensuring the
+// invoking the JVM (no krit-fir.jar in test env) by ensuring the
 // active rule set declares no NeedsOracle / NeedsResolver capability —
 // runOracle's internal gate (KotlinOracleRulesV2) returns empty, so
 // the daemon handle is never used. The contract under test is "the
@@ -40,7 +40,7 @@ func TestRunProject_OracleDaemonPlumbing(t *testing.T) {
 	// A non-nil daemon stub. The gate on KotlinOracleRulesV2 ensures
 	// runDaemonOracle is never called for this rule set — but if the
 	// plumbing were wrong (e.g. host.OracleDaemon ignored, fresh
-	// InvokeDaemon called), the test environment without krit-types.jar
+	// InvokeDaemon called), the test environment without krit-fir.jar
 	// would error out. The assertion is implicit: no error and the
 	// run completes.
 	stub := &oracle.Daemon{}

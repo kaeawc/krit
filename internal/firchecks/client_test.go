@@ -1,11 +1,42 @@
 package firchecks
 
 import (
+	"bufio"
+	"errors"
+	"io"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/devjar"
 )
+
+func TestReadFirDaemonLineTrimsCRLF(t *testing.T) {
+	line, err := readFirDaemonLine(bufio.NewReader(strings.NewReader("response\r\n")))
+	if err != nil {
+		t.Fatalf("readFirDaemonLine: %v", err)
+	}
+	if line != "response" {
+		t.Fatalf("readFirDaemonLine = %q, want %q", line, "response")
+	}
+}
+
+func TestReadFirDaemonLineReturnsPartialLineAtEOF(t *testing.T) {
+	line, err := readFirDaemonLine(bufio.NewReader(strings.NewReader("partial response")))
+	if err != nil {
+		t.Fatalf("readFirDaemonLine: %v", err)
+	}
+	if line != "partial response" {
+		t.Fatalf("readFirDaemonLine = %q, want partial response", line)
+	}
+}
+
+func TestReadFirDaemonLineReturnsEOFWithoutData(t *testing.T) {
+	_, err := readFirDaemonLine(bufio.NewReader(strings.NewReader("")))
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("readFirDaemonLine error = %v, want EOF", err)
+	}
+}
 
 func TestFindFirJar_NoJarReturnsEmpty(t *testing.T) {
 	t.Setenv("KRIT_FIR_JAR", "")

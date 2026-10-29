@@ -57,7 +57,7 @@ func warnStaleGradleModel(dir string, paths []string, out io.Writer) {
 	}
 	_, missing := model.Classpath()
 	if missing > 0 {
-		fmt.Fprintf(out, "warning: gradle model %s is stale: %d classpath jars missing; rerun kritExportModel\n", dir, missing)
+		fmt.Fprintf(out, "warning: gradle model %s references %d classpath jars missing on disk (some may be unbuilt project module outputs); build those modules or rerun kritExportModel\n", dir, missing)
 	}
 	newest := newestModelTime(dir)
 	root := filepath.Dir(filepath.Dir(dir))

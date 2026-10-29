@@ -63,13 +63,13 @@ type startDaemonReady struct {
 }
 
 // daemonRequestTimeout returns the max wall-clock duration allowed for a
-// single daemon request/response round-trip (env KRIT_TYPES_REQUEST_TIMEOUT,
+// single daemon request/response round-trip (env KRIT_ORACLE_REQUEST_TIMEOUT,
 // default 10 minutes). This is separate from the startup timeout: a single
 // analyze call can legitimately take minutes on a large repo, but it should
-// never take hours. A hang past this limit usually means the Analysis API hit
-// an unhandled internal error.
+// never take hours. A hang past this limit usually means the compiler hit an
+// unhandled internal error.
 func daemonRequestTimeout() time.Duration {
-	if v := os.Getenv("KRIT_TYPES_REQUEST_TIMEOUT"); v != "" {
+	if v := os.Getenv("KRIT_ORACLE_REQUEST_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			return d
 		}
@@ -80,7 +80,7 @@ func daemonRequestTimeout() time.Duration {
 // send writes a request and reads the corresponding response, returning
 // the full decoded envelope. Caller must hold d.mu.
 //
-// If the daemon doesn't produce a response within KRIT_TYPES_REQUEST_TIMEOUT
+// If the daemon doesn't produce a response within KRIT_ORACLE_REQUEST_TIMEOUT
 // (default 10m), the daemon process is force-killed, the Daemon is marked
 // not-started so subsequent calls fail fast, and an error is returned. The
 // caller is expected to fall back to tree-sitter-only analysis — the oracle
@@ -155,7 +155,7 @@ func (d *Daemon) sendOnceWithin(method string, params map[string]interface{}, ti
 	}
 
 	// Read response. The Scan() call would block forever if the daemon
-	// hangs mid-request (e.g. Analysis API FIR crash with no thrown
+	// hangs mid-request (e.g. a FIR crash with no thrown
 	// exception), so run it in a goroutine and select against a timer.
 	type scanResult struct {
 		line string
@@ -210,7 +210,7 @@ func (d *Daemon) sendOnceWithin(method string, params map[string]interface{}, ti
 }
 
 // sendResult is the legacy wrapper that projects a daemon response to just
-// its Result field. Used by Analyze, AnalyzeAll, Rebuild, Ping, Checkpoint —
+// its Result field. Used by Analyze, AnalyzeAll, Rebuild, Ping —
 // methods that don't consume the Errors / CacheDeps sibling fields.
 func (d *Daemon) sendResult(method string, params map[string]interface{}) (*json.RawMessage, error) {
 	resp, err := d.send(method, params)

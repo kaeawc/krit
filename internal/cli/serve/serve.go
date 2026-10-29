@@ -31,6 +31,7 @@ import (
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
+	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -346,10 +347,10 @@ type daemonState struct {
 	analysisCacheByKey map[string]*analysisCacheEntry
 
 	// oracleDaemonMu guards lazy construction + recovery of the
-	// resident krit-types JVM subprocess. Lifecycle: ensureOracleDaemon
+	// resident krit-fir JVM subprocess. Lifecycle: ensureOracleDaemon
 	// constructs once per scan-path set; pingOracleDaemon checks
 	// liveness and Close+Rebuilds on a failed ping. Stays nil when
-	// the krit-types JAR cannot be located — the caller treats nil
+	// the krit-fir JAR cannot be located — the caller treats nil
 	// as "oracle disabled" and the verb proceeds without type
 	// resolution. See issue #125 PR breakdown.
 	oracleDaemonMu      sync.Mutex
@@ -649,47 +650,32 @@ func (e *oracleDaemonEntry) close() error {
 	return e.daemon.Close()
 }
 
-// oracleJarForBackend picks the JVM jar the resident oracle daemon
-// runs: krit-fir for BackendFIR (the default backend) and krit-types for
-// every other value, including "" and unknown backends, so the caller does not
-// reproduce the routing logic. Returns "" when neither jar is
-// installed; callers degrade to "oracle disabled".
-func oracleJarForBackend(scanPaths []string, backend oracle.Backend) string {
-	switch backend {
-	case oracle.BackendFIR:
-		// FIR is the default backend, so tagged releases download a
-		// missing krit-fir jar rather than silently running without it.
-		jarPath, _ := oracle.EnsureBackendJar(context.Background(), oracle.BackendFIR, scanPaths, false)
-		return jarPath
-	default:
-		return oracle.FindJar(scanPaths)
-	}
+// oracleJarForBackend picks the krit-fir jar the resident oracle daemon runs.
+// Tagged releases download a missing jar rather than silently running
+// without it. Returns "" when the jar cannot be had; callers degrade to
+// "oracle disabled".
+func oracleJarForBackend(scanPaths []string, _ oracle.Backend) string {
+	jarPath, _ := oracle.EnsureBackendJar(context.Background(), oracle.BackendFIR, scanPaths, false)
+	return jarPath
 }
 
-// ensureOracleDaemon lazy-starts (or reuses) the JVM daemon backing
-// the requested backend for the given scan paths. BackendKAA spawns
-// krit-types via oracle.FindJar; BackendFIR spawns krit-fir via
-// oracle.EnsureBackendJar. Returns (nil, nil) when the matching JAR
-// cannot be located — callers treat that as "oracle disabled" and
-// the verb proceeds without type resolution.
-//
-// Each (jarPath, sourceDirs) pair gets its own cache entry, so a
-// project that flips between FIR and KAA reaches each backend
-// without trampling the other's resident state. The on-the-wire
-// protocol is the same for both jars (see #559), so the
-// defaultOracleDaemonStarter implementation is reused verbatim.
+// ensureOracleDaemon lazy-starts (or reuses) the krit-fir daemon for the
+// given scan paths. Returns (nil, nil) when the jar cannot be located —
+// callers treat that as "oracle disabled" and the verb proceeds without type
+// resolution. Each (jarPath, sourceDirs, settings, classpath) gets its own
+// cache entry.
 //
 // Wired into the analyze-project verb path: buildProjectInput threads
 // the returned handle into ProjectHostState.OracleDaemon and flips
 // ProjectArgs.OracleEnabled when the daemon is non-nil, so type-aware
 // rules in the daemon get oracle precision without paying JVM startup
 // on every call.
-func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Backend, kotlin ...gradlemodel.KotlinSettings) (*oracle.Daemon, error) {
+func (s *daemonState) ensureOracleDaemon(scanPaths []string, kotlin ...gradlemodel.KotlinSettings) (*oracle.Daemon, error) {
 	var ctx oracleDaemonContext
 	if len(kotlin) > 0 {
 		ctx.Kotlin = kotlin[0]
 	}
-	return s.ensureOracleDaemonFor(scanPaths, backend, ctx)
+	return s.ensureOracleDaemonFor(scanPaths, oracle.BackendFIR, ctx)
 }
 
 // oracleDaemonContext is the compile context a request's oracle runs under,
@@ -700,10 +686,10 @@ func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Back
 type oracleDaemonContext struct {
 	Kotlin gradlemodel.KotlinSettings
 	// Classpath is the resolved oracle classpath (Gradle model plus config).
-	// Both backends start and key on it.
+	// The daemon starts and keys on it.
 	Classpath []string
 	// ExtraSourceDirs are the Gradle-model source roots added to the walked
-	// ones (krit-fir only).
+	// ones.
 	ExtraSourceDirs []string
 }
 
@@ -726,19 +712,14 @@ func (s *daemonState) ensureOracleDaemonFor(scanPaths []string, backend oracle.B
 		// re-walk the filesystem on every call.
 		return nil, nil
 	}
-	// oracleJarForBackend picks krit-fir for FIR and krit-types otherwise.
-	served := oracle.BackendKAA
-	if backend == oracle.BackendFIR {
-		served = oracle.BackendFIR
-	}
+	served := oracle.BackendFIR
 	roots := oracle.FindSourceDirs(scanPaths)
-	// Both backends start and key on the request's classpath, so a daemon
-	// started without one is never reused for a request that has one.
-	sourceDirs, classpath := roots, octx.Classpath
-	if served == oracle.BackendFIR {
-		// The checker's context: FilterFIRSourceDirs(Union(Filter(roots), extra)).
-		sourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(oracle.FilterFIRSourceDirs(roots), octx.ExtraSourceDirs))
-	}
+	// The daemon starts and keys on the request's classpath, so a daemon
+	// started without one is never reused for a request that has one. Its
+	// source roots are the checker's context:
+	// FilterFIRSourceDirs(Union(Filter(roots), extra)).
+	classpath := octx.Classpath
+	sourceDirs := oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(oracle.FilterFIRSourceDirs(roots), octx.ExtraSourceDirs))
 	key := jarPath + "\x00" + strings.Join(sourceDirs, "\x00") + "\x00" + kt.Identity() + "\x00" + strings.Join(classpath, "\x00")
 	classpathFP := oracleClasspathFingerprint(classpath)
 
@@ -756,7 +737,7 @@ func (s *daemonState) ensureOracleDaemonFor(scanPaths []string, backend oracle.B
 		return nil, fmt.Errorf("start oracle daemon: %w", err)
 	}
 	s.oracleDaemonByKey[key] = &oracleDaemonEntry{daemon: d, jarPath: jarPath, jarIdentity: oracle.JarIdentity(jarPath), sourceDirs: sourceDirs, roots: roots, classpath: classpath, classpathFP: classpathFP, kotlin: kt, backend: served}
-	// A resident krit-types JVM costs 1-2 GB. A daemon for the same jar and scan
+	// A resident krit-fir JVM costs 1-2 GB. A daemon for the same jar and scan
 	// roots under another context (Kotlin settings, classpath, source roots) can no
 	// longer be reached once the project's context changed, so retire it instead of
 	// keeping one JVM per identity ever seen.
@@ -1207,7 +1188,40 @@ func handleAnalyzeBuffer(ctx context.Context, state *daemonState, raw json.RawMe
 	if err != nil {
 		return nil, fmt.Errorf("marshal findings: %w", err)
 	}
-	return daemon.AnalyzeBufferResult{Findings: body, CacheHit: hit}, nil
+	return daemon.AnalyzeBufferResult{Findings: body, CacheHit: hit, FixLevels: fixLevelsFor(&columns)}, nil
+}
+
+var (
+	ruleFixLevelsOnce sync.Once
+	ruleFixLevels     map[string]string
+)
+
+// fixLevelsFor returns, for each rule with an autofix in columns, the fix
+// level `krit -f json` reports as the finding's fixLevel (the rule's
+// registered level), or nil when no finding has an autofix.
+func fixLevelsFor(columns *scanner.FindingColumns) map[string]string {
+	ruleFixLevelsOnce.Do(func() {
+		ruleFixLevels = make(map[string]string, len(api.Registry))
+		for _, r := range api.Registry {
+			if lvl, ok := rules.GetV2FixLevel(r); ok {
+				ruleFixLevels[r.ID] = lvl.String()
+			}
+		}
+	})
+	var out map[string]string
+	for row := 0; row < columns.Len(); row++ {
+		if !columns.HasFix(row) {
+			continue
+		}
+		rule := columns.RuleAt(row)
+		if lvl, ok := ruleFixLevels[rule]; ok {
+			if out == nil {
+				out = make(map[string]string)
+			}
+			out[rule] = lvl
+		}
+	}
+	return out
 }
 
 // handleAnalyzeBuffers runs handleAnalyzeBuffer's logic for every entry
@@ -1240,7 +1254,7 @@ func handleAnalyzeBuffers(ctx context.Context, state *daemonState, raw json.RawM
 			results[i] = daemon.AnalyzeBufferEntry{Error: "marshal findings: " + err.Error()}
 			continue
 		}
-		results[i] = daemon.AnalyzeBufferEntry{Findings: body, CacheHit: hit}
+		results[i] = daemon.AnalyzeBufferEntry{Findings: body, CacheHit: hit, FixLevels: fixLevelsFor(&columns)}
 	}
 	return daemon.AnalyzeBuffersResult{Results: results, Rules: analyzer.Dispatcher.SingleFileRuleIDs()}, nil
 }

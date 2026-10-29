@@ -13,8 +13,8 @@ class PluginResponseTest {
             diagnostics = emptyList(),
         )
         assertTrue(response.startsWith("""{"id":1,"result":{"rules":[]"""), response)
-        // No diagnostics → no `"diagnostics"` field. Matches
-        // krit-types' omit-when-empty rule so a healthy load surface
+        // No diagnostics → no `"diagnostics"` field. Omit-when-empty
+        // keeps a healthy load surface
         // stays minimal.
         assertTrue("diagnostics" !in response, response)
     }

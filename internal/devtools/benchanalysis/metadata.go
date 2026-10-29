@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"debug/buildinfo"
 	"encoding/hex"
 	"io"
 	"os"
@@ -38,13 +39,19 @@ type Metadata struct {
 }
 
 func collectMetadata(corpus, kritBin string, o options) Metadata {
+	rev, dirty, ok := binaryVCS(kritBin)
+	if !ok {
+		// No VCS stamp (built with -buildvcs=false or outside a checkout):
+		// fall back to the checkout the harness runs from.
+		rev, dirty = output("git", "rev-parse", "HEAD"), output("git", "status", "--porcelain") != ""
+	}
 	return Metadata{
 		StartedAt:     time.Now().UTC().Format(time.RFC3339),
 		Corpus:        corpus,
 		CorpusRev:     output("git", "-C", corpus, "rev-parse", "HEAD"),
 		CorpusDirty:   output("git", "-C", corpus, "status", "--porcelain") != "",
-		KritRev:       output("git", "rev-parse", "HEAD"),
-		KritDirty:     output("git", "status", "--porcelain") != "",
+		KritRev:       rev,
+		KritDirty:     dirty,
 		KritBinary:    kritBin,
 		KritSHA256:    fileSHA256(kritBin),
 		KritVersion:   output(kritBin, "--version"),
@@ -63,12 +70,31 @@ func collectMetadata(corpus, kritBin string, o options) Metadata {
 	}
 }
 
+// binaryVCS reads the revision `go build` stamped into the krit binary, so
+// the metadata names the commit that was benchmarked even when the harness
+// runs from a different checkout or worktree.
+func binaryVCS(bin string) (rev string, modified, ok bool) {
+	info, err := buildinfo.ReadFile(bin)
+	if err != nil {
+		return "", false, false
+	}
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			modified = s.Value == "true"
+		}
+	}
+	return rev, modified, rev != ""
+}
+
 // helperJars hashes every JVM helper jar krit could pick up. The jar a run
 // actually used is in that run's oracleBackend attributes.
 func helperJars() map[string]string {
 	out := map[string]string{}
 	var candidates []string
-	for _, env := range []string{"KRIT_FIR_JAR", "KRIT_TYPES_JAR"} {
+	for _, env := range []string{"KRIT_FIR_JAR"} {
 		if v := os.Getenv(env); v != "" {
 			candidates = append(candidates, v)
 		}
@@ -79,9 +105,7 @@ func helperJars() map[string]string {
 			candidates = append(candidates, matches...)
 		}
 	}
-	for _, tool := range []string{"krit-fir", "krit-types"} {
-		candidates = append(candidates, filepath.Join("tools", tool, "build", "libs", tool+".jar"))
-	}
+	candidates = append(candidates, filepath.Join("tools", "krit-fir", "build", "libs", "krit-fir.jar"))
 	for _, path := range candidates {
 		if sum := fileSHA256(path); sum != "" {
 			out[path] = sum

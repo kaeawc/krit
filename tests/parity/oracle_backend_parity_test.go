@@ -13,25 +13,23 @@ import (
 	"github.com/kaeawc/krit/internal/oracle"
 )
 
-// TestOracleBackendParity is the CI gate guarding KAA ↔ FIR
-// divergence on the type-oracle wire shape. Both backends are
-// invoked through the one-shot CLI on a multi-file fixture covering
-// the Kotlin shapes most likely to expose renderer drift (generics,
-// sealed/enum/data, objects, type aliases, inline-reified,
-// intersection bounds). Tolerances live in the helpers below.
-func TestOracleBackendParity(t *testing.T) {
+// TestFirOracleDeclarationContract is the CI gate on the FIR type oracle's
+// declaration wire shape. The one-shot CLI runs over a multi-file fixture
+// covering the Kotlin shapes most likely to expose renderer drift (generics,
+// sealed/enum/data, objects, type aliases, inline-reified, intersection
+// bounds, plus the Kotlin 2.4 files), and every file's package, declared
+// FQNs, class kinds and flags, supertype heads, type parameters and
+// user-defined members are pinned to the values below. The expression
+// surface is TestFirOracleFactContract's.
+func TestFirOracleDeclarationContract(t *testing.T) {
 	root := repoRoot(t)
-	kaaJar := oracle.FindJar([]string{root})
-	if kaaJar == "" {
-		t.Skip("krit-types jar not found; run `cd tools/krit-types && ./gradlew shadowJar` to enable oracle parity")
-	}
 	firJar := firchecks.FindFirJar([]string{root})
 	if firJar == "" || !isExecutableJar(firJar) {
-		t.Skip("krit-fir executable jar not found; run `cd tools/krit-fir && ./gradlew shadowJar` to enable oracle parity")
+		t.Skip("krit-fir executable jar not found; run `make fir-jar` to enable the declaration contract")
 	}
 	stdlib := findKotlinStdlib()
 	if stdlib == "" {
-		t.Skip("kotlin-stdlib jar not found in Gradle cache; required for stdlib-typed parity fixture")
+		t.Skip("kotlin-stdlib jar not found in Gradle cache; required for stdlib-typed contract fixture")
 	}
 
 	tmp := t.TempDir()
@@ -50,10 +48,9 @@ func TestOracleBackendParity(t *testing.T) {
 	// embedded compiler's defaults. The per-mode fact assertions live in
 	// oracle_kotlin24_parity_test.go.
 	opts := oracle.InvocationOptions{Classpath: []string{stdlib}, Kotlin: kotlin24Settings(t, kotlin24ModeNamed("language-2.4").args)}
-	kaaData := runOneShot(t, kaaJar, srcDir, filepath.Join(tmp, "kaa.json"), opts)
-	firData := runOneShot(t, firJar, srcDir, filepath.Join(tmp, "fir.json"), opts)
+	data := runOneShot(t, firJar, srcDir, filepath.Join(tmp, "fir.json"), opts)
 
-	assertOracleParity(t, kaaData, firData)
+	assertDeclarationContract(t, data)
 }
 
 // parityFixtureSources returns the source files that exercise the
@@ -102,10 +99,9 @@ enum class Direction {
     fun describe(): String = name.lowercase()
 }
 `,
-		// Counter + companion intentionally omitted: KAA hides
-		// nested companions from `declarations` while FIR surfaces
-		// them as separate FQNs. That divergence is tracked outside
-		// this parity gate.
+		// Counter + companion intentionally omitted: FIR surfaces a
+		// nested companion as a separate FQN, which is outside this
+		// gate.
 		"Objects.kt": `package parity
 
 object Registry {
@@ -115,8 +111,8 @@ object Registry {
 		// Inline-reified + type alias + intersection-bound use sites
 		// are wrapped in classes because FIR projects a file
 		// containing only top-level declarations with an empty
-		// package, which is a separate (real) divergence and not
-		// what this fixture is meant to exercise.
+		// package, which is not what this fixture is meant to
+		// exercise.
 		"Inline.kt": `package parity
 
 class TypeChecks {
@@ -162,26 +158,18 @@ func runOneShot(t *testing.T, jar, srcDir, outputPath string, opts oracle.Invoca
 	return &data
 }
 
-// TestOracleBackendAcceptsClasspathFlag asserts that both backends'
-// one-shot CLIs accept `--classpath` and analyze succeeds with the
-// supplied JAR(s) on the classpath. Without this gate a typo on
-// either side would break `oracle.InvokeWithFilesWithOptions` for
-// every project that ships an explicit classpath.
-//
-// The classpath supplied is kotlin-stdlib (the dependency every
-// Kotlin source set needs anyway). KAA's Analysis API ignores the
-// flag in favor of its own classpath wiring; FIR uses it directly to
-// configure K2's compilation environment. Both must finish without
-// error.
-func TestOracleBackendAcceptsClasspathFlag(t *testing.T) {
+// TestOracleAcceptsClasspathFlag asserts that the krit-fir one-shot CLI
+// accepts `--classpath` and analysis succeeds with the supplied JAR(s) on
+// the classpath. Without this gate a typo would break
+// `oracle.InvokeWithFilesWithOptions` for every project that ships an
+// explicit classpath. The classpath supplied is kotlin-stdlib (the
+// dependency every Kotlin source set needs anyway); FIR uses it directly to
+// configure K2's compilation environment.
+func TestOracleAcceptsClasspathFlag(t *testing.T) {
 	root := repoRoot(t)
-	kaaJar := oracle.FindJar([]string{root})
-	if kaaJar == "" {
-		t.Skip("krit-types jar not found")
-	}
 	firJar := firchecks.FindFirJar([]string{root})
 	if firJar == "" || !isExecutableJar(firJar) {
-		t.Skip("krit-fir jar not found")
+		t.Skip("krit-fir jar not found; run `make fir-jar`")
 	}
 	stdlib := findKotlinStdlib()
 	if stdlib == "" {
@@ -197,158 +185,173 @@ func TestOracleBackendAcceptsClasspathFlag(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	for _, tc := range []struct {
-		name string
-		jar  string
-	}{
-		{name: "kaa", jar: kaaJar},
-		{name: "fir", jar: firJar},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			out := filepath.Join(tmp, tc.name+".json")
-			opts := oracle.InvocationOptions{Classpath: []string{stdlib}}
-			if _, err := oracle.InvokeWithFilesWithOptions(tc.jar, []string{srcDir}, out, "", false, opts); err != nil {
-				t.Fatalf("%s with --classpath: %v", tc.name, err)
-			}
-			raw, err := os.ReadFile(out)
-			if err != nil {
-				t.Fatalf("read %s output: %v", tc.name, err)
-			}
-			var data oracle.Data
-			if err := json.Unmarshal(raw, &data); err != nil {
-				t.Fatalf("parse %s: %v\n%s", tc.name, err, string(raw))
-			}
-			if data.Version != 1 {
-				t.Errorf("%s version = %d, want 1", tc.name, data.Version)
-			}
-		})
+	opts := oracle.InvocationOptions{Classpath: []string{stdlib}}
+	data := runOneShot(t, firJar, srcDir, filepath.Join(tmp, "fir.json"), opts)
+	if data.Version != 1 {
+		t.Errorf("version = %d, want 1", data.Version)
+	}
+	file := indexByBasename(data.Files)["Sample.kt"]
+	if file == nil || file.Package != "x" {
+		t.Fatalf("Sample.kt facts = %+v, want package x", file)
 	}
 }
 
-func assertOracleParity(t *testing.T, kaa, fir *oracle.Data) {
+// wantClass is the pinned declaration surface of one class. abstract is
+// checked only when set.
+type wantClass struct {
+	kind       string
+	sealed     bool
+	data       bool
+	abstract   *bool
+	supertypes []string // last segment of each supertype head
+	typeParams []string
+	members    []string // userMemberNames, sorted
+}
+
+func boolPtr(b bool) *bool { return &b }
+
+// wantDeclarations is the expected declaration surface per fixture file:
+// the package and every declared class by FQN. The Kotlin 2.4 files pin
+// their FQN set and package only; their members, types and annotations are
+// asserted per language mode in oracle_kotlin24_parity_test.go.
+func wantDeclarations() map[string]struct {
+	pkg     string
+	classes map[string]*wantClass
+} {
+	type file = struct {
+		pkg     string
+		classes map[string]*wantClass
+	}
+	class := func(supertype string, members ...string) *wantClass {
+		return &wantClass{kind: "class", abstract: boolPtr(false), supertypes: []string{supertype}, members: members}
+	}
+	annotation := &wantClass{kind: "annotation", supertypes: []string{"Annotation"}}
+	k24 := func(fqns ...string) map[string]*wantClass {
+		out := map[string]*wantClass{}
+		for _, fqn := range fqns {
+			out[kotlin24Pkg+"."+fqn] = nil
+		}
+		return out
+	}
+	return map[string]file{
+		"Basics.kt": {"parity", map[string]*wantClass{
+			"parity.Greeter":     class("Any", "greet"),
+			"parity.LoudGreeter": class("Greeter"),
+		}},
+		"Generics.kt": {"parity", map[string]*wantClass{
+			"parity.Box":       {kind: "class", abstract: boolPtr(false), supertypes: []string{"Any"}, typeParams: []string{"T"}, members: []string{"unwrap", "value"}},
+			"parity.StringBox": class("Box"),
+		}},
+		"Sealed.kt": {"parity", map[string]*wantClass{
+			"parity.Shape":     {kind: "class", sealed: true, supertypes: []string{"Any"}, members: []string{"area"}},
+			"parity.Circle":    {kind: "class", data: true, abstract: boolPtr(false), supertypes: []string{"Shape"}, members: []string{"area", "radius"}},
+			"parity.Rectangle": {kind: "class", data: true, abstract: boolPtr(false), supertypes: []string{"Shape"}, members: []string{"area", "h", "w"}},
+		}},
+		"Enums.kt": {"parity", map[string]*wantClass{
+			"parity.Direction": {kind: "enum", abstract: boolPtr(false), supertypes: []string{"Enum"}, members: []string{"describe"}},
+		}},
+		"Objects.kt": {"parity", map[string]*wantClass{
+			"parity.Registry": {kind: "object", abstract: boolPtr(false), supertypes: []string{"Any"}, members: []string{"register"}},
+		}},
+		"Inline.kt": {"parity", map[string]*wantClass{
+			"parity.TypeChecks": class("Any", "isA"),
+		}},
+		"Aliases.kt": {"parity", map[string]*wantClass{
+			"parity.AliasUse": class("Any", "firstName"),
+		}},
+		// Where-clause bounds aren't on the wire; the function-level `T`
+		// is not a class type parameter.
+		"Intersection.kt": {"parity", map[string]*wantClass{
+			"parity.Identity": class("Any", "identity"),
+		}},
+		"ContextParameters.kt": {kotlin24Pkg, func() map[string]*wantClass {
+			out := k24("ContextParameters")
+			out[kotlin24Marker] = annotation
+			iface := func(member string) *wantClass {
+				return &wantClass{kind: "interface", abstract: boolPtr(true), supertypes: []string{"Any"}, members: []string{member}}
+			}
+			out[kotlin24Pkg+".Logger"] = iface("log")
+			out[kotlin24Pkg+".Clock"] = iface("now")
+			return out
+		}()},
+		"SingleContextParameter.kt": {kotlin24Pkg, k24("SingleContextParameter")},
+		"BackingFields.kt":          {kotlin24Pkg, k24("BackingFields")},
+		"AnnotationTargets.kt": {kotlin24Pkg, func() map[string]*wantClass {
+			out := k24("AnnotationTargets")
+			for _, a := range []string{"OnBoth", "OnProperty", "OnField", "OnParam"} {
+				out[kotlin24Pkg+"."+a] = annotation
+			}
+			return out
+		}()},
+		"AnnotationUse.kt": {kotlin24Pkg, k24("AnnotationUse")},
+		"Lookalikes.kt":    {kotlin24Pkg, k24("Lookalikes")},
+	}
+}
+
+func assertDeclarationContract(t *testing.T, data *oracle.Data) {
 	t.Helper()
-	// Version + kotlinVersion are baked into both backends at
-	// compile time; if they diverge the wire shape has shifted.
-	if kaa.Version != fir.Version {
-		t.Errorf("version mismatch: kaa=%d fir=%d", kaa.Version, fir.Version)
+	if data.Version != 1 {
+		t.Errorf("version = %d, want 1", data.Version)
 	}
-	if kaa.KotlinVersion != fir.KotlinVersion {
-		t.Errorf("kotlinVersion mismatch: kaa=%q fir=%q", kaa.KotlinVersion, fir.KotlinVersion)
+	if data.KotlinVersion == "" {
+		t.Error("kotlinVersion is empty")
 	}
-
-	// Each backend keys `files` by absolute path. The paths may
-	// differ in symlink normalization (KAA uses PSI virtual file
-	// paths; FIR canonicalizes via java.io.File). Compare by file
-	// basename so the test stays robust against `/var` ↔ `/private/var`
-	// drift on macOS.
-	kaaByBase := indexByBasename(kaa.Files)
-	firByBase := indexByBasename(fir.Files)
-	if !sameKeys(kaaByBase, firByBase) {
-		t.Fatalf("files keys differ: kaa=%v fir=%v", sortedKeys(kaaByBase), sortedKeys(firByBase))
+	// Files are keyed by absolute path; compare by basename so the test
+	// stays robust against `/var` ↔ `/private/var` drift on macOS.
+	byBase := indexByBasename(data.Files)
+	want := wantDeclarations()
+	if got, wantKeys := sortedKeys(byBase), sortedKeys(want); !slices.Equal(got, wantKeys) {
+		t.Fatalf("files = %v, want %v", got, wantKeys)
 	}
-
-	for base := range kaaByBase {
-		assertFileParity(t, base, kaaByBase[base], firByBase[base])
+	for name, wf := range want {
+		f := byBase[name]
+		if f.Package != wf.pkg {
+			t.Errorf("%s: package = %q, want %q", name, f.Package, wf.pkg)
+		}
+		decls := indexClassesByFqn(f.Declarations)
+		if got, wantKeys := sortedKeys(decls), sortedKeys(wf.classes); !slices.Equal(got, wantKeys) {
+			t.Errorf("%s: declarations = %v, want %v", name, got, wantKeys)
+			continue
+		}
+		for fqn, wc := range wf.classes {
+			if wc != nil {
+				assertClassContract(t, name, decls[fqn], wc)
+			}
+		}
 	}
 }
 
-func assertFileParity(t *testing.T, name string, kaa, fir *oracle.File) {
+func assertClassContract(t *testing.T, file string, got *oracle.Class, want *wantClass) {
 	t.Helper()
-	if kaa.Package != fir.Package {
-		t.Errorf("%s: package mismatch: kaa=%q fir=%q", name, kaa.Package, fir.Package)
+	where := file + ": " + got.FQN
+	if got.Kind != want.kind {
+		t.Errorf("%s: kind = %q, want %q", where, got.Kind, want.kind)
 	}
-
-	kaaDecls := indexClassesByFqn(kaa.Declarations)
-	firDecls := indexClassesByFqn(fir.Declarations)
-	if !sameKeys(kaaDecls, firDecls) {
-		t.Fatalf("%s: declaration FQN set differs: kaa=%v fir=%v", name, sortedKeys(kaaDecls), sortedKeys(firDecls))
+	// Class flags drive Go-side rule decisions (sealed/data/open detection).
+	if got.IsSealed != want.sealed || got.IsData != want.data {
+		t.Errorf("%s: sealed=%v data=%v, want sealed=%v data=%v", where, got.IsSealed, got.IsData, want.sealed, want.data)
 	}
-
-	for fqn, kaaCls := range kaaDecls {
-		firCls := firDecls[fqn]
-		assertClassParity(t, name, fqn, kaaCls, firCls)
+	if want.abstract != nil && got.IsAbstract != *want.abstract {
+		t.Errorf("%s: abstract = %v, want %v", where, got.IsAbstract, *want.abstract)
 	}
-}
-
-func assertClassParity(t *testing.T, file, fqn string, kaa, fir *oracle.Class) {
-	t.Helper()
-	// KAA emits `kind="sealed class"`, FIR emits `kind="class"` +
-	// `isSealed=true`. The isSealed check below catches drift in
-	// the boolean; here we just strip the prefix for kind parity.
-	// An annotation class is kind="class" in KAA and kind="annotation" in FIR
-	// (found by the Kotlin 2.4 fixtures, #785). No rule reads either spelling,
-	// so the gate treats them as one kind.
-	normalizeKind := func(kind string) string {
-		kind = strings.TrimPrefix(kind, "sealed ")
-		if kind == "annotation" || kind == "annotation class" {
-			return "class"
-		}
-		return kind
+	// Supertypes are compared on the last name segment of the head, so a
+	// renderer change between `Box<String>` and `parity.Box<kotlin.String>`
+	// does not fail the gate; rules key off the tail.
+	var supers []string
+	for _, s := range got.Supertypes {
+		supers = append(supers, lastSegment(typeHead(s)))
 	}
-	if normalizeKind(kaa.Kind) != normalizeKind(fir.Kind) {
-		t.Errorf("%s.%s: kind mismatch: kaa=%q fir=%q", file, fqn, kaa.Kind, fir.Kind)
+	sort.Strings(supers)
+	if !slices.Equal(supers, want.supertypes) {
+		t.Errorf("%s: supertypes = %v (%v), want %v", where, supers, got.Supertypes, want.supertypes)
 	}
-	// Supertype rendering legitimately differs between backends
-	// (KAA emits `kotlin.Any`, FIR's renderReadable emits `Any`).
-	// Assert each KAA supertype has a corresponding FIR entry whose
-	// suffix matches — the strictest parity check we can do without
-	// losing on benign renderer differences. Generic supertypes
-	// (`Box<String>`) are compared on the head segment only, since
-	// the type-arg list also differs by renderer (KAA may render
-	// `kotlin.String` where FIR renders `String`).
-	for _, want := range kaa.Supertypes {
-		if !hasMatchingSupertype(want, fir.Supertypes) {
-			t.Errorf("%s.%s: kaa supertype %q has no parity in fir %v", file, fqn, want, fir.Supertypes)
-		}
+	if !slices.Equal(got.TypeParameters, want.typeParams) && (len(got.TypeParameters) != 0 || len(want.typeParams) != 0) {
+		t.Errorf("%s: typeParameters = %v, want %v", where, got.TypeParameters, want.typeParams)
 	}
-	// Class flags drive Go-side rule decisions (sealed/data/open
-	// detection). A regression here would change rule behaviour
-	// silently when the backend is switched.
-	if kaa.IsSealed != fir.IsSealed {
-		t.Errorf("%s.%s: isSealed mismatch: kaa=%v fir=%v", file, fqn, kaa.IsSealed, fir.IsSealed)
+	// A FIR-side regression that drops a declared member fails here.
+	if members := sortedKeys(userMemberNames(got.Members)); !slices.Equal(members, want.members) && (len(members) != 0 || len(want.members) != 0) {
+		t.Errorf("%s: members = %v, want %v", where, members, want.members)
 	}
-	if kaa.IsData != fir.IsData {
-		t.Errorf("%s.%s: isData mismatch: kaa=%v fir=%v", file, fqn, kaa.IsData, fir.IsData)
-	}
-	if kaa.IsAbstract != fir.IsAbstract {
-		t.Errorf("%s.%s: isAbstract mismatch: kaa=%v fir=%v", file, fqn, kaa.IsAbstract, fir.IsAbstract)
-	}
-	// Type-parameter names must match exactly. The fixture uses
-	// single-letter `T` so there's no naming ambiguity. Bounds
-	// aren't on the wire yet, so the assertion is positional.
-	if !slices.Equal(kaa.TypeParameters, fir.TypeParameters) {
-		t.Errorf("%s.%s: typeParameters mismatch: kaa=%v fir=%v", file, fqn, kaa.TypeParameters, fir.TypeParameters)
-	}
-	// User-defined member names — FIR projects only declarations on
-	// the class itself; KAA's set also includes inherited members
-	// it surfaces by walking supertypes. So the parity contract is
-	// `firUser ⊆ kaaUser`: every member FIR exposes must appear in
-	// KAA. A FIR-side regression that drops a declared member fails
-	// here; a KAA-side regression that drops an inherited member
-	// doesn't, but the supertype-rendering check above guards the
-	// inheritance edge that matters for rules.
-	kaaUser := userMemberNames(kaa.Members)
-	firUser := userMemberNames(fir.Members)
-	for name := range firUser {
-		if !kaaUser[name] {
-			t.Errorf("%s.%s: fir member %q missing from kaa set %v", file, fqn, name, sortedSlice(kaaUser))
-		}
-	}
-}
-
-// hasMatchingSupertype compares on the last name segment after
-// stripping generic type arguments, so `Box<String>` ↔ `parity.Box`
-// and `Enum<Direction>` ↔ `kotlin.Enum` both match. The renderers
-// disagree on FQN prefixes and on whether to include type-arg
-// lists; rules only key off the tail.
-func hasMatchingSupertype(want string, got []string) bool {
-	wantTail := lastSegment(typeHead(want))
-	for _, g := range got {
-		if lastSegment(typeHead(g)) == wantTail {
-			return true
-		}
-	}
-	return false
 }
 
 func typeHead(s string) string {
@@ -363,16 +366,14 @@ func typeHead(s string) string {
 //   - Synthesized data-class members: `componentN`, `copy`, plus the
 //     `equals`/`hashCode`/`toString` overrides and the `<init>`
 //     constructor.
-//   - Members inherited from `java.lang.Enum` that KAA surfaces and
-//     FIR does not (`clone`, `finalize`, `ordinal`, `name`).
-//   - Synthetic enum companion members FIR surfaces and KAA does
-//     not (`values`, `valueOf`, `entries`).
+//   - Members inherited from `java.lang.Enum` (`clone`, `finalize`,
+//     `ordinal`, `name`).
+//   - Synthetic enum companion members (`values`, `valueOf`, `entries`).
 //   - The enum entries themselves (uppercase names with no lower-
-//     case letter), which FIR projects as members of the enum class
-//     and KAA does not.
+//     case letter), which FIR projects as members of the enum class.
 //
 // What's left is the surface a rule reads: user-defined functions
-// and properties on the declaration. That's the load-bearing parity
+// and properties on the declaration. That's the load-bearing
 // contract; the rest is renderer drift.
 func userMemberNames(members []*oracle.Member) map[string]bool {
 	synth := map[string]bool{
@@ -399,7 +400,7 @@ func userMemberNames(members []*oracle.Member) map[string]bool {
 // isEnumEntryName matches the Kotlin enum-entry convention: all
 // uppercase letters / digits / underscores, with at least one
 // uppercase letter. False positives on user-defined SHOUTY_CASE
-// constants are acceptable for the parity gate because constants
+// constants are acceptable for the contract gate because constants
 // are also off the rule-decision path.
 func isEnumEntryName(s string) bool {
 	if s == "" {
@@ -419,15 +420,6 @@ func isEnumEntryName(s string) bool {
 	return hasUpper
 }
 
-func sortedSlice(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
 func indexByBasename(files map[string]*oracle.File) map[string]*oracle.File {
 	out := make(map[string]*oracle.File, len(files))
 	for path, file := range files {
@@ -442,18 +434,6 @@ func indexClassesByFqn(classes []*oracle.Class) map[string]*oracle.Class {
 		out[cls.FQN] = cls
 	}
 	return out
-}
-
-func sameKeys[T any](a, b map[string]T) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k := range a {
-		if _, ok := b[k]; !ok {
-			return false
-		}
-	}
-	return true
 }
 
 func sortedKeys[T any](m map[string]T) []string {

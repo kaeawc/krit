@@ -123,8 +123,4 @@ func TestOracleLookups_RelativeFactsReadAsSpelled(t *testing.T) {
 	if got := o.LookupCallTarget(rel, 2, 18); got != "androidx.compose.runtime.remember" {
 		t.Errorf("LookupCallTarget(%q) = %q", rel, got)
 	}
-	o.SetExpressionFact(rel, 3, 1, makeResolvedType("kotlin.String", false))
-	if got := o.LookupExpression(rel, 3, 1); got == nil {
-		t.Errorf("LookupExpression(%q) after SetExpressionFact = nil", rel)
-	}
 }

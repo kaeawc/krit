@@ -143,34 +143,6 @@ func (r *UnnecessaryNotNullCheckRule) check(ctx *api.Context) {
 	ctx.Emit(f)
 }
 
-// ExpressionPositions mirrors flatResolvedNullCheckOperandType's gates
-// (including flatReferenceHasSameFileTarget) so lambda-param operands
-// are not seeded — the rule's check short-circuits on those before
-// consulting the resolver.
-func (r *UnnecessaryNotNullCheckRule) ExpressionPositions(file *scanner.File) []uint32 {
-	if file == nil {
-		return nil
-	}
-	var out []uint32
-	file.FlatWalkNodes(0, "equality_expression", func(idx uint32) {
-		operand, _, ok := flatNullComparisonOperand(file, idx)
-		if !ok {
-			return
-		}
-		operand = flatUnwrapParenExpr(file, operand)
-		switch file.FlatType(operand) {
-		case "simple_identifier", "this_expression":
-			if !flatReferenceHasSameFileTarget(file, operand) {
-				return
-			}
-			out = append(out, operand)
-		case "call_expression", "navigation_expression":
-			out = append(out, operand)
-		}
-	})
-	return out
-}
-
 func flatNullComparisonOperand(file *scanner.File, idx uint32) (operand uint32, op string, ok bool) {
 	if file == nil || idx == 0 || file.FlatType(idx) != "equality_expression" || file.FlatChildCount(idx) < 3 {
 		return 0, "", false

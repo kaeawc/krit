@@ -30,14 +30,14 @@ func TestRunKotlinPluginRulesRequiresDaemonWhenJarsConfigured(t *testing.T) {
 		t.Fatal("expected error when CustomRuleJars set without daemon, got nil")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "krit-types daemon") {
+	if !strings.Contains(msg, "krit-fir daemon") {
 		t.Errorf("error should name the failing daemon: %q", msg)
 	}
 	if !strings.Contains(msg, "--daemon") {
 		t.Errorf("error should suggest --daemon flag: %q", msg)
 	}
-	if !strings.Contains(msg, "KRIT_TYPES_JAR") {
-		t.Errorf("error should point at KRIT_TYPES_JAR recovery path: %q", msg)
+	if !strings.Contains(msg, "KRIT_FIR_JAR") {
+		t.Errorf("error should point at KRIT_FIR_JAR recovery path: %q", msg)
 	}
 }
 

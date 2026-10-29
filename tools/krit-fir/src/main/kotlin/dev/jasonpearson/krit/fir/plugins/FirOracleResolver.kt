@@ -37,8 +37,7 @@ internal class FirOracleResolver(
 
     override fun resolvedCallFqName(call: KtCallExpression): String? {
         val payload = lookupCall(call) ?: return null
-        // krit-types' AnalysisApiResolver returns null when the symbol
-        // graph couldn't recover an FQN. Mirror that here by also
+        // Return null when the symbol graph couldn't recover an FQN by
         // gating on `callTargetResolved` — an entry that fell back to
         // the lexical callee text isn't a real FQN.
         if (!payload.callTargetResolved) return null

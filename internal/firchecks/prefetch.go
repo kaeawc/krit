@@ -205,7 +205,7 @@ func (r *CheckResponse) forFiles(files []string) *CheckResponse {
 	for _, path := range files {
 		want[path] = true
 	}
-	out := &CheckResponse{ID: r.ID, Rules: slices.Clone(r.Rules), rulesPresent: r.rulesPresent, Warning: r.Warning}
+	out := &CheckResponse{ID: r.ID, Rules: slices.Clone(r.Rules), rulesPresent: r.rulesPresent, Warning: r.Warning, Incremental: r.Incremental}
 	for _, f := range r.Findings {
 		if want[f.Path] {
 			out.Findings = append(out.Findings, f)

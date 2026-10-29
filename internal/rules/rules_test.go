@@ -46,9 +46,9 @@ func TestComposeSideEffectInCompositionStaysASTOnly(t *testing.T) {
 	if rule.Needs != 0 {
 		t.Fatalf("ComposeSideEffectInComposition Needs=%v, want AST-only zero capabilities", rule.Needs)
 	}
-	if rule.Oracle != nil || rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil {
-		t.Fatalf("ComposeSideEffectInComposition has oracle metadata: Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
-			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+	if rule.Oracle != nil {
+		t.Fatalf("ComposeSideEffectInComposition has oracle metadata: Oracle=%+v",
+			rule.Oracle)
 	}
 	if rule.TypeInfo != (api.TypeInfoHint{}) {
 		t.Fatalf("ComposeSideEffectInComposition TypeInfo=%+v, want zero value", rule.TypeInfo)
@@ -71,9 +71,9 @@ func TestVettedRulesStayLocalASTOnly(t *testing.T) {
 		if rule.Needs != 0 {
 			t.Fatalf("%s Needs=%v, want AST/import-only zero capabilities", id, rule.Needs)
 		}
-		if rule.Oracle != nil || rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil {
-			t.Fatalf("%s has oracle metadata: Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
-				id, rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+		if rule.Oracle != nil {
+			t.Fatalf("%s has oracle metadata: Oracle=%+v",
+				id, rule.Oracle)
 		}
 		if rule.TypeInfo != (api.TypeInfoHint{}) {
 			t.Fatalf("%s TypeInfo=%+v, want zero value", id, rule.TypeInfo)

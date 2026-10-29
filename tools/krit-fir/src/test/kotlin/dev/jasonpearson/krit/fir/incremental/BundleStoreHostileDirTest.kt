@@ -158,7 +158,7 @@ class BundleStoreHostileDirTest {
         val store = BundleStore(root)
         val k = keyOf(1)
         root.mkdirs()
-        val lock = File(root, "v1-$k.lock")
+        val lock = File(root, "v${BundleCodec.VERSION}-$k.lock")
         val made = try { ProcessBuilder("mkfifo", lock.path).start().waitFor() == 0 } catch (_: Exception) { false }
         org.junit.jupiter.api.Assumptions.assumeTrue(made && !System.getProperty("os.name").lowercase().contains("win"), "no mkfifo here")
         val done = java.util.concurrent.atomic.AtomicReference<Boolean?>()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -212,9 +213,7 @@ func printDoctor(w io.Writer, version string) {
 	} else {
 		fmt.Fprintln(w, "  cwebp: not found (optional — needed for --fix-binary WebP)")
 	}
-	for _, b := range []oracle.Backend{oracle.BackendFIR, oracle.BackendKAA} {
-		fmt.Fprintf(w, "  %s\n", oracleJarStatus(b))
-	}
+	fmt.Fprintf(w, "  %s\n", oracleJarStatus(oracle.BackendFIR))
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "  Everything looks good!")
 }
@@ -315,20 +314,53 @@ func computeListRulesSummary(registry []*api.Rule) listRulesSummary {
 	return s
 }
 
-func runListRulesFlag(listFlag, verboseFlag bool, maturityFilter, taxonomyID string, customRuleJars []string, paths []string) {
+func runListRulesFlag(listFlag, verboseFlag bool, maturityFilter, taxonomyID, format string, customRuleJars []string, paths []string) {
 	if !listFlag {
 		return
 	}
-	printListRules(os.Stdout, verboseFlag, maturityFilter, taxonomyID, customRuleJars, paths)
+	printListRules(os.Stdout, verboseFlag, maturityFilter, taxonomyID, format, customRuleJars, paths)
 	os.Exit(0)
 }
 
 // printListRules writes the --list-rules output. Split from
 // runListRulesFlag so tests can drive it without the os.Exit.
-func printListRules(w io.Writer, verboseFlag bool, maturityFilter, taxonomyID string, customRuleJars []string, paths []string) {
-	if code, ok := PrintListRules(w, os.Stderr, verboseFlag, maturityFilter, taxonomyID, customRuleJars, paths); !ok {
+func printListRules(w io.Writer, verboseFlag bool, maturityFilter, taxonomyID, format string, customRuleJars []string, paths []string) {
+	if code, ok := PrintListRules(w, os.Stderr, verboseFlag, maturityFilter, taxonomyID, format, customRuleJars, paths); !ok {
 		os.Exit(code)
 	}
+}
+
+// listRulesFormat is the --list-rules output format: "json" only when
+// -f/--format json was passed explicitly, "" (the text table) otherwise.
+// --format defaults to json for scans, so the default alone must not turn
+// the human-readable listing into JSON.
+func listRulesFormat(f *scanFlags, fs *flag.FlagSet) string {
+	explicit := explicitFlagSet(fs)
+	if (explicit["f"] || explicit["format"]) && *f.Format == "json" {
+		return "json"
+	}
+	return ""
+}
+
+// ListedRule is one entry of `krit --list-rules --format json`. Editor
+// integrations (the IntelliJ plugin's per-rule inspections) read it, so keep
+// field names stable; add fields rather than renaming them.
+type ListedRule struct {
+	ID            string `json:"id"`
+	Category      string `json:"category"`
+	Severity      string `json:"severity"`
+	DefaultActive bool   `json:"defaultActive"`
+	Fixable       bool   `json:"fixable"`
+	FixLevel      string `json:"fixLevel,omitempty"`
+	Precision     string `json:"precision,omitempty"`
+	Maturity      string `json:"maturity,omitempty"`
+	Description   string `json:"description,omitempty"`
+	Plugin        bool   `json:"plugin,omitempty"`
+}
+
+// ListedRules is the `krit --list-rules --format json` document.
+type ListedRules struct {
+	Rules []ListedRule `json:"rules"`
 }
 
 // PrintListRules is the no-exit form of printListRules: it writes the
@@ -339,22 +371,19 @@ func printListRules(w io.Writer, verboseFlag bool, maturityFilter, taxonomyID st
 //
 // Exposed so the daemon's list-rules verb can capture both streams
 // into MetaResult without going through os.Exit.
-func PrintListRules(stdoutW, stderrW io.Writer, verboseFlag bool, maturityFilter, taxonomyID string, customRuleJars []string, paths []string) (int, bool) {
-	var maturity api.Maturity
-	maturityFilterSet := false
-	if maturityFilter != "" {
-		m, ok := api.ParseMaturity(maturityFilter)
-		if !ok {
-			fmt.Fprintf(stderrW, "error: unknown --maturity value %q; valid: stable, experimental, deprecated\n", maturityFilter)
-			return 2, false
-		}
-		maturity = m
-		maturityFilterSet = true
+//
+// format "json" writes a ListedRules document instead of the text table;
+// the filters apply the same way and verboseFlag is ignored (every field
+// is always present).
+func PrintListRules(stdoutW, stderrW io.Writer, verboseFlag bool, maturityFilter, taxonomyID, format string, customRuleJars []string, paths []string) (int, bool) {
+	maturityPtr, ok := parseListMaturity(stderrW, maturityFilter)
+	if !ok {
+		return 2, false
 	}
 
 	registry := api.Registry
-	if maturityFilterSet {
-		registry = api.MaturityFilter(registry, maturity)
+	if maturityPtr != nil {
+		registry = api.MaturityFilter(registry, *maturityPtr)
 	}
 	w := stdoutW
 
@@ -362,6 +391,12 @@ func PrintListRules(stdoutW, stderrW io.Writer, verboseFlag bool, maturityFilter
 	taxonomyID = strings.TrimSpace(taxonomyID)
 	if taxonomyID != "" {
 		matcher = api.TaxonomyMatcher{IDs: []string{taxonomyID}}
+	}
+	if format == "json" {
+		plugins := filterPluginRules(listPluginRuleDescriptors(customRuleJars, paths), taxonomyID != "", maturityPtr)
+		return writeListRulesJSON(w, stderrW, registry, matcher, plugins)
+	}
+	if taxonomyID != "" {
 		fmt.Fprintf(w, "Available rules (filtered by taxonomy ID %q):\n", taxonomyID)
 	} else {
 		fmt.Fprintln(w, "Available rules:")
@@ -402,7 +437,7 @@ func PrintListRules(stdoutW, stderrW io.Writer, verboseFlag bool, maturityFilter
 			}
 		}
 	}
-	pluginRules := listPluginRuleDescriptors(customRuleJars, paths)
+	pluginRules := filterPluginRules(listPluginRuleDescriptors(customRuleJars, paths), taxonomyID != "", maturityPtr)
 	for _, r := range pluginRules {
 		if verboseFlag {
 			sdk := r.SDKVersion
@@ -421,6 +456,86 @@ func PrintListRules(stdoutW, stderrW io.Writer, verboseFlag bool, maturityFilter
 		fmt.Fprintf(w, "\nTotal: %d rules (%d active by default, %d fixable)\n", total, active, fixable)
 	}
 	fmt.Fprintln(w, "A=active by default, F=fixable. Use -v for fix levels, --all-rules to enable all, --maturity to filter by lifecycle.")
+	return 0, true
+}
+
+// parseListMaturity parses the --maturity filter: nil when unset, and
+// ok=false (after writing the error to stderrW) for an unknown value.
+func parseListMaturity(stderrW io.Writer, maturityFilter string) (*api.Maturity, bool) {
+	if maturityFilter == "" {
+		return nil, true
+	}
+	m, ok := api.ParseMaturity(maturityFilter)
+	if !ok {
+		fmt.Fprintf(stderrW, "error: unknown --maturity value %q; valid: stable, experimental, deprecated\n", maturityFilter)
+		return nil, false
+	}
+	return &m, true
+}
+
+// filterPluginRules applies the --list-rules filters to custom-rule plugin
+// descriptors. Plugin descriptors carry no taxonomy data, so a taxonomy
+// filter (--cwe) excludes them all; a maturity filter keeps those whose
+// declared maturity matches.
+func filterPluginRules(in []oracle.PluginRuleDescriptor, taxonomyFilter bool, maturity *api.Maturity) []oracle.PluginRuleDescriptor {
+	if taxonomyFilter {
+		return nil
+	}
+	if maturity == nil {
+		return in
+	}
+	var out []oracle.PluginRuleDescriptor
+	for _, r := range in {
+		declared := r.Maturity
+		if declared == "" {
+			declared = "stable" // descriptors without a maturity are stable
+		}
+		if m, ok := api.ParseMaturity(declared); ok && m == *maturity {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// writeListRulesJSON writes the --list-rules --format json document for
+// registry (after the taxonomy filter) and any plugin rules.
+func writeListRulesJSON(w, stderrW io.Writer, registry []*api.Rule, matcher api.TaxonomyMatcher, pluginRules []oracle.PluginRuleDescriptor) (int, bool) {
+	doc := ListedRules{Rules: make([]ListedRule, 0, len(registry)+len(pluginRules))}
+	for _, r := range registry {
+		if len(matcher.IDs) > 0 && !matcher.Matches(r.Security) {
+			continue
+		}
+		entry := ListedRule{
+			ID:            r.ID,
+			Category:      r.Category,
+			Severity:      string(r.Sev),
+			DefaultActive: rules.DeclaredDefaultActive(r),
+			Precision:     rules.V2RulePrecision(r).String(),
+			Maturity:      r.Maturity.String(),
+			Description:   r.Description,
+		}
+		if lvl, ok := rules.GetV2FixLevel(r); ok {
+			entry.Fixable = true
+			entry.FixLevel = lvl.String()
+		}
+		doc.Rules = append(doc.Rules, entry)
+	}
+	for _, r := range pluginRules {
+		doc.Rules = append(doc.Rules, ListedRule{
+			ID:            r.RuleID,
+			Category:      r.Category,
+			Severity:      r.Severity,
+			DefaultActive: true,
+			Maturity:      r.Maturity,
+			Plugin:        true,
+		})
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		fmt.Fprintf(stderrW, "error: write rule list: %v\n", err)
+		return 2, false
+	}
 	return 0, true
 }
 
@@ -457,8 +572,8 @@ type outputTypesOpts struct {
 	Paths         []string
 }
 
-// runOutputTypesFlag handles --output-types: a standalone krit-types dump
-// that bypasses rules entirely. Locates the krit-types jar, finds Kotlin
+// runOutputTypesFlag handles --output-types: a standalone type-oracle dump
+// that bypasses rules entirely. Locates the krit-fir jar, finds Kotlin
 // source directories, and writes the oracle JSON to the requested path.
 // No-op when opts.OutputPath is empty; otherwise terminates the process.
 func runOutputTypesFlag(opts outputTypesOpts) {
@@ -492,7 +607,7 @@ type RunOutputTypesOpts struct {
 }
 
 // RunOutputTypesTo performs the --output-types dump: locates the
-// krit-types jar, finds Kotlin source directories under opts.Paths,
+// krit-fir jar, finds Kotlin source directories under opts.Paths,
 // and writes the oracle JSON to opts.OutputPath. Diagnostic / error
 // lines are written to errOut. Returns the exit code the CLI should
 // use (0 on success, 1 on dump error, 2 on missing jar / no sources).
@@ -521,15 +636,13 @@ func RunOutputTypesTo(errOut io.Writer, opts RunOutputTypesOpts) int {
 	if opts.NoCacheOracle {
 		_, err = oracle.Invoke(jarPath, sourceDirs, opts.OutputPath, opts.Verbose)
 	} else {
-		// EnsureJar resolves krit-types; scope the cache to it so a dump
-		// never serves facts krit-fir cached.
 		invocationStore := opts.Store
 		if invocationStore != nil {
 			invocationStore = invocationStore.Clone()
 		}
-		releaseStoreScope := oracle.BindStoreScope(invocationStore, oracle.NewStoreScope(oracle.BackendKAA, jarPath))
+		releaseStoreScope := oracle.BindStoreScope(invocationStore, oracle.NewStoreScope(oracle.BackendFIR, jarPath))
 		_, err = oracle.InvokeCachedWithOptions(jarPath, sourceDirs, oracle.FindRepoDir(opts.Paths), opts.OutputPath, "", opts.Verbose, invocationStore,
-			oracle.InvocationOptions{Backend: oracle.BackendKAA})
+			oracle.InvocationOptions{Backend: oracle.BackendFIR})
 		releaseStoreScope()
 	}
 	if err != nil {

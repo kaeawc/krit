@@ -163,7 +163,7 @@ func newRunner(f *scanFlags, sess *Session) (*runner, int, bool) {
 
 	applyEditorConfigOverrides(cfg, *f.EditorConfig, flag.Args())
 
-	runListRulesFlag(*f.List, *f.Verbose, *f.Maturity, *f.ListRulesCWE, parseCustomRuleJars(*f.CustomRuleJars), flag.Args())
+	runListRulesFlag(*f.List, *f.Verbose, *f.Maturity, *f.ListRulesCWE, listRulesFormat(f, flag.CommandLine), parseCustomRuleJars(*f.CustomRuleJars), flag.Args())
 
 	maxFixLevel, ok := resolveMaxFixLevel(f)
 	if !ok {
@@ -263,6 +263,18 @@ func loadScanConfig(f *scanFlags) *config.Config {
 	if cfg == nil {
 		cfg = config.NewConfig()
 	}
+	return cfg
+}
+
+// quietScanConfig loads the scan's config like loadScanConfig without
+// printing its warnings, for reads made before the scan session (which loads
+// and reports it) exists.
+func quietScanConfig(f *scanFlags) *config.Config {
+	userCfgPath := *f.Config
+	if userCfgPath == "" {
+		userCfgPath = detectConfigForScanArgs(flag.Args())
+	}
+	cfg, _ := config.LoadAndMergeDefaults(userCfgPath, flag.Args()...)
 	return cfg
 }
 
@@ -519,7 +531,6 @@ func (r *runner) runOracleIndex() (int, error) {
 			NoCacheOracle:       *r.f.NoCacheOracle,
 			NoOracleFilter:      *r.f.NoOracleFilter,
 			Thorough:            r.depthPreset == DepthThorough,
-			OracleDiagnostics:   *r.f.OracleDiagnostics,
 			UseDaemon:           *r.f.Daemon,
 			OracleBackend:       oracleBackend,
 			OracleClasspath:     oracleClasspath,

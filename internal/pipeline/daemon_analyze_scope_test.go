@@ -14,12 +14,12 @@ type stubDaemon struct {
 	allCalls, filesCalls int
 }
 
-func (s *stubDaemon) AnalyzeAllWithCallFilter(*oracle.CallTargetFilterSummary) (*oracle.Data, error) {
+func (s *stubDaemon) AnalyzeAll() (*oracle.Data, error) {
 	s.allCalls++
 	return &oracle.Data{Version: 1, Files: map[string]*oracle.File{}}, nil
 }
 
-func (s *stubDaemon) AnalyzeFilesWithCallFilter([]string, *oracle.CallTargetFilterSummary) (*oracle.Data, error) {
+func (s *stubDaemon) AnalyzeFiles([]string) (*oracle.Data, error) {
 	s.filesCalls++
 	return &oracle.Data{Version: 1, Files: map[string]*oracle.File{}}, nil
 }
@@ -30,11 +30,11 @@ func (s *stubDaemon) AnalyzeFilesWithCallFilter([]string, *oracle.CallTargetFilt
 // keeps the partial path.
 func TestDaemonAnalyzeGatesThePartialPathOnTheRunsScope(t *testing.T) {
 	root := t.TempDir()
-	jar := filepath.Join(root, "krit-types.jar")
+	jar := filepath.Join(root, "krit-fir.jar")
 	if err := os.WriteFile(jar, []byte("A"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("KRIT_TYPES_JAR", jar)
+	t.Setenv("KRIT_FIR_JAR", jar)
 	scanPaths := []string{root}
 	typesPath := oracle.CachePath(scanPaths)
 	if err := os.MkdirAll(filepath.Dir(typesPath), 0o755); err != nil {
@@ -45,7 +45,7 @@ func TestDaemonAnalyzeGatesThePartialPathOnTheRunsScope(t *testing.T) {
 	}
 	run := func(kt gradlemodel.KotlinSettings) IndexInput {
 		return IndexInput{
-			OracleBackend:    oracle.BackendKAA,
+			OracleBackend:    oracle.BackendFIR,
 			OracleKotlin:     kt,
 			StaleOraclePaths: []string{filepath.Join(root, "A.kt")},
 		}
@@ -62,7 +62,7 @@ func TestDaemonAnalyzeGatesThePartialPathOnTheRunsScope(t *testing.T) {
 	recordTypesScope(typesPath, scopeFor(old), true, scanPaths, t.Logf)
 
 	d := &stubDaemon{}
-	if got := daemonAnalyze(cur, d, scanPaths, nil, perf.New(false)); got == nil {
+	if got := daemonAnalyze(cur, d, scanPaths, perf.New(false)); got == nil {
 		t.Fatal("no data")
 	}
 	if d.filesCalls != 0 || d.allCalls != 1 {
@@ -73,7 +73,7 @@ func TestDaemonAnalyzeGatesThePartialPathOnTheRunsScope(t *testing.T) {
 	}
 
 	d = &stubDaemon{}
-	if got := daemonAnalyze(cur, d, scanPaths, nil, perf.New(false)); got == nil {
+	if got := daemonAnalyze(cur, d, scanPaths, perf.New(false)); got == nil {
 		t.Fatal("no data")
 	}
 	if d.filesCalls != 1 || d.allCalls != 0 {

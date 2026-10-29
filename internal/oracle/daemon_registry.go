@@ -123,7 +123,7 @@ func hashSources(sourceDirs []string) string {
 }
 
 // daemonRegistryKey identifies a daemon slot by jar identity, source-dir
-// set, and classpath, so a running krit-types daemon isn't reused when a
+// set, and classpath, so a running krit-fir daemon isn't reused when a
 // caller asks for krit-fir, and a daemon started with one classpath never
 // answers for another (its facts would be computed against the wrong
 // libraries).
@@ -156,8 +156,9 @@ func kotlinKeySuffix(kt gradlemodel.KotlinSettings) string {
 type DaemonOption func(*daemonConfig)
 
 type daemonConfig struct {
-	kotlin  gradlemodel.KotlinSettings
-	backend Backend
+	kotlin          gradlemodel.KotlinSettings
+	backend         Backend
+	extraSourceDirs []string
 }
 
 // WithBackend records which oracle backend the daemon's jar serves. Callers
@@ -170,6 +171,13 @@ func WithBackend(b Backend) DaemonOption {
 // effective Kotlin compiler settings. Without it the embedded defaults apply.
 func WithKotlinSettings(s gradlemodel.KotlinSettings) DaemonOption {
 	return func(c *daemonConfig) { c.kotlin = s }
+}
+
+// WithExtraSourceDirs adds source roots beyond the conventional ones found
+// under the scan paths (for example KMP source sets from the Gradle model)
+// when InvokeDaemon* picks the daemon's source dirs.
+func WithExtraSourceDirs(dirs []string) DaemonOption {
+	return func(c *daemonConfig) { c.extraSourceDirs = dirs }
 }
 
 // BackendFromOptions reports the backend opts select (WithBackend), or ""
@@ -489,7 +497,7 @@ func isProcessAlive(pid int) bool {
 const defaultDaemonPingTimeout = 5 * time.Second
 
 // daemonPingTimeout is how long connectExistingDaemonSlotKT waits for the
-// reconnect ping. KRIT_TYPES_REQUEST_TIMEOUT shortens it, never lengthens it.
+// reconnect ping. KRIT_ORACLE_REQUEST_TIMEOUT shortens it, never lengthens it.
 func daemonPingTimeout() time.Duration {
 	return min(defaultDaemonPingTimeout, daemonRequestTimeout())
 }
@@ -536,7 +544,7 @@ func connectDaemonTCP(cmd *exec.Cmd, port int, srcHash string, slot int) (net.Co
 	return conn, reader, nil
 }
 
-// StartDaemon launches the krit-types JVM process in daemon mode.
+// StartDaemon launches the krit-fir JVM process in daemon mode.
 //
 // If the JVM corrupts the JSON ready line with `[cds]`/`[aot]` log chatter
 // (almost always because an AppCDS/Leyden archive in the per-jar cache was
@@ -580,7 +588,7 @@ func appendDaemonJarArgs(args []string, jarPath string, sourceDirs, classpath []
 }
 
 // appendDaemonJarArgsKT also launches the daemon under the Kotlin settings;
-// each is its own `--kotlin-arg` flag, which both backends re-filter.
+// each is its own `--kotlin-arg` flag, which krit-fir re-filters.
 func appendDaemonJarArgsKT(args []string, jarPath string, sourceDirs, classpath []string, kt gradlemodel.KotlinSettings, daemonArgs ...string) []string {
 	args = append(args, "-jar", AbsolutePath(jarPath))
 	args = append(args, daemonArgs...)
@@ -619,7 +627,7 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 	aotCache := startupAOTCache(args)
 
 	if verbose {
-		reporter().Verbosef("verbose: Starting krit-types daemon: %s %s\n", javaPath, strings.Join(args, " "))
+		reporter().Verbosef("verbose: Starting krit-fir daemon: %s %s\n", javaPath, strings.Join(args, " "))
 	}
 	args, cleanupArgs, err := prepareJavaArgs(args)
 	if err != nil {
@@ -668,7 +676,7 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 
 	d.started = true
 	if verbose {
-		reporter().Verbosef("verbose: krit-types daemon ready\n")
+		reporter().Verbosef("verbose: krit-fir daemon ready\n")
 	}
 
 	return d, nil
@@ -964,7 +972,7 @@ func waitUntilDead(pid int, timeout time.Duration) bool {
 	return !isProcessAlive(pid)
 }
 
-// StartDaemonWithPort launches the krit-types JVM process in daemon mode with
+// StartDaemonWithPort launches the krit-fir JVM process in daemon mode with
 // a TCP listener. The daemon auto-assigns a port and reports it on stdout.
 func StartDaemonWithPort(jarPath string, sourceDirs []string, classpath []string, verbose bool, opts ...DaemonOption) (*Daemon, error) {
 	return StartDaemonWithPortSlot(jarPath, sourceDirs, classpath, verbose, 0, opts...)
@@ -1004,7 +1012,7 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 	aotCache := startupAOTCache(args)
 
 	if verbose {
-		reporter().Verbosef("verbose: Starting persistent krit-types daemon slot %d: %s %s\n", slot, javaPath, strings.Join(args, " "))
+		reporter().Verbosef("verbose: Starting persistent krit-fir daemon slot %d: %s %s\n", slot, javaPath, strings.Join(args, " "))
 	}
 	args, cleanupArgs, err := prepareJavaArgs(args)
 	if err != nil {
@@ -1096,7 +1104,7 @@ func ConnectOrStartDaemon(jarPath string, sourceDirs []string, classpath []strin
 	kt := cfg.kotlin
 	// Try connecting to an existing daemon for this (jar, source tree)
 	// pair. The jar is part of the registry key so a running
-	// krit-types daemon isn't reused when the caller asks for
+	// krit-fir daemon isn't reused when the caller asks for
 	// krit-fir (or vice versa).
 	hash := daemonRegistryKeyKT(jarPath, sourceDirs, kt, classpath...)
 	// rejected is the PID of the record this call decides against. The stop
@@ -1113,7 +1121,7 @@ func ConnectOrStartDaemon(jarPath string, sourceDirs []string, classpath []strin
 		// running, and use a private daemon for this run instead: stopping it
 		// would kill the other run's request and lose its JVM warm-up.
 		if verbose {
-			reporter().Verbosef("verbose: krit-types daemon for %s is busy; starting a private daemon for this run\n", hash)
+			reporter().Verbosef("verbose: krit-fir daemon for %s is busy; starting a private daemon for this run\n", hash)
 		}
 		rejected = 0
 	}

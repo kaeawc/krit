@@ -1,6 +1,13 @@
 package dev.jasonpearson.krit.fir.incremental
 
 import dev.jasonpearson.krit.fir.ClassNameFact
+import dev.jasonpearson.krit.fir.oracle.AMBIGUOUS_ANNOTATIONS
+import dev.jasonpearson.krit.fir.oracle.ClassPayload
+import dev.jasonpearson.krit.fir.oracle.DiagnosticPayload
+import dev.jasonpearson.krit.fir.oracle.ExpressionPayload
+import dev.jasonpearson.krit.fir.oracle.FilePayload
+import dev.jasonpearson.krit.fir.oracle.MemberPayload
+import dev.jasonpearson.krit.fir.oracle.ParamPayload
 import dev.jasonpearson.krit.fir.runner.Finding
 import java.nio.charset.StandardCharsets
 import java.util.zip.CRC32
@@ -32,12 +39,23 @@ internal class PersistedSnapshot(
 /** One file's entry of the verdict cache. */
 internal class PersistedVerdict(val file: String, val entry: VerdictCache.Entry)
 
-/** A bundle read back: the state, the verdicts, and the name of the class-file directory it was written with. */
+/**
+ * The oracle facts of a bundle (#740): an [OraclePayloadCache] in step with the state at [generation], with the file
+ * [order] of its last whole-module compile. A restarted daemon answers the oracle from them instead of compiling the
+ * whole module once more.
+ */
+internal class PersistedOracle(val generation: Int, val order: List<String>, val entries: Map<String, OraclePayloadCache.Entry>)
+
+/**
+ * A bundle read back: the state, the verdicts, the oracle facts (null when the writer had none in step) and the name
+ * of the class-file directory it was written with.
+ */
 internal class DecodedBundle(
     val state: PersistedState,
     val verdicts: List<PersistedVerdict>,
     val verdictGeneration: Int,
     val snapshotId: String,
+    val oracle: PersistedOracle? = null,
 )
 
 /** A bundle that cannot be used: [reason] is for telemetry and tests, never an error for the caller. */
@@ -51,7 +69,7 @@ internal class BundleRejected(val reason: Reason, detail: String) : Exception(de
  *
  * ```
  * magic:int  version:int  compileKey  snapshotId  generation  verdictGeneration  bodyLength:int
- * body   = string table, state, verdicts
+ * body   = string table, state, verdicts, oracle facts (version 2)
  * crc32:long  endMagic:int
  * ```
  * Every string of the body (paths, hashes, symbols, messages) is written once into the string table and referenced by
@@ -60,7 +78,7 @@ internal class BundleRejected(val reason: Reason, detail: String) : Exception(de
  * larger than the bytes left is rejected before anything is allocated for it.
  */
 internal object BundleCodec {
-    const val VERSION = 1
+    const val VERSION = 2
     private const val MAGIC = 0x4B464942 // "KFIB"
     private const val END_MAGIC = 0x4B454E44 // "KEND"
 
@@ -80,12 +98,16 @@ internal object BundleCodec {
     /** The share of the heap a decode may be estimated to take; a file that needs more is rejected before it is built. */
     fun defaultDecodeBudget(): Long = Runtime.getRuntime().maxMemory() / 3
 
-    fun encode(compileKey: String, snapshotId: String, state: PersistedState, verdicts: Collection<PersistedVerdict>, verdictGeneration: Int): ByteArray {
+    fun encode(
+        compileKey: String, snapshotId: String, state: PersistedState, verdicts: Collection<PersistedVerdict>, verdictGeneration: Int,
+        oracle: PersistedOracle? = null,
+    ): ByteArray {
         require(isSnapshotId(snapshotId)) { "not a snapshot id: $snapshotId" }
         val strings = StringTable()
         val body = Writer()
         writeState(body, strings, state)
         writeVerdicts(body, strings, verdicts)
+        writeOracle(body, strings, oracle)
         val table = Writer()
         strings.write(table)
         val bodyBytes = table.size() + body.size()
@@ -148,8 +170,9 @@ internal object BundleCodec {
             val strings = readStrings(r)
             val state = readState(r, strings, key, generation)
             val verdicts = readVerdicts(r, strings)
+            val oracle = readOracle(r, strings)
             if (r.remaining() != 0) throw BundleRejected(BundleRejected.Reason.CORRUPT, "bytes after the body")
-            return DecodedBundle(state, verdicts, verdictGeneration, snapshotId)
+            return DecodedBundle(state, verdicts, verdictGeneration, snapshotId, oracle)
         } catch (e: BundleRejected) {
             throw e
         } catch (_: OutOfMemoryError) {
@@ -319,6 +342,171 @@ internal object BundleCodec {
             out += PersistedVerdict(file, VerdictCache.Entry(contentHash, supplied, verdictKey, CachedVerdict(findings, error, ruleErrors)))
         }
         return out
+    }
+
+    // ---- oracle facts ---------------------------------------------------------------------------------------------
+
+    private fun writeList(w: Writer, s: StringTable, list: List<String>) {
+        w.varint(list.size)
+        for (item in list) w.varint(s.id(item))
+    }
+
+    private fun readList(r: Reader, strings: Array<String>): List<String> {
+        val out = ArrayList<String>()
+        repeat(r.count()) { out += r.str(strings) }
+        return out
+    }
+
+    private fun flags(vararg bits: Boolean): Int = bits.foldIndexed(0) { i, acc, on -> if (on) acc or (1 shl i) else acc }
+
+    private fun writeOracle(w: Writer, s: StringTable, oracle: PersistedOracle?) {
+        if (oracle == null) { w.varint(0); return }
+        w.varint(1)
+        w.varint(oracle.generation)
+        writeList(w, s, oracle.order)
+        w.varint(oracle.entries.size)
+        for ((file, e) in oracle.entries) {
+            w.varint(s.id(file)); w.varint(s.id(e.contentHash))
+            writePayload(w, s, e.payload)
+            writeList(w, s, e.depPaths)
+            w.varint(e.perFileDeps.size)
+            for ((fqn, declaring) in e.perFileDeps) { w.varint(s.id(fqn)); w.varint(s.id(declaring)) }
+            w.varint(e.declaredAnnotations.size)
+            for ((signature, annotations) in e.declaredAnnotations) {
+                w.varint(s.id(signature))
+                // The ambiguity marker is compared by identity, so it is written as a flag, not as its contents.
+                if (annotations === AMBIGUOUS_ANNOTATIONS) w.varint(1) else { w.varint(0); writeList(w, s, annotations) }
+            }
+        }
+    }
+
+    private fun readOracle(r: Reader, strings: Array<String>): PersistedOracle? {
+        fun str() = r.str(strings)
+        when (r.varint()) {
+            0 -> return null
+            1 -> {}
+            else -> throw BundleRejected(BundleRejected.Reason.CORRUPT, "bad oracle section marker")
+        }
+        val generation = r.varint()
+        val order = readList(r, strings)
+        val entries = LinkedHashMap<String, OraclePayloadCache.Entry>()
+        repeat(r.count()) {
+            val file = str()
+            val hash = str()
+            val payload = readPayload(r, strings)
+            val depPaths = readList(r, strings)
+            val perFileDeps = LinkedHashMap<String, String>()
+            repeat(r.count()) { perFileDeps[str()] = str() }
+            val declared = LinkedHashMap<String, List<String>>()
+            repeat(r.count()) {
+                val signature = str()
+                declared[signature] = when (r.varint()) {
+                    0 -> readList(r, strings)
+                    1 -> AMBIGUOUS_ANNOTATIONS
+                    else -> throw BundleRejected(BundleRejected.Reason.CORRUPT, "bad annotation marker")
+                }
+            }
+            entries[file] = OraclePayloadCache.Entry(hash, payload, depPaths, perFileDeps, declared)
+        }
+        return PersistedOracle(generation, order, entries)
+    }
+
+    private fun writePayload(w: Writer, s: StringTable, p: FilePayload) {
+        w.varint(s.id(p.packageName))
+        w.varint(p.declarations.size)
+        for (c in p.declarations) writeClass(w, s, c)
+        w.varint(p.expressions.size)
+        for ((key, e) in p.expressions) {
+            w.varint(s.id(key)); w.varint(s.id(e.type))
+            w.varint(flags(e.nullable, e.callTargetResolved, e.callTargetSuspend))
+            w.zigzag(e.startByte); w.zigzag(e.endByte)
+            w.varint(s.id(e.callTarget))
+            writeList(w, s, e.annotations)
+        }
+        w.varint(p.diagnostics.size)
+        for (d in p.diagnostics) {
+            w.varint(s.id(d.factoryName)); w.varint(s.id(d.severity)); w.varint(s.id(d.message))
+            w.zigzag(d.line); w.zigzag(d.col); w.zigzag(d.startByte); w.zigzag(d.endByte)
+        }
+        w.varint(p.lambdaSuspendByLineCol.size)
+        for ((key, suspend) in p.lambdaSuspendByLineCol) { w.varint(s.id(key)); w.varint(if (suspend) 1 else 0) }
+    }
+
+    private fun readPayload(r: Reader, strings: Array<String>): FilePayload {
+        fun str() = r.str(strings)
+        val packageName = str()
+        val declarations = ArrayList<ClassPayload>()
+        repeat(r.count()) { declarations += readClass(r, strings) }
+        val expressions = LinkedHashMap<String, ExpressionPayload>()
+        repeat(r.count()) {
+            val key = str()
+            val type = str()
+            val f = r.varint()
+            expressions[key] = ExpressionPayload(
+                type = type, nullable = f and 1 != 0, startByte = r.zigzag(), endByte = r.zigzag(),
+                callTarget = r.strOrNull(strings), callTargetResolved = f and 2 != 0, callTargetSuspend = f and 4 != 0,
+                annotations = readList(r, strings),
+            )
+        }
+        val diagnostics = ArrayList<DiagnosticPayload>()
+        repeat(r.count()) {
+            diagnostics += DiagnosticPayload(
+                factoryName = str(), severity = str(), message = str(),
+                line = r.zigzag(), col = r.zigzag(), startByte = r.zigzag(), endByte = r.zigzag(),
+            )
+        }
+        val lambdas = LinkedHashMap<String, Boolean>()
+        repeat(r.count()) { lambdas[str()] = r.varint() != 0 }
+        return FilePayload(packageName, declarations, expressions, diagnostics, lambdas)
+    }
+
+    private fun writeClass(w: Writer, s: StringTable, c: ClassPayload) {
+        w.varint(s.id(c.fqn)); w.varint(s.id(c.kind))
+        writeList(w, s, c.supertypes)
+        w.varint(flags(c.isSealed, c.isData, c.isOpen, c.isAbstract))
+        w.varint(s.id(c.visibility))
+        writeList(w, s, c.typeParameters)
+        w.varint(c.members.size)
+        for (m in c.members) {
+            w.varint(s.id(m.name)); w.varint(s.id(m.kind)); w.varint(s.id(m.returnType))
+            w.varint(flags(m.nullable, m.isOverride, m.isAbstract))
+            w.varint(s.id(m.visibility))
+            w.varint(m.params.size)
+            for (p in m.params) { w.varint(s.id(p.name)); w.varint(s.id(p.type)); w.varint(if (p.nullable) 1 else 0) }
+            writeList(w, s, m.annotations)
+        }
+        writeList(w, s, c.annotations)
+        w.varint(s.id(c.jarPath))
+    }
+
+    private fun readClass(r: Reader, strings: Array<String>): ClassPayload {
+        fun str() = r.str(strings)
+        val fqn = str()
+        val kind = str()
+        val supertypes = readList(r, strings)
+        val f = r.varint()
+        val visibility = str()
+        val typeParameters = readList(r, strings)
+        val members = ArrayList<MemberPayload>()
+        repeat(r.count()) {
+            val name = str()
+            val memberKind = str()
+            val returnType = str()
+            val mf = r.varint()
+            val memberVisibility = str()
+            val params = ArrayList<ParamPayload>()
+            repeat(r.count()) { params += ParamPayload(str(), str(), r.varint() != 0) }
+            members += MemberPayload(
+                name, memberKind, returnType, nullable = mf and 1 != 0, visibility = memberVisibility,
+                isOverride = mf and 2 != 0, isAbstract = mf and 4 != 0, params = params, annotations = readList(r, strings),
+            )
+        }
+        val annotations = readList(r, strings)
+        return ClassPayload(
+            fqn, kind, supertypes, isSealed = f and 1 != 0, isData = f and 2 != 0, isOpen = f and 4 != 0,
+            isAbstract = f and 8 != 0, visibility = visibility, typeParameters = typeParameters, members = members,
+            annotations = annotations, jarPath = r.strOrNull(strings),
+        )
     }
 
     // ---- strings --------------------------------------------------------------------------------------------------

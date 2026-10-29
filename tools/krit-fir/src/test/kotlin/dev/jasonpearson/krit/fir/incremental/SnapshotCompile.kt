@@ -47,12 +47,12 @@ internal fun kotlinFilesIn(src: File): List<String> =
 
 /** A recording session that builds the snapshot under [snapshots] (never the user's cache dir). */
 internal fun recordingSession(src: File, snapshots: File): AnalysisSession =
-    AnalysisSession(listOf(src.path), listOf(testStdlib), incrementalRecording = true)
+    AnalysisSession(listOf(src.path), listOf(testStdlib), incrementalRecording = true, incrementalPlanning = false)
         .also { it.snapshotRootOverride = snapshots }
 
 /** A session that records nothing: the reference, as the check runs without the feature. */
 internal fun plainSession(src: File): AnalysisSession =
-    AnalysisSession(listOf(src.path), listOf(testStdlib), incrementalRecording = false)
+    AnalysisSession(listOf(src.path), listOf(testStdlib), incrementalRecording = false, incrementalPlanning = false)
 
 /** Every file under [dir], relative paths. */
 internal fun filesUnder(dir: File): Set<String> =

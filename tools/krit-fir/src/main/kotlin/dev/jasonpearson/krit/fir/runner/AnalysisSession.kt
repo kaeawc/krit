@@ -11,6 +11,7 @@ import dev.jasonpearson.krit.fir.FirRuleErrors
 import dev.jasonpearson.krit.fir.incremental.CompileRecording
 import dev.jasonpearson.krit.fir.incremental.CompileRecordingRegistry
 import dev.jasonpearson.krit.fir.incremental.FingerprintBuilder
+import dev.jasonpearson.krit.fir.incremental.OraclePayloadCache
 import dev.jasonpearson.krit.fir.incremental.PersistedState
 import dev.jasonpearson.krit.fir.incremental.PersistedVerdict
 import dev.jasonpearson.krit.fir.incremental.BuiltInTieredPolicy
@@ -56,7 +57,7 @@ import java.nio.file.Files
 data class FileRef(val path: String, val contentHash: String = "")
 
 internal val prunedSourceDirectoryNames = setOf(
-    ".git", ".krit", ".krit-cache", ".krit-types", ".gradle", ".idea", ".kotlin", ".claude", ".codex", ".grit",
+    ".git", ".krit", ".krit-cache", ".gradle", ".idea", ".kotlin", ".claude", ".codex", ".grit",
 )
 
 // Prefer the highest target this embedded compiler knows that the current JDK
@@ -81,6 +82,8 @@ internal fun resolveJvmTarget(declared: String, jdkFeature: Int = Runtime.versio
 data class AnalyzeOutcome(
     val result: AnalyzeResult,
     val cacheDeps: OracleResponse.CacheDepsView,
+    /** Per file, the source-side annotations of its annotated callables; recorded only for incremental use. */
+    val declaredAnnotations: Map<String, Map<String, List<String>>> = emptyMap(),
 )
 
 data class BatchResult(
@@ -106,6 +109,18 @@ data class BatchResult(
     // Compiler settings or arguments that were requested but not applied (unsupported
     // flag, krit-managed argument, version the embedded compiler lacks). Never silent.
     val warnings: List<String> = emptyList(),
+    // What the incremental planner made of this check; null when it did not run.
+    val plan: PlanSummary? = null,
+)
+
+/**
+ * How the incremental planner served a check, for the response: [path] is "incremental" or "full", [reason] why a
+ * full check was needed (null when incremental), [dirtyFiles] the files its slices compiled.
+ */
+data class PlanSummary(
+    val path: String, val reason: String?, val dirtyFiles: Int, val totalMillis: Long,
+    /** More about [reason] where it helps the caller act: why no slice compile was available. */
+    val detail: String? = null,
 )
 
 // Holds the current session config. When sourceDirs or classpath change the Go side sends a
@@ -120,7 +135,7 @@ class AnalysisSession(
     /**
      * Records what incremental checking needs from each whole-module check compile: the compiler's lookups
      * and every file's declaration surface, kept in [incrementalState]. Off keeps the compile exactly as it
-     * is without the feature. Defaults to `KRIT_FIR_INCREMENTAL=1`.
+     * is without the feature. On by default; `KRIT_FIR_INCREMENTAL=0` turns it off.
      */
     val incrementalRecording: Boolean = incrementalRecordingFromEnv(),
     /**
@@ -132,9 +147,14 @@ class AnalysisSession(
     /**
      * Serves [check] from [incrementalState] and its snapshot when possible (see [IncrementalPlanner]); needs
      * [incrementalRecording] and [incrementalSnapshot]. Off keeps `check` the whole-module compile it is without the
-     * feature. Defaults to `KRIT_FIR_INCREMENTAL=1`.
+     * feature. On by default; `KRIT_FIR_INCREMENTAL=0` turns it off.
      */
     val incrementalPlanning: Boolean = incrementalRecordingFromEnv(),
+    /**
+     * The project's Kotlin compiler plugins, registered after krit-fir's own on every non-module compilation (a
+     * module compilation takes its module's own, see [ModuleCompilation]). Empty keeps today's behavior.
+     */
+    val compilerPlugins: CompilerPlugins = CompilerPlugins.EMPTY,
 ) {
 
     /** True when [check] goes through the planner. */
@@ -150,6 +170,16 @@ class AnalysisSession(
 
     /** Per-file verdicts of the module, in step with [incrementalState] (see [VerdictCache]). Touched under [snapshotLock]. */
     internal val verdicts = VerdictCache()
+
+    /**
+     * Per-file oracle facts of the module, in step with [incrementalState] like [verdicts] (see [OraclePayloadCache]):
+     * what lets a warm `analyzeWithCheck` answer the oracle without a whole-module compile. Touched under [snapshotLock].
+     */
+    internal val oraclePayloads = OraclePayloadCache()
+
+    /** Whether the latest `analyzeWithCheck` answered the oracle from [oraclePayloads]; for tests and telemetry. */
+    @Volatile internal var lastOracleFromCache = false
+        private set
 
     /** Whole-module commits to [incrementalState] so far; lets the planner see whether a full compile replaced it. */
     @Volatile internal var fullCommits = 0
@@ -232,7 +262,7 @@ class AnalysisSession(
 
     /** Drops every recorded fact, the snapshot and the verdicts: the next planned check is a cold full check. */
     internal fun resetIncremental() {
-        synchronized(snapshotLock) { incrementalState.reset(); verdicts.clear() }
+        synchronized(snapshotLock) { incrementalState.reset(); verdicts.clear(); oraclePayloads.clear() }
     }
 
     private val compilationJvmTarget: String = resolveJvmTarget(jvmTarget)
@@ -248,6 +278,18 @@ class AnalysisSession(
 
     // Path to the running fat JAR — used to register our FIR plugin with the embedded compiler.
     private val selfJar: String? = resolveSelfJar()
+
+    // The project's plugins as the embedded compiler can load them: probed once on first use, empty (with a warning)
+    // when they cannot be loaded, so the session keeps the no-plugin behavior instead of failing every file.
+    private val verifiedPlugins = lazy { compilerPlugins.verified(classpath) }
+
+    /** The compiler plugins every non-module compilation of this session registers. */
+    internal val effectivePlugins: CompilerPlugins get() = verifiedPlugins.value
+
+    /** Why a supplied compiler plugin or option is not applied; surfaced in the response like [kotlinSettingsWarnings]. */
+    val compilerPluginWarnings: List<String>
+        get() = (if (verifiedPlugins.isInitialized()) verifiedPlugins.value.warnings else compilerPlugins.warnings)
+            .map { "krit-fir: $it" }
 
     // Collect all .kt files from sourceDirs. K2 needs all sources for correct type
     // resolution even when checking a subset. Re-walked on every compile because the
@@ -308,7 +350,7 @@ class AnalysisSession(
         scanPaths: Map<String, String> = emptyMap(),
         sdkLevels: Map<String, SdkLevels> = emptyMap(),
     ): BatchResult {
-        if (plannerEnabled) return planner.serve(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels)
+        if (plannerEnabled) return planner.serve(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, fullCompile = null)
         return checkCompilation(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels)
     }
 
@@ -360,6 +402,41 @@ class AnalysisSession(
             if (!isIsolatable(e)) throw e
             verdicts.clear()
         }
+    }
+
+    /**
+     * Stores the oracle facts, `cacheDeps` edges and declared annotations [outcome] holds for each of [files]
+     * (canonical paths) under its content hash in [hashes]; a file the compile gave no facts, or that has no hash,
+     * loses its entry. False when a supertype edge names a class the state cannot place in a file: the caller drops
+     * the cache. Holds [snapshotLock].
+     */
+    private fun storeOraclePayloads(
+        outcome: AnalyzeOutcome, files: Collection<String>, hashes: Map<String, String>, wholeModule: Boolean = false,
+    ): Boolean {
+        val result = outcome.result
+        val deps = outcome.cacheDeps
+        fun byCanonical(map: Map<String, *>) = map.keys.associateBy { canonicalOrSelf(File(it)) }
+        val payloadKeys = byCanonical(result.files)
+        if (wholeModule) oraclePayloads.recordOrder(payloadKeys.keys)
+        val depKeys = byCanonical(deps.depPathsByFile)
+        val perFileKeys = byCanonical(deps.perFileDeps)
+        val declaredKeys = byCanonical(outcome.declaredAnnotations)
+        for (file in files) {
+            val hash = hashes[file]
+            val payload = payloadKeys[file]?.let { result.files[it] }
+            if (hash == null || payload == null) { oraclePayloads.remove(file); continue }
+            val supertypes = LinkedHashMap<String, String>()
+            for (fqn in perFileKeys[file]?.let { deps.perFileDeps[it] }.orEmpty().keys) {
+                supertypes[fqn] = incrementalState.fileDeclaring(fqn) ?: return false
+            }
+            oraclePayloads.put(file, OraclePayloadCache.Entry(
+                hash, payload,
+                depPaths = depKeys[file]?.let { deps.depPathsByFile[it] }.orEmpty().map { canonicalOrSelf(File(it)) },
+                perFileDeps = supertypes,
+                declaredAnnotations = declaredKeys[file]?.let { outcome.declaredAnnotations[it] }.orEmpty(),
+            ))
+        }
+        return true
     }
 
     // Splits [result] into the verdict of each compiled file, keyed by canonical path and the state's content hash.
@@ -430,6 +507,13 @@ class AnalysisSession(
         return if (incrementalState.compileKey != compileKey()) SliceFallback.STATE_CHANGED else null
     }
 
+    /** [sliceFallback] for telemetry: its name, plus what the state knows about it (`COMPILE_ERRORS: compile errors in 6 files`). */
+    internal fun sliceFallbackDescription(): String? {
+        val fallback = sliceFallback() ?: return null
+        val detail = incrementalState.fallbackDetail().takeIf { fallback == incrementalState.fallbackReason() }
+        return if (detail == null) fallback.name else "${fallback.name}: $detail"
+    }
+
     /** Test seam: a slice withholds the external class-name facts, which must make the rule differ from a full compile. */
     @Volatile internal var withheldExternalFacts = false
 
@@ -478,6 +562,7 @@ class AnalysisSession(
         sdkLevels: Map<String, SdkLevels> = emptyMap(),
         removedFiles: Collection<String> = emptyList(),
         spellings: Map<String, FileRef> = emptyMap(),
+        withOracle: Boolean = false,
     ): SliceOutcome = synchronized(snapshotLock) {
         sliceFallback()?.let { return SliceOutcome.Fallback(it) }
         val snapshot = incrementalState.snapshot ?: return SliceOutcome.Fallback(SliceFallback.NO_SNAPSHOT)
@@ -504,7 +589,9 @@ class AnalysisSession(
             val compiled = sources.mapTo(LinkedHashSet()) { canonicalOrSelf(File(it)) }
             if (sources.isEmpty()) {
                 // Only deletions (or files krit never compiles): nothing to compile.
-                if (removed.isNotEmpty()) mergeSlice(plan, compiled, removed, emptySet(), plan.compiled, plan.emptyResult())
+                if (removed.isNotEmpty()) {
+                    mergeSlice(plan, compiled, removed, emptySet(), plan.compiled, plan.emptyResult(), OracleCollector().takeIf { withOracle })
+                }
                 return SliceOutcome.Checked(plan.emptyResult(), compiled, compiled - requested)
             }
             val outDir = Files.createTempDirectory("krit-fir-slice-out-").toFile()
@@ -514,9 +601,30 @@ class AnalysisSession(
                 args.moduleName = SNAPSHOT_MODULE_NAME
                 args.classpath = listOfNotNull(args.classpath, snapshot.dir.path).joinToString(File.pathSeparator)
                 val hidden = sources + removed + incrementalState.removedSinceSnapshot()
+                // The oracle's facts for the compiled files, from the same frontend run (#740): registered as
+                // analyzeCompilation registers them for the shared compile.
+                val oracle = if (withOracle) OracleCollector() else null
+                if (oracle != null) {
+                    oracle.recordDeclarations = true
+                    oracle.binarySupertype = { fqn ->
+                        incrementalState.fileDeclaring(fqn)?.let { file ->
+                            oraclePayloads.declaration(file, fqn)?.let { file to it }
+                                ?: run { oracle.binarySupertypeMissed = true; null }
+                        }
+                    }
+                    val declared by lazy { oraclePayloads.declaredAnnotationIndex(compiled) }
+                    oracle.binaryCalleeAnnotations = { signature -> declared[signature] }
+                }
+                val messages = listOfNotNull(
+                    oracle?.let { o -> OracleDiagnosticMessageCollector(o, args.freeArgs.associateBy { File(it).canonicalPath }) },
+                    plan.collector,
+                )
+                val contexts = listOfNotNull(
+                    oracle?.let { o -> CompilationContext({ OracleCollectorRegistry.begin(o) }, { OracleCollectorRegistry.end() }) },
+                ) + plan.contexts()
                 val exit = try {
                     snapshot.parked(hidden) {
-                        compileModule(args, listOf(plan.collector), plan.contexts(), frontendOnly = true, recording = recording, slice = snapshot)
+                        compileModule(args, messages, contexts, frontendOnly = true, recording = recording, slice = snapshot)
                     }
                 } catch (e: Throwable) {
                     if (!isIsolatable(e)) throw e
@@ -534,7 +642,7 @@ class AnalysisSession(
                 }
                 val result = plan.result(exit)
                 val errored = result.errorFiles.keys.mapTo(HashSet()) { canonicalOrSelf(File(it)) }
-                mergeSlice(plan, compiled, removed, errored, plan.compiled, result)
+                mergeSlice(plan, compiled, removed, errored, plan.compiled, result, oracle)
                 return SliceOutcome.Checked(result, compiled, compiled - requested)
             } finally {
                 outDir.deleteRecursively()
@@ -555,7 +663,7 @@ class AnalysisSession(
     // and the verdict, which is already computed, is returned unchanged.
     private fun mergeSlice(
         plan: CheckPlan, compiled: Set<String>, removed: Set<String>, errored: Set<String>,
-        compiledRefs: List<FileRef>, result: BatchResult,
+        compiledRefs: List<FileRef>, result: BatchResult, oracle: OracleCollector? = null,
     ) {
         try {
             val recorded = plan.recording
@@ -564,11 +672,22 @@ class AnalysisSession(
             } else {
                 // The verdict cache follows the state only while it was in step with it before this commit.
                 val inStep = plannerEnabled && verdicts.generation == incrementalState.generation
+                // The oracle facts follow the state the same way; a slice that did not run the oracle leaves them
+                // a generation behind, which makes them unusable until a whole-module oracle compile refills them.
+                val oracleInStep = oracle != null && plannerEnabled && oraclePayloads.generation == incrementalState.generation
                 incrementalState.commitSlice(recorded, compiled, removed, errored)
                 if (inStep) {
                     for (file in removed) verdicts.remove(file)
                     storeVerdicts(result, compiledRefs, plan.verdictKeys)
                     verdicts.sync(incrementalState.generation)
+                }
+                if (oracleInStep) {
+                    for (file in removed) oraclePayloads.remove(file)
+                    val stored = !oracle.binarySupertypeMissed && !oracle.binaryCalleeAmbiguous && storeOraclePayloads(
+                        AnalyzeOutcome(oracle.toResult(), oracle.depTracker.view(), oracle.declaredAnnotations), compiled,
+                        incrementalState.contentHashes(),
+                    )
+                    if (stored) oraclePayloads.sync(incrementalState.generation) else oraclePayloads.clear()
                 }
                 persistence?.markDirty(afterFullCheck = false)
             }
@@ -689,10 +808,21 @@ class AnalysisSession(
                     synchronized(snapshotLock) {
                         incrementalState.commit(recorded)
                         verdicts.clear()
+                        oraclePayloads.clear()
                         fullCommits++
                         committed = true
                         val snapshot = build?.takeIf { it.built }?.snapshot
-                        incrementalState.attachSnapshot(snapshot, noSnapshotReason)
+                        // A compile with errors never reaches the backend: say so, with how many files, so the
+                        // planner's fallback is visible as more than "no snapshot" (a missing compiler plugin, say).
+                        val erroneous = build != null && !build.built && !build.frontendClean && build.failure == null
+                        if (erroneous) {
+                            val files = collector.errorFiles.size
+                            val detail = if (files > 0) "compile errors in $files file${if (files == 1) "" else "s"}"
+                                else "a compiler error not tied to a file"
+                            incrementalState.attachSnapshot(null, SliceFallback.COMPILE_ERRORS, detail)
+                        } else {
+                            incrementalState.attachSnapshot(snapshot, noSnapshotReason)
+                        }
                         if (snapshot != null) pendingSnapshot = null
                     }
                 }
@@ -824,8 +954,8 @@ class AnalysisSession(
     /**
      * Run a K2 frontend compilation to collect oracle-style per-class
      * projections for `files` (or every source in `sourceDirs` when
-     * `files` is empty). The result mirrors krit-types' analyze /
-     * analyzeAll JSON shape — classes captured during compilation feed
+     * `files` is empty). The result matches the analyze / analyzeAll
+     * JSON shape — classes captured during compilation feed
      * through the dispatched [OracleClassChecker] into an
      * [OracleCollector], which the orchestrator drains here.
      *
@@ -842,7 +972,55 @@ class AnalysisSession(
      * `analyzeWithDeps` RPC envelope can populate the per-file
      * dependency closure.
      */
-    fun analyzeFull(files: List<String>): AnalyzeOutcome = analyzeCompilation(compilationFiles(files), null)
+    fun analyzeFull(files: List<String>): AnalyzeOutcome {
+        lastOracleFromCache = false
+        val sources = compilationFiles(files)
+        if (!plannerEnabled) return analyzeCompilation(sources, null)
+        oracleFromCacheIfUnchanged(sources)?.let { return it }
+        val before = contentHashesOf(sources)
+        val key = PlainOracleKey(sources, before, compileKey())
+        lastPlainOracle?.takeIf { it.first == key }?.let { lastOracleFromCache = true; return it.second }
+        lastPlainOracle = null
+        var exitCode = ExitCode.OK
+        val outcome = analyzeCompilation(sources, null) { exitCode = it }
+        // Kept only when the compiler finished (an internal error may leave the facts incomplete) and no source
+        // changed while it compiled.
+        lastPlainOracle = if (exitCode != ExitCode.INTERNAL_ERROR && contentHashesOf(sources) == before) key to outcome else null
+        return outcome
+    }
+
+    /** What a plain oracle compile's answer depends on: the requested sources as spelled, their content, the compile key. */
+    private data class PlainOracleKey(val sources: List<String>, val contentHashes: Map<String, String>, val compileKey: String)
+
+    /**
+     * The last plain oracle compile's answer (#957). The incremental state is recorded only by a compile that also
+     * checks, so a session that has none (a restarted daemon whose check is served by the Go check cache, or a module
+     * scan that is not persisted) would otherwise compile the whole module for every unchanged oracle request.
+     */
+    @Volatile private var lastPlainOracle: Pair<PlainOracleKey, AnalyzeOutcome>? = null
+
+    /**
+     * The oracle answer for [sources] from the incremental state's cached facts, when nothing the state recorded
+     * changed since: every source still hashes to what the state recorded (no file added or removed either), the
+     * compile key is the same, and the facts are in step with the state. Null otherwise, and the caller compiles.
+     *
+     * This serves an oracle-only request on an unchanged module (#957): a daemon scan whose FIR check is served by
+     * the check cache still asks the oracle, and without this the oracle compiled the whole module every time.
+     * A session that has not loaded its persisted bundle yet loads it first, when it knows where it is.
+     */
+    private fun oracleFromCacheIfUnchanged(sources: List<String>): AnalyzeOutcome? {
+        try {
+            synchronized(snapshotLock) { loadPersistedIfCold() }
+        } catch (e: Throwable) {
+            if (!isIsolatable(e)) throw e
+        }
+        val now = contentHashesOf(sources)
+        synchronized(snapshotLock) {
+            if (incrementalState.compileKey == null || incrementalState.compileKey != compileKey()) return null
+            if (incrementalState.contentHashes() != now) return null
+        }
+        return oracleFromCache(sources)
+    }
 
     /**
      * [analyzeFull] for [files] and [check] for [checkRequest] from one K2
@@ -861,28 +1039,124 @@ class AnalysisSession(
      * result is null and the oracle compiles alone, so the caller checks on
      * its own.
      *
-     * The shared compile is not recorded into [incrementalState] and leaves it, snapshot included, as it is: step 5
-     * (#859 integration) will build the snapshot inside this compile and record it.
+     * With the incremental planner on (#880), the check goes through the planner and only its full compiles are
+     * shared: the planner's full check becomes this shared compile, which then also records the incremental state,
+     * builds the binary snapshot (the backend runs after the frontend that produced both the oracle facts and the
+     * verdicts) and persists the bundle under the request's `incrementalDir`. So a cold scan costs one compile plus
+     * the snapshot backend, and a warm one is served from slices. The slices run the oracle too, and the oracle is
+     * answered from the per-file facts they and the full checks recorded ([oraclePayloads], #740); only when those
+     * are missing or out of step (a restarted process, a check-only slice) does the oracle compile alone (frontend
+     * only, no checkers), which refills them. Without the planner the shared compile records nothing and leaves the
+     * state as it is.
      */
     fun analyzeWithCheck(files: List<String>, checkRequest: CheckRequest): Pair<AnalyzeOutcome, BatchResult?> {
+        lastOracleFromCache = false
         val walked = currentSourceFiles()
         val oracleSources = compilationFiles(files, walked)
-        val plan = CheckPlan(
-            checkRequest.id, checkRequest.files, checkRequest.rules.toSet(), checkRequest.ruleConfigs,
+        val rules = checkRequest.rules.toSet()
+        fun planFor(enabledRules: Set<String>) = CheckPlan(
+            checkRequest.id, checkRequest.files, enabledRules, checkRequest.ruleConfigs,
             checkRequest.testFiles, checkRequest.scanPaths, checkRequest.sdkLevels, module = null, ownedSources = emptySet(),
         )
-        val shared = plan.compiled.isNotEmpty() &&
+        val probe = planFor(rules)
+        val shared = probe.compiled.isNotEmpty() &&
             sharesCompileContext(checkRequest) &&
-            canonicalSet(oracleSources) == canonicalSet(compilationFiles(plan.compiled.map { it.path }, walked))
+            canonicalSet(oracleSources) == canonicalSet(compilationFiles(probe.compiled.map { it.path }, walked))
         if (!shared) return analyzeFull(files) to null
+        if (!plannerEnabled) return sharedCompile(files, oracleSources, probe, record = false)
+
+        configurePersistence(BundleStore.trustedRoot(checkRequest.incrementalDir))
+        var sharedOutcome: AnalyzeOutcome? = null
+        val checked = try {
+            planner.serve(
+                checkRequest.id, checkRequest.files, rules, checkRequest.ruleConfigs,
+                checkRequest.testFiles, checkRequest.scanPaths, checkRequest.sdkLevels, withOracle = true,
+            ) { enabledRules, record ->
+                val (outcome, result) = sharedCompile(files, oracleSources, planFor(enabledRules), record)
+                // A shared compile that fell back to the oracle alone has no check: the planner's full check
+                // must not be served from it, so compile the check on its own as a plain full check would.
+                sharedOutcome = outcome
+                result ?: checkCompilation(
+                    checkRequest.id, checkRequest.files, enabledRules, checkRequest.ruleConfigs,
+                    checkRequest.testFiles, checkRequest.scanPaths, checkRequest.sdkLevels, record = record,
+                )
+            }
+        } catch (e: Exception) {
+            if (!isIsolatable(e)) throw e
+            System.err.println("krit-fir: incremental shared check failed (${e.message}); compiling the oracle alone")
+            return (sharedOutcome ?: analyzeFull(files)) to null
+        }
+        // Served from slices (or cached verdicts): the slices ran the oracle too, so its facts come from the cache;
+        // without them (a cold cache, or one a check-only slice left behind) it compiles on its own.
+        return (sharedOutcome ?: oracleFromCache(oracleSources) ?: analyzeFullRefilling(files, oracleSources)) to checked
+    }
+
+    /**
+     * The oracle answer for [sources] from the cached facts, when they are in step with the state and every file has
+     * an entry for the content the state recorded; null otherwise (#740).
+     */
+    private fun oracleFromCache(sources: List<String>): AnalyzeOutcome? = synchronized(snapshotLock) {
+        if (incrementalState.compileKey == null || oraclePayloads.generation != incrementalState.generation) return null
+        val spelled = LinkedHashMap<String, String>()
+        for (path in sources) spelled.putIfAbsent(canonicalOrSelf(File(path)), path)
+        val assembled = oraclePayloads.assemble(spelled, incrementalState.contentHashes()) ?: return null
+        lastOracleFromCache = true
+        AnalyzeOutcome(assembled.result, assembled.cacheDeps)
+    }
+
+    /**
+     * [analyzeFull], which also refills the cached oracle facts when the state describes exactly the content it
+     * compiled: a cache that is out of step (a restarted process, check-only slices) is then current again.
+     */
+    private fun analyzeFullRefilling(files: List<String>, sources: List<String>): AnalyzeOutcome {
+        val before = contentHashesOf(sources)
+        val outcome = analyzeFull(files)
+        try {
+            synchronized(snapshotLock) {
+                val recorded = incrementalState.contentHashes()
+                if (plannerEnabled && incrementalState.compileKey != null && recorded == before && contentHashesOf(sources) == before) {
+                    oraclePayloads.clear()
+                    if (storeOraclePayloads(outcome, before.keys, recorded, wholeModule = true)) {
+                        oraclePayloads.sync(incrementalState.generation)
+                        // The refilled facts go into the bundle, so the next restart does not compile the oracle again.
+                        persistence?.markDirty(afterFullCheck = false)
+                    } else {
+                        oraclePayloads.clear()
+                    }
+                }
+            }
+        } catch (e: Throwable) {
+            if (!isIsolatable(e)) throw e
+            synchronized(snapshotLock) { oraclePayloads.clear() }
+        }
+        return outcome
+    }
+
+    /** The oracle facts of a shared full check that just replaced the state. Holds [snapshotLock]. */
+    private fun storeFullOracle(outcome: AnalyzeOutcome, sources: List<String>) {
+        try {
+            synchronized(snapshotLock) {
+                oraclePayloads.clear()
+                val stored = storeOraclePayloads(outcome, sources.map { canonicalOrSelf(File(it)) }, incrementalState.contentHashes(), wholeModule = true)
+                if (stored) oraclePayloads.sync(incrementalState.generation) else oraclePayloads.clear()
+            }
+        } catch (e: Throwable) {
+            if (!isIsolatable(e)) throw e
+            synchronized(snapshotLock) { oraclePayloads.clear() }
+        }
+    }
+
+    /**
+     * One compile for the oracle and [plan]'s check. With [record] (the planner's full check) it also records the
+     * incremental state and builds the snapshot, as [checkCompilation] does. A compile that throws gives the oracle a
+     * compile of its own and no check result, so the caller checks on its own.
+     */
+    private fun sharedCompile(
+        files: List<String>, oracleSources: List<String>, plan: CheckPlan, record: Boolean,
+    ): Pair<AnalyzeOutcome, BatchResult?> {
         var exitCode = ExitCode.OK
         val outcome = try {
-            // Not recorded: a recording committed here would replace the incremental state without a snapshot
-            // (the shared compile is frontend-only), so every later slice would fall back. The state and its
-            // snapshot are left as they are; a planner compares content hashes with them, so it stays correct
-            // whatever shared compiles ran in between. Step 5 (#859 integration) will build the snapshot inside
-            // this shared compile and record here again.
-            analyzeCompilation(oracleSources, plan) { exitCode = it }
+            analyzeCompilation(oracleSources, plan, record) { exitCode = it }
         } catch (e: Exception) {
             // A checker failure the rule isolation does not absorb must not
             // cost the oracle its facts: compile for the oracle alone, and
@@ -890,7 +1164,13 @@ class AnalysisSession(
             System.err.println("krit-fir: shared oracle/check compile failed (${e.message}); compiling the oracle alone")
             return analyzeFull(files) to null
         }
-        return outcome to plan.result(exitCode)
+        val result = plan.result(exitCode)
+        if (record && plannerEnabled && plan.committed) {
+            storeFullVerdicts(plan, result)
+            storeFullOracle(outcome, oracleSources)
+            persistence?.markDirty(afterFullCheck = true)
+        }
+        return outcome to result
     }
 
     private fun sharesCompileContext(request: CheckRequest): Boolean {
@@ -898,18 +1178,20 @@ class AnalysisSession(
             requested.isEmpty() || requested.map { canonicalOrSelf(File(it)) } == own.map { canonicalOrSelf(File(it)) }
         return sameFiles(request.sourceDirs, sourceDirs) && sameFiles(request.classpath, classpath) &&
             (request.jvmTarget.isEmpty() || request.jvmTarget == jvmTarget) &&
-            (request.kotlinArgs.isEmpty() || KotlinCompilerSettings.parse(request.kotlinArgs).identity == kotlinSettings.identity)
+            (request.kotlinArgs.isEmpty() || KotlinCompilerSettings.parse(request.kotlinArgs).identity == kotlinSettings.identity) &&
+            (request.compilerPluginClasspath.isEmpty() || request.compilerPlugins().identity == compilerPlugins.identity)
     }
 
     private fun canonicalSet(paths: List<String>): Set<String> = paths.mapTo(HashSet()) { canonicalOrSelf(File(it)) }
 
     private fun analyzeCompilation(
-        sources: List<String>, check: CheckPlan?, onExit: (ExitCode) -> Unit = {},
+        sources: List<String>, check: CheckPlan?, record: Boolean = false, onExit: (ExitCode) -> Unit = {},
     ): AnalyzeOutcome {
-        val collector = OracleCollector()
+        val collector = OracleCollector().apply { recordDeclarations = plannerEnabled }
         val outDir = Files.createTempDirectory("krit-fir-oracle-out-").toFile()
         try {
             val args = compilationArguments(sources, outDir)
+            // Taken before the snapshot build retargets the output and module name.
             val pathByCanonical = args.freeArgs.associateBy { File(it).canonicalPath }
                 .mapValues { it.value }
             val oracleMessages = OracleDiagnosticMessageCollector(collector, pathByCanonical)
@@ -920,20 +1202,20 @@ class AnalysisSession(
                     CompilationContext({ FirRuleContext.begin(FirRuleCompileContext(noneEnabled = true)) }, { FirRuleContext.end() }),
                 ), frontendOnly = true)
             } else {
-                compileModule(args, listOf(oracleMessages, check.collector), listOf(oracleContext) + check.contexts(), frontendOnly = true,
-                    recording = check.recording)
+                if (record) check.startRecording(sources)
+                val build = if (record) check.prepareSnapshot(args, sources) else null
+                try {
+                    compileModule(args, listOf(oracleMessages, check.collector), listOf(oracleContext) + check.contexts(), frontendOnly = true,
+                        recording = check.recording, build = build).also { check.commitRecording(it, build) }
+                } finally {
+                    check.discardSnapshot()
+                }
             })
         } finally {
             outDir.deleteRecursively()
         }
-        val tracker = collector.depTracker
         return AnalyzeOutcome(
-            result = collector.toResult(),
-            cacheDeps = OracleResponse.CacheDepsView(
-                depPathsByFile = tracker.depPathsByFile,
-                perFileDeps = tracker.perFileDeps,
-                crashedFiles = tracker.crashedFiles,
-            ),
+            result = collector.toResult(), cacheDeps = collector.depTracker.view(), declaredAnnotations = collector.declaredAnnotations,
         )
     }
 
@@ -956,14 +1238,15 @@ class AnalysisSession(
         // Extended compiler checkers remain off, preserving the oracle's diagnostic subset.
         suppressWarnings = false
         reportAllWarnings = true
-        if (selfJar != null) pluginClasspaths = arrayOf(selfJar)
+        (module?.plugins ?: effectivePlugins).applyTo(this, selfJar)
         module?.configure(this, compilationJvmTarget)
         if (module == null) argumentsHook?.invoke(this)
     }
 
     /**
      * Key of the compiler facts (lookups, surfaces): the compiler and plugin builds, this session's sources,
-     * classpath (with file identity), JVM target and Kotlin settings. A different key resets [incrementalState].
+     * classpath (with file identity), JVM target, Kotlin settings and the project's compiler plugins (each jar's file
+     * identity and every option). A different key resets [incrementalState] and files a persisted bundle elsewhere.
      */
     private fun compileKey(): String {
         val builder = FingerprintBuilder()
@@ -972,6 +1255,7 @@ class AnalysisSession(
             .add("jvmTarget", compilationJvmTarget)
             .add("kotlinSettings", kotlinSettings.identity)
         selfJar?.let { builder.addFileIdentity("plugin", it) }
+        effectivePlugins.addTo(builder)
         for (entry in effectiveClasspath(classpath)) builder.addFileIdentity("classpath", entry)
         return builder.build()
     }
@@ -1050,8 +1334,12 @@ class AnalysisSession(
 
     internal fun rebuild(
         sourceDirs: List<String>, classpath: List<String>, jvmTarget: String, kotlinArgs: List<String> = this.kotlinArgs,
+        compilerPlugins: CompilerPlugins = this.compilerPlugins,
     ): AnalysisSession =
-        AnalysisSession(sourceDirs, classpath, jvmTarget, kotlinArgs, incrementalRecording, incrementalSnapshot, incrementalPlanning).also {
+        AnalysisSession(
+            sourceDirs, classpath, jvmTarget, kotlinArgs, incrementalRecording, incrementalSnapshot, incrementalPlanning,
+            compilerPlugins,
+        ).also {
             it.tieredRulePolicy = tieredRulePolicy
             it.plannerLimits = plannerLimits
             it.retainedModuleRunner = retainedModuleRunner

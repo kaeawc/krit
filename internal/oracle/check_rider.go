@@ -1,6 +1,7 @@
 package oracle
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -48,14 +49,38 @@ func (r *CheckRider) decline(reason string) {
 type checkRiderRun struct {
 	deliver              func([]byte)
 	requestPath, outPath string
+	// aotLaunch is set when the oracle process runs from a Leyden AOT cache:
+	// its check is then delivered only with krit-fir's canary mark (#768).
+	aotLaunch bool
+}
+
+// noteLaunch records whether the oracle process launched with args runs from
+// a Leyden AOT cache; nil-safe.
+func (r *checkRiderRun) noteLaunch(args []string) {
+	if r != nil {
+		r.aotLaunch = startupAOTCache(args) != ""
+	}
+}
+
+// sharedCheckVerified reports whether a check response that rode on a JVM
+// launched from a Leyden AOT cache carries krit-fir's mark that the JVM's
+// canary passed. A valid cache can restore a JVM whose checkers register
+// but report nothing (#768); krit-fir shares no check from a JVM whose
+// canary failed, and a jar that predates the self-check sends no mark, so
+// either way the pass checks on its own (behind its own canary).
+func sharedCheckVerified(data []byte) bool {
+	var mark struct {
+		AOTCanary bool `json:"aotCanary"`
+	}
+	return json.Unmarshal(data, &mark) == nil && mark.AOTCanary
 }
 
 // startCheckRider writes the rider's request for the oracle process and
 // returns the krit-fir arguments that point at it. Nil when opts carries no
-// rider or the backend is not krit-fir.
+// rider.
 func startCheckRider(opts InvocationOptions) (*checkRiderRun, []string, error) {
 	rider := opts.CheckRider
-	if rider == nil || rider.Prepare == nil || opts.Backend != BackendFIR {
+	if rider == nil || rider.Prepare == nil {
 		return nil, nil, nil
 	}
 	body, deliver := rider.Prepare()
@@ -96,6 +121,8 @@ func (r *checkRiderRun) finish(tracker perf.Tracker, processErr error) {
 		status = "oracleFailed"
 	case err != nil:
 		status = "unreadable"
+	case len(data) > 0 && r.aotLaunch && !sharedCheckVerified(data):
+		status = "aotUnverified"
 	case len(data) > 0:
 		status = "shared"
 		size = int64(len(data))

@@ -96,7 +96,8 @@ class SliceCompileTest {
         assertTrue(plain.errorFiles.isNotEmpty())
         assertEquals(plain.errorFiles, on.errorFiles)
         assertNull(session.incrementalState.snapshot)
-        assertEquals(SliceFallback.NO_SNAPSHOT, session.sliceFallback())
+        assertEquals(SliceFallback.COMPILE_ERRORS, session.sliceFallback(), "the compile errors are the reason, not a missing build")
+        assertEquals("COMPILE_ERRORS: compile errors in 1 file", session.sliceFallbackDescription())
         assertEquals(1, session.incrementalState.generation, "the recording is still committed")
         assertTrue(snaps.resolve("fir-snapshots").listFiles().orEmpty().isEmpty(), "no directory is left behind")
     }
@@ -261,7 +262,7 @@ class SliceCompileTest {
     @Test fun aChangedClasspathEntryMakesTheSnapshotUnusable() {
         write("A.kt", "package a\nfun a() = 1\n")
         val extra = tmp.resolve("extra-classes").toFile().apply { mkdirs() }
-        val session = AnalysisSession(listOf(src.path), listOf(testStdlib, extra.path), incrementalRecording = true)
+        val session = AnalysisSession(listOf(src.path), listOf(testStdlib, extra.path), incrementalRecording = true, incrementalPlanning = false)
         session.snapshotRootOverride = snaps
         session.check(1, refs("A.kt"), emptySet())
         assertEquals(null, session.sliceFallback())

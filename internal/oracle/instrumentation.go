@@ -1,11 +1,7 @@
 package oracle
 
 import (
-	"encoding/json"
-	"fmt"
 	"os"
-	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,16 +14,7 @@ import (
 type InvocationOptions struct {
 	Tracker      perf.Tracker
 	CacheWriter  *CacheWriter
-	CallFilter   *CallTargetFilterSummary
 	ExtraJVMArgs []string
-	// DisableDiagnostics skips krit-types collectDiagnostics(), which is
-	// expensive on large projects and only needed by rules that consume
-	// compiler diagnostic facts.
-	DisableDiagnostics bool
-	// DeclarationProfile narrows which fields krit-types populates per
-	// class/member. Nil or a full profile preserves pre-profile extraction;
-	// narrow profiles skip KAA traversal for unused sections.
-	DeclarationProfile *DeclarationProfileSummary
 	// ForcedMisses lists absolute .kt paths that the cache classifier
 	// must treat as misses without consulting the per-file content
 	// hash. Used by the warm-path freshness gate to route a known-stale
@@ -37,22 +24,19 @@ type InvocationOptions struct {
 	ForcedMisses []string
 	// Classpath is the user-configured JVM classpath (krit.yml
 	// `oracle.classpath` + the `CLASSPATH` env var). Forwarded to
-	// the daemon as `--classpath <joined>`. Both backends accept
-	// this flag today — the krit-types daemon resolved it before
-	// the FIR migration; the krit-fir one-shot CLI gains a
-	// `--classpath` parser alongside this field landing. Empty
-	// preserves the existing source-tree-discovery fallback.
+	// krit-fir as `--classpath <joined>`. Empty preserves the existing
+	// source-tree-discovery fallback.
 	Classpath []string
 	JvmTarget string
 	// Kotlin is the project's effective Kotlin compiler settings (language and
-	// API level, opt-ins, allowlisted flags), forwarded to either backend as
+	// API level, opt-ins, allowlisted flags), forwarded to krit-fir as
 	// `--kotlin-arg` flags. The zero value keeps the embedded compiler's
 	// defaults. It is part of the cache scope (NewStoreScopeWithSettings).
 	Kotlin gradlemodel.KotlinSettings
 	// Backend is the JVM backend being invoked. When set, cached entries
-	// written by the other backend are misses (see Backend.CacheApproximation),
-	// and a whole-compilation backend's entries are checked against the
-	// current compilation (see Backend.ReturnsWholeCompilation).
+	// written any other way are misses (see Backend.CacheApproximation), and
+	// a whole-compilation backend's entries are checked against the current
+	// compilation (see Backend.ReturnsWholeCompilation).
 	Backend Backend
 	// CheckRider, for the krit-fir backend, runs a FIR check request on
 	// the oracle's one-shot compilation (#739). Sharded and daemon miss
@@ -82,98 +66,12 @@ func addOracleInstant(t perf.Tracker, name string, metrics map[string]int64, att
 	perf.AddEntryDetails(t, name, 0, metrics, attrs)
 }
 
-// activeProcessorCountForKritTypesShard returns the -XX:ActiveProcessorCount
-// value for a single sharded KAA worker. Zero means no cap (shards <= 1).
-//
-// The formula divides available logical CPUs evenly across shards, then backs
-// off by one to leave headroom for the Go runtime, OS scheduling, I/O, and GC.
-// Backing off prevents the sharded JVMs from fully saturating all cores, which
-// reduced user CPU without increasing wall time in local benchmarks.
-func activeProcessorCountForKritTypesShard(shards int) int {
-	if shards <= 1 {
-		return 0
-	}
-	cpus := runtime.GOMAXPROCS(0)
-	if cpus <= 0 {
-		cpus = runtime.NumCPU()
-	}
-	perShard := (cpus + shards - 1) / shards
-	if perShard > 1 {
-		perShard--
-	}
-	if perShard < 1 {
-		perShard = 1
-	}
-	return perShard
-}
-
-// jvmArgsForKritTypesShard returns the adaptive JVM flags for a sharded
-// krit-types worker. Returns nil when shards <= 1 (no policy applies).
-func jvmArgsForKritTypesShard(shards int) []string {
-	active := activeProcessorCountForKritTypesShard(shards)
-	if active <= 0 {
-		return nil
-	}
-	return []string{fmt.Sprintf("-XX:ActiveProcessorCount=%d", active)}
-}
-
-// adaptiveShardJVMArgs merges the adaptive per-shard policy args with any
-// caller- or env-supplied overrides. Policy args come first; overrides follow
-// so they can supersede individual flags (e.g. a manual ActiveProcessorCount
-// in KRIT_TYPES_EXTRA_JVM_ARGS shadows the computed one in the JVM last-wins
-// sense — identical flags, last one wins for most JVM implementations).
-func adaptiveShardJVMArgs(shards int, opts InvocationOptions) []string {
-	adaptive := jvmArgsForKritTypesShard(shards)
-	override := configuredExtraJVMArgs(opts)
-	if len(adaptive) == 0 {
-		return override
-	}
-	if len(override) == 0 {
-		return adaptive
-	}
-	out := make([]string, 0, len(adaptive)+len(override))
-	out = append(out, adaptive...)
-	out = append(out, override...)
-	return out
-}
-
 func extraJVMArgsFromEnv() []string {
-	raw := strings.TrimSpace(os.Getenv("KRIT_TYPES_EXTRA_JVM_ARGS"))
+	raw := strings.TrimSpace(os.Getenv("KRIT_ORACLE_EXTRA_JVM_ARGS"))
 	if raw == "" {
 		return nil
 	}
 	return strings.Fields(raw)
-}
-
-const defaultKritTypesParallelFiles = 4
-
-// configuredKritTypesParallelFiles returns the in-JVM file worker count for
-// one-shot krit-types analysis. Explicit KRIT_TYPES_SHARDS disables the default
-// to avoid nesting file-level parallelism inside every JVM shard; setting
-// KRIT_TYPES_PARALLEL_FILES explicitly still wins.
-func configuredKritTypesParallelFiles() int {
-	raw := strings.TrimSpace(os.Getenv("KRIT_TYPES_PARALLEL_FILES"))
-	if raw == "" {
-		if strings.TrimSpace(os.Getenv("KRIT_TYPES_SHARDS")) != "" {
-			return 0
-		}
-		return defaultKritTypesParallelFiles
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 1 {
-		return 0
-	}
-	return n
-}
-
-// experimentalParallelFilesArg returns the --experimental-parallel-files N
-// args to append after -jar. Returns nil when disabled.
-func experimentalParallelFilesArg() []string {
-	n := configuredKritTypesParallelFiles()
-	if n <= 1 {
-		return nil
-	}
-	return []string{"--experimental-parallel-files", strconv.Itoa(n)}
 }
 
 func configuredExtraJVMArgs(opts InvocationOptions) []string {
@@ -201,116 +99,13 @@ func appendExtraJVMArgsBeforeJar(args []string, extra []string) []string {
 	return out
 }
 
-func recordKritTypesJVMArgs(t perf.Tracker, extra []string) {
+func recordOracleJVMArgs(t perf.Tracker, extra []string) {
 	if t == nil || !t.IsEnabled() {
 		return
 	}
-	addOracleInstant(t, "kritTypesJVMArgs", map[string]int64{
+	addOracleInstant(t, "oracleJVMArgs", map[string]int64{
 		"extraArgs": int64(len(extra)),
 	}, map[string]string{
 		"args": strings.Join(extra, " "),
 	})
-}
-
-func addKotlinTimingsFromFile(t perf.Tracker, path string) {
-	if t == nil || !t.IsEnabled() || path == "" {
-		return
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		addOracleInstant(t, "kotlinTimingsReadError", nil, map[string]string{"error": err.Error()})
-		return
-	}
-	addKotlinTimings(t, data)
-}
-
-func addKotlinTimings(t perf.Tracker, data []byte) {
-	if t == nil || !t.IsEnabled() || len(data) == 0 {
-		return
-	}
-	var entries []perf.TimingEntry
-	if err := json.Unmarshal(data, &entries); err != nil {
-		addOracleInstant(t, "kotlinTimingsParseError", nil, map[string]string{"error": err.Error()})
-		return
-	}
-	if len(entries) == 0 {
-		return
-	}
-	kt := t.Serial("kotlinTimings")
-	perf.AddEntries(kt, entries)
-	kt.End()
-}
-
-func tempTimingsPath() (string, func(), error) {
-	f, err := os.CreateTemp("", "krit-types-timings-*.json")
-	if err != nil {
-		return "", func() {}, fmt.Errorf("tempfile (timings): %w", err)
-	}
-	name := f.Name()
-	_ = f.Close()
-	return name, func() { _ = os.Remove(name) }, nil
-}
-
-func callFilterFingerprint(opts InvocationOptions) string {
-	if opts.CallFilter == nil || !opts.CallFilter.Enabled {
-		return ""
-	}
-	return opts.CallFilter.Fingerprint
-}
-
-// declarationProfileFingerprint returns the cache scope for the profile.
-// An empty string means "full profile — no narrowing", which writes
-// unfingerprinted cache entries compatible with any later lookup.
-func declarationProfileFingerprint(opts InvocationOptions) string {
-	if opts.DeclarationProfile == nil {
-		return ""
-	}
-	return opts.DeclarationProfile.Fingerprint
-}
-
-// diagnosticsOmittedScope marks cache entries written with compiler
-// diagnostics disabled. It rides on the declaration-profile scope because
-// omitting diagnostics is another narrowing of the emitted facts.
-const diagnosticsOmittedScope = "no-diagnostics"
-
-// factProfileScope is the cache scope for the facts an invocation emits:
-// the declaration profile, narrowed further when diagnostics are disabled.
-// Under the "empty = broad superset" convention, an entry written without
-// diagnostics never satisfies a lookup that needs them, while a full entry
-// still satisfies a diagnostics-off lookup.
-func factProfileScope(opts InvocationOptions) string {
-	scope := declarationProfileFingerprint(opts)
-	if !opts.DisableDiagnostics {
-		return scope
-	}
-	if scope == "" {
-		return diagnosticsOmittedScope
-	}
-	return scope + "+" + diagnosticsOmittedScope
-}
-
-// declarationProfileCLIValue returns the comma-separated feature list to
-// pass via --declaration-profile, or "" when the profile is full/absent
-// so callers can omit the flag.
-func declarationProfileCLIValue(opts InvocationOptions) string {
-	if opts.DeclarationProfile == nil {
-		return ""
-	}
-	return opts.DeclarationProfile.Profile.CLIValue()
-}
-
-func writeCallFilterArg(opts InvocationOptions, tracker perf.Tracker) (string, func(), error) {
-	if opts.CallFilter == nil || !opts.CallFilter.Enabled {
-		return "", func() {}, nil
-	}
-	var path string
-	err := trackOracle(tracker, "oracleCallFilterWrite", func() error {
-		var werr error
-		path, werr = WriteCallTargetFilterFile(*opts.CallFilter, "")
-		return werr
-	})
-	if err != nil {
-		return "", func() {}, err
-	}
-	return path, func() { removeCallTargetFilterFile(path) }, nil
 }

@@ -16,6 +16,12 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.vfs.newvfs.BulkFileListener
+import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent
+import com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent
+import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.codeInspection.InspectionProfile
 import com.intellij.profile.ProfileChangeAdapter
@@ -53,6 +59,10 @@ class KritProjectService(private val project: Project) : Disposable {
     @Volatile
     private var inspectionsEnabled = true
     private val explicitRequest = AtomicBoolean(false)
+
+    // The daemon this project started on open, if any, with the binary to stop
+    // it with on close. Declared before init, which starts the daemon.
+    private val daemonOwnership = KritDaemonOwnership<File>()
 
     private val documentListener = object : BulkAwareDocumentListener {
         override fun documentChanged(event: DocumentEvent) {
@@ -93,8 +103,19 @@ class KritProjectService(private val project: Project) : Disposable {
                 ProfileChangeAdapter.TOPIC,
                 object : ProfileChangeAdapter {
                     override fun profileChanged(profile: InspectionProfile) = onInspectionProfileChanged()
-                    override fun profileActivated(oldProfile: InspectionProfile?, profile: InspectionProfile?) =
+                    override fun profileActivated(oldProfile: InspectionProfile?, profile: InspectionProfile?) {
                         onInspectionProfileChanged()
+                        installRuleInspections()
+                    }
+                },
+            )
+            project.messageBus.connect(this).subscribe(
+                VirtualFileManager.VFS_CHANGES,
+                object : BulkFileListener {
+                    override fun after(events: List<VFileEvent>) {
+                        if (events.any { touchesProjectConfig(it) }) onConfigChanged()
+                        rescanSavedFilesUnderOverride(events)
+                    }
                 },
             )
             inspectionsEnabled = KritInspectionToggle.anyEnabled(project)
@@ -103,7 +124,93 @@ class KritProjectService(private val project: Project) : Disposable {
             } else {
                 projectRescanPending = true
             }
+            startDaemonIfNeeded()
+            installRuleInspections()
         }
+    }
+
+    // Adds one inspection per krit rule (Settings → Inspections → Krit →
+    // <category>) to the inspection profiles. Reading the rule list may run
+    // krit (once per binary; it is cached), so it happens off the EDT; the
+    // profiles are changed on the EDT.
+    private fun installRuleInspections() {
+        try {
+            ApplicationManager.getApplication().executeOnPooledThread {
+                if (project.isDisposed) return@executeOnPooledThread
+                val rules = KritRules.forProject(project)
+                if (rules.isEmpty()) return@executeOnPooledThread
+                ApplicationManager.getApplication().invokeLater({
+                    try {
+                        KritRuleProfiles.install(project, rules)
+                    } catch (e: com.intellij.openapi.progress.ProcessCanceledException) {
+                        throw e
+                    } catch (t: RuntimeException) {
+                        log.warn("krit per-rule inspections could not be added", t)
+                    }
+                }, project.disposed)
+            }
+        } catch (t: Throwable) {
+            log.debug("krit rule list load not scheduled", t)
+        }
+    }
+
+    // With a config override, a file with unsaved edits isn't analyzed (the
+    // CLI reads only disk, and the daemon can't take the override), so its
+    // findings are dropped while it is modified. Saving it rescans it here.
+    private fun rescanSavedFilesUnderOverride(events: List<VFileEvent>) {
+        if (!inspectionsEnabled || KritRunner.configOverride(project) == null) return
+        val saved = events.filterIsInstance<VFileContentChangeEvent>()
+            .map { it.file }
+            .filter { it.isValid && shouldTriggerScan(it) }
+            .map { it.path }
+        if (saved.isEmpty()) return
+        scanGeneration.bump()
+        pendingFiles.addAll(saved)
+        scheduleScan(KritScanDebounce.effectiveMs(KritSettingsState.getSafely()?.state?.debounceMs))
+    }
+
+    // A created, edited, deleted, or renamed krit.yml / .krit.yml at the
+    // project root (where the CLI looks for it; see config.Filenames).
+    private fun touchesProjectConfig(event: VFileEvent): Boolean {
+        val base = project.basePath ?: return false
+        val paths = mutableListOf<String?>(event.path)
+        if (event is VFilePropertyChangeEvent && event.isRename) {
+            paths.add(event.newPath)
+        } else if (event is VFileMoveEvent) {
+            paths.add(event.newPath)
+        }
+        val override = KritRunner.configOverride(project)
+        return KritConfigFiles.anyProjectConfig(base, paths) || paths.any { KritConfigOverride.isOverride(override, it) }
+    }
+
+    // The config changes which rules run and how, so every file's findings
+    // may change: queue a full project scan, debounced like an edit (saving
+    // krit.yml while typing fires several events). Edited files already
+    // queued stay queued. While the inspections are off the rescan waits for
+    // them to come back on, as onInspectionProfileChanged does.
+    private fun onConfigChanged() {
+        if (project.isDisposed) return
+        // A scan still running was configured by the old file.
+        scanGeneration.bump()
+        projectRescanPending = true
+        if (!inspectionsEnabled) return
+        scheduleScan(KritScanDebounce.effectiveMs(KritSettingsState.getSafely()?.state?.debounceMs))
+    }
+
+    // Settings → Tools → Krit changed: a different config file changes every
+    // file's findings, so rescan the project; the fix level only changes
+    // which quick fixes are offered, so re-highlight.
+    // The krit binary setting changed: read the new binary's rule list and
+    // add inspections for its rules.
+    fun binaryChanged() {
+        if (!scansEnabled) return
+        installRuleInspections()
+    }
+
+    fun settingsChanged(configChanged: Boolean) {
+        if (!scansEnabled) return
+        if (configChanged) onConfigChanged()
+        restartHighlighting()
     }
 
     // While scans are paused nothing refreshes an edited file, so findings
@@ -177,8 +284,15 @@ class KritProjectService(private val project: Project) : Disposable {
     }
 
     fun findingsFor(path: String): List<KritFinding> {
-        return findingsByFile[canonicalPath(path)].orEmpty()
+        val map = findingsByFile
+        if (map.isEmpty()) return emptyList()
+        return map[editorPathCanonical.computeIfAbsent(path) { canonicalPath(it) }].orEmpty()
     }
+
+    // Editor (VFS) path to canonical path. Every per-rule inspection asks
+    // findingsFor about each highlighted file, so resolve each path once
+    // rather than once per rule.
+    private val editorPathCanonical = ConcurrentHashMap<String, String>()
 
     internal fun seedFindingsForTest(path: String, findings: List<KritFinding>) {
         findingsByFile = findingsByFile + (canonicalPath(path) to findings)
@@ -211,14 +325,31 @@ class KritProjectService(private val project: Project) : Disposable {
     }
 
     fun applyFix(fixLevel: String?, findingId: String) {
+        saveDocumentsBeforeExternalWrite()
         executor.execute {
             if (project.isDisposed || !running.compareAndSet(false, true)) {
                 rerunAfterCurrent.set(true)
                 return@execute
             }
             try {
-                if (KritRunner.fixFinding(project, fixLevel, findingId)) {
-                    refreshFindings()
+                val findings = findingsByFile.values.flatten()
+                val targets = KritFixTargets.forFix(findings, findingId, project.basePath)
+                val rule = KritFixTargets.ruleOf(findings, findingId)
+                when (val result = KritRunner.fixFinding(project, fixLevel, findingId)) {
+                    is KritRunner.FixResult.Applied -> refreshAfterFix(targets, rule)
+                    // Nothing was written; the findings still describe the
+                    // files. Say why the fix didn't run.
+                    is KritRunner.FixResult.NotRun ->
+                        result.message?.let { transition(KritState.Error(it)) }
+                    // krit ran and may have written the target files: their
+                    // findings can't be trusted, so drop them and rescan.
+                    is KritRunner.FixResult.Failed -> {
+                        findingsByFile = KritFixTargets.withoutTargets(findingsByFile, targets) {
+                            canonicalPath(it, project.basePath)
+                        }
+                        restartHighlighting()
+                        refreshAfterFix(targets, rule)
+                    }
                 }
             } catch (t: Throwable) {
                 log.warn("krit per-finding fix runner failed", t)
@@ -230,7 +361,11 @@ class KritProjectService(private val project: Project) : Disposable {
     }
 
     fun applySuggestion(findingId: String, suggestionId: String) {
-        val cachedReport = lastReportJson
+        saveDocumentsBeforeExternalWrite()
+        // The finding the user picked may come from a per-file (daemon) scan
+        // newer than the last project report, so hand krit a report holding
+        // that finding as the plugin has it; fall back to the project report.
+        val cachedReport = reportForSuggestion(findingId, suggestionId) ?: lastReportJson
         executor.execute {
             if (project.isDisposed || !running.compareAndSet(false, true)) {
                 rerunAfterCurrent.set(true)
@@ -238,7 +373,8 @@ class KritProjectService(private val project: Project) : Disposable {
             }
             try {
                 if (KritRunner.applySuggestion(project, findingId, suggestionId, cachedReport)) {
-                    refreshFindings()
+                    val rule = KritFixTargets.ruleOf(KritJsonParser.parse(cachedReport).findings, findingId)
+                    refreshAfterFix(suggestionTargets(cachedReport, findingId, suggestionId), rule)
                 }
             } catch (t: Throwable) {
                 log.warn("krit apply-suggestion runner failed", t)
@@ -246,6 +382,65 @@ class KritProjectService(private val project: Project) : Disposable {
                 running.set(false)
                 scheduleRequestedRerun()
             }
+        }
+    }
+
+    // krit edits files on disk, and the findings of an unsaved file came from
+    // its editor buffer (offsets, finding IDs), so save first; this also
+    // keeps the IDE from treating krit's write as a conflicting change.
+    // Quick fixes and intentions call in on the EDT.
+    private fun saveDocumentsBeforeExternalWrite() {
+        if (!ApplicationManager.getApplication().isDispatchThread) return
+        FileDocumentManager.getInstance().saveAllDocuments()
+    }
+
+    // A one-finding JSON report (the CLI's shape, which `krit
+    // apply-suggestion` reads) for the current finding with findingId, or
+    // null when no current finding has that suggestion.
+    private fun reportForSuggestion(findingId: String, suggestionId: String): String? {
+        val finding = findingsByFile.values.asSequence().flatten().firstOrNull {
+            it.findingId == findingId && it.suggestedFixes.any { s -> s.id == suggestionId }
+        } ?: return null
+        return KritJsonParser.reportJson(listOf(finding))
+    }
+
+    // The files a suggestion's edits target, read from the report krit applied
+    // it from, or null when the report doesn't say.
+    private fun suggestionTargets(reportJson: String, findingId: String, suggestionId: String): Set<String>? {
+        val report = try {
+            KritJsonParser.parse(reportJson)
+        } catch (t: Exception) {
+            log.debug("krit apply-suggestion: cached report unreadable, rescanning the project", t)
+            return null
+        }
+        return KritFixTargets.forSuggestion(report.findings, findingId, suggestionId, project.basePath)
+    }
+
+    // After a fix wrote to disk: rescan only the files it wrote (through the
+    // daemon when one runs), or the whole project when they aren't known or
+    // the per-file scan doesn't re-evaluate fixedRule (see
+    // KritFixTargets.perFileRescanCovers). Runs on the scan thread with
+    // `running` held.
+    private fun refreshAfterFix(targets: Set<String>?, fixedRule: String?) {
+        if (targets.isNullOrEmpty()) {
+            refreshFindings()
+            return
+        }
+        // Let the editors pick up krit's write; the reload's document events
+        // queue a per-file scan of their own.
+        LocalFileSystem.getInstance().refreshIoFiles(targets.map { File(it) }, true, false, null)
+        val generation = scanGeneration.current()
+        // Analyze what krit wrote, not an editor buffer that hasn't reloaded.
+        val rescanned = refreshChangedFiles(
+            targets,
+            isCancelled = { scanGeneration.isSuperseded(generation) },
+            contentFor = { null },
+            fixedRule = fixedRule,
+            requireFixedRule = true,
+        )
+        if (!rescanned) {
+            pendingFiles.addAll(targets)
+            rerunAfterCurrent.set(true)
         }
     }
 
@@ -334,7 +529,19 @@ class KritProjectService(private val project: Project) : Disposable {
     }
 
     // Returns false when the scan was superseded and nothing was published.
-    private fun refreshChangedFiles(paths: Set<String>, isCancelled: () -> Boolean = { false }): Boolean {
+    //
+    // contentFor gives the text to analyze for a path (null reads the file
+    // from disk); by default the open editor buffer.
+    private fun refreshChangedFiles(
+        paths: Set<String>,
+        isCancelled: () -> Boolean = { false },
+        contentFor: (String) -> String? = ::readLiveDocument,
+        // After a fix: when the daemon scan doesn't re-evaluate fixedRule (or
+        // no daemon answered), refresh the whole project instead, so the
+        // fixed finding of a project-only rule doesn't linger.
+        fixedRule: String? = null,
+        requireFixedRule: Boolean = false,
+    ): Boolean {
         // Per-file rescans replace findings for each changed file in the
         // running map; other files' findings are untouched. Errors and
         // missing-binary on any one file bubble up to the state surface
@@ -342,27 +549,56 @@ class KritProjectService(private val project: Project) : Disposable {
         // failure mode in the status bar.
         transition(KritState.Scanning)
         val updated = findingsByFile.toMutableMap()
-        // Several changed files go to the daemon in one analyze-buffers
-        // request. Files it didn't answer for (no daemon, a per-buffer error)
-        // fall through to the one-by-one path below, which still ends in the
-        // CLI when no daemon is running.
-        val batched = if (paths.size > 1) {
-            KritRunner.analyzeFilesWithDaemon(project, paths.associateWith { readLiveDocument(it) }, isCancelled)
-                .orEmpty()
+        // The changed files go to the daemon in one analyze-buffers request,
+        // which also says which (per-file) rules it ran, so findings of the
+        // project-only rules it skipped survive the rescan. Files it didn't
+        // answer for (no daemon, a per-buffer error) fall through to the
+        // one-by-one path below, which ends in the CLI when no daemon runs.
+        val scan = KritRunner.scanBuffersWithDaemon(project, paths.associateWith { contentFor(it) }, isCancelled)
+        if (requireFixedRule && !KritFixTargets.perFileRescanCovers(fixedRule, scan?.evaluatedRules)) {
+            if (scan?.outcomes?.values?.any { it is KritRunner.AnalyzeOutcome.Cancelled } == true) {
+                // Superseded before the project refresh: the retry must still
+                // rescan the project, or the fixed finding lingers.
+                projectRescanPending = true
+                return false
+            }
+            if (!refreshFindings(isCancelled)) {
+                projectRescanPending = true
+                return false
+            }
+            projectRescanPending = false
+            return true
+        }
+        val batched = scan?.outcomes.orEmpty()
+        // Under a config override modified buffers can't be analyzed (see
+        // overlayUnsavedBuffers); after a fix (contentFor reads disk) the
+        // files were saved first, so this only applies to edits.
+        val deferred = if (!requireFixedRule && KritRunner.configOverride(project) != null) {
+            unsavedPaths(paths)
         } else {
-            emptyMap()
+            emptySet()
         }
         for (path in paths) {
             val canonical = canonicalPath(path, project.basePath)
-            val outcome = batched[path]
-                ?: KritRunner.analyzeFile(project, path, readLiveDocument(path), isCancelled)
+            if (path in deferred) {
+                updated.remove(canonical)
+                continue
+            }
+            val fromBatch = batched[path]
+            val outcome = fromBatch
+                ?: KritRunner.analyzeFile(project, path, contentFor(path), isCancelled)
             if (outcome is KritRunner.AnalyzeOutcome.Cancelled || isCancelled()) return false
             when (outcome) {
                 is KritRunner.AnalyzeOutcome.Success -> {
                     val grouped = outcome.report.findings.groupBy {
                         canonicalPath(it.file, project.basePath)
                     }
-                    updated[canonical] = grouped[canonical] ?: emptyList()
+                    val merged = KritUnsavedBuffers.mergeFileScan(
+                        prior = updated[canonical].orEmpty(),
+                        scanned = grouped[canonical].orEmpty(),
+                        evaluatedRules = if (fromBatch != null) scan?.evaluatedRules else null,
+                    )
+                    if (merged.isEmpty()) updated.remove(canonical) else updated[canonical] = merged
                 }
                 is KritRunner.AnalyzeOutcome.MissingBinary -> {
                     transition(KritState.MissingBinary)
@@ -395,6 +631,13 @@ class KritProjectService(private val project: Project) : Disposable {
         skipBuffers: Set<String>,
         isCancelled: () -> Boolean,
     ): Map<String, List<KritFinding>>? {
+        if (KritRunner.configOverride(project) != null) {
+            // No buffer-aware scan under an override: drop the disk findings
+            // of modified files rather than show them as current. Saving a
+            // file rescans it (rescanSavedFilesUnderOverride).
+            val unsaved = unsavedBuffers().keys.mapTo(HashSet()) { canonicalPath(it, project.basePath) }
+            return KritUnsavedBuffers.withoutBuffers(onDisk, unsaved)
+        }
         val skip = skipBuffers.mapTo(HashSet()) { canonicalPath(it, project.basePath) }
         val buffers = unsavedBuffers().filterKeys { canonicalPath(it, project.basePath) !in skip }
         if (buffers.isEmpty()) return onDisk
@@ -402,6 +645,18 @@ class KritProjectService(private val project: Project) : Disposable {
         val byCanonical = scan.outcomes.mapKeys { (path, _) -> canonicalPath(path, project.basePath) }
         return KritUnsavedBuffers.overlay(onDisk, byCanonical, scan.evaluatedRules) {
             canonicalPath(it, project.basePath)
+        }
+    }
+
+    // The paths among paths whose open document has unsaved changes.
+    private fun unsavedPaths(paths: Set<String>): Set<String> {
+        if (project.isDisposed) return emptySet()
+        return ReadAction.compute<Set<String>, RuntimeException> {
+            val documents = FileDocumentManager.getInstance()
+            val fs = LocalFileSystem.getInstance()
+            paths.filterTo(HashSet()) { path ->
+                fs.findFileByPath(path)?.let { documents.isFileModified(it) } == true
+            }
         }
     }
 
@@ -537,6 +792,59 @@ class KritProjectService(private val project: Project) : Disposable {
         }
     }
 
+    // On project open: start a daemon for the project when the setting allows
+    // it and none answers on the project's socket. Runs off the EDT (`krit
+    // daemon start` waits for the daemon to come up); a missing binary or a
+    // failed start just leaves scans on the CLI path.
+    private fun startDaemonIfNeeded() {
+        if (KritSettingsState.getSafely()?.state?.startDaemon == false) return
+        val base = project.basePath ?: return
+        // With a config override every scan uses the CLI (the daemon reads
+        // only the project's own krit.yml), so a daemon would sit unused.
+        if (KritRunner.configOverride(project) != null) return
+        if (!daemonOwnership.beginStart()) return
+        try {
+            ApplicationManager.getApplication().executeOnPooledThread {
+                var startedWith: File? = null
+                try {
+                    startedWith = startDaemon(File(base))
+                } catch (t: Throwable) {
+                    log.warn("krit daemon start failed", t)
+                } finally {
+                    if (daemonOwnership.finishStart(startedWith)) {
+                        // The project closed while the daemon came up.
+                        startedWith?.let { KritRunner.stopDaemonAsync(File(base), it) }
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            daemonOwnership.finishStart(null)
+            log.debug("krit daemon start not scheduled", t)
+        }
+    }
+
+    // Returns the binary that started a new daemon, or null when none was
+    // started (one already answers, the binary is missing, the start failed).
+    private fun startDaemon(projectDir: File): File? {
+        if (project.isDisposed) return null
+        val socket = KritDaemonClient.socketPathFor(projectDir)
+        // A throwaway client: this runs while the constructor may still be
+        // initializing the shared one.
+        if (KritDaemonClient(socket).use { it.available() }) return null
+        val binary = KritBinaryResolver.find(project) ?: return null
+        return when (KritRunner.startDaemon(project, binary)) {
+            KritDaemonStart.Result.STARTED -> {
+                log.info("krit daemon started for ${projectDir.path}")
+                binary
+            }
+            KritDaemonStart.Result.ALREADY_RUNNING -> null
+            KritDaemonStart.Result.FAILED -> {
+                log.info("krit daemon could not be started for ${projectDir.path}; scans use the CLI")
+                null
+            }
+        }
+    }
+
     @Volatile
     private var disposed = false
 
@@ -551,6 +859,12 @@ class KritProjectService(private val project: Project) : Disposable {
             daemonClient?.close()
             daemonClient = null
             daemonClientSocket = null
+        }
+        // Stop the daemon only if this project started it. The stop command
+        // runs detached from dispose, which only waits for it to be launched.
+        val base = project.basePath
+        daemonOwnership.release()?.let { binary ->
+            if (base != null) KritRunner.stopDaemonAsync(File(base), binary)
         }
     }
 

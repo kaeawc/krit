@@ -75,8 +75,8 @@ make build
 ```
 
 CGO requires a C compiler. Optional compiler-backed analysis uses JVM
-helper tools in `tools/krit-types/` and `tools/krit-fir/`; install a
-JDK when you want KAA/FIR-backed checks. Java semantic facts use the helper
+helper tool in `tools/krit-fir/`; install a
+JDK when you want FIR-backed checks. Java semantic facts use the helper
 in `tools/krit-java-facts/` and require `javac` on `PATH`; Krit compiles it
 once and caches it under the per-user Krit `jars` cache directory (`~/.krit/jars/`-style location).
 
@@ -89,35 +89,42 @@ Java on `PATH` and a helper jar:
 
 | Helper | Used for | How a released binary gets it |
 |---|---|---|
-| `krit-fir.jar` | Default type oracle (`balanced` / `thorough` depth), `--fir` | Downloaded on first use to `~/.krit/jars/krit-fir-<tag>.jar` |
-| `krit-types.jar` | `--oracle-backend=kaa`, `--daemon`, `--custom-rule-jars` | Downloaded on first use to `~/.krit/jars/krit-types-<tag>.jar` |
+| `krit-fir.jar` | Type oracle (`balanced` / `thorough` depth), `--fir`, `--daemon`, `--custom-rule-jars`, `--output-types` | Downloaded on first use to `~/.krit/jars/krit-fir-<tag>.jar` |
 
 Downloads come from the GitHub release matching the binary's version
 and are checked against the SHA-256 in that release's `checksums.txt`
 before they are installed (an integrity check; the checksum file's
 GPG signature is not verified by krit). Only tagged release builds
-download; `make build` and `go build` binaries use the in-tree jars. If the `krit-fir` jar can't be downloaded but a
-`krit-types` jar is installed, the oracle falls back to the KAA
-backend with a warning. `krit --doctor` reports which jars are found.
+download; `make build` and `go build` binaries use the in-tree jars. `krit --doctor` reports which jars are found.
 
-For local development, `make fir-jar` and `make types-jar` build and install
-content-addressed shadow jars under `~/.krit/jars/dev/<source-hash>/`
+For local development, `make fir-jar` builds and installs a
+content-addressed shadow jar under `~/.krit/jars/dev/<source-hash>/`
 (or `$KRIT_DEV_JAR_DIR/<source-hash>/` when that variable is set).
-Worktrees with the same JVM sources share these jars. Development lookups use
+Worktrees with the same JVM sources share the jar. Development lookups use
 the shared jar before a worktree-local `tools/<helper>/build/libs/` jar.
 
 If GitHub fails, krit tries Maven Central. Set `KRIT_JAR_REPOSITORY` to a
 corporate Maven repository base URL to use only that mirror; the URL must use
 HTTPS, with plain HTTP accepted only for loopback hosts such as local mirrors and tests. The coordinates
-are `dev.jasonpearson.krit:krit-fir:<version>` and
-`dev.jasonpearson.krit:krit-types:<version>`, where version is the release tag
+are `dev.jasonpearson.krit:krit-fir:<version>`, where version is the release tag
 without its leading `v`. Maven jars are verified against their published
 `.sha256` or `.sha512` sibling checksum files before installation.
 
 For offline or air-gapped machines, set `KRIT_NO_JAR_DOWNLOAD=1` and
 either pre-seed `~/.krit/jars/` with the release assets or point
-`KRIT_FIR_JAR` / `KRIT_TYPES_JAR` at existing jars. Without Java the
+`KRIT_FIR_JAR` at an existing jar. Without Java the
 JVM-backed checks are skipped and source-level inference still runs.
+
+The krit-fir oracle JVM honours these environment variables:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `KRIT_ORACLE_EXTRA_JVM_ARGS` | none | Extra JVM flags (whitespace-separated) placed before `-jar`, e.g. `-Xmx8g`. |
+| `KRIT_ORACLE_TIMEOUT` | `15m` | Hard limit for a one-shot oracle run (Go duration). |
+| `KRIT_ORACLE_GRACE_EXIT` | `15s` | How long a one-shot JVM may linger after writing its output before it is killed. |
+| `KRIT_ORACLE_REQUEST_TIMEOUT` | `10m` | Limit for a single oracle daemon request; a smaller value also shortens the 5s reconnect ping. |
+
+These replaced the `KRIT_TYPES_*` names, which are no longer read.
 
 ## Shell completions
 

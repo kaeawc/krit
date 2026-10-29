@@ -188,7 +188,7 @@ type ContentHashProvider func(path string) (string, bool)
 
 // StaleOracleCandidates returns the subset of paths whose file stat
 // differs from the prior manifest entry. Used by the oracle
-// freshness gate to identify .kt files that need a partial KAA
+// freshness gate to identify .kt files that need a partial oracle
 // reanalyze without paying for a full content-hash recompute first
 // — the InvokeCachedWithOptions classifier then verifies via SHA-256
 // inside the JVM-bound miss path. A nil or empty prior manifest is

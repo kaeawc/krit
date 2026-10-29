@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -73,9 +74,10 @@ type PendingPass struct {
 }
 
 type checkOutcome struct {
-	result   *Result
-	err      error
-	duration time.Duration
+	result                *Result
+	err                   error
+	duration              time.Duration
+	incrementalDiagnostic string
 }
 
 // Cancel abandons a pending verdict without waiting for a JVM check.
@@ -156,17 +158,35 @@ func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
 		if err != nil {
 			status = "error"
 		}
+		incrementalDiagnostic := ""
+		if err == nil {
+			noCache := false
+			if checker, ok := opts.Checker.(*ProductionFirChecker); ok {
+				noCache = checker.NoCache
+			}
+			incrementalDiagnostic = incrementalFIRDiagnostic(result, noCache, os.Getenv("KRIT_FIR_INCREMENTAL"))
+		}
 		if opts.Broker != nil {
 			// Recorded once the pass has its answer, so "shared" means the
 			// pass really used the oracle's compile.
-			perf.AddEntryDetails(sub, "firCheckBroker", 0, nil, map[string]string{"outcome": opts.Broker.Outcome()})
+			details := map[string]string{"outcome": opts.Broker.Outcome()}
+			if result != nil && result.Incremental != nil {
+				// How krit-fir's incremental planner served the check: on
+				// the shared compile or on the pass's own.
+				details["incremental"] = result.Incremental.String()
+			}
+			perf.AddEntryDetails(sub, "firCheckBroker", 0, nil, details)
+		}
+		details := map[string]string{"status": status}
+		if incrementalDiagnostic != "" {
+			details["incremental"] = incrementalDiagnostic
 		}
 		perf.AddEntryDetails(sub, "firCheckOutcome", 0, map[string]int64{
 			"files": int64(len(requested)),
 			"rules": int64(len(ruleNames)),
-		}, map[string]string{"status": status})
+		}, details)
 		sub.End()
-		p.done <- checkOutcome{result: result, err: err, duration: duration}
+		p.done <- checkOutcome{result: result, err: err, duration: duration, incrementalDiagnostic: incrementalDiagnostic}
 	}()
 	return p
 }
@@ -257,6 +277,9 @@ func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) 
 		Suppressed:  newSuppressor(p.targets.files).suppressed,
 	})
 	if verbose {
+		if outcome.incrementalDiagnostic != "" {
+			fmt.Fprintf(opts.VerboseOut, "verbose: %s\n", outcome.incrementalDiagnostic)
+		}
 		cache := Stats()
 		fmt.Fprintf(opts.VerboseOut,
 			"verbose: FIR checker in %v (%d findings, %d files requested, cache hits=%d misses=%d)\n",

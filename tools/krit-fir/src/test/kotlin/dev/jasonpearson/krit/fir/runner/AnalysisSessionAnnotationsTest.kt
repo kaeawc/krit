@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 
 /**
  * End-to-end coverage for annotation projection on classes and
- * members. Mirrors krit-types' shape: each annotation contributes its
+ * members. Each annotation contributes its
  * containing class FQN to the `annotations` list (no value rendering).
  */
 class AnalysisSessionAnnotationsTest {

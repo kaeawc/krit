@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -176,18 +177,22 @@ func staticIvImportsOrQualifiesSpec(file *scanner.File, ctor string, idx uint32)
 }
 
 func staticIvFileDeclaresType(file *scanner.File, name string) bool {
-	found := false
-	for _, nodeType := range []string{"class_declaration", "object_declaration", "type_alias"} {
-		file.FlatWalkNodes(0, nodeType, func(node uint32) {
-			if found {
-				return
-			}
-			if extractIdentifierFlat(file, node) == name {
-				found = true
-			}
-		})
-	}
-	return found
+	return fileDeclaredTypeNames(file)[name]
+}
+
+// fileDeclaredTypeNames is the names of the file's classes, objects and type
+// aliases, collected once per file (#944) instead of a whole-file walk for
+// every visited call.
+func fileDeclaredTypeNames(file *scanner.File) map[string]bool {
+	return filefacts.FileFact(fileFactsCache(), file, slotDeclaredTypeNames, func() map[string]bool {
+		names := map[string]bool{}
+		for _, nodeType := range []string{"class_declaration", "object_declaration", "type_alias"} {
+			file.FlatWalkNodes(0, nodeType, func(node uint32) {
+				names[extractIdentifierFlat(file, node)] = true
+			})
+		}
+		return names
+	})
 }
 
 func isLiteralByteArray(file *scanner.File, expr uint32) bool {
@@ -269,10 +274,13 @@ func prngFromSystemTimeCryptoFile(file *scanner.File) bool {
 	if file == nil {
 		return false
 	}
-	text := string(file.Content)
-	return strings.Contains(text, "import javax.crypto") ||
-		strings.Contains(text, "import java.security") ||
-		strings.Contains(text, "import javax.net.ssl")
+	// Once per file (#944): the rule asks from every node it visits.
+	return filefacts.FileFact(fileFactsCache(), file, slotPrngCryptoFile, func() bool {
+		text := string(file.Content)
+		return strings.Contains(text, "import javax.crypto") ||
+			strings.Contains(text, "import java.security") ||
+			strings.Contains(text, "import javax.net.ssl")
+	})
 }
 
 func prngFromSystemTimeTestPath(path string) bool {

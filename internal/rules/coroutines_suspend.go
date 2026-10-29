@@ -10,7 +10,7 @@ import (
 // RedundantSuspendModifierRule detects suspend functions with no suspend calls inside.
 // With type inference: uses ResolveNode on call expressions to check if the call
 // target is a suspend function, beyond the hardcoded known list.
-// With oracle: uses KAA call-target metadata to distinguish resolved suspend
+// With oracle: uses oracle call-target metadata to distinguish resolved suspend
 // calls from resolved non-suspend calls, with known FQN/name fallbacks for older
 // oracle payloads.
 type RedundantSuspendModifierRule struct {
@@ -67,53 +67,6 @@ var knownSuspendFQNs = map[string]bool{
 	"kotlinx.coroutines.Job.cancelAndJoin":                       true,
 	"kotlinx.coroutines.Deferred.await":                          true,
 	"kotlinx.coroutines.sync.Mutex.lock":                         true,
-}
-
-func redundantSuspendCallTargetCallees() []string {
-	return []string{
-		"acquire",
-		"async",
-		"await",
-		"awaitAll",
-		"cancelAndJoin",
-		"collect",
-		"coroutineScope",
-		"delay",
-		"emit",
-		"join",
-		"joinAll",
-		"launch",
-		"lock",
-		"mutex",
-		"receive",
-		"receiveCatching",
-		"runBlocking",
-		"send",
-		"supervisorScope",
-		"suspendCancellableCoroutine",
-		"suspendCoroutine",
-		"withContext",
-		"withTimeout",
-		"withTimeoutOrNull",
-		"yield",
-	}
-}
-
-func redundantSuspendCallTargetLexicalHints() map[string][]string {
-	hints := make(map[string][]string)
-	for _, callee := range redundantSuspendCallTargetCallees() {
-		hints[callee] = []string{"kotlinx.coroutines", "kotlin.coroutines"}
-	}
-	hints["collect"] = append(hints["collect"], "kotlinx.coroutines.flow", "Flow")
-	hints["emit"] = append(hints["emit"], "kotlinx.coroutines.flow", "FlowCollector")
-	hints["send"] = append(hints["send"], "kotlinx.coroutines.channels", "SendChannel")
-	hints["receive"] = append(hints["receive"], "kotlinx.coroutines.channels", "ReceiveChannel")
-	hints["receiveCatching"] = append(hints["receiveCatching"], "kotlinx.coroutines.channels", "ReceiveChannel")
-	hints["join"] = append(hints["join"], "Job")
-	hints["cancelAndJoin"] = append(hints["cancelAndJoin"], "Job")
-	hints["await"] = append(hints["await"], "Deferred")
-	hints["lock"] = append(hints["lock"], "Mutex", "kotlinx.coroutines.sync")
-	return hints
 }
 
 // suspendFQNPrefixes are package prefixes that indicate a call target is likely

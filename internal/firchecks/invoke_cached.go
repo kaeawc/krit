@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"unicode/utf8"
 
@@ -40,6 +41,11 @@ type Result struct {
 	// Warnings are krit-fir's notes that part of the request was not applied
 	// (unsupported Kotlin compiler settings, an unsupported JVM target).
 	Warnings []string
+	// Incremental is how krit-fir's planner served the compiled part of the
+	// check; nil when every file came from the cache or the planner is off.
+	Incremental           *IncrementalPlan
+	responseApplied       bool
+	incrementalErrorFiles int
 }
 
 func newResult() *Result {
@@ -64,6 +70,7 @@ func (r *Result) addRuleError(rule, path, msg string) {
 
 // addResponse folds a daemon/one-shot response into r.
 func (r *Result) addResponse(resp *CheckResponse) {
+	r.responseApplied = true
 	if resp.Warning != "" && !slices.Contains(r.Warnings, resp.Warning) {
 		r.Warnings = append(r.Warnings, resp.Warning)
 	}
@@ -83,6 +90,15 @@ func (r *Result) addResponse(resp *CheckResponse) {
 		}
 	}
 	r.addRules(resp.Rules)
+	r.incrementalErrorFiles = 0
+	for _, reason := range resp.ErrorFiles {
+		if !strings.HasPrefix(reason, "krit-fir: not compiled;") {
+			r.incrementalErrorFiles++
+		}
+	}
+	if resp.Incremental != nil {
+		r.Incremental = resp.Incremental
+	}
 }
 
 func (r *Result) addRules(rules []string) {

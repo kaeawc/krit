@@ -11,7 +11,7 @@
 // Gradle integration.
 //
 // Gates on prerequisites being present (java on PATH, locatable
-// krit-types.jar) and t.Skips otherwise so `make integration` stays
+// krit-fir.jar) and t.Skips otherwise so `make integration` stays
 // green on developer machines without a JVM. The dedicated
 // `playground-rules` CI job stages the prerequisites and exercises
 // the test for real.
@@ -60,12 +60,16 @@ func TestPlaygroundCustomRules_EndToEnd(t *testing.T) {
 	if _, err := exec.LookPath("java"); err != nil {
 		t.Skip("skipping: `java` not on PATH (JDK 21+ required)")
 	}
-	if oracle.FindJar(nil) == "" {
-		t.Skip("skipping: krit-types.jar not located. Set KRIT_TYPES_JAR or run " +
-			"`./gradlew -p tools/krit-types shadowJar`")
-	}
 
 	repoRoot := repoRoot(t)
+	// Custom rule jars run in the krit-fir daemon. Pin the located jar for
+	// the krit subprocesses so they use the same one.
+	firJar := oracle.FindJar([]string{repoRoot})
+	if firJar == "" {
+		t.Skip("skipping: krit-fir.jar not located. Set KRIT_FIR_JAR or run " +
+			"`make fir-jar` (or `./gradlew -p tools/krit-fir shadowJar`)")
+	}
+	t.Setenv(oracle.BackendFIR.JarEnvVar(), firJar)
 	playgroundDir := filepath.Join(repoRoot, "playground", "kotlin-webservice")
 	customRulesDir := filepath.Join(repoRoot, "playground", "custom-rules")
 	sourcesDir := filepath.Join(playgroundDir, "src", "main", "kotlin")

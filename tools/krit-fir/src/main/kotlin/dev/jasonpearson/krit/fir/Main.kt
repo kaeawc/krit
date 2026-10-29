@@ -11,8 +11,10 @@ import dev.jasonpearson.krit.fir.plugins.PluginRuleRunner
 import dev.jasonpearson.krit.fir.plugins.ProjectPayloads
 import dev.jasonpearson.krit.fir.incremental.BundleStore
 import dev.jasonpearson.krit.fir.runner.AnalysisSession
+import dev.jasonpearson.krit.fir.incremental.incrementalRecordingFromEnv
 import dev.jasonpearson.krit.fir.runner.KotlinCompilerSettings
 import dev.jasonpearson.krit.fir.runner.BatchResult
+import dev.jasonpearson.krit.fir.runner.CompilerPlugins
 import dev.jasonpearson.krit.fir.runner.ModuleSpec
 import java.io.File as JavaFile
 import dev.jasonpearson.krit.fir.runner.FileRef
@@ -35,8 +37,9 @@ fun main(args: Array<String>) {
         val request = requireNotNull(parseModuleRequest(JavaFile(path).readText(), oneShot = true)) { "Missing modules" }
         val session = AnalysisSession(request.sourceDirs, request.classpath,
             request.jvmTarget.ifEmpty { extractCliValue(args, "--jvm-target").orEmpty() },
-            request.kotlinArgs.ifEmpty { extractCliValues(args, "--kotlin-arg") })
-        session.kotlinSettingsWarnings.forEach { System.err.println(it) }
+            request.kotlinArgs.ifEmpty { extractCliValues(args, "--kotlin-arg") },
+            compilerPlugins = request.compilerPlugins().takeUnless { it.isEmpty } ?: cliCompilerPlugins(args))
+        (session.kotlinSettingsWarnings + session.compilerPluginWarnings).forEach { System.err.println(it) }
         try {
             val response = buildCheckResponse(session.analyzeModules(request.id, request.modules,
                 request.files.map { it.path }, request.rules.toSet(), request.ruleConfigs, request.testFiles, request.scanPaths,
@@ -78,8 +81,8 @@ fun main(args: Array<String>) {
     //            [--files LIST_FILE] [--classpath JAR[:JAR...]]
     //            [--cache-deps-out FILE]
     //            [--check-request JSON_FILE --check-out FILE]
-    // Mirrors krit-types' one-shot surface so `oracle.InvokeWithFiles`
-    // can drive either backend with the same arg vector. The check flags
+    // This is the one-shot arg vector `oracle.InvokeWithFiles` builds on
+    // the Go side. The check flags
     // run a `check` request on the same compilation (#739).
     val sources = extractCliSources(args)
     val output = extractCliValue(args, "--output", "-o")
@@ -96,6 +99,7 @@ fun main(args: Array<String>) {
         classpath = classpath,
         jvmTarget = jvmTarget,
         kotlinArgs = extractCliValues(args, "--kotlin-arg"),
+        compilerPlugins = cliCompilerPlugins(args),
         cacheDepsOutPath = extractCliValue(args, "--cache-deps-out"),
         checkRequestPath = extractCliValue(args, "--check-request"),
         checkOutPath = extractCliValue(args, "--check-out"),
@@ -119,6 +123,15 @@ internal fun extractCliValue(args: Array<String>, vararg flags: String): String?
 internal fun extractCliValues(args: Array<String>, flag: String): List<String> =
     args.withIndex().filter { (i, arg) -> arg == flag && i + 1 < args.size }.map { (i, _) -> args[i + 1] }
 
+/**
+ * The project's compiler plugins from `--compiler-plugin JAR` (repeatable, or one platform path list) and
+ * `--compiler-plugin-option plugin:<id>:<key>=<value>` (repeatable).
+ */
+internal fun cliCompilerPlugins(args: Array<String>): CompilerPlugins = CompilerPlugins.of(
+    extractCliValues(args, "--compiler-plugin").flatMap { it.split(java.io.File.pathSeparator) },
+    extractCliValues(args, "--compiler-plugin-option"),
+)
+
 internal fun extractCliSources(args: Array<String>): List<String>? =
     extractCliValue(args, "--sources")
         ?.split(",")
@@ -136,7 +149,8 @@ internal fun createDaemonSession(args: Array<String>): AnalysisSession =
     AnalysisSession(
         extractCliSources(args).orEmpty(), extractCliClasspath(args), extractCliValue(args, "--jvm-target").orEmpty(),
         extractCliValues(args, "--kotlin-arg"),
-    ).also { session -> session.kotlinSettingsWarnings.forEach { System.err.println(it) } }
+        compilerPlugins = cliCompilerPlugins(args),
+    ).also { session -> (session.kotlinSettingsWarnings + session.compilerPluginWarnings).forEach { System.err.println(it) } }
 
 private fun printOneShotUsage() {
     System.err.println(
@@ -148,6 +162,7 @@ private fun printOneShotUsage() {
         |           [--files LIST_FILE] [--classpath JAR[${java.io.File.pathSeparatorChar}JAR...]]
         |           [--jvm-target VERSION]
         |           [--kotlin-arg ARG]...
+        |           [--compiler-plugin JAR]... [--compiler-plugin-option plugin:ID:KEY=VALUE]...
         |           [--cache-deps-out FILE]
         |           [--check-request JSON_FILE --check-out FILE]
         """.trimMargin(),
@@ -161,17 +176,23 @@ internal fun runOneShot(
     classpath: List<String>,
     jvmTarget: String = "",
     kotlinArgs: List<String> = emptyList(),
+    compilerPlugins: CompilerPlugins = CompilerPlugins.EMPTY,
     cacheDepsOutPath: String?,
     checkRequestPath: String? = null,
     checkOutPath: String? = null,
+    incremental: Boolean = incrementalRecordingFromEnv(),
+    snapshotRoot: java.io.File? = null,
 ) {
-    val session = AnalysisSession(sources, classpath, jvmTarget, kotlinArgs)
-    session.kotlinSettingsWarnings.forEach { System.err.println(it) }
+    val session = AnalysisSession(
+        sources, classpath, jvmTarget, kotlinArgs, incrementalRecording = incremental, incrementalPlanning = incremental,
+        compilerPlugins = compilerPlugins,
+    ).also { it.snapshotRootOverride = snapshotRoot }
+    (session.kotlinSettingsWarnings + session.compilerPluginWarnings).forEach { System.err.println(it) }
     val files = if (filesListPath.isNullOrBlank()) {
         emptyList()
     } else {
         // `--files` is a newline-delimited list of absolute paths to
-        // restrict analysis to. Same shape krit-types accepts.
+        // restrict analysis to.
         java.io.File(filesListPath).readLines().map { it.trim() }.filter { it.isNotEmpty() }
     }
     // A check request rides on the oracle's compilation when both compile the
@@ -185,18 +206,28 @@ internal fun runOneShot(
     val (outcome, checked) = if (checkRequest == null) {
         session.analyzeFull(files) to null
     } else {
+        AotSelfCheck.prepare()
         session.analyzeWithCheck(files, checkRequest)
     }
     // The cache-deps and check files are written first: the Go caller treats
     // a non-empty --output as "done" and may stop waiting for the process
     // after a grace period, so they must already be on disk by then.
-    if (checked != null && !checkOutPath.isNullOrBlank()) {
-        java.io.File(checkOutPath).writeText(buildCheckResponse(checked))
+    val sharedCheck = checked?.let { markSharedCheck(buildCheckResponse(it)) }
+    if (sharedCheck != null && !checkOutPath.isNullOrBlank()) {
+        java.io.File(checkOutPath).writeText(sharedCheck)
     }
     if (!cacheDepsOutPath.isNullOrBlank()) {
         java.io.File(cacheDepsOutPath).writeText(
             dev.jasonpearson.krit.fir.oracle.OracleResponse.buildCacheDeps(outcome.cacheDeps),
         )
+    }
+    // The process ends after this run, so the incremental bundle a shared check compile left pending (#880) is
+    // written now, and before --output for the same reason as the files above; the snapshot directory goes with
+    // the session.
+    try {
+        session.dispose()
+    } catch (e: Exception) {
+        System.err.println("krit-fir: could not write the incremental bundle (${e.message})")
     }
     java.io.File(outputPath).writeText(dev.jasonpearson.krit.fir.oracle.OracleResponse.buildOneShot(outcome.result))
     System.err.println("Wrote $outputPath")
@@ -312,7 +343,7 @@ internal fun withWarnings(
     json: String, session: AnalysisSession, declaredJvmTarget: String, extra: List<String> = emptyList(),
 ): String {
     val warnings = listOfNotNull(session.jvmTargetWarning.takeIf { declaredJvmTarget.isNotBlank() }) +
-        session.kotlinSettingsWarnings + extra
+        session.kotlinSettingsWarnings + session.compilerPluginWarnings + extra
     if (warnings.isEmpty()) return json
     return json.dropLast(1) + ",\"warning\":" + jsonStr(warnings.distinct().joinToString("; ")) + "}"
 }
@@ -332,6 +363,7 @@ internal inline fun withActiveSession(
     val rebuilt = session.rebuild(
         request.sourceDirs, request.classpath, request.jvmTarget.ifEmpty { session.jvmTarget },
         request.kotlinArgs.ifEmpty { session.kotlinArgs },
+        request.compilerPlugins().takeUnless { it.isEmpty } ?: session.compilerPlugins,
     )
     val response = try {
         body(rebuilt)
@@ -373,6 +405,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 val newSession = session.rebuild(
                     request.sourceDirs, request.classpath, request.jvmTarget.ifEmpty { session.jvmTarget },
                     request.kotlinArgs.ifEmpty { session.kotlinArgs },
+                    request.compilerPlugins().takeUnless { it.isEmpty } ?: session.compilerPlugins,
                 )
                 session.dispose()
                 val elapsed = System.currentTimeMillis() - start
@@ -381,7 +414,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                     newSession,
                 )
             }
-            "canary" -> RequestResult.Response(handleCanary(request.id))
+            "canary" -> RequestResult.Response(handleCanary(request.id, canaryWantsOracleFacts(trimmed)))
             "ping" -> {
                 val uptime = System.currentTimeMillis() - startTime
                 RequestResult.Response("""{"id":${request.id},"result":{"ok":true,"uptime":$uptime}}""")
@@ -393,6 +426,9 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 } else {
                     request.files.map { it.path }
                 }
+                // An oracle-only request names the bundle root so a restarted daemon can answer an unchanged module
+                // from it (#957). Without one, the root the last check named stays in force.
+                request.incrementalDir?.let { activeSession.configurePersistence(BundleStore.trustedRoot(it)) }
                 val response = if (request.command == "analyzeWithDeps") {
                     val outcome = activeSession.analyzeFull(analyzeFiles)
                     OracleResponse.buildAnalyzeWithDeps(request.id, outcome.result, outcome.cacheDeps)
@@ -453,7 +489,10 @@ internal fun sessionNeedsRebuild(request: CheckRequest, session: AnalysisSession
     // an argument reordering or a rejected extra does not rebuild the session.
     val kotlinSettingsMismatch = request.kotlinArgs.isNotEmpty() &&
         KotlinCompilerSettings.parse(request.kotlinArgs).identity != session.kotlinSettings.identity
-    return sourceDirsMismatch || classpathMismatch || jvmTargetMismatch || kotlinSettingsMismatch
+    // Compiler plugins follow the same rule: absent keeps the session's, a different set rebuilds it.
+    val compilerPluginsMismatch = request.compilerPluginClasspath.isNotEmpty() &&
+        request.compilerPlugins().identity != session.compilerPlugins.identity
+    return sourceDirsMismatch || classpathMismatch || jvmTargetMismatch || kotlinSettingsMismatch || compilerPluginsMismatch
 }
 
 // ── Request model ─────────────────────────────────────────────────────────────
@@ -469,6 +508,10 @@ data class CheckRequest(
     // (-language-version=2.0, -opt-in=x, -Xfoo); re-filtered through
     // KotlinCompilerSettings' allowlist. Empty means "keep the session's".
     val kotlinArgs: List<String> = emptyList(),
+    // The project's Kotlin compiler plugin jars and their `plugin:<id>:<key>=<value>` options (see
+    // CompilerPlugins). A krit-owned field, never a compiler argument. Empty means "keep the session's".
+    val compilerPluginClasspath: List<String> = emptyList(),
+    val compilerPluginOptions: List<String> = emptyList(),
     val rules: List<String> = emptyList(),
     val ruleConfigs: Map<String, Map<String, Any?>> = emptyMap(),
     // Requested files krit classifies as test files (scanner.IsTestFile on the
@@ -481,7 +524,7 @@ data class CheckRequest(
     // resolved for it, for the files with a known level; exposed to checkers
     // via FirRule.minSdkFor / FirRule.targetSdkFor.
     val sdkLevels: Map<String, SdkLevels> = emptyMap(),
-    // Plugin-rule jar paths, matching krit-types' `"jars"` array in
+    // Plugin-rule jar paths, from the `"jars"` array in
     // `listPlugins` / `analyzeFile` requests.
     val pluginJars: List<String> = emptyList(),
     // analyzeFile (plugin-rule execution) payload.
@@ -503,7 +546,10 @@ data class CheckRequest(
     // `analyzeWithCheck` only: the `check` request the oracle compile also
     // answers (#810), carried under the `kritSharedCheck` key.
     val sharedCheck: CheckRequest? = null,
-)
+) {
+    /** The request's compiler plugins, validated. */
+    fun compilerPlugins(): CompilerPlugins = CompilerPlugins.of(compilerPluginClasspath, compilerPluginOptions)
+}
 
 /** The key an `analyzeWithCheck` request carries its embedded check request under. */
 internal const val SHARED_CHECK_KEY = "kritSharedCheck"
@@ -620,6 +666,8 @@ fun parseRequest(request: String, liftEmbedded: Boolean = true): CheckRequest {
     val classpath = extractStringArray(json, "classpath") ?: emptyList()
     val jvmTarget = extractString(json, "jvmTarget").orEmpty()
     val kotlinArgs = extractStringArray(json, "kotlinArgs") ?: emptyList()
+    val compilerPluginClasspath = extractStringArray(json, "compilerPluginClasspath") ?: emptyList()
+    val compilerPluginOptions = extractStringArray(json, "compilerPluginOptions") ?: emptyList()
     val incrementalDir = extractString(json, "incrementalDir")?.takeIf { it.isNotBlank() }
     val rules = extractStringArray(json, "rules") ?: emptyList()
     val pluginJars = extractStringArray(json, "jars") ?: emptyList()
@@ -630,7 +678,8 @@ fun parseRequest(request: String, liftEmbedded: Boolean = true): CheckRequest {
     val payloads = if (command == "analyzeFile") ProjectPayloads.parse(json) else ProjectPayloads.EMPTY
     return CheckRequest(
         id = id, command = command, files = files, sourceDirs = sourceDirs, classpath = classpath,
-        jvmTarget = jvmTarget, kotlinArgs = kotlinArgs, rules = rules, ruleConfigs = ruleConfigs, testFiles = testFiles,
+        jvmTarget = jvmTarget, kotlinArgs = kotlinArgs, compilerPluginClasspath = compilerPluginClasspath,
+        compilerPluginOptions = compilerPluginOptions, rules = rules, ruleConfigs = ruleConfigs, testFiles = testFiles,
         scanPaths = scanPaths, sdkLevels = sdkLevels, pluginJars = pluginJars, path = path, source = source,
         ruleIds = ruleIds, projectPayloads = payloads, incrementalDir = incrementalDir,
     )
@@ -654,9 +703,11 @@ internal fun handleAnalyzeWithCheck(request: CheckRequest, session: AnalysisSess
     val files = request.files.map { it.path }
     val check = request.sharedCheck
     if (check == null) return OracleResponse.buildAnalyze(request.id, session.analyze(files))
+    AotSelfCheck.prepare()
     val (outcome, checked) = session.analyzeWithCheck(files, check)
     val oracle = OracleResponse.buildAnalyze(request.id, outcome.result)
-    return oracle.dropLast(1) + ",\"check\":" + (checked?.let { withWarnings(buildCheckResponse(it), session, check.jvmTarget, it.warnings) } ?: "null") + "}"
+    val shared = checked?.let { markSharedCheck(withWarnings(buildCheckResponse(it), session, check.jvmTarget, it.warnings)) }
+    return oracle.dropLast(1) + ",\"check\":" + (shared ?: "null") + "}"
 }
 
 internal fun handleAnalyzeFile(request: CheckRequest, session: AnalysisSession): String {
@@ -746,7 +797,13 @@ fun buildCheckResponse(result: BatchResult): String {
         val deciding = result.decidingModules.entries.joinToString(",", "{", "}") { (path, module) -> "${jsonStr(path)}:${jsonStr(module)}" }
         """, "modules":$statuses,"decidingModules":$deciding"""
     }
-    return """{"id":${result.id},"succeeded":${result.succeeded},"skipped":${result.skipped},"findings":[$findingsJson],"rules":$rulesJson,"crashed":$crashedJson,"errorFiles":$errorFilesJson,"ruleErrors":$ruleErrorsJson$moduleJson}"""
+    // How the incremental planner served the check, when it ran: "incremental", or "full" with the reason.
+    val planJson = result.plan?.let { plan ->
+        val reason = plan.reason?.let { ""","reason":${jsonStr(it)}""" }.orEmpty() +
+            plan.detail?.let { ""","detail":${jsonStr(it)}""" }.orEmpty()
+        ""","incremental":{"path":${jsonStr(plan.path)}$reason,"dirtyFiles":${plan.dirtyFiles},"totalMs":${plan.totalMillis}}"""
+    }.orEmpty()
+    return """{"id":${result.id},"succeeded":${result.succeeded},"skipped":${result.skipped},"findings":[$findingsJson],"rules":$rulesJson,"crashed":$crashedJson,"errorFiles":$errorFilesJson,"ruleErrors":$ruleErrorsJson$moduleJson$planJson}"""
 }
 
 // ── Minimal JSON parsing (no external deps) ───────────────────────────────────
@@ -756,14 +813,53 @@ fun extractLong(json: String, key: String): Long? =
 
 fun extractString(json: String, key: String): String? =
     Regex(""""$key"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"""").find(json)
-        ?.groupValues?.get(1)?.replace("\\\"", "\"")?.replace("\\\\", "\\")
+        ?.groupValues?.get(1)?.let(::unescapeJsonString)
+
+/**
+ * Decodes the body of a JSON string literal (the text between its quotes).
+ * Every JSON escape is honoured: an `analyzeFile` request ships the file's
+ * source as one string, so `\n` must become a real newline for line numbers
+ * and PSI offsets to match the file on disk.
+ */
+fun unescapeJsonString(raw: String): String {
+    if ('\\' !in raw) return raw
+    val sb = StringBuilder(raw.length)
+    var i = 0
+    while (i < raw.length) {
+        val c = raw[i]
+        if (c != '\\' || i + 1 >= raw.length) {
+            sb.append(c)
+            i++
+            continue
+        }
+        when (val esc = raw[i + 1]) {
+            'n' -> sb.append('\n')
+            'r' -> sb.append('\r')
+            't' -> sb.append('\t')
+            'b' -> sb.append('\b')
+            'f' -> sb.append('\u000C')
+            'u' -> {
+                val code = raw.substring(i + 2, minOf(i + 6, raw.length)).takeIf { it.length == 4 }?.toIntOrNull(16)
+                if (code == null) {
+                    sb.append(esc)
+                } else {
+                    sb.append(code.toChar())
+                    i += 4
+                }
+            }
+            else -> sb.append(esc) // '"', '\\', '/', and anything unexpected
+        }
+        i += 2
+    }
+    return sb.toString()
+}
 
 fun extractStringArray(json: String, key: String): List<String>? {
     val arrayPat = Regex(""""$key"\s*:\s*\[([^\]]*)]""")
     val arrayBody = arrayPat.find(json)?.groupValues?.get(1) ?: return null
     if (arrayBody.isBlank()) return emptyList()
     return Regex(""""([^"\\]*(?:\\.[^"\\]*)*)"""").findAll(arrayBody).map {
-        it.groupValues[1].replace("\\\"", "\"").replace("\\\\", "\\")
+        unescapeJsonString(it.groupValues[1])
     }.toList()
 }
 
@@ -803,7 +899,7 @@ fun extractFileRefs(json: String): List<FileRef> {
             element.startsWith("{") ->
                 FileRef(extractString(element, "path") ?: "", extractString(element, "contentHash") ?: "")
             element.startsWith("\"") && element.length >= 2 ->
-                FileRef(element.substring(1, element.length - 1).replace("\\\"", "\"").replace("\\\\", "\\"))
+                FileRef(unescapeJsonString(element.substring(1, element.length - 1)))
             else -> null
         }
     }

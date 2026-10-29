@@ -47,8 +47,6 @@ func registerAndroidRules() {
 			NodeTypes:  []string{"call_expression"},
 			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Confidence: api.ConfidenceMedium, Implementation: r,
-			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"preferredWidth", "preferredHeight", "preferredSize"}},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name, replacement, ok := obsoleteComposeModifierCall(ctx, idx)
@@ -166,8 +164,6 @@ func registerAndroidRules() {
 			NodeTypes:  []string{"call_expression"},
 			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Confidence: api.ConfidenceMedium, Implementation: r,
-			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"acquire", "release"}},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !wakeLockAcquireCall(ctx, idx) {
@@ -209,10 +205,8 @@ func registerAndroidRules() {
 			NodeTypes: []string{"call_expression", "method_invocation", "assignment"},
 			Needs:     api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceHigher, Implementation: r,
-			JavaFacts:              &api.JavaFactProfile{ReceiverTypesForCallees: []string{"setJavaScriptEnabled"}},
-			NeedsLibraryFacts:      true,
-			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"setJavaScriptEnabled"}},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
+			JavaFacts:         &api.JavaFactProfile{ReceiverTypesForCallees: []string{"setJavaScriptEnabled"}},
+			NeedsLibraryFacts: true,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				switch file.FlatType(idx) {

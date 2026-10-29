@@ -87,7 +87,7 @@ class KritDaemonClient(
         val data = call(KritDaemonProtocol.VERB_ANALYZE_BUFFER, args) ?: return null
         val payload = gson.fromJson(data, KritDaemonProtocol.AnalyzeBufferData::class.java)
             ?: return emptyList()
-        return KritColumnarFindingsDecoder.decode(payload.findings)
+        return KritColumnarFindingsDecoder.decode(payload.findings, payload.fixLevels)
     }
 
     /**
@@ -120,7 +120,7 @@ class KritDaemonClient(
             if (!entry.error.isNullOrEmpty()) {
                 BufferResult.Error(entry.error)
             } else {
-                BufferResult.Findings(KritColumnarFindingsDecoder.decode(entry.findings))
+                BufferResult.Findings(KritColumnarFindingsDecoder.decode(entry.findings, entry.fixLevels))
             }
         }
         return BufferBatch(decoded, payload.rules?.toSet())

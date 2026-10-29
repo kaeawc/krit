@@ -43,7 +43,7 @@ func fakeAOTDaemonFunc(t *testing.T, respond func(line string) string, args ...s
 		t.Fatal(err)
 	}
 	cmd.Args = append(cmd.Args, args...)
-	return &FirDaemon{cmd: cmd, conn: client, reader: bufio.NewScanner(client), nextID: 1, started: true, aotCachePath: firAOTCacheArg(cmd.Args)}
+	return &FirDaemon{cmd: cmd, conn: client, reader: bufio.NewReader(client), nextID: 1, started: true, aotCachePath: firAOTCacheArg(cmd.Args)}
 }
 
 func TestZeroRegisteredFIRRulesDiscardsAOTAndRetries(t *testing.T) {
@@ -67,7 +67,7 @@ func TestZeroRegisteredFIRRulesDiscardsAOTAndRetries(t *testing.T) {
 	retries := 0
 	startFirWithoutAOT = func(_ string, _ bool, _ ...CompileTarget) (*FirDaemon, error) {
 		retries++
-		args := buildFirJVMArgsWithAOT(jar, "missing-java", 27, false, false)
+		args := buildFirJVMArgsWithAOTMode(jar, "missing-java", 27, false, firAOTOff)
 		for _, arg := range args {
 			if strings.HasPrefix(arg, "-XX:AOT") || strings.HasPrefix(arg, "-Xlog:aot") {
 				t.Fatalf("retry contains AOT: %v", args)

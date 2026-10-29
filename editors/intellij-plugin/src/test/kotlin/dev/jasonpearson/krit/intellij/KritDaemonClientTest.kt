@@ -17,6 +17,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -306,6 +307,22 @@ class KritDaemonClientTest {
     // Daemon writes one JSON object per response terminated by \n. Strip
     // any embedded newlines so tests can author pretty-printed JSON in
     // helpers without breaking the line-delimited contract.
+    @Test
+    fun `analyzeBuffer throws on a malformed findings payload so callers fall back`() {
+        // KritRunner runs analyzeBuffer on a helper thread; a throw there
+        // surfaces as ExecutionException, which falls back to the CLI.
+        server = MockDaemonServer.start(socketPath) { _, _ ->
+            okResponse(
+                """{"findings":{"files":["/x.kt"],"ruleSets":["rs"],"rules":["r"],"messages":["m"],""" +
+                    """"fileIdx":[0],"line":[1],"col":[1],"ruleSetIdx":[0],"ruleIdx":[0],""" +
+                    """"severityID":"not base64!","messageIdx":[0],"confidence":"VQ=="},"cache_hit":false}""",
+            )
+        }
+        assertFailsWith<com.google.gson.JsonParseException> {
+            KritDaemonClient(socketPath).analyzeBuffer("/x.kt", "")
+        }
+    }
+
     private fun okResponse(dataJson: String): String =
         """{"ok":true,"data":${dataJson.replace("\n", "").replace(Regex("\\s+"), " ")}}""" + "\n"
 }

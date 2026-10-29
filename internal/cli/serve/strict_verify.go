@@ -98,7 +98,6 @@ func (r *strictVerifyAnalyzeResponse) WriteRawResponse(ctx context.Context, w io
 		CodeIndexHit:      xfile.HasCodeIndex,
 		LibraryFactsHit:   xfile.HasLibraryFacts,
 		ResolverHit:       xfile.HasResolver,
-		OracleFilterHit:   xfile.HasOracleFilter,
 		DirtyFiles:        r.dirtyN,
 		Cold:              r.cold,
 		ParseHits:         res.ParseHits,
@@ -156,12 +155,12 @@ func (r *strictVerifyAnalyzeResponse) WriteRawResponse(ctx context.Context, w io
 // `${repoDir}/.krit/daemon-divergence-NNNN.log` on divergence.
 //
 // The baseline runs with a fresh ProjectHostState so resident CodeIndex
-// / Resolver / OracleFilter / AnalysisCache state can't contaminate the
+// / Resolver / AnalysisCache state can't contaminate the
 // comparison. Two exceptions are intentional:
 //
 //   - The parse cache is freshly constructed for the baseline only, so
 //     stale memoised parses can't mask a daemon-side bug.
-//   - The oracle daemon (krit-types or krit-fir, picked from
+//   - The oracle daemon (krit-fir, picked from
 //     args.OracleBackend) is shared with the daemon call. The
 //     out-of-process JVM is itself a daemon-resident piece whose
 //     correctness is independent of krit's resident state, and

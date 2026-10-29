@@ -45,7 +45,7 @@ Prefer, in order:
 1. flat AST node kinds, identifiers, navigation chains, imports, source-index facts
 2. source-level type inference (`NeedsResolver`)
 3. library/project profile facts (`ctx.LibraryFacts`) — see `krit-project-analysis`
-4. Kotlin Analysis API (`NeedsOracle`) — only when source-visible evidence cannot prove it
+4. krit-fir type oracle (`NeedsOracle`) — only when source-visible evidence cannot prove it
 
 Do not broaden a heuristic when a project-profile guard or a receiver check is the real missing condition.
 

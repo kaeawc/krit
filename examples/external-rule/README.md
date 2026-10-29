@@ -47,6 +47,6 @@ analysis.
   `settings.gradle.kts`; CI publishes the matching snapshot via
   `./gradlew -p tools/krit-rule-api publishToMavenLocal -PkritVersion=<v>`
   before invoking `:external-rule:kritRuleJar`.
-- The Krit binary must be able to find `krit-types.jar`. Released
-  binaries auto-download it; for dev builds set `KRIT_TYPES_JAR` or run
-  `./gradlew -p tools/krit-types shadowJar`.
+- The Krit binary must be able to find `krit-fir.jar`. Released
+  binaries auto-download it; for dev builds run `make fir-jar` at the
+  repo root or set `KRIT_FIR_JAR`.

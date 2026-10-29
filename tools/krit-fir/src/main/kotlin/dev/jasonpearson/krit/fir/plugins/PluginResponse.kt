@@ -2,14 +2,12 @@ package dev.jasonpearson.krit.fir.plugins
 
 /**
  * JSON wire-shape builders for the plugin-rule daemon RPCs. The shape
- * mirrors krit-types' `buildListPluginsResponse` so a single Go-side
- * client parses either backend's response with one struct.
+ * matches the struct the Go-side plugin client decodes.
  */
 internal object PluginResponse {
 
     /**
-     * Build the `analyzeFileWithPlugins` response. Mirrors krit-types'
-     * `buildAnalyzeFileResponse`: a `findings` array (with optional
+     * Build the `analyzeFileWithPlugins` response: a `findings` array (with optional
      * per-finding `fix` metadata) plus an optional `errors` map keyed
      * by rule ID for rules that threw mid-`check`.
      */

@@ -31,12 +31,44 @@ internal class OracleCollector {
      */
     val depTracker: DepTracker = DepTracker()
 
+    /**
+     * Slice compiles only (#740): resolves a supertype the compile read as a binary from the incremental snapshot
+     * to the module file declaring it and that class's projection, as a whole-module compile would have recorded
+     * them from source. Returns null for a class that is not the module's (a library class). Null outside slices.
+     */
+    var binarySupertype: ((fqn: String) -> Pair<String, ClassPayload>?)? = null
+
+    /** Set when [binarySupertype] knew the declaring file but had no projection: this compile's deps are partial. */
+    var binarySupertypeMissed: Boolean = false
+
+    /**
+     * Slice compiles only (#740): the source-side annotations of a callee the compile read as a binary, by
+     * [calleeSignature]; null when the module's source declares none for it (or it is not the module's).
+     */
+    var binaryCalleeAnnotations: ((signature: String) -> List<String>?)? = null
+
+    /** Set when a binary callee's key was [AMBIGUOUS_ANNOTATIONS]: this compile's facts are not trusted. */
+    var binaryCalleeAmbiguous: Boolean = false
+
+    /** Whether to record [declaredAnnotations]: on while the session keeps oracle facts for incremental use. */
+    var recordDeclarations: Boolean = false
+
+    private val declaredByFile = LinkedHashMap<String, LinkedHashMap<String, List<String>>>()
+
+    /** Per file, the annotations of each annotated function and constructor it declares (see [recordDeclaredAnnotations]). */
+    val declaredAnnotations: Map<String, Map<String, List<String>>> get() = declaredByFile
+
+    fun addDeclaredAnnotations(filePath: String, signature: String, annotations: List<String>) {
+        val declared = declaredByFile.getOrPut(filePath) { LinkedHashMap() }
+        declared[signature] = mergeDeclared(declared[signature], annotations)
+    }
+
     fun addClass(filePath: String, payload: ClassPayload) {
         perFile.getOrPut(filePath) { mutableListOf() }.add(payload)
-        // The `dependencies` map mirrors krit-types' cross-file class
-        // index — keyed by FQN so the Go-side oracle can resolve a
-        // symbol without walking every file. First-wins on duplicate
-        // FQNs across files; matches krit-types' behavior.
+        // The `dependencies` map is a cross-file class index — keyed
+        // by FQN so the Go-side oracle can resolve a symbol without
+        // walking every file. First-wins on duplicate FQNs across
+        // files, so the Go-side resolver sees a stable choice.
         dependencies.putIfAbsent(payload.fqn, payload)
     }
 
@@ -46,9 +78,8 @@ internal class OracleCollector {
 
     /**
      * Add an expression payload for [filePath] under [key]
-     * ("line:col"). First-wins on duplicate keys — matches krit-types'
-     * dedup behavior where overlapping call expressions at the same
-     * source position are reported once.
+     * ("line:col"). First-wins on duplicate keys, so overlapping call
+     * expressions at the same source position are reported once.
      */
     fun addExpression(filePath: String, key: String, payload: ExpressionPayload) {
         val map = expressionsByFile.getOrPut(filePath) { LinkedHashMap() }
@@ -76,8 +107,8 @@ internal class OracleCollector {
 
     /**
      * Append a diagnostic payload for [filePath]. Insertion order is
-     * preserved so the wire payload is deterministic; krit-types' JSON
-     * shape doesn't dedup diagnostics either (a file can legitimately
+     * preserved so the wire payload is deterministic; diagnostics are
+     * not deduplicated (a file can legitimately
      * carry multiple instances of the same factory at different sites).
      */
     fun addDiagnostic(filePath: String, payload: DiagnosticPayload) {
@@ -110,8 +141,8 @@ internal class OracleCollector {
     /**
      * Build the final [AnalyzeResult] from buffered data. Files that
      * had no class declarations but did have a package directive still
-     * appear with an empty `declarations` list — matches krit-types'
-     * behavior of emitting one `FileResult` per visited Kotlin file.
+     * appear with an empty `declarations` list, so there is one file
+     * entry per visited Kotlin file.
      */
     fun toResult(): AnalyzeResult {
         val allFilePaths =

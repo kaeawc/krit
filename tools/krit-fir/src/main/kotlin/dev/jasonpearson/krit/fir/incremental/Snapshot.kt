@@ -28,8 +28,11 @@ internal const val SNAPSHOT_MODULE_NAME = "krit-incremental"
 
 /** Why a slice compile cannot be used, so the planner serves the request with a full compile instead. */
 internal enum class SliceFallback(val message: String) {
-    /** No snapshot was built: the first compile has not run, it had compiler errors, or building the snapshot failed. */
+    /** No snapshot was built: the first compile has not run, or building the snapshot failed. */
     NO_SNAPSHOT("no binary snapshot of the module"),
+
+    /** The whole-module compile reported compiler errors, so the backend never ran and no snapshot was built. */
+    COMPILE_ERRORS("the module had compiler errors"),
 
     /** The module uses `expect`/`actual` (or compiles as multiplatform): K2 never writes `expect` declarations to class files. */
     EXPECT_ACTUAL("the module uses expect/actual declarations"),

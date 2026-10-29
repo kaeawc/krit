@@ -99,12 +99,8 @@ func registerAndroidSourceExtraRules() {
 				api.NeedsOracleCallTargets |
 				api.NeedsOracleSupertypes,
 			Confidence: r.Confidence(), Implementation: r,
-			Oracle:            &api.OracleFilter{Identifiers: []string{"setTag"}},
-			OracleCallTargets: &api.OracleCallTargetFilter{CalleeNames: []string{"setTag"}},
-			// Checks whether the receiver extends View (class hierarchy) to
-			// confirm setTag is a View.setTag call; no member signatures needed.
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
-			Check:                  r.check,
+			Oracle: &api.OracleFilter{Identifiers: []string{"setTag"}},
+			Check:  r.check,
 		})
 	}
 	{
@@ -125,31 +121,18 @@ func registerAndroidSourceExtraRules() {
 			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Confidence: r.Confidence(), Implementation: r,
 			Oracle: &api.OracleFilter{Identifiers: missingPermissionOracleIdentifiers()},
-			OracleCallTargets: &api.OracleCallTargetFilter{
-				CalleeNames:          missingPermissionCandidateCalleeNames(),
-				AnnotatedIdentifiers: missingPermissionAnnotatedIdentifiers,
-			},
-			// Uses LookupCallTarget for FQN verification and AST for
-			// @RequiresPermission guards; no oracle member annotations needed.
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
-			Check:                  r.check,
+			Check:  r.check,
 		})
 	}
 	{
 		r := &WrongConstantRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "WrongConstant", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "WrongConstant", Brief: "Wrong constant passed to API", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"},
-			Needs:     api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-			Oracle:    &api.OracleFilter{Identifiers: []string{"setVisibility", "setLayoutDirection", "setImportantForAccessibility", "setGravity", "setOrientation"}},
-			OracleCallTargets: &api.OracleCallTargetFilter{
-				CalleeNames: []string{"setVisibility", "setLayoutDirection", "setImportantForAccessibility", "setGravity", "setOrientation"},
-			},
-			TypeInfo: api.TypeInfoHint{PreferBackend: api.PreferOracle, Required: true},
-			// Uses LookupCallTarget to verify framework target; allowed constant
-			// sets come from hardcoded tables, not oracle member annotations.
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
-			Confidence:             r.Confidence(), Implementation: r,
+			NodeTypes:  []string{"call_expression"},
+			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Oracle:     &api.OracleFilter{Identifiers: []string{"setVisibility", "setLayoutDirection", "setImportantForAccessibility", "setGravity", "setOrientation"}},
+			TypeInfo:   api.TypeInfoHint{PreferBackend: api.PreferOracle, Required: true},
+			Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}

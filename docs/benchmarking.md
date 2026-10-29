@@ -6,10 +6,10 @@ that the run did what was asked before it counts the timing.
 
 ```bash
 go build -o krit ./cmd/krit/
-make fir-jar types-jar            # only for the oracle and FIR modes
+make fir-jar                      # only for the oracle and FIR modes
 go run ./internal/devtools/benchanalysis \
     -corpus ~/src/AutoMobile \
-    -modes structural,fir-oracle,kaa-oracle,fir-checkers \
+    -modes structural,fir-oracle,fir-checkers \
     -states cold,warm-disk,warm-daemon,body-edit,abi-edit \
     -edit-file path/inside/corpus/Some.kt \
     -runs 7 -out bench-out
@@ -24,12 +24,10 @@ It writes `bench-out/results.json` (metadata and every run, raw) and
 |---|---|---|
 | `structural` | `--no-type-oracle --no-fir` | no `oracleBackend` entry in the perf report |
 | `fir-oracle` | `--oracle-backend=fir --no-fir` | `oracleBackend.backend == "fir"` |
-| `kaa-oracle` | `--oracle-backend=kaa --no-fir` | `oracleBackend.backend == "kaa"` |
 | `fir-checkers` | `--oracle-backend=fir --fir` | as `fir-oracle`, plus `firCheckOutcome.status == "ok"` |
 
 `oracleBackend` (under `typeOracle`, and under `typeOracle/jvmAnalyze` for an
-in-process run) records the backend that actually served the oracle, after any
-fallback. The in-process entry also records the jar; the entry written for a
+in-process run) records the backend that actually served the oracle. The in-process entry also records the jar; the entry written for a
 resident daemon has `source=resident-daemon` and no jar, and is written only
 after the daemon's analysis succeeded and its facts loaded. `firCheckOutcome` (under
 `firCheck`) records the FIR checker pass's file and rule counts and status.
@@ -52,8 +50,7 @@ runs and clean baselines never get the exception. So a missing jar still fails
 the fill run that should have filled the caches, and the state is skipped.
 
 Compare modes only where the workload is the same. `structural` doesn't run a
-JVM at all. `fir-oracle` and `kaa-oracle` produce the same facts with
-different engines, so they compare directly. `fir-checkers` adds the rule
+JVM at all. `fir-checkers` adds the rule
 checkers: on a cold run they share the oracle's compilation (the
 `firCheckRider` entry reads `shared`), and otherwise they add a second
 compile.
@@ -77,37 +74,97 @@ private registry (`KRIT_DAEMON_REGISTRY_DIR`) and are scoped to the krit
 process that started them (`KRIT_EPHEMERAL_DAEMONS=1`), so "fresh JVMs" really
 means no reuse, and nothing the harness starts outlives it. Caches under
 `~/.krit` (downloaded jars, AOT/CDS archives) are not reset; the metadata
-records the jar hashes. FIR AOT stays off (see #768).
+records the jar hashes. FIR JVMs use the Leyden AOT cache on JDK 25+, behind
+the canary described below, so a `cold` state still starts them from a warm
+AOT cache when one exists.
 
-### FIR AOT status (#768)
+### FIR AOT (#768)
 
-The FIR checker JVM launches without the Leyden AOT cache. The failure that
-motivated this (a cache that passes the provenance checks but returns no
-findings) could not be reproduced on JDK 25.0.4.1 with the current jar:
-record, create, and reuse gave findings identical to a no-AOT run across
-training workloads (startup only, one rule on one file, all 80 rules on 150
-fixture files) and reuse workloads, including different heap flags and
-working directories. Once AOT is re-enabled, a daemon launched from a cache is checked before it
-is trusted, with the daemon's built-in `canary` request: krit-fir compiles one
-tiny built-in source with a known `DefaultLocale` finding in an isolated
-session. The cost is one small compile, independent of the project the daemon
-serves (an earlier design reused the project's source dirs, which compiled the
-whole project a second time). If the finding does not come back, or the jar
-predates the request, the cache is discarded for the process and the request
-is answered by a daemon launched without AOT. That daemon is not canaried; if
-it registers none of the requested checkers the call fails with
-`errFIRDegraded`.
+krit-fir JVMs launch with the Leyden AOT cache on JDK 25+ (`jvmaot`, keyed by
+jar token, JDK version and the `fir` workload). A cache that passes the
+provenance checks (atomic publish, matching sidecar) was once seen to restore a
+JVM that registered its checkers but reported no findings. That failure could
+not be reproduced on JDK 25.0.4.1 or 25.0.5 with the current jar (record,
+create and reuse gave findings identical to a no-AOT run), so AOT is on, and
+no AOT launch is trusted until a canary passes:
 
-Registry rules: an AOT-launched daemon is not registered until its canary
-passes, so another krit process can neither reuse nor retire it mid-check; if
-the process ends first, the daemon is closed. Every registered daemon carries
-launch metadata (written atomically); a reconnecting run reuses a daemon only
-if the metadata is readable for that PID and says non-AOT or verified, and
-retires everything else, including daemons with missing or unreadable
-metadata. Prerequisite for re-enabling AOT for the oracle-role krit-fir
-daemons: they share this launch path but have no canary of their own, so an
-AOT oracle-role daemon would never be verified and would be closed after each
-use.
+- **Canary.** The daemon's `canary` request compiles one tiny built-in source
+  (`tools/krit-fir` `Canary.kt`) with one known `DefaultLocale` finding in an
+  isolated session. The cost is one small compile, independent of the project.
+  A jar that predates the request answers with an error, which fails.
+- **Checker role** (`--fir`): the canary runs before the first check
+  (`checkFirWithRecovery`). On failure the cache is discarded for the process
+  and the request is answered by a daemon launched without AOT. That daemon is
+  not canaried; if it registers none of the requested checkers the call fails
+  with `errFIRDegraded`.
+- **Oracle role** (`--daemon --oracle-backend=fir`, `ConnectOrStartFirDaemon`):
+  the canary runs right after the launch, before any analyze request
+  (`verifyOracleRoleAOT`), and also asks for the canary source's oracle facts
+  (`"oracle":true`; the package and at least one resolved expression must come
+  back). The oracle collectors are checkers of the same krit-fir extension, so
+  the checker finding already proves that extension dispatches, but they also
+  depend on static collector state the rule checkers do not, so the canary
+  checks that path too. On failure, or if the daemon does not answer, it is
+  closed unregistered and replaced by a daemon launched without AOT. The cache
+  is discarded when the daemon answered wrongly, and only disabled for the
+  process when it did not answer. Oracle-role daemons are never closed by the
+  krit run that starts them, so they never record a profile: they use or build
+  a cache from a profile a checker-role run recorded
+  (`jvmaot.AppendCachedArgs`).
+- **Shared checks** (#739): a check that rides on the type oracle's krit-fir
+  compilation (one-shot `--check-out` or the oracle daemon's
+  `analyzeWithCheck`) comes from a JVM Go cannot canary first. A krit-fir JVM
+  launched from an AOT cache runs the canary itself, once, before it shares a
+  check: it shares nothing when the canary fails and marks the response
+  `"aotCanary":true` when it passes. Go delivers a shared check from an AOT
+  launch only with that mark, so the pass otherwise checks on its own behind
+  its own canary.
+
+Registry rules: an AOT-launched daemon, in either role, is not registered
+until its canary passes, so another krit process can neither reuse nor retire
+it mid-check; if the process ends first, the daemon is closed. Every registered
+daemon carries launch metadata (written atomically); a reconnecting run reuses
+a daemon only if the metadata is readable for that PID and says non-AOT or
+verified, and retires everything else, including daemons with missing or
+unreadable metadata.
+
+### FIR startup benchmark
+
+This is the measurement #741 asked for, rerun when re-enabling FIR AOT. Use a
+private `HOME` so the AOT cache under test is the only one, and a JDK 25+
+`JAVA_HOME`:
+
+```bash
+make fir-jar                                   # prints the jar path
+export KRIT_FIR_JAR=<that jar> HOME=$(mktemp -d)
+# small project: settings.gradle.kts, a committed git repo, and a krit.yml
+# with `oracle:\n  classpath: []`
+for i in 1 2 3 4; do ./krit --fir --no-daemon --no-cache -v -f json . > run$i.json; done
+```
+
+Run 1 records the class profile, run 2 builds the cache and uses it, later runs
+reuse it; `-v` prints each `Leyden AOT:` step. Compare the findings of every
+run with a run on a JDK below 25 (no AOT). To time the JVM alone, start
+`java [-XX:AOTCache=<cache>] -jar krit-fir.jar --daemon --port 0`, wait for the
+ready line, and send `{"id":1,"command":"canary","oracle":true}`.
+
+Measured on a 4-core container under load (load average about 8), JDK 25.0.5,
+seven alternating runs each:
+
+| | no AOT | AOT cache |
+|---|---|---|
+| krit-fir ready (median) | 0.30s | 0.39s |
+| ready + first compile (`canary`, median) | 5.88s | 2.33s |
+| `--fir` scan of a 2-file project, wall | 9.9s | 4.0–4.1s |
+| `--fir --daemon --oracle-backend=fir`, wall | 13.8–13.9s | 6.5–7.1s |
+
+The scan rows compare JDK 21 (no AOT) with JDK 25 reusing the cache. The runs
+that record the profile and build the cache are slower (20.1s and 14.6s for
+the `--fir` scan row on that machine); that cost is paid once per jar and JDK.
+
+Findings were identical in every run, with and without AOT, in both roles, and
+for checks shared with the oracle compile (`firCheckRider` status `shared`
+from an AOT launch).
 
 ## Verification
 
@@ -144,12 +201,13 @@ and never count toward timings.
   per-cache hit and miss counts, the findings count and checksum, rule count,
   `error:`/`warning:` lines, and the applied edit.
 - Metadata: start time, corpus path and git revision (and whether it's dirty),
-  krit revision and binary hash and `--version`, SHA-256 of every helper jar
+  krit revision (the VCS stamp `go build` embeds in the benchmarked binary,
+  falling back to the harness's working checkout) and binary hash and `--version`, SHA-256 of every helper jar
   krit could pick up, Go, Java and Kotlin versions, OS, CPU count, load
   average, the corpus's build files, and the harness options.
 
 CPU and RSS cover the krit process and the children it waited for. Long-lived
-daemons (krit serve, the krit-fir and krit-types oracle JVMs, the checker
+daemons (krit serve, the krit-fir oracle JVM, the checker
 daemon) are not children, so they are reported in separate columns: before and
 after each run the harness reads `/proc/<pid>/stat` (utime+stime) and
 `/proc/<pid>/status` (VmHWM, VmRSS) for every PID in the helper registry and
@@ -169,6 +227,8 @@ Missing classpath entries (for example an Android project without its Gradle
 model) change what the oracle resolves; check the jar and classpath warnings
 recorded with each run before comparing results across machines.
 
-The older scripts are still available: `scripts/benchmark-oracle.sh` (one cold
-KAA run with the JVM-internal breakdown) and `scripts/bench-oracle-backend.sh`
-(KAA versus FIR wall time).
+## Published results
+
+- [2026-10-27, AutoMobile, noisy shared container](benchmarks/2026-10-27-automobile-noisy.md):
+  all four modes and five states, raw `results.json`, and provisional budgets
+  derived from medians. Re-derive the budgets on a quiet machine.

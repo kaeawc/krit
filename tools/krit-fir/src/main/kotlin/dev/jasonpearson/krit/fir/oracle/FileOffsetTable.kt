@@ -6,9 +6,9 @@ package dev.jasonpearson.krit.fir.oracle
  * (which is a char index into the original text) into:
  *
  * - 1-based `(line, col)` for the `"line:col"` expression key that
- *   matches krit-types' wire format.
- * - 0-based UTF-8 byte offset for `startByte` / `endByte`, also
- *   matching krit-types' rendering (which uses `Utf8ByteOffsets`).
+ *   the Go oracle client expects.
+ * - 0-based UTF-8 byte offset for `startByte` / `endByte`, as the
+ *   Go oracle client expects.
  *
  * Computed once per file from the file's content; safe to cache for
  * the lifetime of the enclosing [`OracleCollector`] because that

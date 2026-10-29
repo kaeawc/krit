@@ -39,7 +39,6 @@ func (c *countingState) InvalidateCodeIndex()    {}
 func (c *countingState) InvalidateDependents()   {}
 func (c *countingState) InvalidateLibraryFacts() {}
 func (c *countingState) InvalidateResolver()     {}
-func (c *countingState) InvalidateOracleFilter() {}
 func (c *countingState) Touch(path string)       { c.touchCalls.Add(1) }
 func (c *countingState) BumpSourceMTimeVersion() { c.bumpCalls.Add(1) }
 func (c *countingState) BumpJavaSourceVersion()  { c.javaBumpCalls.Add(1) }
@@ -571,7 +570,6 @@ func (c *chmodFilterCountingState) InvalidateCodeIndex()    {}
 func (c *chmodFilterCountingState) InvalidateDependents()   {}
 func (c *chmodFilterCountingState) InvalidateLibraryFacts() { c.libraryFactsInvalidations.Add(1) }
 func (c *chmodFilterCountingState) InvalidateResolver()     {}
-func (c *chmodFilterCountingState) InvalidateOracleFilter() {}
 func (c *chmodFilterCountingState) Touch(string)            {}
 func (c *chmodFilterCountingState) BumpSourceMTimeVersion() { c.bumpCalls.Add(1) }
 func (c *chmodFilterCountingState) BumpJavaSourceVersion()  {}
@@ -928,7 +926,6 @@ func (s *pathRecordingState) InvalidateCodeIndex()    {}
 func (s *pathRecordingState) InvalidateDependents()   {}
 func (s *pathRecordingState) InvalidateLibraryFacts() {}
 func (s *pathRecordingState) InvalidateResolver()     {}
-func (s *pathRecordingState) InvalidateOracleFilter() {}
 func (s *pathRecordingState) Touch(string)            {}
 func (s *pathRecordingState) BumpSourceMTimeVersion() {}
 func (s *pathRecordingState) BumpJavaSourceVersion()  {}

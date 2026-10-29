@@ -130,10 +130,8 @@ func registerPerformanceRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
-			Needs:                  api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-			Oracle:                 &api.OracleFilter{Identifiers: sequenceCollectionOperationNames()},
-			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: sequenceCollectionOperationNames()},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
+			Needs:  api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Oracle: &api.OracleFilter{Identifiers: sequenceCollectionOperationNames()},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if collectionChainShouldSkipStartFlat(file, idx) {

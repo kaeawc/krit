@@ -17,8 +17,7 @@ import java.io.File
  * Parses Kotlin source text into a [KtFile] suitable for handing to a
  * plugin rule's [`KritRule.check`] invocation. The `analyzeFile` RPC
  * accepts a `(path, source)` pair, so the daemon needs to materialize
- * PSI on demand rather than relying on a pre-parsed source cache
- * (which is what krit-types' Analysis API session provides).
+ * PSI on demand rather than relying on a pre-parsed source cache.
  *
  * The IntelliJ [KotlinCoreEnvironment] is a process-wide singleton:
  * the first `createForProduction` call wires up an

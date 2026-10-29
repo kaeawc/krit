@@ -4,10 +4,10 @@ package oracle
 //
 // InvokeCached wraps Invoke with an on-disk incremental cache keyed by
 // (content hash, closure fingerprint). On a cold run it delegates to a
-// full krit-types launch and writes per-file cache entries from the
+// full krit-fir launch and writes per-file cache entries from the
 // accompanying --cache-deps-out JSON. On a warm run it partitions source
 // files into hits (served from cache, no JVM) and misses (re-analyzed via
-// krit-types with --files LISTFILE), then assembles a merged Data
+// krit-fir with --files LISTFILE), then assembles a merged Data
 // and writes it to outputPath so existing downstream consumers
 // (oracle.Load, -output-types) keep working unchanged.
 //
@@ -21,11 +21,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/kaeawc/krit/internal/fileignore"
@@ -55,10 +52,10 @@ func readFilterListFile(path string) (map[string]bool, error) {
 }
 
 // defaultExcludeGlobs mirrors the DEFAULT_EXCLUDE_GLOBS constant on the
-// krit-types Kotlin side. Files whose absolute path contains any of these
+// krit-fir Kotlin side. Files whose absolute path contains any of these
 // substrings are skipped by the JVM-side analyze loop; we apply the same
 // filter Go-side before classify so excluded files don't leak into the
-// miss list. If this drifts from the Kotlin default, krit-types wins
+// miss list. If this drifts from the Kotlin default, krit-fir wins
 // (the jar's filter is authoritative); Go just avoids extra work.
 var defaultExcludeSubstrings = []string{
 	"/testData/",
@@ -67,7 +64,7 @@ var defaultExcludeSubstrings = []string{
 
 // excludedByDefault returns true if path matches any default exclude
 // pattern. Uses substring matching rather than glob matching to avoid a
-// dependency; the krit-types default patterns (**/testData/** and
+// dependency; the krit-fir default patterns (**/testData/** and
 // **/test-resources/**) are semantically equivalent to "path contains
 // /testData/ or /test-resources/ as a directory segment".
 func excludedByDefault(path string) bool {
@@ -81,23 +78,20 @@ func excludedByDefault(path string) bool {
 
 // CollectKtFiles walks the given source directories and returns
 // absolute paths of all .kt files, matching what the JVM-side
-// enumeration sees (DefaultPrunedDir + gitignore + krit-types
+// enumeration sees (DefaultPrunedDir + gitignore + krit-fir
 // default exclude patterns, plus testData/test-resources).
 func CollectKtFiles(sourceDirs []string) ([]string, error) {
-	kt, _, err := collectSourceFiles(sourceDirs)
-	return kt, err
+	return collectKotlinSourceFiles(sourceDirs)
 }
 
-// collectSourceFiles is CollectKtFiles that also returns the Java sources
-// under the same roots, filtered the same way. The declared-name ledger needs
-// them: a Java type can collide with a name a Kotlin file uses.
-func collectSourceFiles(sourceDirs []string) (out, java []string, err error) {
+func collectKotlinSourceFiles(sourceDirs []string) ([]string, error) {
+	var out []string
 	seen := map[string]bool{}
 	ignoreMatchers := make(map[string]*fileignore.Matcher)
 	for _, root := range sourceDirs {
 		rootInfo, statErr := os.Stat(root)
 		if statErr != nil {
-			return nil, nil, statErr
+			return nil, statErr
 		}
 		matcher := fileignore.MatcherForPath(root, rootInfo, ignoreMatchers)
 		walkErr := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
@@ -114,14 +108,13 @@ func collectSourceFiles(sourceDirs []string) (out, java []string, err error) {
 				}
 				return nil
 			}
-			// Match krit-types JVM side: KtFile includes both .kt and
+			// Match the krit-fir JVM side: KtFile includes both .kt and
 			// .kts (Kotlin script — used by build-logic gradle files).
 			// Limiting Go-side collection to .kt only would cause the
 			// cache path to silently drop .kts files that the plain
 			// Invoke path would have analyzed.
 			name := info.Name()
-			isJava := strings.HasSuffix(name, ".java")
-			if !isJava && !strings.HasSuffix(name, ".kt") && !strings.HasSuffix(name, ".kts") {
+			if !strings.HasSuffix(name, ".kt") && !strings.HasSuffix(name, ".kts") {
 				return nil
 			}
 			if matcher.Ignored(p, false) {
@@ -134,23 +127,19 @@ func collectSourceFiles(sourceDirs []string) (out, java []string, err error) {
 				return nil
 			}
 			seen[p] = true
-			if isJava {
-				java = append(java, p)
-			} else {
-				out = append(out, p)
-			}
+			out = append(out, p)
 			return nil
 		})
 		if walkErr != nil {
-			return nil, nil, walkErr
+			return nil, walkErr
 		}
 	}
-	return out, java, nil
+	return out, nil
 }
 
 // InvokeCached is the cache-aware variant of Invoke. It walks sourceDirs,
 // classifies .kt files into hits and misses via the on-disk cache, runs
-// krit-types only on misses (with --files + --cache-deps-out), writes new
+// krit-fir only on misses (with --files + --cache-deps-out), writes new
 // cache entries, and assembles the final oracle JSON at outputPath.
 //
 // filterListPath (optional, "" = no filter) is a path to a newline-separated
@@ -222,14 +211,13 @@ func writeFreshCacheEntries(
 	cacheDir string,
 	freshData *Data,
 	depsFile *CacheDepsFile,
-	callFilterScope, declarationProfileScope string,
 	tracker perf.Tracker,
 	opts InvocationOptions,
 	verbose bool,
 ) {
 	if opts.CacheWriter != nil {
 		start := time.Now()
-		queued, _ := opts.CacheWriter.QueueFreshEntriesToStoreScopedV2(s, cacheDir, freshData, depsFile, callFilterScope, declarationProfileScope)
+		queued, _ := opts.CacheWriter.QueueFreshEntriesToStore(s, cacheDir, freshData, depsFile)
 		perf.AddEntryDetails(tracker, "queueFreshCacheEntries", time.Since(start), map[string]int64{"queued": int64(queued)}, nil)
 		addOracleInstant(tracker, "freshCacheEntriesQueued", map[string]int64{"entries": int64(queued)}, nil)
 		if verbose {
@@ -238,7 +226,7 @@ func writeFreshCacheEntries(
 		return
 	}
 	writeTracker := tracker.Serial("writeFreshCacheEntries")
-	written, _ := WriteFreshEntriesToStoreWithTrackerScopedV2(s, cacheDir, freshData, depsFile, writeTracker, callFilterScope, declarationProfileScope)
+	written, _ := WriteFreshEntriesToStoreWithTracker(s, cacheDir, freshData, depsFile, writeTracker)
 	writeTracker.End()
 	addOracleInstant(tracker, "freshCacheEntriesWritten", map[string]int64{"entries": int64(written)}, nil)
 	if verbose {
@@ -248,19 +236,18 @@ func writeFreshCacheEntries(
 
 // minUnexplainedForMismatch is how many requested files the JVM must leave
 // entirely unanswered, with no expected reason, before that is treated as a
-// request mismatch rather than as skipped sources. One is enough: krit-types
+// request mismatch rather than as skipped sources. One is enough: krit-fir
 // answers for every in-root file at or under the size limit, even an empty
 // one, a package-only file, a script or an expect declaration, so an
 // unanswered one is never a normal skip and a marker for it would hide the
 // file from later runs.
 const minUnexplainedForMismatch = 1
 
-// maxJVMSourceBytes is the largest source file the Analysis API builds a
-// KtFile for. It is IntelliJ's idea.max.intellisense.filesize default
-// (FileUtilRt.getUserFileSizeLimit: 2500 KB, so 2,560,000 bytes); a larger
-// file is dropped from the source module and never answered. This is the
-// krit-types (KAA) limit; krit-fir answers oversized files, so the guard that
-// uses it is simply inactive there.
+// maxJVMSourceBytes is IntelliJ's idea.max.intellisense.filesize default
+// (FileUtilRt.getUserFileSizeLimit: 2500 KB, so 2,560,000 bytes). An
+// unanswered file above it is treated as an expected skip rather than a
+// request mismatch; krit-fir answers oversized files, so in practice the
+// guard only explains files a stale or custom jar dropped.
 const maxJVMSourceBytes = 2560000
 
 // pathUnderRoot reports whether the clean absolute path abs is root or lies
@@ -279,7 +266,7 @@ func pathUnderRoot(abs, root string) bool {
 }
 
 // expectedlySkipped reports whether the JVM is expected not to answer for p:
-// it is over the Analysis API size limit, or it lies outside every source
+// it is over the JVM source size limit, or it lies outside every source
 // root (the JVM only builds KtFiles for files under them). Anything else it
 // leaves unanswered is unexplained.
 func expectedlySkipped(p string, absRoots []string) bool {
@@ -340,7 +327,6 @@ func writeSkippedPoisonEntries(
 	misses []string,
 	freshData *Data,
 	depsFile *CacheDepsFile,
-	callFilterScope, declarationProfileScope string,
 	tracker perf.Tracker,
 	verbose bool,
 ) {
@@ -375,13 +361,11 @@ func writeSkippedPoisonEntries(
 				ContentHash: hash,
 				// Absolute, so a relative FilePath on a skipped marker only
 				// ever means a marker written by the relative-root bug.
-				FilePath:                      AbsolutePath(p),
-				Crashed:                       true,
-				CrashError:                    skipPoisonMarker + " file not in Analysis API KtFile set (typically oversized source)",
-				Approximation:                 depsFile.approximation(),
-				CompilationFingerprint:        depsFile.compilationFingerprint(),
-				CallFilterFingerprint:         callFilterScope,
-				DeclarationProfileFingerprint: declarationProfileScope,
+				FilePath:               AbsolutePath(p),
+				Crashed:                true,
+				CrashError:             skipPoisonMarker + " file not in the oracle compilation (typically oversized source)",
+				Approximation:          depsFile.approximation(),
+				CompilationFingerprint: depsFile.compilationFingerprint(),
 			}
 			writeErr := func() error {
 				if s != nil {
@@ -444,7 +428,7 @@ func assembleAndWriteOracle(
 //
 // Returns (classifyInput, forcedInScan): classifyInput is the
 // subset whose membership in the cache will be checked by
-// ClassifyFilesWithStoreScopedV2; forcedInScan is the subset that
+// ClassifyFilesWithStoreApproximation; forcedInScan is the subset that
 // will be appended to the resulting miss list verbatim. When
 // forcedMisses is empty both slices reuse ktFiles' backing array
 // so the common path allocates nothing.
@@ -512,15 +496,12 @@ func InvokeCachedWithOptions(
 		addOracleInstant(tracker, "cacheBypass", nil, map[string]string{"reason": "cacheDirInit"})
 		return InvokeWithFilesWithOptions(jarPath, sourceDirs, outputPath, filterListPath, verbose, opts)
 	}
-	// The declared-name ledger describes source, not facts, so it lives at the
-	// cache root and is shared by every classpath and settings scope below it.
-	ledgerPath := filepath.Join(cacheDir, declLedgerFile)
 	cacheDir = legacyEntryDirForRun(s, cacheDir, opts)
 
-	var ktFiles, javaFiles []string
+	var ktFiles []string
 	if err := trackOracle(tracker, "collectKtFiles", func() error {
 		var err error
-		ktFiles, javaFiles, err = collectSourceFiles(sourceDirs)
+		ktFiles, err = collectKotlinSourceFiles(sourceDirs)
 		return err
 	}); err != nil || len(ktFiles) == 0 {
 		if verbose {
@@ -534,15 +515,7 @@ func InvokeCachedWithOptions(
 		return InvokeWithFilesWithOptions(jarPath, sourceDirs, outputPath, filterListPath, verbose, opts)
 	}
 	addOracleInstant(tracker, "ktFilesDiscovered", map[string]int64{"files": int64(len(ktFiles)), "sourceDirs": int64(len(sourceDirs))}, nil)
-	callFilterScope := callFilterFingerprint(opts)
-	declarationProfileScope := factProfileScope(opts)
-
 	compilation := wholeCompilationFingerprint(opts, sourceDirs, jarPath, tracker)
-
-	// Refresh the declared-name ledger from every collected source before the
-	// oracle filter list narrows the files: a file the filter drops can still
-	// declare a name a cached caller uses.
-	ledger := refreshDeclLedger(opts, ledgerPath, sourceDirs, ktFiles, javaFiles, tracker)
 
 	if filterListPath != "" {
 		ktFiles = applyOracleFilter(ktFiles, filterListPath, tracker, verbose)
@@ -552,12 +525,10 @@ func InvokeCachedWithOptions(
 	recordForcedMissCount(tracker, len(opts.ForcedMisses), len(forcedInScan))
 
 	startClassify := time.Now()
-	hits, misses := ClassifyFilesWithStoreScopedV3(s, cacheDir, classifyInput, callFilterScope, declarationProfileScope, opts.Backend.CacheApproximation())
+	hits, misses := ClassifyFilesWithStoreApproximation(s, cacheDir, classifyInput, opts.Backend.CacheApproximation())
 	if len(forcedInScan) > 0 {
 		misses = append(misses, forcedInScan...)
 	}
-	hits, misses = demoteStaleNameDeps(opts, ledger, hits, misses, tracker, verbose)
-	ledger.save()
 	misses = requestCompilationRefresh(opts, hits, misses, compilation, tracker, verbose)
 	classifyElapsed := time.Since(startClassify)
 	perf.AddEntryDetails(tracker, "cacheClassify", classifyElapsed, map[string]int64{
@@ -624,17 +595,15 @@ func InvokeCachedWithOptions(
 	}
 
 	stampCacheDeps(depsFile, opts, compilation)
-	ledger.stampNameDigests(freshData, depsFile)
-	ledger.save()
 	if depsFile == nil {
 		if verbose {
 			reporter().Verbosef("verbose: no cache deps returned; cache not updated\n")
 		}
 	} else {
-		writeFreshCacheEntries(s, cacheDir, freshData, depsFile, callFilterScope, declarationProfileScope, tracker, opts, verbose)
+		writeFreshCacheEntries(s, cacheDir, freshData, depsFile, tracker, opts, verbose)
 	}
 
-	writeSkippedPoisonEntries(s, cacheDir, sourceDirs, misses, freshData, depsFile, callFilterScope, declarationProfileScope, tracker, verbose)
+	writeSkippedPoisonEntries(s, cacheDir, sourceDirs, misses, freshData, depsFile, tracker, verbose)
 
 	return assembleAndWriteOracle(hits, freshData, outputPath, cacheDir, tracker, verbose)
 }
@@ -680,18 +649,12 @@ func requestCompilationRefresh(opts InvocationOptions, hits []*CacheEntry, misse
 
 // stampCacheDeps records which backend and compilation produced depsFile, so
 // the entries written from it say what Go ran rather than what the jar
-// reported about itself. A krit-types jar that predates tagged edges reports
-// the legacy approximation and no propagating edges; its entries keep that
-// legacy tag, so their closures walk every edge and no lookup trusts them.
+// reported about itself.
 func stampCacheDeps(depsFile *CacheDepsFile, opts InvocationOptions, compilation string) {
 	if depsFile == nil || opts.Backend == "" {
 		return
 	}
-	if opts.Backend == BackendKAA && depsFile.Approximation != ApproximationKAATaggedReferences {
-		depsFile.Approximation = ApproximationSymbolResolvedSources
-	} else {
-		depsFile.Approximation = opts.Backend.CacheApproximation()
-	}
+	depsFile.Approximation = opts.Backend.CacheApproximation()
 	depsFile.CompilationFingerprint = compilation
 }
 
@@ -727,7 +690,7 @@ func oneShotSpelling(sourceDirs, requested []string) PathSpelling {
 }
 
 // missListLines returns the --files entries for misses: absolute, and with
-// forward slashes, which is how krit-types' virtual file system spells paths
+// forward slashes, which is how krit-fir's virtual file system spells paths
 // on every platform (Main.kt compares entries by exact equality).
 func missListLines(misses []string) []string {
 	abs := AbsolutePaths(misses)
@@ -741,8 +704,8 @@ func missListLines(misses []string) []string {
 // prepareMissTemps creates three tempfiles for the miss-run round trip:
 //
 //	missListPath — newline-separated absolute paths for --files
-//	missFreshPath — krit-types --output target (we'll read back)
-//	missDepsPath  — krit-types --cache-deps-out target (we'll read back)
+//	missFreshPath — krit-fir --output target (we'll read back)
+//	missDepsPath  — krit-fir --cache-deps-out target (we'll read back)
 //
 // The caller is responsible for removing all three.
 func prepareMissTemps(misses []string) (string, string, string, error) {
@@ -750,7 +713,7 @@ func prepareMissTemps(misses []string) (string, string, string, error) {
 	if err != nil {
 		return "", "", "", fmt.Errorf("tempfile (miss list): %w", err)
 	}
-	// krit-types matches --files entries by exact equality with the absolute
+	// krit-fir matches --files entries by exact equality with the absolute
 	// virtual file path, so a relative scan root must be absolutized here.
 	for _, p := range missListLines(misses) {
 		fmt.Fprintln(f, p)
@@ -775,13 +738,12 @@ func prepareMissTemps(misses []string) (string, string, string, error) {
 	return f.Name(), fresh.Name(), deps.Name(), nil
 }
 
-// runKritTypesCached is the miss-run exec path: same JVM invocation as
-// Invoke, with three extra flags (--files / --cache-deps-out / keep
-// --sources so the session still sees the full source module). The full
-// source roots are passed because Analysis API still needs the complete
-// module to resolve cross-file references — only the analyze loop gets
-// restricted to the miss list.
-func runKritTypesCached(
+// runOracleOneShot is the miss-run exec path: same JVM invocation as
+// Invoke, with --files naming the miss list and --cache-deps-out receiving
+// the per-file dependency closures. --sources still names every source root
+// so the compilation sees the full module and resolves cross-file
+// references; only the reported files are restricted to the miss list.
+func runOracleOneShot(
 	jarPath string,
 	sourceDirs []string,
 	missListPath, freshOutPath, depsOutPath string,
@@ -829,36 +791,10 @@ func runKritTypesCached(
 	args = append(args, riderArgs...)
 	extraJVMArgs := configuredExtraJVMArgs(opts)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgs)
-	recordKritTypesJVMArgs(tracker, extraJVMArgs)
-	if parallelArg := experimentalParallelFilesArg(); len(parallelArg) > 0 {
-		args = append(args, parallelArg...)
-	}
-	callFilterPath, cleanupCallFilter, err := writeCallFilterArg(opts, tracker)
-	if err != nil {
-		return fmt.Errorf("call filter: %w", err)
-	}
-	defer cleanupCallFilter()
-	if callFilterPath != "" {
-		args = append(args, "--call-filter", callFilterPath)
-	}
-	if profileArg := declarationProfileCLIValue(opts); profileArg != "" {
-		args = append(args, "--declaration-profile", profileArg)
-	}
-	if opts.DisableDiagnostics {
-		args = append(args, "--no-diagnostics")
-	}
-	var timingsPath string
-	if tracker != nil && tracker.IsEnabled() {
-		path, cleanup, err := tempTimingsPath()
-		if err != nil {
-			return err
-		}
-		timingsPath = path
-		defer cleanup()
-		args = append(args, "--timings-out", timingsPath)
-	}
+	recordOracleJVMArgs(tracker, extraJVMArgs)
+	rider.noteLaunch(args)
 	if verbose {
-		// Whatever jar the caller passed in — krit-types or krit-fir.
+		// Whatever jar the caller passed in — krit-fir.
 		reporter().Verbosef("verbose: Running oracle JVM (cached) jar=%s: %s %s\n", filepath.Base(jarPath), javaPath, strings.Join(args, " "))
 	}
 
@@ -869,54 +805,16 @@ func runKritTypesCached(
 
 	var runErr error
 	var proc oracleProcessResult
-	trackErr := trackOracle(tracker, "kritTypesProcess", func() error {
+	trackErr := trackOracle(tracker, "oracleProcess", func() error {
 		proc, runErr = runOracleProcessMeasured(ctx, javaPath, args, freshOutPath, timeout, grace, verbose)
 		return runErr
 	})
-	addOracleProcessResources(tracker, "kritTypesProcessResources", proc.PeakRSSMB)
+	addOracleProcessResources(tracker, "oracleProcessResources", proc.PeakRSSMB)
 	rider.finish(tracker, trackErr)
 	if trackErr != nil {
 		return trackErr
 	}
-	addKotlinTimingsFromFile(tracker, timingsPath)
 	return runErr
-}
-
-type kritTypesCachedRunner func(
-	jarPath string,
-	sourceDirs []string,
-	missListPath, freshOutPath, depsOutPath string,
-	verbose bool,
-	tracker perf.Tracker,
-) error
-
-type shardResult struct {
-	Fresh      *Data
-	Deps       *CacheDepsFile
-	DepsErr    error
-	Err        error
-	Files      int
-	Cost       int64
-	Bytes      int64
-	CallTokens int64
-}
-
-func configuredKritTypesShards(misses int) int {
-	if misses <= 1 {
-		return 1
-	}
-	raw := strings.TrimSpace(os.Getenv("KRIT_TYPES_SHARDS"))
-	if raw == "" {
-		return 1
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 1 {
-		return 1
-	}
-	if n > misses {
-		return misses
-	}
-	return n
 }
 
 func configuredDaemonCacheMode() string {
@@ -931,29 +829,23 @@ func configuredDaemonCacheMode() string {
 }
 
 // daemonPreferredMissThreshold is the upper bound on miss count below
-// which the persistent single-daemon path beats parallel one-shot by
-// a wide margin. Reasoning: parallel one-shot's win comes from running
-// `defaultKritTypesParallelFiles` analyses concurrently inside a fresh
-// JVM, paying JVM cold-start (~30-60s on first run, ~JIT-warm time
-// subsequently) once per invocation. For a small miss set the
-// parallelism can't accelerate the work — a 1-file or 2-file analysis
-// finishes in milliseconds — so the cold-start cost dominates.
-// A reused daemon serves those same misses without paying startup at
-// all on warm reruns. Threshold of 8 leaves enough headroom that the
-// occasional handful of ABI-driven changes still hit the fast path
-// while keeping large cache-miss waves on the parallel one-shot path.
+// which the persistent single-daemon path beats a one-shot run by a wide
+// margin. A one-shot run pays JVM cold-start (~30-60s on first run,
+// ~JIT-warm time subsequently) once per invocation; for a small miss set
+// (a 1-file or 2-file analysis finishes in milliseconds) that cold-start
+// cost dominates, while a reused daemon serves those same misses without
+// paying startup at all on warm reruns. Threshold of 8 leaves enough
+// headroom that the occasional handful of ABI-driven changes still hit the
+// fast path while keeping large cache-miss waves on a fresh one-shot JVM.
 //
 // KRIT_DAEMON_CACHE=on / =off still wins.
 const daemonPreferredMissThreshold = 8
 
-func shouldUseOneShotMissAnalysis(poolSize, misses int) (bool, string) {
+func shouldUseOneShotMissAnalysis(misses int) (bool, string) {
 	switch configuredDaemonCacheMode() {
 	case "off":
 		return true, "KRIT_DAEMON_CACHE=off"
 	case "on":
-		return false, ""
-	}
-	if poolSize > 1 {
 		return false, ""
 	}
 	// Small miss sets: the persistent daemon amortizes JVM cold-start
@@ -962,269 +854,27 @@ func shouldUseOneShotMissAnalysis(poolSize, misses int) (bool, string) {
 	if misses > 0 && misses <= daemonPreferredMissThreshold {
 		return false, ""
 	}
-	if workers := configuredKritTypesParallelFiles(); workers > 1 {
-		return true, fmt.Sprintf("default parallel one-shot (%d workers)", workers)
-	}
-	return false, ""
-}
-
-type kaaMissCost struct {
-	Path       string
-	Cost       int64
-	Bytes      int64
-	CallTokens int64
-}
-
-type kaaMissGroup struct {
-	Paths      []string
-	Cost       int64
-	Bytes      int64
-	CallTokens int64
-}
-
-const kaaCallTokenCostBytes int64 = 512
-
-func splitMissesForKAA(paths []string, shards int) [][]string {
-	groups := splitMissesForKAAWithStats(paths, shards)
-	out := make([][]string, len(groups))
-	for i, group := range groups {
-		out[i] = group.Paths
-	}
-	return out
-}
-
-func splitMissesForKAAWithStats(paths []string, shards int) []kaaMissGroup {
-	if len(paths) == 0 {
-		return nil
-	}
-	if shards < 1 {
-		shards = 1
-	}
-	if shards > len(paths) {
-		shards = len(paths)
-	}
-	costs := make([]kaaMissCost, 0, len(paths))
-	for _, p := range paths {
-		costs = append(costs, estimateKAAMissCost(p))
-	}
-	sort.SliceStable(costs, func(i, j int) bool {
-		if costs[i].Cost != costs[j].Cost {
-			return costs[i].Cost > costs[j].Cost
-		}
-		return costs[i].Path < costs[j].Path
-	})
-
-	groups := make([]kaaMissGroup, shards)
-	loads := make([]int64, shards)
-	for _, c := range costs {
-		k := indexOfMinInt64(loads)
-		groups[k].Paths = append(groups[k].Paths, c.Path)
-		groups[k].Cost += c.Cost
-		groups[k].Bytes += c.Bytes
-		groups[k].CallTokens += c.CallTokens
-		loads[k] += c.Cost
-	}
-	return groups
-}
-
-func estimateKAAMissCost(path string) kaaMissCost {
-	c := kaaMissCost{Path: path, Cost: 1}
-	if st, err := os.Stat(path); err == nil && st.Size() > 0 {
-		c.Bytes = st.Size()
-	}
-	if data, err := os.ReadFile(path); err == nil {
-		c.Bytes = int64(len(data))
-		c.CallTokens = roughKAACallTokens(data)
-	}
-	c.Cost = c.Bytes + c.CallTokens*kaaCallTokenCostBytes
-	if c.Cost <= 0 {
-		c.Cost = 1
-	}
-	return c
-}
-
-func roughKAACallTokens(data []byte) int64 {
-	var n int64
-	for _, b := range data {
-		if b == '(' {
-			n++
-		}
-	}
-	return n
-}
-
-func indexOfMinInt64(values []int64) int {
-	if len(values) == 0 {
-		return 0
-	}
-	best := 0
-	for i := 1; i < len(values); i++ {
-		if values[i] < values[best] {
-			best = i
-		}
-	}
-	return best
-}
-
-func runKritTypesCachedShardedWithRunner(
-	jarPath string,
-	sourceDirs []string,
-	misses []string,
-	shards int,
-	verbose bool,
-	tracker perf.Tracker,
-	runner kritTypesCachedRunner,
-) (*Data, *CacheDepsFile, error) {
-	if tracker == nil {
-		tracker = perf.New(false)
-	}
-	groups := splitMissesForKAAWithStats(misses, shards)
-	if len(groups) == 0 {
-		return mergeData(), nil, nil
-	}
-	var totalCost, totalBytes, totalCallTokens int64
-	for _, group := range groups {
-		totalCost += group.Cost
-		totalBytes += group.Bytes
-		totalCallTokens += group.CallTokens
-	}
-	addOracleInstant(tracker, "shardedMissAnalysisSummary", map[string]int64{
-		"shards":     int64(len(groups)),
-		"files":      int64(len(misses)),
-		"cost":       totalCost,
-		"bytes":      totalBytes,
-		"callTokens": totalCallTokens,
-	}, nil)
-	goMaxProcs := runtime.GOMAXPROCS(0)
-	activeProcessors := activeProcessorCountForKritTypesShard(len(groups))
-	totalProcessorBudget := activeProcessors * len(groups)
-	idleProcessorBudget := goMaxProcs - totalProcessorBudget
-	if idleProcessorBudget < 0 {
-		idleProcessorBudget = 0
-	}
-	shardJVMArgs := jvmArgsForKritTypesShard(len(groups))
-	addOracleInstant(tracker, "shardedJVMCPUConfig", map[string]int64{
-		"shards":               int64(len(groups)),
-		"goroutines":           int64(len(groups)),
-		"goMaxProcs":           int64(goMaxProcs),
-		"activeProcessorCount": int64(activeProcessors),
-		"totalProcessorBudget": int64(totalProcessorBudget),
-		"idleProcessorBudget":  int64(idleProcessorBudget),
-	}, map[string]string{
-		"extraJVMArgs": strings.Join(configuredExtraJVMArgs(InvocationOptions{ExtraJVMArgs: shardJVMArgs}), " "),
-	})
-
-	results := make([]shardResult, len(groups))
-	var wg sync.WaitGroup
-	for i, group := range groups {
-		i, group := i, group
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			child := tracker.Serial(fmt.Sprintf("kritTypesShard/%d", i))
-			defer child.End()
-			results[i].Files = len(group.Paths)
-			results[i].Cost = group.Cost
-			results[i].Bytes = group.Bytes
-			results[i].CallTokens = group.CallTokens
-			addOracleInstant(child, "shardInputSummary", map[string]int64{
-				"files":      int64(len(group.Paths)),
-				"cost":       group.Cost,
-				"bytes":      group.Bytes,
-				"callTokens": group.CallTokens,
-			}, nil)
-
-			listPath, freshPath, depsPath, err := prepareMissTemps(group.Paths)
-			if err != nil {
-				results[i].Err = err
-				return
-			}
-			defer func() {
-				_ = os.Remove(listPath)
-				_ = os.Remove(freshPath)
-				_ = os.Remove(depsPath)
-			}()
-
-			if err := runner(jarPath, sourceDirs, listPath, freshPath, depsPath, verbose, child); err != nil {
-				results[i].Err = err
-				return
-			}
-
-			fresh, deps, depsErr, err := readOneShotMissResult(child, freshPath, depsPath, sourceDirs, group.Paths)
-			if err != nil {
-				results[i].Err = fmt.Errorf("shard %d read fresh oracle: %w", i, err)
-				return
-			}
-			results[i] = shardResult{
-				Fresh:      fresh,
-				Deps:       deps,
-				DepsErr:    depsErr,
-				Files:      len(group.Paths),
-				Cost:       group.Cost,
-				Bytes:      group.Bytes,
-				CallTokens: group.CallTokens,
-			}
-		}()
-	}
-	wg.Wait()
-
-	for i, result := range results {
-		if result.Err != nil {
-			return nil, nil, fmt.Errorf("krit-types shard %d failed: %w", i, result.Err)
-		}
-	}
-
-	var fresh *Data
-	if err := trackOracle(tracker, "mergeShardOracleJSON", func() error {
-		parts := make([]*Data, 0, len(results))
-		for _, result := range results {
-			parts = append(parts, result.Fresh)
-		}
-		fresh = mergeData(parts...)
-		return nil
-	}); err != nil {
-		return nil, nil, err
-	}
-
-	var deps *CacheDepsFile
-	if err := trackOracle(tracker, "mergeShardCacheDeps", func() error {
-		parts := make([]*CacheDepsFile, 0, len(results))
-		for i, result := range results {
-			if result.DepsErr != nil {
-				addOracleInstant(tracker, "shardedCacheDepsReadError", map[string]int64{"shard": int64(i)}, map[string]string{"error": result.DepsErr.Error()})
-				deps = nil
-				return nil //nolint:nilerr // shard cache-deps read failed: skip merge, leave deps unset (non-fatal)
-			}
-			parts = append(parts, result.Deps)
-		}
-		deps = mergeCacheDeps(parts...)
-		return nil
-	}); err != nil {
-		return nil, nil, err
-	}
-
-	return fresh, deps, nil
+	return true, fmt.Sprintf("default one-shot for %d misses (daemon only below %d)", misses, daemonPreferredMissThreshold+1)
 }
 
 // missAnalyzer analyzes the misses. It is runMissAnalysis except in tests,
 // which substitute recorded facts for the JVM.
 var missAnalyzer = runMissAnalysis
 
-// runMissAnalysis runs the miss-list analysis. The default cold-miss path is
-// one-shot krit-types with in-JVM file parallelism; explicit daemon settings
-// can still route misses through persistent daemon workers. Returns
+// runMissAnalysis runs the miss-list analysis. Large miss sets (and an empty
+// one) run one-shot krit-fir; small ones (see daemonPreferredMissThreshold)
+// go through the persistent daemon. Returns
 // (freshData, depsFile, usedDaemon, err).
 //
-// The daemon path remains useful for explicit warm-miss experiments because it
-// amortizes the Analysis API session build across invocations. The one-shot
-// path preserves the exact same output shape:
-// runKritTypesCached writes tempfiles which are then loaded via readOracleJSON
-// + LoadCacheDeps.
+// The daemon path amortizes JVM start-up and the compiler session build
+// across invocations. The one-shot path preserves the exact same output
+// shape: runOracleOneShot writes tempfiles which are then loaded via
+// readOracleJSON + LoadCacheDeps.
 //
 // Set KRIT_DAEMON_CACHE=on to force the persistent daemon path. Set
-// KRIT_DAEMON_CACHE=off to force one-shot even when parallel file analysis is
-// disabled. ConnectOrStartDaemon handles the "no daemon running" case by
-// starting one when the daemon path is selected.
+// KRIT_DAEMON_CACHE=off to force one-shot for every miss set.
+// ConnectOrStartDaemon handles the "no daemon running" case by starting one
+// when the daemon path is selected.
 //
 // On file-not-in-session errors from the daemon (the daemon's
 // sourceModule was built before the file existed), this function
@@ -1248,7 +898,7 @@ func runMissAnalysis(
 			reporter().Verbosef("verbose: daemon cache path falling back to one-shot: %s\n", reason)
 		}
 		addOracleInstant(tracker, "missAnalysisFallback", nil, map[string]string{"reason": reason})
-		if err := runKritTypesCached(jarPath, sourceDirs, missListPath, missFreshPath, missDepsPath, verbose, tracker, opts); err != nil {
+		if err := runOracleOneShot(jarPath, sourceDirs, missListPath, missFreshPath, missDepsPath, verbose, tracker, opts); err != nil {
 			return nil, nil, false, err
 		}
 		// Same swallowed-error policy as the pre-daemon code: missing or
@@ -1260,85 +910,8 @@ func runMissAnalysis(
 		return fresh, deps, false, nil
 	}
 
-	shards := configuredKritTypesShards(len(misses))
-	if shards > 1 {
-		if verbose {
-			reporter().Verbosef("verbose: sharding miss analysis across %d krit-types JVM workers (%d files)\n", shards, len(misses))
-		}
-		// KRIT_TYPES_SHARDS is an explicit one-shot JVM experiment: bypass
-		// the daemon so the miss list is actually processed by multiple
-		// independent Analysis API workers.
-		//
-		// Apply adaptive JVM resource policy: cap each shard's processor count
-		// to avoid saturating all cores across concurrent JVM workers. Env
-		// overrides (KRIT_TYPES_EXTRA_JVM_ARGS) are appended after policy args
-		// so benchmarks can supersede the computed cap.
-		shardArgs := adaptiveShardJVMArgs(shards, opts)
-		addOracleInstant(tracker, "adaptiveShardJVMArgs", map[string]int64{
-			"shards":               int64(shards),
-			"activeProcessorCount": int64(activeProcessorCountForKritTypesShard(shards)),
-			"argCount":             int64(len(shardArgs)),
-		}, map[string]string{
-			"jvmArgs": strings.Join(shardArgs, " "),
-		})
-		runner := func(jarPath string, sourceDirs []string, missListPath, freshOutPath, depsOutPath string, verbose bool, tracker perf.Tracker) error {
-			shardOpts := opts
-			shardOpts.Tracker = tracker
-			shardOpts.ExtraJVMArgs = shardArgs
-			// A shard compiles the whole module but answers for part of
-			// the misses; the checker pass compiles once on its own.
-			shardOpts.CheckRider = nil
-			return runKritTypesCached(jarPath, sourceDirs, missListPath, freshOutPath, depsOutPath, verbose, tracker, shardOpts)
-		}
-		fresh, deps, err := runKritTypesCachedShardedWithRunner(jarPath, sourceDirs, misses, shards, verbose, tracker, runner)
-		if err != nil {
-			addOracleInstant(tracker, "shardedMissAnalysisFallback", nil, map[string]string{"error": err.Error()})
-			return fallback(fmt.Sprintf("sharded miss analysis failed: %v", err))
-		}
-		return fresh, deps, false, nil
-	}
-
-	poolSize := configuredDaemonPoolSize(len(misses))
-	if useOneShot, reason := oneShotMissAnalysisReason(poolSize, len(misses), opts); useOneShot {
+	if useOneShot, reason := oneShotMissAnalysisReason(len(misses), opts); useOneShot {
 		return fallback(reason)
-	}
-
-	if shouldUseDaemonPool(len(misses), poolSize) {
-		var pool *DaemonPool
-		if err := trackOracle(tracker, "daemonPoolConnectOrStart", func() error {
-			var err error
-			pool, err = ConnectOrStartDaemonPool(jarPath, sourceDirs, opts.Classpath, poolSize, verbose, WithKotlinSettings(opts.Kotlin))
-			return err
-		}); err != nil {
-			return fallback(fmt.Sprintf("ConnectOrStartDaemonPool: %v", err))
-		}
-		defer func() { _ = pool.Release() }()
-		addOracleInstant(tracker, "daemonPoolConnectOrStartSummary", map[string]int64{
-			"requested": int64(pool.Requested),
-			"connected": int64(pool.Connected),
-			"started":   int64(pool.Started),
-		}, nil)
-		var matchErr error
-		pool, matchErr = reconnectMismatchedDaemonPool(pool, jarPath, sourceDirs, opts.Classpath, opts.Kotlin, poolSize, verbose, len(misses), tracker)
-		if matchErr != nil {
-			return fallback(matchErr.Error())
-		}
-		if verbose {
-			reporter().Verbosef("verbose: sharding daemon miss analysis across %d persistent workers (%d files)\n", len(pool.Members), len(misses))
-		}
-		fresh, deps, err := pool.AnalyzeWithDepsSharded(misses, tracker != nil && tracker.IsEnabled(), opts.CallFilter, opts.DeclarationProfile, tracker)
-		if err != nil {
-			addOracleInstant(tracker, "daemonPoolMissAnalysisFallback", nil, map[string]string{"error": err.Error()})
-			return fallback(fmt.Sprintf("daemon pool AnalyzeWithDeps: %v", err))
-		}
-		return fresh, deps, true, nil
-	}
-	if poolSize > 1 {
-		addOracleInstant(tracker, "daemonPoolBypass", map[string]int64{
-			"poolSize":  int64(poolSize),
-			"misses":    int64(len(misses)),
-			"threshold": int64(daemonPoolMinMisses),
-		}, map[string]string{"reason": "smallMissSet"})
 	}
 
 	var d *Daemon
@@ -1365,18 +938,12 @@ func runMissAnalysis(
 
 	var fresh *Data
 	var deps *CacheDepsFile
-	var kotlinTimings []perf.TimingEntry
 	if err := trackOracle(tracker, "daemonAnalyzeWithDeps", func() error {
 		var err error
-		fresh, deps, kotlinTimings, err = d.AnalyzeWithDepsWithTimings(misses, tracker != nil && tracker.IsEnabled(), opts.CallFilter, opts.DeclarationProfile)
+		fresh, deps, err = d.AnalyzeWithDeps(misses)
 		return err
 	}); err != nil {
 		return fallback(fmt.Sprintf("AnalyzeWithDeps: %v", err))
-	}
-	if len(kotlinTimings) > 0 {
-		kt := tracker.Serial("kotlinTimings")
-		perf.AddEntries(kt, kotlinTimings)
-		kt.End()
 	}
 
 	// AnalyzeWithDeps no longer returns ErrDaemonFileNotInSession — instead
@@ -1389,30 +956,13 @@ func runMissAnalysis(
 	return fresh, deps, true, nil
 }
 
-func oneShotMissAnalysisReason(poolSize, misses int, opts InvocationOptions) (bool, string) {
+func oneShotMissAnalysisReason(misses int, opts InvocationOptions) (bool, string) {
 	// The generic oracle daemon registry does not key JVM target. An
 	// explicit FIR target uses the one-shot runner and its scoped cache.
-	if opts.Backend == BackendFIR && opts.JvmTarget != "" {
+	if opts.JvmTarget != "" {
 		return true, "FIR JVM target requires target-scoped compilation"
 	}
-	return shouldUseOneShotMissAnalysis(poolSize, misses)
-}
-
-func reconnectMismatchedDaemonPool(pool *DaemonPool, jarPath string, sourceDirs, classpath []string, kt gradlemodel.KotlinSettings, size int, verbose bool, misses int, tracker perf.Tracker) (*DaemonPool, error) {
-	if pool.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...) {
-		return pool, nil
-	}
-	addOracleInstant(tracker, "daemonPoolRepoMismatch", map[string]int64{"misses": int64(misses)}, nil)
-	_ = pool.Release()
-	replacement, err := ConnectOrStartDaemonPool(jarPath, sourceDirs, classpath, size, verbose, WithKotlinSettings(kt))
-	if err != nil {
-		return pool, fmt.Errorf("reconnect daemon pool: %w", err)
-	}
-	if !replacement.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...) {
-		_ = replacement.Release()
-		return replacement, fmt.Errorf("daemon pool (jar, sourceDirs) mismatch after reconnect")
-	}
-	return replacement, nil
+	return shouldUseOneShotMissAnalysis(misses)
 }
 
 func reconnectMismatchedDaemon(d *Daemon, jarPath string, sourceDirs, classpath []string, kt gradlemodel.KotlinSettings, verbose bool, misses int, tracker perf.Tracker) (*Daemon, error) {
@@ -1432,7 +982,7 @@ func reconnectMismatchedDaemon(d *Daemon, jarPath string, sourceDirs, classpath 
 	return replacement, nil
 }
 
-// readOracleJSON parses a krit-types output file into Data. Shares
+// readOracleJSON parses a krit-fir output file into Data. Shares
 // format with oracle.Load but returns the raw struct rather than a fully
 // indexed Oracle — the caller (InvokeCached) wants to merge with cache
 // hits before indexing.

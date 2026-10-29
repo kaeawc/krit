@@ -53,15 +53,19 @@ jobs:
       - name: Install mingw-w64
         timeout-minutes: 5
         run: |
+          # Install the cached .debs with dpkg, which only reads local files.
+          # On cache hits, `apt-get install ~/mingw-debs/*.deb` was seen in CI
+          # fetching the whole ~144 MB set from the mirror again and timing out.
           # A cached set that no longer installs (a newer runner image)
           # falls back to the mirror, as on a cache miss.
           if [ "${{ steps.cache-mingw.outputs.cache-hit }}" = "true" ] \
             && ls ~/mingw-debs/*.deb >/dev/null 2>&1 \
-            && sudo apt-get install -y ~/mingw-debs/*.deb; then
+            && sudo dpkg -i ~/mingw-debs/*.deb \
+            && command -v x86_64-w64-mingw32-gcc >/dev/null; then
             exit 0
           fi
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y -f gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
           mkdir -p ~/mingw-debs
           cp /var/cache/apt/archives/*mingw*.deb ~/mingw-debs/
       - name: Vet for windows/amd64
@@ -201,30 +205,29 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
-      # krit-types is the largest jar in the repo (shadow jar bundles
-      # the Kotlin compiler + Analysis API). Cache the output so the
-      # job doesn't pay the 2-3 minute build on every PR.
-      # NOTE: cache-key glob must stay in sync with the `playground-rules`
-      # job below — `hashFiles()` is only available in step contexts so a
-      # workflow-level dedup is not possible.
-      - name: Cache krit-types shadow jar
-        id: cache-krit-types
+      # Custom rule jars run inside the krit-fir JVM. Its shadow jar bundles
+      # the Kotlin compiler, so cache the output instead of paying the build
+      # on every PR. The cache key matches every other krit-fir jar cache in
+      # this workflow (`hashFiles()` is only available in step contexts, so a
+      # workflow-level dedup is not possible).
+      - name: Cache krit-fir shadow jar
+        id: cache-krit-fir
         uses: actions/cache@v6
         with:
-          path: tools/krit-types/build/libs
-          key: krit-types-jar-${{ hashFiles('tools/krit-types/**/*.kt', 'tools/krit-types/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
+          path: tools/krit-fir/build/libs
+          key: krit-fir-jar-${{ hashFiles('tools/krit-fir/**/*.kt', 'tools/krit-fir/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
       # examples/external-rule/ resolves dev.jasonpearson.krit:krit-rule-api
       # from mavenLocal, so stage a known-version snapshot first.
       - name: Stage krit-rule-api to mavenLocal
         working-directory: tools/krit-rule-api
         run: ./gradlew --no-daemon publishToMavenLocal -PkritVersion=0.0.0-ci
-      - name: Build krit-types shadow jar
-        if: steps.cache-krit-types.outputs.cache-hit != 'true'
-        working-directory: tools/krit-types
+      - name: Build krit-fir shadow jar
+        if: steps.cache-krit-fir.outputs.cache-hit != 'true'
+        working-directory: tools/krit-fir
         run: ./gradlew --no-daemon shadowJar
       - name: Run external-rule example integration test
         env:
-          KRIT_TYPES_JAR: ${{ github.workspace }}/tools/krit-types/build/libs/krit-types.jar
+          KRIT_FIR_JAR: ${{ github.workspace }}/tools/krit-fir/build/libs/krit-fir.jar
         run: go test ./tests/externalrule/ -count=1 -timeout 600s -v
 
   playground-rules:
@@ -242,25 +245,23 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
-      # Cache-key glob must stay in sync with the `external-rule-example`
-      # job above — see the note there for why a workflow-level dedup is
-      # not possible.
-      - name: Cache krit-types shadow jar
-        id: cache-krit-types
+      # Cache key matches the `external-rule-example` job above.
+      - name: Cache krit-fir shadow jar
+        id: cache-krit-fir
         uses: actions/cache@v6
         with:
-          path: tools/krit-types/build/libs
-          key: krit-types-jar-${{ hashFiles('tools/krit-types/**/*.kt', 'tools/krit-types/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
-      - name: Build krit-types shadow jar
-        if: steps.cache-krit-types.outputs.cache-hit != 'true'
-        working-directory: tools/krit-types
+          path: tools/krit-fir/build/libs
+          key: krit-fir-jar-${{ hashFiles('tools/krit-fir/**/*.kt', 'tools/krit-fir/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
+      - name: Build krit-fir shadow jar
+        if: steps.cache-krit-fir.outputs.cache-hit != 'true'
+        working-directory: tools/krit-fir
         run: ./gradlew --no-daemon shadowJar
       # The playground composite-builds krit-gradle-plugin,
       # krit-custom-rule-plugin, krit-rule-api, and krit-settings-plugin
       # from the local source tree, so no mavenLocal staging needed.
       - name: Run playground custom-rule integration test
         env:
-          KRIT_TYPES_JAR: ${{ github.workspace }}/tools/krit-types/build/libs/krit-types.jar
+          KRIT_FIR_JAR: ${{ github.workspace }}/tools/krit-fir/build/libs/krit-fir.jar
         run: go test ./tests/playgroundrules/ -count=1 -timeout 600s -v
 
   krit-custom-rule-plugin:
@@ -413,13 +414,11 @@ jobs:
             tools/krit-fir/build/reports/tests/incrementalPlannerTest/
             tools/krit-fir/compiler-tests/build/reports/tests/test/
 
-  # oracle-backend-parity drives both JVM oracles (krit-types and
-  # krit-fir) through their one-shot `--sources --output` CLIs and
-  # asserts the analyze JSON is structurally equivalent. The gate
-  # protects against silent divergence on the shared wire surface so
-  # that `--oracle-backend=fir` stays a real drop-in for the default
-  # KAA backend across every Kotlin construct exercised by the
-  # fixture.
+  # oracle-backend-parity runs the krit-fir oracle and checker gates: the
+  # oracle fact contract, fixture parity, Kotlin 2.4 fixtures, property and
+  # fuzz tests, rule isolation, and the daemon relative-path tests. (The job
+  # keeps its name from when it compared the two oracle backends; krit-fir is
+  # now the only one.)
   oracle-backend-parity:
     runs-on: ubuntu-latest
     steps:
@@ -435,23 +434,6 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
-      - name: Cache krit-types shadow jar
-        id: cache-krit-types
-        uses: actions/cache@v6
-        with:
-          path: tools/krit-types/build/libs
-          key: krit-types-jar-${{ hashFiles('tools/krit-types/**/*.kt', 'tools/krit-types/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
-      - name: Build krit-types shadow jar
-        if: steps.cache-krit-types.outputs.cache-hit != 'true'
-        working-directory: tools/krit-types
-        run: ./gradlew --no-daemon shadowJar
-      # krit-types' own unit tests (call-resolution and dependency-edge
-      # characterization against a real Analysis API session). No other job
-      # runs them. `test` builds the thin jar under a different file name,
-      # so it leaves the shadow jar above untouched.
-      - name: Run krit-types unit tests
-        working-directory: tools/krit-types
-        run: ./gradlew --no-daemon test
       # TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd adds a
       # test-only throwing probe rule from krit-fir's compiled test classes to
       # a copy of the shadow jar. Build them on every run (the jar cache below
@@ -515,38 +497,35 @@ jobs:
           fi
           echo "KOTLIN_STDLIB_JAR=$jar" >> "$GITHUB_ENV"
           echo "kotlin-stdlib: $jar"
-      # TestOracleBackendParity guards the declaration surface across
-      # both backends; TestFirOracleFactContract guards the FIR
-      # expression surface (types, nullability, call targets, suspend
-      # markers, diagnostics) the type-aware rules read — the facts the
-      # cross-backend gate deliberately doesn't compare. TestFirFixtureParity
+      # TestFirOracleDeclarationContract pins the oracle's declaration
+      # surface; TestFirOracleFactContract guards the expression surface
+      # (types, nullability, call targets, suspend markers, diagnostics)
+      # the type-aware rules read. TestFirFixtureParity
       # compiles every FIR rule's Go fixtures through krit-fir against the
       # compiler-tests stub library (the Java stubs are compiled with javac
       # from setup-java) and requires per-line agreement with the Go rule;
       # TestOracleKotlin24* and TestFirKotlin24Parity (#785) run the Kotlin 2.4
       # fixtures (named context parameters, explicit backing fields, `@all:`)
-      # through both backends under explicit language modes;
+      # under explicit language modes; TestKMPSourceSetParity checks KMP
+      # source sets against kotlinc ground truth;
       # the per-checker correctness tests pin known edge shapes; the rule
       # isolation test proves a throwing checker costs only its own rule and
       # file. The daemon relative-path tests prove `krit .` scans of different
-      # projects never share a daemon and that each backend's daemon facts
-      # come back (and are cached) under the caller's relative spelling.
-      # All must pass before the FIR backend can be made the default.
+      # projects never share a daemon and that the daemon's facts come back
+      # (and are cached) under the caller's relative spelling.
       - name: Run oracle backend parity
-        env:
-          KRIT_TYPES_JAR: ${{ github.workspace }}/tools/krit-types/build/libs/krit-types.jar
         run: |
           set -o pipefail
-          go test ./tests/parity/ -count=1 -timeout 30m -run 'TestOracleBackendParity|TestOracleKotlin24|TestFirKotlin24Parity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative|TestKAAOracleCacheRefreshes|TestKAADaemonResolvesLibraryCallsLikeOneShot' -v | tee parity.log
+          go test ./tests/parity/ -count=1 -timeout 30m -run 'TestFirOracleDeclarationContract|TestOracleAcceptsClasspathFlag|TestKMPSourceSetParity|TestOracleKotlin24|TestFirKotlin24Parity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative' -v | tee parity.log
           # Top-level tests only: an exempt rule's subtest may skip. The
           # daemon relative-path tests' per-backend subtests must all run.
-          if grep -qE -- '--- SKIP: (TestOracleKotlin24[A-Za-z]+|TestFirKotlin24Parity|TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative[A-Za-z]+(/(fir|kaa)(-symlink)?)?|TestKAAOracleCacheRefreshes[A-Za-z]+|TestKAADaemonResolvesLibraryCallsLikeOneShot) \(' parity.log; then
+          if grep -qE -- '--- SKIP: (TestFirOracleDeclarationContract|TestOracleAcceptsClasspathFlag|TestKMPSourceSetParity|TestFirOracleFactContract|TestOracleKotlin24[A-Za-z]+|TestFirKotlin24Parity|TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative[A-Za-z]+(/fir(-symlink)?)?) \(' parity.log; then
             echo "::error::a FIR parity/property/fuzz test skipped; the CI parity job must execute them"
             exit 1
           fi
 
   # warm-clean-matrix (#786) seeds a warm cache or daemon for the structural
-  # pipeline and for both JVM oracles (krit-types and krit-fir), mutates the
+  # pipeline and for the krit-fir oracle, mutates the
   # project (return type, nullability, signature, annotations, file add /
   # delete / rename, imports, overloads, classpath, helper jar), and requires
   # the warm result to equal a fresh process's over the same tree. It is a
@@ -569,16 +548,6 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
-      - name: Cache krit-types shadow jar
-        id: cache-krit-types
-        uses: actions/cache@v6
-        with:
-          path: tools/krit-types/build/libs
-          key: krit-types-jar-${{ hashFiles('tools/krit-types/**/*.kt', 'tools/krit-types/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
-      - name: Build krit-types shadow jar
-        if: steps.cache-krit-types.outputs.cache-hit != 'true'
-        working-directory: tools/krit-types
-        run: ./gradlew --no-daemon shadowJar
       - name: Cache krit-fir shadow jar
         id: cache-krit-fir
         uses: actions/cache@v6
@@ -609,14 +578,13 @@ jobs:
             jar="$(glob)"
           fi
           if [ -z "$jar" ]; then
-            echo "::error::kotlin-stdlib jar not found; the warm-versus-clean matrix needs it for krit-types"
+            echo "::error::kotlin-stdlib jar not found; the warm-versus-clean matrix needs it for krit-fir"
             exit 1
           fi
           echo "KOTLIN_STDLIB_JAR=$jar" >> "$GITHUB_ENV"
           echo "kotlin-stdlib: $jar"
       - name: Run warm-versus-clean mutation matrix
         env:
-          KRIT_TYPES_JAR: ${{ github.workspace }}/tools/krit-types/build/libs/krit-types.jar
           KRIT_FIR_JAR: ${{ github.workspace }}/tools/krit-fir/build/libs/krit-fir.jar
           KRIT_WARM_CLEAN_MATRIX: "1"
         run: |
@@ -648,7 +616,7 @@ jobs:
       - name: Upload SARIF
         if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
         with:
           sarif_file: results.sarif
           category: krit-self-lint

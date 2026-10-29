@@ -22,6 +22,11 @@ object KritJsonParser {
         return normalize(raw)
     }
 
+    // A report in the CLI's JSON shape holding findings, as `krit
+    // apply-suggestion` reads it (it looks findings up by
+    // rule:file:line:column and applies the chosen suggestion's edits).
+    fun reportJson(findings: List<KritFinding>): String = gson.toJson(KritReport(findings))
+
     private fun normalize(report: KritReport): KritReport {
         val findings = report.findings.orNull().map { finding ->
             finding.copy(

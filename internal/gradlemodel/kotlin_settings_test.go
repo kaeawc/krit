@@ -226,33 +226,34 @@ func TestKotlinSettingsIdentity(t *testing.T) {
 	}
 }
 
-func TestMergeKotlinSettingsNeverImposesOneModuleOnAnother(t *testing.T) {
-	modern := KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0", OptIns: []string{"a.A", "b.B"}, Flags: []string{"-Xcontext-parameters", "-Xwhen-guards"}}
+func TestMergeKotlinSettingsPreservesSemanticAgreement(t *testing.T) {
+	modern := KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0", Progressive: true, OptIns: []string{"a.A", "b.B"}, Flags: []string{"-Xcontext-parameters", "-Xwhen-guards"}}
 	old := KotlinSettings{LanguageVersion: "2.1", APIVersion: "2.1", OptIns: []string{"a.A"}, Flags: []string{"-Xcontext-parameters"}}
 
 	agree := MergeKotlinSettings([]KotlinSettings{modern, modern}, []string{":a:main", ":b:main"})
-	if agree.LanguageVersion != "2.0" || agree.APIVersion != "2.0" || !reflect.DeepEqual(agree.OptIns, modern.OptIns) || !reflect.DeepEqual(agree.Flags, modern.Flags) {
+	if agree.LanguageVersion != "2.0" || agree.APIVersion != "2.0" || !agree.Progressive || !reflect.DeepEqual(agree.OptIns, modern.OptIns) || !reflect.DeepEqual(agree.Flags, modern.Flags) {
 		t.Fatalf("agreeing sets must keep their settings: %+v", agree)
 	}
 
 	mixed := MergeKotlinSettings([]KotlinSettings{modern, old, modern}, []string{":a:main", ":legacy:main", ":c:main"})
-	if mixed.LanguageVersion != "" || mixed.APIVersion != "" {
-		t.Fatalf("disagreeing versions must not be applied: %+v", mixed)
+	if mixed.LanguageVersion != "" || mixed.APIVersion != "" || mixed.Progressive {
+		t.Fatalf("disagreeing versions and progressive mode must not be applied: %+v", mixed)
 	}
-	if !reflect.DeepEqual(mixed.OptIns, []string{"a.A"}) || !reflect.DeepEqual(mixed.Flags, []string{"-Xcontext-parameters"}) {
-		t.Fatalf("opt-ins and flags must be the intersection: %+v", mixed)
+	if !reflect.DeepEqual(mixed.OptIns, []string{"a.A", "b.B"}) || !reflect.DeepEqual(mixed.Flags, []string{"-Xcontext-parameters"}) {
+		t.Fatalf("opt-ins must be unioned while semantic flags remain intersected: %+v", mixed)
 	}
 	notes := strings.Join(mixed.Notes, "\n")
-	for _, want := range []string{"languageVersion differs across source sets", ":legacy:main", "embedded compiler default", "opt-ins differ", "flags differ"} {
+	for _, want := range []string{"languageVersion differs across source sets", "apiVersion differs across source sets", "progressive differs across source sets", ":legacy:main", "embedded compiler default", "opt-ins differ", "flags differ"} {
 		if !strings.Contains(notes, want) {
 			t.Errorf("notes lack %q:\n%s", want, notes)
 		}
 	}
 
-	// A source set the model said nothing about is a disagreement, not a wildcard.
+	// An unknown source set prevents versions and flags from being applied
+	// repo-wide, but does not prevent the opt-in union.
 	unknown := MergeKotlinSettings([]KotlinSettings{modern, ResolveKotlinSettings(nil)}, []string{":a:main", ":old:main"})
-	if unknown.LanguageVersion != "" || len(unknown.OptIns) != 0 || len(unknown.Flags) != 0 {
-		t.Fatalf("unknown source set must not inherit another module's settings: %+v", unknown)
+	if unknown.LanguageVersion != "" || !reflect.DeepEqual(unknown.OptIns, modern.OptIns) || len(unknown.Flags) != 0 {
+		t.Fatalf("unknown source set must retain the opt-in union but not inherit semantic settings: %+v", unknown)
 	}
 
 	if got := MergeKotlinSettings(nil, nil); !got.IsZero() {
@@ -263,6 +264,39 @@ func TestMergeKotlinSettingsNeverImposesOneModuleOnAnother(t *testing.T) {
 	}
 }
 
+func TestMergeKotlinSettingsOptInUnion(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		sets    []KotlinSettings
+		want    []string
+		warning bool
+	}{
+		{"disjoint", []KotlinSettings{{OptIns: []string{"b.B"}}, {OptIns: []string{"a.A"}}}, []string{"a.A", "b.B"}, true},
+		{"overlapping duplicates", []KotlinSettings{{OptIns: []string{"b.B", "a.A", "b.B"}}, {OptIns: []string{"c.C", "b.B"}}}, []string{"a.A", "b.B", "c.C"}, true},
+		{"empty first", []KotlinSettings{{}, {OptIns: []string{"a.A"}}}, []string{"a.A"}, true},
+		{"empty last", []KotlinSettings{{OptIns: []string{"a.A"}}, {}}, []string{"a.A"}, true},
+		{"equivalent markers", []KotlinSettings{{OptIns: []string{"b.B", "a.A", "a.A"}}, {OptIns: []string{"a.A", "b.B"}}}, []string{"a.A", "b.B"}, false},
+		{"all empty", []KotlinSettings{{}, {}}, nil, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := MergeKotlinSettings(test.sets, nil)
+			if !reflect.DeepEqual(got.OptIns, test.want) {
+				t.Fatalf("opt-in union = %v, want %v", got.OptIns, test.want)
+			}
+			if !reflect.DeepEqual(got.CompilerArgs(), (KotlinSettings{OptIns: test.want}).CompilerArgs()) {
+				t.Fatalf("compiler arguments do not carry the opt-in union: %v", got.CompilerArgs())
+			}
+			notes := strings.Join(got.Notes, "\n")
+			if strings.Contains(notes, "opt-ins differ across source sets") != test.warning {
+				t.Fatalf("unexpected opt-in disagreement note: %q", notes)
+			}
+			if test.warning && (!strings.Contains(notes, "is missing opt-ins enabled elsewhere") || !strings.Contains(notes, "all opt-ins enabled by any source set are applied") || !strings.Contains(notes, "missing opt-ins in other source sets may be hidden")) {
+				t.Fatalf("note must explain the union and its trade-off: %q", notes)
+			}
+		})
+	}
+}
+
 func TestEffectiveKotlinSettingsOnNilAndEmptyModel(t *testing.T) {
 	var nilModel *Model
 	if !nilModel.EffectiveKotlinSettings().IsZero() || (&Model{}).EffectiveKotlinSettings().Identity() != "" {
@@ -270,10 +304,9 @@ func TestEffectiveKotlinSettingsOnNilAndEmptyModel(t *testing.T) {
 	}
 }
 
-// helperSources are the two Kotlin copies of the settings allowlist and parser.
+// helperSources are the Kotlin copies of the settings allowlist and parser.
 var helperSources = map[string]string{
-	"krit-fir":   "../../tools/krit-fir/src/main/kotlin/dev/jasonpearson/krit/fir/runner/KotlinCompilerSettings.kt",
-	"krit-types": "../../tools/krit-types/src/main/kotlin/dev/jasonpearson/krit/types/KotlinCompilerSettings.kt",
+	"krit-fir": "../../tools/krit-fir/src/main/kotlin/dev/jasonpearson/krit/fir/runner/KotlinCompilerSettings.kt",
 }
 
 func readHelper(t *testing.T, name string) string {
@@ -299,9 +332,8 @@ func kotlinStringSet(t *testing.T, text, name string) map[string]bool {
 	return out
 }
 
-// TestKotlinSettingsMatchHelpers keeps the three copies of the allowlist, the
-// protected sets and the validation regexes (Go, krit-fir, krit-types) exactly
-// equal, so a flag Go sends is never silently dropped by a helper and a helper
+// TestKotlinSettingsMatchHelpers keeps the copies of the allowlist, the
+// protected sets and the validation regexes (Go, krit-fir) exactly equal, so a flag Go sends is never silently dropped by a helper and a helper
 // never accepts what Go rejects.
 func TestKotlinSettingsMatchHelpers(t *testing.T) {
 	wantAllow := map[string]bool{}
@@ -320,7 +352,6 @@ func TestKotlinSettingsMatchHelpers(t *testing.T) {
 		"VERSION": versionRe.String(), "OPT_IN": optInRe.String(),
 		"FLAG_VALUE": flagValueRe.String(), "LANGUAGE_TOGGLE": languageRe.String(),
 	}
-	companions := map[string]string{}
 	for name := range helperSources {
 		text := readHelper(t, name)
 		gotAllow := map[string]bool{}
@@ -352,14 +383,6 @@ func TestKotlinSettingsMatchHelpers(t *testing.T) {
 				t.Errorf("%s does not protect the %s prefix", name, prefix)
 			}
 		}
-		idx := strings.Index(text, "companion object {")
-		if idx < 0 {
-			t.Fatalf("%s has no companion object", name)
-		}
-		companions[name] = text[idx:]
-	}
-	if companions["krit-fir"] != companions["krit-types"] {
-		t.Error("the companion-object blocks of the two Kotlin helper copies differ; they must stay identical")
 	}
 }
 

@@ -60,9 +60,42 @@ public class FakeAndroidPlugin implements Plugin<Project> {
         // User-overridable and here pinned below the plugin version, as in real builds.
         public String getCoreLibrariesVersion() { return "2.0.0"; }
     }
+    /** Mirrors org.jetbrains.kotlin.gradle.plugin.SubpluginOption: a key and a lazily computed value. */
+    public static class FakeSubpluginOption {
+        private final String key;
+        private final String value;
+        public FakeSubpluginOption(String key, String value) { this.key = key; this.value = value; }
+        public String getKey() { return key; }
+        public String getValue() { return value; }
+    }
+    /** Mirrors org.jetbrains.kotlin.gradle.plugin.CompilerPluginConfig.allOptions(). */
+    public static class FakeCompilerPluginConfig {
+        private final java.util.Map<String, List<FakeSubpluginOption>> options = new java.util.LinkedHashMap<>();
+        public java.util.Map<String, List<FakeSubpluginOption>> allOptions() { return options; }
+    }
     public static class CompileKotlin extends DefaultTask {
         private final CompilerOptions compilerOptions = new CompilerOptions(getProject());
+        private final org.gradle.api.file.ConfigurableFileCollection pluginClasspath = getProject().getObjects().fileCollection();
+        private final ListProperty<FakeCompilerPluginConfig> pluginOptions =
+                getProject().getObjects().listProperty(FakeCompilerPluginConfig.class);
+        public CompileKotlin() {
+            // Mirrors AbstractKotlinCompile.getPluginClasspath()/getPluginOptions() in KGP 2.x: the applied plugins
+            // after KGP's own scripting support.
+            if (getProject().hasProperty("fakeCompilerPlugins")) {
+                pluginClasspath.from(
+                        getProject().file("plugins/kotlin-scripting-compiler-embeddable-2.4.21.jar"),
+                        getProject().file("plugins/kotlin-serialization-compiler-plugin-embeddable-2.4.21.jar"));
+                FakeCompilerPluginConfig config = new FakeCompilerPluginConfig();
+                config.allOptions().put("org.jetbrains.kotlinx.serialization",
+                        List.of(new FakeSubpluginOption("disableIntrinsic", "true")));
+                config.allOptions().put("org.jetbrains.kotlin.allopen",
+                        List.of(new FakeSubpluginOption("annotation", "a.Open"), new FakeSubpluginOption("annotation", "b.Open")));
+                pluginOptions.add(config);
+            }
+        }
         public CompilerOptions getCompilerOptions() { return compilerOptions; }
+        public org.gradle.api.file.ConfigurableFileCollection getPluginClasspath() { return pluginClasspath; }
+        public ListProperty<FakeCompilerPluginConfig> getPluginOptions() { return pluginOptions; }
     }
     public static class Dirs {
         private final Set<File> dirs;
@@ -142,10 +175,22 @@ public class FakeAndroidPlugin implements Plugin<Project> {
             try { jar.createNewFile(); }
             catch (java.io.IOException error) { throw new RuntimeException(error); }
         }
-        for (String name : List.of("debugCompileClasspath", "releaseCompileClasspath",
+        if (project.hasProperty("deferAndroidVariants")) {
+            project.afterEvaluate(ignored -> registerVariants(project));
+        } else {
+            registerVariants(project);
+        }
+    }
+
+    private void registerVariants(Project project) {
+        if (project.hasProperty("omitAndroidVariants")) return;
+        List<String> configurations = project.hasProperty("releaseOnly")
+                ? List.of("releaseCompileClasspath")
+                : List.of("debugCompileClasspath", "releaseCompileClasspath",
                 "stagingDebugCompileClasspath",
                 "debugUnitTestCompileClasspath", "debugAndroidTestCompileClasspath",
-                "stagingDebugUnitTestCompileClasspath", "stagingDebugAndroidTestCompileClasspath")) {
+                "stagingDebugUnitTestCompileClasspath", "stagingDebugAndroidTestCompileClasspath");
+        for (String name : configurations) {
             project.getConfigurations().create(name).setCanBeResolved(true);
         }
         // Mirrors GenerateLibraryRFileTask.CreationAction.getName() and LinkApplicationAndroidResourcesTask.BaseCreationAction.getName() in AGP 8.8.0-alpha09.

@@ -180,17 +180,12 @@ type IndexInput struct {
 	// ThoroughAllFiles into the active filter spec. At fast/balanced the
 	// thorough-only fields are dropped so JVM cost stays unchanged.
 	Thorough bool
-	// OracleDiagnostics enables expensive Kotlin compiler diagnostic
-	// collection in krit-types. The default oracle path leaves this off;
-	// FlatNode/rule fallbacks cover the common cases without forcing every
-	// KAA run through collectDiagnostics().
-	OracleDiagnostics bool
-	// UseDaemon mirrors --daemon: use the long-lived krit-types daemon
+	// UseDaemon mirrors --daemon: use the long-lived krit-fir daemon
 	// instead of one-shot invocation.
 	UseDaemon bool
 	// OracleBackend selects which JVM daemon to spawn for the type
 	// oracle role. Empty means defer to oracle.DefaultBackend
-	// (currently krit-types / "kaa"). The value is the resolved
+	// (krit-fir, the only backend). The value is the resolved
 	// `--oracle-backend` flag, or `oracle.backend` from krit.yml
 	// when the flag isn't set. Parsing happens in the caller; the
 	// pipeline just routes on the value.
@@ -199,8 +194,7 @@ type IndexInput struct {
 	// daemon receives on `analyze` requests. Built from
 	// `oracle.classpath` in krit.yml and the `CLASSPATH` env var. The
 	// daemon falls back to source-tree dependency discovery when this
-	// is empty. The KAA backend ignores this field today; classpath
-	// threading for krit-types is a separate effort.
+	// is empty.
 	OracleClasspath  []string
 	OracleSourceDirs []string
 	OracleJvmTarget  string
@@ -217,28 +211,21 @@ type IndexInput struct {
 	// it on every path: when the oracle will not run, when it has run, and
 	// when it declines to carry the check.
 	FIRCheckBroker *firchecks.Broker
+	// FIRIncrementalDir: see ProjectHostState.FIRIncrementalDir.
+	FIRIncrementalDir string
 	// PrebuiltOracleDaemon, when non-nil, is reused by runDaemonOracle
 	// instead of calling oracle.InvokeDaemon. The serve daemon's
 	// ensureOracleDaemon supplies a *oracle.Daemon kept alive across
 	// analyze-project verb calls; the JVM warmup cost (~seconds) is
 	// then paid once per krit-serve lifetime instead of per call.
 	PrebuiltOracleDaemon *oracle.Daemon
-	// PrebuiltOracleCallFilter, when non-nil, is used in place of the
-	// per-call buildOracleCallTargetFilterForInvocation() rebuild.
-	// RunProject computes (and caches) the filter once via
-	// host.OracleFilterCache before IndexPhase runs; runDaemonOracle
-	// reuses it instead of re-scanning every Kotlin file for
-	// annotated-identifier hits. Skip-mode (Enabled==false) values
-	// are still passed through as a sentinel so the JVM-side gate
-	// stays consistent with the cached classification.
-	PrebuiltOracleCallFilter *oracle.CallTargetFilterSummary
 	// Store is the optional unified store for oracle cache entries.
 	Store *store.FileStore
 	// OracleCacheWriter, when non-nil, defers cold oracle cache-entry
 	// persistence until the caller flushes it later in the run.
 	OracleCacheWriter *oracle.CacheWriter
 	// StaleOraclePaths lists .kt paths that the freshness gate should
-	// treat as KAA-stale even when a cached types.json exists. Empty
+	// treat as oracle-stale even when a cached types.json exists. Empty
 	// keeps the lazy-load fast path; non-empty routes through a partial
 	// reanalyze. Absolute paths; entries outside the scan set are
 	// ignored.
@@ -939,14 +926,14 @@ func recordResidentOracleBackend(tracker perf.Tracker, backend oracle.Backend, d
 	})
 }
 
-// invokeOracleDaemon starts the krit-types daemon; a seam so tests can observe
+// invokeOracleDaemon starts the krit-fir daemon; a seam so tests can observe
 // the classpath the --daemon path starts it with.
 var invokeOracleDaemon = oracle.InvokeDaemonWithClasspath
 
 // runDaemonOracle starts a daemon, analyzes all files, and wraps base in
 // a CompositeResolver. Returns the updated resolver.
-func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scanPaths []string, loadOracleFilterFiles func() []*scanner.File, oracleTracker perf.Tracker, base typeinfer.TypeResolver, result *IndexResult) typeinfer.TypeResolver {
-	callFilterPtr := selectOracleCallFilter(in, oracleRules, loadOracleFilterFiles, oracleTracker)
+func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scanPaths []string, oracleTracker perf.Tracker, base typeinfer.TypeResolver, result *IndexResult) typeinfer.TypeResolver {
+	recordOracleRuleNeedProfile(oracleRules, oracleTracker)
 
 	// Whichever way this returns, the pass must not keep waiting for a check
 	// this function never sent.
@@ -958,7 +945,7 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 	} else {
 		var daemonErr error
 		oracleTracker.TrackVoid("jvmStart", func() {
-			d, daemonErr = invokeOracleDaemon(scanPaths, in.OracleClasspath, in.Verbose, oracle.WithKotlinSettings(in.OracleKotlin))
+			d, daemonErr = invokeOracleDaemon(scanPaths, in.OracleClasspath, in.Verbose, oracle.WithKotlinSettings(in.OracleKotlin), oracle.WithExtraSourceDirs(in.OracleSourceDirs))
 		})
 		if daemonErr != nil {
 			in.warnf("warning: daemon: %v\n", daemonErr)
@@ -968,7 +955,7 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 	result.Daemon = d
 	var oracleData *oracle.Data
 	oracleTracker.TrackVoid("jvmAnalyze", func() {
-		oracleData = daemonAnalyze(in, d, scanPaths, callFilterPtr, oracleTracker)
+		oracleData = daemonAnalyze(in, d, scanPaths, oracleTracker)
 	})
 	// The compile is over, shared or not: the pass may use the check it
 	// carried or run its own.
@@ -1001,35 +988,52 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 // daemonAnalyzer is the slice of *oracle.Daemon that daemonAnalyze drives; it
 // lets tests substitute a stub for the resident JVM.
 type daemonAnalyzer interface {
-	AnalyzeAllWithCallFilter(callFilter *oracle.CallTargetFilterSummary) (*oracle.Data, error)
-	AnalyzeFilesWithCallFilter(files []string, callFilter *oracle.CallTargetFilterSummary) (*oracle.Data, error)
+	AnalyzeAll() (*oracle.Data, error)
+	AnalyzeFiles(files []string) (*oracle.Data, error)
+}
+
+// incrementalDirAnalyzer is a daemon whose full analysis can name krit-fir's
+// persisted incremental bundle (#957).
+type incrementalDirAnalyzer interface {
+	AnalyzeAllIn(incrementalDir string) (*oracle.Data, error)
+}
+
+// analyzeAllPlain is the daemon's full analysis without a check, naming the
+// incremental bundle directory when the request has one and the daemon can.
+func analyzeAllPlain(in IndexInput, d daemonAnalyzer) (*oracle.Data, error) {
+	if dir := in.FIRIncrementalDir; dir != "" {
+		if withDir, ok := d.(incrementalDirAnalyzer); ok {
+			return withDir.AnalyzeAllIn(dir)
+		}
+	}
+	return d.AnalyzeAll()
 }
 
 // daemonCheckAnalyzer is what a daemon needs to answer the --fir pass's check
 // from its compilation (#810): the combined request, and the registry facts
 // that say the daemon compiles in the pass's context.
 type daemonCheckAnalyzer interface {
-	AnalyzeAllWithCheck(callFilter *oracle.CallTargetFilterSummary, rider *oracle.CheckRider) (*oracle.Data, error)
+	AnalyzeAllWithCheck(rider *oracle.CheckRider) (*oracle.Data, error)
 	MatchesRepoSettings(jarPath string, sourceDirs []string, kt gradlemodel.KotlinSettings, classpath ...string) bool
 }
 
 // analyzeAllCarryingCheck is a full daemon analysis that also answers the
 // --fir pass's check when the broker lets it: the daemon compiles in the
 // pass's context and krit-fir knows the combined request. Otherwise it is
-// exactly AnalyzeAllWithCallFilter, and the broker is resolved by the caller.
-func analyzeAllCarryingCheck(in IndexInput, d daemonAnalyzer, callFilterPtr *oracle.CallTargetFilterSummary) (*oracle.Data, error) {
+// exactly analyzeAllPlain, and the broker is resolved by the caller.
+func analyzeAllCarryingCheck(in IndexInput, d daemonAnalyzer) (*oracle.Data, error) {
 	carrier, ok := d.(daemonCheckAnalyzer)
 	if !ok {
 		in.FIRCheckBroker.Done("oracle daemon cannot carry a check")
-		return d.AnalyzeAllWithCallFilter(callFilterPtr)
+		return analyzeAllPlain(in, d)
 	}
 	rider := in.FIRCheckBroker.Claim(func(jarPath string, sourceDirs []string, kt gradlemodel.KotlinSettings, classpath []string) bool {
 		return carrier.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...)
 	})
 	if rider == nil {
-		return d.AnalyzeAllWithCallFilter(callFilterPtr)
+		return analyzeAllPlain(in, d)
 	}
-	data, err := carrier.AnalyzeAllWithCheck(callFilterPtr, rider)
+	data, err := carrier.AnalyzeAllWithCheck(rider)
 	if err != nil {
 		in.FIRCheckBroker.Done("oracle request failed")
 	}
@@ -1039,7 +1043,7 @@ func analyzeAllCarryingCheck(in IndexInput, d daemonAnalyzer, callFilterPtr *ora
 // daemonAnalyze obtains the oracle facts from the resident daemon: a partial
 // reanalyze merged into the cached types.json when that is sound, else a full
 // analysis. It returns nil when the daemon produced nothing usable.
-func daemonAnalyze(in IndexInput, d daemonAnalyzer, scanPaths []string, callFilterPtr *oracle.CallTargetFilterSummary, oracleTracker perf.Tracker) *oracle.Data {
+func daemonAnalyze(in IndexInput, d daemonAnalyzer, scanPaths []string, oracleTracker perf.Tracker) *oracle.Data {
 	// Partial reanalyze path: when the caller has prior-manifest
 	// evidence of exactly which .kt files changed (StaleOraclePaths
 	// populated by the daemon's bundle-manifest comparator), ask
@@ -1079,8 +1083,8 @@ func daemonAnalyze(in IndexInput, d daemonAnalyzer, scanPaths []string, callFilt
 		perf.AddEntryDetails(oracleTracker, "daemonPartialReanalyze", 0, map[string]int64{
 			"stalePaths": int64(len(in.StaleOraclePaths)),
 		}, nil)
-		analyzeAll := func() (*oracle.Data, error) { return d.AnalyzeAllWithCallFilter(callFilterPtr) }
-		fresh, err := d.AnalyzeFilesWithCallFilter(in.StaleOraclePaths, callFilterPtr)
+		analyzeAll := func() (*oracle.Data, error) { return analyzeAllPlain(in, d) }
+		fresh, err := d.AnalyzeFiles(in.StaleOraclePaths)
 		if err != nil {
 			in.warnf("warning: daemon analyzeFiles (fallback to analyzeAll): %v\n", err)
 			od, allErr := analyzeAllAndPersist(analyzeAll, cachedTypesPath, in.warnf, typesScope, haveScope, scanPaths)
@@ -1117,7 +1121,7 @@ func daemonAnalyze(in IndexInput, d daemonAnalyzer, scanPaths []string, callFilt
 		recordTypesScope(cachedTypesPath, typesScope, haveScope, scanPaths, in.warnf)
 		return merged
 	}
-	od, err := analyzeAllCarryingCheck(in, d, callFilterPtr)
+	od, err := analyzeAllCarryingCheck(in, d)
 	if err != nil {
 		in.warnf("warning: daemon analyzeAll: %v\n", err)
 		return nil
@@ -1177,93 +1181,18 @@ func oracleTypesScope(in IndexInput, scanPaths []string) (oracle.StoreScope, boo
 // partialMergeAllowed reports whether fresh facts may be merged into the cached
 // types.json: it must have been produced under exactly this scope.
 func partialMergeAllowed(typesPath string, scope oracle.StoreScope, haveScope bool, scanPaths []string) bool {
-	return haveScope && oracle.TypesJSONSatisfiesForPaths(typesPath, false, scope, buildid.Token(), scanPaths)
+	return haveScope && oracle.TypesJSONSatisfiesForPaths(typesPath, scope, buildid.Token(), scanPaths)
 }
 
 // recordTypesScope stamps types.json with the scope its facts now belong to, so
-// the next partial reanalyze can verify it. Diagnostics availability is kept
-// from the prior record (unknown stays "omitted").
+// the next partial reanalyze can verify it.
 func recordTypesScope(typesPath string, scope oracle.StoreScope, haveScope bool, scanPaths []string, warnf func(string, ...any)) {
 	if !haveScope {
 		return
 	}
-	if err := oracle.RecordTypesFactsForPaths(typesPath, !oracle.TypesJSONHasDiagnostics(typesPath), scanPaths, scope); err != nil {
+	if err := oracle.RecordTypesFactsForPaths(typesPath, scanPaths, scope); err != nil {
 		warnf("warning: types.json facts record not written: %v\n", err)
 	}
-}
-
-// runDaemonOracleFir spawns (or reuses) the krit-fir persistent
-// daemon and asks it for the full project's oracle data. Skinnier
-// than [runDaemonOracle]: the krit-fir backend has no call-filter
-// optimization, no partial-reanalyze merge (its session.analyze is
-// already per-call rather than long-lived), and no in-flight crash
-// markers — the warm-JVM win is the only thing carrying over.
-//
-// Daemon resolution mirrors runJvmAnalyze's backend split: the FIR
-// jar comes from `oracle.EnsureBackendJar` and the spawn
-// goes through `firchecks.ConnectOrStartFirDaemon`, which reuses an
-// existing daemon when one already serves the same sourceDirs hash.
-func (p IndexPhase) runDaemonOracleFir(in IndexInput, scanPaths []string, oracleTracker perf.Tracker, base typeinfer.TypeResolver, result *IndexResult) typeinfer.TypeResolver {
-	jarPath, err := oracle.EnsureBackendJar(context.Background(), oracle.BackendFIR, scanPaths, in.Verbose)
-	if jarPath == "" {
-		in.warnf("warning: --daemon: %v; falling back to base resolver\n", err)
-		return base
-	}
-	var sourceDirs []string
-	oracleTracker.TrackVoid("findSourceDirs", func() {
-		sourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(oracle.FindSourceDirs(scanPaths), in.OracleSourceDirs))
-	})
-	if len(sourceDirs) == 0 {
-		return base
-	}
-
-	var d *firchecks.FirDaemon
-	var daemonErr error
-	oracleTracker.TrackVoid("firDaemonStart", func() {
-		d, daemonErr = firchecks.ConnectOrStartFirDaemon(jarPath, sourceDirs, in.OracleClasspath, in.Verbose, in.compileTarget())
-	})
-	if daemonErr != nil {
-		in.warnf("warning: --daemon: %v\n", daemonErr)
-		return base
-	}
-	result.FirDaemon = d
-
-	var oracleData *oracle.Data
-	oracleTracker.TrackVoid("firDaemonAnalyzeAll", func() {
-		// Pass the user-configured classpath (oracle.classpath in
-		// krit.yml + the CLASSPATH env var) to the FIR daemon. Empty
-		// classpath means the daemon falls back to source-tree
-		// discovery — same as krit-types' behavior — so projects
-		// that don't set anything still work.
-		od, err := d.AnalyzeAll(sourceDirs, in.OracleClasspath)
-		if err != nil {
-			in.warnf("warning: fir daemon analyzeAll: %v\n", err)
-			return
-		}
-		oracleData = od
-	})
-	if oracleData == nil {
-		return base
-	}
-
-	var oracleLoaded *oracle.Oracle
-	oracleTracker.TrackVoid("indexBuild", func() {
-		ol, err := oracle.LoadFromData(oracleData)
-		if err != nil {
-			in.warnf("warning: fir daemon oracle: %v\n", err)
-			return
-		}
-		oracleLoaded = ol
-	})
-	if oracleLoaded == nil {
-		return base
-	}
-	result.Oracle = oracleLoaded
-	result.OracleBlobHash = oracleLoaded.BlobHash
-	if in.Verbose {
-		in.logf("verbose: Type oracle loaded from fir daemon (%d dependency types)\n", len(oracleLoaded.Dependencies()))
-	}
-	return oracle.NewCompositeResolver(oracleLoaded, base)
 }
 
 // buildOracleFilterListPath computes and writes the oracle filter list file
@@ -1323,7 +1252,7 @@ func (p IndexPhase) buildOracleFilterListPath(in IndexInput, oracleRules []*api.
 	return fp, func() { os.Remove(fp) }
 }
 
-// runJvmAnalyze attempts to invoke krit-types to produce an oracle JSON path.
+// runJvmAnalyze attempts to invoke krit-fir to produce an oracle JSON path.
 // Returns the path to the produced oracle JSON (empty on failure).
 func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPaths []string, loadOracleFilterFiles func() []*scanner.File, jvmTracker perf.Tracker) string {
 	backend := in.OracleBackend
@@ -1332,20 +1261,14 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 	}
 	var sourceDirs []string
 	jvmTracker.TrackVoid("findSourceDirs", func() {
-		sourceDirs = oracle.UnionSourceDirs(oracle.FindSourceDirs(scanPaths), in.OracleSourceDirs)
-		if backend == oracle.BackendFIR {
-			sourceDirs = oracle.FilterFIRSourceDirs(sourceDirs)
-		}
+		sourceDirs = oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(oracle.FindSourceDirs(scanPaths), in.OracleSourceDirs))
 	})
 	if len(sourceDirs) == 0 {
 		return ""
 	}
-	// krit-fir ships the same analyze / analyzeAll / analyzeWithDeps RPCs
-	// as krit-types, so the jar is the only thing the backend swaps; the
-	// InvokeCached pipeline below is shared. Tagged releases download a
-	// missing jar, and fall back to an installed krit-types jar when the
-	// krit-fir one can't be had. Resolved after the source dirs so a
-	// project with nothing to analyze never triggers a download.
+	// Tagged releases download a missing krit-fir jar. Resolved after the
+	// source dirs so a project with nothing to analyze never triggers a
+	// download.
 	var jarPath, jarWarning string
 	var jarErr error
 	jvmTracker.TrackVoid("findJar", func() {
@@ -1359,8 +1282,7 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		return ""
 	}
 	storeScope := oracle.NewStoreScopeWithSettings(backend, jarPath, in.OracleClasspath, in.OracleJvmTarget, in.OracleKotlin)
-	// Record what actually serves the oracle (after any fallback), so
-	// benchmarks and --perf readers can verify the backend they asked for.
+	// Record what actually serves the oracle, so benchmarks and --perf readers can verify the backend they asked for.
 	perf.AddEntryDetails(jvmTracker, "oracleBackend", 0, nil, map[string]string{
 		"backend": backend.String(),
 		"jar":     filepath.Base(jarPath),
@@ -1379,17 +1301,13 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 	})
 	if cacheDest == "" {
 		if dir, err := fsutil.UserKritDir(); err == nil {
-			cacheDest = filepath.Join(dir, "krit-types.json")
+			cacheDest = filepath.Join(dir, "krit-oracle.json")
 		} else {
-			cacheDest = filepath.Join(os.TempDir(), "krit-types.json")
+			cacheDest = filepath.Join(os.TempDir(), "krit-oracle.json")
 		}
 	}
 	if in.Verbose {
-		daemonName := "krit-types"
-		if backend == oracle.BackendFIR {
-			daemonName = "krit-fir"
-		}
-		in.logf("verbose: Running %s (%d source dirs)...\n", daemonName, len(sourceDirs))
+		in.logf("verbose: Running krit-fir (%d source dirs)...\n", len(sourceDirs))
 	}
 
 	filterListPath, cleanup := p.buildOracleFilterListPath(in, oracleRules, loadOracleFilterFiles, jvmTracker)
@@ -1397,8 +1315,7 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		defer cleanup()
 	}
 
-	callFilterPtr := selectOracleCallFilter(in, oracleRules, loadOracleFilterFiles, jvmTracker)
-	declarationProfileSummary := rules.BuildOracleDeclarationProfileV2(oracleRules)
+	recordOracleRuleNeedProfile(oracleRules, jvmTracker)
 	factUnion := rules.OracleFactUnion(oracleRules)
 	perf.AddEntryDetails(jvmTracker, "oracleFactUnion", 0, map[string]int64{
 		"callTargets":       boolMetric(factUnion.HasAny(api.NeedsOracleCallTargets)),
@@ -1415,22 +1332,18 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		"oracleRulesCount":  int64(len(oracleRules)),
 	}, nil)
 	invokeOpts := oracle.InvocationOptions{
-		Tracker:            jvmTracker,
-		CacheWriter:        in.OracleCacheWriter,
-		CallFilter:         callFilterPtr,
-		DeclarationProfile: &declarationProfileSummary,
-		DisableDiagnostics: !oracleDiagnosticsRequired(in, oracleRules),
-		ForcedMisses:       in.StaleOraclePaths,
+		Tracker:      jvmTracker,
+		CacheWriter:  in.OracleCacheWriter,
+		ForcedMisses: in.StaleOraclePaths,
 		// Forwards the model, config, and environment classpath to the spawned
-		// JVM. Both krit-types and krit-fir parse `--classpath` on
-		// their one-shot CLI, so the same args vector drives either
-		// backend. Empty preserves source-tree discovery.
+		// krit-fir JVM, which parses `--classpath` on its one-shot CLI.
+		// Empty preserves source-tree discovery.
 		Classpath: in.OracleClasspath,
 		JvmTarget: in.OracleJvmTarget,
 		Kotlin:    in.OracleKotlin,
 		Backend:   backend,
 	}
-	if backend == oracle.BackendFIR && in.FIRCheckRider != nil {
+	if in.FIRCheckRider != nil {
 		invokeOpts.CheckRider = in.FIRCheckRider(jarPath, sourceDirs, in.OracleClasspath, in.compileTarget())
 	}
 	invocationStore := in.Store
@@ -1451,10 +1364,10 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		res, err = oracle.InvokeCachedWithOptions(jarPath, sourceDirs, repoDir, cacheDest, filterListPath, in.Verbose, invocationStore, invokeOpts)
 	}
 	if err != nil {
-		in.warnf("warning: krit-types: %v\n", err)
+		in.warnf("warning: krit-fir: %v\n", err)
 		return ""
 	}
-	if err := oracle.RecordTypesFactsForPaths(res, invokeOpts.DisableDiagnostics, scanPaths, storeScope); err != nil && in.Verbose {
+	if err := oracle.RecordTypesFactsForPaths(res, scanPaths, storeScope); err != nil && in.Verbose {
 		in.logf("verbose: oracle facts record not written: %v\n", err)
 	}
 	return res
@@ -1462,7 +1375,7 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 
 // cachedTypesJSONSatisfies reports whether the cached types.json at path
 // holds the facts this run needs, so the freshness gate may reuse it.
-func cachedTypesJSONSatisfies(in IndexInput, oracleRules []*api.Rule, path string, scanPaths []string) bool {
+func cachedTypesJSONSatisfies(in IndexInput, path string, scanPaths []string) bool {
 	if in.NoCacheOracle {
 		return false
 	}
@@ -1470,16 +1383,7 @@ func cachedTypesJSONSatisfies(in IndexInput, oracleRules []*api.Rule, path strin
 	if !ok {
 		return false
 	}
-	return oracle.TypesJSONSatisfiesForPaths(path, oracleDiagnosticsRequired(in, oracleRules), scope, buildid.Token(), scanPaths)
-}
-
-// oracleDiagnosticsRequired reports whether this run needs compiler
-// diagnostics in the oracle facts. They are collected whenever an active
-// rule consumes them (the diagnostic-projection tier), so the projection
-// fires by default; --oracle-diagnostics forces collection even when no
-// active rule declares NeedsOracleDiagnostics.
-func oracleDiagnosticsRequired(in IndexInput, oracleRules []*api.Rule) bool {
-	return in.OracleDiagnostics || rules.NeedsOracleDiagnostics(oracleRules)
+	return oracle.TypesJSONSatisfiesForPaths(path, scope, buildid.Token(), scanPaths)
 }
 
 // loadOracleFromPath configures a lazy oracle JSON lookup and wraps base in a
@@ -1504,7 +1408,7 @@ func (p IndexPhase) loadOracleFromPath(in IndexInput, oraclePath string, oracleT
 }
 
 // runAutoDetectOracle resolves the oracle JSON path via explicit
-// --input-types, a cached types.json, or by invoking krit-types, then
+// --input-types, a cached types.json, or by invoking krit-fir, then
 // configures a lazy lookup and wraps base.
 func (p IndexPhase) runAutoDetectOracle(in IndexInput, oracleRules []*api.Rule, scanPaths []string, loadOracleFilterFiles func() []*scanner.File, oracleTracker perf.Tracker, base typeinfer.TypeResolver, result *IndexResult) typeinfer.TypeResolver {
 	var oraclePath string
@@ -1534,7 +1438,7 @@ func (p IndexPhase) runAutoDetectOracle(in IndexInput, oracleRules []*api.Rule, 
 	// diagnostic-consuming rule disabled writes types.json without compiler
 	// diagnostics, and reusing it would silently drop every projected
 	// finding. --no-cache-oracle promises a full JVM run, so it never reuses.
-	factScopeStale := cachedTypesJSONExists && !cachedTypesJSONSatisfies(in, oracleRules, oraclePath, scanPaths)
+	factScopeStale := cachedTypesJSONExists && !cachedTypesJSONSatisfies(in, oraclePath, scanPaths)
 	if factScopeStale {
 		perf.AddEntryDetails(oracleTracker, "freshnessGateFactScope", 0, map[string]int64{
 			"noCacheOracle": boolMetric(in.NoCacheOracle),
@@ -1564,9 +1468,17 @@ func (p IndexPhase) runAutoDetectOracle(in IndexInput, oracleRules []*api.Rule, 
 	return p.loadOracleFromPath(in, oraclePath, oracleTracker, base, result)
 }
 
+// useResidentOracleDaemon reports whether the oracle runs on the resident
+// daemon. The daemon is launched and keyed without a JVM target, so a run with
+// an explicit target uses the target-scoped one-shot compile instead, as the
+// cached miss path does (oneShotMissAnalysisReason).
+func useResidentOracleDaemon(in IndexInput) bool {
+	return in.UseDaemon && in.OracleJvmTarget == ""
+}
+
 // runOracle is a verbatim port of the pre-refactor oracle block in
 // cmd/krit/main.go (previously lines 716-886). It auto-detects a
-// krit-types oracle JSON, honours --input-types, --daemon,
+// krit-fir oracle JSON, honours --input-types, --daemon,
 // --no-cache-oracle, and --no-oracle-filter, starts the JVM daemon
 // where requested, and wraps base in an oracle.CompositeResolver on
 // success. Verbose stderr lines and perf tracker labels match the
@@ -1592,11 +1504,8 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 
 	var resolver typeinfer.TypeResolver
 	switch {
-	case in.UseDaemon && in.OracleBackend == oracle.BackendFIR:
-		in.FIRCheckBroker.Done("fir daemon oracle")
-		resolver = p.runDaemonOracleFir(in, scanPaths, oracleTracker, base, result)
-	case in.UseDaemon:
-		resolver = p.runDaemonOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, result)
+	case useResidentOracleDaemon(in):
+		resolver = p.runDaemonOracle(in, oracleRules, scanPaths, oracleTracker, base, result)
 	default:
 		in.FIRCheckBroker.Done("one-shot oracle")
 		resolver = p.runAutoDetectOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, result)
@@ -1618,7 +1527,7 @@ func (IndexPhase) oracleTracker(in IndexInput) perf.Tracker {
 
 // loadFilesForOracleFilter reads the raw bytes of each .kt path into a
 // lightweight *scanner.File so oracle.CollectOracleFiles can run its
-// substring-based filter before krit-types is invoked. The returned
+// substring-based filter before krit-fir is invoked. The returned
 // files are NOT fully parsed (no FlatTree) — the filter is byte-only.
 // Files that fail to read are dropped silently; they will surface later
 // as parse errors in the real parse loop. Ported verbatim from
@@ -1860,71 +1769,9 @@ func boolMetric(b bool) int64 {
 	return 0
 }
 
-// selectOracleCallFilter returns the prebuilt filter when the host
-// supplied one, otherwise builds it via the per-call path. Wraps both
-// runDaemonOracle and runJvmAnalyze so the daemon's resident filter
-// cache is honoured everywhere oracle classification fires.
-func selectOracleCallFilter(in IndexInput, oracleRules []*api.Rule, loadOracleFilterFiles func() []*scanner.File, tracker perf.Tracker) *oracle.CallTargetFilterSummary {
-	if in.PrebuiltOracleCallFilter != nil {
-		// Skip-mode (Enabled==false) is preserved as a sentinel; the
-		// gate inside runDaemonOracle / runJvmAnalyze handles
-		// nil-vs-disabled symmetrically.
-		if !in.PrebuiltOracleCallFilter.Enabled {
-			return nil
-		}
-		return in.PrebuiltOracleCallFilter
-	}
-	return buildOracleCallTargetFilterForInvocation(oracleRules, loadOracleFilterFiles, tracker, in.Reporter)
-}
-
-func buildOracleCallTargetFilterForInvocation(activeRules []*api.Rule, loadFiles func() []*scanner.File, tracker perf.Tracker, reporter *diag.Reporter) *oracle.CallTargetFilterSummary {
-	recordOracleRuleNeedProfile(activeRules, tracker)
-	if strings.EqualFold(os.Getenv("KRIT_ORACLE_CALL_FILTER"), "off") {
-		perf.AddEntryDetails(tracker, "oracleCallFilterSummary", 0, map[string]int64{"enabled": 0}, map[string]string{"disabled": "env"})
-		return nil
-	}
-
-	var files []*scanner.File
-	if rules.OracleCallTargetFilterNeedsFiles(activeRules) && loadFiles != nil {
-		tracker.TrackVoid("oracleCallFilterLoadFiles", func() {
-			files = loadFiles()
-		})
-	}
-
-	var callFilter oracle.CallTargetFilterSummary
-	tracker.TrackVoid("oracleCallFilterBuild", func() {
-		callFilter = rules.BuildOracleCallTargetFilterV2ForFiles(activeRules, files)
-	})
-	enabled := int64(0)
-	if callFilter.Enabled {
-		enabled = 1
-	}
-	perf.AddEntryDetails(tracker, "oracleCallFilterSummary", 0, map[string]int64{
-		"enabled":      enabled,
-		"calleeNames":  int64(len(callFilter.CalleeNames)),
-		"targetFqns":   int64(len(callFilter.TargetFQNs)),
-		"lexicalHints": int64(len(callFilter.LexicalHintsByCallee)),
-		"lexicalSkips": int64(len(callFilter.LexicalSkipByCallee)),
-		"ruleProfiles": int64(len(callFilter.RuleProfiles)),
-		"disabledBy":   int64(len(callFilter.DisabledBy)),
-	}, callTargetFilterPerfAttrs(callFilter))
-	if callFilter.Enabled {
-		reporter.Verbosef("verbose: Oracle call filter: enabled (%d callees) fingerprint=%s\n",
-			len(callFilter.CalleeNames), callFilter.Fingerprint)
-	} else {
-		reporter.Verbosef("verbose: Oracle call filter: disabled by broad rules: %s\n",
-			strings.Join(callFilter.DisabledBy, ","))
-	}
-	if !callFilter.Enabled {
-		return nil
-	}
-	return &callFilter
-}
-
 func recordOracleRuleNeedProfile(activeRules []*api.Rule, tracker perf.Tracker) {
 	var active, needsOracle, needsTypeInfo, needsResolver, oracleConsumers int64
 	var oracleAllFiles, oracleFiltered int64
-	var callTargetRules, callTargetAllCalls, callTargetCalleeRules, callTargetFqnRules, callTargetLexicalRules, callTargetLexicalSkipRules, callTargetAnnotatedRules int64
 	for _, r := range activeRules {
 		if r == nil {
 			continue
@@ -1947,58 +1794,14 @@ func recordOracleRuleNeedProfile(activeRules []*api.Rule, tracker perf.Tracker) 
 		if r.Needs.Has(api.NeedsTypeInfo) {
 			needsTypeInfo++
 		}
-		if r.OracleCallTargets != nil {
-			callTargetRules++
-			if r.OracleCallTargets.AllCalls {
-				callTargetAllCalls++
-			}
-			if len(r.OracleCallTargets.CalleeNames) > 0 {
-				callTargetCalleeRules++
-			}
-			if len(r.OracleCallTargets.TargetFQNs) > 0 {
-				callTargetFqnRules++
-			}
-			if len(r.OracleCallTargets.LexicalHintsByCallee) > 0 {
-				callTargetLexicalRules++
-			}
-			if len(r.OracleCallTargets.LexicalSkipByCallee) > 0 {
-				callTargetLexicalSkipRules++
-			}
-			if len(r.OracleCallTargets.AnnotatedIdentifiers) > 0 {
-				callTargetAnnotatedRules++
-			}
-		}
 	}
 	perf.AddEntryDetails(tracker, "oracleRuleNeedProfile", 0, map[string]int64{
-		"activeRules":              active,
-		"needsResolver":            needsResolver,
-		"needsOracle":              needsOracle,
-		"oracleConsumers":          oracleConsumers,
-		"needsTypeInfo":            needsTypeInfo,
-		"oracleAllFilesRules":      oracleAllFiles,
-		"oracleFilteredRules":      oracleFiltered,
-		"callTargetRules":          callTargetRules,
-		"callTargetAllCallsRules":  callTargetAllCalls,
-		"callTargetCalleeRules":    callTargetCalleeRules,
-		"callTargetFqnRules":       callTargetFqnRules,
-		"callTargetLexicalRules":   callTargetLexicalRules,
-		"callTargetLexicalSkips":   callTargetLexicalSkipRules,
-		"callTargetAnnotatedRules": callTargetAnnotatedRules,
+		"activeRules":         active,
+		"needsResolver":       needsResolver,
+		"needsOracle":         needsOracle,
+		"oracleConsumers":     oracleConsumers,
+		"needsTypeInfo":       needsTypeInfo,
+		"oracleAllFilesRules": oracleAllFiles,
+		"oracleFilteredRules": oracleFiltered,
 	}, nil)
-}
-
-func callTargetFilterPerfAttrs(callFilter oracle.CallTargetFilterSummary) map[string]string {
-	const maxDisabledByAttrs = 25
-
-	attrs := map[string]string{"fingerprint": callFilter.Fingerprint}
-	if len(callFilter.DisabledBy) == 0 {
-		return attrs
-	}
-	disabledBy := callFilter.DisabledBy
-	if len(disabledBy) > maxDisabledByAttrs {
-		disabledBy = disabledBy[:maxDisabledByAttrs]
-		attrs["disabledByTruncated"] = "1"
-	}
-	attrs["disabledBy"] = strings.Join(disabledBy, ",")
-	return attrs
 }

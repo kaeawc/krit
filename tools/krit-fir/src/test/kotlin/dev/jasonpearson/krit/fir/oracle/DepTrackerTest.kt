@@ -21,8 +21,7 @@ class DepTrackerTest {
 
     @Test
     fun selfReferenceIsSkipped() {
-        // Mirrors krit-types' DepTracker.recordDepPath: a file is
-        // never listed as its own dep. The Go-side cache layer would
+        // A file is never listed as its own dep. The Go-side cache layer would
         // otherwise see spurious "self-dependent" entries.
         val t = DepTracker()
         t.recordDepPath("/src/Foo.kt", "/src/Foo.kt")
@@ -34,8 +33,8 @@ class DepTrackerTest {
     fun perFileDepsFirstWinsOnDuplicateFqn() {
         // Supertype resolution can revisit the same dep class via
         // multiple paths within one file (e.g. when interface A and
-        // class B both extend the same Base). First-wins matches
-        // krit-types' behavior.
+        // class B both extend the same Base). First-wins keeps the
+        // recorded payload stable.
         val t = DepTracker()
         val first = ClassPayload(fqn = "com.acme.Base", kind = "class", visibility = "public")
         val second = ClassPayload(fqn = "com.acme.Base", kind = "interface", visibility = "internal")

@@ -30,12 +30,12 @@ type checkingDaemon struct {
 	withCheckCalls atomic.Int32
 }
 
-func (c *checkingDaemon) AnalyzeAllWithCallFilter(f *oracle.CallTargetFilterSummary) (*oracle.Data, error) {
+func (c *checkingDaemon) AnalyzeAll() (*oracle.Data, error) {
 	c.compiles.Add(1)
-	return c.stubDaemon.AnalyzeAllWithCallFilter(f)
+	return c.stubDaemon.AnalyzeAll()
 }
 
-func (c *checkingDaemon) AnalyzeAllWithCheck(f *oracle.CallTargetFilterSummary, rider *oracle.CheckRider) (*oracle.Data, error) {
+func (c *checkingDaemon) AnalyzeAllWithCheck(rider *oracle.CheckRider) (*oracle.Data, error) {
 	c.withCheckCalls.Add(1)
 	c.compiles.Add(1) // one compile answers both
 	if rider.Sent != nil {
@@ -108,7 +108,7 @@ func TestAnalyzeAllCarryingCheckCompilesOnce(t *testing.T) {
 	d := &checkingDaemon{matches: true, checkResponse: response}
 	waiting := waitsFor(t, broker)
 
-	if data, err := analyzeAllCarryingCheck(IndexInput{FIRCheckBroker: broker}, d, nil); err != nil || data == nil {
+	if data, err := analyzeAllCarryingCheck(IndexInput{FIRCheckBroker: broker}, d); err != nil || data == nil {
 		t.Fatalf("data=%v err=%v", data, err)
 	}
 	broker.Done("oracle daemon analysis finished")
@@ -130,7 +130,7 @@ func TestAnalyzeAllCarryingCheckDeclines(t *testing.T) {
 		broker, response := armedBroker(t)
 		d := &checkingDaemon{matches: false, checkResponse: response}
 		waiting := waitsFor(t, broker)
-		if _, err := analyzeAllCarryingCheck(IndexInput{FIRCheckBroker: broker}, d, nil); err != nil {
+		if _, err := analyzeAllCarryingCheck(IndexInput{FIRCheckBroker: broker}, d); err != nil {
 			t.Fatal(err)
 		}
 		if reason := mustResolve(t, waiting); reason != "oracle daemon compiles in another context" {
@@ -144,7 +144,7 @@ func TestAnalyzeAllCarryingCheckDeclines(t *testing.T) {
 		broker, _ := armedBroker(t)
 		d := &stubDaemon{}
 		waiting := waitsFor(t, broker)
-		if _, err := analyzeAllCarryingCheck(IndexInput{FIRCheckBroker: broker}, d, nil); err != nil {
+		if _, err := analyzeAllCarryingCheck(IndexInput{FIRCheckBroker: broker}, d); err != nil {
 			t.Fatal(err)
 		}
 		mustResolve(t, waiting)
@@ -154,7 +154,7 @@ func TestAnalyzeAllCarryingCheckDeclines(t *testing.T) {
 	})
 	t.Run("no broker", func(t *testing.T) {
 		d := &checkingDaemon{matches: true}
-		if _, err := analyzeAllCarryingCheck(IndexInput{}, d, nil); err != nil {
+		if _, err := analyzeAllCarryingCheck(IndexInput{}, d); err != nil {
 			t.Fatal(err)
 		}
 		if d.allCalls != 1 || d.withCheckCalls.Load() != 0 {
@@ -167,11 +167,11 @@ func TestAnalyzeAllCarryingCheckDeclines(t *testing.T) {
 // module on its own and the broker says so at once.
 func TestDaemonAnalyzePartialReanalyzeDeclinesTheCheck(t *testing.T) {
 	root := t.TempDir()
-	jar := filepath.Join(root, "krit-types.jar")
+	jar := filepath.Join(root, "krit-fir.jar")
 	if err := os.WriteFile(jar, []byte("A"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("KRIT_TYPES_JAR", jar)
+	t.Setenv("KRIT_FIR_JAR", jar)
 	scanPaths := []string{root}
 	typesPath := oracle.CachePath(scanPaths)
 	if err := os.MkdirAll(filepath.Dir(typesPath), 0o755); err != nil {
@@ -180,7 +180,7 @@ func TestDaemonAnalyzePartialReanalyzeDeclinesTheCheck(t *testing.T) {
 	if err := oracle.WriteTypesJSON(typesPath, &oracle.Data{Version: 1, Files: map[string]*oracle.File{}}); err != nil {
 		t.Fatal(err)
 	}
-	in := IndexInput{OracleBackend: oracle.BackendKAA, StaleOraclePaths: []string{filepath.Join(root, "A.kt")}}
+	in := IndexInput{OracleBackend: oracle.BackendFIR, StaleOraclePaths: []string{filepath.Join(root, "A.kt")}}
 	scope, ok := oracleTypesScope(in, scanPaths)
 	if !ok {
 		t.Fatal("no scope")
@@ -191,7 +191,7 @@ func TestDaemonAnalyzePartialReanalyzeDeclinesTheCheck(t *testing.T) {
 	in.FIRCheckBroker = broker
 	d := &checkingDaemon{matches: true, checkResponse: response}
 	waiting := waitsFor(t, broker)
-	if got := daemonAnalyze(in, d, scanPaths, nil, perf.New(false)); got == nil {
+	if got := daemonAnalyze(in, d, scanPaths, perf.New(false)); got == nil {
 		t.Fatal("no data")
 	}
 	if reason := mustResolve(t, waiting); reason != "partial oracle reanalyze" {

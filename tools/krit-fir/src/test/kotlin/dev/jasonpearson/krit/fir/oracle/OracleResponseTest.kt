@@ -8,8 +8,8 @@ class OracleResponseTest {
 
     @Test
     fun oneShotEnvelopeOmitsRpcWrapper() {
-        // The one-shot `--output` path emits just the body — krit-types'
-        // `buildJsonCompact` shape — so a Go-side oracle reader can
+        // The one-shot `--output` path emits just the body so a
+        // Go-side oracle reader can
         // parse it into `oracle.Data` without seeing `{"id":N,"result":…}`
         // around it. Pin the shape so adding RPC machinery to the
         // one-shot path doesn't go unnoticed.
@@ -27,18 +27,16 @@ class OracleResponseTest {
             result = AnalyzeResult(errors = mapOf("/src/Bad.kt" to "parse error")),
         )
         // The errors object is a sibling of the version/files/deps
-        // body. Mirrors krit-types' one-shot behaviour where errors
-        // ride alongside the analyze data, not inside it.
+        // body: in one-shot output errors ride alongside the analyze
+        // data, not inside it.
         assertTrue(""""errors":{"/src/Bad.kt":"parse error"}""" in response, response)
     }
 
     @Test
-    fun emptyAnalyzeEnvelopeMatchesKritTypesShape() {
-        // The JSON shape mirrors krit-types' `buildDaemonResponse`:
+    fun emptyAnalyzeEnvelopeMatchesWireShape() {
+        // The JSON shape the Go oracle client (internal/oracle) decodes:
         // `{"id":N,"result":{"version":1,"kotlinVersion":"...","files":{},"dependencies":{}}}`.
-        // A single Go-side oracle client must parse responses from
-        // either backend without branching on the source — pin the
-        // exact field set so future projection work cannot accidentally
+        // Pin the exact field set so future projection work cannot accidentally
         // change the envelope contract.
         val response = OracleResponse.buildAnalyze(id = 42)
 
@@ -52,9 +50,8 @@ class OracleResponseTest {
 
     @Test
     fun emptyAnalyzeHasNoErrorsFieldWhenErrorsAreEmpty() {
-        // The `errors` map is suppressed entirely when empty — matches
-        // krit-types' behavior of nesting `errors` inside `result` only
-        // when at least one entry exists.
+        // The `errors` map is suppressed entirely when empty — `errors`
+        // is nested inside `result` only when at least one entry exists.
         val response = OracleResponse.buildAnalyze(id = 1)
         assertTrue("errors" !in response, response)
     }
@@ -98,9 +95,8 @@ class OracleResponseTest {
 
     @Test
     fun kotlinVersionMatchesRuntimeKotlinVersion() {
-        // krit-types stamps `kotlinVersion` from `KotlinVersion.CURRENT`
-        // (the compiler's own runtime version). krit-fir should do the
-        // same so a parity-diff test can pin the field as a known
+        // krit-fir stamps `kotlinVersion` from `KotlinVersion.CURRENT`
+        // (the compiler's own runtime version) so a test can pin the field as a known
         // constant per-run rather than a moving target.
         val response = OracleResponse.buildAnalyze(id = 1)
         val expectedFragment = """"kotlinVersion":"${KotlinVersion.CURRENT}""""
@@ -169,7 +165,7 @@ class OracleResponseTest {
     @Test
     fun dependenciesMapKeyedByFqn() {
         // `dependencies` is the cross-file class index — keyed by FQN
-        // rather than by source path. krit-types uses this for Go-side
+        // rather than by source path. The Go side uses this for
         // symbol resolution; the shape must round-trip identically.
         val response = OracleResponse.buildAnalyze(
             id = 1,
@@ -218,8 +214,7 @@ class OracleResponseTest {
     fun analyzeWithDepsSerializesCacheDepsView() {
         // Populated dep tracker → cacheDeps carries per-file
         // depPaths + perFileDeps + crashed maps. Pins the wire shape
-        // krit-types' `buildCacheDepsJson` produces so the Go-side
-        // cache layer parses either backend's payload with one struct.
+        // the Go-side cache layer parses.
         val response = OracleResponse.buildAnalyzeWithDeps(
             id = 6,
             result = AnalyzeResult.EMPTY,
@@ -269,8 +264,8 @@ class OracleResponseTest {
     }
 
     @Test
-    fun diagnosticWireShapeMatchesKritTypes() {
-        // krit-types emits `{factoryName, severity, message, line, col,
+    fun diagnosticWireShape() {
+        // Each diagnostic is emitted as `{factoryName, severity, message, line, col,
         // startByte?, endByte?}` for each diagnostic. Pinning the field
         // names + omit-when-empty byte range guards against accidentally
         // diverging from the consumer's parser shape.
@@ -305,7 +300,7 @@ class OracleResponseTest {
         assertTrue(""""col":7""" in response, response)
         assertTrue(""""startByte":10,"endByte":22""" in response, response)
         // The zero-range diagnostic must omit startByte/endByte to keep
-        // the wire payload minimal (krit-types' rule).
+        // the wire payload minimal.
         assertTrue(""""factoryName":"CAST_NEVER_SUCCEEDS","severity":"WARNING"""" in response, response)
         val secondDiagFragment = response.substringAfter("CAST_NEVER_SUCCEEDS")
         assertTrue(
@@ -319,8 +314,7 @@ class OracleResponseTest {
         // Expressions ride on every analyze response and can be dense
         // on real codebases. Emit only fields that carry information:
         // suppress the byte range when start == end, suppress flag
-        // fields when false. Matches krit-types' `buildJson` shape so
-        // a Go-side parity diff stays comparable.
+        // fields when false.
         val response = OracleResponse.buildAnalyze(
             id = 1,
             result = AnalyzeResult(

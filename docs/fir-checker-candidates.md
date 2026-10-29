@@ -16,7 +16,7 @@ A rule can be implemented at three levels. Pick the cheapest one that is correct
    rule needs resolved facts that source analysis cannot get reliably: types,
    nullability, resolved call targets, supertypes across modules, suspend markers.
    Checkers live in `tools/krit-fir/.../checkers/` and currently surface only
-   through the opt-in `--fir` pass (see [The `--fir` pass](#the---fir-pass)).
+   through the default-on `--fir` pass (see [The `--fir` pass](#the---fir-pass)).
 3. **Go rule on the source AST.** Imports and the local syntax tree are enough.
 
 A Go rule that declares `NeedsTypeInfo`, `NeedsResolver`, or `NeedsOracle*` and runs
@@ -53,7 +53,7 @@ rendered text is the template the krit-fir collector matches by prefix.
 
 | Factory | Rule | Notes |
 |---|---|---|
-| `DEPRECATION` | `Deprecation` | Projected. Covers type references, typealiases, properties, inherited overrides, and Java `@Deprecated` members, and matches overloads exactly. The source path is name-based and misses most of these. On a probe with one deprecation of each kind, recall went from 3/7 (krit-fir) and 2/7 (krit-types) to 7/7 on both. |
+| `DEPRECATION` | `Deprecation` | Projected. Covers type references, typealiases, properties, inherited overrides, and Java `@Deprecated` members, and matches overloads exactly. The source path is name-based and misses most of these. On a probe with one deprecation of each kind, recall went from 3/7 to 7/7. |
 
 Known gap, shared by every projection rule: projection adds compiler-confirmed
 findings, but when the compiler reports nothing, the rule's source heuristic
@@ -95,7 +95,7 @@ by construction.
 | `PLATFORM_CLASS_MAPPED_TO_KOTLIN` | `This class is not recommended for use in Kotlin.` | Low (style). |
 
 `USELESS_ELVIS_RIGHT_IS_NULL` and `USELESS_IS_CHECK` are deliberately not retained.
-The krit-types backend doesn't project the first, and the second renders a
+`USELESS_IS_CHECK` renders a
 template identical to `IMPOSSIBLE_IS_CHECK`, so a prefix match cannot tell them
 apart.
 
@@ -103,11 +103,10 @@ apart.
 
 1. Probe the factory with the embedded compiler (see above) and confirm it is a
    warning under the oracle's default checker set.
-2. Retain it on **both** backends: add the rendered message to
+2. Retain it: add the rendered message to
    `OracleDiagnosticMessageCollector` in krit-fir, which matches by prefix or by
    an anchored pattern when the template starts with a variable such as a symbol
-   name, and add the factory name to `retainedDiagnosticFactories` in krit-types.
-   Keep `DiagnosticFactoriesTest` in step.
+   name.
 3. Check that the template cannot collide with another factory's rendering (the
    `USELESS_IS_CHECK`/`IMPOSSIBLE_IS_CHECK` trap), and add a krit-fir test that
    the neighboring factory is not claimed.
@@ -115,16 +114,11 @@ apart.
    exactly one dispatched node. When the rule dispatches on several node types
    that can cover the same span, add an `Accept` check that anchors on the
    token the compiler reports.
-5. Bump `oracle.CacheVersion`. The backends now emit different facts for the
+5. Bump `oracle.CacheVersion`. The oracle now emits different facts for the
    same source.
-6. Add a cross-backend test in `tests/parity` asserting that both backends
-   report the diagnostic, and add the rule to the compiler-parity map when the
+6. Add a test in `tests/parity` asserting that the oracle reports the
+   diagnostic, and add the rule to the compiler-parity map when the
    mapping is one-to-one.
-
-krit-types collects diagnostics for every analyzed file. It used to skip files
-that contained no null-safety or control-flow tokens, but no token predicts a
-deprecation, so that pre-gate was removed together with the `DEPRECATION`
-projection.
 
 ### Not projectable
 
@@ -204,10 +198,10 @@ required to register a checker.
 
 ## The `--fir` pass
 
-`krit --fir` (off by default; `--no-fir` turns it back off) runs the FIR
-checkers after the Go rules and lets the compiler decide wherever it can.
-`krit --daemon --fir` forwards the flag, and `--no-fir-daemon`, to the daemon,
-which runs the same pass.
+The FIR checker pass runs by default after the Go rules and lets the compiler
+decide wherever it can. Pass `--no-fir` to disable it; `--fir` explicitly
+enables it. `krit --daemon --fir` forwards the setting, and
+`--no-fir-daemon`, to the daemon, which runs the same pass.
 
 **Compile context.** The checkers compile the whole module the way the oracle
 does: every Kotlin file under the JVM source roots (`src/<set>/kotlin` and
@@ -226,7 +220,10 @@ would compile exactly the oracle's sources; the pass then reuses that response
 for any request with the same rules, options, and file facts whose sources
 have not changed since. Anything else, including an oracle served by its
 cache or by a persistent daemon, leaves the pass to compile on its own as
-before. `-v` reports `fir check: reusing the oracle compilation's check`, and
+before. A krit-fir JVM launched from a Leyden AOT cache shares a check only
+after its own canary passed (see the FIR AOT section of `benchmarking.md`);
+otherwise `firCheckRider` reads `aotUnverified` and the pass compiles on its
+own. `-v` reports `fir check: reusing the oracle compilation's check`, and
 `--perf` records `firCheckRider` under the oracle's JVM entry.
 
 **Which files FIR decides.** For each checked file the response says whether

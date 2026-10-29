@@ -19,8 +19,8 @@ import (
 //  2. The `CLASSPATH` env var, split on the platform path separator
 //
 // Empty result is fine: the daemon falls back to source-tree
-// dependency discovery — same shape the KAA backend uses today, so
-// projects without an explicit classpath still analyze.
+// dependency discovery, so projects without an explicit classpath
+// still analyze.
 //
 // Path validity is not checked here. The Kotlin side opens what we
 // hand it; missing entries surface as resolution errors inside the
@@ -155,8 +155,8 @@ func loadGradleCompileContext(paths []string, explicit string, disabled bool) (d
 // loadGradleKotlinSettings resolves the effective Kotlin compiler settings
 // from the discovered (or explicit) Gradle models, merging every source set of
 // every model for the whole-repo compilations the oracle and FIR passes run.
-// A source set's settings are never applied to another: fields the source sets
-// disagree on stay at the embedded compiler's default (see
+// Disagreeing versions and progressive mode stay at the embedded compiler's
+// default; semantic flags are intersected and opt-ins are unioned (see
 // gradlemodel.MergeKotlinSettings). No model yields the zero settings, i.e.
 // the embedded compiler's own defaults, and verbose output says so.
 func loadGradleKotlinSettings(paths []string, explicit string, disabled, verbose bool, out io.Writer) gradlemodel.KotlinSettings {
@@ -205,6 +205,32 @@ func loadGradleKotlinSettings(paths []string, explicit string, disabled, verbose
 		}
 		for _, rejected := range settings.Rejected {
 			fmt.Fprintf(out, "gradle model: kotlin compiler settings: not applied: %s\n", rejected)
+		}
+	}
+	return settings
+}
+
+// withConfiguredCompilerPlugins adds the compiler plugins krit.yml declares
+// (`oracle.compilerPlugins`, `oracle.compilerPluginOptions`) to the model's
+// settings, for builds without a Gradle model or plugins it does not export.
+func withConfiguredCompilerPlugins(settings gradlemodel.KotlinSettings, cfg *config.Config, verbose bool, out io.Writer) gradlemodel.KotlinSettings {
+	if cfg == nil {
+		return settings
+	}
+	oc := cfg.Oracle()
+	if len(oc.CompilerPlugins) == 0 && len(oc.CompilerPluginOptions) == 0 {
+		return settings
+	}
+	before := len(settings.Notes)
+	rejectedBefore := len(settings.Rejected)
+	settings = settings.WithCompilerPlugins(oc.CompilerPlugins, oc.CompilerPluginOptions, "krit.yml oracle.compilerPlugins")
+	if verbose {
+		fmt.Fprintf(out, "krit.yml: kotlin compiler plugins: %s\n", settings.Plugins.Describe())
+		for _, note := range settings.Notes[before:] {
+			fmt.Fprintf(out, "krit.yml: kotlin compiler settings: %s\n", note)
+		}
+		for _, rejected := range settings.Rejected[rejectedBefore:] {
+			fmt.Fprintf(out, "krit.yml: kotlin compiler settings: not applied: %s\n", rejected)
 		}
 	}
 	return settings

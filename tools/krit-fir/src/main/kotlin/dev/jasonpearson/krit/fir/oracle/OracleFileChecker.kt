@@ -4,6 +4,7 @@ import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirFileChecker
+import org.jetbrains.kotlin.fir.declarations.DirectDeclarationsAccess
 import org.jetbrains.kotlin.fir.declarations.FirFile
 
 /**
@@ -14,10 +15,12 @@ import org.jetbrains.kotlin.fir.declarations.FirFile
  * missing from the result would keep an entry from an earlier compilation.
  */
 internal object OracleFileChecker : FirFileChecker(MppCheckerKind.Common) {
+    @OptIn(DirectDeclarationsAccess::class)
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirFile) {
         val collector = OracleCollectorRegistry.current() ?: return
         val filePath = declaration.sourceFile?.path ?: return
         collector.setPackage(filePath, declaration.packageDirective.packageFqName.asString())
+        if (collector.recordDeclarations) recordDeclaredAnnotations(collector, filePath, declaration.declarations, context.session)
     }
 }

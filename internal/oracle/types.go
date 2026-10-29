@@ -1,6 +1,6 @@
 package oracle
 
-// Data is the top-level JSON structure produced by krit-types.
+// Data is the top-level JSON structure produced by krit-fir.
 type Data struct {
 	Version       int               `json:"version"`
 	KotlinVersion string            `json:"kotlinVersion"`
@@ -16,7 +16,7 @@ type File struct {
 	Diagnostics  []*Diagnostic              `json:"diagnostics,omitempty"` // compiler diagnostics
 }
 
-// Diagnostic holds a compiler diagnostic emitted by the Kotlin Analysis API.
+// Diagnostic holds a compiler diagnostic emitted by the krit-fir oracle.
 type Diagnostic struct {
 	FactoryName string `json:"factoryName"` // e.g. "UNREACHABLE_CODE", "USELESS_ELVIS"
 	Severity    string `json:"severity"`    // "ERROR", "WARNING", "INFO"
@@ -34,7 +34,7 @@ type ExpressionType struct {
 	StartByte          int      `json:"startByte,omitempty"`
 	EndByte            int      `json:"endByte,omitempty"`
 	CallTarget         string   `json:"callTarget,omitempty"`         // FQN of resolved function or lexical fallback
-	CallTargetResolved bool     `json:"callTargetResolved,omitempty"` // true when callTarget came from KAA resolution
+	CallTargetResolved bool     `json:"callTargetResolved,omitempty"` // true when callTarget came from oracle resolution
 	CallTargetSuspend  bool     `json:"callTargetSuspend,omitempty"`  // true when the resolved callable symbol is suspend
 	Annotations        []string `json:"annotations,omitempty"`        // FQNs of annotations on the resolved symbol
 }

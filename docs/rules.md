@@ -27,6 +27,10 @@ are auto-fixable.
 | Android Source     | Android-specific Kotlin/Java code patterns |
 
 `krit --list-rules` prints the full list with IDs and default thresholds.
+`krit --list-rules --format json` prints it as JSON (`{"rules": [...]}`, one
+object per rule with `id`, `category`, `severity`, `defaultActive`,
+`fixable`, `fixLevel`, `precision`, `maturity`, and `description`) for editor
+integrations and scripts; `--cwe` and `--maturity` filter it the same way.
 
 ## Compose-aware defaults
 
@@ -64,6 +68,6 @@ guidance.
   manifest, resource, Gradle, resolver, or oracle data and run after the needed
   indexes are available.
 - **JVM-backed rules** — use source inference first where possible and can opt
-  into Kotlin Analysis API/FIR helper facts when source analysis is not enough.
+  into FIR helper facts when source analysis is not enough.
 
 See `internal/rules/` for implementations and `tests/fixtures/` for positive/negative examples.

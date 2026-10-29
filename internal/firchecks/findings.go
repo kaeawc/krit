@@ -44,6 +44,38 @@ type CheckResponse struct {
 	// unsupported JVM target, or Kotlin compiler settings outside its
 	// allowlist or beyond the embedded compiler. Empty when nothing was dropped.
 	Warning string `json:"warning,omitempty"`
+	// Incremental is how krit-fir's incremental planner served the check
+	// (KRIT_FIR_INCREMENTAL); nil when the planner did not run.
+	Incremental *IncrementalPlan `json:"incremental,omitempty"`
+}
+
+// IncrementalPlan is krit-fir's account of one planned check: Path is
+// "incremental" (served from slice compiles and cached verdicts) or "full",
+// with Reason saying why (for example "cold" for a first check) and Detail
+// what is behind a "slice_unavailable" reason (for example
+// "COMPILE_ERRORS: compile errors in 6 files", often a compiler plugin the
+// compilation lacks).
+type IncrementalPlan struct {
+	Path       string `json:"path"`
+	Reason     string `json:"reason,omitempty"`
+	Detail     string `json:"detail,omitempty"`
+	DirtyFiles int    `json:"dirtyFiles"`
+	TotalMs    int64  `json:"totalMs"`
+}
+
+// String is the plan as one perf detail: "incremental", "full (cold)", or
+// "full (slice_unavailable: COMPILE_ERRORS: compile errors in 6 files)".
+func (p *IncrementalPlan) String() string {
+	if p == nil {
+		return ""
+	}
+	if p.Reason == "" {
+		return p.Path
+	}
+	if p.Detail != "" {
+		return p.Path + " (" + p.Reason + ": " + p.Detail + ")"
+	}
+	return p.Path + " (" + p.Reason + ")"
 }
 
 var catalogOnce sync.Once

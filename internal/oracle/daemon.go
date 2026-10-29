@@ -16,10 +16,9 @@ import (
 
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/jvmaot"
-	"github.com/kaeawc/krit/internal/perf"
 )
 
-// Daemon manages a long-lived krit-types JVM process for on-demand type resolution.
+// Daemon manages a long-lived krit-fir JVM process for on-demand type resolution.
 type Daemon struct {
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
@@ -48,7 +47,7 @@ type Daemon struct {
 
 	// Breaker state layers a soft-open under the started=false hard-fail.
 	// The hard-fail is permanent (set on process death); the breaker
-	// catches softer errors — JVM "Analysis API exception" responses, ID
+	// catches softer errors — JVM exception responses, ID
 	// mismatches, transient write/read hiccups — and short-circuits
 	// subsequent calls until cooldown lets a probe through.
 	breakerMu       sync.Mutex
@@ -145,9 +144,6 @@ type daemonResponse struct {
 	// CacheDeps is the per-file dependency closure block emitted only by
 	// the analyzeWithDeps method. Nil for legacy methods.
 	CacheDeps *json.RawMessage `json:"cacheDeps,omitempty"`
-	// Timings is an optional perf.TimingEntry array emitted by newer
-	// krit-types daemon methods for request-level deep dives.
-	Timings *json.RawMessage `json:"timings,omitempty"`
 	// Check is the rule-check response an analyzeWithCheck request asked the
 	// same compilation to produce (#810). Nil for every other method, and
 	// when krit-fir could not share the compile.
@@ -191,16 +187,23 @@ func unmarshalCallerOracleData(result *json.RawMessage, spelling PathSpelling) (
 
 // AnalyzeAll sends a full analysis request for all files.
 func (d *Daemon) AnalyzeAll() (*Data, error) {
-	return d.AnalyzeAllWithCallFilter(nil)
+	return d.AnalyzeAllIn("")
 }
 
-// AnalyzeAllWithCallFilter sends a full analysis request for all files,
-// optionally narrowing call-target resolution in the JVM oracle.
-func (d *Daemon) AnalyzeAllWithCallFilter(callFilter *CallTargetFilterSummary) (*Data, error) {
+// AnalyzeAllIn is AnalyzeAll that also names the directory of krit-fir's
+// persisted incremental bundle (#957). krit-fir then loads it into a cold
+// session and answers an unchanged module's oracle from the cached facts
+// instead of compiling it. Empty sends no directory, as --no-cache requires,
+// and so does a daemon not launched as krit-fir.
+func (d *Daemon) AnalyzeAllIn(incrementalDir string) (*Data, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	params := callFilterParams(callFilter)
+	var params map[string]interface{}
+	if incrementalDir != "" {
+		// The daemon's working directory is not the caller's.
+		params = map[string]interface{}{"incrementalDir": AbsolutePath(incrementalDir)}
+	}
 	result, err := d.sendResult("analyzeAll", params)
 	if err != nil {
 		return nil, err
@@ -210,15 +213,13 @@ func (d *Daemon) AnalyzeAllWithCallFilter(callFilter *CallTargetFilterSummary) (
 	return unmarshalCallerOracleData(result, spelling)
 }
 
-// AnalyzeFilesWithCallFilter asks the daemon to analyze only the listed
-// .kt paths and return their updated oracle facts. Unlike
-// AnalyzeAllWithCallFilter, the JVM tool reuses its resident KAA build
-// session and re-runs analysis only for the requested file subset —
-// callers are responsible for merging the returned facts into any
-// fuller state they hold. The empty file list is treated as a no-op
-// (returns an empty Data) rather than degrading to analyzeAll, so a
-// stale hint can't accidentally trigger a full reanalysis. callFilter
-// narrows call-target resolution exactly as in analyzeAll.
+// AnalyzeFiles asks the daemon to analyze only the listed .kt paths and
+// return their updated oracle facts. Unlike AnalyzeAll, the JVM tool reuses
+// its resident oracle build session and re-runs analysis only for the
+// requested file subset — callers are responsible for merging the returned
+// facts into any fuller state they hold. The empty file list is treated as a
+// no-op (returns an empty Data) rather than degrading to analyzeAll, so a
+// stale hint can't accidentally trigger a full reanalysis.
 //
 // Use case: the warm-path freshness gate has identified one or two
 // .kt files whose content (or public ABI) has changed since the prior
@@ -226,7 +227,7 @@ func (d *Daemon) AnalyzeAllWithCallFilter(callFilter *CallTargetFilterSummary) (
 // with the cached types.json's per-file entries for everything else.
 // Avoids the full-module reanalyze cost (5+ seconds on kotlin-corpus
 // scale).
-func (d *Daemon) AnalyzeFilesWithCallFilter(files []string, callFilter *CallTargetFilterSummary) (*Data, error) {
+func (d *Daemon) AnalyzeFiles(files []string) (*Data, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -238,12 +239,8 @@ func (d *Daemon) AnalyzeFilesWithCallFilter(files []string, callFilter *CallTarg
 		return &Data{Files: map[string]*File{}, Dependencies: map[string]*Class{}}, nil
 	}
 
-	params := callFilterParams(callFilter)
-	if params == nil {
-		params = map[string]interface{}{}
-	}
 	requested, spelling := d.requestSpelling(files)
-	params["files"] = requested
+	params := map[string]interface{}{"files": requested}
 
 	resp, err := d.send("analyzeFiles", params)
 	if err != nil {
@@ -261,50 +258,6 @@ func (d *Daemon) AnalyzeFilesWithCallFilter(files []string, callFilter *CallTarg
 	return data, nil
 }
 
-// callFilterParams packs a CallTargetFilterSummary into the wire
-// representation the krit-types daemon expects. Returns nil when the
-// filter is nil/disabled — both analyzeAll and analyzeFiles tolerate
-// the omitted-filter case server-side.
-func callFilterParams(callFilter *CallTargetFilterSummary) map[string]interface{} {
-	if callFilter == nil || !callFilter.Enabled {
-		return nil
-	}
-	return map[string]interface{}{
-		"callFilterCalleeNames":          callFilter.CalleeNames,
-		"callFilterLexicalHintsByCallee": callFilter.LexicalHintsByCallee,
-		"callFilterLexicalSkipByCallee":  callFilter.LexicalSkipByCallee,
-		"callFilterRuleProfiles":         callFilter.RuleProfiles,
-	}
-}
-
-// DecompileJar asks krit-types to produce Kotlin source for a class resolved
-// from the daemon's library module.
-func (d *Daemon) DecompileJar(jarPath, fqn string) (string, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	result, err := d.sendResult("decompileJar", map[string]interface{}{
-		"jarPath": AbsolutePath(jarPath),
-		"fqn":     fqn,
-	})
-	if err != nil {
-		return "", err
-	}
-	var resp struct {
-		Text string `json:"text"`
-	}
-	if result == nil {
-		return "", fmt.Errorf("decompileJar returned nil result")
-	}
-	if err := json.Unmarshal(*result, &resp); err != nil {
-		return "", fmt.Errorf("unmarshal decompileJar response: %w", err)
-	}
-	if resp.Text == "" {
-		return "", fmt.Errorf("decompileJar returned empty text")
-	}
-	return resp.Text, nil
-}
-
 // PluginRuleDescriptor is the daemon-reported metadata for one Kotlin
 // custom rule loaded from a plugin jar.
 type PluginRuleDescriptor struct {
@@ -317,19 +270,19 @@ type PluginRuleDescriptor struct {
 	SDKVersion string   `json:"sdkVersion,omitempty"`
 }
 
-// ListPluginsResult is the result payload for the krit-types listPlugins verb.
+// ListPluginsResult is the result payload for the krit-fir listPlugins verb.
 type ListPluginsResult struct {
 	Rules       []PluginRuleDescriptor `json:"rules"`
 	Diagnostics []PluginLoadDiagnostic `json:"diagnostics,omitempty"`
 }
 
-// AnalyzePluginFileResult is the result payload for the krit-types analyzeFile verb.
+// AnalyzePluginFileResult is the result payload for the krit-fir analyzeFile verb.
 type AnalyzePluginFileResult struct {
 	Findings []PluginFinding   `json:"findings"`
 	Errors   map[string]string `json:"errors,omitempty"`
 }
 
-// PluginDiagLevel mirrors PluginLoadDiagnostic.Level on the krit-types
+// PluginDiagLevel mirrors PluginLoadDiagnostic.Level on the krit-fir
 // Kotlin side (lowercased enum name). Typed so a switch over
 // d.Level gets exhaustiveness help and a typo like "WARN" fails at
 // compile time.
@@ -411,9 +364,9 @@ func (d *Daemon) ListPlugins(jars []string) (ListPluginsResult, error) {
 // PluginGradleProfile is the wire payload that backs `RuleContext.gradle`
 // on the Kotlin side. The shape is intentionally narrow — see
 // `GradleContext` in tools/krit-rule-api for the rule-facing surface and
-// `GradleProfilePayload` in tools/krit-types for the daemon-side mirror.
+// `GradleProfilePayload` in tools/krit-fir for the daemon-side mirror.
 // SDK ints rely on `omitempty` to drop the "absent" case from the wire;
-// the krit-types parser reads any non-negative int and rejects negatives
+// the krit-fir parser reads any non-negative int and rejects negatives
 // defensively. `Deps` carries "group:name:version" strings.
 type PluginGradleProfile struct {
 	MinSdk            int      `json:"minSdk,omitempty"`
@@ -427,7 +380,7 @@ type PluginGradleProfile struct {
 
 // PluginManifestProfile is the wire payload that backs `RuleContext.manifest`
 // on the Kotlin side. See `ManifestContext` in tools/krit-rule-api for the
-// rule-facing surface and `ManifestProfilePayload` in tools/krit-types for
+// rule-facing surface and `ManifestProfilePayload` in tools/krit-fir for
 // the daemon-side mirror. ExportedActivities / ExportedServices /
 // ExportedReceivers are the subsets of the corresponding name lists that
 // declare `android:exported="true"`; the Kotlin side builds a HashSet on
@@ -564,61 +517,35 @@ func (d *Daemon) AnalyzePluginFile(
 // the condition and trigger a daemon Rebuild + retry before falling
 // through to one-shot.
 func (d *Daemon) AnalyzeWithDeps(files []string) (*Data, *CacheDepsFile, error) {
-	data, deps, _, err := d.AnalyzeWithDepsWithTimings(files, false, nil, nil)
-	return data, deps, err
-}
-
-// AnalyzeWithDepsWithTimings is AnalyzeWithDeps plus optional Kotlin-side
-// timing entries returned by newer daemon processes.
-func (d *Daemon) AnalyzeWithDepsWithTimings(files []string, collectTimings bool, callFilter *CallTargetFilterSummary, declarationProfile *DeclarationProfileSummary) (*Data, *CacheDepsFile, []perf.TimingEntry, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	requested, spelling := d.requestSpelling(files)
 	params := map[string]interface{}{
-		"files":   requested,
-		"timings": collectTimings,
-	}
-	if callFilter != nil && callFilter.Enabled {
-		params["callFilterCalleeNames"] = callFilter.CalleeNames
-		params["callFilterLexicalHintsByCallee"] = callFilter.LexicalHintsByCallee
-		params["callFilterLexicalSkipByCallee"] = callFilter.LexicalSkipByCallee
-		params["callFilterRuleProfiles"] = callFilter.RuleProfiles
-	}
-	if declarationProfile != nil {
-		if cliVal := declarationProfile.Profile.CLIValue(); cliVal != "" {
-			params["declarationProfile"] = cliVal
-		}
+		"files": requested,
 	}
 
 	resp, err := d.send("analyzeWithDeps", params)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	if resp.CacheDeps == nil {
-		return nil, nil, nil, fmt.Errorf("daemon response missing cacheDeps field (old daemon version?)")
+		return nil, nil, fmt.Errorf("daemon response missing cacheDeps field (old daemon version?)")
 	}
 
 	oracleData, err := unmarshalOracleData(resp.Result)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("unmarshal oracle data: %w", err)
+		return nil, nil, fmt.Errorf("unmarshal oracle data: %w", err)
 	}
 
 	var cacheDeps CacheDepsFile
 	if err := json.Unmarshal([]byte(*resp.CacheDeps), &cacheDeps); err != nil {
-		return nil, nil, nil, fmt.Errorf("unmarshal cacheDeps: %w", err)
+		return nil, nil, fmt.Errorf("unmarshal cacheDeps: %w", err)
 	}
 
 	if err := d.checkAOTHealthLocked(len(requested), oracleData, len(resp.Errors)+len(cacheDeps.Crashed)); err != nil {
-		return nil, nil, nil, err
-	}
-
-	var timings []perf.TimingEntry
-	if resp.Timings != nil {
-		if err := json.Unmarshal([]byte(*resp.Timings), &timings); err != nil {
-			return nil, nil, nil, fmt.Errorf("unmarshal timings: %w", err)
-		}
+		return nil, nil, err
 	}
 
 	// The cache writer, the skipped-file poison pass and Oracle lookups all
@@ -628,8 +555,8 @@ func (d *Daemon) AnalyzeWithDepsWithTimings(files []string, collectTimings bool,
 
 	// If the daemon reported any files it couldn't find in its source
 	// module (e.g. files Go's CollectKtFiles walker includes but the
-	// Analysis API's session walker excludes for structural reasons like
-	// oversized data fixtures), fold them into cacheDeps.Crashed so they
+	// compiler session excludes for structural reasons like oversized data
+	// fixtures), fold them into cacheDeps.Crashed so they
 	// flow through the existing poison-entry writer on the caller side.
 	// Next invocation's ClassifyFiles will treat them as hits and skip
 	// them, eliminating the waste of sending them to the daemon every
@@ -655,10 +582,10 @@ func (d *Daemon) AnalyzeWithDepsWithTimings(files []string, collectTimings bool,
 		}
 	}
 
-	return oracleData, &cacheDeps, timings, nil
+	return oracleData, &cacheDeps, nil
 }
 
-// Rebuild tells the daemon to rebuild its Analysis API session (after file changes).
+// Rebuild tells the daemon to rebuild its compiler session (after file changes).
 func (d *Daemon) Rebuild() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -733,23 +660,6 @@ func waitForCmdExit(cmd *exec.Cmd) error {
 		<-done //nolint:errcheck // killed above, so the exit error is expected
 		return fmt.Errorf("daemon did not exit within timeout, killed")
 	}
-}
-
-// Checkpoint asks the daemon to create a CRaC checkpoint.  If the JDK does not
-// support CRaC the daemon returns an error which we silently ignore.
-func (d *Daemon) Checkpoint() error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	_, err := d.sendResult("checkpoint", nil)
-	if err != nil {
-		// CRaC not available is expected on most JDKs — degrade silently.
-		if strings.Contains(err.Error(), "CRaC not available") {
-			return nil
-		}
-		return err
-	}
-	return nil
 }
 
 // Release drops this Go-side handle to the daemon but leaves the

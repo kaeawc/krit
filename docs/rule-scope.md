@@ -38,9 +38,8 @@ following are true:
 4. **The rule's evidence is local enough to run in Krit's hot path.** Rules
    that need cross-file analysis must declare `NeedsCrossFile`,
    `NeedsParsedFiles`, etc. Rules that need full type resolution should
-   prefer `NeedsResolver`; rules that genuinely require Kotlin Analysis API
-   facts must declare `NeedsOracle` and an `OracleCallTargetFilter` /
-   `OracleDeclarationProfile` so the workload stays bounded.
+   prefer `NeedsResolver`; rules that genuinely require compiler-backed
+   (krit-fir oracle) facts must declare `NeedsOracle`.
 
 5. **Positive and negative fixtures exist** under `tests/fixtures/` and the
    regression discipline in `CLAUDE.md` ("Rule Implementation Guardrails")

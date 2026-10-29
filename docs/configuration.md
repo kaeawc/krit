@@ -99,19 +99,22 @@ Krit XML baselines use the `SmellBaseline` document shape with `ManuallySuppress
 
 ## Cache location
 
-Generated repo-local state lives under `.krit/` by default. The incremental analysis cache uses `.krit/cache/`; parse, resource, type, file-walk, and library-profile indexes use sibling directories under the same root. The FIR checker cache uses `.krit/fir-cache/`; with `KRIT_FIR_INCREMENTAL=1`, krit-fir also persists its incremental-checking state and binary snapshot in `.krit/fir-incremental/` (the three most recent compile keys are kept) so a restarted daemon or a one-shot run starts warm. `--cache-dir DIR` only overrides the incremental analysis cache; `--no-cache` skips the incremental analysis cache, the FIR checker cache and the FIR incremental bundle.
+Generated repo-local state lives under `.krit/` by default. The incremental analysis cache uses `.krit/cache/`; parse, resource, type, file-walk, and library-profile indexes use sibling directories under the same root. The FIR checker cache uses `.krit/fir-cache/`; krit-fir also persists its incremental-checking state, the type oracle's per-file facts and the binary snapshot in `.krit/fir-incremental/` (the three most recent compile keys are kept) so a restarted daemon or a one-shot run starts warm. Incremental FIR checking is on by default; set `KRIT_FIR_INCREMENTAL=0` to compile the whole module on every FIR check instead. `--cache-dir DIR` only overrides the incremental analysis cache; `--no-cache` skips the incremental analysis cache, the FIR checker cache and the FIR incremental bundle.
 
 ## FIR scan requirements
 
-CLI scans run the FIR checker by default, including `krit --daemon`. Before
-analyzing files, Krit requires Java 21 or newer, a resolvable `krit-fir.jar`,
+CLI scans run the FIR checker by default, including `krit --daemon`. Pass
+`--no-fir` to disable it. Before analyzing files, Krit requires Java 21 or
+newer, a resolvable `krit-fir.jar`,
 and a declared classpath source. If any requirement is missing, the scan exits
 with code `2` and one actionable `error: FIR requires ...` message on stderr.
-Pass `--no-fir` to run the previous Go-only checker path.
+With `--no-fir`, Krit uses the previous Go-only checker path.
 
 For Gradle projects, run `kritExportModel` (the Gradle plugin's `kritCheck`
 task already depends on it). Krit discovers `.krit/gradle-model/`; a stale
-model or missing classpath jars produces a warning and analysis continues.
+model or classpath jars missing on disk produces a warning and analysis
+continues. Missing jars may be unbuilt project module outputs; build those
+modules or rerun `kritExportModel`.
 For an explicit model location use `--gradle-model DIR`. An empty exported
 classpath is valid.
 
@@ -189,20 +192,22 @@ oracle:
     - libs/android.jar
 ```
 
+`oracle.compilerPlugins` lists Kotlin compiler plugin jars (kotlinx.serialization,
+Compose, Parcelize, ...) that `krit-fir` loads in addition to those of the
+Gradle model, and `oracle.compilerPluginOptions` their options as
+`plugin:<id>:<key>=<value>`. Use them when there is no Gradle model; see
+[Kotlin compiler settings](kotlin-compiler-settings.md#compiler-plugins).
+
+```yaml
+oracle:
+  compilerPlugins:
+    - /path/to/kotlin-serialization-compiler-plugin-embeddable-2.4.21.jar
+```
+
 The Kotlin standard library is supplied automatically when the effective
 classpath does not already include a Kotlin stdlib jar. Other libraries, such
 as the Android SDK, AndroidX, and application dependencies, still need to be
 listed explicitly for their types to resolve.
-
-## Experimental performance knobs
-
-Cold type-oracle cache misses use one-shot `krit-types` analysis with `--experimental-parallel-files 4` by default. Override the worker count with `KRIT_TYPES_PARALLEL_FILES=N`; set it to `0` or `1` to disable in-JVM file parallelism. Set `KRIT_DAEMON_CACHE=on` to use the persistent daemon miss-analysis path instead.
-
-Kotlin compiler diagnostics are disabled in the default type-oracle path because `collectDiagnostics()` is expensive on large projects and most type-aware rules use FlatNode or expression facts instead. Pass `--oracle-diagnostics` when you need diagnostic-backed oracle findings such as compiler-proven unreachable code or impossible casts.
-
-`KRIT_DAEMON_POOL=N` is an opt-in benchmark knob for warm type-oracle cache misses. The default is `1`. Values greater than `1` keep additional persistent Kotlin Analysis API JVM daemons for the same source tree and shard miss analysis only for larger miss sets.
-
-Each pool member is a full JVM with its own Analysis API session, so idle memory use scales roughly with the pool size. Use this only while measuring warm edit runs, not as a default project setting.
 
 ## Migrating from detekt
 

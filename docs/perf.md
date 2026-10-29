@@ -165,16 +165,18 @@ typical Kotlin scan but suppresses some findings.
 
 ### `--no-type-oracle`
 
-Skips the JVM-backed Kotlin Analysis API oracle entirely. Strictly faster
+Skips the JVM-backed krit-fir type oracle entirely. Strictly faster
 than `--no-cache-oracle`. Loses precision on rules tagged `NeedsOracle` —
 they're skipped instead of running with degraded data.
 
 ### `--no-fir`
 
 Disables the FIR checker pass (separate krit-fir JVM subprocess). FIR is
-opt-in to begin with; use this to override a config that turned it on. The
-pass compiles the whole module on a cache miss, and any source edit misses
-the FIR findings cache for every file; see
+enabled by default; use this flag to disable it. Incremental FIR checking is
+also on by default (see [Cache location](configuration.md#cache-location)):
+it recompiles only changed files and their dependents when it can (for example,
+when the previous module compile completed without errors); otherwise it falls
+back to a full compile. See
 [The `--fir` pass](fir-checker-candidates.md#the---fir-pass).
 
 ### `--no-fir-daemon`
@@ -190,7 +192,7 @@ near-zero on a warm run.
 
 | Flag | What it disables |
 |---|---|
-| `--no-cache` | Incremental analysis cache (findings reuse) and the `--fir` check cache `.krit/fir-cache` and the `KRIT_FIR_INCREMENTAL=1` bundle `.krit/fir-incremental` (neither read nor written; applies to daemon-delegated scans too) |
+| `--no-cache` | Incremental analysis cache (findings reuse) and the `--fir` check cache `.krit/fir-cache` and the incremental FIR bundle `.krit/fir-incremental` (neither read nor written; applies to daemon-delegated scans too) |
 | `--no-parse-cache` | Tree-sitter parse-tree cache |
 | `--no-resource-cache` | Android values-XML ResourceIndex cache |
 | `--no-cross-file-cache` | Cross-file index cache |
@@ -208,44 +210,16 @@ unchanged. Replacing the jar starts a fresh helper and stops the old one for
 that project.
 
 The oracle cache stores each Kotlin file's compiler facts and reuses them while
-the file is unchanged. How a change to one file reaches the facts of files that
-depend on it depends on the backend:
-
-- **krit-fir (default)** compiles every source file on each run and reports
-  facts for all of them, so any run refreshes the whole cache. Each cached
-  entry also records the compilation it came from: every Kotlin file's path
-  and content, the classpath, and the krit-fir jar. When nothing krit needs
-  has changed but the compilation has (for example, a file outside the oracle
-  filter was edited or deleted, or a library was updated), krit runs the
-  compiler once to refresh the cache.
-- **krit-types** analyzes only the files that changed and the files that
-  depend on them. A file depends on every Kotlin or Java source file that
-  declares something it resolves: a same-package or imported function or
-  property, a class, a typealias and what it expands to, a supertype, or an
-  operator it uses. A dependency's own dependencies count too, but only those
-  that can change what its dependents see: ones in its signatures,
-  annotations, and parameter defaults, and in bodies whose type is inferred or
-  that are `const`, `inline`, or declare a contract. A change inside an
-  explicitly typed function body re-analyzes that file, not its dependents.
-  A file whose dependencies span more than 2,000 files is not cached and is
-  re-analyzed on every run. Libraries are not tracked: after changing only
-  the classpath, run once with `--no-cache-oracle`.
-
-  A few changes are not tracked. A new file can change how an existing file
-  resolves, for example by adding a subclass of a sealed class it checks
-  exhaustively, or an overload or extension that it now calls instead, but
-  the existing file has no dependency on a file that did not exist when it
-  was analyzed. Its facts refresh when it or the sealed parent changes; run
-  with `--no-cache-oracle` otherwise. Changes are detected by content for
-  cached entries, but the krit-types daemon notices source edits by file
-  size and modification time, so an edit that keeps a file's size within
-  the filesystem's timestamp granularity can be missed until the next edit.
-  After any source edit, the daemon rebuilds its whole analysis session
-  before answering.
-
-Cached entries are tied to the backend that wrote them, so switching
-`--oracle-backend` re-runs the compiler rather than mixing the two backends'
-facts.
+the file is unchanged. With incremental FIR checking enabled, krit-fir
+recompiles only changed files and their dependents when it can (for example,
+when the previous module compile completed without errors); otherwise it falls
+back to a full compile. It reports facts for all source files, so any run can
+refresh the whole cache.
+Each cached entry also records the compilation it came from: every Kotlin
+file's path and content, the classpath, and the krit-fir jar. When nothing krit
+needs has changed but the compilation has (for example, a file outside the oracle
+filter was edited or deleted, or a library was updated), krit runs the
+compiler once to refresh the cache.
 
 ## Profiling
 
@@ -265,6 +239,11 @@ Then:
 go tool pprof -http=:8080 cpu.prof
 go tool pprof -http=:8080 mem.prof
 ```
+
+Verbose `--fir` scans print an `incremental FIR:` line when planner or
+compiler-error telemetry is available, and explain when `--no-cache` disables
+snapshot persistence. The same message appears as the `incremental` detail on
+the `firCheckOutcome` perf entry; an all-cache-hit run has no planner line.
 
 In daemon mode `--cpuprofile` and `--memprofile` profile the daemon process,
 not the short-lived CLI. Pair with `--no-daemon` if you want to profile a

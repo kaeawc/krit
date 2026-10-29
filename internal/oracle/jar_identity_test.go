@@ -160,40 +160,6 @@ func TestDaemonRetiresLegacyAndPreservesOtherInputs(t *testing.T) {
 	}
 }
 
-func TestConnectOrStartDaemonPoolRetiresSupersededSlot(t *testing.T) {
-	t.Setenv("KRIT_DAEMON_REGISTRY_DIR", "")
-	t.Setenv("HOME", t.TempDir())
-	jar := testJar(t)
-	sources := []string{t.TempDir()}
-	oldKey := daemonRegistryKey(jar, sources)
-	oldFake := NewFakeDaemon(t)
-	t.Cleanup(oldFake.Close)
-	pid := testLivePID(t)
-	if err := writePIDFileSlot(pid, oldFake.Port, oldKey, 1); err != nil {
-		t.Fatal(err)
-	}
-	replaceTestJar(t, jar)
-	currentFake := NewFakeDaemon(t)
-	t.Cleanup(currentFake.Close)
-	if err := writePIDFileSlot(os.Getpid(), currentFake.Port, daemonRegistryKey(jar, sources), 0); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", t.TempDir())
-	pool, err := ConnectOrStartDaemonPool(jar, sources, nil, 2, false)
-	if pool != nil {
-		_ = pool.Release()
-	}
-	if err == nil || !strings.Contains(err.Error(), "java not found") {
-		t.Fatalf("expected slot-1 fresh start error: %v", err)
-	}
-	if isProcessAlive(pid) {
-		t.Fatal("superseded slot process remains alive")
-	}
-	if _, err := os.Stat(daemonPIDPathForSlot(oldKey, 1)); !os.IsNotExist(err) {
-		t.Fatalf("superseded slot file remains: %v", err)
-	}
-}
-
 func TestDaemonMatchesRepoAfterJarReplacement(t *testing.T) {
 	jar := testJar(t)
 	sources := []string{t.TempDir()}

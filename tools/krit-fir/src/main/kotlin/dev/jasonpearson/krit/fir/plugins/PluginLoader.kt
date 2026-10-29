@@ -10,15 +10,10 @@ import java.util.ServiceLoader
 import java.util.jar.JarFile
 
 /**
- * Plugin-rule loader for the krit-fir backend. Mirrors the loader in
- * krit-types' `PluginRules.kt` so a JAR built against the same
- * `krit-rule-api` works against either backend.
+ * Plugin-rule loader for the krit-fir backend. Loads JARs built
+ * against `krit-rule-api`.
  *
- * Differences from the krit-types loader are intentional:
- *
- * - The FIR backend SUPPORTS `NEEDS_FIR` capability. krit-types treats
- *   it as a load-time error because the KAA-backed daemon cannot
- *   deliver FIR-only facts.
+ * - Rules may declare the `NEEDS_FIR` capability.
  * - The actual rule-execution surface (`Resolver`, payload contexts)
  *   lives in later PRs in this series — this PR ships the loader,
  *   SDK-compat gate, capability gate, and `listPlugins` RPC only.
@@ -54,8 +49,7 @@ internal data class PluginLoadDiagnostic(
 }
 
 /**
- * Semver-based compatibility gate for the rule SDK. Identical policy
- * to krit-types' [SdkCompatibility]: a `0.x` minor mismatch is
+ * Semver-based compatibility gate for the rule SDK: a `0.x` minor mismatch is
  * treated as breaking, otherwise matching major + minor is
  * compatible. See `docs/external-rules.md#compatibility-matrix` for
  * the rationale.
@@ -149,9 +143,8 @@ internal data class CapabilityViolation(
  * this set is rejected at jar-load time so a rule cannot silently run
  * without the facts it asked for.
  *
- * Differs from krit-types' supported set: the krit-fir backend
- * accepts `NEEDS_FIR` (rules that opt into FIR-only facts) because
- * the FIR helpers land alongside the loader. Rule-execution support
+ * The krit-fir backend accepts `NEEDS_FIR` (rules that opt into
+ * FIR-only facts) because the FIR helpers land alongside the loader. Rule-execution support
  * for the project-scope payload contexts (`NEEDS_GRADLE`, etc.) lands
  * in a later PR; the daemon advertises them as supported now so a
  * jar shipped today doesn't reject when the FIR runtime catches up.
@@ -202,7 +195,7 @@ internal object PluginCapabilities {
  * Process-wide, synchronized registry of loaded plugin jars and their
  * rules. The K2-backed daemon may rebuild the per-request analysis
  * session, but the loaded JARs are stable across the daemon lifetime
- * so we keep the registry global. Matches krit-types' lifecycle.
+ * so we keep the registry global.
  */
 internal object PluginRuleRegistry {
 

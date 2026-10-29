@@ -23,7 +23,6 @@ type countingState struct {
 	dependents     int
 	library        int
 	resolver       int
-	oracle         int
 	touch          int
 	lastTouched    string
 	lastInvalidate string
@@ -56,11 +55,6 @@ func (c *countingState) InvalidateResolver() {
 	c.resolver++
 	c.mu.Unlock()
 }
-func (c *countingState) InvalidateOracleFilter() {
-	c.mu.Lock()
-	c.oracle++
-	c.mu.Unlock()
-}
 func (c *countingState) Touch(p string) {
 	c.mu.Lock()
 	c.touch++
@@ -75,7 +69,6 @@ type stateSnapshot struct {
 	dependents     int
 	library        int
 	resolver       int
-	oracle         int
 	touch          int
 	lastTouched    string
 	lastInvalidate string
@@ -91,7 +84,6 @@ func (c *countingState) snapshot() stateSnapshot {
 		dependents:     c.dependents,
 		library:        c.library,
 		resolver:       c.resolver,
-		oracle:         c.oracle,
 		touch:          c.touch,
 		lastTouched:    c.lastTouched,
 		lastInvalidate: c.lastInvalidate,
@@ -124,7 +116,7 @@ func TestRouting_TableDriven(t *testing.T) {
 			name: "kotlin source",
 			path: "/repo/src/main/kotlin/Foo.kt",
 			assertState: func(t *testing.T, s stateSnapshot) {
-				if s.invalidate != 1 || s.codeIndex != 1 || s.dependents != 1 || s.resolver != 1 || s.oracle != 1 {
+				if s.invalidate != 1 || s.codeIndex != 1 || s.dependents != 1 || s.resolver != 1 {
 					t.Fatalf("kotlin: %+v", s)
 				}
 			},

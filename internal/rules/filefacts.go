@@ -44,4 +44,7 @@ const (
 	slotUnusedImportRefs            = "unusedImportRefs"
 	slotUnusedVariableHasParseError = "unusedVariableHasParseError"
 	slotPrintBuiltinShadows         = "printBuiltinShadows"
+	slotComposeContentDescImports   = "composeContentDescImports"
+	slotDeclaredTypeNames           = "declaredTypeNames"
+	slotPrngCryptoFile              = "prngCryptoFile"
 )

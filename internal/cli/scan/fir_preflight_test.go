@@ -151,7 +151,9 @@ func TestFIRPreflightMissingModelJarsWarns(t *testing.T) {
 	if _, err := PreflightFIR(context.Background(), []string{root}, config.NewConfig(), "", false, &warnings); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(warnings.String(), "1 classpath jars missing") {
+	if !strings.Contains(warnings.String(), "1 classpath jars missing on disk") ||
+		!strings.Contains(warnings.String(), "unbuilt project module outputs") ||
+		!strings.Contains(warnings.String(), "build those modules or rerun kritExportModel") {
 		t.Fatalf("warnings = %q", warnings.String())
 	}
 }

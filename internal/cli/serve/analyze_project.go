@@ -67,12 +67,10 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		return nil, fmt.Errorf("%s (daemon=%s client=%s)", daemon.ErrBinaryHashMismatchPrefix, daemonHash, args.ClientBinaryHash)
 	}
 
-	// Validate the requested oracle backend up front so the
-	// daemon-resident OracleDaemon spawn picks the right jar.
-	// ensureOracleDaemon routes BackendKAA to krit-types and
-	// BackendFIR to krit-fir; unrecognised spellings surface as a
-	// typed ErrUnsupportedOracleBackendPrefix so the CLI falls back
-	// to in-process via runDaemonAnalyze.
+	// Validate the requested oracle backend up front. Unrecognised or
+	// removed spellings (such as "kaa") surface as a typed
+	// ErrUnsupportedOracleBackendPrefix so the CLI falls back to
+	// in-process via runDaemonAnalyze, which reports the error.
 	backend, err := oracle.ParseBackend(args.OracleBackend)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", daemon.ErrUnsupportedOracleBackendPrefix, err)
@@ -268,7 +266,6 @@ func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Wr
 		CodeIndexHit:      xfile.HasCodeIndex,
 		LibraryFactsHit:   xfile.HasLibraryFacts,
 		ResolverHit:       xfile.HasResolver,
-		OracleFilterHit:   xfile.HasOracleFilter,
 		DirtyFiles:        r.dirtyN,
 		Cold:              r.cold,
 		ParseHits:         res.ParseHits,
@@ -456,9 +453,8 @@ func (w *analyzeRespWriter) Write(p []byte) (int, error) {
 // buildProjectInput translates wire args into a pipeline.ProjectInput
 // against daemon-resident state. The function is the single seam
 // where CLI-flag-style knobs (rule lists, format) are wired into the
-// pipeline's typed value inputs. backend selects which JVM jar the
-// resident OracleDaemon spawns (krit-types vs krit-fir); the value
-// is parsed/validated upstream in handleAnalyzeProject.
+// pipeline's typed value inputs. backend is parsed/validated upstream
+// in handleAnalyzeProject.
 func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend oracle.Backend) (pipeline.ProjectInput, error) {
 	cfg, err := s.ensureConfig()
 	if err != nil {
@@ -518,8 +514,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	}
 
 	// OracleDaemon is daemon-resident: lazy-started on first request
-	// when the matching jar (krit-types for BackendKAA, krit-fir for
-	// BackendFIR) is found. nil daemon means oracle stays disabled
+	// when the krit-fir jar is found. nil daemon means oracle stays disabled
 	// (no JVM, no behavior change). Per-verb ping happens at the
 	// call boundary in handleAnalyzeProject.
 	//
@@ -527,16 +522,13 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	// resident JVM stays cached for other requests, but this one neither
 	// starts nor consults it, matching an in-process scan.
 	//
-	// Custom Kotlin rule jars run inside the krit-types JVM, so a
-	// --no-type-oracle request that carries them still gets a krit-types
+	// Custom Kotlin rule jars run inside the krit-fir JVM, so a
+	// --no-type-oracle request that carries them still gets a daemon
 	// handle for the plugin RPCs (OracleEnabled stays false), as an
 	// in-process scan does.
 	var oracleDaemon *oracle.Daemon
-	switch {
-	case !args.NoTypeOracle:
+	if !args.NoTypeOracle || len(args.CustomRuleJars) > 0 {
 		oracleDaemon, err = s.ensureOracleDaemonFor(paths, backend, oracleContextFor(args))
-	case len(args.CustomRuleJars) > 0:
-		oracleDaemon, err = s.ensureOracleDaemonFor(paths, oracle.BackendKAA, oracleContextFor(args))
 	}
 	if err != nil {
 		// Best-effort degrade: a failed daemon start shouldn't fail
@@ -616,7 +608,6 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 			CodeIndexCache:      s.workspace.CodeIndex,
 			XMLFilesLoader:      s.workspace.XMLFiles,
 			ResolverCache:       s.workspace.Resolver,
-			OracleFilterCache:   s.workspace.OracleFilter,
 			AndroidProjectCache: s.workspace.AndroidProject,
 			DaemonCaches: pipeline.DaemonCaches{
 				CodeIndexSnapshotLoader:  s.workspace.LoadCodeIndexSnapshot,
@@ -662,6 +653,13 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 		// The oracle daemon and the pass compile the same module; the broker
 		// lets the oracle's compile answer the pass's check too (#810).
 		in.Host.FIRCheckBroker = firchecks.NewBroker()
+		if !args.NoCache {
+			// An oracle-only request (the check served by its cache) still
+			// lets krit-fir load its bundle and answer an unchanged module
+			// without a compile (#957). The directory is the one the pass's
+			// checker persists to (scan.NewFIRChecker), not the daemon root.
+			in.Host.FIRIncrementalDir = firchecks.IncrementalDir(oracle.FindRepoDir(paths))
+		}
 	}
 	if args.NoTypeOracle {
 		// No oracle run in this request, so there is no compile to share.

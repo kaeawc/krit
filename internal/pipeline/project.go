@@ -102,7 +102,7 @@ type ProjectArgs struct {
 	// OracleEnabled, when true, runs the oracle pipeline inside
 	// IndexPhase (auto-detect / --input-types / --daemon paths). The
 	// daemon sets this true when ensureOracleDaemon found a
-	// krit-types JAR; the CLI sets it from --type-oracle.
+	// krit-fir JAR; the CLI sets it from --type-oracle.
 	OracleEnabled bool
 	// NoTypeOracle mirrors --no-type-oracle for hosted runs. It forces the
 	// oracle off and folds a marker into the rule hash so every cache keyed
@@ -110,18 +110,16 @@ type ProjectArgs struct {
 	// apart from oracle-backed runs over the same sources.
 	NoTypeOracle bool
 	// CustomRuleJars are Kotlin custom-rule plugin jars loaded by the
-	// krit-types daemon and merged into the standard finding stream.
+	// krit-fir daemon and merged into the standard finding stream.
 	CustomRuleJars []string
 	// InputTypesPath mirrors --input-types: an explicit oracle JSON
-	// path that bypasses the krit-types JVM (one-shot or daemon) and
+	// path that bypasses the krit-fir JVM (one-shot or daemon) and
 	// loads the prebuilt facts directly. When non-empty the daemon
 	// host skips its resident OracleDaemon for this call so the
 	// auto-detect oracle path can honour the user-supplied dump.
 	InputTypesPath string
-	// TargetedResolution, when true, runs active rules' expression
-	// selectors through the configured expression resolver before
-	// dispatch. The pass is optional: missing resolver/sink or a rule
-	// set with no selectors is treated as no work.
+	// TargetedResolution is the --depth=thorough preset: it activates the
+	// thorough-only rules and the oracle filter's thorough fields.
 	TargetedResolution bool
 	// Fix, when true, applies safe text auto-fixes to disk between
 	// cross-file analysis and output. The set of applied fixes is
@@ -193,6 +191,11 @@ type ProjectHostState struct {
 	// returned, whatever the oracle did, so the pass never waits on an oracle
 	// that is not going to answer.
 	FIRCheckBroker *firchecks.Broker
+	// FIRIncrementalDir is krit-fir's persisted incremental bundle directory
+	// for this request ({repo}/.krit/fir-incremental), empty under --no-cache.
+	// Oracle-only daemon requests carry it so a restarted daemon serves an
+	// unchanged module from the bundle (#957).
+	FIRIncrementalDir string
 	// Tracker, when non-nil, wraps expensive sub-phases for --perf.
 	Tracker perf.Tracker
 	// ParseCache, when non-nil, is consulted by ParsePhase to skip
@@ -242,12 +245,6 @@ type ProjectHostState struct {
 	// files, so mismatches force a complete rebuild rather than a
 	// stale-entry leak. *WorkspaceState satisfies this interface.
 	ResolverCache ResolverCache
-	// OracleFilterCache, when non-nil and Args.OracleEnabled is true,
-	// memoizes the oracle CallTargetFilterSummary across calls.
-	// RunProject computes the filter once per file-set + rule-set
-	// fingerprint and threads it into IndexInput.PrebuiltOracleCallFilter.
-	// *WorkspaceState satisfies this interface.
-	OracleFilterCache OracleFilterCache
 	// AndroidProjectCache, when non-nil, memoizes the detected
 	// *android.Project across calls. IndexPhase.detectAndroidProject
 	// consults the slot before falling through to android.DetectProject
@@ -301,14 +298,9 @@ type ProjectHostState struct {
 	// OracleBlobHash returns the current run's canonical per-file fact hash.
 	// Nil means oracle facts are absent for this run.
 	OracleBlobHash func(string) string
-	// OracleDaemon, when non-nil, is the long-lived krit-types JVM
+	// OracleDaemon, when non-nil, is the long-lived krit-fir JVM
 	// daemon handle (used only when Oracle is also set).
 	OracleDaemon *oracle.Daemon
-	// TargetedExpressionResolver and TargetedExpressionSink override
-	// the daemon/oracle pair used by TargetedResolution. Tests and
-	// embedders can supply narrow fakes without standing up a JVM.
-	TargetedExpressionResolver api.ExpressionTypeResolver
-	TargetedExpressionSink     api.ExpressionFactSink
 	// AnalysisCache, when non-nil, drives the incremental findings
 	// cache. DispatchPhase merges new per-file findings into it and
 	// saves the result to AnalysisCacheFilePath after dispatch. Nil
@@ -835,7 +827,6 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	// legible. (loadJavaSemanticFacts already emits "javaSemanticFacts"
 	// from the loader; dispatch/android emit their own spans.)
 	targetedStart := time.Now()
-	runProjectTargetedResolution(args, host, parseResult.KotlinFiles, indexResult)
 	perf.AddEntry(host.Tracker, "targetedResolution", time.Since(targetedStart))
 
 	fpStart := time.Now()
@@ -1063,6 +1054,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		Tracker:                  host.Tracker,
 		Verbose:                  host.Reporter.VerboseEnabled(),
 		FIRCheckBroker:           host.FIRCheckBroker,
+		FIRIncrementalDir:        host.FIRIncrementalDir,
 		BuildCodeIndex:           buildCodeIndex,
 		CrossFileParentTracker:   crossTracker,
 		CrossFileJobsFlag:        args.Workers,
@@ -1088,7 +1080,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		OracleKotlin:        args.OracleKotlin,
 		Thorough:            args.TargetedResolution,
 	}
-	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)
+	wireOracleHandles(&indexInput, args, host)
 	if warm.result == nil {
 		wireAnalysisCacheLookup(&indexInput, args, host)
 	}
@@ -1187,32 +1179,6 @@ func loadJavaSemanticFacts(ctx context.Context, args ProjectArgs, host ProjectHo
 	}
 	indexResult.JavaSemanticFacts = facts
 	return nil
-}
-
-func runProjectTargetedResolution(args ProjectArgs, host ProjectHostState, files []*scanner.File, indexResult IndexResult) {
-	if !args.TargetedResolution {
-		return
-	}
-	resolver := host.TargetedExpressionResolver
-	if resolver == nil && indexResult.Daemon != nil {
-		resolver = DaemonExpressionResolver{Daemon: indexResult.Daemon}
-	}
-	sink := host.TargetedExpressionSink
-	if sink == nil {
-		sink = indexResult.Oracle
-	}
-	if resolver == nil || sink == nil {
-		host.Reporter.Verbosef("verbose: targeted expression resolution skipped (resolver unavailable)\n")
-		return
-	}
-	if err := RunTargetedResolutionPass(TargetedResolutionInput{
-		ActiveRules: args.ActiveRules,
-		Files:       files,
-		Resolver:    resolver,
-		Sink:        sink,
-	}); err != nil {
-		host.Reporter.Warnf("warning: targeted expression resolution failed: %v\n", err)
-	}
 }
 
 func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan) (ParseResult, error) {
@@ -1603,7 +1569,7 @@ func wireAnalysisCacheLookup(in *IndexInput, args ProjectArgs, host ProjectHostS
 // the caller opted in via args.OracleEnabled and the host supplied a
 // daemon handle. Extracted from RunProject to keep its cyclomatic
 // complexity manageable.
-func wireOracleHandles(in *IndexInput, args ProjectArgs, host ProjectHostState, kotlinFiles []*scanner.File) {
+func wireOracleHandles(in *IndexInput, args ProjectArgs, host ProjectHostState) {
 	if !args.OracleEnabled {
 		return
 	}
@@ -1624,14 +1590,6 @@ func wireOracleHandles(in *IndexInput, args ProjectArgs, host ProjectHostState, 
 	in.UseDaemon = true
 	in.PrebuiltOracleDaemon = host.OracleDaemon
 	in.OracleScanPaths = args.Paths
-	if host.OracleFilterCache == nil {
-		return
-	}
-	fp := oracleFilterFingerprint(args.ActiveRules, kotlinFiles)
-	in.PrebuiltOracleCallFilter = host.OracleFilterCache(fp, func() *oracle.CallTargetFilterSummary {
-		summary := rules.BuildOracleCallTargetFilterV2ForFiles(args.ActiveRules, kotlinFiles)
-		return &summary
-	})
 }
 
 // deltaManifestData carries the precomputed per-file inputs the delta
@@ -3829,29 +3787,6 @@ func dirtyPathSet(dirty []string) map[string]bool {
 		set[p] = true
 	}
 	return set
-}
-
-// oracleFilterFingerprint hashes the active rule IDs together with
-// the sorted (path, content-hash) tuples of every Kotlin file. Both
-// inputs feed BuildOracleCallTargetFilterV2ForFiles; either changing
-// invalidates the cached filter.
-func oracleFilterFingerprint(activeRules []*api.Rule, kotlinFiles []*scanner.File) string {
-	ruleIDs := make([]string, 0, len(activeRules))
-	for _, r := range activeRules {
-		if r != nil {
-			ruleIDs = append(ruleIDs, r.ID)
-		}
-	}
-	sort.Strings(ruleIDs)
-	fileEntries := make([]string, 0, len(kotlinFiles))
-	for _, f := range kotlinFiles {
-		if f == nil {
-			continue
-		}
-		fileEntries = append(fileEntries, f.Path+"\x00"+hashutil.Default().HashContent(f.Path, f.Content))
-	}
-	sort.Strings(fileEntries)
-	return hashutil.HashHex([]byte(strings.Join(ruleIDs, "\x01") + "\x02" + strings.Join(fileEntries, "\x01")))
 }
 
 // DirtyPathsAllInManifest reports whether every watcher-dirty path names a file

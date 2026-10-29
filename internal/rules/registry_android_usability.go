@@ -23,8 +23,6 @@ func registerAndroidUsabilityRules() {
 			NodeTypes:  []string{"call_expression", "simple_identifier", "user_type", "navigation_expression"},
 			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Confidence: api.ConfidenceMedium, Implementation: r,
-			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"setElevation", "getSystemService", "setDecorFitsSystemWindows", "requestPermissions", "checkSelfPermission", "getColor", "getDrawable", "setTranslationZ", "setClipToOutline", "createNotificationChannel"}},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				line := file.FlatRow(idx)
@@ -118,11 +116,7 @@ func registerAndroidUsabilityRules() {
 			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Confidence: r.Confidence(), Implementation: r,
 			NeedsLibraryFacts: true,
-			OracleCallTargets: &api.OracleCallTargetFilter{
-				AnnotatedIdentifiers: []string{"RequiresApi", "TargetApi"},
-			},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
-			Check:                  r.check,
+			Check:             r.check,
 		})
 	}
 	{

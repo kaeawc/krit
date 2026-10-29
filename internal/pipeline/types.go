@@ -9,7 +9,6 @@ import (
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
-	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/module"
@@ -220,22 +219,16 @@ type IndexResult struct {
 	// Resolver is the type resolver wired into rules that declare
 	// NeedsResolver. Nil when no active rule needs it.
 	Resolver typeinfer.TypeResolver
-	// Oracle is the Kotlin Analysis API-backed type oracle. Nil when
+	// Oracle is the krit-fir-backed type oracle. Nil when
 	// --no-type-oracle or no rule needs oracle data.
 	Oracle *oracle.Oracle
 	// OracleBlobHash returns the canonical facts hash for one source path.
 	// Nil means no oracle was active for this run.
 	OracleBlobHash func(string) string
-	// Daemon is the optional long-lived krit-types daemon handle
-	// (populated when --daemon is set and the KAA backend is
-	// selected). Callers are responsible for Close()-ing it at
-	// program exit.
+	// Daemon is the optional long-lived krit-fir daemon handle
+	// (populated when --daemon is set). Callers are responsible for
+	// Close()-ing it at program exit.
 	Daemon *oracle.Daemon
-	// FirDaemon is the optional long-lived krit-fir daemon handle
-	// (populated when --daemon is set and --oracle-backend=fir is
-	// selected). Mutually exclusive with [Daemon] within one run.
-	// Callers are responsible for Close()-ing it at program exit.
-	FirDaemon *firchecks.FirDaemon
 	// CodeIndex is the cross-file symbol/reference index. Nil when
 	// no active rule declares NeedsCrossFile.
 	CodeIndex *scanner.CodeIndex
@@ -381,17 +374,6 @@ type CodeIndexCache = XFileCache[*scanner.CodeIndex]
 // file indexed. Mismatches force a fresh resolver — no stale entries
 // from removed/renamed files leak across the boundary.
 type ResolverCache = XFileCache[typeinfer.TypeResolver]
-
-// OracleFilterCache memoizes the oracle *CallTargetFilterSummary
-// across RunProject calls. The filter classification scans every
-// Kotlin file for annotated identifiers; without caching it dominates
-// the warm oracle cost.
-//
-// Fingerprint must include the active rule IDs (the filter is keyed
-// on rule capabilities + AnnotatedIdentifier specs) and the sorted
-// (path, content-hash) pairs of every Kotlin file. Mismatches force a
-// fresh classification.
-type OracleFilterCache = XFileCache[*oracle.CallTargetFilterSummary]
 
 // AndroidProjectCache memoizes the detected *android.Project across
 // RunProject calls. DetectProject walks the project tree for

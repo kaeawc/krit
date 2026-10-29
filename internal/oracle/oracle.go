@@ -32,9 +32,8 @@ type Lookup interface {
 	LookupCallTargetSuspend(filePath string, line, col int) (bool, bool)
 	// LookupCallTargetAnnotations returns the annotation FQNs recorded directly
 	// on the resolved call-target symbol at the given source position. Unlike
-	// LookupAnnotations (which requires Members+MemberAnnotations in the
-	// declaration profile), these annotations are captured during call resolution
-	// and require no declaration extraction at all.
+	// LookupAnnotations, which reads a declaration's member annotations, these
+	// are captured during call resolution.
 	LookupCallTargetAnnotations(filePath string, line, col int) []string
 	LookupDiagnostics(filePath string) []Diagnostic
 }
@@ -54,7 +53,7 @@ type Oracle struct {
 	expressionRanges      map[string][]expressionRange                  // file path → byte-range keyed expression facts
 	annotations           map[string][]string                           // "ClassName.memberName" → annotation FQNs
 	callTargets           map[string]map[uint64]string                  // file path → (packed line:col → call target FQN)
-	callTargetResolved    map[string]map[uint64]bool                    // file path → (packed line:col → KAA-resolved target marker)
+	callTargetResolved    map[string]map[uint64]bool                    // file path → (packed line:col → oracle-resolved target marker)
 	callTargetSuspend     map[string]map[uint64]bool                    // file path → (packed line:col → suspend callable marker)
 	callTargetAnnotations map[string]map[uint64][]string                // file path → (packed line:col → annotation FQNs on resolved symbol)
 
@@ -513,7 +512,7 @@ func convertClassInfo(fqn string, cls *Class) *typeinfer.ClassInfo {
 }
 
 // isErrorType reports whether an oracle type string is a compiler error /
-// unresolved type. krit-fir (and the KAA backend) render such types with a
+// unresolved type. krit-fir renders such types with a
 // leading "<error>" sentinel — e.g. "<error>", "<error>?", "<error><<error>>".
 // These carry no reliable nullability: the backend resolves them without the
 // full classpath (Android SDK, binary deps), so a "<error>" with nullable=false
@@ -602,7 +601,7 @@ func (o *Oracle) LookupAnnotations(key string) []string {
 
 // LookupCallTargetAnnotations returns annotation FQNs recorded directly on the
 // resolved call-target symbol at the given source position. These are captured
-// during krit-types call resolution and require no declaration extraction.
+// during krit-fir call resolution and require no declaration extraction.
 func (o *Oracle) LookupCallTargetAnnotations(filePath string, line, col int) []string {
 	fileCTAs := o.callTargetAnnotations[o.fileKey(filePath)]
 	if fileCTAs == nil {
@@ -645,9 +644,9 @@ func (o *Oracle) LookupCallTargetFlat(file *scanner.File, idx uint32) string {
 	return o.LookupCallTarget(file.Path, file.FlatRow(idx)+1, file.FlatCol(idx)+1)
 }
 
-// LookupCallTargetSuspend returns whether a KAA-resolved callable target is
+// LookupCallTargetSuspend returns whether an oracle-resolved callable target is
 // suspend at a specific source position. ok is false when the target is absent
-// or came from lexical fallback rather than KAA resolution.
+// or came from lexical fallback rather than oracle resolution.
 func (o *Oracle) LookupCallTargetSuspend(filePath string, line, col int) (isSuspend bool, ok bool) {
 	key := packLineCol(line, col)
 	fileResolved := o.callTargetResolved[o.fileKey(filePath)]

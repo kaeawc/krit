@@ -1,5 +1,5 @@
-// Package jvmaot contains the shared Project Leyden AOT cache machinery used
-// by krit-types and krit-fir JVMs.
+// Package jvmaot contains the Project Leyden AOT cache machinery used by the
+// krit-fir JVM.
 package jvmaot
 
 import (
@@ -102,6 +102,8 @@ func PathsWithToken(token, jarPath, workload string) (configPath, cachePath, ski
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return "", "", "", err
 	}
+	// The "krit-types-" prefix predates krit-fir; it is kept so existing AOT
+	// caches stay valid instead of being orphaned and rebuilt.
 	base := "krit-types-" + token[:cacheKeyHashLen]
 	if workload != "" {
 		base += "-" + workload
@@ -114,6 +116,20 @@ func AppendArgs(args []string, javaPath, jarPath, workload string, jdkMajor int,
 }
 
 func AppendArgsWithToken(args []string, javaPath, jarPath, token, workload string, jdkMajor int, verbose bool, logf func(string, ...any)) ([]string, bool) {
+	return appendArgs(args, javaPath, jarPath, token, workload, jdkMajor, verbose, logf, true)
+}
+
+// AppendCachedArgs is AppendArgs for a JVM that never records a profile: it
+// uses a valid cache, or builds one from a profile another launch recorded,
+// and otherwise starts without AOT. A recording is finalized only when its
+// launcher sees the JVM exit (FinalizeRecording), so a JVM its launcher
+// leaves running, such as a persistent daemon that outlives the krit
+// process, must not record: it would hold the build lock and leave nothing.
+func AppendCachedArgs(args []string, javaPath, jarPath, workload string, jdkMajor int, verbose bool, logf func(string, ...any)) ([]string, bool) {
+	return appendArgs(args, javaPath, jarPath, buildid.JarToken(jarPath), workload, jdkMajor, verbose, logf, false)
+}
+
+func appendArgs(args []string, javaPath, jarPath, token, workload string, jdkMajor int, verbose bool, logf func(string, ...any), record bool) ([]string, bool) {
 	if jdkMajor < 25 {
 		return args, false
 	}
@@ -168,6 +184,10 @@ func AppendArgsWithToken(args []string, javaPath, jarPath, token, workload strin
 			defer releaseBuildLock(cachePath)
 			return trainCache(args, javaPath, jarPath, configPath, cachePath, skipPath, token, workload, version, jdkMajor, verbose, logf)
 		}
+	}
+	if !record {
+		releaseBuildLock(cachePath)
+		return args, false
 	}
 	recorded, added := recordConfig(args, configPath, verbose, logf)
 	if !added {

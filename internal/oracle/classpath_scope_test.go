@@ -24,10 +24,10 @@ func TestClasspathChangesStoreScopeAndTypesFreshness(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := NewStoreScope(BackendFIR, "", []string{jar})
-	if err := RecordTypesFacts(types, false, before); err != nil {
+	if err := RecordTypesFacts(types, before); err != nil {
 		t.Fatal(err)
 	}
-	if !TypesJSONSatisfies(types, false, before, buildid.Token()) {
+	if !TypesJSONSatisfies(types, before, buildid.Token()) {
 		t.Fatal("fresh types rejected")
 	}
 	time.Sleep(time.Millisecond)
@@ -38,12 +38,12 @@ func TestClasspathChangesStoreScopeAndTypesFreshness(t *testing.T) {
 	if before.version == after.version {
 		t.Fatal("store version unchanged")
 	}
-	if TypesJSONSatisfies(types, false, after, buildid.Token()) {
+	if TypesJSONSatisfies(types, after, buildid.Token()) {
 		t.Fatal("stale types accepted")
 	}
 }
 
-// A settings-only change must change the store scope of either backend: the
+// A settings-only change must change the store scope: the
 // facts were computed under another language level or opt-in set, with no
 // source, classpath or jar change to show for it.
 func TestKotlinSettingsChangeStoreScope(t *testing.T) {
@@ -56,7 +56,7 @@ func TestKotlinSettingsChangeStoreScope(t *testing.T) {
 		"progressive": {LanguageVersion: "2.0", APIVersion: "2.0", OptIns: base.OptIns, Flags: base.Flags, Progressive: true},
 		"none":        {},
 	}
-	for _, backend := range []Backend{BackendFIR, BackendKAA} {
+	for _, backend := range []Backend{BackendFIR} {
 		for _, target := range []string{"", "17"} {
 			ref := NewStoreScopeWithSettings(backend, "", nil, target, base)
 			if ref.KotlinSettings == "" {
@@ -89,16 +89,17 @@ func TestKotlinSettingsChangeStoreScope(t *testing.T) {
 }
 
 // Kotlin settings no longer bypass the persistent daemon: the daemon registry
-// is keyed on them instead. A KAA run with settings keeps the daemon path.
-func TestKotlinSettingsKeepTheDaemonPathForKAA(t *testing.T) {
+// is keyed on them instead. A run with settings and no JVM target keeps the
+// daemon path.
+func TestKotlinSettingsKeepTheDaemonPath(t *testing.T) {
 	t.Setenv("KRIT_DAEMON_CACHE", "on")
-	opts := InvocationOptions{Backend: BackendKAA, Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}}
-	if use, reason := oneShotMissAnalysisReason(1, 1, opts); use {
+	opts := InvocationOptions{Backend: BackendFIR, Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}}
+	if use, reason := oneShotMissAnalysisReason(1, opts); use {
 		t.Fatalf("settings forced a one-shot compile (%q); the daemon must serve them", reason)
 	}
-	// The pre-existing FIR JVM-target rule is unchanged.
-	opts.Backend, opts.JvmTarget = BackendFIR, "17"
-	if use, _ := oneShotMissAnalysisReason(1, 1, opts); !use {
+	// The FIR JVM-target rule is unchanged.
+	opts.JvmTarget = "17"
+	if use, _ := oneShotMissAnalysisReason(1, opts); !use {
 		t.Fatal("FIR with a JVM target still needs the target-scoped one-shot")
 	}
 }
@@ -106,7 +107,7 @@ func TestKotlinSettingsKeepTheDaemonPathForKAA(t *testing.T) {
 // A daemon launched for one set of Kotlin settings is never reused for another,
 // and the settings are passed at launch.
 func TestDaemonRegistryIsKeyedOnKotlinSettings(t *testing.T) {
-	jar, dirs := "/jars/krit-types.jar", []string{"/src"}
+	jar, dirs := "/jars/krit-fir.jar", []string{"/src"}
 	older := gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}
 	newer := gradlemodel.KotlinSettings{LanguageVersion: "2.2", APIVersion: "2.2"}
 	if daemonRegistryKeyKT(jar, dirs, gradlemodel.KotlinSettings{}) != daemonRegistryKey(jar, dirs) {
@@ -127,10 +128,6 @@ func TestDaemonRegistryIsKeyedOnKotlinSettings(t *testing.T) {
 	if d.MatchesRepoSettings(jar, dirs, newer, "/a.jar") || d.MatchesRepoSettings(jar, dirs, gradlemodel.KotlinSettings{}, "/a.jar") {
 		t.Fatal("daemon launched for other settings must not match")
 	}
-	pool := &DaemonPool{Members: []*Daemon{d}}
-	if !pool.MatchesRepoSettings(jar, dirs, older, "/a.jar") || pool.MatchesRepoSettings(jar, dirs, newer, "/a.jar") {
-		t.Fatal("pool must require every member to carry the settings")
-	}
 	args := appendDaemonJarArgsKT(nil, jar, dirs, nil, older, "--daemon")
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--kotlin-arg -language-version=2.0") || !strings.Contains(joined, "--kotlin-arg -api-version=2.0") {
@@ -143,7 +140,7 @@ func TestDaemonRegistryIsKeyedOnKotlinSettings(t *testing.T) {
 
 func TestCompileContextArgsCarryKotlinSettings(t *testing.T) {
 	opts := InvocationOptions{
-		Backend: BackendKAA, Classpath: []string{"/a.jar"}, JvmTarget: "17",
+		Backend: BackendFIR, Classpath: []string{"/a.jar"},
 		Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "1.9", APIVersion: "1.8", OptIns: []string{"x.Y"}, Flags: []string{"-Xcontext-parameters"}},
 	}
 	got := compileContextArgs("/jars/x.jar", opts)
@@ -155,7 +152,7 @@ func TestCompileContextArgsCarryKotlinSettings(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("args = %v want %v", got, want)
 	}
-	opts.Backend = BackendFIR
+	opts.JvmTarget = "17"
 	if got := compileContextArgs("/jars/x.jar", opts); !strings.Contains(strings.Join(got, " "), "--jvm-target 17") || !strings.Contains(strings.Join(got, " "), "--kotlin-arg -language-version=1.9") {
 		t.Fatalf("fir args = %v", got)
 	}
@@ -207,7 +204,7 @@ func TestLegacyEntryDirIsScopedByClasspath(t *testing.T) {
 	}
 }
 
-// legacyClasspathRepo seeds a valid KAA entry for one file in the legacy dir
+// legacyClasspathRepo seeds a valid FIR entry for one file in the legacy dir
 // scoped by kt and classpath.
 func legacyClasspathRepo(t *testing.T, kt gradlemodel.KotlinSettings, classpath []string) (repo, srcDir, cacheDir, file string) {
 	t.Helper()
@@ -221,9 +218,13 @@ func legacyClasspathRepo(t *testing.T, kt gradlemodel.KotlinSettings, classpath 
 	if cacheDir, err = CacheDir(repo); err != nil {
 		t.Fatal(err)
 	}
+	// Stamped with the compilation the run will compute, so a hit needs no
+	// whole-compilation refresh.
+	opts := InvocationOptions{Backend: BackendFIR, Classpath: classpath}
+	compilation := wholeCompilationFingerprint(opts, []string{srcDir}, "", opts.tracker())
 	if _, err := WriteFreshEntries(prepareLegacyEntryDir(cacheDir, kt, classpath),
 		&Data{Version: 1, Files: map[string]*File{file: {}}},
-		&CacheDepsFile{Version: 1, Approximation: ApproximationKAATaggedReferences, Files: map[string]*CacheDepsEntry{file: {DepPaths: nil}}},
+		&CacheDepsFile{Version: 1, Approximation: ApproximationFIRWholeCompilation, CompilationFingerprint: compilation, Files: map[string]*CacheDepsEntry{file: {DepPaths: nil}}},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +248,7 @@ func TestInvokeCachedUsesTheClasspathScopedLegacyDir(t *testing.T) {
 	repo, srcDir, _, _ := legacyClasspathRepo(t, kt, []string{jar})
 	run := func(name string, cp []string) error {
 		_, err := InvokeCachedWithOptions("", []string{srcDir}, repo, filepath.Join(repo, name), "", false, nil,
-			InvocationOptions{Backend: BackendKAA, Kotlin: kt, Classpath: cp})
+			InvocationOptions{Backend: BackendFIR, Kotlin: kt, Classpath: cp})
 		return err
 	}
 	if err := run("a.json", []string{jar}); err != nil {
@@ -321,7 +322,7 @@ func TestInvokeCachedWithStoreCreatesNoLegacyScopeDir(t *testing.T) {
 	s := store.New(filepath.Join(repo, "store"))
 	// The run itself may fail (no JVM jar); only the directory side effect matters.
 	_, _ = InvokeCachedWithOptions("", []string{srcDir}, repo, filepath.Join(repo, "o.json"), "", false, s,
-		InvocationOptions{Backend: BackendKAA, Classpath: []string{jar}})
+		InvocationOptions{Backend: BackendFIR, Classpath: []string{jar}})
 	if _, err := os.Stat(filepath.Join(cacheDir, legacyScopesDir)); err == nil {
 		t.Fatal("a store run created a legacy scope directory")
 	}

@@ -17,7 +17,7 @@ import (
 const clockTicksPerSec = 100
 
 // DaemonUsage is the CPU and memory attributed to long-lived krit daemons
-// (krit serve, the krit-fir and krit-types oracle JVMs, the checker daemon)
+// (krit serve, the krit-fir oracle JVM, the checker daemon)
 // during one run. They are not children of the krit process, so the rusage
 // columns never include them.
 type DaemonUsage struct {
@@ -158,8 +158,6 @@ func daemonKind(cmdline string) string {
 			switch {
 			case strings.HasPrefix(jar, "krit-fir"):
 				return "krit-fir"
-			case strings.HasPrefix(jar, "krit-types"):
-				return "krit-types"
 			}
 			return "jvm-helper"
 		}

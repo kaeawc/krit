@@ -57,7 +57,7 @@ func (s *Server) handleDefinition(req *Request) {
 // lookupDefinitionByName returns LSP Locations for every declaration the
 // oracle index recognises by the given simple name. DeclLocations without
 // source positions still resolve to the declaring file at Range{0,0}, which
-// is the best we can do until krit-types emits per-decl line/column.
+// is the best we can do until krit-fir emits per-decl line/column.
 func lookupDefinitionByName(idx *oracle.Index, name string) []Location {
 	candidates := idx.FindDeclarationBySimpleName(name)
 	if len(candidates) == 0 {
@@ -75,7 +75,7 @@ func lookupDefinitionByName(idx *oracle.Index, name string) []Location {
 
 // declLocation converts an oracle DeclLocation into an LSP Location. Positions
 // are 1-based in the oracle and 0-based in LSP; zero values map to the start
-// of the file, which is the documented behaviour when krit-types has not yet
+// of the file, which is the documented behaviour when krit-fir has not yet
 // emitted a per-decl source position.
 func declLocation(decl *oracle.DeclLocation) Location {
 	line := decl.Line

@@ -10,14 +10,14 @@ import (
 
 // TestAnalyzeProject_InputTypesPathHonoured asserts that an explicit
 // --input-types JSON path is forwarded through the verb wire and lands
-// in the pipeline. The daemon does not have a krit-types.jar in its
+// in the pipeline. The daemon does not have a krit-fir.jar in its
 // search path (TempDir root), so without InputTypesPath it would
 // silently leave OracleEnabled=false. With InputTypesPath set to a
 // readable oracle JSON dump, the verb should accept the request and
 // return findings without erroring on the missing JVM.
 //
 // The test does NOT assert that any particular oracle-backed finding
-// fires — that would require pinning a specific rule's KAA dependence.
+// fires — that would require pinning a specific rule's oracle dependence.
 // It asserts the wire contract: the path is accepted and the call
 // completes successfully.
 func TestAnalyzeProject_InputTypesPathHonoured(t *testing.T) {

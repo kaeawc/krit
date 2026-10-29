@@ -29,6 +29,12 @@ func registerStyleAbstractClassCanBeConcreteClass() {
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixNone, Implementation: r,
 		Needs: api.NeedsResolver,
+		// Source-level class facts only (#956): the oracle's class facts carry
+		// members only when some active rule asked krit-fir for them, so a
+		// library supertype could look like it has nothing abstract, and the
+		// answer would depend on which other rules ran (and on the daemon).
+		// Required: with no resolver at all it still runs (it needs one only for supertypes).
+		TypeInfo: api.TypeInfoHint{PreferBackend: api.PreferResolver, Required: true},
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !file.FlatHasModifier(idx, "abstract") {

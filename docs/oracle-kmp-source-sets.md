@@ -1,14 +1,14 @@
 # JVM oracle facts in Kotlin Multiplatform projects
 
 Krit's Go rules scan every Kotlin file in a project, whatever its target. The
-two JVM type oracles (`krit-fir`, the K2 compiler front end, and `krit-types`,
-the Kotlin Analysis API) are different: they run a JVM compilation, so in a
-Kotlin Multiplatform (KMP) project they compile only the source sets that
+JVM type oracle (`krit-fir`, the K2 compiler front end) is different: it runs a
+JVM compilation, so in a
+Kotlin Multiplatform (KMP) project it compiles only the source sets that
 build for the JVM.
 
 ## Which files get oracle facts
 
-The oracles compile each `kotlin`/`java` directory found under the scanned
+The oracle compiles each `kotlin`/`java` directory found under the scanned
 paths, except the directories of non-JVM target source sets. A directory
 shaped `src/<sourceSet>/kotlin` (or `java`) is dropped when `<sourceSet>`,
 with a trailing `Main` or `Test` removed, is one of these target families, or
@@ -80,14 +80,6 @@ the declaration keyword.
 
 ## Known limits
 
-- **krit-types does not resolve `expect` calls.** It analyzes all the kept
-  directories as one Analysis API source module. Dropping the non-JVM
-  source sets removes the conflicting JS and Native `actual`s, but calls
-  through an `expect` stay unresolved. On the regression fixture in
-  `tests/parity/kmp_source_set_parity_test.go`, krit-types reports the three
-  warnings that don't go through an `expect`. krit-fir and kotlinc report
-  all six. Fixing this needs one Analysis API module per source set, with
-  dependencies between them.
 - **Two JVM-side actuals of one `expect`.** If both `jvmMain` and
   `androidMain` provide an `actual`, both are compiled in the single platform
   compilation. Calls from `commonMain` still resolve through the `expect`.

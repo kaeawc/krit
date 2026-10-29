@@ -107,7 +107,10 @@ class KritExportModelTest {
     }
 
     private fun runWithFakeAndroid(root: File, vararg args: String) =
-        runWithFakePlugin(root, FakeAndroidPlugin::class.java, "com.android.library", *args)
+        runWithFakeAndroidPlugin(root, "com.android.library", *args)
+
+    private fun runWithFakeAndroidPlugin(root: File, pluginId: String, vararg args: String) =
+        runWithFakePlugin(root, FakeAndroidPlugin::class.java, pluginId, *args)
 
     private fun sourceSets(model: File): List<Map<String, Any>> {
         @Suppress("UNCHECKED_CAST")
@@ -196,6 +199,95 @@ class KritExportModelTest {
     }
 
     @Test
+    fun `Android model discovery waits for Android evaluation regardless of plugin order`() {
+        for (pluginId in listOf("com.android.application", "com.android.library")) {
+            for (kritFirst in listOf(true, false)) {
+                val root = File(directory, "android-order-${pluginId.substringAfterLast('.')}-${kritFirst}").also { it.mkdirs() }
+                File(root, "settings.gradle.kts").writeText("rootProject.name = \"android-order\"\n")
+                val plugins = if (kritFirst) listOf("dev.jasonpearson.krit", pluginId)
+                    else listOf(pluginId, "dev.jasonpearson.krit")
+                File(root, "build.gradle.kts").writeText(
+                    "plugins { ${plugins.joinToString("; ") { "id(\"$it\")" }} }\n"
+                )
+                File(root, "android.jar").writeBytes(byteArrayOf())
+
+                val result = runWithFakeAndroidPlugin(root, pluginId, "kritExportModel", "-PdeferAndroidVariants", "--info", "--configuration-cache")
+                val main = sourceSets(File(root, ".krit/gradle-model/_root.json")).single { it["kind"] == "main" }
+                assertEquals("debug", main["variant"])
+                assertTrue(result.output.contains("selected Android variant 'debug'"), result.output)
+                assertFalse(result.output.contains("zero Android source sets"), result.output)
+                val cached = runWithFakeAndroidPlugin(root, pluginId, "kritExportModel", "-PdeferAndroidVariants", "--info", "--configuration-cache")
+                assertTrue(cached.output.contains("Reusing configuration cache."), cached.output)
+            }
+        }
+    }
+
+    @Test
+    fun `Android applied inside afterEvaluate warns once instead of exporting silently`() {
+        val root = File(directory, "android-late-application").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"android-late-application\"\n")
+        File(root, "build.gradle.kts").writeText("""
+            plugins { id("dev.jasonpearson.krit") }
+            afterEvaluate { pluginManager.apply("com.android.application") }
+        """.trimIndent())
+        File(root, "android.jar").writeBytes(byteArrayOf())
+
+        val result = runWithFakeAndroidPlugin(root, "com.android.application", "kritExportModel", "-PdeferAndroidVariants")
+        val skippedWarning = "kritExportModel skipped Android model for :: missing variant or Android extension"
+        assertEquals(1, Regex(Regex.escape(skippedWarning)).findAll(result.output).count(), result.output)
+        assertFalse(result.output.contains("zero Android source sets"), result.output)
+        val sets = sourceSets(File(root, ".krit/gradle-model/_root.json"))
+        assertTrue(sets.isEmpty())
+    }
+
+    @Test
+    fun `Android applied after KMP model export warns once and preserves KMP model`() {
+        val root = File(directory, "kmp-late-android").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"kmp-late-android\"\n")
+        File(root, "build.gradle.kts").writeText("""
+            plugins { id("org.jetbrains.kotlin.multiplatform"); id("dev.jasonpearson.krit") }
+            afterEvaluate {
+                pluginManager.apply("com.android.application")
+                pluginManager.apply("com.android.library")
+            }
+        """.trimIndent())
+        File(root, "android.jar").writeBytes(byteArrayOf())
+
+        val result = runWithFakePlugin(root, FakeKmpPlugin::class.java,
+            "org.jetbrains.kotlin.multiplatform", "kritExportModel", "-PdeferAndroidVariants")
+        val warning = "kritExportModel for : was configured before Android was applied"
+        assertEquals(1, Regex(Regex.escape(warning)).findAll(result.output).count(), result.output)
+        val sets = sourceSets(File(root, ".krit/gradle-model/_root.json"))
+        assertEquals(setOf("jvmMain", "jvmTest"), sets.map { it["name"] }.toSet())
+        assertFalse(sets.any { it["platform"] == "android" })
+    }
+
+    @Test
+    fun `Android model warns when no variants produce source sets`() {
+        val root = File(directory, "android-empty").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"android-empty\"\n")
+        File(root, "build.gradle.kts").writeText("plugins { id(\"com.android.library\"); id(\"dev.jasonpearson.krit\") }\n")
+        val result = runWithFakeAndroid(root, "kritExportModel", "-PomitAndroidVariants")
+        val projectPath = ":"
+        val skippedWarning = "kritExportModel skipped Android model for $projectPath: missing variant or Android extension; apply Android in the plugins block"
+        assertEquals(1, Regex(Regex.escape(skippedWarning)).findAll(result.output).count(), result.output)
+        assertFalse(result.output.contains("zero Android source sets"), result.output)
+        assertTrue(sourceSets(File(root, ".krit/gradle-model/_root.json")).isEmpty())
+    }
+
+    @Test
+    fun `Android model logs fallback from debug to release`() {
+        val root = File(directory, "android-fallback").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"android-fallback\"\n")
+        File(root, "build.gradle.kts").writeText("plugins { id(\"dev.jasonpearson.krit\"); id(\"com.android.library\") }\n")
+        File(root, "android.jar").writeBytes(byteArrayOf())
+        val result = runWithFakeAndroid(root, "kritExportModel", "-PdeferAndroidVariants", "-PreleaseOnly", "--info")
+        val main = sourceSets(File(root, ".krit/gradle-model/_root.json")).single { it["kind"] == "main" }
+        assertEquals("release", main["variant"])
+        assertTrue(result.output.contains("selected Android variant 'release'; falling back from requested 'debug'"), result.output)
+    }
+
+    @Test
     fun `android DSL and configuration names export model and missing components warns`() {
         val root = File(directory, "android").also { it.mkdirs() }
         File(root, "settings.gradle.kts").writeText("rootProject.name = \"android\"\ninclude(\"app\")\n")
@@ -219,6 +311,7 @@ class KritExportModelTest {
         })
         val missing = runWithFakeAndroid(root, "kritExportModel", "-PomitComponents", "--rerun-tasks")
         assertTrue(missing.output.contains("kritExportModel skipped Android model for :app"), missing.output)
+        assertFalse(missing.output.contains("zero Android source sets"), missing.output)
         assertTrue(model.isFile)
     }
 
@@ -441,6 +534,29 @@ class KritExportModelTest {
     }
 
     @Test
+    fun `compiler plugin classpath and options export in KGP order`() {
+        val root = File(directory, "compiler-plugins").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"compiler-plugins\"\n")
+        File(root, "build.gradle.kts").writeText("plugins { id(\"com.android.library\"); id(\"dev.jasonpearson.krit\") }\n")
+        File(root, "android.jar").writeBytes(byteArrayOf())
+        val plugins = File(root, "plugins").also { it.mkdirs() }
+        val scripting = File(plugins, "kotlin-scripting-compiler-embeddable-2.4.21.jar").apply { writeBytes(byteArrayOf()) }
+        val serialization = File(plugins, "kotlin-serialization-compiler-plugin-embeddable-2.4.21.jar").apply { writeBytes(byteArrayOf()) }
+        runWithFakeAndroid(root, "kritExportModel", "-PfakeCompilerPlugins=1", "--configuration-cache")
+        val cached = runWithFakeAndroid(root, "kritExportModel", "-PfakeCompilerPlugins=1", "--configuration-cache")
+        assertTrue(cached.output.contains("Reusing configuration cache."), cached.output)
+        @Suppress("UNCHECKED_CAST")
+        val kotlin = sourceSets(File(root, ".krit/gradle-model/_root.json")).single { it["kind"] == "main" }["kotlin"] as Map<String, Any>
+        // krit filters KGP's scripting support out; the exporter keeps the task's classpath as is.
+        assertEquals(listOf(modelPath(scripting), modelPath(serialization)), kotlin["compilerPluginClasspath"])
+        assertEquals(listOf(
+            "plugin:org.jetbrains.kotlinx.serialization:disableIntrinsic=true",
+            "plugin:org.jetbrains.kotlin.allopen:annotation=a.Open",
+            "plugin:org.jetbrains.kotlin.allopen:annotation=b.Open",
+        ), kotlin["compilerPluginOptions"])
+    }
+
+    @Test
     fun `plugin version falls back to coreLibrariesVersion when KGP version is unavailable`() {
         val root = File(directory, "kotlin-settings-fallback").also { it.mkdirs() }
         File(root, "settings.gradle.kts").writeText("rootProject.name = \"kotlin-settings-fallback\"\n")
@@ -477,6 +593,8 @@ class KritExportModelTest {
         assertEquals(emptyList<String>(), kotlin["freeCompilerArgs"])
         assertEquals(false, kotlin["progressiveMode"])
         assertEquals("", kotlin["pluginVersion"])
+        assertEquals(emptyList<String>(), kotlin["compilerPluginClasspath"])
+        assertEquals(emptyList<String>(), kotlin["compilerPluginOptions"])
     }
 
     @Test

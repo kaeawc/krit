@@ -15,7 +15,7 @@ func TestFlattenTimingsAndAttr(t *testing.T) {
 	entries := []timing{{Name: "indexPhaseRun", DurationMs: 10, Children: []timing{
 		{Name: "typeOracle", DurationMs: 7, Children: []timing{
 			{Name: "jvmAnalyze", DurationMs: 6, Children: []timing{
-				{Name: "oracleBackend", Attributes: map[string]string{"backend": "kaa", "jar": "krit-types.jar"}},
+				{Name: "oracleBackend", Attributes: map[string]string{"backend": "fir", "jar": "krit-fir.jar"}},
 			}},
 		}},
 	}}, {Name: "indexPhaseRun", DurationMs: 5}}
@@ -24,13 +24,14 @@ func TestFlattenTimingsAndAttr(t *testing.T) {
 	if phases["indexPhaseRun"] != 15 || phases["indexPhaseRun/typeOracle/jvmAnalyze"] != 6 {
 		t.Fatalf("phases = %v", phases)
 	}
-	if got := attr(attrs, "oracleBackend", "backend"); got != "kaa" {
+	if got := attr(attrs, "oracleBackend", "backend"); got != "fir" {
 		t.Fatalf("backend attr = %q", got)
 	}
 }
 
 func TestCheckModeVerifiesBackend(t *testing.T) {
-	kaa := Run{Attributes: map[string]string{"indexPhaseRun/typeOracle/jvmAnalyze/oracleBackend.backend": "kaa"}}
+	firOracle := Run{Attributes: map[string]string{"indexPhaseRun/typeOracle/jvmAnalyze/oracleBackend.backend": "fir"}}
+	otherBackend := Run{Attributes: map[string]string{"indexPhaseRun/typeOracle/jvmAnalyze/oracleBackend.backend": "other"}}
 	none := Run{Attributes: map[string]string{}}
 	firOK := Run{Attributes: map[string]string{
 		"a/oracleBackend.backend": "fir", "firCheckAndCollect/firCheck/firCheckOutcome.status": "ok",
@@ -40,11 +41,11 @@ func TestCheckModeVerifiesBackend(t *testing.T) {
 		run    Run
 		reject bool
 	}{
-		{"kaa-oracle", kaa, false},
-		{"fir-oracle", kaa, true},  // asked for FIR, KAA ran
-		{"kaa-oracle", none, true}, // oracle silently skipped
+		{"fir-oracle", firOracle, false},
+		{"fir-oracle", otherBackend, true}, // asked for FIR, another backend ran
+		{"fir-oracle", none, true},         // oracle silently skipped
 		{"structural", none, false},
-		{"structural", kaa, true},
+		{"structural", firOracle, true},
 		{"fir-checkers", firOK, false},
 		{"fir-checkers", Run{Attributes: map[string]string{"a/oracleBackend.backend": "fir"}}, true},
 	}
@@ -131,7 +132,7 @@ func warmBundleHit(state string, measured bool) Run {
 }
 
 func TestCheckModeAcceptsWarmBundleHit(t *testing.T) {
-	for _, mode := range []string{"fir-oracle", "kaa-oracle"} {
+	for _, mode := range []string{"fir-oracle"} {
 		for _, state := range []string{"warm-disk", "warm-daemon"} {
 			if got := checkMode(modes[mode], warmBundleHit(state, true)); got != "" {
 				t.Errorf("%s/%s rejected: %s", mode, state, got)
@@ -452,5 +453,18 @@ func TestDaemonGoneWaitsForPIDAndSocket(t *testing.T) {
 	}
 	if daemonGone(work, os.Getpid()) {
 		t.Fatal("recorded live pid ignored once the pid file is gone")
+	}
+}
+
+func TestBinaryVCSWithoutStampFallsBack(t *testing.T) {
+	if _, _, ok := binaryVCS(filepath.Join(t.TempDir(), "missing")); ok {
+		t.Fatal("a missing binary has no VCS stamp")
+	}
+	notGo := filepath.Join(t.TempDir(), "krit")
+	if err := os.WriteFile(notGo, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := binaryVCS(notGo); ok {
+		t.Fatal("a non-Go binary has no VCS stamp")
 	}
 }

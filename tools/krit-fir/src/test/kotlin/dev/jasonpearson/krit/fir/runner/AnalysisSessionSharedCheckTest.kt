@@ -39,8 +39,9 @@ class AnalysisSessionSharedCheckTest {
     private fun request(files: List<String>, rules: List<String> = listOf("ProtocolProbe")) =
         CheckRequest(id = 7, command = "check", files = files.map { FileRef(it) }, rules = rules)
 
-    // Findings arrive in compiler report order; compare them as a set.
-    private fun normalized(result: BatchResult) = result.copy(findings = result.findings.sortedWith(
+    // Findings arrive in compiler report order; compare them as a set. The planner's account (with its timing) is
+    // not part of the verdict.
+    private fun normalized(result: BatchResult) = result.copy(plan = null, findings = result.findings.sortedWith(
         compareBy({ it.path }, { it.line }, { it.col }, { it.rule }),
     ))
 
@@ -114,7 +115,9 @@ class AnalysisSessionSharedCheckTest {
 
         assertTrue(output.length() > 0)
         val expected = buildCheckResponse(AnalysisSession(listOf(root), listOf(stdlib)).check(3, paths.map { FileRef(it) }, setOf("ProtocolProbe")))
-        assertEquals(expected.length, checkOut.readText().length, checkOut.readText())
+        // Each compile reports its own planner time; only the rest of the response must agree.
+        fun withoutTiming(response: String) = response.replace(Regex("\"totalMs\":\\d+"), "\"totalMs\":0")
+        assertEquals(withoutTiming(expected).length, withoutTiming(checkOut.readText()).length, checkOut.readText())
         assertTrue("\"ProtocolProbe\"" in checkOut.readText())
 
         // A request for another compilation leaves --check-out unwritten.

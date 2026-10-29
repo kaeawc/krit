@@ -141,7 +141,7 @@ class AnalysisSessionMembersTest {
         assertNotNull(shout)
         assertEquals(true, shout.isAbstract)
 
-        // Each access modifier renders to the krit-types wire string.
+        // Each access modifier renders to its oracle wire string.
         assertEquals("protected", base.functionsByName()["guarded"]?.visibility)
         assertEquals("private", base.functionsByName()["secret"]?.visibility)
         assertEquals("internal", base.functionsByName()["pkgwide"]?.visibility)

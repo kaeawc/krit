@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/rules/semantics"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -535,7 +536,15 @@ func composeHasConfirmedIconButtonAncestor(file *scanner.File, idx uint32) bool 
 	return false
 }
 
+// composeContentDescriptionImports is computed once per file (#944): the
+// rule asks for it from every call it visits.
 func composeContentDescriptionImports(file *scanner.File) composeContentDescriptionImportFacts {
+	return filefacts.FileFact(fileFactsCache(), file, slotComposeContentDescImports, func() composeContentDescriptionImportFacts {
+		return computeComposeContentDescriptionImports(file)
+	})
+}
+
+func computeComposeContentDescriptionImports(file *scanner.File) composeContentDescriptionImportFacts {
 	imports := fileFactsCache().Imports(file)
 	facts := composeContentDescriptionImportFacts{
 		aliases:   imports.Aliases,

@@ -311,8 +311,6 @@ func registerPotentialbugsLifecycleRules() {
 			NodeTypes:  []string{"call_expression"},
 			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Confidence: api.ConfidenceMedium, Implementation: r,
-			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: closeableConstructorCallees()},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				callee, ok := missingUseCloseableConstructorConfirmed(ctx, idx)

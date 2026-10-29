@@ -54,6 +54,7 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
     private class Request(
         val id: Long, val files: List<FileRef>, val ruleConfigs: Map<String, Map<String, Any?>>,
         val testFiles: Set<String>, val scanPaths: Map<String, String>, val sdkLevels: Map<String, SdkLevels>,
+        val withOracle: Boolean,
     )
 
     private class Counters {
@@ -75,13 +76,21 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
     /** Control flow: the request is served by the full compile instead. */
     private class GiveUp(val reason: FullReason, val detail: String? = null) : RuntimeException(detail, null, false, false)
 
+    /**
+     * [fullCompile], when given, runs the request's full check instead of [AnalysisSession.checkCompilation]: with
+     * the enabled rules and whether to record (false for the tiered-rule bypass). `analyzeWithCheck` uses it to make
+     * the full check the compile it shares with the oracle. [withOracle] runs the oracle on every slice too, so the
+     * session's oracle facts stay current and the caller can answer the oracle without a whole-module compile.
+     */
     fun serve(
         id: Long, files: List<FileRef>, enabledRules: Set<String>,
         ruleConfigs: Map<String, Map<String, Any?>>, testFiles: Set<String>,
         scanPaths: Map<String, String>, sdkLevels: Map<String, SdkLevels>,
+        withOracle: Boolean = false,
+        fullCompile: ((rules: Set<String>, record: Boolean) -> BatchResult)?,
     ): BatchResult = synchronized(session.snapshotLock) {
         val start = System.nanoTime()
-        val request = Request(id, files, ruleConfigs, testFiles, scanPaths, sdkLevels)
+        val request = Request(id, files, ruleConfigs, testFiles, scanPaths, sdkLevels, withOracle)
         val counters = Counters()
 
         val enabledIds = FirRuleDiscovery.enabled(FirRuleCompileContext(enabledRules)).mapTo(LinkedHashSet()) { it.ruleId }
@@ -97,7 +106,8 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
                 // The planner diffs against the state's own recorded hashes, so a request that bypasses the state
                 // (no recording, no snapshot, no commit) leaves it correct, and costs what a plain check costs.
                 return finish(
-                    session.checkCompilation(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, record = false),
+                    fullCompile?.invoke(enabledRules, false)
+                        ?: session.checkCompilation(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, record = false),
                     PlanPath.FULL, FullReason.TIERED_RULES, decision.reason, counters, start)
             is TieredDecision.RunIncrementally -> {
                 // "All rules" stays the empty set a request spells it with: plugin rules are not in the discovery.
@@ -120,17 +130,20 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
                     System.err.println("krit-fir: incremental planning failed (${e.javaClass.name}: ${e.message}); using the full compile")
                     GiveUp(FullReason.EXCEPTION, "${e.javaClass.simpleName}: ${e.message}")
                 }
-                return finish(runFull(request, rules, counters), PlanPath.FULL, gaveUp.reason, gaveUp.detail, counters, start)
+                return finish(runFull(request, rules, counters, fullCompile), PlanPath.FULL, gaveUp.reason, gaveUp.detail, counters, start)
             }
         }
     }
 
     // The whole-module check, which replaces the state and rebuilds the snapshot. If waves already changed the state
     // and the full check did not replace it (it crashed or recorded nothing), the half-applied state is dropped.
-    private fun runFull(r: Request, rules: Set<String>, c: Counters): BatchResult {
+    private fun runFull(
+        r: Request, rules: Set<String>, c: Counters, fullCompile: ((Set<String>, Boolean) -> BatchResult)?,
+    ): BatchResult {
         val before = session.fullCommits
         try {
-            return session.checkCompilation(r.id, r.files, rules, r.ruleConfigs, r.testFiles, r.scanPaths, r.sdkLevels)
+            return fullCompile?.invoke(rules, true)
+                ?: session.checkCompilation(r.id, r.files, rules, r.ruleConfigs, r.testFiles, r.scanPaths, r.sdkLevels)
         } finally {
             if (c.partial && session.fullCommits == before) session.resetIncremental()
         }
@@ -145,7 +158,10 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
         )
         session.lastPlan = telemetry
         if (DEBUG) System.err.println(telemetry)
-        return result
+        // Only the slice fallback's detail goes on the wire: it names a cause the user can act on (compile errors),
+        // where the other details are internal (exception text, generations).
+        return result.copy(plan = PlanSummary(path.name.lowercase(), reason?.name?.lowercase(), c.compiled.size, telemetry.totalMillis,
+            detail.takeIf { reason == FullReason.SLICE_UNAVAILABLE }))
     }
 
     private fun attempt(r: Request, rules: Set<String>, c: Counters): BatchResult {
@@ -154,7 +170,7 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
         if (session.verdicts.generation != state.generation) {
             throw GiveUp(FullReason.STATE_LOST, "verdicts at generation ${session.verdicts.generation}, state at ${state.generation}")
         }
-        session.sliceFallback()?.let { throw GiveUp(FullReason.SLICE_UNAVAILABLE, it.name) }
+        session.sliceFallbackDescription()?.let { throw GiveUp(FullReason.SLICE_UNAVAILABLE, it) }
         // A module with a compile error cannot be snapshotted (the backend never runs), so a full check would only
         // pay for nothing: carry the stale files until the module is clean again.
         if (session.needsResnapshot(session.plannerLimits.staleFraction, session.plannerLimits.staleMinFiles) &&
@@ -210,7 +226,7 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
             val t0 = System.nanoTime()
             val outcome = session.sliceCheck(
                 r.id, todo.map { requested[it] ?: FileRef(it) }, rules, r.ruleConfigs, r.testFiles, r.scanPaths, r.sdkLevels,
-                removedPending, requested,
+                removedPending, requested, withOracle = r.withOracle,
             )
             c.waveMillis += (System.nanoTime() - t0) / 1_000_000
             val checked = when (outcome) {

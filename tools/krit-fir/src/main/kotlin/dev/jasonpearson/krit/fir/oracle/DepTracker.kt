@@ -1,10 +1,9 @@
 package dev.jasonpearson.krit.fir.oracle
 
 /**
- * Per-analyzed-file dependency-closure tracker. Mirrors krit-types'
- * `DepTracker` shape so the Go-side cache layer (which reads
- * `cacheDeps` from the `analyzeWithDeps` envelope) can populate the
- * same per-file dependency index regardless of backend.
+ * Per-analyzed-file dependency-closure tracker. Feeds the Go-side
+ * cache layer (which reads `cacheDeps` from the `analyzeWithDeps`
+ * envelope) so it can populate its per-file dependency index.
  *
  * For each analyzed file we track:
  *
@@ -19,10 +18,9 @@ package dev.jasonpearson.krit.fir.oracle
  *   projections it needs so a single-file cache hit doesn't have to
  *   pull from the global `dependencies` map of a different run.
  * - `crashedFiles` — files that deterministically failed analysis.
- *   The K2 plugin compiles in a single batch (unlike krit-types'
- *   per-file KAA loop) so crashes are rare; the map exists so the
- *   wire shape matches krit-types and stays ready when per-file
- *   recovery lands.
+ *   The K2 plugin compiles in a single batch so crashes are rare;
+ *   the map exists so the wire shape stays complete and ready when
+ *   per-file recovery lands.
  */
 internal class DepTracker {
 
@@ -32,8 +30,7 @@ internal class DepTracker {
 
     /**
      * Record that [forFile] depends on [depPath]. Self-references are
-     * skipped so a file isn't listed as its own dep, matching
-     * krit-types' `recordDepPath` semantics.
+     * skipped so a file isn't listed as its own dep.
      */
     fun recordDepPath(forFile: String, depPath: String) {
         if (depPath == forFile) return
@@ -66,6 +63,13 @@ internal class DepTracker {
     /** Read-only snapshot of `crashedFiles`. */
     val crashedFiles: Map<String, String>
         get() = crashes
+
+    /** The wire view of what was recorded. */
+    fun view(): OracleResponse.CacheDepsView = OracleResponse.CacheDepsView(
+        depPathsByFile = depPathsByFile,
+        perFileDeps = perFileDeps,
+        crashedFiles = crashedFiles,
+    )
 
     /** True iff no per-file deps or crashes have been recorded yet. */
     fun isEmpty(): Boolean = depPaths.isEmpty() && depsByFile.isEmpty() && crashes.isEmpty()

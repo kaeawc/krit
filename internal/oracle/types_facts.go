@@ -9,24 +9,23 @@ import (
 	"github.com/kaeawc/krit/internal/fsutil"
 )
 
-// typesFactsRecord describes which optional facts a cached types.json
-// holds. The freshness gate reuses types.json wholesale when no source
-// changed, so without this record a types.json written with diagnostics
-// disabled (no projection rule active) would be served to a later run whose
-// rules consume diagnostics, silently dropping every projected finding.
+// typesFactsRecord describes the compile scope and Krit build a cached
+// types.json was produced under. The freshness gate reuses types.json
+// wholesale when no source changed, so without this record a types.json
+// computed under other settings (backend, jar, classpath, Kotlin settings,
+// or a different file-key spelling) would be served to a later run.
 //
 // The record is a sidecar rather than a types.json field because the JVM
 // one-shot path writes types.json itself. TypesSize/TypesModNanos pin the
 // record to the exact file it describes: if any other writer replaces
 // types.json, the record no longer matches and is ignored.
 type typesFactsRecord struct {
-	DiagnosticsOmitted bool   `json:"diagnosticsOmitted"`
-	TypesSize          int64  `json:"typesSize"`
-	TypesModNanos      int64  `json:"typesModNanos"`
-	Backend            string `json:"backend"`
-	JarToken           string `json:"jarToken"`
-	ClasspathToken     string `json:"classpathToken"`
-	BuildToken         string `json:"buildToken"`
+	TypesSize      int64  `json:"typesSize"`
+	TypesModNanos  int64  `json:"typesModNanos"`
+	Backend        string `json:"backend"`
+	JarToken       string `json:"jarToken"`
+	ClasspathToken string `json:"classpathToken"`
+	BuildToken     string `json:"buildToken"`
 	// ScopeVersion is the store scope's identity hash: it covers the backend,
 	// jar, classpath, JVM target and Kotlin compiler settings, so a
 	// settings-only change cannot reuse a types.json computed under others.
@@ -55,25 +54,24 @@ func KeyBaseFor(scanPaths []string) string {
 
 func typesFactsPath(typesPath string) string { return typesPath + ".facts" }
 
-// RecordTypesFacts notes whether the types.json at typesPath was produced
-// with compiler diagnostics omitted. Call it after the oracle wrote the file.
-func RecordTypesFacts(typesPath string, diagnosticsOmitted bool, scope ...StoreScope) error {
-	return RecordTypesFactsForPaths(typesPath, diagnosticsOmitted, nil, scope...)
+// RecordTypesFacts notes the scope and build the types.json at typesPath was
+// produced under. Call it after the oracle wrote the file.
+func RecordTypesFacts(typesPath string, scope ...StoreScope) error {
+	return RecordTypesFactsForPaths(typesPath, nil, scope...)
 }
 
 // RecordTypesFactsForPaths is RecordTypesFacts that also records the key
 // spelling of the scan over scanPaths.
-func RecordTypesFactsForPaths(typesPath string, diagnosticsOmitted bool, scanPaths []string, scope ...StoreScope) error {
+func RecordTypesFactsForPaths(typesPath string, scanPaths []string, scope ...StoreScope) error {
 	info, err := os.Stat(typesPath)
 	if err != nil {
 		return err
 	}
 	rec := typesFactsRecord{
-		DiagnosticsOmitted: diagnosticsOmitted,
-		TypesSize:          info.Size(),
-		TypesModNanos:      info.ModTime().UnixNano(),
-		BuildToken:         buildid.Token(),
-		KeyBase:            KeyBaseFor(scanPaths),
+		TypesSize:     info.Size(),
+		TypesModNanos: info.ModTime().UnixNano(),
+		BuildToken:    buildid.Token(),
+		KeyBase:       KeyBaseFor(scanPaths),
 	}
 	if len(scope) > 0 {
 		rec.Backend = scope[0].Backend.String()
@@ -88,27 +86,22 @@ func RecordTypesFactsForPaths(typesPath string, diagnosticsOmitted bool, scanPat
 	return fsutil.WriteFileAtomic(typesFactsPath(typesPath), body, 0o644)
 }
 
-// TypesJSONHasDiagnostics reports whether the types.json at typesPath is
-// known to include compiler diagnostics. A missing, unreadable, or stale
-// record (types.json replaced since it was written) reports false, so the
-// caller re-runs the oracle rather than trusting facts it cannot vouch for.
-func TypesJSONHasDiagnostics(typesPath string) bool {
-	rec, ok := readTypesFacts(typesPath)
-	return ok && !rec.DiagnosticsOmitted
-}
-
-// TypesJSONSatisfies checks both optional diagnostics and the exact backend,
-// jar, and Krit build that produced a cached types.json.
-func TypesJSONSatisfies(typesPath string, diagnosticsRequired bool, scope StoreScope, buildToken string) bool {
-	return TypesJSONSatisfiesForPaths(typesPath, diagnosticsRequired, scope, buildToken, nil)
+// TypesJSONSatisfies checks the exact backend, jar, compile settings, and
+// Krit build that produced a cached types.json. A missing, unreadable, or
+// stale record (types.json replaced since it was written) reports false, so
+// the caller re-runs the oracle rather than trusting facts it cannot vouch
+// for. krit-fir always collects its retained compiler diagnostics, so every
+// recorded types.json carries them.
+func TypesJSONSatisfies(typesPath string, scope StoreScope, buildToken string) bool {
+	return TypesJSONSatisfiesForPaths(typesPath, scope, buildToken, nil)
 }
 
 // TypesJSONSatisfiesForPaths additionally requires the file keys to be spelled
 // the way a scan over scanPaths looks them up.
-func TypesJSONSatisfiesForPaths(typesPath string, diagnosticsRequired bool, scope StoreScope, buildToken string, scanPaths []string) bool {
+func TypesJSONSatisfiesForPaths(typesPath string, scope StoreScope, buildToken string, scanPaths []string) bool {
 	rec, ok := readTypesFacts(typesPath)
 	return ok && rec.KeyBase == KeyBaseFor(scanPaths) && rec.Backend == scope.Backend.String() && rec.JarToken == scope.JarToken && rec.ClasspathToken == scope.ClasspathToken &&
-		rec.ScopeVersion == scope.versionHex() && rec.BuildToken == buildToken && (!diagnosticsRequired || !rec.DiagnosticsOmitted)
+		rec.ScopeVersion == scope.versionHex() && rec.BuildToken == buildToken
 }
 
 func readTypesFacts(typesPath string) (typesFactsRecord, bool) {

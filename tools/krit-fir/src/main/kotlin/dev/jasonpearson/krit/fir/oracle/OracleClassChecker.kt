@@ -100,7 +100,14 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
         for (ref in regular.superTypeRefs) {
             val cone = (ref as? FirResolvedTypeRef)?.coneType as? ConeClassLikeType ?: continue
             val symbol = cone.lookupTag.toRegularClassSymbol(session) ?: continue
-            if (symbol.origin != FirDeclarationOrigin.Source) continue
+            if (symbol.origin != FirDeclarationOrigin.Source) {
+                // A slice compile reads the module's other files as binaries: record what their source would have.
+                val (depFile, payload) = collector.binarySupertype?.invoke(symbol.classId.asFqNameString()) ?: continue
+                if (depFile == forFile) continue
+                collector.depTracker.recordDepPath(forFile, depFile)
+                collector.depTracker.recordPerFileDep(forFile, symbol.classId.asFqNameString(), payload)
+                continue
+            }
             val containingFile = provider.getContainingFile(symbol) ?: continue
             val depFile = containingFile.sourceFile?.path ?: continue
             if (depFile == forFile) continue
@@ -163,8 +170,8 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
             annotations = annotationFqns(session),
         )
         is FirConstructor -> MemberPayload(
-            // `<init>` matches krit-types' canonical constructor name
-            // and is also the JVM-level signature, so Go-side consumers
+            // `<init>` is the canonical constructor name and also the
+            // JVM-level signature, so Go-side consumers
             // can pivot on the literal string.
             name = "<init>",
             kind = "constructor",
@@ -213,8 +220,8 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
 
     /**
      * Maps Kotlin's visibility values to the lowercased strings the
-     * krit-types JSON shape uses. Unknown / module-local visibilities
-     * fall back to `"public"` to match krit-types' default rendering.
+     * oracle JSON shape uses. Unknown / module-local visibilities
+     * fall back to `"public"`.
      */
     private fun Visibility.toWireString(): String = when (this) {
         Visibilities.Public -> "public"

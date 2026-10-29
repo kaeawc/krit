@@ -27,7 +27,13 @@ class KritProjectSettingsConfigurable(private val project: Project) : Configurab
     override fun isModified(): Boolean = form?.isModified(KritProjectSettingsState.get(project).state) ?: false
 
     override fun apply() {
-        form?.let { KritProjectSettingsState.get(project).update(it.save()) }
+        val f = form ?: return
+        val before = KritProjectSettingsState.get(project).state.binaryPath
+        val next = f.save()
+        KritProjectSettingsState.get(project).update(next)
+        if (before != next.binaryPath) {
+            project.getServiceIfCreated(KritProjectService::class.java)?.binaryChanged()
+        }
     }
 
     override fun reset() {

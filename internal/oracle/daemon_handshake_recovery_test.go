@@ -110,7 +110,6 @@ func TestPurgeJVMCachesForJarRemovesArchives(t *testing.T) {
 	// actually deleted, not just one branch.
 	suffixes := []func(string) (string, error){
 		cdsArchivePath,
-		cracCheckpointPath,
 		aotConfigPath,
 		aotCachePath,
 	}

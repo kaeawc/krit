@@ -35,7 +35,7 @@ class KritCustomRulePlugin : Plugin<Project> {
         }
 
         // PSI types are surfaced on the rule API but provided at
-        // runtime by the krit-types daemon. Consumers must add the
+        // runtime by the krit-fir daemon. Consumers must add the
         // JetBrains intellij-dependencies redirector to settings —
         // see docs/external-rules.md.
         project.configurations.named("compileOnly").configure {
@@ -125,7 +125,7 @@ class KritCustomRulePlugin : Plugin<Project> {
          */
         internal const val KRIT_RULE_BUNDLE_CATEGORY = "krit-rule-bundle"
 
-        // Must track the krit-types daemon's bundled compiler so PSI
+        // Must track the krit-fir daemon's bundled compiler so PSI
         // classes resolve at runtime.
         internal const val KOTLIN_COMPILER_VERSION = "2.4.20"
     }

@@ -50,7 +50,7 @@ func TestFirOracleSymlinkedSourcePathsCacheUnderCallerForm(t *testing.T) {
 	for _, name := range []string{"cold", "warm"} {
 		if !t.Run(name, func(t *testing.T) {
 			if name == "warm" {
-				hits, misses := oracle.ClassifyFilesScopedV3(cacheDir, paths, "", "", oracle.BackendFIR.CacheApproximation())
+				hits, misses := oracle.ClassifyFilesWithApproximation(cacheDir, paths, oracle.BackendFIR.CacheApproximation())
 				if len(hits) != 2 || len(misses) != 0 {
 					t.Fatalf("before warm run: hits=%d misses=%v", len(hits), misses)
 				}
@@ -79,7 +79,7 @@ func TestFirOracleSymlinkedSourcePathsCacheUnderCallerForm(t *testing.T) {
 					t.Fatalf("missing Go path %q; keys: %v", path, data.Files)
 				}
 			}
-			hits, misses := oracle.ClassifyFilesScopedV3(cacheDir, paths, "", "", oracle.BackendFIR.CacheApproximation())
+			hits, misses := oracle.ClassifyFilesWithApproximation(cacheDir, paths, oracle.BackendFIR.CacheApproximation())
 			if len(hits) != 2 || len(misses) != 0 {
 				t.Fatalf("Go path cache classification: hits=%d misses=%v", len(hits), misses)
 			}

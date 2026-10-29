@@ -38,7 +38,8 @@ internal fun parseModuleRequest(json: String, oneShot: Boolean = false): CheckRe
         ModuleSpec(m.string("id"), m.optionalString("platform", "jvm"), m.optionalString("kind", "main"),
             m.strings("sourceRoots"), m.strings("generatedSourceRoots"), m.strings("classpath"),
             m.strings("dependsOn"), m.strings("friends"), m.strings("compilerArgs"),
-            m.optionalString("jvmTarget", ""), fragments)
+            m.optionalString("jvmTarget", ""), fragments,
+            m.strings("compilerPluginClasspath"), m.strings("compilerPluginOptions"))
     }
     @Suppress("UNCHECKED_CAST")
     val configs = (payload["ruleConfigs"] as? Map<String, Map<String, Any?>>).orEmpty()
@@ -58,6 +59,8 @@ internal fun parseModuleRequest(json: String, oneShot: Boolean = false): CheckRe
         command = root["command"] as? String ?: root["method"] as? String ?: if (oneShot) "analyzeModules" else error("Missing command"),
         files = files, sourceDirs = payload.strings("sourceDirs"), classpath = payload.strings("classpath"),
         kotlinArgs = payload.strings("kotlinArgs"),
+        compilerPluginClasspath = payload.strings("compilerPluginClasspath"),
+        compilerPluginOptions = payload.strings("compilerPluginOptions"),
         rules = payload.strings("rules"), ruleConfigs = configs, testFiles = payload.strings("testFiles").toSet(),
         scanPaths = scanPaths, sdkLevels = sdkLevelsOf(payload["sdkLevels"]), modules = modules,
     )

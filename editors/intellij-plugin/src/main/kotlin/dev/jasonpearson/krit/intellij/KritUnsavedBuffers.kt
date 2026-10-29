@@ -40,4 +40,26 @@ object KritUnsavedBuffers {
         }
         return merged
     }
+
+    // A per-file rescan's findings for one file, merged with what the file
+    // had. With the rules the scan evaluated (a daemon buffer scan, which
+    // runs only per-file rules), the scan replaces those rules' findings and
+    // the prior findings of every other rule (cross-file, module, Android,
+    // Gradle) stay until the next project scan. Without them (a CLI run, or
+    // a daemon too old to say) the scan replaces the file's findings.
+    fun mergeFileScan(
+        prior: List<KritFinding>,
+        scanned: List<KritFinding>,
+        evaluatedRules: Set<String>?,
+    ): List<KritFinding> {
+        if (evaluatedRules.isNullOrEmpty()) return scanned
+        return prior.filter { it.rule !in evaluatedRules } + scanned.filter { it.rule in evaluatedRules }
+    }
+
+    // base without the findings of paths (canonical), for buffers that
+    // can't be analyzed: a config override sends every scan through the
+    // CLI, which reads only the saved file, so those findings would describe
+    // text the editor no longer shows.
+    fun withoutBuffers(base: Map<String, List<KritFinding>>, paths: Set<String>): Map<String, List<KritFinding>> =
+        if (paths.isEmpty()) base else base - paths
 }

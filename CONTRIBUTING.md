@@ -64,15 +64,14 @@ internal/mcp/      MCP protocol + tools + prompts
 internal/fixer/    Auto-fix engine (text + binary)
 internal/android/  Android project analysis
 internal/typeinfer/ Source-level type inference + parallel indexing
-internal/oracle/   JVM-backed Kotlin Analysis API daemon
+internal/oracle/   JVM-backed krit-fir type-oracle daemon
 internal/module/   Gradle module discovery
 tests/fixtures/    Positive, negative, and fixable fixtures
 playground/        Sample Kotlin projects for integration tests
 editors/           VS Code, Neovim, IntelliJ configs
 docs/              MkDocs documentation site
 scripts/           Build, test, install, CI scripts
-tools/krit-types/  JVM/KAA helper for compiler-backed type facts
-tools/krit-fir/    JVM/FIR helper for compiler checks
+tools/krit-fir/    JVM/FIR helper for type facts and compiler checks
 ```
 
 ## Rule Output Stability

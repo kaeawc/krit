@@ -4,8 +4,24 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Opt-ins from any source set now apply to the whole-repo compile (#972),
+  avoiding false "This API is experimental" errors. This can hide a missing
+  opt-in in another source set.
+- Incremental FIR checking is now on by default (#740). After the first
+  whole-module compile, `--fir` scans compile only the edited files and the
+  files that depend on them, for the FIR checkers and for the type oracle. Set
+  `KRIT_FIR_INCREMENTAL=0` to turn it off. On a 182-file module, warm `--fir`
+  daemon scans took about 2 s instead of 6–10 s, with the same findings. The
+  first compile of a module also builds the binary snapshot, so it takes
+  longer.
+
 ### Added
-- Incremental FIR checking (`KRIT_FIR_INCREMENTAL=1`) persists its state, verdicts and binary
+- The incremental FIR bundle (`.krit/fir-incremental/`) now also keeps the type
+  oracle's per-file facts (bundle format version 2). A restarted daemon answers
+  its first warm `--fir` scan from slice compiles instead of compiling the whole
+  module for the oracle. Version 1 bundles are replaced on the first check.
+- Incremental FIR checking persists its state, verdicts and binary
   snapshot to `.krit/fir-incremental/<compile key>/` (supplied by krit, bypassed by
   `--no-cache`), so a restarted daemon or a one-shot run serves its first check
   after a few edits by slice compile instead of a cold full check. Corrupt,
@@ -39,6 +55,9 @@ All notable changes to Krit will be documented in this file.
   Krit-owned arguments were already dropped.
 
 ### Changed
+- Verbose `--fir` and `--perf` output now explains why incremental FIR
+  checking did not engage, including planner reasons, compiler-error gating,
+  `KRIT_FIR_INCREMENTAL` opt-out, and `--no-cache` (#971).
 - `krit daemon: ready` startup line now reports the resolved watcher
   backend (`watcher=fsnotify` / `watcher=fanotify` / `watcher=off`).
 - Homebrew, Scoop, and Maven Central (`krit-rule-api`) publishing only

@@ -20,29 +20,26 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// Kotlin 2.4 syntax and semantics across the structural parser, FIR and KAA
-// (#785). The fixtures cover the three constructs whose meaning the compiler
-// decides and the pinned tree-sitter grammar cannot:
+// Kotlin 2.4 syntax and semantics across the structural parser and the FIR
+// oracle (#785). The fixtures cover the three constructs whose meaning the
+// compiler decides and the pinned tree-sitter grammar cannot:
 //
 //   - named context parameters (declarations, use sites, shadowing),
 //   - explicit backing fields (exposed property type vs the field's type),
 //   - `@all:` and the annotation default target of a constructor `val`.
 //
-// They run through both oracle backends under explicit language modes, never
-// the embedded compiler's defaults, using the same Kotlin settings plumbing
-// the CLI uses (gradlemodel.ClassifyKotlinArgs -> InvocationOptions.Kotlin).
+// They run through the FIR oracle under explicit language modes, never the
+// embedded compiler's defaults, using the same Kotlin settings plumbing the
+// CLI uses (gradlemodel.ClassifyKotlinArgs -> InvocationOptions.Kotlin).
 //
-// Intentional FIR/KAA differences, also in docs/kotlin-syntax-support.md:
+// Notes, also in docs/kotlin-syntax-support.md:
 //
-//   - KAA renders a generic return type without its arguments
-//     (`kotlin.collections.List`), FIR with them
+//   - FIR renders a generic return type with its arguments
 //     (`kotlin.collections.List<kotlin.Int>`). Rules key on the head.
-//   - KAA records an expression fact only for resolved calls. FIR also records
-//     the type of a plain reference, so the types of `logger` at a use site
-//     (context parameter vs the local that shadows it) are asserted on FIR
-//     only; KAA reports the same resolution through the inferred return type
-//     of the enclosing function, which both assert.
-//   - Neither backend puts a context parameter in a function's `params`.
+//   - FIR records the type of a plain reference as well as resolved calls, so
+//     the types of `logger` at a use site (context parameter vs the local that
+//     shadows it) are asserted directly.
+//   - A context parameter is not in a function's `params`.
 //   - The oracle does not carry compiler errors, so a language-level feature
 //     gate is observable there through the annotation default target only
 //     (TestOracleKotlin24Modes); the FIR checker run reports the gates
@@ -249,31 +246,20 @@ func kotlin24Settings(t *testing.T, args []string) gradlemodel.KotlinSettings {
 	return ks
 }
 
-type kotlin24Backend struct {
-	name    string
-	jar     string
-	backend oracle.Backend
-}
-
-func kotlin24Backends(t *testing.T) (backends []kotlin24Backend, stdlib string) {
+// kotlin24FirJar locates the krit-fir jar and the kotlin-stdlib jar the
+// fixtures compile against, skipping when either is missing.
+func kotlin24FirJar(t *testing.T) (jar, stdlib string) {
 	t.Helper()
 	root := repoRoot(t)
-	kaaJar := oracle.FindJar([]string{root})
-	if kaaJar == "" {
-		t.Skip("krit-types jar not found; run `make types-jar`")
-	}
-	firJar := firchecks.FindFirJar([]string{root})
-	if firJar == "" || !isExecutableJar(firJar) {
+	jar = firchecks.FindFirJar([]string{root})
+	if jar == "" || !isExecutableJar(jar) {
 		t.Skip("krit-fir executable jar not found; run `make fir-jar`")
 	}
 	stdlib = findKotlinStdlib()
 	if stdlib == "" {
 		t.Skip("kotlin-stdlib jar not found in Gradle cache; set KOTLIN_STDLIB_JAR")
 	}
-	return []kotlin24Backend{
-		{name: "kaa", jar: kaaJar, backend: oracle.BackendKAA},
-		{name: "fir", jar: firJar, backend: oracle.BackendFIR},
-	}, stdlib
+	return jar, stdlib
 }
 
 func writeKotlin24Sources(t *testing.T, dir string) {
@@ -286,12 +272,12 @@ func writeKotlin24Sources(t *testing.T, dir string) {
 	}
 }
 
-// TestOracleKotlin24Modes runs the Kotlin 2.4 fixtures through KAA and FIR
-// under each explicit language mode and checks, per backend, the property and
-// function annotations and types at the declaration and use sites; then that
-// the two backends and the structural parser agree on the shared contract.
+// TestOracleKotlin24Modes runs the Kotlin 2.4 fixtures through the FIR oracle
+// under each explicit language mode and checks the property and function
+// annotations and types at the declaration and use sites, and that the oracle
+// and the structural parser agree on the declared members.
 func TestOracleKotlin24Modes(t *testing.T) {
-	backends, stdlib := kotlin24Backends(t)
+	jar, stdlib := kotlin24FirJar(t)
 	tmp := t.TempDir()
 	srcDir := filepath.Join(tmp, "src")
 	writeKotlin24Sources(t, srcDir)
@@ -300,84 +286,78 @@ func TestOracleKotlin24Modes(t *testing.T) {
 	for _, mode := range kotlin24Modes {
 		t.Run(mode.name, func(t *testing.T) {
 			opts := oracle.InvocationOptions{Classpath: []string{stdlib}, Kotlin: kotlin24Settings(t, mode.args)}
-			byBackend := map[string]*oracle.Data{}
-			for _, b := range backends {
-				data := runOneShot(t, b.jar, srcDir, filepath.Join(tmp, mode.name+"-"+b.name+".json"), opts)
-				assertKotlin24Facts(t, b.name, data, mode.plain)
-				assertKotlin24Structure(t, b.name, data, structure)
-				byBackend[b.name] = data
-			}
-			assertKotlin24BackendContract(t, byBackend["kaa"], byBackend["fir"])
+			data := runOneShot(t, jar, srcDir, filepath.Join(tmp, mode.name+"-fir.json"), opts)
+			assertKotlin24Facts(t, data, mode.plain)
+			assertKotlin24Structure(t, data, structure)
 		})
 	}
 }
 
 // TestOracleKotlin24RepeatedAnalyses runs the same sources through the cached
-// oracle path three times per backend (cold through a daemon, served from the
-// cache, then re-analyzed by the now warm daemon after an unrelated edit) and
-// requires the annotation and type facts to stay identical and correct for the
-// explicit language mode each time.
+// oracle path three times (cold through a daemon, served from the cache, then
+// re-analyzed by the now warm daemon after an unrelated edit) and requires the
+// annotation and type facts to stay identical and correct for the explicit
+// language mode each time.
 func TestOracleKotlin24RepeatedAnalyses(t *testing.T) {
-	backends, stdlib := kotlin24Backends(t)
+	jar, stdlib := kotlin24FirJar(t)
+	backend := oracle.BackendFIR
 	for _, mode := range []kotlin24Mode{kotlin24ModeNamed("language-2.4"), kotlin24ModeNamed("language-2.3-with-flags")} {
-		for _, b := range backends {
-			t.Run(mode.name+"/"+b.name, func(t *testing.T) {
-				t.Setenv("KRIT_DAEMON_CACHE", "on")
-				t.Setenv(b.backend.JarEnvVar(), b.jar)
-				kt := kotlin24Settings(t, mode.args)
-				repo, err := filepath.EvalSymlinks(t.TempDir())
-				if err != nil {
-					t.Fatal(err)
+		t.Run(mode.name+"/fir", func(t *testing.T) {
+			t.Setenv("KRIT_DAEMON_CACHE", "on")
+			t.Setenv(backend.JarEnvVar(), jar)
+			kt := kotlin24Settings(t, mode.args)
+			repo, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			src := filepath.Join(repo, "src")
+			writeKotlin24Sources(t, src)
+			unrelated := filepath.Join(src, "Unrelated.kt")
+			writeFile(t, unrelated, "package parity.kotlin24.unrelated\n\nclass Unrelated\n")
+			t.Cleanup(func() {
+				if d, err := oracle.ConnectOrStartDaemon(jar, []string{src}, []string{stdlib}, false,
+					oracle.WithBackend(backend), oracle.WithKotlinSettings(kt)); err == nil {
+					_ = d.Shutdown()
 				}
-				src := filepath.Join(repo, "src")
-				writeKotlin24Sources(t, src)
-				unrelated := filepath.Join(src, "Unrelated.kt")
-				writeFile(t, unrelated, "package parity.kotlin24.unrelated\n\nclass Unrelated\n")
-				t.Cleanup(func() {
-					if d, err := oracle.ConnectOrStartDaemon(b.jar, []string{src}, []string{stdlib}, false,
-						oracle.WithBackend(b.backend), oracle.WithKotlinSettings(kt)); err == nil {
-						_ = d.Shutdown()
-					}
-				})
-
-				run := func(label string) (data *oracle.Data, hits, misses int) {
-					t.Helper()
-					tracker := perf.New(true)
-					opts := oracle.InvocationOptions{Backend: b.backend, Classpath: []string{stdlib}, Kotlin: kt, Tracker: tracker}
-					out := filepath.Join(repo, label+".json")
-					if _, err := oracle.InvokeCachedWithOptions(b.jar, []string{src}, repo, out, "", false, nil, opts); err != nil {
-						t.Fatalf("%s: %v", label, err)
-					}
-					entry, ok := wcFindTiming(tracker.GetTimings(), "cacheClassify")
-					if !ok {
-						t.Fatalf("%s: the oracle cache was bypassed", label)
-					}
-					return readOracleData(t, out), int(entry.Metrics["hits"]), int(entry.Metrics["misses"])
-				}
-
-				cold, hits, misses := run("cold")
-				if hits != 0 || misses == 0 {
-					t.Fatalf("cold run: %d hits, %d misses; want a full miss", hits, misses)
-				}
-				assertKotlin24Facts(t, b.name, cold, mode.plain)
-				want := kotlin24Summary(cold)
-
-				cached, hits, misses := run("cached")
-				if misses != 0 || hits == 0 {
-					t.Fatalf("second run: %d hits, %d misses; want it served from the cache", hits, misses)
-				}
-				assertKotlin24Facts(t, b.name, cached, mode.plain)
-				assertSummaryEqual(t, "served from the cache", want, kotlin24Summary(cached))
-
-				writeFile(t, unrelated, "package parity.kotlin24.unrelated\n\nclass Unrelated {\n    fun changed() = 1\n}\n")
-				warm, _, misses := run("warm")
-				if misses == 0 {
-					t.Fatal("the unrelated edit was not re-analyzed; the warm daemon run proves nothing")
-				}
-				assertKotlin24Facts(t, b.name, warm, mode.plain)
-				assertSummaryEqual(t, "re-analyzed by the warm daemon", want, kotlin24Summary(warm))
 			})
-		}
+
+			run := func(label string) (data *oracle.Data, hits, misses int) {
+				t.Helper()
+				tracker := perf.New(true)
+				opts := oracle.InvocationOptions{Backend: backend, Classpath: []string{stdlib}, Kotlin: kt, Tracker: tracker}
+				out := filepath.Join(repo, label+".json")
+				if _, err := oracle.InvokeCachedWithOptions(jar, []string{src}, repo, out, "", false, nil, opts); err != nil {
+					t.Fatalf("%s: %v", label, err)
+				}
+				entry, ok := wcFindTiming(tracker.GetTimings(), "cacheClassify")
+				if !ok {
+					t.Fatalf("%s: the oracle cache was bypassed", label)
+				}
+				return readOracleData(t, out), int(entry.Metrics["hits"]), int(entry.Metrics["misses"])
+			}
+
+			cold, hits, misses := run("cold")
+			if hits != 0 || misses == 0 {
+				t.Fatalf("cold run: %d hits, %d misses; want a full miss", hits, misses)
+			}
+			assertKotlin24Facts(t, cold, mode.plain)
+			want := kotlin24Summary(cold)
+
+			cached, hits, misses := run("cached")
+			if misses != 0 || hits == 0 {
+				t.Fatalf("second run: %d hits, %d misses; want it served from the cache", hits, misses)
+			}
+			assertKotlin24Facts(t, cached, mode.plain)
+			assertSummaryEqual(t, "served from the cache", want, kotlin24Summary(cached))
+
+			writeFile(t, unrelated, "package parity.kotlin24.unrelated\n\nclass Unrelated {\n    fun changed() = 1\n}\n")
+			warm, _, misses := run("warm")
+			if misses == 0 {
+				t.Fatal("the unrelated edit was not re-analyzed; the warm daemon run proves nothing")
+			}
+			assertKotlin24Facts(t, warm, mode.plain)
+			assertSummaryEqual(t, "re-analyzed by the warm daemon", want, kotlin24Summary(warm))
+		})
 	}
 }
 
@@ -465,17 +445,17 @@ func annotationsOf(m *oracle.Member) []string {
 	return out
 }
 
-// assertKotlin24Facts pins the facts one backend reports for the fixtures
+// assertKotlin24Facts pins the facts the FIR oracle reports for the fixtures
 // under one language mode. plain is the expected property annotation of the
 // constructor `val` that carries no use-site target.
-func assertKotlin24Facts(t *testing.T, backend string, data *oracle.Data, plain []string) {
+func assertKotlin24Facts(t *testing.T, data *oracle.Data, plain []string) {
 	t.Helper()
 	if len(data.Files) == 0 {
-		t.Fatalf("%s: no files in the oracle output", backend)
+		t.Fatal("no files in the oracle output")
 	}
 	fail := func(format string, args ...any) {
 		t.Helper()
-		t.Errorf("%s: %s", backend, fmt.Sprintf(format, args...))
+		t.Errorf(format, args...)
 	}
 	member := func(file, class, name string) *oracle.Member {
 		t.Helper()
@@ -538,11 +518,9 @@ func assertKotlin24Facts(t *testing.T, backend string, data *oracle.Data, plain 
 		if _, ok := callFactsOnLine(f, line)[kotlin24Ctx+".stamp"]; !ok {
 			fail("call to stamp() on line %d does not resolve to the context function: %v", line, callFactsOnLine(f, line))
 		}
-		// FIR alone records the type of a plain reference (see the file comment).
-		if backend == "fir" {
-			assertReferenceType(t, f, kotlin24Line(t, ctxFile, "fun picksContext() = logger", false), kotlin24Pkg+".Logger", "the context parameter")
-			assertReferenceType(t, f, kotlin24Line(t, ctxFile, "        logger", true), "kotlin.Int", "the local that shadows the context parameter")
-		}
+		// FIR records the type of a plain reference (see the file comment).
+		assertReferenceType(t, f, kotlin24Line(t, ctxFile, "fun picksContext() = logger", false), kotlin24Pkg+".Logger", "the context parameter")
+		assertReferenceType(t, f, kotlin24Line(t, ctxFile, "        logger", true), "kotlin.Int", "the local that shadows the context parameter")
 	}
 
 	if m := member("SingleContextParameter.kt", kotlin24Pkg+".SingleContextParameter", "log"); m != nil &&
@@ -566,7 +544,7 @@ func assertKotlin24Facts(t *testing.T, backend string, data *oracle.Data, plain 
 		if strings.Contains(m.ReturnType, "Mutable") || strings.Contains(m.ReturnType, "ArrayList") {
 			fail("%s: type %s exposes the explicit backing field's type", c.name, m.ReturnType)
 		}
-		if backend == "fir" && m.ReturnType != c.full {
+		if m.ReturnType != c.full {
 			fail("%s: type=%s, want %s", c.name, m.ReturnType, c.full)
 		}
 	}
@@ -578,9 +556,7 @@ func assertKotlin24Facts(t *testing.T, backend string, data *oracle.Data, plain 
 	}
 	// ...and at the use site, `b.items.size` resolves through the exposed type.
 	if f := indexByBasename(data.Files)["AnnotationUse.kt"]; f != nil {
-		if backend == "fir" {
-			assertReferenceType(t, f, kotlin24Line(t, "AnnotationUse.kt", "b.items.size", false), "kotlin.Int", "items.size through the exposed type")
-		}
+		assertReferenceType(t, f, kotlin24Line(t, "AnnotationUse.kt", "b.items.size", false), "kotlin.Int", "items.size through the exposed type")
 		if m := member("AnnotationUse.kt", kotlin24Pkg+".AnnotationUse", "backing"); m != nil && typeHead(m.ReturnType) != "kotlin.Int" {
 			fail("backing: type=%s, want kotlin.Int", m.ReturnType)
 		}
@@ -635,11 +611,11 @@ func assertReferenceType(t *testing.T, f *oracle.File, line int, wantType, what 
 		seen = append(seen, pos+"="+e.Type)
 	}
 	sort.Strings(seen)
-	t.Errorf("fir: line %d has no expression of type %s (%s); has %v", line, wantType, what, seen)
+	t.Errorf("line %d has no expression of type %s (%s); has %v", line, wantType, what, seen)
 }
 
-// kotlin24Summary is the normalized, backend-independent view of the facts the
-// fixtures assert, used to compare runs and backends: user members with type
+// kotlin24Summary is the normalized view of the facts the fixtures assert, used
+// to compare runs: user members with type
 // head, annotations and value parameter names, plus the resolved calls into
 // the fixtures' own package by line.
 func kotlin24Summary(data *oracle.Data) []string {
@@ -680,13 +656,6 @@ func kotlin24Summary(data *oracle.Data) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// assertKotlin24BackendContract compares the shared fact contract of KAA and
-// FIR. The renderers legitimately differ in type arguments (typeHead).
-func assertKotlin24BackendContract(t *testing.T, kaa, fir *oracle.Data) {
-	t.Helper()
-	assertSummaryEqual(t, "between KAA and FIR", kotlin24Summary(kaa), kotlin24Summary(fir))
 }
 
 // kotlin24Structural is what the structural parser sees of one class.
@@ -768,9 +737,9 @@ func kotlin24Structure(t *testing.T, dir string) kotlin24StructuralIndex {
 }
 
 // assertKotlin24Structure compares the structural parser's view of each class
-// with a backend's: the same declared members, no property named after an
+// with the oracle's: the same declared members, no property named after an
 // explicit backing field, and the same count of explicit backing fields.
-func assertKotlin24Structure(t *testing.T, backend string, data *oracle.Data, structure kotlin24StructuralIndex) {
+func assertKotlin24Structure(t *testing.T, data *oracle.Data, structure kotlin24StructuralIndex) {
 	t.Helper()
 	oracleMembers := map[string]map[string]string{}
 	for _, f := range data.Files {
@@ -788,7 +757,7 @@ func assertKotlin24Structure(t *testing.T, backend string, data *oracle.Data, st
 	for fqn, s := range structure.classes {
 		got, ok := oracleMembers[fqn]
 		if !ok {
-			t.Errorf("%s: class %s is in the source but not in the oracle output", backend, fqn)
+			t.Errorf("class %s is in the source but not in the oracle output", fqn)
 			continue
 		}
 		if fqn == kotlin24Ctx {
@@ -796,20 +765,20 @@ func assertKotlin24Structure(t *testing.T, backend string, data *oracle.Data, st
 			// kotlin24_syntax_test.go): two or more members with a named context
 			// parameter in one class break the class body. The class keeps no
 			// members and every one of them is left at the top level of the file,
-			// where class-scoped rules cannot attribute it. Both backends see the
+			// where class-scoped rules cannot attribute it. The oracle sees the
 			// full class. Only the names survive, as file-level declarations.
 			if len(s.members) != 0 {
-				t.Errorf("%s: the structural parser now keeps %d members in %s; the grammar limitation is fixed, so assert the members like any other class and update the docs", backend, len(s.members), fqn)
+				t.Errorf("the structural parser now keeps %d members in %s; the grammar limitation is fixed, so assert the members like any other class and update the docs", len(s.members), fqn)
 			}
 			for name := range got {
 				if !structure.topLevel[s.file][name] {
-					t.Errorf("%s: member %s of %s is not even a file-level declaration in the structural view", backend, name, fqn)
+					t.Errorf("member %s of %s is not even a file-level declaration in the structural view", name, fqn)
 				}
 			}
 			continue
 		}
 		if !reflect.DeepEqual(got, s.members) {
-			t.Errorf("%s: %s members differ from the structural parser's\noracle:     %v\nstructural: %v", backend, fqn, got, s.members)
+			t.Errorf("%s members differ from the structural parser's\noracle:     %v\nstructural: %v", fqn, got, s.members)
 		}
 		// Two explicit backing fields in BackingFields; none anywhere else, in
 		// particular not for the accessor `field` or the property named `field`.
@@ -818,7 +787,7 @@ func assertKotlin24Structure(t *testing.T, backend string, data *oracle.Data, st
 			want = 2
 		}
 		if s.backingFields != want {
-			t.Errorf("%s: structural parser sees %d explicit backing fields in %s, want %d", backend, s.backingFields, fqn, want)
+			t.Errorf("structural parser sees %d explicit backing fields in %s, want %d", s.backingFields, fqn, want)
 		}
 	}
 	// Structurally the annotation is whatever is written, in every language
@@ -832,6 +801,6 @@ func assertKotlin24Structure(t *testing.T, backend string, data *oracle.Data, st
 		"prop": {"@OnProperty"}, "param": {"@OnParam"},
 	}
 	if got := structure.classes[kotlin24Targets].annotations; !reflect.DeepEqual(got, wantAnn) {
-		t.Errorf("%s: structural annotations on AnnotationTargets = %v, want %v", backend, got, wantAnn)
+		t.Errorf("structural annotations on AnnotationTargets = %v, want %v", got, wantAnn)
 	}
 }

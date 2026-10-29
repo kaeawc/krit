@@ -109,19 +109,9 @@ func registerStyleIdiomaticRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"disjunction_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic,
-			Needs:  api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-			Oracle: &api.OracleFilter{Identifiers: []string{"isEmpty", "count", ".size", ".length", "\"\""}},
-			OracleCallTargets: &api.OracleCallTargetFilter{
-				CalleeNames: []string{"count", "isEmpty"},
-				LexicalSkipByCallee: map[string][]string{
-					"count":   {"*"},
-					"isEmpty": {"*"},
-				},
-			},
-			// Matches the receiver FQN against known collection/String types via
-			// the expressions map; no class declarations needed.
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
-			Implementation:         r,
+			Needs:          api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Oracle:         &api.OracleFilter{Identifiers: []string{"isEmpty", "count", ".size", ".length", "\"\""}},
+			Implementation: r,
 			Check: func(ctx *api.Context) {
 				flatUseIsNullOrEmpty(ctx, r.BaseRule)
 			},

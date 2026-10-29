@@ -57,8 +57,8 @@ func runFakeMissRun(t *testing.T, opts InvocationOptions) {
 		t.Fatal(err)
 	}
 	fresh, deps := filepath.Join(dir, "fresh.json"), filepath.Join(dir, "deps.json")
-	if err := runKritTypesCached(jar, []string{dir}, misses, fresh, deps, false, perf.New(false), opts); err != nil {
-		t.Fatalf("runKritTypesCached: %v", err)
+	if err := runOracleOneShot(jar, []string{dir}, misses, fresh, deps, false, perf.New(false), opts); err != nil {
+		t.Fatalf("runOracleOneShot: %v", err)
 	}
 }
 
@@ -128,11 +128,8 @@ func TestCheckRiderStaysQuietWhenNotShared(t *testing.T) {
 	}
 }
 
-func TestCheckRiderOnlyRidesKritFir(t *testing.T) {
-	prepared := 0
-	rider := &CheckRider{Prepare: func() ([]byte, func([]byte)) { prepared++; return []byte(`{}`), func([]byte) {} }}
+func TestCheckRiderSkipsWithoutARequest(t *testing.T) {
 	for _, opts := range []InvocationOptions{
-		{Backend: BackendKAA, CheckRider: rider},
 		{Backend: BackendFIR},
 		{Backend: BackendFIR, CheckRider: riderFor(nil, func([]byte) {})},
 	} {
@@ -140,9 +137,6 @@ func TestCheckRiderOnlyRidesKritFir(t *testing.T) {
 		if run != nil || args != nil || err != nil {
 			t.Fatalf("startCheckRider(%+v) = %v, %v, %v", opts, run, args, err)
 		}
-	}
-	if prepared != 0 {
-		t.Fatal("prepared a rider for krit-types")
 	}
 }
 
@@ -164,4 +158,40 @@ func TestCheckRiderSkipsDeliveryAfterAFailedProcess(t *testing.T) {
 	if called {
 		t.Fatal("delivered a response from a failed oracle process")
 	}
+}
+
+// A check that rode on a JVM launched from a Leyden AOT cache is delivered
+// only with krit-fir's canary mark (#768): a jar that predates the
+// self-check, or a JVM whose canary failed, leaves the pass to check on its
+// own behind its own canary.
+func TestCheckRiderRequiresTheCanaryMarkFromAnAOTLaunch(t *testing.T) {
+	cases := []struct {
+		name     string
+		args     []string
+		response string
+		want     bool
+	}{
+		{"no AOT", []string{"-Xmx1g", "-jar", "krit-fir.jar"}, `{"id":1,"rules":["R"]}`, true},
+		{"AOT unmarked", []string{"-XX:AOTCache=/c.aot", "-jar", "krit-fir.jar"}, `{"id":1,"rules":["R"]}`, false},
+		{"AOT canary failed mark", []string{"-XX:AOTCache=/c.aot", "-jar", "krit-fir.jar"}, `{"id":1,"rules":["R"],"aotCanary":false}`, false},
+		{"AOT marked", []string{"-XX:AOTCache=/c.aot", "-jar", "krit-fir.jar"}, `{"id":1,"rules":["R"],"aotCanary":true}`, true},
+		{"recording", []string{"-XX:AOTMode=record", "-XX:AOTConfiguration=/c.aotconf.tmp.1", "-jar", "krit-fir.jar"}, `{"id":1,"rules":["R"]}`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "check-out.json")
+			if err := os.WriteFile(out, []byte(tc.response), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			delivered := false
+			run := &checkRiderRun{deliver: func([]byte) { delivered = true }, outPath: out}
+			run.noteLaunch(tc.args)
+			run.finish(perf.New(false), nil)
+			if delivered != tc.want {
+				t.Fatalf("delivered = %v, want %v", delivered, tc.want)
+			}
+		})
+	}
+	var none *checkRiderRun
+	none.noteLaunch([]string{"-XX:AOTCache=/c.aot"}) // nil-safe
 }

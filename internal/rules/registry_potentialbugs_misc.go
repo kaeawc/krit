@@ -18,16 +18,12 @@ func registerPotentialbugsMiscRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "navigation_expression", "user_type"}, Confidence: api.ConfidenceMedium, Implementation: r,
-			Needs:             api.NeedsTypeInfo | api.NeedsOracleCallTargets | api.NeedsOracleExprAnnotations | api.NeedsOracleDiagnostics,
-			OracleCallTargets: &api.OracleCallTargetFilter{AnnotatedIdentifiers: []string{"Deprecated"}},
+			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets | api.NeedsOracleExprAnnotations | api.NeedsOracleDiagnostics,
 			// No Oracle file filter: the compiler's DEPRECATION verdict is
 			// needed wherever a deprecated symbol is referenced, and that is
 			// usually a file that never mentions "Deprecated" — a call to a
 			// deprecated library API, an inherited member, or a type declared
 			// elsewhere.
-			// Uses LookupCallTargetAnnotations (annotations embedded directly in
-			// call-resolution data) so no declaration extraction is needed.
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var oracleLookup oracle.Lookup
@@ -163,19 +159,10 @@ func registerPotentialbugsMiscRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets | api.NeedsOracleExprAnnotations | api.NeedsOracleExprType,
-			OracleCallTargets: &api.OracleCallTargetFilter{
-				DiscardedOnly:        true,
-				AnnotatedIdentifiers: []string{"CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"},
-			},
 			// Keep oracle input bounded to files that mention configured
 			// must-use return-type families or return-value annotations. Return
-			// type checks use LookupExpression through the composite resolver;
-			// call-target resolution remains narrowed to annotated declarations.
+			// type checks use LookupExpression through the composite resolver.
 			Oracle: &api.OracleFilter{Identifiers: []string{"Sequence", "Flow", "Stream", "Function", "->", "CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}},
-			// Uses expression-level type data and LookupCallTargetAnnotations
-			// (annotations embedded directly in call-resolution data), so no
-			// declaration extraction is needed.
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var oracleLookup oracle.Lookup
@@ -283,7 +270,7 @@ func registerPotentialbugsMiscRules() {
 				if !r.RestrictToConfig && isKnownFunctionalOp &&
 					ignoredReturnValueFunctionalFallbackHasReceiverEvidence(file, idx) {
 					// No resolver/oracle evidence matched. Keep the historical
-					// tree-sitter-only heuristic for no-KAA runs, but require
+					// tree-sitter-only heuristic for no-oracle runs, but require
 					// structural receiver evidence so local side-effect APIs named
 					// map/filter/etc. do not get flagged solely by callee name.
 					ctx.EmitAt(line, col,
@@ -298,10 +285,6 @@ func registerPotentialbugsMiscRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
 			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-			OracleCallTargets: &api.OracleCallTargetFilter{
-				CalleeNames: []string{"format"},
-			},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if strings.HasSuffix(file.Path, ".gradle.kts") {

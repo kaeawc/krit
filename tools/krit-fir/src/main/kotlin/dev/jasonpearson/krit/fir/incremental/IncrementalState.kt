@@ -42,8 +42,14 @@ internal object CompileRecordingRegistry {
     fun end() = active.remove()
 }
 
-/** `KRIT_FIR_INCREMENTAL=1` turns recording on for sessions that do not choose explicitly. */
-internal fun incrementalRecordingFromEnv(): Boolean = System.getenv("KRIT_FIR_INCREMENTAL") == "1"
+/**
+ * Incremental checking is on for sessions that do not choose explicitly (#740); `KRIT_FIR_INCREMENTAL=0` (or
+ * `false`, `off`) turns it off.
+ */
+internal fun incrementalRecordingFromEnv(): Boolean = incrementalEnabled(System.getenv("KRIT_FIR_INCREMENTAL"))
+
+/** Whether a `KRIT_FIR_INCREMENTAL` value leaves incremental checking on: anything but an explicit off. */
+internal fun incrementalEnabled(value: String?): Boolean = value?.trim()?.lowercase() !in setOf("0", "false", "off")
 
 /** Lower-case hex of the first [length] bytes of [bytes]. */
 internal fun hex(bytes: ByteArray, length: Int = bytes.size): String = HexFormat.of().formatHex(bytes, 0, length)
@@ -288,6 +294,7 @@ internal open class IncrementalState {
     // The binary snapshot of the module and what became of it since it was built.
     private var snapshotOrNull: Snapshot? = null
     private var noSnapshotReason = SliceFallback.NO_SNAPSHOT
+    private var noSnapshotDetail: String? = null
     private val snapshotSurfaceHashes = HashMap<String, String>() // file -> surface hash its binary was built from
     private val binaryStaleFiles = HashSet<String>()
     private val removedFiles = HashSet<String>() // had a binary in the snapshot, deleted since
@@ -461,9 +468,10 @@ internal open class IncrementalState {
      * records why there is none: [reason] is what a planner reports.
      */
     @Synchronized
-    open fun attachSnapshot(snapshot: Snapshot?, reason: SliceFallback = SliceFallback.NO_SNAPSHOT) {
+    open fun attachSnapshot(snapshot: Snapshot?, reason: SliceFallback = SliceFallback.NO_SNAPSHOT, detail: String? = null) {
         releaseSnapshot()
         noSnapshotReason = reason
+        noSnapshotDetail = detail
         if (snapshot == null) return
         snapshotOrNull = snapshot
         for ((file, surface) in surfaces) snapshotSurfaceHashes[file] = hashOf(surface)
@@ -475,10 +483,14 @@ internal open class IncrementalState {
     /** Why a slice compile cannot be used right now, or null when the state has a usable snapshot. */
     @Synchronized fun fallbackReason(): SliceFallback? = if (snapshotOrNull != null) null else noSnapshotReason
 
+    /** More about [fallbackReason] when there is more to say (for [SliceFallback.COMPILE_ERRORS], how many files). */
+    @Synchronized fun fallbackDetail(): String? = if (snapshotOrNull != null) null else noSnapshotDetail
+
     /** Drops the snapshot (it is corrupt, or its facts are gone): the planner falls back to a full compile. */
     @Synchronized fun dropSnapshot(reason: SliceFallback = SliceFallback.NO_SNAPSHOT) {
         releaseSnapshot()
         noSnapshotReason = reason
+        noSnapshotDetail = null
     }
 
     /** The exception of the latest failed slice compile since the last full commit, for the planner's telemetry. */
@@ -514,6 +526,7 @@ internal open class IncrementalState {
         snapshotOrNull = null
         snapshotSurfaceHashes.clear(); binaryStaleFiles.clear(); removedFiles.clear()
         noSnapshotReason = SliceFallback.NO_SNAPSHOT
+        noSnapshotDetail = null
         sliceFailure = null
         try { old?.delete() } catch (_: Exception) {}
     }

@@ -149,6 +149,7 @@ func (p *ProductionFirChecker) Check(files []string, sourceDirs, classpath, rule
 func (p *ProductionFirChecker) CompileTarget() CompileTarget {
 	target := CompileTarget{JvmTarget: p.JvmTarget, Kotlin: p.Kotlin}
 	if !p.NoCache {
+		// An empty RepoDir makes IncrementalDir empty, so no persistence path is sent.
 		target.IncrementalDir = IncrementalDir(p.RepoDir)
 	}
 	return target

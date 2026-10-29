@@ -130,6 +130,29 @@ func aliasDefaultInactive() []string {
 	}
 }
 
+// DeclaredDefaultActive reports whether r runs by default as declared by
+// the rule itself (maturity, descriptor, alias list), ignoring any
+// krit.yml activation applied through ApplyConfig. IsDefaultActive reads
+// the mutable DefaultInactive map, which ApplyConfig rewrites with the
+// project's overrides.
+func DeclaredDefaultActive(r *api.Rule) bool {
+	if r == nil {
+		return false
+	}
+	if r.Maturity == api.MaturityExperimental || r.Maturity == api.MaturityDeprecated {
+		return false
+	}
+	for _, alias := range aliasDefaultInactive() {
+		if alias == r.ID {
+			return false
+		}
+	}
+	if desc, ok := MetaForRule(r); ok && !desc.DefaultActive {
+		return false
+	}
+	return true
+}
+
 // IsDefaultActive returns whether a rule is active by default.
 func IsDefaultActive(name string) bool {
 	ensureDefaultInactive()

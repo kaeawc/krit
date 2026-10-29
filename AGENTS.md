@@ -3,7 +3,7 @@
 Krit is a Go-first static analyzer for Kotlin, Java, and Android projects. It parses with tree-sitter, runs rules through a checked-in v2 registry and single-pass AST dispatcher, emits JSON/SARIF/Checkstyle, and ships autofix, LSP, MCP, Gradle/editor integrations, Android XML/resource analysis, and a Kotlin type oracle.
 
 ## Working Rules
-- Keep core analyzer and rule work in Go. Edit Kotlin/Gradle only for `krit-gradle-plugin/` or `tools/krit-types/`.
+- Keep core analyzer and rule work in Go. Edit Kotlin/Gradle only for `krit-gradle-plugin/`, the JVM helpers under `tools/krit-*/`, or the IntelliJ plugin under `editors/intellij-plugin/`.
 - Use tree-sitter AST/flat nodes for structural analysis; use regex only for line-oriented checks.
 - New rules use the v2 pipeline: implement the local rule struct with the existing bases (`FlatDispatchBase`, `LineBase`, `ManifestBase`, `ResourceBase`, `GradleBase`), expose node types or line/project capabilities through checked-in registry metadata, and never add standalone `Check(file)` tree walks.
 - Rules that need project context must declare the right capability (`NeedsCrossFile`, `NeedsModuleIndex`, `NeedsParsedFiles`, `NeedsManifest`, `NeedsResources`, `NeedsGradle`, `NeedsTypeInfo`, etc.) so the dispatcher/pipeline can provide indexes, Android data, or type info.
@@ -44,7 +44,7 @@ Use branch prefix `work/` for agent-created branches.
 - `internal/scanner/` - tree-sitter parsing, flat AST helpers, suppression, cross-file indexes, bloom-filter caches.
 - `internal/pipeline/`, `internal/deadcode/`, `internal/module/` - project analysis orchestration, dead-code passes, Gradle module graph.
 - `internal/android/`, `internal/tsxml/` - Android manifests, resources, icons, Gradle/XML analysis.
-- `internal/typeinfer/`, `internal/oracle/` - source-level inference and Kotlin Analysis API daemon.
+- `internal/typeinfer/`, `internal/oracle/` - source-level inference and krit-fir (K2 FIR) type-oracle daemon.
 - `internal/lsp/`, `internal/mcp/`, `internal/output/`, `internal/fixer/` - protocol servers, formatters, fix engine.
 - `internal/config/`, `internal/cache/`, `internal/schema/`, `internal/perf/` - config, incremental cache, schema generation, timing.
 - `tests/fixtures/` - positive, negative, and fixable rule fixtures.

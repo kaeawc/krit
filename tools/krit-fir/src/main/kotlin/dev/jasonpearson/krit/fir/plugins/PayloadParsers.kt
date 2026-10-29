@@ -2,10 +2,8 @@ package dev.jasonpearson.krit.fir.plugins
 
 /**
  * Minimal JSON helpers for slicing nested objects + scalars out of an
- * `analyzeFile` request body. Mirrors the krit-types' parser surface
- * exactly so wire-format drift between the two backends is impossible
- * — same expression types come out the same Go-side struct on either
- * side.
+ * `analyzeFile` request body, matching the shape the Go side
+ * serializes.
  *
  * Implemented by hand because adding a JSON dependency to krit-fir's
  * shadow jar would bloat the wire-format JAR by megabytes for a use

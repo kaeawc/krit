@@ -16,12 +16,13 @@ import (
 func failStart(t *testing.T) *int {
 	t.Helper()
 	calls := new(int)
-	old := startFirDaemon
+	old, oldOracle := startFirDaemon, startFirOracleDaemon
 	startFirDaemon = func(string, bool, ...CompileTarget) (*FirDaemon, error) {
 		*calls++
 		return nil, errors.New("test: no JVM")
 	}
-	t.Cleanup(func() { startFirDaemon = old })
+	startFirOracleDaemon = startFirDaemon
+	t.Cleanup(func() { startFirDaemon, startFirOracleDaemon = old, oldOracle })
 	return calls
 }
 

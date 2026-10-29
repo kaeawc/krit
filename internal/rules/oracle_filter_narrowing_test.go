@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
-	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // TestOracleFilterNarrowingForAuditedRules locks in the oracle filters
@@ -17,13 +16,12 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 	cases := []struct {
 		id          string
 		identifiers []string
-		callTargets []string
 	}{
-		{"IgnoredReturnValue", []string{"Sequence", "Flow", "Stream", "Function", "->", "CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}, []string{"CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}},
-		{"NullableToStringCall", []string{"toString", "$"}, []string{"toString"}},
-		{"ObjectAnimatorBinding", []string{"ObjectAnimator", "ofFloat", "ofInt", "ofObject"}, nil},
-		{"UseIsNullOrEmpty", []string{"isEmpty", "count", ".size", ".length", "\"\""}, nil},
-		{"UnsafeCast", []string{" as ", " as?"}, nil},
+		{"IgnoredReturnValue", []string{"Sequence", "Flow", "Stream", "Function", "->", "CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}},
+		{"NullableToStringCall", []string{"toString", "$"}},
+		{"ObjectAnimatorBinding", []string{"ObjectAnimator", "ofFloat", "ofInt", "ofObject"}},
+		{"UseIsNullOrEmpty", []string{"isEmpty", "count", ".size", ".length", "\"\""}},
+		{"UnsafeCast", []string{" as ", " as?"}},
 	}
 
 	byID := map[string]*api.Rule{}
@@ -50,15 +48,6 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 		if !slices.Equal(r.Oracle.Identifiers, tc.identifiers) {
 			t.Errorf("%s: Oracle.Identifiers = %v, want %v", tc.id, r.Oracle.Identifiers, tc.identifiers)
 		}
-		if len(tc.callTargets) > 0 {
-			if r.OracleCallTargets == nil {
-				t.Errorf("%s: OracleCallTargets is nil; expected call-target narrowing", tc.id)
-			} else if r.OracleCallTargets.AllCalls {
-				t.Errorf("%s: OracleCallTargets.AllCalls=true; expected call-target narrowing", tc.id)
-			} else if !slices.Equal(oracleCallTargetIdentifiers(r.OracleCallTargets), tc.callTargets) {
-				t.Errorf("%s: OracleCallTargets identifiers = %v, want %v", tc.id, oracleCallTargetIdentifiers(r.OracleCallTargets), tc.callTargets)
-			}
-		}
 	}
 }
 
@@ -67,7 +56,7 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 // DEPRECATION diagnostic, and the files that reference a deprecated symbol
 // usually never mention "Deprecated" (library APIs, inherited members, types
 // declared elsewhere), so a token-based file filter would drop the
-// diagnostics. Call-target narrowing is unaffected and stays in place.
+// diagnostics.
 func TestDeprecationOracleFilterCoversAllFiles(t *testing.T) {
 	rule := findRegisteredRule(t, "Deprecation")
 	if !RuleNeedsKotlinOracle(rule) || rule.Needs&api.NeedsOracleDiagnostics == 0 {
@@ -76,19 +65,6 @@ func TestDeprecationOracleFilterCoversAllFiles(t *testing.T) {
 	if rule.Oracle != nil {
 		t.Fatalf("Deprecation Oracle filter = %+v, want nil (all files)", rule.Oracle)
 	}
-	if rule.OracleCallTargets == nil || rule.OracleCallTargets.AllCalls {
-		t.Fatalf("Deprecation OracleCallTargets = %+v, want bounded call filtering", rule.OracleCallTargets)
-	}
-	if got := oracleCallTargetIdentifiers(rule.OracleCallTargets); !slices.Equal(got, []string{"Deprecated"}) {
-		t.Fatalf("Deprecation OracleCallTargets identifiers = %v, want [Deprecated]", got)
-	}
-}
-
-func oracleCallTargetIdentifiers(filter *api.OracleCallTargetFilter) []string {
-	if len(filter.AnnotatedIdentifiers) > 0 {
-		return filter.AnnotatedIdentifiers
-	}
-	return filter.CalleeNames
 }
 
 func TestMissingPermissionOracleFiltersAreNarrowed(t *testing.T) {
@@ -109,36 +85,6 @@ func TestMissingPermissionOracleFiltersAreNarrowed(t *testing.T) {
 	if !slices.Equal(rule.Oracle.Identifiers, wantIdentifiers) {
 		t.Fatalf("MissingPermission Oracle.Identifiers = %v, want %v", rule.Oracle.Identifiers, wantIdentifiers)
 	}
-	if rule.OracleCallTargets == nil || rule.OracleCallTargets.AllCalls {
-		t.Fatalf("MissingPermission OracleCallTargets = %+v, want bounded call filtering", rule.OracleCallTargets)
-	}
-	wantCallees := []string{"getCellLocation", "getLastKnownLocation", "open", "requestLocationUpdates", "setAudioSource"}
-	if !slices.Equal(rule.OracleCallTargets.CalleeNames, wantCallees) {
-		t.Fatalf("MissingPermission OracleCallTargets.CalleeNames = %v, want %v", rule.OracleCallTargets.CalleeNames, wantCallees)
-	}
-	if !slices.Equal(rule.OracleCallTargets.AnnotatedIdentifiers, []string{"RequiresPermission"}) {
-		t.Fatalf("MissingPermission OracleCallTargets.AnnotatedIdentifiers = %v, want [RequiresPermission]", rule.OracleCallTargets.AnnotatedIdentifiers)
-	}
-}
-
-func TestOracleCallTargetFilterDefaultRulesEnabled(t *testing.T) {
-	var active []*api.Rule
-	for _, r := range api.Registry {
-		if IsDefaultActive(r.ID) {
-			active = append(active, r)
-		}
-	}
-
-	summary := BuildOracleCallTargetFilterV2ForFiles(active, []*scanner.File{{
-		Path:    "Empty.kt",
-		Content: []byte("package test\nclass Empty\n"),
-	}})
-	if slices.Contains(summary.DisabledBy, "IgnoredReturnValue") {
-		t.Fatalf("IgnoredReturnValue should not disable default call filtering: %+v", summary)
-	}
-	for range summary.DisabledBy {
-		t.Fatalf("unexpected default rule disabled oracle call filtering: disabledBy=%v", summary.DisabledBy)
-	}
 }
 
 func TestResolverOnlyRulesDoNotContributeToOracle(t *testing.T) {
@@ -152,8 +98,8 @@ func TestResolverOnlyRulesDoNotContributeToOracle(t *testing.T) {
 	} {
 		rule := findRegisteredRule(t, id)
 		if RuleNeedsKotlinOracle(rule) {
-			t.Fatalf("%s should be resolver-only, got Needs=%b Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
-				id, rule.Needs, rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+			t.Fatalf("%s should be resolver-only, got Needs=%b Oracle=%+v",
+				id, rule.Needs, rule.Oracle)
 		}
 	}
 }
@@ -163,9 +109,9 @@ func TestUnsafeCallOnNullableTypeStaysLocalASTOnly(t *testing.T) {
 	if rule.Needs != 0 {
 		t.Fatalf("UnsafeCallOnNullableType should not require resolver, type info, parsed files, or project indexes; got Needs=%b", rule.Needs)
 	}
-	if rule.Oracle != nil || rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil {
-		t.Fatalf("UnsafeCallOnNullableType should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
-			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+	if rule.Oracle != nil {
+		t.Fatalf("UnsafeCallOnNullableType should not contribute to KAA, got Oracle=%+v",
+			rule.Oracle)
 	}
 }
 
@@ -175,8 +121,8 @@ func TestComposeIconButtonMissingContentDescriptionStaysLocalASTOnly(t *testing.
 		t.Fatalf("ComposeIconButtonMissingContentDescription should not require resolver, type info, parsed files, or project indexes; got Needs=%b", rule.Needs)
 	}
 	if RuleNeedsKotlinOracle(rule) {
-		t.Fatalf("ComposeIconButtonMissingContentDescription should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
-			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+		t.Fatalf("ComposeIconButtonMissingContentDescription should not contribute to KAA, got Oracle=%+v",
+			rule.Oracle)
 	}
 }
 
@@ -186,8 +132,8 @@ func TestDoubleMutabilityForCollectionStaysLocalASTOnly(t *testing.T) {
 		t.Fatalf("DoubleMutabilityForCollection should not require resolver, type info, parsed files, or project indexes; got Needs=%b", rule.Needs)
 	}
 	if RuleNeedsKotlinOracle(rule) {
-		t.Fatalf("DoubleMutabilityForCollection should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
-			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+		t.Fatalf("DoubleMutabilityForCollection should not contribute to KAA, got Oracle=%+v",
+			rule.Oracle)
 	}
 }
 
@@ -197,8 +143,8 @@ func TestImplicitUnitReturnTypeStaysLocalASTOnly(t *testing.T) {
 		t.Fatalf("ImplicitUnitReturnType should not require resolver, type info, parsed files, or project indexes; got Needs=%b", rule.Needs)
 	}
 	if RuleNeedsKotlinOracle(rule) {
-		t.Fatalf("ImplicitUnitReturnType should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
-			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+		t.Fatalf("ImplicitUnitReturnType should not contribute to KAA, got Oracle=%+v",
+			rule.Oracle)
 	}
 }
 
@@ -229,8 +175,8 @@ func TestVettedStyleAndNamingRulesStayOffKAA(t *testing.T) {
 			t.Fatalf("%s Needs=%b, want %b", tc.id, rule.Needs, tc.wantNeeds)
 		}
 		if RuleNeedsKotlinOracle(rule) {
-			t.Fatalf("%s should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
-				tc.id, rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+			t.Fatalf("%s should not contribute to KAA, got Oracle=%+v",
+				tc.id, rule.Oracle)
 		}
 	}
 }
@@ -241,21 +187,8 @@ func TestTooGenericExceptionThrownStaysResolverOnly(t *testing.T) {
 		t.Fatalf("TooGenericExceptionThrown Needs=%b, want resolver only", rule.Needs)
 	}
 	if RuleNeedsKotlinOracle(rule) {
-		t.Fatalf("TooGenericExceptionThrown should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
-			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
-	}
-}
-
-func TestTimberTreeNotPlantedUsesLexicalHintsForLoggerCallees(t *testing.T) {
-	rule := findRegisteredRule(t, "TimberTreeNotPlanted")
-	if rule.OracleCallTargets == nil {
-		t.Fatal("TimberTreeNotPlanted OracleCallTargets is nil")
-	}
-	for _, callee := range []string{"v", "d", "i", "w", "e", "wtf", "plant"} {
-		hints := rule.OracleCallTargets.LexicalHintsByCallee[callee]
-		if !slices.Contains(hints, "timber.log.Timber") || !slices.Contains(hints, "Timber") {
-			t.Fatalf("TimberTreeNotPlanted hints for %q = %v, want Timber hints", callee, hints)
-		}
+		t.Fatalf("TooGenericExceptionThrown should not contribute to KAA, got Oracle=%+v",
+			rule.Oracle)
 	}
 }
 

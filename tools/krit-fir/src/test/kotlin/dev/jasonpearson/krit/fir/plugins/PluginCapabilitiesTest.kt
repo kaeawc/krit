@@ -10,8 +10,8 @@ class PluginCapabilitiesTest {
     @Test
     fun needsFirIsSupportedOnTheFirBackend() {
         // The whole point of the krit-fir backend: rules can opt
-        // into FIR-only facts via NEEDS_FIR. krit-types refuses
-        // them at load time; the FIR daemon accepts them.
+        // into FIR-only facts via NEEDS_FIR, and the daemon accepts
+        // them at load time.
         assertEquals(emptyList(), PluginCapabilities.unsupported(listOf(Capability.NEEDS_FIR.name)))
     }
 

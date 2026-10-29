@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/librarymodel"
-	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -19,7 +18,7 @@ func TestCrossFileStats_ReportsAllSlots(t *testing.T) {
 	// Cold: every slot should be empty.
 	stats := ws.CrossFileStats()
 	if stats.HasLibraryFacts || stats.HasCodeIndex || stats.HasDependents ||
-		stats.HasResolver || stats.HasOracleFilter {
+		stats.HasResolver {
 		t.Fatalf("cold stats not all-false: %+v", stats)
 	}
 
@@ -36,9 +35,6 @@ func TestCrossFileStats_ReportsAllSlots(t *testing.T) {
 	ws.Resolver("res-fp", func() typeinfer.TypeResolver {
 		return typeinfer.NewResolver()
 	})
-	ws.OracleFilter("of-fp", func() *oracle.CallTargetFilterSummary {
-		return &oracle.CallTargetFilterSummary{Enabled: true}
-	})
 
 	stats = ws.CrossFileStats()
 	if !stats.HasLibraryFacts {
@@ -53,22 +49,15 @@ func TestCrossFileStats_ReportsAllSlots(t *testing.T) {
 	if !stats.HasResolver {
 		t.Errorf("HasResolver = false; expected true after Resolver call")
 	}
-	if !stats.HasOracleFilter {
-		t.Errorf("HasOracleFilter = false; expected true after OracleFilter call")
-	}
 
 	// Invalidate the new slots and re-check.
 	ws.InvalidateResolver()
-	ws.InvalidateOracleFilter()
 	stats = ws.CrossFileStats()
 	if stats.HasResolver {
 		t.Errorf("HasResolver still true after InvalidateResolver")
 	}
-	if stats.HasOracleFilter {
-		t.Errorf("HasOracleFilter still true after InvalidateOracleFilter")
-	}
 	// Pre-existing slots should be untouched.
 	if !stats.HasLibraryFacts || !stats.HasCodeIndex {
-		t.Errorf("pre-existing slots dropped on Resolver/OracleFilter invalidate: %+v", stats)
+		t.Errorf("pre-existing slots dropped on Resolver invalidate: %+v", stats)
 	}
 }

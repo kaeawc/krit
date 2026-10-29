@@ -4,7 +4,7 @@ import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
-import org.jetbrains.kotlin.fir.declarations.toAnnotationClassId
+import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
 import org.jetbrains.kotlin.fir.declarations.utils.isSuspend
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
@@ -18,8 +18,7 @@ import org.jetbrains.kotlin.fir.types.resolvedType
 /**
  * FIR `FirFunctionCallChecker` that projects each visited
  * [FirFunctionCall] into an [ExpressionPayload] and pushes it onto the
- * active [OracleCollector], if any. Mirrors krit-types' per-call
- * projection: only callable resolution is exposed (no expression type
+ * active [OracleCollector], if any. Only callable resolution is exposed (no expression type
  * or nullability), since the Go-side rules consuming this data only
  * read `callTarget`, `callTargetSuspend`, and annotations.
  *
@@ -56,8 +55,13 @@ internal object OracleExpressionChecker : FirFunctionCallChecker(MppCheckerKind.
                 callTarget = fqn
                 callTargetResolved = true
                 callTargetSuspend = callee.isSuspend
-                annotations = callee.annotations.mapNotNull {
-                    it.toAnnotationClassId(context.session)?.asSingleFqName()?.asString()
+                annotations = calleeAnnotationFqns(callee, context.session)
+                // A slice reads the module's other files as class files, which drop SOURCE-retention annotations:
+                // report the callee's source-side list instead (#740).
+                if (callee.origin != FirDeclarationOrigin.Source) {
+                    val declared = collector.binaryCalleeAnnotations?.let { lookup -> calleeSignature(callee)?.let(lookup) }
+                    if (declared === AMBIGUOUS_ANNOTATIONS) collector.binaryCalleeAmbiguous = true
+                    else if (declared != null) annotations = declared
                 }
             }
         }
@@ -65,10 +69,8 @@ internal object OracleExpressionChecker : FirFunctionCallChecker(MppCheckerKind.
         if (callTarget.isEmpty()) return
 
         // The call's `resolvedType` is the type the rule sees through
-        // `Resolver.expressionType(call)`. We render the same
-        // classId-FQN format krit-types' AnalysisApiResolver returns
-        // so a rule jar shipped against either backend sees identical
-        // strings. Pre-2.6 the oracle pass left this empty because no
+        // `Resolver.expressionType(call)`. We render it in classId-FQN
+        // format so rule jars see stable, fully qualified strings. Pre-2.6 the oracle pass left this empty because no
         // Go-side rule consumed it; now the FIR-backed Resolver does.
         val resolvedType = runCatching { expression.resolvedType }.getOrNull()
         val typeFqn = resolvedType?.renderFqn().orEmpty()
@@ -90,9 +92,8 @@ internal object OracleExpressionChecker : FirFunctionCallChecker(MppCheckerKind.
     /**
      * Inspect the argument list and, for each lambda passed positionally,
      * record whether the matching value parameter declares a suspend
-     * functional type. Mirrors krit-types' "is this lambda passed to a
-     * `suspend (...) -> R` parameter" heuristic but does the work at
-     * the call site, where FIR's resolved argument mapping carries
+     * functional type. Answers "is this lambda passed to a
+     * `suspend (...) -> R` parameter" at the call site, where FIR's resolved argument mapping carries
      * accurate parameter types — checking the lambda's own
      * `FirAnonymousFunction.status.isSuspend` doesn't work because FIR
      * doesn't propagate the suspend conversion onto the lambda
@@ -100,7 +101,7 @@ internal object OracleExpressionChecker : FirFunctionCallChecker(MppCheckerKind.
      *
      * Non-call-site lambdas (e.g. `val f: suspend () -> Unit = { ... }`)
      * aren't visited here; the resolver's "missing key → false" default
-     * matches krit-types' "unresolved → conservative false" contract.
+     * keeps the "unresolved → conservative false" contract.
      */
     @OptIn(SymbolInternals::class)
     private fun recordLambdaSuspendArguments(

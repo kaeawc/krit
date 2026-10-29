@@ -12,7 +12,7 @@ import (
 )
 
 // computeStaleOraclePaths consults the prior findings-bundle manifest to
-// decide which .kt paths are KAA-stale relative to the cached
+// decide which .kt paths are oracle-stale relative to the cached
 // types.json. Returns nil when no prior manifest exists (true cold
 // scan; the freshness gate's lazy-load fast path is safe) or when no
 // types.json exists (cold path is going to recompute everything
@@ -35,7 +35,7 @@ import (
 // its own input. Without this symmetry the gate flags /generated/
 // .kt files as stale on every warm rerun (they're never in the
 // manifest because the parse phase already dropped them), forcing
-// pointless krit-fir/krit-types one-shot JVM launches on files the
+// pointless krit-fir one-shot JVM launches on files the
 // parse phase will discard anyway.
 func computeStaleOraclePaths(scanPaths []string, kotlinFilePaths []string, includeGenerated bool, tracker perf.Tracker, verbose bool) []string {
 	return computeStaleOraclePathsWithStore(scanPaths, kotlinFilePaths, includeGenerated, tracker, verbose, nil, oracle.ExpansionScope{})

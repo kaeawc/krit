@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -468,18 +469,6 @@ func TestDaemonLookup_Rebuild_TCP(t *testing.T) {
 	}
 }
 
-func TestDaemonLookup_Checkpoint_TCP(t *testing.T) {
-	fake := NewFakeDaemon(t)
-	defer fake.Close()
-
-	d := fake.ConnectDaemon(t)
-	defer d.Close()
-
-	if err := d.Checkpoint(); err != nil {
-		t.Fatalf("Checkpoint error: %v", err)
-	}
-}
-
 func TestDaemonLookup_MultipleSequentialRequests_TCP(t *testing.T) {
 	fake := NewFakeDaemon(t)
 	defer fake.Close()
@@ -514,39 +503,6 @@ func TestDaemonLookup_MultipleSequentialRequests_TCP(t *testing.T) {
 	// Verify IDs incremented correctly
 	if d.nextID != 5 {
 		t.Errorf("expected nextID=5 after 4 requests, got %d", d.nextID)
-	}
-}
-
-func TestDaemonLookup_CheckpointSuccess_TCP(t *testing.T) {
-	fake := NewFakeDaemon(t)
-	defer fake.Close()
-
-	d := fake.ConnectDaemon(t)
-	defer d.Close()
-
-	// With default success response, checkpoint should succeed
-	if err := d.Checkpoint(); err != nil {
-		t.Fatalf("Checkpoint error: %v", err)
-	}
-}
-
-func TestDaemonLookup_CheckpointUnknownMethod_TCP(t *testing.T) {
-	fake := NewFakeDaemon(t)
-	defer fake.Close()
-
-	// Remove checkpoint so fake returns "unknown method" error
-	delete(fake.Responses, "checkpoint")
-
-	d := fake.ConnectDaemon(t)
-	defer d.Close()
-
-	// "unknown method" is not "CRaC not available", so Checkpoint should propagate the error
-	err := d.Checkpoint()
-	if err == nil {
-		t.Fatal("expected error for unknown method")
-	}
-	if !strings.Contains(err.Error(), "unknown method") {
-		t.Errorf("expected 'unknown method' error, got: %v", err)
 	}
 }
 
@@ -756,162 +712,6 @@ func TestCDSArchivePath_PathFormat(t *testing.T) {
 // Step 5: CRaC layer tests
 // ===========================================================================
 
-func TestCRaCCheckpointPath_DeterministicHash(t *testing.T) {
-	tmpDir := t.TempDir()
-	jarPath := filepath.Join(tmpDir, "test.jar")
-	os.WriteFile(jarPath, []byte("deterministic crac content"), 0644)
-
-	path1, err := cracCheckpointPath(jarPath)
-	if err != nil {
-		t.Fatalf("first call: %v", err)
-	}
-	path2, err := cracCheckpointPath(jarPath)
-	if err != nil {
-		t.Fatalf("second call: %v", err)
-	}
-
-	if path1 != path2 {
-		t.Errorf("expected same path, got %q vs %q", path1, path2)
-	}
-}
-
-func TestCRaCCheckpointPath_DifferentJAR(t *testing.T) {
-	tmpDir := t.TempDir()
-	jar1 := filepath.Join(tmpDir, "a.jar")
-	jar2 := filepath.Join(tmpDir, "b.jar")
-	os.WriteFile(jar1, []byte("crac A"), 0644)
-	os.WriteFile(jar2, []byte("crac B"), 0644)
-
-	path1, _ := cracCheckpointPath(jar1)
-	path2, _ := cracCheckpointPath(jar2)
-
-	if path1 == path2 {
-		t.Error("expected different checkpoint paths for different JARs")
-	}
-}
-
-func TestCRaCCheckpointPath_PathFormat(t *testing.T) {
-	tmpDir := t.TempDir()
-	jarPath := filepath.Join(tmpDir, "test.jar")
-	os.WriteFile(jarPath, []byte("crac test"), 0644)
-
-	path, err := cracCheckpointPath(jarPath)
-	if err != nil {
-		t.Fatalf("cracCheckpointPath: %v", err)
-	}
-
-	if !strings.HasSuffix(path, ".crac") {
-		t.Errorf("expected .crac suffix, got %q", path)
-	}
-	if !strings.Contains(filepath.Base(path), "krit-types-") {
-		t.Errorf("expected krit-types- prefix, got %q", filepath.Base(path))
-	}
-}
-
-func TestCRaCFlags_NoCheckpoint(t *testing.T) {
-	tmpDir := t.TempDir()
-	jarPath := filepath.Join(tmpDir, "test.jar")
-	os.WriteFile(jarPath, []byte("no checkpoint"), 0644)
-
-	cracPath, err := cracCheckpointPath(jarPath)
-	if err != nil {
-		t.Fatalf("cracCheckpointPath: %v", err)
-	}
-
-	// No checkpoint directory exists — CRaC flags should NOT be added
-	_, statErr := os.Stat(cracPath)
-	if !os.IsNotExist(statErr) {
-		t.Fatal("expected checkpoint path to not exist")
-	}
-
-	// Replicate the daemon's CRaC logic
-	var args []string
-	if statErr == nil {
-		info, _ := os.Stat(cracPath)
-		if info != nil && info.IsDir() {
-			args = append(args, "-XX:CRaCRestoreFrom="+cracPath)
-		}
-	}
-
-	if len(args) != 0 {
-		t.Errorf("expected no CRaC flags when no checkpoint exists, got %v", args)
-	}
-}
-
-func TestCRaCFlags_WithCheckpoint(t *testing.T) {
-	tmpDir := t.TempDir()
-	jarPath := filepath.Join(tmpDir, "test.jar")
-	os.WriteFile(jarPath, []byte("with checkpoint"), 0644)
-
-	cracPath, err := cracCheckpointPath(jarPath)
-	if err != nil {
-		t.Fatalf("cracCheckpointPath: %v", err)
-	}
-
-	// Create checkpoint directory to simulate a previous checkpoint
-	os.MkdirAll(cracPath, 0755)
-
-	// Verify it's a directory
-	info, statErr := os.Stat(cracPath)
-	if statErr != nil {
-		t.Fatalf("stat checkpoint: %v", statErr)
-	}
-	if !info.IsDir() {
-		t.Fatal("expected checkpoint path to be a directory")
-	}
-
-	// Replicate the daemon's CRaC logic
-	var args []string
-	if statErr == nil && info.IsDir() {
-		args = append(args, "-XX:CRaCRestoreFrom="+cracPath)
-	}
-
-	if len(args) != 1 {
-		t.Fatalf("expected 1 CRaC flag, got %d", len(args))
-	}
-	if !strings.HasPrefix(args[0], "-XX:CRaCRestoreFrom=") {
-		t.Errorf("expected CRaCRestoreFrom flag, got %q", args[0])
-	}
-	if !strings.Contains(args[0], cracPath) {
-		t.Errorf("expected checkpoint path in flag, got %q", args[0])
-	}
-}
-
-func TestCRaCCheckpointPath_MissingJAR(t *testing.T) {
-	_, err := cracCheckpointPath("/nonexistent/path/to.jar")
-	if err == nil {
-		t.Error("expected error for missing JAR")
-	}
-}
-
-func TestCRaCCheckpointPath_SameHashAsCDS(t *testing.T) {
-	// CRaC and CDS paths should use the same hash but different extensions
-	tmpDir := t.TempDir()
-	jarPath := filepath.Join(tmpDir, "test.jar")
-	os.WriteFile(jarPath, []byte("shared hash test"), 0644)
-
-	cdsPath, _ := cdsArchivePath(jarPath)
-	cracPath, _ := cracCheckpointPath(jarPath)
-
-	// Extract hash from each
-	cdsBase := filepath.Base(cdsPath)
-	cdsHash := strings.TrimPrefix(cdsBase, "krit-types-")
-	cdsHash = strings.TrimSuffix(cdsHash, ".jsa")
-
-	cracBase := filepath.Base(cracPath)
-	cracHash := strings.TrimPrefix(cracBase, "krit-types-")
-	cracHash = strings.TrimSuffix(cracHash, ".crac")
-
-	if cdsHash != cracHash {
-		t.Errorf("expected same hash for CDS and CRaC, got %q vs %q", cdsHash, cracHash)
-	}
-
-	// But full paths should differ
-	if cdsPath == cracPath {
-		t.Error("expected different full paths for CDS vs CRaC")
-	}
-}
-
 // ===========================================================================
 // Step 6: ConnectOrStart integration tests
 // ===========================================================================
@@ -1108,17 +908,32 @@ func TestCleanStaleDaemon_WithLivePIDButBrokenPort(t *testing.T) {
 }
 
 // ===========================================================================
-// Integration test with real daemon (skipped without krit-types.jar)
+// Integration test with real daemon (skipped without krit-fir.jar)
 // ===========================================================================
 
-func findKritTypesJar() string {
-	// Check common locations
+// resetJDKVersionProbe drops the process-wide `java -version` probe so a real
+// daemon launch sees the real JDK. Earlier tests in the package put a fake
+// java on PATH; a probe cached from it would add JDK 25-only launch flags.
+func resetJDKVersionProbe(t *testing.T) {
+	t.Helper()
+	jdkVersionOnce = sync.Once{}
+	jdkVersionCache = 0
+	t.Cleanup(func() {
+		jdkVersionOnce = sync.Once{}
+		jdkVersionCache = 0
+	})
+}
+
+func findKritFirJar() string {
+	// KRIT_FIR_JAR first, then the worktree's Gradle output.
 	candidates := []string{
-		"krit-types.jar",
-		"build/krit-types.jar",
-		"../krit-types/build/libs/krit-types.jar",
+		os.Getenv("KRIT_FIR_JAR"),
+		"../../tools/krit-fir/build/libs/krit-fir.jar",
 	}
 	for _, c := range candidates {
+		if c == "" {
+			continue
+		}
 		if _, err := os.Stat(c); err == nil {
 			abs, _ := filepath.Abs(c)
 			return abs
@@ -1128,10 +943,11 @@ func findKritTypesJar() string {
 }
 
 func TestIntegration_RealDaemon(t *testing.T) {
-	jarPath := findKritTypesJar()
+	jarPath := findKritFirJar()
 	if jarPath == "" {
-		t.Skip("krit-types.jar not found — skipping real daemon integration test")
+		t.Skip("krit-fir.jar not found — skipping real daemon integration test")
 	}
+	resetJDKVersionProbe(t)
 
 	d, err := StartDaemon(jarPath, nil, nil, false)
 	if err != nil {
@@ -1150,10 +966,11 @@ func TestIntegration_RealDaemon(t *testing.T) {
 }
 
 func TestIntegration_RealDaemonWithPort(t *testing.T) {
-	jarPath := findKritTypesJar()
+	jarPath := findKritFirJar()
 	if jarPath == "" {
-		t.Skip("krit-types.jar not found — skipping real daemon integration test")
+		t.Skip("krit-fir.jar not found — skipping real daemon integration test")
 	}
+	resetJDKVersionProbe(t)
 
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
@@ -1172,10 +989,9 @@ func TestIntegration_RealDaemonWithPort(t *testing.T) {
 		t.Fatalf("Ping: %v", err)
 	}
 
-	// PID file should have been written under the daemon's own sources hash.
-	// Since StartDaemonWithPort was called with nil sourceDirs, the hash
-	// is hashSources(nil) == hashSources([]string{}).
-	info, err := readPIDFile(hashSources(nil))
+	// The PID file is written under the daemon's registry key, which covers
+	// the jar as well as the (empty) source set.
+	info, err := readPIDFile(daemonRegistryKey(jarPath, nil))
 	if err != nil {
 		t.Fatalf("readPIDFile: %v", err)
 	}
@@ -1185,10 +1001,11 @@ func TestIntegration_RealDaemonWithPort(t *testing.T) {
 }
 
 func TestIntegration_ConnectOrStartDaemon(t *testing.T) {
-	jarPath := findKritTypesJar()
+	jarPath := findKritFirJar()
 	if jarPath == "" {
-		t.Skip("krit-types.jar not found — skipping real daemon integration test")
+		t.Skip("krit-fir.jar not found — skipping real daemon integration test")
 	}
+	resetJDKVersionProbe(t)
 
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
@@ -1201,7 +1018,12 @@ func TestIntegration_ConnectOrStartDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first ConnectOrStartDaemon: %v", err)
 	}
-	defer d1.Close()
+	// A daemon serves one client at a time, so the first run drops its
+	// connection (as a finished krit invocation does) before the next one
+	// connects.
+	if err := d1.Release(); err != nil {
+		t.Fatalf("release first daemon: %v", err)
+	}
 
 	// Second call should reuse the existing daemon
 	d2, err := ConnectOrStartDaemon(jarPath, nil, nil, false)

@@ -40,7 +40,7 @@ import (
 type FirDaemon struct {
 	cmd     *exec.Cmd
 	conn    net.Conn
-	reader  *bufio.Scanner
+	reader  *bufio.Reader
 	logFile *os.File
 	mu      sync.Mutex
 	port    int
@@ -90,7 +90,12 @@ type firDaemonRequest struct {
 	// re-filters them through its own allowlist; an empty list leaves the
 	// embedded compiler's defaults in force.
 	KotlinArgs []string `json:"kotlinArgs,omitempty"`
-	Rules      []string `json:"rules,omitempty"`
+	// CompilerPluginClasspath and CompilerPluginOptions are the project's
+	// Kotlin compiler plugins (gradlemodel.CompilerPlugins), sent in fields of
+	// their own rather than as compiler arguments. Absent keeps the session's.
+	CompilerPluginClasspath []string `json:"compilerPluginClasspath,omitempty"`
+	CompilerPluginOptions   []string `json:"compilerPluginOptions,omitempty"`
+	Rules                   []string `json:"rules,omitempty"`
 	// TestFiles is the subset of Files (spelled exactly as in Files) that
 	// krit classifies as test sources (scanner.IsTestFile, honoring the
 	// configured test paths); checkers read it through FirRule.isTestFile.
@@ -190,21 +195,49 @@ func daemonRequestTimeout() time.Duration {
 // daemon runs in oracle.DaemonWorkDir: it may outlive this invocation and
 // serve krit runs from other directories, so every path it is sent is
 // absolute (see Check) and nothing may resolve against its working directory.
+//
+// The JVM uses the Leyden AOT cache when the JDK supports it. A cache can
+// pass its provenance checks and still restore a JVM whose checkers report
+// nothing (#768), so no AOT launch is trusted before its canary passes
+// (aot_canary.go): checkFirWithRecovery for the checker role,
+// verifyOracleRoleAOT for the oracle role. A failed canary disables the
+// cache for the process and relaunches without it.
 func StartFirDaemonWithPort(jarPath string, verbose bool, target ...CompileTarget) (*FirDaemon, error) {
-	// A valid Leyden cache can restore FIR with registered checkers that emit
-	// zero findings (#768). The cause is not found, so launch FIR without AOT
-	// for both one-shot and shared daemons. checkFirWithRecovery's canary
-	// (aot_canary.go) is the guard to rely on when this is re-enabled.
-	return startFirDaemonWithAOT(jarPath, verbose, false, target...)
+	return startFirDaemonWithAOT(jarPath, verbose, true, target...)
 }
 
+// startFirOracleDaemon launches an oracle-role daemon: it may use a Leyden
+// AOT cache but never records one, since nobody closes it (see
+// jvmaot.AppendCachedArgs). The checker role records instead. Tests replace
+// it to avoid a real JVM.
+var startFirOracleDaemon = func(jarPath string, verbose bool, target ...CompileTarget) (*FirDaemon, error) {
+	return startFirDaemonWithAOTMode(jarPath, verbose, firAOTNoRecord, target...)
+}
+
+// firAOTMode is how a krit-fir launch may use the Leyden AOT cache.
+type firAOTMode int
+
+const (
+	firAOTOff      firAOTMode = iota // never
+	firAOTFull                       // use, build, or record a profile
+	firAOTNoRecord                   // use or build, never record
+)
+
 func startFirDaemonWithAOT(jarPath string, verbose, allowAOT bool, target ...CompileTarget) (*FirDaemon, error) {
+	mode := firAOTOff
+	if allowAOT {
+		mode = firAOTFull
+	}
+	return startFirDaemonWithAOTMode(jarPath, verbose, mode, target...)
+}
+
+func startFirDaemonWithAOTMode(jarPath string, verbose bool, mode firAOTMode, target ...CompileTarget) (*FirDaemon, error) {
 	javaPath, err := oracle.JavaPath()
 	if err != nil {
 		return nil, fmt.Errorf("java not found in PATH: %w", err)
 	}
 
-	args := buildFirJVMArgsWithAOT(jarPath, javaPath, oracle.CachedJDKMajorVersion(), verbose, allowAOT)
+	args := buildFirJVMArgsWithAOTMode(jarPath, javaPath, oracle.CachedJDKMajorVersion(), verbose, mode)
 	if t := firstTarget(target); t.JvmTarget != "" {
 		args = append(args, "--jvm-target", t.JvmTarget)
 	}
@@ -266,8 +299,7 @@ func startFirDaemonWithAOT(jarPath string, verbose, allowAOT bool, target ...Com
 		return nil, fmt.Errorf("connect to fir daemon port %d: %w", ready.Port, err)
 	}
 
-	reader := bufio.NewScanner(conn)
-	reader.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	reader := bufio.NewReader(conn)
 
 	d := &FirDaemon{
 		cmd:          cmd,
@@ -294,18 +326,21 @@ func firAOTCacheArg(args []string) string {
 }
 
 func buildFirJVMArgs(jarPath, javaPath string, jdkMajor int) []string {
-	return buildFirJVMArgsWithAOT(jarPath, javaPath, jdkMajor, false, false)
+	return buildFirJVMArgsWithAOTMode(jarPath, javaPath, jdkMajor, false, firAOTFull)
 }
 
-func buildFirJVMArgsWithAOT(jarPath, javaPath string, jdkMajor int, verbose, allowAOT bool) []string {
+func buildFirJVMArgsWithAOTMode(jarPath, javaPath string, jdkMajor int, verbose bool, mode firAOTMode) []string {
 	args := []string{
 		"-XX:+UseG1GC",
 		"-XX:+UseStringDeduplication",
 		"-Xms512m",
 		"-Xmx1g",
 	}
-	if allowAOT {
+	switch mode {
+	case firAOTFull:
 		args, _ = jvmaot.AppendArgs(args, javaPath, oracle.AbsolutePath(jarPath), "fir", jdkMajor, verbose, reporter().Verbosef)
+	case firAOTNoRecord:
+		args, _ = jvmaot.AppendCachedArgs(args, javaPath, oracle.AbsolutePath(jarPath), "fir", jdkMajor, verbose, reporter().Verbosef)
 	}
 	return append(args, "-jar", oracle.AbsolutePath(jarPath), "--daemon", "--port", "0")
 }
@@ -407,7 +442,11 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 	if rejected != 0 {
 		stopFirDaemonIf(srcHash, rejected, verbose)
 	}
-	d, err = startFirDaemon(jarPath, verbose, compile)
+	start := startFirDaemon
+	if role != firCheckRole {
+		start = startFirOracleDaemon
+	}
+	d, err = start(jarPath, verbose, compile)
 	if err != nil {
 		return nil, fmt.Errorf("start persistent fir daemon: %w", err)
 	}
@@ -418,6 +457,11 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 		d.conn.Close()
 		killAndReap(d.cmd)
 		return nil, fmt.Errorf("write fir PID file: %w", err)
+	}
+	if role != firCheckRole && d.aotCachePath != "" {
+		// The checker role verifies on its first check (checkFirWithRecovery);
+		// the oracle role's requests have no such hook, so verify here.
+		return verifyOracleRoleAOT(d, jarPath, srcHash, role, compile, verbose)
 	}
 	return d, nil
 }
@@ -517,27 +561,23 @@ func (d *FirDaemon) exchangeLocked(data []byte) (string, error) {
 
 	type scanResult struct {
 		line string
-		ok   bool
 		err  error
 	}
 	resultCh := make(chan scanResult, 1)
 	go func() {
-		if d.reader.Scan() {
-			resultCh <- scanResult{line: d.reader.Text(), ok: true}
-			return
-		}
-		resultCh <- scanResult{err: d.reader.Err()}
+		line, err := readFirDaemonLine(d.reader)
+		resultCh <- scanResult{line: line, err: err}
 	}()
 
 	timeout := daemonRequestTimeout()
 	var line string
 	select {
 	case res := <-resultCh:
-		if !res.ok {
-			if res.err != nil {
-				return "", fmt.Errorf("read from fir daemon: %w", res.err)
+		if res.err != nil {
+			if errors.Is(res.err, io.EOF) {
+				return "", fmt.Errorf("fir daemon closed stdout unexpectedly")
 			}
-			return "", fmt.Errorf("fir daemon closed stdout unexpectedly")
+			return "", fmt.Errorf("read from fir daemon: %w", res.err)
 		}
 		line = res.line
 	case <-time.After(timeout):
@@ -548,6 +588,20 @@ func (d *FirDaemon) exchangeLocked(data []byte) (string, error) {
 	return line, nil
 }
 
+// There is deliberately no response-size cap: this is a local trusted daemon,
+// unlike the oracle reader, which caps responses at 512 MiB.
+func readFirDaemonLine(reader *bufio.Reader) (string, error) {
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		if !errors.Is(err, io.EOF) || len(line) == 0 {
+			return "", err
+		}
+	}
+	line = strings.TrimSuffix(line, "\n")
+	line = strings.TrimSuffix(line, "\r")
+	return line, nil
+}
+
 // encodeCheckRequest returns the JSON check request for files and the
 // mapping back to the caller's spelling of each file. The daemon echoes
 // request paths back; they are sent absolute, and decodeCheckResponse
@@ -555,18 +609,21 @@ func (d *FirDaemon) exchangeLocked(data []byte) (string, error) {
 func encodeCheckRequest(id int64, files []fileRef, sourceDirs, classpath, rules []string, ruleConfigs RuleConfigs, facts FileFacts, target CompileTarget) ([]byte, oracle.PathSpelling, error) {
 	requested, spelling := absoluteFileRefs(files)
 	req := firDaemonRequest{
-		ID:          id,
-		Command:     "check",
-		Files:       requested,
-		SourceDirs:  oracle.AbsolutePaths(sourceDirs),
-		Classpath:   oracle.AbsolutePaths(classpath),
-		JvmTarget:   target.JvmTarget,
-		KotlinArgs:  target.kotlinArgs(),
-		Rules:       rules,
-		TestFiles:   oracle.AbsolutePaths(facts.TestFiles),
-		ScanPaths:   absoluteKeys(facts.ScanPaths),
-		SDKLevels:   absoluteKeys(facts.SDKLevels),
-		RuleConfigs: wireRuleConfigs(ruleConfigs),
+		ID:         id,
+		Command:    "check",
+		Files:      requested,
+		SourceDirs: oracle.AbsolutePaths(sourceDirs),
+		Classpath:  oracle.AbsolutePaths(classpath),
+		JvmTarget:  target.JvmTarget,
+		KotlinArgs: target.kotlinArgs(),
+		// The daemon's working directory is not the caller's.
+		CompilerPluginClasspath: oracle.AbsolutePaths(target.Kotlin.Plugins.Classpath),
+		CompilerPluginOptions:   target.Kotlin.Plugins.Options,
+		Rules:                   rules,
+		TestFiles:               oracle.AbsolutePaths(facts.TestFiles),
+		ScanPaths:               absoluteKeys(facts.ScanPaths),
+		SDKLevels:               absoluteKeys(facts.SDKLevels),
+		RuleConfigs:             wireRuleConfigs(ruleConfigs),
 	}
 	if target.IncrementalDir != "" {
 		// The daemon's working directory is not the caller's.
@@ -666,11 +723,12 @@ func (d *FirDaemon) Ping() error {
 	}
 	ch := make(chan scanResult, 1)
 	go func() {
-		if d.reader.Scan() {
-			ch <- scanResult{line: d.reader.Text(), ok: true}
+		line, err := readFirDaemonLine(d.reader)
+		if err == nil {
+			ch <- scanResult{line: line, ok: true}
 			return
 		}
-		ch <- scanResult{err: d.reader.Err()}
+		ch <- scanResult{err: err}
 	}()
 	select {
 	case res := <-ch:
@@ -1108,8 +1166,7 @@ func connectExistingFirDaemon(hash string, verbose bool) (*FirDaemon, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect to fir daemon port %d: %w", port, err)
 	}
-	reader := bufio.NewScanner(conn)
-	reader.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	reader := bufio.NewReader(conn)
 
 	d := &FirDaemon{
 		conn:        conn,

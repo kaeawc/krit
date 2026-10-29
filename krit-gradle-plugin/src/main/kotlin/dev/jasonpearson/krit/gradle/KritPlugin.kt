@@ -11,6 +11,7 @@ import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.api.provider.Provider
 import org.gradle.api.file.RegularFile
 import org.gradle.api.artifacts.Configuration
+import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.compile.JavaCompile
 import java.io.File
@@ -207,21 +208,67 @@ class KritPlugin : Plugin<Project> {
     }
 
     private fun registerModelExport(project: Project, extension: KritExtension) {
-        project.afterEvaluate {
+        var modelExported = false
+        var warnIfAndroidAppliedLate = false
+        val exportModel = org.gradle.api.Action<Project> {
+            if (modelExported) return@Action
             val kmp = project.plugins.hasPlugin(KOTLIN_MULTIPLATFORM_PLUGIN_ID)
             val android = project.plugins.hasPlugin(ANDROID_APPLICATION_PLUGIN_ID) ||
                 project.plugins.hasPlugin(ANDROID_LIBRARY_PLUGIN_ID)
+            if (!kmp && !android && !project.plugins.hasPlugin("java")) return@Action
+            modelExported = true
+            warnIfAndroidAppliedLate = !android
+            var androidModelSkipped = false
             val specs = when {
                 kmp -> {
                     val kmpSpecs = kmpModels(project, extension, android)
-                    if (android && kmpSpecs.none { it.platform == "android" })
-                        kmpSpecs + androidModels(project, extension) else kmpSpecs
+                    if (android && kmpSpecs.none { it.platform == "android" }) {
+                        val androidModels = androidModels(project, extension)
+                        androidModelSkipped = androidModels.skipped
+                        kmpSpecs + androidModels.specs
+                    } else kmpSpecs
                 }
-                android -> androidModels(project, extension)
-                project.plugins.hasPlugin("java") -> jvmModels(project)
-                else -> return@afterEvaluate
+                android -> {
+                    val androidModels = androidModels(project, extension)
+                    androidModelSkipped = androidModels.skipped
+                    androidModels.specs
+                }
+                else -> jvmModels(project)
+            }
+            if (android && specs.none { it.platform == "android" } && !androidModelSkipped) {
+                project.logger.warn("krit: kritExportModel for ${project.path} is exporting zero Android source sets; " +
+                    "check Android variant configuration and krit.androidVariant (requested '${extension.androidVariant.orNull ?: "debug"}')")
             }
             registerProjectModel(project, extension, specs)
+        }
+        fun exportAfterEvaluateOrNow() {
+            if (modelExported) {
+                if (warnIfAndroidAppliedLate) {
+                    warnIfAndroidAppliedLate = false
+                    project.logger.warn("krit: kritExportModel for ${project.path} was configured before Android was applied; " +
+                        "the model does not include Android source sets. Apply Android in the plugins block.")
+                }
+                return
+            }
+            if (project.state.executed) {
+                exportModel.execute(project)
+            } else {
+                project.afterEvaluate(exportModel)
+            }
+        }
+        project.pluginManager.withPlugin(ANDROID_APPLICATION_PLUGIN_ID) {
+            exportAfterEvaluateOrNow()
+        }
+        project.pluginManager.withPlugin(ANDROID_LIBRARY_PLUGIN_ID) {
+            exportAfterEvaluateOrNow()
+        }
+        // Android applied from an afterEvaluate is not supported: Android-only projects get the skipped Android model warning;
+        // JVM and KMP projects keep their model and get the 'configured before Android' warning.
+        project.afterEvaluate {
+            if (!modelExported && !project.plugins.hasPlugin(ANDROID_APPLICATION_PLUGIN_ID) &&
+                !project.plugins.hasPlugin(ANDROID_LIBRARY_PLUGIN_ID)) {
+                exportModel.execute(project)
+            }
         }
     }
 
@@ -240,12 +287,21 @@ class KritPlugin : Plugin<Project> {
         val compileTask: String,
     )
 
-    private fun selectedAndroidVariant(project: Project, extension: KritExtension): String? =
-        pickAndroidVariant(project.configurations.map { it.name }
+    private data class AndroidModelsResult(val specs: List<ModelSpec>, val skipped: Boolean = false)
+
+    private fun selectedAndroidVariant(project: Project, extension: KritExtension): String? {
+        val requested = extension.androidVariant.orNull ?: "debug"
+        val selected = pickAndroidVariant(project.configurations.map { it.name }
             .filter { it.endsWith("CompileClasspath") }
             .map { it.removeSuffix("CompileClasspath") }
             .filterNot { it.endsWith("UnitTest") || it.endsWith("AndroidTest") ||
-                it.endsWith("TestFixtures") }, extension.androidVariant.orNull ?: "debug")
+                it.endsWith("TestFixtures") }, requested)
+        if (selected != null) {
+            val fallback = if (selected == requested) "" else "; falling back from requested '$requested'"
+            project.logger.info("krit: kritExportModel for ${project.path} selected Android variant '$selected'$fallback")
+        }
+        return selected
+    }
 
     private fun jvmModels(project: Project): List<ModelSpec> {
         val sourceSets = project.extensions.getByType(SourceSetContainer::class.java)
@@ -263,7 +319,7 @@ class KritPlugin : Plugin<Project> {
         }
     }
 
-    private fun androidModels(project: Project, extension: KritExtension): List<ModelSpec> {
+    private fun androidModels(project: Project, extension: KritExtension): AndroidModelsResult {
         val candidates = project.configurations.map { it.name }
             .filter { it.endsWith("CompileClasspath") }
             .map { it.removeSuffix("CompileClasspath") }
@@ -273,8 +329,8 @@ class KritPlugin : Plugin<Project> {
         val android = project.extensions.findByName("android")
         val components = project.extensions.findByName("androidComponents")
         if (variant == null || android == null || components == null) {
-            project.logger.warn("krit: kritExportModel skipped Android model for ${project.path}: missing variant or Android extension")
-            return emptyList()
+            project.logger.warn("krit: kritExportModel skipped Android model for ${project.path}: missing variant or Android extension; apply Android in the plugins block")
+            return AndroidModelsResult(emptyList(), skipped = true)
         }
         return try {
             val boot = androidBootClasspath(project)
@@ -318,10 +374,10 @@ class KritPlugin : Plugin<Project> {
                     }
                 }
             }
-            specs
+            AndroidModelsResult(specs)
         } catch (error: Exception) {
             project.logger.warn("krit: kritExportModel skipped Android model for ${project.path}: ${error.message}")
-            emptyList()
+            AndroidModelsResult(emptyList(), skipped = true)
         }
     }
 
@@ -570,6 +626,48 @@ class KritPlugin : Plugin<Project> {
         )
     }
 
+    /**
+     * The compile task's compiler plugin classpath (KGP's `pluginClasspath`: the applied compiler plugins, plus
+     * KGP's own scripting support, which krit filters out), read lazily like the compiler options. Empty without
+     * a Kotlin compile task or on a KGP that lacks the property.
+     */
+    private fun compilerPluginClasspath(project: Project, compileTask: String): Provider<FileCollection> {
+        if (!project.tasks.names.contains(compileTask)) return project.provider { project.files() }
+        val task = project.tasks.named(compileTask)
+        val none = project.files()
+        return project.provider {
+            runCatching { reflect(task.get(), "getPluginClasspath") as? FileCollection }.getOrNull() ?: none
+        }
+    }
+
+    /**
+     * The compile task's compiler plugin options as `plugin:<id>:<key>=<value>`, from KGP's `pluginOptions`
+     * (`CompilerPluginConfig.allOptions()`, KGP 1.7+), in the order KGP passes them. An option that cannot be read
+     * is left out; a KGP without the property exports none.
+     */
+    private fun compilerPluginOptions(project: Project, compileTask: String): Provider<List<String>> {
+        if (!project.tasks.names.contains(compileTask)) return project.provider { emptyList() }
+        val task = project.tasks.named(compileTask)
+        return project.provider { runCatching { readCompilerPluginOptions(task.get()) }.getOrElse { emptyList() } }
+    }
+
+    private fun readCompilerPluginOptions(task: Any): List<String> {
+        val raw = reflect(task, "getPluginOptions")
+        val configs = ((if (raw is Provider<*>) raw.orNull else raw) as? Iterable<*>)?.filterNotNull().orEmpty()
+        val out = mutableListOf<String>()
+        configs.forEach { config ->
+            val all = runCatching { config.javaClass.getMethod("allOptions").invoke(config) }.getOrNull() as? Map<*, *>
+            all?.entries?.forEach { entry ->
+                (entry.value as? Iterable<*>)?.filterNotNull()?.forEach { option ->
+                    val key = runCatching { reflect(option, "getKey").toString() }.getOrNull()
+                    val value = runCatching { reflect(option, "getValue").toString() }.getOrNull()
+                    if (key != null && value != null) out += "plugin:${entry.key}:$key=$value"
+                }
+            }
+        }
+        return out
+    }
+
     private fun androidRJar(project: Project, variant: String, kind: String, major: Int): Provider<List<String>> {
         val libraryMain = kind == "main" && project.plugins.hasPlugin(ANDROID_LIBRARY_PLUGIN_ID)
         val runtimeFolders = listOf("compile_and_runtime_not_namespaced_r_class_jar",
@@ -641,6 +739,8 @@ class KritPlugin : Plugin<Project> {
                 kotlinFreeCompilerArgs.set(kotlinOptions.map { it.freeCompilerArgs })
                 kotlinProgressiveMode.set(kotlinOptions.map { it.progressiveMode })
                 kotlinPluginVersion.set(kotlinOptions.map { it.pluginVersion })
+                kotlinCompilerPluginClasspath.from(compilerPluginClasspath(project, spec.compileTask))
+                kotlinCompilerPluginOptions.set(compilerPluginOptions(project, spec.compileTask))
                 val externalArtifacts = spec.configuration.incoming.artifactView {
                     if (spec.platform == "android") {
                         attributes.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "android-classes-jar")

@@ -25,7 +25,7 @@ func fakeFirDaemon(t *testing.T, response string) (*FirDaemon, <-chan []byte) {
 		requests <- append([]byte(nil), in.Bytes()...)
 		_, _ = server.Write([]byte(response + "\n"))
 	}()
-	return &FirDaemon{conn: client, reader: bufio.NewScanner(client), nextID: 1, started: true}, requests
+	return &FirDaemon{conn: client, reader: bufio.NewReader(client), nextID: 1, started: true}, requests
 }
 
 func TestCheckSendsConfiguredRuleOptionsAsRuleConfigs(t *testing.T) {

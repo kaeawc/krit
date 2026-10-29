@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"sync"
@@ -81,12 +82,86 @@ func (s *fakeFirOracleServer) connect(t *testing.T) *FirDaemon {
 	}
 	d := &FirDaemon{
 		conn:    conn,
-		reader:  bufio.NewScanner(conn),
+		reader:  bufio.NewReader(conn),
 		nextID:  1,
 		started: true,
 	}
 	t.Cleanup(func() { _ = conn.Close() })
 	return d
+}
+
+func TestFirDaemonAnalyzeAllResponseExceedsScannerLimit(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() {
+		_ = serverConn.Close()
+		_ = clientConn.Close()
+	})
+	padding := strings.Repeat("x", 16*1024*1024+1)
+	response := `{"id":1,"result":{"version":1,"kotlinVersion":"","files":{},"dependencies":{}},"padding":"` + padding + `"}`
+	serverErr := make(chan error, 1)
+	go func() {
+		defer serverConn.Close()
+		if _, err := bufio.NewReader(serverConn).ReadString('\n'); err != nil {
+			serverErr <- err
+			return
+		}
+		_, err := io.WriteString(serverConn, response+"\n")
+		serverErr <- err
+	}()
+	d := &FirDaemon{
+		conn:    clientConn,
+		reader:  bufio.NewReader(clientConn),
+		nextID:  1,
+		started: true,
+	}
+
+	data, err := d.AnalyzeAll([]string{"/src"}, nil)
+	if err != nil {
+		t.Fatalf("AnalyzeAll with response larger than 16 MiB: %v", err)
+	}
+	if data == nil || data.Version != 1 {
+		t.Fatalf("unexpected AnalyzeAll result: %+v", data)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("fake daemon response: %v", err)
+	}
+}
+
+func TestFirDaemonCheckResponseExceedsScannerLimit(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() {
+		_ = serverConn.Close()
+		_ = clientConn.Close()
+	})
+	padding := strings.Repeat("x", 16*1024*1024+1)
+	response := `{"id":1,"succeeded":1,"findings":[],"rules":[],"padding":"` + padding + `"}`
+	serverErr := make(chan error, 1)
+	go func() {
+		defer serverConn.Close()
+		if _, err := bufio.NewReader(serverConn).ReadString('\n'); err != nil {
+			serverErr <- err
+			return
+		}
+		_, err := io.WriteString(serverConn, response+"\n")
+		serverErr <- err
+	}()
+	d := &FirDaemon{
+		conn:    clientConn,
+		reader:  bufio.NewReader(clientConn),
+		nextID:  1,
+		started: true,
+	}
+
+	resp, err := d.Check(nil, nil, nil, nil, nil, FileFacts{})
+	if err != nil {
+		t.Fatalf("Check with response larger than 16 MiB: %v", err)
+	}
+	if resp == nil || resp.ID != 1 || resp.Succeeded != 1 {
+		t.Fatalf("unexpected Check result: %+v", resp)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("fake daemon response: %v", err)
+	}
 }
 
 func TestFirDaemonAnalyzeAllRoundTrip(t *testing.T) {

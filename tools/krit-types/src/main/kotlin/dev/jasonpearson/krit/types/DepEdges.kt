@@ -166,16 +166,39 @@ internal fun KaSession.recordResolvedDependencyEdges(file: KtFile, tracker: DepT
         }
     }
 
+    fun recordAll(symbols: List<KaSymbol>, propagating: Boolean) {
+        for (symbol in symbols) {
+            try {
+                recordSymbol(symbol, propagating)
+            } catch (_: Throwable) {}
+        }
+    }
+
+    // `r()` on a value calls an `invoke` operator the callee name never
+    // resolves to; an extension `invoke` in another file is reachable only
+    // through the call (#934).
+    fun resolveCall(call: KtCallExpression, propagating: Boolean) {
+        val symbols = try {
+            callFunctionSymbols(call)
+        } catch (_: Throwable) {
+            return
+        }
+        recordAll(symbols, propagating)
+    }
+
     fun resolve(element: KtElement, propagating: Boolean) {
         val symbols = try {
             referencedSymbols(element)
         } catch (_: Throwable) {
             return
         }
-        for (symbol in symbols) {
-            try {
-                recordSymbol(symbol, propagating)
-            } catch (_: Throwable) {}
+        recordAll(symbols, propagating)
+        // Only a callee that names a value, an object or a class (its
+        // companion) can be an implicit invoke; an ordinary call resolves to a
+        // function or constructor and pays for no second resolution.
+        val call = element.parent as? KtCallExpression
+        if (call != null && call.calleeExpression === element && symbols.any { it is KaVariableSymbol || it is KaClassLikeSymbol }) {
+            resolveCall(call, propagating)
         }
     }
 
@@ -193,6 +216,9 @@ internal fun KaSession.recordResolvedDependencyEdges(file: KtFile, tracker: DepT
             is KtForExpression -> resolve(element, propagating)
             is KtPropertyDelegate -> resolve(element, propagating)
             is KtDestructuringDeclarationEntry -> resolve(element, propagating)
+            // A callee that is not a name (`(f)()`, `make()()`, `a[0]()`) is
+            // always an implicit invoke of whatever it evaluates to.
+            is KtCallExpression -> if (element.calleeExpression !is KtSimpleNameExpression) resolveCall(element, propagating)
         }
     }
 

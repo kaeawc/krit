@@ -135,5 +135,16 @@ internal fun KaSession.referencedSymbols(element: KtElement): List<KaSymbol> = w
     else -> emptyList()
 }
 
+/**
+ * The function symbols [call] resolves to, candidate-tolerant like
+ * [referencedSymbols]: for an implicit `invoke` (`r()` on a value) this is the
+ * `invoke` operator, which resolving the callee name alone never reaches.
+ */
+internal fun KaSession.callFunctionSymbols(call: KtCallExpression): List<KaSymbol> = when (val attempt = call.tryResolveCall()) {
+    is KaCallResolutionSuccess -> listOfNotNull((attempt.call as? KaFunctionCall<*>)?.symbol)
+    is KaCallResolutionError -> attempt.candidateCalls.mapNotNull { (it as? KaFunctionCall<*>)?.symbol }
+    else -> emptyList()
+}
+
 private fun multiCallSymbols(attempt: KaMultiCallResolutionAttempt?): List<KaSymbol> =
     attempt?.attempts.orEmpty().flatMap { it.calls.flatMap { call -> call.symbols } }

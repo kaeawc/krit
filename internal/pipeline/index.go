@@ -1496,6 +1496,14 @@ func (p IndexPhase) runAutoDetectOracle(in IndexInput, oracleRules []*api.Rule, 
 	return p.loadOracleFromPath(in, oraclePath, oracleTracker, base, result)
 }
 
+// useResidentOracleDaemon reports whether the oracle runs on the resident
+// daemon. The daemon is launched and keyed without a JVM target, so a run with
+// an explicit target uses the target-scoped one-shot compile instead, as the
+// cached miss path does (oneShotMissAnalysisReason).
+func useResidentOracleDaemon(in IndexInput) bool {
+	return in.UseDaemon && in.OracleJvmTarget == ""
+}
+
 // runOracle is a verbatim port of the pre-refactor oracle block in
 // cmd/krit/main.go (previously lines 716-886). It auto-detects a
 // krit-fir oracle JSON, honours --input-types, --daemon,
@@ -1524,7 +1532,7 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 
 	var resolver typeinfer.TypeResolver
 	switch {
-	case in.UseDaemon:
+	case useResidentOracleDaemon(in):
 		resolver = p.runDaemonOracle(in, oracleRules, scanPaths, loadOracleFilterFiles, oracleTracker, base, result)
 	default:
 		in.FIRCheckBroker.Done("one-shot oracle")

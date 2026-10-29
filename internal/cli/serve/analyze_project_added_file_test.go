@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"github.com/kaeawc/krit/internal/devjar"
 	"os"
 	"path/filepath"
 	"strings"
@@ -184,4 +185,5 @@ func isolateFromHelperJars(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("KRIT_FIR_JAR", "")
+	t.Setenv(devjar.DirEnv, t.TempDir())
 }

@@ -23,6 +23,7 @@ import (
 // in-process --output-types invocations against a bare TempDir produce
 // byte-identical stderr/exit-code triples.
 func TestDumpTypesVerb_NoJarReturnsExitCode2(t *testing.T) {
+	isolateFromHelperJars(t)
 	socket, state := startServerForTest(t)
 	outputPath := filepath.Join(state.root, "types.json")
 
@@ -68,6 +69,7 @@ func TestDumpTypesVerb_MissingOutputPathReturnsExitCode2(t *testing.T) {
 // falls back to the daemon's --root so callers that just want a dump
 // of the resident project don't have to repeat the root.
 func TestDumpTypesVerb_PathsDefaultToRoot(t *testing.T) {
+	isolateFromHelperJars(t)
 	socket, state := startServerForTest(t)
 	outputPath := filepath.Join(state.root, "types.json")
 

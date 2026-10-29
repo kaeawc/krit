@@ -21,11 +21,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/kaeawc/krit/internal/fileignore"
@@ -856,43 +853,6 @@ func runKritTypesCached(
 	return runErr
 }
 
-type kritTypesCachedRunner func(
-	jarPath string,
-	sourceDirs []string,
-	missListPath, freshOutPath, depsOutPath string,
-	verbose bool,
-	tracker perf.Tracker,
-) error
-
-type shardResult struct {
-	Fresh      *Data
-	Deps       *CacheDepsFile
-	DepsErr    error
-	Err        error
-	Files      int
-	Cost       int64
-	Bytes      int64
-	CallTokens int64
-}
-
-func configuredKritTypesShards(misses int) int {
-	if misses <= 1 {
-		return 1
-	}
-	raw := strings.TrimSpace(os.Getenv("KRIT_TYPES_SHARDS"))
-	if raw == "" {
-		return 1
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 1 {
-		return 1
-	}
-	if n > misses {
-		return misses
-	}
-	return n
-}
-
 func configuredDaemonCacheMode() string {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("KRIT_DAEMON_CACHE"))) {
 	case "off", "false", "0", "one-shot", "oneshot":
@@ -920,14 +880,11 @@ func configuredDaemonCacheMode() string {
 // KRIT_DAEMON_CACHE=on / =off still wins.
 const daemonPreferredMissThreshold = 8
 
-func shouldUseOneShotMissAnalysis(poolSize, misses int) (bool, string) {
+func shouldUseOneShotMissAnalysis(misses int) (bool, string) {
 	switch configuredDaemonCacheMode() {
 	case "off":
 		return true, "KRIT_DAEMON_CACHE=off"
 	case "on":
-		return false, ""
-	}
-	if poolSize > 1 {
 		return false, ""
 	}
 	// Small miss sets: the persistent daemon amortizes JVM cold-start
@@ -940,244 +897,6 @@ func shouldUseOneShotMissAnalysis(poolSize, misses int) (bool, string) {
 		return true, fmt.Sprintf("default parallel one-shot (%d workers)", workers)
 	}
 	return false, ""
-}
-
-type kaaMissCost struct {
-	Path       string
-	Cost       int64
-	Bytes      int64
-	CallTokens int64
-}
-
-type kaaMissGroup struct {
-	Paths      []string
-	Cost       int64
-	Bytes      int64
-	CallTokens int64
-}
-
-const kaaCallTokenCostBytes int64 = 512
-
-func splitMissesForKAA(paths []string, shards int) [][]string {
-	groups := splitMissesForKAAWithStats(paths, shards)
-	out := make([][]string, len(groups))
-	for i, group := range groups {
-		out[i] = group.Paths
-	}
-	return out
-}
-
-func splitMissesForKAAWithStats(paths []string, shards int) []kaaMissGroup {
-	if len(paths) == 0 {
-		return nil
-	}
-	if shards < 1 {
-		shards = 1
-	}
-	if shards > len(paths) {
-		shards = len(paths)
-	}
-	costs := make([]kaaMissCost, 0, len(paths))
-	for _, p := range paths {
-		costs = append(costs, estimateKAAMissCost(p))
-	}
-	sort.SliceStable(costs, func(i, j int) bool {
-		if costs[i].Cost != costs[j].Cost {
-			return costs[i].Cost > costs[j].Cost
-		}
-		return costs[i].Path < costs[j].Path
-	})
-
-	groups := make([]kaaMissGroup, shards)
-	loads := make([]int64, shards)
-	for _, c := range costs {
-		k := indexOfMinInt64(loads)
-		groups[k].Paths = append(groups[k].Paths, c.Path)
-		groups[k].Cost += c.Cost
-		groups[k].Bytes += c.Bytes
-		groups[k].CallTokens += c.CallTokens
-		loads[k] += c.Cost
-	}
-	return groups
-}
-
-func estimateKAAMissCost(path string) kaaMissCost {
-	c := kaaMissCost{Path: path, Cost: 1}
-	if st, err := os.Stat(path); err == nil && st.Size() > 0 {
-		c.Bytes = st.Size()
-	}
-	if data, err := os.ReadFile(path); err == nil {
-		c.Bytes = int64(len(data))
-		c.CallTokens = roughKAACallTokens(data)
-	}
-	c.Cost = c.Bytes + c.CallTokens*kaaCallTokenCostBytes
-	if c.Cost <= 0 {
-		c.Cost = 1
-	}
-	return c
-}
-
-func roughKAACallTokens(data []byte) int64 {
-	var n int64
-	for _, b := range data {
-		if b == '(' {
-			n++
-		}
-	}
-	return n
-}
-
-func indexOfMinInt64(values []int64) int {
-	if len(values) == 0 {
-		return 0
-	}
-	best := 0
-	for i := 1; i < len(values); i++ {
-		if values[i] < values[best] {
-			best = i
-		}
-	}
-	return best
-}
-
-func runKritTypesCachedShardedWithRunner(
-	jarPath string,
-	sourceDirs []string,
-	misses []string,
-	shards int,
-	verbose bool,
-	tracker perf.Tracker,
-	runner kritTypesCachedRunner,
-) (*Data, *CacheDepsFile, error) {
-	if tracker == nil {
-		tracker = perf.New(false)
-	}
-	groups := splitMissesForKAAWithStats(misses, shards)
-	if len(groups) == 0 {
-		return mergeData(), nil, nil
-	}
-	var totalCost, totalBytes, totalCallTokens int64
-	for _, group := range groups {
-		totalCost += group.Cost
-		totalBytes += group.Bytes
-		totalCallTokens += group.CallTokens
-	}
-	addOracleInstant(tracker, "shardedMissAnalysisSummary", map[string]int64{
-		"shards":     int64(len(groups)),
-		"files":      int64(len(misses)),
-		"cost":       totalCost,
-		"bytes":      totalBytes,
-		"callTokens": totalCallTokens,
-	}, nil)
-	goMaxProcs := runtime.GOMAXPROCS(0)
-	activeProcessors := activeProcessorCountForKritTypesShard(len(groups))
-	totalProcessorBudget := activeProcessors * len(groups)
-	idleProcessorBudget := goMaxProcs - totalProcessorBudget
-	if idleProcessorBudget < 0 {
-		idleProcessorBudget = 0
-	}
-	shardJVMArgs := jvmArgsForKritTypesShard(len(groups))
-	addOracleInstant(tracker, "shardedJVMCPUConfig", map[string]int64{
-		"shards":               int64(len(groups)),
-		"goroutines":           int64(len(groups)),
-		"goMaxProcs":           int64(goMaxProcs),
-		"activeProcessorCount": int64(activeProcessors),
-		"totalProcessorBudget": int64(totalProcessorBudget),
-		"idleProcessorBudget":  int64(idleProcessorBudget),
-	}, map[string]string{
-		"extraJVMArgs": strings.Join(configuredExtraJVMArgs(InvocationOptions{ExtraJVMArgs: shardJVMArgs}), " "),
-	})
-
-	results := make([]shardResult, len(groups))
-	var wg sync.WaitGroup
-	for i, group := range groups {
-		i, group := i, group
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			child := tracker.Serial(fmt.Sprintf("kritTypesShard/%d", i))
-			defer child.End()
-			results[i].Files = len(group.Paths)
-			results[i].Cost = group.Cost
-			results[i].Bytes = group.Bytes
-			results[i].CallTokens = group.CallTokens
-			addOracleInstant(child, "shardInputSummary", map[string]int64{
-				"files":      int64(len(group.Paths)),
-				"cost":       group.Cost,
-				"bytes":      group.Bytes,
-				"callTokens": group.CallTokens,
-			}, nil)
-
-			listPath, freshPath, depsPath, err := prepareMissTemps(group.Paths)
-			if err != nil {
-				results[i].Err = err
-				return
-			}
-			defer func() {
-				_ = os.Remove(listPath)
-				_ = os.Remove(freshPath)
-				_ = os.Remove(depsPath)
-			}()
-
-			if err := runner(jarPath, sourceDirs, listPath, freshPath, depsPath, verbose, child); err != nil {
-				results[i].Err = err
-				return
-			}
-
-			fresh, deps, depsErr, err := readOneShotMissResult(child, freshPath, depsPath, sourceDirs, group.Paths)
-			if err != nil {
-				results[i].Err = fmt.Errorf("shard %d read fresh oracle: %w", i, err)
-				return
-			}
-			results[i] = shardResult{
-				Fresh:      fresh,
-				Deps:       deps,
-				DepsErr:    depsErr,
-				Files:      len(group.Paths),
-				Cost:       group.Cost,
-				Bytes:      group.Bytes,
-				CallTokens: group.CallTokens,
-			}
-		}()
-	}
-	wg.Wait()
-
-	for i, result := range results {
-		if result.Err != nil {
-			return nil, nil, fmt.Errorf("krit-fir shard %d failed: %w", i, result.Err)
-		}
-	}
-
-	var fresh *Data
-	if err := trackOracle(tracker, "mergeShardOracleJSON", func() error {
-		parts := make([]*Data, 0, len(results))
-		for _, result := range results {
-			parts = append(parts, result.Fresh)
-		}
-		fresh = mergeData(parts...)
-		return nil
-	}); err != nil {
-		return nil, nil, err
-	}
-
-	var deps *CacheDepsFile
-	if err := trackOracle(tracker, "mergeShardCacheDeps", func() error {
-		parts := make([]*CacheDepsFile, 0, len(results))
-		for i, result := range results {
-			if result.DepsErr != nil {
-				addOracleInstant(tracker, "shardedCacheDepsReadError", map[string]int64{"shard": int64(i)}, map[string]string{"error": result.DepsErr.Error()})
-				deps = nil
-				return nil //nolint:nilerr // shard cache-deps read failed: skip merge, leave deps unset (non-fatal)
-			}
-			parts = append(parts, result.Deps)
-		}
-		deps = mergeCacheDeps(parts...)
-		return nil
-	}); err != nil {
-		return nil, nil, err
-	}
-
-	return fresh, deps, nil
 }
 
 // missAnalyzer analyzes the misses. It is runMissAnalysis except in tests,
@@ -1234,85 +953,8 @@ func runMissAnalysis(
 		return fresh, deps, false, nil
 	}
 
-	shards := configuredKritTypesShards(len(misses))
-	if shards > 1 {
-		if verbose {
-			reporter().Verbosef("verbose: sharding miss analysis across %d krit-fir JVM workers (%d files)\n", shards, len(misses))
-		}
-		// KRIT_TYPES_SHARDS is an explicit one-shot JVM experiment: bypass
-		// the daemon so the miss list is actually processed by multiple
-		// independent Analysis API workers.
-		//
-		// Apply adaptive JVM resource policy: cap each shard's processor count
-		// to avoid saturating all cores across concurrent JVM workers. Env
-		// overrides (KRIT_TYPES_EXTRA_JVM_ARGS) are appended after policy args
-		// so benchmarks can supersede the computed cap.
-		shardArgs := adaptiveShardJVMArgs(shards, opts)
-		addOracleInstant(tracker, "adaptiveShardJVMArgs", map[string]int64{
-			"shards":               int64(shards),
-			"activeProcessorCount": int64(activeProcessorCountForKritTypesShard(shards)),
-			"argCount":             int64(len(shardArgs)),
-		}, map[string]string{
-			"jvmArgs": strings.Join(shardArgs, " "),
-		})
-		runner := func(jarPath string, sourceDirs []string, missListPath, freshOutPath, depsOutPath string, verbose bool, tracker perf.Tracker) error {
-			shardOpts := opts
-			shardOpts.Tracker = tracker
-			shardOpts.ExtraJVMArgs = shardArgs
-			// A shard compiles the whole module but answers for part of
-			// the misses; the checker pass compiles once on its own.
-			shardOpts.CheckRider = nil
-			return runKritTypesCached(jarPath, sourceDirs, missListPath, freshOutPath, depsOutPath, verbose, tracker, shardOpts)
-		}
-		fresh, deps, err := runKritTypesCachedShardedWithRunner(jarPath, sourceDirs, misses, shards, verbose, tracker, runner)
-		if err != nil {
-			addOracleInstant(tracker, "shardedMissAnalysisFallback", nil, map[string]string{"error": err.Error()})
-			return fallback(fmt.Sprintf("sharded miss analysis failed: %v", err))
-		}
-		return fresh, deps, false, nil
-	}
-
-	poolSize := configuredDaemonPoolSize(len(misses))
-	if useOneShot, reason := oneShotMissAnalysisReason(poolSize, len(misses), opts); useOneShot {
+	if useOneShot, reason := oneShotMissAnalysisReason(len(misses), opts); useOneShot {
 		return fallback(reason)
-	}
-
-	if shouldUseDaemonPool(len(misses), poolSize) {
-		var pool *DaemonPool
-		if err := trackOracle(tracker, "daemonPoolConnectOrStart", func() error {
-			var err error
-			pool, err = ConnectOrStartDaemonPool(jarPath, sourceDirs, opts.Classpath, poolSize, verbose, WithKotlinSettings(opts.Kotlin))
-			return err
-		}); err != nil {
-			return fallback(fmt.Sprintf("ConnectOrStartDaemonPool: %v", err))
-		}
-		defer func() { _ = pool.Release() }()
-		addOracleInstant(tracker, "daemonPoolConnectOrStartSummary", map[string]int64{
-			"requested": int64(pool.Requested),
-			"connected": int64(pool.Connected),
-			"started":   int64(pool.Started),
-		}, nil)
-		var matchErr error
-		pool, matchErr = reconnectMismatchedDaemonPool(pool, jarPath, sourceDirs, opts.Classpath, opts.Kotlin, poolSize, verbose, len(misses), tracker)
-		if matchErr != nil {
-			return fallback(matchErr.Error())
-		}
-		if verbose {
-			reporter().Verbosef("verbose: sharding daemon miss analysis across %d persistent workers (%d files)\n", len(pool.Members), len(misses))
-		}
-		fresh, deps, err := pool.AnalyzeWithDepsSharded(misses, tracker != nil && tracker.IsEnabled(), opts.CallFilter, opts.DeclarationProfile, tracker)
-		if err != nil {
-			addOracleInstant(tracker, "daemonPoolMissAnalysisFallback", nil, map[string]string{"error": err.Error()})
-			return fallback(fmt.Sprintf("daemon pool AnalyzeWithDeps: %v", err))
-		}
-		return fresh, deps, true, nil
-	}
-	if poolSize > 1 {
-		addOracleInstant(tracker, "daemonPoolBypass", map[string]int64{
-			"poolSize":  int64(poolSize),
-			"misses":    int64(len(misses)),
-			"threshold": int64(daemonPoolMinMisses),
-		}, map[string]string{"reason": "smallMissSet"})
 	}
 
 	var d *Daemon
@@ -1363,30 +1005,13 @@ func runMissAnalysis(
 	return fresh, deps, true, nil
 }
 
-func oneShotMissAnalysisReason(poolSize, misses int, opts InvocationOptions) (bool, string) {
+func oneShotMissAnalysisReason(misses int, opts InvocationOptions) (bool, string) {
 	// The generic oracle daemon registry does not key JVM target. An
 	// explicit FIR target uses the one-shot runner and its scoped cache.
 	if opts.JvmTarget != "" {
 		return true, "FIR JVM target requires target-scoped compilation"
 	}
-	return shouldUseOneShotMissAnalysis(poolSize, misses)
-}
-
-func reconnectMismatchedDaemonPool(pool *DaemonPool, jarPath string, sourceDirs, classpath []string, kt gradlemodel.KotlinSettings, size int, verbose bool, misses int, tracker perf.Tracker) (*DaemonPool, error) {
-	if pool.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...) {
-		return pool, nil
-	}
-	addOracleInstant(tracker, "daemonPoolRepoMismatch", map[string]int64{"misses": int64(misses)}, nil)
-	_ = pool.Release()
-	replacement, err := ConnectOrStartDaemonPool(jarPath, sourceDirs, classpath, size, verbose, WithKotlinSettings(kt))
-	if err != nil {
-		return pool, fmt.Errorf("reconnect daemon pool: %w", err)
-	}
-	if !replacement.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...) {
-		_ = replacement.Release()
-		return replacement, fmt.Errorf("daemon pool (jar, sourceDirs) mismatch after reconnect")
-	}
-	return replacement, nil
+	return shouldUseOneShotMissAnalysis(misses)
 }
 
 func reconnectMismatchedDaemon(d *Daemon, jarPath string, sourceDirs, classpath []string, kt gradlemodel.KotlinSettings, verbose bool, misses int, tracker perf.Tracker) (*Daemon, error) {

@@ -497,30 +497,29 @@ jobs:
           fi
           echo "KOTLIN_STDLIB_JAR=$jar" >> "$GITHUB_ENV"
           echo "kotlin-stdlib: $jar"
-      # TestOracleBackendParity guards the declaration surface across
-      # both backends; TestFirOracleFactContract guards the FIR
-      # expression surface (types, nullability, call targets, suspend
-      # markers, diagnostics) the type-aware rules read — the facts the
-      # cross-backend gate deliberately doesn't compare. TestFirFixtureParity
+      # TestFirOracleDeclarationContract pins the oracle's declaration
+      # surface; TestFirOracleFactContract guards the expression surface
+      # (types, nullability, call targets, suspend markers, diagnostics)
+      # the type-aware rules read. TestFirFixtureParity
       # compiles every FIR rule's Go fixtures through krit-fir against the
       # compiler-tests stub library (the Java stubs are compiled with javac
       # from setup-java) and requires per-line agreement with the Go rule;
       # TestOracleKotlin24* and TestFirKotlin24Parity (#785) run the Kotlin 2.4
       # fixtures (named context parameters, explicit backing fields, `@all:`)
-      # through both backends under explicit language modes;
+      # under explicit language modes; TestKMPSourceSetParity checks KMP
+      # source sets against kotlinc ground truth;
       # the per-checker correctness tests pin known edge shapes; the rule
       # isolation test proves a throwing checker costs only its own rule and
       # file. The daemon relative-path tests prove `krit .` scans of different
-      # projects never share a daemon and that each backend's daemon facts
-      # come back (and are cached) under the caller's relative spelling.
-      # All must pass before the FIR backend can be made the default.
+      # projects never share a daemon and that the daemon's facts come back
+      # (and are cached) under the caller's relative spelling.
       - name: Run oracle backend parity
         run: |
           set -o pipefail
-          go test ./tests/parity/ -count=1 -timeout 30m -run 'TestOracleBackendParity|TestOracleKotlin24|TestFirKotlin24Parity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative' -v | tee parity.log
+          go test ./tests/parity/ -count=1 -timeout 30m -run 'TestFirOracleDeclarationContract|TestOracleAcceptsClasspathFlag|TestKMPSourceSetParity|TestOracleKotlin24|TestFirKotlin24Parity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative' -v | tee parity.log
           # Top-level tests only: an exempt rule's subtest may skip. The
           # daemon relative-path tests' per-backend subtests must all run.
-          if grep -qE -- '--- SKIP: (TestOracleKotlin24[A-Za-z]+|TestFirKotlin24Parity|TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative[A-Za-z]+(/fir(-symlink)?)?) \(' parity.log; then
+          if grep -qE -- '--- SKIP: (TestFirOracleDeclarationContract|TestOracleAcceptsClasspathFlag|TestKMPSourceSetParity|TestFirOracleFactContract|TestOracleKotlin24[A-Za-z]+|TestFirKotlin24Parity|TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative[A-Za-z]+(/fir(-symlink)?)?) \(' parity.log; then
             echo "::error::a FIR parity/property/fuzz test skipped; the CI parity job must execute them"
             exit 1
           fi

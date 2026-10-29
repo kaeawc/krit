@@ -113,6 +113,7 @@ func (f *fakeOracleDaemonStarter) Start(jarPath string, sourceDirs, classpath []
 // "no krit-fir.jar in the search path" code path. Callers must
 // receive (nil, nil) so the daemon can proceed without oracle support.
 func TestEnsureOracleDaemon_GracefulDisableWhenJarMissing(t *testing.T) {
+	isolateFromHelperJars(t)
 	state := newDaemonState(t.TempDir())
 	t.Cleanup(state.closeOracleDaemons)
 

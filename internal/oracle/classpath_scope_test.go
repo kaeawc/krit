@@ -94,12 +94,12 @@ func TestKotlinSettingsChangeStoreScope(t *testing.T) {
 func TestKotlinSettingsKeepTheDaemonPath(t *testing.T) {
 	t.Setenv("KRIT_DAEMON_CACHE", "on")
 	opts := InvocationOptions{Backend: BackendFIR, Kotlin: gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}}
-	if use, reason := oneShotMissAnalysisReason(1, 1, opts); use {
+	if use, reason := oneShotMissAnalysisReason(1, opts); use {
 		t.Fatalf("settings forced a one-shot compile (%q); the daemon must serve them", reason)
 	}
 	// The FIR JVM-target rule is unchanged.
 	opts.JvmTarget = "17"
-	if use, _ := oneShotMissAnalysisReason(1, 1, opts); !use {
+	if use, _ := oneShotMissAnalysisReason(1, opts); !use {
 		t.Fatal("FIR with a JVM target still needs the target-scoped one-shot")
 	}
 }
@@ -127,10 +127,6 @@ func TestDaemonRegistryIsKeyedOnKotlinSettings(t *testing.T) {
 	}
 	if d.MatchesRepoSettings(jar, dirs, newer, "/a.jar") || d.MatchesRepoSettings(jar, dirs, gradlemodel.KotlinSettings{}, "/a.jar") {
 		t.Fatal("daemon launched for other settings must not match")
-	}
-	pool := &DaemonPool{Members: []*Daemon{d}}
-	if !pool.MatchesRepoSettings(jar, dirs, older, "/a.jar") || pool.MatchesRepoSettings(jar, dirs, newer, "/a.jar") {
-		t.Fatal("pool must require every member to carry the settings")
 	}
 	args := appendDaemonJarArgsKT(nil, jar, dirs, nil, older, "--daemon")
 	joined := strings.Join(args, " ")

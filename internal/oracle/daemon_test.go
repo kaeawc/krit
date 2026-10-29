@@ -223,12 +223,12 @@ func TestDaemon_AnalyzeAll_Mock(t *testing.T) {
 	}
 }
 
-func TestDaemon_AnalyzeFilesWithCallFilter_EmptyList(t *testing.T) {
+func TestDaemon_AnalyzeFiles_EmptyList(t *testing.T) {
 	// Empty file list must short-circuit to an empty Data without
 	// touching the wire. A stale-paths hint that filters down to
 	// nothing on warm runs should not trigger a JVM round-trip.
 	d, _, _ := newMockDaemon(t)
-	data, err := d.AnalyzeFilesWithCallFilter(nil, nil)
+	data, err := d.AnalyzeFiles(nil)
 	if err != nil {
 		t.Fatalf("empty list: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestDaemon_AnalyzeFilesWithCallFilter_EmptyList(t *testing.T) {
 	}
 }
 
-func TestDaemon_AnalyzeFilesWithCallFilter_SendsCorrectWireFormat(t *testing.T) {
+func TestDaemon_AnalyzeFiles_SendsCorrectWireFormat(t *testing.T) {
 	d, reqReader, respWriter := newMockDaemon(t)
 
 	go func() {
@@ -256,56 +256,17 @@ func TestDaemon_AnalyzeFilesWithCallFilter_SendsCorrectWireFormat(t *testing.T) 
 		if !ok || len(files) != 2 {
 			t.Errorf("params.files = %v, want 2 entries", req.Params["files"])
 		}
-		// Call-filter fields must not leak when the filter is nil.
-		if _, ok := req.Params["callFilterCalleeNames"]; ok {
-			t.Errorf("nil callFilter must not include filter fields in params")
-		}
 
 		resp := fmt.Sprintf(`{"id": %d, "result": {"version": 1, "files": {"/a.kt": {"package": "p", "declarations": []}}, "dependencies": {}}}`, req.ID) + "\n"
 		_, _ = respWriter.Write([]byte(resp))
 	}()
 
-	data, err := d.AnalyzeFilesWithCallFilter([]string{"/a.kt", "/b.kt"}, nil)
+	data, err := d.AnalyzeFiles([]string{"/a.kt", "/b.kt"})
 	if err != nil {
-		t.Fatalf("AnalyzeFilesWithCallFilter: %v", err)
+		t.Fatalf("AnalyzeFiles: %v", err)
 	}
 	if data == nil || data.Files["/a.kt"] == nil {
 		t.Errorf("response not parsed correctly: %+v", data)
-	}
-}
-
-func TestDaemon_AnalyzeFilesWithCallFilter_IncludesCallFilter(t *testing.T) {
-	d, reqReader, respWriter := newMockDaemon(t)
-	filter := &CallTargetFilterSummary{
-		Enabled:     true,
-		CalleeNames: []string{"foo", "bar"},
-	}
-
-	go func() {
-		sc := bufio.NewScanner(reqReader)
-		sc.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
-		if !sc.Scan() {
-			return
-		}
-		var req daemonRequest
-		_ = json.Unmarshal([]byte(sc.Text()), &req)
-
-		callees, ok := req.Params["callFilterCalleeNames"].([]interface{})
-		if !ok || len(callees) != 2 {
-			t.Errorf("callFilterCalleeNames not propagated: %v", req.Params["callFilterCalleeNames"])
-		}
-		files, ok := req.Params["files"].([]interface{})
-		if !ok || len(files) != 1 {
-			t.Errorf("files not propagated: %v", req.Params["files"])
-		}
-
-		resp := fmt.Sprintf(`{"id": %d, "result": {"version": 1, "files": {}, "dependencies": {}}}`, req.ID) + "\n"
-		_, _ = respWriter.Write([]byte(resp))
-	}()
-
-	_, err := d.AnalyzeFilesWithCallFilter([]string{"/a.kt"}, filter)
-	if err != nil {
-		t.Fatalf("AnalyzeFilesWithCallFilter: %v", err)
 	}
 }
 
@@ -831,7 +792,7 @@ func TestDaemon_RequestTimeout_KillsAndMarksUnstarted(t *testing.T) {
 	}()
 
 	// Shrink the timeout to 300ms so the test runs fast.
-	t.Setenv("KRIT_TYPES_REQUEST_TIMEOUT", "300ms")
+	t.Setenv("KRIT_ORACLE_REQUEST_TIMEOUT", "300ms")
 
 	start := time.Now()
 	_, err := d.AnalyzeAll()

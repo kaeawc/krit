@@ -17,28 +17,28 @@ const analyzeWithCheckMethod = "analyzeWithCheck"
 // request under.
 const sharedCheckKey = "kritSharedCheck"
 
-// AnalyzeAllWithCheck is AnalyzeAllWithCallFilter that also asks the daemon to
+// AnalyzeAllWithCheck is AnalyzeAll that also asks the daemon to
 // run the rider's check request on the same compilation, instead of leaving
 // the caller to compile the module a second time.
 //
 // The rider's response is delivered only when krit-fir shared the compile.
 // Anything else leaves the rider undelivered and the result is the oracle's
-// alone, exactly as AnalyzeAllWithCallFilter returns it: a nil rider, a jar
+// alone, exactly as AnalyzeAll returns it: a nil rider, a jar
 // that does not know the request (remembered, so later calls skip it), or a
 // compile krit-fir could not share.
-func (d *Daemon) AnalyzeAllWithCheck(callFilter *CallTargetFilterSummary, rider *CheckRider) (*Data, error) {
+func (d *Daemon) AnalyzeAllWithCheck(rider *CheckRider) (*Data, error) {
 	if rider == nil || rider.Prepare == nil {
-		return d.AnalyzeAllWithCallFilter(callFilter)
+		return d.AnalyzeAll()
 	}
 	if d.noSharedCheck.Load() {
 		rider.decline("krit-fir does not carry the check")
-		return d.AnalyzeAllWithCallFilter(callFilter)
+		return d.AnalyzeAll()
 	}
 	body, deliver := rider.Prepare()
 	body = withoutCommand(body)
 	if len(body) == 0 || deliver == nil {
 		rider.decline("nothing to check")
-		return d.AnalyzeAllWithCallFilter(callFilter)
+		return d.AnalyzeAll()
 	}
 
 	d.mu.Lock()
@@ -46,12 +46,9 @@ func (d *Daemon) AnalyzeAllWithCheck(callFilter *CallTargetFilterSummary, rider 
 		// The pass gave up while this request queued behind another one: it
 		// compiles on its own, so carrying its check would be wasted work.
 		d.mu.Unlock()
-		return d.AnalyzeAllWithCallFilter(callFilter)
+		return d.AnalyzeAll()
 	}
-	params := callFilterParams(callFilter)
-	if params == nil {
-		params = map[string]interface{}{}
-	}
+	params := map[string]interface{}{}
 	params[sharedCheckKey] = json.RawMessage(body)
 	if rider.Sent != nil {
 		rider.Sent()
@@ -62,12 +59,12 @@ func (d *Daemon) AnalyzeAllWithCheck(callFilter *CallTargetFilterSummary, rider 
 		if !isUnknownCommand(err) {
 			return nil, err
 		}
-		return d.unsupportedCarrier(callFilter, rider)
+		return d.unsupportedCarrier(rider)
 	}
 	if resp.Result == nil {
 		// An older jar that misread the request as something else answers
 		// without an oracle result: never trust it with the check again.
-		return d.unsupportedCarrier(callFilter, rider)
+		return d.unsupportedCarrier(rider)
 	}
 
 	_, spelling := d.requestSpelling(nil)
@@ -91,10 +88,10 @@ func (d *Daemon) AnalyzeAllWithCheck(callFilter *CallTargetFilterSummary, rider 
 // unsupportedCarrier remembers that this daemon's jar cannot carry a check,
 // releases the rider's waiter before the plain compile starts, and returns the
 // oracle's plain analysis.
-func (d *Daemon) unsupportedCarrier(callFilter *CallTargetFilterSummary, rider *CheckRider) (*Data, error) {
+func (d *Daemon) unsupportedCarrier(rider *CheckRider) (*Data, error) {
 	d.noSharedCheck.Store(true)
 	rider.decline("krit-fir does not carry the check")
-	return d.AnalyzeAllWithCallFilter(callFilter)
+	return d.AnalyzeAll()
 }
 
 // withoutCommand drops the embedded request's top-level "command" key. The
@@ -123,7 +120,7 @@ func isUnknownCommand(err error) bool {
 }
 
 // DaemonRequestTimeout is how long one daemon request may take
-// (KRIT_TYPES_REQUEST_TIMEOUT, default 10 minutes) before the daemon is killed.
+// (KRIT_ORACLE_REQUEST_TIMEOUT, default 10 minutes) before the daemon is killed.
 func DaemonRequestTimeout() time.Duration { return daemonRequestTimeout() }
 
 // sendCarrier is send for the combined request, with one difference in the

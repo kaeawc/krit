@@ -8,7 +8,7 @@ import (
 
 // #957: the oracle-only analyzeAll names krit-fir's bundle directory as an
 // absolute path, and omits it when the request has none.
-func TestAnalyzeAllWithCallFilterInNamesTheDir(t *testing.T) {
+func TestAnalyzeAllInNamesTheDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	for _, tc := range []struct {
@@ -28,7 +28,7 @@ func TestAnalyzeAllWithCallFilterInNamesTheDir(t *testing.T) {
 				got = req.Params["incrementalDir"]
 				return fmt.Sprintf(`{"id":%d,"result":{"version":1,"files":{}}}`, req.ID)
 			})
-			if _, err := d.AnalyzeAllWithCallFilterIn(nil, tc.in); err != nil {
+			if _, err := d.AnalyzeAllIn(tc.in); err != nil {
 				t.Fatal(err)
 			}
 			if got != tc.want {

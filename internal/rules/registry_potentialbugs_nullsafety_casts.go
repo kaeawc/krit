@@ -18,27 +18,10 @@ func registerPotentialbugsNullsafetyCastsRules() {
 			Needs: api.NeedsTypeInfo |
 				api.NeedsOracleCallTargets |
 				api.NeedsOracleDiagnostics,
-			Oracle: &api.OracleFilter{Identifiers: []string{" as ", " as?"}},
-			OracleCallTargets: &api.OracleCallTargetFilter{CalleeNames: []string{
-				"findFragmentById",
-				"findFragmentByTag",
-				"findViewById",
-				"getSystemService",
-				"requireViewById",
-			}, LexicalSkipByCallee: map[string][]string{
-				"findFragmentById":  {"fragmentManager", "supportFragmentManager", "childFragmentManager", "parentFragmentManager", "FragmentManager"},
-				"findFragmentByTag": {"fragmentManager", "supportFragmentManager", "childFragmentManager", "parentFragmentManager", "FragmentManager"},
-				"findViewById":      {"view", "root", "itemView", "activity", "dialog", "window", "View"},
-				"getSystemService":  {"context", "applicationContext", "requireContext", "activity", "Context"},
-				"requireViewById":   {"view", "root", "itemView", "activity", "dialog", "window", "View"},
-			}},
-			// Consumes compiler CAST_NEVER_SUCCEEDS diagnostics and uses expression
-			// types for the conservative local fallback; no declarations traversal
-			// needed.
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
-			Tags:                   []string{"precompile"},
-			Implementation:         r,
-			Check:                  r.check,
+			Oracle:         &api.OracleFilter{Identifiers: []string{" as ", " as?"}},
+			Tags:           []string{"precompile"},
+			Implementation: r,
+			Check:          r.check,
 		})
 	}
 	{
@@ -46,11 +29,10 @@ func registerPotentialbugsNullsafetyCastsRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"as_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic,
-			Needs:                  api.NeedsTypeInfo | api.NeedsOracleExprType,
-			TypeInfo:               api.TypeInfoHint{PreferBackend: api.PreferAny, Required: true},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
-			Implementation:         r,
-			Check:                  r.check,
+			Needs:          api.NeedsTypeInfo | api.NeedsOracleExprType,
+			TypeInfo:       api.TypeInfoHint{PreferBackend: api.PreferAny, Required: true},
+			Implementation: r,
+			Check:          r.check,
 		})
 	}
 	{

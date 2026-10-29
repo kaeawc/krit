@@ -291,9 +291,6 @@ func assertLogTagOracleCapability(t *testing.T, ruleID string) {
 	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
 		t.Errorf("%s missing NeedsOracleCallTargets: Needs=%b", ruleID, rule.Needs)
 	}
-	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
-		t.Errorf("%s OracleCallTargets must list Log level names, got %+v", ruleID, rule.OracleCallTargets)
-	}
 }
 
 func runLogTagWithCallTarget(t *testing.T, ruleID, code, callText, target string) []scanner.Finding {

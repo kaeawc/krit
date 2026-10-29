@@ -295,10 +295,6 @@ func registerComposeRememberWithoutKey() {
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-		OracleCallTargets: &api.OracleCallTargetFilter{
-			CalleeNames: []string{"remember"},
-		},
-		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallNameAny(file, idx) != "remember" {

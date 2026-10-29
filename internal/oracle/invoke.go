@@ -16,7 +16,7 @@ import (
 )
 
 // invokeTimeout returns the max wall-clock duration allowed for a krit-fir
-// one-shot run, from env KRIT_TYPES_TIMEOUT (default 15 minutes).
+// one-shot run, from env KRIT_ORACLE_TIMEOUT (default 15 minutes).
 //
 // The default leaves headroom for large monorepo cold populates. The env var
 // override remains for users with even larger corpora.
@@ -26,7 +26,7 @@ func invokeTimeout() time.Duration {
 
 // invokeTimeoutFrom is the testable form of invokeTimeout.
 func invokeTimeoutFrom(r env.Reader) time.Duration {
-	if v, ok := r.Lookup("KRIT_TYPES_TIMEOUT"); ok && v != "" {
+	if v, ok := r.Lookup("KRIT_ORACLE_TIMEOUT"); ok && v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			return d
 		}
@@ -36,17 +36,17 @@ func invokeTimeoutFrom(r env.Reader) time.Duration {
 
 // invokeGraceExit returns how long to wait for the krit-fir subprocess to
 // exit on its own after it has written the output file, from env
-// KRIT_TYPES_GRACE_EXIT (default 15 seconds). After this grace period the
-// subprocess is force-killed — krit-fir.jar sometimes fails to exit cleanly
-// because Analysis API background threads keep the JVM alive, but the output
-// file is already complete so it's safe to proceed.
+// KRIT_ORACLE_GRACE_EXIT (default 15 seconds). After this grace period the
+// subprocess is force-killed: a JVM that lingers after writing its output
+// (for example on non-daemon background threads) has already produced a
+// complete file, so it's safe to proceed.
 func invokeGraceExit() time.Duration {
 	return invokeGraceExitFrom(env.Default)
 }
 
 // invokeGraceExitFrom is the testable form of invokeGraceExit.
 func invokeGraceExitFrom(r env.Reader) time.Duration {
-	if v, ok := r.Lookup("KRIT_TYPES_GRACE_EXIT"); ok && v != "" {
+	if v, ok := r.Lookup("KRIT_ORACLE_GRACE_EXIT"); ok && v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
 			return d
 		}
@@ -75,7 +75,7 @@ var nonJVMSourceSetFamilies = []string{
 }
 
 // isJVMCompilableSourceSet reports whether a discovered kotlin/java root
-// belongs in the JVM oracle compilation. Both oracle backends compile every
+// belongs in the JVM oracle compilation. The oracle compiles every
 // root as one JVM module, so a KMP project's JS/Native/WASM actuals would
 // otherwise collide with the JVM actuals and erase facts for every call that
 // resolves through the shared expect declaration.
@@ -201,12 +201,11 @@ func firstLines(s string, n int) string {
 }
 
 // Invoke runs krit-fir.jar to produce a type oracle JSON file. It enforces
-// a hard timeout (KRIT_TYPES_TIMEOUT, default 5m) and a soft grace period
-// (KRIT_TYPES_GRACE_EXIT, default 15s) that starts once the output file
-// appears on disk. The grace period exists because krit-fir.jar has been
-// observed to hang after writing its output when Analysis API background
-// threads keep the JVM alive — once the output is complete we can force-kill
-// the subprocess without losing work.
+// a hard timeout (KRIT_ORACLE_TIMEOUT, default 15m) and a soft grace period
+// (KRIT_ORACLE_GRACE_EXIT, default 15s) that starts once the output file
+// appears on disk. The grace period exists because a JVM can linger after
+// writing its output when background threads keep it alive — once the output
+// is complete we can force-kill the subprocess without losing work.
 //
 // On failure, the returned error includes the first few lines of the
 // subprocess's captured stderr (up to 8 KB tail) so the caller can surface a
@@ -230,9 +229,7 @@ func InvokeWithFiles(jarPath string, sourceDirs []string, outputPath, filesListP
 }
 
 // InvokeWithFilesWithOptions is InvokeWithFiles plus optional perf
-// instrumentation. The krit-fir output schema stays unchanged; Kotlin-side
-// timings are captured through a temporary --timings-out sidecar when a
-// tracker is enabled.
+// instrumentation and compile context.
 func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath, filesListPath string, verbose bool, opts InvocationOptions) (string, error) {
 	tracker := opts.tracker()
 	// Check java is available
@@ -272,7 +269,7 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	)
 	extraJVMArgs := configuredExtraJVMArgs(opts)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgs)
-	recordKritTypesJVMArgs(tracker, extraJVMArgs)
+	recordOracleJVMArgs(tracker, extraJVMArgs)
 	if filesListPath != "" {
 		args = append(args, "--files", filesListPath)
 	}
@@ -284,32 +281,6 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	defer rider.cleanup()
 	args = append(args, riderArgs...)
 	rider.noteLaunch(args)
-	callFilterPath, cleanupCallFilter, err := writeCallFilterArg(opts, tracker)
-	if err != nil {
-		return "", fmt.Errorf("call filter: %w", err)
-	}
-	defer cleanupCallFilter()
-	if callFilterPath != "" {
-		args = append(args, "--call-filter", callFilterPath)
-	}
-	if profileArg := declarationProfileCLIValue(opts); profileArg != "" {
-		args = append(args, "--declaration-profile", profileArg)
-	}
-	if opts.DisableDiagnostics {
-		args = append(args, "--no-diagnostics")
-	}
-	var cleanupTimings func()
-	if tracker.IsEnabled() {
-		timingsPath, cleanup, err := tempTimingsPath()
-		if err != nil {
-			return "", err
-		}
-		cleanupTimings = cleanup
-		defer cleanupTimings()
-		args = append(args, "--timings-out", timingsPath)
-		defer addKotlinTimingsFromFile(tracker, timingsPath)
-	}
-
 	if verbose {
 		reporter().Verbosef("verbose: Running krit-fir: %s %s\n", javaPath, strings.Join(args, " "))
 	}
@@ -327,34 +298,34 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 
 	var res string
 	var proc oracleProcessResult
-	processErr := trackOracle(tracker, "kritTypesProcess", func() error {
+	processErr := trackOracle(tracker, "oracleProcess", func() error {
 		var err error
 		proc, err = runOracleProcessMeasured(ctx, javaPath, args, outputPath, timeout, graceExit, verbose)
 		res = proc.OutputPath
 		return err
 	})
-	addOracleProcessResources(tracker, "kritTypesProcessResources", proc.PeakRSSMB)
+	addOracleProcessResources(tracker, "oracleProcessResources", proc.PeakRSSMB)
 	rider.finish(tracker, processErr)
 	return res, processErr
 }
 
 // compileContextArgs returns the one-shot arguments that set the compile
-// context: the configured classpath, the JVM target (krit-fir) and the
-// project's Kotlin compiler settings (both backends).
+// context: the configured classpath, the JVM target and the project's
+// Kotlin compiler settings.
 func compileContextArgs(jarPath string, opts InvocationOptions) []string {
 	var args []string
 	if len(opts.Classpath) > 0 {
-		// Both backends parse `--classpath <joined>` as the user-
-		// configured classpath. Joined with the OS path separator so
-		// the daemon-side parser (which splits on `:` / `;`) stays
-		// consistent with the env var convention.
+		// krit-fir parses `--classpath <joined>` as the user-configured
+		// classpath. Joined with the OS path separator so the parser
+		// (which splits on `:` / `;`) stays consistent with the env var
+		// convention.
 		args = append(args, "--classpath", strings.Join(opts.Classpath, string(os.PathListSeparator)))
 	}
 	if opts.JvmTarget != "" {
 		args = append(args, "--jvm-target", opts.JvmTarget)
 	}
-	// Each setting is its own flag so values never need quoting; both
-	// helpers re-filter them through their own allowlist.
+	// Each setting is its own flag so values never need quoting; krit-fir
+	// re-filters them through its own allowlist.
 	args = append(args, KotlinLaunchArgs(jarPath, opts.Kotlin)...)
 	return args
 }

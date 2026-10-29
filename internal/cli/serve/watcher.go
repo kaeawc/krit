@@ -21,7 +21,6 @@ type watcherState interface {
 	InvalidateDependents()
 	InvalidateLibraryFacts()
 	InvalidateResolver()
-	InvalidateOracleFilter()
 	Touch(path string)
 	// BumpSourceMTimeVersion drives the daemon-resident
 	// bundle-stats-clean memo. Called once per coalesced source-path
@@ -316,7 +315,6 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 		fw.state.InvalidateCodeIndex()
 		fw.state.InvalidateDependents()
 		fw.state.InvalidateResolver()
-		fw.state.InvalidateOracleFilter()
 		fw.state.Touch(ev.Path)
 		fw.state.BumpSourceMTimeVersion()
 		fw.state.BumpJavaSourceVersion()
@@ -343,7 +341,6 @@ func (fw *fileWatcher) directoryGone(path string) {
 	fw.state.InvalidateCodeIndex()
 	fw.state.InvalidateDependents()
 	fw.state.InvalidateResolver()
-	fw.state.InvalidateOracleFilter()
 	fw.state.Touch(path)
 }
 
@@ -445,7 +442,6 @@ func (fw *fileWatcher) invalidateKotlinState(path string) {
 	fw.state.InvalidateCodeIndex()
 	fw.state.InvalidateDependents()
 	fw.state.InvalidateResolver()
-	fw.state.InvalidateOracleFilter()
 	fw.state.Touch(path)
 }
 

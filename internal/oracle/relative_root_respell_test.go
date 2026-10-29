@@ -103,7 +103,7 @@ func TestWriteSkippedPoisonEntries_LoneSkippedFileMarkedAndHitFromBothRoots(t *t
 	warnings := captureWarnings(t)
 	rel := filepath.Join("src", "Big.kt")
 
-	writeSkippedPoisonEntries(nil, cacheDir, []string{"src"}, []string{rel}, &Data{Files: map[string]*File{}}, &CacheDepsFile{}, "", "", perf.New(false), false)
+	writeSkippedPoisonEntries(nil, cacheDir, []string{"src"}, []string{rel}, &Data{Files: map[string]*File{}}, &CacheDepsFile{}, perf.New(false), false)
 
 	if warnings.Len() != 0 {
 		t.Fatalf("unexpected warning: %q", warnings.String())
@@ -126,23 +126,23 @@ func TestTypesJSONSatisfiesForPaths_KeyBase(t *testing.T) {
 	}
 	scope := StoreScope{Backend: BackendFIR}
 	rel, abs := []string{"."}, []string{dir}
-	if err := RecordTypesFactsForPaths(path, false, rel, scope); err != nil {
+	if err := RecordTypesFactsForPaths(path, rel, scope); err != nil {
 		t.Fatal(err)
 	}
 	build := recordedBuildToken(t, path)
-	if !TypesJSONSatisfiesForPaths(path, false, scope, build, rel) {
+	if !TypesJSONSatisfiesForPaths(path, scope, build, rel) {
 		t.Error("a relative-root run should reuse its own types.json")
 	}
-	if TypesJSONSatisfiesForPaths(path, false, scope, build, abs) {
+	if TypesJSONSatisfiesForPaths(path, scope, build, abs) {
 		t.Error("an absolute-root run reused a types.json keyed by relative paths")
 	}
-	if err := RecordTypesFactsForPaths(path, false, abs, scope); err != nil {
+	if err := RecordTypesFactsForPaths(path, abs, scope); err != nil {
 		t.Fatal(err)
 	}
-	if TypesJSONSatisfiesForPaths(path, false, scope, build, rel) {
+	if TypesJSONSatisfiesForPaths(path, scope, build, rel) {
 		t.Error("a relative-root run reused a types.json recorded for absolute roots")
 	}
-	if !TypesJSONSatisfiesForPaths(path, false, scope, build, abs) {
+	if !TypesJSONSatisfiesForPaths(path, scope, build, abs) {
 		t.Error("an absolute-root run should reuse its own types.json")
 	}
 }

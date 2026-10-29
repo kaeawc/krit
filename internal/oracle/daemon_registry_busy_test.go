@@ -24,7 +24,7 @@ func recordingStarter(t *testing.T) *[]int {
 // daemon instead.
 func TestConnectOrStartDaemon_BusyDaemonGetsPrivateDaemon(t *testing.T) {
 	isolateDaemonRegistry(t)
-	t.Setenv("KRIT_TYPES_REQUEST_TIMEOUT", "300ms")
+	t.Setenv("KRIT_ORACLE_REQUEST_TIMEOUT", "300ms")
 	jar := testJar(t)
 	sources := []string{t.TempDir()}
 	pid := testLivePID(t)

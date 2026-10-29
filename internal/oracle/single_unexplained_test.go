@@ -20,7 +20,7 @@ func TestWriteSkippedPoisonEntries_LoneUnexplainedFileIsNotMarked(t *testing.T) 
 	a := writeTempFile(t, tmp, "A.kt", "package app\n")
 	warnings := captureWarnings(t)
 
-	writeSkippedPoisonEntries(nil, cacheDir, []string{tmp}, []string{a}, &Data{Files: map[string]*File{}}, &CacheDepsFile{}, "", "", perf.New(false), false)
+	writeSkippedPoisonEntries(nil, cacheDir, []string{tmp}, []string{a}, &Data{Files: map[string]*File{}}, &CacheDepsFile{}, perf.New(false), false)
 
 	if hits, misses := ClassifyFiles(cacheDir, []string{a}); len(hits) != 0 || len(misses) != 1 {
 		t.Fatalf("lone unanswered in-root file must stay a miss: hits=%d misses=%v", len(hits), misses)

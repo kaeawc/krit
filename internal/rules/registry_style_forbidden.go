@@ -228,8 +228,6 @@ func registerStyleForbiddenMethodCall() {
 		NodeTypes:  []string{"call_expression"},
 		Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 		Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
-		OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"print", "println"}},
-		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			methodName, ok := forbiddenMethodCallMatch(ctx, idx, r.Methods)

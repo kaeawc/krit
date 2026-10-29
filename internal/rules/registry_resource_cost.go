@@ -256,11 +256,10 @@ func registerResourceCostRules() {
 		r := &RecyclerAdapterWithoutDiffUtilRule{BaseRule: BaseRule{RuleName: "RecyclerAdapterWithoutDiffUtil", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects RecyclerView.Adapter subclasses using notifyDataSetChanged() without DiffUtil."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes:              []string{"class_declaration"},
-			Needs:                  api.NeedsTypeInfo | api.NeedsOracleSupertypes,
-			Languages:              []scanner.Language{scanner.LangKotlin, scanner.LangJava},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
-			Confidence:             0.75, Implementation: r,
+			NodeTypes:  []string{"class_declaration"},
+			Needs:      api.NeedsTypeInfo | api.NeedsOracleSupertypes,
+			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			Confidence: 0.75, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isRecyclerAdapterClassFlat(ctx, idx) {
@@ -287,11 +286,10 @@ func registerResourceCostRules() {
 		r := &RecyclerAdapterStableIDsDefaultRule{BaseRule: BaseRule{RuleName: "RecyclerAdapterStableIdsDefault", RuleSetName: "resource-cost", Sev: "info", Desc: "Detects RecyclerView.Adapter subclasses that do not enable stable IDs for better animation."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes:              []string{"class_declaration"},
-			Needs:                  api.NeedsTypeInfo | api.NeedsOracleSupertypes,
-			Languages:              []scanner.Language{scanner.LangKotlin, scanner.LangJava},
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
-			Confidence:             0.75, Implementation: r,
+			NodeTypes:  []string{"class_declaration"},
+			Needs:      api.NeedsTypeInfo | api.NeedsOracleSupertypes,
+			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			Confidence: 0.75, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isRecyclerAdapterClassFlat(ctx, idx) {
@@ -383,10 +381,9 @@ func registerResourceCostRules() {
 		r := &ImageLoadedAtFullSizeInListRule{BaseRule: BaseRule{RuleName: "ImageLoadedAtFullSizeInList", RuleSetName: "resource-cost", Sev: "info", Desc: "Detects Glide or Coil image loading without size constraints in list item contexts."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes:              []string{"call_expression"},
-			Needs:                  api.NeedsTypeInfo | api.NeedsOracleSupertypes,
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
-			Confidence:             0.75, Implementation: r,
+			NodeTypes:  []string{"call_expression"},
+			Needs:      api.NeedsTypeInfo | api.NeedsOracleSupertypes,
+			Confidence: 0.75, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)

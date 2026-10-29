@@ -705,7 +705,7 @@ fun Example(userName: String) {
 	}
 }
 
-// Pins NeedsOracleCallTargets + OracleCallTargets filter on the rule.
+// Pins NeedsOracleCallTargets on the rule.
 func TestComposeRememberWithoutKey_DeclaresOracleCallTargets(t *testing.T) {
 	var rule *api.Rule
 	for _, r := range api.Registry {
@@ -719,9 +719,6 @@ func TestComposeRememberWithoutKey_DeclaresOracleCallTargets(t *testing.T) {
 	}
 	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
 		t.Errorf("missing NeedsOracleCallTargets: Needs=%b", rule.Needs)
-	}
-	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
-		t.Errorf("OracleCallTargets must list `remember`, got %+v", rule.OracleCallTargets)
 	}
 }
 

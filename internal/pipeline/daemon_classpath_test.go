@@ -7,7 +7,6 @@ import (
 
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
-	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // The --daemon path starts the krit-fir daemon with the effective oracle
@@ -23,7 +22,7 @@ func TestRunDaemonOracleStartsDaemonWithClasspath(t *testing.T) {
 	}
 	t.Cleanup(func() { invokeOracleDaemon = orig })
 	in := IndexInput{OracleClasspath: []string{"/m/a.jar", "/m/b.jar"}}
-	_ = (IndexPhase{}).runDaemonOracle(in, nil, []string{t.TempDir()}, func() []*scanner.File { return nil }, perf.New(false), nil, &IndexResult{})
+	_ = (IndexPhase{}).runDaemonOracle(in, nil, []string{t.TempDir()}, perf.New(false), nil, &IndexResult{})
 	if !called || !slices.Equal(got, in.OracleClasspath) {
 		t.Fatalf("daemon started=%v with classpath %v, want %v", called, got, in.OracleClasspath)
 	}

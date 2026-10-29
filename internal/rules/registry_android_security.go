@@ -35,12 +35,8 @@ func registerAndroidSecurityRules() {
 				api.NeedsOracleCallTargets |
 				api.NeedsOracleSupertypes,
 			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Implementation: r,
-			Oracle:            &api.OracleFilter{Identifiers: []string{"addJavascriptInterface"}},
-			OracleCallTargets: &api.OracleCallTargetFilter{CalleeNames: []string{"addJavascriptInterface"}},
-			// Traverses the class hierarchy to confirm the receiver is a WebView subtype;
-			// only ClassShell+Supertypes needed, no member inspection.
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
-			Check:                  r.check,
+			Oracle: &api.OracleFilter{Identifiers: []string{"addJavascriptInterface"}},
+			Check:  r.check,
 		})
 	}
 	{
@@ -360,10 +356,7 @@ func registerAndroidSecurityRules() {
 			Needs:      api.NeedsTypeInfo | api.NeedsOracleSupertypes,
 			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 			Confidence: r.Confidence(), Implementation: r,
-			// Traverses the class hierarchy to confirm the receiver is a Context subtype;
-			// only ClassShell+Supertypes needed, no member inspection.
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
-			Check:                  r.check,
+			Check: r.check,
 		})
 	}
 	{

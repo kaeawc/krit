@@ -109,8 +109,8 @@ func TestDeadCodeCapabilityContracts(t *testing.T) {
 			t.Fatalf("%s should stay %s; got forbidden Needs bits %b in Needs=%b", tc.id, tc.description, rule.Needs&tc.forbidden, rule.Needs)
 		}
 		if RuleNeedsKotlinOracle(rule) {
-			t.Fatalf("%s should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
-				tc.id, rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+			t.Fatalf("%s should not contribute to KAA, got Oracle=%+v",
+				tc.id, rule.Oracle)
 		}
 	}
 }

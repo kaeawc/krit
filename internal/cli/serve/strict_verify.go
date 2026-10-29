@@ -98,7 +98,6 @@ func (r *strictVerifyAnalyzeResponse) WriteRawResponse(ctx context.Context, w io
 		CodeIndexHit:      xfile.HasCodeIndex,
 		LibraryFactsHit:   xfile.HasLibraryFacts,
 		ResolverHit:       xfile.HasResolver,
-		OracleFilterHit:   xfile.HasOracleFilter,
 		DirtyFiles:        r.dirtyN,
 		Cold:              r.cold,
 		ParseHits:         res.ParseHits,
@@ -156,7 +155,7 @@ func (r *strictVerifyAnalyzeResponse) WriteRawResponse(ctx context.Context, w io
 // `${repoDir}/.krit/daemon-divergence-NNNN.log` on divergence.
 //
 // The baseline runs with a fresh ProjectHostState so resident CodeIndex
-// / Resolver / OracleFilter / AnalysisCache state can't contaminate the
+// / Resolver / AnalysisCache state can't contaminate the
 // comparison. Two exceptions are intentional:
 //
 //   - The parse cache is freshly constructed for the baseline only, so

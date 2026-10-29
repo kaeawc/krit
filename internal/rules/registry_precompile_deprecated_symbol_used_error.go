@@ -24,11 +24,6 @@ func registerPrecompileDeprecatedSymbolUsedErrorRules() {
 		Oracle: &api.OracleFilter{
 			Identifiers: []string{"Deprecated"},
 		},
-		OracleDeclarationNeeds: &api.OracleDeclarationProfile{
-			ClassShell:        true,
-			Members:           true,
-			MemberAnnotations: true,
-		},
 		Implementation: r,
 		Check:          r.check,
 		DefaultActive:  false,

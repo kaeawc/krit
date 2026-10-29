@@ -32,7 +32,7 @@ func TestWriteSkippedPoisonEntries_OversizedMissesAlwaysMarked(t *testing.T) {
 	b := writeOversized(t, tmp, "B.kt")
 	warnings := captureWarnings(t)
 
-	writeSkippedPoisonEntries(nil, cacheDir, []string{tmp}, []string{a, b}, &Data{Files: map[string]*File{}}, &CacheDepsFile{}, "", "", perf.New(false), false)
+	writeSkippedPoisonEntries(nil, cacheDir, []string{tmp}, []string{a, b}, &Data{Files: map[string]*File{}}, &CacheDepsFile{}, perf.New(false), false)
 
 	hits, misses := ClassifyFiles(cacheDir, []string{a, b})
 	if len(hits) != 2 || len(misses) != 0 {
@@ -56,7 +56,7 @@ func TestWriteSkippedPoisonEntries_MismatchStillMarksOversized(t *testing.T) {
 	big := writeOversized(t, tmp, "Big.kt")
 	warnings := captureWarnings(t)
 
-	writeSkippedPoisonEntries(nil, cacheDir, []string{tmp}, []string{small1, small2, big}, &Data{Files: map[string]*File{}}, &CacheDepsFile{}, "", "", perf.New(false), false)
+	writeSkippedPoisonEntries(nil, cacheDir, []string{tmp}, []string{small1, small2, big}, &Data{Files: map[string]*File{}}, &CacheDepsFile{}, perf.New(false), false)
 
 	hits, misses := ClassifyFiles(cacheDir, []string{small1, small2, big})
 	if len(hits) != 1 || hits[0].FilePath != big || len(misses) != 2 {
@@ -83,7 +83,7 @@ func TestWriteSkippedPoisonEntries_FilesOutsideSourceRootsAreExpected(t *testing
 	b := writeTempFile(t, tmp, "B.kt", "class B\n")
 	captureWarnings(t)
 
-	writeSkippedPoisonEntries(nil, cacheDir, []string{root}, []string{a, b}, &Data{Files: map[string]*File{}}, &CacheDepsFile{}, "", "", perf.New(false), false)
+	writeSkippedPoisonEntries(nil, cacheDir, []string{root}, []string{a, b}, &Data{Files: map[string]*File{}}, &CacheDepsFile{}, perf.New(false), false)
 
 	if hits, _ := ClassifyFiles(cacheDir, []string{a, b}); len(hits) != 2 {
 		t.Fatalf("files outside the source roots should be marked, hits=%d", len(hits))

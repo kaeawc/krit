@@ -497,7 +497,7 @@ func isProcessAlive(pid int) bool {
 const defaultDaemonPingTimeout = 5 * time.Second
 
 // daemonPingTimeout is how long connectExistingDaemonSlotKT waits for the
-// reconnect ping. KRIT_TYPES_REQUEST_TIMEOUT shortens it, never lengthens it.
+// reconnect ping. KRIT_ORACLE_REQUEST_TIMEOUT shortens it, never lengthens it.
 func daemonPingTimeout() time.Duration {
 	return min(defaultDaemonPingTimeout, daemonRequestTimeout())
 }
@@ -588,7 +588,7 @@ func appendDaemonJarArgs(args []string, jarPath string, sourceDirs, classpath []
 }
 
 // appendDaemonJarArgsKT also launches the daemon under the Kotlin settings;
-// each is its own `--kotlin-arg` flag, which both backends re-filter.
+// each is its own `--kotlin-arg` flag, which krit-fir re-filters.
 func appendDaemonJarArgsKT(args []string, jarPath string, sourceDirs, classpath []string, kt gradlemodel.KotlinSettings, daemonArgs ...string) []string {
 	args = append(args, "-jar", AbsolutePath(jarPath))
 	args = append(args, daemonArgs...)

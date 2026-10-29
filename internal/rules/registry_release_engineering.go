@@ -354,24 +354,9 @@ func registerReleaseEngineeringRules() {
 		r := &TimberTreeNotPlantedRule{BaseRule: BaseRule{RuleName: "TimberTreeNotPlanted", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects Timber logging usage without any Timber.plant() call in the project."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			Needs: api.NeedsCrossFile | api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-			OracleCallTargets: &api.OracleCallTargetFilter{
-				CalleeNames: []string{"v", "d", "i", "w", "e", "wtf", "plant"},
-				LexicalHintsByCallee: map[string][]string{
-					"v":     {"timber.log.Timber", "Timber"},
-					"d":     {"timber.log.Timber", "Timber"},
-					"i":     {"timber.log.Timber", "Timber"},
-					"w":     {"timber.log.Timber", "Timber"},
-					"e":     {"timber.log.Timber", "Timber"},
-					"wtf":   {"timber.log.Timber", "Timber"},
-					"plant": {"timber.log.Timber", "Timber"},
-				},
-			},
-			TypeInfo: api.TypeInfoHint{PreferBackend: api.PreferOracle, Required: true},
-			// Uses call target FQNs to detect Timber.v/d/i/w/e calls and
-			// Timber.plant(); never reads class declarations.
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
-			Confidence:             r.Confidence(), Implementation: r,
+			Needs:      api.NeedsCrossFile | api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			TypeInfo:   api.TypeInfoHint{PreferBackend: api.PreferOracle, Required: true},
+			Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}

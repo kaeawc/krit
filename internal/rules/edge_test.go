@@ -419,8 +419,8 @@ func TestMagicNumberDoesNotContributeToOracle(t *testing.T) {
 			continue
 		}
 		if r.Needs != 0 || rules.RuleNeedsKotlinOracle(r) {
-			t.Fatalf("MagicNumber should remain AST-only, got Needs=%b Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
-				r.Needs, r.Oracle, r.OracleCallTargets, r.OracleDeclarationNeeds)
+			t.Fatalf("MagicNumber should remain AST-only, got Needs=%b Oracle=%+v",
+				r.Needs, r.Oracle)
 		}
 		return
 	}

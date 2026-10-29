@@ -35,7 +35,6 @@ type watcherState interface {
 	InvalidateDependents()
 	InvalidateLibraryFacts()
 	InvalidateResolver()
-	InvalidateOracleFilter()
 	Touch(path string)
 }
 
@@ -367,7 +366,6 @@ func (w *Watcher) fireSourceInvalidate(path string) {
 	w.ws.InvalidateCodeIndex()
 	w.ws.InvalidateResolver()
 	w.ws.InvalidateDependents()
-	w.ws.InvalidateOracleFilter()
 	w.codeIndexInvalidations.Add(1)
 	w.Untrack(path)
 }

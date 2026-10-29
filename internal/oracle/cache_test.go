@@ -98,55 +98,6 @@ func TestClassifyFiles_WarmHit(t *testing.T) {
 	}
 }
 
-func TestClassifyFiles_FilteredEntryDoesNotSatisfyBroadRun(t *testing.T) {
-	tmp := t.TempDir()
-	cacheDir, err := CacheDir(tmp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a := writeTempFile(t, tmp, "A.kt", "class A { fun f() = delay(1) }\n")
-	hash, _ := ContentHash(a)
-	fp, _ := closureFingerprint(nil, nil)
-	if err := WriteEntry(cacheDir, &CacheEntry{
-		ContentHash:           hash,
-		FilePath:              a,
-		FileResult:            &File{Package: "x"},
-		Closure:               CacheClosure{DepPaths: nil, Fingerprint: fp},
-		CallFilterFingerprint: "filtered",
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	hits, misses := ClassifyFilesScoped(cacheDir, []string{a}, "")
-	if len(hits) != 0 || len(misses) != 1 {
-		t.Fatalf("broad run used filtered entry: hits=%d misses=%d", len(hits), len(misses))
-	}
-}
-
-func TestClassifyFiles_BroadEntrySatisfiesFilteredRun(t *testing.T) {
-	tmp := t.TempDir()
-	cacheDir, err := CacheDir(tmp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a := writeTempFile(t, tmp, "A.kt", "class A { fun f() = delay(1) }\n")
-	hash, _ := ContentHash(a)
-	fp, _ := closureFingerprint(nil, nil)
-	if err := WriteEntry(cacheDir, &CacheEntry{
-		ContentHash: hash,
-		FilePath:    a,
-		FileResult:  &File{Package: "x"},
-		Closure:     CacheClosure{DepPaths: nil, Fingerprint: fp},
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	hits, misses := ClassifyFilesScoped(cacheDir, []string{a}, "filtered")
-	if len(hits) != 1 || len(misses) != 0 {
-		t.Fatalf("filtered run did not use broad entry: hits=%d misses=%d", len(hits), len(misses))
-	}
-}
-
 // Without a .krit/store the per-file entries live in the legacy directory and
 // carry no scope. After a settings-only change, an unchanged file must not hit
 // the entry computed under the old Kotlin settings.

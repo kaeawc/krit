@@ -84,7 +84,7 @@ func withShortShutdownGrace(t *testing.T, d time.Duration) {
 // sendOnce call returns quickly when the fake "JVM" never responds.
 func withShortRequestTimeout(t *testing.T, d time.Duration) {
 	t.Helper()
-	t.Setenv("KRIT_TYPES_REQUEST_TIMEOUT", d.String())
+	t.Setenv("KRIT_ORACLE_REQUEST_TIMEOUT", d.String())
 }
 
 // TestShutdown_KillsStuckProcess_AndJoinsWaitGoroutine verifies fix A:

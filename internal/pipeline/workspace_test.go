@@ -7,7 +7,6 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/librarymodel"
-	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -323,11 +322,10 @@ func TestWorkspaceState_InvalidateAllClearsCrossFile(t *testing.T) {
 	ws.CodeIndex("ci", func() *scanner.CodeIndex { return &scanner.CodeIndex{} })
 	ws.Dependents("dep", func() *scanner.DependentsIndex { return &scanner.DependentsIndex{} })
 	ws.Resolver("res", func() typeinfer.TypeResolver { return typeinfer.NewResolver() })
-	ws.OracleFilter("of", func() *oracle.CallTargetFilterSummary { return &oracle.CallTargetFilterSummary{Enabled: true} })
 	ws.InvalidateAll()
 	stats := ws.CrossFileStats()
 	if stats.HasLibraryFacts || stats.HasCodeIndex || stats.HasDependents ||
-		stats.HasResolver || stats.HasOracleFilter {
+		stats.HasResolver {
 		t.Errorf("InvalidateAll should clear every cross-file slot, got %+v", stats)
 	}
 }

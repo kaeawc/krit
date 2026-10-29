@@ -383,7 +383,7 @@ func TestComposeRawTextLiteral_UsesLocalASTOnly(t *testing.T) {
 	if rule.Needs != 0 {
 		t.Fatalf("ComposeRawTextLiteral should remain AST-only, got needs %v", rule.Needs)
 	}
-	if rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil || rule.Oracle != nil {
+	if rule.Oracle != nil {
 		t.Fatal("ComposeRawTextLiteral should not declare oracle metadata")
 	}
 }

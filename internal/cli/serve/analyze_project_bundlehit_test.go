@@ -72,7 +72,6 @@ func TestAnalyzeProject_BodyOnlyEditRedispatchesEditedFile(t *testing.T) {
 	state.workspace.InvalidateCodeIndex()
 	state.workspace.InvalidateDependents()
 	state.workspace.InvalidateResolver()
-	state.workspace.InvalidateOracleFilter()
 	state.workspace.Touch(edited)
 	state.workspace.BumpSourceMTimeVersion()
 

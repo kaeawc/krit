@@ -20,18 +20,18 @@ func TestTypesFactsSatisfiedOnlyWhenKeyBaseAndSettingsScopeBothMatch(t *testing.
 	}
 	abs := []string{filepath.Dir(typesPath)}
 	rel := []string{"."}
-	if err := RecordTypesFactsForPaths(typesPath, false, abs, scopeOf("2.0")); err != nil {
+	if err := RecordTypesFactsForPaths(typesPath, abs, scopeOf("2.0")); err != nil {
 		t.Fatal(err)
 	}
 	rec, _ := readTypesFacts(typesPath)
 	token := rec.BuildToken
-	if !TypesJSONSatisfiesForPaths(typesPath, false, scopeOf("2.0"), token, abs) {
+	if !TypesJSONSatisfiesForPaths(typesPath, scopeOf("2.0"), token, abs) {
 		t.Fatal("same key base and same settings must satisfy")
 	}
-	if TypesJSONSatisfiesForPaths(typesPath, false, scopeOf("2.2"), token, abs) {
+	if TypesJSONSatisfiesForPaths(typesPath, scopeOf("2.2"), token, abs) {
 		t.Fatal("a settings-only change must not satisfy")
 	}
-	if TypesJSONSatisfiesForPaths(typesPath, false, scopeOf("2.0"), token, rel) {
+	if TypesJSONSatisfiesForPaths(typesPath, scopeOf("2.0"), token, rel) {
 		t.Fatal("a different key spelling must not satisfy")
 	}
 }

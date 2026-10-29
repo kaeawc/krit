@@ -153,7 +153,7 @@ class Foo {
 	}
 }
 
-// Pins NeedsOracleCallTargets + filter on the rule.
+// Pins NeedsOracleCallTargets on the rule.
 func TestServiceCast_DeclaresOracleCallTargets(t *testing.T) {
 	var rule *api.Rule
 	for _, r := range api.Registry {
@@ -167,9 +167,6 @@ func TestServiceCast_DeclaresOracleCallTargets(t *testing.T) {
 	}
 	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
 		t.Errorf("missing NeedsOracleCallTargets: Needs=%b", rule.Needs)
-	}
-	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
-		t.Errorf("OracleCallTargets must list `getSystemService`, got %+v", rule.OracleCallTargets)
 	}
 }
 
@@ -296,9 +293,6 @@ func TestShowToast_DeclaresOracleCallTargets(t *testing.T) {
 	}
 	if !rule.Needs.Has(api.NeedsOracleCallTargets) {
 		t.Errorf("missing NeedsOracleCallTargets: Needs=%b", rule.Needs)
-	}
-	if rule.OracleCallTargets == nil || len(rule.OracleCallTargets.CalleeNames) == 0 {
-		t.Errorf("OracleCallTargets must list `makeText`, got %+v", rule.OracleCallTargets)
 	}
 }
 

@@ -74,7 +74,7 @@ func TestNestedProjectStoreScopeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hits, misses := ClassifyFilesWithStoreScopedV3(s, cacheDir, []string{path}, "", "", ApproximationFIRWholeCompilation)
+	hits, misses := ClassifyFilesWithStoreApproximation(s, cacheDir, []string{path}, ApproximationFIRWholeCompilation)
 	if len(hits) != 1 || len(misses) != 0 {
 		t.Fatalf("nested project cache: hits=%d misses=%d", len(hits), len(misses))
 	}

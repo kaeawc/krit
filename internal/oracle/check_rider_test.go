@@ -57,8 +57,8 @@ func runFakeMissRun(t *testing.T, opts InvocationOptions) {
 		t.Fatal(err)
 	}
 	fresh, deps := filepath.Join(dir, "fresh.json"), filepath.Join(dir, "deps.json")
-	if err := runKritTypesCached(jar, []string{dir}, misses, fresh, deps, false, perf.New(false), opts); err != nil {
-		t.Fatalf("runKritTypesCached: %v", err)
+	if err := runOracleOneShot(jar, []string{dir}, misses, fresh, deps, false, perf.New(false), opts); err != nil {
+		t.Fatalf("runOracleOneShot: %v", err)
 	}
 }
 

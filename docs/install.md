@@ -115,6 +115,17 @@ either pre-seed `~/.krit/jars/` with the release assets or point
 `KRIT_FIR_JAR` at an existing jar. Without Java the
 JVM-backed checks are skipped and source-level inference still runs.
 
+The krit-fir oracle JVM honours these environment variables:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `KRIT_ORACLE_EXTRA_JVM_ARGS` | none | Extra JVM flags (whitespace-separated) placed before `-jar`, e.g. `-Xmx8g`. |
+| `KRIT_ORACLE_TIMEOUT` | `15m` | Hard limit for a one-shot oracle run (Go duration). |
+| `KRIT_ORACLE_GRACE_EXIT` | `15s` | How long a one-shot JVM may linger after writing its output before it is killed. |
+| `KRIT_ORACLE_REQUEST_TIMEOUT` | `10m` | Limit for a single oracle daemon request; a smaller value also shortens the 5s reconnect ping. |
+
+These replaced the `KRIT_TYPES_*` names, which are no longer read.
+
 ## Shell completions
 
 ```bash

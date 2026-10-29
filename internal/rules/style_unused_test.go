@@ -1466,8 +1466,8 @@ func TestUnusedPrivateProperty_DoesNotRequireTypeCapabilities(t *testing.T) {
 	if rule.Needs != 0 {
 		t.Fatalf("UnusedPrivateProperty Needs = %b, want no extra capabilities", rule.Needs)
 	}
-	if rule.Oracle != nil || rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil {
-		t.Fatalf("UnusedPrivateProperty declared oracle metadata: Oracle=%+v CallTargets=%+v Declarations=%+v", rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+	if rule.Oracle != nil {
+		t.Fatalf("UnusedPrivateProperty declared oracle metadata: Oracle=%+v", rule.Oracle)
 	}
 	if rule.TypeInfo.PreferBackend != api.PreferAny || rule.TypeInfo.Required {
 		t.Fatalf("UnusedPrivateProperty TypeInfo = %+v, want zero-value PreferAny/Required=false", rule.TypeInfo)

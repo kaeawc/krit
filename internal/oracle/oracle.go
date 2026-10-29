@@ -32,9 +32,8 @@ type Lookup interface {
 	LookupCallTargetSuspend(filePath string, line, col int) (bool, bool)
 	// LookupCallTargetAnnotations returns the annotation FQNs recorded directly
 	// on the resolved call-target symbol at the given source position. Unlike
-	// LookupAnnotations (which requires Members+MemberAnnotations in the
-	// declaration profile), these annotations are captured during call resolution
-	// and require no declaration extraction at all.
+	// LookupAnnotations, which reads a declaration's member annotations, these
+	// are captured during call resolution.
 	LookupCallTargetAnnotations(filePath string, line, col int) []string
 	LookupDiagnostics(filePath string) []Diagnostic
 }

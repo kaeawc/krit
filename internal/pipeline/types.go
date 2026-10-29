@@ -219,7 +219,7 @@ type IndexResult struct {
 	// Resolver is the type resolver wired into rules that declare
 	// NeedsResolver. Nil when no active rule needs it.
 	Resolver typeinfer.TypeResolver
-	// Oracle is the Kotlin Analysis API-backed type oracle. Nil when
+	// Oracle is the krit-fir-backed type oracle. Nil when
 	// --no-type-oracle or no rule needs oracle data.
 	Oracle *oracle.Oracle
 	// OracleBlobHash returns the canonical facts hash for one source path.
@@ -374,17 +374,6 @@ type CodeIndexCache = XFileCache[*scanner.CodeIndex]
 // file indexed. Mismatches force a fresh resolver — no stale entries
 // from removed/renamed files leak across the boundary.
 type ResolverCache = XFileCache[typeinfer.TypeResolver]
-
-// OracleFilterCache memoizes the oracle *CallTargetFilterSummary
-// across RunProject calls. The filter classification scans every
-// Kotlin file for annotated identifiers; without caching it dominates
-// the warm oracle cost.
-//
-// Fingerprint must include the active rule IDs (the filter is keyed
-// on rule capabilities + AnnotatedIdentifier specs) and the sorted
-// (path, content-hash) pairs of every Kotlin file. Mismatches force a
-// fresh classification.
-type OracleFilterCache = XFileCache[*oracle.CallTargetFilterSummary]
 
 // AndroidProjectCache memoizes the detected *android.Project across
 // RunProject calls. DetectProject walks the project tree for

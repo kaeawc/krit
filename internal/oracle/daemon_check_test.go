@@ -75,7 +75,7 @@ func TestAnalyzeAllWithCheckIsOneRequest(t *testing.T) {
 		return fmt.Sprintf(`{"id":%d,"result":%s,"check":%s}`, id, emptyOracleResult, checkResponseBody)
 	})
 	var delivered []string
-	data, err := d.AnalyzeAllWithCheck(nil, testRider(checkRequestBody, &delivered))
+	data, err := d.AnalyzeAllWithCheck(testRider(checkRequestBody, &delivered))
 	if err != nil || data == nil {
 		t.Fatalf("data=%v err=%v", data, err)
 	}
@@ -95,7 +95,7 @@ func TestAnalyzeAllWithCheckNotSharedDeliversNothing(t *testing.T) {
 		return fmt.Sprintf(`{"id":%d,"result":%s,"check":null}`, id, emptyOracleResult)
 	})
 	var delivered []string
-	if _, err := d.AnalyzeAllWithCheck(nil, testRider(checkRequestBody, &delivered)); err != nil {
+	if _, err := d.AnalyzeAllWithCheck(testRider(checkRequestBody, &delivered)); err != nil {
 		t.Fatal(err)
 	}
 	if len(delivered) != 0 || len(rec.seen()) != 1 {
@@ -123,7 +123,7 @@ func TestAnalyzeAllWithCheckFallsBackOnAnOlderJar(t *testing.T) {
 	rider := testRider(checkRequestBody, &delivered)
 	rider.Decline = func(string) { abandoned.Add(1) }
 	for i := 0; i < 2; i++ {
-		data, err := d.AnalyzeAllWithCheck(nil, rider)
+		data, err := d.AnalyzeAllWithCheck(rider)
 		if err != nil || data == nil {
 			t.Fatalf("call %d: data=%v err=%v", i, data, err)
 		}
@@ -144,11 +144,11 @@ func TestAnalyzeAllWithCheckWithoutARiderIsPlainAnalyzeAll(t *testing.T) {
 	d, rec := newCheckDaemon(t, func(_ string, id int) string {
 		return fmt.Sprintf(`{"id":%d,"result":%s}`, id, emptyOracleResult)
 	})
-	if _, err := d.AnalyzeAllWithCheck(nil, nil); err != nil {
+	if _, err := d.AnalyzeAllWithCheck(nil); err != nil {
 		t.Fatal(err)
 	}
 	empty := &CheckRider{Prepare: func() ([]byte, func([]byte)) { return nil, nil }}
-	if _, err := d.AnalyzeAllWithCheck(nil, empty); err != nil {
+	if _, err := d.AnalyzeAllWithCheck(empty); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(rec.seen(), ","); got != "analyzeAll,analyzeAll" {
@@ -162,7 +162,7 @@ func TestAnalyzeAllWithCheckSurfacesRealErrors(t *testing.T) {
 		return fmt.Sprintf(`{"id":%d,"error":"Analysis API exception"}`, id)
 	})
 	var delivered []string
-	if _, err := d.AnalyzeAllWithCheck(nil, testRider(checkRequestBody, &delivered)); err == nil {
+	if _, err := d.AnalyzeAllWithCheck(testRider(checkRequestBody, &delivered)); err == nil {
 		t.Fatal("want the daemon's error")
 	}
 	if len(rec.seen()) != 1 || len(delivered) != 0 || d.noSharedCheck.Load() {
@@ -230,7 +230,7 @@ func TestAnalyzeAllWithCheckAgainstTheOldNestBlindParser(t *testing.T) {
 	var delivered []string
 	rider := testRider(checkRequestBody, &delivered)
 	rider.Decline = func(reason string) { declined = append(declined, reason) }
-	data, err := d.AnalyzeAllWithCheck(nil, rider)
+	data, err := d.AnalyzeAllWithCheck(rider)
 	if err != nil || data == nil {
 		t.Fatalf("the oracle lost its facts: data=%v err=%v", data, err)
 	}
@@ -260,7 +260,7 @@ func TestAnalyzeAllWithCheckTreatsAResultlessReplyAsUnsupported(t *testing.T) {
 			declined := 0
 			rider := testRider(checkRequestBody, &delivered)
 			rider.Decline = func(string) { declined++ }
-			data, err := d.AnalyzeAllWithCheck(nil, rider)
+			data, err := d.AnalyzeAllWithCheck(rider)
 			if err != nil || data == nil {
 				t.Fatalf("data=%v err=%v", data, err)
 			}
@@ -287,7 +287,7 @@ func TestAnalyzeAllWithCheckSendsTheCheckWithoutACommand(t *testing.T) {
 		return fmt.Sprintf(`{"id":%d,"result":%s,"check":null}`, id, emptyOracleResult)
 	})
 	var delivered []string
-	if _, err := d.AnalyzeAllWithCheck(nil, testRider(checkRequestBody, &delivered)); err != nil {
+	if _, err := d.AnalyzeAllWithCheck(testRider(checkRequestBody, &delivered)); err != nil {
 		t.Fatal(err)
 	}
 	sent := string(rec.params[0][sharedCheckKey])
@@ -308,7 +308,7 @@ func TestAnalyzeAllWithCheckRefusalDoesNotTripTheBreaker(t *testing.T) {
 	})
 	d.breakerFailures = breakerThreshold - 1
 	var delivered []string
-	data, err := d.AnalyzeAllWithCheck(nil, testRider(checkRequestBody, &delivered))
+	data, err := d.AnalyzeAllWithCheck(testRider(checkRequestBody, &delivered))
 	if err != nil || data == nil {
 		t.Fatalf("the oracle lost its facts: data=%v err=%v", data, err)
 	}
@@ -324,7 +324,7 @@ func TestAnalyzeAllWithCheckRefusalDoesNotTripTheBreaker(t *testing.T) {
 		return fmt.Sprintf(`{"id":%d,"error":"Analysis API exception"}`, id)
 	})
 	d2.breakerFailures = breakerThreshold - 1
-	if _, err := d2.AnalyzeAllWithCheck(nil, testRider(checkRequestBody, &delivered)); err == nil {
+	if _, err := d2.AnalyzeAllWithCheck(testRider(checkRequestBody, &delivered)); err == nil {
 		t.Fatal("want the real error")
 	}
 	if d2.breakerFailures != breakerThreshold {
@@ -341,7 +341,7 @@ func TestAnalyzeAllWithCheckSkipsTheCheckOnceCancelled(t *testing.T) {
 	var delivered []string
 	rider := testRider(checkRequestBody, &delivered)
 	rider.Cancelled = func() bool { return true }
-	if _, err := d.AnalyzeAllWithCheck(nil, rider); err != nil {
+	if _, err := d.AnalyzeAllWithCheck(rider); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(rec.seen(), ","); got != "analyzeAll" || len(delivered) != 0 {
@@ -373,7 +373,7 @@ func TestAnalyzeAllWithCheckRequiresTheCanaryMarkFromAnAOTDaemon(t *testing.T) {
 			var declined string
 			rider := testRider(checkRequestBody, &delivered)
 			rider.Decline = func(reason string) { declined = reason }
-			data, err := d.AnalyzeAllWithCheck(nil, rider)
+			data, err := d.AnalyzeAllWithCheck(rider)
 			if err != nil || data == nil {
 				t.Fatalf("data=%v err=%v", data, err)
 			}

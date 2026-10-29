@@ -198,7 +198,7 @@ func (c *wcOracleCase) run(t *testing.T) {
 // returns the first thing that is wrong ("" when nothing is) with a full
 // report. Rows listed in wcKnownStale turn a problem into a skip, so every
 // check that can be tripped by a known product bug returns instead of failing.
-// This harness calls the oracle with a nil store and no call filter, as the
+// This harness calls the oracle with a nil store, as the
 // default CLI flow does; it does not model users of a .krit/store.
 func (c *wcOracleCase) exercise(t *testing.T) (problem, detail string) {
 	mx, be := c.mx, c.mx.be
@@ -452,7 +452,7 @@ func (c *wcOracleCase) addEntries(t *testing.T, snap wcSnapshot, root string, in
 	// Without a .krit/store the entries live in a directory scoped by the
 	// Kotlin settings (the base directory for the embedded defaults).
 	cacheDir = oracle.LegacyEntryDir(cacheDir, in.kotlin, in.classpath)
-	hits, _ := oracle.ClassifyFilesScopedV3(cacheDir, files, "", "", c.mx.be.backend.CacheApproximation())
+	hits, _ := oracle.ClassifyFilesWithApproximation(cacheDir, files, c.mx.be.backend.CacheApproximation())
 	for _, h := range hits {
 		deps := wcNormPaths(root, h.Closure.DepPaths)
 		perFile := make([]string, 0, len(h.PerFileDeps))
@@ -485,7 +485,7 @@ func (c *wcOracleCase) storedEntries(t *testing.T, root string, in wcInputs) int
 	// Without a .krit/store the entries live in a directory scoped by the
 	// Kotlin settings (the base directory for the embedded defaults).
 	cacheDir = oracle.LegacyEntryDir(cacheDir, in.kotlin, in.classpath)
-	hits, _ := oracle.ClassifyFilesScopedV3(cacheDir, files, "", "", c.mx.be.backend.CacheApproximation())
+	hits, _ := oracle.ClassifyFilesWithApproximation(cacheDir, files, c.mx.be.backend.CacheApproximation())
 	n := 0
 	for _, h := range hits {
 		if c.mx.be.backend.ReturnsWholeCompilation() && h.CompilationFingerprint == "" {

@@ -12,7 +12,7 @@ const removedKAAApproximation = "kaa-tagged-references"
 
 // An entry written by the removed krit-types backend (or any non-FIR
 // approximation) must never satisfy a krit-fir lookup, in either cache layout.
-func TestClassifyFilesScopedV3_ForeignApproximationEntryMisses(t *testing.T) {
+func TestClassifyFilesWithApproximation_ForeignApproximationEntryMisses(t *testing.T) {
 	for _, layout := range []string{"files", "store"} {
 		t.Run(layout, func(t *testing.T) {
 			dir := t.TempDir()
@@ -30,7 +30,7 @@ func TestClassifyFilesScopedV3_ForeignApproximationEntryMisses(t *testing.T) {
 				if _, err := WriteFreshEntriesToStore(fileStore, cacheDir, &Data{Version: 1, Files: map[string]*File{path: {}}}, deps); err != nil {
 					t.Fatal(err)
 				}
-				hits, misses := ClassifyFilesWithStoreScopedV3(fileStore, cacheDir, []string{path}, "", "", BackendFIR.CacheApproximation())
+				hits, misses := ClassifyFilesWithStoreApproximation(fileStore, cacheDir, []string{path}, BackendFIR.CacheApproximation())
 				if same := written == ApproximationFIRWholeCompilation; (len(hits) == 1) != same || (len(misses) == 1) == same {
 					t.Fatalf("written %q: hits=%v misses=%v", written, hitPaths(hits), misses)
 				}

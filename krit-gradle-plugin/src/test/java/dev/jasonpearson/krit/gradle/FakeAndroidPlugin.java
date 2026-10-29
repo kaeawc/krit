@@ -175,10 +175,22 @@ public class FakeAndroidPlugin implements Plugin<Project> {
             try { jar.createNewFile(); }
             catch (java.io.IOException error) { throw new RuntimeException(error); }
         }
-        for (String name : List.of("debugCompileClasspath", "releaseCompileClasspath",
+        if (project.hasProperty("deferAndroidVariants")) {
+            project.afterEvaluate(ignored -> registerVariants(project));
+        } else {
+            registerVariants(project);
+        }
+    }
+
+    private void registerVariants(Project project) {
+        if (project.hasProperty("omitAndroidVariants")) return;
+        List<String> configurations = project.hasProperty("releaseOnly")
+                ? List.of("releaseCompileClasspath")
+                : List.of("debugCompileClasspath", "releaseCompileClasspath",
                 "stagingDebugCompileClasspath",
                 "debugUnitTestCompileClasspath", "debugAndroidTestCompileClasspath",
-                "stagingDebugUnitTestCompileClasspath", "stagingDebugAndroidTestCompileClasspath")) {
+                "stagingDebugUnitTestCompileClasspath", "stagingDebugAndroidTestCompileClasspath");
+        for (String name : configurations) {
             project.getConfigurations().create(name).setCanBeResolved(true);
         }
         // Mirrors GenerateLibraryRFileTask.CreationAction.getName() and LinkApplicationAndroidResourcesTask.BaseCreationAction.getName() in AGP 8.8.0-alpha09.

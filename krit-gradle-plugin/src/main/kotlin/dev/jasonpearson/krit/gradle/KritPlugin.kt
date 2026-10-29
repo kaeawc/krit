@@ -208,21 +208,67 @@ class KritPlugin : Plugin<Project> {
     }
 
     private fun registerModelExport(project: Project, extension: KritExtension) {
-        project.afterEvaluate {
+        var modelExported = false
+        var warnIfAndroidAppliedLate = false
+        val exportModel = org.gradle.api.Action<Project> {
+            if (modelExported) return@Action
             val kmp = project.plugins.hasPlugin(KOTLIN_MULTIPLATFORM_PLUGIN_ID)
             val android = project.plugins.hasPlugin(ANDROID_APPLICATION_PLUGIN_ID) ||
                 project.plugins.hasPlugin(ANDROID_LIBRARY_PLUGIN_ID)
+            if (!kmp && !android && !project.plugins.hasPlugin("java")) return@Action
+            modelExported = true
+            warnIfAndroidAppliedLate = !android
+            var androidModelSkipped = false
             val specs = when {
                 kmp -> {
                     val kmpSpecs = kmpModels(project, extension, android)
-                    if (android && kmpSpecs.none { it.platform == "android" })
-                        kmpSpecs + androidModels(project, extension) else kmpSpecs
+                    if (android && kmpSpecs.none { it.platform == "android" }) {
+                        val androidModels = androidModels(project, extension)
+                        androidModelSkipped = androidModels.skipped
+                        kmpSpecs + androidModels.specs
+                    } else kmpSpecs
                 }
-                android -> androidModels(project, extension)
-                project.plugins.hasPlugin("java") -> jvmModels(project)
-                else -> return@afterEvaluate
+                android -> {
+                    val androidModels = androidModels(project, extension)
+                    androidModelSkipped = androidModels.skipped
+                    androidModels.specs
+                }
+                else -> jvmModels(project)
+            }
+            if (android && specs.none { it.platform == "android" } && !androidModelSkipped) {
+                project.logger.warn("krit: kritExportModel for ${project.path} is exporting zero Android source sets; " +
+                    "check Android variant configuration and krit.androidVariant (requested '${extension.androidVariant.orNull ?: "debug"}')")
             }
             registerProjectModel(project, extension, specs)
+        }
+        fun exportAfterEvaluateOrNow() {
+            if (modelExported) {
+                if (warnIfAndroidAppliedLate) {
+                    warnIfAndroidAppliedLate = false
+                    project.logger.warn("krit: kritExportModel for ${project.path} was configured before Android was applied; " +
+                        "the model does not include Android source sets. Apply Android in the plugins block.")
+                }
+                return
+            }
+            if (project.state.executed) {
+                exportModel.execute(project)
+            } else {
+                project.afterEvaluate(exportModel)
+            }
+        }
+        project.pluginManager.withPlugin(ANDROID_APPLICATION_PLUGIN_ID) {
+            exportAfterEvaluateOrNow()
+        }
+        project.pluginManager.withPlugin(ANDROID_LIBRARY_PLUGIN_ID) {
+            exportAfterEvaluateOrNow()
+        }
+        // Android applied from an afterEvaluate is not supported: Android-only projects get the skipped Android model warning;
+        // JVM and KMP projects keep their model and get the 'configured before Android' warning.
+        project.afterEvaluate {
+            if (!modelExported && !project.plugins.hasPlugin(ANDROID_APPLICATION_PLUGIN_ID) &&
+                !project.plugins.hasPlugin(ANDROID_LIBRARY_PLUGIN_ID)) {
+                exportModel.execute(project)
+            }
         }
     }
 
@@ -241,12 +287,21 @@ class KritPlugin : Plugin<Project> {
         val compileTask: String,
     )
 
-    private fun selectedAndroidVariant(project: Project, extension: KritExtension): String? =
-        pickAndroidVariant(project.configurations.map { it.name }
+    private data class AndroidModelsResult(val specs: List<ModelSpec>, val skipped: Boolean = false)
+
+    private fun selectedAndroidVariant(project: Project, extension: KritExtension): String? {
+        val requested = extension.androidVariant.orNull ?: "debug"
+        val selected = pickAndroidVariant(project.configurations.map { it.name }
             .filter { it.endsWith("CompileClasspath") }
             .map { it.removeSuffix("CompileClasspath") }
             .filterNot { it.endsWith("UnitTest") || it.endsWith("AndroidTest") ||
-                it.endsWith("TestFixtures") }, extension.androidVariant.orNull ?: "debug")
+                it.endsWith("TestFixtures") }, requested)
+        if (selected != null) {
+            val fallback = if (selected == requested) "" else "; falling back from requested '$requested'"
+            project.logger.info("krit: kritExportModel for ${project.path} selected Android variant '$selected'$fallback")
+        }
+        return selected
+    }
 
     private fun jvmModels(project: Project): List<ModelSpec> {
         val sourceSets = project.extensions.getByType(SourceSetContainer::class.java)
@@ -264,7 +319,7 @@ class KritPlugin : Plugin<Project> {
         }
     }
 
-    private fun androidModels(project: Project, extension: KritExtension): List<ModelSpec> {
+    private fun androidModels(project: Project, extension: KritExtension): AndroidModelsResult {
         val candidates = project.configurations.map { it.name }
             .filter { it.endsWith("CompileClasspath") }
             .map { it.removeSuffix("CompileClasspath") }
@@ -274,8 +329,8 @@ class KritPlugin : Plugin<Project> {
         val android = project.extensions.findByName("android")
         val components = project.extensions.findByName("androidComponents")
         if (variant == null || android == null || components == null) {
-            project.logger.warn("krit: kritExportModel skipped Android model for ${project.path}: missing variant or Android extension")
-            return emptyList()
+            project.logger.warn("krit: kritExportModel skipped Android model for ${project.path}: missing variant or Android extension; apply Android in the plugins block")
+            return AndroidModelsResult(emptyList(), skipped = true)
         }
         return try {
             val boot = androidBootClasspath(project)
@@ -319,10 +374,10 @@ class KritPlugin : Plugin<Project> {
                     }
                 }
             }
-            specs
+            AndroidModelsResult(specs)
         } catch (error: Exception) {
             project.logger.warn("krit: kritExportModel skipped Android model for ${project.path}: ${error.message}")
-            emptyList()
+            AndroidModelsResult(emptyList(), skipped = true)
         }
     }
 

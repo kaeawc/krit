@@ -523,8 +523,8 @@ func TestRunOracleProcess_NonZeroExitCapturesStderr(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-zero exit, got nil")
 	}
-	if !strings.Contains(err.Error(), "krit-types failed") {
-		t.Errorf("expected error to mention krit-types, got %q", err)
+	if !strings.Contains(err.Error(), "krit-fir failed") {
+		t.Errorf("expected error to mention krit-fir, got %q", err)
 	}
 	if !strings.Contains(err.Error(), "FirPropertyImpl") {
 		t.Errorf("expected error to include captured stderr (FirPropertyImpl), got %q", err)

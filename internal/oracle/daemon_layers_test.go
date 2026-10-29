@@ -907,17 +907,19 @@ func TestCleanStaleDaemon_WithLivePIDButBrokenPort(t *testing.T) {
 }
 
 // ===========================================================================
-// Integration test with real daemon (skipped without krit-types.jar)
+// Integration test with real daemon (skipped without krit-fir.jar)
 // ===========================================================================
 
-func findKritTypesJar() string {
-	// Check common locations
+func findKritFirJar() string {
+	// KRIT_FIR_JAR first, then the worktree's Gradle output.
 	candidates := []string{
-		"krit-types.jar",
-		"build/krit-types.jar",
-		"../krit-types/build/libs/krit-types.jar",
+		os.Getenv("KRIT_FIR_JAR"),
+		"../../tools/krit-fir/build/libs/krit-fir.jar",
 	}
 	for _, c := range candidates {
+		if c == "" {
+			continue
+		}
 		if _, err := os.Stat(c); err == nil {
 			abs, _ := filepath.Abs(c)
 			return abs
@@ -927,9 +929,9 @@ func findKritTypesJar() string {
 }
 
 func TestIntegration_RealDaemon(t *testing.T) {
-	jarPath := findKritTypesJar()
+	jarPath := findKritFirJar()
 	if jarPath == "" {
-		t.Skip("krit-types.jar not found — skipping real daemon integration test")
+		t.Skip("krit-fir.jar not found — skipping real daemon integration test")
 	}
 
 	d, err := StartDaemon(jarPath, nil, nil, false)
@@ -949,9 +951,9 @@ func TestIntegration_RealDaemon(t *testing.T) {
 }
 
 func TestIntegration_RealDaemonWithPort(t *testing.T) {
-	jarPath := findKritTypesJar()
+	jarPath := findKritFirJar()
 	if jarPath == "" {
-		t.Skip("krit-types.jar not found — skipping real daemon integration test")
+		t.Skip("krit-fir.jar not found — skipping real daemon integration test")
 	}
 
 	tmpHome := t.TempDir()
@@ -984,9 +986,9 @@ func TestIntegration_RealDaemonWithPort(t *testing.T) {
 }
 
 func TestIntegration_ConnectOrStartDaemon(t *testing.T) {
-	jarPath := findKritTypesJar()
+	jarPath := findKritFirJar()
 	if jarPath == "" {
-		t.Skip("krit-types.jar not found — skipping real daemon integration test")
+		t.Skip("krit-fir.jar not found — skipping real daemon integration test")
 	}
 
 	tmpHome := t.TempDir()

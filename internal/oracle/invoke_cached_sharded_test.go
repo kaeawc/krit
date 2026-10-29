@@ -285,7 +285,7 @@ func TestRunKritTypesCachedShardedWithRunner_MergesOutputs(t *testing.T) {
 		return os.WriteFile(depsOutPath, body, 0o644)
 	}
 
-	fresh, deps, err := runKritTypesCachedShardedWithRunner("krit-types.jar", nil, misses, 2, false, perf.New(true), runner)
+	fresh, deps, err := runKritTypesCachedShardedWithRunner("krit-fir.jar", nil, misses, 2, false, perf.New(true), runner)
 	if err != nil {
 		t.Fatalf("sharded run failed: %v", err)
 	}
@@ -326,11 +326,11 @@ func TestRunKritTypesCachedShardedWithRunner_ReturnsShardError(t *testing.T) {
 		return os.WriteFile(depsOutPath, body, 0o644)
 	}
 
-	_, _, err := runKritTypesCachedShardedWithRunner("krit-types.jar", nil, []string{"A.kt", "B.kt"}, 2, false, perf.New(false), runner)
+	_, _, err := runKritTypesCachedShardedWithRunner("krit-fir.jar", nil, []string{"A.kt", "B.kt"}, 2, false, perf.New(false), runner)
 	if err == nil {
 		t.Fatal("expected shard error")
 	}
-	if !strings.Contains(err.Error(), "krit-types shard") || !strings.Contains(err.Error(), "simulated shard failure") {
+	if !strings.Contains(err.Error(), "krit-fir shard") || !strings.Contains(err.Error(), "simulated shard failure") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
